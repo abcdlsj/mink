@@ -12,18 +12,36 @@ Minimal AI coding agent. Fast, elegant, extensible.
 ## Quick Start
 
 ```bash
-export OPENAI_API_KEY=sk-...
+# 1. build
+go build -o mink
+
+# 2. config
+cp config.example.toml ~/.mink/config.toml
+# edit ~/.mink/config.toml
+
+# 3. run
 ./mink
+```
 
-# Or anthropic
-export ANTHROPIC_API_KEY=sk-ant-...
-./mink -p anthropic -m claude-sonnet-4-20250514
+## Config
 
-# With telegram
-./mink -tg "YOUR_BOT_TOKEN"
+`~/.mink/config.toml`:
 
-# CLI mode
-./mink -c
+```toml
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "sk-..."
+base_url = ""           # custom endpoint
+telegram_token = ""     # optional
+mode = "tui"            # tui or cli
+
+[headers]
+User-Agent = "custom"
+```
+
+Flags override config:
+```bash
+./mink -p openai -m gpt-4o -k sk-... -c
 ```
 
 ## Commands

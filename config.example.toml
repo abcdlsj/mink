@@ -1,0 +1,13 @@
+# Mink 配置文件
+# 复制到 ~/.mink/config.toml
+
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "sk-your-api-key"
+base_url = ""
+telegram_token = ""
+mode = "tui"  # tui or cli
+
+[headers]
+# User-Agent = "custom-agent"
+# X-Custom-Header = "value"

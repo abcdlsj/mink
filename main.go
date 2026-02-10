@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/mink/agent"
+	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/event"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/telegram"
@@ -16,41 +17,38 @@ import (
 )
 
 func main() {
-	var (
-		provider = flag.String("p", "openai", "provider")
-		key      = flag.String("k", "", "api key")
-		url      = flag.String("u", "", "base url")
-		model    = flag.String("m", "gpt-4o", "model")
-		tgToken  = flag.String("tg", "", "telegram token")
-		cliMode  = flag.Bool("c", false, "cli mode")
-	)
+	// load config first
+	cfg := config.Load()
+
+	// flags override config
+	flag.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
+	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
+	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
+	flag.StringVar(&cfg.Model, "m", cfg.Model, "model")
+	flag.StringVar(&cfg.Telegram, "tg", cfg.Telegram, "telegram token")
+	cli := flag.Bool("c", cfg.Mode == "cli", "cli mode")
 	flag.Parse()
 
-	bus := event.NewBus()
-
-	cfg := llm.Config{
-		Provider: *provider,
-		APIKey:   *key,
-		BaseURL:  *url,
-		Model:    *model,
-		Headers:  make(map[string]string),
+	if *cli {
+		cfg.Mode = "cli"
 	}
 
 	if cfg.APIKey == "" {
-		switch *provider {
-		case "openai":
-			cfg.APIKey = os.Getenv("OPENAI_API_KEY")
-		case "anthropic":
-			cfg.APIKey = os.Getenv("ANTHROPIC_API_KEY")
-		}
-	}
-
-	if cfg.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "need api key")
+		fmt.Fprintln(os.Stderr, "need api key. set in config or env")
 		os.Exit(1)
 	}
 
-	p, err := llm.NewProvider(cfg)
+	bus := event.NewBus()
+
+	lc := llm.Config{
+		Provider: cfg.Provider,
+		APIKey:   cfg.APIKey,
+		BaseURL:  cfg.BaseURL,
+		Model:    cfg.Model,
+		Headers:  cfg.Headers,
+	}
+
+	p, err := llm.NewProvider(lc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -71,13 +69,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	if *tgToken != "" {
-		bot := telegram.New(a, bus, *tgToken)
+	if cfg.Telegram != "" {
+		bot := telegram.New(a, bus, cfg.Telegram)
 		bot.Start()
 		fmt.Println("telegram: ok")
 	}
 
-	if *cliMode {
+	if cfg.Mode == "cli" {
 		runCLI(a, bus)
 	} else {
 		runTUI(a, bus)
