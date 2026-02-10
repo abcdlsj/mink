@@ -7,10 +7,11 @@ import (
 )
 
 type Message struct {
-	Role        string
-	Content     string
-	ToolCalls   []ToolCall
-	ToolResults []ToolResult
+	Role             string
+	Content          string
+	ReasoningContent string
+	ToolCalls        []ToolCall
+	ToolResults      []ToolResult
 }
 
 type ToolCall struct {
@@ -37,8 +38,9 @@ type FunctionDef struct {
 }
 
 type Response struct {
-	Content   string
-	ToolCalls []ToolCall
+	Content          string
+	ReasoningContent string
+	ToolCalls        []ToolCall
 }
 
 type Provider interface {

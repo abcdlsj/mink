@@ -183,9 +183,10 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 			})
 		}
 		c.sm.AddMessage(sid, session.Message{
-			Role:      "assistant",
-			Content:   r.Content,
-			ToolCalls: tcs,
+			Role:             "assistant",
+			Content:          r.Content,
+			ReasoningContent: r.ReasoningContent,
+			ToolCalls:        tcs,
 		})
 	}
 
@@ -221,7 +222,11 @@ func (c *Core) buildMsgs(h []session.Message) []llm.Message {
 	r = append(r, llm.Message{Role: "system", Content: c.prompt()})
 
 	for _, m := range h {
-		msg := llm.Message{Role: m.Role, Content: m.Content}
+		msg := llm.Message{
+			Role:             m.Role,
+			Content:          m.Content,
+			ReasoningContent: m.ReasoningContent,
+		}
 		for _, tc := range m.ToolCalls {
 			msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{ID: tc.ID, Name: tc.Name, Args: tc.Args})
 		}

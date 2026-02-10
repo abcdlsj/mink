@@ -69,7 +69,10 @@ func (o *openAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Respo
 	}
 
 	c := r.Choices[0]
-	res := &Response{Content: c.Message.Content}
+	res := &Response{
+		Content:          c.Message.Content,
+		ReasoningContent: c.Message.ReasoningContent,
+	}
 
 	for _, tc := range c.Message.ToolCalls {
 		if tc.Type == "function" {
@@ -100,6 +103,9 @@ func (o *openAI) convertMsgs(msgs []Message) []map[string]any {
 	var r []map[string]any
 	for _, m := range msgs {
 		msg := map[string]any{"role": m.Role, "content": m.Content}
+		if m.ReasoningContent != "" {
+			msg["reasoning_content"] = m.ReasoningContent
+		}
 		if len(m.ToolCalls) > 0 {
 			var tcs []map[string]any
 			for _, tc := range m.ToolCalls {
@@ -147,9 +153,10 @@ func (o *openAI) convertTools(tools []Tool) []map[string]any {
 type openAIResp struct {
 	Choices []struct {
 		Message struct {
-			Role      string `json:"role"`
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				ID       string `json:"id"`
 				Type     string `json:"type"`
 				Function struct {

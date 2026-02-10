@@ -13,15 +13,16 @@ import (
 
 // Message 会话消息
 type Message struct {
-	ID          string                 `json:"id"`
-	Role        string                 `json:"role"`
-	Content     string                 `json:"content"`
-	ToolCalls   []ToolCall             `json:"tool_calls,omitempty"`
-	ToolResults []ToolResult           `json:"tool_results,omitempty"`
-	CustomData  map[string]interface{} `json:"custom_data,omitempty"`
-	Timestamp   time.Time              `json:"timestamp"`
-	ParentID    string                 `json:"parent_id,omitempty"`
-	BranchName  string                 `json:"branch_name,omitempty"`
+	ID               string                 `json:"id"`
+	Role             string                 `json:"role"`
+	Content          string                 `json:"content"`
+	ReasoningContent string                 `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall             `json:"tool_calls,omitempty"`
+	ToolResults      []ToolResult           `json:"tool_results,omitempty"`
+	CustomData       map[string]interface{} `json:"custom_data,omitempty"`
+	Timestamp        time.Time              `json:"timestamp"`
+	ParentID         string                 `json:"parent_id,omitempty"`
+	BranchName       string                 `json:"branch_name,omitempty"`
 }
 
 type ToolCall struct {
@@ -113,7 +114,7 @@ func (m *Manager) Branch(parentID string, name string) (*Session, error) {
 	id := uuid.New().String()[:8]
 	messages := make([]Message, len(parent.Messages))
 	copy(messages, parent.Messages)
-	
+
 	messages = append(messages, Message{
 		ID:         uuid.New().String()[:8],
 		Role:       "system",
@@ -150,7 +151,7 @@ func (m *Manager) Compact(sessionID string, summary string) error {
 	for i := len(session.Messages) - 1; i >= 0 && len(recent) < 6; i-- {
 		recent = append(recent, session.Messages[i])
 	}
-	
+
 	var compacted []Message
 	for i := len(recent) - 1; i >= 0; i-- {
 		compacted = append(compacted, recent[i])
