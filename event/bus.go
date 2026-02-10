@@ -17,9 +17,6 @@ const (
 	ToolStart    = "tool:start"
 	ToolEnd      = "tool:end"
 	ToolError    = "tool:error"
-	StreamStart  = "stream:start"
-	StreamChunk  = "stream:chunk"
-	StreamEnd    = "stream:end"
 	SessionNew   = "session:new"
 	SessionSwitch = "session:switch"
 	SessionBranch = "session:branch"
@@ -29,32 +26,32 @@ const (
 type Handler func(e Event)
 
 type Bus struct {
-	handlers map[string][]Handler
-	mu       sync.RWMutex
+	h map[string][]Handler
+	m sync.RWMutex
 }
 
 func NewBus() *Bus {
-	return &Bus{handlers: make(map[string][]Handler)}
+	return &Bus{h: make(map[string][]Handler)}
 }
 
-func (b *Bus) Subscribe(t string, h Handler) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.handlers[t] = append(b.handlers[t], h)
+func (b *Bus) Subscribe(t string, fn Handler) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	b.h[t] = append(b.h[t], fn)
 }
 
 func (b *Bus) Pub(e Event) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	for _, h := range b.handlers[e.Type] {
-		go h(e)
+	b.m.RLock()
+	defer b.m.RUnlock()
+	for _, fn := range b.h[e.Type] {
+		go fn(e)
 	}
 }
 
 func (b *Bus) PubSync(e Event) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	for _, h := range b.handlers[e.Type] {
-		h(e)
+	b.m.RLock()
+	defer b.m.RUnlock()
+	for _, fn := range b.h[e.Type] {
+		fn(e)
 	}
 }
