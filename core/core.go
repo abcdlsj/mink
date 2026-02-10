@@ -205,11 +205,31 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 
 	for _, tc := range r.ToolCalls {
 		tv.expand(tc.Name)
+		c.bus.Pub(bus.Msg{
+			Type:    bus.TypeToolCall,
+			From:    c.id,
+			To:      src,
+			Payload: tc.Name + " " + string(tc.Args),
+		})
+
 		out, err := c.execTool(ctx, tc)
 
 		tr := session.ToolResult{ToolCallID: tc.ID, Content: out}
 		if err != nil {
 			tr.Error = err.Error()
+			c.bus.Pub(bus.Msg{
+				Type:    bus.TypeToolError,
+				From:    c.id,
+				To:      src,
+				Payload: err.Error(),
+			})
+		} else {
+			c.bus.Pub(bus.Msg{
+				Type:    bus.TypeToolResult,
+				From:    c.id,
+				To:      src,
+				Payload: out,
+			})
 		}
 		c.sm.AddMessage(sid, session.Message{Role: "tool", ToolResults: []session.ToolResult{tr}})
 	}
