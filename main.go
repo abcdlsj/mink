@@ -5,22 +5,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/abcdlsj/mink/agent"
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/event"
+	"github.com/abcdlsj/mink/core"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/telegram"
-	"github.com/abcdlsj/mink/tui"
 )
 
 func main() {
-	// load config first
 	cfg := config.Load()
 
-	// flags override config
 	flag.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
 	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
 	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
@@ -34,12 +31,14 @@ func main() {
 	}
 
 	if cfg.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "need api key. set in config or env")
+		fmt.Fprintln(os.Stderr, "need api key")
 		os.Exit(1)
 	}
 
-	bus := event.NewBus()
+	// 创建消息总线
+	b := bus.New()
 
+	// 创建主 Agent
 	lc := llm.Config{
 		Provider: cfg.Provider,
 		APIKey:   cfg.APIKey,
@@ -47,7 +46,6 @@ func main() {
 		Model:    cfg.Model,
 		Headers:  cfg.Headers,
 	}
-
 	p, err := llm.NewProvider(lc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -55,60 +53,63 @@ func main() {
 	}
 
 	dir := os.ExpandEnv("$HOME/.mink/sessions")
-	a := agent.New(p, dir, bus)
+	agent := core.New("main", p, dir, b)
+	agent.Start(context.Background())
 
-	ext := agent.NewExtManager()
-	ext.LoadDir(os.ExpandEnv("$HOME/.mink/ext"))
-	ext.LoadDir(os.ExpandEnv("$HOME/.mink/skills"))
-	ext.Watch()
-	ext.OnReload(func() { fmt.Println("[ext reloaded]") })
-	a.SetExt(ext)
+	// 创建协调器
+	coord := bus.NewCoordinator(b)
 
-	if _, err := a.NewSession(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
+	// 启动 Telegram Bot
 	if cfg.Telegram != "" {
-		bot := telegram.New(a, bus, cfg.Telegram)
-		bot.Start()
-		fmt.Println("telegram: ok")
+		bot := telegram.New(cfg.Telegram, b)
+		if err := bot.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
+		} else {
+			fmt.Println("telegram: ok")
+		}
+		defer bot.Stop()
 	}
 
+	// 启动 CLI
 	if cfg.Mode == "cli" {
-		runCLI(a, bus)
+		runCLI(agent, b)
 	} else {
-		runTUI(a, bus)
+		runCLI(agent, b) // 暂时只有 CLI
 	}
+
+	// 优雅退出
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
 }
 
-func runTUI(a *agent.Agent, b *event.Bus) {
-	m := tui.New(a, b)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-}
+func runCLI(agent *core.Core, b *bus.Bus) {
+	// 订阅 AI 回复
+	ch := make(chan bus.Msg, 64)
+	b.Subscribe(bus.TypeAssistant, ch)
 
-func runCLI(a *agent.Agent, b *event.Bus) {
-	b.Subscribe(event.AssistantMsg, func(e event.Event) {
-		fmt.Printf("\n🤖 %s\n", e.Data)
-	})
-	b.Subscribe(event.ToolStart, func(e event.Event) {
-		fmt.Printf("\n🔧 %s\n", e.Data.(map[string]string)["name"])
-	})
+	go func() {
+		for m := range ch {
+			fmt.Printf("\n🤖 %s\n", m.Payload)
+			fmt.Print("> ")
+		}
+	}()
 
 	fmt.Println("mink. type 'exit'")
+	fmt.Print("> ")
+
 	for {
-		fmt.Print("> ")
 		var in string
 		fmt.Scanln(&in)
 		if in == "exit" {
 			break
 		}
-		if err := a.Run(context.Background(), in); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		}
+		
+		b.Pub(bus.Msg{
+			Type:    bus.TypeUserInput,
+			From:    "cli",
+			To:      "main",
+			Payload: in,
+		})
 	}
 }
