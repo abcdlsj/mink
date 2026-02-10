@@ -32,7 +32,6 @@ internal/
   ├── event/            # Event system for async communication
   ├── llm/              # LLM clients (anthropic, openai)
   ├── msg/              # Message model and session persistence
-  ├── tui/              # Terminal UI (bubbletea)
   └── tool/             # Builtin tools (shell, file)
 ```
 
@@ -48,12 +47,6 @@ ReAct loop: LLM → Tool Call → Execute → LLM → ... → Response
 Builtin tools:
 - `shell` - Execute shell commands
 - `file` - Read/write/list/search files
-
-### TUI
-Single terminal interface using bubbletea with:
-- Streaming/non-streaming modes (Ctrl+S toggle)
-- Session management (/new, /clear)
-- Tool execution visualization
 
 ## Configuration
 
