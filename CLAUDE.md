@@ -69,6 +69,19 @@ max_steps = 100
 
 Sessions are persisted to `~/.config/otter/sessions/*.jsonl`
 
+## Git Commit
+
+When AI tools commit code, use this format:
+
+```bash
+git commit --author="<ToolName> <ai@songjian.li>" -m "type: message
+
+Co-authored-by: <ToolName> <ai@songjian.li>"
+```
+
+- `<ToolName>`: AI tool name, e.g. `Claude Code`, `OpenClaw`
+- Email: always use `ai@songjian.li`
+
 ---
 
 **Author's Code Style**: Extreme efficiency, rationality, and correctness. Perfect code-ism. Aesthetics is the first productivity.
