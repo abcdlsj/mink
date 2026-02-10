@@ -37,14 +37,13 @@ func main() {
 
 	b := bus.New()
 
-	lc := llm.Config{
+	p, err := llm.NewProvider(llm.Config{
 		Provider: cfg.Provider,
 		APIKey:   cfg.APIKey,
 		BaseURL:  cfg.BaseURL,
 		Model:    cfg.Model,
 		Headers:  cfg.Headers,
-	}
-	p, err := llm.NewProvider(lc)
+	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -64,23 +63,22 @@ func main() {
 		defer bot.Stop()
 	}
 
-	if cfg.Mode == "cli" {
-		runCLI(agent, b)
-	} else {
-		runCLI(agent, b)
-	}
+	runCLI(b)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 }
 
-func runCLI(agent *core.Core, b *bus.Bus) {
+func runCLI(b *bus.Bus) {
 	ch := make(chan bus.Msg, 64)
 	b.Subscribe(bus.TypeAssistant, ch)
 
 	go func() {
 		for m := range ch {
+			if m.To != "" && m.To != "cli" && m.To != "*" {
+				continue
+			}
 			fmt.Printf("\n🤖 %s\n", m.Payload)
 			fmt.Print("> ")
 		}
