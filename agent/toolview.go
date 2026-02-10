@@ -36,12 +36,12 @@ type compactTool struct {
 
 func (v *toolView) compact(reg *tool.Registry, ext *ExtensionManager) []compactTool {
 	var r []compactTool
-	for _, t := range reg.All() {
-		r = append(r, compactTool{name: t.Name(), desc: t.Desc()})
+	for _, tl := range reg.All() {
+		r = append(r, compactTool{name: tl.Name(), desc: tl.Desc()})
 	}
 	if ext != nil {
-		for _, t := range ext.Tools() {
-			r = append(r, compactTool{name: t.Name(), desc: t.Desc()})
+		for _, et := range ext.Tools() {
+			r = append(r, compactTool{name: et.Name, desc: et.Desc})
 		}
 	}
 	return r
@@ -50,22 +50,22 @@ func (v *toolView) compact(reg *tool.Registry, ext *ExtensionManager) []compactT
 func (v *toolView) tools(reg *tool.Registry, ext *ExtensionManager) []llm.Tool {
 	var r []llm.Tool
 
-	for _, t := range reg.All() {
-		if v.isExpanded(t.Name()) {
+	for _, tl := range reg.All() {
+		if v.isExpanded(tl.Name()) {
 			r = append(r, llm.Tool{
 				Type: "function",
-				Function: &llm.FunctionDefinition{
-					Name:        t.Name(),
-					Description: t.Desc(),
-					Parameters:  t.Schema(),
+				Function: &llm.FunctionDef{
+					Name:        tl.Name(),
+					Description: tl.Desc(),
+					Parameters:  tl.Schema(),
 				},
 			})
 		} else {
 			r = append(r, llm.Tool{
 				Type: "function",
-				Function: &llm.FunctionDefinition{
-					Name:        t.Name(),
-					Description: t.Desc(),
+				Function: &llm.FunctionDef{
+					Name:        tl.Name(),
+					Description: tl.Desc(),
 					Parameters:  map[string]any{"type": "object"},
 				},
 			})
@@ -73,22 +73,22 @@ func (v *toolView) tools(reg *tool.Registry, ext *ExtensionManager) []llm.Tool {
 	}
 
 	if ext != nil {
-		for _, t := range ext.Tools() {
-			if v.isExpanded(t.Name()) {
+		for _, et := range ext.Tools() {
+			if v.isExpanded(et.Name) {
 				r = append(r, llm.Tool{
 					Type: "function",
-					Function: &llm.FunctionDefinition{
-						Name:        t.Name(),
-						Description: t.Desc(),
-						Parameters:  t.Schema(),
+					Function: &llm.FunctionDef{
+						Name:        et.Name,
+						Description: et.Desc,
+						Parameters:  et.Schema,
 					},
 				})
 			} else {
 				r = append(r, llm.Tool{
 					Type: "function",
-					Function: &llm.FunctionDefinition{
-						Name:        t.Name(),
-						Description: t.Desc(),
+					Function: &llm.FunctionDef{
+						Name:        et.Name,
+						Description: et.Desc,
 						Parameters:  map[string]any{"type": "object"},
 					},
 				})
@@ -109,7 +109,7 @@ func (v *toolView) expandFromHint(s string) {
 	}
 }
 
-func toolDetail(t *tool.Tool) string {
+func toolDetail(t tool.Tool) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("<tool name=\"%s\">\n", t.Name()))
 	b.WriteString(fmt.Sprintf("  %s\n", t.Desc()))

@@ -56,9 +56,6 @@ func main() {
 	agent := core.New("main", p, dir, b)
 	agent.Start(context.Background())
 
-	// 创建协调器
-	coord := bus.NewCoordinator(b)
-
 	// 启动 Telegram Bot
 	if cfg.Telegram != "" {
 		bot := telegram.New(cfg.Telegram, b)
@@ -104,7 +101,7 @@ func runCLI(agent *core.Core, b *bus.Bus) {
 		if in == "exit" {
 			break
 		}
-		
+
 		b.Pub(bus.Msg{
 			Type:    bus.TypeUserInput,
 			From:    "cli",

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
@@ -29,8 +28,8 @@ type Update struct {
 }
 
 type Message struct {
-	ID   int   `json:"message_id"`
-	Chat *Chat `json:"chat"`
+	ID   int    `json:"message_id"`
+	Chat *Chat  `json:"chat"`
 	Text string `json:"text"`
 }
 
@@ -53,10 +52,10 @@ func New(token string, b *bus.Bus) *Bot {
 func (b *Bot) Start() error {
 	// 订阅 AI 回复
 	go b.forwardReplies()
-	
+
 	// 启动长轮询
 	go b.poll()
-	
+
 	return nil
 }
 
@@ -73,25 +72,25 @@ func (b *Bot) poll() {
 			return
 		default:
 		}
-		
+
 		updates, err := b.getUpdates()
 		if err != nil {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		
+
 		for _, u := range updates {
 			if u.ID >= b.offset {
 				b.offset = u.ID + 1
 			}
-			
+
 			if u.Message == nil || u.Message.Text == "" {
 				continue
 			}
-			
+
 			b.handle(u.Message)
 		}
-		
+
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -99,7 +98,7 @@ func (b *Bot) poll() {
 func (b *Bot) handle(m *Message) {
 	chatID := m.Chat.ID
 	b.chatIDs[chatID] = true
-	
+
 	// 转换为 bus 消息
 	msg := bus.Msg{
 		Type:    bus.TypeUserInput,
@@ -108,21 +107,21 @@ func (b *Bot) handle(m *Message) {
 		Payload: m.Text,
 		Context: bus.MsgContext{
 			Data: map[string]any{
-				"platform":  "telegram",
-				"chat_id":   chatID,
+				"platform":   "telegram",
+				"chat_id":    chatID,
 				"message_id": m.ID,
 			},
 		},
 	}
-	
+
 	b.bus.Pub(msg)
 }
 
 // forwardReplies 转发 AI 回复到 Telegram
-func (b *Bot) func() {
+func (b *Bot) forwardReplies() {
 	ch := make(chan bus.Msg, 64)
 	b.bus.Subscribe(bus.TypeAssistant, ch)
-	
+
 	for {
 		select {
 		case m := <-ch:
@@ -136,13 +135,13 @@ func (b *Bot) func() {
 
 func (b *Bot) sendToChats(m bus.Msg) {
 	text := fmt.Sprintf("🤖 %s", m.Payload)
-	
+
 	// 如果有特定目标，只发给目标
 	if to, ok := m.Context.Data["chat_id"].(int64); ok {
 		b.send(to, text)
 		return
 	}
-	
+
 	// 否则广播给所有 chats
 	for chatID := range b.chatIDs {
 		b.send(chatID, text)
@@ -150,67 +149,67 @@ func (b *Bot) sendToChats(m bus.Msg) {
 }
 
 func (b *Bot) getUpdates() ([]Update, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&limit=100", 
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&limit=100",
 		b.token, b.offset)
-	
+
 	resp, err := b.client.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var result struct {
 		OK     bool     `json:"ok"`
 		Result []Update `json:"result"`
 	}
-	
+
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, err
 	}
-	
+
 	if !result.OK {
 		return nil, fmt.Errorf("api error")
 	}
-	
+
 	return result.Result, nil
 }
 
 func (b *Bot) send(chatID int64, text string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.token)
-	
+
 	body, _ := json.Marshal(map[string]any{
 		"chat_id":    chatID,
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	
+
 	resp, err := b.client.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	return nil
 }
 
 // SetWebhook 设置 webhook（可选）
 func (b *Bot) SetWebhook(webhookURL string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook", b.token)
-	
+
 	body, _ := json.Marshal(map[string]string{
 		"url": webhookURL,
 	})
-	
+
 	resp, err := b.client.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	
+
 	return nil
 }

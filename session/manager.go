@@ -232,5 +232,3 @@ func (m *Manager) Active() (*Session, error) {
 func (m *Manager) SetActive(id string) {
 	m.activeID = id
 }
-
-func strings(s string) string { return s }

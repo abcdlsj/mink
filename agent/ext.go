@@ -14,18 +14,18 @@ import (
 )
 
 type ExtTool struct {
-	Name string
-	Desc string
+	Name   string
+	Desc   string
 	Schema map[string]any
-	Run func(ctx context.Context, args json.RawMessage) (string, error)
+	Run    func(ctx context.Context, args json.RawMessage) (string, error)
 }
 
 type ExtensionManager struct {
-	tools   map[string]*ExtTool
-	cmds    map[string]func([]string) (string, error)
+	tools    map[string]*ExtTool
+	cmds     map[string]func([]string) (string, error)
 	watchers []*fsnotify.Watcher
-	dirs    []string
-	mu      sync.RWMutex
+	dirs     []string
+	mu       sync.RWMutex
 	onReload func()
 }
 
@@ -153,14 +153,14 @@ func (m *ExtensionManager) loadSkillUnsafe(name, dir string) {
 	readme, _ := os.ReadFile(filepath.Join(dir, "README.md"))
 
 	ents, _ := os.ReadDir(dir)
-	var exec string
+	var binPath string
 	for _, e := range ents {
 		if !e.IsDir() && m.isExec(e) {
-			exec = filepath.Join(dir, e.Name())
+			binPath = filepath.Join(dir, e.Name())
 			break
 		}
 	}
-	if exec == "" {
+	if binPath == "" {
 		return
 	}
 
@@ -171,7 +171,7 @@ func (m *ExtensionManager) loadSkillUnsafe(name, dir string) {
 		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 			var p struct{ Input string }
 			json.Unmarshal(args, &p)
-			c := exec.CommandContext(ctx, exec)
+			c := exec.CommandContext(ctx, binPath)
 			if p.Input != "" {
 				c.Stdin = strings.NewReader(p.Input)
 			}

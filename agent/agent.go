@@ -326,7 +326,7 @@ func (a *Agent) Cmd(name string, args []string) (string, error) {
 		if len(args) < 1 {
 			return "", fmt.Errorf("usage: /switch <id>")
 		}
-		if err := a.LoadSession(args[0]); err != nil {
+		if _, err := a.LoadSession(args[0]); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("Switched: %s", args[0]), nil

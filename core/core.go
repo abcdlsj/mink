@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -129,7 +128,7 @@ func (c *Core) run(ctx context.Context, input string) error {
 func (c *Core) step(ctx context.Context) (bool, error) {
 	h, _ := c.sm.GetHistory(c.sid, -1)
 	m := c.buildMsgs(h)
-	t := c.tv.tools(c.reg, nil)
+	t := c.tv.tools(c.reg)
 	
 	r, err := c.p.Chat(ctx, m, t)
 	if err != nil {
@@ -197,7 +196,7 @@ func (c *Core) NewSession() (*session.Session, error) {
 	}
 	c.sid = s.ID
 	c.tv.reset()
-	c.bus.Pub(bus.Msg{Type: bus.TypeSessionNew, From: c.id, Data: s})
+	c.bus.Pub(bus.Msg{Type: bus.TypeSessionNew, From: c.id, Payload: s})
 	return s, nil
 }
 
@@ -222,10 +221,79 @@ func (c *Core) sysPrompt() string {
 	var b strings.Builder
 	b.WriteString("You are a helpful coding assistant.\n\n")
 	b.WriteString("Available tools:\n")
-	for _, t := range c.tv.compact(c.reg, nil) {
+	for _, t := range c.tv.compact(c.reg) {
 		b.WriteString(fmt.Sprintf("- %s: %s\n", t.name, t.desc))
 	}
 	return b.String()
+}
+
+// toolView is a minimal copy of the agent's toolView for bus-based Core
+type toolView struct {
+	expanded map[string]bool
+}
+
+type compactTool struct {
+	name string
+	desc string
+}
+
+func newToolView() *toolView {
+	return &toolView{expanded: make(map[string]bool)}
+}
+
+func (v *toolView) reset() {
+	v.expanded = make(map[string]bool)
+}
+
+func (v *toolView) expand(name string) {
+	v.expanded[name] = true
+}
+
+func (v *toolView) isExpanded(name string) bool {
+	return v.expanded[name]
+}
+
+func (v *toolView) compact(reg *tool.Registry) []compactTool {
+	var r []compactTool
+	for _, t := range reg.All() {
+		r = append(r, compactTool{name: t.Name(), desc: t.Desc()})
+	}
+	return r
+}
+
+func (v *toolView) tools(reg *tool.Registry) []llm.Tool {
+	var r []llm.Tool
+	for _, t := range reg.All() {
+		if v.isExpanded(t.Name()) {
+			r = append(r, llm.Tool{
+				Type: "function",
+				Function: &llm.FunctionDef{
+					Name:        t.Name(),
+					Description: t.Desc(),
+					Parameters:  t.Schema(),
+				},
+			})
+		} else {
+			r = append(r, llm.Tool{
+				Type: "function",
+				Function: &llm.FunctionDef{
+					Name:        t.Name(),
+					Description: t.Desc(),
+					Parameters:  map[string]any{"type": "object"},
+				},
+			})
+		}
+	}
+	return r
+}
+
+func (v *toolView) expandFromHint(s string) {
+	words := strings.Fields(s)
+	for _, w := range words {
+		if strings.HasPrefix(w, "$") {
+			v.expand(strings.TrimPrefix(w, "$"))
+		}
+	}
 }
 
 func (c *Core) execTool(ctx context.Context, tc llm.ToolCall) (string, error) {

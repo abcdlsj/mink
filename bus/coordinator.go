@@ -13,10 +13,10 @@ type Router struct {
 
 // RouteRule 路由规则
 type RouteRule struct {
-	From    string   // 来源匹配
-	Type    string   // 类型匹配
-	To      string   // 目标
-	Handler Handler  // 处理器
+	From    string  // 来源匹配
+	Type    string  // 类型匹配
+	To      string  // 目标
+	Handler Handler // 处理器
 }
 
 func NewRouter(b *Bus) *Router {
@@ -41,12 +41,12 @@ func (r *Router) Route(ctx context.Context, m Msg) error {
 		if !match(rule.Type, m.Type) {
 			continue
 		}
-		
+
 		// 修改目标
 		if rule.To != "" {
 			m.To = rule.To
 		}
-		
+
 		// 执行处理器
 		if rule.Handler != nil {
 			resp, err := rule.Handler(ctx, m)
@@ -59,7 +59,7 @@ func (r *Router) Route(ctx context.Context, m Msg) error {
 			return nil
 		}
 	}
-	
+
 	// 默认广播
 	r.bus.Pub(m)
 	return nil
@@ -105,7 +105,7 @@ func NewCoordinator(b *Bus) *Coordinator {
 // Spawn 创建子Agent
 func (c *Coordinator) Spawn(parentID string, shareCtx bool) (*SubAgent, error) {
 	id := fmt.Sprintf("agent-%d", len(c.agents)+1)
-	
+
 	ctx := MsgContext{AgentID: id}
 	if parentID != "" {
 		ctx.ParentID = parentID
@@ -113,17 +113,17 @@ func (c *Coordinator) Spawn(parentID string, shareCtx bool) (*SubAgent, error) {
 			ctx.SessionID = c.sessions[parentID].Context.SessionID
 		}
 	}
-	
+
 	agent := &SubAgent{
 		ID:       id,
 		ParentID: parentID,
 		Context:  ctx,
 		Bus:      c.bus,
 	}
-	
+
 	c.agents[id] = agent
 	c.bus.RegisterAgent(id, shareCtx)
-	
+
 	return agent, nil
 }
 
@@ -132,7 +132,7 @@ func (c *Coordinator) Kill(id string) {
 	if agent, ok := c.agents[id]; ok {
 		c.bus.UnregisterAgent(id)
 		delete(c.agents, id)
-		
+
 		// 通知父Agent
 		if agent.ParentID != "" {
 			c.bus.Pub(Msg{
@@ -150,13 +150,13 @@ func (c *Coordinator) Kill(id string) {
 
 // ShareContext 共享上下文给子Agent
 func (c *Coordinator) ShareContext(fromID, toID string, data map[string]any) {
-	if from, ok := c.agents[fromID]; ok {
+	if _, ok := c.agents[fromID]; ok {
 		if to, ok := c.agents[toID]; ok {
 			// 合并数据
 			for k, v := range data {
 				to.Context.Data[k] = v
 			}
-			
+
 			c.bus.Pub(Msg{
 				Type: TypeContextShare,
 				From: fromID,
@@ -175,7 +175,7 @@ func (c *Coordinator) RunSubTask(parentID string, task string, shareCtx bool) (s
 	if err != nil {
 		return "", err
 	}
-	
+
 	// 发送任务
 	ctx := context.Background()
 	resp, err := c.bus.Req(ctx, Msg{
@@ -186,18 +186,18 @@ func (c *Coordinator) RunSubTask(parentID string, task string, shareCtx bool) (s
 			"task": task,
 		},
 	})
-	
+
 	if err != nil {
 		c.Kill(child.ID)
 		return "", err
 	}
-	
+
 	// 等待完成（异步）
 	go func() {
 		// 监听子Agent完成
 		<-child.Bus.agents[child.ID].Send
 		c.Kill(child.ID)
 	}()
-	
+
 	return resp.Payload.(string), nil
 }
