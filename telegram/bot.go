@@ -11,7 +11,6 @@ import (
 	"github.com/abcdlsj/mink/bus"
 )
 
-// Bot Telegram Bot
 type Bot struct {
 	token   string
 	bus     *bus.Bus
@@ -21,7 +20,6 @@ type Bot struct {
 	stop    chan bool
 }
 
-// Update Telegram update
 type Update struct {
 	ID      int      `json:"update_id"`
 	Message *Message `json:"message"`
@@ -37,7 +35,6 @@ type Chat struct {
 	ID int64 `json:"id"`
 }
 
-// NewBot 创建 Bot
 func New(token string, b *bus.Bus) *Bot {
 	return &Bot{
 		token:   token,
@@ -48,23 +45,17 @@ func New(token string, b *bus.Bus) *Bot {
 	}
 }
 
-// Start 启动 bot
 func (b *Bot) Start() error {
-	// 订阅 AI 回复
 	go b.forwardReplies()
-
-	// 启动长轮询
 	go b.poll()
 
 	return nil
 }
 
-// Stop 停止 bot
 func (b *Bot) Stop() {
 	close(b.stop)
 }
 
-// poll 长轮询获取消息
 func (b *Bot) poll() {
 	for {
 		select {
@@ -99,11 +90,10 @@ func (b *Bot) handle(m *Message) {
 	chatID := m.Chat.ID
 	b.chatIDs[chatID] = true
 
-	// 转换为 bus 消息
 	msg := bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    fmt.Sprintf("telegram:%d", chatID),
-		To:      "*", // 广播给所有 agent
+		To:      "*",
 		Payload: m.Text,
 		Context: bus.MsgContext{
 			Data: map[string]any{
@@ -117,7 +107,6 @@ func (b *Bot) handle(m *Message) {
 	b.bus.Pub(msg)
 }
 
-// forwardReplies 转发 AI 回复到 Telegram
 func (b *Bot) forwardReplies() {
 	ch := make(chan bus.Msg, 64)
 	b.bus.Subscribe(bus.TypeAssistant, ch)
@@ -136,13 +125,11 @@ func (b *Bot) forwardReplies() {
 func (b *Bot) sendToChats(m bus.Msg) {
 	text := fmt.Sprintf("🤖 %s", m.Payload)
 
-	// 如果有特定目标，只发给目标
 	if to, ok := m.Context.Data["chat_id"].(int64); ok {
 		b.send(to, text)
 		return
 	}
 
-	// 否则广播给所有 chats
 	for chatID := range b.chatIDs {
 		b.send(chatID, text)
 	}
@@ -197,7 +184,6 @@ func (b *Bot) send(chatID int64, text string) error {
 	return nil
 }
 
-// SetWebhook 设置 webhook（可选）
 func (b *Bot) SetWebhook(webhookURL string) error {
 	url := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook", b.token)
 

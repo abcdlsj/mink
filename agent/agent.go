@@ -76,7 +76,6 @@ func (a *Agent) Run(ctx context.Context, input string) error {
 		}
 	}
 
-	// parse ,cmd from user input
 	if cmd, ok := a.parseCmd(input); ok {
 		return a.execCmd(ctx, cmd)
 	}
@@ -111,20 +110,16 @@ func (a *Agent) step(ctx context.Context) (bool, error) {
 		return false, err
 	}
 
-	// check for ,cmd in assistant output
 	cmdOut, rest := a.extractCmd(r.Content)
 	if cmdOut != "" {
-		// execute ,cmd
 		if cmd, ok := a.parseCmd(cmdOut); ok {
 			if err := a.execCmd(ctx, cmd); err != nil {
-				// failed command goes back to model as context
 				a.sm.AddMessage(a.sid, session.Message{
 					Role:    "system",
 					Content: fmt.Sprintf("<cmd name=\"%s\" status=\"error\">%s</cmd>", cmd.name, err.Error()),
 				})
 				return false, nil
 			}
-			// success - add result as context
 			a.sm.AddMessage(a.sid, session.Message{
 				Role:    "system",
 				Content: fmt.Sprintf("<cmd name=\"%s\" status=\"ok\">executed</cmd>", cmd.name),
@@ -141,9 +136,7 @@ func (a *Agent) step(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	// execute tool calls
 	for _, tc := range r.ToolCalls {
-		// expand tool view for next iteration
 		a.tv.expand(tc.Name)
 
 		a.bus.Pub(event.Event{
@@ -288,7 +281,6 @@ func (a *Agent) execCmd(ctx context.Context, c cmd) error {
 		args, _ := json.Marshal(map[string]string{"cmd": strings.Join(c.args, " ")})
 		out, err = t.Run(ctx, args)
 	default:
-		// try extension command
 		if a.ext != nil {
 			out, err = a.ext.Cmd(c.name, c.args)
 		} else {

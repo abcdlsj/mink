@@ -14,7 +14,7 @@ type Config struct {
 	Model    string            `toml:"model"`
 	Headers  map[string]string `toml:"headers"`
 	Telegram string            `toml:"telegram_token"`
-	Mode     string            `toml:"mode"` // tui, cli
+	Mode     string            `toml:"mode"`
 }
 
 func Load() Config {
@@ -32,7 +32,6 @@ func Load() Config {
 		toml.DecodeFile(path, &c)
 	}
 
-	// env override
 	if v := os.Getenv("OPENAI_API_KEY"); v != "" && c.APIKey == "" {
 		c.APIKey = v
 	}

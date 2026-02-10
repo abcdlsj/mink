@@ -40,28 +40,26 @@ func New(id string, p llm.Provider, dir string, b *bus.Bus) *Core {
 }
 
 func (c *Core) registerHandlers() {
-	// 注册消息处理器
+	c.handlers[bus.TypeUserInput] = c.handleUserInput
+	c.handlers[bus.TypeToolCall] = c.handleToolCall
+
 	c.bus.RegisterHandler(bus.TypeUserInput, c.handleUserInput)
 	c.bus.RegisterHandler(bus.TypeToolCall, c.handleToolCall)
 }
 
 func (c *Core) handleUserInput(ctx context.Context, m bus.Msg) (bus.Msg, error) {
-	// 检查是否是给自己的消息
 	if m.To != "" && m.To != c.id && m.To != "*" {
 		return bus.Msg{}, nil
 	}
 	
 	input := m.Payload.(string)
-	
-	// 解析 ,cmd
+
 	if cmd, ok := c.parseCmd(input); ok {
 		if err := c.execCmd(ctx, cmd); err != nil {
 			return bus.Msg{}, err
 		}
 		return bus.Msg{Type: bus.TypeAssistant, Payload: "executed"}, nil
 	}
-	
-	// 运行对话
 	if err := c.run(ctx, input); err != nil {
 		return bus.Msg{}, err
 	}
@@ -70,19 +68,16 @@ func (c *Core) handleUserInput(ctx context.Context, m bus.Msg) (bus.Msg, error) 
 }
 
 func (c *Core) handleToolCall(ctx context.Context, m bus.Msg) (bus.Msg, error) {
-	// 执行工具调用
 	return bus.Msg{}, nil
 }
 
 func (c *Core) Start(ctx context.Context) {
-	// 启动消息处理循环
 	conn := c.bus.RegisterAgent(c.id, false)
 	
 	go func() {
 		for {
 			select {
 			case m := <-conn.Send:
-				// 处理收到的消息
 				if h, ok := c.handlers[m.Type]; ok {
 					resp, _ := h(ctx, m)
 					if resp.Type != "" {
@@ -135,7 +130,6 @@ func (c *Core) step(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	
-	// 提取 ,cmd
 	cmdOut, rest := c.extractCmd(r.Content)
 	if cmdOut != "" {
 		if cmd, ok := c.parseCmd(cmdOut); ok {
@@ -226,8 +220,6 @@ func (c *Core) sysPrompt() string {
 	}
 	return b.String()
 }
-
-// toolView is a minimal copy of the agent's toolView for bus-based Core
 type toolView struct {
 	expanded map[string]bool
 }

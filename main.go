@@ -35,10 +35,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 创建消息总线
 	b := bus.New()
 
-	// 创建主 Agent
 	lc := llm.Config{
 		Provider: cfg.Provider,
 		APIKey:   cfg.APIKey,
@@ -56,7 +54,6 @@ func main() {
 	agent := core.New("main", p, dir, b)
 	agent.Start(context.Background())
 
-	// 启动 Telegram Bot
 	if cfg.Telegram != "" {
 		bot := telegram.New(cfg.Telegram, b)
 		if err := bot.Start(); err != nil {
@@ -67,21 +64,18 @@ func main() {
 		defer bot.Stop()
 	}
 
-	// 启动 CLI
 	if cfg.Mode == "cli" {
 		runCLI(agent, b)
 	} else {
-		runCLI(agent, b) // 暂时只有 CLI
+		runCLI(agent, b)
 	}
 
-	// 优雅退出
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 }
 
 func runCLI(agent *core.Core, b *bus.Bus) {
-	// 订阅 AI 回复
 	ch := make(chan bus.Msg, 64)
 	b.Subscribe(bus.TypeAssistant, ch)
 
