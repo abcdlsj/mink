@@ -3,35 +3,16 @@ package bus
 import (
 	"context"
 	"sync"
-	"time"
 )
 
-type Msg struct {
-	ID      string
-	From    string
-	To      string
-	Type    string
-	Payload any
-	Context MsgContext
-	Time    time.Time
-	ReplyTo string
-}
-
-type MsgContext struct {
-	SessionID string
-	AgentID   string
-	BranchID  string
-	ParentID  string
-	Data      map[string]any
-}
-
-type Handler func(ctx context.Context, m Msg) (Msg, error)
-
-type Bus struct {
-	subs     map[string][]chan Msg
-	handlers map[string]Handler
-	agents   map[string]*AgentConn
-	mu       sync.RWMutex
+type MessageBus interface {
+	Pub(m Msg)
+	Subscribe(msgType string, ch chan Msg)
+	Unsubscribe(msgType string, ch chan Msg)
+	Req(ctx context.Context, m Msg) (Msg, error)
+	RegisterHandler(msgType string, h Handler)
+	RegisterAgent(id string, shareCtx bool) *AgentConn
+	UnregisterAgent(id string)
 }
 
 type AgentConn struct {
@@ -40,6 +21,13 @@ type AgentConn struct {
 	Recv     chan Msg
 	Context  MsgContext
 	ShareCtx bool
+}
+
+type Bus struct {
+	subs     map[string][]chan Msg
+	handlers map[string]Handler
+	agents   map[string]*AgentConn
+	mu       sync.RWMutex
 }
 
 func New() *Bus {
@@ -96,7 +84,6 @@ func (b *Bus) Req(ctx context.Context, m Msg) (Msg, error) {
 	b.mu.RUnlock()
 
 	if !ok {
-		// 转发给特定Agent
 		if m.To != "" && m.To != "*" {
 			return b.reqToAgent(ctx, m)
 		}
@@ -144,9 +131,7 @@ func (b *Bus) RegisterAgent(id string, shareCtx bool) *AgentConn {
 		Send:     make(chan Msg, 64),
 		Recv:     make(chan Msg, 64),
 		ShareCtx: shareCtx,
-		Context: MsgContext{
-			AgentID: id,
-		},
+		Context:  MsgContext{AgentID: id},
 	}
 	b.agents[id] = conn
 	return conn
@@ -170,7 +155,7 @@ func (b *Bus) GetAgent(id string) (*AgentConn, bool) {
 	return c, ok
 }
 
-func (b *Bus) ForkContext(parentID string, childID string) MsgContext {
+func (b *Bus) ForkContext(parentID, childID string) MsgContext {
 	b.mu.RLock()
 	parent, ok := b.agents[parentID]
 	b.mu.RUnlock()
@@ -195,17 +180,3 @@ func copyMap(m map[string]any) map[string]any {
 	}
 	return r
 }
-
-// Types
-const (
-	TypeUserInput    = "user:input"
-	TypeAssistant    = "assistant:output"
-	TypeToolCall     = "tool:call"
-	TypeToolResult   = "tool:result"
-	TypeToolError    = "tool:error"
-	TypeSessionNew   = "session:new"
-	TypeSessionFork  = "session:fork"
-	TypeAgentSpawn   = "agent:spawn"
-	TypeAgentDie     = "agent:die"
-	TypeContextShare = "context:share"
-)

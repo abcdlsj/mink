@@ -8,13 +8,14 @@ import (
 )
 
 type Config struct {
-	Provider string            `toml:"provider"`
-	BaseURL  string            `toml:"base_url"`
-	APIKey   string            `toml:"api_key"`
-	Model    string            `toml:"model"`
-	Headers  map[string]string `toml:"headers"`
-	Telegram string            `toml:"telegram_token"`
-	Mode     string            `toml:"mode"`
+	Provider     string            `toml:"provider"`
+	BaseURL      string            `toml:"base_url"`
+	APIKey       string            `toml:"api_key"`
+	Model        string            `toml:"model"`
+	Headers      map[string]string `toml:"headers"`
+	Telegram     string            `toml:"telegram_token"`
+	Mode         string            `toml:"mode"`
+	CustomPrompt string            `toml:"custom_prompt"`
 }
 
 func Load() Config {

@@ -1,30 +1,20 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
-	"github.com/charmbracelet/lipgloss"
-
+	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/cmd"
 	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/core"
+	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/telegram"
-)
-
-var (
-	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00"))
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
-	gray   = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	"github.com/abcdlsj/mink/platform"
 )
 
 func main() {
@@ -43,6 +33,8 @@ func main() {
 	}
 
 	b := bus.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	p, err := llm.NewProvider(llm.Config{
 		Provider: cfg.Provider,
@@ -57,88 +49,41 @@ func main() {
 	}
 
 	dir := os.ExpandEnv("$HOME/.mink/sessions")
-	agent := core.New("main", p, dir, b)
-	agent.Start(context.Background())
+	hooks := hook.NewManager()
+	cmdReg := cmd.NewRegistry()
+	cmdReg.Register(cmd.NewHelpCmd(cmdReg))
+	router := cmd.NewRouter(cmdReg)
+
+	sup := agent.NewSupervisor(b, p, dir, hooks, router, cfg.CustomPrompt)
+	a := agent.New("main", p, dir, b, hooks, router, cfg.CustomPrompt)
+	sup.Register(a)
+
+	cmdReg.Register(cmd.NewToolsCmd(a.Tools()))
+	cmdReg.Register(cmd.NewSessionCmd(a.Sessions()))
+
+	a.Start(ctx)
+
+	var adapters []platform.Adapter
+
+	cli := platform.NewCLI(b, router, hooks)
+	cli.Start(ctx)
+	adapters = append(adapters, cli)
 
 	if cfg.Telegram != "" {
-		bot := telegram.New(cfg.Telegram, b)
-		if err := bot.Start(); err != nil {
+		tg := platform.NewTelegram(cfg.Telegram, b)
+		if err := tg.Start(ctx); err != nil {
 			fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
 		} else {
 			fmt.Println("telegram: ok")
+			adapters = append(adapters, tg)
 		}
-		defer bot.Stop()
 	}
-
-	runCLI(b)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
-}
 
-func runCLI(b *bus.Bus) {
-	ch := make(chan bus.Msg, 64)
-	b.Subscribe(bus.TypeAssistant, ch)
-	b.Subscribe(bus.TypeToolCall, ch)
-	b.Subscribe(bus.TypeToolResult, ch)
-	b.Subscribe(bus.TypeToolError, ch)
-
-	fmt.Println(gray.Render("mink. type 'exit' to quit"))
-
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		fmt.Print(cyan.Render("> "))
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-
-		in := strings.TrimSpace(line)
-		if in == "" {
-			continue
-		}
-		if in == "exit" {
-			break
-		}
-
-		b.Pub(bus.Msg{
-			Type:    bus.TypeUserInput,
-			From:    "cli",
-			To:      "main",
-			Payload: in,
-		})
-
-		done := false
-		for !done {
-			m := <-ch
-			if m.To != "" && m.To != "cli" && m.To != "*" {
-				continue
-			}
-			switch m.Type {
-			case bus.TypeAssistant:
-				fmt.Printf("%s %s\n", green.Render("🤖"), green.Render(fmt.Sprintf("%v", m.Payload)))
-				done = true
-			case bus.TypeToolCall:
-				fmt.Printf("%s %s\n", yellow.Render("◉"), yellow.Render(fmt.Sprintf("%v", m.Payload)))
-			case bus.TypeToolResult:
-				out := fmt.Sprintf("%v", m.Payload)
-				lines := strings.Split(out, "\n")
-				fmt.Printf("%s result:\n", green.Render("✓"))
-				for i, line := range lines {
-					if i >= 5 {
-						fmt.Printf("  %s\n", gray.Render("... (truncated)"))
-						break
-					}
-					if len(line) > 100 {
-						fmt.Printf("  %s...\n", gray.Render(line[:100]))
-					} else {
-						fmt.Printf("  %s\n", gray.Render(line))
-					}
-				}
-			case bus.TypeToolError:
-				fmt.Printf("%s %s\n", red.Render("✗"), red.Render(fmt.Sprintf("%v", m.Payload)))
-			}
-		}
+	for _, a := range adapters {
+		a.Stop()
 	}
 }

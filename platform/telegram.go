@@ -1,7 +1,8 @@
-package telegram
+package platform
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,83 +13,88 @@ import (
 	"github.com/abcdlsj/mink/bus"
 )
 
-type Bot struct {
+type Telegram struct {
 	token   string
 	bus     *bus.Bus
 	client  *http.Client
 	chatIDs map[int64]bool
 	offset  int
-	stop    chan bool
+	stop    chan struct{}
 }
 
-type Update struct {
-	ID      int      `json:"update_id"`
-	Message *Message `json:"message"`
+type tgUpdate struct {
+	ID      int        `json:"update_id"`
+	Message *tgMessage `json:"message"`
 }
 
-type Message struct {
-	ID   int    `json:"message_id"`
-	Chat *Chat  `json:"chat"`
-	Text string `json:"text"`
+type tgMessage struct {
+	ID   int     `json:"message_id"`
+	Chat *tgChat `json:"chat"`
+	Text string  `json:"text"`
 }
 
-type Chat struct {
+type tgChat struct {
 	ID int64 `json:"id"`
 }
 
-func New(token string, b *bus.Bus) *Bot {
-	return &Bot{
+func NewTelegram(token string, b *bus.Bus) *Telegram {
+	return &Telegram{
 		token:   token,
 		bus:     b,
 		client:  &http.Client{Timeout: 30 * time.Second},
 		chatIDs: make(map[int64]bool),
-		stop:    make(chan bool),
+		stop:    make(chan struct{}),
 	}
 }
 
-func (b *Bot) Start() error {
-	go b.forward()
-	go b.poll()
+func (t *Telegram) ID() string { return "telegram" }
+
+func (t *Telegram) Start(ctx context.Context) error {
+	go t.forward(ctx)
+	go t.poll(ctx)
 	return nil
 }
 
-func (b *Bot) Stop() {
-	close(b.stop)
+func (t *Telegram) Stop() error {
+	close(t.stop)
+	return nil
 }
 
-func (b *Bot) poll() {
+func (t *Telegram) poll(ctx context.Context) {
 	for {
 		select {
-		case <-b.stop:
+		case <-t.stop:
+			return
+		case <-ctx.Done():
 			return
 		default:
 		}
 
-		updates, err := b.updates()
+		updates, err := t.getUpdates()
 		if err != nil {
 			time.Sleep(5 * time.Second)
 			continue
 		}
 
 		for _, u := range updates {
-			if u.ID >= b.offset {
-				b.offset = u.ID + 1
+			if u.ID >= t.offset {
+				t.offset = u.ID + 1
 			}
 			if u.Message == nil || u.Message.Text == "" {
 				continue
 			}
-			b.handle(u.Message)
+			t.handleMessage(u.Message)
 		}
 
 		time.Sleep(100 * time.Millisecond)
 	}
 }
 
-func (b *Bot) handle(m *Message) {
+func (t *Telegram) handleMessage(m *tgMessage) {
 	chatID := m.Chat.ID
-	b.chatIDs[chatID] = true
+	t.chatIDs[chatID] = true
 
-	b.bus.Pub(bus.Msg{
+	t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    fmt.Sprintf("telegram:%d", chatID),
 		To:      "*",
@@ -96,9 +102,9 @@ func (b *Bot) handle(m *Message) {
 	})
 }
 
-func (b *Bot) forward() {
+func (t *Telegram) forward(ctx context.Context) {
 	ch := make(chan bus.Msg, 64)
-	b.bus.Subscribe(bus.TypeAssistant, ch)
+	t.bus.Subscribe(bus.TypeAssistant, ch)
 
 	for {
 		select {
@@ -106,15 +112,18 @@ func (b *Bot) forward() {
 			if !strings.HasPrefix(m.To, "telegram:") {
 				continue
 			}
-			b.sendTo(m)
-		case <-b.stop:
-			b.bus.Unsubscribe(bus.TypeAssistant, ch)
+			t.sendResponse(m)
+		case <-t.stop:
+			t.bus.Unsubscribe(bus.TypeAssistant, ch)
+			return
+		case <-ctx.Done():
+			t.bus.Unsubscribe(bus.TypeAssistant, ch)
 			return
 		}
 	}
 }
 
-func (b *Bot) sendTo(m bus.Msg) {
+func (t *Telegram) sendResponse(m bus.Msg) {
 	text := fmt.Sprintf("🤖 %s", m.Payload)
 
 	s := strings.TrimPrefix(m.To, "telegram:")
@@ -122,14 +131,14 @@ func (b *Bot) sendTo(m bus.Msg) {
 	fmt.Sscanf(s, "%d", &chatID)
 
 	if chatID != 0 {
-		b.send(chatID, text)
+		t.send(chatID, text)
 	}
 }
 
-func (b *Bot) updates() ([]Update, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&limit=100", b.token, b.offset)
+func (t *Telegram) getUpdates() ([]tgUpdate, error) {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&limit=100", t.token, t.offset)
 
-	resp, err := b.client.Get(url)
+	resp, err := t.client.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +150,8 @@ func (b *Bot) updates() ([]Update, error) {
 	}
 
 	var r struct {
-		OK     bool     `json:"ok"`
-		Result []Update `json:"result"`
+		OK     bool       `json:"ok"`
+		Result []tgUpdate `json:"result"`
 	}
 
 	if err := json.Unmarshal(body, &r); err != nil {
@@ -156,15 +165,15 @@ func (b *Bot) updates() ([]Update, error) {
 	return r.Result, nil
 }
 
-func (b *Bot) send(chatID int64, text string) error {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", b.token)
+func (t *Telegram) send(chatID int64, text string) error {
+	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.token)
 
 	body, _ := json.Marshal(map[string]any{
 		"chat_id": chatID,
 		"text":    text,
 	})
 
-	resp, err := b.client.Post(url, "application/json", bytes.NewBuffer(body))
+	resp, err := t.client.Post(url, "application/json", bytes.NewBuffer(body))
 	if err != nil {
 		return err
 	}
