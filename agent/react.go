@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
@@ -65,7 +66,11 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 		return true, nil
 	}
 
-	for _, tc := range r.ToolCalls {
+	// 并行执行 tool calls
+	results := make([]session.ToolResult, len(r.ToolCalls))
+	var wg sync.WaitGroup
+
+	for i, tc := range r.ToolCalls {
 		c.hooks.Trigger(ctx, hook.BeforeTool, tc)
 		c.bus.Pub(bus.Msg{
 			Type:    bus.TypeToolCall,
@@ -74,26 +79,35 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 			Payload: fmtToolCall(tc.Name, tc.Args),
 		})
 
-		out, err := c.execTool(ctx, tc)
+		wg.Add(1)
+		go func(i int, tc llm.ToolCall) {
+			defer wg.Done()
+			out, err := c.execTool(ctx, tc)
 
-		tr := session.ToolResult{ToolCallID: tc.ID, Content: out}
-		if err != nil {
-			tr.Error = err.Error()
-			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeToolError,
-				From:    c.id,
-				To:      src,
-				Payload: err.Error(),
-			})
-		} else {
-			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeToolResult,
-				From:    c.id,
-				To:      src,
-				Payload: out,
-			})
-		}
-		c.hooks.Trigger(ctx, hook.AfterTool, tr)
+			tr := session.ToolResult{ToolCallID: tc.ID, Content: out}
+			if err != nil {
+				tr.Error = err.Error()
+				c.bus.Pub(bus.Msg{
+					Type:    bus.TypeToolError,
+					From:    c.id,
+					To:      src,
+					Payload: err.Error(),
+				})
+			} else {
+				c.bus.Pub(bus.Msg{
+					Type:    bus.TypeToolResult,
+					From:    c.id,
+					To:      src,
+					Payload: out,
+				})
+			}
+			c.hooks.Trigger(ctx, hook.AfterTool, tr)
+			results[i] = tr
+		}(i, tc)
+	}
+
+	wg.Wait()
+	for _, tr := range results {
 		c.sm.AddMessage(sid, session.Message{Role: "tool", ToolResults: []session.ToolResult{tr}})
 	}
 
@@ -133,6 +147,23 @@ func (c *Core) prompt() string {
 	b.WriteString("Available tools:\n")
 	for _, t := range c.reg.All() {
 		fmt.Fprintf(&b, "- %s: %s\n", t.Name(), t.Desc())
+	}
+
+	if c.reg.Get("spawn") != nil {
+		b.WriteString("\n## Multi-Agent Collaboration\n")
+		b.WriteString("Use `spawn` to delegate subtasks to new agents. Good for:\n")
+		b.WriteString("- Parallel work: spawn multiple agents to handle independent tasks\n")
+		b.WriteString("- Complex tasks: break down into smaller subtasks\n")
+		b.WriteString("- Focused work: let each agent focus on one specific thing\n")
+		b.WriteString("Example: spawn({\"task\": \"analyze error handling in cmd/\", \"share_context\": false})\n")
+	}
+
+	if c.reg.Get("background") != nil {
+		b.WriteString("\n## Background Tasks\n")
+		b.WriteString("Use `background` for long-running commands. Returns immediately with task_id.\n")
+		b.WriteString("When task completes, you'll receive a notification with the result.\n")
+		b.WriteString("Good for: downloads, builds, tests, or any command that takes time.\n")
+		b.WriteString("Example: background({\"cmd\": \"go build ./...\", \"cwd\": \"/path/to/project\"})\n")
 	}
 
 	if c.router != nil {

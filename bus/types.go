@@ -3,6 +3,7 @@ package bus
 const (
 	TypeUserInput    = "user:input"
 	TypeAssistant    = "assistant:output"
+	TypeTurnDone     = "turn:done"
 	TypeToolCall     = "tool:call"
 	TypeToolResult   = "tool:result"
 	TypeToolError    = "tool:error"
@@ -14,6 +15,8 @@ const (
 	TypeAgentSpawn   = "agent:spawn"
 	TypeAgentDone    = "agent:done"
 	TypeContextShare = "context:share"
+	TypeTaskStart    = "task:start"
+	TypeTaskDone     = "task:done"
 
 	TypeDelegate = "collab:delegate"
 	TypeReport   = "collab:report"

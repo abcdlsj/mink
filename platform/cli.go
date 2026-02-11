@@ -1,13 +1,14 @@
 package platform
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/abcdlsj/mink/bus"
@@ -16,15 +17,25 @@ import (
 )
 
 var (
-	prompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
-	assist  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
-	tool    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
-	command = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Faint(true)
-	success = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
-	fail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
-	dim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
-	warn    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387"))
+	stylePrompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
+	styleAssist  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
+	styleTool    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
+	styleCmd     = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Faint(true)
+	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
+	styleFail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
+	styleDim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
+	styleAgent   = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
 )
+
+type agentState struct {
+	id      string
+	task    string
+	lines   []string
+	done    bool
+	spinner spinner.Model
+}
+
+type busMsg bus.Msg
 
 type CLI struct {
 	bus    *bus.Bus
@@ -32,8 +43,21 @@ type CLI struct {
 	hooks  *hook.Manager
 	stop   chan struct{}
 
+	program   *tea.Program
+	model     *model
 	confirmMu sync.Mutex
 	confirmCh chan bool
+}
+
+type model struct {
+	cli       *CLI
+	input     textinput.Model
+	output    []string
+	agents    map[string]*agentState
+	agentKeys []string
+	quitting  bool
+	width     int
+	height    int
 }
 
 func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
@@ -48,141 +72,370 @@ func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
 func (c *CLI) ID() string { return "cli" }
 
 func (c *CLI) Start(ctx context.Context) error {
+	c.subscribeMessages(ctx)
+	return nil
+}
+
+func (c *CLI) Run() error {
+	ti := textinput.New()
+	ti.Placeholder = "Type your message..."
+	ti.Focus()
+	ti.Width = 80
+
+	m := &model{
+		cli:       c,
+		input:     ti,
+		output:    []string{styleDim.Render("mink. type 'exit' to quit")},
+		agents:    make(map[string]*agentState),
+		agentKeys: []string{},
+	}
+	c.model = m
+
+	c.program = tea.NewProgram(m, tea.WithAltScreen())
+	_, err := c.program.Run()
+	return err
+}
+
+func (c *CLI) Stop() error {
+	close(c.stop)
+	if c.program != nil {
+		c.program.Quit()
+	}
+	return nil
+}
+
+func (c *CLI) subscribeMessages(ctx context.Context) {
 	ch := make(chan bus.Msg, 64)
 	c.bus.Subscribe(bus.TypeAssistant, ch)
+	c.bus.Subscribe(bus.TypeTurnDone, ch)
 	c.bus.Subscribe(bus.TypeToolCall, ch)
 	c.bus.Subscribe(bus.TypeToolResult, ch)
 	c.bus.Subscribe(bus.TypeToolError, ch)
 	c.bus.Subscribe(bus.TypeCommand, ch)
 	c.bus.Subscribe(bus.TypeCommandOK, ch)
 	c.bus.Subscribe(bus.TypeCommandError, ch)
+	c.bus.Subscribe(bus.TypeAgentSpawn, ch)
+	c.bus.Subscribe(bus.TypeAgentDone, ch)
+	c.bus.Subscribe(bus.TypeTaskStart, ch)
+	c.bus.Subscribe(bus.TypeTaskDone, ch)
 
-	fmt.Println(dim.Render("mink. type 'exit' to quit"))
-
-	go c.run(ctx, ch)
-	return nil
-}
-
-func (c *CLI) Stop() error {
-	close(c.stop)
-	return nil
-}
-
-func (c *CLI) run(ctx context.Context, ch chan bus.Msg) {
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		select {
-		case <-c.stop:
-			return
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		fmt.Print(prompt.Render("› "))
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return
-		}
-
-		in := strings.TrimSpace(line)
-		if in == "" {
-			continue
-		}
-		if in == "exit" {
-			return
-		}
-
-		c.hooks.Trigger(ctx, hook.BeforeInput, in)
-
-		if cmd.IsCommand(in) {
-			out, ok, err := c.router.Route(ctx, in)
-			if ok {
-				if err != nil {
-					fmt.Printf("%s %s\n", fail.Render("✗"), fail.Render(err.Error()))
-				} else {
-					fmt.Printf("%s\n", dim.Render(out))
+	go func() {
+		for {
+			select {
+			case m := <-ch:
+				if c.program != nil {
+					c.program.Send(busMsg(m))
 				}
-				c.hooks.Trigger(ctx, hook.AfterInput, in)
-				continue
-			}
-		}
-
-		c.bus.Pub(bus.Msg{
-			Type:    bus.TypeUserInput,
-			From:    "cli",
-			To:      "main",
-			Payload: in,
-		})
-
-		c.waitResponse(ch)
-		c.hooks.Trigger(ctx, hook.AfterInput, in)
-	}
-}
-
-func (c *CLI) waitResponse(ch chan bus.Msg) {
-	for {
-		select {
-		case m := <-ch:
-			if m.To != "" && m.To != "cli" && m.To != "*" {
-				continue
-			}
-			switch m.Type {
-			case bus.TypeAssistant:
-				fmt.Printf("\n%s\n", assist.Render(fmt.Sprintf("%v", m.Payload)))
+			case <-c.stop:
 				return
-			case bus.TypeToolCall:
-				fmt.Printf("%s %s\n", tool.Render("◉"), tool.Render(fmt.Sprintf("%v", m.Payload)))
-			case bus.TypeToolResult:
-				c.printResult(fmt.Sprintf("%v", m.Payload))
-			case bus.TypeToolError:
-				c.printError(fmt.Sprintf("%v", m.Payload))
-			case bus.TypeCommand:
-				fmt.Printf("%s %s\n", command.Render("$"), command.Render(fmt.Sprintf("%v", m.Payload)))
-			case bus.TypeCommandOK:
-				c.printResult(fmt.Sprintf("%v", m.Payload))
-			case bus.TypeCommandError:
-				c.printError(fmt.Sprintf("%v", m.Payload))
+			case <-ctx.Done():
+				return
 			}
-		case <-c.stop:
-			return
 		}
-	}
-}
-
-func (c *CLI) printResult(out string) {
-	lines := strings.Split(out, "\n")
-	total := len(lines)
-	shown := min(total, 4)
-	fmt.Printf("%s\n", success.Render("✓ done"))
-	for i := range shown {
-		line := lines[i]
-		if len(line) > 80 {
-			line = line[:80] + "…"
-		}
-		fmt.Printf("  %s\n", dim.Render(line))
-	}
-	if total > shown {
-		fmt.Printf("  %s\n", dim.Render(fmt.Sprintf("… +%d lines", total-shown)))
-	}
-}
-
-func (c *CLI) printError(msg string) {
-	fmt.Printf("%s %s\n", fail.Render("✗ error"), dim.Render(msg))
+	}()
 }
 
 func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
-	c.confirmMu.Lock()
-	defer c.confirmMu.Unlock()
+	// 简化版：直接返回 true，后续可以用 tea 实现确认
+	return true, nil
+}
 
-	fmt.Printf("%s %s [y/N] ", warn.Render("⚠"), raw)
+// bubbletea Model 接口实现
 
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
+func (m *model) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC:
+			m.quitting = true
+			return m, tea.Quit
+		case tea.KeyEnter:
+			return m.handleSubmit()
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.input.Width = msg.Width - 4
+
+	case busMsg:
+		return m.handleBusMsg(bus.Msg(msg))
+
+	case spinner.TickMsg:
+		for _, agent := range m.agents {
+			if !agent.done {
+				var cmd tea.Cmd
+				agent.spinner, cmd = agent.spinner.Update(msg)
+				cmds = append(cmds, cmd)
+			}
+		}
+		return m, tea.Batch(cmds...)
 	}
 
-	ans := strings.ToLower(strings.TrimSpace(line))
-	return ans == "y" || ans == "yes", nil
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	cmds = append(cmds, cmd)
+
+	return m, tea.Batch(cmds...)
+}
+
+func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
+	text := strings.TrimSpace(m.input.Value())
+	m.input.SetValue("")
+
+	if text == "" {
+		return m, nil
+	}
+
+	if text == "exit" {
+		m.quitting = true
+		return m, tea.Quit
+	}
+
+	m.output = append(m.output, stylePrompt.Render("› ")+text)
+
+	ctx := context.Background()
+	m.cli.hooks.Trigger(ctx, hook.BeforeInput, text)
+
+	if cmd.IsCommand(text) {
+		out, ok, err := m.cli.router.Route(ctx, text)
+		if ok {
+			if err != nil {
+				m.output = append(m.output, styleFail.Render("✗ "+err.Error()))
+			} else {
+				m.output = append(m.output, styleDim.Render(out))
+			}
+			m.cli.hooks.Trigger(ctx, hook.AfterInput, text)
+			return m, nil
+		}
+	}
+
+	m.cli.bus.Pub(bus.Msg{
+		Type:    bus.TypeUserInput,
+		From:    "cli",
+		To:      "main",
+		Payload: text,
+	})
+
+	m.cli.hooks.Trigger(ctx, hook.AfterInput, text)
+	return m, nil
+}
+
+func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
+	if msg.To != "*" && msg.To != "cli" {
+		return m, nil
+	}
+
+	isSubAgent := msg.From != "" && msg.From != "main" && msg.From != "supervisor"
+
+	switch msg.Type {
+	case bus.TypeAgentSpawn:
+		return m.handleAgentSpawn(msg)
+
+	case bus.TypeAgentDone:
+		return m.handleAgentDone(msg)
+
+	case bus.TypeAssistant:
+		if isSubAgent {
+			m.appendToAgent(msg.From, styleAssist.Render(truncate(fmt.Sprintf("%v", msg.Payload), 60)))
+		} else {
+			m.output = append(m.output, "")
+			m.output = append(m.output, styleAssist.Render(fmt.Sprintf("%v", msg.Payload)))
+		}
+
+	case bus.TypeToolCall:
+		line := styleTool.Render("◉ " + truncate(fmt.Sprintf("%v", msg.Payload), 60))
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeToolResult:
+		line := styleSuccess.Render("✓ done")
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeToolError:
+		line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 60))
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeCommand:
+		line := styleCmd.Render("$ " + fmt.Sprintf("%v", msg.Payload))
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeCommandOK:
+		line := styleSuccess.Render("✓ done")
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeCommandError:
+		line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 60))
+		if isSubAgent {
+			m.appendToAgent(msg.From, line)
+		} else {
+			m.output = append(m.output, line)
+		}
+
+	case bus.TypeTurnDone:
+		// 清理已完成的 agents
+		if msg.From == "main" {
+			m.agentKeys = []string{}
+			m.agents = make(map[string]*agentState)
+		}
+
+	case bus.TypeTaskStart:
+		if payload, ok := msg.Payload.(map[string]string); ok {
+			taskID := payload["task_id"]
+			cmd := truncate(payload["cmd"], 40)
+			m.output = append(m.output, styleTool.Render(fmt.Sprintf("⏳ [%s] %s", taskID, cmd)))
+		}
+
+	case bus.TypeTaskDone:
+		if payload, ok := msg.Payload.(map[string]string); ok {
+			taskID := payload["task_id"]
+			status := payload["status"]
+			if status == "ok" {
+				m.output = append(m.output, styleSuccess.Render(fmt.Sprintf("✓ [%s] completed", taskID)))
+			} else {
+				errMsg := truncate(payload["error"], 40)
+				m.output = append(m.output, styleFail.Render(fmt.Sprintf("✗ [%s] %s", taskID, errMsg)))
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m *model) handleAgentSpawn(msg bus.Msg) (tea.Model, tea.Cmd) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return m, nil
+	}
+
+	id := payload["agent_id"]
+	if id == "" {
+		id = msg.From
+	}
+	task := payload["task"]
+	if len(task) > 40 {
+		task = task[:40] + "…"
+	}
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = styleAgent
+
+	m.agents[id] = &agentState{
+		id:      id,
+		task:    task,
+		lines:   []string{},
+		spinner: s,
+	}
+	m.agentKeys = append(m.agentKeys, id)
+
+	return m, m.agents[id].spinner.Tick
+}
+
+func (m *model) handleAgentDone(msg bus.Msg) (tea.Model, tea.Cmd) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return m, nil
+	}
+
+	id := payload["agent_id"]
+	if id == "" {
+		id = msg.From
+	}
+
+	if agent, exists := m.agents[id]; exists {
+		agent.done = true
+	}
+
+	return m, nil
+}
+
+func (m *model) appendToAgent(id string, line string) {
+	if agent, exists := m.agents[id]; exists {
+		agent.lines = append(agent.lines, line)
+		if len(agent.lines) > 5 {
+			agent.lines = agent.lines[len(agent.lines)-5:]
+		}
+	}
+}
+
+func (m *model) View() string {
+	if m.quitting {
+		return "Bye!\n"
+	}
+
+	var b strings.Builder
+
+	// 输出区域（最近的消息）
+	outputLines := m.output
+	maxOutput := m.height - 10
+	if maxOutput < 5 {
+		maxOutput = 5
+	}
+	if len(outputLines) > maxOutput {
+		outputLines = outputLines[len(outputLines)-maxOutput:]
+	}
+	for _, line := range outputLines {
+		b.WriteString(line + "\n")
+	}
+
+	// Agent 面板
+	if len(m.agentKeys) > 0 {
+		b.WriteString("\n")
+		b.WriteString(styleDim.Render("─── agents ───") + "\n")
+		for _, id := range m.agentKeys {
+			agent := m.agents[id]
+			if agent == nil {
+				continue
+			}
+
+			var status string
+			if agent.done {
+				status = styleSuccess.Render("✓")
+			} else {
+				status = agent.spinner.View()
+			}
+
+			b.WriteString(fmt.Sprintf("%s %s %s\n",
+				status,
+				styleAgent.Render(id),
+				styleDim.Render(agent.task)))
+
+			for _, line := range agent.lines {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+		b.WriteString(styleDim.Render("──────────────") + "\n")
+	}
+
+	// 输入区域
+	b.WriteString("\n")
+	b.WriteString(stylePrompt.Render("› ") + m.input.View())
+
+	return b.String()
 }

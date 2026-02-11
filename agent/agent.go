@@ -40,6 +40,8 @@ func New(id string, p llm.Provider, dir string, b *bus.Bus, h *hook.Manager, r *
 		sessions:     make(map[string]string),
 		workers:      make(map[string]chan bus.Msg),
 	}
+	c.reg.Register(tool.NewSpawn(b, id))
+	c.reg.Register(tool.NewBackground(b, id))
 	c.bus.RegisterHandler(bus.TypeUserInput, c.Handle)
 	return c
 }
@@ -49,10 +51,9 @@ func (c *Core) Tools() *tool.Registry      { return c.reg }
 func (c *Core) Sessions() *session.Manager { return c.sm }
 
 func (c *Core) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
-	if m.To != "" && m.To != c.id && m.To != "*" {
+	if m.To != "*" && m.To != c.id {
 		return bus.Msg{}, nil
 	}
-
 	src := m.From
 	c.mu.Lock()
 	q, ok := c.workers[src]
@@ -72,6 +73,53 @@ func (c *Core) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 			Payload: "busy",
 			To:      src,
 		}, nil
+	}
+}
+
+func (c *Core) handleTaskDone(ctx context.Context, m bus.Msg) {
+	payload, ok := m.Payload.(map[string]string)
+	if !ok {
+		return
+	}
+
+	taskID := payload["task_id"]
+	output := payload["output"]
+	status := payload["status"]
+	errMsg := payload["error"]
+
+	var content string
+	if status == "ok" {
+		content = fmt.Sprintf("[Background task %s completed]\nOutput:\n%s", taskID, output)
+	} else {
+		content = fmt.Sprintf("[Background task %s failed]\nError: %s\nOutput:\n%s", taskID, errMsg, output)
+	}
+
+	c.mu.RLock()
+	var src string
+	for s := range c.sessions {
+		src = s
+		break
+	}
+	c.mu.RUnlock()
+
+	if src == "" {
+		return
+	}
+
+	c.mu.Lock()
+	q, ok := c.workers[src]
+	if !ok {
+		q = make(chan bus.Msg, 10)
+		c.workers[src] = q
+		go c.worker(ctx, src, q)
+	}
+	c.mu.Unlock()
+
+	q <- bus.Msg{
+		Type:    bus.TypeUserInput,
+		From:    src,
+		To:      c.id,
+		Payload: content,
 	}
 }
 
@@ -95,28 +143,24 @@ func (c *Core) worker(ctx context.Context, src string, q chan bus.Msg) {
 
 func (c *Core) Start(ctx context.Context) {
 	conn := c.bus.RegisterAgent(c.id, false)
-	ch := make(chan bus.Msg, 64)
-	c.bus.Subscribe(bus.TypeUserInput, ch)
 
 	go func() {
 		for {
 			select {
-			case m := <-ch:
-				if m.To != "" && m.To != "*" {
+			case m := <-conn.Send:
+				if m.To != "*" && m.To != c.id {
 					continue
 				}
-				resp, _ := c.bus.Req(ctx, m)
-				if resp.Type != "" {
-					c.bus.Pub(resp)
-				}
-			case m := <-conn.Send:
-				resp, _ := c.bus.Req(ctx, m)
-				if resp.Type != "" {
-					c.bus.Pub(resp)
+				switch m.Type {
+				case bus.TypeTaskDone:
+					c.handleTaskDone(ctx, m)
+				default:
+					resp, _ := c.bus.Req(ctx, m)
+					if resp.Type != "" {
+						c.bus.Pub(resp)
+					}
 				}
 			case <-ctx.Done():
-				c.bus.Unsubscribe(bus.TypeUserInput, ch)
-				close(ch)
 				return
 			}
 		}
@@ -154,6 +198,14 @@ func (c *Core) Run(ctx context.Context, src, in string) error {
 	}
 
 	c.sm.AddMessage(sid, session.Message{Role: "user", Content: in})
+
+	defer func() {
+		c.bus.Pub(bus.Msg{
+			Type: bus.TypeTurnDone,
+			From: c.id,
+			To:   src,
+		})
+	}()
 
 	for i := 0; i < 100; i++ {
 		done, err := c.step(ctx, src, sid)

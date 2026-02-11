@@ -131,6 +131,10 @@ func (t *Telegram) forward(ctx context.Context) {
 	t.bus.Subscribe(bus.TypeCommand, ch)
 	t.bus.Subscribe(bus.TypeCommandOK, ch)
 	t.bus.Subscribe(bus.TypeCommandError, ch)
+	t.bus.Subscribe(bus.TypeAgentSpawn, ch)
+	t.bus.Subscribe(bus.TypeAgentDone, ch)
+	t.bus.Subscribe(bus.TypeTaskStart, ch)
+	t.bus.Subscribe(bus.TypeTaskDone, ch)
 
 	unsub := func() {
 		t.bus.Unsubscribe(bus.TypeAssistant, ch)
@@ -140,6 +144,10 @@ func (t *Telegram) forward(ctx context.Context) {
 		t.bus.Unsubscribe(bus.TypeCommand, ch)
 		t.bus.Unsubscribe(bus.TypeCommandOK, ch)
 		t.bus.Unsubscribe(bus.TypeCommandError, ch)
+		t.bus.Unsubscribe(bus.TypeAgentSpawn, ch)
+		t.bus.Unsubscribe(bus.TypeAgentDone, ch)
+		t.bus.Unsubscribe(bus.TypeTaskStart, ch)
+		t.bus.Unsubscribe(bus.TypeTaskDone, ch)
 		close(ch)
 	}
 
@@ -164,30 +172,68 @@ func (t *Telegram) sendMsg(m bus.Msg) {
 	var chatID int64
 	fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
 	if chatID == 0 {
+		// 广播消息发给所有已知的 chat
+		if m.To == "*" {
+			for id := range t.chatIDs {
+				t.sendMsgToChat(id, m)
+			}
+		}
 		return
+	}
+	t.sendMsgToChat(chatID, m)
+}
+
+func (t *Telegram) sendMsgToChat(chatID int64, m bus.Msg) {
+	prefix := ""
+	if m.From != "" && m.From != "main" {
+		prefix = fmt.Sprintf("[%s] ", m.From)
 	}
 
 	var text string
 	switch m.Type {
 	case bus.TypeAssistant:
-		text = fmt.Sprintf("🤖 %s", m.Payload)
+		text = fmt.Sprintf("🤖 %s%s", prefix, m.Payload)
 	case bus.TypeToolCall:
-		text = fmt.Sprintf("🔧 %s", m.Payload)
+		text = fmt.Sprintf("🔧 %s%s", prefix, m.Payload)
 	case bus.TypeToolResult:
-		text = fmt.Sprintf("✅ %s", truncate(fmt.Sprintf("%v", m.Payload), 200))
+		text = fmt.Sprintf("✅ %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
 	case bus.TypeToolError:
-		text = fmt.Sprintf("❌ %s", m.Payload)
+		text = fmt.Sprintf("❌ %s%s", prefix, m.Payload)
 	case bus.TypeCommand:
-		text = fmt.Sprintf("$ %s", m.Payload)
+		text = fmt.Sprintf("$ %s%s", prefix, m.Payload)
 	case bus.TypeCommandOK:
-		text = fmt.Sprintf("✅ %s", truncate(fmt.Sprintf("%v", m.Payload), 200))
+		text = fmt.Sprintf("✅ %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
 	case bus.TypeCommandError:
-		text = fmt.Sprintf("❌ %s", m.Payload)
+		text = fmt.Sprintf("❌ %s%s", prefix, m.Payload)
+	case bus.TypeAgentSpawn:
+		if payload, ok := m.Payload.(map[string]string); ok {
+			task := truncate(payload["task"], 100)
+			text = fmt.Sprintf("⚡ %s spawned: %s", payload["agent_id"], task)
+		}
+	case bus.TypeAgentDone:
+		if payload, ok := m.Payload.(map[string]string); ok {
+			text = fmt.Sprintf("✓ %s %s", payload["agent_id"], payload["result"])
+		}
+	case bus.TypeTaskStart:
+		if payload, ok := m.Payload.(map[string]string); ok {
+			cmd := truncate(payload["cmd"], 50)
+			text = fmt.Sprintf("⏳ [%s] %s", payload["task_id"], cmd)
+		}
+	case bus.TypeTaskDone:
+		if payload, ok := m.Payload.(map[string]string); ok {
+			if payload["status"] == "ok" {
+				text = fmt.Sprintf("✅ [%s] completed", payload["task_id"])
+			} else {
+				text = fmt.Sprintf("❌ [%s] %s", payload["task_id"], truncate(payload["error"], 50))
+			}
+		}
 	default:
 		return
 	}
 
-	t.send(chatID, text)
+	if text != "" {
+		t.send(chatID, text)
+	}
 }
 
 func truncate(s string, n int) string {

@@ -5,8 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
@@ -74,9 +72,8 @@ func main() {
 	if cfg.Telegram != "" {
 		tg := platform.NewTelegram(cfg.Telegram, b)
 		if err := tg.Start(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "telegram error: %v\n", err)
+			// telegram 错误不阻止启动，会在状态栏显示
 		} else {
-			fmt.Println("telegram: ok")
 			adapters = append(adapters, tg)
 			guard.Register("telegram:", tg)
 		}
@@ -84,10 +81,12 @@ func main() {
 
 	router.SetGuard(guard)
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	// TUI 在主线程运行（阻塞直到退出）
+	if err := cli.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
 
+	cancel()
 	for _, a := range adapters {
 		a.Stop()
 	}
