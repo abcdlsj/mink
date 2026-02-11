@@ -13,20 +13,16 @@ import (
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/tool"
 )
 
 var fenceRe = regexp.MustCompile("^```")
 
 func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
-	c.mu.RLock()
-	tv := c.tv[src]
-	c.mu.RUnlock()
-
 	h, _ := c.sm.GetHistory(sid, -1)
 	msgs := c.buildMsgs(h)
-	tools := tv.tools(c.reg)
 
-	r, err := c.p.Chat(ctx, msgs, tools)
+	r, err := c.p.Chat(ctx, msgs, tools(c.reg))
 	if err != nil {
 		return false, err
 	}
@@ -70,7 +66,6 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 	}
 
 	for _, tc := range r.ToolCalls {
-		tv.expand(tc.Name)
 		c.hooks.Trigger(ctx, hook.BeforeTool, tc)
 		c.bus.Pub(bus.Msg{
 			Type:    bus.TypeToolCall,
@@ -235,4 +230,19 @@ func fmtToolCall(name string, args json.RawMessage) string {
 	buf.WriteByte(' ')
 	json.Compact(&buf, args)
 	return buf.String()
+}
+
+func tools(reg *tool.Registry) []llm.Tool {
+	var r []llm.Tool
+	for _, t := range reg.All() {
+		r = append(r, llm.Tool{
+			Type: "function",
+			Function: &llm.FunctionDef{
+				Name:        t.Name(),
+				Description: t.Desc(),
+				Parameters:  t.Schema(),
+			},
+		})
+	}
+	return r
 }

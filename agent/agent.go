@@ -22,7 +22,6 @@ type Core struct {
 	hooks        *hook.Manager
 	router       *cmd.Router
 	customPrompt string
-	tv           map[string]*toolView
 	sessions     map[string]string
 	mu           sync.RWMutex
 	workers      map[string]chan bus.Msg
@@ -38,7 +37,6 @@ func New(id string, p llm.Provider, dir string, b *bus.Bus, h *hook.Manager, r *
 		hooks:        h,
 		router:       r,
 		customPrompt: customPrompt,
-		tv:           make(map[string]*toolView),
 		sessions:     make(map[string]string),
 		workers:      make(map[string]chan bus.Msg),
 	}
@@ -145,7 +143,6 @@ func (c *Core) session(src string) (string, error) {
 	}
 
 	c.sessions[src] = s.ID
-	c.tv[src] = newToolView()
 	return s.ID, nil
 }
 
