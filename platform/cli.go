@@ -15,11 +15,13 @@ import (
 )
 
 var (
-	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF"))
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00"))
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000"))
-	gray   = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	prompt  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
+	assist  = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
+	tool    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
+	command = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Faint(true)
+	success = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
+	fail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
+	dim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
 )
 
 type CLI struct {
@@ -46,8 +48,11 @@ func (c *CLI) Start(ctx context.Context) error {
 	c.bus.Subscribe(bus.TypeToolCall, ch)
 	c.bus.Subscribe(bus.TypeToolResult, ch)
 	c.bus.Subscribe(bus.TypeToolError, ch)
+	c.bus.Subscribe(bus.TypeCommand, ch)
+	c.bus.Subscribe(bus.TypeCommandOK, ch)
+	c.bus.Subscribe(bus.TypeCommandError, ch)
 
-	fmt.Println(gray.Render("mink. type 'exit' to quit"))
+	fmt.Println(dim.Render("mink. type 'exit' to quit"))
 
 	go c.run(ctx, ch)
 	return nil
@@ -69,7 +74,7 @@ func (c *CLI) run(ctx context.Context, ch chan bus.Msg) {
 		default:
 		}
 
-		fmt.Print(cyan.Render("> "))
+		fmt.Print(prompt.Render("› "))
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			return
@@ -89,9 +94,9 @@ func (c *CLI) run(ctx context.Context, ch chan bus.Msg) {
 			out, ok, err := c.router.Route(ctx, in)
 			if ok {
 				if err != nil {
-					fmt.Printf("%s %s\n", red.Render("✗"), red.Render(err.Error()))
+					fmt.Printf("%s %s\n", fail.Render("✗"), fail.Render(err.Error()))
 				} else {
-					fmt.Printf("%s\n", gray.Render(out))
+					fmt.Printf("%s\n", dim.Render(out))
 				}
 				c.hooks.Trigger(ctx, hook.AfterInput, in)
 				continue
@@ -119,14 +124,20 @@ func (c *CLI) waitResponse(ch chan bus.Msg) {
 			}
 			switch m.Type {
 			case bus.TypeAssistant:
-				fmt.Printf("%s %s\n", green.Render("🤖"), green.Render(fmt.Sprintf("%v", m.Payload)))
+				fmt.Printf("\n%s\n", assist.Render(fmt.Sprintf("%v", m.Payload)))
 				return
 			case bus.TypeToolCall:
-				fmt.Printf("%s %s\n", yellow.Render("◉"), yellow.Render(fmt.Sprintf("%v", m.Payload)))
+				fmt.Printf("%s %s\n", tool.Render("◉"), tool.Render(fmt.Sprintf("%v", m.Payload)))
 			case bus.TypeToolResult:
-				c.printResult(m.Payload)
+				c.printResult(fmt.Sprintf("%v", m.Payload))
 			case bus.TypeToolError:
-				fmt.Printf("%s %s\n", red.Render("✗"), red.Render(fmt.Sprintf("%v", m.Payload)))
+				c.printError(fmt.Sprintf("%v", m.Payload))
+			case bus.TypeCommand:
+				fmt.Printf("%s %s\n", command.Render("$"), command.Render(fmt.Sprintf("%v", m.Payload)))
+			case bus.TypeCommandOK:
+				c.printResult(fmt.Sprintf("%v", m.Payload))
+			case bus.TypeCommandError:
+				c.printError(fmt.Sprintf("%v", m.Payload))
 			}
 		case <-c.stop:
 			return
@@ -134,19 +145,23 @@ func (c *CLI) waitResponse(ch chan bus.Msg) {
 	}
 }
 
-func (c *CLI) printResult(payload any) {
-	out := fmt.Sprintf("%v", payload)
+func (c *CLI) printResult(out string) {
 	lines := strings.Split(out, "\n")
-	fmt.Printf("%s result:\n", green.Render("✓"))
-	for i, line := range lines {
-		if i >= 5 {
-			fmt.Printf("  %s\n", gray.Render("... (truncated)"))
-			break
+	total := len(lines)
+	shown := min(total, 4)
+	fmt.Printf("%s\n", success.Render("✓ done"))
+	for i := range shown {
+		line := lines[i]
+		if len(line) > 80 {
+			line = line[:80] + "…"
 		}
-		if len(line) > 100 {
-			fmt.Printf("  %s...\n", gray.Render(line[:100]))
-		} else {
-			fmt.Printf("  %s\n", gray.Render(line))
-		}
+		fmt.Printf("  %s\n", dim.Render(line))
 	}
+	if total > shown {
+		fmt.Printf("  %s\n", dim.Render(fmt.Sprintf("… +%d lines", total-shown)))
+	}
+}
+
+func (c *CLI) printError(msg string) {
+	fmt.Printf("%s %s\n", fail.Render("✗ error"), dim.Render(msg))
 }

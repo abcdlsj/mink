@@ -1,6 +1,6 @@
 module github.com/abcdlsj/mink
 
-go 1.20
+go 1.24
 
 require (
 	github.com/BurntSushi/toml v1.3.2

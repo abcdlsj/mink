@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -47,6 +49,12 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 	}
 
 	if r.Content != "" {
+		if c.router != nil {
+			if cmdResult := c.detectAndExecCommands(ctx, src, sid, r.Content); cmdResult != "" {
+				return false, nil
+			}
+		}
+
 		c.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
 		c.bus.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
@@ -55,12 +63,6 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 			Payload: r.Content,
 		})
 		c.hooks.Trigger(ctx, hook.AfterAssist, r.Content)
-
-		if c.router != nil {
-			if cmdResult := c.detectAndExecCommands(ctx, src, sid, r.Content); cmdResult != "" {
-				return false, nil
-			}
-		}
 	}
 
 	if len(r.ToolCalls) == 0 {
@@ -74,7 +76,7 @@ func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
 			Type:    bus.TypeToolCall,
 			From:    c.id,
 			To:      src,
-			Payload: tc.Name + " " + string(tc.Args),
+			Payload: fmtToolCall(tc.Name, tc.Args),
 		})
 
 		out, err := c.execTool(ctx, tc)
@@ -139,10 +141,11 @@ func (c *Core) prompt() string {
 	}
 
 	if c.router != nil {
-		b.WriteString("\n## Commands\n")
-		b.WriteString("You can execute shell commands in code blocks with `!` prefix:\n")
-		b.WriteString("```bash\n!git status\n!ls -la\n```\n")
-		b.WriteString("Command results will be returned to you for further processing.\n")
+		b.WriteString("\n## Commands (PREFERRED over bash tool)\n")
+		b.WriteString("Execute shell commands in code blocks with `!` prefix:\n")
+		b.WriteString("```bash\n!ls -la\n!git status\n```\n")
+		b.WriteString("IMPORTANT: Always use `!command` format instead of bash tool.\n")
+		b.WriteString("The `!` prefix is REQUIRED. Without it, commands won't execute.\n")
 	}
 
 	return b.String()
@@ -169,10 +172,10 @@ func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content stri
 		}
 
 		c.bus.Pub(bus.Msg{
-			Type:    bus.TypeToolCall,
+			Type:    bus.TypeCommand,
 			From:    c.id,
 			To:      src,
-			Payload: "!" + raw,
+			Payload: raw,
 		})
 
 		status := "ok"
@@ -180,14 +183,14 @@ func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content stri
 			status = "error"
 			out = err.Error()
 			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeToolError,
+				Type:    bus.TypeCommandError,
 				From:    c.id,
 				To:      src,
 				Payload: out,
 			})
 		} else {
 			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeToolResult,
+				Type:    bus.TypeCommandOK,
 				From:    c.id,
 				To:      src,
 				Payload: out,
@@ -222,4 +225,12 @@ func (c *Core) parseCommands(content string) []string {
 		}
 	}
 	return cmds
+}
+
+func fmtToolCall(name string, args json.RawMessage) string {
+	var buf bytes.Buffer
+	buf.WriteString(name)
+	buf.WriteByte(' ')
+	json.Compact(&buf, args)
+	return buf.String()
 }

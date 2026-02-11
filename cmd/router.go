@@ -19,10 +19,6 @@ func IsCommand(input string) bool {
 }
 
 func (r *Router) Route(ctx context.Context, input string) (string, bool, error) {
-	if !IsCommand(input) {
-		return "", false, nil
-	}
-
 	raw := strings.TrimPrefix(input, "!")
 	parts := strings.Fields(raw)
 	if len(parts) == 0 {
