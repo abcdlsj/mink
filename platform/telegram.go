@@ -125,6 +125,22 @@ func (t *Telegram) handleMessage(m *tgMessage) {
 func (t *Telegram) forward(ctx context.Context) {
 	ch := make(chan bus.Msg, 64)
 	t.bus.Subscribe(bus.TypeAssistant, ch)
+	t.bus.Subscribe(bus.TypeToolCall, ch)
+	t.bus.Subscribe(bus.TypeToolResult, ch)
+	t.bus.Subscribe(bus.TypeToolError, ch)
+	t.bus.Subscribe(bus.TypeCommand, ch)
+	t.bus.Subscribe(bus.TypeCommandOK, ch)
+	t.bus.Subscribe(bus.TypeCommandError, ch)
+
+	unsub := func() {
+		t.bus.Unsubscribe(bus.TypeAssistant, ch)
+		t.bus.Unsubscribe(bus.TypeToolCall, ch)
+		t.bus.Unsubscribe(bus.TypeToolResult, ch)
+		t.bus.Unsubscribe(bus.TypeToolError, ch)
+		t.bus.Unsubscribe(bus.TypeCommand, ch)
+		t.bus.Unsubscribe(bus.TypeCommandOK, ch)
+		t.bus.Unsubscribe(bus.TypeCommandError, ch)
+	}
 
 	for {
 		select {
@@ -132,27 +148,52 @@ func (t *Telegram) forward(ctx context.Context) {
 			if !strings.HasPrefix(m.To, "telegram:") {
 				continue
 			}
-			t.sendResponse(m)
+			t.sendMsg(m)
 		case <-t.stop:
-			t.bus.Unsubscribe(bus.TypeAssistant, ch)
+			unsub()
 			return
 		case <-ctx.Done():
-			t.bus.Unsubscribe(bus.TypeAssistant, ch)
+			unsub()
 			return
 		}
 	}
 }
 
-func (t *Telegram) sendResponse(m bus.Msg) {
-	text := fmt.Sprintf("🤖 %s", m.Payload)
-
-	s := strings.TrimPrefix(m.To, "telegram:")
+func (t *Telegram) sendMsg(m bus.Msg) {
 	var chatID int64
-	fmt.Sscanf(s, "%d", &chatID)
-
-	if chatID != 0 {
-		t.send(chatID, text)
+	fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
+	if chatID == 0 {
+		return
 	}
+
+	var text string
+	switch m.Type {
+	case bus.TypeAssistant:
+		text = fmt.Sprintf("🤖 %s", m.Payload)
+	case bus.TypeToolCall:
+		text = fmt.Sprintf("🔧 %s", m.Payload)
+	case bus.TypeToolResult:
+		text = fmt.Sprintf("✅ %s", truncate(fmt.Sprintf("%v", m.Payload), 200))
+	case bus.TypeToolError:
+		text = fmt.Sprintf("❌ %s", m.Payload)
+	case bus.TypeCommand:
+		text = fmt.Sprintf("$ %s", m.Payload)
+	case bus.TypeCommandOK:
+		text = fmt.Sprintf("✅ %s", truncate(fmt.Sprintf("%v", m.Payload), 200))
+	case bus.TypeCommandError:
+		text = fmt.Sprintf("❌ %s", m.Payload)
+	default:
+		return
+	}
+
+	t.send(chatID, text)
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func (t *Telegram) getUpdates() ([]tgUpdate, error) {
