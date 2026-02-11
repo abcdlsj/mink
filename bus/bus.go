@@ -51,7 +51,6 @@ func (b *Bus) Unsubscribe(msgType string, ch chan Msg) {
 	for i, c := range arr {
 		if c == ch {
 			b.subs[msgType] = append(arr[:i], arr[i+1:]...)
-			close(ch)
 			break
 		}
 	}

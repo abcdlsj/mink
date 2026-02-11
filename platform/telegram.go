@@ -140,6 +140,7 @@ func (t *Telegram) forward(ctx context.Context) {
 		t.bus.Unsubscribe(bus.TypeCommand, ch)
 		t.bus.Unsubscribe(bus.TypeCommandOK, ch)
 		t.bus.Unsubscribe(bus.TypeCommandError, ch)
+		close(ch)
 	}
 
 	for {

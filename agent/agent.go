@@ -116,6 +116,7 @@ func (c *Core) Start(ctx context.Context) {
 				}
 			case <-ctx.Done():
 				c.bus.Unsubscribe(bus.TypeUserInput, ch)
+				close(ch)
 				return
 			}
 		}
