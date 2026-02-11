@@ -53,6 +53,7 @@ func main() {
 	cmdReg := cmd.NewRegistry()
 	cmdReg.Register(cmd.NewHelpCmd(cmdReg))
 	router := cmd.NewRouter(cmdReg)
+	guard := cmd.NewGuardMux()
 
 	sup := agent.NewSupervisor(b, p, dir, hooks, router, cfg.CustomPrompt)
 	a := agent.New("main", p, dir, b, hooks, router, cfg.CustomPrompt)
@@ -68,6 +69,7 @@ func main() {
 	cli := platform.NewCLI(b, router, hooks)
 	cli.Start(ctx)
 	adapters = append(adapters, cli)
+	guard.Register("cli", cli)
 
 	if cfg.Telegram != "" {
 		tg := platform.NewTelegram(cfg.Telegram, b)
@@ -76,8 +78,11 @@ func main() {
 		} else {
 			fmt.Println("telegram: ok")
 			adapters = append(adapters, tg)
+			guard.Register("telegram:", tg)
 		}
 	}
+
+	router.SetGuard(guard)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

@@ -8,9 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/cmd"
 )
 
 type Telegram struct {
@@ -20,6 +22,9 @@ type Telegram struct {
 	chatIDs map[int64]bool
 	offset  int
 	stop    chan struct{}
+
+	confirmMu sync.Mutex
+	confirms  map[int64]chan bool
 }
 
 type tgUpdate struct {
@@ -39,11 +44,12 @@ type tgChat struct {
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
 	return &Telegram{
-		token:   token,
-		bus:     b,
-		client:  &http.Client{Timeout: 30 * time.Second},
-		chatIDs: make(map[int64]bool),
-		stop:    make(chan struct{}),
+		token:    token,
+		bus:      b,
+		client:   &http.Client{Timeout: 30 * time.Second},
+		chatIDs:  make(map[int64]bool),
+		stop:     make(chan struct{}),
+		confirms: make(map[int64]chan bool),
 	}
 }
 
@@ -93,6 +99,20 @@ func (t *Telegram) poll(ctx context.Context) {
 func (t *Telegram) handleMessage(m *tgMessage) {
 	chatID := m.Chat.ID
 	t.chatIDs[chatID] = true
+
+	t.confirmMu.Lock()
+	ch := t.confirms[chatID]
+	t.confirmMu.Unlock()
+
+	if ch != nil {
+		ans := strings.ToLower(strings.TrimSpace(m.Text))
+		ok := ans == "y" || ans == "yes"
+		select {
+		case ch <- ok:
+		default:
+		}
+		return
+	}
 
 	t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
@@ -185,4 +205,40 @@ func (t *Telegram) send(chatID int64, text string) error {
 	}
 
 	return nil
+}
+
+func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
+	src := cmd.SourceFrom(ctx)
+	if !strings.HasPrefix(src, "telegram:") {
+		return true, nil
+	}
+
+	var chatID int64
+	fmt.Sscanf(strings.TrimPrefix(src, "telegram:"), "%d", &chatID)
+	if chatID == 0 {
+		return false, fmt.Errorf("invalid chat id")
+	}
+
+	ch := make(chan bool, 1)
+	t.confirmMu.Lock()
+	t.confirms[chatID] = ch
+	t.confirmMu.Unlock()
+
+	defer func() {
+		t.confirmMu.Lock()
+		delete(t.confirms, chatID)
+		t.confirmMu.Unlock()
+	}()
+
+	t.send(chatID, fmt.Sprintf("⚠️ Execute: %s?\nReply Y/N", raw))
+
+	select {
+	case ok := <-ch:
+		return ok, nil
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-time.After(60 * time.Second):
+		t.send(chatID, "⏰ Timeout, cancelled")
+		return false, nil
+	}
 }

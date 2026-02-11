@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -22,6 +23,7 @@ var (
 	success = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
 	fail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	dim     = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
+	warn    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387"))
 )
 
 type CLI struct {
@@ -29,6 +31,9 @@ type CLI struct {
 	router *cmd.Router
 	hooks  *hook.Manager
 	stop   chan struct{}
+
+	confirmMu sync.Mutex
+	confirmCh chan bool
 }
 
 func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
@@ -164,4 +169,20 @@ func (c *CLI) printResult(out string) {
 
 func (c *CLI) printError(msg string) {
 	fmt.Printf("%s %s\n", fail.Render("✗ error"), dim.Render(msg))
+}
+
+func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
+	c.confirmMu.Lock()
+	defer c.confirmMu.Unlock()
+
+	fmt.Printf("%s %s [y/N] ", warn.Render("⚠"), raw)
+
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+
+	ans := strings.ToLower(strings.TrimSpace(line))
+	return ans == "y" || ans == "yes", nil
 }

@@ -2,16 +2,22 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
 )
 
 type Router struct {
-	reg *Registry
+	reg   *Registry
+	guard Guard
 }
 
 func NewRouter(reg *Registry) *Router {
 	return &Router{reg: reg}
+}
+
+func (r *Router) SetGuard(g Guard) {
+	r.guard = g
 }
 
 func IsCommand(input string) bool {
@@ -37,6 +43,16 @@ func (r *Router) Route(ctx context.Context, input string) (string, bool, error) 
 }
 
 func (r *Router) shell(ctx context.Context, raw string) (string, bool, error) {
+	if r.guard != nil && IsDangerous(raw) {
+		ok, err := r.guard.Allow(ctx, raw)
+		if err != nil {
+			return "", true, fmt.Errorf("guard: %w", err)
+		}
+		if !ok {
+			return "cancelled", true, nil
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, "bash", "-c", raw)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), true, err

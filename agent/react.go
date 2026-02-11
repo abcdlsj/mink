@@ -164,6 +164,8 @@ func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content stri
 		return ""
 	}
 
+	ctx = cmd.WithSource(ctx, src)
+
 	var results []string
 	for _, raw := range cmds {
 		out, ok, err := c.router.Route(ctx, raw)
