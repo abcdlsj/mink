@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/skill"
 )
 
 const workerIdleTTL = 5 * time.Minute
@@ -22,17 +23,18 @@ type workerState struct {
 }
 
 type Dispatcher struct {
-	bus     *bus.Bus
-	sm      *session.Manager
-	p       llm.Provider
-	agentID string
-	hooks   *hook.Manager
-	router  *command.Router
-	prompt  string
-	cfg     config.Config
-	agents  map[string]*Agent
-	workers map[string]*workerState
-	mu      sync.RWMutex
+	bus         *bus.Bus
+	sm          *session.Manager
+	p           llm.Provider
+	agentID     string
+	hooks       *hook.Manager
+	router      *command.Router
+	prompt      string
+	cfg         config.Config
+	agents      map[string]*Agent
+	workers     map[string]*workerState
+	skillLoader *skill.Loader
+	mu          sync.RWMutex
 }
 
 type usageSnapshot struct {
@@ -58,11 +60,12 @@ func NewDispatcher(b *bus.Bus, sm *session.Manager, p llm.Provider) *Dispatcher 
 	return d
 }
 
-func (d *Dispatcher) SetAgentID(id string)        { d.agentID = id }
-func (d *Dispatcher) SetHooks(h *hook.Manager)    { d.hooks = h }
-func (d *Dispatcher) SetRouter(r *command.Router) { d.router = r }
-func (d *Dispatcher) SetPrompt(p string)          { d.prompt = p }
-func (d *Dispatcher) SetConfig(c config.Config)   { d.cfg = c }
+func (d *Dispatcher) SetAgentID(id string)           { d.agentID = id }
+func (d *Dispatcher) SetHooks(h *hook.Manager)       { d.hooks = h }
+func (d *Dispatcher) SetRouter(r *command.Router)    { d.router = r }
+func (d *Dispatcher) SetPrompt(p string)             { d.prompt = p }
+func (d *Dispatcher) SetConfig(c config.Config)      { d.cfg = c }
+func (d *Dispatcher) SetSkillLoader(l *skill.Loader) { d.skillLoader = l }
 
 func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	if m.To != bus.AddrBroadcast && m.To != d.agentID {
@@ -225,6 +228,9 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 		WithPrompt(d.prompt),
 		WithConfig(d.cfg),
 	)
+	if d.skillLoader != nil {
+		skill.RegisterTools(a.Tools(), d.skillLoader)
+	}
 	d.agents[src] = a
 	return a
 }

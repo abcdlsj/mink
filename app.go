@@ -17,6 +17,7 @@ import (
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/platform"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/skill"
 )
 
 var (
@@ -31,6 +32,7 @@ type Options struct {
 	SessionStore session.Store
 	SessionDir   string
 	Hooks        *hook.Manager
+	Workspace    string
 }
 
 type Usage struct {
@@ -125,6 +127,10 @@ func New(opts Options) (*App, error) {
 	disp.SetRouter(router)
 	disp.SetPrompt(cfg.CustomPrompt)
 	disp.SetConfig(cfg)
+
+	if opts.Workspace != "" {
+		disp.SetSkillLoader(skill.NewLoader(opts.Workspace))
+	}
 
 	cmdReg.Register(command.NewTokensCmd(func(src string) (command.TokenUsage, bool) {
 		u, ok := disp.Usage(src)
