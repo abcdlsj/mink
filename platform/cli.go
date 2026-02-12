@@ -20,7 +20,8 @@ import (
 const (
 	maxOutputLines  = 4000
 	agentLineLimit  = 8
-	agentPanelPad   = 10
+	mouseScrollStep = 3
+	minOutputLines  = 5
 	confirmPromptID = "[confirm]"
 )
 
@@ -84,6 +85,13 @@ type model struct {
 	scroll    int
 }
 
+type layoutMetrics struct {
+	outputHeight    int
+	maxScroll       int
+	showScroll      bool
+	agentDetailLine int
+}
+
 func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
 	return &CLI{
 		bus:    b,
@@ -121,7 +129,7 @@ func (c *CLI) Run() error {
 	}
 	c.model = m
 
-	c.program = tea.NewProgram(m, tea.WithAltScreen())
+	c.program = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
 	_, err := c.program.Run()
 	return err
 }
@@ -240,6 +248,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyEnd:
 			m.scrollToBottom()
+			return m, nil
+		}
+
+	case tea.MouseMsg:
+		switch {
+		case msg.Button == tea.MouseButtonWheelUp || msg.Type == tea.MouseWheelUp:
+			m.scrollUp(mouseScrollStep)
+			return m, nil
+		case msg.Button == tea.MouseButtonWheelDown || msg.Type == tea.MouseWheelDown:
+			m.scrollDown(mouseScrollStep)
 			return m, nil
 		}
 
@@ -567,6 +585,7 @@ func (m *model) appendToAgent(id string, line string) {
 }
 
 func (m *model) appendOutput(line string) {
+	wasAtBottom := m.scroll == 0
 	m.output = append(m.output, line)
 	if len(m.output) > maxOutputLines {
 		drop := len(m.output) - maxOutputLines
@@ -577,7 +596,9 @@ func (m *model) appendOutput(line string) {
 			m.scroll = 0
 		}
 	}
-	m.scrollToBottom()
+	if wasAtBottom {
+		m.scrollToBottom()
+	}
 }
 
 func (m *model) scrollUp(n int) {
@@ -610,35 +631,32 @@ func (m *model) scrollToBottom() {
 }
 
 func (m *model) pageSize() int {
-	h := m.height - agentPanelPad
-	if h < 5 {
-		return 5
-	}
-	return h
+	return m.computeLayout().outputHeight
 }
 
 func (m *model) maxScroll() int {
-	visible := m.pageSize()
-	extra := len(m.output) - visible
-	if extra < 0 {
-		return 0
-	}
-	return extra
+	return m.computeLayout().maxScroll
 }
 
-func (m *model) visibleOutput() []string {
-	if len(m.output) == 0 {
+func (m *model) visibleOutput(outputHeight int) []string {
+	if len(m.output) == 0 || outputHeight <= 0 {
 		return nil
 	}
-	visible := m.pageSize()
-	if visible > len(m.output) {
-		visible = len(m.output)
+	if outputHeight > len(m.output) {
+		outputHeight = len(m.output)
 	}
-	end := len(m.output) - m.scroll
+
+	scroll := m.scroll
+	maxScroll := m.maxScroll()
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+
+	end := len(m.output) - scroll
 	if end < 0 {
 		end = 0
 	}
-	start := end - visible
+	start := end - outputHeight
 	if start < 0 {
 		start = 0
 	}
@@ -654,15 +672,21 @@ func (m *model) View() string {
 	}
 
 	var b strings.Builder
+	layout := m.computeLayout()
 
-	outputLines := m.visibleOutput()
+	outputLines := m.visibleOutput(layout.outputHeight)
 	for _, line := range outputLines {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
 
-	if m.maxScroll() > 0 {
-		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] ↑/↓ PgUp/PgDn Home/End", m.scroll, m.maxScroll())))
+	currentScroll := m.scroll
+	if currentScroll > layout.maxScroll {
+		currentScroll = layout.maxScroll
+	}
+
+	if layout.showScroll {
+		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] ↑/↓ PgUp/PgDn Home/End MouseWheel", currentScroll, layout.maxScroll)))
 		b.WriteString("\n")
 	}
 
@@ -685,7 +709,11 @@ func (m *model) View() string {
 			}
 
 			fmt.Fprintf(&b, "%s %s %s\n", status, styleAgent.Render(id), styleDim.Render(agent.task))
-			for _, line := range agent.lines {
+			lines := agent.lines
+			if layout.agentDetailLine >= 0 && len(lines) > layout.agentDetailLine {
+				lines = lines[len(lines)-layout.agentDetailLine:]
+			}
+			for _, line := range lines {
 				b.WriteString("  ")
 				b.WriteString(line)
 				b.WriteString("\n")
@@ -775,6 +803,88 @@ func (m *model) refreshInputMode() {
 		return
 	}
 	m.input.Placeholder = "Type your message..."
+}
+
+func (m *model) computeLayout() layoutMetrics {
+	agentDetailLine := m.agentDetailLines()
+	outputHeight := m.height - m.nonOutputLines(false, agentDetailLine)
+	if outputHeight < 0 {
+		outputHeight = 0
+	}
+
+	maxScroll := len(m.output) - outputHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	showScroll := false
+	if maxScroll > 0 {
+		withScrollHint := m.height - m.nonOutputLines(true, agentDetailLine)
+		if withScrollHint < 0 {
+			withScrollHint = 0
+		}
+
+		if withScrollHint != outputHeight {
+			outputHeight = withScrollHint
+			maxScroll = len(m.output) - outputHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+		}
+
+		showScroll = maxScroll > 0
+	}
+
+	return layoutMetrics{
+		outputHeight:    outputHeight,
+		maxScroll:       maxScroll,
+		showScroll:      showScroll,
+		agentDetailLine: agentDetailLine,
+	}
+}
+
+func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int {
+	lines := 2
+
+	if len(m.agentKeys) > 0 {
+		lines += 3
+		for _, id := range m.agentKeys {
+			agent := m.agents[id]
+			if agent == nil {
+				continue
+			}
+			detail := len(agent.lines)
+			if detail > agentDetailLine {
+				detail = agentDetailLine
+			}
+			lines += 1 + detail
+		}
+	}
+
+	if m.isConfirming() {
+		lines += 3
+		if m.confirmCommand() != "" {
+			lines++
+		}
+	}
+
+	if includeScrollHint {
+		lines++
+	}
+
+	return lines
+}
+
+func (m *model) agentDetailLines() int {
+	limit := agentLineLimit
+	for limit > 0 {
+		available := m.height - m.nonOutputLines(false, limit)
+		if available >= minOutputLines {
+			return limit
+		}
+		limit--
+	}
+	return 0
 }
 
 func (m *model) isConfirming() bool {

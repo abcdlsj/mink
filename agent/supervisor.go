@@ -19,32 +19,37 @@ var agentNames = []string{
 	"lynx", "crow", "bear", "puma", "eagle",
 }
 
+const maxActiveSubAgents = 2
+
 func randAgentName() string {
 	adj := []string{"swift", "brave", "calm", "fierce", "gentle", "noble", "proud", "sharp", "silent", "wild"}
 	return adj[rand.Intn(len(adj))] + "-" + agentNames[rand.Intn(len(agentNames))]
 }
 
 type Supervisor struct {
-	bus    *bus.Bus
-	p      llm.Provider
-	sm     *session.Manager
-	hooks  *hook.Manager
-	router *cmd.Router
-	prompt string
-	cfg    config.Config
-	agents map[string]*Agent
-	mu     sync.RWMutex
+	bus             *bus.Bus
+	p               llm.Provider
+	sm              *session.Manager
+	hooks           *hook.Manager
+	router          *cmd.Router
+	prompt          string
+	cfg             config.Config
+	agents          map[string]*Agent
+	spawned         map[string]struct{}
+	activeSubAgents int
+	mu              sync.RWMutex
 }
 
 func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Manager, r *cmd.Router, prompt string) *Supervisor {
 	s := &Supervisor{
-		bus:    b,
-		p:      p,
-		sm:     sm,
-		hooks:  h,
-		router: r,
-		prompt: prompt,
-		agents: make(map[string]*Agent),
+		bus:     b,
+		p:       p,
+		sm:      sm,
+		hooks:   h,
+		router:  r,
+		prompt:  prompt,
+		agents:  make(map[string]*Agent),
+		spawned: make(map[string]struct{}),
 	}
 	b.RegisterAgent(bus.AddrSystemSup, false)
 	b.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
@@ -67,6 +72,10 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	task, _ := payload["task"].(string)
 	shareCtx, _ := payload["share_context"].(bool)
 	parentID := m.From
+
+	if !s.acquireSpawnSlot() {
+		return bus.Msg{}, fmt.Errorf("subagent limit reached: at most %d active subagents", maxActiveSubAgents)
+	}
 
 	child := s.SpawnWithContext(parentID, shareCtx)
 
@@ -181,6 +190,7 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 
 	s.mu.Lock()
 	s.agents[id] = child
+	s.spawned[id] = struct{}{}
 	s.mu.Unlock()
 
 	return child
@@ -192,6 +202,12 @@ func (s *Supervisor) Kill(id string) {
 
 	if _, ok := s.agents[id]; ok {
 		delete(s.agents, id)
+		if _, spawned := s.spawned[id]; spawned {
+			delete(s.spawned, id)
+			if s.activeSubAgents > 0 {
+				s.activeSubAgents--
+			}
+		}
 		s.bus.UnregisterAgent(id)
 	}
 }
@@ -200,6 +216,16 @@ func (s *Supervisor) Register(a *Agent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agents[a.ID()] = a
+}
+
+func (s *Supervisor) acquireSpawnSlot() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.activeSubAgents >= maxActiveSubAgents {
+		return false
+	}
+	s.activeSubAgents++
+	return true
 }
 
 func (s *Supervisor) Get(id string) (*Agent, bool) {
