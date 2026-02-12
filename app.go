@@ -128,8 +128,12 @@ func New(opts Options) (*App, error) {
 	disp.SetPrompt(cfg.CustomPrompt)
 	disp.SetConfig(cfg)
 
-	if opts.Workspace != "" {
-		disp.SetSkillLoader(skill.NewLoader(opts.Workspace))
+	workspace := opts.Workspace
+	if workspace == "" {
+		workspace, _ = os.Getwd()
+	}
+	if workspace != "" {
+		disp.SetSkillLoader(skill.NewLoader(workspace))
 	}
 
 	cmdReg.Register(command.NewTokensCmd(func(src string) (command.TokenUsage, bool) {
