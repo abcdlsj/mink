@@ -71,6 +71,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 	}
 
 	taskID := "[task]" + randTaskName()
+	source := bus.SourceFrom(ctx)
 
 	// 广播任务开始
 	_ = b.bus.Pub(bus.Msg{
@@ -100,7 +101,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 			"task_id": taskID,
 			"output":  string(output),
 			"status":  "ok",
-			"source":  b.agentID,
+			"source":  source,
 		}
 		if err != nil {
 			result["status"] = "error"

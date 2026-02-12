@@ -44,6 +44,16 @@ func (s *Session) Messages() []msg.Message {
 	return r
 }
 
+func (s *Session) Replace(msgs []msg.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	r := make([]msg.Message, len(msgs))
+	copy(r, msgs)
+	s.msgs = r
+	s.dirty = true
+}
+
 func (s *Session) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

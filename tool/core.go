@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -42,9 +43,15 @@ func (r *Registry) Get(name string) Tool {
 }
 
 func (r *Registry) All() []Tool {
-	var list []Tool
-	for _, t := range r.tools {
-		list = append(list, t)
+	keys := make([]string, 0, len(r.tools))
+	for k := range r.tools {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	list := make([]Tool, 0, len(keys))
+	for _, k := range keys {
+		list = append(list, r.tools[k])
 	}
 	return list
 }
@@ -64,7 +71,9 @@ func (r *Read) Schema() map[string]any {
 	}
 }
 func (r *Read) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct{ Path string `json:"path"` }
+	var params struct {
+		Path string `json:"path"`
+	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
 	}

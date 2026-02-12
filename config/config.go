@@ -19,6 +19,14 @@ type Config struct {
 	Stream       bool              `toml:"stream"`
 	MaxSteps     int               `toml:"max_steps"`
 	Timeout      TimeoutConfig     `toml:"timeout"`
+	Compact      CompactConfig     `toml:"compact"`
+}
+
+type CompactConfig struct {
+	Auto               bool `toml:"auto"`
+	TriggerTokens      int  `toml:"trigger_tokens"`
+	TriggerMessages    int  `toml:"trigger_messages"`
+	KeepRecentMessages int  `toml:"keep_recent_messages"`
 }
 
 type TimeoutConfig struct {
@@ -41,6 +49,12 @@ func Load() Config {
 			Agent:      600,
 			Background: 1800,
 			LLM:        120,
+		},
+		Compact: CompactConfig{
+			Auto:               true,
+			TriggerTokens:      12000,
+			TriggerMessages:    80,
+			KeepRecentMessages: 20,
 		},
 	}
 

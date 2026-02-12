@@ -8,6 +8,12 @@ base_url = ""
 telegram_token = ""
 mode = "tui"  # tui or cli
 
+[compact]
+auto = true
+trigger_tokens = 12000
+trigger_messages = 80
+keep_recent_messages = 20
+
 [headers]
 # User-Agent = "custom-agent"
 # X-Custom-Header = "value"
