@@ -58,6 +58,8 @@ type model struct {
 	quitting  bool
 	width     int
 	height    int
+	pending   int
+	spinner   spinner.Model
 }
 
 func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
@@ -79,8 +81,13 @@ func (c *CLI) Start(ctx context.Context) error {
 func (c *CLI) Run() error {
 	ti := textinput.New()
 	ti.Placeholder = "Type your message..."
+	ti.Prompt = ""
 	ti.Focus()
 	ti.Width = 80
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = styleDim
 
 	m := &model{
 		cli:       c,
@@ -88,6 +95,7 @@ func (c *CLI) Run() error {
 		output:    []string{styleDim.Render("mink. type 'exit' to quit")},
 		agents:    make(map[string]*agentState),
 		agentKeys: []string{},
+		spinner:   s,
 	}
 	c.model = m
 
@@ -168,6 +176,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBusMsg(bus.Msg(msg))
 
 	case spinner.TickMsg:
+		if m.pending > 0 {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		for _, agent := range m.agents {
 			if !agent.done {
 				var cmd tea.Cmd
@@ -224,7 +237,8 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	})
 
 	m.cli.hooks.Trigger(ctx, hook.AfterInput, text)
-	return m, nil
+	m.pending++
+	return m, m.spinner.Tick
 }
 
 func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
@@ -298,8 +312,10 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case bus.TypeTurnDone:
-		// 清理已完成的 agents
 		if msg.From == "main" {
+			if m.pending > 0 {
+				m.pending--
+			}
 			m.agentKeys = []string{}
 			m.agents = make(map[string]*agentState)
 		}
@@ -393,10 +409,7 @@ func (m *model) View() string {
 
 	// 输出区域（最近的消息）
 	outputLines := m.output
-	maxOutput := m.height - 10
-	if maxOutput < 5 {
-		maxOutput = 5
-	}
+	maxOutput := max(m.height-10, 5)
 	if len(outputLines) > maxOutput {
 		outputLines = outputLines[len(outputLines)-maxOutput:]
 	}
@@ -421,10 +434,10 @@ func (m *model) View() string {
 				status = agent.spinner.View()
 			}
 
-			b.WriteString(fmt.Sprintf("%s %s %s\n",
-				status,
-				styleAgent.Render(id),
-				styleDim.Render(agent.task)))
+			fmt.Fprintf(&b, "%s %s %s\n",
+			status,
+			styleAgent.Render(id),
+			styleDim.Render(agent.task))
 
 			for _, line := range agent.lines {
 				b.WriteString("  " + line + "\n")
@@ -435,6 +448,9 @@ func (m *model) View() string {
 
 	// 输入区域
 	b.WriteString("\n")
+	if m.pending > 0 {
+		b.WriteString(m.spinner.View() + " ")
+	}
 	b.WriteString(stylePrompt.Render("› ") + m.input.View())
 
 	return b.String()
