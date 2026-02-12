@@ -207,11 +207,11 @@ func (s *Supervisor) extractLastResponse(a *Agent) string {
 	msgs := a.Session().Messages()
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == "assistant" && msgs[i].Content != "" {
-			content := msgs[i].Content
+			content := []rune(msgs[i].Content)
 			if len(content) > 2000 {
-				content = content[:2000] + "..."
+				return string(content[:2000]) + "..."
 			}
-			return content
+			return string(content)
 		}
 	}
 	return "completed"

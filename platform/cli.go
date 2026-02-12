@@ -353,10 +353,7 @@ func (m *model) handleAgentSpawn(msg bus.Msg) (tea.Model, tea.Cmd) {
 	if id == "" {
 		id = msg.From
 	}
-	task := payload["task"]
-	if len(task) > 40 {
-		task = task[:40] + "…"
-	}
+	task := truncate(payload["task"], 40)
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
