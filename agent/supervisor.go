@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/cmd"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
@@ -31,7 +31,7 @@ type Supervisor struct {
 	p               llm.Provider
 	sm              *session.Manager
 	hooks           *hook.Manager
-	router          *cmd.Router
+	router          *command.Router
 	prompt          string
 	cfg             config.Config
 	agents          map[string]*Agent
@@ -40,7 +40,7 @@ type Supervisor struct {
 	mu              sync.RWMutex
 }
 
-func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Manager, r *cmd.Router, prompt string) *Supervisor {
+func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Manager, r *command.Router, prompt string) *Supervisor {
 	s := &Supervisor{
 		bus:     b,
 		p:       p,

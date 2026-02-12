@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/cmd"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
@@ -23,7 +23,7 @@ type Agent struct {
 	session *session.Session
 	bus     *bus.Bus
 	hooks   *hook.Manager
-	router  *cmd.Router
+	router  *command.Router
 	prompt  string
 	cfg     config.Config
 	stream  bool
@@ -51,7 +51,7 @@ type tokenUsage struct {
 type Option func(*Agent)
 
 func WithHooks(h *hook.Manager) Option     { return func(a *Agent) { a.hooks = h } }
-func WithRouter(r *cmd.Router) Option      { return func(a *Agent) { a.router = r } }
+func WithRouter(r *command.Router) Option  { return func(a *Agent) { a.router = r } }
 func WithPrompt(p string) Option           { return func(a *Agent) { a.prompt = p } }
 func WithBus(b *bus.Bus) Option            { return func(a *Agent) { a.bus = b } }
 func WithRegistry(r *tool.Registry) Option { return func(a *Agent) { a.reg = r } }

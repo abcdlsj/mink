@@ -2,25 +2,75 @@
 
 Minimal AI coding agent. Fast, elegant, extensible.
 
-## Philosophy
+Mink can run as:
+- CLI app
+- Telegram bot
+- Embeddable Go library
 
-- **Aesthetics first**: Beautiful code is productive code
-- **Minimal core**: 4 tools only (read, write, edit, bash)
-- **Maximum extensibility**: Extensions and skills
-- **Tree sessions**: Branch and compact
-
-## Quick Start
+## Quick Start (CLI)
 
 ```bash
-# 1. build
-go build -o mink
+# 1) build CLI binary
+go build -o mink ./cmd/mink
 
-# 2. config
+# 2) config
 cp config.example.toml ~/.mink/config.toml
 # edit ~/.mink/config.toml
 
-# 3. run
+# 3) run
 ./mink
+```
+
+## Telegram Mode
+
+```bash
+./mink tg -tg <telegram_bot_token>
+```
+
+## Library Usage
+
+```go
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/abcdlsj/mink"
+	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/config"
+)
+
+func main() {
+	app, err := mink.New(mink.Options{
+		Config: config.Config{
+			Provider: "openai",
+			APIKey:   "sk-...",
+			Model:    "gpt-4o",
+			Stream:   true,
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer app.Close()
+
+	ctx := context.Background()
+	if err := app.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	ch := make(chan bus.Msg, 32)
+	app.Subscribe(bus.TypeAssistant, ch)
+	defer app.Unsubscribe(bus.TypeAssistant, ch)
+
+	if err := app.Submit("platform:api", "hello from embedded mink"); err != nil {
+		log.Fatal(err)
+	}
+
+	msg := <-ch
+	log.Printf("assistant: %v", msg.Payload)
+}
 ```
 
 ## Config
@@ -41,7 +91,7 @@ User-Agent = "custom"
 
 Flags override config:
 ```bash
-./mink -p openai -m gpt-4o -k sk-... -c
+./mink -p openai -m gpt-4o -k sk-...
 ```
 
 ## Commands

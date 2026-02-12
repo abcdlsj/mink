@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/cmd"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
@@ -262,7 +262,7 @@ func (a *Agent) detectAndExecCommands(ctx context.Context, src, content string) 
 		return ""
 	}
 
-	ctx = cmd.WithSource(ctx, src)
+	ctx = command.WithSource(ctx, src)
 
 	var results []string
 	for _, raw := range cmds {
@@ -326,7 +326,7 @@ func parseCommands(content string) []string {
 			continue
 		}
 
-		if inFence && cmd.IsCommand(stripped) {
+		if inFence && command.IsCommand(stripped) {
 			cmds = append(cmds, strings.TrimPrefix(stripped, "!"))
 		}
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/cmd"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/hook"
 )
 
@@ -56,7 +56,7 @@ type busMsg bus.Msg
 
 type CLI struct {
 	bus    *bus.Bus
-	router *cmd.Router
+	router *command.Router
 	hooks  *hook.Manager
 	stop   chan struct{}
 
@@ -92,7 +92,7 @@ type layoutMetrics struct {
 	agentDetailLine int
 }
 
-func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
+func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager) *CLI {
 	return &CLI{
 		bus:    b,
 		router: r,
@@ -328,10 +328,11 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	m.appendOutput(stylePrompt.Render("› ") + text)
 
-	ctx := cmd.WithSource(context.Background(), bus.AddrPlatformCLI)
+	ctx := command.WithSource(context.Background(), bus.AddrPlatformCLI)
+
 	m.cli.hooks.Trigger(ctx, hook.BeforeInput, text)
 
-	if cmd.IsCommand(text) {
+	if command.IsCommand(text) {
 		out, ok, err := m.cli.router.Route(ctx, text)
 		if ok {
 			if err != nil {

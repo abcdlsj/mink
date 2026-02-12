@@ -6,7 +6,7 @@ PREFIX=$(HOME)/.local
 all: build
 
 build:
-	go build -o $(BINARY) .
+	go build -o $(BINARY) ./cmd/mink
 
 install: build
 	mkdir -p $(PREFIX)/bin
