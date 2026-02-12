@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -192,6 +193,13 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 func (a *Agent) buildPrompt() string {
 	var b strings.Builder
 	b.WriteString("You are a helpful assistant.\n\n")
+
+	// Context info
+	pwd, _ := os.Getwd()
+	if pwd != "" {
+		fmt.Fprintf(&b, "Working directory: %s\n", pwd)
+	}
+	fmt.Fprintf(&b, "Current time: %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
 
 	if a.prompt != "" {
 		b.WriteString(a.prompt)
