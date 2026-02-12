@@ -380,6 +380,13 @@ func (a *App) Unsubscribe(msgType string, ch chan bus.Msg) {
 	a.bus.Unsubscribe(msgType, ch)
 }
 
+func (a *App) ReloadConfig(cfg config.Config) {
+	a.mu.Lock()
+	a.cfg = cfg
+	a.mu.Unlock()
+	a.disp.SetConfig(cfg)
+}
+
 func normalizeConfig(cfg config.Config) config.Config {
 	if cfg.Provider == "" {
 		cfg.Provider = "openai"
