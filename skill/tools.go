@@ -18,7 +18,7 @@ type listTool struct {
 	loader *Loader
 }
 
-func (t *listTool) Name() string { return "skills.list" }
+func (t *listTool) Name() string { return "skills_list" }
 func (t *listTool) Desc() string { return "List available skills" }
 func (t *listTool) Schema() map[string]any {
 	return map[string]any{
@@ -43,7 +43,7 @@ type describeTool struct {
 	loader *Loader
 }
 
-func (t *describeTool) Name() string { return "skills.describe" }
+func (t *describeTool) Name() string { return "skills_describe" }
 func (t *describeTool) Desc() string { return "Load full skill body by name" }
 func (t *describeTool) Schema() map[string]any {
 	return map[string]any{
@@ -62,7 +62,7 @@ func (t *describeTool) Run(ctx context.Context, args json.RawMessage) (string, e
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", tool.ParseError("skills.describe", err.Error())
+		return "", tool.ParseError("skills_describe", err.Error())
 	}
 
 	if params.Name == "" {
