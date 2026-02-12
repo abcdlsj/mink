@@ -58,7 +58,7 @@ git commit --author="<ToolName> <ai@songjian.li>" -m "type: message
 Co-authored-by: <ToolName> <ai@songjian.li>"
 ```
 
-- `<ToolName>`: AI tool name, e.g. `Claude Code`, `OpenClaw`
+- `<ToolName>`: AI tool name, e.g. `Claude Code`, `OpenClaw`, `Kimi`, `OpenCode`, `Cursor`, `AmpCode`, `GitHub Copilot`
 - Email: always use `ai@songjian.li`
 
 ---
