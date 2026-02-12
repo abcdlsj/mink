@@ -1,5 +1,5 @@
 # Mink 配置文件
-# 复制到 ~/.mink/config.toml
+# 复制到 ~/.config/mink/config.toml
 
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"

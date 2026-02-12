@@ -37,6 +37,10 @@ type TimeoutConfig struct {
 }
 
 func Load() Config {
+	return LoadWithDir("mink")
+}
+
+func LoadWithDir(name string) Config {
 	c := Config{
 		Provider: "openai",
 		Model:    "gpt-4o",
@@ -58,8 +62,8 @@ func Load() Config {
 		},
 	}
 
-	home := os.ExpandEnv("$HOME/.mink")
-	path := filepath.Join(home, "config.toml")
+	configDir := defaultConfigDir(name)
+	path := filepath.Join(configDir, "config.toml")
 
 	if _, err := os.Stat(path); err == nil {
 		toml.DecodeFile(path, &c)
@@ -73,4 +77,12 @@ func Load() Config {
 	}
 
 	return c
+}
+
+func defaultConfigDir(name string) string {
+	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
+		return filepath.Join(xdgConfig, name)
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", name)
 }
