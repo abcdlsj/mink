@@ -229,6 +229,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			m.quitting = true
 			return m, tea.Quit
+		case tea.KeyEscape:
+			return m.handleInterrupt()
 		case tea.KeyEnter:
 			return m.handleSubmit()
 		case tea.KeyUp:
@@ -356,6 +358,22 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.pending++
 	m.scrollToBottom()
 	return m, m.spinner.Tick
+}
+
+func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
+	if m.pending == 0 {
+		return m, nil
+	}
+
+	_ = m.cli.bus.Pub(bus.Msg{
+		Type:    bus.TypeInterrupt,
+		From:    bus.AddrPlatformCLI,
+		To:      bus.AddrAgentMain,
+		Payload: "user interrupted",
+	})
+
+	m.appendOutput(styleDim.Render("[Interrupted]"))
+	return m, nil
 }
 
 func (m *model) tryHandleConfirm(text string) bool {

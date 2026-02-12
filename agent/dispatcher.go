@@ -109,6 +109,18 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 		return bus.Msg{}, nil
 	}
 
+	if m.Type == bus.TypeInterrupt {
+		// Interrupt all agents or target specific source
+		d.mu.RLock()
+		for src, a := range d.agents {
+			if m.To == bus.AddrBroadcast || m.To == d.agentID || src == m.From {
+				a.Interrupt()
+			}
+		}
+		d.mu.RUnlock()
+		return bus.Msg{}, nil
+	}
+
 	src := m.From
 	if src == "" {
 		return d.inputError(m.From, "invalid source"), nil

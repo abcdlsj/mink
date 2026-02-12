@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
@@ -17,18 +18,20 @@ import (
 )
 
 type Agent struct {
-	id      string
-	p       llm.Provider
-	reg     *tool.Registry
-	session *session.Session
-	bus     *bus.Bus
-	hooks   *hook.Manager
-	router  *command.Router
-	prompt  string
-	cfg     config.Config
-	stream  bool
-	tok     *tokenEstimator
-	base    tokenBaseline
+	id          string
+	p           llm.Provider
+	reg         *tool.Registry
+	session     *session.Session
+	bus         *bus.Bus
+	hooks       *hook.Manager
+	router      *command.Router
+	prompt      string
+	cfg         config.Config
+	stream      bool
+	tok         *tokenEstimator
+	base        tokenBaseline
+	interrupted bool
+	mu          sync.Mutex
 }
 
 type tokenBaseline struct {
@@ -91,6 +94,24 @@ func (a *Agent) ID() string                { return a.id }
 func (a *Agent) Session() *session.Session { return a.session }
 func (a *Agent) Tools() *tool.Registry     { return a.reg }
 
+func (a *Agent) Interrupt() {
+	a.mu.Lock()
+	a.interrupted = true
+	a.mu.Unlock()
+}
+
+func (a *Agent) IsInterrupted() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.interrupted
+}
+
+func (a *Agent) ResetInterrupt() {
+	a.mu.Lock()
+	a.interrupted = false
+	a.mu.Unlock()
+}
+
 func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	defer func() {
 		if err := a.session.Flush(); err != nil {
@@ -103,6 +124,7 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	}()
 
 	ctx = bus.WithSource(ctx, src)
+	a.ResetInterrupt()
 
 	if a.shouldAutoCompact() {
 		if _, err := a.Compact(ctx, src, ""); err != nil && a.bus != nil {
@@ -124,6 +146,10 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 
 	a.session.Add(msg.Message{Role: "user", Content: input})
 
+	if a.bus != nil {
+		go a.watchInterrupt()
+	}
+
 	maxSteps := a.cfg.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 100
@@ -132,6 +158,10 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	for i := 0; i < maxSteps; i++ {
 		if ctx.Err() != nil {
 			return fmt.Errorf("agent timeout: %w", ctx.Err())
+		}
+		if a.IsInterrupted() {
+			a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
+			return nil
 		}
 		done, err := a.step(ctx, src)
 		if err != nil {
@@ -368,5 +398,29 @@ func (a *Agent) updateTokenBaseline(msgs, sysMsgs []msg.Message, usage *llm.Toke
 		total:    input,
 		source:   source,
 		valid:    true,
+	}
+}
+
+func (a *Agent) watchInterrupt() {
+	if a.bus == nil {
+		return
+	}
+
+	ch := make(chan bus.Msg, 1)
+	a.bus.Subscribe(bus.TypeInterrupt, ch)
+	defer a.bus.Unsubscribe(bus.TypeInterrupt, ch)
+
+	for {
+		select {
+		case m := <-ch:
+			if m.To == a.id || m.To == bus.AddrBroadcast {
+				a.Interrupt()
+				return
+			}
+		case <-time.After(100 * time.Millisecond):
+			if a.IsInterrupted() {
+				return
+			}
+		}
 	}
 }
