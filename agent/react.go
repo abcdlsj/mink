@@ -160,8 +160,16 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			if chunk.ToolCall != nil {
 				toolCalls = append(toolCalls, *chunk.ToolCall)
 			}
-			if chunk.ReasoningContent != "" {
-				reasoning.WriteString(chunk.ReasoningContent)
+			if chunk.ReasoningDelta != "" {
+				reasoning.WriteString(chunk.ReasoningDelta)
+				if a.bus != nil {
+					_ = a.bus.Pub(bus.Msg{
+						Type:    bus.TypeThinkingChunk,
+						From:    a.id,
+						To:      src,
+						Payload: chunk.ReasoningDelta,
+					})
+				}
 			}
 		case llm.ChunkDone:
 			if chunk.Usage != nil {
@@ -176,6 +184,14 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 					From: a.id,
 					To:   src,
 				})
+				if reasoning.Len() > 0 {
+					_ = a.bus.Pub(bus.Msg{
+						Type:    bus.TypeThinkingEnd,
+						From:    a.id,
+						To:      src,
+						Payload: reasoning.String(),
+					})
+				}
 			}
 		case llm.ChunkError:
 			return nil, chunk.Error
@@ -192,7 +208,7 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 
 func (a *Agent) buildPrompt() string {
 	var b strings.Builder
-	b.WriteString("You are a helpful assistant.\n\n")
+	b.WriteString("You are a helpful assistant. Be direct and concise. Avoid unnecessary small talk or redundant tool calls.\n\n")
 
 	// Context info
 	pwd, _ := os.Getwd()
@@ -207,6 +223,7 @@ func (a *Agent) buildPrompt() string {
 	}
 
 	b.WriteString("Available tools:\n")
+	b.WriteString("Only use tools when truly necessary. Don't call tools just to \"check\" or \"explore\" if you already know the answer or can reason it out.\n")
 	for _, t := range a.reg.All() {
 		fmt.Fprintf(&b, "- %s: %s\n", t.Name(), t.Desc())
 	}

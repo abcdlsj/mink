@@ -27,5 +27,8 @@ const (
 	TypeStreamChunk = "stream:chunk" // 流式片段
 	TypeStreamEnd   = "stream:end"   // 流式结束
 
+	TypeThinkingChunk = "thinking:chunk" // thinking 内容片段
+	TypeThinkingEnd   = "thinking:end"   // thinking 结束
+
 	TypeInterrupt = "agent:interrupt" // 用户打断
 )

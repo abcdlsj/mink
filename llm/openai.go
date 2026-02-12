@@ -136,6 +136,11 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 
 			if delta.ReasoningContent != "" {
 				reasoningContent.WriteString(delta.ReasoningContent)
+				select {
+				case ch <- Chunk{Type: ChunkToolCall, ReasoningDelta: delta.ReasoningContent}:
+				case <-ctx.Done():
+					return
+				}
 			}
 
 			if delta.Content != "" {
@@ -167,20 +172,18 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 			}
 		}
 
-		reasoning := reasoningContent.String()
 		for i := 0; i < len(toolCallsMap); i++ {
 			if tc, ok := toolCallsMap[i]; ok {
 				select {
-				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc, ReasoningContent: reasoning}:
+				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc}:
 				case <-ctx.Done():
 					return
 				}
-				reasoning = "" // 只在第一个 ToolCall 中发送
 			}
 		}
 
 		select {
-		case ch <- Chunk{Type: ChunkDone, ReasoningContent: reasoningContent.String(), Usage: usage}:
+		case ch <- Chunk{Type: ChunkDone, Usage: usage}:
 		case <-ctx.Done():
 		}
 	}()

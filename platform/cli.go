@@ -40,6 +40,7 @@ var (
 	styleConfirmBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E1E2E")).Background(lipgloss.Color("#F38BA8")).Bold(true).Padding(0, 1)
 	styleConfirmCmd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
 	styleConfirmHint   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
+	styleThinking      = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA"))
 
 	ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
@@ -70,19 +71,21 @@ type CLI struct {
 }
 
 type model struct {
-	cli       *CLI
-	input     textinput.Model
-	output    []string
-	agents    map[string]*agentState
-	agentKeys []string
-	quitting  bool
-	width     int
-	height    int
-	pending   int
-	spinner   spinner.Model
-	streaming bool
-	streamBuf strings.Builder
-	scroll    int
+	cli         *CLI
+	input       textinput.Model
+	output      []string
+	agents      map[string]*agentState
+	agentKeys   []string
+	quitting    bool
+	width       int
+	height      int
+	pending     int
+	spinner     spinner.Model
+	streaming   bool
+	streamBuf   strings.Builder
+	thinking    bool
+	thinkingBuf strings.Builder
+	scroll      int
 }
 
 type layoutMetrics struct {
@@ -162,6 +165,8 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	c.bus.Subscribe(bus.TypeTaskDone, ch)
 	c.bus.Subscribe(bus.TypeStreamChunk, ch)
 	c.bus.Subscribe(bus.TypeStreamEnd, ch)
+	c.bus.Subscribe(bus.TypeThinkingChunk, ch)
+	c.bus.Subscribe(bus.TypeThinkingEnd, ch)
 	c.bus.Subscribe(bus.TypeSessionNew, ch)
 	c.bus.Subscribe(bus.TypeSessionCompact, ch)
 
@@ -535,6 +540,28 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		m.streaming = false
 		m.streamBuf.Reset()
 
+	case bus.TypeThinkingChunk:
+		delta, _ := msg.Payload.(string)
+		if delta == "" {
+			break
+		}
+		if m.thinking {
+			m.thinkingBuf.WriteString(delta)
+			if len(m.output) > 0 {
+				m.output[len(m.output)-1] = styleThinking.Render("thinking: " + m.thinkingBuf.String())
+			}
+		} else {
+			m.thinking = true
+			m.thinkingBuf.Reset()
+			m.thinkingBuf.WriteString(delta)
+			m.appendOutput("")
+			m.appendOutput(styleThinking.Render("thinking: " + delta))
+		}
+
+	case bus.TypeThinkingEnd:
+		m.thinking = false
+		m.thinkingBuf.Reset()
+
 	case bus.TypeSessionNew:
 		if id, ok := msg.Payload.(string); ok {
 			m.appendOutput(styleDim.Render(fmt.Sprintf("[Session] %s", id)))
@@ -614,9 +641,14 @@ func (m *model) appendOutput(line string) {
 		} else {
 			m.scroll = 0
 		}
+	} else if wasAtBottom {
+		m.scroll = 0
 	}
-	if wasAtBottom {
-		m.scrollToBottom()
+}
+
+func (m *model) removeLastOutput() {
+	if len(m.output) > 0 {
+		m.output = m.output[:len(m.output)-1]
 	}
 }
 
