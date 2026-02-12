@@ -26,7 +26,7 @@ func main() {
 	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
 	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
 	flag.StringVar(&cfg.Model, "m", cfg.Model, "model")
-	flag.StringVar(&cfg.Telegram, "tg", cfg.Telegram, "telegram token")
+	flag.StringVar(&cfg.Telegram, "tg_token", cfg.Telegram, "telegram token")
 	flag.Parse()
 
 	app, err := mink.New(mink.Options{Config: cfg})
@@ -59,13 +59,10 @@ func main() {
 		return
 	}
 
+	// CLI mode
 	if err := app.StartCLI(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
-	}
-
-	if cfg.Telegram != "" {
-		_ = app.StartTelegram(ctx, cfg.Telegram)
 	}
 
 	if err := app.RunCLI(ctx); err != nil {
