@@ -1,20 +1,31 @@
 package llm
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"time"
+	"strings"
 
 	"github.com/abcdlsj/mink/msg"
+	"github.com/sashabaranov/go-openai"
 )
 
+type headerTransport struct {
+	headers map[string]string
+	base    http.RoundTripper
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	for k, v := range t.headers {
+		req.Header.Set(k, v)
+	}
+	return t.base.RoundTrip(req)
+}
+
 type openAI struct {
+	client *openai.Client
+	model  string
 	cfg    Config
-	client *http.Client
 }
 
 func newOpenAI(cfg Config) *openAI {
@@ -24,148 +35,198 @@ func newOpenAI(cfg Config) *openAI {
 	if cfg.MaxTokens == 0 {
 		cfg.MaxTokens = 4096
 	}
-	if cfg.Temperature == 0 {
-		cfg.Temperature = 0.7
+
+	config := openai.DefaultConfig(cfg.APIKey)
+	config.BaseURL = cfg.BaseURL
+
+	if len(cfg.Headers) > 0 {
+		config.HTTPClient = &http.Client{
+			Transport: &headerTransport{
+				headers: cfg.Headers,
+				base:    http.DefaultTransport,
+			},
+		}
 	}
+
 	return &openAI{
+		client: openai.NewClientWithConfig(config),
+		model:  cfg.Model,
 		cfg:    cfg,
-		client: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
 func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
-	body, err := json.Marshal(o.buildReq(msgs, tools))
+	req := o.buildRequest(msgs, tools)
+
+	resp, err := o.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", o.cfg.BaseURL+"/chat/completions", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+o.cfg.APIKey)
-	for k, v := range o.cfg.Headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := o.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%s: %s", resp.Status, b)
-	}
-
-	var r openAIResp
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, err
-	}
-
-	if len(r.Choices) == 0 {
+	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("no response")
 	}
 
-	c := r.Choices[0]
+	choice := resp.Choices[0]
 	res := &Response{
-		Content:          c.Message.Content,
-		ReasoningContent: c.Message.ReasoningContent,
+		Content:          choice.Message.Content,
+		ReasoningContent: choice.Message.ReasoningContent,
 	}
 
-	for _, tc := range c.Message.ToolCalls {
-		if tc.Type == "function" {
-			res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
-				ID:   tc.ID,
-				Name: tc.Function.Name,
-				Args: []byte(tc.Function.Arguments),
-			})
-		}
+	for _, tc := range choice.Message.ToolCalls {
+		res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
+			ID:   tc.ID,
+			Name: tc.Function.Name,
+			Args: []byte(tc.Function.Arguments),
+		})
 	}
+
 	return res, nil
 }
 
-func (o *openAI) buildReq(msgs []msg.Message, tools []Tool) map[string]any {
-	req := map[string]any{
-		"model":       o.cfg.Model,
-		"max_tokens":  o.cfg.MaxTokens,
-		"temperature": o.cfg.Temperature,
-		"messages":    o.convertMsgs(msgs),
+func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Tool) (<-chan Chunk, error) {
+	req := o.buildRequest(msgs, tools)
+
+	stream, err := o.client.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		return nil, err
 	}
-	if len(tools) > 0 {
-		req["tools"] = o.convertTools(tools)
-	}
-	return req
+
+	ch := make(chan Chunk, 32)
+
+	go func() {
+		defer stream.Close()
+		defer close(ch)
+
+		var fullContent strings.Builder
+		var reasoningContent strings.Builder
+		toolCallsMap := make(map[int]*msg.ToolCall)
+
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				if err.Error() != "EOF" {
+					select {
+					case ch <- Chunk{Type: ChunkError, Error: err}:
+					case <-ctx.Done():
+					}
+				}
+				break
+			}
+
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+
+			delta := chunk.Choices[0].Delta
+
+			if delta.ReasoningContent != "" {
+				reasoningContent.WriteString(delta.ReasoningContent)
+			}
+
+			if delta.Content != "" {
+				fullContent.WriteString(delta.Content)
+				select {
+				case ch <- Chunk{Type: ChunkText, Delta: delta.Content}:
+				case <-ctx.Done():
+					return
+				}
+			}
+
+			for _, tc := range delta.ToolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+
+				if _, exists := toolCallsMap[idx]; !exists {
+					toolCallsMap[idx] = &msg.ToolCall{}
+				}
+
+				if tc.ID != "" {
+					toolCallsMap[idx].ID = tc.ID
+				}
+				if tc.Function.Name != "" {
+					toolCallsMap[idx].Name = tc.Function.Name
+				}
+				toolCallsMap[idx].Args = append(toolCallsMap[idx].Args, []byte(tc.Function.Arguments)...)
+			}
+		}
+
+		reasoning := reasoningContent.String()
+		for i := 0; i < len(toolCallsMap); i++ {
+			if tc, ok := toolCallsMap[i]; ok {
+				select {
+				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc, ReasoningContent: reasoning}:
+				case <-ctx.Done():
+					return
+				}
+				reasoning = "" // 只在第一个 ToolCall 中发送
+			}
+		}
+
+		select {
+		case ch <- Chunk{Type: ChunkDone, ReasoningContent: reasoningContent.String()}:
+		case <-ctx.Done():
+		}
+	}()
+
+	return ch, nil
 }
 
-func (o *openAI) convertMsgs(msgs []msg.Message) []map[string]any {
-	var r []map[string]any
+func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompletionRequest {
+	var chatMsgs []openai.ChatCompletionMessage
+
 	for _, m := range msgs {
-		msg := map[string]any{"role": m.Role, "content": m.Content}
-		if m.ReasoningContent != "" {
-			msg["reasoning_content"] = m.ReasoningContent
-		}
-		if len(m.ToolCalls) > 0 {
-			var tcs []map[string]any
+		if m.Role == "tool" && len(m.ToolResults) > 0 {
+			for _, tr := range m.ToolResults {
+				chatMsgs = append(chatMsgs, openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					Content:    tr.Content,
+					ToolCallID: tr.ToolCallID,
+				})
+			}
+		} else {
+			cm := openai.ChatCompletionMessage{
+				Role:             m.Role,
+				Content:          m.Content,
+				ReasoningContent: m.ReasoningContent,
+			}
 			for _, tc := range m.ToolCalls {
-				tcs = append(tcs, map[string]any{
-					"id":   tc.ID,
-					"type": "function",
-					"function": map[string]any{
-						"name":      tc.Name,
-						"arguments": string(tc.Args),
+				cm.ToolCalls = append(cm.ToolCalls, openai.ToolCall{
+					ID:   tc.ID,
+					Type: openai.ToolTypeFunction,
+					Function: openai.FunctionCall{
+						Name:      tc.Name,
+						Arguments: string(tc.Args),
 					},
 				})
 			}
-			msg["tool_calls"] = tcs
+			chatMsgs = append(chatMsgs, cm)
 		}
-		if m.Role == "tool" && len(m.ToolResults) > 0 {
-			for _, tr := range m.ToolResults {
-				r = append(r, map[string]any{
-					"role":         "tool",
-					"tool_call_id": tr.ToolCallID,
-					"content":      tr.Content,
-				})
-			}
-			continue
-		}
-		r = append(r, msg)
 	}
-	return r
-}
 
-func (o *openAI) convertTools(tools []Tool) []map[string]any {
-	var r []map[string]any
+	var openAITools []openai.Tool
 	for _, t := range tools {
-		r = append(r, map[string]any{
-			"type": "function",
-			"function": map[string]any{
-				"name":        t.Function.Name,
-				"description": t.Function.Description,
-				"parameters":  t.Function.Parameters,
+		openAITools = append(openAITools, openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				Parameters:  t.Function.Parameters,
 			},
 		})
 	}
-	return r
-}
 
-type openAIResp struct {
-	Choices []struct {
-		Message struct {
-			Role             string `json:"role"`
-			Content          string `json:"content"`
-			ReasoningContent string `json:"reasoning_content"`
-			ToolCalls        []struct {
-				ID       string `json:"id"`
-				Type     string `json:"type"`
-				Function struct {
-					Name      string `json:"name"`
-					Arguments string `json:"arguments"`
-				} `json:"function"`
-			} `json:"tool_calls"`
-		} `json:"message"`
-	} `json:"choices"`
+	req := openai.ChatCompletionRequest{
+		Model:     o.model,
+		Messages:  chatMsgs,
+		MaxTokens: o.cfg.MaxTokens,
+	}
+
+	if len(openAITools) > 0 {
+		req.Tools = openAITools
+	}
+
+	return req
 }

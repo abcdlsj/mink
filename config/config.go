@@ -16,6 +16,16 @@ type Config struct {
 	Telegram     string            `toml:"telegram_token"`
 	Mode         string            `toml:"mode"`
 	CustomPrompt string            `toml:"custom_prompt"`
+	Stream       bool              `toml:"stream"`
+	MaxSteps     int               `toml:"max_steps"`
+	Timeout      TimeoutConfig     `toml:"timeout"`
+}
+
+type TimeoutConfig struct {
+	Tool       int `toml:"tool"`       // 单个工具执行超时，默认 60s
+	Agent      int `toml:"agent"`      // Agent 整体运行超时，默认 600s
+	Background int `toml:"background"` // 后台任务超时，默认 1800s
+	LLM        int `toml:"llm"`        // LLM 请求超时，默认 120s
 }
 
 func Load() Config {
@@ -24,6 +34,14 @@ func Load() Config {
 		Model:    "gpt-4o",
 		Mode:     "tui",
 		Headers:  make(map[string]string),
+		Stream:   true,
+		MaxSteps: 100,
+		Timeout: TimeoutConfig{
+			Tool:       60,
+			Agent:      600,
+			Background: 1800,
+			LLM:        120,
+		},
 	}
 
 	home := os.ExpandEnv("$HOME/.mink")

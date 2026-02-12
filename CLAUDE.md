@@ -1,4 +1,4 @@
-# Agentic Go
+# Mink
 
 An AI Agent assistant implemented in Go.
 
@@ -47,20 +47,6 @@ ReAct loop: LLM → Tool Call → Execute → LLM → ... → Response
 Builtin tools:
 - `shell` - Execute shell commands
 - `file` - Read/write/list/search files
-
-## Configuration
-
-Config file at `~/.config/otter/config.toml`:
-
-```toml
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-api_key = "your-api-key"
-stream = false
-max_steps = 100
-```
-
-Sessions are persisted to `~/.config/otter/sessions/*.jsonl`
 
 ## Git Commit
 

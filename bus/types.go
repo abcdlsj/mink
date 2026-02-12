@@ -21,4 +21,7 @@ const (
 	TypeDelegate = "collab:delegate"
 	TypeReport   = "collab:report"
 	TypeShare    = "collab:share"
+
+	TypeStreamChunk = "stream:chunk" // 流式片段
+	TypeStreamEnd   = "stream:end"   // 流式结束
 )

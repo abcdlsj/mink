@@ -24,8 +24,27 @@ type Response struct {
 	ToolCalls        []msg.ToolCall
 }
 
+type ChunkType int
+
+const (
+	ChunkText ChunkType = iota
+	ChunkToolCall
+	ChunkDone
+	ChunkError
+)
+
+type Chunk struct {
+	Type             ChunkType
+	Delta            string        // 增量文本
+	ReasoningDelta   string        // 增量思考内容
+	ToolCall         *msg.ToolCall // 工具调用（完整后发送）
+	ReasoningContent string        // 完整思考内容（与 ToolCall 一起发送）
+	Error            error
+}
+
 type Provider interface {
 	Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error)
+	ChatStream(ctx context.Context, msgs []msg.Message, tools []Tool) (<-chan Chunk, error)
 }
 
 type Config struct {

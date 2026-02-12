@@ -58,10 +58,12 @@ func main() {
 	guard := cmd.NewGuardMux()
 
 	sup := agent.NewSupervisor(b, p, sm, hooks, router, cfg.CustomPrompt)
+	sup.SetConfig(cfg)
 	disp := agent.NewDispatcher(b, sm, p)
 	disp.SetHooks(hooks)
 	disp.SetRouter(router)
 	disp.SetPrompt(cfg.CustomPrompt)
+	disp.SetConfig(cfg)
 	disp.Start(ctx)
 
 	cmdReg.Register(cmd.NewSessionCmd(sm))

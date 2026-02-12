@@ -8,6 +8,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
+	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/session"
@@ -30,6 +31,7 @@ type Supervisor struct {
 	hooks  *hook.Manager
 	router *cmd.Router
 	prompt string
+	cfg    config.Config
 	agents map[string]*Agent
 	mu     sync.RWMutex
 }
@@ -48,6 +50,8 @@ func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Mana
 	b.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
 	return s
 }
+
+func (s *Supervisor) SetConfig(c config.Config) { s.cfg = c }
 
 func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	payload, ok := m.Payload.(map[string]any)
@@ -163,6 +167,7 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 		WithHooks(s.hooks),
 		WithRouter(s.router),
 		WithPrompt(s.prompt),
+		WithConfig(s.cfg),
 	)
 
 	s.bus.RegisterAgent(id, shareCtx)

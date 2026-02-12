@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os/exec"
+	"time"
 
 	"github.com/abcdlsj/mink/bus"
 )
@@ -23,10 +24,15 @@ func randTaskName() string {
 type Background struct {
 	bus     *bus.Bus
 	agentID string
+	timeout int // 超时秒数，默认 1800s
 }
 
 func NewBackground(b *bus.Bus, agentID string) *Background {
-	return &Background{bus: b, agentID: agentID}
+	return &Background{bus: b, agentID: agentID, timeout: 1800}
+}
+
+func (b *Background) SetTimeout(seconds int) {
+	b.timeout = seconds
 }
 
 func (b *Background) Name() string { return "background" }
@@ -77,9 +83,13 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 		},
 	})
 
-	// 后台执行
+	// 后台执行，带超时控制
 	go func() {
-		cmd := exec.Command("bash", "-c", params.Cmd)
+		timeout := time.Duration(b.timeout) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "bash", "-c", params.Cmd)
 		if params.Cwd != "" {
 			cmd.Dir = params.Cwd
 		}
@@ -93,7 +103,11 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 		}
 		if err != nil {
 			result["status"] = "error"
-			result["error"] = err.Error()
+			if ctx.Err() == context.DeadlineExceeded {
+				result["error"] = fmt.Sprintf("timeout after %ds", b.timeout)
+			} else {
+				result["error"] = err.Error()
+			}
 		}
 
 		_ = b.bus.Pub(bus.Msg{

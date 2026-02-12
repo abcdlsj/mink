@@ -60,6 +60,8 @@ type model struct {
 	height    int
 	pending   int
 	spinner   spinner.Model
+	streaming bool   // 是否正在流式输出
+	streamBuf string // 流式缓冲
 }
 
 func NewCLI(b *bus.Bus, r *cmd.Router, h *hook.Manager) *CLI {
@@ -126,6 +128,8 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	c.bus.Subscribe(bus.TypeAgentDone, ch)
 	c.bus.Subscribe(bus.TypeTaskStart, ch)
 	c.bus.Subscribe(bus.TypeTaskDone, ch)
+	c.bus.Subscribe(bus.TypeStreamChunk, ch)
+	c.bus.Subscribe(bus.TypeStreamEnd, ch)
 
 	go func() {
 		for {
@@ -338,6 +342,24 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 				m.output = append(m.output, styleFail.Render(fmt.Sprintf("✗ [%s] %s", taskID, errMsg)))
 			}
 		}
+
+	case bus.TypeStreamChunk:
+		delta, _ := msg.Payload.(string)
+		if m.streaming {
+			m.streamBuf += delta
+			if len(m.output) > 0 {
+				m.output[len(m.output)-1] = styleAssist.Render(m.streamBuf)
+			}
+		} else {
+			m.streaming = true
+			m.streamBuf = delta
+			m.output = append(m.output, "")
+			m.output = append(m.output, styleAssist.Render(delta))
+		}
+
+	case bus.TypeStreamEnd:
+		m.streaming = false
+		m.streamBuf = ""
 	}
 
 	return m, nil

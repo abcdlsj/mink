@@ -1,125 +1,100 @@
 package platform
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
+	tele "gopkg.in/telebot.v4"
 )
 
 type Telegram struct {
-	token   string
-	bus     *bus.Bus
-	client  *http.Client
-	chatIDs map[int64]bool
-	offset  int
-	stop    chan struct{}
+	token string
+	bus   *bus.Bus
+	bot   *tele.Bot
+	stop  chan struct{}
 
 	confirmMu sync.Mutex
 	confirms  map[int64]chan bool
-}
 
-type tgUpdate struct {
-	ID      int        `json:"update_id"`
-	Message *tgMessage `json:"message"`
-}
-
-type tgMessage struct {
-	ID   int     `json:"message_id"`
-	Chat *tgChat `json:"chat"`
-	Text string  `json:"text"`
-}
-
-type tgChat struct {
-	ID int64 `json:"id"`
+	streamMu  sync.Mutex
+	streamBuf map[int64]*strings.Builder
+	streamMsg map[int64]int
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
 	return &Telegram{
-		token:    token,
-		bus:      b,
-		client:   &http.Client{Timeout: 30 * time.Second},
-		chatIDs:  make(map[int64]bool),
-		stop:     make(chan struct{}),
-		confirms: make(map[int64]chan bool),
+		token:     token,
+		bus:       b,
+		stop:      make(chan struct{}),
+		confirms:  make(map[int64]chan bool),
+		streamBuf: make(map[int64]*strings.Builder),
+		streamMsg: make(map[int64]int),
 	}
 }
 
 func (t *Telegram) ID() string { return "telegram" }
 
 func (t *Telegram) Start(ctx context.Context) error {
+	pref := tele.Settings{
+		Token:  t.token,
+		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
+	}
+
+	bot, err := tele.NewBot(pref)
+	if err != nil {
+		return err
+	}
+	t.bot = bot
+
+	bot.Handle(tele.OnText, func(c tele.Context) error {
+		return t.handleMessage(c)
+	})
+
+	go bot.Start()
 	go t.forward(ctx)
-	go t.poll(ctx)
+
 	return nil
 }
 
 func (t *Telegram) Stop() error {
 	close(t.stop)
+	if t.bot != nil {
+		t.bot.Stop()
+	}
 	return nil
 }
 
-func (t *Telegram) poll(ctx context.Context) {
-	for {
-		select {
-		case <-t.stop:
-			return
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		updates, err := t.getUpdates()
-		if err != nil {
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		for _, u := range updates {
-			if u.ID >= t.offset {
-				t.offset = u.ID + 1
-			}
-			if u.Message == nil || u.Message.Text == "" {
-				continue
-			}
-			t.handleMessage(u.Message)
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-func (t *Telegram) handleMessage(m *tgMessage) {
-	chatID := m.Chat.ID
-	t.chatIDs[chatID] = true
+func (t *Telegram) handleMessage(c tele.Context) error {
+	chatID := c.Chat().ID
+	text := c.Text()
 
 	t.confirmMu.Lock()
 	ch := t.confirms[chatID]
 	t.confirmMu.Unlock()
 
 	if ch != nil {
-		ans := strings.ToLower(strings.TrimSpace(m.Text))
+		ans := strings.ToLower(strings.TrimSpace(text))
 		ok := ans == "y" || ans == "yes"
 		select {
 		case ch <- ok:
 		default:
 		}
-		return
+		return nil
 	}
 
 	_ = t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    fmt.Sprintf("telegram:%d", chatID),
 		To:      "*",
-		Payload: m.Text,
+		Payload: text,
 	})
+
+	return nil
 }
 
 func (t *Telegram) forward(ctx context.Context) {
@@ -135,34 +110,19 @@ func (t *Telegram) forward(ctx context.Context) {
 	t.bus.Subscribe(bus.TypeAgentDone, ch)
 	t.bus.Subscribe(bus.TypeTaskStart, ch)
 	t.bus.Subscribe(bus.TypeTaskDone, ch)
-
-	unsub := func() {
-		t.bus.Unsubscribe(bus.TypeAssistant, ch)
-		t.bus.Unsubscribe(bus.TypeToolCall, ch)
-		t.bus.Unsubscribe(bus.TypeToolResult, ch)
-		t.bus.Unsubscribe(bus.TypeToolError, ch)
-		t.bus.Unsubscribe(bus.TypeCommand, ch)
-		t.bus.Unsubscribe(bus.TypeCommandOK, ch)
-		t.bus.Unsubscribe(bus.TypeCommandError, ch)
-		t.bus.Unsubscribe(bus.TypeAgentSpawn, ch)
-		t.bus.Unsubscribe(bus.TypeAgentDone, ch)
-		t.bus.Unsubscribe(bus.TypeTaskStart, ch)
-		t.bus.Unsubscribe(bus.TypeTaskDone, ch)
-		close(ch)
-	}
+	t.bus.Subscribe(bus.TypeStreamChunk, ch)
+	t.bus.Subscribe(bus.TypeStreamEnd, ch)
 
 	for {
 		select {
 		case m := <-ch:
-			if !strings.HasPrefix(m.To, "telegram:") {
+			if !strings.HasPrefix(m.To, "telegram:") && m.To != "*" {
 				continue
 			}
 			t.sendMsg(m)
 		case <-t.stop:
-			unsub()
 			return
 		case <-ctx.Done():
-			unsub()
 			return
 		}
 	}
@@ -170,20 +130,15 @@ func (t *Telegram) forward(ctx context.Context) {
 
 func (t *Telegram) sendMsg(m bus.Msg) {
 	var chatID int64
-	fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
+	if strings.HasPrefix(m.To, "telegram:") {
+		fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
+	}
+
 	if chatID == 0 {
-		// 广播消息发给所有已知的 chat
-		if m.To == "*" {
-			for id := range t.chatIDs {
-				t.sendMsgToChat(id, m)
-			}
-		}
 		return
 	}
-	t.sendMsgToChat(chatID, m)
-}
 
-func (t *Telegram) sendMsgToChat(chatID int64, m bus.Msg) {
+	chat := &tele.Chat{ID: chatID}
 	prefix := ""
 	if m.From != "" && m.From != "main" {
 		prefix = fmt.Sprintf("[%s] ", m.From)
@@ -192,7 +147,7 @@ func (t *Telegram) sendMsgToChat(chatID int64, m bus.Msg) {
 	var text string
 	switch m.Type {
 	case bus.TypeAssistant:
-		text = fmt.Sprintf("[Assistant] %s%s", prefix, m.Payload)
+		text = fmt.Sprintf("%s%s", prefix, m.Payload)
 	case bus.TypeToolCall:
 		text = fmt.Sprintf("[Tool] %s%s", prefix, m.Payload)
 	case bus.TypeToolResult:
@@ -227,73 +182,66 @@ func (t *Telegram) sendMsgToChat(chatID int64, m bus.Msg) {
 				text = fmt.Sprintf("[ERR] %s: %s", payload["task_id"], truncate(payload["error"], 50))
 			}
 		}
+	case bus.TypeStreamChunk:
+		t.handleStreamChunk(chatID, m)
+		return
+	case bus.TypeStreamEnd:
+		t.handleStreamEnd(chatID)
+		return
 	default:
 		return
 	}
 
 	if text != "" {
-		t.send(chatID, text)
+		t.bot.Send(chat, text)
 	}
 }
 
-func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
+func (t *Telegram) handleStreamChunk(chatID int64, m bus.Msg) {
+	delta, _ := m.Payload.(string)
+
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+
+	buf, ok := t.streamBuf[chatID]
+	if !ok {
+		buf = &strings.Builder{}
+		t.streamBuf[chatID] = buf
 	}
-	return string(runes[:n]) + "…"
+	buf.WriteString(delta)
+
+	if buf.Len() >= 500 || strings.HasSuffix(delta, "\n") {
+		text := "[...] " + truncate(buf.String(), 4000)
+		chat := &tele.Chat{ID: chatID}
+
+		if msgID, exists := t.streamMsg[chatID]; exists {
+			t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, text)
+		} else {
+			sent, err := t.bot.Send(chat, text)
+			if err == nil {
+				t.streamMsg[chatID] = sent.ID
+			}
+		}
+	}
 }
 
-func (t *Telegram) getUpdates() ([]tgUpdate, error) {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/getUpdates?offset=%d&limit=100", t.token, t.offset)
+func (t *Telegram) handleStreamEnd(chatID int64) {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
 
-	resp, err := t.client.Get(url)
-	if err != nil {
-		return nil, err
+	if buf, ok := t.streamBuf[chatID]; ok {
+		text := buf.String()
+		chat := &tele.Chat{ID: chatID}
+
+		if msgID, exists := t.streamMsg[chatID]; exists {
+			t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, text)
+		} else if text != "" {
+			t.bot.Send(chat, text)
+		}
+
+		delete(t.streamBuf, chatID)
+		delete(t.streamMsg, chatID)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var r struct {
-		OK     bool       `json:"ok"`
-		Result []tgUpdate `json:"result"`
-	}
-
-	if err := json.Unmarshal(body, &r); err != nil {
-		return nil, err
-	}
-
-	if !r.OK {
-		return nil, fmt.Errorf("api error")
-	}
-
-	return r.Result, nil
-}
-
-func (t *Telegram) send(chatID int64, text string) error {
-	url := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", t.token)
-
-	body, _ := json.Marshal(map[string]any{
-		"chat_id": chatID,
-		"text":    text,
-	})
-
-	resp, err := t.client.Post(url, "application/json", bytes.NewBuffer(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("status=%d: %s", resp.StatusCode, body)
-	}
-
-	return nil
 }
 
 func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
@@ -319,7 +267,8 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 		t.confirmMu.Unlock()
 	}()
 
-	t.send(chatID, fmt.Sprintf("[Confirm] Execute: %s?\nReply Y/N", raw))
+	chat := &tele.Chat{ID: chatID}
+	t.bot.Send(chat, fmt.Sprintf("[Confirm] Execute: %s?\nReply Y/N", raw))
 
 	select {
 	case ok := <-ch:
@@ -327,7 +276,15 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-time.After(60 * time.Second):
-		t.send(chatID, "[Timeout] Cancelled")
+		t.bot.Send(chat, "[Timeout] Cancelled")
 		return false, nil
 	}
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
@@ -24,7 +25,14 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt()}}
 	allMsgs := append(sysMsgs, msgs...)
 
-	r, err := a.p.Chat(ctx, allMsgs, tools(a.reg))
+	var r *llm.Response
+	var err error
+
+	if a.stream {
+		r, err = a.stepStream(ctx, src, allMsgs)
+	} else {
+		r, err = a.p.Chat(ctx, allMsgs, tools(a.reg))
+	}
 	if err != nil {
 		return false, err
 	}
@@ -46,7 +54,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		}
 
 		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
-		if a.bus != nil {
+		if a.bus != nil && !a.stream {
 			_ = a.bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    a.id,
@@ -78,17 +86,18 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		wg.Add(1)
 		go func(i int, tc msg.ToolCall) {
 			defer wg.Done()
-			out, err := a.execTool(ctx, tc)
+			out, toolErr := a.execTool(ctx, tc)
 
 			tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
-			if err != nil {
-				tr.Error = err.Error()
+			if toolErr != nil {
+				tr.Content = tool.FormatErrorForLLM(tc.Name, toolErr)
+				tr.Error = toolErr.Error()
 				if a.bus != nil {
 					_ = a.bus.Pub(bus.Msg{
 						Type:    bus.TypeToolError,
 						From:    a.id,
 						To:      src,
-						Payload: err.Error(),
+						Payload: toolErr.Error(),
 					})
 				}
 			} else {
@@ -112,6 +121,58 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Message) (*llm.Response, error) {
+	ch, err := a.p.ChatStream(ctx, allMsgs, tools(a.reg))
+	if err != nil {
+		return nil, err
+	}
+
+	var content strings.Builder
+	var reasoning strings.Builder
+	var toolCalls []msg.ToolCall
+
+	for chunk := range ch {
+		switch chunk.Type {
+		case llm.ChunkText:
+			content.WriteString(chunk.Delta)
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type:    bus.TypeStreamChunk,
+					From:    a.id,
+					To:      src,
+					Payload: chunk.Delta,
+				})
+			}
+		case llm.ChunkToolCall:
+			if chunk.ToolCall != nil {
+				toolCalls = append(toolCalls, *chunk.ToolCall)
+			}
+			if chunk.ReasoningContent != "" {
+				reasoning.WriteString(chunk.ReasoningContent)
+			}
+		case llm.ChunkDone:
+			if chunk.ReasoningContent != "" {
+				reasoning.WriteString(chunk.ReasoningContent)
+			}
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type: bus.TypeStreamEnd,
+					From: a.id,
+					To:   src,
+				})
+			}
+		case llm.ChunkError:
+			return nil, chunk.Error
+		}
+	}
+
+	return &llm.Response{
+		Content:          content.String(),
+		ReasoningContent: reasoning.String(),
+		ToolCalls:        toolCalls,
+	}, nil
 }
 
 func (a *Agent) buildPrompt() string {
@@ -157,10 +218,26 @@ func (a *Agent) buildPrompt() string {
 }
 
 func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
-	if t := a.reg.Get(tc.Name); t != nil {
-		return t.Run(ctx, tc.Args)
+	t := a.reg.Get(tc.Name)
+	if t == nil {
+		return "", fmt.Errorf("unknown tool: %s", tc.Name)
 	}
-	return "", fmt.Errorf("unknown: %s", tc.Name)
+
+	timeout := time.Duration(a.cfg.Timeout.Tool) * time.Second
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	out, err := t.Run(ctx, tc.Args)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", tool.TimeoutError(tc.Name, string(tc.Args), a.cfg.Timeout.Tool)
+		}
+		return out, err
+	}
+	return out, nil
 }
 
 func (a *Agent) detectAndExecCommands(ctx context.Context, src, content string) string {

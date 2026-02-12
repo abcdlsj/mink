@@ -1,165 +1,190 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"time"
 
 	"github.com/abcdlsj/mink/msg"
+	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-type anthropic struct {
+type anthropicProvider struct {
+	client *anthropic.Client
+	model  string
 	cfg    Config
-	client *http.Client
 }
 
-func newAnthropic(cfg Config) *anthropic {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.anthropic.com/v1"
-	}
+func newAnthropic(cfg Config) *anthropicProvider {
 	if cfg.MaxTokens == 0 {
 		cfg.MaxTokens = 4096
 	}
-	if cfg.Temperature == 0 {
-		cfg.Temperature = 0.7
+
+	opts := []option.RequestOption{
+		option.WithAPIKey(cfg.APIKey),
 	}
-	return &anthropic{
+	if cfg.BaseURL != "" {
+		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	}
+
+	client := anthropic.NewClient(opts...)
+	return &anthropicProvider{
+		client: &client,
+		model:  cfg.Model,
 		cfg:    cfg,
-		client: &http.Client{Timeout: 120 * time.Second},
 	}
 }
 
-func (a *anthropic) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
-	body, err := json.Marshal(a.buildReq(msgs, tools))
+func (p *anthropicProvider) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
+	params := p.buildRequest(msgs, tools)
+
+	resp, err := p.client.Messages.New(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", a.cfg.BaseURL+"/messages", bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
+	return p.parseResponse(resp), nil
+}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", a.cfg.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	for k, v := range a.cfg.Headers {
-		req.Header.Set(k, v)
-	}
+func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, tools []Tool) (<-chan Chunk, error) {
+	ch := make(chan Chunk, 32)
 
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	go func() {
+		defer close(ch)
 
-	if resp.StatusCode != 200 {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%s: %s", resp.Status, b)
-	}
-
-	var r anthropicResp
-	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return nil, err
-	}
-
-	res := &Response{}
-	for _, c := range r.Content {
-		switch c.Type {
-		case "text":
-			res.Content += c.Text
-		case "tool_use":
-			args, _ := json.Marshal(c.Input)
-			res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
-				ID:   c.ID,
-				Name: c.Name,
-				Args: args,
-			})
+		resp, err := p.Chat(ctx, msgs, tools)
+		if err != nil {
+			select {
+			case ch <- Chunk{Type: ChunkError, Error: err}:
+			case <-ctx.Done():
+			}
+			return
 		}
-	}
-	return res, nil
+
+		if resp.Content != "" {
+			select {
+			case ch <- Chunk{Type: ChunkText, Delta: resp.Content}:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		for _, tc := range resp.ToolCalls {
+			tcCopy := tc
+			select {
+			case ch <- Chunk{Type: ChunkToolCall, ToolCall: &tcCopy}:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		select {
+		case ch <- Chunk{Type: ChunkDone}:
+		case <-ctx.Done():
+		}
+	}()
+
+	return ch, nil
 }
 
-func (a *anthropic) buildReq(msgs []msg.Message, tools []Tool) map[string]any {
-	sys := ""
-	var amsgs []map[string]any
+func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthropic.MessageNewParams {
+	var apiMessages []anthropic.MessageParam
+	var systemContent string
 
 	for _, m := range msgs {
 		if m.Role == "system" {
-			sys = m.Content
+			systemContent = m.Content
 			continue
 		}
-		amsgs = append(amsgs, a.convertMsg(m))
+
+		if m.Role == "user" {
+			var blocks []anthropic.ContentBlockParamUnion
+			if m.Content != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			}
+			for _, tr := range m.ToolResults {
+				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, tr.Content, false))
+			}
+			if len(blocks) > 0 {
+				apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))
+			}
+		} else if m.Role == "assistant" {
+			var blocks []anthropic.ContentBlockParamUnion
+			if m.Content != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+			}
+			for _, tc := range m.ToolCalls {
+				var args map[string]any
+				json.Unmarshal(tc.Args, &args)
+				blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, args, tc.Name))
+			}
+			if len(blocks) > 0 {
+				apiMessages = append(apiMessages, anthropic.NewAssistantMessage(blocks...))
+			}
+		} else if m.Role == "tool" {
+			var blocks []anthropic.ContentBlockParamUnion
+			for _, tr := range m.ToolResults {
+				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, tr.Content, false))
+			}
+			if len(blocks) > 0 {
+				apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))
+			}
+		}
 	}
 
-	req := map[string]any{
-		"model":       a.cfg.Model,
-		"max_tokens":  a.cfg.MaxTokens,
-		"temperature": a.cfg.Temperature,
-		"messages":    amsgs,
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(p.model),
+		MaxTokens: int64(p.cfg.MaxTokens),
+		Messages:  apiMessages,
 	}
-	if sys != "" {
-		req["system"] = sys
+
+	if systemContent != "" {
+		params.System = []anthropic.TextBlockParam{{
+			Type: "text",
+			Text: systemContent,
+		}}
 	}
+
 	if len(tools) > 0 {
-		req["tools"] = a.convertTools(tools)
+		toolUnions := make([]anthropic.ToolUnionParam, len(tools))
+		for i, t := range tools {
+			schemaBytes, _ := json.Marshal(t.Function.Parameters)
+			var inputSchema anthropic.ToolInputSchemaParam
+			json.Unmarshal(schemaBytes, &inputSchema)
+
+			toolParam := anthropic.ToolParam{
+				Name:        t.Function.Name,
+				Description: anthropic.String(t.Function.Description),
+				InputSchema: inputSchema,
+			}
+			toolUnions[i] = anthropic.ToolUnionParam{OfTool: &toolParam}
+		}
+		params.Tools = toolUnions
 	}
-	return req
+
+	return params
 }
 
-func (a *anthropic) convertMsg(m msg.Message) map[string]any {
-	role := m.Role
-	if role == "tool" {
-		role = "user"
+func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
+	var content string
+	var toolCalls []msg.ToolCall
+
+	for _, block := range resp.Content {
+		switch b := block.AsAny().(type) {
+		case anthropic.TextBlock:
+			content += b.Text
+		case anthropic.ToolUseBlock:
+			argsJSON, _ := json.Marshal(b.Input)
+			toolCalls = append(toolCalls, msg.ToolCall{
+				ID:   b.ID,
+				Name: b.Name,
+				Args: argsJSON,
+			})
+		}
 	}
 
-	content := []map[string]any{}
-	if m.Content != "" {
-		content = append(content, map[string]any{"type": "text", "text": m.Content})
+	return &Response{
+		Content:   content,
+		ToolCalls: toolCalls,
 	}
-	for _, tc := range m.ToolCalls {
-		var input map[string]any
-		json.Unmarshal(tc.Args, &input)
-		content = append(content, map[string]any{
-			"type":  "tool_use",
-			"id":    tc.ID,
-			"name":  tc.Name,
-			"input": input,
-		})
-	}
-	for _, tr := range m.ToolResults {
-		content = append(content, map[string]any{
-			"type":        "tool_result",
-			"tool_use_id": tr.ToolCallID,
-			"content":     tr.Content,
-		})
-	}
-
-	return map[string]any{"role": role, "content": content}
-}
-
-func (a *anthropic) convertTools(tools []Tool) []map[string]any {
-	var r []map[string]any
-	for _, t := range tools {
-		r = append(r, map[string]any{
-			"name":         t.Function.Name,
-			"description":  t.Function.Description,
-			"input_schema": t.Function.Parameters,
-		})
-	}
-	return r
-}
-
-type anthropicResp struct {
-	Content []struct {
-		Type  string         `json:"type"`
-		Text  string         `json:"text"`
-		ID    string         `json:"id"`
-		Name  string         `json:"name"`
-		Input map[string]any `json:"input"`
-	} `json:"content"`
 }

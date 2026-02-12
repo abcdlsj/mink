@@ -169,15 +169,23 @@ func (b *Bash) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		Cwd string `json:"cwd,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", err
+		return "", ParseError("bash", err.Error())
 	}
+
 	cmd := exec.CommandContext(ctx, "bash", "-c", params.Cmd)
 	if params.Cwd != "" {
 		cmd.Dir = params.Cwd
 	}
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(output), fmt.Errorf("exit error: %w", err)
+		if ctx.Err() == context.DeadlineExceeded {
+			return string(output), WrapError("bash", ctx.Err())
+		}
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return string(output), ExecError("bash", params.Cmd, exitErr.ExitCode(), string(output))
+		}
+		return string(output), WrapError("bash", err)
 	}
 	return string(output), nil
 }
