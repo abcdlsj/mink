@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -84,4 +85,79 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 	default:
 		return "usage: !session [list|new]", nil
 	}
+}
+
+type compactCmd struct {
+	b *bus.Bus
+}
+
+func NewCompactCmd(b *bus.Bus) Command { return &compactCmd{b: b} }
+
+func (c *compactCmd) Name() string { return "compact" }
+func (c *compactCmd) Desc() string { return "compact current conversation context" }
+
+func (c *compactCmd) Run(ctx context.Context, args []string) (string, error) {
+	src := SourceFrom(ctx)
+	if src == "" {
+		src = bus.AddrPlatformCLI
+	}
+	note := strings.TrimSpace(strings.Join(args, " "))
+
+	if err := c.b.Pub(bus.Msg{
+		Type:    bus.TypeSessionCompact,
+		From:    src,
+		To:      bus.AddrAgentMain,
+		Payload: note,
+	}); err != nil {
+		return "", err
+	}
+
+	if note == "" {
+		return "compact requested", nil
+	}
+	return "compact requested with note", nil
+}
+
+type tokensCmd struct {
+	usage func(src string) (TokenUsage, bool)
+}
+
+type TokenUsage struct {
+	Messages int
+	Total    int
+	Input    int
+	Output   int
+	System   int
+	Tool     int
+	Source   string
+}
+
+func NewTokensCmd(usage func(src string) (TokenUsage, bool)) Command {
+	return &tokensCmd{usage: usage}
+}
+
+func (c *tokensCmd) Name() string { return "tokens" }
+func (c *tokensCmd) Desc() string { return "show estimated token usage for current session" }
+
+func (c *tokensCmd) Run(ctx context.Context, args []string) (string, error) {
+	src := SourceFrom(ctx)
+	if src == "" {
+		src = bus.AddrPlatformCLI
+	}
+
+	u, ok := c.usage(src)
+	if !ok {
+		return "no active session for current source", nil
+	}
+
+	return fmt.Sprintf(
+		"Estimated tokens\n  total: %d\n  messages: %d\n  input(user): %d\n  output(assistant): %d\n  system: %d\n  tool: %d\n  source: %s",
+		u.Total,
+		u.Messages,
+		u.Input,
+		u.Output,
+		u.System,
+		u.Tool,
+		u.Source,
+	), nil
 }

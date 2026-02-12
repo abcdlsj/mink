@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
@@ -12,6 +13,13 @@ import (
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/session"
 )
+
+const workerIdleTTL = 5 * time.Minute
+
+type workerState struct {
+	q      chan bus.Msg
+	cancel context.CancelFunc
+}
 
 type Dispatcher struct {
 	bus     *bus.Bus
@@ -23,8 +31,18 @@ type Dispatcher struct {
 	prompt  string
 	cfg     config.Config
 	agents  map[string]*Agent
-	workers map[string]chan bus.Msg
+	workers map[string]*workerState
 	mu      sync.RWMutex
+}
+
+type usageSnapshot struct {
+	Messages int
+	Total    int
+	Input    int
+	Output   int
+	System   int
+	Tool     int
+	Source   string
 }
 
 func NewDispatcher(b *bus.Bus, sm *session.Manager, p llm.Provider) *Dispatcher {
@@ -35,12 +53,12 @@ func NewDispatcher(b *bus.Bus, sm *session.Manager, p llm.Provider) *Dispatcher 
 		agentID: bus.AddrAgentMain,
 		hooks:   hook.NewManager(),
 		agents:  make(map[string]*Agent),
-		workers: make(map[string]chan bus.Msg),
+		workers: make(map[string]*workerState),
 	}
 	return d
 }
 
-func (d *Dispatcher) SetAgentID(id string)          { d.agentID = id }
+func (d *Dispatcher) SetAgentID(id string)      { d.agentID = id }
 func (d *Dispatcher) SetHooks(h *hook.Manager)  { d.hooks = h }
 func (d *Dispatcher) SetRouter(r *cmd.Router)   { d.router = r }
 func (d *Dispatcher) SetPrompt(p string)        { d.prompt = p }
@@ -52,23 +70,53 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	}
 
 	if m.Type == bus.TypeSessionReset {
-		src := m.Payload.(string)
+		src, ok := m.Payload.(string)
+		if !ok || src == "" {
+			src = m.From
+		}
+		if src == "" {
+			return d.inputError(m.From, "invalid session reset payload"), nil
+		}
 		d.resetAgent(src)
 		return bus.Msg{}, nil
 	}
 
-	src := m.From
-	d.mu.Lock()
-	q, ok := d.workers[src]
-	if !ok {
-		q = make(chan bus.Msg, 10)
-		d.workers[src] = q
-		go d.worker(ctx, src, q)
+	if m.Type == bus.TypeSessionCompact {
+		src := m.From
+		if src == "" {
+			return d.inputError(m.From, "invalid source"), nil
+		}
+		note := ""
+		if s, ok := m.Payload.(string); ok {
+			note = s
+		}
+		a := d.getOrCreateAgent(src)
+		out, err := a.Compact(ctx, src, note)
+		if err != nil {
+			return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
+		}
+		if out != "" {
+			_ = d.bus.Pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    d.agentID,
+				To:      src,
+				Payload: out,
+			})
+		}
+		return bus.Msg{}, nil
 	}
-	d.mu.Unlock()
+
+	src := m.From
+	if src == "" {
+		return d.inputError(m.From, "invalid source"), nil
+	}
+	if _, ok := m.Payload.(string); !ok {
+		return d.inputError(src, "input payload must be string"), nil
+	}
+	w := d.ensureWorker(ctx, src)
 
 	select {
-	case q <- m:
+	case w.q <- m:
 		return bus.Msg{}, nil
 	default:
 		return bus.Msg{
@@ -81,21 +129,51 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 }
 
 func (d *Dispatcher) resetAgent(src string) {
+	var cancel context.CancelFunc
+
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	delete(d.agents, src)
+	if w, ok := d.workers[src]; ok {
+		cancel = w.cancel
+		delete(d.workers, src)
+	}
+	d.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
 
 	if isTelegramSource(src) {
-		d.sm.Delete(src)
+		_ = d.sm.Delete(src)
 	}
 }
 
 func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
+	idle := time.NewTimer(workerIdleTTL)
+	defer idle.Stop()
+
 	for {
 		select {
 		case m := <-q:
+			if !idle.Stop() {
+				select {
+				case <-idle.C:
+				default:
+				}
+			}
+			idle.Reset(workerIdleTTL)
+
 			a := d.getOrCreateAgent(src)
-			in := m.Payload.(string)
+			in, ok := m.Payload.(string)
+			if !ok {
+				_ = d.bus.Pub(bus.Msg{
+					Type:    bus.TypeAssistant,
+					From:    d.agentID,
+					Payload: "error: invalid input payload",
+					To:      src,
+				})
+				continue
+			}
 			if err := a.Run(ctx, src, in); err != nil {
 				_ = d.bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
@@ -109,7 +187,11 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				From: d.agentID,
 				To:   src,
 			})
+		case <-idle.C:
+			d.removeWorker(src)
+			return
 		case <-ctx.Done():
+			d.removeWorker(src)
 			return
 		}
 	}
@@ -131,11 +213,11 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	}
 
 	var sess *session.Session
-		if isTelegramSource(src) {
-			sess, _ = d.sm.GetOrCreate(src)
-		} else {
-			sess, _ = d.sm.Create()
-		}
+	if isTelegramSource(src) {
+		sess, _ = d.sm.GetOrCreate(src)
+	} else {
+		sess, _ = d.sm.Create()
+	}
 	a := New(d.agentID, d.p, sess,
 		WithBus(d.bus),
 		WithHooks(d.hooks),
@@ -155,6 +237,23 @@ func (d *Dispatcher) Agent(src string) *Agent {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.agents[src]
+}
+
+func (d *Dispatcher) Usage(src string) (usageSnapshot, bool) {
+	a := d.Agent(src)
+	if a == nil {
+		return usageSnapshot{}, false
+	}
+	u := a.TokenUsage()
+	return usageSnapshot{
+		Messages: u.Messages,
+		Total:    u.Total,
+		Input:    u.Input,
+		Output:   u.Output,
+		System:   u.System,
+		Tool:     u.Tool,
+		Source:   u.Source,
+	}, true
 }
 
 func (d *Dispatcher) Start(ctx context.Context) {
@@ -182,7 +281,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 					continue
 				}
 				switch m.Type {
-				case bus.TypeUserInput, bus.TypeSessionReset:
+				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact:
 					d.Handle(ctx, m)
 				case bus.TypeTaskDone:
 					d.HandleTaskDone(ctx, m)
@@ -226,19 +325,57 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		return
 	}
 
-	d.mu.Lock()
-	q, ok := d.workers[src]
-	if !ok {
-		q = make(chan bus.Msg, 10)
-		d.workers[src] = q
-		go d.worker(ctx, src, q)
-	}
-	d.mu.Unlock()
+	w := d.ensureWorker(ctx, src)
 
-	q <- bus.Msg{
+	select {
+	case w.q <- bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    src,
 		To:      d.agentID,
 		Payload: content,
+	}:
+	default:
+		_ = d.bus.Pub(bus.Msg{
+			Type:    bus.TypeAssistant,
+			From:    d.agentID,
+			To:      src,
+			Payload: "background result dropped: worker busy",
+		})
 	}
+}
+
+func (d *Dispatcher) inputError(to, message string) bus.Msg {
+	if to == "" {
+		to = bus.AddrBroadcast
+	}
+	return bus.Msg{
+		Type:    bus.TypeAssistant,
+		From:    d.agentID,
+		To:      to,
+		Payload: fmt.Sprintf("error: %s", message),
+	}
+}
+
+func (d *Dispatcher) ensureWorker(parentCtx context.Context, src string) *workerState {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if w, ok := d.workers[src]; ok {
+		return w
+	}
+
+	ctx, cancel := context.WithCancel(parentCtx)
+	w := &workerState{
+		q:      make(chan bus.Msg, 10),
+		cancel: cancel,
+	}
+	d.workers[src] = w
+	go d.worker(ctx, src, w.q)
+	return w
+}
+
+func (d *Dispatcher) removeWorker(src string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.workers, src)
 }

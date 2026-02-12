@@ -79,7 +79,7 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 		}
 
 		select {
-		case ch <- Chunk{Type: ChunkDone}:
+		case ch <- Chunk{Type: ChunkDone, Usage: resp.Usage}:
 		case <-ctx.Done():
 		}
 	}()
@@ -186,5 +186,18 @@ func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 	return &Response{
 		Content:   content,
 		ToolCalls: toolCalls,
+		Usage:     toAnthropicTokenUsage(resp.Usage),
+	}
+}
+
+func toAnthropicTokenUsage(u anthropic.Usage) *TokenUsage {
+	if u.InputTokens == 0 && u.OutputTokens == 0 {
+		return nil
+	}
+	return &TokenUsage{
+		InputTokens:  int(u.InputTokens),
+		OutputTokens: int(u.OutputTokens),
+		TotalTokens:  int(u.InputTokens + u.OutputTokens),
+		InputSource:  "anthropic.usage",
 	}
 }

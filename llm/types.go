@@ -22,6 +22,14 @@ type Response struct {
 	Content          string
 	ReasoningContent string
 	ToolCalls        []msg.ToolCall
+	Usage            *TokenUsage
+}
+
+type TokenUsage struct {
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+	InputSource  string
 }
 
 type ChunkType int
@@ -39,6 +47,7 @@ type Chunk struct {
 	ReasoningDelta   string        // 增量思考内容
 	ToolCall         *msg.ToolCall // 工具调用（完整后发送）
 	ReasoningContent string        // 完整思考内容（与 ToolCall 一起发送）
+	Usage            *TokenUsage
 	Error            error
 }
 

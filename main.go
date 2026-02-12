@@ -69,6 +69,7 @@ func main() {
 	hooks := hook.NewManager()
 	cmdReg := cmd.NewRegistry()
 	cmdReg.Register(cmd.NewHelpCmd(cmdReg))
+	cmdReg.Register(cmd.NewCompactCmd(b))
 	router := cmd.NewRouter(cmdReg)
 	guard := cmd.NewGuardMux()
 	router.SetGuard(guard)
@@ -82,6 +83,21 @@ func main() {
 	disp.SetPrompt(cfg.CustomPrompt)
 	disp.SetConfig(cfg)
 	disp.Start(ctx)
+	cmdReg.Register(cmd.NewTokensCmd(func(src string) (cmd.TokenUsage, bool) {
+		u, ok := disp.Usage(src)
+		if !ok {
+			return cmd.TokenUsage{}, false
+		}
+		return cmd.TokenUsage{
+			Messages: u.Messages,
+			Total:    u.Total,
+			Input:    u.Input,
+			Output:   u.Output,
+			System:   u.System,
+			Tool:     u.Tool,
+			Source:   u.Source,
+		}, true
+	}))
 
 	cmdReg.Register(cmd.NewSessionCmd(sm))
 

@@ -28,14 +28,23 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	var r *llm.Response
 	var err error
 
+	llmTimeout := time.Duration(a.cfg.Timeout.LLM) * time.Second
+	llmCtx := ctx
+	if llmTimeout > 0 {
+		var cancel context.CancelFunc
+		llmCtx, cancel = context.WithTimeout(ctx, llmTimeout)
+		defer cancel()
+	}
+
 	if a.stream {
-		r, err = a.stepStream(ctx, src, allMsgs)
+		r, err = a.stepStream(llmCtx, src, allMsgs)
 	} else {
-		r, err = a.p.Chat(ctx, allMsgs, tools(a.reg))
+		r, err = a.p.Chat(llmCtx, allMsgs, tools(a.reg))
 	}
 	if err != nil {
 		return false, err
 	}
+	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {
 		a.session.Add(msg.Message{
@@ -53,11 +62,11 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 			}
 		}
 
-			a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
-			if a.bus != nil && !a.stream {
-				_ = a.bus.Pub(bus.Msg{
-					Type:    bus.TypeAssistant,
-					From:    a.id,
+		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
+		if a.bus != nil && !a.stream {
+			_ = a.bus.Pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    a.id,
 				To:      src,
 				Payload: r.Content,
 			})
@@ -132,6 +141,7 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 	var content strings.Builder
 	var reasoning strings.Builder
 	var toolCalls []msg.ToolCall
+	var usage *llm.TokenUsage
 
 	for chunk := range ch {
 		switch chunk.Type {
@@ -153,13 +163,16 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 				reasoning.WriteString(chunk.ReasoningContent)
 			}
 		case llm.ChunkDone:
+			if chunk.Usage != nil {
+				usage = chunk.Usage
+			}
 			if chunk.ReasoningContent != "" {
 				reasoning.WriteString(chunk.ReasoningContent)
 			}
-				if a.bus != nil {
-					_ = a.bus.Pub(bus.Msg{
-						Type: bus.TypeStreamEnd,
-						From: a.id,
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type: bus.TypeStreamEnd,
+					From: a.id,
 					To:   src,
 				})
 			}
@@ -172,12 +185,13 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 		Content:          content.String(),
 		ReasoningContent: reasoning.String(),
 		ToolCalls:        toolCalls,
+		Usage:            usage,
 	}, nil
 }
 
 func (a *Agent) buildPrompt() string {
 	var b strings.Builder
-	b.WriteString("You are a helpful coding assistant.\n\n")
+	b.WriteString("You are a helpful assistant.\n\n")
 
 	if a.prompt != "" {
 		b.WriteString(a.prompt)
@@ -212,6 +226,8 @@ func (a *Agent) buildPrompt() string {
 		b.WriteString("```bash\n!ls -la\n!git status\n```\n")
 		b.WriteString("IMPORTANT: Always use `!command` format instead of bash tool.\n")
 		b.WriteString("The `!` prefix is REQUIRED. Without it, commands won't execute.\n")
+		b.WriteString("Use `!compact [note]` to manually compact conversation context when history gets long.\n")
+		b.WriteString("Use `!tokens` to inspect estimated token usage and decide when to compact.\n")
 	}
 
 	return b.String()

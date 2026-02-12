@@ -71,6 +71,7 @@ func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*R
 	res := &Response{
 		Content:          choice.Message.Content,
 		ReasoningContent: choice.Message.ReasoningContent,
+		Usage:            toTokenUsage(resp.Usage),
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
@@ -86,8 +87,13 @@ func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*R
 
 func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Tool) (<-chan Chunk, error) {
 	req := o.buildRequest(msgs, tools)
+	req.StreamOptions = &openai.StreamOptions{IncludeUsage: true}
 
 	stream, err := o.client.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		req.StreamOptions = nil
+		stream, err = o.client.CreateChatCompletionStream(ctx, req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +106,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 
 		var fullContent strings.Builder
 		var reasoningContent strings.Builder
+		var usage *TokenUsage
 		toolCallsMap := make(map[int]*msg.ToolCall)
 
 		for {
@@ -115,7 +122,14 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 			}
 
 			if len(chunk.Choices) == 0 {
+				if chunk.Usage != nil {
+					usage = toTokenUsage(*chunk.Usage)
+				}
 				continue
+			}
+
+			if chunk.Usage != nil {
+				usage = toTokenUsage(*chunk.Usage)
 			}
 
 			delta := chunk.Choices[0].Delta
@@ -166,12 +180,28 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 		}
 
 		select {
-		case ch <- Chunk{Type: ChunkDone, ReasoningContent: reasoningContent.String()}:
+		case ch <- Chunk{Type: ChunkDone, ReasoningContent: reasoningContent.String(), Usage: usage}:
 		case <-ctx.Done():
 		}
 	}()
 
 	return ch, nil
+}
+
+func toTokenUsage(u openai.Usage) *TokenUsage {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 && u.TotalTokens == 0 {
+		return nil
+	}
+	total := u.TotalTokens
+	if total == 0 {
+		total = u.PromptTokens + u.CompletionTokens
+	}
+	return &TokenUsage{
+		InputTokens:  u.PromptTokens,
+		OutputTokens: u.CompletionTokens,
+		TotalTokens:  total,
+		InputSource:  "openai.usage",
+	}
 }
 
 func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompletionRequest {
