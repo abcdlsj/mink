@@ -114,7 +114,7 @@ func (t *Telegram) handleMessage(m *tgMessage) {
 		return
 	}
 
-	t.bus.Pub(bus.Msg{
+	_ = t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    fmt.Sprintf("telegram:%d", chatID),
 		To:      "*",

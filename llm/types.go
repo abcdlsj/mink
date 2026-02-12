@@ -2,29 +2,10 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+
+	"github.com/abcdlsj/mink/msg"
 )
-
-type Message struct {
-	Role             string
-	Content          string
-	ReasoningContent string
-	ToolCalls        []ToolCall
-	ToolResults      []ToolResult
-}
-
-type ToolCall struct {
-	ID   string
-	Name string
-	Args json.RawMessage
-}
-
-type ToolResult struct {
-	ToolCallID string
-	Content    string
-	Error      string
-}
 
 type Tool struct {
 	Type     string
@@ -40,11 +21,11 @@ type FunctionDef struct {
 type Response struct {
 	Content          string
 	ReasoningContent string
-	ToolCalls        []ToolCall
+	ToolCalls        []msg.ToolCall
 }
 
 type Provider interface {
-	Chat(ctx context.Context, msgs []Message, tools []Tool) (*Response, error)
+	Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error)
 }
 
 type Config struct {

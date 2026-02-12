@@ -67,7 +67,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 	taskID := "[task]" + randTaskName()
 
 	// 广播任务开始
-	b.bus.Pub(bus.Msg{
+	_ = b.bus.Pub(bus.Msg{
 		Type: bus.TypeTaskStart,
 		From: b.agentID,
 		To:   "*",
@@ -96,7 +96,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 			result["error"] = err.Error()
 		}
 
-		b.bus.Pub(bus.Msg{
+		_ = b.bus.Pub(bus.Msg{
 			Type:    bus.TypeTaskDone,
 			From:    taskID,
 			To:      b.agentID,

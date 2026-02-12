@@ -13,143 +13,122 @@ import (
 	"github.com/abcdlsj/mink/cmd"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/tool"
 )
 
 var fenceRe = regexp.MustCompile("^```")
 
-func (c *Core) step(ctx context.Context, src, sid string) (bool, error) {
-	h, _ := c.sm.GetHistory(sid, -1)
-	msgs := c.buildMsgs(h)
+func (a *Agent) step(ctx context.Context, src string) (bool, error) {
+	msgs := a.session.Messages()
+	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt()}}
+	allMsgs := append(sysMsgs, msgs...)
 
-	r, err := c.p.Chat(ctx, msgs, tools(c.reg))
+	r, err := a.p.Chat(ctx, allMsgs, tools(a.reg))
 	if err != nil {
 		return false, err
 	}
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {
-		var tcs []session.ToolCall
-		for _, tc := range r.ToolCalls {
-			tcs = append(tcs, session.ToolCall{
-				ID:   tc.ID,
-				Name: tc.Name,
-				Args: tc.Args,
-			})
-		}
-		c.sm.AddMessage(sid, session.Message{
+		a.session.Add(msg.Message{
 			Role:             "assistant",
 			Content:          r.Content,
 			ReasoningContent: r.ReasoningContent,
-			ToolCalls:        tcs,
+			ToolCalls:        r.ToolCalls,
 		})
 	}
 
 	if r.Content != "" {
-		if c.router != nil {
-			if cmdResult := c.detectAndExecCommands(ctx, src, sid, r.Content); cmdResult != "" {
+		if a.router != nil {
+			if cmdResult := a.detectAndExecCommands(ctx, src, r.Content); cmdResult != "" {
 				return false, nil
 			}
 		}
 
-		c.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
-		c.bus.Pub(bus.Msg{
-			Type:    bus.TypeAssistant,
-			From:    c.id,
-			To:      src,
-			Payload: r.Content,
-		})
-		c.hooks.Trigger(ctx, hook.AfterAssist, r.Content)
+		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
+		if a.bus != nil {
+			_ = a.bus.Pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    a.id,
+				To:      src,
+				Payload: r.Content,
+			})
+		}
+		a.hooks.Trigger(ctx, hook.AfterAssist, r.Content)
 	}
 
 	if len(r.ToolCalls) == 0 {
 		return true, nil
 	}
 
-	// 并行执行 tool calls
-	results := make([]session.ToolResult, len(r.ToolCalls))
+	results := make([]msg.ToolResult, len(r.ToolCalls))
 	var wg sync.WaitGroup
 
 	for i, tc := range r.ToolCalls {
-		c.hooks.Trigger(ctx, hook.BeforeTool, tc)
-		c.bus.Pub(bus.Msg{
-			Type:    bus.TypeToolCall,
-			From:    c.id,
-			To:      src,
-			Payload: fmtToolCall(tc.Name, tc.Args),
-		})
+		a.hooks.Trigger(ctx, hook.BeforeTool, tc)
+		if a.bus != nil {
+			_ = a.bus.Pub(bus.Msg{
+				Type:    bus.TypeToolCall,
+				From:    a.id,
+				To:      src,
+				Payload: fmtToolCall(tc.Name, tc.Args),
+			})
+		}
 
 		wg.Add(1)
-		go func(i int, tc llm.ToolCall) {
+		go func(i int, tc msg.ToolCall) {
 			defer wg.Done()
-			out, err := c.execTool(ctx, tc)
+			out, err := a.execTool(ctx, tc)
 
-			tr := session.ToolResult{ToolCallID: tc.ID, Content: out}
+			tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
 			if err != nil {
 				tr.Error = err.Error()
-				c.bus.Pub(bus.Msg{
-					Type:    bus.TypeToolError,
-					From:    c.id,
-					To:      src,
-					Payload: err.Error(),
-				})
+				if a.bus != nil {
+					_ = a.bus.Pub(bus.Msg{
+						Type:    bus.TypeToolError,
+						From:    a.id,
+						To:      src,
+						Payload: err.Error(),
+					})
+				}
 			} else {
-				c.bus.Pub(bus.Msg{
-					Type:    bus.TypeToolResult,
-					From:    c.id,
-					To:      src,
-					Payload: out,
-				})
+				if a.bus != nil {
+					_ = a.bus.Pub(bus.Msg{
+						Type:    bus.TypeToolResult,
+						From:    a.id,
+						To:      src,
+						Payload: out,
+					})
+				}
 			}
-			c.hooks.Trigger(ctx, hook.AfterTool, tr)
+			a.hooks.Trigger(ctx, hook.AfterTool, tr)
 			results[i] = tr
 		}(i, tc)
 	}
 
 	wg.Wait()
 	for _, tr := range results {
-		c.sm.AddMessage(sid, session.Message{Role: "tool", ToolResults: []session.ToolResult{tr}})
+		a.session.Add(msg.Message{Role: "tool", ToolResults: []msg.ToolResult{tr}})
 	}
 
 	return false, nil
 }
 
-func (c *Core) buildMsgs(h []session.Message) []llm.Message {
-	var r []llm.Message
-	r = append(r, llm.Message{Role: "system", Content: c.prompt()})
-
-	for _, m := range h {
-		msg := llm.Message{
-			Role:             m.Role,
-			Content:          m.Content,
-			ReasoningContent: m.ReasoningContent,
-		}
-		for _, tc := range m.ToolCalls {
-			msg.ToolCalls = append(msg.ToolCalls, llm.ToolCall{ID: tc.ID, Name: tc.Name, Args: tc.Args})
-		}
-		for _, tr := range m.ToolResults {
-			msg.ToolResults = append(msg.ToolResults, llm.ToolResult{ToolCallID: tr.ToolCallID, Content: tr.Content, Error: tr.Error})
-		}
-		r = append(r, msg)
-	}
-	return r
-}
-
-func (c *Core) prompt() string {
+func (a *Agent) buildPrompt() string {
 	var b strings.Builder
 	b.WriteString("You are a helpful coding assistant.\n\n")
 
-	if c.customPrompt != "" {
-		b.WriteString(c.customPrompt)
+	if a.prompt != "" {
+		b.WriteString(a.prompt)
 		b.WriteString("\n\n")
 	}
 
 	b.WriteString("Available tools:\n")
-	for _, t := range c.reg.All() {
+	for _, t := range a.reg.All() {
 		fmt.Fprintf(&b, "- %s: %s\n", t.Name(), t.Desc())
 	}
 
-	if c.reg.Get("spawn") != nil {
+	if a.reg.Get("spawn") != nil {
 		b.WriteString("\n## Multi-Agent Collaboration\n")
 		b.WriteString("Use `spawn` to delegate subtasks to new agents. Good for:\n")
 		b.WriteString("- Parallel work: spawn multiple agents to handle independent tasks\n")
@@ -158,7 +137,7 @@ func (c *Core) prompt() string {
 		b.WriteString("Example: spawn({\"task\": \"analyze error handling in cmd/\", \"share_context\": false})\n")
 	}
 
-	if c.reg.Get("background") != nil {
+	if a.reg.Get("background") != nil {
 		b.WriteString("\n## Background Tasks\n")
 		b.WriteString("Use `background` for long-running commands. Returns immediately with task_id.\n")
 		b.WriteString("When task completes, you'll receive a notification with the result.\n")
@@ -166,7 +145,7 @@ func (c *Core) prompt() string {
 		b.WriteString("Example: background({\"cmd\": \"go build ./...\", \"cwd\": \"/path/to/project\"})\n")
 	}
 
-	if c.router != nil {
+	if a.router != nil {
 		b.WriteString("\n## Commands (PREFERRED over bash tool)\n")
 		b.WriteString("Execute shell commands in code blocks with `!` prefix:\n")
 		b.WriteString("```bash\n!ls -la\n!git status\n```\n")
@@ -177,15 +156,15 @@ func (c *Core) prompt() string {
 	return b.String()
 }
 
-func (c *Core) execTool(ctx context.Context, tc llm.ToolCall) (string, error) {
-	if t := c.reg.Get(tc.Name); t != nil {
+func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
+	if t := a.reg.Get(tc.Name); t != nil {
 		return t.Run(ctx, tc.Args)
 	}
 	return "", fmt.Errorf("unknown: %s", tc.Name)
 }
 
-func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content string) string {
-	cmds := c.parseCommands(content)
+func (a *Agent) detectAndExecCommands(ctx context.Context, src, content string) string {
+	cmds := parseCommands(content)
 	if len(cmds) == 0 {
 		return ""
 	}
@@ -194,35 +173,41 @@ func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content stri
 
 	var results []string
 	for _, raw := range cmds {
-		out, ok, err := c.router.Route(ctx, raw)
+		out, ok, err := a.router.Route(ctx, raw)
 		if !ok {
 			continue
 		}
 
-		c.bus.Pub(bus.Msg{
-			Type:    bus.TypeCommand,
-			From:    c.id,
-			To:      src,
-			Payload: raw,
-		})
+		if a.bus != nil {
+			_ = a.bus.Pub(bus.Msg{
+				Type:    bus.TypeCommand,
+				From:    a.id,
+				To:      src,
+				Payload: raw,
+			})
+		}
 
 		status := "ok"
 		if err != nil {
 			status = "error"
 			out = err.Error()
-			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeCommandError,
-				From:    c.id,
-				To:      src,
-				Payload: out,
-			})
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type:    bus.TypeCommandError,
+					From:    a.id,
+					To:      src,
+					Payload: out,
+				})
+			}
 		} else {
-			c.bus.Pub(bus.Msg{
-				Type:    bus.TypeCommandOK,
-				From:    c.id,
-				To:      src,
-				Payload: out,
-			})
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type:    bus.TypeCommandOK,
+					From:    a.id,
+					To:      src,
+					Payload: out,
+				})
+			}
 		}
 		results = append(results, fmt.Sprintf("<command cmd=%q status=%q>\n%s\n</command>", raw, status, out))
 	}
@@ -232,11 +217,11 @@ func (c *Core) detectAndExecCommands(ctx context.Context, src, sid, content stri
 	}
 
 	feedback := strings.Join(results, "\n")
-	c.sm.AddMessage(sid, session.Message{Role: "user", Content: feedback})
+	a.session.Add(msg.Message{Role: "user", Content: feedback})
 	return feedback
 }
 
-func (c *Core) parseCommands(content string) []string {
+func parseCommands(content string) []string {
 	var cmds []string
 	lines := strings.Split(content, "\n")
 	inFence := false

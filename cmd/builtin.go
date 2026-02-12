@@ -62,17 +62,17 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 
 	switch args[0] {
 	case "list":
-		ss, err := c.sm.List()
+		ids, err := c.sm.List()
 		if err != nil {
 			return "", err
 		}
-		if len(ss) == 0 {
+		if len(ids) == 0 {
 			return "no sessions", nil
 		}
 		var b strings.Builder
 		b.WriteString("Sessions:\n")
-		for _, s := range ss {
-			fmt.Fprintf(&b, "  %s\n", s.ID)
+		for _, id := range ids {
+			fmt.Fprintf(&b, "  %s\n", id)
 		}
 		return b.String(), nil
 	case "new":
@@ -80,7 +80,7 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("created: %s", s.ID), nil
+		return fmt.Sprintf("created: %s", s.ID()), nil
 	default:
 		return "usage: !session [list|new]", nil
 	}

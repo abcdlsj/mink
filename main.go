@@ -13,6 +13,7 @@ import (
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/platform"
+	"github.com/abcdlsj/mink/session"
 )
 
 func main() {
@@ -47,20 +48,23 @@ func main() {
 	}
 
 	dir := os.ExpandEnv("$HOME/.mink/sessions")
+	store := session.NewFileStore(dir)
+	sm := session.NewManager(store)
+
 	hooks := hook.NewManager()
 	cmdReg := cmd.NewRegistry()
 	cmdReg.Register(cmd.NewHelpCmd(cmdReg))
 	router := cmd.NewRouter(cmdReg)
 	guard := cmd.NewGuardMux()
 
-	sup := agent.NewSupervisor(b, p, dir, hooks, router, cfg.CustomPrompt)
-	a := agent.New("main", p, dir, b, hooks, router, cfg.CustomPrompt)
-	sup.Register(a)
+	sup := agent.NewSupervisor(b, p, sm, hooks, router, cfg.CustomPrompt)
+	disp := agent.NewDispatcher(b, sm, p)
+	disp.SetHooks(hooks)
+	disp.SetRouter(router)
+	disp.SetPrompt(cfg.CustomPrompt)
+	disp.Start(ctx)
 
-	cmdReg.Register(cmd.NewToolsCmd(a.Tools()))
-	cmdReg.Register(cmd.NewSessionCmd(a.Sessions()))
-
-	a.Start(ctx)
+	cmdReg.Register(cmd.NewSessionCmd(sm))
 
 	var adapters []platform.Adapter
 
@@ -72,7 +76,7 @@ func main() {
 	if cfg.Telegram != "" {
 		tg := platform.NewTelegram(cfg.Telegram, b)
 		if err := tg.Start(ctx); err != nil {
-			// telegram 错误不阻止启动，会在状态栏显示
+			// telegram 错误不阻止启动
 		} else {
 			adapters = append(adapters, tg)
 			guard.Register("telegram:", tg)
@@ -81,7 +85,8 @@ func main() {
 
 	router.SetGuard(guard)
 
-	// TUI 在主线程运行（阻塞直到退出）
+	_ = sup // supervisor 用于处理 spawn
+
 	if err := cli.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}

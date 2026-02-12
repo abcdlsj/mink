@@ -10,6 +10,7 @@ import (
 	"github.com/abcdlsj/mink/cmd"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/session"
 )
 
 var agentNames = []string{
@@ -23,25 +24,25 @@ func randAgentName() string {
 }
 
 type Supervisor struct {
-	bus          *bus.Bus
-	provider     llm.Provider
-	dir          string
-	hooks        *hook.Manager
-	router       *cmd.Router
-	customPrompt string
-	agents       map[string]*Core
-	mu           sync.RWMutex
+	bus    *bus.Bus
+	p      llm.Provider
+	sm     *session.Manager
+	hooks  *hook.Manager
+	router *cmd.Router
+	prompt string
+	agents map[string]*Agent
+	mu     sync.RWMutex
 }
 
-func NewSupervisor(b *bus.Bus, p llm.Provider, dir string, h *hook.Manager, r *cmd.Router, customPrompt string) *Supervisor {
+func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Manager, r *cmd.Router, prompt string) *Supervisor {
 	s := &Supervisor{
-		bus:          b,
-		provider:     p,
-		dir:          dir,
-		hooks:        h,
-		router:       r,
-		customPrompt: customPrompt,
-		agents:       make(map[string]*Core),
+		bus:    b,
+		p:      p,
+		sm:     sm,
+		hooks:  h,
+		router: r,
+		prompt: prompt,
+		agents: make(map[string]*Agent),
 	}
 	b.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
 	b.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
@@ -51,7 +52,6 @@ func NewSupervisor(b *bus.Bus, p llm.Provider, dir string, h *hook.Manager, r *c
 func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	payload, ok := m.Payload.(map[string]any)
 	if !ok {
-		// 兼容旧格式
 		if p, ok := m.Payload.(map[string]string); ok {
 			payload = map[string]any{"task": p["task"]}
 		} else {
@@ -65,8 +65,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 
 	child := s.SpawnWithContext(parentID, shareCtx)
 
-	// 广播 agent 创建事件
-	s.bus.Pub(bus.Msg{
+	_ = s.bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
 		To:   "*",
@@ -78,13 +77,12 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	})
 
 	go func() {
-		// 子 agent 输出广播到 "*"，让所有平台都能看到协作过程
 		err := child.Run(ctx, "*", task)
 		result := s.extractLastResponse(child)
 		if err != nil {
 			result = fmt.Sprintf("error: %v", err)
 		}
-		s.bus.Pub(bus.Msg{
+		_ = s.bus.Pub(bus.Msg{
 			Type: bus.TypeAgentDone,
 			From: child.ID(),
 			To:   "*",
@@ -152,15 +150,21 @@ func (s *Supervisor) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 	}
 }
 
-func (s *Supervisor) Spawn(parentID string) *Core {
+func (s *Supervisor) Spawn(parentID string) *Agent {
 	return s.SpawnWithContext(parentID, false)
 }
 
-func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Core {
+func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 	id := "[agent]" + randAgentName()
-	child := New(id, s.provider, s.dir, s.bus, s.hooks, s.router, s.customPrompt)
 
-	// 注册到 bus 并处理上下文共享
+	sess, _ := s.sm.Create()
+	child := New(id, s.p, sess,
+		WithBus(s.bus),
+		WithHooks(s.hooks),
+		WithRouter(s.router),
+		WithPrompt(s.prompt),
+	)
+
 	s.bus.RegisterAgent(id, shareCtx)
 	if shareCtx {
 		ctx := s.bus.ForkContext(parentID, id)
@@ -186,34 +190,28 @@ func (s *Supervisor) Kill(id string) {
 	}
 }
 
-func (s *Supervisor) Register(a *Core) {
+func (s *Supervisor) Register(a *Agent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.agents[a.ID()] = a
 }
 
-func (s *Supervisor) Get(id string) (*Core, bool) {
+func (s *Supervisor) Get(id string) (*Agent, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	a, ok := s.agents[id]
 	return a, ok
 }
 
-func (s *Supervisor) extractLastResponse(c *Core) string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	for _, sid := range c.sessions {
-		if h, err := c.sm.GetHistory(sid, -1); err == nil {
-			for i := len(h) - 1; i >= 0; i-- {
-				if h[i].Role == "assistant" && h[i].Content != "" {
-					content := h[i].Content
-					if len(content) > 2000 {
-						content = content[:2000] + "..."
-					}
-					return content
-				}
+func (s *Supervisor) extractLastResponse(a *Agent) string {
+	msgs := a.Session().Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" && msgs[i].Content != "" {
+			content := msgs[i].Content
+			if len(content) > 2000 {
+				content = content[:2000] + "..."
 			}
+			return content
 		}
 	}
 	return "completed"

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/abcdlsj/mink/msg"
 )
 
 type openAI struct {
@@ -31,7 +33,7 @@ func newOpenAI(cfg Config) *openAI {
 	}
 }
 
-func (o *openAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Response, error) {
+func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
 	body, err := json.Marshal(o.buildReq(msgs, tools))
 	if err != nil {
 		return nil, err
@@ -76,7 +78,7 @@ func (o *openAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Respo
 
 	for _, tc := range c.Message.ToolCalls {
 		if tc.Type == "function" {
-			res.ToolCalls = append(res.ToolCalls, ToolCall{
+			res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
 				ID:   tc.ID,
 				Name: tc.Function.Name,
 				Args: []byte(tc.Function.Arguments),
@@ -86,7 +88,7 @@ func (o *openAI) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Respo
 	return res, nil
 }
 
-func (o *openAI) buildReq(msgs []Message, tools []Tool) map[string]any {
+func (o *openAI) buildReq(msgs []msg.Message, tools []Tool) map[string]any {
 	req := map[string]any{
 		"model":       o.cfg.Model,
 		"max_tokens":  o.cfg.MaxTokens,
@@ -99,7 +101,7 @@ func (o *openAI) buildReq(msgs []Message, tools []Tool) map[string]any {
 	return req
 }
 
-func (o *openAI) convertMsgs(msgs []Message) []map[string]any {
+func (o *openAI) convertMsgs(msgs []msg.Message) []map[string]any {
 	var r []map[string]any
 	for _, m := range msgs {
 		msg := map[string]any{"role": m.Role, "content": m.Content}

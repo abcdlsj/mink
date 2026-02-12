@@ -2,11 +2,12 @@ package bus
 
 import (
 	"context"
+	"fmt"
 	"sync"
 )
 
 type MessageBus interface {
-	Pub(m Msg)
+	Pub(m Msg) error
 	Subscribe(msgType string, ch chan Msg)
 	Unsubscribe(msgType string, ch chan Msg)
 	Req(ctx context.Context, m Msg) (Msg, error)
@@ -56,14 +57,16 @@ func (b *Bus) Unsubscribe(msgType string, ch chan Msg) {
 	}
 }
 
-func (b *Bus) Pub(m Msg) {
+func (b *Bus) Pub(m Msg) error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	var dropped int
 	for _, ch := range b.subs[m.Type] {
 		select {
 		case ch <- m:
 		default:
+			dropped++
 		}
 	}
 
@@ -72,9 +75,15 @@ func (b *Bus) Pub(m Msg) {
 			select {
 			case agent.Send <- m:
 			default:
+				dropped++
 			}
 		}
 	}
+
+	if dropped > 0 {
+		return fmt.Errorf("bus: dropped %d messages for type %s", dropped, m.Type)
+	}
+	return nil
 }
 
 func (b *Bus) Req(ctx context.Context, m Msg) (Msg, error) {

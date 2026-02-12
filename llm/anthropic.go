@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/abcdlsj/mink/msg"
 )
 
 type anthropic struct {
@@ -31,7 +33,7 @@ func newAnthropic(cfg Config) *anthropic {
 	}
 }
 
-func (a *anthropic) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Response, error) {
+func (a *anthropic) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
 	body, err := json.Marshal(a.buildReq(msgs, tools))
 	if err != nil {
 		return nil, err
@@ -72,7 +74,7 @@ func (a *anthropic) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Re
 			res.Content += c.Text
 		case "tool_use":
 			args, _ := json.Marshal(c.Input)
-			res.ToolCalls = append(res.ToolCalls, ToolCall{
+			res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
 				ID:   c.ID,
 				Name: c.Name,
 				Args: args,
@@ -82,7 +84,7 @@ func (a *anthropic) Chat(ctx context.Context, msgs []Message, tools []Tool) (*Re
 	return res, nil
 }
 
-func (a *anthropic) buildReq(msgs []Message, tools []Tool) map[string]any {
+func (a *anthropic) buildReq(msgs []msg.Message, tools []Tool) map[string]any {
 	sys := ""
 	var amsgs []map[string]any
 
@@ -109,7 +111,7 @@ func (a *anthropic) buildReq(msgs []Message, tools []Tool) map[string]any {
 	return req
 }
 
-func (a *anthropic) convertMsg(m Message) map[string]any {
+func (a *anthropic) convertMsg(m msg.Message) map[string]any {
 	role := m.Role
 	if role == "tool" {
 		role = "user"

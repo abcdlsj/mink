@@ -3,219 +3,68 @@ package agent
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/cmd"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
 
-type Core struct {
-	id           string
-	p            llm.Provider
-	reg          *tool.Registry
-	sm           *session.Manager
-	bus          *bus.Bus
-	hooks        *hook.Manager
-	router       *cmd.Router
-	customPrompt string
-	sessions     map[string]string
-	mu           sync.RWMutex
-	workers      map[string]chan bus.Msg
+type Agent struct {
+	id      string
+	p       llm.Provider
+	reg     *tool.Registry
+	session *session.Session
+	bus     *bus.Bus
+	hooks   *hook.Manager
+	router  *cmd.Router
+	prompt  string
 }
 
-func New(id string, p llm.Provider, dir string, b *bus.Bus, h *hook.Manager, r *cmd.Router, customPrompt string) *Core {
-	c := &Core{
-		id:           id,
-		p:            p,
-		reg:          tool.NewRegistry(),
-		sm:           session.NewManager(dir),
-		bus:          b,
-		hooks:        h,
-		router:       r,
-		customPrompt: customPrompt,
-		sessions:     make(map[string]string),
-		workers:      make(map[string]chan bus.Msg),
+type Option func(*Agent)
+
+func WithHooks(h *hook.Manager) Option   { return func(a *Agent) { a.hooks = h } }
+func WithRouter(r *cmd.Router) Option    { return func(a *Agent) { a.router = r } }
+func WithPrompt(p string) Option         { return func(a *Agent) { a.prompt = p } }
+func WithBus(b *bus.Bus) Option          { return func(a *Agent) { a.bus = b } }
+func WithRegistry(r *tool.Registry) Option { return func(a *Agent) { a.reg = r } }
+
+func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
+	a := &Agent{
+		id:      id,
+		p:       p,
+		session: s,
+		reg:     tool.NewRegistry(),
+		hooks:   hook.NewManager(),
 	}
-	c.reg.Register(tool.NewSpawn(b, id))
-	c.reg.Register(tool.NewBackground(b, id))
-	c.bus.RegisterHandler(bus.TypeUserInput, c.Handle)
-	return c
+	for _, opt := range opts {
+		opt(a)
+	}
+	if a.bus != nil {
+		a.reg.Register(tool.NewSpawn(a.bus, id))
+		a.reg.Register(tool.NewBackground(a.bus, id))
+	}
+	return a
 }
 
-func (c *Core) ID() string                 { return c.id }
-func (c *Core) Tools() *tool.Registry      { return c.reg }
-func (c *Core) Sessions() *session.Manager { return c.sm }
+func (a *Agent) ID() string              { return a.id }
+func (a *Agent) Session() *session.Session { return a.session }
+func (a *Agent) Tools() *tool.Registry   { return a.reg }
 
-func (c *Core) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
-	if m.To != "*" && m.To != c.id {
-		return bus.Msg{}, nil
-	}
-	src := m.From
-	c.mu.Lock()
-	q, ok := c.workers[src]
-	if !ok {
-		q = make(chan bus.Msg, 10)
-		c.workers[src] = q
-		go c.worker(ctx, src, q)
-	}
-	c.mu.Unlock()
-
-	select {
-	case q <- m:
-		return bus.Msg{}, nil
-	default:
-		return bus.Msg{
-			Type:    bus.TypeAssistant,
-			Payload: "busy",
-			To:      src,
-		}, nil
-	}
-}
-
-func (c *Core) handleTaskDone(ctx context.Context, m bus.Msg) {
-	payload, ok := m.Payload.(map[string]string)
-	if !ok {
-		return
-	}
-
-	taskID := payload["task_id"]
-	output := payload["output"]
-	status := payload["status"]
-	errMsg := payload["error"]
-
-	var content string
-	if status == "ok" {
-		content = fmt.Sprintf("[Background task %s completed]\nOutput:\n%s", taskID, output)
-	} else {
-		content = fmt.Sprintf("[Background task %s failed]\nError: %s\nOutput:\n%s", taskID, errMsg, output)
-	}
-
-	c.mu.RLock()
-	var src string
-	for s := range c.sessions {
-		src = s
-		break
-	}
-	c.mu.RUnlock()
-
-	if src == "" {
-		return
-	}
-
-	c.mu.Lock()
-	q, ok := c.workers[src]
-	if !ok {
-		q = make(chan bus.Msg, 10)
-		c.workers[src] = q
-		go c.worker(ctx, src, q)
-	}
-	c.mu.Unlock()
-
-	q <- bus.Msg{
-		Type:    bus.TypeUserInput,
-		From:    src,
-		To:      c.id,
-		Payload: content,
-	}
-}
-
-func (c *Core) worker(ctx context.Context, src string, q chan bus.Msg) {
-	for {
-		select {
-		case m := <-q:
-			in := m.Payload.(string)
-			if err := c.Run(ctx, src, in); err != nil {
-				c.bus.Pub(bus.Msg{
-					Type:    bus.TypeAssistant,
-					Payload: fmt.Sprintf("error: %v", err),
-					To:      src,
-				})
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (c *Core) Start(ctx context.Context) {
-	conn := c.bus.RegisterAgent(c.id, false)
-
-	go func() {
-		for {
-			select {
-			case m := <-conn.Send:
-				if m.To != "*" && m.To != c.id {
-					continue
-				}
-				switch m.Type {
-				case bus.TypeTaskDone:
-					c.handleTaskDone(ctx, m)
-				default:
-					resp, _ := c.bus.Req(ctx, m)
-					if resp.Type != "" {
-						c.bus.Pub(resp)
-					}
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-}
-
-func (c *Core) session(src string) (string, error) {
-	c.mu.RLock()
-	if sid, ok := c.sessions[src]; ok {
-		c.mu.RUnlock()
-		return sid, nil
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if sid, ok := c.sessions[src]; ok {
-		return sid, nil
-	}
-
-	s, err := c.sm.Create()
-	if err != nil {
-		return "", err
-	}
-
-	c.sessions[src] = s.ID
-	return s.ID, nil
-}
-
-func (c *Core) Run(ctx context.Context, src, in string) error {
-	sid, err := c.session(src)
-	if err != nil {
-		return err
-	}
-
-	c.sm.AddMessage(sid, session.Message{Role: "user", Content: in})
-
-	defer func() {
-		c.bus.Pub(bus.Msg{
-			Type: bus.TypeTurnDone,
-			From: c.id,
-			To:   src,
-		})
-	}()
+func (a *Agent) Run(ctx context.Context, src, input string) error {
+	a.session.Add(msg.Message{Role: "user", Content: input})
 
 	for i := 0; i < 100; i++ {
-		done, err := c.step(ctx, src, sid)
+		done, err := a.step(ctx, src)
 		if err != nil {
 			return err
 		}
 		if done {
-			return nil
+			return a.session.Flush()
 		}
 	}
-
 	return fmt.Errorf("max steps")
 }

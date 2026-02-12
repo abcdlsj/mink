@@ -216,7 +216,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 		}
 	}
 
-	m.cli.bus.Pub(bus.Msg{
+	_ = m.cli.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    "cli",
 		To:      "main",
