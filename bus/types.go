@@ -12,6 +12,7 @@ const (
 	TypeCommandError = "cmd:error"
 	TypeSessionNew   = "session:new"
 	TypeSessionFork  = "session:fork"
+	TypeSessionReset = "session:reset"
 	TypeAgentSpawn   = "agent:spawn"
 	TypeAgentDone    = "agent:done"
 	TypeContextShare = "context:share"

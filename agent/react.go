@@ -53,11 +53,11 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 			}
 		}
 
-		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
-		if a.bus != nil && !a.stream {
-			_ = a.bus.Pub(bus.Msg{
-				Type:    bus.TypeAssistant,
-				From:    a.id,
+			a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
+			if a.bus != nil && !a.stream {
+				_ = a.bus.Pub(bus.Msg{
+					Type:    bus.TypeAssistant,
+					From:    a.id,
 				To:      src,
 				Payload: r.Content,
 			})
@@ -156,10 +156,10 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			if chunk.ReasoningContent != "" {
 				reasoning.WriteString(chunk.ReasoningContent)
 			}
-			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type: bus.TypeStreamEnd,
-					From: a.id,
+				if a.bus != nil {
+					_ = a.bus.Pub(bus.Msg{
+						Type: bus.TypeStreamEnd,
+						From: a.id,
 					To:   src,
 				})
 			}
@@ -338,4 +338,11 @@ func tools(reg *tool.Registry) []llm.Tool {
 		})
 	}
 	return r
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

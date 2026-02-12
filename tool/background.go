@@ -76,7 +76,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 	_ = b.bus.Pub(bus.Msg{
 		Type: bus.TypeTaskStart,
 		From: b.agentID,
-		To:   "*",
+		To:   bus.AddrBroadcast,
 		Payload: map[string]string{
 			"task_id": taskID,
 			"cmd":     params.Cmd,
@@ -100,6 +100,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 			"task_id": taskID,
 			"output":  string(output),
 			"status":  "ok",
+			"source":  b.agentID,
 		}
 		if err != nil {
 			result["status"] = "error"

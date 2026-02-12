@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
@@ -19,6 +21,14 @@ import (
 func main() {
 	cfg := config.Load()
 
+	// 检查运行模式：tg 或 cli（默认）
+	var tgMode bool
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "tg" {
+		tgMode = true
+		os.Args = append([]string{os.Args[0]}, args[1:]...) // 移除 tg 参数
+	}
+
 	flag.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
 	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
 	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
@@ -28,6 +38,11 @@ func main() {
 
 	if cfg.APIKey == "" {
 		fmt.Fprintln(os.Stderr, "need api key")
+		os.Exit(1)
+	}
+
+	if tgMode && cfg.Telegram == "" {
+		fmt.Fprintln(os.Stderr, "tg mode need telegram token")
 		os.Exit(1)
 	}
 
@@ -49,17 +64,19 @@ func main() {
 
 	dir := os.ExpandEnv("$HOME/.mink/sessions")
 	store := session.NewFileStore(dir)
-	sm := session.NewManager(store)
+	sm := session.NewManager(store, b)
 
 	hooks := hook.NewManager()
 	cmdReg := cmd.NewRegistry()
 	cmdReg.Register(cmd.NewHelpCmd(cmdReg))
 	router := cmd.NewRouter(cmdReg)
 	guard := cmd.NewGuardMux()
+	router.SetGuard(guard)
 
 	sup := agent.NewSupervisor(b, p, sm, hooks, router, cfg.CustomPrompt)
 	sup.SetConfig(cfg)
 	disp := agent.NewDispatcher(b, sm, p)
+	disp.SetAgentID(bus.AddrAgentMain)
 	disp.SetHooks(hooks)
 	disp.SetRouter(router)
 	disp.SetPrompt(cfg.CustomPrompt)
@@ -70,28 +87,45 @@ func main() {
 
 	var adapters []platform.Adapter
 
-	cli := platform.NewCLI(b, router, hooks)
-	cli.Start(ctx)
-	adapters = append(adapters, cli)
-	guard.Register("cli", cli)
-
-	if cfg.Telegram != "" {
+	if tgMode {
+		// TG 模式：只启动 Telegram
 		tg := platform.NewTelegram(cfg.Telegram, b)
 		if err := tg.Start(ctx); err != nil {
-			// telegram 错误不阻止启动
-		} else {
-			adapters = append(adapters, tg)
-			guard.Register("telegram:", tg)
+			fmt.Fprintf(os.Stderr, "error: telegram start failed: %v\n", err)
+			os.Exit(1)
+		}
+		adapters = append(adapters, tg)
+		guard.Register("telegram:", tg)
+		fmt.Println("TG Bot started, press Ctrl+C to stop")
+
+		// 等待退出信号
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		fmt.Println("\nShutting down...")
+	} else {
+		// CLI 模式
+		cli := platform.NewCLI(b, router, hooks)
+		cli.Start(ctx)
+		adapters = append(adapters, cli)
+		guard.Register(bus.AddrPlatformCLI, cli)
+
+		if cfg.Telegram != "" {
+			tg := platform.NewTelegram(cfg.Telegram, b)
+			if err := tg.Start(ctx); err != nil {
+				// telegram 错误不阻止启动
+			} else {
+				adapters = append(adapters, tg)
+				guard.Register("telegram:", tg)
+			}
+		}
+
+		if err := cli.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		}
 	}
 
-	router.SetGuard(guard)
-
-	_ = sup // supervisor 用于处理 spawn
-
-	if err := cli.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-	}
+	_ = sup
 
 	cancel()
 	for _, a := range adapters {

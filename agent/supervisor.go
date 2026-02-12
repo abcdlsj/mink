@@ -46,6 +46,7 @@ func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Mana
 		prompt: prompt,
 		agents: make(map[string]*Agent),
 	}
+	b.RegisterAgent(bus.AddrSystemSup, false)
 	b.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
 	b.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
 	return s
@@ -72,7 +73,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	_ = s.bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
-		To:   "*",
+		To:   bus.AddrBroadcast,
 		Payload: map[string]string{
 			"agent_id": child.ID(),
 			"parent":   parentID,
@@ -81,7 +82,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	})
 
 	go func() {
-		err := child.Run(ctx, "*", task)
+		err := child.Run(ctx, bus.AddrBroadcast, task)
 		result := s.extractLastResponse(child)
 		if err != nil {
 			result = fmt.Sprintf("error: %v", err)
@@ -89,7 +90,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 		_ = s.bus.Pub(bus.Msg{
 			Type: bus.TypeAgentDone,
 			From: child.ID(),
-			To:   "*",
+			To:   bus.AddrBroadcast,
 			Payload: map[string]string{
 				"agent_id": child.ID(),
 				"result":   result,
@@ -100,7 +101,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 
 	return bus.Msg{
 		Type: bus.TypeAgentSpawn,
-		From: "supervisor",
+		From: bus.AddrSystemSup,
 		To:   parentID,
 		Payload: map[string]string{
 			"agent_id": child.ID(),
@@ -118,7 +119,7 @@ func (s *Supervisor) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 	task := payload["task"]
 	targetID := payload["to"]
 	if targetID == "" {
-		targetID = "*"
+		targetID = bus.AddrBroadcast
 	}
 
 	s.mu.RLock()
@@ -159,7 +160,7 @@ func (s *Supervisor) Spawn(parentID string) *Agent {
 }
 
 func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
-	id := "[agent]" + randAgentName()
+	id := bus.Agent("[agent]" + randAgentName())
 
 	sess, _ := s.sm.Create()
 	child := New(id, s.p, sess,

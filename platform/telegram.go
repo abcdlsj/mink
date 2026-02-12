@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -24,16 +25,20 @@ type Telegram struct {
 	streamMu  sync.Mutex
 	streamBuf map[int64]*strings.Builder
 	streamMsg map[int64]int
+
+	activeMu    sync.RWMutex
+	activeChats map[int64]bool
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
 	return &Telegram{
-		token:     token,
-		bus:       b,
-		stop:      make(chan struct{}),
-		confirms:  make(map[int64]chan bool),
-		streamBuf: make(map[int64]*strings.Builder),
-		streamMsg: make(map[int64]int),
+		token:       token,
+		bus:         b,
+		stop:        make(chan struct{}),
+		confirms:    make(map[int64]chan bool),
+		streamBuf:   make(map[int64]*strings.Builder),
+		streamMsg:   make(map[int64]int),
+		activeChats: make(map[int64]bool),
 	}
 }
 
@@ -50,6 +55,7 @@ func (t *Telegram) Start(ctx context.Context) error {
 		return err
 	}
 	t.bot = bot
+	log.Printf("[TG] Bot started: @%s", bot.Me.Username)
 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		return t.handleMessage(c)
@@ -87,10 +93,26 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 		return nil
 	}
 
+	src := bus.Telegram(chatID)
+
+	if text == "/new" {
+		_ = t.bus.Pub(bus.Msg{
+			Type:    bus.TypeSessionReset,
+			From:    src,
+			To:      bus.AddrAgentMain,
+			Payload: src,
+		})
+		return c.Send("[Session] Created new session")
+	}
+
+	t.activeMu.Lock()
+	t.activeChats[chatID] = true
+	t.activeMu.Unlock()
+
 	_ = t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
-		From:    fmt.Sprintf("telegram:%d", chatID),
-		To:      "*",
+		From:    src,
+		To:      bus.AddrAgentMain,
 		Payload: text,
 	})
 
@@ -112,11 +134,12 @@ func (t *Telegram) forward(ctx context.Context) {
 	t.bus.Subscribe(bus.TypeTaskDone, ch)
 	t.bus.Subscribe(bus.TypeStreamChunk, ch)
 	t.bus.Subscribe(bus.TypeStreamEnd, ch)
+	t.bus.Subscribe(bus.TypeSessionNew, ch)
 
 	for {
 		select {
 		case m := <-ch:
-			if !strings.HasPrefix(m.To, "telegram:") && m.To != "*" {
+			if !strings.HasPrefix(m.To, "telegram:") && m.To != bus.AddrBroadcast {
 				continue
 			}
 			t.sendMsg(m)
@@ -129,71 +152,96 @@ func (t *Telegram) forward(ctx context.Context) {
 }
 
 func (t *Telegram) sendMsg(m bus.Msg) {
-	var chatID int64
-	if strings.HasPrefix(m.To, "telegram:") {
-		fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
-	}
-
-	if chatID == 0 {
+	chatIDs := t.getTargetChats(m)
+	if len(chatIDs) == 0 {
 		return
 	}
 
-	chat := &tele.Chat{ID: chatID}
 	prefix := ""
-	if m.From != "" && m.From != "main" {
+	if m.From != "" && m.From != bus.AddrAgentMain {
 		prefix = fmt.Sprintf("[%s] ", m.From)
 	}
 
-	var text string
+	for _, chatID := range chatIDs {
+		t.sendToChat(chatID, m, prefix)
+	}
+}
+
+func (t *Telegram) getTargetChats(m bus.Msg) []int64 {
+	if strings.HasPrefix(m.To, "telegram:") {
+		var chatID int64
+		fmt.Sscanf(strings.TrimPrefix(m.To, "telegram:"), "%d", &chatID)
+		if chatID != 0 {
+			return []int64{chatID}
+		}
+	}
+
+	// 广播给所有活跃用户
+	if m.To == bus.AddrBroadcast {
+		t.activeMu.RLock()
+		defer t.activeMu.RUnlock()
+
+		chats := make([]int64, 0, len(t.activeChats))
+		for id := range t.activeChats {
+			chats = append(chats, id)
+		}
+		return chats
+	}
+
+	return nil
+}
+
+func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
+	chat := &tele.Chat{ID: chatID}
+
 	switch m.Type {
 	case bus.TypeAssistant:
-		text = fmt.Sprintf("%s%s", prefix, m.Payload)
+		_, err := t.bot.Send(chat, fmt.Sprintf("%s%s", prefix, m.Payload))
+		if err != nil {
+			log.Printf("[TG] Send error: %v", err)
+		}
 	case bus.TypeToolCall:
-		text = fmt.Sprintf("[Tool] %s%s", prefix, m.Payload)
+		t.bot.Send(chat, fmt.Sprintf("[Tool] %s%s", prefix, m.Payload))
 	case bus.TypeToolResult:
-		text = fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
+		t.bot.Send(chat, fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200)))
 	case bus.TypeToolError:
-		text = fmt.Sprintf("[ERR] %s%s", prefix, m.Payload)
+		t.bot.Send(chat, fmt.Sprintf("[ERR] %s%s", prefix, m.Payload))
 	case bus.TypeCommand:
-		text = fmt.Sprintf("$ %s%s", prefix, m.Payload)
+		t.bot.Send(chat, fmt.Sprintf("$ %s%s", prefix, m.Payload))
 	case bus.TypeCommandOK:
-		text = fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
+		t.bot.Send(chat, fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200)))
 	case bus.TypeCommandError:
-		text = fmt.Sprintf("[ERR] %s%s", prefix, m.Payload)
+		t.bot.Send(chat, fmt.Sprintf("[ERR] %s%s", prefix, m.Payload))
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncate(payload["task"], 100)
-			text = fmt.Sprintf("[Spawn] %s: %s", payload["agent_id"], task)
+			t.bot.Send(chat, fmt.Sprintf("[Spawn] %s: %s", payload["agent_id"], task))
 		}
 	case bus.TypeAgentDone:
 		if payload, ok := m.Payload.(map[string]string); ok {
-			text = fmt.Sprintf("[Done] %s %s", payload["agent_id"], payload["result"])
+			t.bot.Send(chat, fmt.Sprintf("[Done] %s %s", payload["agent_id"], payload["result"]))
 		}
 	case bus.TypeTaskStart:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			cmd := truncate(payload["cmd"], 50)
-			text = fmt.Sprintf("[Run] %s: %s", payload["task_id"], cmd)
+			t.bot.Send(chat, fmt.Sprintf("[Run] %s: %s", payload["task_id"], cmd))
 		}
 	case bus.TypeTaskDone:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			if payload["status"] == "ok" {
-				text = fmt.Sprintf("[OK] %s completed", payload["task_id"])
+				t.bot.Send(chat, fmt.Sprintf("[OK] %s completed", payload["task_id"]))
 			} else {
-				text = fmt.Sprintf("[ERR] %s: %s", payload["task_id"], truncate(payload["error"], 50))
+				t.bot.Send(chat, fmt.Sprintf("[ERR] %s: %s", payload["task_id"], truncate(payload["error"], 50)))
 			}
 		}
 	case bus.TypeStreamChunk:
 		t.handleStreamChunk(chatID, m)
-		return
 	case bus.TypeStreamEnd:
 		t.handleStreamEnd(chatID)
-		return
-	default:
-		return
-	}
-
-	if text != "" {
-		t.bot.Send(chat, text)
+	case bus.TypeSessionNew:
+		if id, ok := m.Payload.(string); ok {
+			t.bot.Send(chat, fmt.Sprintf("[Session] %s", id))
+		}
 	}
 }
 
@@ -209,20 +257,6 @@ func (t *Telegram) handleStreamChunk(chatID int64, m bus.Msg) {
 		t.streamBuf[chatID] = buf
 	}
 	buf.WriteString(delta)
-
-	if buf.Len() >= 500 || strings.HasSuffix(delta, "\n") {
-		text := "[...] " + truncate(buf.String(), 4000)
-		chat := &tele.Chat{ID: chatID}
-
-		if msgID, exists := t.streamMsg[chatID]; exists {
-			t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, text)
-		} else {
-			sent, err := t.bot.Send(chat, text)
-			if err == nil {
-				t.streamMsg[chatID] = sent.ID
-			}
-		}
-	}
 }
 
 func (t *Telegram) handleStreamEnd(chatID int64) {
@@ -236,7 +270,10 @@ func (t *Telegram) handleStreamEnd(chatID int64) {
 		if msgID, exists := t.streamMsg[chatID]; exists {
 			t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, text)
 		} else if text != "" {
-			t.bot.Send(chat, text)
+			sent, err := t.bot.Send(chat, text)
+			if err == nil {
+				t.streamMsg[chatID] = sent.ID
+			}
 		}
 
 		delete(t.streamBuf, chatID)

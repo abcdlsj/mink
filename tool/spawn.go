@@ -57,6 +57,7 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	resp, err := s.bus.Req(ctx, bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: s.parentID,
+		To:   bus.AddrSystemSup,
 		Payload: map[string]any{
 			"task":          params.Task,
 			"share_context": params.ShareContext,

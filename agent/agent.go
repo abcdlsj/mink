@@ -51,7 +51,11 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	}
 	if a.bus != nil {
 		a.reg.Register(tool.NewSpawn(a.bus, id))
-		a.reg.Register(tool.NewBackground(a.bus, id))
+		bg := tool.NewBackground(a.bus, id)
+		if a.cfg.Timeout.Background > 0 {
+			bg.SetTimeout(a.cfg.Timeout.Background)
+		}
+		a.reg.Register(bg)
 	}
 	return a
 }

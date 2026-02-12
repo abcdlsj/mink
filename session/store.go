@@ -12,6 +12,7 @@ import (
 type Store interface {
 	Load(id string) ([]msg.Message, error)
 	Save(id string, msgs []msg.Message) error
+	Delete(id string) error
 	List() ([]string, error)
 }
 
@@ -46,6 +47,10 @@ func (s *FileStore) Save(id string, msgs []msg.Message) error {
 		return err
 	}
 	return os.WriteFile(s.path(id), data, 0644)
+}
+
+func (s *FileStore) Delete(id string) error {
+	return os.Remove(s.path(id))
 }
 
 func (s *FileStore) List() ([]string, error) {

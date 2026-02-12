@@ -130,6 +130,7 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	c.bus.Subscribe(bus.TypeTaskDone, ch)
 	c.bus.Subscribe(bus.TypeStreamChunk, ch)
 	c.bus.Subscribe(bus.TypeStreamEnd, ch)
+	c.bus.Subscribe(bus.TypeSessionNew, ch)
 
 	go func() {
 		for {
@@ -235,8 +236,8 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	_ = m.cli.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
-		From:    "cli",
-		To:      "main",
+		From:    bus.AddrPlatformCLI,
+		To:      bus.AddrAgentMain,
 		Payload: text,
 	})
 
@@ -246,11 +247,11 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
-	if msg.To != "*" && msg.To != "cli" {
+	if msg.To != bus.AddrBroadcast && msg.To != bus.AddrPlatformCLI {
 		return m, nil
 	}
 
-	isSubAgent := msg.From != "" && msg.From != "main" && msg.From != "supervisor"
+	isSubAgent := msg.From != "" && msg.From != bus.AddrAgentMain && msg.From != bus.AddrSystemSup
 
 	switch msg.Type {
 	case bus.TypeAgentSpawn:
@@ -316,7 +317,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case bus.TypeTurnDone:
-		if msg.From == "main" {
+		if msg.From == bus.AddrAgentMain {
 			if m.pending > 0 {
 				m.pending--
 			}
@@ -360,6 +361,11 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 	case bus.TypeStreamEnd:
 		m.streaming = false
 		m.streamBuf = ""
+
+	case bus.TypeSessionNew:
+		if id, ok := msg.Payload.(string); ok {
+			m.output = append(m.output, styleDim.Render(fmt.Sprintf("[Session] %s", id)))
+		}
 	}
 
 	return m, nil
@@ -454,9 +460,9 @@ func (m *model) View() string {
 			}
 
 			fmt.Fprintf(&b, "%s %s %s\n",
-			status,
-			styleAgent.Render(id),
-			styleDim.Render(agent.task))
+				status,
+				styleAgent.Render(id),
+				styleDim.Render(agent.task))
 
 			for _, line := range agent.lines {
 				b.WriteString("  " + line + "\n")
