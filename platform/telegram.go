@@ -192,39 +192,39 @@ func (t *Telegram) sendMsgToChat(chatID int64, m bus.Msg) {
 	var text string
 	switch m.Type {
 	case bus.TypeAssistant:
-		text = fmt.Sprintf("🤖 %s%s", prefix, m.Payload)
+		text = fmt.Sprintf("[Assistant] %s%s", prefix, m.Payload)
 	case bus.TypeToolCall:
-		text = fmt.Sprintf("🔧 %s%s", prefix, m.Payload)
+		text = fmt.Sprintf("[Tool] %s%s", prefix, m.Payload)
 	case bus.TypeToolResult:
-		text = fmt.Sprintf("✅ %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
+		text = fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
 	case bus.TypeToolError:
-		text = fmt.Sprintf("❌ %s%s", prefix, m.Payload)
+		text = fmt.Sprintf("[ERR] %s%s", prefix, m.Payload)
 	case bus.TypeCommand:
 		text = fmt.Sprintf("$ %s%s", prefix, m.Payload)
 	case bus.TypeCommandOK:
-		text = fmt.Sprintf("✅ %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
+		text = fmt.Sprintf("[OK] %s%s", prefix, truncate(fmt.Sprintf("%v", m.Payload), 200))
 	case bus.TypeCommandError:
-		text = fmt.Sprintf("❌ %s%s", prefix, m.Payload)
+		text = fmt.Sprintf("[ERR] %s%s", prefix, m.Payload)
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncate(payload["task"], 100)
-			text = fmt.Sprintf("⚡ %s spawned: %s", payload["agent_id"], task)
+			text = fmt.Sprintf("[Spawn] %s: %s", payload["agent_id"], task)
 		}
 	case bus.TypeAgentDone:
 		if payload, ok := m.Payload.(map[string]string); ok {
-			text = fmt.Sprintf("✓ %s %s", payload["agent_id"], payload["result"])
+			text = fmt.Sprintf("[Done] %s %s", payload["agent_id"], payload["result"])
 		}
 	case bus.TypeTaskStart:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			cmd := truncate(payload["cmd"], 50)
-			text = fmt.Sprintf("⏳ [%s] %s", payload["task_id"], cmd)
+			text = fmt.Sprintf("[Run] %s: %s", payload["task_id"], cmd)
 		}
 	case bus.TypeTaskDone:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			if payload["status"] == "ok" {
-				text = fmt.Sprintf("✅ [%s] completed", payload["task_id"])
+				text = fmt.Sprintf("[OK] %s completed", payload["task_id"])
 			} else {
-				text = fmt.Sprintf("❌ [%s] %s", payload["task_id"], truncate(payload["error"], 50))
+				text = fmt.Sprintf("[ERR] %s: %s", payload["task_id"], truncate(payload["error"], 50))
 			}
 		}
 	default:
@@ -318,7 +318,7 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 		t.confirmMu.Unlock()
 	}()
 
-	t.send(chatID, fmt.Sprintf("⚠️ Execute: %s?\nReply Y/N", raw))
+	t.send(chatID, fmt.Sprintf("[Confirm] Execute: %s?\nReply Y/N", raw))
 
 	select {
 	case ok := <-ch:
@@ -326,7 +326,7 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 	case <-ctx.Done():
 		return false, ctx.Err()
 	case <-time.After(60 * time.Second):
-		t.send(chatID, "⏰ Timeout, cancelled")
+		t.send(chatID, "[Timeout] Cancelled")
 		return false, nil
 	}
 }

@@ -324,7 +324,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		if payload, ok := msg.Payload.(map[string]string); ok {
 			taskID := payload["task_id"]
 			cmd := truncate(payload["cmd"], 40)
-			m.output = append(m.output, styleTool.Render(fmt.Sprintf("⏳ [%s] %s", taskID, cmd)))
+			m.output = append(m.output, styleTool.Render(fmt.Sprintf("[%s] %s", taskID, cmd)))
 		}
 
 	case bus.TypeTaskDone:
