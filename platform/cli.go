@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -20,7 +20,7 @@ import (
 const (
 	maxOutputLines  = 4000
 	agentLineLimit  = 8
-	mouseScrollStep = 3
+	mouseScrollStep = 1
 	minOutputLines  = 5
 	confirmPromptID = "[confirm]"
 )
@@ -70,12 +70,23 @@ type CLI struct {
 	confirmQ  string
 }
 
+type toolState struct {
+	id      string
+	name    string
+	args    string
+	line    int // output line index
+	done    bool
+	err     string
+	spinner spinner.Model
+}
+
 type model struct {
 	cli         *CLI
-	input       textinput.Model
+	input       textarea.Model
 	output      []string
 	agents      map[string]*agentState
 	agentKeys   []string
+	tools       map[string]*toolState
 	quitting    bool
 	width       int
 	height      int
@@ -112,11 +123,14 @@ func (c *CLI) Start(ctx context.Context) error {
 }
 
 func (c *CLI) Run() error {
-	ti := textinput.New()
-	ti.Placeholder = "Type your message..."
-	ti.Prompt = ""
-	ti.Focus()
-	ti.Width = 80
+	ta := textarea.New()
+	ta.Placeholder = "Type your message... (Shift+Enter for newline)"
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.SetWidth(80)
+	ta.SetHeight(1)
+	ta.CharLimit = 0
+	ta.Focus()
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -124,10 +138,11 @@ func (c *CLI) Run() error {
 
 	m := &model{
 		cli:       c,
-		input:     ti,
+		input:     ta,
 		output:    []string{styleDim.Render("mink. type 'exit' to quit")},
 		agents:    make(map[string]*agentState),
 		agentKeys: []string{},
+		tools:     make(map[string]*toolState),
 		spinner:   s,
 	}
 	c.model = m
@@ -221,7 +236,7 @@ func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
 type confirmRequestMsg string
 
 func (m *model) Init() tea.Cmd {
-	return textinput.Blink
+	return textarea.Blink
 }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -237,13 +252,18 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEscape:
 			return m.handleInterrupt()
 		case tea.KeyEnter:
+			// Check if single-line and submit, or multi-line allow newlines
+			lines := strings.Count(m.input.Value(), "\n")
+			if lines == 0 {
+				return m.handleSubmit()
+			}
+			// Multi-line: let textarea handle Enter (add newline)
+			m.input, _ = m.input.Update(msg)
+			m.updateInputHeight()
+			return m, nil
+		case tea.KeyCtrlS:
+			// Ctrl+S: force submit (for multi-line input)
 			return m.handleSubmit()
-		case tea.KeyUp:
-			m.scrollUp(1)
-			return m, nil
-		case tea.KeyDown:
-			m.scrollDown(1)
-			return m, nil
 		case tea.KeyPgUp:
 			m.scrollUp(m.pageSize())
 			return m, nil
@@ -259,11 +279,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseMsg:
-		switch {
-		case msg.Button == tea.MouseButtonWheelUp || msg.Type == tea.MouseWheelUp:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
 			m.scrollUp(mouseScrollStep)
 			return m, nil
-		case msg.Button == tea.MouseButtonWheelDown || msg.Type == tea.MouseWheelDown:
+		case tea.MouseButtonWheelDown:
 			m.scrollDown(mouseScrollStep)
 			return m, nil
 		}
@@ -272,8 +292,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.width > 4 {
-			m.input.Width = msg.Width - 4
+			m.input.SetWidth(msg.Width - 4)
 		}
+		m.updateInputHeight()
 
 	case busMsg:
 		return m.handleBusMsg(bus.Msg(msg))
@@ -299,6 +320,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, cmd)
 			}
 		}
+		for _, ts := range m.tools {
+			if !ts.done && ts.line >= 0 && ts.line < len(m.output) {
+				var cmd tea.Cmd
+				ts.spinner, cmd = ts.spinner.Update(msg)
+				cmds = append(cmds, cmd)
+				display := truncate(ts.name+" "+ts.args, 100)
+				m.output[ts.line] = ts.spinner.View() + " " + styleTool.Render(display)
+			}
+		}
 		if len(cmds) > 0 {
 			return m, tea.Batch(cmds...)
 		}
@@ -318,7 +348,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.input.Value())
-	m.input.SetValue("")
+	m.input.Reset()
+	m.input.SetHeight(1)
 
 	if text == "" {
 		return m, nil
@@ -443,27 +474,85 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case bus.TypeToolCall:
-		line := styleTool.Render("◉ " + truncate(fmt.Sprintf("%v", msg.Payload), 120))
+		payload, ok := msg.Payload.(map[string]string)
+		if !ok {
+			// Fallback for old format
+			line := styleTool.Render("◉ " + truncate(fmt.Sprintf("%v", msg.Payload), 120))
+			if isSubAgent {
+				m.appendToAgent(msg.From, line)
+			} else {
+				m.appendOutput(line)
+			}
+			break
+		}
+		id := payload["id"]
+		name := payload["name"]
+		args := payload["args"]
+		display := truncate(name+" "+args, 100)
+
 		if isSubAgent {
-			m.appendToAgent(msg.From, line)
+			m.appendToAgent(msg.From, styleTool.Render("◉ "+display))
 		} else {
-			m.appendOutput(line)
+			s := spinner.New()
+			s.Spinner = spinner.Dot
+			s.Style = styleTool
+			lineIdx := len(m.output)
+			m.appendOutput(s.View() + " " + styleTool.Render(display))
+			m.tools[id] = &toolState{
+				id:      id,
+				name:    name,
+				args:    args,
+				line:    lineIdx,
+				spinner: s,
+			}
+			return m, s.Tick
 		}
 
 	case bus.TypeToolResult:
-		line := styleSuccess.Render("✓ done")
-		if isSubAgent {
-			m.appendToAgent(msg.From, line)
-		} else {
-			m.appendOutput(line)
+		payload, ok := msg.Payload.(map[string]string)
+		if !ok {
+			// Fallback for old format
+			if isSubAgent {
+				m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
+			} else {
+				m.appendOutput(styleSuccess.Render("✓ done"))
+			}
+			break
+		}
+		id := payload["id"]
+		if ts, exists := m.tools[id]; exists && !ts.done {
+			ts.done = true
+			if ts.line >= 0 && ts.line < len(m.output) {
+				display := truncate(ts.name+" "+ts.args, 100)
+				m.output[ts.line] = styleSuccess.Render("✓") + " " + styleTool.Render(display)
+			}
+		} else if isSubAgent {
+			m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
 		}
 
 	case bus.TypeToolError:
-		line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 160))
-		if isSubAgent {
-			m.appendToAgent(msg.From, line)
-		} else {
-			m.appendOutput(line)
+		payload, ok := msg.Payload.(map[string]string)
+		if !ok {
+			// Fallback for old format
+			line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 160))
+			if isSubAgent {
+				m.appendToAgent(msg.From, line)
+			} else {
+				m.appendOutput(line)
+			}
+			break
+		}
+		id := payload["id"]
+		errMsg := payload["error"]
+		if ts, exists := m.tools[id]; exists && !ts.done {
+			ts.done = true
+			ts.err = errMsg
+			if ts.line >= 0 && ts.line < len(m.output) {
+				display := truncate(ts.name+" "+ts.args, 80)
+				m.output[ts.line] = styleFail.Render("✗") + " " + styleTool.Render(display) + " " + styleFail.Render(truncate(errMsg, 40))
+			}
+		} else if isSubAgent {
+			m.appendToAgent(msg.From, styleFail.Render("✗ "+truncate(errMsg, 160)))
 		}
 
 	case bus.TypeCommand:
@@ -497,6 +586,11 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.agentKeys = []string{}
 			m.agents = make(map[string]*agentState)
+			m.tools = make(map[string]*toolState)
+			m.streaming = false
+			m.streamBuf.Reset()
+			m.thinking = false
+			m.thinkingBuf.Reset()
 		}
 
 	case bus.TypeTaskStart:
@@ -737,7 +831,7 @@ func (m *model) View() string {
 	}
 
 	if layout.showScroll {
-		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] ↑/↓ PgUp/PgDn Home/End MouseWheel", currentScroll, layout.maxScroll)))
+		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] PgUp/PgDn Home/End MouseWheel", currentScroll, layout.maxScroll)))
 		b.WriteString("\n")
 	}
 
@@ -853,14 +947,29 @@ func (m *model) refreshInputMode() {
 		m.input.Placeholder = "Type yes/y or no/n, then Enter"
 		return
 	}
-	m.input.Placeholder = "Type your message..."
+	m.input.Placeholder = "Type message... (Enter: newline/submit, Ctrl+S: submit)"
+}
+
+func (m *model) updateInputHeight() {
+	lines := strings.Count(m.input.Value(), "\n") + 1
+	maxHeight := 8
+	if lines > maxHeight {
+		lines = maxHeight
+	}
+	if lines < 1 {
+		lines = 1
+	}
+	m.input.SetHeight(lines)
 }
 
 func (m *model) computeLayout() layoutMetrics {
 	agentDetailLine := m.agentDetailLines()
-	outputHeight := m.height - m.nonOutputLines(false, agentDetailLine)
-	if outputHeight < 0 {
-		outputHeight = 0
+
+	// Always reserve space for scroll hint when there might be content
+	nonOutput := m.nonOutputLines(true, agentDetailLine)
+	outputHeight := m.height - nonOutput
+	if outputHeight < 1 {
+		outputHeight = 1
 	}
 
 	maxScroll := len(m.output) - outputHeight
@@ -868,23 +977,8 @@ func (m *model) computeLayout() layoutMetrics {
 		maxScroll = 0
 	}
 
-	showScroll := false
-	if maxScroll > 0 {
-		withScrollHint := m.height - m.nonOutputLines(true, agentDetailLine)
-		if withScrollHint < 0 {
-			withScrollHint = 0
-		}
-
-		if withScrollHint != outputHeight {
-			outputHeight = withScrollHint
-			maxScroll = len(m.output) - outputHeight
-			if maxScroll < 0 {
-				maxScroll = 0
-			}
-		}
-
-		showScroll = maxScroll > 0
-	}
+	// Show scroll hint when content exceeds visible area
+	showScroll := len(m.output) > outputHeight
 
 	return layoutMetrics{
 		outputHeight:    outputHeight,
@@ -895,7 +989,12 @@ func (m *model) computeLayout() layoutMetrics {
 }
 
 func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int {
-	lines := 2
+	// Base: textarea height (already set via SetHeight) + 2 for spacing/prompt
+	inputHeight := m.input.Height()
+	if inputHeight < 1 {
+		inputHeight = 1
+	}
+	lines := inputHeight + 2
 
 	if len(m.agentKeys) > 0 {
 		lines += 3

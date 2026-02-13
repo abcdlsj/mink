@@ -31,6 +31,7 @@ type Agent struct {
 	tok         *tokenEstimator
 	base        tokenBaseline
 	interrupted bool
+	cancelFn    context.CancelFunc
 	mu          sync.Mutex
 }
 
@@ -97,6 +98,9 @@ func (a *Agent) Tools() *tool.Registry     { return a.reg }
 func (a *Agent) Interrupt() {
 	a.mu.Lock()
 	a.interrupted = true
+	if a.cancelFn != nil {
+		a.cancelFn()
+	}
 	a.mu.Unlock()
 }
 
@@ -109,6 +113,7 @@ func (a *Agent) IsInterrupted() bool {
 func (a *Agent) ResetInterrupt() {
 	a.mu.Lock()
 	a.interrupted = false
+	a.cancelFn = nil
 	a.mu.Unlock()
 }
 
@@ -126,6 +131,14 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	ctx = bus.WithSource(ctx, src)
 	a.ResetInterrupt()
 
+	// Create cancellable context for interrupt support
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	a.mu.Lock()
+	a.cancelFn = cancel
+	a.mu.Unlock()
+
 	if a.shouldAutoCompact() {
 		if _, err := a.Compact(ctx, src, ""); err != nil && a.bus != nil {
 			_ = a.bus.Pub(bus.Msg{
@@ -139,9 +152,9 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 
 	timeout := time.Duration(a.cfg.Timeout.Agent) * time.Second
 	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
+		defer timeoutCancel()
 	}
 
 	a.session.Add(msg.Message{Role: "user", Content: input})
@@ -156,15 +169,23 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	}
 
 	for i := 0; i < maxSteps; i++ {
-		if ctx.Err() != nil {
-			return fmt.Errorf("agent timeout: %w", ctx.Err())
-		}
 		if a.IsInterrupted() {
 			a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
 			return nil
 		}
+		if ctx.Err() != nil {
+			if a.IsInterrupted() {
+				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
+				return nil
+			}
+			return fmt.Errorf("agent timeout: %w", ctx.Err())
+		}
 		done, err := a.step(ctx, src)
 		if err != nil {
+			if a.IsInterrupted() || ctx.Err() == context.Canceled {
+				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
+				return nil
+			}
 			return err
 		}
 		if done {

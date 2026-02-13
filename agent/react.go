@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -86,10 +84,14 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		a.hooks.Trigger(ctx, hook.BeforeTool, tc)
 		if a.bus != nil {
 			_ = a.bus.Pub(bus.Msg{
-				Type:    bus.TypeToolCall,
-				From:    a.id,
-				To:      src,
-				Payload: fmtToolCall(tc.Name, tc.Args),
+				Type: bus.TypeToolCall,
+				From: a.id,
+				To:   src,
+				Payload: map[string]string{
+					"id":   tc.ID,
+					"name": tc.Name,
+					"args": string(tc.Args),
+				},
 			})
 		}
 
@@ -104,19 +106,24 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 				tr.Error = toolErr.Error()
 				if a.bus != nil {
 					_ = a.bus.Pub(bus.Msg{
-						Type:    bus.TypeToolError,
-						From:    a.id,
-						To:      src,
-						Payload: toolErr.Error(),
+						Type: bus.TypeToolError,
+						From: a.id,
+						To:   src,
+						Payload: map[string]string{
+							"id":    tc.ID,
+							"error": toolErr.Error(),
+						},
 					})
 				}
 			} else {
 				if a.bus != nil {
 					_ = a.bus.Pub(bus.Msg{
-						Type:    bus.TypeToolResult,
-						From:    a.id,
-						To:      src,
-						Payload: out,
+						Type: bus.TypeToolResult,
+						From: a.id,
+						To:   src,
+						Payload: map[string]string{
+							"id": tc.ID,
+						},
 					})
 				}
 			}
@@ -358,14 +365,6 @@ func parseCommands(content string) []string {
 	return cmds
 }
 
-func fmtToolCall(name string, args json.RawMessage) string {
-	var buf bytes.Buffer
-	buf.WriteString(name)
-	buf.WriteByte(' ')
-	json.Compact(&buf, args)
-	return buf.String()
-}
-
 func tools(reg *tool.Registry) []llm.Tool {
 	var r []llm.Tool
 	for _, t := range reg.All() {
@@ -381,9 +380,3 @@ func tools(reg *tool.Registry) []llm.Tool {
 	return r
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

@@ -278,6 +278,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 	// 兼容广播输入
 	ch := make(chan bus.Msg, 64)
 	d.bus.Subscribe(bus.TypeUserInput, ch)
+	d.bus.Subscribe(bus.TypeInterrupt, ch)
 
 	go func() {
 		for {
@@ -299,7 +300,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 					continue
 				}
 				switch m.Type {
-				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact:
+				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact, bus.TypeInterrupt:
 					d.Handle(ctx, m)
 				case bus.TypeTaskDone:
 					d.HandleTaskDone(ctx, m)
