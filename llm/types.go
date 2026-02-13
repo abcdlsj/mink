@@ -19,10 +19,11 @@ type FunctionDef struct {
 }
 
 type Response struct {
-	Content          string
-	ReasoningContent string
-	ToolCalls        []msg.ToolCall
-	Usage            *TokenUsage
+	Content            string
+	ReasoningContent   string
+	ReasoningSignature string
+	ToolCalls          []msg.ToolCall
+	Usage              *TokenUsage
 }
 
 type TokenUsage struct {
@@ -42,13 +43,14 @@ const (
 )
 
 type Chunk struct {
-	Type             ChunkType
-	Delta            string        // 增量文本
-	ReasoningDelta   string        // 增量思考内容
-	ToolCall         *msg.ToolCall // 工具调用（完整后发送）
-	ReasoningContent string        // 完整思考内容（与 ToolCall 一起发送）
-	Usage            *TokenUsage
-	Error            error
+	Type               ChunkType
+	Delta              string        // 增量文本
+	ReasoningDelta     string        // 增量思考内容
+	ToolCall           *msg.ToolCall // 工具调用（完整后发送）
+	ReasoningContent   string        // 完整思考内容（与 ToolCall 一起发送）
+	ReasoningSignature string        // thinking block signature (Anthropic)
+	Usage              *TokenUsage
+	Error              error
 }
 
 type Provider interface {

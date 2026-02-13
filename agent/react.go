@@ -47,10 +47,11 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {
 		a.session.Add(msg.Message{
-			Role:             "assistant",
-			Content:          r.Content,
-			ReasoningContent: r.ReasoningContent,
-			ToolCalls:        r.ToolCalls,
+			Role:               "assistant",
+			Content:            r.Content,
+			ReasoningContent:   r.ReasoningContent,
+			ReasoningSignature: r.ReasoningSignature,
+			ToolCalls:          r.ToolCalls,
 		})
 	}
 
@@ -148,6 +149,7 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 
 	var content strings.Builder
 	var reasoning strings.Builder
+	var signature string
 	var toolCalls []msg.ToolCall
 	var usage *llm.TokenUsage
 
@@ -185,6 +187,9 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			if chunk.ReasoningContent != "" {
 				reasoning.WriteString(chunk.ReasoningContent)
 			}
+			if chunk.ReasoningSignature != "" {
+				signature = chunk.ReasoningSignature
+			}
 			if a.bus != nil {
 				_ = a.bus.Pub(bus.Msg{
 					Type: bus.TypeStreamEnd,
@@ -206,10 +211,11 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 	}
 
 	return &llm.Response{
-		Content:          content.String(),
-		ReasoningContent: reasoning.String(),
-		ToolCalls:        toolCalls,
-		Usage:            usage,
+		Content:            content.String(),
+		ReasoningContent:   reasoning.String(),
+		ReasoningSignature: signature,
+		ToolCalls:          toolCalls,
+		Usage:              usage,
 	}, nil
 }
 

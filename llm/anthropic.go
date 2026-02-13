@@ -79,7 +79,12 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 		}
 
 		select {
-		case ch <- Chunk{Type: ChunkDone, Usage: resp.Usage}:
+		case ch <- Chunk{
+			Type:               ChunkDone,
+			Usage:              resp.Usage,
+			ReasoningContent:   resp.ReasoningContent,
+			ReasoningSignature: resp.ReasoningSignature,
+		}:
 		case <-ctx.Done():
 		}
 	}()
@@ -110,6 +115,9 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 			}
 		} else if m.Role == "assistant" {
 			var blocks []anthropic.ContentBlockParamUnion
+			if m.ReasoningSignature != "" && m.ReasoningContent != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.ReasoningContent))
+			}
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
@@ -167,10 +175,15 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 
 func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 	var content string
+	var reasoning string
+	var signature string
 	var toolCalls []msg.ToolCall
 
 	for _, block := range resp.Content {
 		switch b := block.AsAny().(type) {
+		case anthropic.ThinkingBlock:
+			reasoning = b.Thinking
+			signature = b.Signature
 		case anthropic.TextBlock:
 			content += b.Text
 		case anthropic.ToolUseBlock:
@@ -184,9 +197,11 @@ func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 	}
 
 	return &Response{
-		Content:   content,
-		ToolCalls: toolCalls,
-		Usage:     toAnthropicTokenUsage(resp.Usage),
+		Content:            content,
+		ReasoningContent:   reasoning,
+		ReasoningSignature: signature,
+		ToolCalls:          toolCalls,
+		Usage:              toAnthropicTokenUsage(resp.Usage),
 	}
 }
 

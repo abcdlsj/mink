@@ -18,11 +18,12 @@ type ToolResult struct {
 }
 
 type Message struct {
-	ID               string       `json:"id,omitempty"`
-	Role             string       `json:"role"`
-	Content          string       `json:"content,omitempty"`
-	ReasoningContent string       `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
-	ToolResults      []ToolResult `json:"tool_results,omitempty"`
-	Timestamp        time.Time    `json:"timestamp,omitempty"`
+	ID                 string       `json:"id,omitempty"`
+	Role               string       `json:"role"`
+	Content            string       `json:"content,omitempty"`
+	ReasoningContent   string       `json:"reasoning_content,omitempty"`
+	ReasoningSignature string       `json:"reasoning_signature,omitempty"`
+	ToolCalls          []ToolCall   `json:"tool_calls,omitempty"`
+	ToolResults        []ToolResult `json:"tool_results,omitempty"`
+	Timestamp          time.Time    `json:"timestamp,omitempty"`
 }
