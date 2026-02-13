@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"strings"
+
+	"github.com/abcdlsj/mink/bus"
 )
 
 type Guard interface {
@@ -21,7 +23,7 @@ func SourceFrom(ctx context.Context) string {
 	if v, ok := ctx.Value(SourceKey).(string); ok {
 		return v
 	}
-	return ""
+	return bus.SourceFrom(ctx)
 }
 
 type GuardMux struct {

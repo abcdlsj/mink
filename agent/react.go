@@ -6,7 +6,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
@@ -79,10 +78,9 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		return true, nil
 	}
 
-	results := make([]msg.ToolResult, len(r.ToolCalls))
-	var wg sync.WaitGroup
+	results := make([]msg.ToolResult, 0, len(r.ToolCalls))
 
-	for i, tc := range r.ToolCalls {
+	for _, tc := range r.ToolCalls {
 		a.hooks.Trigger(ctx, hook.BeforeTool, tc)
 		if a.bus != nil {
 			_ = a.bus.Pub(bus.Msg{
@@ -97,44 +95,39 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 			})
 		}
 
-		wg.Add(1)
-		go func(i int, tc msg.ToolCall) {
-			defer wg.Done()
-			out, toolErr := a.execTool(ctx, tc)
+		out, toolErr := a.execTool(ctx, tc)
 
-			tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
-			if toolErr != nil {
-				tr.Content = tool.FormatErrorForLLM(tc.Name, toolErr)
-				tr.Error = toolErr.Error()
-				if a.bus != nil {
-					_ = a.bus.Pub(bus.Msg{
-						Type: bus.TypeToolError,
-						From: a.id,
-						To:   src,
-						Payload: map[string]string{
-							"id":    tc.ID,
-							"error": toolErr.Error(),
-						},
-					})
-				}
-			} else {
-				if a.bus != nil {
-					_ = a.bus.Pub(bus.Msg{
-						Type: bus.TypeToolResult,
-						From: a.id,
-						To:   src,
-						Payload: map[string]string{
-							"id": tc.ID,
-						},
-					})
-				}
+		tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
+		if toolErr != nil {
+			tr.Content = tool.FormatErrorForLLM(tc.Name, toolErr)
+			tr.Error = toolErr.Error()
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type: bus.TypeToolError,
+					From: a.id,
+					To:   src,
+					Payload: map[string]string{
+						"id":    tc.ID,
+						"error": toolErr.Error(),
+					},
+				})
 			}
-			a.hooks.Trigger(ctx, hook.AfterTool, tr)
-			results[i] = tr
-		}(i, tc)
+		} else {
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type: bus.TypeToolResult,
+					From: a.id,
+					To:   src,
+					Payload: map[string]string{
+						"id": tc.ID,
+					},
+				})
+			}
+		}
+		a.hooks.Trigger(ctx, hook.AfterTool, tr)
+		results = append(results, tr)
 	}
 
-	wg.Wait()
 	for _, tr := range results {
 		a.session.Add(msg.Message{Role: "tool", ToolResults: []msg.ToolResult{tr}})
 	}
@@ -300,19 +293,17 @@ func loadSoulPrompt() string {
 }
 
 func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
-	t := a.reg.Get(tc.Name)
-	if t == nil {
-		return "", fmt.Errorf("unknown tool: %s", tc.Name)
-	}
-
 	timeout := time.Duration(a.cfg.Timeout.Tool) * time.Second
+	if tc.Name == "spawn" {
+		timeout = 0
+	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
 
-	out, err := t.Run(ctx, tc.Args)
+	out, err := a.reg.Run(ctx, tc.Name, tc.Args)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", tool.TimeoutError(tc.Name, string(tc.Args), a.cfg.Timeout.Tool)

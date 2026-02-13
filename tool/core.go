@@ -22,6 +22,7 @@ type Tool interface {
 // Registry 工具注册表
 type Registry struct {
 	tools map[string]Tool
+	guard Guard
 }
 
 func NewRegistry() *Registry {
@@ -38,8 +39,29 @@ func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
 }
 
+func (r *Registry) SetGuard(g Guard) {
+	r.guard = g
+}
+
 func (r *Registry) Get(name string) Tool {
 	return r.tools[name]
+}
+
+func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	t := r.Get(name)
+	if t == nil {
+		return "", fmt.Errorf("unknown tool: %s", name)
+	}
+
+	ok, err := r.allow(ctx, name, args)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "cancelled", nil
+	}
+
+	return t.Run(ctx, args)
 }
 
 func (r *Registry) All() []Tool {

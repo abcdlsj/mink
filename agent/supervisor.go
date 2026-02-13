@@ -32,6 +32,7 @@ type Supervisor struct {
 	sm              *session.Manager
 	hooks           *hook.Manager
 	router          *command.Router
+	toolGuard       command.Guard
 	prompt          string
 	cfg             config.Config
 	agents          map[string]*Agent
@@ -58,6 +59,9 @@ func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Mana
 }
 
 func (s *Supervisor) SetConfig(c config.Config) { s.cfg = c }
+func (s *Supervisor) SetToolGuard(g command.Guard) {
+	s.toolGuard = g
+}
 
 func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	payload, ok := m.Payload.(map[string]any)
@@ -176,6 +180,7 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 		WithBus(s.bus),
 		WithHooks(s.hooks),
 		WithRouter(s.router),
+		WithToolGuard(s.toolGuard),
 		WithPrompt(s.prompt),
 		WithSubAgent(true),
 		WithConfig(s.cfg),

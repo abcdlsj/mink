@@ -19,8 +19,9 @@ const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
 	telegramStreamFlush    = 400 * time.Millisecond
-	telegramTypingRefresh  = 4 * time.Second
+	telegramTypingRefresh  = 2 * time.Second
 	telegramMsgLimit       = 3800
+	confirmCallbackPrefix  = "mcfm"
 )
 
 type confirmState struct {
@@ -69,7 +70,8 @@ type Telegram struct {
 	activeChats map[int64]time.Time
 
 	typingMu sync.Mutex
-	typing   map[int64]time.Time
+	typing   map[int64]chan struct{}
+	typingN  map[int64]int
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -82,7 +84,8 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 		inbound:     make(map[int64]inboundState),
 		assist:      make(map[int64]assistantOutState),
 		activeChats: make(map[int64]time.Time),
-		typing:      make(map[int64]time.Time),
+		typing:      make(map[int64]chan struct{}),
+		typingN:     make(map[int64]int),
 	}
 }
 
@@ -103,6 +106,11 @@ func (t *Telegram) Start(ctx context.Context) error {
 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		return t.handleMessage(c)
+	})
+
+	bot.Handle(tele.OnCallback, func(c tele.Context) error {
+		_, err := t.handleConfirmCallback(c)
+		return err
 	})
 
 	go bot.Start()
@@ -165,7 +173,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 		To:      bus.AddrAgentMain,
 		Payload: payload,
 	})
-	t.notifyTyping(chatID)
+	t.startTyping(chatID)
 
 	return nil
 }
@@ -173,6 +181,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 func (t *Telegram) forward(ctx context.Context) {
 	ch := make(chan bus.Msg, 64)
 	t.bus.Subscribe(bus.TypeAssistant, ch)
+	t.bus.Subscribe(bus.TypeTurnDone, ch)
 	t.bus.Subscribe(bus.TypeToolCall, ch)
 	t.bus.Subscribe(bus.TypeToolResult, ch)
 	t.bus.Subscribe(bus.TypeToolError, ch)
@@ -266,6 +275,9 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 			text = prefix + text
 		}
 		t.sendAssistantText(chatID, text, replyToID)
+	case bus.TypeTurnDone:
+		t.stopTyping(chatID)
+		return
 	case bus.TypeToolCall:
 		return
 	case bus.TypeToolResult:
@@ -375,7 +387,7 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 		t.confirmMu.Unlock()
 	}()
 
-	t.sendText(chatID, fmt.Sprintf("confirm %s\nexecute:\n%s\nreply with: %s y | %s n", reqID, raw, reqID, reqID))
+	t.sendConfirmRequest(chatID, reqID, raw)
 
 	select {
 	case ok := <-ch:
@@ -424,20 +436,7 @@ func (t *Telegram) handleConfirmReply(c tele.Context, chatID int64, text string)
 		return true, c.Send(fmt.Sprintf("pending confirmations: %s\nreply: <id> y|n", strings.Join(ids, ", ")))
 	}
 
-	t.confirmMu.Lock()
-	chatReqs = t.confirms[chatID]
-	if len(chatReqs) == 0 {
-		t.confirmMu.Unlock()
-		return true, c.Send("confirmation request not found or expired")
-	}
-	state, exists := chatReqs[reqID]
-	if exists {
-		delete(chatReqs, reqID)
-		if len(chatReqs) == 0 {
-			delete(t.confirms, chatID)
-		}
-	}
-	t.confirmMu.Unlock()
+	state, exists := t.popConfirmState(chatID, reqID)
 
 	if !exists {
 		return true, c.Send("confirmation request not found or expired")
@@ -452,6 +451,115 @@ func (t *Telegram) handleConfirmReply(c tele.Context, chatID int64, text string)
 		return true, c.Send(fmt.Sprintf("confirm %s approved", reqID))
 	}
 	return true, c.Send(fmt.Sprintf("confirm %s cancelled", reqID))
+}
+
+func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
+	cb := c.Callback()
+	if cb == nil {
+		return false, nil
+	}
+
+	reqID, decision, ok := parseConfirmCallback(cb.Data)
+	if !ok {
+		return false, nil
+	}
+
+	chatID := callbackChatID(c)
+	if chatID == 0 {
+		_ = c.Respond(&tele.CallbackResponse{Text: "confirmation chat not found", ShowAlert: true})
+		return true, nil
+	}
+
+	state, exists := t.popConfirmState(chatID, reqID)
+	if !exists {
+		_ = c.Respond(&tele.CallbackResponse{Text: "confirmation request not found or expired", ShowAlert: true})
+		return true, nil
+	}
+
+	select {
+	case state.ch <- decision:
+	default:
+	}
+
+	if decision {
+		_ = c.Respond(&tele.CallbackResponse{Text: fmt.Sprintf("confirm %s approved", reqID)})
+		t.sendText(chatID, fmt.Sprintf("confirm %s approved", reqID))
+		return true, nil
+	}
+
+	_ = c.Respond(&tele.CallbackResponse{Text: fmt.Sprintf("confirm %s cancelled", reqID)})
+	t.sendText(chatID, fmt.Sprintf("confirm %s cancelled", reqID))
+	return true, nil
+}
+
+func (t *Telegram) popConfirmState(chatID int64, reqID string) (confirmState, bool) {
+	t.confirmMu.Lock()
+	defer t.confirmMu.Unlock()
+
+	chatReqs := t.confirms[chatID]
+	if len(chatReqs) == 0 {
+		return confirmState{}, false
+	}
+
+	state, ok := chatReqs[reqID]
+	if ok {
+		delete(chatReqs, reqID)
+		if len(chatReqs) == 0 {
+			delete(t.confirms, chatID)
+		}
+	}
+
+	return state, ok
+}
+
+func parseConfirmCallback(data string) (string, bool, bool) {
+	parts := strings.Split(strings.TrimSpace(data), ":")
+	if len(parts) != 3 || parts[0] != confirmCallbackPrefix {
+		return "", false, false
+	}
+
+	reqID := strings.TrimSpace(parts[2])
+	if reqID == "" {
+		return "", false, false
+	}
+
+	switch strings.ToLower(strings.TrimSpace(parts[1])) {
+	case "y":
+		return reqID, true, true
+	case "n":
+		return reqID, false, true
+	default:
+		return "", false, false
+	}
+}
+
+func callbackChatID(c tele.Context) int64 {
+	if chat := c.Chat(); chat != nil {
+		return chat.ID
+	}
+	cb := c.Callback()
+	if cb == nil || cb.Message == nil || cb.Message.Chat == nil {
+		return 0
+	}
+	return cb.Message.Chat.ID
+}
+
+func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) {
+	text := fmt.Sprintf("confirm %s\nexecute:\n%s\nchoose: tap button or reply: %s y | %s n", reqID, raw, reqID, reqID)
+	opts := t.assistantSendOptions(chatID, 0, false)
+	if opts == nil {
+		opts = &tele.SendOptions{}
+	} else {
+		opts = cloneSendOptions(opts)
+	}
+	opts.ReplyMarkup = confirmMarkup(reqID)
+	t.sendTextWithOptions(chatID, text, opts)
+}
+
+func confirmMarkup(reqID string) *tele.ReplyMarkup {
+	allow := tele.InlineButton{Text: "✅ Approve", Data: confirmCallbackPrefix + ":y:" + reqID}
+	deny := tele.InlineButton{Text: "❌ Deny", Data: confirmCallbackPrefix + ":n:" + reqID}
+	return &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{allow, deny}}}
 }
 
 func parseConfirmReply(text string, pending map[string]confirmState) (string, bool, bool) {
@@ -747,16 +855,6 @@ func (t *Telegram) notifyTyping(chatID int64) {
 		return
 	}
 
-	now := time.Now()
-	t.typingMu.Lock()
-	last := t.typing[chatID]
-	if now.Sub(last) < telegramTypingRefresh {
-		t.typingMu.Unlock()
-		return
-	}
-	t.typing[chatID] = now
-	t.typingMu.Unlock()
-
 	chat := &tele.Chat{ID: chatID}
 	st, ok := t.getInboundState(chatID)
 	if ok && st.threadID != 0 {
@@ -767,6 +865,57 @@ func (t *Telegram) notifyTyping(chatID int64) {
 	}
 	if err := t.bot.Notify(chat, tele.Typing); err != nil {
 		log.Printf("[TGDBG] notify typing error chat=%d err=%v", chatID, err)
+	}
+}
+
+func (t *Telegram) startTyping(chatID int64) {
+	t.typingMu.Lock()
+	t.typingN[chatID]++
+	if _, ok := t.typing[chatID]; ok {
+		t.typingMu.Unlock()
+		t.notifyTyping(chatID)
+		return
+	}
+
+	ch := make(chan struct{})
+	t.typing[chatID] = ch
+	t.typingMu.Unlock()
+	t.notifyTyping(chatID)
+
+	go func() {
+		ticker := time.NewTicker(telegramTypingRefresh)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				t.notifyTyping(chatID)
+			case <-ch:
+				return
+			case <-t.stop:
+				return
+			}
+		}
+	}()
+}
+
+func (t *Telegram) stopTyping(chatID int64) {
+	t.typingMu.Lock()
+	if n := t.typingN[chatID]; n > 1 {
+		t.typingN[chatID] = n - 1
+		t.typingMu.Unlock()
+		return
+	}
+	delete(t.typingN, chatID)
+
+	ch, ok := t.typing[chatID]
+	if ok {
+		delete(t.typing, chatID)
+	}
+	t.typingMu.Unlock()
+
+	if ok {
+		close(ch)
 	}
 }
 

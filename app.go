@@ -120,11 +120,13 @@ func New(opts Options) (*App, error) {
 
 	sup := agent.NewSupervisor(b, p, sm, hooks, router, cfg.CustomPrompt)
 	sup.SetConfig(cfg)
+	sup.SetToolGuard(guard)
 
 	disp := agent.NewDispatcher(b, sm, p)
 	disp.SetAgentID(bus.AddrAgentMain)
 	disp.SetHooks(hooks)
 	disp.SetRouter(router)
+	disp.SetToolGuard(guard)
 	disp.SetPrompt(cfg.CustomPrompt)
 	disp.SetConfig(cfg)
 

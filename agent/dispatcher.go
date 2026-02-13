@@ -29,6 +29,7 @@ type Dispatcher struct {
 	agentID     string
 	hooks       *hook.Manager
 	router      *command.Router
+	toolGuard   command.Guard
 	prompt      string
 	cfg         config.Config
 	agents      map[string]*Agent
@@ -63,6 +64,7 @@ func NewDispatcher(b *bus.Bus, sm *session.Manager, p llm.Provider) *Dispatcher 
 func (d *Dispatcher) SetAgentID(id string)           { d.agentID = id }
 func (d *Dispatcher) SetHooks(h *hook.Manager)       { d.hooks = h }
 func (d *Dispatcher) SetRouter(r *command.Router)    { d.router = r }
+func (d *Dispatcher) SetToolGuard(g command.Guard)   { d.toolGuard = g }
 func (d *Dispatcher) SetPrompt(p string)             { d.prompt = p }
 func (d *Dispatcher) SetConfig(c config.Config)      { d.cfg = c }
 func (d *Dispatcher) SetSkillLoader(l *skill.Loader) { d.skillLoader = l }
@@ -237,6 +239,7 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 		WithBus(d.bus),
 		WithHooks(d.hooks),
 		WithRouter(d.router),
+		WithToolGuard(d.toolGuard),
 		WithPrompt(d.prompt),
 		WithConfig(d.cfg),
 	)

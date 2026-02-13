@@ -57,6 +57,13 @@ type Option func(*Agent)
 
 func WithHooks(h *hook.Manager) Option     { return func(a *Agent) { a.hooks = h } }
 func WithRouter(r *command.Router) Option  { return func(a *Agent) { a.router = r } }
+func WithToolGuard(g command.Guard) Option {
+	return func(a *Agent) {
+		if a.reg != nil {
+			a.reg.SetGuard(g)
+		}
+	}
+}
 func WithPrompt(p string) Option           { return func(a *Agent) { a.prompt = p } }
 func WithSubAgent(v bool) Option           { return func(a *Agent) { a.subAgent = v } }
 func WithBus(b *bus.Bus) Option            { return func(a *Agent) { a.bus = b } }
