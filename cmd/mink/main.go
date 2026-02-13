@@ -43,6 +43,7 @@ func runCLI() {
 
 	flag.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
 	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
+	flag.StringVar(&cfg.BraveAPIKey, "brave_key", cfg.BraveAPIKey, "brave search api key")
 	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
 	flag.StringVar(&cfg.Model, "m", cfg.Model, "model")
 	flag.StringVar(&cfg.Telegram, "tg_token", cfg.Telegram, "telegram token")
@@ -152,6 +153,7 @@ func runTG() {
 	fs := flag.NewFlagSet("tg", flag.ExitOnError)
 	fs.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
 	fs.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
+	fs.StringVar(&cfg.BraveAPIKey, "brave_key", cfg.BraveAPIKey, "brave search api key")
 	fs.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
 	fs.StringVar(&cfg.Model, "m", cfg.Model, "model")
 	fs.StringVar(&cfg.Telegram, "tg_token", cfg.Telegram, "telegram token")

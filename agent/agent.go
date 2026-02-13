@@ -97,6 +97,9 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		}
 		a.reg.Register(bg)
 	}
+	if a.reg.Get("brave_search") == nil {
+		a.reg.Register(tool.NewBraveSearch(a.cfg.BraveAPIKey))
+	}
 	return a
 }
 

@@ -12,6 +12,7 @@ type Config struct {
 	Provider     string            `toml:"provider"`
 	BaseURL      string            `toml:"base_url"`
 	APIKey       string            `toml:"api_key"`
+	BraveAPIKey  string            `toml:"brave_api_key"`
 	Model        string            `toml:"model"`
 	Headers      map[string]string `toml:"headers"`
 	Telegram     string            `toml:"telegram_token"`
@@ -75,6 +76,9 @@ func LoadWithDir(name string) Config {
 	}
 	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" && c.APIKey == "" {
 		c.APIKey = v
+	}
+	if v := os.Getenv("BRAVE_API_KEY"); v != "" && c.BraveAPIKey == "" {
+		c.BraveAPIKey = v
 	}
 
 	return c
