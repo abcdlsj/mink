@@ -245,6 +245,13 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		return fmt.Errorf("tg mode need telegram token")
 	}
 
+	a.mu.Lock()
+	if a.cfg.Mode != "tg" {
+		a.cfg.Mode = "tg"
+		a.disp.SetConfig(a.cfg)
+	}
+	a.mu.Unlock()
+
 	if err := a.Start(ctx); err != nil {
 		return err
 	}

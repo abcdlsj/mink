@@ -27,6 +27,8 @@ cp config.example.toml ~/.mink/config.toml
 ./mink tg -tg <telegram_bot_token>
 ```
 
+In Telegram group chats, Mink can stay silent with `NO_REPLY`, target replies with `[[reply_to_current]]` / `[[reply_to:<message_id>]]`, and emit emoji reactions via `[[react:👀]]` / `[[react:👍]]` directives internally.
+
 ## Library Usage
 
 ```go
@@ -104,6 +106,8 @@ Flags override config:
 ## Extensions
 
 Drop executables to `~/.mink/ext/` or skills to `~/.mink/skills/`.
+
+If `~/.mink/SOUL.md` exists, Mink injects it as persona guidance.
 
 Auto-reload on change.
 

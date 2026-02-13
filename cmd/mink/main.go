@@ -161,6 +161,7 @@ func runTG() {
 		fmt.Fprintln(os.Stderr, "tg mode need telegram token")
 		os.Exit(1)
 	}
+	cfg.Mode = "tg"
 
 	app, err := mink.New(mink.Options{Config: cfg})
 	if err != nil {

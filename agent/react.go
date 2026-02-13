@@ -11,6 +11,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
@@ -21,7 +22,7 @@ var fenceRe = regexp.MustCompile("^```")
 
 func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	msgs := a.session.Messages()
-	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt()}}
+	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
 	allMsgs := append(sysMsgs, msgs...)
 
 	var r *llm.Response
@@ -219,7 +220,7 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 	}, nil
 }
 
-func (a *Agent) buildPrompt() string {
+func (a *Agent) buildPrompt(src string) string {
 	var b strings.Builder
 	b.WriteString("You are a helpful assistant. Be direct and concise. Avoid unnecessary small talk or redundant tool calls.\n\n")
 
@@ -229,6 +230,24 @@ func (a *Agent) buildPrompt() string {
 		fmt.Fprintf(&b, "Working directory: %s\n", pwd)
 	}
 	fmt.Fprintf(&b, "Current time: %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
+
+	if soul := loadSoulPrompt(); soul != "" {
+		b.WriteString("## Persona\n")
+		b.WriteString("If ~/.mink/SOUL.md guidance does not conflict with higher-priority instructions, embody it naturally:\n")
+		b.WriteString(soul)
+		b.WriteString("\n\n")
+	}
+
+	if strings.EqualFold(a.cfg.Mode, "tg") && strings.HasPrefix(src, "telegram:") && !a.subAgent {
+		b.WriteString("## Telegram Group Interaction\n")
+		b.WriteString("Incoming user messages may include a [telegram_context]...[/telegram_context] metadata block. Use it to understand sender, mention status, message id, thread id, and reply chain.\n")
+		b.WriteString("You are allowed to participate in group chats even without @mention, but stay selective.\n")
+		b.WriteString("If no reply is needed, respond with exactly: NO_REPLY\n")
+		b.WriteString("To control reply target, add [[reply_to_current]] or [[reply_to:<message_id>]].\n")
+		b.WriteString("You can ask Telegram adapter to react by adding one directive tag: [[react:👀]] or [[react:👍]].\n")
+		b.WriteString("If both reaction and text reply are needed, include the react tag and normal text together.\n")
+		b.WriteString("These directive tags are internal and will be stripped before sending. Never explain them to users.\n\n")
+	}
 
 	if a.prompt != "" {
 		b.WriteString(a.prompt)
@@ -240,6 +259,7 @@ func (a *Agent) buildPrompt() string {
 	for _, t := range a.reg.All() {
 		fmt.Fprintf(&b, "- %s: %s\n", t.Name(), t.Desc())
 	}
+	b.WriteString("\n")
 
 	if a.reg.Get("spawn") != nil {
 		b.WriteString("\n## Multi-Agent Collaboration\n")
@@ -269,6 +289,14 @@ func (a *Agent) buildPrompt() string {
 	}
 
 	return b.String()
+}
+
+func loadSoulPrompt() string {
+	data, err := os.ReadFile(config.SoulPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
@@ -385,4 +413,3 @@ func tools(reg *tool.Registry) []llm.Tool {
 	}
 	return r
 }
-

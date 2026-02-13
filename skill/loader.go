@@ -145,5 +145,5 @@ func (l *Loader) projectPath() string {
 
 func (l *Loader) globalPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "mink", "skills")
+	return filepath.Join(home, ".mink", "skills")
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -66,7 +67,7 @@ func LoadWithDir(name string) Config {
 	path := filepath.Join(configDir, "config.toml")
 
 	if _, err := os.Stat(path); err == nil {
-		toml.DecodeFile(path, &c)
+		_, _ = toml.DecodeFile(path, &c)
 	}
 
 	if v := os.Getenv("OPENAI_API_KEY"); v != "" && c.APIKey == "" {
@@ -79,10 +80,32 @@ func LoadWithDir(name string) Config {
 	return c
 }
 
-func defaultConfigDir(name string) string {
-	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, name)
+func DataDir(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "mink"
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", name)
+	if home == "" {
+		if strings.HasPrefix(name, ".") {
+			return name
+		}
+		return "." + name
+	}
+	if strings.HasPrefix(name, ".") {
+		return filepath.Join(home, name)
+	}
+	return filepath.Join(home, "."+name)
+}
+
+func ConfigPath() string {
+	return filepath.Join(DataDir("mink"), "config.toml")
+}
+
+func SoulPath() string {
+	return filepath.Join(DataDir("mink"), "SOUL.md")
+}
+
+func defaultConfigDir(name string) string {
+	return DataDir(name)
 }

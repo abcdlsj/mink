@@ -177,6 +177,7 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 		WithHooks(s.hooks),
 		WithRouter(s.router),
 		WithPrompt(s.prompt),
+		WithSubAgent(true),
 		WithConfig(s.cfg),
 	)
 
