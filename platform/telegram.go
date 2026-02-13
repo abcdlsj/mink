@@ -19,6 +19,7 @@ const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
 	telegramStreamFlush    = 400 * time.Millisecond
+	telegramTypingRefresh  = 4 * time.Second
 	telegramMsgLimit       = 3800
 )
 
@@ -66,6 +67,9 @@ type Telegram struct {
 
 	activeMu    sync.RWMutex
 	activeChats map[int64]time.Time
+
+	typingMu sync.Mutex
+	typing   map[int64]time.Time
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -78,6 +82,7 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 		inbound:     make(map[int64]inboundState),
 		assist:      make(map[int64]assistantOutState),
 		activeChats: make(map[int64]time.Time),
+		typing:      make(map[int64]time.Time),
 	}
 }
 
@@ -160,6 +165,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 		To:      bus.AddrAgentMain,
 		Payload: payload,
 	})
+	t.notifyTyping(chatID)
 
 	return nil
 }
@@ -312,6 +318,7 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 		return
 	}
 	log.Printf("[TGDBG] stream chunk chat=%d size=%d", chatID, len([]rune(delta)))
+	t.notifyTyping(chatID)
 
 	t.streamMu.Lock()
 	defer t.streamMu.Unlock()
@@ -600,7 +607,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 				msgID = sent.ID
 			}
 		} else {
-			if _, err := t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, first); err != nil {
+			if _, err := t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, tgRenderText(first), &tele.SendOptions{ParseMode: tele.ModeHTML}); err != nil {
 				log.Printf("[TG] stream edit error: %v", err)
 			}
 		}
@@ -639,6 +646,7 @@ func (t *Telegram) sendAssistantText(chatID int64, text string, replyToID int) {
 		log.Printf("[TGDBG] duplicate suppressed chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
 		return
 	}
+	t.notifyTyping(chatID)
 
 	parts := splitText(text, telegramMsgLimit)
 	if len(parts) == 0 {
@@ -681,14 +689,14 @@ func (t *Telegram) sendWithOpts(chat *tele.Chat, text string, opts *tele.SendOpt
 		}
 	}
 
+	text = tgRenderText(text)
 	if opts == nil {
-		msg, err := t.bot.Send(chat, text)
-		if err != nil {
-			log.Printf("[TGDBG] send error chat=%d thread=%d reply_to=%d err=%v text=%q", chat.ID, threadID, replyTo, err, truncateTG(text, 120))
-			return nil, err
-		}
-		log.Printf("[TGDBG] sent chat=%d msg=%d thread=%d reply_to=%d text=%q", chat.ID, msg.ID, threadID, replyTo, truncateTG(text, 120))
-		return msg, nil
+		opts = &tele.SendOptions{}
+	} else {
+		opts = cloneSendOptions(opts)
+	}
+	if opts.ParseMode == tele.ModeDefault {
+		opts.ParseMode = tele.ModeHTML
 	}
 	msg, err := t.bot.Send(chat, text, opts)
 	if err != nil {
@@ -720,10 +728,46 @@ func splitText(s string, limit int) []string {
 	return parts
 }
 
+func cloneSendOptions(opts *tele.SendOptions) *tele.SendOptions {
+	if opts == nil {
+		return nil
+	}
+	cp := *opts
+	return &cp
+}
+
 func (t *Telegram) touchActive(chatID int64) {
 	t.activeMu.Lock()
 	t.activeChats[chatID] = time.Now()
 	t.activeMu.Unlock()
+}
+
+func (t *Telegram) notifyTyping(chatID int64) {
+	if t.bot == nil {
+		return
+	}
+
+	now := time.Now()
+	t.typingMu.Lock()
+	last := t.typing[chatID]
+	if now.Sub(last) < telegramTypingRefresh {
+		t.typingMu.Unlock()
+		return
+	}
+	t.typing[chatID] = now
+	t.typingMu.Unlock()
+
+	chat := &tele.Chat{ID: chatID}
+	st, ok := t.getInboundState(chatID)
+	if ok && st.threadID != 0 {
+		if err := t.bot.Notify(chat, tele.Typing, st.threadID); err != nil {
+			log.Printf("[TGDBG] notify typing error chat=%d thread=%d err=%v", chatID, st.threadID, err)
+		}
+		return
+	}
+	if err := t.bot.Notify(chat, tele.Typing); err != nil {
+		log.Printf("[TGDBG] notify typing error chat=%d err=%v", chatID, err)
+	}
 }
 
 func (t *Telegram) setInboundState(chatID int64, s inboundState) {
