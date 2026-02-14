@@ -1,8 +1,11 @@
 package llm
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -10,16 +13,57 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-type headerTransport struct {
+type openAITransport struct {
 	headers map[string]string
 	base    http.RoundTripper
 }
 
-func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
+	if req.Body != nil {
+		body, err := io.ReadAll(req.Body)
+		req.Body.Close()
+		if err == nil {
+			body = patchAssistantContent(body)
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			req.ContentLength = int64(len(body))
+		}
+	}
 	return t.base.RoundTrip(req)
+}
+
+// patchAssistantContent fixes go-openai's omitempty on Content field.
+// Some providers require "content" to be present (even as null) on assistant messages.
+func patchAssistantContent(body []byte) []byte {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(body, &obj) != nil {
+		return body
+	}
+	raw, ok := obj["messages"]
+	if !ok {
+		return body
+	}
+	var msgs []map[string]json.RawMessage
+	if json.Unmarshal(raw, &msgs) != nil {
+		return body
+	}
+	patched := false
+	for _, m := range msgs {
+		if string(m["role"]) == `"assistant"` {
+			if _, ok := m["content"]; !ok {
+				m["content"] = json.RawMessage("null")
+				patched = true
+			}
+		}
+	}
+	if !patched {
+		return body
+	}
+	obj["messages"], _ = json.Marshal(msgs)
+	out, _ := json.Marshal(obj)
+	return out
 }
 
 type openAI struct {
@@ -38,14 +82,11 @@ func newOpenAI(cfg Config) *openAI {
 
 	config := openai.DefaultConfig(cfg.APIKey)
 	config.BaseURL = cfg.BaseURL
-
-	if len(cfg.Headers) > 0 {
-		config.HTTPClient = &http.Client{
-			Transport: &headerTransport{
-				headers: cfg.Headers,
-				base:    http.DefaultTransport,
-			},
-		}
+	config.HTTPClient = &http.Client{
+		Transport: &openAITransport{
+			headers: cfg.Headers,
+			base:    http.DefaultTransport,
+		},
 	}
 
 	return &openAI{
