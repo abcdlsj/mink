@@ -7,10 +7,8 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/hook"
-	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
 )
@@ -23,51 +21,29 @@ type workerState struct {
 }
 
 type Dispatcher struct {
-	bus         *bus.Bus
+	AgentDeps
 	sm          *session.Manager
-	p           llm.Provider
 	agentID     string
-	hooks       *hook.Manager
-	router      *command.Router
-	toolGuard   command.Guard
-	prompt      string
-	cfg         config.Config
 	agents      map[string]*Agent
 	workers     map[string]*workerState
 	skillLoader *skill.Loader
 	mu          sync.RWMutex
 }
 
-type usageSnapshot struct {
-	Messages int
-	Total    int
-	Input    int
-	Output   int
-	System   int
-	Tool     int
-	Source   string
-}
-
-func NewDispatcher(b *bus.Bus, sm *session.Manager, p llm.Provider) *Dispatcher {
-	d := &Dispatcher{
-		bus:     b,
-		sm:      sm,
-		p:       p,
-		agentID: bus.AddrAgentMain,
-		hooks:   hook.NewManager(),
-		agents:  make(map[string]*Agent),
-		workers: make(map[string]*workerState),
+func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispatcher {
+	return &Dispatcher{
+		AgentDeps:   deps,
+		sm:          sm,
+		agentID:     bus.AddrAgentMain,
+		agents:      make(map[string]*Agent),
+		workers:     make(map[string]*workerState),
+		skillLoader: sl,
 	}
-	return d
 }
 
-func (d *Dispatcher) SetAgentID(id string)           { d.agentID = id }
-func (d *Dispatcher) SetHooks(h *hook.Manager)       { d.hooks = h }
-func (d *Dispatcher) SetRouter(r *command.Router)    { d.router = r }
-func (d *Dispatcher) SetToolGuard(g command.Guard)   { d.toolGuard = g }
-func (d *Dispatcher) SetPrompt(p string)             { d.prompt = p }
-func (d *Dispatcher) SetConfig(c config.Config)      { d.cfg = c }
-func (d *Dispatcher) SetSkillLoader(l *skill.Loader) { d.skillLoader = l }
+func (d *Dispatcher) SetConfig(c config.Config) {
+	d.Config = c
+}
 
 func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	if m.To != bus.AddrBroadcast && m.To != d.agentID {
@@ -101,7 +77,7 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 			return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
 		}
 		if out != "" {
-			_ = d.bus.Pub(bus.Msg{
+			_ = d.Bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    d.agentID,
 				To:      src,
@@ -112,7 +88,6 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	}
 
 	if m.Type == bus.TypeInterrupt {
-		// Interrupt all agents or target specific source
 		d.mu.RLock()
 		for src, a := range d.agents {
 			if m.To == bus.AddrBroadcast || m.To == d.agentID || src == m.From {
@@ -183,7 +158,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 			a := d.getOrCreateAgent(src)
 			in, ok := m.Payload.(string)
 			if !ok {
-				_ = d.bus.Pub(bus.Msg{
+				_ = d.Bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: "error: invalid input payload",
@@ -192,14 +167,14 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				continue
 			}
 			if err := a.Run(ctx, src, in); err != nil {
-				_ = d.bus.Pub(bus.Msg{
+				_ = d.Bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: fmt.Sprintf("error: %v", err),
 					To:      src,
 				})
 			}
-			_ = d.bus.Pub(bus.Msg{
+			_ = d.Bus.Pub(bus.Msg{
 				Type: bus.TypeTurnDone,
 				From: d.agentID,
 				To:   src,
@@ -235,14 +210,7 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	} else {
 		sess, _ = d.sm.Create()
 	}
-	a := New(d.agentID, d.p, sess,
-		WithBus(d.bus),
-		WithHooks(d.hooks),
-		WithRouter(d.router),
-		WithToolGuard(d.toolGuard),
-		WithPrompt(d.prompt),
-		WithConfig(d.cfg),
-	)
+	a := d.AgentDeps.newAgent(d.agentID, sess, false)
 	if d.skillLoader != nil {
 		skill.RegisterTools(a.Tools(), d.skillLoader)
 	}
@@ -260,45 +228,23 @@ func (d *Dispatcher) Agent(src string) *Agent {
 	return d.agents[src]
 }
 
-func (d *Dispatcher) Usage(src string) (usageSnapshot, bool) {
+func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
 	a := d.Agent(src)
 	if a == nil {
-		return usageSnapshot{}, false
+		return msg.TokenUsage{}, false
 	}
-	u := a.TokenUsage()
-	return usageSnapshot{
-		Messages: u.Messages,
-		Total:    u.Total,
-		Input:    u.Input,
-		Output:   u.Output,
-		System:   u.System,
-		Tool:     u.Tool,
-		Source:   u.Source,
-	}, true
+	return a.TokenUsage(), true
 }
 
 func (d *Dispatcher) Start(ctx context.Context) {
-	// 兼容广播输入
-	ch := make(chan bus.Msg, 64)
-	d.bus.Subscribe(bus.TypeUserInput, ch)
-	d.bus.Subscribe(bus.TypeInterrupt, ch)
-
+	conn := d.Bus.RegisterAgent(d.agentID, false)
 	go func() {
 		for {
 			select {
-			case m := <-ch:
-				d.Handle(ctx, m)
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-
-	conn := d.bus.RegisterAgent(d.agentID, false)
-	go func() {
-		for {
-			select {
-			case m := <-conn.Send:
+			case m, ok := <-conn.Send:
+				if !ok {
+					return
+				}
 				if m.To != bus.AddrBroadcast && m.To != d.agentID {
 					continue
 				}
@@ -357,7 +303,7 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		Payload: content,
 	}:
 	default:
-		_ = d.bus.Pub(bus.Msg{
+		_ = d.Bus.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
 			To:      src,

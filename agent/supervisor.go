@@ -7,10 +7,6 @@ import (
 	"sync"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/hook"
-	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/session"
 )
 
@@ -27,40 +23,25 @@ func randAgentName() string {
 }
 
 type Supervisor struct {
-	bus             *bus.Bus
-	p               llm.Provider
+	AgentDeps
 	sm              *session.Manager
-	hooks           *hook.Manager
-	router          *command.Router
-	toolGuard       command.Guard
-	prompt          string
-	cfg             config.Config
 	agents          map[string]*Agent
 	spawned         map[string]struct{}
 	activeSubAgents int
 	mu              sync.RWMutex
 }
 
-func NewSupervisor(b *bus.Bus, p llm.Provider, sm *session.Manager, h *hook.Manager, r *command.Router, prompt string) *Supervisor {
+func NewSupervisor(deps AgentDeps, sm *session.Manager) *Supervisor {
 	s := &Supervisor{
-		bus:     b,
-		p:       p,
-		sm:      sm,
-		hooks:   h,
-		router:  r,
-		prompt:  prompt,
-		agents:  make(map[string]*Agent),
-		spawned: make(map[string]struct{}),
+		AgentDeps: deps,
+		sm:        sm,
+		agents:    make(map[string]*Agent),
+		spawned:   make(map[string]struct{}),
 	}
-	b.RegisterAgent(bus.AddrSystemSup, false)
-	b.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
-	b.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
+	deps.Bus.RegisterAgent(bus.AddrSystemSup, false)
+	deps.Bus.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
+	deps.Bus.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
 	return s
-}
-
-func (s *Supervisor) SetConfig(c config.Config) { s.cfg = c }
-func (s *Supervisor) SetToolGuard(g command.Guard) {
-	s.toolGuard = g
 }
 
 func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error) {
@@ -83,7 +64,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 
 	child := s.SpawnWithContext(parentID, shareCtx)
 
-	_ = s.bus.Pub(bus.Msg{
+	_ = s.Bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
 		To:   bus.AddrBroadcast,
@@ -100,7 +81,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 		if err != nil {
 			result = fmt.Sprintf("error: %v", err)
 		}
-		_ = s.bus.Pub(bus.Msg{
+		_ = s.Bus.Pub(bus.Msg{
 			Type: bus.TypeAgentDone,
 			From: child.ID(),
 			To:   bus.AddrBroadcast,
@@ -176,20 +157,12 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
 	sess, _ := s.sm.Create()
-	child := New(id, s.p, sess,
-		WithBus(s.bus),
-		WithHooks(s.hooks),
-		WithRouter(s.router),
-		WithToolGuard(s.toolGuard),
-		WithPrompt(s.prompt),
-		WithSubAgent(true),
-		WithConfig(s.cfg),
-	)
+	child := s.AgentDeps.newAgent(id, sess, true)
 
-	s.bus.RegisterAgent(id, shareCtx)
+	s.Bus.RegisterAgent(id, shareCtx)
 	if shareCtx {
-		ctx := s.bus.ForkContext(parentID, id)
-		if conn, ok := s.bus.GetAgent(id); ok {
+		ctx := s.Bus.ForkContext(parentID, id)
+		if conn, ok := s.Bus.GetAgent(id); ok {
 			conn.Context = ctx
 		}
 	}
@@ -214,7 +187,7 @@ func (s *Supervisor) Kill(id string) {
 				s.activeSubAgents--
 			}
 		}
-		s.bus.UnregisterAgent(id)
+		s.Bus.UnregisterAgent(id)
 	}
 }
 

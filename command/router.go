@@ -5,18 +5,20 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/abcdlsj/mink/tool"
 )
 
 type Router struct {
 	reg   *Registry
-	guard Guard
+	guard tool.Guard
 }
 
 func NewRouter(reg *Registry) *Router {
 	return &Router{reg: reg}
 }
 
-func (r *Router) SetGuard(g Guard) {
+func (r *Router) SetGuard(g tool.Guard) {
 	r.guard = g
 }
 
@@ -43,7 +45,7 @@ func (r *Router) Route(ctx context.Context, input string) (string, bool, error) 
 }
 
 func (r *Router) shell(ctx context.Context, raw string) (string, bool, error) {
-	if r.guard != nil && IsDangerous(raw) {
+	if r.guard != nil && tool.IsDangerous(raw) {
 		ok, err := r.guard.Allow(ctx, raw)
 		if err != nil {
 			return "", true, fmt.Errorf("guard: %w", err)

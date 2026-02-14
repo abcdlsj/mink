@@ -17,6 +17,16 @@ type ToolResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type TokenUsage struct {
+	Messages int
+	Total    int
+	Input    int
+	Output   int
+	System   int
+	Tool     int
+	Source   string
+}
+
 type Message struct {
 	ID                 string       `json:"id,omitempty"`
 	Role               string       `json:"role"`

@@ -15,6 +15,15 @@ type Guard interface {
 	Allow(ctx context.Context, cmd string) (bool, error)
 }
 
+var dangerousPrefixes = []string{
+	"rm ", "rm\t",
+	"mv ", "mv\t",
+	"cp ", "cp\t",
+	"git push", "git reset", "git checkout .",
+	"docker run", "docker rm", "docker stop",
+	"kubectl apply", "kubectl delete",
+}
+
 var sensitiveReadMarks = []string{
 	"/.ssh/",
 	"/.gnupg/",
@@ -50,13 +59,14 @@ var sensitiveReadTails = []string{
 	"/etc/security/passwd",
 }
 
-var dangerousCmdPrefixes = []string{
-	"rm ", "rm\t",
-	"mv ", "mv\t",
-	"cp ", "cp\t",
-	"git push", "git reset", "git checkout .",
-	"docker run", "docker rm", "docker stop",
-	"kubectl apply", "kubectl delete",
+func IsDangerous(raw string) bool {
+	cmd := strings.TrimSpace(raw)
+	for _, p := range dangerousPrefixes {
+		if strings.HasPrefix(cmd, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Registry) allow(ctx context.Context, name string, args json.RawMessage) (bool, error) {
@@ -95,20 +105,10 @@ func guardedBash(args json.RawMessage) (string, bool) {
 		return "", false
 	}
 	cmd := strings.TrimSpace(in.Cmd)
-	if cmd == "" || !isDangerousCmd(cmd) {
+	if cmd == "" || !IsDangerous(cmd) {
 		return "", false
 	}
 	return cmd, true
-}
-
-func isDangerousCmd(raw string) bool {
-	cmd := strings.TrimSpace(raw)
-	for _, p := range dangerousCmdPrefixes {
-		if strings.HasPrefix(cmd, p) {
-			return true
-		}
-	}
-	return false
 }
 
 func guardedRead(args json.RawMessage) (string, bool) {

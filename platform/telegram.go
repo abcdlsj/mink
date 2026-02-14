@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -357,7 +356,7 @@ func (t *Telegram) handleStreamEnd(chatID int64) {
 }
 
 func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
-	src := command.SourceFrom(ctx)
+	src := bus.SourceFrom(ctx)
 	if !strings.HasPrefix(src, "telegram:") {
 		return true, nil
 	}

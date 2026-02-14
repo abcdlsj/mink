@@ -9,16 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type MessageBus interface {
-	Pub(m Msg) error
-	Subscribe(msgType string, ch chan Msg)
-	Unsubscribe(msgType string, ch chan Msg)
-	Req(ctx context.Context, m Msg) (Msg, error)
-	RegisterHandler(msgType string, h Handler)
-	RegisterAgent(id string, shareCtx bool) *AgentConn
-	UnregisterAgent(id string)
-}
-
 type AgentConn struct {
 	ID       string
 	Send     chan Msg
@@ -106,6 +96,16 @@ func (b *Bus) Pub(m Msg) error {
 		for _, ch := range b.subs[m.Type] {
 			select {
 			case ch <- m:
+			default:
+				dropped++
+			}
+		}
+		for _, agent := range b.agents {
+			if agent.ID == m.From {
+				continue
+			}
+			select {
+			case agent.Send <- m:
 			default:
 				dropped++
 			}

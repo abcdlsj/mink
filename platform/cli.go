@@ -22,13 +22,12 @@ const (
 	agentLineLimit  = 8
 	mouseScrollStep = 1
 	minOutputLines  = 5
-	confirmPromptID = "[confirm]"
+
 )
 
 var (
 	stylePrompt        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
 	stylePromptDanger  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Bold(true)
-	styleAssist        = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
 	styleTool          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
 	styleCmd           = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Faint(true)
 	styleSuccess       = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
@@ -124,7 +123,7 @@ func (c *CLI) Start(ctx context.Context) error {
 
 func (c *CLI) Run() error {
 	ta := textarea.New()
-	ta.Placeholder = "Type your message... (Shift+Enter for newline)"
+	ta.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.SetWidth(80)
@@ -252,18 +251,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEscape:
 			return m.handleInterrupt()
 		case tea.KeyEnter:
-			// Check if single-line and submit, or multi-line allow newlines
-			lines := strings.Count(m.input.Value(), "\n")
-			if lines == 0 {
-				return m.handleSubmit()
-			}
-			// Multi-line: let textarea handle Enter (add newline)
-			m.input, _ = m.input.Update(msg)
+			return m.handleSubmit()
+		case tea.KeyCtrlJ:
+			m.input, _ = m.input.Update(tea.KeyMsg{Type: tea.KeyEnter})
 			m.updateInputHeight()
 			return m, nil
-		case tea.KeyCtrlS:
-			// Ctrl+S: force submit (for multi-line input)
-			return m.handleSubmit()
 		case tea.KeyPgUp:
 			m.scrollUp(m.pageSize())
 			return m, nil
@@ -364,9 +356,9 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	m.appendOutput(stylePrompt.Render("› ") + text)
+	m.appendOutput(stylePrompt.Render("» ") + text)
 
-	ctx := command.WithSource(context.Background(), bus.AddrPlatformCLI)
+	ctx := bus.WithSource(context.Background(), bus.AddrPlatformCLI)
 
 	m.cli.hooks.Trigger(ctx, hook.BeforeInput, text)
 
@@ -740,12 +732,6 @@ func (m *model) appendOutput(line string) {
 	}
 }
 
-func (m *model) removeLastOutput() {
-	if len(m.output) > 0 {
-		m.output = m.output[:len(m.output)-1]
-	}
-}
-
 func (m *model) scrollUp(n int) {
 	if n <= 0 {
 		n = 1
@@ -787,9 +773,7 @@ func (m *model) visibleOutput(outputHeight int) []string {
 	if len(m.output) == 0 || outputHeight <= 0 {
 		return nil
 	}
-	if outputHeight > len(m.output) {
-		outputHeight = len(m.output)
-	}
+	outputHeight = min(outputHeight, len(m.output))
 
 	scroll := m.scroll
 	maxScroll := m.maxScroll()
@@ -797,14 +781,8 @@ func (m *model) visibleOutput(outputHeight int) []string {
 		scroll = maxScroll
 	}
 
-	end := len(m.output) - scroll
-	if end < 0 {
-		end = 0
-	}
-	start := end - outputHeight
-	if start < 0 {
-		start = 0
-	}
+	end := max(len(m.output)-scroll, 0)
+	start := max(end-outputHeight, 0)
 	if end < start {
 		end = start
 	}
@@ -825,10 +803,7 @@ func (m *model) View() string {
 		b.WriteString("\n")
 	}
 
-	currentScroll := m.scroll
-	if currentScroll > layout.maxScroll {
-		currentScroll = layout.maxScroll
-	}
+	currentScroll := min(m.scroll, layout.maxScroll)
 
 	if layout.showScroll {
 		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] PgUp/PgDn Home/End MouseWheel", currentScroll, layout.maxScroll)))
@@ -923,16 +898,16 @@ func renderMarkdown(s string) string {
 			continue
 		}
 
-		if strings.HasPrefix(trimmed, "# ") {
-			lines[i] = styleBold.Render(strings.TrimPrefix(trimmed, "# "))
+		if after, ok := strings.CutPrefix(trimmed, "# "); ok {
+			lines[i] = styleBold.Render(after)
 			continue
 		}
-		if strings.HasPrefix(trimmed, "## ") {
-			lines[i] = styleBold.Render(strings.TrimPrefix(trimmed, "## "))
+		if after, ok := strings.CutPrefix(trimmed, "## "); ok {
+			lines[i] = styleBold.Render(after)
 			continue
 		}
-		if strings.HasPrefix(trimmed, "### ") {
-			lines[i] = styleBold.Render(strings.TrimPrefix(trimmed, "### "))
+		if after, ok := strings.CutPrefix(trimmed, "### "); ok {
+			lines[i] = styleBold.Render(after)
 			continue
 		}
 
@@ -947,7 +922,7 @@ func (m *model) refreshInputMode() {
 		m.input.Placeholder = "Type yes/y or no/n, then Enter"
 		return
 	}
-	m.input.Placeholder = "Type message... (Enter: newline/submit, Ctrl+S: submit)"
+	m.input.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
 }
 
 func (m *model) updateInputHeight() {
@@ -967,15 +942,8 @@ func (m *model) computeLayout() layoutMetrics {
 
 	// Always reserve space for scroll hint when there might be content
 	nonOutput := m.nonOutputLines(true, agentDetailLine)
-	outputHeight := m.height - nonOutput
-	if outputHeight < 1 {
-		outputHeight = 1
-	}
-
-	maxScroll := len(m.output) - outputHeight
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
+	outputHeight := max(m.height-nonOutput, 1)
+	maxScroll := max(len(m.output)-outputHeight, 0)
 
 	// Show scroll hint when content exceeds visible area
 	showScroll := len(m.output) > outputHeight
@@ -990,10 +958,7 @@ func (m *model) computeLayout() layoutMetrics {
 
 func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int {
 	// Base: textarea height (already set via SetHeight) + 2 for spacing/prompt
-	inputHeight := m.input.Height()
-	if inputHeight < 1 {
-		inputHeight = 1
-	}
+	inputHeight := max(m.input.Height(), 1)
 	lines := inputHeight + 2
 
 	if len(m.agentKeys) > 0 {
@@ -1003,10 +968,7 @@ func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int 
 			if agent == nil {
 				continue
 			}
-			detail := len(agent.lines)
-			if detail > agentDetailLine {
-				detail = agentDetailLine
-			}
+			detail := min(len(agent.lines), agentDetailLine)
 			lines += 1 + detail
 		}
 	}

@@ -319,7 +319,7 @@ func (a *Agent) detectAndExecCommands(ctx context.Context, src, content string) 
 		return ""
 	}
 
-	ctx = command.WithSource(ctx, src)
+	ctx = bus.WithSource(ctx, src)
 
 	var results []string
 	for _, raw := range cmds {

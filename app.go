@@ -15,6 +15,7 @@ import (
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/platform"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
@@ -33,16 +34,6 @@ type Options struct {
 	SessionDir   string
 	Hooks        *hook.Manager
 	Workspace    string
-}
-
-type Usage struct {
-	Messages int
-	Total    int
-	Input    int
-	Output   int
-	System   int
-	Tool     int
-	Source   string
 }
 
 type App struct {
@@ -118,41 +109,29 @@ func New(opts Options) (*App, error) {
 	guard := command.NewGuardMux()
 	router.SetGuard(guard)
 
-	sup := agent.NewSupervisor(b, p, sm, hooks, router, cfg.CustomPrompt)
-	sup.SetConfig(cfg)
-	sup.SetToolGuard(guard)
+	deps := agent.AgentDeps{
+		Bus:       b,
+		Provider:  p,
+		Hooks:     hooks,
+		Router:    router,
+		ToolGuard: guard,
+		Prompt:    cfg.CustomPrompt,
+		Config:    cfg,
+	}
 
-	disp := agent.NewDispatcher(b, sm, p)
-	disp.SetAgentID(bus.AddrAgentMain)
-	disp.SetHooks(hooks)
-	disp.SetRouter(router)
-	disp.SetToolGuard(guard)
-	disp.SetPrompt(cfg.CustomPrompt)
-	disp.SetConfig(cfg)
+	sup := agent.NewSupervisor(deps, sm)
 
 	workspace := opts.Workspace
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
+	var sl *skill.Loader
 	if workspace != "" {
-		disp.SetSkillLoader(skill.NewLoader(workspace))
+		sl = skill.NewLoader(workspace)
 	}
+	disp := agent.NewDispatcher(deps, sm, sl)
 
-	cmdReg.Register(command.NewTokensCmd(func(src string) (command.TokenUsage, bool) {
-		u, ok := disp.Usage(src)
-		if !ok {
-			return command.TokenUsage{}, false
-		}
-		return command.TokenUsage{
-			Messages: u.Messages,
-			Total:    u.Total,
-			Input:    u.Input,
-			Output:   u.Output,
-			System:   u.System,
-			Tool:     u.Tool,
-			Source:   u.Source,
-		}, true
-	}))
+	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm))
 
 	return &App{
@@ -364,21 +343,8 @@ func (a *App) CompactSession(src, note string) error {
 	})
 }
 
-func (a *App) Usage(src string) (Usage, bool) {
-	u, ok := a.disp.Usage(src)
-	if !ok {
-		return Usage{}, false
-	}
-
-	return Usage{
-		Messages: u.Messages,
-		Total:    u.Total,
-		Input:    u.Input,
-		Output:   u.Output,
-		System:   u.System,
-		Tool:     u.Tool,
-		Source:   u.Source,
-	}, true
+func (a *App) Usage(src string) (msg.TokenUsage, bool) {
+	return a.disp.Usage(src)
 }
 
 func (a *App) Subscribe(msgType string, ch chan bus.Msg) {

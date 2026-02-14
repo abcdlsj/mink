@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -97,7 +98,7 @@ func (c *compactCmd) Name() string { return "compact" }
 func (c *compactCmd) Desc() string { return "compact current conversation context" }
 
 func (c *compactCmd) Run(ctx context.Context, args []string) (string, error) {
-	src := SourceFrom(ctx)
+	src := bus.SourceFrom(ctx)
 	if src == "" {
 		src = bus.AddrPlatformCLI
 	}
@@ -119,20 +120,10 @@ func (c *compactCmd) Run(ctx context.Context, args []string) (string, error) {
 }
 
 type tokensCmd struct {
-	usage func(src string) (TokenUsage, bool)
+	usage func(src string) (msg.TokenUsage, bool)
 }
 
-type TokenUsage struct {
-	Messages int
-	Total    int
-	Input    int
-	Output   int
-	System   int
-	Tool     int
-	Source   string
-}
-
-func NewTokensCmd(usage func(src string) (TokenUsage, bool)) Command {
+func NewTokensCmd(usage func(src string) (msg.TokenUsage, bool)) Command {
 	return &tokensCmd{usage: usage}
 }
 
@@ -140,7 +131,7 @@ func (c *tokensCmd) Name() string { return "tokens" }
 func (c *tokensCmd) Desc() string { return "show estimated token usage for current session" }
 
 func (c *tokensCmd) Run(ctx context.Context, args []string) (string, error) {
-	src := SourceFrom(ctx)
+	src := bus.SourceFrom(ctx)
 	if src == "" {
 		src = bus.AddrPlatformCLI
 	}

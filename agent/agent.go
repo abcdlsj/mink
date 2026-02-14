@@ -43,21 +43,33 @@ type tokenBaseline struct {
 	valid    bool
 }
 
-type tokenUsage struct {
-	Messages int
-	Total    int
-	Input    int
-	Output   int
-	System   int
-	Tool     int
-	Source   string
+type AgentDeps struct {
+	Bus       *bus.Bus
+	Provider  llm.Provider
+	Hooks     *hook.Manager
+	Router    *command.Router
+	ToolGuard tool.Guard
+	Prompt    string
+	Config    config.Config
+}
+
+func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
+	return New(id, d.Provider, sess,
+		WithBus(d.Bus),
+		WithHooks(d.Hooks),
+		WithRouter(d.Router),
+		WithToolGuard(d.ToolGuard),
+		WithPrompt(d.Prompt),
+		WithConfig(d.Config),
+		WithSubAgent(subAgent),
+	)
 }
 
 type Option func(*Agent)
 
 func WithHooks(h *hook.Manager) Option     { return func(a *Agent) { a.hooks = h } }
 func WithRouter(r *command.Router) Option  { return func(a *Agent) { a.router = r } }
-func WithToolGuard(g command.Guard) Option {
+func WithToolGuard(g tool.Guard) Option {
 	return func(a *Agent) {
 		if a.reg != nil {
 			a.reg.SetGuard(g)
@@ -327,14 +339,14 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 	return msgText, nil
 }
 
-func (a *Agent) TokenUsage() tokenUsage {
+func (a *Agent) TokenUsage() msg.TokenUsage {
 	msgs := a.session.Messages()
 
 	total, source := a.sessionTokenTotal(msgs)
 	input := 0
 	output := 0
 	system := 0
-	tool := 0
+	toolTok := 0
 
 	for _, m := range msgs {
 		est := a.estimateMessageTokens(m)
@@ -346,19 +358,19 @@ func (a *Agent) TokenUsage() tokenUsage {
 		case "system":
 			system += est
 		case "tool":
-			tool += est
+			toolTok += est
 		default:
 			input += est
 		}
 	}
 
-	return tokenUsage{
+	return msg.TokenUsage{
 		Messages: len(msgs),
 		Total:    total,
 		Input:    input,
 		Output:   output,
 		System:   system,
-		Tool:     tool,
+		Tool:     toolTok,
 		Source:   source,
 	}
 }
