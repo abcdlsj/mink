@@ -4,20 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/tool"
 )
-
-var fenceRe = regexp.MustCompile("^```")
 
 func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	msgs := a.session.Messages()
@@ -56,12 +52,6 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	}
 
 	if r.Content != "" {
-		if a.router != nil {
-			if cmdResult := a.detectAndExecCommands(ctx, src, r.Content); cmdResult != "" {
-				return false, nil
-			}
-		}
-
 		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
 		if a.bus != nil && !a.stream {
 			_ = a.bus.Pub(bus.Msg{
@@ -271,17 +261,6 @@ func (a *Agent) buildPrompt(src string) string {
 		b.WriteString("Example: background({\"cmd\": \"go build ./...\", \"cwd\": \"/path/to/project\"})\n")
 	}
 
-	if a.router != nil {
-		b.WriteString("\n## Commands (PREFERRED over bash tool)\n")
-		b.WriteString("Execute shell commands in code blocks with `!` prefix:\n")
-		b.WriteString("```bash\n!ls -la\n!git status\n```\n")
-		b.WriteString("IMPORTANT: Always use `!command` format instead of bash tool.\n")
-		b.WriteString("The `!` prefix is REQUIRED. Without it, commands won't execute.\n")
-		b.WriteString("Use `!compact [note]` to manually compact conversation context when history gets long.\n")
-		b.WriteString("Use `!tokens` to inspect estimated token usage and decide when to compact.\n")
-		b.WriteString("Use `!models` to list available models, `!model <name>` to switch.\n")
-	}
-
 	return b.String()
 }
 
@@ -312,83 +291,6 @@ func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
 		return out, err
 	}
 	return out, nil
-}
-
-func (a *Agent) detectAndExecCommands(ctx context.Context, src, content string) string {
-	cmds := parseCommands(content)
-	if len(cmds) == 0 {
-		return ""
-	}
-
-	ctx = bus.WithSource(ctx, src)
-
-	var results []string
-	for _, raw := range cmds {
-		out, ok, err := a.router.Route(ctx, raw)
-		if !ok {
-			continue
-		}
-
-		if a.bus != nil {
-			_ = a.bus.Pub(bus.Msg{
-				Type:    bus.TypeCommand,
-				From:    a.id,
-				To:      src,
-				Payload: raw,
-			})
-		}
-
-		status := "ok"
-		if err != nil {
-			status = "error"
-			out = err.Error()
-			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type:    bus.TypeCommandError,
-					From:    a.id,
-					To:      src,
-					Payload: out,
-				})
-			}
-		} else {
-			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type:    bus.TypeCommandOK,
-					From:    a.id,
-					To:      src,
-					Payload: out,
-				})
-			}
-		}
-		results = append(results, fmt.Sprintf("<command cmd=%q status=%q>\n%s\n</command>", raw, status, out))
-	}
-
-	if len(results) == 0 {
-		return ""
-	}
-
-	feedback := strings.Join(results, "\n")
-	a.session.Add(msg.Message{Role: "user", Content: feedback})
-	return feedback
-}
-
-func parseCommands(content string) []string {
-	var cmds []string
-	lines := strings.Split(content, "\n")
-	inFence := false
-
-	for _, line := range lines {
-		stripped := strings.TrimSpace(line)
-		if fenceRe.MatchString(stripped) {
-			inFence = !inFence
-			continue
-		}
-
-		if inFence && command.IsCommand(stripped) {
-			cmds = append(cmds, strings.TrimPrefix(stripped, "!"))
-		}
-	}
-	return cmds
 }
 
 func tools(reg *tool.Registry) []llm.Tool {

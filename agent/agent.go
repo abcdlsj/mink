@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
@@ -20,12 +19,11 @@ import (
 type Agent struct {
 	id          string
 	p           llm.Provider
-	reg         *tool.Registry
-	session     *session.Session
-	bus         *bus.Bus
-	hooks       *hook.Manager
-	router      *command.Router
-	prompt      string
+	reg     *tool.Registry
+	session *session.Session
+	bus     *bus.Bus
+	hooks   *hook.Manager
+	prompt  string
 	subAgent    bool
 	cfg         config.Config
 	stream      bool
@@ -47,7 +45,6 @@ type AgentDeps struct {
 	Bus       *bus.Bus
 	Provider  llm.Provider
 	Hooks     *hook.Manager
-	Router    *command.Router
 	ToolGuard tool.Guard
 	Prompt    string
 	Config    config.Config
@@ -57,7 +54,6 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 	return New(id, d.Provider, sess,
 		WithBus(d.Bus),
 		WithHooks(d.Hooks),
-		WithRouter(d.Router),
 		WithToolGuard(d.ToolGuard),
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
@@ -67,8 +63,7 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 
 type Option func(*Agent)
 
-func WithHooks(h *hook.Manager) Option     { return func(a *Agent) { a.hooks = h } }
-func WithRouter(r *command.Router) Option  { return func(a *Agent) { a.router = r } }
+func WithHooks(h *hook.Manager) Option { return func(a *Agent) { a.hooks = h } }
 func WithToolGuard(g tool.Guard) Option {
 	return func(a *Agent) {
 		if a.reg != nil {

@@ -28,9 +28,8 @@ const (
 var (
 	stylePrompt        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
 	stylePromptDanger  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Bold(true)
-	styleTool          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
-	styleCmd           = lipgloss.NewStyle().Foreground(lipgloss.Color("#CBA6F7")).Faint(true)
-	styleSuccess       = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
+	styleTool    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
+	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
 	styleFail          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	styleDim           = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
 	styleAgent         = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
@@ -170,9 +169,6 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	c.bus.Subscribe(bus.TypeToolCall, ch)
 	c.bus.Subscribe(bus.TypeToolResult, ch)
 	c.bus.Subscribe(bus.TypeToolError, ch)
-	c.bus.Subscribe(bus.TypeCommand, ch)
-	c.bus.Subscribe(bus.TypeCommandOK, ch)
-	c.bus.Subscribe(bus.TypeCommandError, ch)
 	c.bus.Subscribe(bus.TypeAgentSpawn, ch)
 	c.bus.Subscribe(bus.TypeAgentDone, ch)
 	c.bus.Subscribe(bus.TypeTaskStart, ch)
@@ -545,30 +541,6 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else if isSubAgent {
 			m.appendToAgent(msg.From, styleFail.Render("✗ "+truncate(errMsg, 160)))
-		}
-
-	case bus.TypeCommand:
-		line := styleCmd.Render("$ " + fmt.Sprintf("%v", msg.Payload))
-		if isSubAgent {
-			m.appendToAgent(msg.From, line)
-		} else {
-			m.appendOutput(line)
-		}
-
-	case bus.TypeCommandOK:
-		line := styleSuccess.Render("✓ done")
-		if isSubAgent {
-			m.appendToAgent(msg.From, line)
-		} else {
-			m.appendOutput(line)
-		}
-
-	case bus.TypeCommandError:
-		line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 160))
-		if isSubAgent {
-			m.appendToAgent(msg.From, line)
-		} else {
-			m.appendOutput(line)
 		}
 
 	case bus.TypeTurnDone:

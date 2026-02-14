@@ -113,7 +113,6 @@ func New(opts Options) (*App, error) {
 		Bus:       b,
 		Provider:  p,
 		Hooks:     hooks,
-		Router:    router,
 		ToolGuard: guard,
 		Prompt:    cfg.CustomPrompt,
 		Config:    cfg,

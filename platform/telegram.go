@@ -184,9 +184,6 @@ func (t *Telegram) forward(ctx context.Context) {
 	t.bus.Subscribe(bus.TypeToolCall, ch)
 	t.bus.Subscribe(bus.TypeToolResult, ch)
 	t.bus.Subscribe(bus.TypeToolError, ch)
-	t.bus.Subscribe(bus.TypeCommand, ch)
-	t.bus.Subscribe(bus.TypeCommandOK, ch)
-	t.bus.Subscribe(bus.TypeCommandError, ch)
 	t.bus.Subscribe(bus.TypeAgentSpawn, ch)
 	t.bus.Subscribe(bus.TypeAgentDone, ch)
 	t.bus.Subscribe(bus.TypeTaskStart, ch)
@@ -283,12 +280,6 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		return
 	case bus.TypeToolError:
 		t.sendText(chatID, fmt.Sprintf("tool error: %s%v", prefix, m.Payload))
-	case bus.TypeCommand:
-		t.sendText(chatID, fmt.Sprintf("command: %s%v", prefix, m.Payload))
-	case bus.TypeCommandOK:
-		t.sendText(chatID, fmt.Sprintf("command result: %s%s", prefix, truncateTG(fmt.Sprintf("%v", m.Payload), 200)))
-	case bus.TypeCommandError:
-		t.sendText(chatID, fmt.Sprintf("command error: %s%v", prefix, m.Payload))
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncateTG(payload["task"], 100)
@@ -825,10 +816,7 @@ func splitText(s string, limit int) []string {
 
 	parts := make([]string, 0, (len(r)/limit)+1)
 	for len(r) > 0 {
-		n := limit
-		if len(r) < n {
-			n = len(r)
-		}
+		n := min(limit, len(r))
 		parts = append(parts, string(r[:n]))
 		r = r[n:]
 	}
