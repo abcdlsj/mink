@@ -8,6 +8,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
@@ -42,7 +43,21 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispa
 }
 
 func (d *Dispatcher) SetConfig(c config.Config) {
+	d.mu.Lock()
 	d.Config = c
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) SetProvider(p llm.Provider) {
+	d.mu.Lock()
+	d.Provider = p
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) ResetAgents() {
+	d.mu.Lock()
+	d.agents = make(map[string]*Agent)
+	d.mu.Unlock()
 }
 
 func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {

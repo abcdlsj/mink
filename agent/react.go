@@ -279,6 +279,7 @@ func (a *Agent) buildPrompt(src string) string {
 		b.WriteString("The `!` prefix is REQUIRED. Without it, commands won't execute.\n")
 		b.WriteString("Use `!compact [note]` to manually compact conversation context when history gets long.\n")
 		b.WriteString("Use `!tokens` to inspect estimated token usage and decide when to compact.\n")
+		b.WriteString("Use `!models` to list available models, `!model <name>` to switch.\n")
 	}
 
 	return b.String()

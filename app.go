@@ -134,7 +134,7 @@ func New(opts Options) (*App, error) {
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm))
 
-	return &App{
+	app := &App{
 		cfg:    cfg,
 		bus:    b,
 		p:      p,
@@ -145,7 +145,12 @@ func New(opts Options) (*App, error) {
 		guard:  guard,
 		sup:    sup,
 		disp:   disp,
-	}, nil
+	}
+
+	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
+	cmdReg.Register(command.NewModelCmd(app.switchModel))
+
+	return app, nil
 }
 
 func (a *App) Start(ctx context.Context) error {
@@ -360,6 +365,46 @@ func (a *App) ReloadConfig(cfg config.Config) {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.disp.SetConfig(cfg)
+}
+
+func (a *App) modelsInfo() command.ModelInfo {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return command.ModelInfo{Models: a.cfg.Models, Active: a.cfg.ActiveModel}
+}
+
+func (a *App) switchModel(name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	mc, ok := a.cfg.Models[name]
+	if !ok {
+		return fmt.Errorf("model %q not found", name)
+	}
+
+	apiKey := mc.APIKey
+	if apiKey == "" {
+		apiKey = a.cfg.APIKey
+	}
+
+	p, err := llm.NewProvider(llm.Config{
+		Provider: mc.Provider,
+		APIKey:   apiKey,
+		BaseURL:  mc.BaseURL,
+		Model:    mc.Model,
+		Headers:  mc.Headers,
+	})
+	if err != nil {
+		return fmt.Errorf("create provider: %w", err)
+	}
+
+	a.p = p
+	config.ResolveModel(&a.cfg, name)
+	a.disp.SetProvider(p)
+	a.disp.SetConfig(a.cfg)
+	a.disp.ResetAgents()
+
+	return config.SaveActiveModel(name)
 }
 
 func normalizeConfig(cfg config.Config) config.Config {
