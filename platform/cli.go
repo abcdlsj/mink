@@ -22,14 +22,13 @@ const (
 	agentLineLimit  = 8
 	mouseScrollStep = 1
 	minOutputLines  = 5
-
 )
 
 var (
 	stylePrompt        = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
 	stylePromptDanger  = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Bold(true)
-	styleTool    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
-	styleSuccess = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
+	styleTool          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
+	styleSuccess       = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
 	styleFail          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	styleDim           = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
 	styleAgent         = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
@@ -834,7 +833,7 @@ func (m *model) View() string {
 	if confirming {
 		b.WriteString(stylePromptDanger.Render("⚠ "))
 	} else {
-		b.WriteString(stylePrompt.Render("› "))
+		b.WriteString(stylePrompt.Render("» "))
 	}
 	b.WriteString(m.input.View())
 
