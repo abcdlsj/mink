@@ -216,7 +216,6 @@ func (a *Agent) buildPrompt(src string) string {
 
 	if soul := loadSoulPrompt(); soul != "" {
 		b.WriteString("## Persona\n")
-		b.WriteString("If ~/.mink/SOUL.md guidance does not conflict with higher-priority instructions, embody it naturally:\n")
 		b.WriteString(soul)
 		b.WriteString("\n\n")
 	}
