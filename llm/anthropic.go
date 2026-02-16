@@ -108,11 +108,17 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
 			}
 			for _, tr := range m.ToolResults {
-				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, tr.Content, false))
+				content := tr.Content
+				if content == "" {
+					content = "(no output)"
+				}
+				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, content, false))
 			}
-			if len(blocks) > 0 {
-				apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))
+			// Anthropic requires at least one content block
+			if len(blocks) == 0 {
+				blocks = append(blocks, anthropic.NewTextBlock("(empty)"))
 			}
+			apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))
 		} else if m.Role == "assistant" {
 			var blocks []anthropic.ContentBlockParamUnion
 			if m.ReasoningSignature != "" && m.ReasoningContent != "" {
@@ -132,7 +138,11 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 		} else if m.Role == "tool" {
 			var blocks []anthropic.ContentBlockParamUnion
 			for _, tr := range m.ToolResults {
-				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, tr.Content, false))
+				content := tr.Content
+				if content == "" {
+					content = "(no output)"
+				}
+				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, content, false))
 			}
 			if len(blocks) > 0 {
 				apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))

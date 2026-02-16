@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/rivo/uniseg"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
@@ -42,6 +43,14 @@ var (
 	ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 
+type StatusInfo struct {
+	Model     string
+	TokenIn   int
+	TokenOut  int
+	Workspace string
+	Session   string
+}
+
 type agentState struct {
 	id           string
 	task         string
@@ -54,10 +63,11 @@ type agentState struct {
 type busMsg bus.Msg
 
 type CLI struct {
-	bus    *bus.Bus
-	router *command.Router
-	hooks  *hook.Manager
-	stop   chan struct{}
+	bus      *bus.Bus
+	router   *command.Router
+	hooks    *hook.Manager
+	statusFn func() StatusInfo
+	stop     chan struct{}
 
 	program *tea.Program
 	model   *model
@@ -106,12 +116,13 @@ type layoutMetrics struct {
 	agentDetailLine int
 }
 
-func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager) *CLI {
+func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager, sf func() StatusInfo) *CLI {
 	return &CLI{
-		bus:    b,
-		router: r,
-		hooks:  h,
-		stop:   make(chan struct{}),
+		bus:      b,
+		router:   r,
+		hooks:    h,
+		statusFn: sf,
+		stop:     make(chan struct{}),
 	}
 }
 
@@ -128,7 +139,8 @@ func (c *CLI) Run() error {
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.SetWidth(80)
-	ta.SetHeight(1)
+	ta.SetHeight(2)
+	ta.EndOfBufferCharacter = ' '
 	ta.CharLimit = 0
 	ta.Focus()
 
@@ -326,6 +338,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.updateInputHeight()
 	if cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -339,7 +352,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	text := strings.TrimSpace(m.input.Value())
 	m.input.Reset()
-	m.input.SetHeight(1)
+	m.input.SetHeight(2)
 
 	if text == "" {
 		return m, nil
@@ -867,6 +880,10 @@ func (m *model) View() string {
 	}
 
 	b.WriteString("\n")
+	if bar := m.statusBar(); bar != "" {
+		b.WriteString(bar)
+		b.WriteString("\n")
+	}
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())
 		b.WriteString(" ")
@@ -881,6 +898,13 @@ func (m *model) View() string {
 	return b.String()
 }
 
+var (
+	styleDiffAdd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Bold(true)
+	styleDiffDel    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Bold(true)
+	styleDiffHeader = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
+	styleDiffHunk   = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5")).Faint(true)
+)
+
 func renderMarkdown(s string) string {
 	if s == "" {
 		return ""
@@ -888,25 +912,28 @@ func renderMarkdown(s string) string {
 
 	lines := strings.Split(s, "\n")
 	inCode := false
+	codeLang := ""
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
-			inCode = !inCode
 			if inCode {
-				lang := strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
-				if lang != "" {
-					lines[i] = styleDim.Render("┌─ " + lang)
+				inCode = false
+				codeLang = ""
+				lines[i] = styleDim.Render("└─")
+			} else {
+				inCode = true
+				codeLang = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+				if codeLang != "" {
+					lines[i] = styleDim.Render("┌─ " + codeLang)
 				} else {
 					lines[i] = styleDim.Render("┌─ code")
 				}
-			} else {
-				lines[i] = styleDim.Render("└─")
 			}
 			continue
 		}
 
 		if inCode {
-			lines[i] = styleCode.Render(line)
+			lines[i] = renderCodeLine(line, codeLang)
 			continue
 		}
 
@@ -937,16 +964,25 @@ func (m *model) refreshInputMode() {
 	m.input.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
 }
 
+const maxInputHeight = 8
+
 func (m *model) updateInputHeight() {
-	lines := strings.Count(m.input.Value(), "\n") + 1
-	maxHeight := 8
-	if lines > maxHeight {
-		lines = maxHeight
+	w := m.input.Width()
+	if w <= 0 {
+		w = 80
 	}
-	if lines < 1 {
-		lines = 1
+	visual := 0
+	for _, line := range strings.Split(m.input.Value(), "\n") {
+		n := uniseg.StringWidth(line)
+		if n <= w {
+			visual++
+		} else {
+			visual += (n-1)/w + 1
+		}
 	}
-	m.input.SetHeight(lines)
+	// +1 keeps viewport tall enough so textarea's internal repositionView
+	// never scrolls away the first wrapped line on the same keystroke.
+	m.input.SetHeight(min(visual+1, maxInputHeight))
 }
 
 func (m *model) computeLayout() layoutMetrics {
@@ -969,9 +1005,11 @@ func (m *model) computeLayout() layoutMetrics {
 }
 
 func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int {
-	// Base: textarea height (already set via SetHeight) + 2 for spacing/prompt
 	inputHeight := max(m.input.Height(), 1)
-	lines := inputHeight + 2
+	lines := inputHeight + 2 // input + prompt + spacing
+	if m.cli.statusFn != nil {
+		lines++ // status bar
+	}
 
 	if len(m.agentKeys) > 0 {
 		lines += 3
@@ -1026,6 +1064,27 @@ func (m *model) confirmCommand() string {
 	return m.cli.confirmQ
 }
 
+func renderCodeLine(line, lang string) string {
+	if lang != "diff" && lang != "patch" {
+		return styleCode.Render(line)
+	}
+	trimmed := strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(trimmed, "diff "),
+		strings.HasPrefix(trimmed, "+++"),
+		strings.HasPrefix(trimmed, "---"):
+		return styleDiffHeader.Render(line)
+	case strings.HasPrefix(trimmed, "@@"):
+		return styleDiffHunk.Render(line)
+	case strings.HasPrefix(trimmed, "+"):
+		return styleDiffAdd.Render(line)
+	case strings.HasPrefix(trimmed, "-"):
+		return styleDiffDel.Render(line)
+	default:
+		return styleCode.Render(line)
+	}
+}
+
 func renderInlineMarkdown(line string) string {
 	line = ansiRE.ReplaceAllString(line, "")
 
@@ -1065,6 +1124,42 @@ func renderInlineMarkdown(line string) string {
 	}
 
 	return b.String()
+}
+
+func (m *model) statusBar() string {
+	if m.cli.statusFn == nil || m.width == 0 {
+		return ""
+	}
+	s := m.cli.statusFn()
+	var parts []string
+	if s.Model != "" {
+		parts = append(parts, s.Model)
+	}
+	parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(s.TokenIn), fmtTokens(s.TokenOut)))
+	if s.Workspace != "" {
+		ws := s.Workspace
+		if len(ws) > m.width/2 {
+			ws = "…" + ws[len(ws)-m.width/2:]
+		}
+		parts = append(parts, ws)
+	}
+	if s.Session != "" {
+		parts = append(parts, s.Session)
+	}
+
+	content := strings.Join(parts, " │ ")
+	return styleDim.Render("── " + content + " ──")
+}
+
+func fmtTokens(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	default:
+		return fmt.Sprintf("%d", n)
+	}
 }
 
 func truncate(s string, n int) string {

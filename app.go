@@ -185,7 +185,7 @@ func (a *App) StartCLI(ctx context.Context) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
-	cli := platform.NewCLI(a.bus, a.router, a.hooks)
+	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus())
 	if err := cli.Start(runCtx); err != nil {
 		return err
 	}
@@ -364,6 +364,39 @@ func (a *App) ReloadConfig(cfg config.Config) {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.disp.SetConfig(cfg)
+}
+
+func (a *App) cliStatus() func() platform.StatusInfo {
+	home, _ := os.UserHomeDir()
+	pwd, _ := os.Getwd()
+	ws := pwd
+	if home != "" && strings.HasPrefix(ws, home) {
+		ws = "~" + ws[len(home):]
+	}
+
+	return func() platform.StatusInfo {
+		a.mu.Lock()
+		model := a.cfg.Model
+		if a.cfg.ActiveModel != "" {
+			model = a.cfg.ActiveModel
+		}
+		a.mu.Unlock()
+
+		u, _ := a.disp.Usage(bus.AddrPlatformCLI)
+
+		sessID := ""
+		if ag := a.disp.Agent(bus.AddrPlatformCLI); ag != nil {
+			sessID = ag.Session().ID()
+		}
+
+		return platform.StatusInfo{
+			Model:     model,
+			TokenIn:   u.Input,
+			TokenOut:  u.Output,
+			Workspace: ws,
+			Session:   sessID,
+		}
+	}
 }
 
 func (a *App) modelsInfo() command.ModelInfo {
