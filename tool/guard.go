@@ -15,6 +15,18 @@ type Guard interface {
 	Allow(ctx context.Context, cmd string) (bool, error)
 }
 
+type Approval int
+
+const (
+	Denied Approval = iota
+	AllowOnce
+	AllowAlways
+)
+
+type InteractiveGuard interface {
+	Approve(ctx context.Context, cmd string) (Approval, error)
+}
+
 var dangerousPrefixes = []string{
 	"rm ", "rm\t",
 	"mv ", "mv\t",

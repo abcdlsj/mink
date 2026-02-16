@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/tool"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -346,15 +347,15 @@ func (t *Telegram) handleStreamEnd(chatID int64) {
 	t.flushStream(chatID, true)
 }
 
-func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
+func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, error) {
 	src := bus.SourceFrom(ctx)
 	if !strings.HasPrefix(src, "telegram:") {
-		return true, nil
+		return tool.AllowOnce, nil
 	}
 
 	chatID := parseTelegramChatID(src)
 	if chatID == 0 {
-		return false, fmt.Errorf("invalid chat id")
+		return tool.Denied, fmt.Errorf("invalid chat id")
 	}
 
 	reqID := shortReqID()
@@ -381,12 +382,15 @@ func (t *Telegram) Allow(ctx context.Context, raw string) (bool, error) {
 
 	select {
 	case ok := <-ch:
-		return ok, nil
+		if ok {
+			return tool.AllowOnce, nil
+		}
+		return tool.Denied, nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return tool.Denied, ctx.Err()
 	case <-time.After(telegramConfirmTimeout):
 		t.sendText(chatID, fmt.Sprintf("confirm %s timed out, cancelled", reqID))
-		return false, nil
+		return tool.Denied, nil
 	}
 }
 

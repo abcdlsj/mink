@@ -19,6 +19,7 @@ import (
 	"github.com/abcdlsj/mink/platform"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
+	"github.com/abcdlsj/mink/tool"
 )
 
 var (
@@ -69,17 +70,18 @@ func New(opts Options) (*App, error) {
 
 	p := opts.Provider
 	if p == nil {
-		if cfg.APIKey == "" {
+		if cfg.Active.APIKey == "" {
 			return nil, ErrAPIKeyRequired
 		}
 
 		var err error
 		p, err = llm.NewProvider(llm.Config{
-			Provider: cfg.Provider,
-			APIKey:   cfg.APIKey,
-			BaseURL:  cfg.BaseURL,
-			Model:    cfg.Model,
-			Headers:  cfg.Headers,
+			Provider:            cfg.Active.Provider,
+			APIKey:              cfg.Active.APIKey,
+			BaseURL:             cfg.Active.BaseURL,
+			Model:               cfg.Active.Model,
+			Headers:             cfg.Active.Headers,
+			OpenRouterReasoning: cfg.Active.OpenRouterReasoning,
 		})
 		if err != nil {
 			return nil, err
@@ -100,13 +102,20 @@ func New(opts Options) (*App, error) {
 		hooks = hook.NewManager()
 	}
 
+	workspace := opts.Workspace
+	if workspace == "" {
+		workspace, _ = os.Getwd()
+	}
+
 	sm := session.NewManager(store, b)
 	cmdReg := command.NewRegistry()
 	cmdReg.Register(command.NewHelpCmd(cmdReg))
 	cmdReg.Register(command.NewCompactCmd(b))
 
+	perms := tool.NewPermissions(filepath.Join(workspace, ".mink", "permissions.json"))
+
 	router := command.NewRouter(cmdReg)
-	guard := command.NewGuardMux()
+	guard := command.NewGuardMux(perms)
 	router.SetGuard(guard)
 
 	deps := agent.AgentDeps{
@@ -119,11 +128,6 @@ func New(opts Options) (*App, error) {
 	}
 
 	sup := agent.NewSupervisor(deps, sm)
-
-	workspace := opts.Workspace
-	if workspace == "" {
-		workspace, _ = os.Getwd()
-	}
 	var sl *skill.Loader
 	if workspace != "" {
 		sl = skill.NewLoader(workspace)
@@ -224,7 +228,7 @@ func (a *App) RunCLI(ctx context.Context) error {
 
 func (a *App) StartTelegram(ctx context.Context, token string) error {
 	if token == "" {
-		token = a.cfg.Telegram
+		token = a.cfg.Key("TELEGRAM_TOKEN")
 	}
 	if token == "" {
 		return fmt.Errorf("tg mode need telegram token")
@@ -376,10 +380,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 
 	return func() platform.StatusInfo {
 		a.mu.Lock()
-		model := a.cfg.Model
-		if a.cfg.ActiveModel != "" {
-			model = a.cfg.ActiveModel
-		}
+		model := a.cfg.ActiveModel
 		a.mu.Unlock()
 
 		u, _ := a.disp.Usage(bus.AddrPlatformCLI)
@@ -409,29 +410,23 @@ func (a *App) switchModel(name string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	mc, ok := a.cfg.Models[name]
-	if !ok {
+	if !config.ResolveModel(&a.cfg, name) {
 		return fmt.Errorf("model %q not found", name)
 	}
 
-	apiKey := mc.APIKey
-	if apiKey == "" {
-		apiKey = a.cfg.APIKey
-	}
-
 	p, err := llm.NewProvider(llm.Config{
-		Provider: mc.Provider,
-		APIKey:   apiKey,
-		BaseURL:  mc.BaseURL,
-		Model:    mc.Model,
-		Headers:  mc.Headers,
+		Provider:            a.cfg.Active.Provider,
+		APIKey:              a.cfg.Active.APIKey,
+		BaseURL:             a.cfg.Active.BaseURL,
+		Model:               a.cfg.Active.Model,
+		Headers:             a.cfg.Active.Headers,
+		OpenRouterReasoning: a.cfg.Active.OpenRouterReasoning,
 	})
 	if err != nil {
 		return fmt.Errorf("create provider: %w", err)
 	}
 
 	a.p = p
-	config.ResolveModel(&a.cfg, name)
 	a.disp.SetProvider(p)
 	a.disp.SetConfig(a.cfg)
 	a.disp.ResetAgents()
@@ -440,17 +435,8 @@ func (a *App) switchModel(name string) error {
 }
 
 func normalizeConfig(cfg config.Config) config.Config {
-	if cfg.Provider == "" {
-		cfg.Provider = "openai"
-	}
-	if cfg.Model == "" {
-		cfg.Model = "gpt-4o"
-	}
 	if cfg.Mode == "" {
 		cfg.Mode = "tui"
-	}
-	if cfg.Headers == nil {
-		cfg.Headers = make(map[string]string)
 	}
 	if cfg.Timeout.Tool == 0 {
 		cfg.Timeout.Tool = 60

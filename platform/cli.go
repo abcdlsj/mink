@@ -16,6 +16,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/hook"
+	"github.com/abcdlsj/mink/tool"
 )
 
 const (
@@ -32,6 +33,8 @@ var (
 	styleSuccess       = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
 	styleFail          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
 	styleDim           = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
+	styleBar           = lipgloss.NewStyle().Foreground(lipgloss.Color("#9399B2"))
+	styleSession       = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8"))
 	styleAgent         = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
 	styleCode          = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5C2E7"))
 	styleBold          = lipgloss.NewStyle().Bold(true)
@@ -73,7 +76,7 @@ type CLI struct {
 	model   *model
 
 	confirmMu sync.Mutex
-	confirmCh chan bool
+	confirmCh chan tool.Approval
 	confirmOn bool
 	confirmQ  string
 }
@@ -210,14 +213,14 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	}()
 }
 
-func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
+func (c *CLI) Approve(ctx context.Context, raw string) (tool.Approval, error) {
 	c.confirmMu.Lock()
 	if c.confirmOn {
 		c.confirmMu.Unlock()
-		return false, fmt.Errorf("another confirmation is in progress")
+		return tool.Denied, fmt.Errorf("another confirmation is in progress")
 	}
 
-	ch := make(chan bool, 1)
+	ch := make(chan tool.Approval, 1)
 	c.confirmOn = true
 	c.confirmCh = ch
 	c.confirmQ = raw
@@ -228,8 +231,8 @@ func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
 	}
 
 	select {
-	case ok := <-ch:
-		return ok, nil
+	case a := <-ch:
+		return a, nil
 	case <-ctx.Done():
 		c.confirmMu.Lock()
 		if c.confirmOn && c.confirmCh == ch {
@@ -238,7 +241,7 @@ func (c *CLI) Allow(ctx context.Context, raw string) (bool, error) {
 			c.confirmQ = ""
 		}
 		c.confirmMu.Unlock()
-		return false, ctx.Err()
+		return tool.Denied, ctx.Err()
 	}
 }
 
@@ -302,10 +305,6 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleBusMsg(bus.Msg(msg))
 
 	case confirmRequestMsg:
-		m.appendOutput("")
-		m.appendOutput(styleConfirmBanner.Render("⚠ DANGEROUS COMMAND CONFIRMATION REQUIRED"))
-		m.appendOutput(styleConfirmCmd.Render("$ " + string(msg)))
-		m.appendOutput(styleConfirmHint.Render("Input required: yes/y to approve, no/n to cancel, then press Enter"))
 		m.refreshInputMode()
 		return m, nil
 
@@ -419,6 +418,7 @@ func (m *model) tryHandleConfirm(text string) bool {
 	m.cli.confirmMu.Lock()
 	ch := m.cli.confirmCh
 	active := m.cli.confirmOn
+	cmd := m.cli.confirmQ
 	m.cli.confirmMu.Unlock()
 
 	if !active || ch == nil {
@@ -426,14 +426,21 @@ func (m *model) tryHandleConfirm(text string) bool {
 	}
 
 	ans := strings.ToLower(strings.TrimSpace(text))
-	if ans != "y" && ans != "yes" && ans != "n" && ans != "no" {
-		m.appendOutput(styleConfirmHint.Render("confirmation pending: type yes/y or no/n and press Enter"))
+
+	var approval tool.Approval
+	switch ans {
+	case "y", "yes":
+		approval = tool.AllowOnce
+	case "a", "always":
+		approval = tool.AllowAlways
+	case "n", "no":
+		approval = tool.Denied
+	default:
 		return true
 	}
 
-	ok := ans == "y" || ans == "yes"
 	select {
-	case ch <- ok:
+	case ch <- approval:
 	default:
 	}
 
@@ -446,10 +453,14 @@ func (m *model) tryHandleConfirm(text string) bool {
 	m.cli.confirmMu.Unlock()
 	m.refreshInputMode()
 
-	if ok {
-		m.appendOutput(styleSuccess.Render("✓ command approved"))
-	} else {
-		m.appendOutput(styleFail.Render("✗ command cancelled"))
+	display := truncate(cmd, 80)
+	switch approval {
+	case tool.AllowOnce:
+		m.appendOutput(styleSuccess.Render("✓ approved: " + display))
+	case tool.AllowAlways:
+		m.appendOutput(styleSuccess.Render("✓ approved (always): " + display))
+	default:
+		m.appendOutput(styleFail.Render("✗ denied: " + display))
 	}
 	return true
 }
@@ -650,7 +661,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 
 	case bus.TypeSessionNew:
 		if id, ok := msg.Payload.(string); ok {
-			m.appendOutput(styleDim.Render(fmt.Sprintf("[Session] %s", id)))
+			m.appendOutput(styleSession.Render(fmt.Sprintf("[Session] %s", id)))
 		}
 
 	case bus.TypeSessionCompact:
@@ -875,7 +886,7 @@ func (m *model) View() string {
 		if confirmCmd != "" {
 			b.WriteString(styleConfirmCmd.Render("$ "+confirmCmd) + "\n")
 		}
-		b.WriteString(styleConfirmHint.Render("Type yes/y to approve, or no/n to cancel, then press Enter"))
+		b.WriteString(styleConfirmHint.Render("[y] Allow once  [a] Always allow similar  [n] Deny"))
 		b.WriteString("\n")
 	}
 
@@ -958,7 +969,7 @@ func renderMarkdown(s string) string {
 
 func (m *model) refreshInputMode() {
 	if m.isConfirming() {
-		m.input.Placeholder = "Type yes/y or no/n, then Enter"
+		m.input.Placeholder = "Type y/a/n, then Enter"
 		return
 	}
 	m.input.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
@@ -1148,7 +1159,7 @@ func (m *model) statusBar() string {
 	}
 
 	content := strings.Join(parts, " │ ")
-	return styleDim.Render("── " + content + " ──")
+	return styleBar.Render("── " + content + " ──")
 }
 
 func fmtTokens(n int) string {

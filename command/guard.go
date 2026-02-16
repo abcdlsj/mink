@@ -9,22 +9,47 @@ import (
 )
 
 type GuardMux struct {
-	guards map[string]tool.Guard
+	guards map[string]tool.InteractiveGuard
+	perms  *tool.Permissions
 }
 
-func NewGuardMux() *GuardMux {
-	return &GuardMux{guards: make(map[string]tool.Guard)}
+func NewGuardMux(perms *tool.Permissions) *GuardMux {
+	return &GuardMux{
+		guards: make(map[string]tool.InteractiveGuard),
+		perms:  perms,
+	}
 }
 
-func (m *GuardMux) Register(prefix string, g tool.Guard) {
+func (m *GuardMux) Register(prefix string, g tool.InteractiveGuard) {
 	m.guards[prefix] = g
 }
 
 func (m *GuardMux) Allow(ctx context.Context, cmd string) (bool, error) {
+	if m.perms != nil && m.perms.Check(cmd) {
+		return true, nil
+	}
+
 	src := bus.SourceFrom(ctx)
 	for prefix, g := range m.guards {
 		if strings.HasPrefix(src, prefix) {
-			return g.Allow(ctx, cmd)
+			approval, err := g.Approve(ctx, cmd)
+			if err != nil {
+				return false, err
+			}
+			switch approval {
+			case tool.AllowOnce:
+				if m.perms != nil {
+					m.perms.AllowSession(cmd)
+				}
+				return true, nil
+			case tool.AllowAlways:
+				if m.perms != nil {
+					_ = m.perms.AllowPersist(tool.PatternFor(cmd))
+				}
+				return true, nil
+			default:
+				return false, nil
+			}
 		}
 	}
 	return true, nil
