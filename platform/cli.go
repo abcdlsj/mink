@@ -43,11 +43,12 @@ var (
 )
 
 type agentState struct {
-	id      string
-	task    string
-	lines   []string
-	done    bool
-	spinner spinner.Model
+	id           string
+	task         string
+	lines        []string
+	done         bool
+	directOutput bool
+	spinner      spinner.Model
 }
 
 type busMsg bus.Msg
@@ -91,8 +92,10 @@ type model struct {
 	spinner     spinner.Model
 	streaming   bool
 	streamBuf   strings.Builder
+	streamStart int
 	thinking    bool
 	thinkingBuf strings.Builder
+	thinkStart  int
 	scroll      int
 }
 
@@ -444,6 +447,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	isSubAgent := msg.From != "" && msg.From != bus.AddrAgentMain && msg.From != bus.AddrSystemSup
+	showInline := !isSubAgent || m.isDirectOutput(msg.From)
 
 	switch msg.Type {
 	case bus.TypeAgentSpawn:
@@ -453,22 +457,21 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		return m.handleAgentDone(msg)
 
 	case bus.TypeAssistant:
-		if isSubAgent {
-			m.appendToAgent(msg.From, renderMarkdown(truncate(fmt.Sprintf("%v", msg.Payload), 160)))
-		} else {
+		if showInline {
 			m.appendOutput("")
 			m.appendOutput(renderMarkdown(fmt.Sprintf("%v", msg.Payload)))
+		} else {
+			m.appendToAgent(msg.From, renderMarkdown(truncate(fmt.Sprintf("%v", msg.Payload), 160)))
 		}
 
 	case bus.TypeToolCall:
 		payload, ok := msg.Payload.(map[string]string)
 		if !ok {
-			// Fallback for old format
 			line := styleTool.Render("◉ " + truncate(fmt.Sprintf("%v", msg.Payload), 120))
-			if isSubAgent {
-				m.appendToAgent(msg.From, line)
-			} else {
+			if showInline {
 				m.appendOutput(line)
+			} else {
+				m.appendToAgent(msg.From, line)
 			}
 			break
 		}
@@ -477,9 +480,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		args := payload["args"]
 		display := truncate(name+" "+args, 100)
 
-		if isSubAgent {
-			m.appendToAgent(msg.From, styleTool.Render("◉ "+display))
-		} else {
+		if showInline {
 			s := spinner.New()
 			s.Spinner = spinner.Dot
 			s.Style = styleTool
@@ -493,16 +494,17 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 				spinner: s,
 			}
 			return m, s.Tick
+		} else {
+			m.appendToAgent(msg.From, styleTool.Render("◉ "+display))
 		}
 
 	case bus.TypeToolResult:
 		payload, ok := msg.Payload.(map[string]string)
 		if !ok {
-			// Fallback for old format
-			if isSubAgent {
-				m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
-			} else {
+			if showInline {
 				m.appendOutput(styleSuccess.Render("✓ done"))
+			} else {
+				m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
 			}
 			break
 		}
@@ -513,19 +515,18 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 				display := truncate(ts.name+" "+ts.args, 100)
 				m.output[ts.line] = styleSuccess.Render("✓") + " " + styleTool.Render(display)
 			}
-		} else if isSubAgent {
+		} else if !showInline {
 			m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
 		}
 
 	case bus.TypeToolError:
 		payload, ok := msg.Payload.(map[string]string)
 		if !ok {
-			// Fallback for old format
 			line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 160))
-			if isSubAgent {
-				m.appendToAgent(msg.From, line)
-			} else {
+			if showInline {
 				m.appendOutput(line)
+			} else {
+				m.appendToAgent(msg.From, line)
 			}
 			break
 		}
@@ -538,7 +539,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 				display := truncate(ts.name+" "+ts.args, 80)
 				m.output[ts.line] = styleFail.Render("✗") + " " + styleTool.Render(display) + " " + styleFail.Render(truncate(errMsg, 40))
 			}
-		} else if isSubAgent {
+		} else if !showInline {
 			m.appendToAgent(msg.From, styleFail.Render("✗ "+truncate(errMsg, 160)))
 		}
 
@@ -552,8 +553,10 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 			m.tools = make(map[string]*toolState)
 			m.streaming = false
 			m.streamBuf.Reset()
+			m.streamStart = 0
 			m.thinking = false
 			m.thinkingBuf.Reset()
+			m.thinkStart = 0
 		}
 
 	case bus.TypeTaskStart:
@@ -576,46 +579,59 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case bus.TypeStreamChunk:
+		if !showInline {
+			break
+		}
 		delta, _ := msg.Payload.(string)
 		if delta == "" {
 			break
 		}
 		if m.streaming {
 			m.streamBuf.WriteString(delta)
-			if len(m.output) > 0 {
-				m.output[len(m.output)-1] = renderMarkdown(m.streamBuf.String())
-			}
+			m.replaceFrom(m.streamStart, renderMarkdown(m.streamBuf.String()))
 		} else {
 			m.streaming = true
 			m.streamBuf.Reset()
 			m.streamBuf.WriteString(delta)
 			m.appendOutput("")
-			m.appendOutput(renderMarkdown(delta))
+			m.streamStart = len(m.output)
+			m.replaceFrom(m.streamStart, renderMarkdown(delta))
 		}
 
 	case bus.TypeStreamEnd:
+		if !showInline {
+			break
+		}
 		m.streaming = false
 		m.streamBuf.Reset()
 
 	case bus.TypeThinkingChunk:
+		if !showInline {
+			break
+		}
 		delta, _ := msg.Payload.(string)
 		if delta == "" {
 			break
 		}
+		thinkLine := func(s string) string {
+			return styleThinking.Render("thinking: " + strings.ReplaceAll(s, "\n", " "))
+		}
 		if m.thinking {
 			m.thinkingBuf.WriteString(delta)
-			if len(m.output) > 0 {
-				m.output[len(m.output)-1] = styleThinking.Render("thinking: " + m.thinkingBuf.String())
-			}
+			m.replaceFrom(m.thinkStart, thinkLine(m.thinkingBuf.String()))
 		} else {
 			m.thinking = true
 			m.thinkingBuf.Reset()
 			m.thinkingBuf.WriteString(delta)
 			m.appendOutput("")
-			m.appendOutput(styleThinking.Render("thinking: " + delta))
+			m.thinkStart = len(m.output)
+			m.replaceFrom(m.thinkStart, thinkLine(delta))
 		}
 
 	case bus.TypeThinkingEnd:
+		if !showInline {
+			break
+		}
 		m.thinking = false
 		m.thinkingBuf.Reset()
 
@@ -651,10 +667,11 @@ func (m *model) handleAgentSpawn(msg bus.Msg) (tea.Model, tea.Cmd) {
 		m.agentKeys = append(m.agentKeys, id)
 	}
 	m.agents[id] = &agentState{
-		id:      id,
-		task:    task,
-		lines:   []string{},
-		spinner: s,
+		id:           id,
+		task:         task,
+		lines:        []string{},
+		directOutput: payload["direct_output"] == "true",
+		spinner:      s,
 	}
 
 	return m, m.agents[id].spinner.Tick
@@ -678,6 +695,13 @@ func (m *model) handleAgentDone(msg bus.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) isDirectOutput(agentID string) bool {
+	if a, ok := m.agents[agentID]; ok {
+		return a.directOutput
+	}
+	return false
+}
+
 func (m *model) appendToAgent(id string, line string) {
 	if agent, exists := m.agents[id]; exists {
 		agent.lines = append(agent.lines, line)
@@ -687,9 +711,24 @@ func (m *model) appendToAgent(id string, line string) {
 	}
 }
 
-func (m *model) appendOutput(line string) {
+func (m *model) appendOutput(text string) {
 	wasAtBottom := m.scroll == 0
-	m.output = append(m.output, line)
+	m.output = append(m.output, strings.Split(text, "\n")...)
+	m.trimOutput(wasAtBottom)
+}
+
+func (m *model) replaceFrom(start int, text string) {
+	wasAtBottom := m.scroll == 0
+	if start <= len(m.output) {
+		m.output = m.output[:start]
+	}
+	m.output = append(m.output, strings.Split(text, "\n")...)
+	if wasAtBottom {
+		m.scroll = 0
+	}
+}
+
+func (m *model) trimOutput(wasAtBottom bool) {
 	if len(m.output) > maxOutputLines {
 		drop := len(m.output) - maxOutputLines
 		m.output = m.output[drop:]
@@ -698,6 +737,8 @@ func (m *model) appendOutput(line string) {
 		} else {
 			m.scroll = 0
 		}
+		m.streamStart = max(m.streamStart-drop, 0)
+		m.thinkStart = max(m.thinkStart-drop, 0)
 	} else if wasAtBottom {
 		m.scroll = 0
 	}

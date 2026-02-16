@@ -244,12 +244,12 @@ func (a *Agent) buildPrompt(src string) string {
 	b.WriteString("\n")
 
 	if a.reg.Get("spawn") != nil {
-		b.WriteString("\n## Multi-Agent Collaboration\n")
-		b.WriteString("Use `spawn` to delegate subtasks to new agents. Good for:\n")
-		b.WriteString("- Parallel work: spawn multiple agents to handle independent tasks\n")
-		b.WriteString("- Complex tasks: break down into smaller subtasks\n")
-		b.WriteString("- Focused work: let each agent focus on one specific thing\n")
-		b.WriteString("Example: spawn({\"task\": \"analyze error handling in cmd/\", \"share_context\": false})\n")
+		fmt.Fprintf(&b, "\n## Multi-Agent Collaboration (max %d concurrent)\n", maxActiveSubAgents)
+		b.WriteString("Use `spawn` to delegate subtasks to new agents.\n")
+		b.WriteString("- `direct_output: false` (default): agent works silently, result returned to you for processing\n")
+		b.WriteString("- `direct_output: true`: agent output shown directly to user (use for self-contained tasks)\n")
+		b.WriteString("Either way you receive the full result in your context for follow-up.\n")
+		b.WriteString("Example: spawn({\"task\": \"analyze error handling\", \"direct_output\": false})\n")
 	}
 
 	if a.reg.Get("background") != nil {

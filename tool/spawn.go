@@ -20,7 +20,7 @@ func NewSpawn(b *bus.Bus, parentID string) *Spawn {
 
 func (s *Spawn) Name() string { return "spawn" }
 func (s *Spawn) Desc() string {
-	return "Spawn a new agent to handle a subtask independently. Use this when you need to delegate work or run tasks in parallel."
+	return "Spawn a new agent to handle a subtask. Use direct_output to let the agent respond directly to user, or keep silent to process its result yourself."
 }
 
 func (s *Spawn) Schema() map[string]any {
@@ -35,6 +35,10 @@ func (s *Spawn) Schema() map[string]any {
 				"type":        "boolean",
 				"description": "Whether to share conversation context with the new agent (default: false)",
 			},
+			"direct_output": map[string]any{
+				"type":        "boolean",
+				"description": "If true, agent output is shown directly to user; if false (default), output is returned to you for processing",
+			},
 		},
 		"required": []string{"task"},
 	}
@@ -44,6 +48,7 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		Task         string `json:"task"`
 		ShareContext bool   `json:"share_context"`
+		DirectOutput bool   `json:"direct_output"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
@@ -53,7 +58,6 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		return "", fmt.Errorf("task is required")
 	}
 
-	// 发送 spawn 请求
 	resp, err := s.bus.Req(ctx, bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: s.parentID,
@@ -61,6 +65,7 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		Payload: map[string]any{
 			"task":          params.Task,
 			"share_context": params.ShareContext,
+			"direct_output": params.DirectOutput,
 		},
 	})
 	if err != nil {

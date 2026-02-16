@@ -15,7 +15,7 @@ var agentNames = []string{
 	"lynx", "crow", "bear", "puma", "eagle",
 }
 
-const maxActiveSubAgents = 2
+const maxActiveSubAgents = 3
 
 func randAgentName() string {
 	adj := []string{"swift", "brave", "calm", "fierce", "gentle", "noble", "proud", "sharp", "silent", "wild"}
@@ -56,6 +56,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 
 	task, _ := payload["task"].(string)
 	shareCtx, _ := payload["share_context"].(bool)
+	directOutput, _ := payload["direct_output"].(bool)
 	parentID := m.From
 
 	if !s.acquireSpawnSlot() {
@@ -64,14 +65,19 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 
 	child := s.SpawnWithContext(parentID, shareCtx)
 
+	directStr := "false"
+	if directOutput {
+		directStr = "true"
+	}
 	_ = s.Bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
 		To:   bus.AddrBroadcast,
 		Payload: map[string]string{
-			"agent_id": child.ID(),
-			"parent":   parentID,
-			"task":     task,
+			"agent_id":      child.ID(),
+			"parent":        parentID,
+			"task":          task,
+			"direct_output": directStr,
 		},
 	})
 
