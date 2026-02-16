@@ -29,6 +29,7 @@ type Agent struct {
 	stream      bool
 	tok         *tokenEstimator
 	base        tokenBaseline
+	sessionDir  string
 	interrupted bool
 	cancelFn    context.CancelFunc
 	mu          sync.Mutex
@@ -42,12 +43,13 @@ type tokenBaseline struct {
 }
 
 type AgentDeps struct {
-	Bus       *bus.Bus
-	Provider  llm.Provider
-	Hooks     *hook.Manager
-	ToolGuard tool.Guard
-	Prompt    string
-	Config    config.Config
+	Bus        *bus.Bus
+	Provider   llm.Provider
+	Hooks      *hook.Manager
+	ToolGuard  tool.Guard
+	Prompt     string
+	Config     config.Config
+	SessionDir string
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -58,6 +60,7 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),
+		WithSessionDir(d.SessionDir),
 	)
 }
 
@@ -82,7 +85,8 @@ func WithConfig(c config.Config) Option {
 		a.ensureTokenEstimator()
 	}
 }
-func WithStream(s bool) Option { return func(a *Agent) { a.stream = s } }
+func WithStream(s bool) Option      { return func(a *Agent) { a.stream = s } }
+func WithSessionDir(d string) Option { return func(a *Agent) { a.sessionDir = d } }
 
 func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	a := &Agent{
@@ -291,13 +295,16 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 		defer cancel()
 	}
 
+	compactSys := "You produce compact, factual context summaries for coding assistants."
+	start := time.Now()
 	resp, err := a.p.Chat(compactCtx, []msg.Message{
-		{Role: "system", Content: "You produce compact, factual context summaries for coding assistants."},
+		{Role: "system", Content: compactSys},
 		{Role: "user", Content: hist.String()},
 	}, nil)
 	if err != nil {
 		return "", err
 	}
+	a.logReq(compactSys, 2, false, start, resp)
 
 	summary := strings.TrimSpace(resp.Content)
 	if summary == "" {

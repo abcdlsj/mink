@@ -31,6 +31,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		defer cancel()
 	}
 
+	start := time.Now()
 	if a.stream {
 		r, err = a.stepStream(llmCtx, src, allMsgs)
 	} else {
@@ -39,6 +40,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	a.logReq(sysMsgs[0].Content, len(allMsgs), a.stream, start, r)
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {

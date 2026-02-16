@@ -88,12 +88,12 @@ func New(opts Options) (*App, error) {
 		}
 	}
 
+	sessionDir := opts.SessionDir
+	if sessionDir == "" {
+		sessionDir = defaultSessionDir()
+	}
 	store := opts.SessionStore
 	if store == nil {
-		sessionDir := opts.SessionDir
-		if sessionDir == "" {
-			sessionDir = defaultSessionDir()
-		}
 		store = session.NewFileStore(sessionDir)
 	}
 
@@ -119,12 +119,13 @@ func New(opts Options) (*App, error) {
 	router.SetGuard(guard)
 
 	deps := agent.AgentDeps{
-		Bus:       b,
-		Provider:  p,
-		Hooks:     hooks,
-		ToolGuard: guard,
-		Prompt:    cfg.CustomPrompt,
-		Config:    cfg,
+		Bus:        b,
+		Provider:   p,
+		Hooks:      hooks,
+		ToolGuard:  guard,
+		Prompt:     cfg.CustomPrompt,
+		Config:     cfg,
+		SessionDir: sessionDir,
 	}
 
 	sup := agent.NewSupervisor(deps, sm)
