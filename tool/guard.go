@@ -131,14 +131,14 @@ func guardedRead(args json.RawMessage) (string, bool) {
 		return "", false
 	}
 
-	p := cleanReadPath(in.Path)
+	p := resolvePath(in.Path)
 	if p == "" || !isSensitiveReadPath(p) {
 		return "", false
 	}
 	return "read " + p, true
 }
 
-func cleanReadPath(raw string) string {
+func resolvePath(raw string) string {
 	p := strings.TrimSpace(raw)
 	if p == "" {
 		return ""

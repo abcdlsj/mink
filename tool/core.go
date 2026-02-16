@@ -99,7 +99,7 @@ func (r *Read) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(params.Path)
+	data, err := os.ReadFile(resolvePath(params.Path))
 	if err != nil {
 		return "", err
 	}
@@ -129,14 +129,15 @@ func (w *Write) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
 	}
-	dir := filepath.Dir(params.Path)
+	p := resolvePath(params.Path)
+	dir := filepath.Dir(p)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(params.Path, []byte(params.Content), 0644); err != nil {
+	if err := os.WriteFile(p, []byte(params.Content), 0644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Wrote %d bytes to %s", len(params.Content), params.Path), nil
+	return fmt.Sprintf("Wrote %d bytes to %s", len(params.Content), p), nil
 }
 
 // Edit 编辑文件
@@ -164,7 +165,8 @@ func (e *Edit) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(params.Path)
+	p := resolvePath(params.Path)
+	data, err := os.ReadFile(p)
 	if err != nil {
 		return "", err
 	}
@@ -173,10 +175,10 @@ func (e *Edit) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		return "", fmt.Errorf("search text not found in file")
 	}
 	newContent := strings.Replace(content, params.Old, params.New, 1)
-	if err := os.WriteFile(params.Path, []byte(newContent), 0644); err != nil {
+	if err := os.WriteFile(p, []byte(newContent), 0644); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Edited %s", params.Path), nil
+	return fmt.Sprintf("Edited %s", p), nil
 }
 
 // Bash 执行命令
