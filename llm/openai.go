@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,8 +15,9 @@ import (
 )
 
 type openAITransport struct {
-	headers map[string]string
-	base    http.RoundTripper
+	headers             map[string]string
+	openRouterReasoning bool
+	base                http.RoundTripper
 }
 
 func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -27,11 +29,28 @@ func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body.Close()
 		if err == nil {
 			body = patchAssistantContent(body)
+			if t.openRouterReasoning {
+				body = patchOpenRouterReasoning(body)
+			}
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(len(body))
 		}
 	}
 	return t.base.RoundTrip(req)
+}
+
+// patchOpenRouterReasoning injects {"reasoning":{"enabled":true}} for OpenRouter.
+func patchOpenRouterReasoning(body []byte) []byte {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(body, &obj) != nil {
+		return body
+	}
+	if _, ok := obj["reasoning"]; ok {
+		return body
+	}
+	obj["reasoning"] = json.RawMessage(`{"enabled":true}`)
+	out, _ := json.Marshal(obj)
+	return out
 }
 
 // patchAssistantContent fixes go-openai's omitempty on Content field.
@@ -84,8 +103,9 @@ func newOpenAI(cfg Config) *openAI {
 	config.BaseURL = cfg.BaseURL
 	config.HTTPClient = &http.Client{
 		Transport: &openAITransport{
-			headers: cfg.Headers,
-			base:    http.DefaultTransport,
+			headers:             cfg.Headers,
+			openRouterReasoning: cfg.OpenRouterReasoning,
+			base:                http.DefaultTransport,
 		},
 	}
 
@@ -96,12 +116,24 @@ func newOpenAI(cfg Config) *openAI {
 	}
 }
 
+func wrapErr(err error) error {
+	var re *openai.RequestError
+	if errors.As(err, &re) {
+		body := strings.TrimSpace(string(re.Body))
+		if body == "" {
+			body = re.HTTPStatus
+		}
+		return fmt.Errorf("%s (HTTP %d)", body, re.HTTPStatusCode)
+	}
+	return err
+}
+
 func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*Response, error) {
 	req := o.buildRequest(msgs, tools)
 
 	resp, err := o.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, wrapErr(err)
 	}
 
 	if len(resp.Choices) == 0 {
@@ -136,7 +168,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 		stream, err = o.client.CreateChatCompletionStream(ctx, req)
 	}
 	if err != nil {
-		return nil, err
+		return nil, wrapErr(err)
 	}
 
 	ch := make(chan Chunk, 32)

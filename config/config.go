@@ -11,13 +11,6 @@ import (
 )
 
 type Config struct {
-	Provider     string                  `toml:"provider"`
-	BaseURL      string                  `toml:"base_url"`
-	APIKey       string                  `toml:"api_key"`
-	BraveAPIKey  string                  `toml:"brave_api_key"`
-	Model        string                  `toml:"model"`
-	Headers      map[string]string       `toml:"headers"`
-	Telegram     string                  `toml:"telegram_token"`
 	Mode         string                  `toml:"mode"`
 	CustomPrompt string                  `toml:"custom_prompt"`
 	Stream       bool                    `toml:"stream"`
@@ -27,14 +20,17 @@ type Config struct {
 	ActiveModel  string                  `toml:"active_model"`
 	Models       map[string]ModelConfig  `toml:"models"`
 	APIKeys      map[string]string       `toml:"api_keys"`
+
+	Active       ModelConfig // resolved at runtime
 }
 
 type ModelConfig struct {
-	Provider string            `toml:"provider"`
-	Model    string            `toml:"model"`
-	APIKey   string            `toml:"api_key"`
-	BaseURL  string            `toml:"base_url"`
-	Headers  map[string]string `toml:"headers"`
+	Provider  string            `toml:"provider"`
+	Model     string            `toml:"model"`
+	APIKey    string            `toml:"api_key"`
+	BaseURL   string            `toml:"base_url"`
+	Headers   map[string]string `toml:"headers"`
+	OpenRouterReasoning bool   `toml:"openrouter_reasoning"`
 }
 
 type CompactConfig struct {
@@ -57,10 +53,7 @@ func Load() Config {
 
 func LoadWithDir(name string) Config {
 	c := Config{
-		Provider: "openai",
-		Model:    "gpt-4o",
 		Mode:     "tui",
-		Headers:  make(map[string]string),
 		Stream:   true,
 		MaxSteps: 100,
 		Timeout: TimeoutConfig{
@@ -84,16 +77,6 @@ func LoadWithDir(name string) Config {
 		_, _ = toml.DecodeFile(path, &c)
 	}
 
-	if v := os.Getenv("OPENAI_API_KEY"); v != "" && c.APIKey == "" {
-		c.APIKey = v
-	}
-	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" && c.APIKey == "" {
-		c.APIKey = v
-	}
-	if v := os.Getenv("BRAVE_API_KEY"); v != "" && c.BraveAPIKey == "" {
-		c.BraveAPIKey = v
-	}
-
 	ResolveModel(&c, c.ActiveModel)
 
 	return c
@@ -108,18 +91,16 @@ func ResolveModel(c *Config, name string) bool {
 		return false
 	}
 	c.ActiveModel = name
-	c.Provider = mc.Provider
-	c.Model = mc.Model
-	if mc.APIKey != "" {
-		c.APIKey = expand(mc.APIKey, c.APIKeys)
-	}
-	if mc.BaseURL != "" {
-		c.BaseURL = mc.BaseURL
-	}
-	if mc.Headers != nil {
-		c.Headers = mc.Headers
-	}
+	c.Active = mc
+	c.Active.APIKey = expand(mc.APIKey, c.APIKeys)
 	return true
+}
+
+func (c *Config) Key(name string) string {
+	if v, ok := c.APIKeys[name]; ok {
+		return v
+	}
+	return os.Getenv(name)
 }
 
 var envRe = regexp.MustCompile(`\$\{(\w+)\}`)

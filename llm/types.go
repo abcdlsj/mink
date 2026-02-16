@@ -59,13 +59,14 @@ type Provider interface {
 }
 
 type Config struct {
-	Provider    string
-	APIKey      string
-	BaseURL     string
-	Model       string
-	Headers     map[string]string
-	MaxTokens   int
-	Temperature float32
+	Provider            string
+	APIKey              string
+	BaseURL             string
+	Model               string
+	Headers             map[string]string
+	MaxTokens           int
+	Temperature         float32
+	OpenRouterReasoning bool
 }
 
 func NewProvider(cfg Config) (Provider, error) {

@@ -41,12 +41,10 @@ func main() {
 func runCLI() {
 	cfg := config.Load()
 
-	flag.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
-	flag.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
-	flag.StringVar(&cfg.BraveAPIKey, "brave_key", cfg.BraveAPIKey, "brave search api key")
-	flag.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
-	flag.StringVar(&cfg.Model, "m", cfg.Model, "model")
-	flag.StringVar(&cfg.Telegram, "tg_token", cfg.Telegram, "telegram token")
+	flag.StringVar(&cfg.Active.Provider, "p", cfg.Active.Provider, "provider")
+	flag.StringVar(&cfg.Active.APIKey, "k", cfg.Active.APIKey, "api key")
+	flag.StringVar(&cfg.Active.BaseURL, "u", cfg.Active.BaseURL, "base url")
+	flag.StringVar(&cfg.Active.Model, "m", cfg.Active.Model, "model")
 	flag.Parse()
 
 	app, err := mink.New(mink.Options{Config: cfg})
@@ -151,15 +149,13 @@ func runTG() {
 	cfg := config.Load()
 
 	fs := flag.NewFlagSet("tg", flag.ExitOnError)
-	fs.StringVar(&cfg.Provider, "p", cfg.Provider, "provider")
-	fs.StringVar(&cfg.APIKey, "k", cfg.APIKey, "api key")
-	fs.StringVar(&cfg.BraveAPIKey, "brave_key", cfg.BraveAPIKey, "brave search api key")
-	fs.StringVar(&cfg.BaseURL, "u", cfg.BaseURL, "base url")
-	fs.StringVar(&cfg.Model, "m", cfg.Model, "model")
-	fs.StringVar(&cfg.Telegram, "tg_token", cfg.Telegram, "telegram token")
+	fs.StringVar(&cfg.Active.Provider, "p", cfg.Active.Provider, "provider")
+	fs.StringVar(&cfg.Active.APIKey, "k", cfg.Active.APIKey, "api key")
+	fs.StringVar(&cfg.Active.BaseURL, "u", cfg.Active.BaseURL, "base url")
+	fs.StringVar(&cfg.Active.Model, "m", cfg.Active.Model, "model")
 	fs.Parse(os.Args[2:])
 
-	if cfg.Telegram == "" {
+	if cfg.Key("TELEGRAM_TOKEN") == "" {
 		fmt.Fprintln(os.Stderr, "tg mode need telegram token")
 		os.Exit(1)
 	}
@@ -173,7 +169,7 @@ func runTG() {
 	defer app.Close()
 
 	ctx := context.Background()
-	if err := app.StartTelegram(ctx, cfg.Telegram); err != nil {
+	if err := app.StartTelegram(ctx, cfg.Key("TELEGRAM_TOKEN")); err != nil {
 		fmt.Fprintf(os.Stderr, "error: telegram start failed: %v\n", err)
 		os.Exit(1)
 	}

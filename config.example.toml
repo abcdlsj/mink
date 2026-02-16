@@ -1,9 +1,8 @@
 # Mink 配置文件
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"
-api_key = "sk-your-api-key"
+api_key = "${ANTHROPIC_API_KEY}"
 base_url = ""
-telegram_token = ""
 mode = "tui"  # tui or cli
 
 [compact]
@@ -11,6 +10,24 @@ auto = true
 trigger_tokens = 12000
 trigger_messages = 80
 keep_recent_messages = 20
+
+[api_keys]
+ANTHROPIC_API_KEY = "sk-your-anthropic-key"
+OPENAI_API_KEY = "sk-your-openai-key"
+KIMI_API_KEY = "your-kimi-key"
+BRAVE_API_KEY = "your-brave-api-key"
+TELEGRAM_TOKEN = "your-telegram-token"
+
+[models.claude]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "${ANTHROPIC_API_KEY}"
+
+[models.kimi]
+provider = "openai"
+model = "moonshot-v1-auto"
+api_key = "${KIMI_API_KEY}"
+base_url = "https://api.moonshot.cn/v1"
 
 [headers]
 # User-Agent = "custom-agent"

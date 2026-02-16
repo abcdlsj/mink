@@ -105,7 +105,7 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		a.reg.Register(bg)
 	}
 	if a.reg.Get("brave_search") == nil {
-		a.reg.Register(tool.NewBraveSearch(a.cfg.BraveAPIKey))
+		a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
 	}
 	return a
 }
@@ -372,10 +372,10 @@ func (a *Agent) TokenUsage() msg.TokenUsage {
 
 func (a *Agent) ensureTokenEstimator() {
 	if a.tok == nil {
-		a.tok = newTokenEstimator(a.cfg.Model)
+		a.tok = newTokenEstimator(a.cfg.Active.Model)
 		return
 	}
-	a.tok.setModel(a.cfg.Model)
+	a.tok.setModel(a.cfg.Active.Model)
 }
 
 func (a *Agent) estimateTokens(msgs []msg.Message) int {
