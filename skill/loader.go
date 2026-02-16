@@ -140,7 +140,7 @@ func (l *Loader) parseFrontmatter(content string) (name, desc string) {
 }
 
 func (l *Loader) projectPath() string {
-	return filepath.Join(l.workspace, ".agent", "skills")
+	return filepath.Join(l.workspace, ".mink", "skills")
 }
 
 func (l *Loader) globalPath() string {
