@@ -25,7 +25,7 @@ const (
 )
 
 type confirmState struct {
-	ch      chan bool
+	ch      chan tool.Approval
 	created time.Time
 }
 
@@ -359,7 +359,7 @@ func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, erro
 	}
 
 	reqID := shortReqID()
-	ch := make(chan bool, 1)
+	ch := make(chan tool.Approval, 1)
 	t.confirmMu.Lock()
 	if _, ok := t.confirms[chatID]; !ok {
 		t.confirms[chatID] = make(map[string]confirmState)
@@ -381,11 +381,8 @@ func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, erro
 	t.sendConfirmRequest(chatID, reqID, raw)
 
 	select {
-	case ok := <-ch:
-		if ok {
-			return tool.AllowOnce, nil
-		}
-		return tool.Denied, nil
+	case approval := <-ch:
+		return approval, nil
 	case <-ctx.Done():
 		return tool.Denied, ctx.Err()
 	case <-time.After(telegramConfirmTimeout):
@@ -420,14 +417,14 @@ func (t *Telegram) handleConfirmReply(c tele.Context, chatID int64, text string)
 		return false, nil
 	}
 
-	reqID, decision, ok := parseConfirmReply(text, pending)
+	reqID, approval, ok := parseConfirmReply(text, pending)
 	if !ok {
 		var ids []string
 		for id := range pending {
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		return true, c.Send(fmt.Sprintf("pending confirmations: %s\nreply: <id> y|n", strings.Join(ids, ", ")))
+		return true, c.Send(fmt.Sprintf("pending confirmations: %s\nreply: <id> y|a|n", strings.Join(ids, ", ")))
 	}
 
 	state, exists := t.popConfirmState(chatID, reqID)
@@ -437,14 +434,18 @@ func (t *Telegram) handleConfirmReply(c tele.Context, chatID int64, text string)
 	}
 
 	select {
-	case state.ch <- decision:
+	case state.ch <- approval:
 	default:
 	}
 
-	if decision {
+	switch approval {
+	case tool.AllowAlways:
+		return true, c.Send(fmt.Sprintf("confirm %s always allowed", reqID))
+	case tool.AllowOnce:
 		return true, c.Send(fmt.Sprintf("confirm %s approved", reqID))
+	default:
+		return true, c.Send(fmt.Sprintf("confirm %s cancelled", reqID))
 	}
-	return true, c.Send(fmt.Sprintf("confirm %s cancelled", reqID))
 }
 
 func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
@@ -453,7 +454,7 @@ func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
 		return false, nil
 	}
 
-	reqID, decision, ok := parseConfirmCallback(cb.Data)
+	reqID, approval, ok := parseConfirmCallback(cb.Data)
 	if !ok {
 		return false, nil
 	}
@@ -471,18 +472,21 @@ func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
 	}
 
 	select {
-	case state.ch <- decision:
+	case state.ch <- approval:
 	default:
 	}
 
-	if decision {
-		_ = c.Respond(&tele.CallbackResponse{Text: fmt.Sprintf("confirm %s approved", reqID)})
-		t.sendText(chatID, fmt.Sprintf("confirm %s approved", reqID))
-		return true, nil
+	var msg string
+	switch approval {
+	case tool.AllowAlways:
+		msg = fmt.Sprintf("confirm %s always allowed", reqID)
+	case tool.AllowOnce:
+		msg = fmt.Sprintf("confirm %s approved", reqID)
+	default:
+		msg = fmt.Sprintf("confirm %s cancelled", reqID)
 	}
-
-	_ = c.Respond(&tele.CallbackResponse{Text: fmt.Sprintf("confirm %s cancelled", reqID)})
-	t.sendText(chatID, fmt.Sprintf("confirm %s cancelled", reqID))
+	_ = c.Respond(&tele.CallbackResponse{Text: msg})
+	t.sendText(chatID, msg)
 	return true, nil
 }
 
@@ -506,24 +510,26 @@ func (t *Telegram) popConfirmState(chatID int64, reqID string) (confirmState, bo
 	return state, ok
 }
 
-func parseConfirmCallback(data string) (string, bool, bool) {
+func parseConfirmCallback(data string) (string, tool.Approval, bool) {
 	parts := strings.Split(strings.TrimSpace(data), ":")
 	if len(parts) != 3 || parts[0] != confirmCallbackPrefix {
-		return "", false, false
+		return "", tool.Denied, false
 	}
 
 	reqID := strings.TrimSpace(parts[2])
 	if reqID == "" {
-		return "", false, false
+		return "", tool.Denied, false
 	}
 
 	switch strings.ToLower(strings.TrimSpace(parts[1])) {
 	case "y":
-		return reqID, true, true
+		return reqID, tool.AllowOnce, true
+	case "a":
+		return reqID, tool.AllowAlways, true
 	case "n":
-		return reqID, false, true
+		return reqID, tool.Denied, true
 	default:
-		return "", false, false
+		return "", tool.Denied, false
 	}
 }
 
@@ -539,7 +545,7 @@ func callbackChatID(c tele.Context) int64 {
 }
 
 func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) {
-	text := fmt.Sprintf("confirm %s\nexecute:\n%s\nchoose: tap button or reply: %s y | %s n", reqID, raw, reqID, reqID)
+	text := fmt.Sprintf("confirm %s\nexecute:\n%s\nchoose: tap button or reply: %s y|a|n", reqID, raw, reqID)
 	opts := t.assistantSendOptions(chatID, 0, false)
 	if opts == nil {
 		opts = &tele.SendOptions{}
@@ -551,27 +557,32 @@ func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) {
 }
 
 func confirmMarkup(reqID string) *tele.ReplyMarkup {
-	allow := tele.InlineButton{Text: "✅ Approve", Data: confirmCallbackPrefix + ":y:" + reqID}
-	deny := tele.InlineButton{Text: "❌ Deny", Data: confirmCallbackPrefix + ":n:" + reqID}
-	return &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{allow, deny}}}
+	allow := tele.InlineButton{Text: "Approve", Data: confirmCallbackPrefix + ":y:" + reqID}
+	always := tele.InlineButton{Text: "Always Allow", Data: confirmCallbackPrefix + ":a:" + reqID}
+	deny := tele.InlineButton{Text: "Deny", Data: confirmCallbackPrefix + ":n:" + reqID}
+	return &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{allow, always, deny}}}
 }
 
-func parseConfirmReply(text string, pending map[string]confirmState) (string, bool, bool) {
+func parseConfirmReply(text string, pending map[string]confirmState) (string, tool.Approval, bool) {
 	fields := strings.Fields(strings.ToLower(strings.TrimSpace(text)))
 	if len(fields) == 0 {
-		return "", false, false
+		return "", tool.Denied, false
 	}
 
-	decision, hasDecision := false, false
+	var approval tool.Approval
+	hasDecision := false
 	reqID := ""
 
 	for _, f := range fields {
 		switch f {
 		case "y", "yes", "ok", "allow":
-			decision = true
+			approval = tool.AllowOnce
+			hasDecision = true
+		case "a", "always":
+			approval = tool.AllowAlways
 			hasDecision = true
 		case "n", "no", "deny", "cancel":
-			decision = false
+			approval = tool.Denied
 			hasDecision = true
 		default:
 			candidate := strings.TrimPrefix(f, "#")
@@ -582,7 +593,7 @@ func parseConfirmReply(text string, pending map[string]confirmState) (string, bo
 	}
 
 	if !hasDecision {
-		return "", false, false
+		return "", tool.Denied, false
 	}
 
 	if reqID == "" && len(pending) == 1 {
@@ -593,10 +604,10 @@ func parseConfirmReply(text string, pending map[string]confirmState) (string, bo
 	}
 
 	if reqID == "" {
-		return "", false, false
+		return "", tool.Denied, false
 	}
 
-	return reqID, decision, true
+	return reqID, approval, true
 }
 
 func (t *Telegram) flushStreamLoop(ctx context.Context) {
