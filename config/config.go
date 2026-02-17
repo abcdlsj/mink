@@ -11,17 +11,17 @@ import (
 )
 
 type Config struct {
-	Mode         string                  `toml:"mode"`
-	CustomPrompt string                  `toml:"custom_prompt"`
-	Stream       bool                    `toml:"stream"`
-	MaxSteps     int                     `toml:"max_steps"`
-	Timeout      TimeoutConfig           `toml:"timeout"`
-	Compact      CompactConfig           `toml:"compact"`
-	ActiveModel  string                  `toml:"active_model"`
-	Models       map[string]ModelConfig  `toml:"models"`
-	APIKeys      map[string]string       `toml:"api_keys"`
+	Mode         string                 `toml:"mode"`
+	CustomPrompt string                 `toml:"custom_prompt"`
+	Stream       bool                   `toml:"stream"`
+	MaxSteps     int                    `toml:"max_steps"`
+	Timeout      TimeoutConfig          `toml:"timeout"`
+	Compact      CompactConfig          `toml:"compact"`
+	ActiveModel  string                 `toml:"active_model"`
+	Models       map[string]ModelConfig `toml:"models"`
+	APIKeys      map[string]string      `toml:"api_keys"`
 
-	Active       ModelConfig // resolved at runtime
+	Active ModelConfig // resolved at runtime
 }
 
 type ModelConfig struct {
@@ -30,7 +30,7 @@ type ModelConfig struct {
 	APIKey    string            `toml:"api_key"`
 	BaseURL   string            `toml:"base_url"`
 	Headers   map[string]string `toml:"headers"`
-	OpenRouterReasoning bool   `toml:"openrouter_reasoning"`
+	Reasoning bool              `toml:"reasoning"`
 }
 
 type CompactConfig struct {

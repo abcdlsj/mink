@@ -45,7 +45,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 		a.session.Add(msg.Message{
 			Role:               "assistant",
 			Content:            r.Content,
-			ReasoningContent:   r.ReasoningContent,
+			Reasoning:          r.Reasoning,
 			ReasoningSignature: r.ReasoningSignature,
 			ToolCalls:          r.ToolCalls,
 		})
@@ -167,8 +167,8 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			if chunk.Usage != nil {
 				usage = chunk.Usage
 			}
-			if chunk.ReasoningContent != "" {
-				reasoning.WriteString(chunk.ReasoningContent)
+			if chunk.Reasoning != "" {
+				reasoning.WriteString(chunk.Reasoning)
 			}
 			if chunk.ReasoningSignature != "" {
 				signature = chunk.ReasoningSignature
@@ -195,7 +195,7 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 
 	return &llm.Response{
 		Content:            content.String(),
-		ReasoningContent:   reasoning.String(),
+		Reasoning:          reasoning.String(),
 		ReasoningSignature: signature,
 		ToolCalls:          toolCalls,
 		Usage:              usage,

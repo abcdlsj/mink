@@ -79,12 +79,12 @@ func New(opts Options) (*App, error) {
 
 		var err error
 		p, err = llm.NewProvider(llm.Config{
-			Provider:            cfg.Active.Provider,
-			APIKey:              cfg.Active.APIKey,
-			BaseURL:             cfg.Active.BaseURL,
-			Model:               cfg.Active.Model,
-			Headers:             cfg.Active.Headers,
-			OpenRouterReasoning: cfg.Active.OpenRouterReasoning,
+			Provider:  cfg.Active.Provider,
+			APIKey:    cfg.Active.APIKey,
+			BaseURL:   cfg.Active.BaseURL,
+			Model:     cfg.Active.Model,
+			Headers:   cfg.Active.Headers,
+			Reasoning: cfg.Active.Reasoning,
 		})
 		if err != nil {
 			return nil, err
@@ -425,12 +425,12 @@ func (a *App) switchModel(name string) error {
 	}
 
 	p, err := llm.NewProvider(llm.Config{
-		Provider:            a.cfg.Active.Provider,
-		APIKey:              a.cfg.Active.APIKey,
-		BaseURL:             a.cfg.Active.BaseURL,
-		Model:               a.cfg.Active.Model,
-		Headers:             a.cfg.Active.Headers,
-		OpenRouterReasoning: a.cfg.Active.OpenRouterReasoning,
+		Provider:  a.cfg.Active.Provider,
+		APIKey:    a.cfg.Active.APIKey,
+		BaseURL:   a.cfg.Active.BaseURL,
+		Model:     a.cfg.Active.Model,
+		Headers:   a.cfg.Active.Headers,
+		Reasoning: a.cfg.Active.Reasoning,
 	})
 	if err != nil {
 		return fmt.Errorf("create provider: %w", err)

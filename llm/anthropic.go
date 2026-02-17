@@ -139,7 +139,7 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 		case ch <- Chunk{
 			Type:               ChunkDone,
 			Usage:              usage,
-			ReasoningContent:   reasoning.String(),
+			Reasoning:          reasoning.String(),
 			ReasoningSignature: signature,
 		}:
 		case <-ctx.Done():
@@ -177,8 +177,8 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 			apiMessages = append(apiMessages, anthropic.NewUserMessage(blocks...))
 		} else if m.Role == "assistant" {
 			var blocks []anthropic.ContentBlockParamUnion
-			if m.ReasoningSignature != "" && m.ReasoningContent != "" {
-				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.ReasoningContent))
+			if m.ReasoningSignature != "" && m.Reasoning != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(m.ReasoningSignature, m.Reasoning))
 			}
 			if m.Content != "" {
 				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
@@ -264,7 +264,7 @@ func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 
 	return &Response{
 		Content:            content,
-		ReasoningContent:   reasoning,
+		Reasoning:          reasoning,
 		ReasoningSignature: sig,
 		ToolCalls:          toolCalls,
 		Usage:              toAnthropicTokenUsage(resp.Usage),

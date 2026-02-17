@@ -15,9 +15,9 @@ import (
 )
 
 type openAITransport struct {
-	headers             map[string]string
-	openRouterReasoning bool
-	base                http.RoundTripper
+	headers   map[string]string
+	reasoning bool
+	base      http.RoundTripper
 }
 
 func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -29,14 +29,27 @@ func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		req.Body.Close()
 		if err == nil {
 			body = patchAssistantContent(body)
-			if t.openRouterReasoning {
-				body = patchOpenRouterReasoning(body)
+			if t.reasoning {
+				body = patchReasoning(body)
 			}
 			req.Body = io.NopCloser(bytes.NewReader(body))
 			req.ContentLength = int64(len(body))
 		}
 	}
 	return t.base.RoundTrip(req)
+}
+
+func patchReasoning(body []byte) []byte {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(body, &obj) != nil {
+		return body
+	}
+	if _, ok := obj["reasoning"]; ok {
+		return body
+	}
+	obj["reasoning"] = json.RawMessage(`{"enabled":true}`)
+	out, _ := json.Marshal(obj)
+	return out
 }
 
 // patchOpenRouterReasoning injects {"reasoning":{"enabled":true}} for OpenRouter.
@@ -103,9 +116,9 @@ func newOpenAI(cfg Config) *openAI {
 	config.BaseURL = cfg.BaseURL
 	config.HTTPClient = &http.Client{
 		Transport: &openAITransport{
-			headers:             cfg.Headers,
-			openRouterReasoning: cfg.OpenRouterReasoning,
-			base:                http.DefaultTransport,
+			headers:   cfg.Headers,
+			reasoning: cfg.Reasoning,
+			base:      http.DefaultTransport,
 		},
 	}
 
@@ -142,9 +155,9 @@ func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*R
 
 	choice := resp.Choices[0]
 	res := &Response{
-		Content:          choice.Message.Content,
-		ReasoningContent: choice.Message.ReasoningContent,
-		Usage:            toTokenUsage(resp.Usage),
+		Content:   choice.Message.Content,
+		Reasoning: choice.Message.ReasoningContent,
+		Usage:     toTokenUsage(resp.Usage),
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
@@ -257,9 +270,9 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 
 		select {
 		case ch <- Chunk{
-			Type:             ChunkDone,
-			Usage:            usage,
-			ReasoningContent: reasoningContent.String(),
+			Type:      ChunkDone,
+			Usage:     usage,
+			Reasoning: reasoningContent.String(),
 		}:
 		case <-ctx.Done():
 		}
@@ -300,7 +313,7 @@ func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompl
 			cm := openai.ChatCompletionMessage{
 				Role:             m.Role,
 				Content:          m.Content,
-				ReasoningContent: m.ReasoningContent,
+				ReasoningContent: m.Reasoning,
 			}
 			for _, tc := range m.ToolCalls {
 				cm.ToolCalls = append(cm.ToolCalls, openai.ToolCall{

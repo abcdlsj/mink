@@ -20,7 +20,7 @@ type FunctionDef struct {
 
 type Response struct {
 	Content            string
-	ReasoningContent   string
+	Reasoning          string
 	ReasoningSignature string
 	ToolCalls          []msg.ToolCall
 	Usage              *TokenUsage
@@ -48,7 +48,7 @@ type Chunk struct {
 	Delta              string        // 增量文本
 	ReasoningDelta     string        // 增量思考内容
 	ToolCall           *msg.ToolCall // 工具调用（完整后发送）
-	ReasoningContent   string        // 完整思考内容（与 ToolCall 一起发送）
+	Reasoning          string        // 完整思考内容（与 ToolCall 一起发送）
 	ReasoningSignature string        // thinking block signature (Anthropic)
 	Usage              *TokenUsage
 	Error              error
@@ -60,14 +60,14 @@ type Provider interface {
 }
 
 type Config struct {
-	Provider            string
-	APIKey              string
-	BaseURL             string
-	Model               string
-	Headers             map[string]string
-	MaxTokens           int
-	Temperature         float32
-	OpenRouterReasoning bool
+	Provider    string
+	APIKey      string
+	BaseURL     string
+	Model       string
+	Headers     map[string]string
+	MaxTokens   int
+	Temperature float32
+	Reasoning   bool // for DeepSeek, etc.
 }
 
 func NewProvider(cfg Config) (Provider, error) {
@@ -76,6 +76,8 @@ func NewProvider(cfg Config) (Provider, error) {
 		return newOpenAI(cfg), nil
 	case "anthropic":
 		return newAnthropic(cfg), nil
+	case "openrouter":
+		return newOpenRouter(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown: %s", cfg.Provider)
 	}

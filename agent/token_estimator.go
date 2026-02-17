@@ -70,7 +70,7 @@ func (e *tokenEstimator) message(m msg.Message) int {
 	total := 8
 	total += e.text(m.Role)
 	total += e.text(m.Content)
-	total += e.text(m.ReasoningContent)
+	total += e.text(m.Reasoning)
 
 	for _, tc := range m.ToolCalls {
 		total += 12
