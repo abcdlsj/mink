@@ -162,6 +162,10 @@ func SoulPath() string {
 	return filepath.Join(DataDir("mink"), "SOUL.md")
 }
 
+func CronPath() string {
+	return filepath.Join(DataDir("mink"), "cron.json")
+}
+
 func defaultConfigDir(name string) string {
 	return DataDir(name)
 }

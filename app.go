@@ -13,6 +13,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
+	mcron "github.com/abcdlsj/mink/cron"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
@@ -48,6 +49,7 @@ type App struct {
 	guard    *command.GuardMux
 	sup      *agent.Supervisor
 	disp     *agent.Dispatcher
+	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
 	cli      *platform.CLI
@@ -133,6 +135,10 @@ func New(opts Options) (*App, error) {
 	if workspace != "" {
 		sl = skill.NewLoader(workspace)
 	}
+
+	cronSched := mcron.NewScheduler(config.CronPath(), b)
+	deps.CronTool = tool.NewCron(config.CronPath(), cronSched)
+
 	disp := agent.NewDispatcher(deps, sm, sl)
 
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
@@ -149,6 +155,7 @@ func New(opts Options) (*App, error) {
 		guard:  guard,
 		sup:    sup,
 		disp:   disp,
+		cron:   cronSched,
 	}
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
@@ -173,6 +180,7 @@ func (a *App) Start(ctx context.Context) error {
 
 	a.ctx, a.cancel = context.WithCancel(ctx)
 	a.disp.Start(a.ctx)
+	_ = a.cron.Start(a.ctx)
 	a.started = true
 	return nil
 }

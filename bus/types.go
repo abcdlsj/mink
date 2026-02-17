@@ -27,5 +27,6 @@ const (
 	TypeThinkingChunk = "thinking:chunk" // thinking 内容片段
 	TypeThinkingEnd   = "thinking:end"   // thinking 结束
 
-	TypeInterrupt = "agent:interrupt" // 用户打断
+	TypeInterrupt    = "agent:interrupt" // 用户打断
+	TypeCronTrigger  = "cron:trigger"    // cron 定时触发
 )

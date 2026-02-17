@@ -47,6 +47,7 @@ type AgentDeps struct {
 	Provider   llm.Provider
 	Hooks      *hook.Manager
 	ToolGuard  tool.Guard
+	CronTool   tool.Tool
 	Prompt     string
 	Config     config.Config
 	SessionDir string
@@ -57,6 +58,7 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithBus(d.Bus),
 		WithHooks(d.Hooks),
 		WithToolGuard(d.ToolGuard),
+		WithCronTool(d.CronTool),
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),
@@ -108,10 +110,16 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		}
 		a.reg.Register(bg)
 	}
-	if a.reg.Get("brave_search") == nil {
-		a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
-	}
+	a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
 	return a
+}
+
+func WithCronTool(t tool.Tool) Option {
+	return func(a *Agent) {
+		if t != nil {
+			a.reg.Register(t)
+		}
+	}
 }
 
 func (a *Agent) ID() string                { return a.id }
@@ -140,7 +148,15 @@ func (a *Agent) ResetInterrupt() {
 	a.mu.Unlock()
 }
 
-func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
+func (a *Agent) Run(ctx context.Context, src, input string) error {
+	return a.run(ctx, src, "user", input)
+}
+
+func (a *Agent) RunSystem(ctx context.Context, src, input string) error {
+	return a.run(ctx, src, "system", input)
+}
+
+func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error) {
 	defer func() {
 		if err := a.session.Flush(); err != nil {
 			if retErr == nil {
@@ -154,7 +170,6 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 	ctx = bus.WithSource(ctx, src)
 	a.ResetInterrupt()
 
-	// Create cancellable context for interrupt support
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -180,7 +195,7 @@ func (a *Agent) Run(ctx context.Context, src, input string) (retErr error) {
 		defer timeoutCancel()
 	}
 
-	a.session.Add(msg.Message{Role: "user", Content: input})
+	a.session.Add(msg.Message{Role: role, Content: input})
 
 	if a.bus != nil {
 		go a.watchInterrupt()

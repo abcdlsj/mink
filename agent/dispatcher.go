@@ -185,7 +185,13 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			if err := a.Run(ctx, src, in); err != nil {
+			var err error
+			if m.Type == bus.TypeTaskDone {
+				err = a.RunSystem(ctx, src, in)
+			} else {
+				err = a.Run(ctx, src, in)
+			}
+			if err != nil {
 				_ = d.Bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
@@ -272,12 +278,42 @@ func (d *Dispatcher) Start(ctx context.Context) {
 					d.Handle(ctx, m)
 				case bus.TypeTaskDone:
 					d.HandleTaskDone(ctx, m)
+				case bus.TypeCronTrigger:
+					go d.HandleCronTrigger(ctx, m)
 				}
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
+}
+
+func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
+	src := m.From
+	prompt, ok := m.Payload.(string)
+	if !ok || src == "" || prompt == "" {
+		return
+	}
+
+	sess, _ := d.sm.Create()
+	a := d.AgentDeps.newAgent(d.agentID, sess, false)
+	if d.skillLoader != nil {
+		skill.RegisterTools(a.Tools(), d.skillLoader)
+	}
+
+	if err := a.Run(ctx, src, prompt); err != nil {
+		_ = d.Bus.Pub(bus.Msg{
+			Type:    bus.TypeAssistant,
+			From:    d.agentID,
+			To:      src,
+			Payload: fmt.Sprintf("cron error: %v", err),
+		})
+	}
+	_ = d.Bus.Pub(bus.Msg{
+		Type: bus.TypeTurnDone,
+		From: d.agentID,
+		To:   src,
+	})
 }
 
 func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
@@ -316,7 +352,7 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 
 	select {
 	case w.q <- bus.Msg{
-		Type:    bus.TypeUserInput,
+		Type:    bus.TypeTaskDone,
 		From:    src,
 		To:      d.agentID,
 		Payload: content,
