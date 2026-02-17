@@ -157,6 +157,17 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 		return c.Send("session reset. started a new session")
 	}
 
+	if text == "/cancel" {
+		_ = t.bus.Pub(bus.Msg{
+			Type:    bus.TypeInterrupt,
+			From:    src,
+			To:      bus.AddrAgentMain,
+			Payload: "user cancelled",
+		})
+		t.stopTyping(chatID)
+		return c.Send("cancelled current task")
+	}
+
 	t.touchActive(chatID)
 	mentioned := t.isMentioned(msg)
 	t.setInboundState(chatID, inboundState{

@@ -104,8 +104,12 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 
 	if m.Type == bus.TypeInterrupt {
 		d.mu.RLock()
-		for src, a := range d.agents {
-			if m.To == bus.AddrBroadcast || m.To == d.agentID || src == m.From {
+		if m.From != "" {
+			if a, ok := d.agents[m.From]; ok {
+				a.Interrupt()
+			}
+		} else {
+			for _, a := range d.agents {
 				a.Interrupt()
 			}
 		}
