@@ -22,7 +22,7 @@ type workerState struct {
 }
 
 type Dispatcher struct {
-	AgentDeps
+	deps        AgentDeps
 	sm          *session.Manager
 	agentID     string
 	agents      map[string]*Agent
@@ -33,7 +33,7 @@ type Dispatcher struct {
 
 func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispatcher {
 	return &Dispatcher{
-		AgentDeps:   deps,
+		deps:        deps,
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
 		agents:      make(map[string]*Agent),
@@ -44,13 +44,13 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispa
 
 func (d *Dispatcher) SetConfig(c config.Config) {
 	d.mu.Lock()
-	d.Config = c
+	d.deps.Config = c
 	d.mu.Unlock()
 }
 
 func (d *Dispatcher) SetProvider(p llm.Provider) {
 	d.mu.Lock()
-	d.Provider = p
+	d.deps.Provider = p
 	d.mu.Unlock()
 }
 
@@ -92,7 +92,7 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 			return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
 		}
 		if out != "" {
-			_ = d.Bus.Pub(bus.Msg{
+			_ = d.deps.Bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    d.agentID,
 				To:      src,
@@ -177,7 +177,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 			a := d.getOrCreateAgent(src)
 			in, ok := m.Payload.(string)
 			if !ok {
-				_ = d.Bus.Pub(bus.Msg{
+				_ = d.deps.Bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: "error: invalid input payload",
@@ -192,14 +192,14 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				err = a.Run(ctx, src, in)
 			}
 			if err != nil {
-				_ = d.Bus.Pub(bus.Msg{
+				_ = d.deps.Bus.Pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: fmt.Sprintf("error: %v", err),
 					To:      src,
 				})
 			}
-			_ = d.Bus.Pub(bus.Msg{
+			_ = d.deps.Bus.Pub(bus.Msg{
 				Type: bus.TypeTurnDone,
 				From: d.agentID,
 				To:   src,
@@ -235,7 +235,7 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	} else {
 		sess, _ = d.sm.Create()
 	}
-	a := d.AgentDeps.newAgent(d.agentID, sess, false)
+	a := d.deps.newAgent(d.agentID, sess, false)
 	if d.skillLoader != nil {
 		skill.RegisterTools(a.Tools(), d.skillLoader)
 	}
@@ -262,7 +262,7 @@ func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
 }
 
 func (d *Dispatcher) Start(ctx context.Context) {
-	conn := d.Bus.RegisterAgent(d.agentID, false)
+	conn := d.deps.Bus.RegisterAgent(d.agentID, false)
 	go func() {
 		for {
 			select {
@@ -296,20 +296,20 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 	}
 
 	sess, _ := d.sm.Create()
-	a := d.AgentDeps.newAgent(d.agentID, sess, false)
+	a := d.deps.newAgent(d.agentID, sess, false)
 	if d.skillLoader != nil {
 		skill.RegisterTools(a.Tools(), d.skillLoader)
 	}
 
 	if err := a.Run(ctx, src, prompt); err != nil {
-		_ = d.Bus.Pub(bus.Msg{
+		_ = d.deps.Bus.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
 			To:      src,
 			Payload: fmt.Sprintf("cron error: %v", err),
 		})
 	}
-	_ = d.Bus.Pub(bus.Msg{
+	_ = d.deps.Bus.Pub(bus.Msg{
 		Type: bus.TypeTurnDone,
 		From: d.agentID,
 		To:   src,
@@ -358,7 +358,7 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		Payload: content,
 	}:
 	default:
-		_ = d.Bus.Pub(bus.Msg{
+		_ = d.deps.Bus.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
 			To:      src,

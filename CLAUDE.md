@@ -25,28 +25,33 @@ Rob Pike's style Go code, elevated:
 ## Architecture
 
 ```
-main.go                 # Entry point
-internal/
-  ├── agent/            # ReAct loop - orchestrates LLM and tools
-  ├── config/           # Configuration management
-  ├── event/            # Event system for async communication
-  ├── llm/              # LLM clients (anthropic, openai)
-  ├── msg/              # Message model and session persistence
-  └── tool/             # Builtin tools (shell, file)
+cmd/mink/               # CLI entry point
+app.go                  # App orchestration
+daemon.go               # Daemon mode with hot reload
+agent/                  # ReAct loop, dispatcher, supervisor, prompt builder
+bus/                    # Pub-sub message bus for async communication
+command/                # Command registry and routing
+config/                 # Configuration management (TOML)
+cron/                   # Cron scheduling system
+hook/                   # Event hooks (before/after input, tool, assist)
+llm/                    # LLM providers (anthropic, openai/openrouter)
+msg/                    # Unified message model
+platform/               # Platform adapters (CLI/TUI, Telegram)
+session/                # Session persistence (JSON)
+skill/                  # Skill discovery and loading (SKILL.md)
+tool/                   # Builtin tools (bash, read, write, edit, spawn, background, cron, search)
 ```
 
 ## Core Concepts
 
-### Message
-Unified message model with session persistence (jsonl format)
-
 ### Agent
 ReAct loop: LLM → Tool Call → Execute → LLM → ... → Response
 
+### Bus
+Pub-sub message bus decouples agent, platform, and session layers.
+
 ### Tool
-Builtin tools:
-- `shell` - Execute shell commands
-- `file` - Read/write/list/search files
+Builtin tools: `bash`, `read`, `write`, `edit`, `spawn`, `background`, `cron`, `brave_search`
 
 ## Git Commit
 

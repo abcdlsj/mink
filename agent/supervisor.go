@@ -23,7 +23,7 @@ func randAgentName() string {
 }
 
 type Supervisor struct {
-	AgentDeps
+	deps            AgentDeps
 	sm              *session.Manager
 	agents          map[string]*Agent
 	spawned         map[string]struct{}
@@ -33,8 +33,8 @@ type Supervisor struct {
 
 func NewSupervisor(deps AgentDeps, sm *session.Manager) *Supervisor {
 	s := &Supervisor{
-		AgentDeps: deps,
-		sm:        sm,
+		deps:    deps,
+		sm:      sm,
 		agents:    make(map[string]*Agent),
 		spawned:   make(map[string]struct{}),
 	}
@@ -69,7 +69,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	if directOutput {
 		directStr = "true"
 	}
-	_ = s.Bus.Pub(bus.Msg{
+	_ = s.deps.Bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
 		To:   bus.AddrBroadcast,
@@ -87,7 +87,7 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 		if err != nil {
 			result = fmt.Sprintf("error: %v", err)
 		}
-		_ = s.Bus.Pub(bus.Msg{
+		_ = s.deps.Bus.Pub(bus.Msg{
 			Type: bus.TypeAgentDone,
 			From: child.ID(),
 			To:   bus.AddrBroadcast,
@@ -163,12 +163,12 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
 	sess, _ := s.sm.Create()
-	child := s.AgentDeps.newAgent(id, sess, true)
+	child := s.deps.newAgent(id, sess, true)
 
-	s.Bus.RegisterAgent(id, shareCtx)
+	s.deps.Bus.RegisterAgent(id, shareCtx)
 	if shareCtx {
-		ctx := s.Bus.ForkContext(parentID, id)
-		if conn, ok := s.Bus.GetAgent(id); ok {
+		ctx := s.deps.Bus.ForkContext(parentID, id)
+		if conn, ok := s.deps.Bus.GetAgent(id); ok {
 			conn.Context = ctx
 		}
 	}
@@ -193,7 +193,7 @@ func (s *Supervisor) Kill(id string) {
 				s.activeSubAgents--
 			}
 		}
-		s.Bus.UnregisterAgent(id)
+		s.deps.Bus.UnregisterAgent(id)
 	}
 }
 

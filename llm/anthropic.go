@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/abcdlsj/mink/msg"
 	"github.com/anthropics/anthropic-sdk-go"
@@ -47,13 +48,73 @@ func (p *anthropicProvider) Chat(ctx context.Context, msgs []msg.Message, tools 
 }
 
 func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, tools []Tool) (<-chan Chunk, error) {
+	params := p.buildRequest(msgs, tools)
+
+	stream := p.client.Messages.NewStreaming(ctx, params)
+
 	ch := make(chan Chunk, 32)
 
 	go func() {
 		defer close(ch)
 
-		resp, err := p.Chat(ctx, msgs, tools)
-		if err != nil {
+		type pendingTool struct {
+			id   string
+			name string
+			args strings.Builder
+		}
+
+		var pending []pendingTool
+		var usage *TokenUsage
+		var reasoning strings.Builder
+		var signature string
+
+		for stream.Next() {
+			event := stream.Current()
+
+			switch ev := event.AsAny().(type) {
+			case anthropic.ContentBlockStartEvent:
+				switch block := ev.ContentBlock.AsAny().(type) {
+				case anthropic.ToolUseBlock:
+					pending = append(pending, pendingTool{id: block.ID, name: block.Name})
+				}
+
+			case anthropic.ContentBlockDeltaEvent:
+				switch delta := ev.Delta.AsAny().(type) {
+				case anthropic.TextDelta:
+					select {
+					case ch <- Chunk{Type: ChunkText, Delta: delta.Text}:
+					case <-ctx.Done():
+						return
+					}
+
+				case anthropic.ThinkingDelta:
+					reasoning.WriteString(delta.Thinking)
+					select {
+					case ch <- Chunk{Type: ChunkReasoning, ReasoningDelta: delta.Thinking}:
+					case <-ctx.Done():
+						return
+					}
+
+				case anthropic.InputJSONDelta:
+					if len(pending) > 0 {
+						pending[len(pending)-1].args.WriteString(delta.PartialJSON)
+					}
+
+				case anthropic.SignatureDelta:
+					signature = delta.Signature
+				}
+
+			case anthropic.MessageDeltaEvent:
+				usage = &TokenUsage{
+					InputTokens:  int(ev.Usage.InputTokens),
+					OutputTokens: int(ev.Usage.OutputTokens),
+					TotalTokens:  int(ev.Usage.InputTokens + ev.Usage.OutputTokens),
+					InputSource:  "anthropic.stream",
+				}
+			}
+		}
+
+		if err := stream.Err(); err != nil {
 			select {
 			case ch <- Chunk{Type: ChunkError, Error: err}:
 			case <-ctx.Done():
@@ -61,18 +122,14 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 			return
 		}
 
-		if resp.Content != "" {
-			select {
-			case ch <- Chunk{Type: ChunkText, Delta: resp.Content}:
-			case <-ctx.Done():
-				return
+		for _, pt := range pending {
+			tc := msg.ToolCall{
+				ID:   pt.id,
+				Name: pt.name,
+				Args: json.RawMessage(pt.args.String()),
 			}
-		}
-
-		for _, tc := range resp.ToolCalls {
-			tcCopy := tc
 			select {
-			case ch <- Chunk{Type: ChunkToolCall, ToolCall: &tcCopy}:
+			case ch <- Chunk{Type: ChunkToolCall, ToolCall: &tc}:
 			case <-ctx.Done():
 				return
 			}
@@ -81,9 +138,9 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 		select {
 		case ch <- Chunk{
 			Type:               ChunkDone,
-			Usage:              resp.Usage,
-			ReasoningContent:   resp.ReasoningContent,
-			ReasoningSignature: resp.ReasoningSignature,
+			Usage:              usage,
+			ReasoningContent:   reasoning.String(),
+			ReasoningSignature: signature,
 		}:
 		case <-ctx.Done():
 		}
@@ -114,7 +171,6 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 				}
 				blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, content, false))
 			}
-			// Anthropic requires at least one content block
 			if len(blocks) == 0 {
 				blocks = append(blocks, anthropic.NewTextBlock("(empty)"))
 			}
@@ -186,14 +242,14 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 	var content string
 	var reasoning string
-	var signature string
+	var sig string
 	var toolCalls []msg.ToolCall
 
 	for _, block := range resp.Content {
 		switch b := block.AsAny().(type) {
 		case anthropic.ThinkingBlock:
 			reasoning = b.Thinking
-			signature = b.Signature
+			sig = b.Signature
 		case anthropic.TextBlock:
 			content += b.Text
 		case anthropic.ToolUseBlock:
@@ -209,7 +265,7 @@ func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 	return &Response{
 		Content:            content,
 		ReasoningContent:   reasoning,
-		ReasoningSignature: signature,
+		ReasoningSignature: sig,
 		ToolCalls:          toolCalls,
 		Usage:              toAnthropicTokenUsage(resp.Usage),
 	}

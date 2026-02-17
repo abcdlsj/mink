@@ -63,7 +63,8 @@ type App struct {
 }
 
 func New(opts Options) (*App, error) {
-	cfg := normalizeConfig(opts.Config)
+	cfg := opts.Config
+	cfg.Normalize()
 
 	b := opts.Bus
 	if b == nil {
@@ -441,37 +442,6 @@ func (a *App) switchModel(name string) error {
 	a.disp.ResetAgents()
 
 	return config.SaveActiveModel(name)
-}
-
-func normalizeConfig(cfg config.Config) config.Config {
-	if cfg.Mode == "" {
-		cfg.Mode = "tui"
-	}
-	if cfg.Timeout.Tool == 0 {
-		cfg.Timeout.Tool = 60
-	}
-	if cfg.Timeout.Agent == 0 {
-		cfg.Timeout.Agent = 600
-	}
-	if cfg.Timeout.Background == 0 {
-		cfg.Timeout.Background = 1800
-	}
-	if cfg.Timeout.LLM == 0 {
-		cfg.Timeout.LLM = 120
-	}
-	if cfg.MaxSteps == 0 {
-		cfg.MaxSteps = 100
-	}
-	if cfg.Compact.TriggerTokens == 0 {
-		cfg.Compact.TriggerTokens = 12000
-	}
-	if cfg.Compact.TriggerMessages == 0 {
-		cfg.Compact.TriggerMessages = 80
-	}
-	if cfg.Compact.KeepRecentMessages == 0 {
-		cfg.Compact.KeepRecentMessages = 20
-	}
-	return cfg
 }
 
 func defaultSessionDir() string {

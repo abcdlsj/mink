@@ -52,23 +52,7 @@ func Load() Config {
 }
 
 func LoadWithDir(name string) Config {
-	c := Config{
-		Mode:     "tui",
-		Stream:   true,
-		MaxSteps: 100,
-		Timeout: TimeoutConfig{
-			Tool:       60,
-			Agent:      600,
-			Background: 1800,
-			LLM:        120,
-		},
-		Compact: CompactConfig{
-			Auto:               true,
-			TriggerTokens:      12000,
-			TriggerMessages:    80,
-			KeepRecentMessages: 20,
-		},
-	}
+	c := Config{Stream: true}
 
 	configDir := defaultConfigDir(name)
 	path := filepath.Join(configDir, "config.toml")
@@ -77,9 +61,40 @@ func LoadWithDir(name string) Config {
 		_, _ = toml.DecodeFile(path, &c)
 	}
 
+	c.Normalize()
 	ResolveModel(&c, c.ActiveModel)
 
 	return c
+}
+
+func (c *Config) Normalize() {
+	if c.Mode == "" {
+		c.Mode = "tui"
+	}
+	if c.MaxSteps == 0 {
+		c.MaxSteps = 100
+	}
+	if c.Timeout.Tool == 0 {
+		c.Timeout.Tool = 60
+	}
+	if c.Timeout.Agent == 0 {
+		c.Timeout.Agent = 600
+	}
+	if c.Timeout.Background == 0 {
+		c.Timeout.Background = 1800
+	}
+	if c.Timeout.LLM == 0 {
+		c.Timeout.LLM = 120
+	}
+	if c.Compact.TriggerTokens == 0 {
+		c.Compact.TriggerTokens = 12000
+	}
+	if c.Compact.TriggerMessages == 0 {
+		c.Compact.TriggerMessages = 80
+	}
+	if c.Compact.KeepRecentMessages == 0 {
+		c.Compact.KeepRecentMessages = 20
+	}
 }
 
 func ResolveModel(c *Config, name string) bool {
