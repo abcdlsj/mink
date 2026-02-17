@@ -38,6 +38,7 @@ type ChunkType int
 const (
 	ChunkText ChunkType = iota
 	ChunkToolCall
+	ChunkReasoning
 	ChunkDone
 	ChunkError
 )

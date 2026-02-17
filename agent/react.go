@@ -152,16 +152,15 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			if chunk.ToolCall != nil {
 				toolCalls = append(toolCalls, *chunk.ToolCall)
 			}
-			if chunk.ReasoningDelta != "" {
-				reasoning.WriteString(chunk.ReasoningDelta)
-				if a.bus != nil {
-					_ = a.bus.Pub(bus.Msg{
-						Type:    bus.TypeThinkingChunk,
-						From:    a.id,
-						To:      src,
-						Payload: chunk.ReasoningDelta,
-					})
-				}
+		case llm.ChunkReasoning:
+			reasoning.WriteString(chunk.ReasoningDelta)
+			if a.bus != nil {
+				_ = a.bus.Pub(bus.Msg{
+					Type:    bus.TypeThinkingChunk,
+					From:    a.id,
+					To:      src,
+					Payload: chunk.ReasoningDelta,
+				})
 			}
 		case llm.ChunkDone:
 			if chunk.Usage != nil {

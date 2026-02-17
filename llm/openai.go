@@ -210,7 +210,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 			if delta.ReasoningContent != "" {
 				reasoningContent.WriteString(delta.ReasoningContent)
 				select {
-				case ch <- Chunk{Type: ChunkToolCall, ReasoningDelta: delta.ReasoningContent}:
+				case ch <- Chunk{Type: ChunkReasoning, ReasoningDelta: delta.ReasoningContent}:
 				case <-ctx.Done():
 					return
 				}
@@ -256,7 +256,11 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 		}
 
 		select {
-		case ch <- Chunk{Type: ChunkDone, Usage: usage}:
+		case ch <- Chunk{
+			Type:             ChunkDone,
+			Usage:            usage,
+			ReasoningContent: reasoningContent.String(),
+		}:
 		case <-ctx.Done():
 		}
 	}()
