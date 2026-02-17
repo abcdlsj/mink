@@ -50,6 +50,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 
+	_ = d.StartTelegram(ctx, "")
+
 	d.resumeFromUpgrade()
 
 	go d.handleSignals()
