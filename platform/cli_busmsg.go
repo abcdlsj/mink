@@ -183,7 +183,12 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 		thinkLine := func(s string) string {
-			return styleThinking.Render("thinking: " + strings.ReplaceAll(s, "\n", " "))
+			s = strings.ReplaceAll(s, "\n", " ")
+			lines := strings.Split(s, "\n")
+			for i := range lines {
+				lines[i] = styleThinking.Render(lines[i])
+			}
+			return strings.Join(lines, "\n")
 		}
 		if m.thinking {
 			m.thinkingBuf.WriteString(delta)

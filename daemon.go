@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/mink/tool"
 )
 
 type Daemon struct {
@@ -48,6 +49,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if err := d.Start(ctx); err != nil {
 		return err
 	}
+
+	d.resumeFromUpgrade()
 
 	go d.handleSignals()
 	go d.serve()
@@ -203,4 +206,22 @@ func defaultSockPath() string {
 func defaultPIDPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".mink", "mink.pid")
+}
+
+func (d *Daemon) resumeFromUpgrade() {
+	state, err := tool.LoadUpgradeState()
+	if err != nil {
+		return
+	}
+	tool.RemoveUpgradeState()
+
+	d.SetResumeSessions(state.Sessions)
+
+	prompt := state.ResumePrompt
+	if prompt == "" {
+		prompt = "Self-update completed."
+	}
+	for src := range state.Sessions {
+		_ = d.Submit(src, prompt)
+	}
 }

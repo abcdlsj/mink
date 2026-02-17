@@ -43,14 +43,15 @@ type tokenBaseline struct {
 }
 
 type AgentDeps struct {
-	Bus        *bus.Bus
-	Provider   llm.Provider
-	Hooks      *hook.Manager
-	ToolGuard  tool.Guard
-	CronTool   tool.Tool
-	Prompt     string
-	Config     config.Config
-	SessionDir string
+	Bus           *bus.Bus
+	Provider      llm.Provider
+	Hooks         *hook.Manager
+	ToolGuard     tool.Guard
+	CronTool      tool.Tool
+	SelfUpdateTool tool.Tool
+	Prompt        string
+	Config        config.Config
+	SessionDir    string
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -59,6 +60,7 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithHooks(d.Hooks),
 		WithToolGuard(d.ToolGuard),
 		WithCronTool(d.CronTool),
+		WithExtraTool(d.SelfUpdateTool),
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),
@@ -115,6 +117,14 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 }
 
 func WithCronTool(t tool.Tool) Option {
+	return func(a *Agent) {
+		if t != nil {
+			a.reg.Register(t)
+		}
+	}
+}
+
+func WithExtraTool(t tool.Tool) Option {
 	return func(a *Agent) {
 		if t != nil {
 			a.reg.Register(t)

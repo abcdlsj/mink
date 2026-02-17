@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
+	"github.com/abcdlsj/mink/tool"
 )
 
 const workerIdleTTL = 5 * time.Minute
@@ -22,13 +23,14 @@ type workerState struct {
 }
 
 type Dispatcher struct {
-	deps        AgentDeps
-	sm          *session.Manager
-	agentID     string
-	agents      map[string]*Agent
-	workers     map[string]*workerState
-	skillLoader *skill.Loader
-	mu          sync.RWMutex
+	deps           AgentDeps
+	sm             *session.Manager
+	agentID        string
+	agents         map[string]*Agent
+	workers        map[string]*workerState
+	skillLoader    *skill.Loader
+	resumeSessions map[string]string
+	mu             sync.RWMutex
 }
 
 func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispatcher {
@@ -51,6 +53,28 @@ func (d *Dispatcher) SetConfig(c config.Config) {
 func (d *Dispatcher) SetProvider(p llm.Provider) {
 	d.mu.Lock()
 	d.deps.Provider = p
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) ActiveSessions() map[string]string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	m := make(map[string]string, len(d.agents))
+	for src, a := range d.agents {
+		m[src] = a.Session().ID()
+	}
+	return m
+}
+
+func (d *Dispatcher) SetResumeSessions(m map[string]string) {
+	d.mu.Lock()
+	d.resumeSessions = m
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) SetSelfUpdateTool(t tool.Tool) {
+	d.mu.Lock()
+	d.deps.SelfUpdateTool = t
 	d.mu.Unlock()
 }
 
@@ -230,9 +254,14 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	}
 
 	var sess *session.Session
-	if isTelegramSource(src) {
+	if sid, ok := d.resumeSessions[src]; ok {
+		sess, _ = d.sm.Get(sid)
+		delete(d.resumeSessions, src)
+	}
+	if sess == nil && isTelegramSource(src) {
 		sess, _ = d.sm.GetOrCreate(src)
-	} else {
+	}
+	if sess == nil {
 		sess, _ = d.sm.Create()
 	}
 	a := d.deps.newAgent(d.agentID, sess, false)

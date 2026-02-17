@@ -141,6 +141,7 @@ func New(opts Options) (*App, error) {
 	deps.CronTool = tool.NewCron(config.CronPath(), cronSched)
 
 	disp := agent.NewDispatcher(deps, sm, sl)
+	disp.SetSelfUpdateTool(tool.NewSelfUpdate(sm, disp))
 
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm))
@@ -378,6 +379,10 @@ func (a *App) ReloadConfig(cfg config.Config) {
 	a.cfg = cfg
 	a.mu.Unlock()
 	a.disp.SetConfig(cfg)
+}
+
+func (a *App) SetResumeSessions(m map[string]string) {
+	a.disp.SetResumeSessions(m)
 }
 
 func (a *App) cliStatus() func() platform.StatusInfo {
