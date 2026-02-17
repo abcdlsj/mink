@@ -26,7 +26,7 @@ func NewFileStore(dir string) *FileStore {
 }
 
 func (s *FileStore) path(id string) string {
-	return filepath.Join(s.dir, id+".json")
+	return filepath.Join(s.dir, id+".jsonl")
 }
 
 func (s *FileStore) Load(id string) ([]msg.Message, error) {
@@ -60,10 +60,10 @@ func (s *FileStore) List() ([]string, error) {
 	}
 	var ids []string
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
-		ids = append(ids, strings.TrimSuffix(e.Name(), ".json"))
+		ids = append(ids, strings.TrimSuffix(e.Name(), ".jsonl"))
 	}
 	return ids, nil
 }

@@ -19,11 +19,11 @@ import (
 type Agent struct {
 	id          string
 	p           llm.Provider
-	reg     *tool.Registry
-	session *session.Session
-	bus     *bus.Bus
-	hooks   *hook.Manager
-	prompt  string
+	reg         *tool.Registry
+	session     *session.Session
+	bus         *bus.Bus
+	hooks       *hook.Manager
+	prompt      string
 	subAgent    bool
 	cfg         config.Config
 	stream      bool
@@ -87,7 +87,7 @@ func WithConfig(c config.Config) Option {
 		a.ensureTokenEstimator()
 	}
 }
-func WithStream(s bool) Option      { return func(a *Agent) { a.stream = s } }
+func WithStream(s bool) Option       { return func(a *Agent) { a.stream = s } }
 func WithSessionDir(d string) Option { return func(a *Agent) { a.sessionDir = d } }
 
 func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
@@ -319,7 +319,8 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.logReq(compactSys, 2, false, start, resp)
+	a.logReq(compactSys, 2, false, start)
+	a.logResp(resp)
 
 	summary := strings.TrimSpace(resp.Content)
 	if summary == "" {
