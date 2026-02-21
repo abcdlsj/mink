@@ -1,100 +1,46 @@
-# 🦦 Mink
+# Mink
 
 Minimal AI coding agent. Fast, elegant, extensible.
 
-Mink can run as:
-- CLI app
-- Telegram bot
-- Embeddable Go library
+## Features
 
-## Quick Start (CLI)
+- **Multiple Interfaces**: CLI, TUI, Telegram Bot
+- **LLM Providers**: OpenAI, Anthropic, OpenRouter
+- **Built-in Tools**: bash, read, write, edit, spawn, background, cron, brave_search
+- **Extensible**: Drop executables to `~/.mink/ext/` or add skills to `~/.mink/skills/`
+- **Cron Jobs**: Schedule AI tasks
+- **Self-Update**: Auto-update binary
+- **Session Management**: Branch and switch conversations
+
+## Install
 
 ```bash
-# 1) build CLI binary
-go build -o mink ./cmd/mink
+go install github.com/abcdlsj/mink@latest
+```
 
-# 2) config
+Or download from [Releases](https://github.com/abcdlsj/mink/releases).
+
+## Usage
+
+```bash
+# Config
 cp config.example.toml ~/.mink/config.toml
-# edit ~/.mink/config.toml
+$EDITOR ~/.mink/config.toml
 
-# 3) run
-./mink
+# Run
+mink
 ```
 
-## Telegram Mode
+## Telegram Bot
 
 ```bash
-./mink tg -tg <telegram_bot_token>
+mink tg -t <bot_token>
 ```
 
-In Telegram group chats, Mink can stay silent with `NO_REPLY`, target replies with `[[reply_to_current]]` / `[[reply_to:<message_id>]]`, and emit emoji reactions via `[[react:👀]]` / `[[react:👍]]` directives internally.
-
-## Library Usage
-
-```go
-package main
-
-import (
-	"context"
-	"log"
-
-	"github.com/abcdlsj/mink"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/config"
-)
-
-func main() {
-	app, err := mink.New(mink.Options{
-		Config: config.Config{
-			Provider: "openai",
-			APIKey:   "sk-...",
-			Model:    "gpt-4o",
-			Stream:   true,
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer app.Close()
-
-	ctx := context.Background()
-	if err := app.Start(ctx); err != nil {
-		log.Fatal(err)
-	}
-
-	ch := make(chan bus.Msg, 32)
-	app.Subscribe(bus.TypeAssistant, ch)
-	defer app.Unsubscribe(bus.TypeAssistant, ch)
-
-	if err := app.Submit("platform:api", "hello from embedded mink"); err != nil {
-		log.Fatal(err)
-	}
-
-	msg := <-ch
-	log.Printf("assistant: %v", msg.Payload)
-}
-```
-
-## Config
-
-`~/.mink/config.toml`:
-
-```toml
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-api_key = "sk-..."
-base_url = ""           # custom endpoint
-telegram_token = ""     # optional
-mode = "tui"            # tui or cli
-
-[headers]
-User-Agent = "custom"
-```
-
-Flags override config:
-```bash
-./mink -p openai -m gpt-4o -k sk-...
-```
+Group chat features:
+- `NO_REPLY` - stay silent
+- `[[reply_to:<message_id>]]` - target reply
+- `[[react:👍]]` - emoji reactions
 
 ## Commands
 
@@ -103,19 +49,26 @@ Flags override config:
 - `/switch <id>` - switch session
 - `/compact [summary]` - compact history
 
+## Config
+
+```toml
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "sk-ant-..."
+base_url = ""           # custom endpoint
+telegram_token = ""
+mode = "tui"            # tui or cli
+```
+
+Flags override config: `mink -p openai -m gpt-4o -k sk-...`
+
 ## Extensions
 
-Drop executables to `~/.mink/ext/` or skills to `~/.mink/skills/`.
+- `~/.mink/ext/` - executable tools
+- `~/.mink/skills/` - skill definitions (see SKILL.md)
+- `~/.mink/SOUL.md` - persona guidance
 
-If `~/.mink/SOUL.md` exists, Mink injects it as persona guidance.
-
-Auto-reload on change.
-
-## Code Style
-
-Short names, small functions, composition over inheritance.
-
-No over-abstraction. Aesthetics first.
+Auto-reload on file changes.
 
 ## License
 
