@@ -54,6 +54,9 @@ func (o *openRouter) Chat(ctx context.Context, msgs []msg.Message, tools []Tool)
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
+		if tc.Function.Name == "" || tc.Function.Arguments == "" {
+			continue
+		}
 		res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
 			ID:   tc.ID,
 			Name: tc.Function.Name,
@@ -158,6 +161,9 @@ func (o *openRouter) ChatStream(ctx context.Context, msgs []msg.Message, tools [
 
 		for i := 0; i < len(toolCallsMap); i++ {
 			if tc, ok := toolCallsMap[i]; ok {
+				if tc.Name == "" || len(tc.Args) == 0 {
+					continue
+				}
 				select {
 				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc}:
 				case <-ctx.Done():

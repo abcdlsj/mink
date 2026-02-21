@@ -123,6 +123,9 @@ func (p *anthropicProvider) ChatStream(ctx context.Context, msgs []msg.Message, 
 		}
 
 		for _, pt := range pending {
+			if pt.name == "" || pt.args.Len() == 0 {
+				continue
+			}
 			tc := msg.ToolCall{
 				ID:   pt.id,
 				Name: pt.name,
@@ -254,6 +257,9 @@ func (p *anthropicProvider) parseResponse(resp *anthropic.Message) *Response {
 			content += b.Text
 		case anthropic.ToolUseBlock:
 			argsJSON, _ := json.Marshal(b.Input)
+			if b.Name == "" || len(argsJSON) == 0 {
+				continue
+			}
 			toolCalls = append(toolCalls, msg.ToolCall{
 				ID:   b.ID,
 				Name: b.Name,

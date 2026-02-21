@@ -161,6 +161,9 @@ func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*R
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
+		if tc.Function.Name == "" || tc.Function.Arguments == "" {
+			continue
+		}
 		res.ToolCalls = append(res.ToolCalls, msg.ToolCall{
 			ID:   tc.ID,
 			Name: tc.Function.Name,
@@ -260,6 +263,9 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 
 		for i := 0; i < len(toolCallsMap); i++ {
 			if tc, ok := toolCallsMap[i]; ok {
+				if tc.Name == "" || len(tc.Args) == 0 {
+					continue
+				}
 				select {
 				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc}:
 				case <-ctx.Done():
