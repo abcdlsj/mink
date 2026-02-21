@@ -31,7 +31,7 @@ jobs:
             GOARCH=${plat#*/}
             output="mink-${plat}"
             echo "Building $output..."
-            GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="-s -w" -o "$output" ./cmd/mink || exit 1
+            GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$output" ./cmd/mink || exit 1
             ls -la "$output"
           done
 
