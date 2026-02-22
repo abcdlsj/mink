@@ -18,7 +18,9 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamFlush    = 400 * time.Millisecond
+	telegramStreamMinInt   = 1 * time.Second  // min flush interval
+	telegramStreamMaxWait  = 3 * time.Second  // max wait before force flush
+	telegramStreamChunk    = 300              // char threshold
 	telegramTypingRefresh  = 2 * time.Second
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
@@ -35,6 +37,7 @@ type streamState struct {
 	dirty bool
 	ended bool
 	flush bool
+	at    time.Time // last flush time
 }
 
 type inboundState struct {
@@ -335,8 +338,6 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	t.notifyTyping(chatID)
 
 	t.streamMu.Lock()
-	defer t.streamMu.Unlock()
-
 	s, ok := t.streams[chatID]
 	if !ok {
 		s = &streamState{}
@@ -344,6 +345,40 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	}
 	s.buf.WriteString(delta)
 	s.dirty = true
+	should := t.shouldFlush(s, false)
+	t.streamMu.Unlock()
+
+	if should {
+		t.flushStream(chatID, false)
+	}
+}
+
+func (t *Telegram) shouldFlush(s *streamState, ended bool) bool {
+	if ended {
+		return true
+	}
+	if !s.dirty {
+		return false
+	}
+	if s.at.IsZero() {
+		return true
+	}
+	if time.Since(s.at) >= telegramStreamMinInt {
+		return true
+	}
+	if s.buf.Len() >= telegramStreamChunk && endsWithBreak(s.buf.String()) {
+		return true
+	}
+	return false
+}
+
+func endsWithBreak(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	r := []rune(s)
+	c := r[len(r)-1]
+	return c == '\n' || c == '.' || c == '!' || c == '?' || c == '。' || c == '！' || c == '？'
 }
 
 func (t *Telegram) handleStreamEnd(chatID int64) {
@@ -622,7 +657,7 @@ func parseConfirmReply(text string, pending map[string]confirmState) (string, to
 }
 
 func (t *Telegram) flushStreamLoop(ctx context.Context) {
-	ticker := time.NewTicker(telegramStreamFlush)
+	ticker := time.NewTicker(telegramStreamMaxWait)
 	defer ticker.Stop()
 
 	for {
@@ -740,6 +775,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		shouldContinue := false
 		if s, ok := t.streams[chatID]; ok {
 			s.msgID = msgID
+			s.at = time.Now()
 			if !ended && s.dirty {
 				shouldContinue = true
 			}
