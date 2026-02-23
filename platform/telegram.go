@@ -18,10 +18,10 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamMinInt   = 1 * time.Second  // min flush interval
-	telegramStreamMaxWait  = 3 * time.Second  // max wait before force flush
-	telegramStreamChunk    = 300              // char threshold
-	telegramTypingRefresh  = 2 * time.Second
+	telegramStreamMinInt   = 3 * time.Second  // min flush interval (increased to reduce 429)
+	telegramStreamMaxWait  = 4 * time.Second  // max wait before force flush
+	telegramStreamChunk    = 800              // char threshold (increased)
+	telegramTypingRefresh  = 5 * time.Second   // reduced typing refresh frequency
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
 )
@@ -32,12 +32,14 @@ type confirmState struct {
 }
 
 type streamState struct {
-	buf   strings.Builder
-	msgID int
-	dirty bool
-	ended bool
-	flush bool
-	at    time.Time // last flush time
+	buf        strings.Builder
+	msgID      int
+	dirty      bool
+	ended      bool
+	flush      bool
+	at         time.Time // last flush time
+	toolCalls  int       // successful tool calls count
+	toolErrors int       // failed tool calls count
 }
 
 type inboundState struct {
@@ -290,11 +292,13 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		t.stopTyping(chatID)
 		return
 	case bus.TypeToolCall:
+		t.handleToolCall(chatID)
 		return
 	case bus.TypeToolResult:
+		t.handleToolResult(chatID)
 		return
 	case bus.TypeToolError:
-		t.sendText(chatID, fmt.Sprintf("tool error: %s%v", prefix, m.Payload))
+		t.handleToolError(chatID)
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncateTG(payload["task"], 100)
@@ -788,9 +792,18 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 			for _, part := range parts[1:] {
 				t.sendTextWithOptions(chatID, part, threadOpts)
 			}
+			// send tool stats if any
 			t.streamMu.Lock()
+			s := t.streams[chatID]
+			var stats string
+			if s != nil {
+				stats = t.formatToolStats(s.toolCalls, s.toolErrors)
+			}
 			delete(t.streams, chatID)
 			t.streamMu.Unlock()
+			if stats != "" {
+				t.sendTextWithOptions(chatID, stats, threadOpts)
+			}
 			return
 		}
 
@@ -1196,4 +1209,54 @@ func truncateTG(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+func (t *Telegram) handleToolCall(chatID int64) {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+	s, ok := t.streams[chatID]
+	if !ok {
+		s = &streamState{}
+		t.streams[chatID] = s
+	}
+	s.toolCalls++
+}
+
+func (t *Telegram) handleToolResult(chatID int64) {
+	// success already counted in handleToolCall
+}
+
+func (t *Telegram) handleToolError(chatID int64) {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+	s, ok := t.streams[chatID]
+	if !ok {
+		s = &streamState{}
+		t.streams[chatID] = s
+	}
+	s.toolErrors++
+}
+
+func (t *Telegram) formatToolStats(calls, errors int) string {
+	if calls == 0 && errors == 0 {
+		return ""
+	}
+	// number emojis: 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟
+	callEmoji := numberToEmoji(calls)
+	if errors > 0 {
+		errEmoji := numberToEmoji(errors)
+		return fmt.Sprintf("\n\n🛠️ %s ⚠️ %s", callEmoji, errEmoji)
+	}
+	return fmt.Sprintf("\n\n🛠️ %s", callEmoji)
+}
+
+func numberToEmoji(n int) string {
+	if n <= 0 {
+		return "0️⃣"
+	}
+	if n >= 10 {
+		return "🔟+"
+	}
+	emojis := []string{"0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"}
+	return emojis[n]
 }
