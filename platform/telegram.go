@@ -18,12 +18,13 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamMinInt   = 3 * time.Second // min flush interval
-	telegramStreamMaxWait  = 4 * time.Second // max wait before force flush
-	telegramStreamMinLen   = 1200            // min char threshold (dual limit with time)
-	telegramTypingRefresh  = 8 * time.Second // typing refresh frequency (reduced)
+	telegramStreamMinInt   = 4 * time.Second // min flush interval (429 protection)
+	telegramStreamMaxWait  = 5 * time.Second // max wait before force flush
+	telegramStreamMinLen   = 1500            // min char threshold (dual limit with time)
+	telegramTypingRefresh  = 10 * time.Second // typing refresh frequency (429 protection)
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
+	telegramTypingCooldown = 5 * time.Second  // min interval between typing notifications
 )
 
 type confirmState struct {
@@ -74,9 +75,10 @@ type Telegram struct {
 	activeMu    sync.RWMutex
 	activeChats map[int64]time.Time
 
-	typingMu sync.Mutex
-	typing   map[int64]chan struct{}
-	typingN  map[int64]int
+	typingMu      sync.Mutex
+	typing        map[int64]chan struct{}
+	typingN       map[int64]int
+	typingLast    map[int64]time.Time // cooldown for notifyTyping
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -91,6 +93,7 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 		activeChats: make(map[int64]time.Time),
 		typing:      make(map[int64]chan struct{}),
 		typingN:     make(map[int64]int),
+		typingLast:  make(map[int64]time.Time),
 	}
 }
 
@@ -921,6 +924,15 @@ func (t *Telegram) notifyTyping(chatID int64) {
 		return
 	}
 
+	t.typingMu.Lock()
+	last, ok := t.typingLast[chatID]
+	if ok && time.Since(last) < telegramTypingCooldown {
+		t.typingMu.Unlock()
+		return
+	}
+	t.typingLast[chatID] = time.Now()
+	t.typingMu.Unlock()
+
 	chat := &tele.Chat{ID: chatID}
 	st, ok := t.getInboundState(chatID)
 	if ok && st.threadID != 0 {
@@ -1245,8 +1257,11 @@ func (t *Telegram) formatToolStats(calls, errors int) string {
 	if calls == 0 {
 		return ""
 	}
-	// only show count with number emoji, errors counted silently
-	return fmt.Sprintf("\n\n🔧%s", numberToEmoji(calls))
+	// show tool calls count and errors (if any) with number emojis
+	if errors > 0 {
+		return fmt.Sprintf("\n\n🛠️%s ⚠️%s", numberToEmoji(calls), numberToEmoji(errors))
+	}
+	return fmt.Sprintf("\n\n🛠️%s", numberToEmoji(calls))
 }
 
 func numberToEmoji(n int) string {
