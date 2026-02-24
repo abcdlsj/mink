@@ -18,10 +18,10 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamMinInt   = 3 * time.Second  // min flush interval (increased to reduce 429)
-	telegramStreamMaxWait  = 4 * time.Second  // max wait before force flush
-	telegramStreamChunk    = 800              // char threshold (increased)
-	telegramTypingRefresh  = 5 * time.Second   // reduced typing refresh frequency
+	telegramStreamMinInt   = 3 * time.Second // min flush interval
+	telegramStreamMaxWait  = 4 * time.Second // max wait before force flush
+	telegramStreamMinLen   = 1200            // min char threshold (dual limit with time)
+	telegramTypingRefresh  = 8 * time.Second // typing refresh frequency (reduced)
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
 )
@@ -299,6 +299,7 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		return
 	case bus.TypeToolError:
 		t.handleToolError(chatID)
+		// errors are counted but not displayed (only stats shown at end)
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncateTG(payload["task"], 100)
@@ -367,10 +368,13 @@ func (t *Telegram) shouldFlush(s *streamState, ended bool) bool {
 	if s.at.IsZero() {
 		return true
 	}
-	if time.Since(s.at) >= telegramStreamMinInt {
+	elapsed := time.Since(s.at)
+	bufLen := s.buf.Len()
+	// dual limit: time (3s) OR length (1200 chars)
+	if elapsed >= telegramStreamMinInt {
 		return true
 	}
-	if s.buf.Len() >= telegramStreamChunk && endsWithBreak(s.buf.String()) {
+	if bufLen >= telegramStreamMinLen {
 		return true
 	}
 	return false
@@ -1238,16 +1242,11 @@ func (t *Telegram) handleToolError(chatID int64) {
 }
 
 func (t *Telegram) formatToolStats(calls, errors int) string {
-	if calls == 0 && errors == 0 {
+	if calls == 0 {
 		return ""
 	}
-	// number emojis: 0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟
-	callEmoji := numberToEmoji(calls)
-	if errors > 0 {
-		errEmoji := numberToEmoji(errors)
-		return fmt.Sprintf("\n\n🛠️ %s ⚠️ %s", callEmoji, errEmoji)
-	}
-	return fmt.Sprintf("\n\n🛠️ %s", callEmoji)
+	// only show count with number emoji, errors counted silently
+	return fmt.Sprintf("\n\n🔧%s", numberToEmoji(calls))
 }
 
 func numberToEmoji(n int) string {
