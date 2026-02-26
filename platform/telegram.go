@@ -18,10 +18,13 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamFlush    = 400 * time.Millisecond
-	telegramTypingRefresh  = 2 * time.Second
+	telegramStreamMinInt   = 4 * time.Second // min flush interval (429 protection)
+	telegramStreamMaxWait  = 5 * time.Second // max wait before force flush
+	telegramStreamMinLen   = 1500            // min char threshold (dual limit with time)
+	telegramTypingRefresh  = 10 * time.Second // typing refresh frequency (429 protection)
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
+	telegramTypingCooldown = 5 * time.Second  // min interval between typing notifications
 )
 
 type confirmState struct {
@@ -30,11 +33,14 @@ type confirmState struct {
 }
 
 type streamState struct {
-	buf   strings.Builder
-	msgID int
-	dirty bool
-	ended bool
-	flush bool
+	buf        strings.Builder
+	msgID      int
+	dirty      bool
+	ended      bool
+	flush      bool
+	at         time.Time // last flush time
+	toolCalls  int       // successful tool calls count
+	toolErrors int       // failed tool calls count
 }
 
 type inboundState struct {
@@ -69,9 +75,10 @@ type Telegram struct {
 	activeMu    sync.RWMutex
 	activeChats map[int64]time.Time
 
-	typingMu sync.Mutex
-	typing   map[int64]chan struct{}
-	typingN  map[int64]int
+	typingMu      sync.Mutex
+	typing        map[int64]chan struct{}
+	typingN       map[int64]int
+	typingLast    map[int64]time.Time // cooldown for notifyTyping
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -86,6 +93,7 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 		activeChats: make(map[int64]time.Time),
 		typing:      make(map[int64]chan struct{}),
 		typingN:     make(map[int64]int),
+		typingLast:  make(map[int64]time.Time),
 	}
 }
 
@@ -287,11 +295,14 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		t.stopTyping(chatID)
 		return
 	case bus.TypeToolCall:
+		t.handleToolCall(chatID)
 		return
 	case bus.TypeToolResult:
+		t.handleToolResult(chatID)
 		return
 	case bus.TypeToolError:
-		t.sendText(chatID, fmt.Sprintf("tool error: %s%v", prefix, m.Payload))
+		t.handleToolError(chatID)
+		// errors are counted but not displayed (only stats shown at end)
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncateTG(payload["task"], 100)
@@ -335,8 +346,6 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	t.notifyTyping(chatID)
 
 	t.streamMu.Lock()
-	defer t.streamMu.Unlock()
-
 	s, ok := t.streams[chatID]
 	if !ok {
 		s = &streamState{}
@@ -344,6 +353,43 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	}
 	s.buf.WriteString(delta)
 	s.dirty = true
+	should := t.shouldFlush(s, false)
+	t.streamMu.Unlock()
+
+	if should {
+		t.flushStream(chatID, false)
+	}
+}
+
+func (t *Telegram) shouldFlush(s *streamState, ended bool) bool {
+	if ended {
+		return true
+	}
+	if !s.dirty {
+		return false
+	}
+	if s.at.IsZero() {
+		return true
+	}
+	elapsed := time.Since(s.at)
+	bufLen := s.buf.Len()
+	// dual limit: time (3s) OR length (1200 chars)
+	if elapsed >= telegramStreamMinInt {
+		return true
+	}
+	if bufLen >= telegramStreamMinLen {
+		return true
+	}
+	return false
+}
+
+func endsWithBreak(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	r := []rune(s)
+	c := r[len(r)-1]
+	return c == '\n' || c == '.' || c == '!' || c == '?' || c == '。' || c == '！' || c == '？'
 }
 
 func (t *Telegram) handleStreamEnd(chatID int64) {
@@ -622,7 +668,7 @@ func parseConfirmReply(text string, pending map[string]confirmState) (string, to
 }
 
 func (t *Telegram) flushStreamLoop(ctx context.Context) {
-	ticker := time.NewTicker(telegramStreamFlush)
+	ticker := time.NewTicker(telegramStreamMaxWait)
 	defer ticker.Stop()
 
 	for {
@@ -740,6 +786,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		shouldContinue := false
 		if s, ok := t.streams[chatID]; ok {
 			s.msgID = msgID
+			s.at = time.Now()
 			if !ended && s.dirty {
 				shouldContinue = true
 			}
@@ -752,9 +799,18 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 			for _, part := range parts[1:] {
 				t.sendTextWithOptions(chatID, part, threadOpts)
 			}
+			// send tool stats if any
 			t.streamMu.Lock()
+			s := t.streams[chatID]
+			var stats string
+			if s != nil {
+				stats = t.formatToolStats(s.toolCalls, s.toolErrors)
+			}
 			delete(t.streams, chatID)
 			t.streamMu.Unlock()
+			if stats != "" {
+				t.sendTextWithOptions(chatID, stats, threadOpts)
+			}
 			return
 		}
 
@@ -867,6 +923,15 @@ func (t *Telegram) notifyTyping(chatID int64) {
 	if t.bot == nil {
 		return
 	}
+
+	t.typingMu.Lock()
+	last, ok := t.typingLast[chatID]
+	if ok && time.Since(last) < telegramTypingCooldown {
+		t.typingMu.Unlock()
+		return
+	}
+	t.typingLast[chatID] = time.Now()
+	t.typingMu.Unlock()
 
 	chat := &tele.Chat{ID: chatID}
 	st, ok := t.getInboundState(chatID)
@@ -1160,4 +1225,52 @@ func truncateTG(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+func (t *Telegram) handleToolCall(chatID int64) {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+	s, ok := t.streams[chatID]
+	if !ok {
+		s = &streamState{}
+		t.streams[chatID] = s
+	}
+	s.toolCalls++
+}
+
+func (t *Telegram) handleToolResult(chatID int64) {
+	// success already counted in handleToolCall
+}
+
+func (t *Telegram) handleToolError(chatID int64) {
+	t.streamMu.Lock()
+	defer t.streamMu.Unlock()
+	s, ok := t.streams[chatID]
+	if !ok {
+		s = &streamState{}
+		t.streams[chatID] = s
+	}
+	s.toolErrors++
+}
+
+func (t *Telegram) formatToolStats(calls, errors int) string {
+	if calls == 0 {
+		return ""
+	}
+	// show tool calls count and errors (if any) with number emojis
+	if errors > 0 {
+		return fmt.Sprintf("\n\n🛠️%s ⚠️%s", numberToEmoji(calls), numberToEmoji(errors))
+	}
+	return fmt.Sprintf("\n\n🛠️%s", numberToEmoji(calls))
+}
+
+func numberToEmoji(n int) string {
+	if n <= 0 {
+		return "0️⃣"
+	}
+	if n >= 10 {
+		return "🔟+"
+	}
+	emojis := []string{"0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"}
+	return emojis[n]
 }

@@ -278,7 +278,7 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 		return "", nil
 	}
 
-	cut := len(msgs) - keepRecent
+	cut := findCompactCut(msgs, keepRecent)
 
 	oldMsgs := msgs[:cut]
 	recentMsgs := msgs[cut:]
@@ -496,4 +496,53 @@ func (a *Agent) watchInterrupt() {
 			}
 		}
 	}
+}
+
+// findCompactCut returns the cut index for compacting, ensuring we don't
+// truncate in the middle of a tool call chain. If the cut falls on a tool
+// message, it extends back to include the assistant that initiated the call.
+func findCompactCut(msgs []msg.Message, keep int) int {
+	cut := len(msgs) - keep
+	if cut <= 0 {
+		return 0
+	}
+
+	for cut > 0 && msgs[cut].Role == "tool" {
+		id := toolCallID(msgs[cut])
+		if id == "" {
+			cut++
+			break
+		}
+		if i := findToolCaller(msgs, cut, id); i >= 0 {
+			cut = i
+		} else {
+			cut++
+			break
+		}
+	}
+	return cut
+}
+
+// toolCallID extracts the tool_call_id from a tool message.
+func toolCallID(m msg.Message) string {
+	if len(m.ToolResults) == 0 {
+		return ""
+	}
+	return m.ToolResults[0].ToolCallID
+}
+
+// findToolCaller searches backward from end to find the assistant message
+// containing the tool_call with the given id.
+func findToolCaller(msgs []msg.Message, end int, id string) int {
+	for i := end - 1; i >= 0; i-- {
+		if msgs[i].Role != "assistant" || len(msgs[i].ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range msgs[i].ToolCalls {
+			if tc.ID == id {
+				return i
+			}
+		}
+	}
+	return -1
 }
