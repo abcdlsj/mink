@@ -11,6 +11,26 @@ type ToolCall struct {
 	Args json.RawMessage `json:"args"`
 }
 
+// MarshalJSON 自定义序列化，处理可能不完整的 Args
+func (t ToolCall) MarshalJSON() ([]byte, error) {
+	type Alias ToolCall
+	aux := &struct {
+		*Alias
+		Args json.RawMessage `json:"args"`
+	}{
+		Alias: (*Alias)(&t),
+	}
+
+	// 如果 Args 是有效的 JSON，则使用原值；否则设为 null
+	if len(t.Args) > 0 && json.Valid(t.Args) {
+		aux.Args = t.Args
+	} else {
+		aux.Args = json.RawMessage("null")
+	}
+
+	return json.Marshal(aux)
+}
+
 type ToolResult struct {
 	ToolCallID string `json:"tool_call_id"`
 	Content    string `json:"content"`
