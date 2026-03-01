@@ -266,6 +266,40 @@ type Logger interface {
 
 ### 2. 与现有代码集成
 
+本系统通过 Bus 消息总线收集事件，两种方式结合：
+
+#### 方式一：Bus 订阅（推荐）
+
+Logger 订阅 Bus 消息，自动记录事件：
+
+```go
+type Logger struct {
+    bus  *bus.Bus
+    sess *session.Session
+    // ...
+}
+
+func NewLogger(bus *bus.Bus, sess *session.Session) *Logger {
+    l := &Logger{bus: bus, sess: sess}
+    
+    // 订阅 Bus 消息类型
+    bus.Subscribe(bus.TypeUserInput, l.onUserInput)
+    bus.Subscribe(bus.TypeAssistant, l.onAssistant)
+    bus.Subscribe(bus.TypeToolCall, l.onToolCall)
+    bus.Subscribe(bus.TypeToolResult, l.onToolResult)
+    bus.Subscribe(bus.TypeToolError, l.onToolError)
+    bus.Subscribe(bus.TypeSessionCompact, l.onCompact)
+    bus.Subscribe(bus.TypeStreamChunk, l.onStreamChunk)
+    bus.Subscribe(bus.TypeThinkingChunk, l.onThinking)
+    
+    return l
+}
+```
+
+#### 方式二：Agent 显式调用
+
+Agent 在关键节点显式调用 Logger：
+
 ```go
 // agent/agent.go
 func (a *Agent) run(ctx context.Context, src, role, input string) error {
@@ -321,6 +355,27 @@ type ReplayOptions struct {
     SkipOutput bool    // 跳过 agent output 事件
 }
 ```
+
+### 4. Bus 消息类型映射
+
+现有 Bus 消息类型与 Event 的映射关系：
+
+| Bus 消息类型 | Event 类型 | 说明 |
+|-------------|-----------|------|
+| `user:input` | `user_input` | 用户输入 |
+| `assistant:output` | `agent_output` | 代理输出 |
+| `tool:call` | `tool_call` | 工具调用 |
+| `tool:result` | `tool_end` | 工具执行完成 |
+| `tool:error` | `tool_error` | 工具执行错误 |
+| `session:compact` | `compact` | 会话压缩 |
+| `stream:chunk` | `llm_stream_chunk` | 流式输出片段 |
+| `thinking:chunk` | `llm_thinking` | thinking 内容 |
+| `agent:spawn` | `spawn_start` | 子代理启动 |
+| `agent:done` | `spawn_end` | 子代理完成 |
+| `agent:interrupt` | `interrupt` | 用户中断 |
+| `cron:trigger` | - | 定时任务触发（单独记录） |
+
+> 说明：Bus 消息类型已经定义了大部分运行时事件，Logger 通过订阅这些消息即可自动记录，无需在 Agent 代码中显式调用。对于 Bus 未覆盖的事件（如 LLM 请求/响应、step 边界），仍需在 Agent 中显式记录。
 
 ## 使用场景
 
