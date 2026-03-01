@@ -14,7 +14,7 @@ SERVICE_FILE="/etc/systemd/system/mink.service"
 
 echo "Installing mink $TAG for $ARCH..."
 
-sudo wget -q -O "$BIN_DIR/mink" "https://github.com/abcdlsj/mink/releases/download/$TAG/$ARCH"
+sudo wget -q -O "$BIN_DIR/mink" "https://github.com/abcdlsj/mink/releases/download/$TAG/mink-linux-$ARCH"
 sudo chmod +x "$BIN_DIR/mink"
 
 echo "Installing systemd service..."
