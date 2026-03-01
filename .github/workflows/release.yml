@@ -21,6 +21,16 @@ jobs:
 
       - name: Build
         run: |
+          # Extract version info
+          VERSION=${GITHUB_REF_NAME}
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILDTIME=$(date -u '+%Y-%m-%d_%H:%M:%S')
+          
+          LDFLAGS="-X github.com/abcdlsj/mink.Version=${VERSION} \
+                   -X github.com/abcdlsj/mink.Commit=${COMMIT} \
+                   -X github.com/abcdlsj/mink.BuildTime=${BUILDTIME} \
+                   -s -w"
+
           platforms=(
             linux/amd64
             linux/arm64
@@ -31,7 +41,7 @@ jobs:
             GOARCH=${plat#*/}
             output="mink-${GOOS}-${GOARCH}"
             echo "Building $output..."
-            GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$output" ./cmd/mink || exit 1
+            GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o "$output" ./cmd/mink || exit 1
             ls -la "$output"
           done
 

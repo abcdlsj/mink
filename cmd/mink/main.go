@@ -31,6 +31,8 @@ func main() {
 		runUpgrade()
 	case "update":
 		runUpdate()
+	case "version":
+		runVersion()
 	case "status":
 		runStatus()
 	case "tg":
@@ -157,6 +159,12 @@ func runUpdate() {
 		fmt.Println("Triggering daemon upgrade...")
 		runUpgrade()
 	}
+}
+
+func runVersion() {
+	fmt.Printf("mink version %s\n", mink.Version)
+	fmt.Printf("  commit: %s\n", mink.Commit)
+	fmt.Printf("  built:  %s\n", mink.BuildTime)
 }
 
 func runStatus() {
