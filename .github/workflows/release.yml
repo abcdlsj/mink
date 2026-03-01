@@ -29,7 +29,7 @@ jobs:
           for plat in "${platforms[@]}"; do
             GOOS=${plat%/*}
             GOARCH=${plat#*/}
-            output="mink-${plat}"
+            output="mink-${GOOS}-${GOARCH}"
             echo "Building $output..."
             GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$output" ./cmd/mink || exit 1
             ls -la "$output"
@@ -39,6 +39,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            mink-linux/amd64
-            mink-linux/arm64
+            mink-linux-amd64
+            mink-linux-arm64
           generate_release_notes: true
