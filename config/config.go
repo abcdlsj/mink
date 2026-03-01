@@ -11,15 +11,16 @@ import (
 )
 
 type Config struct {
-	Mode         string                 `toml:"mode"`
-	CustomPrompt string                 `toml:"custom_prompt"`
-	Stream       bool                   `toml:"stream"`
-	MaxSteps     int                    `toml:"max_steps"`
-	Timeout      TimeoutConfig          `toml:"timeout"`
-	Compact      CompactConfig          `toml:"compact"`
-	ActiveModel  string                 `toml:"active_model"`
-	Models       map[string]ModelConfig `toml:"models"`
-	APIKeys      map[string]string      `toml:"api_keys"`
+	Mode           string                 `toml:"mode"`
+	CustomPrompt   string                 `toml:"custom_prompt"`
+	Stream         bool                   `toml:"stream"`
+	TelegramStream bool                   `toml:"telegram_stream"`
+	MaxSteps       int                    `toml:"max_steps"`
+	Timeout        TimeoutConfig          `toml:"timeout"`
+	Compact        CompactConfig          `toml:"compact"`
+	ActiveModel    string                 `toml:"active_model"`
+	Models         map[string]ModelConfig `toml:"models"`
+	APIKeys        map[string]string      `toml:"api_keys"`
 
 	Active ModelConfig // resolved at runtime
 }

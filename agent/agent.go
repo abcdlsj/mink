@@ -43,15 +43,15 @@ type tokenBaseline struct {
 }
 
 type AgentDeps struct {
-	Bus           *bus.Bus
-	Provider      llm.Provider
-	Hooks         *hook.Manager
-	ToolGuard     tool.Guard
-	CronTool      tool.Tool
+	Bus            *bus.Bus
+	Provider       llm.Provider
+	Hooks          *hook.Manager
+	ToolGuard      tool.Guard
+	CronTool       tool.Tool
 	SelfUpdateTool tool.Tool
-	Prompt        string
-	Config        config.Config
-	SessionDir    string
+	Prompt         string
+	Config         config.Config
+	SessionDir     string
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -159,11 +159,21 @@ func (a *Agent) ResetInterrupt() {
 }
 
 func (a *Agent) Run(ctx context.Context, src, input string) error {
+	a.applyStreamForSource(src)
 	return a.run(ctx, src, "user", input)
 }
 
 func (a *Agent) RunSystem(ctx context.Context, src, input string) error {
+	a.applyStreamForSource(src)
 	return a.run(ctx, src, "system", input)
+}
+
+func (a *Agent) applyStreamForSource(src string) {
+	if strings.HasPrefix(src, "telegram:") {
+		a.stream = a.cfg.TelegramStream
+	} else {
+		a.stream = a.cfg.Stream
+	}
 }
 
 func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error) {

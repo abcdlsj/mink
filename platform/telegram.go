@@ -18,13 +18,13 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamMinInt   = 4 * time.Second // min flush interval (429 protection)
-	telegramStreamMaxWait  = 5 * time.Second // max wait before force flush
-	telegramStreamMinLen   = 1500            // min char threshold (dual limit with time)
+	telegramStreamMinInt   = 4 * time.Second  // min flush interval (429 protection)
+	telegramStreamMaxWait  = 5 * time.Second  // max wait before force flush
+	telegramStreamMinLen   = 1500             // min char threshold (dual limit with time)
 	telegramTypingRefresh  = 10 * time.Second // typing refresh frequency (429 protection)
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
-	telegramTypingCooldown = 5 * time.Second  // min interval between typing notifications
+	telegramTypingCooldown = 5 * time.Second // min interval between typing notifications
 )
 
 type confirmState struct {
@@ -75,10 +75,10 @@ type Telegram struct {
 	activeMu    sync.RWMutex
 	activeChats map[int64]time.Time
 
-	typingMu      sync.Mutex
-	typing        map[int64]chan struct{}
-	typingN       map[int64]int
-	typingLast    map[int64]time.Time // cooldown for notifyTyping
+	typingMu   sync.Mutex
+	typing     map[int64]chan struct{}
+	typingN    map[int64]int
+	typingLast map[int64]time.Time // cooldown for notifyTyping
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -329,6 +329,11 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		t.handleStreamChunk(chatID, fmt.Sprintf("%v", m.Payload))
 	case bus.TypeStreamEnd:
 		t.handleStreamEnd(chatID)
+		t.stopTyping(chatID)
+	case bus.TypeSessionReset:
+		t.stopTyping(chatID)
+	case bus.TypeInterrupt:
+		t.stopTyping(chatID)
 	case bus.TypeSessionNew:
 		if id, ok := m.Payload.(string); ok {
 			t.sendText(chatID, fmt.Sprintf("session: %s", id))
