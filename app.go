@@ -26,6 +26,9 @@ import (
 var (
 	ErrClosed         = errors.New("mink app is closed")
 	ErrAPIKeyRequired = errors.New("need api key")
+
+	// Version is set at build time via ldflags
+	Version = "dev"
 )
 
 type Options struct {

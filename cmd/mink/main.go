@@ -13,6 +13,7 @@ import (
 
 	"github.com/abcdlsj/mink"
 	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/mink/internal/updater"
 )
 
 func main() {
@@ -28,6 +29,8 @@ func main() {
 		runReload()
 	case "upgrade":
 		runUpgrade()
+	case "update":
+		runUpdate()
 	case "status":
 		runStatus()
 	case "tg":
@@ -130,6 +133,30 @@ func runUpgrade() {
 		os.Exit(1)
 	}
 	fmt.Println("upgrade signal sent")
+}
+
+func runUpdate() {
+	// Get current version
+	version := mink.Version
+	if version == "" {
+		version = "dev"
+	}
+
+	u := updater.New(version)
+	if err := u.Update(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Optionally auto-upgrade after update
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	autoUpgrade := fs.Bool("upgrade", false, "auto upgrade after update")
+	fs.Parse(os.Args[2:])
+
+	if *autoUpgrade {
+		fmt.Println("Triggering daemon upgrade...")
+		runUpgrade()
+	}
 }
 
 func runStatus() {

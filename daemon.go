@@ -19,11 +19,12 @@ import (
 
 type Daemon struct {
 	*App
-	ln     net.Listener
-	sock   string
-	pid    string
-	mu     sync.RWMutex
-	closed bool
+	ln        net.Listener
+	sock      string
+	pid       string
+	mu        sync.RWMutex
+	closed    bool
+	upgrading bool
 }
 
 func NewDaemon(a *App, sock string) *Daemon {
@@ -76,6 +77,10 @@ func (d *Daemon) writePID() {
 }
 
 func (d *Daemon) close() {
+	d.closeWithSkip(false)
+}
+
+func (d *Daemon) closeWithSkip(skipListener bool) {
 	d.mu.Lock()
 	if d.closed {
 		d.mu.Unlock()
@@ -84,7 +89,7 @@ func (d *Daemon) close() {
 	d.closed = true
 	d.mu.Unlock()
 
-	if d.ln != nil {
+	if d.ln != nil && !skipListener {
 		_ = d.ln.Close()
 	}
 	_ = os.Remove(d.sock)
@@ -135,8 +140,14 @@ func (d *Daemon) upgrade() {
 		return
 	}
 
+	// Mark as upgrading so we don't close the shared listener
+	d.mu.Lock()
+	d.upgrading = true
+	d.mu.Unlock()
+
 	time.Sleep(100 * time.Millisecond)
-	d.close()
+	// Skip closing listener - child process inherited it
+	d.closeWithSkip(true)
 	os.Exit(0)
 }
 
