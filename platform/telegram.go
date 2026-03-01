@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +29,7 @@ const (
 type confirmState struct {
 	ch      chan tool.Approval
 	created time.Time
+	msgID   int
 }
 
 type streamState struct {
@@ -144,14 +144,6 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(c.Text())
-
-	handled, err := t.handleConfirmReply(c, chatID, text)
-	if err != nil {
-		return err
-	}
-	if handled {
-		return nil
-	}
 
 	src := bus.Telegram(chatID)
 
@@ -440,7 +432,15 @@ func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, erro
 		t.confirmMu.Unlock()
 	}()
 
-	t.sendConfirmRequest(chatID, reqID, raw)
+	msgID := t.sendConfirmRequest(chatID, reqID, raw)
+	if msgID > 0 {
+		t.confirmMu.Lock()
+		if state, ok := t.confirms[chatID][reqID]; ok {
+			state.msgID = msgID
+			t.confirms[chatID][reqID] = state
+		}
+		t.confirmMu.Unlock()
+	}
 
 	select {
 	case approval := <-ch:
@@ -453,61 +453,27 @@ func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, erro
 	}
 }
 
-func (t *Telegram) handleConfirmReply(c tele.Context, chatID int64, text string) (bool, error) {
-	t.confirmMu.Lock()
-	chatReqs := t.confirms[chatID]
-	if len(chatReqs) == 0 {
-		t.confirmMu.Unlock()
-		return false, nil
+func (t *Telegram) respondConfirm(chatID int64, msgID int, approval tool.Approval, reqID string) {
+	if msgID <= 0 {
+		return
 	}
 
-	now := time.Now()
-	pending := make(map[string]confirmState, len(chatReqs))
-	for id, state := range chatReqs {
-		if now.Sub(state.created) > telegramConfirmTimeout {
-			delete(chatReqs, id)
-			continue
-		}
-		pending[id] = state
-	}
-	if len(chatReqs) == 0 {
-		delete(t.confirms, chatID)
-	}
-	t.confirmMu.Unlock()
-
-	if len(pending) == 0 {
-		return false, nil
+	chat := &tele.Chat{ID: chatID}
+	emoji := "👎"
+	if approval == tool.AllowAlways || approval == tool.AllowOnce {
+		emoji = "👍"
 	}
 
-	reqID, approval, ok := parseConfirmReply(text, pending)
-	if !ok {
-		var ids []string
-		for id := range pending {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		return true, c.Send(fmt.Sprintf("pending confirmations: %s\nreply: <id> y|a|n", strings.Join(ids, ", ")))
-	}
+	_, _ = t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, fmt.Sprintf("confirm %s\n", reqID), &tele.SendOptions{
+		ParseMode: tele.ModeHTML,
+		ReplyMarkup: &tele.ReplyMarkup{
+			InlineKeyboard: [][]tele.InlineButton{},
+		},
+	})
 
-	state, exists := t.popConfirmState(chatID, reqID)
-
-	if !exists {
-		return true, c.Send("confirmation request not found or expired")
-	}
-
-	select {
-	case state.ch <- approval:
-	default:
-	}
-
-	switch approval {
-	case tool.AllowAlways:
-		return true, c.Send(fmt.Sprintf("confirm %s always allowed", reqID))
-	case tool.AllowOnce:
-		return true, c.Send(fmt.Sprintf("confirm %s approved", reqID))
-	default:
-		return true, c.Send(fmt.Sprintf("confirm %s cancelled", reqID))
-	}
+	_ = t.bot.React(chat, &tele.Message{ID: msgID, Chat: chat}, tele.Reactions{
+		Reactions: []tele.Reaction{{Type: tele.ReactionTypeEmoji, Emoji: emoji}},
+	})
 }
 
 func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
@@ -538,17 +504,8 @@ func (t *Telegram) handleConfirmCallback(c tele.Context) (bool, error) {
 	default:
 	}
 
-	var msg string
-	switch approval {
-	case tool.AllowAlways:
-		msg = fmt.Sprintf("confirm %s always allowed", reqID)
-	case tool.AllowOnce:
-		msg = fmt.Sprintf("confirm %s approved", reqID)
-	default:
-		msg = fmt.Sprintf("confirm %s cancelled", reqID)
-	}
-	_ = c.Respond(&tele.CallbackResponse{Text: msg})
-	t.sendText(chatID, msg)
+	_ = c.Respond(&tele.CallbackResponse{Text: ""})
+	t.respondConfirm(chatID, state.msgID, approval, reqID)
 	return true, nil
 }
 
@@ -606,7 +563,7 @@ func callbackChatID(c tele.Context) int64 {
 	return cb.Message.Chat.ID
 }
 
-func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) {
+func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) int {
 	text := fmt.Sprintf("confirm %s\nexecute:\n%s\nchoose: tap button or reply: %s y|a|n", reqID, raw, reqID)
 	opts := t.assistantSendOptions(chatID, 0, false)
 	if opts == nil {
@@ -615,7 +572,25 @@ func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) {
 		opts = cloneSendOptions(opts)
 	}
 	opts.ReplyMarkup = confirmMarkup(reqID)
-	t.sendTextWithOptions(chatID, text, opts)
+	return t.sendTextWithOptions(chatID, text, opts)
+}
+
+func (t *Telegram) sendTextWithOptions(chatID int64, text string, opts *tele.SendOptions) int {
+	chat := &tele.Chat{ID: chatID}
+	parts := splitText(text, telegramMsgLimit)
+	msgID := 0
+	for _, part := range parts {
+		msg, err := t.sendWithOpts(chat, part, opts)
+		if err != nil {
+			log.Printf("[TG] Send error: %v", err)
+			return 0
+		}
+		if msg != nil {
+			msgID = msg.ID
+		}
+		opts = nil
+	}
+	return msgID
 }
 
 func confirmMarkup(reqID string) *tele.ReplyMarkup {
@@ -623,53 +598,6 @@ func confirmMarkup(reqID string) *tele.ReplyMarkup {
 	always := tele.InlineButton{Text: "Always Allow", Data: confirmCallbackPrefix + ":a:" + reqID}
 	deny := tele.InlineButton{Text: "Deny", Data: confirmCallbackPrefix + ":n:" + reqID}
 	return &tele.ReplyMarkup{InlineKeyboard: [][]tele.InlineButton{{allow, always, deny}}}
-}
-
-func parseConfirmReply(text string, pending map[string]confirmState) (string, tool.Approval, bool) {
-	fields := strings.Fields(strings.ToLower(strings.TrimSpace(text)))
-	if len(fields) == 0 {
-		return "", tool.Denied, false
-	}
-
-	var approval tool.Approval
-	hasDecision := false
-	reqID := ""
-
-	for _, f := range fields {
-		switch f {
-		case "y", "yes", "ok", "allow":
-			approval = tool.AllowOnce
-			hasDecision = true
-		case "a", "always":
-			approval = tool.AllowAlways
-			hasDecision = true
-		case "n", "no", "deny", "cancel":
-			approval = tool.Denied
-			hasDecision = true
-		default:
-			candidate := strings.TrimPrefix(f, "#")
-			if _, ok := pending[candidate]; ok {
-				reqID = candidate
-			}
-		}
-	}
-
-	if !hasDecision {
-		return "", tool.Denied, false
-	}
-
-	if reqID == "" && len(pending) == 1 {
-		for id := range pending {
-			reqID = id
-			break
-		}
-	}
-
-	if reqID == "" {
-		return "", tool.Denied, false
-	}
-
-	return reqID, approval, true
 }
 
 func (t *Telegram) flushStreamLoop(ctx context.Context) {
@@ -851,17 +779,6 @@ func (t *Telegram) sendAssistantText(chatID int64, text string, replyToID int) {
 
 func (t *Telegram) sendText(chatID int64, text string) {
 	t.sendTextWithOptions(chatID, text, nil)
-}
-
-func (t *Telegram) sendTextWithOptions(chatID int64, text string, opts *tele.SendOptions) {
-	chat := &tele.Chat{ID: chatID}
-	parts := splitText(text, telegramMsgLimit)
-	for _, part := range parts {
-		if _, err := t.sendWithOpts(chat, part, opts); err != nil {
-			log.Printf("[TG] Send error: %v", err)
-			return
-		}
-	}
 }
 
 func (t *Telegram) sendWithOpts(chat *tele.Chat, text string, opts *tele.SendOptions) (*tele.Message, error) {
