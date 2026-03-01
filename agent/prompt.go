@@ -84,7 +84,7 @@ func (a *Agent) sectionTelegram(src string) section {
 			"",
 			"Directives (stripped before sending, never explain to users):",
 			"- [[reply_to_current]] or [[reply_to:<message_id>]] — control reply target",
-			"- [[react:👍]] — add emoji reaction (can combine with text)",
+			"- [[react:👍]] — add emoji reaction (often better than text: expressive + saves tokens)",
 		}, "\n")
 	}}
 }
