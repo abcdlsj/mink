@@ -19,6 +19,8 @@ import (
 type Agent struct {
 	id          string
 	p           llm.Provider
+	sel         *llm.Sel
+	nextModel   string
 	reg         *tool.Registry
 	session     *session.Session
 	bus         *bus.Bus
@@ -45,6 +47,7 @@ type tokenBaseline struct {
 type AgentDeps struct {
 	Bus            *bus.Bus
 	Provider       llm.Provider
+	Sel            *llm.Sel
 	Hooks          *hook.Manager
 	ToolGuard      tool.Guard
 	CronTool       tool.Tool
@@ -57,6 +60,7 @@ type AgentDeps struct {
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
 	return New(id, d.Provider, sess,
 		WithBus(d.Bus),
+		WithSel(d.Sel),
 		WithHooks(d.Hooks),
 		WithToolGuard(d.ToolGuard),
 		WithCronTool(d.CronTool),
@@ -91,14 +95,24 @@ func WithConfig(c config.Config) Option {
 }
 func WithStream(s bool) Option       { return func(a *Agent) { a.stream = s } }
 func WithSessionDir(d string) Option { return func(a *Agent) { a.sessionDir = d } }
+func WithSel(s *llm.Sel) Option      { return func(a *Agent) { a.sel = s } }
 
 func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	a := &Agent{
-		id:      id,
-		p:       p,
-		session: s,
-		reg:     tool.NewRegistry(),
-		hooks:   hook.NewManager(),
+		id:        id,
+		p:         p,
+		session:   s,
+		nextModel: "default",
+		hooks:     hook.NewManager(),
+	}
+	for _, opt := range opts {
+		opt(a)
+	}
+	// Initialize registry with sel if provided
+	if a.sel != nil {
+		a.reg = tool.NewRegistry(a.sel)
+	} else {
+		a.reg = tool.NewRegistry(nil)
 	}
 	for _, opt := range opts {
 		opt(a)

@@ -47,6 +47,7 @@ type App struct {
 	cfg      config.Config
 	bus      *bus.Bus
 	p        llm.Provider
+	sel      *llm.Sel
 	sm       *session.Manager
 	hooks    *hook.Manager
 	cmdReg   *command.Registry
@@ -77,6 +78,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	p := opts.Provider
+	var sel *llm.Sel
 	if p == nil {
 		if cfg.Active.APIKey == "" {
 			return nil, ErrAPIKeyRequired
@@ -93,6 +95,22 @@ func New(opts Options) (*App, error) {
 		})
 		if err != nil {
 			return nil, err
+		}
+
+		// Create Sel if cheap model is configured
+		if cfg.CheapModel != "" {
+			cfg.ResolveCheapModel()
+			cheap, err := llm.NewProvider(llm.Config{
+				Provider:  cfg.Active.Provider,
+				APIKey:    cfg.Active.APIKey,
+				BaseURL:   cfg.Active.BaseURL,
+				Model:     cfg.Active.Model,
+				Headers:   cfg.Active.Headers,
+				Reasoning: cfg.Active.Reasoning,
+			})
+			if err == nil {
+				sel = llm.NewSel(p, cheap)
+			}
 		}
 	}
 
@@ -129,6 +147,7 @@ func New(opts Options) (*App, error) {
 	deps := agent.AgentDeps{
 		Bus:        b,
 		Provider:   p,
+		Sel:        sel,
 		Hooks:      hooks,
 		ToolGuard:  guard,
 		Prompt:     cfg.CustomPrompt,

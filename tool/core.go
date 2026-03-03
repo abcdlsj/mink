@@ -9,7 +9,16 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/abcdlsj/mink/llm"
 )
+
+var modelable = map[string]bool{
+	"bash":  true,
+	"read":  true,
+	"write": true,
+	"edit":  true,
+}
 
 // Tool 工具接口
 type Tool interface {
@@ -23,11 +32,14 @@ type Tool interface {
 type Registry struct {
 	tools map[string]Tool
 	guard Guard
+	sel   *llm.Sel
 }
 
-func NewRegistry() *Registry {
-	r := &Registry{tools: make(map[string]Tool)}
-	// 注册核心工具
+func NewRegistry(sel *llm.Sel) *Registry {
+	r := &Registry{
+		tools: make(map[string]Tool),
+		sel:   sel,
+	}
 	r.Register(&Read{})
 	r.Register(&Write{})
 	r.Register(&Edit{})
@@ -36,6 +48,14 @@ func NewRegistry() *Registry {
 }
 
 func (r *Registry) Register(t Tool) {
+	schema := t.Schema()
+	if modelable[t.Name()] {
+		schema["properties"].(map[string]any)["_model"] = map[string]any{
+			"type":        "string",
+			"enum":        []string{"default", "cheap"},
+			"description": "Optional, system uses this to select model",
+		}
+	}
 	r.tools[t.Name()] = t
 }
 

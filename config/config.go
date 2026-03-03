@@ -19,6 +19,8 @@ type Config struct {
 	Timeout        TimeoutConfig          `toml:"timeout"`
 	Compact        CompactConfig          `toml:"compact"`
 	ActiveModel    string                 `toml:"active_model"`
+	DefaultModel   string                 `toml:"default"`
+	CheapModel     string                 `toml:"cheap"`
 	Models         map[string]ModelConfig `toml:"models"`
 	APIKeys        map[string]string      `toml:"api_keys"`
 
@@ -110,6 +112,20 @@ func ResolveModel(c *Config, name string) bool {
 	c.Active = mc
 	c.Active.APIKey = expand(mc.APIKey, c.APIKeys)
 	return true
+}
+
+func (c *Config) ResolveDefaultModel() bool {
+	if c.DefaultModel == "" {
+		c.DefaultModel = c.ActiveModel
+	}
+	return ResolveModel(c, c.DefaultModel)
+}
+
+func (c *Config) ResolveCheapModel() bool {
+	if c.CheapModel == "" {
+		return false
+	}
+	return ResolveModel(c, c.CheapModel)
 }
 
 func (c *Config) Key(name string) string {

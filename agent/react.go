@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -17,6 +18,12 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
 	allMsgs := append(sysMsgs, msgs...)
 
+	// Select provider based on nextModel
+	provider := a.p
+	if a.sel != nil {
+		provider = a.sel.P(a.nextModel)
+	}
+
 	var r *llm.Response
 	var err error
 
@@ -30,9 +37,9 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 
 	start := time.Now()
 	if a.stream {
-		r, err = a.stepStream(llmCtx, src, allMsgs)
+		r, err = a.stepStream(llmCtx, src, allMsgs, provider)
 	} else {
-		r, err = a.p.Chat(llmCtx, allMsgs, tools(a.reg))
+		r, err = provider.Chat(llmCtx, allMsgs, tools(a.reg))
 	}
 	if err != nil {
 		return false, err
@@ -40,6 +47,9 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	a.logReq(sysMsgs[0].Content, len(allMsgs), a.stream, start)
 	a.logResp(r)
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
+
+	// Reset nextModel to default before parsing tool calls
+	a.nextModel = "default"
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {
 		a.session.Add(msg.Message{
@@ -71,6 +81,16 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	results := make([]msg.ToolResult, 0, len(r.ToolCalls))
 
 	for _, tc := range r.ToolCalls {
+		// Extract _model from tool call args
+		if tc.Args != nil {
+			var p map[string]json.RawMessage
+			if json.Unmarshal(tc.Args, &p); p != nil {
+				if v, ok := p["_model"]; ok {
+					a.nextModel = strings.Trim(string(v), `"`)
+				}
+			}
+		}
+
 		a.hooks.Trigger(ctx, hook.BeforeTool, tc)
 		if a.bus != nil {
 			_ = a.bus.Pub(bus.Msg{
@@ -125,8 +145,8 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	return false, nil
 }
 
-func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Message) (*llm.Response, error) {
-	ch, err := a.p.ChatStream(ctx, allMsgs, tools(a.reg))
+func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Message, provider llm.Provider) (*llm.Response, error) {
+	ch, err := provider.ChatStream(ctx, allMsgs, tools(a.reg))
 	if err != nil {
 		return nil, err
 	}
