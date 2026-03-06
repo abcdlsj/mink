@@ -132,7 +132,7 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 
 func WithCronTool(t tool.Tool) Option {
 	return func(a *Agent) {
-		if t != nil {
+		if t != nil && a.reg != nil {
 			a.reg.Register(t)
 		}
 	}
@@ -140,7 +140,7 @@ func WithCronTool(t tool.Tool) Option {
 
 func WithExtraTool(t tool.Tool) Option {
 	return func(a *Agent) {
-		if t != nil {
+		if t != nil && a.reg != nil {
 			a.reg.Register(t)
 		}
 	}
