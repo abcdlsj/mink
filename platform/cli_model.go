@@ -61,7 +61,6 @@ type model struct {
 type layoutMetrics struct {
 	outputHeight    int
 	maxScroll       int
-	showScroll      bool
 	agentDetailLine int
 }
 
@@ -246,12 +245,6 @@ func (m *model) View() string {
 		b.WriteString("\n")
 	}
 
-	currentScroll := min(m.scroll, layout.maxScroll)
-
-	if layout.showScroll {
-		b.WriteString(styleDim.Render(fmt.Sprintf("[scroll %d/%d] PgUp/PgDn Home/End MouseWheel", currentScroll, layout.maxScroll)))
-		b.WriteString("\n")
-	}
 
 	confirming := m.isConfirming()
 	confirmCmd := m.confirmCommand()
@@ -403,20 +396,18 @@ func (m *model) visibleOutput(outputHeight int) []string {
 
 func (m *model) computeLayout() layoutMetrics {
 	agentDetailLine := m.agentDetailLines()
-	nonOutput := m.nonOutputLines(true, agentDetailLine)
+	nonOutput := m.nonOutputLines(agentDetailLine)
 	outputHeight := max(m.height-nonOutput, 1)
 	maxScroll := max(len(m.output)-outputHeight, 0)
-	showScroll := len(m.output) > outputHeight
 
 	return layoutMetrics{
 		outputHeight:    outputHeight,
 		maxScroll:       maxScroll,
-		showScroll:      showScroll,
 		agentDetailLine: agentDetailLine,
 	}
 }
 
-func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int {
+func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
 	lines := inputHeight + 2
 	if m.cli.statusFn != nil {
@@ -442,17 +433,13 @@ func (m *model) nonOutputLines(includeScrollHint bool, agentDetailLine int) int 
 		}
 	}
 
-	if includeScrollHint {
-		lines++
-	}
-
 	return lines
 }
 
 func (m *model) agentDetailLines() int {
 	limit := agentLineLimit
 	for limit > 0 {
-		available := m.height - m.nonOutputLines(false, limit)
+		available := m.height - m.nonOutputLines(limit)
 		if available >= minOutputLines {
 			return limit
 		}
