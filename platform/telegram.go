@@ -3,13 +3,13 @@ package platform
 import (
 	"context"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/internal/logx"
 	"github.com/abcdlsj/mink/tool"
 	tele "gopkg.in/telebot.v4"
 )
@@ -58,6 +58,7 @@ type Telegram struct {
 	token  string
 	bus    *bus.Bus
 	bot    *tele.Bot
+	logger *logx.Logger
 	stop   chan struct{}
 	events chan bus.Msg
 
@@ -86,6 +87,7 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 	return &Telegram{
 		token:       token,
 		bus:         b,
+		logger:      newTelegramLogger(),
 		stop:        make(chan struct{}),
 		confirms:    make(map[int64]map[string]confirmState),
 		streams:     make(map[int64]*streamState),
@@ -111,7 +113,7 @@ func (t *Telegram) Start(ctx context.Context) error {
 		return err
 	}
 	t.bot = bot
-	log.Printf("[TG] Bot started: @%s", bot.Me.Username)
+	t.infof("bot started: @%s", bot.Me.Username)
 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		return t.handleMessage(c)
@@ -186,7 +188,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 	})
 
 	payload := t.formatInboundPayload(msg, text, mentioned)
-	log.Printf("[TGDBG] inbound chat=%d msg=%d thread=%d mentioned=%v text=%q", chatID, msg.ID, msg.ThreadID, mentioned, truncateTG(text, 160))
+	t.debugf("inbound chat=%d msg=%d thread=%d mentioned=%v text=%q", chatID, msg.ID, msg.ThreadID, mentioned, truncateTG(text, 160))
 
 	_ = t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
@@ -210,7 +212,7 @@ func (t *Telegram) forward(ctx context.Context) {
 	for {
 		select {
 		case m := <-ch:
-			log.Printf("[TGDBG] bus type=%s from=%s to=%s id=%s", m.Type, m.From, m.To, m.ID)
+			t.debugf("bus type=%s from=%s to=%s id=%s", m.Type, m.From, m.To, m.ID)
 			if !strings.HasPrefix(m.To, "telegram:") && m.To != bus.AddrBroadcast {
 				continue
 			}
@@ -273,7 +275,7 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		raw := fmt.Sprintf("%v", m.Payload)
 		out := parseTelegramAssistantOutput(raw)
 		replyToID := t.resolveReplyToID(chatID, out)
-		log.Printf("[TGDBG] assistant chat=%d reply_to=%d silent=%v react=%q text=%q", chatID, replyToID, out.Silent, out.Reaction, truncateTG(out.Text, 160))
+		t.debugf("assistant chat=%d reply_to=%d silent=%v react=%q text=%q", chatID, replyToID, out.Silent, out.Reaction, truncateTG(out.Text, 160))
 		if out.Reaction != "" {
 			t.applyReaction(chatID, out.Reaction, replyToID)
 		}
@@ -341,7 +343,7 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	if delta == "" {
 		return
 	}
-	log.Printf("[TGDBG] stream chunk chat=%d size=%d", chatID, len([]rune(delta)))
+	t.debugf("stream chunk chat=%d size=%d", chatID, len([]rune(delta)))
 	t.notifyTyping(chatID)
 
 	t.streamMu.Lock()
@@ -392,7 +394,7 @@ func endsWithBreak(s string) bool {
 }
 
 func (t *Telegram) handleStreamEnd(chatID int64) {
-	log.Printf("[TGDBG] stream end chat=%d", chatID)
+	t.debugf("stream end chat=%d", chatID)
 	t.streamMu.Lock()
 	if s, ok := t.streams[chatID]; ok {
 		s.ended = true
@@ -584,7 +586,7 @@ func (t *Telegram) sendTextWithOptions(chatID int64, text string, opts *tele.Sen
 	for _, part := range parts {
 		msg, err := t.sendWithOpts(chat, part, opts)
 		if err != nil {
-			log.Printf("[TG] Send error: %v", err)
+			t.errorf("send error: %v", err)
 			return 0
 		}
 		if msg != nil {
@@ -642,7 +644,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 			return
 		}
 		if s.flush {
-			log.Printf("[TGDBG] skip flush chat=%d force=%v reason=already_flushing", chatID, force)
+			t.debugf("skip flush chat=%d force=%v reason=already_flushing", chatID, force)
 			t.streamMu.Unlock()
 			return
 		}
@@ -656,7 +658,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		ended := s.ended
 		s.dirty = false
 		t.streamMu.Unlock()
-		log.Printf("[TGDBG] flush stream chat=%d force=%v ended=%v msg_id=%d text_size=%d", chatID, force, ended, msgID, len([]rune(text)))
+		t.debugf("flush stream chat=%d force=%v ended=%v msg_id=%d text_size=%d", chatID, force, ended, msgID, len([]rune(text)))
 
 		out := tgAssistantOut{Text: text}
 		replyToID := 0
@@ -671,7 +673,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		if ended && (out.Silent || strings.TrimSpace(out.Text) == "") {
 			if msgID != 0 {
 				if err := t.bot.Delete(&tele.Message{ID: msgID, Chat: &tele.Chat{ID: chatID}}); err != nil {
-					log.Printf("[TG] stream delete error: %v", err)
+					t.errorf("stream delete error: %v", err)
 				}
 			}
 			t.streamMu.Lock()
@@ -707,13 +709,13 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 			sendOpts := t.assistantSendOptions(chatID, replyToID, true)
 			sent, err := t.sendWithOpts(chat, first, sendOpts)
 			if err != nil {
-				log.Printf("[TG] stream send error: %v", err)
+				t.errorf("stream send error: %v", err)
 			} else {
 				msgID = sent.ID
 			}
 		} else {
 			if _, err := t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, tgRenderText(first), &tele.SendOptions{ParseMode: tele.ModeHTML}); err != nil {
-				log.Printf("[TG] stream edit error: %v", err)
+				t.errorf("stream edit error: %v", err)
 			}
 		}
 
@@ -756,9 +758,9 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 }
 
 func (t *Telegram) sendAssistantText(chatID int64, text string, replyToID int) {
-	log.Printf("[TGDBG] send assistant chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
+	t.debugf("send assistant chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
 	if t.isDuplicateAssistant(chatID, text, replyToID) {
-		log.Printf("[TGDBG] duplicate suppressed chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
+		t.debugf("duplicate suppressed chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
 		return
 	}
 	t.notifyTyping(chatID)
@@ -804,10 +806,10 @@ func (t *Telegram) sendWithOpts(chat *tele.Chat, text string, opts *tele.SendOpt
 	}
 	msg, err := t.bot.Send(chat, text, opts)
 	if err != nil {
-		log.Printf("[TGDBG] send error chat=%d thread=%d reply_to=%d err=%v text=%q", chat.ID, threadID, replyTo, err, truncateTG(text, 120))
+		t.errorf("send error chat=%d thread=%d reply_to=%d err=%v text=%q", chat.ID, threadID, replyTo, err, truncateTG(text, 120))
 		return nil, err
 	}
-	log.Printf("[TGDBG] sent chat=%d msg=%d thread=%d reply_to=%d text=%q", chat.ID, msg.ID, threadID, replyTo, truncateTG(text, 120))
+	t.debugf("sent chat=%d msg=%d thread=%d reply_to=%d text=%q", chat.ID, msg.ID, threadID, replyTo, truncateTG(text, 120))
 	return msg, nil
 }
 
@@ -861,12 +863,12 @@ func (t *Telegram) notifyTyping(chatID int64) {
 	st, ok := t.getInboundState(chatID)
 	if ok && st.threadID != 0 {
 		if err := t.bot.Notify(chat, tele.Typing, st.threadID); err != nil {
-			log.Printf("[TGDBG] notify typing error chat=%d thread=%d err=%v", chatID, st.threadID, err)
+			t.debugf("notify typing error chat=%d thread=%d err=%v", chatID, st.threadID, err)
 		}
 		return
 	}
 	if err := t.bot.Notify(chat, tele.Typing); err != nil {
-		log.Printf("[TGDBG] notify typing error chat=%d err=%v", chatID, err)
+		t.debugf("notify typing error chat=%d err=%v", chatID, err)
 	}
 }
 
@@ -969,10 +971,10 @@ func (t *Telegram) applyReaction(chatID int64, emoji string, replyToID int) {
 		Reactions: []tele.Reaction{{Type: tele.ReactionTypeEmoji, Emoji: emoji}},
 	})
 	if err != nil {
-		log.Printf("[TG] react error: %v", err)
+		t.errorf("react error: %v", err)
 		return
 	}
-	log.Printf("[TGDBG] reacted chat=%d msg=%d emoji=%s", chatID, msgID, emoji)
+	t.debugf("reacted chat=%d msg=%d emoji=%s", chatID, msgID, emoji)
 }
 
 func (t *Telegram) assistantSendOptions(chatID int64, replyToID int, withReply bool) *tele.SendOptions {
@@ -1027,7 +1029,7 @@ func (t *Telegram) isDuplicateAssistant(chatID int64, text string, replyToID int
 
 	st, ok := t.assist[chatID]
 	if ok && st.text == text && st.replyToID == replyToID && now.Sub(st.at) < 3*time.Second {
-		log.Printf("[TGDBG] dedupe hit chat=%d reply_to=%d age_ms=%d", chatID, replyToID, now.Sub(st.at).Milliseconds())
+		t.debugf("dedupe hit chat=%d reply_to=%d age_ms=%d", chatID, replyToID, now.Sub(st.at).Milliseconds())
 		return true
 	}
 

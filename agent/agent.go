@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/mink/runlog"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -34,6 +35,7 @@ type Agent struct {
 	tok         *tokenEstimator
 	base        tokenBaseline
 	sessionDir  string
+	trace       *runlog.Logger
 	interrupted bool
 	cancelFn    context.CancelFunc
 	mu          sync.Mutex
@@ -134,6 +136,7 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	}
 	a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
 	a.ensureTokenEstimator()
+	a.initTrace()
 	return a
 }
 
@@ -206,8 +209,12 @@ func (a *Agent) applyStreamForSource(src string) {
 }
 
 func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error) {
+	a.logSessionStart(src)
+	defer a.logSessionEnd()
+
 	defer func() {
 		if err := a.session.Flush(); err != nil {
+			a.logWarn("session_flush_error", map[string]any{"error": err.Error()})
 			if retErr == nil {
 				retErr = err
 				return
@@ -228,6 +235,7 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 
 	if a.shouldAutoCompact() {
 		if _, err := a.Compact(ctx, src, ""); err != nil && a.bus != nil {
+			a.logWarn("session_compact_warning", map[string]any{"error": err.Error()})
 			_ = a.bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    a.id,
@@ -245,6 +253,7 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 	}
 
 	a.session.Add(msg.Message{Role: role, Content: input})
+	a.logUserInput(role, input)
 
 	if a.bus != nil {
 		go a.watchInterrupt()
@@ -257,19 +266,25 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 
 	for i := 0; i < maxSteps; i++ {
 		if a.IsInterrupted() {
+			a.logInterrupt("user interrupted")
 			a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
 			return nil
 		}
 		if ctx.Err() != nil {
 			if a.IsInterrupted() {
+				a.logInterrupt("user interrupted")
 				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
 				return nil
 			}
 			return fmt.Errorf("agent timeout: %w", ctx.Err())
 		}
-		done, err := a.step(ctx, src)
+		stepStart := time.Now()
+		a.logStepStart(i)
+		done, err := a.step(ctx, src, i)
+		a.logStepEnd(i, time.Since(stepStart), err)
 		if err != nil {
 			if a.IsInterrupted() || ctx.Err() == context.Canceled {
+				a.logInterrupt("user interrupted")
 				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
 				return nil
 			}
@@ -372,15 +387,16 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 
 	compactSys := "You produce compact, factual context summaries for coding assistants."
 	start := time.Now()
+	corrID := a.logLLMRequest(-1, 2, false)
 	resp, err := a.p.Chat(compactCtx, []msg.Message{
 		{Role: "system", Content: compactSys},
 		{Role: "user", Content: hist.String()},
 	}, nil)
 	if err != nil {
+		a.logLLMError(-1, corrID, err, time.Since(start))
 		return "", err
 	}
-	a.logReq(compactSys, 2, false, start)
-	a.logResp(resp)
+	a.logLLMResponse(-1, corrID, resp, time.Since(start))
 
 	summary := strings.TrimSpace(resp.Content)
 	if summary == "" {

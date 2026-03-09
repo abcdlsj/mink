@@ -19,8 +19,6 @@ import (
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/platform"
 	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/skill"
-	"github.com/abcdlsj/mink/tool"
 )
 
 var (
@@ -68,87 +66,21 @@ type App struct {
 }
 
 func New(opts Options) (*App, error) {
-	cfg := opts.Config
-	cfg.Normalize()
-
-	b := opts.Bus
-	if b == nil {
-		b = bus.New()
+	deps, err := resolveRuntimeDeps(opts)
+	if err != nil {
+		return nil, err
 	}
 
-	p := opts.Provider
-	var sel *llm.Sel
-	if p == nil {
-		var err error
-		p, err = newProviderFromModel(cfg.Active)
-		if err != nil {
-			return nil, err
-		}
-		sel = newSelector(cfg, p)
-	}
-
-	sessionDir := opts.SessionDir
-	if sessionDir == "" {
-		sessionDir = defaultSessionDir()
-	}
-	store := opts.SessionStore
-	if store == nil {
-		store = session.NewFileStore(sessionDir)
-	}
-
-	hooks := opts.Hooks
-	if hooks == nil {
-		hooks = hook.NewManager()
-	}
-
-	workspace := opts.Workspace
-	if workspace == "" {
-		workspace, _ = os.Getwd()
-	}
-
-	sm := session.NewManager(store, b)
-	cmdReg := command.NewRegistry()
-	cmdReg.Register(command.NewHelpCmd(cmdReg))
-	cmdReg.Register(command.NewCompactCmd(b))
-
-	perms := tool.NewPermissions(filepath.Join(workspace, ".mink", "permissions.json"))
-
-	router := command.NewRouter(cmdReg)
-	guard := command.NewGuardMux(perms)
-	router.SetGuard(guard)
-
-	deps := agent.AgentDeps{
-		Bus:        b,
-		Provider:   p,
-		Sel:        sel,
-		Hooks:      hooks,
-		ToolGuard:  guard,
-		Prompt:     cfg.CustomPrompt,
-		Config:     cfg,
-		SessionDir: sessionDir,
-	}
-
-	sup := agent.NewSupervisor(deps, sm)
-	var sl *skill.Loader
-	if workspace != "" {
-		sl = skill.NewLoader(workspace)
-	}
-
-	cronSched := mcron.NewScheduler(config.CronPath(), b)
-	deps.CronTool = tool.NewCron(config.CronPath(), cronSched)
-
-	disp := agent.NewDispatcher(deps, sm, sl)
-	disp.SetSelfUpdateTool(tool.NewSelfUpdate(sm, disp))
-
-	cmdReg.Register(command.NewTokensCmd(disp.Usage))
-	cmdReg.Register(command.NewSessionCmd(sm, disp))
+	cmdReg, router, guard := buildCommandInfra(deps.workspace)
+	sm, sup, disp, cronSched := buildAgentInfra(deps, guard)
+	registerRuntimeCommands(cmdReg, deps.bus, sm, disp)
 
 	app := &App{
-		cfg:    cfg,
-		bus:    b,
-		p:      p,
+		cfg:    deps.cfg,
+		bus:    deps.bus,
+		p:      deps.provider,
 		sm:     sm,
-		hooks:  hooks,
+		hooks:  deps.hooks,
 		cmdReg: cmdReg,
 		router: router,
 		guard:  guard,

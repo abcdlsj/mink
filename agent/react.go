@@ -13,7 +13,7 @@ import (
 	"github.com/abcdlsj/mink/tool"
 )
 
-func (a *Agent) step(ctx context.Context, src string) (bool, error) {
+func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error) {
 	msgs := a.viewMessages()
 	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
 	allMsgs := append(sysMsgs, msgs...)
@@ -36,16 +36,17 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	}
 
 	start := time.Now()
+	corrID := a.logLLMRequest(stepNum, len(allMsgs), a.stream)
 	if a.stream {
 		r, err = a.stepStream(llmCtx, src, allMsgs, provider)
 	} else {
 		r, err = provider.Chat(llmCtx, allMsgs, tools(a.reg))
 	}
 	if err != nil {
+		a.logLLMError(stepNum, corrID, err, time.Since(start))
 		return false, err
 	}
-	a.logReq(sysMsgs[0].Content, len(allMsgs), a.stream, start)
-	a.logResp(r)
+	a.logLLMResponse(stepNum, corrID, r, time.Since(start))
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
 	// Reset nextModel to default before parsing tool calls
@@ -62,6 +63,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	}
 
 	if r.Content != "" {
+		a.logAgentOutput(stepNum, r.Content)
 		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
 		if a.bus != nil && !a.stream {
 			_ = a.bus.Pub(bus.Msg{
@@ -81,6 +83,7 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 	results := make([]msg.ToolResult, 0, len(r.ToolCalls))
 
 	for _, tc := range r.ToolCalls {
+		toolCorrID := a.logToolCall(stepNum, tc)
 		// Extract _model from tool call args
 		if tc.Args != nil {
 			var p map[string]json.RawMessage
@@ -105,7 +108,9 @@ func (a *Agent) step(ctx context.Context, src string) (bool, error) {
 			})
 		}
 
+		toolStart := time.Now()
 		out, toolErr := a.execTool(ctx, tc)
+		a.logToolResult(stepNum, toolCorrID, tc, out, toolErr, time.Since(toolStart))
 
 		tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
 		if toolErr != nil {
