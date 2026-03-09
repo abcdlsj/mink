@@ -18,7 +18,6 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
 	allMsgs := append(sysMsgs, msgs...)
 
-	// Select provider based on nextModel
 	provider := a.p
 	if a.sel != nil {
 		provider = a.sel.P(a.nextModel)
@@ -49,7 +48,6 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	a.logLLMResponse(stepNum, corrID, r, time.Since(start))
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
-	// Reset nextModel to default before parsing tool calls
 	a.nextModel = "default"
 
 	if len(r.ToolCalls) > 0 || r.Content != "" {
@@ -84,7 +82,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 
 	for _, tc := range r.ToolCalls {
 		toolCorrID := a.logToolCall(stepNum, tc)
-		// Extract _model from tool call args
+
 		if tc.Args != nil {
 			var p map[string]json.RawMessage
 			if json.Unmarshal(tc.Args, &p); p != nil {

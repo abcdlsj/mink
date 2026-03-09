@@ -18,12 +18,12 @@ const (
 	TypeTaskStart = "task:start"
 	TypeTaskDone  = "task:done"
 
-	TypeStreamChunk = "stream:chunk" // 流式片段
-	TypeStreamEnd   = "stream:end"   // 流式结束
+	TypeStreamChunk = "stream:chunk"
+	TypeStreamEnd   = "stream:end"
 
-	TypeThinkingChunk = "thinking:chunk" // thinking 内容片段
-	TypeThinkingEnd   = "thinking:end"   // thinking 结束
+	TypeThinkingChunk = "thinking:chunk"
+	TypeThinkingEnd   = "thinking:end"
 
-	TypeInterrupt   = "agent:interrupt" // 用户打断
-	TypeCronTrigger = "cron:trigger"    // cron 定时触发
+	TypeInterrupt   = "agent:interrupt"
+	TypeCronTrigger = "cron:trigger"
 )

@@ -61,7 +61,6 @@ func (s *SelfUpdate) Run(ctx context.Context, args json.RawMessage) (string, err
 		repoDir = dir
 	}
 
-	// 1. compile
 	cmd := exec.CommandContext(ctx, "go", "install", "./cmd/mink/")
 	cmd.Dir = repoDir
 	output, err := cmd.CombinedOutput()
@@ -69,15 +68,12 @@ func (s *SelfUpdate) Run(ctx context.Context, args json.RawMessage) (string, err
 		return "", fmt.Errorf("build failed:\n%s\n%w", strings.TrimSpace(string(output)), err)
 	}
 
-	// 2. flush all sessions
 	if err := s.sm.FlushAll(); err != nil {
 		return "", fmt.Errorf("flush sessions: %w", err)
 	}
 
-	// 3. collect session mappings
 	sessions := s.disp.ActiveSessions()
 
-	// 4. write upgrade state
 	state := UpgradeState{
 		Sessions:     sessions,
 		ResumePrompt: "Self-update completed. Binary rebuilt and upgraded successfully.",
@@ -86,7 +82,6 @@ func (s *SelfUpdate) Run(ctx context.Context, args json.RawMessage) (string, err
 		return "", fmt.Errorf("write upgrade state: %w", err)
 	}
 
-	// 5. trigger upgrade (this will not return normally)
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		syscall.Kill(os.Getpid(), syscall.SIGUSR2)
@@ -97,7 +92,7 @@ func (s *SelfUpdate) Run(ctx context.Context, args json.RawMessage) (string, err
 
 type UpgradeState struct {
 	Sessions     map[string]string `json:"sessions"`
-	ResumePrompt string           `json:"resume_prompt"`
+	ResumePrompt string            `json:"resume_prompt"`
 }
 
 func upgradeStatePath() string {
@@ -130,12 +125,12 @@ func RemoveUpgradeState() {
 }
 
 func detectModuleRoot() (string, error) {
-	// try cwd first (daemon usually starts from repo dir)
+
 	if _, err := os.Stat("go.mod"); err == nil {
 		abs, _ := filepath.Abs(".")
 		return abs, nil
 	}
-	// fallback: go list in cwd
+
 	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
 	out, err := cmd.Output()
 	if err != nil {

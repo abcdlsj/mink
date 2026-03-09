@@ -15,8 +15,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	isSubAgent := msg.From != "" && msg.From != bus.AddrAgentMain && msg.From != bus.AddrSystemSup
-	showInline := !isSubAgent || m.isDirectOutput(msg.From)
+	showInline := m.shouldShowInline(msg.From)
 
 	switch msg.Type {
 	case bus.TypeAgentSpawn:
@@ -26,146 +25,32 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		return m.handleAgentDone(msg)
 
 	case bus.TypeAssistant:
-		if showInline {
-			m.appendOutput("")
-			m.appendOutput(renderMarkdown(fmt.Sprintf("%v", msg.Payload)))
-		} else {
-			m.appendToAgent(msg.From, renderMarkdown(truncate(fmt.Sprintf("%v", msg.Payload), 160)))
-		}
+		m.handleAssistantMsg(msg, showInline)
 
 	case bus.TypeToolCall:
-		payload, ok := msg.Payload.(map[string]string)
-		if !ok {
-			line := styleTool.Render("◉ " + truncate(fmt.Sprintf("%v", msg.Payload), 120))
-			if showInline {
-				m.appendOutput(line)
-			} else {
-				m.appendToAgent(msg.From, line)
-			}
-			break
-		}
-		id := payload["id"]
-		name := payload["name"]
-		args := payload["args"]
-		display := truncate(name+" "+args, 100)
-
-		if showInline {
-			s := spinner.New()
-			s.Spinner = spinner.Dot
-			s.Style = styleTool
-			lineIdx := len(m.output)
-			m.appendOutput(s.View() + " " + styleTool.Render(display))
-			m.tools[id] = &toolState{
-				id:      id,
-				name:    name,
-				args:    args,
-				line:    lineIdx,
-				spinner: s,
-			}
-			return m, s.Tick
-		} else {
-			m.appendToAgent(msg.From, styleTool.Render("◉ "+display))
+		if cmd := m.handleToolCallMsg(msg, showInline); cmd != nil {
+			return m, cmd
 		}
 
 	case bus.TypeToolResult:
-		payload, ok := msg.Payload.(map[string]string)
-		if !ok {
-			if showInline {
-				m.appendOutput(styleSuccess.Render("✓ done"))
-			} else {
-				m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
-			}
-			break
-		}
-		id := payload["id"]
-		if ts, exists := m.tools[id]; exists && !ts.done {
-			ts.done = true
-			if ts.line >= 0 && ts.line < len(m.output) {
-				display := truncate(ts.name+" "+ts.args, 100)
-				m.output[ts.line] = styleSuccess.Render("✓") + " " + styleTool.Render(display)
-			}
-		} else if !showInline {
-			m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
-		}
+		m.handleToolResultMsg(msg, showInline)
 
 	case bus.TypeToolError:
-		payload, ok := msg.Payload.(map[string]string)
-		if !ok {
-			line := styleFail.Render("✗ " + truncate(fmt.Sprintf("%v", msg.Payload), 160))
-			if showInline {
-				m.appendOutput(line)
-			} else {
-				m.appendToAgent(msg.From, line)
-			}
-			break
-		}
-		id := payload["id"]
-		errMsg := payload["error"]
-		if ts, exists := m.tools[id]; exists && !ts.done {
-			ts.done = true
-			ts.err = errMsg
-			if ts.line >= 0 && ts.line < len(m.output) {
-				display := truncate(ts.name+" "+ts.args, 80)
-				m.output[ts.line] = styleFail.Render("✗") + " " + styleTool.Render(display) + " " + styleFail.Render(truncate(errMsg, 40))
-			}
-		} else if !showInline {
-			m.appendToAgent(msg.From, styleFail.Render("✗ "+truncate(errMsg, 160)))
-		}
+		m.handleToolErrorMsg(msg, showInline)
 
 	case bus.TypeTurnDone:
 		if msg.From == bus.AddrAgentMain {
-			if m.pending > 0 {
-				m.pending--
-			}
-			m.agentKeys = []string{}
-			m.agents = make(map[string]*agentState)
-			m.tools = make(map[string]*toolState)
-			m.streaming = false
-			m.streamBuf.Reset()
-			m.streamStart = 0
-			m.thinking = false
-			m.thinkingBuf.Reset()
-			m.thinkStart = 0
+			m.resetTurnState()
 		}
 
 	case bus.TypeTaskStart:
-		if payload, ok := msg.Payload.(map[string]string); ok {
-			taskID := payload["task_id"]
-			cmdText := truncate(payload["cmd"], 60)
-			m.appendOutput(styleTool.Render(fmt.Sprintf("[%s] %s", taskID, cmdText)))
-		}
+		m.handleTaskStartMsg(msg)
 
 	case bus.TypeTaskDone:
-		if payload, ok := msg.Payload.(map[string]string); ok {
-			taskID := payload["task_id"]
-			status := payload["status"]
-			if status == "ok" {
-				m.appendOutput(styleSuccess.Render(fmt.Sprintf("✓ [%s] completed", taskID)))
-			} else {
-				errMsg := truncate(payload["error"], 80)
-				m.appendOutput(styleFail.Render(fmt.Sprintf("✗ [%s] %s", taskID, errMsg)))
-			}
-		}
+		m.handleTaskDoneMsg(msg)
 
 	case bus.TypeStreamChunk:
-		if !showInline {
-			break
-		}
-		delta, _ := msg.Payload.(string)
-		if delta == "" {
-			break
-		}
-		if m.streaming {
-			m.streamBuf.WriteString(delta)
-			m.replaceFrom(m.streamStart, renderMarkdown(m.streamBuf.String()))
-		} else {
-			m.streaming = true
-			m.streamBuf.Reset()
-			m.streamBuf.WriteString(delta)
-			m.appendOutput("")
-			m.streamStart = len(m.output)
-			m.replaceFrom(m.streamStart, renderMarkdown(delta))
-		}
+		m.handleStreamChunkMsg(msg, showInline)
 
 	case bus.TypeStreamEnd:
 		if !showInline {
@@ -175,32 +60,7 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		m.streamBuf.Reset()
 
 	case bus.TypeThinkingChunk:
-		if !showInline {
-			break
-		}
-		delta, _ := msg.Payload.(string)
-		if delta == "" {
-			break
-		}
-		thinkLine := func(s string) string {
-			s = strings.ReplaceAll(s, "\n", " ")
-			lines := strings.Split(s, "\n")
-			for i := range lines {
-				lines[i] = styleThinking.Render(lines[i])
-			}
-			return strings.Join(lines, "\n")
-		}
-		if m.thinking {
-			m.thinkingBuf.WriteString(delta)
-			m.replaceFrom(m.thinkStart, thinkLine(m.thinkingBuf.String()))
-		} else {
-			m.thinking = true
-			m.thinkingBuf.Reset()
-			m.thinkingBuf.WriteString(delta)
-			m.appendOutput("")
-			m.thinkStart = len(m.output)
-			m.replaceFrom(m.thinkStart, thinkLine(delta))
-		}
+		m.handleThinkingChunkMsg(msg, showInline)
 
 	case bus.TypeThinkingEnd:
 		if !showInline {
@@ -219,6 +79,194 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *model) shouldShowInline(from string) bool {
+	isSubAgent := from != "" && from != bus.AddrAgentMain && from != bus.AddrSystemSup
+	return !isSubAgent || m.isDirectOutput(from)
+}
+
+func (m *model) appendBusLine(showInline bool, from, line string) {
+	if showInline {
+		m.appendOutput(line)
+		return
+	}
+	m.appendToAgent(from, line)
+}
+
+func (m *model) handleAssistantMsg(msg bus.Msg, showInline bool) {
+	content := fmt.Sprintf("%v", msg.Payload)
+	if showInline {
+		m.appendOutput("")
+		m.appendOutput(renderMarkdown(content))
+		return
+	}
+	m.appendToAgent(msg.From, renderMarkdown(truncate(content, 160)))
+}
+
+func (m *model) handleToolCallMsg(msg bus.Msg, showInline bool) tea.Cmd {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		m.appendBusLine(showInline, msg.From, styleTool.Render("◉ "+truncate(fmt.Sprintf("%v", msg.Payload), 120)))
+		return nil
+	}
+
+	id := payload["id"]
+	name := payload["name"]
+	args := payload["args"]
+	display := truncate(name+" "+args, 100)
+	if !showInline {
+		m.appendToAgent(msg.From, styleTool.Render("◉ "+display))
+		return nil
+	}
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = styleTool
+	lineIdx := len(m.output)
+	m.appendOutput(s.View() + " " + styleTool.Render(display))
+	m.tools[id] = &toolState{
+		id:      id,
+		name:    name,
+		args:    args,
+		line:    lineIdx,
+		spinner: s,
+	}
+	return s.Tick
+}
+
+func (m *model) handleToolResultMsg(msg bus.Msg, showInline bool) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		m.appendBusLine(showInline, msg.From, styleSuccess.Render("✓ done"))
+		return
+	}
+
+	id := payload["id"]
+	if ts, exists := m.tools[id]; exists && !ts.done {
+		ts.done = true
+		if ts.line >= 0 && ts.line < len(m.output) {
+			display := truncate(ts.name+" "+ts.args, 100)
+			m.output[ts.line] = styleSuccess.Render("✓") + " " + styleTool.Render(display)
+		}
+		return
+	}
+	if !showInline {
+		m.appendToAgent(msg.From, styleSuccess.Render("✓ done"))
+	}
+}
+
+func (m *model) handleToolErrorMsg(msg bus.Msg, showInline bool) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		m.appendBusLine(showInline, msg.From, styleFail.Render("✗ "+truncate(fmt.Sprintf("%v", msg.Payload), 160)))
+		return
+	}
+
+	id := payload["id"]
+	errMsg := payload["error"]
+	if ts, exists := m.tools[id]; exists && !ts.done {
+		ts.done = true
+		ts.err = errMsg
+		if ts.line >= 0 && ts.line < len(m.output) {
+			display := truncate(ts.name+" "+ts.args, 80)
+			m.output[ts.line] = styleFail.Render("✗") + " " + styleTool.Render(display) + " " + styleFail.Render(truncate(errMsg, 40))
+		}
+		return
+	}
+	if !showInline {
+		m.appendToAgent(msg.From, styleFail.Render("✗ "+truncate(errMsg, 160)))
+	}
+}
+
+func (m *model) resetTurnState() {
+	if m.pending > 0 {
+		m.pending--
+	}
+	m.agentKeys = []string{}
+	m.agents = make(map[string]*agentState)
+	m.tools = make(map[string]*toolState)
+	m.streaming = false
+	m.streamBuf.Reset()
+	m.streamStart = 0
+	m.thinking = false
+	m.thinkingBuf.Reset()
+	m.thinkStart = 0
+}
+
+func (m *model) handleTaskStartMsg(msg bus.Msg) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return
+	}
+	taskID := payload["task_id"]
+	cmdText := truncate(payload["cmd"], 60)
+	m.appendOutput(styleTool.Render(fmt.Sprintf("[%s] %s", taskID, cmdText)))
+}
+
+func (m *model) handleTaskDoneMsg(msg bus.Msg) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return
+	}
+	taskID := payload["task_id"]
+	if payload["status"] == "ok" {
+		m.appendOutput(styleSuccess.Render(fmt.Sprintf("✓ [%s] completed", taskID)))
+		return
+	}
+	errMsg := truncate(payload["error"], 80)
+	m.appendOutput(styleFail.Render(fmt.Sprintf("✗ [%s] %s", taskID, errMsg)))
+}
+
+func (m *model) handleStreamChunkMsg(msg bus.Msg, showInline bool) {
+	if !showInline {
+		return
+	}
+	delta, _ := msg.Payload.(string)
+	if delta == "" {
+		return
+	}
+	if m.streaming {
+		m.streamBuf.WriteString(delta)
+		m.replaceFrom(m.streamStart, renderMarkdown(m.streamBuf.String()))
+		return
+	}
+	m.streaming = true
+	m.streamBuf.Reset()
+	m.streamBuf.WriteString(delta)
+	m.appendOutput("")
+	m.streamStart = len(m.output)
+	m.replaceFrom(m.streamStart, renderMarkdown(delta))
+}
+
+func (m *model) handleThinkingChunkMsg(msg bus.Msg, showInline bool) {
+	if !showInline {
+		return
+	}
+	delta, _ := msg.Payload.(string)
+	if delta == "" {
+		return
+	}
+	if m.thinking {
+		m.thinkingBuf.WriteString(delta)
+		m.replaceFrom(m.thinkStart, m.renderThinking(m.thinkingBuf.String()))
+		return
+	}
+	m.thinking = true
+	m.thinkingBuf.Reset()
+	m.thinkingBuf.WriteString(delta)
+	m.appendOutput("")
+	m.thinkStart = len(m.output)
+	m.replaceFrom(m.thinkStart, m.renderThinking(delta))
+}
+
+func (m *model) renderThinking(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	lines := strings.Split(s, "\n")
+	for i := range lines {
+		lines[i] = styleThinking.Render(lines[i])
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *model) handleAgentSpawn(msg bus.Msg) (tea.Model, tea.Cmd) {

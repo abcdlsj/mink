@@ -45,11 +45,11 @@ const (
 
 type Chunk struct {
 	Type               ChunkType
-	Delta              string        // 增量文本
-	ReasoningDelta     string        // 增量思考内容
-	ToolCall           *msg.ToolCall // 工具调用（完整后发送）
-	Reasoning          string        // 完整思考内容（与 ToolCall 一起发送）
-	ReasoningSignature string        // thinking block signature (Anthropic)
+	Delta              string
+	ReasoningDelta     string
+	ToolCall           *msg.ToolCall
+	Reasoning          string
+	ReasoningSignature string
 	Usage              *TokenUsage
 	Error              error
 }
@@ -67,7 +67,7 @@ type Config struct {
 	Headers     map[string]string
 	MaxTokens   int
 	Temperature float32
-	Reasoning   bool // for DeepSeek, etc.
+	Reasoning   bool
 }
 
 func NewProvider(cfg Config) (Provider, error) {

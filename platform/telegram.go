@@ -17,13 +17,13 @@ import (
 const (
 	telegramConfirmTimeout = 60 * time.Second
 	telegramActiveTTL      = 30 * time.Minute
-	telegramStreamMinInt   = 4 * time.Second  // min flush interval (429 protection)
-	telegramStreamMaxWait  = 5 * time.Second  // max wait before force flush
-	telegramStreamMinLen   = 1500             // min char threshold (dual limit with time)
-	telegramTypingRefresh  = 10 * time.Second // typing refresh frequency (429 protection)
+	telegramStreamMinInt   = 4 * time.Second
+	telegramStreamMaxWait  = 5 * time.Second
+	telegramStreamMinLen   = 1500
+	telegramTypingRefresh  = 10 * time.Second
 	telegramMsgLimit       = 3800
 	confirmCallbackPrefix  = "mcfm"
-	telegramTypingCooldown = 5 * time.Second // min interval between typing notifications
+	telegramTypingCooldown = 5 * time.Second
 )
 
 type confirmState struct {
@@ -38,9 +38,9 @@ type streamState struct {
 	dirty      bool
 	ended      bool
 	flush      bool
-	at         time.Time // last flush time
-	toolCalls  int       // successful tool calls count
-	toolErrors int       // failed tool calls count
+	at         time.Time
+	toolCalls  int
+	toolErrors int
 }
 
 type inboundState struct {
@@ -80,7 +80,7 @@ type Telegram struct {
 	typingMu   sync.Mutex
 	typing     map[int64]chan struct{}
 	typingN    map[int64]int
-	typingLast map[int64]time.Time // cooldown for notifyTyping
+	typingLast map[int64]time.Time
 }
 
 func NewTelegram(token string, b *bus.Bus) *Telegram {
@@ -300,7 +300,7 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		return
 	case bus.TypeToolError:
 		t.handleToolError(chatID)
-		// errors are counted but not displayed (only stats shown at end)
+
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
 			task := truncateTG(payload["task"], 100)
@@ -376,7 +376,7 @@ func (t *Telegram) shouldFlush(s *streamState, ended bool) bool {
 	}
 	elapsed := time.Since(s.at)
 	bufLen := s.buf.Len()
-	// dual limit: time (3s) OR length (1200 chars)
+
 	if elapsed >= telegramStreamMinInt {
 		return true
 	}
@@ -738,7 +738,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 			for _, part := range parts[1:] {
 				t.sendTextWithOptions(chatID, part, threadOpts)
 			}
-			// send tool stats if any
+
 			t.streamMu.Lock()
 			s := t.streams[chatID]
 			var stats string
@@ -1180,7 +1180,7 @@ func (t *Telegram) handleToolCall(chatID int64) {
 }
 
 func (t *Telegram) handleToolResult(chatID int64) {
-	// success already counted in handleToolCall
+
 }
 
 func (t *Telegram) handleToolError(chatID int64) {
@@ -1198,7 +1198,7 @@ func (t *Telegram) formatToolStats(calls, errors int) string {
 	if calls == 0 {
 		return ""
 	}
-	// show tool calls count and errors (if any) with number emojis
+
 	if errors > 0 {
 		return fmt.Sprintf("\n\n🛠️%s ⚠️%s", numberToEmoji(calls), numberToEmoji(errors))
 	}

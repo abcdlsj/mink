@@ -238,58 +238,80 @@ func (m *model) View() string {
 
 	var b strings.Builder
 	layout := m.computeLayout()
-
-	outputLines := m.visibleOutput(layout.outputHeight)
-	for _, line := range outputLines {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-
-
 	confirming := m.isConfirming()
 	confirmCmd := m.confirmCommand()
 
-	if len(m.agentKeys) > 0 {
-		b.WriteString("\n")
-		b.WriteString(styleDim.Render("─── agents ───"))
-		b.WriteString("\n")
-		for _, id := range m.agentKeys {
-			agent := m.agents[id]
-			if agent == nil {
-				continue
-			}
+	m.writeOutputSection(&b, layout.outputHeight)
+	m.writeAgentSection(&b, layout.agentDetailLine)
+	m.writeConfirmSection(&b, confirming, confirmCmd)
+	m.writeInputSection(&b, confirming)
 
-			status := agent.spinner.View()
-			if agent.done {
-				status = styleSuccess.Render("✓")
-			}
+	return b.String()
+}
 
-			fmt.Fprintf(&b, "%s %s %s\n", status, styleAgent.Render(id), styleDim.Render(agent.task))
-			lines := agent.lines
-			if layout.agentDetailLine >= 0 && len(lines) > layout.agentDetailLine {
-				lines = lines[len(lines)-layout.agentDetailLine:]
-			}
-			for _, line := range lines {
-				b.WriteString("  ")
-				b.WriteString(line)
-				b.WriteString("\n")
-			}
-		}
-		b.WriteString(styleDim.Render("──────────────"))
+func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
+	for _, line := range m.visibleOutput(outputHeight) {
+		b.WriteString(line)
 		b.WriteString("\n")
 	}
+}
 
-	if confirming {
-		b.WriteString("\n")
-		b.WriteString(styleConfirmBanner.Render("⚠ CONFIRMATION PENDING"))
-		b.WriteString("\n")
-		if confirmCmd != "" {
-			b.WriteString(styleConfirmCmd.Render("$ "+confirmCmd) + "\n")
-		}
-		b.WriteString(styleConfirmHint.Render("[y] Allow once  [a] Always allow similar  [n] Deny"))
-		b.WriteString("\n")
+func (m *model) writeAgentSection(b *strings.Builder, detailLimit int) {
+	if len(m.agentKeys) == 0 {
+		return
 	}
 
+	b.WriteString("\n")
+	b.WriteString(styleDim.Render("─── agents ───"))
+	b.WriteString("\n")
+	for _, id := range m.agentKeys {
+		agent := m.agents[id]
+		if agent == nil {
+			continue
+		}
+		fmt.Fprintf(b, "%s %s %s\n", m.agentStatus(agent), styleAgent.Render(id), styleDim.Render(agent.task))
+		for _, line := range m.agentDetail(agent, detailLimit) {
+			b.WriteString("  ")
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(styleDim.Render("──────────────"))
+	b.WriteString("\n")
+}
+
+func (m *model) agentStatus(agent *agentState) string {
+	if agent.done {
+		return styleSuccess.Render("✓")
+	}
+	return agent.spinner.View()
+}
+
+func (m *model) agentDetail(agent *agentState, limit int) []string {
+	lines := agent.lines
+	if limit >= 0 && len(lines) > limit {
+		return lines[len(lines)-limit:]
+	}
+	return lines
+}
+
+func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirmCmd string) {
+	if !confirming {
+		return
+	}
+
+	b.WriteString("\n")
+	b.WriteString(styleConfirmBanner.Render("⚠ CONFIRMATION PENDING"))
+	b.WriteString("\n")
+	if confirmCmd != "" {
+		b.WriteString(styleConfirmCmd.Render("$ " + confirmCmd))
+		b.WriteString("\n")
+	}
+	b.WriteString(styleConfirmHint.Render("[y] Allow once  [a] Always allow similar  [n] Deny"))
+	b.WriteString("\n")
+}
+
+func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	b.WriteString("\n")
 	if bar := m.statusBar(); bar != "" {
 		b.WriteString(bar)
@@ -305,11 +327,7 @@ func (m *model) View() string {
 		b.WriteString(stylePrompt.Render("» "))
 	}
 	b.WriteString(m.input.View())
-
-	return b.String()
 }
-
-// output buffer
 
 func (m *model) appendOutput(text string) {
 	wasAtBottom := m.scroll == 0
@@ -343,8 +361,6 @@ func (m *model) trimOutput(wasAtBottom bool) {
 		m.scroll = 0
 	}
 }
-
-// scroll
 
 func (m *model) scrollUp(n int) {
 	if n <= 0 {
@@ -391,8 +407,6 @@ func (m *model) visibleOutput(outputHeight int) []string {
 	}
 	return m.output[start:end]
 }
-
-// layout
 
 func (m *model) computeLayout() layoutMetrics {
 	agentDetailLine := m.agentDetailLines()
@@ -470,12 +484,9 @@ func (m *model) updateInputHeight() {
 			visual += (n-1)/w + 1
 		}
 	}
-	// +1 keeps viewport tall enough so textarea's internal repositionView
-	// never scrolls away the first wrapped line on the same keystroke.
+
 	m.input.SetHeight(min(visual+1, maxInputHeight))
 }
-
-// confirm helpers
 
 func (m *model) tryHandleConfirm(text string) bool {
 	m.cli.confirmMu.Lock()
@@ -542,8 +553,6 @@ func (m *model) confirmCommand() string {
 	}
 	return m.cli.confirmQ
 }
-
-// status bar
 
 func (m *model) statusBar() string {
 	if m.cli.statusFn == nil || m.width == 0 {

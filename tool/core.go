@@ -20,7 +20,6 @@ var modelable = map[string]bool{
 	"edit":  true,
 }
 
-// Tool 工具接口
 type Tool interface {
 	Name() string
 	Desc() string
@@ -28,7 +27,6 @@ type Tool interface {
 	Run(ctx context.Context, args json.RawMessage) (string, error)
 }
 
-// Registry 工具注册表
 type Registry struct {
 	tools map[string]Tool
 	guard Guard
@@ -98,7 +96,6 @@ func (r *Registry) All() []Tool {
 	return list
 }
 
-// Read 读取文件
 type Read struct{}
 
 func (r *Read) Name() string { return "read" }
@@ -126,7 +123,6 @@ func (r *Read) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	return string(data), nil
 }
 
-// Write 写入文件
 type Write struct{}
 
 func (w *Write) Name() string { return "write" }
@@ -160,7 +156,6 @@ func (w *Write) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	return fmt.Sprintf("Wrote %d bytes to %s", len(params.Content), p), nil
 }
 
-// Edit 编辑文件
 type Edit struct{}
 
 func (e *Edit) Name() string { return "edit" }
@@ -201,7 +196,6 @@ func (e *Edit) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	return fmt.Sprintf("Edited %s", p), nil
 }
 
-// Bash 执行命令
 type Bash struct{}
 
 func (b *Bash) Name() string { return "bash" }

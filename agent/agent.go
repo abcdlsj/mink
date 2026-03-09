@@ -211,46 +211,13 @@ func (a *Agent) applyStreamForSource(src string) {
 func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error) {
 	a.logSessionStart(src)
 	defer a.logSessionEnd()
+	defer a.flushSession(&retErr)
 
-	defer func() {
-		if err := a.session.Flush(); err != nil {
-			a.logWarn("session_flush_error", map[string]any{"error": err.Error()})
-			if retErr == nil {
-				retErr = err
-				return
-			}
-			retErr = fmt.Errorf("%w; flush: %v", retErr, err)
-		}
-	}()
-
-	ctx = bus.WithSource(ctx, src)
-	a.ResetInterrupt()
-
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := a.prepareRunContext(ctx, src)
 	defer cancel()
-
-	a.mu.Lock()
-	a.cancelFn = cancel
-	a.mu.Unlock()
-
-	if a.shouldAutoCompact() {
-		if _, err := a.Compact(ctx, src, ""); err != nil && a.bus != nil {
-			a.logWarn("session_compact_warning", map[string]any{"error": err.Error()})
-			_ = a.bus.Pub(bus.Msg{
-				Type:    bus.TypeAssistant,
-				From:    a.id,
-				To:      src,
-				Payload: fmt.Sprintf("compact warning: %v", err),
-			})
-		}
-	}
-
-	timeout := time.Duration(a.cfg.Timeout.Agent) * time.Second
-	if timeout > 0 {
-		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, timeout)
-		defer timeoutCancel()
-	}
+	a.maybeAutoCompact(ctx, src)
+	ctx, cancel = a.withAgentTimeout(ctx)
+	defer cancel()
 
 	a.session.Add(msg.Message{Role: role, Content: input})
 	a.logUserInput(role, input)
@@ -259,42 +226,114 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 		go a.watchInterrupt()
 	}
 
+	return a.runSteps(ctx, src)
+}
+
+func (a *Agent) flushSession(retErr *error) {
+	if err := a.session.Flush(); err != nil {
+		a.logWarn("session_flush_error", map[string]any{"error": err.Error()})
+		if *retErr == nil {
+			*retErr = err
+			return
+		}
+		*retErr = fmt.Errorf("%w; flush: %v", *retErr, err)
+	}
+}
+
+func (a *Agent) prepareRunContext(ctx context.Context, src string) (context.Context, context.CancelFunc) {
+	ctx = bus.WithSource(ctx, src)
+	a.ResetInterrupt()
+
+	ctx, cancel := context.WithCancel(ctx)
+	a.mu.Lock()
+	a.cancelFn = cancel
+	a.mu.Unlock()
+	return ctx, cancel
+}
+
+func (a *Agent) maybeAutoCompact(ctx context.Context, src string) {
+	if !a.shouldAutoCompact() {
+		return
+	}
+	if _, err := a.Compact(ctx, src, ""); err != nil {
+		a.publishCompactWarning(src, err)
+	}
+}
+
+func (a *Agent) publishCompactWarning(src string, err error) {
+	if err == nil || a.bus == nil {
+		return
+	}
+	a.logWarn("session_compact_warning", map[string]any{"error": err.Error()})
+	_ = a.bus.Pub(bus.Msg{
+		Type:    bus.TypeAssistant,
+		From:    a.id,
+		To:      src,
+		Payload: fmt.Sprintf("compact warning: %v", err),
+	})
+}
+
+func (a *Agent) withAgentTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := time.Duration(a.cfg.Timeout.Agent) * time.Second
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (a *Agent) runSteps(ctx context.Context, src string) error {
 	maxSteps := a.cfg.MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = 100
 	}
 
 	for i := 0; i < maxSteps; i++ {
-		if a.IsInterrupted() {
-			a.logInterrupt("user interrupted")
-			a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
-			return nil
-		}
-		if ctx.Err() != nil {
-			if a.IsInterrupted() {
-				a.logInterrupt("user interrupted")
-				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
-				return nil
-			}
-			return fmt.Errorf("agent timeout: %w", ctx.Err())
-		}
-		stepStart := time.Now()
-		a.logStepStart(i)
-		done, err := a.step(ctx, src, i)
-		a.logStepEnd(i, time.Since(stepStart), err)
-		if err != nil {
-			if a.IsInterrupted() || ctx.Err() == context.Canceled {
-				a.logInterrupt("user interrupted")
-				a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
-				return nil
-			}
+		if err := a.checkRunState(ctx); err != nil {
 			return err
+		}
+		done, err := a.runSingleStep(ctx, src, i)
+		if err != nil {
+			return a.normalizeRunError(ctx, err)
 		}
 		if done {
 			return nil
 		}
 	}
 	return fmt.Errorf("max steps reached: %d", maxSteps)
+}
+
+func (a *Agent) checkRunState(ctx context.Context) error {
+	if a.IsInterrupted() {
+		return a.finishInterruptedRun()
+	}
+	if err := ctx.Err(); err != nil {
+		if a.IsInterrupted() || err == context.Canceled {
+			return a.finishInterruptedRun()
+		}
+		return fmt.Errorf("agent timeout: %w", err)
+	}
+	return nil
+}
+
+func (a *Agent) runSingleStep(ctx context.Context, src string, stepNum int) (bool, error) {
+	stepStart := time.Now()
+	a.logStepStart(stepNum)
+	done, err := a.step(ctx, src, stepNum)
+	a.logStepEnd(stepNum, time.Since(stepStart), err)
+	return done, err
+}
+
+func (a *Agent) normalizeRunError(ctx context.Context, err error) error {
+	if a.IsInterrupted() || ctx.Err() == context.Canceled {
+		return a.finishInterruptedRun()
+	}
+	return err
+}
+
+func (a *Agent) finishInterruptedRun() error {
+	a.logInterrupt("user interrupted")
+	a.session.Add(msg.Message{Role: "system", Content: "[User interrupted]"})
+	return nil
 }
 
 func (a *Agent) shouldAutoCompact() bool {
@@ -564,9 +603,6 @@ func (a *Agent) watchInterrupt() {
 	}
 }
 
-// findCompactCut returns the cut index for compacting, ensuring we don't
-// truncate in the middle of a tool call chain. If the cut falls on a tool
-// message, it extends back to include the assistant that initiated the call.
 func findCompactCut(msgs []msg.Message, keep int) int {
 	cut := len(msgs) - keep
 	if cut <= 0 {
@@ -589,7 +625,6 @@ func findCompactCut(msgs []msg.Message, keep int) int {
 	return cut
 }
 
-// toolCallID extracts the tool_call_id from a tool message.
 func toolCallID(m msg.Message) string {
 	if len(m.ToolResults) == 0 {
 		return ""
@@ -597,8 +632,6 @@ func toolCallID(m msg.Message) string {
 	return m.ToolResults[0].ToolCallID
 }
 
-// findToolCaller searches backward from end to find the assistant message
-// containing the tool_call with the given id.
 func findToolCaller(msgs []msg.Message, end int, id string) int {
 	for i := end - 1; i >= 0; i-- {
 		if msgs[i].Role != "assistant" || len(msgs[i].ToolCalls) == 0 {

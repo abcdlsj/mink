@@ -17,4 +17,3 @@ func (e *RouteError) Error() string {
 func ErrInvalidAddr(op, typ, from, to, msg string) error {
 	return &RouteError{Op: op, Msg: msg, Type: typ, From: from, To: to}
 }
-

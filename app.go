@@ -25,7 +25,6 @@ var (
 	ErrClosed         = errors.New("mink app is closed")
 	ErrAPIKeyRequired = errors.New("need api key")
 
-	// Version info set at build time via ldflags
 	Version   = "dev"
 	Commit    = "unknown"
 	BuildTime = "unknown"

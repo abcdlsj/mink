@@ -24,7 +24,7 @@ type Config struct {
 	Models         map[string]ModelConfig `toml:"models"`
 	APIKeys        map[string]string      `toml:"api_keys"`
 
-	Active ModelConfig // resolved at runtime
+	Active ModelConfig
 }
 
 type ModelConfig struct {
@@ -44,10 +44,10 @@ type CompactConfig struct {
 }
 
 type TimeoutConfig struct {
-	Tool       int `toml:"tool"`       // 单个工具执行超时，默认 60s
-	Agent      int `toml:"agent"`      // Agent 整体运行超时，默认 600s
-	Background int `toml:"background"` // 后台任务超时，默认 1800s
-	LLM        int `toml:"llm"`        // LLM 请求超时，默认 120s
+	Tool       int `toml:"tool"`
+	Agent      int `toml:"agent"`
+	Background int `toml:"background"`
+	LLM        int `toml:"llm"`
 }
 
 func Load() Config {

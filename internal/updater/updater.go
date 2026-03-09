@@ -1,4 +1,3 @@
-// Package updater handles self-update functionality for mink binary.
 package updater
 
 import (
@@ -20,13 +19,11 @@ const (
 
 var ErrAlreadyLatest = errors.New("already at latest version")
 
-// Updater handles downloading and installing mink updates.
 type Updater struct {
 	currentVersion string
 	httpClient     *http.Client
 }
 
-// New creates a new Updater instance.
 func New(currentVersion string) *Updater {
 	return &Updater{
 		currentVersion: currentVersion,
@@ -34,7 +31,6 @@ func New(currentVersion string) *Updater {
 	}
 }
 
-// Update performs a full update: download latest release and replace binary.
 func (u *Updater) Update() error {
 	version, downloadURL, err := u.getLatestRelease()
 	if err != nil {

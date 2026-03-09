@@ -52,7 +52,6 @@ func patchReasoning(body []byte) []byte {
 	return out
 }
 
-// patchOpenRouterReasoning injects {"reasoning":{"enabled":true}} for OpenRouter.
 func patchOpenRouterReasoning(body []byte) []byte {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(body, &obj) != nil {
@@ -66,8 +65,6 @@ func patchOpenRouterReasoning(body []byte) []byte {
 	return out
 }
 
-// patchAssistantContent fixes go-openai's omitempty on Content field.
-// Some providers require "content" to be present (even as null) on assistant messages.
 func patchAssistantContent(body []byte) []byte {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(body, &obj) != nil {

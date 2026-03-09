@@ -38,4 +38,3 @@ func IsValidAddr(addr string) bool {
 	}
 	return addrRe.MatchString(addr)
 }
-

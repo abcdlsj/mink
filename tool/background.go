@@ -24,7 +24,12 @@ func randTaskName() string {
 type Background struct {
 	bus     *bus.Bus
 	agentID string
-	timeout int // 超时秒数，默认 1800s
+	timeout int
+}
+
+type backgroundParams struct {
+	Cmd string `json:"cmd"`
+	Cwd string `json:"cwd,omitempty"`
 }
 
 func NewBackground(b *bus.Bus, agentID string) *Background {
@@ -58,67 +63,77 @@ func (b *Background) Schema() map[string]any {
 }
 
 func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Cmd string `json:"cmd"`
-		Cwd string `json:"cwd,omitempty"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
+	params, err := parseBackgroundParams(args)
+	if err != nil {
 		return "", err
-	}
-
-	if params.Cmd == "" {
-		return "", fmt.Errorf("cmd is required")
 	}
 
 	taskID := "[task]" + randTaskName()
 	source := bus.SourceFrom(ctx)
 
-	// 广播任务开始
+	b.publishTaskStart(taskID, params.Cmd)
+	go b.runTask(taskID, source, params)
+
+	return fmt.Sprintf("Task %s started in background. You'll receive the result when it's done.", taskID), nil
+}
+
+func parseBackgroundParams(args json.RawMessage) (backgroundParams, error) {
+	var params backgroundParams
+	if err := json.Unmarshal(args, &params); err != nil {
+		return backgroundParams{}, err
+	}
+	if params.Cmd == "" {
+		return backgroundParams{}, fmt.Errorf("cmd is required")
+	}
+	return params, nil
+}
+
+func (b *Background) publishTaskStart(taskID, cmd string) {
 	_ = b.bus.Pub(bus.Msg{
 		Type: bus.TypeTaskStart,
 		From: b.agentID,
 		To:   bus.AddrBroadcast,
 		Payload: map[string]string{
 			"task_id": taskID,
-			"cmd":     params.Cmd,
+			"cmd":     cmd,
 		},
 	})
+}
 
-	// 后台执行，带超时控制
-	go func() {
-		timeout := time.Duration(b.timeout) * time.Second
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
+func (b *Background) runTask(taskID, source string, params backgroundParams) {
+	timeout := time.Duration(b.timeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
-		cmd := exec.CommandContext(ctx, "bash", "-c", params.Cmd)
-		if params.Cwd != "" {
-			cmd.Dir = params.Cwd
+	cmd := exec.CommandContext(ctx, "bash", "-c", params.Cmd)
+	if params.Cwd != "" {
+		cmd.Dir = params.Cwd
+	}
+
+	output, err := cmd.CombinedOutput()
+	b.publishTaskDone(taskID, source, string(output), err, ctx.Err())
+}
+
+func (b *Background) publishTaskDone(taskID, source, output string, err error, ctxErr error) {
+	result := map[string]string{
+		"task_id": taskID,
+		"output":  output,
+		"status":  "ok",
+		"source":  source,
+	}
+	if err != nil {
+		result["status"] = "error"
+		if ctxErr == context.DeadlineExceeded {
+			result["error"] = fmt.Sprintf("timeout after %ds", b.timeout)
+		} else {
+			result["error"] = err.Error()
 		}
+	}
 
-		output, err := cmd.CombinedOutput()
-
-		result := map[string]string{
-			"task_id": taskID,
-			"output":  string(output),
-			"status":  "ok",
-			"source":  source,
-		}
-		if err != nil {
-			result["status"] = "error"
-			if ctx.Err() == context.DeadlineExceeded {
-				result["error"] = fmt.Sprintf("timeout after %ds", b.timeout)
-			} else {
-				result["error"] = err.Error()
-			}
-		}
-
-		_ = b.bus.Pub(bus.Msg{
-			Type:    bus.TypeTaskDone,
-			From:    taskID,
-			To:      b.agentID,
-			Payload: result,
-		})
-	}()
-
-	return fmt.Sprintf("Task %s started in background. You'll receive the result when it's done.", taskID), nil
+	_ = b.bus.Pub(bus.Msg{
+		Type:    bus.TypeTaskDone,
+		From:    taskID,
+		To:      b.agentID,
+		Payload: result,
+	})
 }
