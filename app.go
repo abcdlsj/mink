@@ -138,6 +138,19 @@ func New(opts Options) (*App, error) {
 	deps.CronTool = tool.NewCron(config.CronPath(), cronSched)
 
 	disp := agent.NewDispatcher(deps, sm, sl)
+	sup.SetSessionLookup(func(parentID, source string) *session.Session {
+		if parentID != bus.AddrAgentMain {
+			return nil
+		}
+		if source == "" {
+			return nil
+		}
+		a := disp.Agent(source)
+		if a == nil {
+			return nil
+		}
+		return a.Session()
+	})
 	disp.SetSelfUpdateTool(tool.NewSelfUpdate(sm, disp))
 
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))

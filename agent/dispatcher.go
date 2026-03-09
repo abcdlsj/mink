@@ -292,7 +292,7 @@ func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
 }
 
 func (d *Dispatcher) Start(ctx context.Context) {
-	conn := d.deps.Bus.RegisterAgent(d.agentID, false)
+	conn := d.deps.Bus.RegisterAgent(d.agentID)
 	go func() {
 		for {
 			select {

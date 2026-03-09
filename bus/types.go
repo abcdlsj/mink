@@ -8,7 +8,6 @@ const (
 	TypeToolResult     = "tool:result"
 	TypeToolError      = "tool:error"
 	TypeSessionNew     = "session:new"
-	TypeSessionFork    = "session:fork"
 	TypeSessionReset   = "session:reset"
 	TypeSessionCompact = "session:compact"
 
@@ -16,9 +15,8 @@ const (
 	TypeAgentSpawn = "agent:spawn"
 	TypeAgentDone  = "agent:done"
 
-	TypeContextShare = "context:share"
-	TypeTaskStart    = "task:start"
-	TypeTaskDone     = "task:done"
+	TypeTaskStart = "task:start"
+	TypeTaskDone  = "task:done"
 
 	TypeStreamChunk = "stream:chunk" // 流式片段
 	TypeStreamEnd   = "stream:end"   // 流式结束

@@ -10,11 +10,9 @@ import (
 )
 
 type AgentConn struct {
-	ID       string
-	Send     chan Msg
-	Recv     chan Msg
-	Context  MsgContext
-	ShareCtx bool
+	ID   string
+	Send chan Msg
+	Recv chan Msg
 }
 
 type Bus struct {
@@ -283,7 +281,7 @@ func (b *Bus) UnregisterHandler(msgType string) {
 	delete(b.handlers, msgType)
 }
 
-func (b *Bus) RegisterAgent(id string, shareCtx bool) *AgentConn {
+func (b *Bus) RegisterAgent(id string) *AgentConn {
 	if !IsValidAddr(id) || id == AddrBroadcast {
 		panic(fmt.Sprintf("bus: invalid agent address: %s", id))
 	}
@@ -295,11 +293,9 @@ func (b *Bus) RegisterAgent(id string, shareCtx bool) *AgentConn {
 	}
 
 	conn := &AgentConn{
-		ID:       id,
-		Send:     make(chan Msg, 64),
-		Recv:     make(chan Msg, 64),
-		ShareCtx: shareCtx,
-		Context:  MsgContext{AgentID: id},
+		ID:   id,
+		Send: make(chan Msg, 64),
+		Recv: make(chan Msg, 64),
 	}
 	b.agents[id] = conn
 	return conn
@@ -314,40 +310,4 @@ func (b *Bus) UnregisterAgent(id string) {
 		close(agent.Recv)
 		delete(b.agents, id)
 	}
-}
-
-func (b *Bus) GetAgent(id string) (*AgentConn, bool) {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	c, ok := b.agents[id]
-	return c, ok
-}
-
-func (b *Bus) ForkContext(parentID, childID string) MsgContext {
-	b.mu.RLock()
-	parent, ok := b.agents[parentID]
-	b.mu.RUnlock()
-
-	ctx := MsgContext{
-		AgentID:  childID,
-		ParentID: parentID,
-	}
-
-	if ok && parent.ShareCtx {
-		ctx.SessionID = parent.Context.SessionID
-		ctx.Data = copyMap(parent.Context.Data)
-	}
-
-	return ctx
-}
-
-func copyMap(m map[string]any) map[string]any {
-	r := make(map[string]any)
-	if m == nil {
-		return r
-	}
-	for k, v := range m {
-		r[k] = v
-	}
-	return r
 }

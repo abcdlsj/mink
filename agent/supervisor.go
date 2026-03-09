@@ -29,6 +29,7 @@ type Supervisor struct {
 	spawned         map[string]struct{}
 	activeSubAgents int
 	started         bool
+	sessionLookup   func(parentID, source string) *session.Session
 	mu              sync.RWMutex
 }
 
@@ -39,6 +40,12 @@ func NewSupervisor(deps AgentDeps, sm *session.Manager) *Supervisor {
 		agents:  make(map[string]*Agent),
 		spawned: make(map[string]struct{}),
 	}
+}
+
+func (s *Supervisor) SetSessionLookup(fn func(parentID, source string) *session.Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessionLookup = fn
 }
 
 func (s *Supervisor) Start(_ context.Context) error {
@@ -93,6 +100,7 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 	shareCtx, _ := payload["share_context"].(bool)
 	directOutput, _ := payload["direct_output"].(bool)
 	parentID := m.From
+	source := bus.SourceFrom(ctx)
 	if task == "" {
 		return bus.Msg{}, fmt.Errorf("task is required")
 	}
@@ -101,7 +109,7 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 		return bus.Msg{}, fmt.Errorf("subagent limit reached: at most %d active subagents", maxActiveSubAgents)
 	}
 
-	child := s.createChild(parentID, shareCtx)
+	child := s.createChild(parentID, source, shareCtx)
 	directStr := "false"
 	if directOutput {
 		directStr = "true"
@@ -148,19 +156,18 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 		},
 	}, nil
 }
-func (s *Supervisor) createChild(parentID string, shareCtx bool) *Agent {
+func (s *Supervisor) createChild(parentID, source string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
 	sess, _ := s.sm.Create()
-	child := s.deps.newAgent(id, sess, true)
-
-	s.deps.Bus.RegisterAgent(id, shareCtx)
 	if shareCtx {
-		ctx := s.deps.Bus.ForkContext(parentID, id)
-		if conn, ok := s.deps.Bus.GetAgent(id); ok {
-			conn.Context = ctx
+		if parent := s.parentSession(parentID, source); parent != nil {
+			sess.Replace(parent.Messages())
 		}
 	}
+	child := s.deps.newAgent(id, sess, true)
+
+	s.deps.Bus.RegisterAgent(id)
 
 	s.mu.Lock()
 	s.agents[id] = child
@@ -168,6 +175,20 @@ func (s *Supervisor) createChild(parentID string, shareCtx bool) *Agent {
 	s.mu.Unlock()
 
 	return child
+}
+
+func (s *Supervisor) parentSession(parentID, source string) *session.Session {
+	s.mu.RLock()
+	if parent, ok := s.agents[parentID]; ok {
+		s.mu.RUnlock()
+		return parent.Session()
+	}
+	lookup := s.sessionLookup
+	s.mu.RUnlock()
+	if lookup == nil {
+		return nil
+	}
+	return lookup(parentID, source)
 }
 
 func (s *Supervisor) kill(id string) {
