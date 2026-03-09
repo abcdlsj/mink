@@ -9,6 +9,15 @@
         <string>MINK_BIN</string>
         <string>serve</string>
     </array>
+    <key>WorkingDirectory</key>
+    <string>MINK_WORKDIR</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>MINK_HOME</string>
+        <key>MINK_LOG_LEVEL</key>
+        <string>info</string>
+    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>

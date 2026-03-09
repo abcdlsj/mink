@@ -3,9 +3,7 @@ package updater
 
 import (
 	"encoding/json"
-)
-
-import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +17,8 @@ const (
 	repoOwner = "abcdlsj"
 	repoName  = "mink"
 )
+
+var ErrAlreadyLatest = errors.New("already at latest version")
 
 // Updater handles downloading and installing mink updates.
 type Updater struct {
@@ -36,43 +36,34 @@ func New(currentVersion string) *Updater {
 
 // Update performs a full update: download latest release and replace binary.
 func (u *Updater) Update() error {
-	// Get latest release info
 	version, downloadURL, err := u.getLatestRelease()
 	if err != nil {
 		return fmt.Errorf("failed to get latest release: %w", err)
 	}
-
-	// Check if already up to date
 	if version == u.currentVersion {
-		return fmt.Errorf("already at latest version: %s", version)
+		return fmt.Errorf("%w: %s", ErrAlreadyLatest, version)
 	}
 
 	fmt.Printf("Current version: %s\n", u.currentVersion)
 	fmt.Printf("Latest version: %s\n", version)
 	fmt.Printf("Downloading from: %s\n", downloadURL)
 
-	// Download binary
 	tmpFile, err := u.download(downloadURL)
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
 	defer os.Remove(tmpFile)
 
-	// Get current binary path
 	currentPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
-
-	// Resolve symlinks
 	currentPath, err = filepath.EvalSymlinks(currentPath)
 	if err != nil {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
 	fmt.Printf("Replacing binary: %s\n", currentPath)
-
-	// Replace binary
 	if err := u.replaceBinary(currentPath, tmpFile); err != nil {
 		return fmt.Errorf("failed to replace binary: %w", err)
 	}
@@ -81,11 +72,9 @@ func (u *Updater) Update() error {
 	return nil
 }
 
-// getLatestRelease fetches the latest release info from GitHub.
-// Returns version tag and download URL.
 func (u *Updater) getLatestRelease() (version, downloadURL string, err error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", repoOwner, repoName)
-	
+
 	resp, err := u.httpClient.Get(url)
 	if err != nil {
 		return "", "", err
@@ -96,7 +85,6 @@ func (u *Updater) getLatestRelease() (version, downloadURL string, err error) {
 		return "", "", fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 
-	// Parse response
 	var release struct {
 		TagName string `json:"tag_name"`
 		Assets  []struct {
@@ -104,43 +92,69 @@ func (u *Updater) getLatestRelease() (version, downloadURL string, err error) {
 			URL  string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		return "", "", err
 	}
 
 	version = release.TagName
-
-	// Find matching asset for current OS/arch
-	assetName := u.getAssetName()
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, assetName) || asset.Name == fmt.Sprintf("mink_%s", assetName) {
-			return version, asset.URL, nil
+	for _, candidate := range u.assetNameCandidates() {
+		for _, asset := range release.Assets {
+			if assetMatches(asset.Name, candidate) {
+				return version, asset.URL, nil
+			}
 		}
 	}
 
-	return "", "", fmt.Errorf("no matching asset found for %s", assetName)
+	return "", "", fmt.Errorf("no matching asset found for %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
-// getAssetName returns the expected asset name for current platform.
-func (u *Updater) getAssetName() string {
+func (u *Updater) assetNameCandidates() []string {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 
-	// Map to common release naming conventions
-	if goos == "darwin" {
-		goos = "Darwin"
-		if goarch == "amd64" {
-			goarch = "x86_64"
-		}
-	} else if goos == "linux" {
-		goos = "Linux"
+	archAliases := []string{goarch}
+	osAliases := []string{goos}
+
+	switch goarch {
+	case "amd64":
+		archAliases = append(archAliases, "x86_64")
+	case "arm64":
+		archAliases = append(archAliases, "aarch64")
 	}
 
-	return fmt.Sprintf("%s_%s", goos, goarch)
+	switch goos {
+	case "darwin":
+		osAliases = append(osAliases, "Darwin", "macos", "MacOS")
+	case "linux":
+		osAliases = append(osAliases, "Linux")
+	}
+
+	seen := map[string]struct{}{}
+	var candidates []string
+	for _, osName := range osAliases {
+		for _, archName := range archAliases {
+			for _, pattern := range []string{
+				fmt.Sprintf("mink-%s-%s", strings.ToLower(osName), strings.ToLower(archName)),
+				fmt.Sprintf("mink_%s_%s", osName, archName),
+				fmt.Sprintf("%s_%s", osName, archName),
+			} {
+				if _, ok := seen[pattern]; ok {
+					continue
+				}
+				seen[pattern] = struct{}{}
+				candidates = append(candidates, pattern)
+			}
+		}
+	}
+	return candidates
 }
 
-// download fetches the binary from URL and returns temp file path.
+func assetMatches(name, candidate string) bool {
+	name = strings.ToLower(name)
+	candidate = strings.ToLower(candidate)
+	return name == candidate || strings.Contains(name, candidate)
+}
+
 func (u *Updater) download(url string) (string, error) {
 	resp, err := u.httpClient.Get(url)
 	if err != nil {
@@ -152,21 +166,17 @@ func (u *Updater) download(url string) (string, error) {
 		return "", fmt.Errorf("download failed: %d", resp.StatusCode)
 	}
 
-	// Create temp file
 	tmpFile, err := os.CreateTemp("", "mink-update-*")
 	if err != nil {
 		return "", err
 	}
 	defer tmpFile.Close()
 
-	// Copy content
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
 		os.Remove(tmpFile.Name())
 		return "", err
 	}
-
-	// Make executable
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+	if err := os.Chmod(tmpFile.Name(), 0o755); err != nil {
 		os.Remove(tmpFile.Name())
 		return "", err
 	}
@@ -174,26 +184,15 @@ func (u *Updater) download(url string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-// replaceBinary atomically replaces the current binary.
 func (u *Updater) replaceBinary(currentPath, newPath string) error {
-	// On Unix, we can atomically rename over existing file if it's not running
-	// But since mink might be running, we need a different approach:
-	
-	// 1. Rename current binary to .backup
 	backupPath := currentPath + ".backup"
 	if err := os.Rename(currentPath, backupPath); err != nil {
 		return fmt.Errorf("failed to backup current binary: %w", err)
 	}
-
-	// 2. Move new binary to current location
 	if err := os.Rename(newPath, currentPath); err != nil {
-		// Try to restore backup
 		os.Rename(backupPath, currentPath)
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
-
-	// 3. Remove backup
 	os.Remove(backupPath)
-
 	return nil
 }

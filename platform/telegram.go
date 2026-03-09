@@ -102,6 +102,8 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 
 func (t *Telegram) ID() string { return "telegram" }
 
+func (t *Telegram) Token() string { return t.token }
+
 func (t *Telegram) Start(ctx context.Context) error {
 	pref := tele.Settings{
 		Token:  t.token,

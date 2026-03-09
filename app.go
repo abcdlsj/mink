@@ -194,12 +194,22 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 	}
 
 	a.mu.Lock()
-	if a.telegram != nil {
+	if a.telegram != nil && a.telegram.Token() == token {
 		a.mu.Unlock()
 		return nil
 	}
+	oldTG := a.telegram
+	if oldTG != nil {
+		a.telegram = nil
+		a.adapters = removeAdapter(a.adapters, oldTG.ID())
+		a.guard.Unregister("telegram:")
+	}
 	runCtx := a.ctx
 	a.mu.Unlock()
+
+	if oldTG != nil {
+		_ = oldTG.Stop()
+	}
 
 	tg := platform.NewTelegram(token, a.bus)
 	if err := tg.Start(runCtx); err != nil {
@@ -221,6 +231,21 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 	a.adapters = append(a.adapters, tg)
 	a.guard.Register("telegram:", tg)
 	return nil
+}
+
+func (a *App) StopTelegram() error {
+	a.mu.Lock()
+	tg := a.telegram
+	if tg == nil {
+		a.mu.Unlock()
+		return nil
+	}
+	a.telegram = nil
+	a.adapters = removeAdapter(a.adapters, tg.ID())
+	a.guard.Unregister("telegram:")
+	a.mu.Unlock()
+
+	return tg.Stop()
 }
 
 func (a *App) Close() error {
@@ -250,6 +275,20 @@ func (a *App) Close() error {
 	}
 
 	return nil
+}
+
+func removeAdapter(adapters []platform.Adapter, id string) []platform.Adapter {
+	if len(adapters) == 0 {
+		return nil
+	}
+	out := adapters[:0]
+	for _, ad := range adapters {
+		if ad == nil || ad.ID() == id {
+			continue
+		}
+		out = append(out, ad)
+	}
+	return out
 }
 
 func (a *App) Commands() *command.Registry {

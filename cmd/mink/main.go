@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/abcdlsj/mink"
@@ -27,10 +30,12 @@ func main() {
 		runServe()
 	case "reload":
 		runReload()
+	case "devbuild":
+		runDevBuild()
 	case "upgrade":
 		runUpgrade()
 	case "update":
-		runUpdate()
+		runUpgrade()
 	case "version":
 		runVersion()
 	case "status":
@@ -124,21 +129,26 @@ func runReload() {
 	fmt.Println("reload signal sent")
 }
 
-func runUpgrade() {
-	pid, err := daemonPID()
+func runDevBuild() {
+	repoDir, err := detectModuleRoot()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: daemon not running\n")
+		fmt.Fprintf(os.Stderr, "error: detect repo dir: %v\n", err)
 		os.Exit(1)
 	}
-	if err := syscall.Kill(pid, syscall.SIGUSR2); err != nil {
-		fmt.Fprintf(os.Stderr, "error: send upgrade signal: %v\n", err)
+	if err := buildLocalBinary(repoDir); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Println("upgrade signal sent")
+	fmt.Println("local build installed")
+
+	if err := sendDaemonUpgradeSignal(); err != nil {
+		fmt.Println("daemon: not running, binary updated only")
+		return
+	}
+	fmt.Println("daemon handoff triggered")
 }
 
-func runUpdate() {
-	// Get current version
+func runUpgrade() {
 	version := mink.Version
 	if version == "" {
 		version = "dev"
@@ -146,19 +156,19 @@ func runUpdate() {
 
 	u := updater.New(version)
 	if err := u.Update(); err != nil {
+		if errors.Is(err, updater.ErrAlreadyLatest) {
+			fmt.Println(err.Error())
+			return
+		}
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Optionally auto-upgrade after update
-	fs := flag.NewFlagSet("update", flag.ContinueOnError)
-	autoUpgrade := fs.Bool("upgrade", false, "auto upgrade after update")
-	fs.Parse(os.Args[2:])
-
-	if *autoUpgrade {
-		fmt.Println("Triggering daemon upgrade...")
-		runUpgrade()
+	if err := sendDaemonUpgradeSignal(); err != nil {
+		fmt.Println("daemon: not running, binary updated only")
+		return
 	}
+	fmt.Println("daemon handoff triggered")
 }
 
 func runVersion() {
@@ -250,13 +260,11 @@ func sendCmdWithResp(cmd string) (*struct {
 }
 
 func defaultSockPath() string {
-	home, _ := os.UserHomeDir()
-	return home + "/.mink/mink.sock"
+	return mink.DefaultSockPath()
 }
 
 func daemonPID() (int, error) {
-	home, _ := os.UserHomeDir()
-	pidfile := filepath.Join(home, ".mink", "mink.pid")
+	pidfile := mink.DefaultPIDPath()
 	data, err := os.ReadFile(pidfile)
 	if err != nil {
 		return 0, err
@@ -264,4 +272,36 @@ func daemonPID() (int, error) {
 	var pid int
 	_, err = fmt.Sscanf(string(data), "%d", &pid)
 	return pid, err
+}
+
+func sendDaemonUpgradeSignal() error {
+	pid, err := daemonPID()
+	if err != nil {
+		return err
+	}
+	return syscall.Kill(pid, syscall.SIGUSR2)
+}
+
+func buildLocalBinary(repoDir string) error {
+	cmd := exec.Command("go", "install", "./cmd/mink/")
+	cmd.Dir = repoDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func detectModuleRoot() (string, error) {
+	if _, err := os.Stat("go.mod"); err == nil {
+		return filepath.Abs(".")
+	}
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("no go.mod in cwd and go list failed: %w", err)
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" {
+		return "", fmt.Errorf("empty module root")
+	}
+	return dir, nil
 }

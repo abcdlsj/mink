@@ -24,6 +24,10 @@ func (m *GuardMux) Register(prefix string, g tool.InteractiveGuard) {
 	m.guards[prefix] = g
 }
 
+func (m *GuardMux) Unregister(prefix string) {
+	delete(m.guards, prefix)
+}
+
 func (m *GuardMux) Allow(ctx context.Context, cmd string) (bool, error) {
 	if m.perms != nil && m.perms.Check(cmd) {
 		return true, nil

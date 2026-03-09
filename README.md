@@ -11,6 +11,7 @@ Minimal AI coding agent. Fast, elegant, extensible.
 - **Cron Jobs**: Schedule AI tasks
 - **Self-Update**: Auto-update binary
 - **Session Management**: Branch and switch conversations
+- **Daemon Mode**: launchd on macOS, systemd user service on Linux
 
 ## Install
 
@@ -23,13 +24,53 @@ Or download from [Releases](https://github.com/abcdlsj/mink/releases).
 ## Usage
 
 ```bash
-# Config
 cp config.example.toml ~/.mink/config.toml
 $EDITOR ~/.mink/config.toml
-
-# Run
 mink
 ```
+
+## Daemon
+
+### Install daemon service
+
+```bash
+make daemon-install
+# or
+./scripts/install-mink.sh install
+```
+
+### Common daemon operations
+
+```bash
+make daemon-status
+make daemon-reload
+make daemon-restart
+make daemon-uninstall
+```
+
+### Upgrade daemon
+
+**Local development build**: rebuild the current repo and hot-swap the running daemon.
+
+```bash
+mink devbuild
+make daemon-devbuild
+./scripts/install-mink.sh devbuild
+```
+
+**Release upgrade**: download the latest release and hot-upgrade the daemon. If the latest release version matches the current binary, it exits cleanly without doing anything.
+
+```bash
+mink upgrade
+make daemon-upgrade
+./scripts/install-mink.sh upgrade
+```
+
+### Platform notes
+
+- **macOS**: uses `~/Library/LaunchAgents/com.mink.agent.plist`
+- **Linux**: uses `~/.config/systemd/user/mink.service`
+- **Linux boot login persistence**: run `loginctl enable-linger $USER` if needed
 
 ## Telegram Bot
 
@@ -55,9 +96,9 @@ Group chat features:
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 api_key = "sk-ant-..."
-base_url = ""           # custom endpoint
+base_url = ""
 telegram_token = ""
-mode = "tui"            # tui or cli
+mode = "tui"
 ```
 
 Flags override config: `mink -p openai -m gpt-4o -k sk-...`
@@ -67,8 +108,6 @@ Flags override config: `mink -p openai -m gpt-4o -k sk-...`
 - `~/.mink/ext/` - executable tools
 - `~/.mink/skills/` - skill definitions (see SKILL.md)
 - `~/.mink/SOUL.md` - persona guidance
-
-Auto-reload on file changes.
 
 ## License
 
