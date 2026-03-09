@@ -286,7 +286,7 @@ func (a *Agent) shouldAutoCompact() bool {
 	if !a.cfg.Compact.Auto {
 		return false
 	}
-	msgs := a.session.Messages()
+	msgs := a.viewMessages()
 
 	tokenThreshold := a.cfg.Compact.TriggerTokens
 	if tokenThreshold <= 0 {
@@ -304,23 +304,34 @@ func (a *Agent) shouldAutoCompact() bool {
 }
 
 func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
-	msgs := a.session.Messages()
-	if len(msgs) == 0 {
+	view := a.session.View()
+	if len(view.Messages) == 0 {
 		return "", nil
 	}
+	msgs := a.session.Messages()
 
 	keepRecent := a.cfg.Compact.KeepRecentMessages
 	if keepRecent <= 0 {
 		keepRecent = 20
 	}
-	if keepRecent >= len(msgs) {
+	if len(msgs) > 0 && keepRecent >= len(msgs) && len(view.Messages) == len(msgs) {
 		return "", nil
 	}
 
 	cut := findCompactCut(msgs, keepRecent)
-
-	oldMsgs := msgs[:cut]
 	recentMsgs := msgs[cut:]
+	base := len(view.Messages) - len(msgs)
+	if base < 0 {
+		base = 0
+	}
+	history := base + cut
+	if history > len(view.Messages) {
+		history = len(view.Messages)
+	}
+	oldMsgs := view.Messages[:history]
+	if len(oldMsgs) == 0 {
+		return "", nil
+	}
 
 	var hist strings.Builder
 	hist.WriteString("Summarize the conversation history below for future context retention.\n")
@@ -376,19 +387,15 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 		summary = "(empty summary)"
 	}
 
-	newMsgs := make([]msg.Message, 0, len(recentMsgs)+1)
-	newMsgs = append(newMsgs, msg.Message{
-		Role:    "system",
-		Content: "[Conversation Summary]\n" + summary,
-	})
-	newMsgs = append(newMsgs, recentMsgs...)
-	a.session.Replace(newMsgs)
+	a.session.AddAnchor(session.AnchorSummary, summary, note, cut)
 	a.base = tokenBaseline{}
 
-	oldTotal, _ := a.sessionTokenTotal(msgs)
-	newTotal, _ := a.sessionTokenTotal(newMsgs)
+	oldTotal, _ := a.sessionTokenTotal(view.Messages)
+	newView := a.session.View()
+	newTotal, _ := a.sessionTokenTotal(newView.Messages)
 	msgText := fmt.Sprintf(
-		"[Session compacted] kept recent %d/%d messages (estimated tokens: %d -> %d)",
+		"[Session compacted] anchored %d messages, kept recent %d/%d entries (estimated tokens: %d -> %d)",
+		history,
 		len(recentMsgs),
 		len(msgs),
 		oldTotal,
@@ -407,7 +414,7 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 }
 
 func (a *Agent) TokenUsage() msg.TokenUsage {
-	msgs := a.session.Messages()
+	msgs := a.viewMessages()
 
 	total, source := a.sessionTokenTotal(msgs)
 	input := 0
@@ -440,6 +447,10 @@ func (a *Agent) TokenUsage() msg.TokenUsage {
 		Tool:     toolTok,
 		Source:   source,
 	}
+}
+
+func (a *Agent) viewMessages() []msg.Message {
+	return a.session.View().Messages
 }
 
 func (a *Agent) ensureTokenEstimator() {

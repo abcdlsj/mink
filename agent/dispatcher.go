@@ -23,14 +23,13 @@ type workerState struct {
 }
 
 type Dispatcher struct {
-	deps           AgentDeps
-	sm             *session.Manager
-	agentID        string
-	agents         map[string]*Agent
-	workers        map[string]*workerState
-	skillLoader    *skill.Loader
-	resumeSessions map[string]string
-	mu             sync.RWMutex
+	deps        AgentDeps
+	sm          *session.Manager
+	agentID     string
+	agents      map[string]*Agent
+	workers     map[string]*workerState
+	skillLoader *skill.Loader
+	mu          sync.RWMutex
 }
 
 func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispatcher {
@@ -58,19 +57,7 @@ func (d *Dispatcher) SetLLM(p llm.Provider, sel *llm.Sel) {
 }
 
 func (d *Dispatcher) ActiveSessions() map[string]string {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	m := make(map[string]string, len(d.agents))
-	for src, a := range d.agents {
-		m[src] = a.Session().ID()
-	}
-	return m
-}
-
-func (d *Dispatcher) SetResumeSessions(m map[string]string) {
-	d.mu.Lock()
-	d.resumeSessions = m
-	d.mu.Unlock()
+	return d.sm.Bindings()
 }
 
 func (d *Dispatcher) SetSelfUpdateTool(t tool.Tool) {
@@ -164,7 +151,13 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	}
 }
 
-func (d *Dispatcher) resetAgent(src string) {
+func (d *Dispatcher) resetAgent(src string) error {
+	d.InvalidateSource(src)
+	_, err := d.sm.ResetSource(src)
+	return err
+}
+
+func (d *Dispatcher) InvalidateSource(src string) {
 	var cancel context.CancelFunc
 
 	d.mu.Lock()
@@ -177,10 +170,6 @@ func (d *Dispatcher) resetAgent(src string) {
 
 	if cancel != nil {
 		cancel()
-	}
-
-	if isTelegramSource(src) {
-		_ = d.sm.Delete(src)
 	}
 }
 
@@ -254,15 +243,8 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 		return a
 	}
 
-	var sess *session.Session
-	if sid, ok := d.resumeSessions[src]; ok {
-		sess, _ = d.sm.Get(sid)
-		delete(d.resumeSessions, src)
-	}
-	if sess == nil && isTelegramSource(src) {
-		sess, _ = d.sm.GetOrCreate(src)
-	}
-	if sess == nil {
+	sess, err := d.sm.Current(src)
+	if err != nil {
 		sess, _ = d.sm.Create()
 	}
 	a := d.deps.newAgent(d.agentID, sess, false)
@@ -271,10 +253,6 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	}
 	d.agents[src] = a
 	return a
-}
-
-func isTelegramSource(src string) bool {
-	return len(src) > 9 && src[:9] == "telegram:"
 }
 
 func (d *Dispatcher) Agent(src string) *Agent {

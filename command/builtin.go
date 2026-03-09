@@ -51,17 +51,24 @@ func (c *toolsCmd) Run(ctx context.Context, args []string) (string, error) {
 }
 
 type sessionCmd struct {
-	sm *session.Manager
+	sm    *session.Manager
+	reset interface{ InvalidateSource(string) }
 }
 
-func NewSessionCmd(sm *session.Manager) Command { return &sessionCmd{sm: sm} }
+func NewSessionCmd(sm *session.Manager, reset interface{ InvalidateSource(string) }) Command {
+	return &sessionCmd{sm: sm, reset: reset}
+}
 
 func (c *sessionCmd) Name() string { return "session" }
-func (c *sessionCmd) Desc() string { return "session management (list/new)" }
+func (c *sessionCmd) Desc() string { return "session management (list/current/new/switch/fork)" }
 
 func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
+	src := bus.SourceFrom(ctx)
+	if src == "" {
+		src = bus.AddrPlatformCLI
+	}
 	if len(args) == 0 {
-		return "usage: !session [list|new]", nil
+		return "usage: !session [list|current|new|switch <id>|fork]", nil
 	}
 
 	switch args[0] {
@@ -75,18 +82,64 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		}
 		var b strings.Builder
 		b.WriteString("Sessions:\n")
+		current, _ := c.sm.CurrentID(src)
 		for _, id := range ids {
-			fmt.Fprintf(&b, "  %s\n", id)
+			mark := "  "
+			if id == current {
+				mark = "* "
+			}
+			fmt.Fprintf(&b, "%s%s\n", mark, id)
 		}
 		return b.String(), nil
-	case "new":
-		s, err := c.sm.Create()
+	case "current":
+		id, ok := c.sm.CurrentID(src)
+		if !ok {
+			return "no current session for source", nil
+		}
+		s, err := c.sm.Get(id)
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("created: %s", s.ID()), nil
+		var b strings.Builder
+		fmt.Fprintf(&b, "Current session: %s\n", id)
+		fmt.Fprintf(&b, "Source: %s\n", src)
+		fmt.Fprintf(&b, "Entries: %d\n", s.EntryCount())
+		fmt.Fprintf(&b, "Anchors: %d", len(s.Anchors()))
+		if p := s.Provenance(); p != nil {
+			fmt.Fprintf(&b, "\nParent: %s\nFork point: %d", p.ParentSessionID, p.ForkEntryCount)
+		}
+		return b.String(), nil
+	case "new":
+		s, err := c.sm.ResetSource(src)
+		if err != nil {
+			return "", err
+		}
+		c.invalidate(src)
+		return fmt.Sprintf("switched to new session: %s", s.ID()), nil
+	case "switch":
+		if len(args) < 2 {
+			return "usage: !session switch <id>", nil
+		}
+		if err := c.sm.RestoreSource(src, args[1]); err != nil {
+			return "", err
+		}
+		c.invalidate(src)
+		return fmt.Sprintf("switched to session: %s", args[1]), nil
+	case "fork":
+		s, err := c.sm.ForkSource(src)
+		if err != nil {
+			return "", err
+		}
+		c.invalidate(src)
+		return fmt.Sprintf("forked current session: %s", s.ID()), nil
 	default:
-		return "usage: !session [list|new]", nil
+		return "usage: !session [list|current|new|switch <id>|fork]", nil
+	}
+}
+
+func (c *sessionCmd) invalidate(src string) {
+	if c.reset != nil {
+		c.reset.InvalidateSource(src)
 	}
 }
 

@@ -5,13 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/abcdlsj/mink/msg"
 )
 
 type Store interface {
-	Load(id string) ([]msg.Message, error)
-	Save(id string, msgs []msg.Message) error
+	Load(id string) (*Snapshot, error)
+	Save(id string, snap *Snapshot) error
 	Delete(id string) error
 	List() ([]string, error)
 }
@@ -26,23 +24,23 @@ func NewFileStore(dir string) *FileStore {
 }
 
 func (s *FileStore) path(id string) string {
-	return filepath.Join(s.dir, id+".jsonl")
+	return filepath.Join(s.dir, id+".json")
 }
 
-func (s *FileStore) Load(id string) ([]msg.Message, error) {
+func (s *FileStore) Load(id string) (*Snapshot, error) {
 	data, err := os.ReadFile(s.path(id))
 	if err != nil {
 		return nil, err
 	}
-	var msgs []msg.Message
-	if err := json.Unmarshal(data, &msgs); err != nil {
+	var snap Snapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
 		return nil, err
 	}
-	return msgs, nil
+	return &snap, nil
 }
 
-func (s *FileStore) Save(id string, msgs []msg.Message) error {
-	data, err := json.MarshalIndent(msgs, "", "  ")
+func (s *FileStore) Save(id string, snap *Snapshot) error {
+	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -60,10 +58,10 @@ func (s *FileStore) List() ([]string, error) {
 	}
 	var ids []string
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		ids = append(ids, strings.TrimSuffix(e.Name(), ".jsonl"))
+		ids = append(ids, strings.TrimSuffix(e.Name(), ".json"))
 	}
 	return ids, nil
 }

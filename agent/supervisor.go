@@ -29,7 +29,6 @@ type Supervisor struct {
 	spawned         map[string]struct{}
 	activeSubAgents int
 	started         bool
-	sessionLookup   func(parentID, source string) *session.Session
 	mu              sync.RWMutex
 }
 
@@ -40,12 +39,6 @@ func NewSupervisor(deps AgentDeps, sm *session.Manager) *Supervisor {
 		agents:  make(map[string]*Agent),
 		spawned: make(map[string]struct{}),
 	}
-}
-
-func (s *Supervisor) SetSessionLookup(fn func(parentID, source string) *session.Session) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessionLookup = fn
 }
 
 func (s *Supervisor) Start(_ context.Context) error {
@@ -159,11 +152,14 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 func (s *Supervisor) createChild(parentID, source string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
-	sess, _ := s.sm.Create()
+	var sess *session.Session
 	if shareCtx {
 		if parent := s.parentSession(parentID, source); parent != nil {
-			sess.Replace(parent.Messages())
+			sess, _ = s.sm.Fork(parent)
 		}
+	}
+	if sess == nil {
+		sess, _ = s.sm.Create()
 	}
 	child := s.deps.newAgent(id, sess, true)
 
@@ -183,12 +179,15 @@ func (s *Supervisor) parentSession(parentID, source string) *session.Session {
 		s.mu.RUnlock()
 		return parent.Session()
 	}
-	lookup := s.sessionLookup
 	s.mu.RUnlock()
-	if lookup == nil {
+	if parentID != bus.AddrAgentMain || source == "" {
 		return nil
 	}
-	return lookup(parentID, source)
+	parent, ok := s.sm.LookupSource(source)
+	if !ok {
+		return nil
+	}
+	return parent
 }
 
 func (s *Supervisor) kill(id string) {

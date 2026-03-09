@@ -138,23 +138,10 @@ func New(opts Options) (*App, error) {
 	deps.CronTool = tool.NewCron(config.CronPath(), cronSched)
 
 	disp := agent.NewDispatcher(deps, sm, sl)
-	sup.SetSessionLookup(func(parentID, source string) *session.Session {
-		if parentID != bus.AddrAgentMain {
-			return nil
-		}
-		if source == "" {
-			return nil
-		}
-		a := disp.Agent(source)
-		if a == nil {
-			return nil
-		}
-		return a.Session()
-	})
 	disp.SetSelfUpdateTool(tool.NewSelfUpdate(sm, disp))
 
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
-	cmdReg.Register(command.NewSessionCmd(sm))
+	cmdReg.Register(command.NewSessionCmd(sm, disp))
 
 	app := &App{
 		cfg:    cfg,
@@ -403,7 +390,7 @@ func (a *App) ReloadConfig(cfg config.Config) {
 }
 
 func (a *App) SetResumeSessions(m map[string]string) {
-	a.disp.SetResumeSessions(m)
+	_ = a.sm.RestoreSources(m)
 }
 
 func (a *App) cliStatus() func() platform.StatusInfo {

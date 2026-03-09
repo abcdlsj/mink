@@ -14,7 +14,7 @@ import (
 )
 
 func (a *Agent) step(ctx context.Context, src string) (bool, error) {
-	msgs := a.session.Messages()
+	msgs := a.viewMessages()
 	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
 	allMsgs := append(sysMsgs, msgs...)
 
