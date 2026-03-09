@@ -32,6 +32,8 @@ jobs:
                    -s -w"
 
           platforms=(
+            darwin/amd64
+            darwin/arm64
             linux/amd64
             linux/arm64
           )
@@ -49,6 +51,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            mink-darwin-amd64
+            mink-darwin-arm64
             mink-linux-amd64
             mink-linux-arm64
           generate_release_notes: true
