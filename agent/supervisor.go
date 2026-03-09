@@ -52,7 +52,6 @@ func (s *Supervisor) Start(_ context.Context) error {
 
 	if s.deps.Bus != nil {
 		s.deps.Bus.RegisterHandler(bus.TypeSubtaskRun, s.handleSubtaskRun)
-		s.deps.Bus.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
 	}
 	return nil
 }
@@ -76,7 +75,6 @@ func (s *Supervisor) Stop() error {
 
 	if s.deps.Bus != nil {
 		s.deps.Bus.UnregisterHandler(bus.TypeSubtaskRun)
-		s.deps.Bus.UnregisterHandler(bus.TypeDelegate)
 	}
 	return nil
 }
@@ -150,46 +148,6 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 		},
 	}, nil
 }
-
-func (s *Supervisor) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, error) {
-	payload, ok := m.Payload.(map[string]string)
-	if !ok {
-		return bus.Msg{}, fmt.Errorf("invalid delegate payload")
-	}
-
-	task := payload["task"]
-	targetID := payload["to"]
-	if targetID == "" {
-		targetID = bus.AddrBroadcast
-	}
-
-	s.mu.RLock()
-	target, ok := s.agents[targetID]
-	s.mu.RUnlock()
-	if !ok {
-		return bus.Msg{}, fmt.Errorf("agent not found: %s", targetID)
-	}
-
-	if err := target.Run(ctx, m.From, task); err != nil {
-		return bus.Msg{
-			Type: bus.TypeReport,
-			From: targetID,
-			To:   m.From,
-			Payload: map[string]string{
-				"result": fmt.Sprintf("error: %v", err),
-			},
-		}, nil
-	}
-	return bus.Msg{
-		Type: bus.TypeReport,
-		From: targetID,
-		To:   m.From,
-		Payload: map[string]string{
-			"result": "completed",
-		},
-	}, nil
-}
-
 func (s *Supervisor) createChild(parentID string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
