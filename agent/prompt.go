@@ -109,7 +109,7 @@ func (a *Agent) sectionSpawn() section {
 			return ""
 		}
 		return strings.Join([]string{
-			"`spawn` delegates subtasks to new agents. `direct_output: true` shows result directly to user.",
+			"`spawn` runs a child-agent subtask and returns its final result. `direct_output: true` also streams the child output directly to the user.",
 			"`background` runs long commands asynchronously. You'll be notified when done.",
 		}, "\n")
 	}}

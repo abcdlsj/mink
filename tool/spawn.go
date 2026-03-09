@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/abcdlsj/mink/bus"
 )
@@ -20,7 +19,7 @@ func NewSpawn(b *bus.Bus, parentID string) *Spawn {
 
 func (s *Spawn) Name() string { return "spawn" }
 func (s *Spawn) Desc() string {
-	return "Spawn a new agent to handle a subtask. Use direct_output to let the agent respond directly to user, or keep silent to process its result yourself."
+	return "Run a subtask with a child agent. Returns the child result when it completes; use direct_output to also show the child output directly to the user."
 }
 
 func (s *Spawn) Schema() map[string]any {
@@ -29,15 +28,15 @@ func (s *Spawn) Schema() map[string]any {
 		"properties": map[string]any{
 			"task": map[string]any{
 				"type":        "string",
-				"description": "Clear description of the task for the new agent",
+				"description": "Clear description of the task for the child agent",
 			},
 			"share_context": map[string]any{
 				"type":        "boolean",
-				"description": "Whether to share conversation context with the new agent (default: false)",
+				"description": "Whether to share conversation context with the child agent (default: false)",
 			},
 			"direct_output": map[string]any{
 				"type":        "boolean",
-				"description": "If true, agent output is shown directly to user; if false (default), output is returned to you for processing",
+				"description": "If true, child output is shown directly to the user while still returning the final result to you",
 			},
 		},
 		"required": []string{"task"},
@@ -59,7 +58,7 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	}
 
 	resp, err := s.bus.Req(ctx, bus.Msg{
-		Type: bus.TypeAgentSpawn,
+		Type: bus.TypeSubtaskRun,
 		From: s.parentID,
 		To:   bus.AddrSystemSup,
 		Payload: map[string]any{
@@ -76,32 +75,8 @@ func (s *Spawn) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("invalid spawn response")
 	}
-
-	childID := payload["agent_id"]
-	if childID == "" {
-		return "", fmt.Errorf("no agent_id in response")
+	if result := payload["result"]; result != "" {
+		return result, nil
 	}
-
-	// 等待子 agent 完成
-	ch := make(chan bus.Msg, 8)
-	s.bus.Subscribe(bus.TypeAgentDone, ch)
-	defer s.bus.Unsubscribe(bus.TypeAgentDone, ch)
-
-	timeout := time.After(10 * time.Minute)
-	for {
-		select {
-		case m := <-ch:
-			if m.From != childID {
-				continue
-			}
-			if p, ok := m.Payload.(map[string]string); ok {
-				return p["result"], nil
-			}
-			return "completed", nil
-		case <-timeout:
-			return "", fmt.Errorf("agent %s timeout", childID)
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
-	}
+	return "completed", nil
 }

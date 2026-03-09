@@ -50,9 +50,10 @@ func (d *Dispatcher) SetConfig(c config.Config) {
 	d.mu.Unlock()
 }
 
-func (d *Dispatcher) SetProvider(p llm.Provider) {
+func (d *Dispatcher) SetLLM(p llm.Provider, sel *llm.Sel) {
 	d.mu.Lock()
 	d.deps.Provider = p
+	d.deps.Sel = sel
 	d.mu.Unlock()
 }
 

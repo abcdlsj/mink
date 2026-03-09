@@ -18,11 +18,12 @@ type AgentConn struct {
 }
 
 type Bus struct {
-	subs     map[string][]chan Msg
-	handlers map[string]Handler
-	agents   map[string]*AgentConn
-	pending  map[string][]Msg
-	mu       sync.RWMutex
+	subs      map[string][]chan Msg
+	observers []chan Msg
+	handlers  map[string]Handler
+	agents    map[string]*AgentConn
+	pending   map[string][]Msg
+	mu        sync.RWMutex
 }
 
 func New() *Bus {
@@ -72,12 +73,46 @@ func (b *Bus) Subscribe(msgType string, ch chan Msg) {
 func (b *Bus) Unsubscribe(msgType string, ch chan Msg) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	arr := b.subs[msgType]
-	for i, c := range arr {
-		if c == ch {
-			b.subs[msgType] = append(arr[:i], arr[i+1:]...)
-			break
+	b.subs[msgType] = removeSub(b.subs[msgType], ch)
+}
+
+func (b *Bus) Observe(ch chan Msg) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observers = append(b.observers, ch)
+}
+
+func (b *Bus) Unobserve(ch chan Msg) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observers = removeSub(b.observers, ch)
+}
+
+func removeSub(chans []chan Msg, target chan Msg) []chan Msg {
+	for i, ch := range chans {
+		if ch == target {
+			return append(chans[:i], chans[i+1:]...)
 		}
+	}
+	return chans
+}
+
+func deliver(ch chan Msg, m Msg) bool {
+	select {
+	case ch <- m:
+		return true
+	default:
+		return false
+	}
+}
+
+func (b *Bus) observe(m Msg) {
+	b.mu.RLock()
+	observers := append([]chan Msg(nil), b.observers...)
+	b.mu.RUnlock()
+
+	for _, ch := range observers {
+		_ = deliver(ch, m)
 	}
 }
 
@@ -86,45 +121,46 @@ func (b *Bus) Pub(m Msg) error {
 	if err := validateMsg("pub", m); err != nil {
 		return err
 	}
+	b.observe(m)
 
 	b.mu.RLock()
-	defer b.mu.RUnlock()
+	subs := append([]chan Msg(nil), b.subs[m.Type]...)
+	var agent *AgentConn
+	var agents []*AgentConn
+	if m.To == AddrBroadcast {
+		agents = make([]*AgentConn, 0, len(b.agents))
+		for _, conn := range b.agents {
+			agents = append(agents, conn)
+		}
+	} else {
+		agent = b.agents[m.To]
+	}
+	b.mu.RUnlock()
 
 	var dropped int
 
 	if m.To == AddrBroadcast {
-		for _, ch := range b.subs[m.Type] {
-			select {
-			case ch <- m:
-			default:
+		for _, ch := range subs {
+			if !deliver(ch, m) {
 				dropped++
 			}
 		}
-		for _, agent := range b.agents {
-			if agent.ID == m.From {
+		for _, conn := range agents {
+			if conn == nil || conn.ID == m.From {
 				continue
 			}
-			select {
-			case agent.Send <- m:
-			default:
+			if !deliver(conn.Send, m) {
 				dropped++
 			}
 		}
+	} else if agent != nil {
+		if !deliver(agent.Send, m) {
+			dropped++
+		}
 	} else {
-		agent, ok := b.agents[m.To]
-		if ok {
-			select {
-			case agent.Send <- m:
-			default:
+		for _, ch := range subs {
+			if !deliver(ch, m) {
 				dropped++
-			}
-		} else {
-			for _, ch := range b.subs[m.Type] {
-				select {
-				case ch <- m:
-				default:
-					dropped++
-				}
 			}
 		}
 	}
@@ -143,6 +179,7 @@ func (b *Bus) Req(ctx context.Context, m Msg) (Msg, error) {
 	if IsBroadcast(m.To) {
 		return Msg{}, ErrInvalidAddr("req", m.Type, m.From, m.To, "broadcast target is not allowed for req")
 	}
+	b.observe(m)
 
 	b.mu.RLock()
 	handler, ok := b.handlers[m.Type]
@@ -166,6 +203,7 @@ func (b *Bus) Req(ctx context.Context, m Msg) (Msg, error) {
 		if err := validateMsg("req:response", resp); err != nil {
 			return Msg{}, err
 		}
+		b.observe(resp)
 		return resp, nil
 	}
 
@@ -220,6 +258,7 @@ func (b *Bus) reqToAgent(ctx context.Context, m Msg) (Msg, error) {
 				if err := validateMsg("req:agent-response", resp); err != nil {
 					return Msg{}, err
 				}
+				b.observe(resp)
 				return resp, nil
 			}
 
@@ -236,6 +275,12 @@ func (b *Bus) RegisterHandler(msgType string, h Handler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[msgType] = h
+}
+
+func (b *Bus) UnregisterHandler(msgType string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.handlers, msgType)
 }
 
 func (b *Bus) RegisterAgent(id string, shareCtx bool) *AgentConn {

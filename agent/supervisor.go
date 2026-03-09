@@ -28,23 +28,60 @@ type Supervisor struct {
 	agents          map[string]*Agent
 	spawned         map[string]struct{}
 	activeSubAgents int
+	started         bool
 	mu              sync.RWMutex
 }
 
 func NewSupervisor(deps AgentDeps, sm *session.Manager) *Supervisor {
-	s := &Supervisor{
+	return &Supervisor{
 		deps:    deps,
 		sm:      sm,
-		agents:    make(map[string]*Agent),
-		spawned:   make(map[string]struct{}),
+		agents:  make(map[string]*Agent),
+		spawned: make(map[string]struct{}),
 	}
-	deps.Bus.RegisterAgent(bus.AddrSystemSup, false)
-	deps.Bus.RegisterHandler(bus.TypeAgentSpawn, s.handleSpawn)
-	deps.Bus.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
-	return s
 }
 
-func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error) {
+func (s *Supervisor) Start(_ context.Context) error {
+	s.mu.Lock()
+	if s.started {
+		s.mu.Unlock()
+		return nil
+	}
+	s.started = true
+	s.mu.Unlock()
+
+	if s.deps.Bus != nil {
+		s.deps.Bus.RegisterHandler(bus.TypeSubtaskRun, s.handleSubtaskRun)
+		s.deps.Bus.RegisterHandler(bus.TypeDelegate, s.handleDelegate)
+	}
+	return nil
+}
+
+func (s *Supervisor) Stop() error {
+	s.mu.Lock()
+	if !s.started {
+		s.mu.Unlock()
+		return nil
+	}
+	s.started = false
+	ids := make([]string, 0, len(s.spawned))
+	for id := range s.spawned {
+		ids = append(ids, id)
+	}
+	s.mu.Unlock()
+
+	for _, id := range ids {
+		s.kill(id)
+	}
+
+	if s.deps.Bus != nil {
+		s.deps.Bus.UnregisterHandler(bus.TypeSubtaskRun)
+		s.deps.Bus.UnregisterHandler(bus.TypeDelegate)
+	}
+	return nil
+}
+
+func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	payload, ok := m.Payload.(map[string]any)
 	if !ok {
 		if p, ok := m.Payload.(map[string]string); ok {
@@ -58,13 +95,15 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 	shareCtx, _ := payload["share_context"].(bool)
 	directOutput, _ := payload["direct_output"].(bool)
 	parentID := m.From
+	if task == "" {
+		return bus.Msg{}, fmt.Errorf("task is required")
+	}
 
 	if !s.acquireSpawnSlot() {
 		return bus.Msg{}, fmt.Errorf("subagent limit reached: at most %d active subagents", maxActiveSubAgents)
 	}
 
-	child := s.SpawnWithContext(parentID, shareCtx)
-
+	child := s.createChild(parentID, shareCtx)
 	directStr := "false"
 	if directOutput {
 		directStr = "true"
@@ -81,31 +120,33 @@ func (s *Supervisor) handleSpawn(ctx context.Context, m bus.Msg) (bus.Msg, error
 		},
 	})
 
-	go func() {
-		err := child.Run(ctx, bus.AddrBroadcast, task)
-		result := s.extractLastResponse(child)
-		if err != nil {
-			result = fmt.Sprintf("error: %v", err)
-		}
-		_ = s.deps.Bus.Pub(bus.Msg{
-			Type: bus.TypeAgentDone,
-			From: child.ID(),
-			To:   bus.AddrBroadcast,
-			Payload: map[string]string{
-				"agent_id": child.ID(),
-				"result":   result,
-			},
-		})
-		s.Kill(child.ID())
-	}()
+	err := child.Run(ctx, bus.AddrBroadcast, task)
+	result := s.extractLastResponse(child)
+	if err != nil {
+		result = fmt.Sprintf("error: %v", err)
+	}
+	_ = s.deps.Bus.Pub(bus.Msg{
+		Type: bus.TypeAgentDone,
+		From: child.ID(),
+		To:   bus.AddrBroadcast,
+		Payload: map[string]string{
+			"agent_id": child.ID(),
+			"result":   result,
+		},
+	})
+	s.kill(child.ID())
+	if err != nil {
+		return bus.Msg{}, err
+	}
 
 	return bus.Msg{
-		Type: bus.TypeAgentSpawn,
+		Type: bus.TypeSubtaskRun,
 		From: bus.AddrSystemSup,
 		To:   parentID,
 		Payload: map[string]string{
 			"agent_id": child.ID(),
-			"status":   "spawned",
+			"status":   "completed",
+			"result":   result,
 		},
 	}, nil
 }
@@ -125,41 +166,31 @@ func (s *Supervisor) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 	s.mu.RLock()
 	target, ok := s.agents[targetID]
 	s.mu.RUnlock()
-
 	if !ok {
 		return bus.Msg{}, fmt.Errorf("agent not found: %s", targetID)
 	}
 
-	resultCh := make(chan string, 1)
-	go func() {
-		err := target.Run(ctx, m.From, task)
-		if err != nil {
-			resultCh <- fmt.Sprintf("error: %v", err)
-		} else {
-			resultCh <- "completed"
-		}
-	}()
-
-	select {
-	case result := <-resultCh:
+	if err := target.Run(ctx, m.From, task); err != nil {
 		return bus.Msg{
 			Type: bus.TypeReport,
 			From: targetID,
 			To:   m.From,
 			Payload: map[string]string{
-				"result": result,
+				"result": fmt.Sprintf("error: %v", err),
 			},
 		}, nil
-	case <-ctx.Done():
-		return bus.Msg{}, ctx.Err()
 	}
+	return bus.Msg{
+		Type: bus.TypeReport,
+		From: targetID,
+		To:   m.From,
+		Payload: map[string]string{
+			"result": "completed",
+		},
+	}, nil
 }
 
-func (s *Supervisor) Spawn(parentID string) *Agent {
-	return s.SpawnWithContext(parentID, false)
-}
-
-func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
+func (s *Supervisor) createChild(parentID string, shareCtx bool) *Agent {
 	id := bus.Agent("[agent]" + randAgentName())
 
 	sess, _ := s.sm.Create()
@@ -181,7 +212,7 @@ func (s *Supervisor) SpawnWithContext(parentID string, shareCtx bool) *Agent {
 	return child
 }
 
-func (s *Supervisor) Kill(id string) {
+func (s *Supervisor) kill(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -197,12 +228,6 @@ func (s *Supervisor) Kill(id string) {
 	}
 }
 
-func (s *Supervisor) Register(a *Agent) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.agents[a.ID()] = a
-}
-
 func (s *Supervisor) acquireSpawnSlot() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,13 +236,6 @@ func (s *Supervisor) acquireSpawnSlot() bool {
 	}
 	s.activeSubAgents++
 	return true
-}
-
-func (s *Supervisor) Get(id string) (*Agent, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	a, ok := s.agents[id]
-	return a, ok
 }
 
 func (s *Supervisor) extractLastResponse(a *Agent) string {

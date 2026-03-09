@@ -60,6 +60,7 @@ type CLI struct {
 
 	program *tea.Program
 	model   *model
+	events  chan bus.Msg
 
 	confirmMu sync.Mutex
 	confirmCh chan tool.Approval
@@ -121,6 +122,10 @@ func (c *CLI) Stop() error {
 	default:
 		close(c.stop)
 	}
+	if c.events != nil {
+		c.bus.Unobserve(c.events)
+		c.events = nil
+	}
 	if c.program != nil {
 		c.program.Quit()
 	}
@@ -128,22 +133,12 @@ func (c *CLI) Stop() error {
 }
 
 func (c *CLI) subscribeMessages(ctx context.Context) {
+	if c.events != nil {
+		c.bus.Unobserve(c.events)
+	}
 	ch := make(chan bus.Msg, 64)
-	c.bus.Subscribe(bus.TypeAssistant, ch)
-	c.bus.Subscribe(bus.TypeTurnDone, ch)
-	c.bus.Subscribe(bus.TypeToolCall, ch)
-	c.bus.Subscribe(bus.TypeToolResult, ch)
-	c.bus.Subscribe(bus.TypeToolError, ch)
-	c.bus.Subscribe(bus.TypeAgentSpawn, ch)
-	c.bus.Subscribe(bus.TypeAgentDone, ch)
-	c.bus.Subscribe(bus.TypeTaskStart, ch)
-	c.bus.Subscribe(bus.TypeTaskDone, ch)
-	c.bus.Subscribe(bus.TypeStreamChunk, ch)
-	c.bus.Subscribe(bus.TypeStreamEnd, ch)
-	c.bus.Subscribe(bus.TypeThinkingChunk, ch)
-	c.bus.Subscribe(bus.TypeThinkingEnd, ch)
-	c.bus.Subscribe(bus.TypeSessionNew, ch)
-	c.bus.Subscribe(bus.TypeSessionCompact, ch)
+	c.events = ch
+	c.bus.Observe(ch)
 
 	go func() {
 		for {

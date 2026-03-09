@@ -22,6 +22,8 @@ type Agent struct {
 	sel         *llm.Sel
 	nextModel   string
 	reg         *tool.Registry
+	guard       tool.Guard
+	extraTools  []tool.Tool
 	session     *session.Session
 	bus         *bus.Bus
 	hooks       *hook.Manager
@@ -77,6 +79,7 @@ type Option func(*Agent)
 func WithHooks(h *hook.Manager) Option { return func(a *Agent) { a.hooks = h } }
 func WithToolGuard(g tool.Guard) Option {
 	return func(a *Agent) {
+		a.guard = g
 		if a.reg != nil {
 			a.reg.SetGuard(g)
 		}
@@ -108,16 +111,19 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	for _, opt := range opts {
 		opt(a)
 	}
-	// Initialize registry with sel if provided
-	if a.sel != nil {
-		a.reg = tool.NewRegistry(a.sel)
-	} else {
-		a.reg = tool.NewRegistry(nil)
+	if a.reg == nil {
+		if a.sel != nil {
+			a.reg = tool.NewRegistry(a.sel)
+		} else {
+			a.reg = tool.NewRegistry(nil)
+		}
 	}
-	for _, opt := range opts {
-		opt(a)
+	if a.guard != nil {
+		a.reg.SetGuard(a.guard)
 	}
-	a.ensureTokenEstimator()
+	for _, extra := range a.extraTools {
+		a.reg.Register(extra)
+	}
 	if a.bus != nil {
 		a.reg.Register(tool.NewSpawn(a.bus, id))
 		bg := tool.NewBackground(a.bus, id)
@@ -127,12 +133,17 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		a.reg.Register(bg)
 	}
 	a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
+	a.ensureTokenEstimator()
 	return a
 }
 
 func WithCronTool(t tool.Tool) Option {
 	return func(a *Agent) {
-		if t != nil && a.reg != nil {
+		if t == nil {
+			return
+		}
+		a.extraTools = append(a.extraTools, t)
+		if a.reg != nil {
 			a.reg.Register(t)
 		}
 	}
@@ -140,7 +151,11 @@ func WithCronTool(t tool.Tool) Option {
 
 func WithExtraTool(t tool.Tool) Option {
 	return func(a *Agent) {
-		if t != nil && a.reg != nil {
+		if t == nil {
+			return
+		}
+		a.extraTools = append(a.extraTools, t)
+		if a.reg != nil {
 			a.reg.Register(t)
 		}
 	}

@@ -7,15 +7,18 @@ const (
 	TypeToolCall       = "tool:call"
 	TypeToolResult     = "tool:result"
 	TypeToolError      = "tool:error"
-	TypeSessionNew = "session:new"
+	TypeSessionNew     = "session:new"
 	TypeSessionFork    = "session:fork"
 	TypeSessionReset   = "session:reset"
 	TypeSessionCompact = "session:compact"
-	TypeAgentSpawn     = "agent:spawn"
-	TypeAgentDone      = "agent:done"
-	TypeContextShare   = "context:share"
-	TypeTaskStart      = "task:start"
-	TypeTaskDone       = "task:done"
+
+	TypeSubtaskRun = "subtask:run"
+	TypeAgentSpawn = "agent:spawn"
+	TypeAgentDone  = "agent:done"
+
+	TypeContextShare = "context:share"
+	TypeTaskStart    = "task:start"
+	TypeTaskDone     = "task:done"
 
 	TypeDelegate = "collab:delegate"
 	TypeReport   = "collab:report"
@@ -27,6 +30,6 @@ const (
 	TypeThinkingChunk = "thinking:chunk" // thinking 内容片段
 	TypeThinkingEnd   = "thinking:end"   // thinking 结束
 
-	TypeInterrupt    = "agent:interrupt" // 用户打断
-	TypeCronTrigger  = "cron:trigger"    // cron 定时触发
+	TypeInterrupt   = "agent:interrupt" // 用户打断
+	TypeCronTrigger = "cron:trigger"    // cron 定时触发
 )

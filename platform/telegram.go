@@ -55,10 +55,11 @@ type assistantOutState struct {
 }
 
 type Telegram struct {
-	token string
-	bus   *bus.Bus
-	bot   *tele.Bot
-	stop  chan struct{}
+	token  string
+	bus    *bus.Bus
+	bot    *tele.Bot
+	stop   chan struct{}
+	events chan bus.Msg
 
 	confirmMu sync.Mutex
 	confirms  map[int64]map[string]confirmState
@@ -129,10 +130,19 @@ func (t *Telegram) Start(ctx context.Context) error {
 }
 
 func (t *Telegram) Stop() error {
-	close(t.stop)
+	select {
+	case <-t.stop:
+	default:
+		close(t.stop)
+	}
+	if t.events != nil {
+		t.bus.Unobserve(t.events)
+		t.events = nil
+	}
 	if t.bot != nil {
 		t.bot.Stop()
 	}
+	t.stopAllTyping()
 	return nil
 }
 
@@ -190,20 +200,12 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 }
 
 func (t *Telegram) forward(ctx context.Context) {
+	if t.events != nil {
+		t.bus.Unobserve(t.events)
+	}
 	ch := make(chan bus.Msg, 64)
-	t.bus.Subscribe(bus.TypeAssistant, ch)
-	t.bus.Subscribe(bus.TypeTurnDone, ch)
-	t.bus.Subscribe(bus.TypeToolCall, ch)
-	t.bus.Subscribe(bus.TypeToolResult, ch)
-	t.bus.Subscribe(bus.TypeToolError, ch)
-	t.bus.Subscribe(bus.TypeAgentSpawn, ch)
-	t.bus.Subscribe(bus.TypeAgentDone, ch)
-	t.bus.Subscribe(bus.TypeTaskStart, ch)
-	t.bus.Subscribe(bus.TypeTaskDone, ch)
-	t.bus.Subscribe(bus.TypeStreamChunk, ch)
-	t.bus.Subscribe(bus.TypeStreamEnd, ch)
-	t.bus.Subscribe(bus.TypeSessionNew, ch)
-	t.bus.Subscribe(bus.TypeSessionCompact, ch)
+	t.events = ch
+	t.bus.Observe(ch)
 
 	for {
 		select {
@@ -916,6 +918,19 @@ func (t *Telegram) stopTyping(chatID int64) {
 
 	if ok {
 		close(ch)
+	}
+}
+
+func (t *Telegram) stopAllTyping() {
+	t.typingMu.Lock()
+	ids := make([]int64, 0, len(t.typing))
+	for chatID := range t.typing {
+		ids = append(ids, chatID)
+	}
+	t.typingMu.Unlock()
+
+	for _, chatID := range ids {
+		t.stopTyping(chatID)
 	}
 }
 

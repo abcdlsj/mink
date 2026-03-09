@@ -47,7 +47,6 @@ type App struct {
 	cfg      config.Config
 	bus      *bus.Bus
 	p        llm.Provider
-	sel      *llm.Sel
 	sm       *session.Manager
 	hooks    *hook.Manager
 	cmdReg   *command.Registry
@@ -80,38 +79,12 @@ func New(opts Options) (*App, error) {
 	p := opts.Provider
 	var sel *llm.Sel
 	if p == nil {
-		if cfg.Active.APIKey == "" {
-			return nil, ErrAPIKeyRequired
-		}
-
 		var err error
-		p, err = llm.NewProvider(llm.Config{
-			Provider:  cfg.Active.Provider,
-			APIKey:    cfg.Active.APIKey,
-			BaseURL:   cfg.Active.BaseURL,
-			Model:     cfg.Active.Model,
-			Headers:   cfg.Active.Headers,
-			Reasoning: cfg.Active.Reasoning,
-		})
+		p, err = newProviderFromModel(cfg.Active)
 		if err != nil {
 			return nil, err
 		}
-
-		// Create Sel if cheap model is configured
-		if cfg.CheapModel != "" {
-			cfg.ResolveCheapModel()
-			cheap, err := llm.NewProvider(llm.Config{
-				Provider:  cfg.Active.Provider,
-				APIKey:    cfg.Active.APIKey,
-				BaseURL:   cfg.Active.BaseURL,
-				Model:     cfg.Active.Model,
-				Headers:   cfg.Active.Headers,
-				Reasoning: cfg.Active.Reasoning,
-			})
-			if err == nil {
-				sel = llm.NewSel(p, cheap)
-			}
-		}
+		sel = newSelector(cfg, p)
 	}
 
 	sessionDir := opts.SessionDir
@@ -205,6 +178,14 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	a.ctx, a.cancel = context.WithCancel(ctx)
+	if a.sup != nil {
+		if err := a.sup.Start(a.ctx); err != nil {
+			a.cancel()
+			a.ctx = nil
+			a.cancel = nil
+			return err
+		}
+	}
 	a.disp.Start(a.ctx)
 	_ = a.cron.Start(a.ctx)
 	a.started = true
@@ -327,6 +308,9 @@ func (a *App) Close() error {
 
 	if cancel != nil {
 		cancel()
+	}
+	if a.sup != nil {
+		_ = a.sup.Stop()
 	}
 
 	for _, ad := range adapters {
@@ -453,20 +437,14 @@ func (a *App) switchModel(name string) error {
 		return fmt.Errorf("model %q not found", name)
 	}
 
-	p, err := llm.NewProvider(llm.Config{
-		Provider:  a.cfg.Active.Provider,
-		APIKey:    a.cfg.Active.APIKey,
-		BaseURL:   a.cfg.Active.BaseURL,
-		Model:     a.cfg.Active.Model,
-		Headers:   a.cfg.Active.Headers,
-		Reasoning: a.cfg.Active.Reasoning,
-	})
+	p, err := newProviderFromModel(a.cfg.Active)
 	if err != nil {
 		return fmt.Errorf("create provider: %w", err)
 	}
+	sel := newSelector(a.cfg, p)
 
 	a.p = p
-	a.disp.SetProvider(p)
+	a.disp.SetLLM(p, sel)
 	a.disp.SetConfig(a.cfg)
 	a.disp.ResetAgents()
 
@@ -479,4 +457,33 @@ func defaultSessionDir() string {
 		return filepath.Join(".mink", "sessions")
 	}
 	return filepath.Join(home, ".mink", "sessions")
+}
+
+func newProviderFromModel(model config.ModelConfig) (llm.Provider, error) {
+	if model.APIKey == "" {
+		return nil, ErrAPIKeyRequired
+	}
+	return llm.NewProvider(llm.Config{
+		Provider:  model.Provider,
+		APIKey:    model.APIKey,
+		BaseURL:   model.BaseURL,
+		Model:     model.Model,
+		Headers:   model.Headers,
+		Reasoning: model.Reasoning,
+	})
+}
+
+func newSelector(cfg config.Config, primary llm.Provider) *llm.Sel {
+	if cfg.CheapModel == "" {
+		return nil
+	}
+	cheapCfg := cfg
+	if !cheapCfg.ResolveCheapModel() {
+		return nil
+	}
+	cheap, err := newProviderFromModel(cheapCfg.Active)
+	if err != nil {
+		return nil
+	}
+	return llm.NewSel(primary, cheap)
 }

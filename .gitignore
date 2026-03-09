@@ -1,3 +1,4 @@
 /mink
 !cmd/mink/
 .mink/
+.cache/
