@@ -49,29 +49,47 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
 	a.nextModel = "default"
+	assistantContent := r.Content
+	if len(r.ToolCalls) > 0 {
+		assistantContent = ""
+	}
 
-	if len(r.ToolCalls) > 0 || r.Content != "" {
+	if len(r.ToolCalls) > 0 || assistantContent != "" {
 		a.session.Add(msg.Message{
 			Role:               "assistant",
-			Content:            r.Content,
+			Content:            assistantContent,
 			Reasoning:          r.Reasoning,
 			ReasoningSignature: r.ReasoningSignature,
 			ToolCalls:          r.ToolCalls,
 		})
 	}
 
-	if r.Content != "" {
-		a.logAgentOutput(stepNum, r.Content)
-		a.hooks.Trigger(ctx, hook.BeforeAssist, r.Content)
+	if assistantContent != "" {
+		if a.bus != nil && a.stream {
+			_ = a.bus.Pub(bus.Msg{
+				Type:    bus.TypeStreamChunk,
+				From:    a.id,
+				To:      src,
+				Payload: assistantContent,
+			})
+			_ = a.bus.Pub(bus.Msg{
+				Type: bus.TypeStreamEnd,
+				From: a.id,
+				To:   src,
+			})
+		}
+
+		a.logAgentOutput(stepNum, assistantContent)
+		a.hooks.Trigger(ctx, hook.BeforeAssist, assistantContent)
 		if a.bus != nil && !a.stream {
 			_ = a.bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    a.id,
 				To:      src,
-				Payload: r.Content,
+				Payload: assistantContent,
 			})
 		}
-		a.hooks.Trigger(ctx, hook.AfterAssist, r.Content)
+		a.hooks.Trigger(ctx, hook.AfterAssist, assistantContent)
 	}
 
 	if len(r.ToolCalls) == 0 {
@@ -108,6 +126,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 
 		toolStart := time.Now()
 		out, toolErr := a.execTool(ctx, tc)
+		a.rememberToolCall(tc, out, toolErr)
 		a.logToolResult(stepNum, toolCorrID, tc, out, toolErr, time.Since(toolStart))
 
 		tr := msg.ToolResult{ToolCallID: tc.ID, Content: out}
@@ -164,14 +183,6 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 		switch chunk.Type {
 		case llm.ChunkText:
 			content.WriteString(chunk.Delta)
-			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type:    bus.TypeStreamChunk,
-					From:    a.id,
-					To:      src,
-					Payload: chunk.Delta,
-				})
-			}
 		case llm.ChunkToolCall:
 			if chunk.ToolCall != nil {
 				toolCalls = append(toolCalls, *chunk.ToolCall)
@@ -197,11 +208,6 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 				signature = chunk.ReasoningSignature
 			}
 			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type: bus.TypeStreamEnd,
-					From: a.id,
-					To:   src,
-				})
 				if reasoning.Len() > 0 {
 					_ = a.bus.Pub(bus.Msg{
 						Type:    bus.TypeThinkingEnd,
@@ -234,6 +240,10 @@ func (a *Agent) execTool(ctx context.Context, tc msg.ToolCall) (string, error) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+
+	if err := a.maybeBlockDuplicateToolCall(tc); err != nil {
+		return "", err
 	}
 
 	out, err := a.reg.Run(ctx, tc.Name, tc.Args)

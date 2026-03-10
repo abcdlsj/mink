@@ -15,6 +15,7 @@ const (
 	ErrPermission ErrorType = "PERMISSION"
 	ErrNotFound   ErrorType = "NOT_FOUND"
 	ErrParse      ErrorType = "PARSE"
+	ErrDuplicate  ErrorType = "DUPLICATE"
 	ErrUnknown    ErrorType = "UNKNOWN"
 )
 
@@ -88,6 +89,16 @@ func ParseError(tool, reason string) *ToolError {
 		Tool:       tool,
 		Message:    fmt.Sprintf("failed to parse arguments: %s", reason),
 		Suggestion: "Check the tool schema and provide valid JSON arguments.",
+	}
+}
+
+func DuplicateError(tool, details string) *ToolError {
+	return &ToolError{
+		Type:       ErrDuplicate,
+		Tool:       tool,
+		Message:    "duplicate tool call blocked in the same turn",
+		Details:    details,
+		Suggestion: "Reuse the previous result or choose a different tool/action instead of repeating the same call.",
 	}
 }
 

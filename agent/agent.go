@@ -18,27 +18,29 @@ import (
 )
 
 type Agent struct {
-	id          string
-	p           llm.Provider
-	sel         *llm.Sel
-	nextModel   string
-	reg         *tool.Registry
-	guard       tool.Guard
-	extraTools  []tool.Tool
-	session     *session.Session
-	bus         *bus.Bus
-	hooks       *hook.Manager
-	prompt      string
-	subAgent    bool
-	cfg         config.Config
-	stream      bool
-	tok         *tokenEstimator
-	base        tokenBaseline
-	sessionDir  string
-	trace       *runlog.Logger
-	interrupted bool
-	cancelFn    context.CancelFunc
-	mu          sync.Mutex
+	id               string
+	p                llm.Provider
+	sel              *llm.Sel
+	nextModel        string
+	reg              *tool.Registry
+	guard            tool.Guard
+	extraTools       []tool.Tool
+	session          *session.Session
+	bus              *bus.Bus
+	hooks            *hook.Manager
+	prompt           string
+	subAgent         bool
+	cfg              config.Config
+	stream           bool
+	tok              *tokenEstimator
+	base             tokenBaseline
+	turnToolHistory  map[string]turnToolRecord
+	turnStateVersion int
+	sessionDir       string
+	trace            *runlog.Logger
+	interrupted      bool
+	cancelFn         context.CancelFunc
+	mu               sync.Mutex
 }
 
 type tokenBaseline struct {
@@ -220,6 +222,7 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 	defer cancel()
 
 	a.session.Add(msg.Message{Role: role, Content: input})
+	a.resetTurnState()
 	a.logUserInput(role, input)
 
 	if a.bus != nil {

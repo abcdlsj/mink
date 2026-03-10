@@ -50,6 +50,8 @@ func (a *Agent) sectionBase() section {
 			"Act, don't ask. Use tools to investigate, execute, and verify.",
 			"When a task is unclear, check context and tools first, ask only when truly stuck.",
 			"Be direct and concise. Give conclusions and actionable results first.",
+			"When tools are needed, call tools first and give the user-facing answer only after the tool work is complete.",
+			"Never repeat the same tool call with unchanged arguments in the same turn; reuse prior results or change strategy.",
 		}, "\n")
 	}}
 }

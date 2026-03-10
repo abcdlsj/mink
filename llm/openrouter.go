@@ -202,9 +202,13 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 				})
 			}
 		} else {
+			content := m.Content
+			if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+				content = ""
+			}
 			cm := openrouter.ChatCompletionMessage{
 				Role:    m.Role,
-				Content: openrouter.Content{Text: m.Content},
+				Content: openrouter.Content{Text: content},
 			}
 			if m.Reasoning != "" {
 				cm.Reasoning = &m.Reasoning
