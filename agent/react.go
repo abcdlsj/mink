@@ -50,9 +50,6 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 
 	a.nextModel = "default"
 	assistantContent := r.Content
-	if len(r.ToolCalls) > 0 {
-		assistantContent = ""
-	}
 
 	if len(r.ToolCalls) > 0 || assistantContent != "" {
 		a.session.Add(msg.Message{

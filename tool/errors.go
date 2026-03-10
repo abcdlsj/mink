@@ -84,10 +84,19 @@ func PermissionError(tool, path string) *ToolError {
 }
 
 func ParseError(tool, reason string) *ToolError {
+	return ParseErrorWithInput(tool, reason, "")
+}
+
+func ParseErrorWithInput(tool, reason, input string) *ToolError {
+	details := ""
+	if strings.TrimSpace(input) != "" {
+		details = input
+	}
 	return &ToolError{
 		Type:       ErrParse,
 		Tool:       tool,
 		Message:    fmt.Sprintf("failed to parse arguments: %s", reason),
+		Details:    details,
 		Suggestion: "Check the tool schema and provide valid JSON arguments.",
 	}
 }

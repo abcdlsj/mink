@@ -62,7 +62,7 @@ func (t *describeTool) Run(ctx context.Context, args json.RawMessage) (string, e
 		Name string `json:"name"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", tool.ParseError("skills_describe", err.Error())
+		return "", tool.ParseErrorWithInput("skills_describe", err.Error(), string(args))
 	}
 
 	if params.Name == "" {

@@ -61,7 +61,7 @@ func (b *BraveSearch) Run(ctx context.Context, args json.RawMessage) (string, er
 		Offset int    `json:"offset,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", ParseError("brave_search", err.Error())
+		return "", ParseErrorWithInput("brave_search", err.Error(), string(args))
 	}
 
 	query := strings.TrimSpace(params.Query)

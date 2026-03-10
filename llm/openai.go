@@ -310,7 +310,7 @@ func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompl
 		} else {
 			content := m.Content
 			if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-				content = ""
+				content = assistantToolCallReplayContent()
 			}
 			cm := openai.ChatCompletionMessage{
 				Role:             m.Role,
@@ -323,7 +323,7 @@ func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompl
 					Type: openai.ToolTypeFunction,
 					Function: openai.FunctionCall{
 						Name:      tc.Name,
-						Arguments: string(tc.Args),
+						Arguments: replayToolCallArgs(tc.Args),
 					},
 				})
 			}

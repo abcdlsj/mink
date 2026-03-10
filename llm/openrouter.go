@@ -204,7 +204,7 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 		} else {
 			content := m.Content
 			if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-				content = ""
+				content = assistantToolCallReplayContent()
 			}
 			cm := openrouter.ChatCompletionMessage{
 				Role:    m.Role,
@@ -219,7 +219,7 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 					Type: openrouter.ToolTypeFunction,
 					Function: openrouter.FunctionCall{
 						Name:      tc.Name,
-						Arguments: string(tc.Args),
+						Arguments: replayToolCallArgs(tc.Args),
 					},
 				})
 			}
@@ -257,6 +257,10 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 	}
 
 	return req
+}
+
+func assistantToolCallReplayContent() string {
+	return " "
 }
 
 func toTokenUsageFromOR(u *openrouter.Usage) *TokenUsage {
