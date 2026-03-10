@@ -16,10 +16,14 @@ type openRouter struct {
 }
 
 func newOpenRouter(cfg Config) *openRouter {
-	client := openrouter.NewClient(
-		cfg.APIKey,
-		openrouter.WithXTitle("Mink"),
-	)
+	clientCfg := openrouter.DefaultConfig(cfg.APIKey)
+	clientCfg.XTitle = "Mink"
+	clientCfg.HTTPClient = newRetryHTTPClient(nil)
+	if cfg.BaseURL != "" {
+		clientCfg.BaseURL = cfg.BaseURL
+	}
+
+	client := openrouter.NewClientWithConfig(*clientCfg)
 	return &openRouter{
 		client: client,
 		model:  cfg.Model,

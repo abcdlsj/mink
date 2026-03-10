@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,26 +16,25 @@ import (
 type openAITransport struct {
 	headers   map[string]string
 	reasoning bool
-	base      http.RoundTripper
 }
 
-func (t *openAITransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *openAITransport) prepare(req *http.Request) error {
 	for k, v := range t.headers {
 		req.Header.Set(k, v)
 	}
 	if req.Body != nil {
 		body, err := io.ReadAll(req.Body)
 		req.Body.Close()
-		if err == nil {
-			body = patchAssistantContent(body)
-			if t.reasoning {
-				body = patchReasoning(body)
-			}
-			req.Body = io.NopCloser(bytes.NewReader(body))
-			req.ContentLength = int64(len(body))
+		if err != nil {
+			return err
 		}
+		body = patchAssistantContent(body)
+		if t.reasoning {
+			body = patchReasoning(body)
+		}
+		resetRequestBody(req, body)
 	}
-	return t.base.RoundTrip(req)
+	return nil
 }
 
 func patchReasoning(body []byte) []byte {
@@ -111,13 +109,10 @@ func newOpenAI(cfg Config) *openAI {
 
 	config := openai.DefaultConfig(cfg.APIKey)
 	config.BaseURL = cfg.BaseURL
-	config.HTTPClient = &http.Client{
-		Transport: &openAITransport{
-			headers:   cfg.Headers,
-			reasoning: cfg.Reasoning,
-			base:      http.DefaultTransport,
-		},
-	}
+	config.HTTPClient = newRetryHTTPClient((&openAITransport{
+		headers:   cfg.Headers,
+		reasoning: cfg.Reasoning,
+	}).prepare)
 
 	return &openAI{
 		client: openai.NewClientWithConfig(config),

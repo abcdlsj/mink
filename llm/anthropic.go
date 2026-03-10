@@ -23,6 +23,8 @@ func newAnthropic(cfg Config) *anthropicProvider {
 
 	opts := []option.RequestOption{
 		option.WithAPIKey(cfg.APIKey),
+		option.WithHTTPClient(newRetryHTTPClient(nil)),
+		option.WithMaxRetries(0),
 	}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
