@@ -301,7 +301,7 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 	}
 
 	b.WriteString("\n")
-	b.WriteString(styleConfirmBanner.Render("⚠ CONFIRMATION PENDING"))
+	b.WriteString(styleConfirmBanner.Render("!! CONFIRMATION PENDING"))
 	b.WriteString("\n")
 	if confirmCmd != "" {
 		b.WriteString(styleConfirmCmd.Render("$ " + confirmCmd))
@@ -322,7 +322,7 @@ func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 		b.WriteString(" ")
 	}
 	if confirming {
-		b.WriteString(stylePromptDanger.Render("⚠ "))
+		b.WriteString(stylePromptDanger.Render("!! "))
 	} else {
 		b.WriteString(stylePrompt.Render("» "))
 	}
