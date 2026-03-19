@@ -36,7 +36,9 @@ var (
 	styleAgent        = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
 	styleCode         = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5C2E7"))
 	styleBold         = lipgloss.NewStyle().Bold(true)
-	styleThinking     = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA"))
+	styleThinking     = lipgloss.NewStyle().Foreground(lipgloss.Color("#74C7EC")).Faint(true)
+	styleThinkingTag  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Faint(true)
+	stylePlaceholder  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
 
 	styleConfirmBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E1E2E")).Background(lipgloss.Color("#F38BA8")).Bold(true).Padding(0, 1)
 	styleConfirmCmd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
@@ -88,6 +90,8 @@ func (c *CLI) Start(ctx context.Context) error {
 func (c *CLI) Run() error {
 	ta := textarea.New()
 	ta.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
+	ta.FocusedStyle.Placeholder = stylePlaceholder
+	ta.BlurredStyle.Placeholder = stylePlaceholder
 	ta.Prompt = ""
 	ta.ShowLineNumbers = false
 	ta.SetWidth(80)

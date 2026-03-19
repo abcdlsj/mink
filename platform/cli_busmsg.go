@@ -272,12 +272,19 @@ func (m *model) renderThinking(s string) string {
 	if width <= 4 {
 		width = 80
 	}
-	w := wordwrap.NewWriter(width)
-	w.Breakpoints = []rune{' ', '-', '_', '.', ',', ':', ';', '!', '?', '(', ')', '[', ']', '{', '}'}
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		wrapped, _ := w.Write([]byte(line))
-		lines[i] = styleThinking.Render(string(wrapped))
+		w := wordwrap.NewWriter(width)
+		w.Breakpoints = []rune{' ', '-', '_', '.', ',', ':', ';', '!', '?', '(', ')', '[', ']', '{', '}'}
+		w.Write([]byte(line))
+		w.Close()
+		content := w.String()
+		if i == 0 {
+			content = styleThinkingTag.Render("thinking: ") + styleThinking.Render(content)
+		} else {
+			content = styleThinking.Render(content)
+		}
+		lines[i] = content
 	}
 	return strings.Join(lines, "\n")
 }
