@@ -142,12 +142,13 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	case w.q <- m:
 		return bus.Msg{}, nil
 	default:
-		return bus.Msg{
+		_ = d.deps.Bus.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
 			Payload: "busy",
 			To:      src,
-		}, nil
+		})
+		return bus.Msg{}, nil
 	}
 }
 

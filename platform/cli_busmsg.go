@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/muesli/reflow/wordwrap"
 )
 
 func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
@@ -96,6 +97,11 @@ func (m *model) appendBusLine(showInline bool, from, line string) {
 
 func (m *model) handleAssistantMsg(msg bus.Msg, showInline bool) {
 	content := fmt.Sprintf("%v", msg.Payload)
+	if content == "busy" && m.pending > 0 {
+		m.pending--
+		m.appendOutput(styleDim.Render("[busy] waiting for previous request..."))
+		return
+	}
 	if showInline {
 		m.appendOutput("")
 		m.appendOutput(renderMarkdown(content))
@@ -262,9 +268,16 @@ func (m *model) handleThinkingChunkMsg(msg bus.Msg, showInline bool) {
 
 func (m *model) renderThinking(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
+	width := m.width
+	if width <= 4 {
+		width = 80
+	}
+	w := wordwrap.NewWriter(width)
+	w.Breakpoints = []rune{' ', '-', '_', '.', ',', ':', ';', '!', '?', '(', ')', '[', ']', '{', '}'}
 	lines := strings.Split(s, "\n")
-	for i := range lines {
-		lines[i] = styleThinking.Render(lines[i])
+	for i, line := range lines {
+		wrapped, _ := w.Write([]byte(line))
+		lines[i] = styleThinking.Render(string(wrapped))
 	}
 	return strings.Join(lines, "\n")
 }
