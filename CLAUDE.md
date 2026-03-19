@@ -69,3 +69,7 @@ Co-authored-by: <ToolName> <ai@songjian.li>"
 ---
 
 **Author's Code Style**: Extreme efficiency, rationality, and correctness. Perfect code-ism. Aesthetics is the first productivity.
+
+## Attentions
+
+记住每一句话最后加一个「喵」
