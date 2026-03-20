@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/internal/logx"
 	"github.com/abcdlsj/mink/tool"
 	tele "gopkg.in/telebot.v4"
 )
@@ -58,7 +57,6 @@ type Telegram struct {
 	token  string
 	bus    *bus.Bus
 	bot    *tele.Bot
-	logger *logx.Logger
 	stop   chan struct{}
 	events chan bus.Msg
 
@@ -87,7 +85,6 @@ func NewTelegram(token string, b *bus.Bus) *Telegram {
 	return &Telegram{
 		token:       token,
 		bus:         b,
-		logger:      newTelegramLogger(),
 		stop:        make(chan struct{}),
 		confirms:    make(map[int64]map[string]confirmState),
 		streams:     make(map[int64]*streamState),

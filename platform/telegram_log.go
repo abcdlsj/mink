@@ -1,31 +1,22 @@
 package platform
 
-import "github.com/abcdlsj/mink/internal/logx"
+import (
+	"fmt"
+	"log/slog"
+)
 
 func (t *Telegram) debugf(format string, args ...any) {
-	if t != nil && t.logger != nil {
-		t.logger.Debugf(format, args...)
-	}
+	slog.Debug(fmt.Sprintf(format, args...), "component", "telegram")
 }
 
 func (t *Telegram) infof(format string, args ...any) {
-	if t != nil && t.logger != nil {
-		t.logger.Infof(format, args...)
-	}
+	slog.Info(fmt.Sprintf(format, args...), "component", "telegram")
 }
 
 func (t *Telegram) warnf(format string, args ...any) {
-	if t != nil && t.logger != nil {
-		t.logger.Warnf(format, args...)
-	}
+	slog.Warn(fmt.Sprintf(format, args...), "component", "telegram")
 }
 
 func (t *Telegram) errorf(format string, args ...any) {
-	if t != nil && t.logger != nil {
-		t.logger.Errorf(format, args...)
-	}
-}
-
-func newTelegramLogger() *logx.Logger {
-	return logx.New("telegram")
+	slog.Error(fmt.Sprintf(format, args...), "component", "telegram")
 }
