@@ -1,6 +1,6 @@
 # Mink
 
-Mink is a lightweight AI coding agent for local workflows. It supports interactive CLI usage, Telegram Bot mode, and a daemon for always-on tasks.
+Mink is a lightweight AI coding agent for local workflows. It supports interactive CLI usage and Telegram Bot mode.
 
 The design goal is simple: keep the core small, fast, and easy to extend. Instead of hiding everything behind a heavy framework, Mink focuses on a minimal runtime, straightforward configuration, and a few practical extension points such as skills, external tools, and background jobs.
 
@@ -31,33 +31,35 @@ mink
 
 See `config.example.toml` for a full example.
 
-## Common Commands
+## Commands
 
 ```bash
 mink                # start interactive mode
 mink tg             # start Telegram Bot mode
 mink version        # show version
-mink status         # show daemon status
-mink reload         # reload daemon config
-mink upgrade        # upgrade to latest release
 ```
 
-You can also override config from flags:
+Override config from flags:
 
 ```bash
 mink -p openai -m gpt-4o -k <api_key>
 ```
 
-## Daemon
+## Deploy (Telegram Bot)
+
+Linux (systemd):
 
 ```bash
-make daemon-install
-make daemon-status
-make daemon-restart
-make daemon-uninstall
+cp deploy/mink.service ~/.config/systemd/user/
+systemctl --user enable --now mink
 ```
 
-The underlying script is `./scripts/install-mink.sh`, which supports `install`, `start`, `stop`, `restart`, `status`, `reload`, `devbuild`, and `upgrade`.
+macOS (launchd):
+
+```bash
+cp deploy/com.mink.agent.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.mink.agent.plist
+```
 
 ## Paths
 

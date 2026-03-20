@@ -27,7 +27,6 @@ Rob Pike's style Go code, elevated:
 ```
 cmd/mink/               # CLI entry point
 app.go                  # App orchestration
-daemon.go               # Daemon mode with hot reload
 agent/                  # ReAct loop, dispatcher, supervisor, prompt builder
 bus/                    # Pub-sub message bus for async communication
 command/                # Command registry and routing

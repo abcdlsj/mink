@@ -1,15 +1,15 @@
 [Unit]
-Description=Mink AI Agent
+Description=Mink AI Agent (Telegram)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=MINK_BIN serve
+ExecStart=%h/go/bin/mink tg
 Restart=on-failure
 RestartSec=3
-WorkingDirectory=MINK_WORKDIR
-Environment=HOME=MINK_HOME
+WorkingDirectory=%h
+Environment=HOME=%h
 Environment=MINK_LOG_LEVEL=info
 
 [Install]

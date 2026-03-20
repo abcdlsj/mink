@@ -56,9 +56,8 @@ type AgentDeps struct {
 	Sel            *llm.Sel
 	Hooks          *hook.Manager
 	ToolGuard      tool.Guard
-	CronTool       tool.Tool
-	SelfUpdateTool tool.Tool
-	Prompt         string
+	CronTool tool.Tool
+	Prompt   string
 	Config         config.Config
 	SessionDir     string
 }
@@ -70,7 +69,6 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithHooks(d.Hooks),
 		WithToolGuard(d.ToolGuard),
 		WithCronTool(d.CronTool),
-		WithExtraTool(d.SelfUpdateTool),
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),

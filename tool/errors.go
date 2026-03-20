@@ -83,14 +83,10 @@ func PermissionError(tool, path string) *ToolError {
 	}
 }
 
-func ParseError(tool, reason string) *ToolError {
-	return ParseErrorWithInput(tool, reason, "")
-}
-
-func ParseErrorWithInput(tool, reason, input string) *ToolError {
-	details := ""
-	if strings.TrimSpace(input) != "" {
-		details = input
+func ParseError(tool, reason string, input ...string) *ToolError {
+	var details string
+	if len(input) > 0 {
+		details = strings.TrimSpace(input[0])
 	}
 	return &ToolError{
 		Type:       ErrParse,

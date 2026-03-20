@@ -12,7 +12,6 @@ import (
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
-	"github.com/abcdlsj/mink/tool"
 )
 
 const workerIdleTTL = 5 * time.Minute
@@ -53,16 +52,6 @@ func (d *Dispatcher) SetLLM(p llm.Provider, sel *llm.Sel) {
 	d.mu.Lock()
 	d.deps.Provider = p
 	d.deps.Sel = sel
-	d.mu.Unlock()
-}
-
-func (d *Dispatcher) ActiveSessions() map[string]string {
-	return d.sm.Bindings()
-}
-
-func (d *Dispatcher) SetSelfUpdateTool(t tool.Tool) {
-	d.mu.Lock()
-	d.deps.SelfUpdateTool = t
 	d.mu.Unlock()
 }
 

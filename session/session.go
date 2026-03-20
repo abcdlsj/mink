@@ -126,7 +126,8 @@ func (s *Session) SetProvenance(p Provenance) {
 }
 
 func (s *Session) View() View {
-	return NewViewBuilder().Build(s)
+	msgs, anchor := buildView(s, -1)
+	return View{Messages: msgs, Anchor: anchor}
 }
 
 func (s *Session) Flush() error {

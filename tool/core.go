@@ -216,7 +216,7 @@ func (b *Bash) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		Cwd string `json:"cwd,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", ParseErrorWithInput("bash", err.Error(), string(args))
+		return "", ParseError("bash", err.Error(), string(args))
 	}
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", params.Cmd)

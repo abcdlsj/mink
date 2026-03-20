@@ -2,18 +2,7 @@ package session
 
 import "github.com/abcdlsj/mink/msg"
 
-type ViewBuilder struct{}
-
-func NewViewBuilder() *ViewBuilder {
-	return &ViewBuilder{}
-}
-
-func (b *ViewBuilder) Build(s *Session) View {
-	msgs, anchor := b.build(s, -1)
-	return View{Messages: msgs, Anchor: anchor}
-}
-
-func (b *ViewBuilder) build(s *Session, limit int) ([]msg.Message, *Anchor) {
+func buildView(s *Session, limit int) ([]msg.Message, *Anchor) {
 	if s == nil {
 		return nil, nil
 	}
@@ -38,7 +27,7 @@ func (b *ViewBuilder) build(s *Session, limit int) ([]msg.Message, *Anchor) {
 	if snap.Provenance != nil {
 		parent, err := s.parent(snap.Provenance.ParentSessionID)
 		if err == nil && parent != nil {
-			msgs, anchor := b.build(parent, snap.Provenance.ForkEntryCount)
+			msgs, anchor := buildView(parent, snap.Provenance.ForkEntryCount)
 			msgs = append(msgs, entriesToMessages(entries)...)
 			return msgs, anchor
 		}

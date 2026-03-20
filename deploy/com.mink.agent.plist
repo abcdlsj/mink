@@ -6,25 +6,16 @@
     <string>com.mink.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>MINK_BIN</string>
-        <string>serve</string>
+        <string>${HOME}/go/bin/mink</string>
+        <string>tg</string>
     </array>
-    <key>WorkingDirectory</key>
-    <string>MINK_WORKDIR</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>HOME</key>
-        <string>MINK_HOME</string>
-        <key>MINK_LOG_LEVEL</key>
-        <string>info</string>
-    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>MINK_LOG_DIR/mink.out.log</string>
+    <string>${HOME}/.mink/mink.out.log</string>
     <key>StandardErrorPath</key>
-    <string>MINK_LOG_DIR/mink.err.log</string>
+    <string>${HOME}/.mink/mink.err.log</string>
 </dict>
 </plist>
