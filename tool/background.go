@@ -71,7 +71,7 @@ func (b *Background) Run(ctx context.Context, args json.RawMessage) (string, err
 	taskID := "[task]" + randTaskName()
 	source := bus.SourceFrom(ctx)
 
-	b.publishTaskStart(taskID, params.Cmd)
+	b.publishTaskStart(taskID, source, params.Cmd)
 	go b.runTask(taskID, source, params)
 
 	return fmt.Sprintf("Task %s started in background. You'll receive the result when it's done.", taskID), nil
@@ -88,14 +88,19 @@ func parseBackgroundParams(args json.RawMessage) (backgroundParams, error) {
 	return params, nil
 }
 
-func (b *Background) publishTaskStart(taskID, cmd string) {
+func (b *Background) publishTaskStart(taskID, source, cmd string) {
+	to := source
+	if to == "" {
+		to = b.agentID
+	}
 	_ = b.bus.Pub(bus.Msg{
 		Type: bus.TypeTaskStart,
 		From: b.agentID,
-		To:   bus.AddrBroadcast,
+		To:   to,
 		Payload: map[string]string{
 			"task_id": taskID,
 			"cmd":     cmd,
+			"source":  source,
 		},
 	})
 }

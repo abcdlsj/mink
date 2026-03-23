@@ -27,13 +27,12 @@ type InteractiveGuard interface {
 	Approve(ctx context.Context, cmd string) (Approval, error)
 }
 
-var dangerousPrefixes = []string{
-	"rm ", "rm\t",
-	"mv ", "mv\t",
-	"cp ", "cp\t",
-	"git push", "git reset", "git checkout .",
-	"docker run", "docker rm", "docker stop",
-	"kubectl apply", "kubectl delete",
+var shellWrappers = map[string]struct{}{
+	"sudo":    {},
+	"env":     {},
+	"command": {},
+	"nohup":   {},
+	"time":    {},
 }
 
 var sensitiveReadMarks = []string{
@@ -72,9 +71,12 @@ var sensitiveReadTails = []string{
 }
 
 func IsDangerous(raw string) bool {
-	cmd := strings.TrimSpace(raw)
-	for _, p := range dangerousPrefixes {
-		if strings.HasPrefix(cmd, p) {
+	cmd := strings.TrimSpace(strings.ToLower(raw))
+	if cmd == "" {
+		return false
+	}
+	for _, seg := range splitShellSegments(cmd) {
+		if isDangerousSegment(seg) {
 			return true
 		}
 	}
@@ -104,6 +106,10 @@ func guardedToolCall(name string, args json.RawMessage) (string, bool) {
 		return guardedBash(args)
 	case "read":
 		return guardedRead(args)
+	case "write":
+		return guardedWrite(args)
+	case "edit":
+		return guardedEdit(args)
 	default:
 		return "", false
 	}
@@ -136,6 +142,36 @@ func guardedRead(args json.RawMessage) (string, bool) {
 		return "", false
 	}
 	return "read " + p, true
+}
+
+func guardedWrite(args json.RawMessage) (string, bool) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return "", false
+	}
+
+	p := resolvePath(in.Path)
+	if p == "" || !shouldGuardWritePath(p) {
+		return "", false
+	}
+	return "write " + p, true
+}
+
+func guardedEdit(args json.RawMessage) (string, bool) {
+	var in struct {
+		Path string `json:"path"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return "", false
+	}
+
+	p := resolvePath(in.Path)
+	if p == "" || !shouldGuardWritePath(p) {
+		return "", false
+	}
+	return "edit " + p, true
 }
 
 func resolvePath(raw string) string {
@@ -210,5 +246,134 @@ func isSensitiveReadPath(p string) bool {
 		}
 	}
 
+	return false
+}
+
+func shouldGuardWritePath(p string) bool {
+	if isSensitiveReadPath(p) {
+		return true
+	}
+	if isSystemWritePath(p) {
+		return true
+	}
+	return isOutsideWorkspace(p)
+}
+
+func isSystemWritePath(p string) bool {
+	norm := strings.ToLower(filepath.ToSlash(filepath.Clean(p)))
+	for _, prefix := range []string{
+		"/etc/",
+		"/usr/",
+		"/bin/",
+		"/sbin/",
+		"/var/",
+		"/opt/",
+		"/library/",
+		"/system/",
+	} {
+		if strings.HasPrefix(norm, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isOutsideWorkspace(p string) bool {
+	wd, err := os.Getwd()
+	if err != nil || wd == "" {
+		return false
+	}
+
+	root := resolvePath(wd)
+	if root == "" {
+		root = filepath.Clean(wd)
+	}
+	target := filepath.Clean(p)
+
+	root = filepath.Clean(root)
+	if target == root {
+		return false
+	}
+	sep := string(os.PathSeparator)
+	return !strings.HasPrefix(target, root+sep)
+}
+
+func splitShellSegments(cmd string) []string {
+	replacer := strings.NewReplacer(
+		"&&", ";",
+		"||", ";",
+		"|", ";",
+		"\n", ";",
+	)
+	parts := strings.Split(replacer.Replace(cmd), ";")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		seg := strings.TrimSpace(part)
+		if seg == "" {
+			continue
+		}
+		out = append(out, seg)
+	}
+	return out
+}
+
+func isDangerousSegment(seg string) bool {
+	fields := strings.Fields(seg)
+	if len(fields) == 0 {
+		return false
+	}
+
+	i := 0
+	for i < len(fields) {
+		f := fields[i]
+		if _, ok := shellWrappers[f]; ok {
+			i++
+			continue
+		}
+		if strings.Contains(f, "=") && !strings.HasPrefix(f, "=") && !strings.HasSuffix(f, "=") {
+			i++
+			continue
+		}
+		break
+	}
+	if i >= len(fields) {
+		return false
+	}
+
+	cmd := fields[i]
+	rest := fields[i+1:]
+	switch cmd {
+	case "rm", "mv", "cp", "dd", "mkfs", "chmod", "chown":
+		return true
+	case "shutdown", "reboot":
+		return true
+	case "git":
+		if len(rest) == 0 {
+			return false
+		}
+		sub := rest[0]
+		if sub == "push" || sub == "reset" {
+			return true
+		}
+		if sub == "checkout" {
+			for _, a := range rest[1:] {
+				if a == "." || a == "--" {
+					return true
+				}
+			}
+		}
+	case "docker":
+		if len(rest) == 0 {
+			return false
+		}
+		sub := rest[0]
+		return sub == "run" || sub == "rm" || sub == "stop"
+	case "kubectl":
+		if len(rest) == 0 {
+			return false
+		}
+		sub := rest[0]
+		return sub == "apply" || sub == "delete"
+	}
 	return false
 }

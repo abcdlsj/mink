@@ -51,15 +51,15 @@ type tokenBaseline struct {
 }
 
 type AgentDeps struct {
-	Bus            *bus.Bus
-	Provider       llm.Provider
-	Sel            *llm.Sel
-	Hooks          *hook.Manager
-	ToolGuard      tool.Guard
-	CronTool tool.Tool
-	Prompt   string
-	Config         config.Config
-	SessionDir     string
+	Bus        *bus.Bus
+	Provider   llm.Provider
+	Sel        *llm.Sel
+	Hooks      *hook.Manager
+	ToolGuard  tool.Guard
+	CronTool   tool.Tool
+	Prompt     string
+	Config     config.Config
+	SessionDir string
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -224,7 +224,7 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 	a.logUserInput(role, input)
 
 	if a.bus != nil {
-		go a.watchInterrupt()
+		go a.watchInterrupt(ctx)
 	}
 
 	return a.runSteps(ctx, src)
@@ -388,33 +388,9 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 		return "", nil
 	}
 
-	var hist strings.Builder
-	hist.WriteString("Summarize the conversation history below for future context retention.\n")
-	hist.WriteString("Keep goals, decisions, constraints, file paths, pending tasks, and unresolved issues.\n")
-	hist.WriteString("Be concise and structured with bullet points.\n\n")
-	if note != "" {
-		hist.WriteString("Additional instruction:\n")
-		hist.WriteString(note)
-		hist.WriteString("\n\n")
-	}
-	hist.WriteString("History:\n")
-	for _, m := range oldMsgs {
-		role := m.Role
-		content := strings.TrimSpace(m.Content)
-		if content == "" {
-			if len(m.ToolCalls) > 0 {
-				content = fmt.Sprintf("(tool calls: %d)", len(m.ToolCalls))
-			} else if len(m.ToolResults) > 0 {
-				content = fmt.Sprintf("(tool results: %d)", len(m.ToolResults))
-			}
-		}
-		if content == "" {
-			continue
-		}
-		if len([]rune(content)) > 1200 {
-			content = string([]rune(content)[:1200]) + "..."
-		}
-		fmt.Fprintf(&hist, "[%s]\n%s\n\n", role, content)
+	hist := buildCompactHistoryPrompt(oldMsgs, note)
+	if strings.TrimSpace(hist) == "" {
+		return "", nil
 	}
 
 	llmTimeout := time.Duration(a.cfg.Timeout.LLM) * time.Second
@@ -430,7 +406,7 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 	corrID := a.logLLMRequest(-1, 2, false)
 	resp, err := a.p.Chat(compactCtx, []msg.Message{
 		{Role: "system", Content: compactSys},
-		{Role: "user", Content: hist.String()},
+		{Role: "user", Content: hist},
 	}, nil)
 	if err != nil {
 		a.logLLMError(-1, corrID, err, time.Since(start))
@@ -580,7 +556,7 @@ func (a *Agent) updateTokenBaseline(msgs, sysMsgs []msg.Message, usage *llm.Toke
 	}
 }
 
-func (a *Agent) watchInterrupt() {
+func (a *Agent) watchInterrupt(ctx context.Context) {
 	if a.bus == nil {
 		return
 	}
@@ -596,10 +572,8 @@ func (a *Agent) watchInterrupt() {
 				a.Interrupt()
 				return
 			}
-		case <-time.After(100 * time.Millisecond):
-			if a.IsInterrupted() {
-				return
-			}
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -645,4 +619,83 @@ func findToolCaller(msgs []msg.Message, end int, id string) int {
 		}
 	}
 	return -1
+}
+
+const (
+	compactMaxHistoryRunes = 24000
+	compactMaxMessageRunes = 800
+)
+
+func buildCompactHistoryPrompt(oldMsgs []msg.Message, note string) string {
+	var b strings.Builder
+	b.WriteString("Summarize the conversation history below for future context retention.\n")
+	b.WriteString("Keep goals, decisions, constraints, file paths, pending tasks, and unresolved issues.\n")
+	b.WriteString("Be concise and structured with bullet points.\n\n")
+	if note != "" {
+		b.WriteString("Additional instruction:\n")
+		b.WriteString(note)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("History:\n")
+
+	blocks := collectCompactBlocks(oldMsgs, compactMaxHistoryRunes)
+	if len(blocks) == 0 {
+		return ""
+	}
+	for _, block := range blocks {
+		b.WriteString(block)
+	}
+	return b.String()
+}
+
+func collectCompactBlocks(oldMsgs []msg.Message, maxRunes int) []string {
+	if maxRunes <= 0 {
+		maxRunes = compactMaxHistoryRunes
+	}
+	used := 0
+	var rev []string
+
+	for i := len(oldMsgs) - 1; i >= 0; i-- {
+		block := compactMessageBlock(oldMsgs[i])
+		if block == "" {
+			continue
+		}
+		n := len([]rune(block))
+		if used+n > maxRunes {
+			break
+		}
+		rev = append(rev, block)
+		used += n
+	}
+
+	if len(rev) == 0 {
+		return nil
+	}
+
+	blocks := make([]string, 0, len(rev)+1)
+	for i := len(rev) - 1; i >= 0; i-- {
+		blocks = append(blocks, rev[i])
+	}
+	if len(blocks) < len(oldMsgs) {
+		blocks = append([]string{"[system]\n(earlier history omitted due to size)\n\n"}, blocks...)
+	}
+	return blocks
+}
+
+func compactMessageBlock(m msg.Message) string {
+	content := strings.TrimSpace(m.Content)
+	if content == "" {
+		if len(m.ToolCalls) > 0 {
+			content = fmt.Sprintf("(tool calls: %d)", len(m.ToolCalls))
+		} else if len(m.ToolResults) > 0 {
+			content = fmt.Sprintf("(tool results: %d)", len(m.ToolResults))
+		}
+	}
+	if content == "" {
+		return ""
+	}
+	if len([]rune(content)) > compactMaxMessageRunes {
+		content = string([]rune(content)[:compactMaxMessageRunes]) + "..."
+	}
+	return fmt.Sprintf("[%s]\n%s\n\n", m.Role, content)
 }

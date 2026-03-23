@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/abcdlsj/mink/msg"
@@ -253,16 +254,20 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 			}
 		}
 
-		for i := 0; i < len(toolCallsMap); i++ {
-			if tc, ok := toolCallsMap[i]; ok {
-				if tc.Name == "" || len(tc.Args) == 0 {
-					continue
-				}
-				select {
-				case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc}:
-				case <-ctx.Done():
-					return
-				}
+		idxs := make([]int, 0, len(toolCallsMap))
+		for idx := range toolCallsMap {
+			idxs = append(idxs, idx)
+		}
+		sort.Ints(idxs)
+		for _, idx := range idxs {
+			tc := toolCallsMap[idx]
+			if tc == nil || tc.Name == "" || len(tc.Args) == 0 {
+				continue
+			}
+			select {
+			case ch <- Chunk{Type: ChunkToolCall, ToolCall: tc}:
+			case <-ctx.Done():
+				return
 			}
 		}
 

@@ -94,6 +94,9 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 	directOutput, _ := payload["direct_output"].(bool)
 	parentID := m.From
 	source := bus.SourceFrom(ctx)
+	if source == "" {
+		source = parentID
+	}
 	if task == "" {
 		return bus.Msg{}, fmt.Errorf("task is required")
 	}
@@ -110,7 +113,7 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 	_ = s.deps.Bus.Pub(bus.Msg{
 		Type: bus.TypeAgentSpawn,
 		From: child.ID(),
-		To:   bus.AddrBroadcast,
+		To:   source,
 		Payload: map[string]string{
 			"agent_id":      child.ID(),
 			"parent":        parentID,
@@ -119,7 +122,11 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 		},
 	})
 
-	err := child.Run(ctx, bus.AddrBroadcast, task)
+	runSource := bus.AddrSystemSup
+	if directOutput && source != "" {
+		runSource = source
+	}
+	err := child.Run(ctx, runSource, task)
 	result := s.extractLastResponse(child)
 	if err != nil {
 		result = fmt.Sprintf("error: %v", err)
@@ -127,7 +134,7 @@ func (s *Supervisor) handleSubtaskRun(ctx context.Context, m bus.Msg) (bus.Msg, 
 	_ = s.deps.Bus.Pub(bus.Msg{
 		Type: bus.TypeAgentDone,
 		From: child.ID(),
-		To:   bus.AddrBroadcast,
+		To:   source,
 		Payload: map[string]string{
 			"agent_id": child.ID(),
 			"result":   result,

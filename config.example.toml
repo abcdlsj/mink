@@ -1,9 +1,11 @@
 # Mink 配置文件
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-api_key = "${ANTHROPIC_API_KEY}"
-base_url = ""
 mode = "tui"  # tui or cli
+stream = true
+telegram_stream = true
+
+active_model = "claude"
+default = "claude"
+cheap = "kimi"
 
 [compact]
 auto = true
@@ -22,13 +24,10 @@ TELEGRAM_TOKEN = "your-telegram-token"
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 api_key = "${ANTHROPIC_API_KEY}"
+reasoning = true
 
 [models.kimi]
 provider = "openai"
 model = "moonshot-v1-auto"
 api_key = "${KIMI_API_KEY}"
 base_url = "https://api.moonshot.cn/v1"
-
-[headers]
-# User-Agent = "custom-agent"
-# X-Custom-Header = "value"

@@ -16,6 +16,11 @@ import (
 
 const workerIdleTTL = 5 * time.Minute
 
+const (
+	workerEnqueueTimeout     = 2 * time.Second
+	workerTaskEnqueueTimeout = 8 * time.Second
+)
+
 type workerState struct {
 	q      chan bus.Msg
 	cancel context.CancelFunc
@@ -127,18 +132,16 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	}
 	w := d.ensureWorker(ctx, src)
 
-	select {
-	case w.q <- m:
-		return bus.Msg{}, nil
-	default:
-		_ = d.deps.Bus.Pub(bus.Msg{
-			Type:    bus.TypeAssistant,
-			From:    d.agentID,
-			Payload: "busy",
-			To:      src,
-		})
+	if enqueueWorker(ctx, w.q, m, workerEnqueueTimeout) {
 		return bus.Msg{}, nil
 	}
+	_ = d.deps.Bus.Pub(bus.Msg{
+		Type:    bus.TypeAssistant,
+		From:    d.agentID,
+		Payload: "busy",
+		To:      src,
+	})
+	return bus.Msg{}, nil
 }
 
 func (d *Dispatcher) resetAgent(src string) error {
@@ -334,35 +337,27 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 	}
 
 	if src == "" {
-		d.mu.RLock()
-		for s := range d.agents {
-			src = s
-			break
-		}
-		d.mu.RUnlock()
-	}
-
-	if src == "" {
 		return
 	}
 
 	w := d.ensureWorker(ctx, src)
 
-	select {
-	case w.q <- bus.Msg{
+	in := bus.Msg{
 		Type:    bus.TypeTaskDone,
 		From:    src,
 		To:      d.agentID,
 		Payload: content,
-	}:
-	default:
-		_ = d.deps.Bus.Pub(bus.Msg{
-			Type:    bus.TypeAssistant,
-			From:    d.agentID,
-			To:      src,
-			Payload: "background result dropped: worker busy",
-		})
 	}
+	if enqueueWorker(ctx, w.q, in, workerTaskEnqueueTimeout) {
+		return
+	}
+
+	_ = d.deps.Bus.Pub(bus.Msg{
+		Type:    bus.TypeAssistant,
+		From:    d.agentID,
+		To:      src,
+		Payload: content,
+	})
 }
 
 func (d *Dispatcher) inputError(to, message string) bus.Msg {
@@ -399,4 +394,21 @@ func (d *Dispatcher) removeWorker(src string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.workers, src)
+}
+
+func enqueueWorker(parent context.Context, q chan bus.Msg, m bus.Msg, timeout time.Duration) bool {
+	if timeout <= 0 {
+		timeout = workerEnqueueTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case q <- m:
+		return true
+	case <-parent.Done():
+		return false
+	case <-timer.C:
+		return false
+	}
 }

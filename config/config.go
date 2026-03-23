@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -23,6 +24,12 @@ type Config struct {
 	CheapModel     string                 `toml:"cheap"`
 	Models         map[string]ModelConfig `toml:"models"`
 	APIKeys        map[string]string      `toml:"api_keys"`
+	Provider       string                 `toml:"provider"`
+	Model          string                 `toml:"model"`
+	APIKey         string                 `toml:"api_key"`
+	BaseURL        string                 `toml:"base_url"`
+	Headers        map[string]string      `toml:"headers"`
+	Reasoning      bool                   `toml:"reasoning"`
 
 	Active ModelConfig
 }
@@ -65,7 +72,7 @@ func LoadWithDir(name string) Config {
 	}
 
 	c.Normalize()
-	ResolveModel(&c, c.ActiveModel)
+	c.ResolveActive()
 
 	return c
 }
@@ -126,6 +133,48 @@ func (c *Config) ResolveCheapModel() bool {
 		return false
 	}
 	return ResolveModel(c, c.CheapModel)
+}
+
+func (c *Config) ResolveActive() bool {
+	if ResolveModel(c, c.ActiveModel) {
+		return true
+	}
+	if c.DefaultModel != "" && ResolveModel(c, c.DefaultModel) {
+		return true
+	}
+
+	if len(c.Models) > 0 {
+		names := make([]string, 0, len(c.Models))
+		for name := range c.Models {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		if len(names) > 0 {
+			if c.DefaultModel == "" {
+				c.DefaultModel = names[0]
+			}
+			return ResolveModel(c, names[0])
+		}
+	}
+
+	if c.Provider == "" || c.Model == "" {
+		return false
+	}
+	c.Active = ModelConfig{
+		Provider:  c.Provider,
+		Model:     c.Model,
+		APIKey:    expand(c.APIKey, c.APIKeys),
+		BaseURL:   c.BaseURL,
+		Headers:   c.Headers,
+		Reasoning: c.Reasoning,
+	}
+	if c.ActiveModel == "" {
+		c.ActiveModel = "inline"
+	}
+	if c.DefaultModel == "" {
+		c.DefaultModel = c.ActiveModel
+	}
+	return true
 }
 
 func (c *Config) Key(name string) string {
