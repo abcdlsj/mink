@@ -24,6 +24,8 @@ type Bus struct {
 	mu        sync.RWMutex
 }
 
+const maxPendingPerAgent = 256
+
 func New() *Bus {
 	return &Bus{
 		subs:     make(map[string][]chan Msg),
@@ -220,7 +222,11 @@ func (b *Bus) popPending(agentID, reqID string) (Msg, bool) {
 }
 
 func (b *Bus) pushPending(agentID string, m Msg) {
-	b.pending[agentID] = append(b.pending[agentID], m)
+	arr := append(b.pending[agentID], m)
+	if len(arr) > maxPendingPerAgent {
+		arr = arr[len(arr)-maxPendingPerAgent:]
+	}
+	b.pending[agentID] = arr
 }
 
 func (b *Bus) reqToAgent(ctx context.Context, m Msg) (Msg, error) {
@@ -283,7 +289,7 @@ func (b *Bus) UnregisterHandler(msgType string) {
 
 func (b *Bus) RegisterAgent(id string) *AgentConn {
 	if !IsValidAddr(id) || id == AddrBroadcast {
-		panic(fmt.Sprintf("bus: invalid agent address: %s", id))
+		return nil
 	}
 
 	b.mu.Lock()
@@ -310,4 +316,5 @@ func (b *Bus) UnregisterAgent(id string) {
 		close(agent.Recv)
 		delete(b.agents, id)
 	}
+	delete(b.pending, id)
 }

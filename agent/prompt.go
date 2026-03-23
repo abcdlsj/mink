@@ -76,11 +76,31 @@ func (a *Agent) sectionTelegram(src string) section {
 		if !strings.EqualFold(a.cfg.Mode, "tg") || !strings.HasPrefix(src, "telegram:") || a.subAgent {
 			return ""
 		}
+		mention := strings.ToLower(strings.TrimSpace(a.cfg.TelegramMentionMode))
+		if mention == "" {
+			mention = "always"
+		}
+		scope := strings.ToLower(strings.TrimSpace(a.cfg.TelegramSessionScope))
+		if scope == "" {
+			scope = "chat"
+		}
+		scopeLine := "- Session scope: chat-wide context."
+		if scope == "thread" {
+			scopeLine = "- Session scope: per-thread context when thread_id exists."
+		}
+		mentionLine := "- Group delivery mode: all group messages may be forwarded."
+		switch mention {
+		case "mention_only":
+			mentionLine = "- Group delivery mode: you'll mainly receive @mentioned/reply messages."
+		case "smart":
+			mentionLine = "- Group delivery mode: selective prefiltering is enabled."
+		}
 		return strings.Join([]string{
 			"You operate inside Telegram chats. Messages include [telegram_context]...[/telegram_context] with sender, mention status, message id, thread id, and reply chain.",
 			"",
 			"Behavior:",
-			"- In groups: participate selectively, even without @mention.",
+			mentionLine,
+			scopeLine,
 			"- If no reply is needed, respond with exactly: NO_REPLY",
 			"- Default to short, chat-friendly replies. Save long output for when asked.",
 			"",

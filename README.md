@@ -39,11 +39,38 @@ mink tg             # start Telegram Bot mode
 mink version        # show version
 ```
 
+CLI builtin commands:
+
+```bash
+!help
+!session list|current|new|switch <id>|fork
+!compact [note]
+!tokens
+!tools
+!models
+!model <name>
+!replay [count]
+```
+
 Override config from flags:
 
 ```bash
 mink -p openai -m gpt-4o -k <api_key>
 ```
+
+## Telegram
+
+Config keys:
+
+- `telegram_mention_mode = "always" | "smart" | "mention_only"`
+- `telegram_session_scope = "chat" | "thread"`
+
+Assistant directives:
+
+- `[[reply_to_current]]`
+- `[[reply_to:<message_id>]]`
+- `[[react:👍]]`
+- `NO_REPLY`
 
 ## Deploy (Telegram Bot)
 

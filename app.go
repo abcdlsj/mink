@@ -74,7 +74,7 @@ func New(opts Options) (*App, error) {
 
 	cmdReg, router, guard := buildCommandInfra(deps.workspace)
 	sm, sup, disp, cronSched := buildAgentInfra(deps, guard)
-	registerRuntimeCommands(cmdReg, deps.bus, sm, disp)
+	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
 
 	app := &App{
 		cfg:    deps.cfg,
@@ -212,7 +212,10 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		_ = oldTG.Stop()
 	}
 
-	tg := platform.NewTelegram(token, a.bus)
+	tg := platform.NewTelegram(token, a.bus, platform.TelegramOptions{
+		MentionMode:  a.cfg.TelegramMentionMode,
+		SessionScope: a.cfg.TelegramSessionScope,
+	})
 	if err := tg.Start(runCtx); err != nil {
 		return err
 	}
@@ -527,10 +530,18 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	return sm, sup, disp, cronSched
 }
 
-func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher) {
+func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir string) {
 	if compact := command.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
+	cmdReg.Register(command.NewReplayCmd(sm, sessionDir))
+	cmdReg.Register(command.NewToolsCmd(func() []tool.Tool {
+		if a := disp.Agent(bus.AddrPlatformCLI); a != nil && a.Tools() != nil {
+			return a.Tools().All()
+		}
+		reg := tool.NewRegistry(nil)
+		return reg.All()
+	}))
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
 }

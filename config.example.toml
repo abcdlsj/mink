@@ -2,6 +2,8 @@
 mode = "tui"  # tui or cli
 stream = true
 telegram_stream = true
+telegram_mention_mode = "always"  # always | smart | mention_only
+telegram_session_scope = "chat"   # chat | thread
 
 active_model = "claude"
 default = "claude"

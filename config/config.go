@@ -12,24 +12,26 @@ import (
 )
 
 type Config struct {
-	Mode           string                 `toml:"mode"`
-	CustomPrompt   string                 `toml:"custom_prompt"`
-	Stream         bool                   `toml:"stream"`
-	TelegramStream bool                   `toml:"telegram_stream"`
-	MaxSteps       int                    `toml:"max_steps"`
-	Timeout        TimeoutConfig          `toml:"timeout"`
-	Compact        CompactConfig          `toml:"compact"`
-	ActiveModel    string                 `toml:"active_model"`
-	DefaultModel   string                 `toml:"default"`
-	CheapModel     string                 `toml:"cheap"`
-	Models         map[string]ModelConfig `toml:"models"`
-	APIKeys        map[string]string      `toml:"api_keys"`
-	Provider       string                 `toml:"provider"`
-	Model          string                 `toml:"model"`
-	APIKey         string                 `toml:"api_key"`
-	BaseURL        string                 `toml:"base_url"`
-	Headers        map[string]string      `toml:"headers"`
-	Reasoning      bool                   `toml:"reasoning"`
+	Mode                 string                 `toml:"mode"`
+	CustomPrompt         string                 `toml:"custom_prompt"`
+	Stream               bool                   `toml:"stream"`
+	TelegramStream       bool                   `toml:"telegram_stream"`
+	TelegramMentionMode  string                 `toml:"telegram_mention_mode"`
+	TelegramSessionScope string                 `toml:"telegram_session_scope"`
+	MaxSteps             int                    `toml:"max_steps"`
+	Timeout              TimeoutConfig          `toml:"timeout"`
+	Compact              CompactConfig          `toml:"compact"`
+	ActiveModel          string                 `toml:"active_model"`
+	DefaultModel         string                 `toml:"default"`
+	CheapModel           string                 `toml:"cheap"`
+	Models               map[string]ModelConfig `toml:"models"`
+	APIKeys              map[string]string      `toml:"api_keys"`
+	Provider             string                 `toml:"provider"`
+	Model                string                 `toml:"model"`
+	APIKey               string                 `toml:"api_key"`
+	BaseURL              string                 `toml:"base_url"`
+	Headers              map[string]string      `toml:"headers"`
+	Reasoning            bool                   `toml:"reasoning"`
 
 	Active ModelConfig
 }
@@ -104,6 +106,24 @@ func (c *Config) Normalize() {
 	}
 	if c.Compact.KeepRecentMessages == 0 {
 		c.Compact.KeepRecentMessages = 20
+	}
+	switch strings.ToLower(strings.TrimSpace(c.TelegramMentionMode)) {
+	case "", "always":
+		c.TelegramMentionMode = "always"
+	case "smart":
+		c.TelegramMentionMode = "smart"
+	case "mention_only":
+		c.TelegramMentionMode = "mention_only"
+	default:
+		c.TelegramMentionMode = "always"
+	}
+	switch strings.ToLower(strings.TrimSpace(c.TelegramSessionScope)) {
+	case "", "chat":
+		c.TelegramSessionScope = "chat"
+	case "thread":
+		c.TelegramSessionScope = "thread"
+	default:
+		c.TelegramSessionScope = "chat"
 	}
 }
 

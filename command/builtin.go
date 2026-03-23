@@ -2,9 +2,14 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
@@ -33,10 +38,10 @@ func (c *helpCmd) Run(ctx context.Context, args []string) (string, error) {
 }
 
 type toolsCmd struct {
-	reg *tool.Registry
+	all func() []tool.Tool
 }
 
-func NewToolsCmd(reg *tool.Registry) Command { return &toolsCmd{reg: reg} }
+func NewToolsCmd(all func() []tool.Tool) Command { return &toolsCmd{all: all} }
 
 func (c *toolsCmd) Name() string { return "tools" }
 func (c *toolsCmd) Desc() string { return "list available tools" }
@@ -44,10 +49,141 @@ func (c *toolsCmd) Desc() string { return "list available tools" }
 func (c *toolsCmd) Run(ctx context.Context, args []string) (string, error) {
 	var b strings.Builder
 	b.WriteString("Tools:\n")
-	for _, t := range c.reg.All() {
+	for _, t := range c.all() {
 		fmt.Fprintf(&b, "  %s - %s\n", t.Name(), t.Desc())
 	}
 	return b.String(), nil
+}
+
+type replayCmd struct {
+	sm  *session.Manager
+	dir string
+}
+
+func NewReplayCmd(sm *session.Manager, dir string) Command {
+	return &replayCmd{sm: sm, dir: dir}
+}
+
+func (c *replayCmd) Name() string { return "replay" }
+func (c *replayCmd) Desc() string { return "replay current session runlog (!replay [count])" }
+
+func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
+	src := bus.SourceFrom(ctx)
+	if src == "" {
+		src = bus.AddrPlatformCLI
+	}
+
+	id, ok := c.sm.CurrentID(src)
+	if !ok || id == "" {
+		return "no current session for source", nil
+	}
+
+	n := 30
+	if len(args) > 0 {
+		v, err := strconv.Atoi(strings.TrimSpace(args[0]))
+		if err != nil || v <= 0 {
+			return "usage: !replay [count]", nil
+		}
+		if v > 200 {
+			v = 200
+		}
+		n = v
+	}
+
+	path := filepath.Join(c.dir, id+".log.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "no replay log for current session", nil
+		}
+		return "", err
+	}
+
+	raw := strings.TrimSpace(string(data))
+	if raw == "" {
+		return "no replay log for current session", nil
+	}
+	lines := strings.Split(raw, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+
+	type replayEvent struct {
+		Timestamp time.Time      `json:"timestamp"`
+		Type      string         `json:"type"`
+		Level     string         `json:"level"`
+		StepNum   *int           `json:"step_num"`
+		Data      map[string]any `json:"data"`
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Replay session %s (last %d events)\n", id, len(lines))
+	for _, line := range lines {
+		var e replayEvent
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			fmt.Fprintf(&b, "%s\n", line)
+			continue
+		}
+		ts := e.Timestamp.Format("15:04:05")
+		if ts == "00:00:00" && !e.Timestamp.IsZero() {
+			ts = e.Timestamp.Format(time.RFC3339)
+		}
+		step := ""
+		if e.StepNum != nil {
+			step = fmt.Sprintf(" step=%d", *e.StepNum)
+		}
+		extra := replayExtra(e.Type, e.Data)
+		if extra != "" {
+			extra = " " + extra
+		}
+		fmt.Fprintf(&b, "%s [%s] %s%s%s\n", ts, e.Level, e.Type, step, extra)
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+func replayExtra(t string, data map[string]any) string {
+	if len(data) == 0 {
+		return ""
+	}
+	switch t {
+	case "user_input":
+		if v, ok := data["input"].(string); ok {
+			return replayTrim(v, 80)
+		}
+	case "agent_output":
+		if v, ok := data["content"].(string); ok {
+			return replayTrim(v, 80)
+		}
+	case "tool_call":
+		name, _ := data["name"].(string)
+		if name != "" {
+			return name
+		}
+	case "tool_end":
+		name, _ := data["name"].(string)
+		if err, ok := data["error"].(string); ok && err != "" {
+			return name + " error=" + replayTrim(err, 80)
+		}
+		if name != "" {
+			return name
+		}
+	case "llm_error":
+		if err, ok := data["error"].(string); ok {
+			return replayTrim(err, 80)
+		}
+	}
+	return ""
+}
+
+func replayTrim(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= n {
+		return string(r)
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return string(r[:n-1]) + "…"
 }
 
 type sessionCmd struct {

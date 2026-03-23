@@ -32,6 +32,7 @@ type confirmState struct {
 }
 
 type streamState struct {
+	chatID     int64
 	buf        strings.Builder
 	msgID      int
 	dirty      bool
@@ -54,23 +55,26 @@ type assistantOutState struct {
 }
 
 type Telegram struct {
-	token  string
-	bus    *bus.Bus
-	bot    *tele.Bot
-	stop   chan struct{}
-	events chan bus.Msg
+	token        string
+	bus          *bus.Bus
+	bot          *tele.Bot
+	stop         chan struct{}
+	events       chan bus.Msg
+	mentionMode  string
+	sessionScope string
 
 	confirmMu sync.Mutex
 	confirms  map[int64]map[string]confirmState
 
 	streamMu sync.Mutex
-	streams  map[int64]*streamState
+	streams  map[string]*streamState
 
 	inboundMu sync.RWMutex
-	inbound   map[int64]inboundState
+	inbound   map[string][]inboundState
+	lastIn    map[string]inboundState
 
 	assistMu sync.Mutex
-	assist   map[int64]assistantOutState
+	assist   map[string]assistantOutState
 
 	activeMu    sync.RWMutex
 	activeChats map[int64]time.Time
@@ -81,19 +85,41 @@ type Telegram struct {
 	typingLast map[int64]time.Time
 }
 
-func NewTelegram(token string, b *bus.Bus) *Telegram {
+type TelegramOptions struct {
+	MentionMode  string
+	SessionScope string
+}
+
+func NewTelegram(token string, b *bus.Bus, opts TelegramOptions) *Telegram {
+	mentionMode := strings.ToLower(strings.TrimSpace(opts.MentionMode))
+	if mentionMode == "" {
+		mentionMode = "always"
+	}
+	if mentionMode != "always" && mentionMode != "smart" && mentionMode != "mention_only" {
+		mentionMode = "always"
+	}
+	sessionScope := strings.ToLower(strings.TrimSpace(opts.SessionScope))
+	if sessionScope == "" {
+		sessionScope = "chat"
+	}
+	if sessionScope != "chat" && sessionScope != "thread" {
+		sessionScope = "chat"
+	}
 	return &Telegram{
-		token:       token,
-		bus:         b,
-		stop:        make(chan struct{}),
-		confirms:    make(map[int64]map[string]confirmState),
-		streams:     make(map[int64]*streamState),
-		inbound:     make(map[int64]inboundState),
-		assist:      make(map[int64]assistantOutState),
-		activeChats: make(map[int64]time.Time),
-		typing:      make(map[int64]chan struct{}),
-		typingN:     make(map[int64]int),
-		typingLast:  make(map[int64]time.Time),
+		token:        token,
+		bus:          b,
+		stop:         make(chan struct{}),
+		mentionMode:  mentionMode,
+		sessionScope: sessionScope,
+		confirms:     make(map[int64]map[string]confirmState),
+		streams:      make(map[string]*streamState),
+		inbound:      make(map[string][]inboundState),
+		lastIn:       make(map[string]inboundState),
+		assist:       make(map[string]assistantOutState),
+		activeChats:  make(map[int64]time.Time),
+		typing:       make(map[int64]chan struct{}),
+		typingN:      make(map[int64]int),
+		typingLast:   make(map[int64]time.Time),
 	}
 }
 
@@ -155,8 +181,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(c.Text())
-
-	src := bus.Telegram(chatID)
+	src := t.source(chatID, msg.ThreadID)
 
 	if text == "/new" {
 		_ = t.bus.Pub(bus.Msg{
@@ -181,7 +206,10 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 
 	t.touchActive(chatID)
 	mentioned := t.isMentioned(msg)
-	t.setInboundState(chatID, inboundState{
+	if !t.shouldHandleMessage(msg, text, mentioned) {
+		return nil
+	}
+	t.pushInboundState(src, inboundState{
 		msgID:    msg.ID,
 		threadID: msg.ThreadID,
 	})
@@ -225,8 +253,8 @@ func (t *Telegram) forward(ctx context.Context) {
 }
 
 func (t *Telegram) sendMsg(m bus.Msg) {
-	chatIDs := t.getTargetChats(m)
-	if len(chatIDs) == 0 {
+	targets := t.targetRoutes(m)
+	if len(targets) == 0 {
 		return
 	}
 
@@ -235,48 +263,48 @@ func (t *Telegram) sendMsg(m bus.Msg) {
 		prefix = fmt.Sprintf("%s: ", m.From)
 	}
 
-	for _, chatID := range chatIDs {
+	for _, target := range targets {
+		chatID := parseTelegramChatID(target)
+		if chatID == 0 {
+			continue
+		}
 		t.touchActive(chatID)
-		t.sendToChat(chatID, m, prefix)
+		t.sendToChat(target, chatID, m, prefix)
 	}
 }
 
-func (t *Telegram) getTargetChats(m bus.Msg) []int64 {
+func (t *Telegram) targetRoutes(m bus.Msg) []string {
 	if strings.HasPrefix(m.To, "telegram:") {
-		chatID := parseTelegramChatID(m.To)
-		if chatID != 0 {
-			return []int64{chatID}
-		}
+		return []string{m.To}
+	}
+	if m.To != bus.AddrBroadcast {
+		return nil
 	}
 
-	if m.To == bus.AddrBroadcast {
-		now := time.Now()
-		t.activeMu.Lock()
-		defer t.activeMu.Unlock()
+	now := time.Now()
+	t.activeMu.Lock()
+	defer t.activeMu.Unlock()
 
-		chats := make([]int64, 0, len(t.activeChats))
-		for id, seen := range t.activeChats {
-			if now.Sub(seen) > telegramActiveTTL {
-				delete(t.activeChats, id)
-				continue
-			}
-			chats = append(chats, id)
+	routes := make([]string, 0, len(t.activeChats))
+	for id, seen := range t.activeChats {
+		if now.Sub(seen) > telegramActiveTTL {
+			delete(t.activeChats, id)
+			continue
 		}
-		return chats
+		routes = append(routes, bus.Telegram(id))
 	}
-
-	return nil
+	return routes
 }
 
-func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
+func (t *Telegram) sendToChat(route string, chatID int64, m bus.Msg, prefix string) {
 	switch m.Type {
 	case bus.TypeAssistant:
 		raw := fmt.Sprintf("%v", m.Payload)
 		out := parseTelegramAssistantOutput(raw)
-		replyToID := t.resolveReplyToID(chatID, out)
+		replyToID := t.resolveReplyToID(route, out)
 		t.debugf("assistant chat=%d reply_to=%d silent=%v react=%q text=%q", chatID, replyToID, out.Silent, out.Reaction, truncateTG(out.Text, 160))
 		if out.Reaction != "" {
-			t.applyReaction(chatID, out.Reaction, replyToID)
+			t.applyReaction(route, chatID, out.Reaction, replyToID)
 		}
 		if out.Silent || strings.TrimSpace(out.Text) == "" {
 			return
@@ -285,18 +313,19 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 		if prefix != "" {
 			text = prefix + text
 		}
-		t.sendAssistantText(chatID, text, replyToID)
+		t.sendAssistantText(route, chatID, text, replyToID)
 	case bus.TypeTurnDone:
+		t.popInboundState(route)
 		t.stopTyping(chatID)
 		return
 	case bus.TypeToolCall:
-		t.handleToolCall(chatID)
+		t.handleToolCall(route, chatID)
 		return
 	case bus.TypeToolResult:
-		t.handleToolResult(chatID)
+		t.handleToolResult(route, chatID)
 		return
 	case bus.TypeToolError:
-		t.handleToolError(chatID)
+		t.handleToolError(route, chatID)
 
 	case bus.TypeAgentSpawn:
 		if payload, ok := m.Payload.(map[string]string); ok {
@@ -321,9 +350,9 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 			}
 		}
 	case bus.TypeStreamChunk:
-		t.handleStreamChunk(chatID, fmt.Sprintf("%v", m.Payload))
+		t.handleStreamChunk(route, chatID, fmt.Sprintf("%v", m.Payload))
 	case bus.TypeStreamEnd:
-		t.handleStreamEnd(chatID)
+		t.handleStreamEnd(route)
 		t.stopTyping(chatID)
 	case bus.TypeSessionReset:
 		t.stopTyping(chatID)
@@ -338,7 +367,7 @@ func (t *Telegram) sendToChat(chatID int64, m bus.Msg, prefix string) {
 	}
 }
 
-func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
+func (t *Telegram) handleStreamChunk(route string, chatID int64, delta string) {
 	if delta == "" {
 		return
 	}
@@ -346,10 +375,10 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	t.notifyTyping(chatID)
 
 	t.streamMu.Lock()
-	s, ok := t.streams[chatID]
+	s, ok := t.streams[route]
 	if !ok {
-		s = &streamState{}
-		t.streams[chatID] = s
+		s = &streamState{chatID: chatID}
+		t.streams[route] = s
 	}
 	s.buf.WriteString(delta)
 	s.dirty = true
@@ -357,7 +386,7 @@ func (t *Telegram) handleStreamChunk(chatID int64, delta string) {
 	t.streamMu.Unlock()
 
 	if should {
-		t.flushStream(chatID, false)
+		t.flushStream(route, false)
 	}
 }
 
@@ -392,16 +421,17 @@ func endsWithBreak(s string) bool {
 	return c == '\n' || c == '.' || c == '!' || c == '?' || c == '。' || c == '！' || c == '？'
 }
 
-func (t *Telegram) handleStreamEnd(chatID int64) {
+func (t *Telegram) handleStreamEnd(route string) {
+	chatID := parseTelegramChatID(route)
 	t.debugf("stream end chat=%d", chatID)
 	t.streamMu.Lock()
-	if s, ok := t.streams[chatID]; ok {
+	if s, ok := t.streams[route]; ok {
 		s.ended = true
 		s.dirty = true
 	}
 	t.streamMu.Unlock()
 
-	t.flushStream(chatID, true)
+	t.flushStream(route, true)
 }
 
 func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, error) {
@@ -435,7 +465,7 @@ func (t *Telegram) Approve(ctx context.Context, raw string) (tool.Approval, erro
 		t.confirmMu.Unlock()
 	}()
 
-	msgID := t.sendConfirmRequest(chatID, reqID, raw)
+	msgID := t.sendConfirmRequest(src, chatID, reqID, raw)
 	if msgID > 0 {
 		t.confirmMu.Lock()
 		if state, ok := t.confirms[chatID][reqID]; ok {
@@ -566,9 +596,9 @@ func callbackChatID(c tele.Context) int64 {
 	return cb.Message.Chat.ID
 }
 
-func (t *Telegram) sendConfirmRequest(chatID int64, reqID, raw string) int {
+func (t *Telegram) sendConfirmRequest(route string, chatID int64, reqID, raw string) int {
 	text := fmt.Sprintf("confirm %s\nexecute:\n%s\nchoose: tap button or reply: %s y|a|n", reqID, raw, reqID)
-	opts := t.assistantSendOptions(chatID, 0, false)
+	opts := t.assistantSendOptions(route, chatID, 0, false)
 	if opts == nil {
 		opts = &tele.SendOptions{}
 	} else {
@@ -623,25 +653,26 @@ func (t *Telegram) flushStreamLoop(ctx context.Context) {
 
 func (t *Telegram) flushStreams(force bool) {
 	t.streamMu.Lock()
-	chatIDs := make([]int64, 0, len(t.streams))
-	for chatID := range t.streams {
-		chatIDs = append(chatIDs, chatID)
+	routes := make([]string, 0, len(t.streams))
+	for route := range t.streams {
+		routes = append(routes, route)
 	}
 	t.streamMu.Unlock()
 
-	for _, chatID := range chatIDs {
-		t.flushStream(chatID, force)
+	for _, route := range routes {
+		t.flushStream(route, force)
 	}
 }
 
-func (t *Telegram) flushStream(chatID int64, force bool) {
+func (t *Telegram) flushStream(route string, force bool) {
 	for {
 		t.streamMu.Lock()
-		s, ok := t.streams[chatID]
+		s, ok := t.streams[route]
 		if !ok {
 			t.streamMu.Unlock()
 			return
 		}
+		chatID := s.chatID
 		if s.flush {
 			t.debugf("skip flush chat=%d force=%v reason=already_flushing", chatID, force)
 			t.streamMu.Unlock()
@@ -663,9 +694,9 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		replyToID := 0
 		if ended {
 			out = parseTelegramAssistantOutput(text)
-			replyToID = t.resolveReplyToID(chatID, out)
+			replyToID = t.resolveReplyToID(route, out)
 			if out.Reaction != "" {
-				t.applyReaction(chatID, out.Reaction, replyToID)
+				t.applyReaction(route, chatID, out.Reaction, replyToID)
 			}
 		}
 
@@ -676,9 +707,9 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 				}
 			}
 			t.streamMu.Lock()
-			if cur, ok := t.streams[chatID]; ok {
+			if cur, ok := t.streams[route]; ok {
 				cur.flush = false
-				delete(t.streams, chatID)
+				delete(t.streams, route)
 			}
 			t.streamMu.Unlock()
 			return
@@ -688,14 +719,14 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		if len(parts) == 0 {
 			if ended {
 				t.streamMu.Lock()
-				if cur, ok := t.streams[chatID]; ok {
+				if cur, ok := t.streams[route]; ok {
 					cur.flush = false
-					delete(t.streams, chatID)
+					delete(t.streams, route)
 				}
 				t.streamMu.Unlock()
 			}
 			t.streamMu.Lock()
-			if cur, ok := t.streams[chatID]; ok {
+			if cur, ok := t.streams[route]; ok {
 				cur.flush = false
 			}
 			t.streamMu.Unlock()
@@ -705,7 +736,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		chat := &tele.Chat{ID: chatID}
 		first := parts[0]
 		if msgID == 0 {
-			sendOpts := t.assistantSendOptions(chatID, replyToID, true)
+			sendOpts := t.assistantSendOptions(route, chatID, replyToID, true)
 			sent, err := t.sendWithOpts(chat, first, sendOpts)
 			if err != nil {
 				t.errorf("stream send error: %v", err)
@@ -720,7 +751,7 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 
 		t.streamMu.Lock()
 		shouldContinue := false
-		if s, ok := t.streams[chatID]; ok {
+		if s, ok := t.streams[route]; ok {
 			s.msgID = msgID
 			s.at = time.Now()
 			if !ended && s.dirty {
@@ -731,18 +762,18 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 		t.streamMu.Unlock()
 
 		if ended {
-			threadOpts := t.assistantSendOptions(chatID, 0, false)
+			threadOpts := t.assistantSendOptions(route, chatID, 0, false)
 			for _, part := range parts[1:] {
 				t.sendTextWithOptions(chatID, part, threadOpts)
 			}
 
 			t.streamMu.Lock()
-			s := t.streams[chatID]
+			s := t.streams[route]
 			var stats string
 			if s != nil {
 				stats = t.formatToolStats(s.toolCalls, s.toolErrors)
 			}
-			delete(t.streams, chatID)
+			delete(t.streams, route)
 			t.streamMu.Unlock()
 			if stats != "" {
 				t.sendTextWithOptions(chatID, stats, threadOpts)
@@ -756,9 +787,9 @@ func (t *Telegram) flushStream(chatID int64, force bool) {
 	}
 }
 
-func (t *Telegram) sendAssistantText(chatID int64, text string, replyToID int) {
+func (t *Telegram) sendAssistantText(route string, chatID int64, text string, replyToID int) {
 	t.debugf("send assistant chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
-	if t.isDuplicateAssistant(chatID, text, replyToID) {
+	if t.isDuplicateAssistant(route, text, replyToID) {
 		t.debugf("duplicate suppressed chat=%d reply_to=%d text=%q", chatID, replyToID, truncateTG(text, 160))
 		return
 	}
@@ -769,8 +800,8 @@ func (t *Telegram) sendAssistantText(chatID int64, text string, replyToID int) {
 		return
 	}
 
-	replyOpts := t.assistantSendOptions(chatID, replyToID, true)
-	threadOpts := t.assistantSendOptions(chatID, 0, false)
+	replyOpts := t.assistantSendOptions(route, chatID, replyToID, true)
+	threadOpts := t.assistantSendOptions(route, chatID, 0, false)
 	for i, part := range parts {
 		opts := threadOpts
 		if i == 0 {
@@ -859,7 +890,7 @@ func (t *Telegram) notifyTyping(chatID int64) {
 	t.typingMu.Unlock()
 
 	chat := &tele.Chat{ID: chatID}
-	st, ok := t.getInboundState(chatID)
+	st, ok := t.latestInboundForChat(chatID)
 	if ok && st.threadID != 0 {
 		if err := t.bot.Notify(chat, tele.Typing, st.threadID); err != nil {
 			t.debugf("notify typing error chat=%d thread=%d err=%v", chatID, st.threadID, err)
@@ -935,26 +966,64 @@ func (t *Telegram) stopAllTyping() {
 	}
 }
 
-func (t *Telegram) setInboundState(chatID int64, s inboundState) {
+func (t *Telegram) pushInboundState(route string, s inboundState) {
 	t.inboundMu.Lock()
-	t.inbound[chatID] = s
+	t.inbound[route] = append(t.inbound[route], s)
+	t.lastIn[route] = s
 	t.inboundMu.Unlock()
 }
 
-func (t *Telegram) getInboundState(chatID int64) (inboundState, bool) {
+func (t *Telegram) peekInboundState(route string) (inboundState, bool) {
 	t.inboundMu.RLock()
 	defer t.inboundMu.RUnlock()
-	s, ok := t.inbound[chatID]
-	return s, ok
+	q := t.inbound[route]
+	if len(q) == 0 {
+		s, ok := t.lastIn[route]
+		return s, ok
+	}
+	return q[0], true
 }
 
-func (t *Telegram) applyReaction(chatID int64, emoji string, replyToID int) {
+func (t *Telegram) latestInboundForChat(chatID int64) (inboundState, bool) {
+	t.inboundMu.RLock()
+	defer t.inboundMu.RUnlock()
+	prefix := bus.Telegram(chatID)
+	for route, q := range t.inbound {
+		if !strings.HasPrefix(route, prefix) || len(q) == 0 {
+			continue
+		}
+		return q[len(q)-1], true
+	}
+	for route, s := range t.lastIn {
+		if strings.HasPrefix(route, prefix) {
+			return s, true
+		}
+	}
+	return inboundState{}, false
+}
+
+func (t *Telegram) popInboundState(route string) {
+	t.inboundMu.Lock()
+	defer t.inboundMu.Unlock()
+	q := t.inbound[route]
+	if len(q) == 0 {
+		return
+	}
+	q = q[1:]
+	if len(q) == 0 {
+		delete(t.inbound, route)
+		return
+	}
+	t.inbound[route] = q
+}
+
+func (t *Telegram) applyReaction(route string, chatID int64, emoji string, replyToID int) {
 	emoji = strings.TrimSpace(emoji)
 	if emoji == "" || t.bot == nil {
 		return
 	}
 	msgID := replyToID
-	st, ok := t.getInboundState(chatID)
+	st, ok := t.peekInboundState(route)
 	if !ok {
 		return
 	}
@@ -976,8 +1045,8 @@ func (t *Telegram) applyReaction(chatID int64, emoji string, replyToID int) {
 	t.debugf("reacted chat=%d msg=%d emoji=%s", chatID, msgID, emoji)
 }
 
-func (t *Telegram) assistantSendOptions(chatID int64, replyToID int, withReply bool) *tele.SendOptions {
-	st, ok := t.getInboundState(chatID)
+func (t *Telegram) assistantSendOptions(route string, chatID int64, replyToID int, withReply bool) *tele.SendOptions {
+	st, ok := t.peekInboundState(route)
 	if !ok {
 		return nil
 	}
@@ -1002,11 +1071,11 @@ func (t *Telegram) assistantSendOptions(chatID int64, replyToID int, withReply b
 	return opts
 }
 
-func (t *Telegram) resolveReplyToID(chatID int64, out tgAssistantOut) int {
+func (t *Telegram) resolveReplyToID(route string, out tgAssistantOut) int {
 	if out.ReplyToID > 0 {
 		return out.ReplyToID
 	}
-	st, ok := t.getInboundState(chatID)
+	st, ok := t.peekInboundState(route)
 	if !ok {
 		return 0
 	}
@@ -1016,7 +1085,7 @@ func (t *Telegram) resolveReplyToID(chatID int64, out tgAssistantOut) int {
 	return st.msgID
 }
 
-func (t *Telegram) isDuplicateAssistant(chatID int64, text string, replyToID int) bool {
+func (t *Telegram) isDuplicateAssistant(route string, text string, replyToID int) bool {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return false
@@ -1026,14 +1095,42 @@ func (t *Telegram) isDuplicateAssistant(chatID int64, text string, replyToID int
 	t.assistMu.Lock()
 	defer t.assistMu.Unlock()
 
-	st, ok := t.assist[chatID]
+	st, ok := t.assist[route]
 	if ok && st.text == text && st.replyToID == replyToID && now.Sub(st.at) < 3*time.Second {
-		t.debugf("dedupe hit chat=%d reply_to=%d age_ms=%d", chatID, replyToID, now.Sub(st.at).Milliseconds())
+		t.debugf("dedupe hit route=%s reply_to=%d age_ms=%d", route, replyToID, now.Sub(st.at).Milliseconds())
 		return true
 	}
 
-	t.assist[chatID] = assistantOutState{text: text, replyToID: replyToID, at: now}
+	t.assist[route] = assistantOutState{text: text, replyToID: replyToID, at: now}
 	return false
+}
+
+func (t *Telegram) source(chatID int64, threadID int) string {
+	if t.sessionScope == "thread" && threadID != 0 {
+		return fmt.Sprintf("telegram:%d:%d", chatID, threadID)
+	}
+	return bus.Telegram(chatID)
+}
+
+func (t *Telegram) shouldHandleMessage(msg *tele.Message, text string, mentioned bool) bool {
+	if msg == nil || msg.Chat == nil {
+		return false
+	}
+	if msg.Chat.Type == tele.ChatPrivate {
+		return true
+	}
+	switch t.mentionMode {
+	case "mention_only":
+		return mentioned
+	case "smart":
+		if mentioned {
+			return true
+		}
+		v := strings.ToLower(strings.TrimSpace(text))
+		return strings.HasPrefix(v, "/new") || strings.HasPrefix(v, "/cancel")
+	default:
+		return true
+	}
 }
 
 func (t *Telegram) isMentioned(msg *tele.Message) bool {
@@ -1165,28 +1262,26 @@ func truncateTG(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
-func (t *Telegram) handleToolCall(chatID int64) {
+func (t *Telegram) handleToolCall(route string, chatID int64) {
 	t.streamMu.Lock()
 	defer t.streamMu.Unlock()
-	s, ok := t.streams[chatID]
+	s, ok := t.streams[route]
 	if !ok {
-		s = &streamState{}
-		t.streams[chatID] = s
+		s = &streamState{chatID: chatID}
+		t.streams[route] = s
 	}
 	s.toolCalls++
 }
 
-func (t *Telegram) handleToolResult(chatID int64) {
+func (t *Telegram) handleToolResult(_ string, _ int64) {}
 
-}
-
-func (t *Telegram) handleToolError(chatID int64) {
+func (t *Telegram) handleToolError(route string, chatID int64) {
 	t.streamMu.Lock()
 	defer t.streamMu.Unlock()
-	s, ok := t.streams[chatID]
+	s, ok := t.streams[route]
 	if !ok {
-		s = &streamState{}
-		t.streams[chatID] = s
+		s = &streamState{chatID: chatID}
+		t.streams[route] = s
 	}
 	s.toolErrors++
 }
