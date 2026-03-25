@@ -175,6 +175,27 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 	var signature string
 	var toolCalls []msg.ToolCall
 	var usage *llm.TokenUsage
+	var reasoningDelta strings.Builder
+	lastReasoningFlush := time.Now()
+
+	flushReasoning := func(force bool) {
+		if a.bus == nil || reasoningDelta.Len() == 0 {
+			return
+		}
+		if !force {
+			if time.Since(lastReasoningFlush) < 120*time.Millisecond && reasoningDelta.Len() < 128 {
+				return
+			}
+		}
+		_ = a.bus.Pub(bus.Msg{
+			Type:    bus.TypeThinkingChunk,
+			From:    a.id,
+			To:      src,
+			Payload: reasoningDelta.String(),
+		})
+		reasoningDelta.Reset()
+		lastReasoningFlush = time.Now()
+	}
 
 	for chunk := range ch {
 		switch chunk.Type {
@@ -186,24 +207,20 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 			}
 		case llm.ChunkReasoning:
 			reasoning.WriteString(chunk.ReasoningDelta)
-			if a.bus != nil {
-				_ = a.bus.Pub(bus.Msg{
-					Type:    bus.TypeThinkingChunk,
-					From:    a.id,
-					To:      src,
-					Payload: chunk.ReasoningDelta,
-				})
-			}
+			reasoningDelta.WriteString(chunk.ReasoningDelta)
+			flushReasoning(false)
 		case llm.ChunkDone:
 			if chunk.Usage != nil {
 				usage = chunk.Usage
 			}
 			if chunk.Reasoning != "" {
 				reasoning.WriteString(chunk.Reasoning)
+				reasoningDelta.WriteString(chunk.Reasoning)
 			}
 			if chunk.ReasoningSignature != "" {
 				signature = chunk.ReasoningSignature
 			}
+			flushReasoning(true)
 			if a.bus != nil {
 				if reasoning.Len() > 0 {
 					_ = a.bus.Pub(bus.Msg{

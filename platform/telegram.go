@@ -232,7 +232,7 @@ func (t *Telegram) forward(ctx context.Context) {
 	if t.events != nil {
 		t.bus.Unobserve(t.events)
 	}
-	ch := make(chan bus.Msg, 64)
+	ch := make(chan bus.Msg, 512)
 	t.events = ch
 	t.bus.Observe(ch)
 

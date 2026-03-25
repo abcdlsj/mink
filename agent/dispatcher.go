@@ -19,6 +19,8 @@ const workerIdleTTL = 5 * time.Minute
 const (
 	workerEnqueueTimeout     = 2 * time.Second
 	workerTaskEnqueueTimeout = 8 * time.Second
+	workerStatusFirstDelay   = 12 * time.Second
+	workerStatusInterval     = 20 * time.Second
 )
 
 type workerState struct {
@@ -135,11 +137,16 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	if enqueueWorker(ctx, w.q, m, workerEnqueueTimeout) {
 		return bus.Msg{}, nil
 	}
-	_ = d.deps.Bus.Pub(bus.Msg{
+	d.pub(bus.Msg{
 		Type:    bus.TypeAssistant,
 		From:    d.agentID,
 		Payload: "busy",
 		To:      src,
+	})
+	d.pub(bus.Msg{
+		Type: bus.TypeTurnDone,
+		From: d.agentID,
+		To:   src,
 	})
 	return bus.Msg{}, nil
 }
@@ -167,6 +174,23 @@ func (d *Dispatcher) InvalidateSource(src string) {
 }
 
 func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
+	defer func() {
+		if r := recover(); r != nil {
+			d.pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    d.agentID,
+				To:      src,
+				Payload: fmt.Sprintf("error: worker panic: %v", r),
+			})
+			d.pub(bus.Msg{
+				Type: bus.TypeTurnDone,
+				From: d.agentID,
+				To:   src,
+			})
+			d.removeWorker(src)
+		}
+	}()
+
 	idle := time.NewTimer(workerIdleTTL)
 	defer idle.Stop()
 
@@ -184,29 +208,29 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 			a := d.getOrCreateAgent(src)
 			in, ok := m.Payload.(string)
 			if !ok {
-				_ = d.deps.Bus.Pub(bus.Msg{
+				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: "error: invalid input payload",
 					To:      src,
 				})
+				d.pub(bus.Msg{
+					Type: bus.TypeTurnDone,
+					From: d.agentID,
+					To:   src,
+				})
 				continue
 			}
-			var err error
-			if m.Type == bus.TypeTaskDone {
-				err = a.RunSystem(ctx, src, in)
-			} else {
-				err = a.Run(ctx, src, in)
-			}
+			err := d.runWithStatus(ctx, src, m.Type, in, a)
 			if err != nil {
-				_ = d.deps.Bus.Pub(bus.Msg{
+				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
 					Payload: fmt.Sprintf("error: %v", err),
 					To:      src,
 				})
 			}
-			_ = d.deps.Bus.Pub(bus.Msg{
+			d.pub(bus.Msg{
 				Type: bus.TypeTurnDone,
 				From: d.agentID,
 				To:   src,
@@ -306,14 +330,14 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 	}
 
 	if err := a.Run(ctx, src, prompt); err != nil {
-		_ = d.deps.Bus.Pub(bus.Msg{
+		d.pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
 			To:      src,
 			Payload: fmt.Sprintf("cron error: %v", err),
 		})
 	}
-	_ = d.deps.Bus.Pub(bus.Msg{
+	d.pub(bus.Msg{
 		Type: bus.TypeTurnDone,
 		From: d.agentID,
 		To:   src,
@@ -355,11 +379,16 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		return
 	}
 
-	_ = d.deps.Bus.Pub(bus.Msg{
+	d.pub(bus.Msg{
 		Type:    bus.TypeAssistant,
 		From:    d.agentID,
 		To:      src,
 		Payload: content,
+	})
+	d.pub(bus.Msg{
+		Type: bus.TypeTurnDone,
+		From: d.agentID,
+		To:   src,
 	})
 }
 
@@ -414,4 +443,61 @@ func enqueueWorker(parent context.Context, q chan bus.Msg, m bus.Msg, timeout ti
 	case <-timer.C:
 		return false
 	}
+}
+
+func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string, a *Agent) error {
+	errCh := make(chan error, 1)
+	go func() {
+		if msgType == bus.TypeTaskDone {
+			errCh <- a.RunSystem(ctx, src, in)
+			return
+		}
+		errCh <- a.Run(ctx, src, in)
+	}()
+
+	first := time.NewTimer(workerStatusFirstDelay)
+	defer first.Stop()
+	var ticker *time.Ticker
+	var tick <-chan time.Time
+
+	for {
+		select {
+		case err := <-errCh:
+			if ticker != nil {
+				ticker.Stop()
+			}
+			return err
+		case <-ctx.Done():
+			if ticker != nil {
+				ticker.Stop()
+			}
+			return ctx.Err()
+		case <-first.C:
+			if msgType == bus.TypeTaskDone {
+				continue
+			}
+			d.pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    d.agentID,
+				To:      src,
+				Payload: "[status] still working, please wait...",
+			})
+			ticker = time.NewTicker(workerStatusInterval)
+			tick = ticker.C
+		case <-tick:
+			d.pub(bus.Msg{
+				Type:    bus.TypeAssistant,
+				From:    d.agentID,
+				To:      src,
+				Payload: "[status] still working, please wait...",
+			})
+		}
+	}
+}
+
+func (d *Dispatcher) pub(m bus.Msg) {
+	if d.deps.Bus == nil {
+		return
+	}
+	_ = d.deps.Bus.Pub(m)
 }

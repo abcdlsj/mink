@@ -25,6 +25,7 @@ type Bus struct {
 }
 
 const maxPendingPerAgent = 256
+const observerEnqueueWait = 20 * time.Millisecond
 
 func New() *Bus {
 	return &Bus{
@@ -112,7 +113,20 @@ func (b *Bus) observe(m Msg) {
 	b.mu.RUnlock()
 
 	for _, ch := range observers {
-		_ = deliver(ch, m)
+		if deliver(ch, m) {
+			continue
+		}
+		timer := time.NewTimer(observerEnqueueWait)
+		select {
+		case ch <- m:
+		case <-timer.C:
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
 	}
 }
 

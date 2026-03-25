@@ -97,9 +97,13 @@ func (m *model) appendBusLine(showInline bool, from, line string) {
 
 func (m *model) handleAssistantMsg(msg bus.Msg, showInline bool) {
 	content := fmt.Sprintf("%v", msg.Payload)
-	if content == "busy" && m.pending > 0 {
-		m.pending--
+	if content == "busy" {
 		m.appendOutput(styleDim.Render("[busy] waiting for previous request..."))
+		return
+	}
+	if strings.HasPrefix(content, "[status] ") {
+		status := strings.TrimPrefix(content, "[status] ")
+		m.appendBusLine(showInline, msg.From, styleDim.Render("[status] "+status))
 		return
 	}
 	if showInline {

@@ -140,7 +140,7 @@ func (c *CLI) subscribeMessages(ctx context.Context) {
 	if c.events != nil {
 		c.bus.Unobserve(c.events)
 	}
-	ch := make(chan bus.Msg, 64)
+	ch := make(chan bus.Msg, 512)
 	c.events = ch
 	c.bus.Observe(ch)
 
