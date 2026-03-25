@@ -246,9 +246,9 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 
 	enabled := true
 	req := openrouter.ChatCompletionRequest{
-		Model:     o.model,
-		Messages:  chatMsgs,
-		MaxTokens: o.cfg.MaxTokens,
+		Model:               o.model,
+		Messages:            chatMsgs,
+		MaxCompletionTokens: o.cfg.MaxTokens,
 	}
 
 	if o.cfg.Reasoning {

@@ -418,6 +418,7 @@ func newProviderFromModel(model config.ModelConfig) (llm.Provider, error) {
 		BaseURL:   model.BaseURL,
 		Model:     model.Model,
 		Headers:   model.Headers,
+		MaxTokens: model.MaxTokens,
 		Reasoning: model.Reasoning,
 	})
 }

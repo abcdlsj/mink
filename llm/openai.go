@@ -349,9 +349,9 @@ func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompl
 	}
 
 	req := openai.ChatCompletionRequest{
-		Model:     o.model,
-		Messages:  chatMsgs,
-		MaxTokens: o.cfg.MaxTokens,
+		Model:               o.model,
+		Messages:            chatMsgs,
+		MaxCompletionTokens: o.cfg.MaxTokens,
 	}
 
 	if len(openAITools) > 0 {

@@ -11,9 +11,9 @@ cheap = "kimi"
 
 [compact]
 auto = true
-trigger_tokens = 12000
 trigger_messages = 80
 keep_recent_messages = 20
+reserve_tokens = 2048
 
 [api_keys]
 ANTHROPIC_API_KEY = "sk-your-anthropic-key"
@@ -26,6 +26,8 @@ TELEGRAM_TOKEN = "your-telegram-token"
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 api_key = "${ANTHROPIC_API_KEY}"
+max_tokens = 4096
+context_window = 200000
 reasoning = true
 
 [models.kimi]
@@ -33,3 +35,4 @@ provider = "openai"
 model = "moonshot-v1-auto"
 api_key = "${KIMI_API_KEY}"
 base_url = "https://api.moonshot.cn/v1"
+max_tokens = 4096

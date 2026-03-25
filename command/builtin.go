@@ -332,16 +332,31 @@ func (c *tokensCmd) Run(ctx context.Context, args []string) (string, error) {
 		return "no active session for current source", nil
 	}
 
-	return fmt.Sprintf(
-		"Estimated tokens\n  total: %d\n  messages: %d\n  input(user): %d\n  output(assistant): %d\n  system: %d\n  tool: %d\n  source: %s",
-		u.Total,
-		u.Messages,
-		u.Input,
-		u.Output,
-		u.System,
-		u.Tool,
-		u.Source,
-	), nil
+	var b strings.Builder
+	fmt.Fprintf(&b, "Estimated tokens\n")
+	fmt.Fprintf(&b, "  total: %d\n", u.Total)
+	fmt.Fprintf(&b, "  messages: %d\n", u.Messages)
+	fmt.Fprintf(&b, "  input(user): %d\n", u.Input)
+	fmt.Fprintf(&b, "  output(assistant): %d\n", u.Output)
+	fmt.Fprintf(&b, "  system: %d\n", u.System)
+	fmt.Fprintf(&b, "  tool: %d\n", u.Tool)
+	if u.CompactTrigger > 0 {
+		fmt.Fprintf(&b, "  compact trigger: %d\n", u.CompactTrigger)
+		if u.Total > 0 {
+			fmt.Fprintf(&b, "  compact usage: %.1f%%\n", float64(u.Total)*100/float64(u.CompactTrigger))
+		}
+	}
+	if u.ContextWindow > 0 {
+		fmt.Fprintf(&b, "  context window: %d\n", u.ContextWindow)
+	}
+	if u.MaxTokens > 0 {
+		fmt.Fprintf(&b, "  max output: %d\n", u.MaxTokens)
+	}
+	if u.Reserve > 0 {
+		fmt.Fprintf(&b, "  reserve: %d\n", u.Reserve)
+	}
+	fmt.Fprintf(&b, "  source: %s", u.Source)
+	return b.String(), nil
 }
 
 type ModelInfo struct {
@@ -378,7 +393,14 @@ func (c *modelsCmd) Run(ctx context.Context, args []string) (string, error) {
 		if name == info.Active {
 			marker = "* "
 		}
-		fmt.Fprintf(&b, "  %s%s (%s/%s)\n", marker, name, mc.Provider, mc.Model)
+		fmt.Fprintf(&b, "  %s%s (%s/%s", marker, name, mc.Provider, mc.Model)
+		if mc.ContextWindow > 0 {
+			fmt.Fprintf(&b, " ctx=%d", mc.ContextWindow)
+		}
+		if mc.MaxTokens > 0 {
+			fmt.Fprintf(&b, " max=%d", mc.MaxTokens)
+		}
+		b.WriteString(")\n")
 	}
 	return b.String(), nil
 }

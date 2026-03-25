@@ -31,18 +31,22 @@ type Config struct {
 	APIKey               string                 `toml:"api_key"`
 	BaseURL              string                 `toml:"base_url"`
 	Headers              map[string]string      `toml:"headers"`
+	MaxTokens            int                    `toml:"max_tokens"`
+	ContextWindow        int                    `toml:"context_window"`
 	Reasoning            bool                   `toml:"reasoning"`
 
 	Active ModelConfig
 }
 
 type ModelConfig struct {
-	Provider  string            `toml:"provider"`
-	Model     string            `toml:"model"`
-	APIKey    string            `toml:"api_key"`
-	BaseURL   string            `toml:"base_url"`
-	Headers   map[string]string `toml:"headers"`
-	Reasoning bool              `toml:"reasoning"`
+	Provider      string            `toml:"provider"`
+	Model         string            `toml:"model"`
+	APIKey        string            `toml:"api_key"`
+	BaseURL       string            `toml:"base_url"`
+	Headers       map[string]string `toml:"headers"`
+	MaxTokens     int               `toml:"max_tokens"`
+	ContextWindow int               `toml:"context_window"`
+	Reasoning     bool              `toml:"reasoning"`
 }
 
 type CompactConfig struct {
@@ -50,6 +54,7 @@ type CompactConfig struct {
 	TriggerTokens      int  `toml:"trigger_tokens"`
 	TriggerMessages    int  `toml:"trigger_messages"`
 	KeepRecentMessages int  `toml:"keep_recent_messages"`
+	ReserveTokens      int  `toml:"reserve_tokens"`
 }
 
 type TimeoutConfig struct {
@@ -98,14 +103,14 @@ func (c *Config) Normalize() {
 	if c.Timeout.LLM == 0 {
 		c.Timeout.LLM = 120
 	}
-	if c.Compact.TriggerTokens == 0 {
-		c.Compact.TriggerTokens = 12000
-	}
 	if c.Compact.TriggerMessages == 0 {
 		c.Compact.TriggerMessages = 80
 	}
 	if c.Compact.KeepRecentMessages == 0 {
 		c.Compact.KeepRecentMessages = 20
+	}
+	if c.Compact.ReserveTokens == 0 {
+		c.Compact.ReserveTokens = 2048
 	}
 	switch strings.ToLower(strings.TrimSpace(c.TelegramMentionMode)) {
 	case "", "always":
@@ -181,12 +186,14 @@ func (c *Config) ResolveActive() bool {
 		return false
 	}
 	c.Active = ModelConfig{
-		Provider:  c.Provider,
-		Model:     c.Model,
-		APIKey:    expand(c.APIKey, c.APIKeys),
-		BaseURL:   c.BaseURL,
-		Headers:   c.Headers,
-		Reasoning: c.Reasoning,
+		Provider:      c.Provider,
+		Model:         c.Model,
+		APIKey:        expand(c.APIKey, c.APIKeys),
+		BaseURL:       c.BaseURL,
+		Headers:       c.Headers,
+		MaxTokens:     c.MaxTokens,
+		ContextWindow: c.ContextWindow,
+		Reasoning:     c.Reasoning,
 	}
 	if c.ActiveModel == "" {
 		c.ActiveModel = "inline"

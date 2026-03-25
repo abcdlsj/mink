@@ -36,13 +36,17 @@ type ToolResult struct {
 }
 
 type TokenUsage struct {
-	Messages int
-	Total    int
-	Input    int
-	Output   int
-	System   int
-	Tool     int
-	Source   string
+	Messages       int
+	Total          int
+	Input          int
+	Output         int
+	System         int
+	Tool           int
+	CompactTrigger int
+	ContextWindow  int
+	MaxTokens      int
+	Reserve        int
+	Source         string
 }
 
 type Message struct {
