@@ -32,15 +32,15 @@ type confirmState struct {
 }
 
 type streamState struct {
-	chatID     int64
-	buf        strings.Builder
-	msgID      int
-	dirty      bool
-	ended      bool
-	flush      bool
-	at         time.Time
-	toolCalls  int
-	toolErrors int
+	chatID        int64
+	buf           strings.Builder
+	msgID         int
+	progressMsgID int
+	progressText  string
+	dirty         bool
+	ended         bool
+	flush         bool
+	at            time.Time
 }
 
 type inboundState struct {
@@ -213,6 +213,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 		msgID:    msg.ID,
 		threadID: msg.ThreadID,
 	})
+	t.applyReaction(src, chatID, "👀", msg.ID)
 
 	payload := t.formatInboundPayload(msg, text, mentioned)
 	t.debugf("inbound chat=%d msg=%d thread=%d mentioned=%v text=%q", chatID, msg.ID, msg.ThreadID, mentioned, truncateTG(text, 160))
@@ -301,6 +302,14 @@ func (t *Telegram) sendToChat(route string, chatID int64, m bus.Msg, prefix stri
 	case bus.TypeAssistant:
 		raw := fmt.Sprintf("%v", m.Payload)
 		out := parseTelegramAssistantOutput(raw)
+		if strings.HasPrefix(strings.TrimSpace(out.Text), "[status] ") && out.Reaction == "" {
+			status := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out.Text), "[status] "))
+			if status != "" {
+				t.setProgress(route, chatID, "⏳ "+status)
+			}
+			return
+		}
+		t.clearProgress(route)
 		replyToID := t.resolveReplyToID(route, out)
 		t.debugf("assistant chat=%d reply_to=%d silent=%v react=%q text=%q", chatID, replyToID, out.Silent, out.Reaction, truncateTG(out.Text, 160))
 		if out.Reaction != "" {
@@ -315,6 +324,7 @@ func (t *Telegram) sendToChat(route string, chatID int64, m bus.Msg, prefix stri
 		}
 		t.sendAssistantText(route, chatID, text, replyToID)
 	case bus.TypeTurnDone:
+		t.clearProgress(route)
 		t.popInboundState(route)
 		t.stopTyping(chatID)
 		return
@@ -355,8 +365,10 @@ func (t *Telegram) sendToChat(route string, chatID int64, m bus.Msg, prefix stri
 		t.handleStreamEnd(route)
 		t.stopTyping(chatID)
 	case bus.TypeSessionReset:
+		t.clearProgress(route)
 		t.stopTyping(chatID)
 	case bus.TypeInterrupt:
+		t.clearProgress(route)
 		t.stopTyping(chatID)
 	case bus.TypeSessionNew:
 		if id, ok := m.Payload.(string); ok {
@@ -371,6 +383,7 @@ func (t *Telegram) handleStreamChunk(route string, chatID int64, delta string) {
 	if delta == "" {
 		return
 	}
+	t.clearProgress(route)
 	t.debugf("stream chunk chat=%d size=%d", chatID, len([]rune(delta)))
 	t.notifyTyping(chatID)
 
@@ -768,16 +781,8 @@ func (t *Telegram) flushStream(route string, force bool) {
 			}
 
 			t.streamMu.Lock()
-			s := t.streams[route]
-			var stats string
-			if s != nil {
-				stats = t.formatToolStats(s.toolCalls, s.toolErrors)
-			}
 			delete(t.streams, route)
 			t.streamMu.Unlock()
-			if stats != "" {
-				t.sendTextWithOptions(chatID, stats, threadOpts)
-			}
 			return
 		}
 
@@ -1263,47 +1268,80 @@ func truncateTG(s string, n int) string {
 }
 
 func (t *Telegram) handleToolCall(route string, chatID int64) {
-	t.streamMu.Lock()
-	defer t.streamMu.Unlock()
-	s, ok := t.streams[route]
-	if !ok {
-		s = &streamState{chatID: chatID}
-		t.streams[route] = s
-	}
-	s.toolCalls++
+	t.setProgress(route, chatID, "🛠️ calling tools...")
 }
 
-func (t *Telegram) handleToolResult(_ string, _ int64) {}
+func (t *Telegram) handleToolResult(route string, chatID int64) {
+	t.setProgress(route, chatID, "⏳ processing tool result...")
+}
 
 func (t *Telegram) handleToolError(route string, chatID int64) {
+	t.setProgress(route, chatID, "⚠️ tool error, retrying strategy...")
+}
+
+func (t *Telegram) setProgress(route string, chatID int64, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" || t.bot == nil {
+		return
+	}
+
 	t.streamMu.Lock()
-	defer t.streamMu.Unlock()
 	s, ok := t.streams[route]
 	if !ok {
 		s = &streamState{chatID: chatID}
 		t.streams[route] = s
 	}
-	s.toolErrors++
+	if s.chatID == 0 {
+		s.chatID = chatID
+	}
+	if s.progressText == text && s.progressMsgID != 0 {
+		t.streamMu.Unlock()
+		return
+	}
+	msgID := s.progressMsgID
+	s.progressText = text
+	t.streamMu.Unlock()
+
+	chat := &tele.Chat{ID: chatID}
+	if msgID != 0 {
+		if _, err := t.bot.Edit(&tele.Message{ID: msgID, Chat: chat}, tgRenderText(text), &tele.SendOptions{ParseMode: tele.ModeHTML}); err == nil {
+			return
+		}
+	}
+
+	opts := t.assistantSendOptions(route, chatID, 0, true)
+	sent, err := t.sendWithOpts(chat, text, opts)
+	if err != nil || sent == nil {
+		return
+	}
+
+	t.streamMu.Lock()
+	if cur, ok := t.streams[route]; ok {
+		cur.progressMsgID = sent.ID
+		cur.progressText = text
+	}
+	t.streamMu.Unlock()
 }
 
-func (t *Telegram) formatToolStats(calls, errors int) string {
-	if calls == 0 {
-		return ""
+func (t *Telegram) clearProgress(route string) {
+	if t.bot == nil {
+		return
 	}
 
-	if errors > 0 {
-		return fmt.Sprintf("\n\n🛠️%s ⚠️%s", numberToEmoji(calls), numberToEmoji(errors))
+	t.streamMu.Lock()
+	s, ok := t.streams[route]
+	if !ok || s.progressMsgID == 0 {
+		t.streamMu.Unlock()
+		return
 	}
-	return fmt.Sprintf("\n\n🛠️%s", numberToEmoji(calls))
-}
+	msgID := s.progressMsgID
+	chatID := s.chatID
+	s.progressMsgID = 0
+	s.progressText = ""
+	t.streamMu.Unlock()
 
-func numberToEmoji(n int) string {
-	if n <= 0 {
-		return "0️⃣"
+	if chatID == 0 || msgID == 0 {
+		return
 	}
-	if n >= 10 {
-		return "🔟+"
-	}
-	emojis := []string{"0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"}
-	return emojis[n]
+	_ = t.bot.Delete(&tele.Message{ID: msgID, Chat: &tele.Chat{ID: chatID}})
 }

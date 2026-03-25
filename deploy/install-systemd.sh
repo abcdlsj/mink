@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${EUID}" -ne 0 ]]; then
-  echo "run as root"
-  exit 1
-fi
-
 BIN_SRC=""
 CFG_SRC=""
 VERSION="latest"
@@ -13,23 +8,36 @@ SVC_NAME="mink"
 REPO="${REPO:-abcdlsj/mink}"
 APP_USER="${APP_USER:-mink}"
 APP_GROUP="${APP_GROUP:-${APP_USER}}"
-APP_HOME="${APP_HOME:-}"
+APP_HOME="${APP_HOME:-/opt/mink}"
+MODE="install"
 
 usage() {
   cat <<'EOF'
 usage:
-  sudo bash deploy/install-systemd.sh
-  sudo bash deploy/install-systemd.sh --config /path/to/config.toml
-  sudo bash deploy/install-systemd.sh --config /path/to/config.toml --home /opt/mink
-  sudo bash deploy/install-systemd.sh --config /path/to/config.toml --version v0.2.11
-  sudo bash deploy/install-systemd.sh --binary /path/to/mink --config /path/to/config.toml
-  sudo bash deploy/install-systemd.sh --binary /path/to/mink --config /path/to/config.toml --service mink
+  sudo bash deploy/install-systemd.sh install [options]
+  sudo bash deploy/install-systemd.sh upgrade [options]
+  sudo bash deploy/install-systemd.sh [options]
 
 example:
-  sudo bash deploy/install-systemd.sh
-  sudo bash deploy/install-systemd.sh --config /root/.mink/config.toml --home /opt/mink
+  sudo bash deploy/install-systemd.sh install --config /path/to/config.toml
+  sudo bash deploy/install-systemd.sh upgrade --version v0.2.11
+
+notes:
+  - default mode: install
+  - default home: /opt/mink
+  - install mode needs --config if /opt/mink/.mink/config.toml and /root/.mink/config.toml are both missing
+  - upgrade mode only updates binary and restarts service; it does not overwrite config
 EOF
 }
+
+if [[ $# -gt 0 ]]; then
+  case "$1" in
+    install|upgrade)
+      MODE="$1"
+      shift
+      ;;
+  esac
+fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,30 +73,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-prompt_value() {
-  local prompt="$1"
-  local def="$2"
-  local val=""
-  if [[ -t 0 ]]; then
-    read -r -p "${prompt} [${def}]: " val
-  fi
-  if [[ -n "${val}" ]]; then
-    printf '%s\n' "${val}"
-    return
-  fi
-  printf '%s\n' "${def}"
-}
-
-if [[ -z "${APP_HOME}" ]]; then
-  APP_HOME="$(prompt_value "install home" "/opt/${SVC_NAME}")"
-fi
-
-if [[ -z "${CFG_SRC}" && -f /root/.mink/config.toml ]]; then
-  CFG_SRC="/root/.mink/config.toml"
-fi
-
-if [[ -z "${CFG_SRC}" ]]; then
-  CFG_SRC="$(prompt_value "config path" "/root/.mink/config.toml")"
+if [[ "${EUID}" -ne 0 ]]; then
+  echo "run as root"
+  exit 1
 fi
 
 BIN_DIR="${APP_HOME}/bin"
@@ -97,11 +84,6 @@ BIN_DST="${BIN_DIR}/mink"
 CFG_DST="${CFG_DIR}/config.toml"
 UNIT_PATH="/etc/systemd/system/${SVC_NAME}.service"
 TMP_DIR=""
-
-if [[ ! -f "${CFG_SRC}" ]]; then
-  echo "config not found: ${CFG_SRC}"
-  exit 1
-fi
 
 cleanup() {
   if [[ -n "${TMP_DIR}" && -d "${TMP_DIR}" ]]; then
@@ -174,24 +156,48 @@ if [[ ! -f "${BIN_SRC}" ]]; then
   exit 1
 fi
 
-if ! getent group "${APP_GROUP}" >/dev/null 2>&1; then
-  groupadd -r "${APP_GROUP}"
-fi
+if [[ "${MODE}" == "install" ]]; then
+  if [[ "${APP_HOME}" != /* ]]; then
+    echo "invalid --home: must be an absolute path"
+    exit 1
+  fi
+  case "${APP_HOME}" in
+    /|/root)
+      echo "refuse unsafe --home: ${APP_HOME}"
+      echo "use a dedicated app directory, e.g. /opt/mink"
+      exit 1
+      ;;
+  esac
 
-if ! id -u "${APP_USER}" >/dev/null 2>&1; then
-  useradd -r -g "${APP_GROUP}" -m -d "${APP_HOME}" -s /bin/bash "${APP_USER}"
-fi
+  if [[ -z "${CFG_SRC}" && -f "${CFG_DST}" ]]; then
+    CFG_SRC="${CFG_DST}"
+  fi
+  if [[ -z "${CFG_SRC}" && -f /root/.mink/config.toml ]]; then
+    CFG_SRC="/root/.mink/config.toml"
+  fi
+  if [[ -z "${CFG_SRC}" || ! -f "${CFG_SRC}" ]]; then
+    echo "config not found. provide --config /path/to/config.toml"
+    exit 1
+  fi
 
-mkdir -p "${BIN_DIR}" "${CFG_DIR}"
-if ! same_file "${BIN_SRC}" "${BIN_DST}"; then
-  install -m 0755 "${BIN_SRC}" "${BIN_DST}"
-fi
-if ! same_file "${CFG_SRC}" "${CFG_DST}"; then
-  install -m 0600 "${CFG_SRC}" "${CFG_DST}"
-fi
-chown -R "${APP_USER}:${APP_GROUP}" "${APP_HOME}"
+  if ! getent group "${APP_GROUP}" >/dev/null 2>&1; then
+    groupadd -r "${APP_GROUP}"
+  fi
 
-cat >"${UNIT_PATH}" <<EOF
+  if ! id -u "${APP_USER}" >/dev/null 2>&1; then
+    useradd -r -g "${APP_GROUP}" -m -d "${APP_HOME}" -s /bin/bash "${APP_USER}"
+  fi
+
+  mkdir -p "${BIN_DIR}" "${CFG_DIR}"
+  if ! same_file "${BIN_SRC}" "${BIN_DST}"; then
+    install -m 0755 "${BIN_SRC}" "${BIN_DST}"
+  fi
+  if ! same_file "${CFG_SRC}" "${CFG_DST}"; then
+    install -m 0600 "${CFG_SRC}" "${CFG_DST}"
+  fi
+  chown -R "${APP_USER}:${APP_GROUP}" "${APP_HOME}"
+
+  cat >"${UNIT_PATH}" <<EOF
 [Unit]
 Description=Mink AI Agent (Telegram)
 After=network-online.target
@@ -212,14 +218,14 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable "${SVC_NAME}"
-systemctl restart "${SVC_NAME}"
-systemctl status "${SVC_NAME}" --no-pager
+  systemctl daemon-reload
+  systemctl enable "${SVC_NAME}"
+  systemctl restart "${SVC_NAME}"
+  systemctl status "${SVC_NAME}" --no-pager
 
-cat <<EOF
-
+  cat <<EOF
 installed:
+  mode:   install
   binary: ${BIN_DST}
   config: ${CFG_DST}
   unit:   ${UNIT_PATH}
@@ -229,3 +235,47 @@ installed:
 logs:
   journalctl -u ${SVC_NAME} -f
 EOF
+  exit 0
+fi
+
+if [[ "${MODE}" == "upgrade" ]]; then
+  if [[ ! -f "${UNIT_PATH}" ]]; then
+    echo "service unit not found: ${UNIT_PATH}"
+    echo "run install mode first"
+    exit 1
+  fi
+
+  UNIT_BIN="$(awk -F= '/^ExecStart=/{print $2; exit}' "${UNIT_PATH}" | awk '{print $1}')"
+  if [[ -n "${UNIT_BIN}" ]]; then
+    BIN_DST="${UNIT_BIN}"
+  fi
+  BIN_DIR="$(dirname "${BIN_DST}")"
+  mkdir -p "${BIN_DIR}"
+  if ! same_file "${BIN_SRC}" "${BIN_DST}"; then
+    install -m 0755 "${BIN_SRC}" "${BIN_DST}"
+  fi
+
+  if id -u "${APP_USER}" >/dev/null 2>&1; then
+    chown "${APP_USER}:${APP_GROUP}" "${BIN_DST}" || true
+  fi
+
+  systemctl restart "${SVC_NAME}"
+  systemctl status "${SVC_NAME}" --no-pager
+
+  cat <<EOF
+installed:
+  mode:   upgrade
+  binary: ${BIN_DST}
+  unit:   ${UNIT_PATH}
+  repo:   ${REPO}
+  ver:    ${VERSION}
+
+logs:
+  journalctl -u ${SVC_NAME} -f
+EOF
+  exit 0
+fi
+
+echo "unknown mode: ${MODE}"
+usage
+exit 1

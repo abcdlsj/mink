@@ -77,9 +77,11 @@ Assistant directives:
 Linux (systemd):
 
 ```bash
-cp deploy/mink.service ~/.config/systemd/user/
-systemctl --user enable --now mink
+sudo bash deploy/install-systemd.sh install --config /path/to/config.toml
+sudo bash deploy/install-systemd.sh upgrade --version latest
 ```
+
+`install-systemd.sh` defaults to `/opt/mink` and supports `install` (default) / `upgrade` modes.
 
 macOS (launchd):
 
