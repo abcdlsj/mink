@@ -147,6 +147,13 @@ download() {
   exit 1
 }
 
+same_file() {
+  local a="$1"
+  local b="$2"
+  [[ -e "${a}" && -e "${b}" ]] || return 1
+  [[ "$(realpath "${a}")" == "$(realpath "${b}")" ]]
+}
+
 if [[ -z "${BIN_SRC}" ]]; then
   os="$(norm_os "$(uname -s)")"
   arch="$(norm_arch "$(uname -m)")"
@@ -176,8 +183,12 @@ if ! id -u "${APP_USER}" >/dev/null 2>&1; then
 fi
 
 mkdir -p "${BIN_DIR}" "${CFG_DIR}"
-install -m 0755 "${BIN_SRC}" "${BIN_DST}"
-install -m 0600 "${CFG_SRC}" "${CFG_DST}"
+if ! same_file "${BIN_SRC}" "${BIN_DST}"; then
+  install -m 0755 "${BIN_SRC}" "${BIN_DST}"
+fi
+if ! same_file "${CFG_SRC}" "${CFG_DST}"; then
+  install -m 0600 "${CFG_SRC}" "${CFG_DST}"
+fi
 chown -R "${APP_USER}:${APP_GROUP}" "${APP_HOME}"
 
 cat >"${UNIT_PATH}" <<EOF
