@@ -305,7 +305,7 @@ func (t *Telegram) sendToChat(route string, chatID int64, m bus.Msg, prefix stri
 		if strings.HasPrefix(strings.TrimSpace(out.Text), "[status] ") && out.Reaction == "" {
 			status := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(out.Text), "[status] "))
 			if status != "" {
-				t.setProgress(route, chatID, "⏳ "+status)
+				t.setProgress(route, chatID, "[status] "+status)
 			}
 			return
 		}
@@ -1268,15 +1268,13 @@ func truncateTG(s string, n int) string {
 }
 
 func (t *Telegram) handleToolCall(route string, chatID int64) {
-	t.setProgress(route, chatID, "🛠️ calling tools...")
+	t.setProgress(route, chatID, "[tool] calling tools...")
 }
 
-func (t *Telegram) handleToolResult(route string, chatID int64) {
-	t.setProgress(route, chatID, "⏳ processing tool result...")
-}
+func (t *Telegram) handleToolResult(_ string, _ int64) {}
 
 func (t *Telegram) handleToolError(route string, chatID int64) {
-	t.setProgress(route, chatID, "⚠️ tool error, retrying strategy...")
+	t.setProgress(route, chatID, "[tool] error, retrying strategy...")
 }
 
 func (t *Telegram) setProgress(route string, chatID int64, text string) {
