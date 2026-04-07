@@ -79,7 +79,10 @@ func New(opts Options) (*App, error) {
 	}
 
 	cmdReg, router, guard := buildCommandInfra(deps.workspace)
-	sm, sup, disp, reg, cronSched := buildAgentInfra(deps, guard)
+	sm, sup, disp, reg, cronSched, err := buildAgentInfra(deps, guard)
+	if err != nil {
+		return nil, err
+	}
 	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
 
 	app := &App{
@@ -593,7 +596,7 @@ func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *c
 	return cmdReg, router, guard
 }
 
-func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *agent.Registry, *mcron.Scheduler) {
+func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *agent.Registry, *mcron.Scheduler, error) {
 	sm := session.NewManager(deps.store, deps.bus)
 	if deps.runtimeDB != nil {
 		if bindings, err := deps.runtimeDB.SessionBindings(context.Background()); err == nil {
@@ -625,7 +628,7 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 
 	reg := agent.NewRegistry()
 	for _, ac := range deps.cfg.Agents {
-		reg.Register(agent.AgentDescriptor{
+		if err := reg.Register(agent.AgentDescriptor{
 			ID:            ac.ID,
 			Name:          ac.Name,
 			Capabilities:  ac.Capabilities,
@@ -634,14 +637,16 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 			Prompt:        ac.Prompt,
 			Tools:         ac.Tools,
 			MaxConcurrent: ac.MaxConcurrent,
-			Heartbeat:     convertHeartbeat(ac.Heartbeat),
-		})
+			Heartbeat:     ac.Heartbeat,
+		}); err != nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("register agent: %w", err)
+		}
 	}
 
 	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
 	disp.SetRegistry(reg)
 
-	return sm, sup, disp, reg, cronSched
+	return sm, sup, disp, reg, cronSched, nil
 }
 
 func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir string) {
@@ -660,12 +665,3 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
 }
 
-func convertHeartbeat(hc *config.HeartbeatConfig) *agent.HeartbeatConfig {
-	if hc == nil {
-		return nil
-	}
-	return &agent.HeartbeatConfig{
-		Schedule: hc.Schedule,
-		Prompt:   hc.Prompt,
-	}
-}

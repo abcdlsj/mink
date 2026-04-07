@@ -4,23 +4,20 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/abcdlsj/mink/config"
 )
 
 type AgentDescriptor struct {
-	ID            string           `toml:"id"`
-	Name          string           `toml:"name"`
-	Capabilities  []string         `toml:"capabilities"`
-	Model         string           `toml:"model"`
-	SoulPath      string           `toml:"soul_path"`
-	Prompt        string           `toml:"prompt"`
-	Tools         []string         `toml:"tools"`
-	MaxConcurrent int              `toml:"max_concurrent"`
-	Heartbeat     *HeartbeatConfig `toml:"heartbeat"`
-}
-
-type HeartbeatConfig struct {
-	Schedule string `toml:"schedule"`
-	Prompt   string `toml:"prompt"`
+	ID            string                 `toml:"id"`
+	Name          string                 `toml:"name"`
+	Capabilities  []string               `toml:"capabilities"`
+	Model         string                 `toml:"model"`
+	SoulPath      string                 `toml:"soul_path"`
+	Prompt        string                 `toml:"prompt"`
+	Tools         []string               `toml:"tools"`
+	MaxConcurrent int                    `toml:"max_concurrent"`
+	Heartbeat     *config.HeartbeatConfig `toml:"heartbeat"`
 }
 
 type AgentStatus string
@@ -49,9 +46,15 @@ func NewRegistry() *Registry {
 	return &Registry{agents: make(map[string]*AgentState)}
 }
 
-func (r *Registry) Register(desc AgentDescriptor) {
+func (r *Registry) Register(desc AgentDescriptor) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if desc.ID == "" {
+		return fmt.Errorf("agent ID must not be empty")
+	}
+	if _, exists := r.agents[desc.ID]; exists {
+		return fmt.Errorf("duplicate agent ID: %s", desc.ID)
+	}
 	if desc.MaxConcurrent <= 0 {
 		desc.MaxConcurrent = 1
 	}
@@ -62,6 +65,7 @@ func (r *Registry) Register(desc AgentDescriptor) {
 		StartedAt:  now,
 		LastActive: now,
 	}
+	return nil
 }
 
 func (r *Registry) Get(id string) *AgentState {
@@ -156,13 +160,13 @@ func (r *Registry) Available() []AgentState {
 var ErrNoAvailableAgent = fmt.Errorf("no available agent for requested capabilities")
 
 // Route: filter by caps → prefer idle → fewest active runs
-func (r *Registry) Route(caps []string) (*AgentState, error) {
+func (r *Registry) Route(caps []string) (AgentState, error) {
 	candidates := r.findCandidates(caps)
 	if len(candidates) == 0 {
-		return nil, ErrNoAvailableAgent
+		return AgentState{}, ErrNoAvailableAgent
 	}
 
-	var best *AgentState
+	bestIdx := -1
 	for i := range candidates {
 		c := &candidates[i]
 		if c.Status == StatusOffline {
@@ -171,22 +175,23 @@ func (r *Registry) Route(caps []string) (*AgentState, error) {
 		if len(c.ActiveRuns) >= c.Descriptor.MaxConcurrent {
 			continue
 		}
-		if best == nil {
-			best = c
+		if bestIdx == -1 {
+			bestIdx = i
 			continue
 		}
+		best := &candidates[bestIdx]
 		if statusPriority(c.Status) < statusPriority(best.Status) {
-			best = c
+			bestIdx = i
 			continue
 		}
 		if statusPriority(c.Status) == statusPriority(best.Status) && len(c.ActiveRuns) < len(best.ActiveRuns) {
-			best = c
+			bestIdx = i
 		}
 	}
-	if best == nil {
-		return nil, ErrNoAvailableAgent
+	if bestIdx == -1 {
+		return AgentState{}, ErrNoAvailableAgent
 	}
-	return best, nil
+	return candidates[bestIdx], nil
 }
 
 func (r *Registry) findCandidates(caps []string) []AgentState {

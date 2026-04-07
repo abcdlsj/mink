@@ -63,6 +63,7 @@ type Telegram struct {
 	mentionMode  string
 	sessionScope string
 	agentNames   map[string]string
+	agentNamesMu sync.RWMutex
 
 	confirmMu sync.Mutex
 	confirms  map[int64]map[string]confirmState
@@ -129,10 +130,14 @@ func (t *Telegram) ID() string { return "telegram" }
 func (t *Telegram) Token() string { return t.token }
 
 func (t *Telegram) SetAgentNames(names map[string]string) {
+	t.agentNamesMu.Lock()
+	defer t.agentNamesMu.Unlock()
 	t.agentNames = names
 }
 
 func (t *Telegram) routeTarget(text string) string {
+	t.agentNamesMu.RLock()
+	defer t.agentNamesMu.RUnlock()
 	lower := strings.ToLower(text)
 	for name, id := range t.agentNames {
 		if strings.Contains(lower, "@"+strings.ToLower(name)) {

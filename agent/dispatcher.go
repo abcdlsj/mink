@@ -528,6 +528,7 @@ func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 	}
 
 	runCtx := withRuntimeTurn(ctx, state, src)
+	runCtx = bus.WithDelegationDepth(runCtx, int(depth)+1)
 	err = a.Run(runCtx, src, desc)
 	_ = d.finishRun(ctx, state, err)
 

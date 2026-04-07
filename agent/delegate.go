@@ -1,6 +1,8 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const MaxDelegationDepth = 3
 

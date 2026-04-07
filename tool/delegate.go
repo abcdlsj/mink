@@ -62,7 +62,7 @@ func (d *Delegate) Run(ctx context.Context, args json.RawMessage) (string, error
 		"capabilities": params.Capabilities,
 		"target_agent": params.Target,
 		"reply_to":     d.agentID,
-		"depth":        0,
+		"depth":        bus.DelegationDepth(ctx) + 1,
 	}
 
 	to := bus.AddrAgentMain

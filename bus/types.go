@@ -1,5 +1,7 @@
 package bus
 
+import "context"
+
 const (
 	TypeUserInput      = "user:input"
 	TypeAssistant      = "assistant:output"
@@ -30,5 +32,15 @@ const (
 	TypeDelegate       = "delegate:request"
 	TypeDelegateAck    = "delegate:ack"
 	TypeDelegateResult = "delegate:result"
-	TypePresence       = "presence:update"
 )
+
+type delegationDepthKey struct{}
+
+func WithDelegationDepth(ctx context.Context, depth int) context.Context {
+	return context.WithValue(ctx, delegationDepthKey{}, depth)
+}
+
+func DelegationDepth(ctx context.Context) int {
+	v, _ := ctx.Value(delegationDepthKey{}).(int)
+	return v
+}

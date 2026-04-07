@@ -4,13 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/abcdlsj/mink/bus"
 	robcron "github.com/robfig/cron/v3"
 )
-
-const minHeartbeatInterval = 5 * time.Minute
 
 type HeartbeatManager struct {
 	registry *Registry
