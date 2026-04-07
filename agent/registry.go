@@ -71,11 +71,12 @@ func (r *Registry) publishPresence(id string, status AgentStatus) {
 
 func (r *Registry) Register(desc AgentDescriptor) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if desc.ID == "" {
+		r.mu.Unlock()
 		return fmt.Errorf("agent ID must not be empty")
 	}
 	if _, exists := r.agents[desc.ID]; exists {
+		r.mu.Unlock()
 		return fmt.Errorf("duplicate agent ID: %s", desc.ID)
 	}
 	if desc.MaxConcurrent <= 0 {
@@ -88,6 +89,8 @@ func (r *Registry) Register(desc AgentDescriptor) error {
 		StartedAt:  now,
 		LastActive: now,
 	}
+	r.mu.Unlock()
+	r.publishPresence(desc.ID, StatusIdle)
 	return nil
 }
 
@@ -109,32 +112,36 @@ func (r *Registry) All() []AgentState {
 
 func (r *Registry) SetStatus(id string, status AgentStatus) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if s, ok := r.agents[id]; ok {
+	s, ok := r.agents[id]
+	if ok {
 		s.Status = status
 		s.LastActive = time.Now()
+	}
+	r.mu.Unlock()
+	if ok {
 		r.publishPresence(id, status)
 	}
 }
 
 func (r *Registry) AddRun(id, runID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	s, ok := r.agents[id]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
 	s.ActiveRuns = append(s.ActiveRuns, runID)
 	s.Status = StatusBusy
 	s.LastActive = time.Now()
+	r.mu.Unlock()
 	r.publishPresence(id, StatusBusy)
 }
 
 func (r *Registry) RemoveRun(id, runID string) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	s, ok := r.agents[id]
 	if !ok {
+		r.mu.Unlock()
 		return
 	}
 	for i, rid := range s.ActiveRuns {
@@ -146,8 +153,10 @@ func (r *Registry) RemoveRun(id, runID string) {
 	if len(s.ActiveRuns) == 0 {
 		s.Status = StatusIdle
 	}
+	newStatus := s.Status
 	s.LastActive = time.Now()
-	r.publishPresence(id, s.Status)
+	r.mu.Unlock()
+	r.publishPresence(id, newStatus)
 }
 
 func (r *Registry) FindByCapability(cap string) []AgentState {

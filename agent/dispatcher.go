@@ -529,7 +529,7 @@ func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 }
 
 func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targetID, desc string, depth int) {
-	src := fmt.Sprintf("delegate:%s", m.From)
+	src := fmt.Sprintf("delegate:%s:%s", m.From, taskID)
 	a := d.getOrCreateAgent(src)
 	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, a)
 	if err != nil {
