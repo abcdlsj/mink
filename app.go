@@ -245,6 +245,13 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		MentionMode:  a.cfg.TelegramMentionMode,
 		SessionScope: a.cfg.TelegramSessionScope,
 	})
+	if a.reg != nil {
+		names := make(map[string]string)
+		for _, s := range a.reg.All() {
+			names[s.Descriptor.Name] = s.Descriptor.ID
+		}
+		tg.SetAgentNames(names)
+	}
 	if err := tg.Start(runCtx); err != nil {
 		return err
 	}
