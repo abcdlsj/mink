@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// AgentDescriptor is the persistent identity of an agent, loaded from config.
 type AgentDescriptor struct {
 	ID            string           `toml:"id"`
 	Name          string           `toml:"name"`
@@ -19,13 +18,11 @@ type AgentDescriptor struct {
 	Heartbeat     *HeartbeatConfig `toml:"heartbeat"`
 }
 
-// HeartbeatConfig controls proactive agent action when idle.
 type HeartbeatConfig struct {
-	Schedule string `toml:"schedule"` // cron expression
-	Prompt   string `toml:"prompt"`   // what to do on heartbeat
+	Schedule string `toml:"schedule"`
+	Prompt   string `toml:"prompt"`
 }
 
-// AgentStatus represents the runtime status of an agent.
 type AgentStatus string
 
 const (
@@ -35,7 +32,6 @@ const (
 	StatusOffline  AgentStatus = "offline"
 )
 
-// AgentState is the runtime state of a registered agent.
 type AgentState struct {
 	Descriptor AgentDescriptor
 	Status     AgentStatus
@@ -44,7 +40,6 @@ type AgentState struct {
 	StartedAt  time.Time
 }
 
-// Registry tracks agent descriptors and runtime state.
 type Registry struct {
 	agents map[string]*AgentState
 	mu     sync.RWMutex
@@ -54,7 +49,6 @@ func NewRegistry() *Registry {
 	return &Registry{agents: make(map[string]*AgentState)}
 }
 
-// Register adds or updates an agent descriptor and sets it to idle.
 func (r *Registry) Register(desc AgentDescriptor) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -70,14 +64,12 @@ func (r *Registry) Register(desc AgentDescriptor) {
 	}
 }
 
-// Get returns the state for an agent, or nil if not found.
 func (r *Registry) Get(id string) *AgentState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.agents[id]
 }
 
-// All returns a snapshot of all agent states.
 func (r *Registry) All() []AgentState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -88,7 +80,6 @@ func (r *Registry) All() []AgentState {
 	return out
 }
 
-// SetStatus updates an agent's status and touches LastActive.
 func (r *Registry) SetStatus(id string, status AgentStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -98,7 +89,6 @@ func (r *Registry) SetStatus(id string, status AgentStatus) {
 	}
 }
 
-// AddRun records a new active run for an agent and sets status to busy.
 func (r *Registry) AddRun(id, runID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -111,7 +101,6 @@ func (r *Registry) AddRun(id, runID string) {
 	s.LastActive = time.Now()
 }
 
-// RemoveRun removes a run and sets status to idle if no runs remain.
 func (r *Registry) RemoveRun(id, runID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -131,7 +120,6 @@ func (r *Registry) RemoveRun(id, runID string) {
 	s.LastActive = time.Now()
 }
 
-// FindByCapability returns agents that declare the given capability and are not offline.
 func (r *Registry) FindByCapability(cap string) []AgentState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -150,7 +138,6 @@ func (r *Registry) FindByCapability(cap string) []AgentState {
 	return out
 }
 
-// Available returns agents that are idle or have capacity for more runs.
 func (r *Registry) Available() []AgentState {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -168,8 +155,7 @@ func (r *Registry) Available() []AgentState {
 
 var ErrNoAvailableAgent = fmt.Errorf("no available agent for requested capabilities")
 
-// Route picks the best agent for a set of required capabilities.
-// Strategy: filter by caps → prefer idle → fewest active runs → error if none available.
+// Route: filter by caps → prefer idle → fewest active runs
 func (r *Registry) Route(caps []string) (*AgentState, error) {
 	candidates := r.findCandidates(caps)
 	if len(candidates) == 0 {

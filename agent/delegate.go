@@ -4,7 +4,6 @@ import "fmt"
 
 const MaxDelegationDepth = 3
 
-// DelegatePayload is the payload for delegate:request messages.
 type DelegatePayload struct {
 	TaskID       string   `json:"task_id"`
 	Description  string   `json:"description"`
@@ -14,14 +13,12 @@ type DelegatePayload struct {
 	Depth        int      `json:"depth"`
 }
 
-// DelegateAckPayload is the payload for delegate:ack messages.
 type DelegateAckPayload struct {
 	TaskID  string `json:"task_id"`
 	RunID   string `json:"run_id"`
 	AgentID string `json:"agent_id"`
 }
 
-// DelegateResultPayload is the payload for delegate:result messages.
 type DelegateResultPayload struct {
 	TaskID  string `json:"task_id"`
 	RunID   string `json:"run_id"`
