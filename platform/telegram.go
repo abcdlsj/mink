@@ -62,6 +62,8 @@ type Telegram struct {
 	events       chan bus.Msg
 	mentionMode  string
 	sessionScope string
+	agentNames   map[string]string
+	agentNamesMu sync.RWMutex
 
 	confirmMu sync.Mutex
 	confirms  map[int64]map[string]confirmState
@@ -126,6 +128,24 @@ func NewTelegram(token string, b *bus.Bus, opts TelegramOptions) *Telegram {
 func (t *Telegram) ID() string { return "telegram" }
 
 func (t *Telegram) Token() string { return t.token }
+
+func (t *Telegram) SetAgentNames(names map[string]string) {
+	t.agentNamesMu.Lock()
+	defer t.agentNamesMu.Unlock()
+	t.agentNames = names
+}
+
+func (t *Telegram) routeTarget(text string) string {
+	t.agentNamesMu.RLock()
+	defer t.agentNamesMu.RUnlock()
+	lower := strings.ToLower(text)
+	for name, id := range t.agentNames {
+		if strings.Contains(lower, "@"+strings.ToLower(name)) {
+			return id
+		}
+	}
+	return bus.AddrAgentMain
+}
 
 func (t *Telegram) Start(ctx context.Context) error {
 	pref := tele.Settings{
@@ -221,7 +241,7 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 	_ = t.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    src,
-		To:      bus.AddrAgentMain,
+		To:      t.routeTarget(text),
 		Payload: payload,
 	})
 	t.startTyping(chatID)

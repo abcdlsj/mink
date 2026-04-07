@@ -424,3 +424,16 @@ func (c *modelCmd) Run(ctx context.Context, args []string) (string, error) {
 	}
 	return fmt.Sprintf("switched to %s", name), nil
 }
+
+type agentsCmd struct {
+	info func() string
+}
+
+func NewAgentsCmd(info func() string) Command { return &agentsCmd{info: info} }
+
+func (c *agentsCmd) Name() string { return "agents" }
+func (c *agentsCmd) Desc() string { return "show registered agents" }
+
+func (c *agentsCmd) Run(ctx context.Context, _ []string) (string, error) {
+	return c.info(), nil
+}

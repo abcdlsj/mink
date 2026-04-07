@@ -33,6 +33,7 @@ type Dispatcher struct {
 	deps        AgentDeps
 	sm          *session.Manager
 	agentID     string
+	registry    *Registry
 	agents      map[string]*Agent
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
@@ -63,6 +64,18 @@ func (d *Dispatcher) SetLLM(p llm.Provider, sel *llm.Sel) {
 	d.deps.Provider = p
 	d.deps.Sel = sel
 	d.mu.Unlock()
+}
+
+func (d *Dispatcher) SetRegistry(r *Registry) {
+	d.mu.Lock()
+	d.registry = r
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) Registry() *Registry {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.registry
 }
 
 func (d *Dispatcher) ResetAgents() {
@@ -126,6 +139,10 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 		}
 		d.mu.RUnlock()
 		return bus.Msg{}, nil
+	}
+
+	if m.Type == bus.TypeDelegate {
+		return d.handleDelegate(ctx, m)
 	}
 
 	src := m.From
@@ -332,7 +349,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 					continue
 				}
 				switch m.Type {
-				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact, bus.TypeInterrupt:
+				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact, bus.TypeInterrupt, bus.TypeDelegate:
 					d.Handle(ctx, m)
 				case bus.TypeTaskDone:
 					d.HandleTaskDone(ctx, m)
@@ -434,6 +451,147 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		From: d.agentID,
 		To:   src,
 	})
+}
+
+func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, error) {
+	payload, ok := m.Payload.(map[string]any)
+	if !ok {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"status": "error", "error": "invalid delegate payload"},
+		}, nil
+	}
+
+	depth, _ := payload["depth"].(float64)
+	if err := CheckDelegationDepth(int(depth)); err != nil {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"status": "error", "error": err.Error()},
+		}, nil
+	}
+
+	desc, _ := payload["description"].(string)
+	if desc == "" {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"status": "error", "error": "description is required"},
+		}, nil
+	}
+
+	target, _ := payload["target_agent"].(string)
+	targetID := d.agentID
+	if target != "" {
+		targetID = target
+	} else if d.registry != nil {
+		caps, _ := payload["capabilities"].([]any)
+		capStrs := make([]string, 0, len(caps))
+		for _, c := range caps {
+			if s, ok := c.(string); ok {
+				capStrs = append(capStrs, s)
+			}
+		}
+		if len(capStrs) > 0 {
+			state, err := d.registry.Route(capStrs)
+			if err != nil {
+				return bus.Msg{
+					Type:    bus.TypeDelegateAck,
+					From:    d.agentID,
+					To:      m.From,
+					ReplyTo: m.ID,
+					Payload: map[string]string{"status": "error", "error": err.Error()},
+				}, nil
+			}
+			targetID = state.Descriptor.ID
+		}
+	}
+
+	taskID := m.ID
+
+	// Run delegation asynchronously
+	go d.runDelegation(ctx, m, taskID, targetID, desc, int(depth))
+
+	return bus.Msg{
+		Type:    bus.TypeDelegateAck,
+		From:    d.agentID,
+		To:      m.From,
+		ReplyTo: m.ID,
+		Payload: map[string]string{"status": "accepted", "task_id": taskID},
+	}, nil
+}
+
+func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targetID, desc string, depth int) {
+	src := fmt.Sprintf("delegate:%s:%s", m.From, taskID)
+	a := d.getOrCreateAgent(src)
+	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, a)
+	if err != nil {
+		d.pub(bus.Msg{
+			Type:    bus.TypeDelegateResult,
+			From:    targetID,
+			To:      m.From,
+			ReplyTo: taskID,
+			Payload: map[string]string{
+				"task_id": taskID,
+				"status":  "error",
+				"error":   fmt.Sprintf("start run: %v", err),
+			},
+		})
+		return
+	}
+
+	runCtx := withRuntimeTurn(ctx, state, src)
+	runCtx = bus.WithDelegationDepth(runCtx, depth+1)
+	err = a.Run(runCtx, src, desc)
+	_ = d.finishRun(ctx, state, err)
+
+	if err != nil {
+		d.pub(bus.Msg{
+			Type:    bus.TypeDelegateResult,
+			From:    targetID,
+			To:      m.From,
+			ReplyTo: taskID,
+			Payload: map[string]string{
+				"task_id": taskID,
+				"status":  "error",
+				"error":   err.Error(),
+			},
+		})
+		return
+	}
+
+	output := d.lastAssistantOutput(a)
+	d.pub(bus.Msg{
+		Type:    bus.TypeDelegateResult,
+		From:    targetID,
+		To:      m.From,
+		ReplyTo: taskID,
+		Payload: map[string]string{
+			"task_id": taskID,
+			"status":  "ok",
+			"output":  output,
+		},
+	})
+}
+
+func (d *Dispatcher) lastAssistantOutput(a *Agent) string {
+	if a == nil || a.Session() == nil {
+		return ""
+	}
+	msgs := a.Session().Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" && msgs[i].Content != "" {
+			return msgs[i].Content
+		}
+	}
+	return ""
 }
 
 func (d *Dispatcher) inputError(to, message string) bus.Msg {

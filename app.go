@@ -57,6 +57,8 @@ type App struct {
 	guard    *command.GuardMux
 	sup      *agent.Supervisor
 	disp     *agent.Dispatcher
+	reg      *agent.Registry
+	hb       *agent.HeartbeatManager
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
@@ -77,7 +79,10 @@ func New(opts Options) (*App, error) {
 	}
 
 	cmdReg, router, guard := buildCommandInfra(deps.workspace)
-	sm, sup, disp, cronSched := buildAgentInfra(deps, guard)
+	sm, sup, disp, reg, cronSched, err := buildAgentInfra(deps, guard)
+	if err != nil {
+		return nil, err
+	}
 	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
 
 	app := &App{
@@ -93,11 +98,14 @@ func New(opts Options) (*App, error) {
 		guard:  guard,
 		sup:    sup,
 		disp:   disp,
+		reg:    reg,
+		hb:     agent.NewHeartbeatManager(reg, deps.bus),
 		cron:   cronSched,
 	}
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
 	cmdReg.Register(command.NewModelCmd(app.switchModel))
+	cmdReg.Register(command.NewAgentsCmd(app.agentsInfo))
 
 	return app, nil
 }
@@ -143,6 +151,9 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	a.disp.Start(a.ctx)
 	_ = a.cron.Start(a.ctx)
+	if a.hb != nil {
+		_ = a.hb.Start(a.ctx)
+	}
 	a.started = true
 	return nil
 }
@@ -238,6 +249,13 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		MentionMode:  a.cfg.TelegramMentionMode,
 		SessionScope: a.cfg.TelegramSessionScope,
 	})
+	if a.reg != nil {
+		names := make(map[string]string)
+		for _, s := range a.reg.All() {
+			names[s.Descriptor.Name] = s.Descriptor.ID
+		}
+		tg.SetAgentNames(names)
+	}
 	if err := tg.Start(runCtx); err != nil {
 		return err
 	}
@@ -279,6 +297,9 @@ func (a *App) Close() error {
 	}
 	if a.sup != nil {
 		_ = a.sup.Stop()
+	}
+	if a.hb != nil {
+		a.hb.Stop()
 	}
 	if a.rt != nil {
 		_ = a.rt.Close()
@@ -401,6 +422,24 @@ func (a *App) modelsInfo() command.ModelInfo {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return command.ModelInfo{Models: a.cfg.Models, Active: a.cfg.ActiveModel}
+}
+
+func (a *App) agentsInfo() string {
+	if a.reg == nil {
+		return "no agents configured"
+	}
+	states := a.reg.All()
+	if len(states) == 0 {
+		return "no agents registered"
+	}
+	var b strings.Builder
+	b.WriteString("Agents:\n")
+	for _, s := range states {
+		fmt.Fprintf(&b, "  %s (%s) [%s] caps=%v runs=%d\n",
+			s.Descriptor.ID, s.Descriptor.Name, s.Status,
+			s.Descriptor.Capabilities, len(s.ActiveRuns))
+	}
+	return b.String()
 }
 
 func (a *App) switchModel(name string) error {
@@ -557,7 +596,7 @@ func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *c
 	return cmdReg, router, guard
 }
 
-func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *mcron.Scheduler) {
+func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *agent.Registry, *mcron.Scheduler, error) {
 	sm := session.NewManager(deps.store, deps.bus)
 	if deps.runtimeDB != nil {
 		if bindings, err := deps.runtimeDB.SessionBindings(context.Background()); err == nil {
@@ -587,9 +626,28 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 		skillLoader = skill.NewLoader(deps.workspace)
 	}
 
-	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
+	reg := agent.NewRegistry()
+	reg.SetBus(deps.bus)
+	for _, ac := range deps.cfg.Agents {
+		if err := reg.Register(agent.AgentDescriptor{
+			ID:            ac.ID,
+			Name:          ac.Name,
+			Capabilities:  ac.Capabilities,
+			Model:         ac.Model,
+			SoulPath:      ac.SoulPath,
+			Prompt:        ac.Prompt,
+			Tools:         ac.Tools,
+			MaxConcurrent: ac.MaxConcurrent,
+			Heartbeat:     ac.Heartbeat,
+		}); err != nil {
+			return nil, nil, nil, nil, nil, fmt.Errorf("register agent: %w", err)
+		}
+	}
 
-	return sm, sup, disp, cronSched
+	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
+	disp.SetRegistry(reg)
+
+	return sm, sup, disp, reg, cronSched, nil
 }
 
 func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir string) {
@@ -607,3 +665,4 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
 }
+
