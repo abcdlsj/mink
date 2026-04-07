@@ -141,6 +141,10 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 		return bus.Msg{}, nil
 	}
 
+	if m.Type == bus.TypeDelegate {
+		return d.handleDelegate(ctx, m)
+	}
+
 	src := m.From
 	if src == "" {
 		return d.inputError(m.From, "invalid source"), nil
@@ -345,7 +349,7 @@ func (d *Dispatcher) Start(ctx context.Context) {
 					continue
 				}
 				switch m.Type {
-				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact, bus.TypeInterrupt:
+				case bus.TypeUserInput, bus.TypeSessionReset, bus.TypeSessionCompact, bus.TypeInterrupt, bus.TypeDelegate:
 					d.Handle(ctx, m)
 				case bus.TypeTaskDone:
 					d.HandleTaskDone(ctx, m)
@@ -447,6 +451,124 @@ func (d *Dispatcher) HandleTaskDone(ctx context.Context, m bus.Msg) {
 		From: d.agentID,
 		To:   src,
 	})
+}
+
+func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, error) {
+	payload, ok := m.Payload.(map[string]any)
+	if !ok {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"error": "invalid delegate payload"},
+		}, nil
+	}
+
+	depth, _ := payload["depth"].(float64)
+	if err := CheckDelegationDepth(int(depth)); err != nil {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"error": err.Error()},
+		}, nil
+	}
+
+	desc, _ := payload["description"].(string)
+	if desc == "" {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"error": "description is required"},
+		}, nil
+	}
+
+	target, _ := payload["target_agent"].(string)
+	targetID := d.agentID
+	if target != "" {
+		targetID = target
+	} else if d.registry != nil {
+		caps, _ := payload["capabilities"].([]any)
+		capStrs := make([]string, 0, len(caps))
+		for _, c := range caps {
+			if s, ok := c.(string); ok {
+				capStrs = append(capStrs, s)
+			}
+		}
+		if len(capStrs) > 0 {
+			state, err := d.registry.Route(capStrs)
+			if err != nil {
+				return bus.Msg{
+					Type:    bus.TypeDelegateAck,
+					From:    d.agentID,
+					To:      m.From,
+					ReplyTo: m.ID,
+					Payload: map[string]string{"error": err.Error()},
+				}, nil
+			}
+			targetID = state.Descriptor.ID
+		}
+	}
+
+	src := fmt.Sprintf("delegate:%s", m.From)
+	a := d.getOrCreateAgent(src)
+	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, a)
+	if err != nil {
+		return bus.Msg{
+			Type:    bus.TypeDelegateAck,
+			From:    d.agentID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{"error": fmt.Sprintf("start run: %v", err)},
+		}, nil
+	}
+
+	runCtx := withRuntimeTurn(ctx, state, src)
+	err = a.Run(runCtx, src, desc)
+	_ = d.finishRun(ctx, state, err)
+
+	if err != nil {
+		return bus.Msg{
+			Type:    bus.TypeDelegateResult,
+			From:    targetID,
+			To:      m.From,
+			ReplyTo: m.ID,
+			Payload: map[string]string{
+				"status": "error",
+				"error":  err.Error(),
+				"output": "",
+			},
+		}, nil
+	}
+
+	output := d.lastAssistantOutput(a)
+	return bus.Msg{
+		Type:    bus.TypeDelegateResult,
+		From:    targetID,
+		To:      m.From,
+		ReplyTo: m.ID,
+		Payload: map[string]string{
+			"status": "ok",
+			"output": output,
+		},
+	}, nil
+}
+
+func (d *Dispatcher) lastAssistantOutput(a *Agent) string {
+	if a == nil || a.Session() == nil {
+		return ""
+	}
+	msgs := a.Session().Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" && msgs[i].Content != "" {
+			return msgs[i].Content
+		}
+	}
+	return ""
 }
 
 func (d *Dispatcher) inputError(to, message string) bus.Msg {
