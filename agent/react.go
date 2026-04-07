@@ -15,7 +15,7 @@ import (
 
 func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error) {
 	msgs := a.viewMessages()
-	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(src)}}
+	sysMsgs := []msg.Message{{Role: "system", Content: a.buildPrompt(ctx, src)}}
 	allMsgs := append(sysMsgs, msgs...)
 
 	provider := a.p
@@ -58,6 +58,11 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 			Reasoning:          r.Reasoning,
 			ReasoningSignature: r.ReasoningSignature,
 			ToolCalls:          r.ToolCalls,
+		})
+		a.appendEvent(ctx, "assistant.emitted", "assistant", map[string]any{
+			"content":       assistantContent,
+			"tool_calls":    len(r.ToolCalls),
+			"has_reasoning": r.Reasoning != "",
 		})
 	}
 
@@ -120,6 +125,11 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 				},
 			})
 		}
+		a.appendEvent(ctx, "tool.called", "tool", map[string]any{
+			"id":   tc.ID,
+			"name": tc.Name,
+			"args": string(tc.Args),
+		})
 
 		toolStart := time.Now()
 		out, toolErr := a.execTool(ctx, tc)
@@ -130,6 +140,12 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		if toolErr != nil {
 			tr.Content = tool.FormatErrorForLLM(tc.Name, toolErr)
 			tr.Error = toolErr.Error()
+			a.appendEvent(ctx, "tool.failed", "tool", map[string]any{
+				"id":     tc.ID,
+				"name":   tc.Name,
+				"error":  toolErr.Error(),
+				"output": out,
+			})
 			if a.bus != nil {
 				_ = a.bus.Pub(bus.Msg{
 					Type: bus.TypeToolError,
@@ -142,6 +158,11 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 				})
 			}
 		} else {
+			a.appendEvent(ctx, "tool.completed", "tool", map[string]any{
+				"id":     tc.ID,
+				"name":   tc.Name,
+				"output": out,
+			})
 			if a.bus != nil {
 				_ = a.bus.Pub(bus.Msg{
 					Type: bus.TypeToolResult,

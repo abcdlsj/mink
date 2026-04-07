@@ -16,8 +16,10 @@ import (
 	mcron "github.com/abcdlsj/mink/cron"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/platform"
+	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
 	"github.com/abcdlsj/mink/tool"
@@ -47,6 +49,8 @@ type App struct {
 	bus      *bus.Bus
 	p        llm.Provider
 	sm       *session.Manager
+	rt       *rtsqlite.DB
+	mw       *memory.Watcher
 	hooks    *hook.Manager
 	cmdReg   *command.Registry
 	router   *command.Router
@@ -81,6 +85,8 @@ func New(opts Options) (*App, error) {
 		bus:    deps.bus,
 		p:      deps.provider,
 		sm:     sm,
+		rt:     deps.runtimeDB,
+		mw:     deps.memoryWatcher,
 		hooks:  deps.hooks,
 		cmdReg: cmdReg,
 		router: router,
@@ -111,6 +117,22 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	a.ctx, a.cancel = context.WithCancel(ctx)
+	if a.rt != nil {
+		if err := a.rt.Recover(a.ctx); err != nil {
+			a.cancel()
+			a.ctx = nil
+			a.cancel = nil
+			return err
+		}
+	}
+	if a.mw != nil {
+		if err := a.mw.Start(a.ctx); err != nil {
+			a.cancel()
+			a.ctx = nil
+			a.cancel = nil
+			return err
+		}
+	}
 	if a.sup != nil {
 		if err := a.sup.Start(a.ctx); err != nil {
 			a.cancel()
@@ -257,6 +279,9 @@ func (a *App) Close() error {
 	}
 	if a.sup != nil {
 		_ = a.sup.Stop()
+	}
+	if a.rt != nil {
+		_ = a.rt.Close()
 	}
 
 	for _, ad := range adapters {
@@ -408,6 +433,22 @@ func defaultSessionDir() string {
 	return filepath.Join(home, ".mink", "sessions")
 }
 
+func defaultRuntimeDBPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".mink", "runtime", "runtime.db")
+	}
+	return filepath.Join(home, ".mink", "runtime", "runtime.db")
+}
+
+func defaultMemoryDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(".mink", "memory")
+	}
+	return filepath.Join(home, ".mink", "memory")
+}
+
 func newProviderFromModel(model config.ModelConfig) (llm.Provider, error) {
 	if model.APIKey == "" {
 		return nil, ErrAPIKeyRequired
@@ -439,14 +480,18 @@ func newSelector(cfg config.Config, primary llm.Provider) *llm.Sel {
 }
 
 type runtimeDeps struct {
-	cfg        config.Config
-	bus        *bus.Bus
-	provider   llm.Provider
-	selector   *llm.Sel
-	sessionDir string
-	workspace  string
-	store      session.Store
-	hooks      *hook.Manager
+	cfg           config.Config
+	bus           *bus.Bus
+	provider      llm.Provider
+	selector      *llm.Sel
+	sessionDir    string
+	memoryDir     string
+	workspace     string
+	store         session.Store
+	runtimeDB     *rtsqlite.DB
+	memory        *memory.Store
+	memoryWatcher *memory.Watcher
+	hooks         *hook.Manager
 }
 
 func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
@@ -472,10 +517,19 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 	if deps.sessionDir == "" {
 		deps.sessionDir = defaultSessionDir()
 	}
+	deps.memoryDir = defaultMemoryDir()
 
 	deps.store = opts.SessionStore
 	if deps.store == nil {
 		deps.store = session.NewFileStore(deps.sessionDir)
+	}
+	runtimeDB, err := rtsqlite.Open(defaultRuntimeDBPath(), rtsqlite.OpenOptions{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: runtime sqlite disabled: %v\n", err)
+	} else {
+		deps.runtimeDB = runtimeDB
+		deps.memory = memory.New(deps.memoryDir, deps.runtimeDB)
+		deps.memoryWatcher = memory.NewWatcher(deps.memory)
 	}
 
 	deps.hooks = opts.Hooks
@@ -505,6 +559,11 @@ func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *c
 
 func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *mcron.Scheduler) {
 	sm := session.NewManager(deps.store, deps.bus)
+	if deps.runtimeDB != nil {
+		if bindings, err := deps.runtimeDB.SessionBindings(context.Background()); err == nil {
+			_ = sm.RestoreSources(bindings)
+		}
+	}
 	cronSched := mcron.NewScheduler(config.CronPath(), deps.bus)
 
 	agentDeps := agent.AgentDeps{
@@ -516,6 +575,8 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 		Prompt:     deps.cfg.CustomPrompt,
 		Config:     deps.cfg,
 		SessionDir: deps.sessionDir,
+		RuntimeDB:  deps.runtimeDB,
+		Memory:     deps.memory,
 	}
 	agentDeps.CronTool = tool.NewCron(config.CronPath(), cronSched)
 
@@ -526,7 +587,7 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 		skillLoader = skill.NewLoader(deps.workspace)
 	}
 
-	disp := agent.NewDispatcher(agentDeps, sm, skillLoader)
+	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
 
 	return sm, sup, disp, cronSched
 }

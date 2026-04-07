@@ -1,0 +1,113 @@
+package sqlite
+
+const schema = `
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0,
+  source_kind TEXT,
+  source_id TEXT,
+  thread_id TEXT,
+  parent_task_id TEXT,
+  current_run_id TEXT,
+  memory_scope TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  closed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON tasks(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_kind, source_id, thread_id);
+
+CREATE TABLE IF NOT EXISTS runs (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  finished_at TEXT,
+  resume_from_event_id TEXT,
+  last_event_seq INTEGER NOT NULL DEFAULT 0,
+  session_id TEXT,
+  summary TEXT NOT NULL DEFAULT '',
+  error_message TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_task_started ON runs(task_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, started_at);
+
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  seq INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT NOT NULL,
+  source_kind TEXT,
+  source_id TEXT,
+  thread_id TEXT,
+  payload_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_events_task_created ON events(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_events_type_created ON events(type, created_at);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  uri TEXT NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT '',
+  sha256 TEXT NOT NULL DEFAULT '',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifacts_task_kind ON artifacts(task_id, kind);
+
+CREATE TABLE IF NOT EXISTS memory_docs (
+  id TEXT PRIMARY KEY,
+  path TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  task_id TEXT,
+  run_id TEXT,
+  source TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  indexed_at TEXT NOT NULL
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_docs_fts USING fts5(
+  title,
+  summary,
+  body,
+  content='memory_docs',
+  content_rowid='rowid'
+);
+
+CREATE TABLE IF NOT EXISTS source_bindings (
+  source_kind TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL DEFAULT '',
+  active_task_id TEXT NOT NULL,
+  active_session_id TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (source_kind, source_id, thread_id)
+);
+`
