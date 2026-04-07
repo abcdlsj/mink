@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -163,4 +164,85 @@ func (r *Registry) Available() []AgentState {
 		}
 	}
 	return out
+}
+
+var ErrNoAvailableAgent = fmt.Errorf("no available agent for requested capabilities")
+
+// Route picks the best agent for a set of required capabilities.
+// Strategy: filter by caps → prefer idle → fewest active runs → error if none available.
+func (r *Registry) Route(caps []string) (*AgentState, error) {
+	candidates := r.findCandidates(caps)
+	if len(candidates) == 0 {
+		return nil, ErrNoAvailableAgent
+	}
+
+	var best *AgentState
+	for i := range candidates {
+		c := &candidates[i]
+		if c.Status == StatusOffline {
+			continue
+		}
+		if len(c.ActiveRuns) >= c.Descriptor.MaxConcurrent {
+			continue
+		}
+		if best == nil {
+			best = c
+			continue
+		}
+		if statusPriority(c.Status) < statusPriority(best.Status) {
+			best = c
+			continue
+		}
+		if statusPriority(c.Status) == statusPriority(best.Status) && len(c.ActiveRuns) < len(best.ActiveRuns) {
+			best = c
+		}
+	}
+	if best == nil {
+		return nil, ErrNoAvailableAgent
+	}
+	return best, nil
+}
+
+func (r *Registry) findCandidates(caps []string) []AgentState {
+	if len(caps) == 0 {
+		return r.Available()
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []AgentState
+	for _, s := range r.agents {
+		if s.Status == StatusOffline {
+			continue
+		}
+		if hasAllCaps(s.Descriptor.Capabilities, caps) {
+			out = append(out, *s)
+		}
+	}
+	return out
+}
+
+func hasAllCaps(have, need []string) bool {
+	set := make(map[string]struct{}, len(have))
+	for _, c := range have {
+		set[c] = struct{}{}
+	}
+	for _, c := range need {
+		if _, ok := set[c]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func statusPriority(s AgentStatus) int {
+	switch s {
+	case StatusIdle:
+		return 0
+	case StatusSleeping:
+		return 1
+	case StatusBusy:
+		return 2
+	default:
+		return 3
+	}
 }
