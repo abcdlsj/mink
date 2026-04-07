@@ -48,8 +48,32 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	a.logLLMResponse(stepNum, corrID, r, time.Since(start))
 	a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
 
+	// Retry once on empty response (no content, no tool calls).
+	if r.Content == "" && len(r.ToolCalls) == 0 {
+		a.appendEvent(ctx, "llm.empty_response", "warn", map[string]any{"retry": true})
+		start2 := time.Now()
+		corrID2 := a.logLLMRequest(stepNum, len(allMsgs), a.stream)
+		if a.stream {
+			r, err = a.stepStream(llmCtx, src, allMsgs, provider)
+		} else {
+			r, err = provider.Chat(llmCtx, allMsgs, tools(a.reg))
+		}
+		if err != nil {
+			a.logLLMError(stepNum, corrID2, err, time.Since(start2))
+			return false, err
+		}
+		a.logLLMResponse(stepNum, corrID2, r, time.Since(start2))
+		a.updateTokenBaseline(msgs, sysMsgs, r.Usage)
+	}
+
 	a.nextModel = "default"
 	assistantContent := r.Content
+
+	// Fallback: if still empty after retry, send a visible message instead of silent drop.
+	if assistantContent == "" && len(r.ToolCalls) == 0 {
+		assistantContent = "抱歉，模型暂时无法响应，请稍后再试。"
+		a.appendEvent(ctx, "llm.empty_fallback", "warn", nil)
+	}
 
 	if len(r.ToolCalls) > 0 || assistantContent != "" {
 		a.session.Add(msg.Message{
