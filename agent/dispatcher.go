@@ -33,6 +33,7 @@ type Dispatcher struct {
 	deps        AgentDeps
 	sm          *session.Manager
 	agentID     string
+	registry    *Registry
 	agents      map[string]*Agent
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
@@ -63,6 +64,18 @@ func (d *Dispatcher) SetLLM(p llm.Provider, sel *llm.Sel) {
 	d.deps.Provider = p
 	d.deps.Sel = sel
 	d.mu.Unlock()
+}
+
+func (d *Dispatcher) SetRegistry(r *Registry) {
+	d.mu.Lock()
+	d.registry = r
+	d.mu.Unlock()
+}
+
+func (d *Dispatcher) Registry() *Registry {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.registry
 }
 
 func (d *Dispatcher) ResetAgents() {

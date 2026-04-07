@@ -26,4 +26,10 @@ const (
 
 	TypeInterrupt   = "agent:interrupt"
 	TypeCronTrigger = "cron:trigger"
+
+	// P1: multi-agent collaboration
+	TypeDelegate       = "delegate:request"
+	TypeDelegateAck    = "delegate:ack"
+	TypeDelegateResult = "delegate:result"
+	TypePresence       = "presence:update"
 )

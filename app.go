@@ -57,6 +57,7 @@ type App struct {
 	guard    *command.GuardMux
 	sup      *agent.Supervisor
 	disp     *agent.Dispatcher
+	reg      *agent.Registry
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
@@ -77,7 +78,7 @@ func New(opts Options) (*App, error) {
 	}
 
 	cmdReg, router, guard := buildCommandInfra(deps.workspace)
-	sm, sup, disp, cronSched := buildAgentInfra(deps, guard)
+	sm, sup, disp, reg, cronSched := buildAgentInfra(deps, guard)
 	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
 
 	app := &App{
@@ -93,6 +94,7 @@ func New(opts Options) (*App, error) {
 		guard:  guard,
 		sup:    sup,
 		disp:   disp,
+		reg:    reg,
 		cron:   cronSched,
 	}
 
@@ -557,7 +559,7 @@ func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *c
 	return cmdReg, router, guard
 }
 
-func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *mcron.Scheduler) {
+func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manager, *agent.Supervisor, *agent.Dispatcher, *agent.Registry, *mcron.Scheduler) {
 	sm := session.NewManager(deps.store, deps.bus)
 	if deps.runtimeDB != nil {
 		if bindings, err := deps.runtimeDB.SessionBindings(context.Background()); err == nil {
@@ -587,9 +589,25 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 		skillLoader = skill.NewLoader(deps.workspace)
 	}
 
-	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
+	reg := agent.NewRegistry()
+	for _, ac := range deps.cfg.Agents {
+		reg.Register(agent.AgentDescriptor{
+			ID:            ac.ID,
+			Name:          ac.Name,
+			Capabilities:  ac.Capabilities,
+			Model:         ac.Model,
+			SoulPath:      ac.SoulPath,
+			Prompt:        ac.Prompt,
+			Tools:         ac.Tools,
+			MaxConcurrent: ac.MaxConcurrent,
+			Heartbeat:     convertHeartbeat(ac.Heartbeat),
+		})
+	}
 
-	return sm, sup, disp, cronSched
+	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
+	disp.SetRegistry(reg)
+
+	return sm, sup, disp, reg, cronSched
 }
 
 func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir string) {
@@ -606,4 +624,14 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	}))
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
+}
+
+func convertHeartbeat(hc *config.HeartbeatConfig) *agent.HeartbeatConfig {
+	if hc == nil {
+		return nil
+	}
+	return &agent.HeartbeatConfig{
+		Schedule: hc.Schedule,
+		Prompt:   hc.Prompt,
+	}
 }

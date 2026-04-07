@@ -35,7 +35,26 @@ type Config struct {
 	ContextWindow        int                    `toml:"context_window"`
 	Reasoning            bool                   `toml:"reasoning"`
 
+	Agents []AgentConfig `toml:"agents"`
+
 	Active ModelConfig
+}
+
+type AgentConfig struct {
+	ID            string            `toml:"id"`
+	Name          string            `toml:"name"`
+	Capabilities  []string          `toml:"capabilities"`
+	Model         string            `toml:"model"`
+	SoulPath      string            `toml:"soul_path"`
+	Prompt        string            `toml:"prompt"`
+	Tools         []string          `toml:"tools"`
+	MaxConcurrent int               `toml:"max_concurrent"`
+	Heartbeat     *HeartbeatConfig  `toml:"heartbeat"`
+}
+
+type HeartbeatConfig struct {
+	Schedule string `toml:"schedule"`
+	Prompt   string `toml:"prompt"`
 }
 
 type ModelConfig struct {
