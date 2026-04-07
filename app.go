@@ -102,6 +102,7 @@ func New(opts Options) (*App, error) {
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
 	cmdReg.Register(command.NewModelCmd(app.switchModel))
+	cmdReg.Register(command.NewAgentsCmd(app.agentsInfo))
 
 	return app, nil
 }
@@ -418,6 +419,24 @@ func (a *App) modelsInfo() command.ModelInfo {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return command.ModelInfo{Models: a.cfg.Models, Active: a.cfg.ActiveModel}
+}
+
+func (a *App) agentsInfo() string {
+	if a.reg == nil {
+		return "no agents configured"
+	}
+	states := a.reg.All()
+	if len(states) == 0 {
+		return "no agents registered"
+	}
+	var b strings.Builder
+	b.WriteString("Agents:\n")
+	for _, s := range states {
+		fmt.Fprintf(&b, "  %s (%s) [%s] caps=%v runs=%d\n",
+			s.Descriptor.ID, s.Descriptor.Name, s.Status,
+			s.Descriptor.Capabilities, len(s.ActiveRuns))
+	}
+	return b.String()
 }
 
 func (a *App) switchModel(name string) error {
