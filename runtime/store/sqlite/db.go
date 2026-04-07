@@ -86,6 +86,28 @@ func (db *DB) WithConn(ctx context.Context, fn func(*zsqlite.Conn) error) error 
 	return fn(conn)
 }
 
+func (db *DB) Tx(ctx context.Context, fn func(*zsqlite.Conn) error) error {
+	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		if err := begin(conn); err != nil {
+			return err
+		}
+		done := false
+		defer func() {
+			if !done {
+				_ = rollback(conn)
+			}
+		}()
+		if err := fn(conn); err != nil {
+			return err
+		}
+		if err := commit(conn); err != nil {
+			return err
+		}
+		done = true
+		return nil
+	})
+}
+
 func prepare(conn *zsqlite.Conn) error {
 	if err := sqlitex.ExecuteTransient(conn, "PRAGMA foreign_keys=ON", nil); err != nil {
 		return err

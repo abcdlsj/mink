@@ -105,17 +105,7 @@ func (s *Store) DeletePath(ctx context.Context, path string) error {
 
 	var rowid int64
 	var doc Doc
-	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteTransient(conn, "BEGIN IMMEDIATE", nil); err != nil {
-			return err
-		}
-		done := false
-		defer func() {
-			if !done {
-				_ = sqlitex.ExecuteTransient(conn, "ROLLBACK", nil)
-			}
-		}()
-
+	err := s.db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			SELECT rowid, id, task_id, run_id, source
 			FROM memory_docs
@@ -151,10 +141,6 @@ func (s *Store) DeletePath(ctx context.Context, path string) error {
 				return err
 			}
 		}
-		if err := sqlitex.ExecuteTransient(conn, "COMMIT", nil); err != nil {
-			return err
-		}
-		done = true
 		return nil
 	})
 	if err != nil {
@@ -265,17 +251,7 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 	indexedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	sum := hash(doc.Body)
 
-	if err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteTransient(conn, "BEGIN IMMEDIATE", nil); err != nil {
-			return err
-		}
-		done := false
-		defer func() {
-			if !done {
-				_ = sqlitex.ExecuteTransient(conn, "ROLLBACK", nil)
-			}
-		}()
-
+	if err := s.db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT INTO memory_docs (
 				id, path, title, kind, tags_json, task_id, run_id, source,
@@ -319,15 +295,11 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT OR REPLACE INTO memory_docs_fts(rowid, title, summary, body)
 			VALUES(?, ?, ?, ?)
-		`, &sqlitex.ExecOptions{
+			`, &sqlitex.ExecOptions{
 			Args: []any{rowid, doc.Title, doc.Summary, doc.Body},
 		}); err != nil {
 			return err
 		}
-		if err := sqlitex.ExecuteTransient(conn, "COMMIT", nil); err != nil {
-			return err
-		}
-		done = true
 		return nil
 	}); err != nil {
 		return err

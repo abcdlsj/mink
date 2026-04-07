@@ -431,12 +431,15 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 		summary = "(empty summary)"
 	}
 
+	if a.rt != nil {
+		if err := a.rt.CompactSource(ctx, src, summary, note); err != nil {
+			a.logWarn("session_compact_runtime_error", map[string]any{"error": err.Error()})
+			return "", err
+		}
+	}
 	a.session.AddAnchor(session.AnchorSummary, summary, note, cut)
 	a.base = tokenBaseline{}
 	a.rememberSummary(ctx, src, summary, note)
-	if a.rt != nil {
-		_ = a.rt.CompactSource(ctx, src, summary, note)
-	}
 
 	oldTotal, _ := a.sessionTokenTotal(view.Messages)
 	newView := a.session.View()

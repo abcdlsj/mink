@@ -5,16 +5,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
 type Watcher struct {
 	store *Store
+	mu    sync.Mutex
+	tm    map[string]*time.Timer
 }
 
 func NewWatcher(store *Store) *Watcher {
-	return &Watcher{store: store}
+	return &Watcher{store: store, tm: make(map[string]*time.Timer)}
 }
 
 func (w *Watcher) Start(ctx context.Context) error {
@@ -68,14 +72,8 @@ func (w *Watcher) handle(ctx context.Context, fw *fsnotify.Watcher, ev fsnotify.
 	if filepath.Ext(ev.Name) != ".md" {
 		return
 	}
-	if ev.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-		if _, err := os.Stat(ev.Name); err != nil {
-			_ = w.store.DeletePath(ctx, ev.Name)
-			return
-		}
-	}
-	if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Chmod|fsnotify.Rename) != 0 {
-		_ = w.store.SyncPath(ctx, ev.Name)
+	if ev.Op&(fsnotify.Create|fsnotify.Write|fsnotify.Remove|fsnotify.Rename) != 0 {
+		w.schedule(ctx, ev.Name)
 	}
 }
 
@@ -86,4 +84,22 @@ func (w *Watcher) addDirs(fw *fsnotify.Watcher, root string) error {
 		}
 		return fw.Add(path)
 	})
+}
+
+func (w *Watcher) schedule(ctx context.Context, path string) {
+	w.mu.Lock()
+	if t := w.tm[path]; t != nil {
+		t.Stop()
+	}
+	w.tm[path] = time.AfterFunc(200*time.Millisecond, func() {
+		if _, err := os.Stat(path); err != nil {
+			_ = w.store.DeletePath(ctx, path)
+		} else {
+			_ = w.store.SyncPath(ctx, path)
+		}
+		w.mu.Lock()
+		delete(w.tm, path)
+		w.mu.Unlock()
+	})
+	w.mu.Unlock()
 }
