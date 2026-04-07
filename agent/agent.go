@@ -434,6 +434,9 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 	a.session.AddAnchor(session.AnchorSummary, summary, note, cut)
 	a.base = tokenBaseline{}
 	a.rememberSummary(ctx, src, summary, note)
+	if a.rt != nil {
+		_ = a.rt.CompactSource(ctx, src, summary, note)
+	}
 
 	oldTotal, _ := a.sessionTokenTotal(view.Messages)
 	newView := a.session.View()

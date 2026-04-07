@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -68,6 +70,112 @@ func (s *Store) Put(ctx context.Context, scope string, doc Doc) (Doc, error) {
 		return Doc{}, err
 	}
 	return doc, nil
+}
+
+func (s *Store) Sync(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	if _, err := os.Stat(s.root); os.IsNotExist(err) {
+		return nil
+	}
+	return filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d == nil || d.IsDir() || filepath.Ext(path) != ".md" {
+			return err
+		}
+		return s.SyncPath(ctx, path)
+	})
+}
+
+func (s *Store) SyncPath(ctx context.Context, path string) error {
+	if s == nil || s.db == nil || filepath.Ext(path) != ".md" {
+		return nil
+	}
+	doc, err := s.loadPath(path)
+	if err != nil {
+		return err
+	}
+	return s.index(ctx, path, doc)
+}
+
+func (s *Store) DeletePath(ctx context.Context, path string) error {
+	if s == nil || s.db == nil || path == "" {
+		return nil
+	}
+
+	var rowid int64
+	var doc Doc
+	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		if err := sqlitex.ExecuteTransient(conn, "BEGIN IMMEDIATE", nil); err != nil {
+			return err
+		}
+		done := false
+		defer func() {
+			if !done {
+				_ = sqlitex.ExecuteTransient(conn, "ROLLBACK", nil)
+			}
+		}()
+
+		if err := sqlitex.ExecuteTransient(conn, `
+			SELECT rowid, id, task_id, run_id, source
+			FROM memory_docs
+			WHERE path = ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{path},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				rowid = stmt.ColumnInt64(0)
+				doc.ID = stmt.ColumnText(1)
+				doc.TaskID = stmt.ColumnText(2)
+				doc.RunID = stmt.ColumnText(3)
+				doc.Source = stmt.ColumnText(4)
+				return nil
+			},
+		}); err != nil {
+			return err
+		}
+		if rowid != 0 {
+			if err := sqlitex.ExecuteTransient(conn, `
+				DELETE FROM memory_docs_fts
+				WHERE rowid = ?
+			`, &sqlitex.ExecOptions{
+				Args: []any{rowid},
+			}); err != nil {
+				return err
+			}
+			if err := sqlitex.ExecuteTransient(conn, `
+				DELETE FROM memory_docs
+				WHERE path = ?
+			`, &sqlitex.ExecOptions{
+				Args: []any{path},
+			}); err != nil {
+				return err
+			}
+		}
+		if err := sqlitex.ExecuteTransient(conn, "COMMIT", nil); err != nil {
+			return err
+		}
+		done = true
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if doc.TaskID != "" {
+		_ = s.db.AppendEvent(ctx, rtsqlite.Event{
+			TaskID:    doc.TaskID,
+			RunID:     doc.RunID,
+			Type:      "memory.doc_deleted",
+			ActorType: "system",
+			ActorID:   "memory",
+			Source:    doc.Source,
+			Payload: map[string]any{
+				"id":   doc.ID,
+				"path": path,
+			},
+		})
+	}
+	return nil
 }
 
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]Doc, error) {
@@ -274,6 +382,35 @@ func render(doc Doc) string {
 	return b.String()
 }
 
+func (s *Store) loadPath(path string) (Doc, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Doc{}, err
+	}
+	doc := Doc{
+		ID:    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		Title: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		Kind:  "note",
+		Body:  strings.TrimSpace(string(data)),
+	}
+	if info, err := os.Stat(path); err == nil {
+		doc.UpdatedAt = info.ModTime().UTC()
+	}
+	if strings.HasPrefix(string(data), "---\n") {
+		rest := string(data[4:])
+		if i := strings.Index(rest, "\n---\n"); i >= 0 {
+			parseFrontmatter(&doc, rest[:i])
+			doc.Body = strings.TrimSpace(rest[i+5:])
+		}
+	}
+	doc.Title = nonEmpty(strings.TrimSpace(doc.Title), doc.ID)
+	doc.Kind = nonEmpty(strings.TrimSpace(doc.Kind), "note")
+	if doc.Body == "" {
+		return Doc{}, fmt.Errorf("memory: empty body")
+	}
+	return doc, nil
+}
+
 func joinTags(tags []string) string {
 	if len(tags) == 0 {
 		return ""
@@ -296,10 +433,65 @@ func splitTags(s string) []string {
 	return out
 }
 
+func parseFrontmatter(doc *Doc, head string) {
+	lines := strings.Split(head, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if line == "tags:" {
+			for i+1 < len(lines) {
+				next := strings.TrimSpace(lines[i+1])
+				if !strings.HasPrefix(next, "- ") {
+					break
+				}
+				doc.Tags = append(doc.Tags, unquote(strings.TrimSpace(strings.TrimPrefix(next, "- "))))
+				i++
+			}
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		val = unquote(strings.TrimSpace(val))
+		switch strings.TrimSpace(key) {
+		case "id":
+			doc.ID = nonEmpty(val, doc.ID)
+		case "title":
+			doc.Title = val
+		case "kind":
+			doc.Kind = val
+		case "task_id":
+			doc.TaskID = val
+		case "run_id":
+			doc.RunID = val
+		case "source":
+			doc.Source = val
+		case "summary":
+			doc.Summary = val
+		case "updated_at":
+			if ts, err := time.Parse(time.RFC3339Nano, val); err == nil {
+				doc.UpdatedAt = ts
+			}
+		}
+	}
+}
+
 func escape(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	if strings.ContainsAny(s, ":#[]{}\",'") {
 		return fmt.Sprintf("%q", s)
+	}
+	return s
+}
+
+func unquote(s string) string {
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if v, err := strconv.Unquote(s); err == nil {
+			return v
+		}
 	}
 	return s
 }

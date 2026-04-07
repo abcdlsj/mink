@@ -28,26 +28,9 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 	key := parseSource(source)
 	var events []storedEvent
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		taskID, err := activeTaskID(conn, key)
+		taskID, err := taskIDForSource(conn, key)
 		if err != nil {
 			return err
-		}
-		if taskID == "" {
-			if err := sqlitex.ExecuteTransient(conn, `
-				SELECT id
-				FROM tasks
-				WHERE source_kind = ? AND source_id = ? AND thread_id = ?
-				ORDER BY updated_at DESC
-				LIMIT 1
-			`, &sqlitex.ExecOptions{
-				Args: []any{key.Kind, key.ID, key.ThreadID},
-				ResultFunc: func(stmt *zsqlite.Stmt) error {
-					taskID = stmt.ColumnText(0)
-					return nil
-				},
-			}); err != nil {
-				return err
-			}
 		}
 		if taskID == "" {
 			return nil
@@ -100,6 +83,20 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	timestamp, _ := time.Parse(time.RFC3339Nano, ev.CreatedAt)
 
 	switch ev.Type {
+	case "session.compacted":
+		if p.Content == "" {
+			p.Content = p.Output
+		}
+		if p.Content == "" {
+			var raw map[string]string
+			if json.Unmarshal([]byte(ev.Payload), &raw) == nil {
+				p.Content = raw["summary"]
+			}
+		}
+		if p.Content == "" {
+			return msg.Message{}, false
+		}
+		return msg.Message{Role: "system", Content: "[Context Anchor]\n" + p.Content, Timestamp: timestamp}, true
 	case "input.received":
 		role := ev.ActorType
 		if role == "" {
@@ -134,4 +131,25 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	default:
 		return msg.Message{}, false
 	}
+}
+
+func taskIDForSource(conn *zsqlite.Conn, key sourceKey) (string, error) {
+	taskID, err := activeTaskID(conn, key)
+	if err != nil || taskID != "" {
+		return taskID, err
+	}
+	err = sqlitex.ExecuteTransient(conn, `
+		SELECT id
+		FROM tasks
+		WHERE source_kind = ? AND source_id = ? AND thread_id = ?
+		ORDER BY updated_at DESC
+		LIMIT 1
+	`, &sqlitex.ExecOptions{
+		Args: []any{key.Kind, key.ID, key.ThreadID},
+		ResultFunc: func(stmt *zsqlite.Stmt) error {
+			taskID = stmt.ColumnText(0)
+			return nil
+		},
+	})
+	return taskID, err
 }

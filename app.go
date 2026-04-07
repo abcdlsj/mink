@@ -50,6 +50,7 @@ type App struct {
 	p        llm.Provider
 	sm       *session.Manager
 	rt       *rtsqlite.DB
+	mw       *memory.Watcher
 	hooks    *hook.Manager
 	cmdReg   *command.Registry
 	router   *command.Router
@@ -85,6 +86,7 @@ func New(opts Options) (*App, error) {
 		p:      deps.provider,
 		sm:     sm,
 		rt:     deps.runtimeDB,
+		mw:     deps.memoryWatcher,
 		hooks:  deps.hooks,
 		cmdReg: cmdReg,
 		router: router,
@@ -117,6 +119,14 @@ func (a *App) Start(ctx context.Context) error {
 	a.ctx, a.cancel = context.WithCancel(ctx)
 	if a.rt != nil {
 		if err := a.rt.Recover(a.ctx); err != nil {
+			a.cancel()
+			a.ctx = nil
+			a.cancel = nil
+			return err
+		}
+	}
+	if a.mw != nil {
+		if err := a.mw.Start(a.ctx); err != nil {
 			a.cancel()
 			a.ctx = nil
 			a.cancel = nil
@@ -470,17 +480,18 @@ func newSelector(cfg config.Config, primary llm.Provider) *llm.Sel {
 }
 
 type runtimeDeps struct {
-	cfg        config.Config
-	bus        *bus.Bus
-	provider   llm.Provider
-	selector   *llm.Sel
-	sessionDir string
-	memoryDir  string
-	workspace  string
-	store      session.Store
-	runtimeDB  *rtsqlite.DB
-	memory     *memory.Store
-	hooks      *hook.Manager
+	cfg           config.Config
+	bus           *bus.Bus
+	provider      llm.Provider
+	selector      *llm.Sel
+	sessionDir    string
+	memoryDir     string
+	workspace     string
+	store         session.Store
+	runtimeDB     *rtsqlite.DB
+	memory        *memory.Store
+	memoryWatcher *memory.Watcher
+	hooks         *hook.Manager
 }
 
 func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
@@ -518,6 +529,7 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 	} else {
 		deps.runtimeDB = runtimeDB
 		deps.memory = memory.New(deps.memoryDir, deps.runtimeDB)
+		deps.memoryWatcher = memory.NewWatcher(deps.memory)
 	}
 
 	deps.hooks = opts.Hooks
