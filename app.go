@@ -58,6 +58,7 @@ type App struct {
 	sup      *agent.Supervisor
 	disp     *agent.Dispatcher
 	reg      *agent.Registry
+	hb       *agent.HeartbeatManager
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
@@ -95,6 +96,7 @@ func New(opts Options) (*App, error) {
 		sup:    sup,
 		disp:   disp,
 		reg:    reg,
+		hb:     agent.NewHeartbeatManager(reg, deps.bus),
 		cron:   cronSched,
 	}
 
@@ -145,6 +147,9 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	a.disp.Start(a.ctx)
 	_ = a.cron.Start(a.ctx)
+	if a.hb != nil {
+		_ = a.hb.Start(a.ctx)
+	}
 	a.started = true
 	return nil
 }
@@ -281,6 +286,9 @@ func (a *App) Close() error {
 	}
 	if a.sup != nil {
 		_ = a.sup.Stop()
+	}
+	if a.hb != nil {
+		a.hb.Stop()
 	}
 	if a.rt != nil {
 		_ = a.rt.Close()
