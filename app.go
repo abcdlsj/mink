@@ -627,6 +627,7 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	}
 
 	reg := agent.NewRegistry()
+	reg.SetBus(deps.bus)
 	for _, ac := range deps.cfg.Agents {
 		if err := reg.Register(agent.AgentDescriptor{
 			ID:            ac.ID,

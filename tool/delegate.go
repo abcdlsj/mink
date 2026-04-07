@@ -19,7 +19,7 @@ func NewDelegate(b *bus.Bus, agentID string) *Delegate {
 
 func (d *Delegate) Name() string { return "delegate" }
 func (d *Delegate) Desc() string {
-	return "Delegate a task to a peer agent. Specify either a target agent ID or required capabilities for automatic routing. Returns when the peer completes the task."
+	return "Delegate a task to a peer agent asynchronously. Returns a task_id immediately. Use delegate_poll to check for results."
 }
 
 func (d *Delegate) Schema() map[string]any {
@@ -70,26 +70,24 @@ func (d *Delegate) Run(ctx context.Context, args json.RawMessage) (string, error
 		to = params.Target
 	}
 
-	resp, err := d.bus.Req(ctx, bus.Msg{
+	msg := bus.Msg{
 		Type:    bus.TypeDelegate,
 		From:    d.agentID,
 		To:      to,
 		Payload: payload,
-	})
+	}
+
+	resp, err := d.bus.Req(ctx, msg)
 	if err != nil {
 		return "", fmt.Errorf("delegate failed: %w", err)
 	}
 
-	if result, ok := resp.Payload.(map[string]string); ok {
-		if errMsg := result["error"]; errMsg != "" {
-			return "", fmt.Errorf("delegate error: %s", errMsg)
+	if ack, ok := resp.Payload.(map[string]string); ok {
+		if errMsg := ack["error"]; errMsg != "" {
+			return "", fmt.Errorf("delegate rejected: %s", errMsg)
 		}
-		if output := result["output"]; output != "" {
-			return output, nil
-		}
+		taskID := ack["task_id"]
+		return fmt.Sprintf("delegation accepted, task_id=%s — use delegate_poll to check result", taskID), nil
 	}
-	if s, ok := resp.Payload.(string); ok {
-		return s, nil
-	}
-	return "delegation completed", nil
+	return "delegation accepted", nil
 }

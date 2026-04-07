@@ -32,6 +32,8 @@ const (
 	TypeDelegate       = "delegate:request"
 	TypeDelegateAck    = "delegate:ack"
 	TypeDelegateResult = "delegate:result"
+
+	TypePresence = "presence:update"
 )
 
 type delegationDepthKey struct{}

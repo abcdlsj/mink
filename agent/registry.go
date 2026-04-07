@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
 )
 
@@ -39,11 +40,33 @@ type AgentState struct {
 
 type Registry struct {
 	agents map[string]*AgentState
+	bus    *bus.Bus
 	mu     sync.RWMutex
 }
 
 func NewRegistry() *Registry {
 	return &Registry{agents: make(map[string]*AgentState)}
+}
+
+func (r *Registry) SetBus(b *bus.Bus) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bus = b
+}
+
+func (r *Registry) publishPresence(id string, status AgentStatus) {
+	if r.bus == nil {
+		return
+	}
+	_ = r.bus.Pub(bus.Msg{
+		Type: bus.TypePresence,
+		From: id,
+		To:   bus.AddrBroadcast,
+		Payload: map[string]string{
+			"agent_id": id,
+			"status":   string(status),
+		},
+	})
 }
 
 func (r *Registry) Register(desc AgentDescriptor) error {
@@ -90,6 +113,7 @@ func (r *Registry) SetStatus(id string, status AgentStatus) {
 	if s, ok := r.agents[id]; ok {
 		s.Status = status
 		s.LastActive = time.Now()
+		r.publishPresence(id, status)
 	}
 }
 
@@ -103,6 +127,7 @@ func (r *Registry) AddRun(id, runID string) {
 	s.ActiveRuns = append(s.ActiveRuns, runID)
 	s.Status = StatusBusy
 	s.LastActive = time.Now()
+	r.publishPresence(id, StatusBusy)
 }
 
 func (r *Registry) RemoveRun(id, runID string) {
@@ -122,6 +147,7 @@ func (r *Registry) RemoveRun(id, runID string) {
 		s.Status = StatusIdle
 	}
 	s.LastActive = time.Now()
+	r.publishPresence(id, s.Status)
 }
 
 func (r *Registry) FindByCapability(cap string) []AgentState {
