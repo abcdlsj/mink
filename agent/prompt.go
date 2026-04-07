@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -25,10 +26,11 @@ func (s section) render() string {
 	return text + "\n\n"
 }
 
-func (a *Agent) buildPrompt(src string) string {
+func (a *Agent) buildPrompt(ctx context.Context, src string) string {
 	sections := []section{
 		a.sectionBase(),
 		a.sectionContext(),
+		a.sectionMemory(ctx),
 		a.sectionSoul(),
 		a.sectionTelegram(src),
 		a.sectionCustom(),
@@ -41,6 +43,34 @@ func (a *Agent) buildPrompt(src string) string {
 		b.WriteString(s.render())
 	}
 	return b.String()
+}
+
+func (a *Agent) sectionMemory(ctx context.Context) section {
+	return section{head: "Memory", body: func() string {
+		if a.mem == nil {
+			return ""
+		}
+		turn, ok := runtimeTurnFrom(ctx)
+		if !ok || turn.TaskID == "" {
+			return ""
+		}
+		docs, err := a.mem.RecentByTask(ctx, turn.TaskID, 3)
+		if err != nil || len(docs) == 0 {
+			return ""
+		}
+		var b strings.Builder
+		for _, doc := range docs {
+			line := doc.Title
+			if doc.Summary != "" {
+				line += ": " + doc.Summary
+			}
+			if strings.TrimSpace(line) == "" {
+				line = doc.Body
+			}
+			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))
+		}
+		return b.String()
+	}}
 }
 
 func (a *Agent) sectionBase() section {

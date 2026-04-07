@@ -10,6 +10,7 @@ import (
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/msg"
+	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/skill"
 )
@@ -34,17 +35,19 @@ type Dispatcher struct {
 	agentID     string
 	agents      map[string]*Agent
 	workers     map[string]*workerState
+	rt          *rtsqlite.DB
 	skillLoader *skill.Loader
 	mu          sync.RWMutex
 }
 
-func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader) *Dispatcher {
+func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader, rt *rtsqlite.DB) *Dispatcher {
 	return &Dispatcher{
 		deps:        deps,
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
 		agents:      make(map[string]*Agent),
 		workers:     make(map[string]*workerState),
+		rt:          rt,
 		skillLoader: sl,
 	}
 }
@@ -153,6 +156,11 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 
 func (d *Dispatcher) resetAgent(src string) error {
 	d.InvalidateSource(src)
+	if d.rt != nil {
+		if err := d.rt.ResetSource(context.Background(), src); err != nil {
+			return err
+		}
+	}
 	_, err := d.sm.ResetSource(src)
 	return err
 }
@@ -221,7 +229,24 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			err := d.runWithStatus(ctx, src, m.Type, in, a)
+			state, err := d.startRun(ctx, src, m.Type, in, a)
+			if err != nil {
+				d.pub(bus.Msg{
+					Type:    bus.TypeAssistant,
+					From:    d.agentID,
+					Payload: fmt.Sprintf("error: %v", err),
+					To:      src,
+				})
+				d.pub(bus.Msg{
+					Type: bus.TypeTurnDone,
+					From: d.agentID,
+					To:   src,
+				})
+				continue
+			}
+			runCtx := withRuntimeTurn(ctx, state, src)
+			err = d.runWithStatus(runCtx, src, m.Type, in, a)
+			_ = d.finishRun(ctx, state, err)
 			if err != nil {
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
@@ -263,6 +288,11 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	sess, err := d.sm.Current(src)
 	if err != nil {
 		sess, _ = d.sm.Create()
+	}
+	if d.rt != nil && sess.EntryCount() == 0 {
+		if msgs, err := d.rt.MessagesForSource(context.Background(), src, 200); err == nil {
+			session.RestoreMessages(sess, msgs)
+		}
 	}
 	a := d.deps.newAgent(d.agentID, sess, false)
 	if d.skillLoader != nil {
@@ -323,13 +353,27 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 		return
 	}
 
-	sess, _ := d.sm.Create()
-	a := d.deps.newAgent(d.agentID, sess, false)
-	if d.skillLoader != nil {
-		skill.RegisterTools(a.Tools(), d.skillLoader)
+	a := d.getOrCreateAgent(src)
+	state, err := d.startRun(ctx, src, bus.TypeCronTrigger, prompt, a)
+	if err != nil {
+		d.pub(bus.Msg{
+			Type:    bus.TypeAssistant,
+			From:    d.agentID,
+			To:      src,
+			Payload: fmt.Sprintf("cron error: %v", err),
+		})
+		d.pub(bus.Msg{
+			Type: bus.TypeTurnDone,
+			From: d.agentID,
+			To:   src,
+		})
+		return
 	}
 
-	if err := a.Run(ctx, src, prompt); err != nil {
+	runCtx := withRuntimeTurn(ctx, state, src)
+	err = a.Run(runCtx, src, prompt)
+	_ = d.finishRun(ctx, state, err)
+	if err != nil {
 		d.pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    d.agentID,
@@ -500,4 +544,29 @@ func (d *Dispatcher) pub(m bus.Msg) {
 		return
 	}
 	_ = d.deps.Bus.Pub(m)
+}
+
+func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, a *Agent) (rtsqlite.RunState, error) {
+	if d.rt == nil || a == nil || a.Session() == nil {
+		return rtsqlite.RunState{}, nil
+	}
+	return d.rt.StartRun(ctx, src, a.Session().ID(), d.agentID, trigger(msgType), in)
+}
+
+func (d *Dispatcher) finishRun(ctx context.Context, state rtsqlite.RunState, err error) error {
+	if d.rt == nil {
+		return nil
+	}
+	return d.rt.FinishRun(ctx, state, err)
+}
+
+func trigger(msgType string) string {
+	switch msgType {
+	case bus.TypeTaskDone:
+		return "system"
+	case bus.TypeCronTrigger:
+		return "cron"
+	default:
+		return "user_input"
+	}
 }

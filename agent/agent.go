@@ -11,8 +11,10 @@ import (
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/hook"
 	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/runlog"
+	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -37,6 +39,8 @@ type Agent struct {
 	turnToolHistory  map[string]turnToolRecord
 	turnStateVersion int
 	sessionDir       string
+	rt               *rtsqlite.DB
+	mem              *memory.Store
 	trace            *runlog.Logger
 	interrupted      bool
 	cancelFn         context.CancelFunc
@@ -60,6 +64,8 @@ type AgentDeps struct {
 	Prompt     string
 	Config     config.Config
 	SessionDir string
+	RuntimeDB  *rtsqlite.DB
+	Memory     *memory.Store
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -73,6 +79,8 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),
 		WithSessionDir(d.SessionDir),
+		WithRuntimeDB(d.RuntimeDB),
+		WithMemoryStore(d.Memory),
 	)
 }
 
@@ -101,6 +109,12 @@ func WithConfig(c config.Config) Option {
 func WithStream(s bool) Option       { return func(a *Agent) { a.stream = s } }
 func WithSessionDir(d string) Option { return func(a *Agent) { a.sessionDir = d } }
 func WithSel(s *llm.Sel) Option      { return func(a *Agent) { a.sel = s } }
+func WithRuntimeDB(db *rtsqlite.DB) Option {
+	return func(a *Agent) { a.rt = db }
+}
+func WithMemoryStore(mem *memory.Store) Option {
+	return func(a *Agent) { a.mem = mem }
+}
 
 func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	a := &Agent{
@@ -222,6 +236,7 @@ func (a *Agent) run(ctx context.Context, src, role, input string) (retErr error)
 	a.session.Add(msg.Message{Role: role, Content: input})
 	a.resetTurnState()
 	a.logUserInput(role, input)
+	a.appendEvent(ctx, "input.received", role, map[string]any{"content": input})
 
 	if a.bus != nil {
 		go a.watchInterrupt(ctx)
@@ -418,6 +433,7 @@ func (a *Agent) Compact(ctx context.Context, src, note string) (string, error) {
 
 	a.session.AddAnchor(session.AnchorSummary, summary, note, cut)
 	a.base = tokenBaseline{}
+	a.rememberSummary(ctx, src, summary, note)
 
 	oldTotal, _ := a.sessionTokenTotal(view.Messages)
 	newView := a.session.View()
