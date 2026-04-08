@@ -288,6 +288,8 @@ func (m *model) renderWideView(layout layoutMetrics) string {
 }
 
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
+	b.WriteString(styleSectionTitle.Render("Conversation"))
+	b.WriteString("\n")
 	for _, line := range m.visibleOutput(outputHeight) {
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -295,7 +297,7 @@ func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
 }
 
 func (m *model) writeMainHeader(b *strings.Builder, width int) {
-	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("multi-agent console")
+	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("operator console")
 	b.WriteString(title)
 	b.WriteString("\n")
 
@@ -305,17 +307,17 @@ func (m *model) writeMainHeader(b *strings.Builder, width int) {
 		if status.Model != "" {
 			parts = append(parts, status.Model)
 		}
-		parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))
 		if status.Session != "" {
 			parts = append(parts, truncate(status.Session, 14))
 		}
-		if status.Workspace != "" {
-			parts = append(parts, truncate(status.Workspace, max(width/3, 12)))
+		if len(status.Agents) > 0 {
+			parts = append(parts, fmt.Sprintf("%d agents", len(status.Agents)))
 		}
+		parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))
 		b.WriteString(styleMutedBlock.Render(strings.Join(parts, "  │  ")))
 		b.WriteString("\n")
 	} else {
-		b.WriteString(styleMutedBlock.Render("agentic workspace"))
+		b.WriteString(styleMutedBlock.Render("multi-agent workspace"))
 		b.WriteString("\n")
 	}
 
@@ -381,12 +383,8 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 
 func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	b.WriteString("\n")
-	if !m.useSidebar() {
-		if bar := m.statusBar(); bar != "" {
-			b.WriteString(bar)
-			b.WriteString("\n")
-		}
-	}
+	b.WriteString(styleSectionTitle.Render("Compose"))
+	b.WriteString("\n")
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())
 		b.WriteString(" ")
@@ -404,12 +402,9 @@ func (m *model) renderSidebar(width int) string {
 	var sections []string
 	if m.cli.statusFn != nil {
 		status := m.cli.statusFn()
-		sections = append(sections, m.renderOverviewSection(status, innerWidth))
 		sections = append(sections, m.renderRosterSection(status, innerWidth))
 	}
-	sections = append(sections, m.renderCollabSection(innerWidth))
-	sections = append(sections, m.renderToolSection(innerWidth))
-	sections = append(sections, m.renderShortcutSection(innerWidth))
+	sections = append(sections, m.renderLiveSection(innerWidth))
 
 	var filtered []string
 	for _, section := range sections {
@@ -419,24 +414,6 @@ func (m *model) renderSidebar(width int) string {
 	}
 	content := lipgloss.NewStyle().Width(innerWidth).Render(strings.Join(filtered, "\n\n"))
 	return styleSidebarFrame.Width(width - 4).Render(content)
-}
-
-func (m *model) renderOverviewSection(status StatusInfo, width int) string {
-	var lines []string
-	header := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("CLI")
-	lines = append(lines, header)
-	if status.Model != "" {
-		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Model"), styleSidebarValue.Render(status.Model)))
-	}
-	lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Tokens"), styleSidebarValue.Render(fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))))
-	if status.Session != "" {
-		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Session"), styleSidebarValue.Render(truncate(status.Session, max(width-10, 8)))))
-	}
-	if status.Workspace != "" {
-		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Workspace"), styleSidebarValue.Render(truncate(status.Workspace, max(width-12, 8)))))
-	}
-	lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Turn"), styleSidebarValue.Render(m.turnLabel())))
-	return m.renderSidebarSection("Overview", lines)
 }
 
 func (m *model) renderRosterSection(status StatusInfo, width int) string {
@@ -451,9 +428,16 @@ func (m *model) renderRosterSection(status StatusInfo, width int) string {
 		if name == "" {
 			name = agent.ID
 		}
-		line := fmt.Sprintf("%s %s %s", m.registryStatusGlyph(agent.Status), styleAgent.Render(truncate(name, max(width-12, 8))), styleDim.Render(fmt.Sprintf("runs:%d", agent.Runs)))
+		meta := agent.Status
+		if agent.Runs > 0 {
+			meta = fmt.Sprintf("%s · %d run", agent.Status, agent.Runs)
+			if agent.Runs > 1 {
+				meta += "s"
+			}
+		}
+		line := fmt.Sprintf("%s %s %s", m.registryStatusGlyph(agent.Status), styleAgent.Render(truncate(name, max(width-18, 8))), styleDim.Render(meta))
 		lines = append(lines, line)
-		if len(agent.Caps) > 0 {
+		if agent.Status == "busy" && len(agent.Caps) > 0 {
 			lines = append(lines, styleDim.Render("  "+truncate(strings.Join(agent.Caps, " · "), max(width-2, 8))))
 		}
 	}
@@ -463,7 +447,7 @@ func (m *model) renderRosterSection(status StatusInfo, width int) string {
 	return m.renderSidebarSection("Agent Network", lines)
 }
 
-func (m *model) renderCollabSection(width int) string {
+func (m *model) renderLiveSection(width int) string {
 	var lines []string
 	for _, id := range m.agentKeys {
 		agent := m.agents[id]
@@ -491,40 +475,12 @@ func (m *model) renderCollabSection(width int) string {
 		}
 	}
 	if len(lines) == 0 {
-		lines = append(lines, styleDim.Render("No live collaboration"))
+		lines = append(lines, styleDim.Render("No live coordination"))
 	}
-	return m.renderSidebarSection("Collaboration", lines)
-}
-
-func (m *model) renderToolSection(width int) string {
-	var lines []string
 	for _, ts := range m.activeTools() {
 		lines = append(lines, fmt.Sprintf("%s %s", ts.spinner.View(), truncate(ts.name+" "+ts.args, max(width-4, 8))))
 	}
-	for _, entry := range m.toolLog {
-		lines = append(lines, truncate(entry, max(width, 8)))
-		if len(lines) >= sidebarTools {
-			break
-		}
-	}
-	if len(lines) == 0 {
-		lines = append(lines, styleDim.Render("No recent tool activity"))
-	}
-	return m.renderSidebarSection("Tools", lines)
-}
-
-func (m *model) renderShortcutSection(width int) string {
-	lines := []string{
-		styleKeycap.Render("Enter") + " send",
-		styleKeycap.Render("Ctrl+J") + " newline",
-		styleKeycap.Render("PgUp/PgDn") + " scroll",
-		styleKeycap.Render("Esc") + " interrupt",
-		styleKeycap.Render("!agents") + " roster",
-	}
-	for i := range lines {
-		lines[i] = truncate(lines[i], max(width, 8))
-	}
-	return m.renderSidebarSection("Keys", lines)
+	return m.renderSidebarSection("Live Coordination", lines)
 }
 
 func (m *model) renderSidebarSection(title string, lines []string) string {
@@ -677,7 +633,7 @@ func (m *model) computeLayout() layoutMetrics {
 
 func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
-	lines := inputHeight + 2 + mainHeaderLines
+	lines := inputHeight + 2 + mainHeaderLines + transcriptLines + composerLines
 
 	if !m.useSidebar() && len(m.agentKeys) > 0 {
 		lines += 3

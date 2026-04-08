@@ -22,36 +22,38 @@ const (
 	mouseScrollStep  = 1
 	minOutputLines   = 5
 	maxInputHeight   = 8
-	sidebarMinWidth  = 32
-	sidebarMaxWidth  = 42
+	sidebarMinWidth  = 40
+	sidebarMaxWidth  = 48
 	sidebarGap       = 1
-	minWideWidth     = 108
+	minWideWidth     = 116
 	minMainWidth     = 56
-	sidebarAgents    = 6
+	sidebarAgents    = 4
 	sidebarTools     = 6
 	sidebarDelegates = 5
 	mainHeaderLines  = 3
+	composerLines    = 1
+	transcriptLines  = 1
 )
 
 var (
-	stylePrompt       = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
-	stylePromptDanger = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).Bold(true)
-	styleTool         = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Faint(true)
-	styleSuccess      = lipgloss.NewStyle().Foreground(lipgloss.Color("#94E2D5"))
-	styleFail         = lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8"))
-	styleDim          = lipgloss.NewStyle().Foreground(lipgloss.Color("#585B70"))
-	styleBar          = lipgloss.NewStyle().Foreground(lipgloss.Color("#9399B2"))
-	styleSession      = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6ADC8"))
-	styleAgent        = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
-	styleCode         = lipgloss.NewStyle().Foreground(lipgloss.Color("#F5C2E7"))
-	styleBold         = lipgloss.NewStyle().Bold(true)
-	styleThinking     = lipgloss.NewStyle().Foreground(lipgloss.Color("#74C7EC")).Faint(true)
-	styleThinkingTag  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Faint(true)
-	stylePlaceholder  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086"))
+	stylePrompt       = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8790")).Bold(true)
+	stylePromptDanger = lipgloss.NewStyle().Foreground(lipgloss.Color("#E06C75")).Bold(true)
+	styleTool         = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C"))
+	styleSuccess      = lipgloss.NewStyle().Foreground(lipgloss.Color("#98C379"))
+	styleFail         = lipgloss.NewStyle().Foreground(lipgloss.Color("#E06C75"))
+	styleDim          = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	styleBar          = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
+	styleSession      = lipgloss.NewStyle().Foreground(lipgloss.Color("#B8C0CC"))
+	styleAgent        = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
+	styleCode         = lipgloss.NewStyle().Foreground(lipgloss.Color("#C8A36A"))
+	styleBold         = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Bold(true)
+	styleThinking     = lipgloss.NewStyle().Foreground(lipgloss.Color("#56B6C2")).Faint(true)
+	styleThinkingTag  = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Faint(true)
+	stylePlaceholder  = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
 
-	styleConfirmBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E1E2E")).Background(lipgloss.Color("#F38BA8")).Bold(true).Padding(0, 1)
-	styleConfirmCmd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
-	styleConfirmHint   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
+	styleConfirmBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#E06C75")).Bold(true).Padding(0, 1)
+	styleConfirmCmd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Bold(true)
+	styleConfirmHint   = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB")).Bold(true)
 
 	styleFrame = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -60,18 +62,17 @@ var (
 	styleSidebarFrame = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("#45475A")).
-				Background(lipgloss.Color("#11111B")).
 				Padding(0, 1)
-	styleSectionTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
-	styleMutedBlock   = lipgloss.NewStyle().Foreground(lipgloss.Color("#BAC2DE"))
-	styleKeycap       = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#A6E3A1")).Bold(true).Padding(0, 1)
-	styleSidebarLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
-	styleSidebarValue = lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4"))
-	styleAgentIdle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Bold(true)
-	styleAgentBusy    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
-	styleAgentSleep   = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
-	styleAgentOff     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
-	styleSidebarBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#89B4FA")).Bold(true).Padding(0, 1)
+	styleSectionTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Bold(true)
+	styleMutedBlock   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
+	styleKeycap       = lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#C7D2FE")).Bold(true).Padding(0, 1)
+	styleSidebarLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Bold(true)
+	styleSidebarValue = lipgloss.NewStyle().Foreground(lipgloss.Color("#E5E7EB"))
+	styleAgentIdle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#98C379")).Bold(true)
+	styleAgentBusy    = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Bold(true)
+	styleAgentSleep   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
+	styleAgentOff     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Bold(true)
+	styleSidebarBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#D4A85C")).Bold(true).Padding(0, 1)
 )
 
 type AgentInfo struct {
@@ -156,6 +157,7 @@ func (c *CLI) Run() error {
 	}
 	c.model = m
 
+	fmt.Print("\033[2J\033[H")
 	c.program = tea.NewProgram(m)
 	_, err := c.program.Run()
 	return err
