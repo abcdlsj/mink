@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/abcdlsj/mink/runtime/id"
 	zsqlite "zombiezen.com/go/sqlite"
@@ -25,7 +26,14 @@ type TeamMember struct {
 	RoleName        string
 	RoleDescription string
 	MemberType      string
+	RuntimeAgentID  string
+	ProfileHint     string
 	JoinedAt        string
+}
+
+type TeamMemberProfile struct {
+	RuntimeAgentID string `json:"runtime_agent_id,omitempty"`
+	ProfileHint    string `json:"profile_hint,omitempty"`
 }
 
 type TeamThread struct {
@@ -62,10 +70,10 @@ func (db *DB) CreateTeam(ctx context.Context, name, leaderAgentID, turnPolicy st
 			return err
 		}
 		return sqlitex.ExecuteTransient(conn, `
-			INSERT INTO team_members (team_id, agent_id, role_name, member_type, joined_at)
-			VALUES (?, ?, 'leader', 'persistent', ?)
+			INSERT INTO team_members (team_id, agent_id, role_name, member_type, profile_json, joined_at)
+			VALUES (?, ?, 'leader', 'persistent', ?, ?)
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID, leaderAgentID, now},
+			Args: []any{teamID, leaderAgentID, `{"runtime_agent_id":"` + leaderAgentID + `"}`, now},
 		})
 	})
 }
@@ -134,6 +142,10 @@ func (db *DB) ListTeams(ctx context.Context, status string) ([]Team, error) {
 }
 
 func (db *DB) AddTeamMember(ctx context.Context, teamID, agentID, roleName, roleDesc, memberType string) error {
+	return db.AddTeamMemberWithProfile(ctx, teamID, agentID, roleName, roleDesc, memberType, TeamMemberProfile{})
+}
+
+func (db *DB) AddTeamMemberWithProfile(ctx context.Context, teamID, agentID, roleName, roleDesc, memberType string, profile TeamMemberProfile) error {
 	if db == nil {
 		return nil
 	}
@@ -141,16 +153,21 @@ func (db *DB) AddTeamMember(ctx context.Context, teamID, agentID, roleName, role
 		memberType = "persistent"
 	}
 	now := nowString()
+	if profile.RuntimeAgentID == "" {
+		profile.RuntimeAgentID = agentID
+	}
+	rawProfile, _ := json.Marshal(profile)
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			INSERT INTO team_members (team_id, agent_id, role_name, role_description, member_type, joined_at)
-			VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO team_members (team_id, agent_id, role_name, role_description, member_type, profile_json, joined_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(team_id, agent_id) DO UPDATE SET
 				role_name = excluded.role_name,
 				role_description = excluded.role_description,
-				member_type = excluded.member_type
+				member_type = excluded.member_type,
+				profile_json = excluded.profile_json
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID, agentID, roleName, roleDesc, memberType, now},
+			Args: []any{teamID, agentID, roleName, roleDesc, memberType, string(rawProfile), now},
 		})
 	})
 }
@@ -175,19 +192,26 @@ func (db *DB) ListTeamMembers(ctx context.Context, teamID string) ([]TeamMember,
 	var members []TeamMember
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT team_id, agent_id, role_name, role_description, member_type, joined_at
+			SELECT team_id, agent_id, role_name, role_description, member_type, profile_json, joined_at
 			FROM team_members WHERE team_id = ?
 			ORDER BY joined_at ASC
 		`, &sqlitex.ExecOptions{
 			Args: []any{teamID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				var profile TeamMemberProfile
+				rawProfile := stmt.ColumnText(5)
+				if rawProfile != "" {
+					_ = json.Unmarshal([]byte(rawProfile), &profile)
+				}
 				members = append(members, TeamMember{
 					TeamID:          stmt.ColumnText(0),
 					AgentID:         stmt.ColumnText(1),
 					RoleName:        stmt.ColumnText(2),
 					RoleDescription: stmt.ColumnText(3),
 					MemberType:      stmt.ColumnText(4),
-					JoinedAt:        stmt.ColumnText(5),
+					RuntimeAgentID:  profile.RuntimeAgentID,
+					ProfileHint:     profile.ProfileHint,
+					JoinedAt:        stmt.ColumnText(6),
 				})
 				return nil
 			},

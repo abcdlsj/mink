@@ -343,6 +343,9 @@ func TestTeamCRUD(t *testing.T) {
 	if len(members) != 2 {
 		t.Fatalf("expected 2 members, got %d", len(members))
 	}
+	if members[1].RuntimeAgentID != "agent:worker" {
+		t.Fatalf("expected runtime agent agent:worker, got %s", members[1].RuntimeAgentID)
+	}
 
 	teams, err := db.ListTeams(ctx, "active")
 	if err != nil {
@@ -361,6 +364,38 @@ func TestTeamCRUD(t *testing.T) {
 	}
 	if len(members) != 1 {
 		t.Fatalf("expected 1 member after removal, got %d", len(members))
+	}
+}
+
+func TestTeamMemberProfile(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	teamID, err := db.CreateTeam(ctx, "profile-team", "agent:leader", "round_robin", 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.AddTeamMemberWithProfile(ctx, teamID, "agent:team:dev:analyst", "Analyst", "Investigates runtime issues", "ephemeral", sqlite.TeamMemberProfile{
+		RuntimeAgentID: "agent:coder",
+		ProfileHint:    "debugger",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	members, err := db.ListTeamMembers(ctx, teamID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(members))
+	}
+	member := members[1]
+	if member.RuntimeAgentID != "agent:coder" {
+		t.Fatalf("expected agent:coder, got %s", member.RuntimeAgentID)
+	}
+	if member.ProfileHint != "debugger" {
+		t.Fatalf("expected debugger, got %s", member.ProfileHint)
 	}
 }
 

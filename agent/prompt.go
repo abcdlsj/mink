@@ -104,6 +104,9 @@ func (a *Agent) sectionTeam(ctx context.Context) section {
 		if turn.SpeakerRole != "" {
 			lines = append(lines, fmt.Sprintf("- Current speaker role: %s", turn.SpeakerRole))
 		}
+		if turn.SpeakerRoleDesc != "" {
+			lines = append(lines, fmt.Sprintf("- Current speaker scope: %s", turn.SpeakerRoleDesc))
+		}
 		if turn.SpeakerProfile != "" {
 			lines = append(lines, fmt.Sprintf("- Current speaker profile: %s", turn.SpeakerProfile))
 		}
@@ -146,7 +149,9 @@ func (a *Agent) sectionContext() section {
 }
 
 func (a *Agent) sectionSoul() section {
-	return section{head: "Persona", body: loadSoulPrompt}
+	return section{head: "Persona", body: func() string {
+		return loadSoulPrompt(a.soulPath)
+	}}
 }
 
 func (a *Agent) sectionTelegram(src string) section {
@@ -215,8 +220,11 @@ func (a *Agent) sectionSpawn() section {
 	}}
 }
 
-func loadSoulPrompt() string {
-	data, err := os.ReadFile(config.SoulPath())
+func loadSoulPrompt(path string) string {
+	if strings.TrimSpace(path) == "" {
+		path = config.SoulPath()
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}

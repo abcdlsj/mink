@@ -23,6 +23,7 @@ type Agent struct {
 	id               string
 	p                llm.Provider
 	sel              *llm.Sel
+	soulPath         string
 	nextModel        string
 	reg              *tool.Registry
 	guard            tool.Guard
@@ -99,6 +100,8 @@ func WithPrompt(p string) Option           { return func(a *Agent) { a.prompt = 
 func WithSubAgent(v bool) Option           { return func(a *Agent) { a.subAgent = v } }
 func WithBus(b *bus.Bus) Option            { return func(a *Agent) { a.bus = b } }
 func WithRegistry(r *tool.Registry) Option { return func(a *Agent) { a.reg = r } }
+func WithProvider(p llm.Provider) Option   { return func(a *Agent) { a.p = p } }
+func WithSoulPath(path string) Option      { return func(a *Agent) { a.soulPath = path } }
 func WithConfig(c config.Config) Option {
 	return func(a *Agent) {
 		a.cfg = c
@@ -146,6 +149,7 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		a.reg.Register(tool.NewDelegatePoll(a.bus, id))
 		a.reg.Register(tool.NewTeamMention(a.bus, id))
 		a.reg.Register(tool.NewTeamInvite(a.bus, id))
+		a.reg.Register(tool.NewTeamSpawnSpecialist(a.bus, id))
 		bg := tool.NewBackground(a.bus, id)
 		if a.cfg.Timeout.Background > 0 {
 			bg.SetTimeout(a.cfg.Timeout.Background)

@@ -34,6 +34,7 @@ const (
 	TypeDelegateResult = "delegate:result"
 	TypeTeamMention    = "team:mention"
 	TypeTeamInvite     = "team:invite"
+	TypeTeamSpawn      = "team:spawn_specialist"
 
 	TypePresence = "presence:update"
 )
