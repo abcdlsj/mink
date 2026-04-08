@@ -355,6 +355,17 @@ func TestTeamCRUD(t *testing.T) {
 		t.Fatalf("expected 1 team, got %d", len(teams))
 	}
 
+	if err := db.UpdateTeamTurnPolicy(ctx, teamID, "round_robin"); err != nil {
+		t.Fatal(err)
+	}
+	team, err = db.GetTeam(ctx, teamID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team.TurnPolicy != "round_robin" {
+		t.Fatalf("expected round_robin, got %s", team.TurnPolicy)
+	}
+
 	if err := db.RemoveTeamMember(ctx, teamID, "agent:worker"); err != nil {
 		t.Fatal(err)
 	}

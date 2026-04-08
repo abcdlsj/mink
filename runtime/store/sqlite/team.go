@@ -141,6 +141,20 @@ func (db *DB) ListTeams(ctx context.Context, status string) ([]Team, error) {
 	return teams, err
 }
 
+func (db *DB) UpdateTeamTurnPolicy(ctx context.Context, teamID, turnPolicy string) error {
+	if db == nil || teamID == "" || turnPolicy == "" {
+		return nil
+	}
+	now := nowString()
+	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			UPDATE teams SET turn_policy = ?, updated_at = ? WHERE id = ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{turnPolicy, now, teamID},
+		})
+	})
+}
+
 func (db *DB) AddTeamMember(ctx context.Context, teamID, agentID, roleName, roleDesc, memberType string) error {
 	return db.AddTeamMemberWithProfile(ctx, teamID, agentID, roleName, roleDesc, memberType, TeamMemberProfile{})
 }

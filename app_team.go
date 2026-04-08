@@ -57,7 +57,7 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 	}
 	src := a.sourceFromContext(ctx)
 	if len(args) == 0 {
-		return "usage: !team [list|create <name>|open <id>|home|invite <agent_id> [role]]", nil
+		return "usage: !team [list|create <name>|open <id>|home|policy <leader_driven|round_robin>|invite <agent_id> [role]]", nil
 	}
 
 	switch args[0] {
@@ -76,6 +76,22 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 		a.setActiveThread(src, "")
 		a.disp.UnbindTeamSource(src)
 		return fmt.Sprintf("created team %s (%s)", name, teamID), nil
+	case "policy":
+		if len(args) < 2 {
+			return "usage: !team policy <leader_driven|round_robin>", nil
+		}
+		teamID := a.currentTeamID(src)
+		if teamID == "" {
+			return "no active team", nil
+		}
+		policy := strings.TrimSpace(args[1])
+		if policy != "leader_driven" && policy != "round_robin" {
+			return "usage: !team policy <leader_driven|round_robin>", nil
+		}
+		if err := a.rt.UpdateTeamTurnPolicy(ctx, teamID, policy); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("updated team %s turn policy to %s", teamID, policy), nil
 	case "open":
 		if len(args) < 2 {
 			return "usage: !team open <team_id>", nil
@@ -121,7 +137,7 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 		}
 		return fmt.Sprintf("invited %s to team %s as %s", agentID, teamID, role), nil
 	default:
-		return "usage: !team [list|create <name>|open <id>|home|invite <agent_id> [role]]", nil
+		return "usage: !team [list|create <name>|open <id>|home|policy <leader_driven|round_robin>|invite <agent_id> [role]]", nil
 	}
 }
 
@@ -198,7 +214,7 @@ func (a *App) renderTeamList(ctx context.Context, src string) (string, error) {
 		if team.ID == current {
 			mark = "* "
 		}
-		fmt.Fprintf(&b, "%s%s (%s) [%s]\n", mark, team.Name, team.ID, team.Status)
+		fmt.Fprintf(&b, "%s%s (%s) [%s|%s]\n", mark, team.Name, team.ID, team.Status, team.TurnPolicy)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
