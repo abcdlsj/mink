@@ -352,6 +352,12 @@ func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
 }
 
 func (d *Dispatcher) Start(ctx context.Context) {
+	if d.deps.Bus != nil {
+		d.deps.Bus.RegisterHandler(bus.TypeDelegate, d.handleDelegate)
+		d.deps.Bus.RegisterHandler(bus.TypeTeamMention, d.handleTeamMention)
+		d.deps.Bus.RegisterHandler(bus.TypeTeamInvite, d.handleTeamInvite)
+		d.deps.Bus.RegisterHandler(bus.TypeTeamSpawn, d.handleTeamSpawn)
+	}
 	conn := d.deps.Bus.RegisterAgent(d.agentID)
 	if conn == nil {
 		return
