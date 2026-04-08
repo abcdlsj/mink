@@ -311,7 +311,11 @@ func (m *model) renderMainPane(layout layoutMetrics) string {
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
 	b.WriteString(styleSectionTitle.Render("Conversation"))
 	b.WriteString("\n")
-	for _, line := range m.visibleOutput(outputHeight) {
+	lines := m.visibleOutput(outputHeight)
+	for i := 0; i < max(outputHeight-len(lines), 0); i++ {
+		b.WriteString("\n")
+	}
+	for _, line := range lines {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}

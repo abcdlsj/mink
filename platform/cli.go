@@ -42,7 +42,7 @@ var (
 	styleSuccess      = lipgloss.NewStyle().Foreground(lipgloss.Color("#98C379"))
 	styleFail         = lipgloss.NewStyle().Foreground(lipgloss.Color("#E06C75"))
 	styleDim          = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
-	styleBar          = lipgloss.NewStyle().Foreground(lipgloss.Color("#4B5563"))
+	styleBar          = lipgloss.NewStyle().Foreground(lipgloss.Color("#30343B"))
 	styleSession      = lipgloss.NewStyle().Foreground(lipgloss.Color("#B8C0CC"))
 	styleAgent        = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
 	styleCode         = lipgloss.NewStyle().Foreground(lipgloss.Color("#C8A36A"))
@@ -69,7 +69,7 @@ var (
 			Padding(0, 1)
 	styleSidebarFrame = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("#45475A")).
+				BorderForeground(lipgloss.Color("#2F3540")).
 				Padding(0, 1)
 	styleSectionTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A85C")).Bold(true)
 	styleMutedBlock   = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
@@ -166,7 +166,7 @@ func (c *CLI) Run() error {
 	c.model = m
 
 	fmt.Print("\033[2J\033[H")
-	c.program = tea.NewProgram(m)
+	c.program = tea.NewProgram(m, tea.WithMouseCellMotion())
 	_, err := c.program.Run()
 	return err
 }
