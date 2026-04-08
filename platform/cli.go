@@ -166,7 +166,7 @@ func (c *CLI) Run() error {
 	c.model = m
 
 	fmt.Print("\033[2J\033[H")
-	c.program = tea.NewProgram(m, tea.WithMouseCellMotion())
+	c.program = tea.NewProgram(m)
 	_, err := c.program.Run()
 	return err
 }
