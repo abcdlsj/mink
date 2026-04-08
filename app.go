@@ -686,6 +686,13 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 
 	disp := agent.NewDispatcher(agentDeps, sm, skillLoader, deps.runtimeDB)
 	disp.SetRegistry(reg)
+	if deps.runtimeDB != nil {
+		if bindings, err := deps.runtimeDB.TeamSourceBindings(context.Background()); err == nil {
+			for _, binding := range bindings {
+				disp.BindTeamSource(binding.Source, binding.TeamID, binding.ThreadID)
+			}
+		}
+	}
 
 	return sm, sup, disp, reg, cronSched, nil
 }

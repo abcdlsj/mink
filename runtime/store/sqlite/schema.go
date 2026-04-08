@@ -107,6 +107,8 @@ CREATE TABLE IF NOT EXISTS source_bindings (
   thread_id TEXT NOT NULL DEFAULT '',
   active_task_id TEXT NOT NULL,
   active_session_id TEXT NOT NULL DEFAULT '',
+  team_id TEXT NOT NULL DEFAULT '',
+  team_thread_id TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
   PRIMARY KEY (source_kind, source_id, thread_id)
 );

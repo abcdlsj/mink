@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	zsqlite "zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -36,7 +37,10 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 
 	db := &DB{path: path, pool: pool}
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
-		return sqlitex.ExecuteScript(conn, schema, nil)
+		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
+			return err
+		}
+		return migrate(conn)
 	}); err != nil {
 		_ = pool.Close()
 		return nil, err
@@ -116,4 +120,25 @@ func prepare(conn *zsqlite.Conn) error {
 		return err
 	}
 	return nil
+}
+
+func migrate(conn *zsqlite.Conn) error {
+	for _, stmt := range []string{
+		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
+	} {
+		if err := sqlitex.ExecuteTransient(conn, stmt, nil); err != nil && !isDuplicateColumnErr(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func isDuplicateColumnErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate column name: team_id") ||
+		strings.Contains(msg, "duplicate column name: team_thread_id")
 }

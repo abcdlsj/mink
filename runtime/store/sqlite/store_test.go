@@ -268,6 +268,37 @@ func TestSessionDerivation(t *testing.T) {
 	}
 }
 
+func TestTeamSourceBindings(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+
+	if err := db.UpsertTeamSourceBinding(ctx, "cli", "team-1", "thread-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	bindings, err := db.TeamSourceBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(bindings))
+	}
+	if bindings[0].Source != "cli" || bindings[0].TeamID != "team-1" || bindings[0].ThreadID != "thread-1" {
+		t.Fatalf("unexpected binding: %+v", bindings[0])
+	}
+
+	if err := db.ClearTeamSourceBinding(ctx, "cli"); err != nil {
+		t.Fatal(err)
+	}
+	bindings, err = db.TeamSourceBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != 0 {
+		t.Fatalf("expected no bindings after clear, got %d", len(bindings))
+	}
+}
+
 func TestTeamCRUD(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

@@ -205,6 +205,9 @@ func (d *Dispatcher) BindTeamSource(src, teamID, threadID string) {
 		return
 	}
 	d.team.BindSource(src, teamID, threadID)
+	if d.rt != nil {
+		_ = d.rt.UpsertTeamSourceBinding(context.Background(), src, teamID, threadID)
+	}
 }
 
 func (d *Dispatcher) UnbindTeamSource(src string) {
@@ -212,6 +215,9 @@ func (d *Dispatcher) UnbindTeamSource(src string) {
 		return
 	}
 	d.team.UnbindSource(src)
+	if d.rt != nil {
+		_ = d.rt.ClearTeamSourceBinding(context.Background(), src)
+	}
 }
 
 func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
