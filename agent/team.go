@@ -22,6 +22,7 @@ type TeamBinding struct {
 type TeamTurn struct {
 	TeamID         string
 	ThreadID       string
+	LeaderAgentID  string
 	SpeakerAgentID string
 	SpeakerProfile string
 	SpeakerRole    string
@@ -189,6 +190,7 @@ func (d *TeamDispatcher) Prepare(ctx context.Context, src string, sess *session.
 	return TeamTurn{
 		TeamID:         team.ID,
 		ThreadID:       thread.ID,
+		LeaderAgentID:  firstNonEmpty(team.LeaderAgentID, bus.AddrAgentMain),
 		SpeakerAgentID: speakerAgentID,
 		SpeakerProfile: identity.Profile,
 		SpeakerRole:    roleName,
@@ -236,6 +238,9 @@ func (d *TeamDispatcher) injectMemory(ctx context.Context, team rtsqlite.Team, t
 
 func (d *TeamDispatcher) Complete(ctx context.Context, turn TeamTurn, output string, runErr error) {
 	if d == nil || d.mem == nil || runErr != nil {
+		return
+	}
+	if turn.LeaderAgentID != "" && turn.SpeakerAgentID != turn.LeaderAgentID {
 		return
 	}
 	output = strings.TrimSpace(output)
