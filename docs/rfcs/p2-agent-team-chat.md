@@ -7,7 +7,8 @@ P2 adds a true agent team mode to Mink:
 - multiple agents share one visible conversation
 - agents speak as distinct participants instead of hidden workers
 - a leader orchestrates specialist turns and produces the final answer
-- CLI and Telegram can show team collaboration as a first-class interaction model
+- CLI becomes the primary surface for visible team collaboration
+- Telegram stays leader-facing and does not try to simulate a full multi-agent group chat
 
 This is intentionally different from the current multi-agent runtime. Today Mink has peer registration, routing, heartbeat, and delegation. P2 turns that execution substrate into a conversational team experience.
 
@@ -28,7 +29,8 @@ For the product direction discussed in `#agent_research`, this is the missing pi
 - distributed consensus or autonomous social simulation
 - cross-process or cross-machine coordination
 - replacing the existing `delegate` flow for normal background work
-- new channels beyond CLI and Telegram
+- turning Telegram into a full visible team transcript
+- hard-coded specialist rosters such as permanent `Researcher`, `Coder`, `Reviewer` personas
 
 P2 should start from a controlled turn-taking model. Unbounded group chat will generate noise, token waste, and race conditions.
 
@@ -39,7 +41,9 @@ P2 should start from a controlled turn-taking model. Unbounded group chat will g
 - Turn-taking is explicit and serialized.
 - The leader owns convergence and final answer quality.
 - Specialists contribute only when asked or selected by policy.
+- Team roles are synthesized per task, not pre-generated as a fixed roster.
 - Team mode should be obvious in the UI, not hidden behind logs.
+- Execution profiles may be stable; team roles should remain dynamic.
 
 ## Target UX
 
@@ -54,18 +58,25 @@ The user starts a team conversation explicitly, for example with a command such 
 When team mode is on:
 
 - the transcript shows agent-authored lines such as `[Main]`, `[Researcher]`, `[Coder]`
-- the sidebar shows current team members and current speaker
+- the UI switches into a dedicated team console instead of trying to extend the normal single-agent layout
+- the team rail shows current team members, current speaker, round, and leader goal
 - delegation is no longer shown as opaque background work when it belongs to the team session
 - the leader answer is visually recognizable as the final synthesis
+- specialist turns are visually lighter than the leader closeout
+- the current speaker has an explicit thinking state so the user does not stare at a blank console
 
 ### Telegram
 
-The same thread can host several agents through one visible team transcript:
+Telegram should not try to act like a full team chat surface.
+
+Recommended behavior:
 
 - the bot receives a user message for the team
-- the leader decides who should speak next
-- each team turn is emitted back into the thread with explicit agent identity
-- the final answer is still owned by the leader unless the user addressed a specific specialist
+- internal specialist collaboration may happen behind the scenes
+- Telegram receives the leader answer only
+- Telegram may optionally receive a short collaboration summary such as `Consulted: architecture, implementation`
+
+This keeps Telegram aligned with its single-bot identity and avoids a stream of fake multi-agent chatter.
 
 ## Core Design
 
@@ -110,6 +121,43 @@ This is not a global distributed identity. It is a runtime-scoped key used to:
 Suggested shape:
 
 - `team:<session_id>`
+
+### Dynamic Role Synthesis
+
+P2 should not rely on a pre-generated list of team roles.
+
+Instead, when the user starts a team interaction:
+
+1. the leader analyzes the task
+2. the leader decides which specialist roles are needed
+3. the runtime creates temporary role definitions for this team only
+4. those roles are bound to execution profiles that can actually run them
+
+This is the core distinction:
+
+- `role`: task-specific responsibility, generated at runtime
+- `profile`: stable execution capability, defined by the runtime
+
+Examples:
+
+- role: `DSL Config Investigator`
+- role: `Frontend Rendering Challenger`
+- role: `Release Risk Reviewer`
+
+These roles should not have to exist in config before the task begins.
+
+### Execution Profiles
+
+The runtime still needs stable execution profiles underneath team mode.
+
+Profiles define things such as:
+
+- model choice
+- tool allowlist
+- max concurrency
+- capability family
+
+P2 should keep these stable profiles in config, while allowing the leader to synthesize temporary team roles that map onto them.
 
 ## Turn Model
 
@@ -168,11 +216,14 @@ The cleanest starting point is explicit nomination by the leader.
 
 Suggested tool:
 
+- `spawn_specialist(role_name, role_description, profile_hint)`
 - `mention(agent_name, question)`
 
 Behavior:
 
-- leader calls `mention("Researcher", "...")`
+- leader calls `spawn_specialist("Config Investigator", "...", "analysis")`
+- runtime materializes a temporary team member bound to a matching execution profile
+- leader calls `mention("Config Investigator", "...")`
 - runtime converts that to a team turn request
 - selected agent receives the same shared history plus the local question
 - selected agent emits one visible team message
@@ -184,7 +235,7 @@ Why use a tool instead of implicit routing:
 - it is easier to inspect in logs and runtime events
 - it reduces accidental loops
 
-This tool is only for team mode. It should not replace `delegate` for background execution.
+These tools are only for team mode. They should not replace `delegate` for background execution.
 
 ## Runtime Components
 
@@ -200,6 +251,7 @@ Suggested fields:
 - `SessionID`
 - `LeaderAgentID`
 - `Members []string`
+- `Roles []TeamRole`
 - `Policy`
 - `CurrentSpeaker`
 - `Round`
@@ -237,6 +289,7 @@ Payload should minimally include:
 - `session_id`
 - `speaker_agent_id`
 - `leader_agent_id`
+- `role_name`
 - `round`
 - `prompt`
 
@@ -261,36 +314,43 @@ The local turn directive should include:
 - expected role of the current speaker
 - whether the speaker should answer the user, contribute analysis, or nominate another speaker
 
-## CLI Changes
+## Team Console UX
 
-CLI is where this feature becomes legible.
+CLI is where this feature becomes legible. This needs a dedicated team layout, not a few extra labels on the current single-agent console.
 
 Required changes:
 
 - transcript lines render speaker identity from `Message.AgentID`
-- sidebar switches from generic `Agent Network` to team-specific state when a team session is active
+- transcript lines use consistent identity styling per speaker
+- a dedicated team rail replaces the generic sidebar when a team session is active
 - current speaker and round count are always visible
-- team messages are visually separated from user messages without adding noisy borders
+- leader summary is visually distinct from specialist turns
+- specialist turns can use lighter styling, indentation, or toned-down color
+- team console should avoid heavy borders and preserve the lighter CLI direction already established
 
 Recommended behavior:
 
-- hide team sidebar when team mode is off
-- show team member list only when more than one member participates
+- hide team rail when team mode is off
+- show only information that helps understand collaboration
+- do not show static empty agent slots before roles are synthesized
 - emphasize the leader summary, not every intermediate thought
+- show which speaker is currently thinking so long gaps feel intentional
 
 ## Telegram Changes
 
-Telegram should reuse the same orchestration model:
+Telegram should use a different rendering strategy from CLI:
 
 - one Telegram thread maps to one team session
-- outgoing messages are prefixed by agent name
-- the leader can keep the thread readable by summarizing after specialist turns
+- specialist collaboration remains internal by default
+- outgoing messages are leader-owned
+- optional specialist contribution summaries are condensed into one short appendix
 
-Example visible messages:
+Example visible output:
 
-- `[Researcher] I found two likely causes...`
-- `[Coder] The existing dispatcher can support this with a shared session...`
-- `[Main] Conclusion: we should implement LeaderDriven first...`
+- main answer from the leader
+- optional suffix such as `Consulted: config analysis, rendering review`
+
+This is not just a UI choice. It preserves the fact that Telegram users are talking to one bot identity.
 
 ## Failure Handling
 
@@ -325,20 +385,23 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 1: Data and Rendering
 
 - add `AgentID` to `msg.Message`
+- add optional `TeamID` to message or bus payloads where needed for routing and rendering
 - render speaker labels in CLI transcript
-- prefix Telegram output with agent name when applicable
+- document Telegram as leader-only output
 - archive old RFCs and document the team model
 
 ### Phase 2: Runtime Team Core
 
 - add team bus message types
 - implement in-memory `TeamState`
+- add `TeamRole` and dynamic role synthesis flow
 - add team turn lock and round budget
 - create `TeamDispatcher`
 
 ### Phase 3: Leader-Driven Team Mode
 
 - add `/team on|off|status`
+- add `spawn_specialist(role_name, role_description, profile_hint)` tool
 - add `mention(agent_name, question)` tool
 - implement `LeaderDriven` policy
 - make leader summary the default close behavior
@@ -346,7 +409,7 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 4: Polish
 
 - add `RoundRobin` policy for demos
-- improve sidebar and transcript presentation
+- ship dedicated CLI team console styling
 - add runtime metrics for team turns and failure reasons
 
 ## Why This Is Better Than Reusing Delegate
@@ -370,7 +433,8 @@ P2 should keep both:
 1. Should team mode be opt-in per session only, or also configurable as the default for a given CLI profile?
 2. Should specialist intermediate reasoning remain private even when their final answer is public?
 3. Should team messages be stored as normal assistant messages with `AgentID`, or as a distinct entry kind?
-4. When the user directly addresses one specialist, should control bypass the leader for that turn?
+4. When the user directly addresses one specialist, should control bypass the leader for that turn? Initial recommendation: no.
+5. Should `MaxRounds` stay fixed at 6 by default, or become configurable per team template or session?
 
 ## Recommendation
 
@@ -382,7 +446,9 @@ The smallest correct path is:
 
 - shared session
 - agent-attributed messages
+- dynamic role synthesis on top of stable execution profiles
 - serialized turn policy
-- visible transcript
+- CLI-first visible transcript
+- leader-only Telegram surface
 
 That is enough to turn Mink from “multiple hidden workers” into a real `agent team` product surface.
