@@ -259,8 +259,17 @@ func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Messag
 				usage = chunk.Usage
 			}
 			if chunk.Reasoning != "" {
-				reasoning.WriteString(chunk.Reasoning)
-				reasoningDelta.WriteString(chunk.Reasoning)
+				full := chunk.Reasoning
+				current := reasoning.String()
+				switch {
+				case current == "":
+					reasoning.WriteString(full)
+					reasoningDelta.WriteString(full)
+				case strings.HasPrefix(full, current):
+					extra := strings.TrimPrefix(full, current)
+					reasoning.WriteString(extra)
+					reasoningDelta.WriteString(extra)
+				}
 			}
 			if chunk.ReasoningSignature != "" {
 				signature = chunk.ReasoningSignature

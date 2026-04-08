@@ -297,25 +297,28 @@ func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
 }
 
 func (m *model) writeMainHeader(b *strings.Builder, width int) {
-	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("operator console")
+	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("console")
 	b.WriteString(title)
 	b.WriteString("\n")
 
 	if m.cli.statusFn != nil {
 		status := m.cli.statusFn()
+		if status.Session != "" {
+			b.WriteString(styleSession.Render(status.Session))
+			b.WriteString("\n")
+		}
 		var parts []string
 		if status.Model != "" {
 			parts = append(parts, status.Model)
-		}
-		if status.Session != "" {
-			parts = append(parts, truncate(status.Session, 14))
 		}
 		if len(status.Agents) > 0 {
 			parts = append(parts, fmt.Sprintf("%d agents", len(status.Agents)))
 		}
 		parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))
-		b.WriteString(styleMutedBlock.Render(strings.Join(parts, "  │  ")))
-		b.WriteString("\n")
+		if len(parts) > 0 {
+			b.WriteString(styleMutedBlock.Render(strings.Join(parts, "  │  ")))
+			b.WriteString("\n")
+		}
 	} else {
 		b.WriteString(styleMutedBlock.Render("multi-agent workspace"))
 		b.WriteString("\n")
@@ -383,7 +386,7 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 
 func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	b.WriteString("\n")
-	b.WriteString(styleSectionTitle.Render("Compose"))
+	b.WriteString(styleSectionTitle.Render("Input"))
 	b.WriteString("\n")
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())

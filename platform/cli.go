@@ -30,7 +30,7 @@ const (
 	sidebarAgents    = 4
 	sidebarTools     = 6
 	sidebarDelegates = 5
-	mainHeaderLines  = 3
+	mainHeaderLines  = 4
 	composerLines    = 1
 	transcriptLines  = 1
 )
