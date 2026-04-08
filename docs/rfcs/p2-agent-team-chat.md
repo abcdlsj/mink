@@ -4,13 +4,15 @@
 
 P2 adds a true agent team mode to Mink:
 
-- multiple agents share one visible conversation
+- team becomes a first-class persistent collaborative workspace
+- multiple agents can collaborate inside one long-lived team
+- threads become problem-specific conversations inside that team
 - agents speak as distinct participants instead of hidden workers
-- a leader orchestrates specialist turns and produces the final answer
+- a leader orchestrates specialist turns and produces the final answer when needed
 - CLI becomes the primary surface for visible team collaboration
 - Telegram stays leader-facing and does not try to simulate a full multi-agent group chat
 
-This is intentionally different from the current multi-agent runtime. Today Mink has peer registration, routing, heartbeat, and delegation. P2 turns that execution substrate into a conversational team experience.
+This is intentionally different from the current multi-agent runtime. Today Mink has peer registration, routing, heartbeat, and delegation. P2 turns that execution substrate into a persistent collaborative workspace for agents.
 
 ## What Problem This Solves
 
@@ -21,7 +23,7 @@ Current Mink multi-agent behavior is useful but not legible:
 - CLI can show that agents are busy, but not why they are speaking or how they reach a conclusion
 - users cannot put several agents into one shared thread and let them collaborate in public
 
-For the product direction discussed in `#agent_research`, this is the missing piece. The goal is not only better orchestration. It is a visible `agent team` interaction model.
+For the product direction discussed in `#agent_research`, this is the missing piece. The goal is not only better orchestration. It is a persistent `agent team` product model.
 
 ## Non-Goals
 
@@ -36,7 +38,9 @@ P2 should start from a controlled turn-taking model. Unbounded group chat will g
 
 ## Product Principles
 
-- One team conversation maps to one shared session.
+- Team is a first-class persistent object.
+- One team contains many threads or tasks over time.
+- One thread maps to one shared session.
 - Every visible utterance belongs to one named agent.
 - Turn-taking is explicit and serialized.
 - The leader owns convergence and final answer quality.
@@ -47,21 +51,82 @@ P2 should start from a controlled turn-taking model. Unbounded group chat will g
 - Agents are durable identities with their own memory and can participate in multiple teams over time.
 - Teams must be resumable across process restarts, not treated as disposable chat artifacts.
 
+## Product Model
+
+P2 should make the following layers explicit:
+
+1. `Agent`
+2. `Team`
+3. `Thread` or `Task`
+4. `Turn Policy`
+
+These layers should not collapse into one another.
+
+### Agent
+
+An agent is a durable identity with:
+
+- memory
+- profile
+- tool constraints
+- optional notes
+
+### Team
+
+A team is a long-lived collaboration space with:
+
+- stable identity
+- members
+- default leader
+- historical threads
+- current status
+
+The user should think in terms of “my release review team” or “my debugging team”, not “a temporary group chat that happened to use several agents”.
+
+### Thread or Task
+
+A thread is one problem-specific conversation or execution inside a team.
+
+Examples:
+
+- investigate a production issue
+- review a launch plan
+- iterate on a feature design
+
+Threads are resumable, but they are subordinate to the team.
+
+### Turn Policy
+
+Turn policy is an internal coordination mechanism.
+
+It matters for runtime behavior, but it should not be the first product concept exposed to users.
+
+Users care about:
+
+- what team they are talking to
+- what thread is active
+- who is responsible
+- whether there is a conclusion
+
 ## Target UX
 
 ### CLI
 
-The user starts a team conversation explicitly, for example with a command such as:
+The user should enter a team-oriented console, not a patched single-agent transcript.
 
-- `/team on`
-- `/team off`
-- `/team status`
+Primary actions:
 
-When team mode is on:
+- `create team`
+- `invite agent`
+- `start thread`
+- `resume thread`
+- `ask leader to summarize`
+
+When a team is active:
 
 - the transcript shows agent-authored lines such as `[Main]`, `[Researcher]`, `[Coder]`
 - the UI switches into a dedicated team console instead of trying to extend the normal single-agent layout
-- the team rail shows current team members, current speaker, round, and leader goal
+- the team rail shows team members, current thread, current speaker, and overall status
 - delegation is no longer shown as opaque background work when it belongs to the team session
 - the leader answer is visually recognizable as the final synthesis
 - specialist turns are visually lighter than the leader closeout
@@ -155,6 +220,8 @@ Dynamic roles can be fulfilled in two ways:
 
 P2 must support both. Temporary specialists are useful, but they are not the whole model.
 
+From a product priority standpoint, this is an enhancement layer on top of persistent teams. It should not replace the first-class `Team + Agent + Thread` model.
+
 ### Execution Profiles
 
 The runtime still needs stable execution profiles underneath team mode.
@@ -227,6 +294,18 @@ This lets the leader say:
 
 - pull in an existing persistent agent when identity and memory matter
 - spawn a temporary specialist when only a one-off role is needed
+
+## User-Visible Actions
+
+P2 should center on a small set of user actions:
+
+- `Create team`
+- `Invite agent`
+- `Start thread`
+- `Resume thread`
+- `Ask leader to summarize`
+
+These actions should come before advanced orchestration controls.
 
 ## Turn Model
 
@@ -394,6 +473,8 @@ CLI is where this feature becomes legible. This needs a dedicated team layout, n
 
 Required changes:
 
+- a teams list or team switcher is always visible when team mode is enabled
+- the current team name, member list, active thread, and status are visible at the top of the main area
 - transcript lines render speaker identity from `Message.AgentID`
 - transcript lines use consistent identity styling per speaker
 - a dedicated team rail replaces the generic sidebar when a team session is active
@@ -409,6 +490,7 @@ Recommended behavior:
 - do not show static empty agent slots before roles are synthesized
 - emphasize the leader summary, not every intermediate thought
 - show which speaker is currently thinking so long gaps feel intentional
+- the input box is always framed as “talking to the current team”, not to one individual agent
 
 ## Telegram Changes
 
@@ -456,37 +538,42 @@ If team orchestration fails, the leader should still be able to emit a final ans
 
 ## Implementation Plan
 
-### Phase 1: Data and Rendering
+### Phase 1: Persistent Team Model
+
+- introduce durable `Team` as a first-class object
+- add `TeamState` recovery on runtime resume
+- support team membership with persistent agents
+- define `Thread` creation and resume inside a team
+- archive old RFCs and document the product model
+
+### Phase 2: CLI Team Console
+
+- ship a dedicated team console layout
+- show team list, active team, current thread, and status
+- render speaker labels in transcript
+- make leader summary the default user-facing close behavior
+
+### Phase 3: Team Runtime Orchestration
 
 - add `AgentID` to `msg.Message`
 - add optional `TeamID` to message or bus payloads where needed for routing and rendering
-- render speaker labels in CLI transcript
-- document Telegram as leader-only output
-- archive old RFCs and document the team model
-
-### Phase 2: Runtime Team Core
-
 - add team bus message types
-- implement durable `TeamState`
-- add `TeamRole` and dynamic role synthesis flow
-- support both `persistent` and `ephemeral` members
 - add team turn lock and round budget
 - create `TeamDispatcher`
-- add team recovery on runtime resume
-
-### Phase 3: Leader-Driven Team Mode
-
-- add `/team on|off|status`
-- add `spawn_specialist(role_name, role_description, profile_hint)` tool
-- add `invite_agent(agent_id, role_name, task)` tool
-- add `mention(agent_name, question)` tool
 - implement `LeaderDriven` policy
-- make leader summary the default close behavior
 
-### Phase 4: Polish
+### Phase 4: Dynamic Specialists
 
+- add `invite_agent(agent_id, role_name, task)` tool
+- add `spawn_specialist(role_name, role_description, profile_hint)` tool
+- add `mention(agent_name, question)` tool
+- add `TeamRole` and dynamic role synthesis flow
+- support both `persistent` and `ephemeral` members
+
+### Phase 5: Polish
+
+- document Telegram as leader-only output
 - add `RoundRobin` policy for demos
-- ship dedicated CLI team console styling
 - add runtime metrics for team turns and failure reasons
 
 ## Why This Is Better Than Reusing Delegate
@@ -522,9 +609,11 @@ Do not redesign the agent core again.
 
 The smallest correct path is:
 
-- shared session
+- persistent team object
+- persistent agents with invite semantics
+- resumable threads inside the team
+- shared session per thread
 - agent-attributed messages
-- dynamic role synthesis on top of stable execution profiles
 - persistent agents plus optional ephemeral specialists
 - serialized turn policy
 - resumable team state on top of the P0 durable runtime
