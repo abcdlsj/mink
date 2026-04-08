@@ -72,6 +72,7 @@ type model struct {
 	thinkingBuf strings.Builder
 	thinkStart  int
 	scroll      int
+	statusCache *StatusInfo
 }
 
 type layoutMetrics struct {
@@ -89,6 +90,7 @@ func (m *model) Init() tea.Cmd {
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
+	m.statusCache = nil
 	m.refreshInputMode()
 
 	switch msg := msg.(type) {
@@ -111,6 +113,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			m.quitting = true
 			return m, tea.Quit
+		case tea.KeyUp:
+			if m.input.Value() == "" {
+				m.scrollUp(1)
+				return m, nil
+			}
+		case tea.KeyDown:
+			if m.input.Value() == "" {
+				m.scrollDown(1)
+				return m, nil
+			}
 		case tea.KeyEscape:
 			return m.handleInterrupt()
 		case tea.KeyEnter:
@@ -326,8 +338,8 @@ func (m *model) writeMainHeader(b *strings.Builder, width int) {
 	b.WriteString(title)
 	b.WriteString("\n")
 
+	status := m.statusInfo()
 	if m.cli.statusFn != nil {
-		status := m.cli.statusFn()
 		var parts []string
 		if status.Model != "" {
 			parts = append(parts, status.Model)
@@ -435,8 +447,8 @@ func (m *model) renderConfirmPanel() string {
 func (m *model) renderSidebar(width int) string {
 	innerWidth := max(width-4, 1)
 	var sections []string
+	status := m.statusInfo()
 	if m.cli.statusFn != nil {
-		status := m.cli.statusFn()
 		sections = append(sections, m.renderRosterSection(status, innerWidth))
 	}
 	sections = append(sections, m.renderLiveSection(innerWidth))
@@ -865,14 +877,23 @@ func (m *model) shouldShowSidebar() bool {
 	if len(m.agentKeys) > 0 || len(m.delegateIDs) > 0 || len(m.activeTools()) > 0 {
 		return true
 	}
-	if m.cli.statusFn == nil {
-		return false
-	}
-	return len(m.cli.statusFn().Agents) > 1
+	return len(m.statusInfo().Agents) > 1
 }
 
 func (m *model) hasLiveSidebarContent() bool {
 	return len(m.agentKeys) > 0 || len(m.delegateIDs) > 0 || len(m.activeTools()) > 0
+}
+
+func (m *model) statusInfo() StatusInfo {
+	if m.statusCache != nil {
+		return *m.statusCache
+	}
+	if m.cli == nil || m.cli.statusFn == nil {
+		return StatusInfo{}
+	}
+	status := m.cli.statusFn()
+	m.statusCache = &status
+	return status
 }
 
 func (m *model) mainPaneWidth() int {
