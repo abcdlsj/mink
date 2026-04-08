@@ -44,6 +44,8 @@ P2 should start from a controlled turn-taking model. Unbounded group chat will g
 - Team roles are synthesized per task, not pre-generated as a fixed roster.
 - Team mode should be obvious in the UI, not hidden behind logs.
 - Execution profiles may be stable; team roles should remain dynamic.
+- Agents are durable identities with their own memory and can participate in multiple teams over time.
+- Teams must be resumable across process restarts, not treated as disposable chat artifacts.
 
 ## Target UX
 
@@ -146,6 +148,13 @@ Examples:
 
 These roles should not have to exist in config before the task begins.
 
+Dynamic roles can be fulfilled in two ways:
+
+- bound to an existing persistent agent identity
+- fulfilled by a temporary specialist created for the current team
+
+P2 must support both. Temporary specialists are useful, but they are not the whole model.
+
 ### Execution Profiles
 
 The runtime still needs stable execution profiles underneath team mode.
@@ -158,6 +167,66 @@ Profiles define things such as:
 - capability family
 
 P2 should keep these stable profiles in config, while allowing the leader to synthesize temporary team roles that map onto them.
+
+### Agent Persistence and Team Resume
+
+P2 should assume that `agent` and `team` are both durable runtime concepts.
+
+#### Persistent Agents
+
+Persistent agents have:
+
+- stable identity
+- durable memory
+- stable profile and tool constraints
+- ability to participate in different teams over time
+
+Examples:
+
+- a long-lived `Main` agent
+- a persistent `Research` agent with its own memory base
+- a persistent `Release` agent that can be pulled into different collaborations
+
+#### Temporary Specialists
+
+Temporary specialists still exist, but they are a fallback, not the only model.
+
+They are appropriate when:
+
+- no persistent agent matches the synthesized role
+- the leader needs a one-off temporary perspective
+- the role is too task-specific to justify a long-lived identity
+
+#### Resumable Teams
+
+Teams must survive process restarts and runtime interruptions.
+
+That means P2 should treat the following as durable state:
+
+- `team_id`
+- shared `session_id`
+- leader identity
+- current members and their roles
+- current turn policy
+- round count
+- current speaker
+- team status
+
+This state should be recoverable from the durable runtime store introduced in P0.
+
+#### Membership Model
+
+Role synthesis chooses work to be done. It does not force all team members to be ephemeral.
+
+Suggested member kinds:
+
+- `persistent`: existing durable agent joins the team
+- `ephemeral`: runtime creates a temporary specialist for this team only
+
+This lets the leader say:
+
+- pull in an existing persistent agent when identity and memory matter
+- spawn a temporary specialist when only a one-off role is needed
 
 ## Turn Model
 
@@ -217,12 +286,15 @@ The cleanest starting point is explicit nomination by the leader.
 Suggested tool:
 
 - `spawn_specialist(role_name, role_description, profile_hint)`
+- `invite_agent(agent_id, role_name, task)`
 - `mention(agent_name, question)`
 
 Behavior:
 
 - leader calls `spawn_specialist("Config Investigator", "...", "analysis")`
 - runtime materializes a temporary team member bound to a matching execution profile
+- or leader calls `invite_agent("agent:research", "Config Investigator", "...")`
+- runtime attaches an existing persistent agent to the team with the synthesized role
 - leader calls `mention("Config Investigator", "...")`
 - runtime converts that to a team turn request
 - selected agent receives the same shared history plus the local question
@@ -252,13 +324,14 @@ Suggested fields:
 - `LeaderAgentID`
 - `Members []string`
 - `Roles []TeamRole`
+- `MemberKinds map[string]string`
 - `Policy`
 - `CurrentSpeaker`
 - `Round`
 - `MaxRounds`
 - `Status` (`idle`, `running`, `waiting`, `done`, `failed`)
 
-This state lives in memory first. It can become durable later if needed.
+This state should be durably recoverable, not only kept in memory.
 
 ### 2. Team Dispatcher
 
@@ -290,6 +363,7 @@ Payload should minimally include:
 - `speaker_agent_id`
 - `leader_agent_id`
 - `role_name`
+- `member_kind`
 - `round`
 - `prompt`
 
@@ -393,15 +467,18 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 2: Runtime Team Core
 
 - add team bus message types
-- implement in-memory `TeamState`
+- implement durable `TeamState`
 - add `TeamRole` and dynamic role synthesis flow
+- support both `persistent` and `ephemeral` members
 - add team turn lock and round budget
 - create `TeamDispatcher`
+- add team recovery on runtime resume
 
 ### Phase 3: Leader-Driven Team Mode
 
 - add `/team on|off|status`
 - add `spawn_specialist(role_name, role_description, profile_hint)` tool
+- add `invite_agent(agent_id, role_name, task)` tool
 - add `mention(agent_name, question)` tool
 - implement `LeaderDriven` policy
 - make leader summary the default close behavior
@@ -435,6 +512,7 @@ P2 should keep both:
 3. Should team messages be stored as normal assistant messages with `AgentID`, or as a distinct entry kind?
 4. When the user directly addresses one specialist, should control bypass the leader for that turn? Initial recommendation: no.
 5. Should `MaxRounds` stay fixed at 6 by default, or become configurable per team template or session?
+6. When both a persistent agent and a temporary specialist fit the same synthesized role, what should the leader prefer by default?
 
 ## Recommendation
 
@@ -447,7 +525,9 @@ The smallest correct path is:
 - shared session
 - agent-attributed messages
 - dynamic role synthesis on top of stable execution profiles
+- persistent agents plus optional ephemeral specialists
 - serialized turn policy
+- resumable team state on top of the P0 durable runtime
 - CLI-first visible transcript
 - leader-only Telegram surface
 
