@@ -275,11 +275,14 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			err := d.runSourceTurn(ctx, src, m.Type, initialInput, a)
+			speakerID, err := d.runSourceTurn(ctx, src, m.Type, initialInput, a)
 			if err != nil {
+				if speakerID == "" {
+					speakerID = d.agentID
+				}
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
-					From:    d.agentID,
+					From:    speakerID,
 					Payload: fmt.Sprintf("error: %v", err),
 					To:      src,
 				})
@@ -771,12 +774,13 @@ func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, a *Agent) 
 	return d.team.Prepare(ctx, src, a.Session())
 }
 
-func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, a *Agent) error {
+func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, a *Agent) (string, error) {
 	currentInput := initialInput
+	lastSpeakerID := d.agentID
 	for {
 		teamTurn, release, err := d.prepareTeamTurn(ctx, src, a)
 		if err != nil {
-			return err
+			return lastSpeakerID, err
 		}
 		runSource := src
 		runAgentID := d.agentID
@@ -788,12 +792,13 @@ func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInp
 				runInput = teamTurn.Prompt
 			}
 		}
+		lastSpeakerID = runAgentID
 		state, err := d.startRunForAgent(ctx, runSource, a.Session().ID(), runAgentID, msgType, runInput)
 		if err != nil {
 			if release != nil {
 				release()
 			}
-			return err
+			return lastSpeakerID, err
 		}
 		runCtx := withRuntimeTurn(ctx, state, runSource)
 		if release != nil {
@@ -806,11 +811,11 @@ func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInp
 			release()
 		}
 		if err != nil {
-			return err
+			return lastSpeakerID, err
 		}
 		handoff, ok := d.team.Pending(src)
 		if !ok {
-			return nil
+			return lastSpeakerID, nil
 		}
 		currentInput = handoff.Prompt
 	}

@@ -227,16 +227,18 @@ func (s *Store) RecentByTask(ctx context.Context, taskID string, limit int) ([]D
 		`, &sqlitex.ExecOptions{
 			Args: []any{taskID, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(9))
 				docs = append(docs, Doc{
-					ID:      stmt.ColumnText(0),
-					Title:   stmt.ColumnText(1),
-					Kind:    stmt.ColumnText(2),
-					Tags:    splitTags(stmt.ColumnText(3)),
-					TaskID:  stmt.ColumnText(4),
-					RunID:   stmt.ColumnText(5),
-					Source:  stmt.ColumnText(6),
-					Summary: stmt.ColumnText(7),
-					Body:    stmt.ColumnText(8),
+					ID:        stmt.ColumnText(0),
+					Title:     stmt.ColumnText(1),
+					Kind:      stmt.ColumnText(2),
+					Tags:      splitTags(stmt.ColumnText(3)),
+					TaskID:    stmt.ColumnText(4),
+					RunID:     stmt.ColumnText(5),
+					Source:    stmt.ColumnText(6),
+					Summary:   stmt.ColumnText(7),
+					Body:      stmt.ColumnText(8),
+					UpdatedAt: updatedAt,
 				})
 				return nil
 			},
@@ -263,16 +265,18 @@ func (s *Store) RecentBySource(ctx context.Context, source string, limit int) ([
 		`, &sqlitex.ExecOptions{
 			Args: []any{source, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(9))
 				docs = append(docs, Doc{
-					ID:      stmt.ColumnText(0),
-					Title:   stmt.ColumnText(1),
-					Kind:    stmt.ColumnText(2),
-					Tags:    splitTags(stmt.ColumnText(3)),
-					TaskID:  stmt.ColumnText(4),
-					RunID:   stmt.ColumnText(5),
-					Source:  stmt.ColumnText(6),
-					Summary: stmt.ColumnText(7),
-					Body:    stmt.ColumnText(8),
+					ID:        stmt.ColumnText(0),
+					Title:     stmt.ColumnText(1),
+					Kind:      stmt.ColumnText(2),
+					Tags:      splitTags(stmt.ColumnText(3)),
+					TaskID:    stmt.ColumnText(4),
+					RunID:     stmt.ColumnText(5),
+					Source:    stmt.ColumnText(6),
+					Summary:   stmt.ColumnText(7),
+					Body:      stmt.ColumnText(8),
+					UpdatedAt: updatedAt,
 				})
 				return nil
 			},
