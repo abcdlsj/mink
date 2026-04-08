@@ -17,11 +17,19 @@ import (
 )
 
 const (
-	maxOutputLines  = 4000
-	agentLineLimit  = 8
-	mouseScrollStep = 1
-	minOutputLines  = 5
-	maxInputHeight  = 8
+	maxOutputLines   = 4000
+	agentLineLimit   = 8
+	mouseScrollStep  = 1
+	minOutputLines   = 5
+	maxInputHeight   = 8
+	sidebarMinWidth  = 32
+	sidebarMaxWidth  = 42
+	sidebarGap       = 1
+	minWideWidth     = 108
+	minMainWidth     = 56
+	sidebarAgents    = 6
+	sidebarTools     = 6
+	sidebarDelegates = 5
 )
 
 var (
@@ -43,7 +51,35 @@ var (
 	styleConfirmBanner = lipgloss.NewStyle().Foreground(lipgloss.Color("#1E1E2E")).Background(lipgloss.Color("#F38BA8")).Bold(true).Padding(0, 1)
 	styleConfirmCmd    = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
 	styleConfirmHint   = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
+
+	styleFrame = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#313244")).
+			Padding(0, 1)
+	styleSidebarFrame = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#45475A")).
+				Background(lipgloss.Color("#11111B")).
+				Padding(0, 1)
+	styleSectionTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FAB387")).Bold(true)
+	styleMutedBlock   = lipgloss.NewStyle().Foreground(lipgloss.Color("#BAC2DE"))
+	styleKeycap       = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#A6E3A1")).Bold(true).Padding(0, 1)
+	styleSidebarLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
+	styleSidebarValue = lipgloss.NewStyle().Foreground(lipgloss.Color("#CDD6F4"))
+	styleAgentIdle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Bold(true)
+	styleAgentBusy    = lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Bold(true)
+	styleAgentSleep   = lipgloss.NewStyle().Foreground(lipgloss.Color("#89B4FA")).Bold(true)
+	styleAgentOff     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6C7086")).Bold(true)
+	styleSidebarBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#11111B")).Background(lipgloss.Color("#89B4FA")).Bold(true).Padding(0, 1)
 )
+
+type AgentInfo struct {
+	ID     string
+	Name   string
+	Status string
+	Runs   int
+	Caps   []string
+}
 
 type StatusInfo struct {
 	Model     string
@@ -51,6 +87,7 @@ type StatusInfo struct {
 	TokenOut  int
 	Workspace string
 	Session   string
+	Agents    []AgentInfo
 }
 
 type CLI struct {
@@ -105,13 +142,16 @@ func (c *CLI) Run() error {
 	s.Style = styleDim
 
 	m := &model{
-		cli:       c,
-		input:     ta,
-		output:    []string{styleDim.Render("mink. type 'exit' to quit")},
-		agents:    make(map[string]*agentState),
-		agentKeys: []string{},
-		tools:     make(map[string]*toolState),
-		spinner:   s,
+		cli:         c,
+		input:       ta,
+		output:      []string{styleDim.Render("mink. type 'exit' to quit")},
+		agents:      make(map[string]*agentState),
+		agentKeys:   []string{},
+		tools:       make(map[string]*toolState),
+		toolLog:     []string{},
+		delegations: make(map[string]*delegationState),
+		delegateIDs: []string{},
+		spinner:     s,
 	}
 	c.model = m
 

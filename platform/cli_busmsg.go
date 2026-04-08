@@ -12,7 +12,7 @@ import (
 )
 
 func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
-	if msg.To != bus.AddrBroadcast && msg.To != bus.AddrPlatformCLI {
+	if !m.isRelevantMsg(msg) {
 		return m, nil
 	}
 
@@ -50,6 +50,15 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 	case bus.TypeTaskDone:
 		m.handleTaskDoneMsg(msg)
 
+	case bus.TypeDelegate:
+		m.handleDelegateMsg(msg)
+
+	case bus.TypeDelegateAck:
+		m.handleDelegateAckMsg(msg)
+
+	case bus.TypeDelegateResult:
+		m.handleDelegateResultMsg(msg)
+
 	case bus.TypeStreamChunk:
 		m.handleStreamChunkMsg(msg, showInline)
 
@@ -80,6 +89,18 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *model) isRelevantMsg(msg bus.Msg) bool {
+	if msg.To == bus.AddrBroadcast || msg.To == bus.AddrPlatformCLI {
+		return true
+	}
+	switch msg.Type {
+	case bus.TypeDelegate, bus.TypeDelegateAck, bus.TypeDelegateResult:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *model) shouldShowInline(from string) bool {
@@ -137,6 +158,7 @@ func (m *model) handleToolCallMsg(msg bus.Msg, showInline bool) tea.Cmd {
 	m.appendOutput(s.View() + " " + styleTool.Render(display))
 	m.tools[id] = &toolState{
 		id:      id,
+		agentID: msg.From,
 		name:    name,
 		args:    args,
 		line:    lineIdx,
@@ -159,6 +181,7 @@ func (m *model) handleToolResultMsg(msg bus.Msg, showInline bool) {
 			display := truncate(ts.name+" "+ts.args, 100)
 			m.output[ts.line] = styleSuccess.Render("✓") + " " + styleTool.Render(display)
 		}
+		m.recordToolLog(styleSuccess.Render("✓ " + truncate(ts.name+" "+ts.args, 80)))
 		return
 	}
 	if !showInline {
@@ -182,6 +205,7 @@ func (m *model) handleToolErrorMsg(msg bus.Msg, showInline bool) {
 			display := truncate(ts.name+" "+ts.args, 80)
 			m.output[ts.line] = styleFail.Render("✗") + " " + styleTool.Render(display) + " " + styleFail.Render(truncate(errMsg, 40))
 		}
+		m.recordToolLog(styleFail.Render("✗ " + truncate(ts.name+" "+ts.args, 48) + " " + truncate(errMsg, 28)))
 		return
 	}
 	if !showInline {
@@ -228,6 +252,95 @@ func (m *model) handleTaskDoneMsg(msg bus.Msg) {
 	m.appendOutput(styleFail.Render(fmt.Sprintf("✗ [%s] %s", taskID, errMsg)))
 }
 
+func (m *model) handleDelegateMsg(msg bus.Msg) {
+	payload, ok := msg.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	d := m.upsertDelegation(msg.ID)
+	if d == nil {
+		return
+	}
+	d.from = msg.From
+	d.status = "queued"
+	if desc, _ := payload["description"].(string); desc != "" {
+		d.desc = desc
+	}
+	if target, _ := payload["target_agent"].(string); target != "" {
+		d.to = target
+	}
+	if len(d.to) == 0 {
+		if caps, ok := payload["capabilities"].([]any); ok && len(caps) > 0 {
+			var items []string
+			for _, cap := range caps {
+				if text, ok := cap.(string); ok && text != "" {
+					items = append(items, text)
+				}
+			}
+			if len(items) > 0 {
+				d.to = strings.Join(items, ",")
+			}
+		}
+	}
+}
+
+func (m *model) handleDelegateAckMsg(msg bus.Msg) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return
+	}
+	taskID := payload["task_id"]
+	if taskID == "" {
+		taskID = msg.ReplyTo
+	}
+	d := m.upsertDelegation(taskID)
+	if d == nil {
+		return
+	}
+	if d.to == "" {
+		d.to = msg.From
+	}
+	status := payload["status"]
+	if status == "" {
+		status = "accepted"
+	}
+	d.status = status
+	if errMsg := payload["error"]; errMsg != "" {
+		d.status = "error"
+		d.done = true
+		d.detail = errMsg
+	}
+}
+
+func (m *model) handleDelegateResultMsg(msg bus.Msg) {
+	payload, ok := msg.Payload.(map[string]string)
+	if !ok {
+		return
+	}
+	taskID := payload["task_id"]
+	if taskID == "" {
+		taskID = msg.ReplyTo
+	}
+	d := m.upsertDelegation(taskID)
+	if d == nil {
+		return
+	}
+	d.to = msg.From
+	d.done = true
+	if errMsg := payload["error"]; errMsg != "" {
+		d.status = "error"
+		d.detail = errMsg
+		return
+	}
+	d.status = payload["status"]
+	if d.status == "" {
+		d.status = "done"
+	}
+	if output := payload["output"]; output != "" {
+		d.detail = truncate(stripANSI(output), 80)
+	}
+}
+
 func (m *model) handleStreamChunkMsg(msg bus.Msg, showInline bool) {
 	if !showInline {
 		return
@@ -272,7 +385,7 @@ func (m *model) handleThinkingChunkMsg(msg bus.Msg, showInline bool) {
 
 func (m *model) renderThinking(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
-	width := m.width
+	width := m.mainPaneWidth()
 	if width <= 4 {
 		width = 80
 	}

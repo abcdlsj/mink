@@ -3,11 +3,13 @@ package platform
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/rivo/uniseg"
 
 	"github.com/abcdlsj/mink/bus"
@@ -29,12 +31,23 @@ type agentState struct {
 
 type toolState struct {
 	id      string
+	agentID string
 	name    string
 	args    string
 	line    int
 	done    bool
 	err     string
 	spinner spinner.Model
+}
+
+type delegationState struct {
+	id     string
+	from   string
+	to     string
+	desc   string
+	status string
+	detail string
+	done   bool
 }
 
 type model struct {
@@ -44,6 +57,9 @@ type model struct {
 	agents      map[string]*agentState
 	agentKeys   []string
 	tools       map[string]*toolState
+	toolLog     []string
+	delegations map[string]*delegationState
+	delegateIDs []string
 	quitting    bool
 	width       int
 	height      int
@@ -62,6 +78,9 @@ type layoutMetrics struct {
 	outputHeight    int
 	maxScroll       int
 	agentDetailLine int
+	mainWidth       int
+	sidebarWidth    int
+	showSidebar     bool
 }
 
 func (m *model) Init() tea.Cmd {
@@ -113,9 +132,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.width > 4 {
-			m.input.SetWidth(msg.Width - 4)
-		}
+		m.resizeInput()
 		m.updateInputHeight()
 
 	case busMsg:
@@ -236,8 +253,12 @@ func (m *model) View() string {
 		return "Bye!\n"
 	}
 
-	var b strings.Builder
 	layout := m.computeLayout()
+	if layout.showSidebar {
+		return m.renderWideView(layout)
+	}
+
+	var b strings.Builder
 	confirming := m.isConfirming()
 	confirmCmd := m.confirmCommand()
 
@@ -247,6 +268,21 @@ func (m *model) View() string {
 	m.writeInputSection(&b, confirming)
 
 	return b.String()
+}
+
+func (m *model) renderWideView(layout layoutMetrics) string {
+	var left strings.Builder
+	confirming := m.isConfirming()
+	confirmCmd := m.confirmCommand()
+
+	m.writeOutputSection(&left, layout.outputHeight)
+	m.writeConfirmSection(&left, confirming, confirmCmd)
+	m.writeInputSection(&left, confirming)
+
+	leftPane := lipgloss.NewStyle().Width(layout.mainWidth).MaxWidth(layout.mainWidth).Render(left.String())
+	sidebar := m.renderSidebar(layout.sidebarWidth)
+	sep := styleDim.Render("│")
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, sep, sidebar)
 }
 
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
@@ -313,9 +349,11 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 
 func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	b.WriteString("\n")
-	if bar := m.statusBar(); bar != "" {
-		b.WriteString(bar)
-		b.WriteString("\n")
+	if !m.useSidebar() {
+		if bar := m.statusBar(); bar != "" {
+			b.WriteString(bar)
+			b.WriteString("\n")
+		}
 	}
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())
@@ -327,6 +365,181 @@ func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 		b.WriteString(stylePrompt.Render("» "))
 	}
 	b.WriteString(m.input.View())
+}
+
+func (m *model) renderSidebar(width int) string {
+	innerWidth := max(width-4, 1)
+	var sections []string
+	if m.cli.statusFn != nil {
+		status := m.cli.statusFn()
+		sections = append(sections, m.renderOverviewSection(status, innerWidth))
+		sections = append(sections, m.renderRosterSection(status, innerWidth))
+	}
+	sections = append(sections, m.renderCollabSection(innerWidth))
+	sections = append(sections, m.renderToolSection(innerWidth))
+	sections = append(sections, m.renderShortcutSection(innerWidth))
+
+	var filtered []string
+	for _, section := range sections {
+		if strings.TrimSpace(section) != "" {
+			filtered = append(filtered, section)
+		}
+	}
+	content := lipgloss.NewStyle().Width(innerWidth).Render(strings.Join(filtered, "\n\n"))
+	return styleSidebarFrame.Width(width - 4).Render(content)
+}
+
+func (m *model) renderOverviewSection(status StatusInfo, width int) string {
+	var lines []string
+	header := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("CLI")
+	lines = append(lines, header)
+	if status.Model != "" {
+		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Model"), styleSidebarValue.Render(status.Model)))
+	}
+	lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Tokens"), styleSidebarValue.Render(fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))))
+	if status.Session != "" {
+		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Session"), styleSidebarValue.Render(truncate(status.Session, max(width-10, 8)))))
+	}
+	if status.Workspace != "" {
+		lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Workspace"), styleSidebarValue.Render(truncate(status.Workspace, max(width-12, 8)))))
+	}
+	lines = append(lines, fmt.Sprintf("%s %s", styleSidebarLabel.Render("Turn"), styleSidebarValue.Render(m.turnLabel())))
+	return m.renderSidebarSection("Overview", lines)
+}
+
+func (m *model) renderRosterSection(status StatusInfo, width int) string {
+	if len(status.Agents) == 0 {
+		return m.renderSidebarSection("Agents", []string{styleDim.Render("No registered agents")})
+	}
+	var lines []string
+	limit := min(len(status.Agents), sidebarAgents)
+	for i := 0; i < limit; i++ {
+		agent := status.Agents[i]
+		name := agent.Name
+		if name == "" {
+			name = agent.ID
+		}
+		line := fmt.Sprintf("%s %s %s", m.registryStatusGlyph(agent.Status), styleAgent.Render(truncate(name, max(width-12, 8))), styleDim.Render(fmt.Sprintf("runs:%d", agent.Runs)))
+		lines = append(lines, line)
+		if len(agent.Caps) > 0 {
+			lines = append(lines, styleDim.Render("  "+truncate(strings.Join(agent.Caps, " · "), max(width-2, 8))))
+		}
+	}
+	if len(status.Agents) > limit {
+		lines = append(lines, styleDim.Render(fmt.Sprintf("+%d more", len(status.Agents)-limit)))
+	}
+	return m.renderSidebarSection("Agent Network", lines)
+}
+
+func (m *model) renderCollabSection(width int) string {
+	var lines []string
+	for _, id := range m.agentKeys {
+		agent := m.agents[id]
+		if agent == nil {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s %s", m.agentStatus(agent), truncate(agent.task, max(width-4, 8))))
+		details := m.agentDetail(agent, 2)
+		for _, detail := range details {
+			lines = append(lines, styleDim.Render("  "+truncate(stripANSI(detail), max(width-2, 8))))
+		}
+	}
+	for _, id := range m.recentDelegations(sidebarDelegates) {
+		d := m.delegations[id]
+		if d == nil {
+			continue
+		}
+		title := truncate(d.desc, max(width-4, 8))
+		if d.to != "" {
+			title = truncate(d.to+" · "+title, max(width-4, 8))
+		}
+		lines = append(lines, fmt.Sprintf("%s %s", m.delegationGlyph(d), title))
+		if d.detail != "" {
+			lines = append(lines, styleDim.Render("  "+truncate(d.detail, max(width-2, 8))))
+		}
+	}
+	if len(lines) == 0 {
+		lines = append(lines, styleDim.Render("No live collaboration"))
+	}
+	return m.renderSidebarSection("Collaboration", lines)
+}
+
+func (m *model) renderToolSection(width int) string {
+	var lines []string
+	for _, ts := range m.activeTools() {
+		lines = append(lines, fmt.Sprintf("%s %s", ts.spinner.View(), truncate(ts.name+" "+ts.args, max(width-4, 8))))
+	}
+	for _, entry := range m.toolLog {
+		lines = append(lines, truncate(entry, max(width, 8)))
+		if len(lines) >= sidebarTools {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		lines = append(lines, styleDim.Render("No recent tool activity"))
+	}
+	return m.renderSidebarSection("Tools", lines)
+}
+
+func (m *model) renderShortcutSection(width int) string {
+	lines := []string{
+		styleKeycap.Render("Enter") + " send",
+		styleKeycap.Render("Ctrl+J") + " newline",
+		styleKeycap.Render("PgUp/PgDn") + " scroll",
+		styleKeycap.Render("Esc") + " interrupt",
+		styleKeycap.Render("!agents") + " roster",
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], max(width, 8))
+	}
+	return m.renderSidebarSection("Keys", lines)
+}
+
+func (m *model) renderSidebarSection(title string, lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	return styleSectionTitle.Render(title) + "\n" + strings.Join(lines, "\n")
+}
+
+func (m *model) turnLabel() string {
+	switch {
+	case m.isConfirming():
+		return "confirm"
+	case m.pending > 0:
+		return fmt.Sprintf("running (%d)", m.pending)
+	default:
+		return "idle"
+	}
+}
+
+func (m *model) registryStatusGlyph(status string) string {
+	switch status {
+	case "busy":
+		return styleAgentBusy.Render("●")
+	case "sleeping":
+		return styleAgentSleep.Render("◐")
+	case "offline":
+		return styleAgentOff.Render("○")
+	default:
+		return styleAgentIdle.Render("●")
+	}
+}
+
+func (m *model) delegationGlyph(d *delegationState) string {
+	if d == nil {
+		return styleDim.Render("·")
+	}
+	switch d.status {
+	case "ok", "done":
+		return styleSuccess.Render("✓")
+	case "error":
+		return styleFail.Render("✗")
+	case "accepted":
+		return styleAgentBusy.Render("→")
+	default:
+		return styleDim.Render("…")
+	}
 }
 
 func (m *model) appendOutput(text string) {
@@ -409,6 +622,12 @@ func (m *model) visibleOutput(outputHeight int) []string {
 }
 
 func (m *model) computeLayout() layoutMetrics {
+	showSidebar := m.useSidebar()
+	mainWidth := m.mainPaneWidth()
+	sidebarWidth := 0
+	if showSidebar {
+		sidebarWidth = m.sidebarWidth()
+	}
 	agentDetailLine := m.agentDetailLines()
 	nonOutput := m.nonOutputLines(agentDetailLine)
 	outputHeight := max(m.height-nonOutput, 1)
@@ -418,17 +637,20 @@ func (m *model) computeLayout() layoutMetrics {
 		outputHeight:    outputHeight,
 		maxScroll:       maxScroll,
 		agentDetailLine: agentDetailLine,
+		mainWidth:       mainWidth,
+		sidebarWidth:    sidebarWidth,
+		showSidebar:     showSidebar,
 	}
 }
 
 func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
 	lines := inputHeight + 2
-	if m.cli.statusFn != nil {
+	if m.cli.statusFn != nil && !m.useSidebar() {
 		lines++
 	}
 
-	if len(m.agentKeys) > 0 {
+	if !m.useSidebar() && len(m.agentKeys) > 0 {
 		lines += 3
 		for _, id := range m.agentKeys {
 			agent := m.agents[id]
@@ -473,7 +695,7 @@ func (m *model) refreshInputMode() {
 func (m *model) updateInputHeight() {
 	w := m.input.Width()
 	if w <= 0 {
-		w = 80
+		w = max(m.mainPaneWidth()-4, 80)
 	}
 	visual := 0
 	for _, line := range strings.Split(m.input.Value(), "\n") {
@@ -593,4 +815,100 @@ func (m *model) isDirectOutput(agentID string) bool {
 		return a.directOutput
 	}
 	return false
+}
+
+func (m *model) resizeInput() {
+	width := m.mainPaneWidth()
+	if width > 4 {
+		m.input.SetWidth(width - 4)
+	}
+}
+
+func (m *model) useSidebar() bool {
+	return m.width >= max(minWideWidth, minMainWidth+sidebarMinWidth+sidebarGap)
+}
+
+func (m *model) sidebarWidth() int {
+	if !m.useSidebar() {
+		return 0
+	}
+	width := m.width / 3
+	if width < sidebarMinWidth {
+		width = sidebarMinWidth
+	}
+	if width > sidebarMaxWidth {
+		width = sidebarMaxWidth
+	}
+	if m.width-width-sidebarGap < minMainWidth {
+		width = m.width - minMainWidth - sidebarGap
+	}
+	return max(width, sidebarMinWidth)
+}
+
+func (m *model) mainPaneWidth() int {
+	if !m.useSidebar() {
+		return max(m.width, minMainWidth)
+	}
+	return max(m.width-m.sidebarWidth()-sidebarGap, minMainWidth)
+}
+
+func (m *model) recordToolLog(line string) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	m.toolLog = append([]string{line}, m.toolLog...)
+	if len(m.toolLog) > sidebarTools {
+		m.toolLog = m.toolLog[:sidebarTools]
+	}
+}
+
+func (m *model) activeTools() []*toolState {
+	var out []*toolState
+	for _, ts := range m.tools {
+		if ts != nil && !ts.done {
+			out = append(out, ts)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].line < out[j].line
+	})
+	return out
+}
+
+func (m *model) upsertDelegation(id string) *delegationState {
+	if id == "" {
+		return nil
+	}
+	if m.delegations == nil {
+		m.delegations = make(map[string]*delegationState)
+	}
+	if d, ok := m.delegations[id]; ok {
+		return d
+	}
+	d := &delegationState{id: id}
+	m.delegations[id] = d
+	m.delegateIDs = append(m.delegateIDs, id)
+	if len(m.delegateIDs) > sidebarDelegates*2 {
+		drop := len(m.delegateIDs) - sidebarDelegates*2
+		for _, oldID := range m.delegateIDs[:drop] {
+			delete(m.delegations, oldID)
+		}
+		m.delegateIDs = m.delegateIDs[drop:]
+	}
+	return d
+}
+
+func (m *model) recentDelegations(limit int) []string {
+	n := len(m.delegateIDs)
+	if n == 0 {
+		return nil
+	}
+	if n > limit {
+		n = limit
+	}
+	out := make([]string, 0, n)
+	for i := len(m.delegateIDs) - 1; i >= 0 && len(out) < n; i-- {
+		out = append(out, m.delegateIDs[i])
+	}
+	return out
 }

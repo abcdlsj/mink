@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -408,12 +409,42 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 			sessID = ag.Session().ID()
 		}
 
+		var agents []platform.AgentInfo
+		if a.reg != nil {
+			states := a.reg.All()
+			sort.Slice(states, func(i, j int) bool {
+				if states[i].Status != states[j].Status {
+					return states[i].Status < states[j].Status
+				}
+				left := states[i].Descriptor.Name
+				if left == "" {
+					left = states[i].Descriptor.ID
+				}
+				right := states[j].Descriptor.Name
+				if right == "" {
+					right = states[j].Descriptor.ID
+				}
+				return left < right
+			})
+			agents = make([]platform.AgentInfo, 0, len(states))
+			for _, state := range states {
+				agents = append(agents, platform.AgentInfo{
+					ID:     state.Descriptor.ID,
+					Name:   state.Descriptor.Name,
+					Status: string(state.Status),
+					Runs:   len(state.ActiveRuns),
+					Caps:   state.Descriptor.Capabilities,
+				})
+			}
+		}
+
 		return platform.StatusInfo{
 			Model:     model,
 			TokenIn:   u.Input,
 			TokenOut:  u.Output,
 			Workspace: ws,
 			Session:   sessID,
+			Agents:    agents,
 		}
 	}
 }
@@ -665,4 +696,3 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
 }
-

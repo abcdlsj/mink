@@ -90,7 +90,7 @@ func renderCodeLine(line, lang string) string {
 }
 
 func renderInlineMarkdown(line string) string {
-	line = ansiRE.ReplaceAllString(line, "")
+	line = stripANSI(line)
 
 	var b strings.Builder
 	r := []rune(line)
@@ -150,4 +150,8 @@ func truncate(s string, n int) string {
 		return "…"
 	}
 	return string(r[:n-1]) + "…"
+}
+
+func stripANSI(s string) string {
+	return ansiRE.ReplaceAllString(s, "")
 }
