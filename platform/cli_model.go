@@ -262,6 +262,7 @@ func (m *model) View() string {
 	confirming := m.isConfirming()
 	confirmCmd := m.confirmCommand()
 
+	m.writeMainHeader(&b, layout.mainWidth)
 	m.writeOutputSection(&b, layout.outputHeight)
 	m.writeAgentSection(&b, layout.agentDetailLine)
 	m.writeConfirmSection(&b, confirming, confirmCmd)
@@ -275,6 +276,7 @@ func (m *model) renderWideView(layout layoutMetrics) string {
 	confirming := m.isConfirming()
 	confirmCmd := m.confirmCommand()
 
+	m.writeMainHeader(&left, layout.mainWidth)
 	m.writeOutputSection(&left, layout.outputHeight)
 	m.writeConfirmSection(&left, confirming, confirmCmd)
 	m.writeInputSection(&left, confirming)
@@ -290,6 +292,36 @@ func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
+}
+
+func (m *model) writeMainHeader(b *strings.Builder, width int) {
+	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("multi-agent console")
+	b.WriteString(title)
+	b.WriteString("\n")
+
+	if m.cli.statusFn != nil {
+		status := m.cli.statusFn()
+		var parts []string
+		if status.Model != "" {
+			parts = append(parts, status.Model)
+		}
+		parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))
+		if status.Session != "" {
+			parts = append(parts, truncate(status.Session, 14))
+		}
+		if status.Workspace != "" {
+			parts = append(parts, truncate(status.Workspace, max(width/3, 12)))
+		}
+		b.WriteString(styleMutedBlock.Render(strings.Join(parts, "  │  ")))
+		b.WriteString("\n")
+	} else {
+		b.WriteString(styleMutedBlock.Render("agentic workspace"))
+		b.WriteString("\n")
+	}
+
+	barWidth := max(width-2, 12)
+	b.WriteString(styleBar.Render(strings.Repeat("─", barWidth)))
+	b.WriteString("\n")
 }
 
 func (m *model) writeAgentSection(b *strings.Builder, detailLimit int) {
@@ -645,10 +677,7 @@ func (m *model) computeLayout() layoutMetrics {
 
 func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
-	lines := inputHeight + 2
-	if m.cli.statusFn != nil && !m.useSidebar() {
-		lines++
-	}
+	lines := inputHeight + 2 + mainHeaderLines
 
 	if !m.useSidebar() && len(m.agentKeys) > 0 {
 		lines += 3

@@ -30,6 +30,7 @@ const (
 	sidebarAgents    = 6
 	sidebarTools     = 6
 	sidebarDelegates = 5
+	mainHeaderLines  = 3
 )
 
 var (
@@ -155,7 +156,7 @@ func (c *CLI) Run() error {
 	}
 	c.model = m
 
-	c.program = tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseAllMotion())
+	c.program = tea.NewProgram(m)
 	_, err := c.program.Run()
 	return err
 }
