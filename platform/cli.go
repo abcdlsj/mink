@@ -91,6 +91,40 @@ type AgentInfo struct {
 	Caps   []string
 }
 
+type TeamMemberInfo struct {
+	ID   string
+	Name string
+	Role string
+	Kind string
+}
+
+type ThreadInfo struct {
+	ID              string
+	Title           string
+	Status          string
+	UpdatedAt       string
+	CurrentRound    int
+	Goal            string
+	BestAnswer      string
+	OpenBlockers    string
+	LatestSummary   string
+	LatestSummaryAt string
+}
+
+type TeamStatus struct {
+	ID             string
+	Name           string
+	Status         string
+	LeaderID       string
+	LatestSummary  string
+	CurrentBlocker string
+	SummaryTime    string
+	ActiveSpeaker  string
+	Members        []TeamMemberInfo
+	RecentThreads  []ThreadInfo
+	ActiveThread   *ThreadInfo
+}
+
 type StatusInfo struct {
 	Model     string
 	TokenIn   int
@@ -98,6 +132,7 @@ type StatusInfo struct {
 	Workspace string
 	Session   string
 	Agents    []AgentInfo
+	Team      *TeamStatus
 }
 
 type CLI struct {

@@ -13,6 +13,7 @@ import (
 type storedEvent struct {
 	Type      string
 	ActorType string
+	ActorID   string
 	Payload   string
 	CreatedAt string
 }
@@ -36,7 +37,7 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 			return nil
 		}
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT type, actor_type, payload_json, created_at
+			SELECT type, actor_type, COALESCE(actor_id, ''), payload_json, created_at
 			FROM events
 			WHERE task_id = ?
 			ORDER BY created_at ASC, seq ASC
@@ -46,8 +47,99 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 				events = append(events, storedEvent{
 					Type:      stmt.ColumnText(0),
 					ActorType: stmt.ColumnText(1),
-					Payload:   stmt.ColumnText(2),
-					CreatedAt: stmt.ColumnText(3),
+					ActorID:   stmt.ColumnText(2),
+					Payload:   stmt.ColumnText(3),
+					CreatedAt: stmt.ColumnText(4),
+				})
+				return nil
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	msgs := make([]msg.Message, 0, len(events))
+	for _, ev := range events {
+		if m, ok := eventToMessage(ev); ok {
+			msgs = append(msgs, m)
+		}
+	}
+	if len(msgs) > limit {
+		msgs = msgs[len(msgs)-limit:]
+	}
+	return msgs, nil
+}
+
+func (db *DB) MessagesForTask(ctx context.Context, taskID string, limit int) ([]msg.Message, error) {
+	if db == nil || taskID == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+
+	var events []storedEvent
+	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT type, actor_type, COALESCE(actor_id, ''), payload_json, created_at
+			FROM events
+			WHERE task_id = ?
+			ORDER BY created_at ASC, seq ASC
+		`, &sqlitex.ExecOptions{
+			Args: []any{taskID},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				events = append(events, storedEvent{
+					Type:      stmt.ColumnText(0),
+					ActorType: stmt.ColumnText(1),
+					ActorID:   stmt.ColumnText(2),
+					Payload:   stmt.ColumnText(3),
+					CreatedAt: stmt.ColumnText(4),
+				})
+				return nil
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	msgs := make([]msg.Message, 0, len(events))
+	for _, ev := range events {
+		if m, ok := eventToMessage(ev); ok {
+			msgs = append(msgs, m)
+		}
+	}
+	if len(msgs) > limit {
+		msgs = msgs[len(msgs)-limit:]
+	}
+	return msgs, nil
+}
+
+func (db *DB) MessagesForRun(ctx context.Context, runID string, limit int) ([]msg.Message, error) {
+	if db == nil || runID == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+
+	var events []storedEvent
+	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT type, actor_type, COALESCE(actor_id, ''), payload_json, created_at
+			FROM events
+			WHERE run_id = ?
+			ORDER BY seq ASC
+		`, &sqlitex.ExecOptions{
+			Args: []any{runID},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				events = append(events, storedEvent{
+					Type:      stmt.ColumnText(0),
+					ActorType: stmt.ColumnText(1),
+					ActorID:   stmt.ColumnText(2),
+					Payload:   stmt.ColumnText(3),
+					CreatedAt: stmt.ColumnText(4),
 				})
 				return nil
 			},
@@ -71,16 +163,24 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 
 func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	type payload struct {
-		ID      string `json:"id"`
-		Content string `json:"content"`
-		Output  string `json:"output"`
-		Error   string `json:"error"`
+		ID        string          `json:"id"`
+		Content   string          `json:"content"`
+		Output    string          `json:"output"`
+		Error     string          `json:"error"`
+		Name      string          `json:"name"`
+		Args      json.RawMessage `json:"args"`
+		AgentID   string          `json:"agent_id"`
 	}
 	var p payload
 	if ev.Payload != "" {
 		_ = json.Unmarshal([]byte(ev.Payload), &p)
 	}
 	timestamp, _ := time.Parse(time.RFC3339Nano, ev.CreatedAt)
+
+	agentID := p.AgentID
+	if agentID == "" {
+		agentID = ev.ActorID
+	}
 
 	switch ev.Type {
 	case "session.compacted":
@@ -96,7 +196,7 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 		if p.Content == "" {
 			return msg.Message{}, false
 		}
-		return msg.Message{Role: "system", Content: "[Context Anchor]\n" + p.Content, Timestamp: timestamp}, true
+		return msg.Message{Role: "system", Content: "[Context Anchor]\n" + p.Content, Timestamp: timestamp, AgentID: agentID}, true
 	case "input.received":
 		role := ev.ActorType
 		if role == "" {
@@ -105,12 +205,26 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 		if p.Content == "" {
 			return msg.Message{}, false
 		}
-		return msg.Message{Role: role, Content: p.Content, Timestamp: timestamp}, true
+		return msg.Message{Role: role, Content: p.Content, Timestamp: timestamp, AgentID: agentID}, true
 	case "assistant.emitted":
 		if p.Content == "" {
 			return msg.Message{}, false
 		}
-		return msg.Message{Role: "assistant", Content: p.Content, Timestamp: timestamp}, true
+		return msg.Message{Role: "assistant", Content: p.Content, Timestamp: timestamp, AgentID: agentID}, true
+	case "tool.called":
+		if p.ID == "" || p.Name == "" {
+			return msg.Message{}, false
+		}
+		return msg.Message{
+			Role: "assistant",
+			ToolCalls: []msg.ToolCall{{
+				ID:   p.ID,
+				Name: p.Name,
+				Args: p.Args,
+			}},
+			Timestamp: timestamp,
+			AgentID:   agentID,
+		}, true
 	case "tool.completed", "tool.failed":
 		content := p.Output
 		if ev.Type == "tool.failed" && p.Error != "" && content == "" {
@@ -127,6 +241,7 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 				Error:      p.Error,
 			}},
 			Timestamp: timestamp,
+			AgentID:   agentID,
 		}, true
 	default:
 		return msg.Message{}, false

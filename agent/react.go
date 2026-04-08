@@ -87,6 +87,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 			"content":       assistantContent,
 			"tool_calls":    len(r.ToolCalls),
 			"has_reasoning": r.Reasoning != "",
+			"agent_id":      a.id,
 		})
 	}
 

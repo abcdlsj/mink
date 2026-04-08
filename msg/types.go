@@ -52,6 +52,7 @@ type TokenUsage struct {
 type Message struct {
 	ID                 string       `json:"id,omitempty"`
 	Role               string       `json:"role"`
+	AgentID            string       `json:"agent_id,omitempty"`
 	Content            string       `json:"content,omitempty"`
 	Reasoning          string       `json:"reasoning,omitempty"`
 	ReasoningSignature string       `json:"reasoning_signature,omitempty"`

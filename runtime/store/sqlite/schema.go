@@ -110,4 +110,53 @@ CREATE TABLE IF NOT EXISTS source_bindings (
   updated_at TEXT NOT NULL,
   PRIMARY KEY (source_kind, source_id, thread_id)
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  leader_agent_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  turn_policy TEXT NOT NULL DEFAULT 'leader_driven',
+  max_rounds INTEGER NOT NULL DEFAULT 6,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_teams_status ON teams(status);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL,
+  role_name TEXT NOT NULL DEFAULT '',
+  role_description TEXT NOT NULL DEFAULT '',
+  member_type TEXT NOT NULL DEFAULT 'persistent',
+  profile_json TEXT NOT NULL DEFAULT '{}',
+  joined_at TEXT NOT NULL,
+  PRIMARY KEY (team_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS team_threads (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'active',
+  session_id TEXT NOT NULL DEFAULT '',
+  current_round INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_threads_team ON team_threads(team_id, status);
+
+CREATE TABLE IF NOT EXISTS agent_identities (
+  agent_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL DEFAULT '',
+  profile TEXT NOT NULL DEFAULT '',
+  memory_scope TEXT NOT NULL DEFAULT '',
+  tool_constraints_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 `

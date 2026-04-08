@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/tool"
 	tele "gopkg.in/telebot.v4"
 )
@@ -57,6 +58,7 @@ type assistantOutState struct {
 type Telegram struct {
 	token        string
 	bus          *bus.Bus
+	router       *command.Router
 	bot          *tele.Bot
 	stop         chan struct{}
 	events       chan bus.Msg
@@ -92,7 +94,7 @@ type TelegramOptions struct {
 	SessionScope string
 }
 
-func NewTelegram(token string, b *bus.Bus, opts TelegramOptions) *Telegram {
+func NewTelegram(token string, b *bus.Bus, r *command.Router, opts TelegramOptions) *Telegram {
 	mentionMode := strings.ToLower(strings.TrimSpace(opts.MentionMode))
 	if mentionMode == "" {
 		mentionMode = "always"
@@ -110,6 +112,7 @@ func NewTelegram(token string, b *bus.Bus, opts TelegramOptions) *Telegram {
 	return &Telegram{
 		token:        token,
 		bus:          b,
+		router:       r,
 		stop:         make(chan struct{}),
 		mentionMode:  mentionMode,
 		sessionScope: sessionScope,
@@ -225,6 +228,27 @@ func (t *Telegram) handleMessage(c tele.Context) error {
 	}
 
 	t.touchActive(chatID)
+	if command.IsCommand(text) && t.router != nil {
+		ctx := bus.WithSource(context.Background(), src)
+		out, ok, err := t.router.Route(ctx, text)
+		if ok {
+			if err != nil {
+				out = "error: " + err.Error()
+			}
+			if strings.TrimSpace(out) == "" {
+				out = "ok"
+			}
+			opts := &tele.SendOptions{}
+			if msg.ThreadID != 0 {
+				opts.ThreadID = msg.ThreadID
+			}
+			if msg.ID != 0 {
+				opts.ReplyTo = &tele.Message{ID: msg.ID, Chat: msg.Chat}
+			}
+			t.sendTextWithOptions(chatID, out, opts)
+			return nil
+		}
+	}
 	mentioned := t.isMentioned(msg)
 	if !t.shouldHandleMessage(msg, text, mentioned) {
 		return nil

@@ -370,6 +370,14 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 		return
 	}
 
+	if d.rt != nil {
+		parentTurn, _ := runtimeTurnFrom(ctx)
+		parentTaskID := parentTurn.TaskID
+		if _, err := d.rt.CreateChildTask(ctx, parentTaskID, "cron", prompt, d.agentID, src); err != nil {
+			_ = err
+		}
+	}
+
 	a := d.getOrCreateAgent(src)
 	state, err := d.startRun(ctx, src, bus.TypeCronTrigger, prompt, a)
 	if err != nil {
@@ -516,7 +524,6 @@ func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 
 	taskID := m.ID
 
-	// Run delegation asynchronously
 	go d.runDelegation(ctx, m, taskID, targetID, desc, int(depth))
 
 	return bus.Msg{
@@ -530,6 +537,15 @@ func (d *Dispatcher) handleDelegate(ctx context.Context, m bus.Msg) (bus.Msg, er
 
 func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targetID, desc string, depth int) {
 	src := fmt.Sprintf("delegate:%s:%s", m.From, taskID)
+
+	if d.rt != nil {
+		parentTurn, _ := runtimeTurnFrom(ctx)
+		parentTaskID := parentTurn.TaskID
+		if childID, err := d.rt.CreateChildTask(ctx, parentTaskID, "delegation", desc, targetID, src); err == nil && childID != "" {
+			taskID = childID
+		}
+	}
+
 	a := d.getOrCreateAgent(src)
 	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, a)
 	if err != nil {

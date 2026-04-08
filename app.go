@@ -66,6 +66,9 @@ type App struct {
 	cli      *platform.CLI
 	telegram *platform.Telegram
 
+	activeTeams   map[string]string
+	activeThreads map[string]string
+
 	mu      sync.Mutex
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -102,11 +105,16 @@ func New(opts Options) (*App, error) {
 		reg:    reg,
 		hb:     agent.NewHeartbeatManager(reg, deps.bus),
 		cron:   cronSched,
+
+		activeTeams:   make(map[string]string),
+		activeThreads: make(map[string]string),
 	}
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
 	cmdReg.Register(command.NewModelCmd(app.switchModel))
 	cmdReg.Register(command.NewAgentsCmd(app.agentsInfo))
+	cmdReg.Register(command.NewFuncCmd("team", "manage teams (!team list|create|open|home|invite)", app.runTeamCommand))
+	cmdReg.Register(command.NewFuncCmd("thread", "manage team threads (!thread list|new|open)", app.runThreadCommand))
 
 	return app, nil
 }
@@ -246,7 +254,7 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		_ = oldTG.Stop()
 	}
 
-	tg := platform.NewTelegram(token, a.bus, platform.TelegramOptions{
+	tg := platform.NewTelegram(token, a.bus, a.router, platform.TelegramOptions{
 		MentionMode:  a.cfg.TelegramMentionMode,
 		SessionScope: a.cfg.TelegramSessionScope,
 	})
@@ -445,6 +453,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 			Workspace: ws,
 			Session:   sessID,
 			Agents:    agents,
+			Team:      a.teamStatusForSource(context.Background(), bus.AddrPlatformCLI),
 		}
 	}
 }

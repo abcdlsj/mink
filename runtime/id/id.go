@@ -33,3 +33,11 @@ func Artifact() string {
 func Memory() string {
 	return New("mem")
 }
+
+func Team() string {
+	return New("team")
+}
+
+func Thread() string {
+	return New("thread")
+}
