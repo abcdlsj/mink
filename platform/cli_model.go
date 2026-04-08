@@ -290,18 +290,22 @@ func (m *model) renderMainPane(layout layoutMetrics) string {
 	var input strings.Builder
 	m.writeInputSection(&input, confirming)
 
-	sections := []string{
-		strings.TrimRight(header.String(), "\n"),
-		styleTranscriptFrame.Width(layout.mainWidth - 4).Render(strings.TrimRight(transcript.String(), "\n")),
-	}
+	var b strings.Builder
+	b.WriteString(strings.TrimRight(header.String(), "\n"))
+	b.WriteString("\n")
+	b.WriteString(strings.TrimRight(transcript.String(), "\n"))
+
 	if !layout.showSidebar && m.hasLiveSidebarContent() {
-		sections = append(sections, styleFrame.Width(layout.mainWidth-4).Render(m.renderLiveSection(max(layout.mainWidth-6, 8))))
+		b.WriteString("\n")
+		b.WriteString(m.renderLiveSection(max(layout.mainWidth-2, 8)))
 	}
 	if confirm := m.renderConfirmPanel(); confirm != "" {
-		sections = append(sections, confirm)
+		b.WriteString("\n")
+		b.WriteString(confirm)
 	}
-	sections = append(sections, styleInputFrame.Width(layout.mainWidth-4).Render(strings.TrimRight(input.String(), "\n")))
-	return strings.Join(sections, "\n")
+	b.WriteString("\n")
+	b.WriteString(strings.TrimRight(input.String(), "\n"))
+	return b.String()
 }
 
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
@@ -401,6 +405,8 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 }
 
 func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
+	b.WriteString(styleBar.Render(strings.Repeat("─", max(m.mainPaneWidth()-2, 12))))
+	b.WriteString("\n")
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())
 		b.WriteString(" ")

@@ -31,8 +31,8 @@ const (
 	sidebarTools     = 6
 	sidebarDelegates = 5
 	mainHeaderLines  = 3
-	composerLines    = 1
-	transcriptLines  = 3
+	composerLines    = 0
+	transcriptLines  = 1
 )
 
 var (
