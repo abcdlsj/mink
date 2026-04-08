@@ -254,37 +254,40 @@ func (m *model) View() string {
 	}
 
 	layout := m.computeLayout()
-	if layout.showSidebar {
-		return m.renderWideView(layout)
+	if !layout.showSidebar {
+		return m.renderMainPane(layout)
 	}
 
-	var b strings.Builder
-	confirming := m.isConfirming()
-	confirmCmd := m.confirmCommand()
-
-	m.writeMainHeader(&b, layout.mainWidth)
-	m.writeOutputSection(&b, layout.outputHeight)
-	m.writeAgentSection(&b, layout.agentDetailLine)
-	m.writeConfirmSection(&b, confirming, confirmCmd)
-	m.writeInputSection(&b, confirming)
-
-	return b.String()
-}
-
-func (m *model) renderWideView(layout layoutMetrics) string {
-	var left strings.Builder
-	confirming := m.isConfirming()
-	confirmCmd := m.confirmCommand()
-
-	m.writeMainHeader(&left, layout.mainWidth)
-	m.writeOutputSection(&left, layout.outputHeight)
-	m.writeConfirmSection(&left, confirming, confirmCmd)
-	m.writeInputSection(&left, confirming)
-
-	leftPane := lipgloss.NewStyle().Width(layout.mainWidth).MaxWidth(layout.mainWidth).Render(left.String())
+	leftPane := lipgloss.NewStyle().Width(layout.mainWidth).MaxWidth(layout.mainWidth).Render(m.renderMainPane(layout))
 	sidebar := m.renderSidebar(layout.sidebarWidth)
 	sep := styleDim.Render("│")
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, sep, sidebar)
+}
+
+func (m *model) renderMainPane(layout layoutMetrics) string {
+	confirming := m.isConfirming()
+
+	var header strings.Builder
+	m.writeMainHeader(&header, layout.mainWidth)
+
+	var transcript strings.Builder
+	m.writeOutputSection(&transcript, layout.outputHeight)
+
+	var input strings.Builder
+	m.writeInputSection(&input, confirming)
+
+	sections := []string{
+		strings.TrimRight(header.String(), "\n"),
+		styleTranscriptFrame.Width(layout.mainWidth - 4).Render(strings.TrimRight(transcript.String(), "\n")),
+	}
+	if !layout.showSidebar && m.hasLiveSidebarContent() {
+		sections = append(sections, styleFrame.Width(layout.mainWidth-4).Render(m.renderLiveSection(max(layout.mainWidth-6, 8))))
+	}
+	if confirm := m.renderConfirmPanel(); confirm != "" {
+		sections = append(sections, confirm)
+	}
+	sections = append(sections, styleInputFrame.Width(layout.mainWidth-4).Render(strings.TrimRight(input.String(), "\n")))
+	return strings.Join(sections, "\n")
 }
 
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
@@ -297,19 +300,18 @@ func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
 }
 
 func (m *model) writeMainHeader(b *strings.Builder, width int) {
-	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("console")
+	title := styleSidebarBadge.Render("MINK") + " " + styleBold.Render("CONSOLE")
 	b.WriteString(title)
 	b.WriteString("\n")
 
 	if m.cli.statusFn != nil {
 		status := m.cli.statusFn()
-		if status.Session != "" {
-			b.WriteString(styleSession.Render(status.Session))
-			b.WriteString("\n")
-		}
 		var parts []string
 		if status.Model != "" {
 			parts = append(parts, status.Model)
+		}
+		if status.Session != "" {
+			parts = append(parts, status.Session)
 		}
 		if len(status.Agents) > 0 {
 			parts = append(parts, fmt.Sprintf("%d agents", len(status.Agents)))
@@ -385,9 +387,6 @@ func (m *model) writeConfirmSection(b *strings.Builder, confirming bool, confirm
 }
 
 func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
-	b.WriteString("\n")
-	b.WriteString(styleSectionTitle.Render("Input"))
-	b.WriteString("\n")
 	if m.pending > 0 {
 		b.WriteString(m.spinner.View())
 		b.WriteString(" ")
@@ -398,6 +397,15 @@ func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 		b.WriteString(stylePrompt.Render("» "))
 	}
 	b.WriteString(m.input.View())
+}
+
+func (m *model) renderConfirmPanel() string {
+	if !m.isConfirming() {
+		return ""
+	}
+	var b strings.Builder
+	m.writeConfirmSection(&b, true, m.confirmCommand())
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (m *model) renderSidebar(width int) string {
@@ -638,16 +646,9 @@ func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
 	lines := inputHeight + 2 + mainHeaderLines + transcriptLines + composerLines
 
-	if !m.useSidebar() && len(m.agentKeys) > 0 {
+	if !m.useSidebar() && m.hasLiveSidebarContent() {
 		lines += 3
-		for _, id := range m.agentKeys {
-			agent := m.agents[id]
-			if agent == nil {
-				continue
-			}
-			detail := min(len(agent.lines), agentDetailLine)
-			lines += 1 + detail
-		}
+		lines += min(len(m.agentKeys), 2) * 3
 	}
 
 	if m.isConfirming() {
@@ -813,7 +814,10 @@ func (m *model) resizeInput() {
 }
 
 func (m *model) useSidebar() bool {
-	return m.width >= max(minWideWidth, minMainWidth+sidebarMinWidth+sidebarGap)
+	if m.width < max(minWideWidth, minMainWidth+sidebarMinWidth+sidebarGap) {
+		return false
+	}
+	return m.shouldShowSidebar()
 }
 
 func (m *model) sidebarWidth() int {
@@ -831,6 +835,20 @@ func (m *model) sidebarWidth() int {
 		width = m.width - minMainWidth - sidebarGap
 	}
 	return max(width, sidebarMinWidth)
+}
+
+func (m *model) shouldShowSidebar() bool {
+	if len(m.agentKeys) > 0 || len(m.delegateIDs) > 0 || len(m.activeTools()) > 0 {
+		return true
+	}
+	if m.cli.statusFn == nil {
+		return false
+	}
+	return len(m.cli.statusFn().Agents) > 1
+}
+
+func (m *model) hasLiveSidebarContent() bool {
+	return len(m.agentKeys) > 0 || len(m.delegateIDs) > 0 || len(m.activeTools()) > 0
 }
 
 func (m *model) mainPaneWidth() int {

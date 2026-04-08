@@ -30,9 +30,9 @@ const (
 	sidebarAgents    = 4
 	sidebarTools     = 6
 	sidebarDelegates = 5
-	mainHeaderLines  = 4
+	mainHeaderLines  = 3
 	composerLines    = 1
-	transcriptLines  = 1
+	transcriptLines  = 3
 )
 
 var (
@@ -58,6 +58,14 @@ var (
 	styleFrame = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#313244")).
+			Padding(0, 1)
+	styleTranscriptFrame = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#3F4752")).
+				Padding(0, 1)
+	styleInputFrame = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#D4A85C")).
 			Padding(0, 1)
 	styleSidebarFrame = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
