@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/abcdlsj/mink/bus"
@@ -120,5 +121,30 @@ func TestDispatcherTeamSpawnReq(t *testing.T) {
 	}
 	if members[1].RuntimeAgentID != "agent:coder" {
 		t.Fatalf("expected team member runtime agent agent:coder, got %s", members[1].RuntimeAgentID)
+	}
+}
+
+func TestResolveSpecialistRuntimeAgentFallsBackToMain(t *testing.T) {
+	disp := NewDispatcher(AgentDeps{}, nil, nil, nil)
+	runtimeAgentID, err := disp.resolveSpecialistRuntimeAgent("", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeAgentID != bus.AddrAgentMain {
+		t.Fatalf("expected %s, got %s", bus.AddrAgentMain, runtimeAgentID)
+	}
+}
+
+func TestTeamSpecialistPromptIncludesProfileHint(t *testing.T) {
+	prompt := teamSpecialistPrompt(TeamTurn{
+		SpeakerRole:     "Analyst",
+		SpeakerRoleDesc: "Investigates runtime issues",
+		SpeakerProfile:  "focus on bus request/reply bugs",
+	})
+	if prompt == "" {
+		t.Fatal("expected non-empty prompt")
+	}
+	if want := "Current specialist profile hint: focus on bus request/reply bugs"; !strings.Contains(prompt, want) {
+		t.Fatalf("expected prompt to contain %q, got %q", want, prompt)
 	}
 }

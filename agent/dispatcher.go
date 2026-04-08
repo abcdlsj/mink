@@ -969,7 +969,7 @@ func (d *Dispatcher) teamAgent(turn TeamTurn, sess *session.Session) *Agent {
 	}
 	desc := d.runtimeDescriptor(turn)
 	provider, sel := d.runtimeProviders(desc.Model)
-	prompt := strings.TrimSpace(strings.Join([]string{d.deps.Prompt, desc.Prompt}, "\n\n"))
+	prompt := strings.TrimSpace(strings.Join([]string{d.deps.Prompt, desc.Prompt, teamSpecialistPrompt(turn)}, "\n\n"))
 	agentOpts := []Option{
 		WithBus(d.deps.Bus),
 		WithSel(sel),
@@ -1061,7 +1061,10 @@ func (d *Dispatcher) resolveSpecialistRuntimeAgent(requestedAgentID, profileHint
 	if strings.TrimSpace(requestedAgentID) != "" {
 		return strings.TrimSpace(requestedAgentID), nil
 	}
-	return "", fmt.Errorf("no runtime agent matched the requested specialist profile")
+	if strings.TrimSpace(d.agentID) != "" {
+		return d.agentID, nil
+	}
+	return bus.AddrAgentMain, nil
 }
 
 func (d *Dispatcher) matchRegistryAgent(profileHint string) string {
@@ -1150,6 +1153,20 @@ func shortAlias(teamID string) string {
 		return teamID
 	}
 	return teamID[len(teamID)-8:]
+}
+
+func teamSpecialistPrompt(turn TeamTurn) string {
+	var lines []string
+	if role := strings.TrimSpace(turn.SpeakerRole); role != "" {
+		lines = append(lines, "Current specialist role: "+role)
+	}
+	if desc := strings.TrimSpace(turn.SpeakerRoleDesc); desc != "" {
+		lines = append(lines, "Current specialist scope: "+desc)
+	}
+	if profile := strings.TrimSpace(turn.SpeakerProfile); profile != "" {
+		lines = append(lines, "Current specialist profile hint: "+profile)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func (d *Dispatcher) setActiveAgent(src string, a *Agent) func() {

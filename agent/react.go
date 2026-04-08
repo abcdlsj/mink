@@ -203,7 +203,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		}
 		a.hooks.Trigger(ctx, hook.AfterTool, tr)
 		results = append(results, tr)
-		if tc.Name == "mention" || tc.Name == "invite_agent" {
+		if tc.Name == "mention" || tc.Name == "invite_agent" || tc.Name == "spawn_specialist" {
 			handoffScheduled = true
 		}
 	}
