@@ -144,6 +144,8 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 		a.reg.Register(tool.NewSpawn(a.bus, id))
 		a.reg.Register(tool.NewDelegate(a.bus, id))
 		a.reg.Register(tool.NewDelegatePoll(a.bus, id))
+		a.reg.Register(tool.NewTeamMention(a.bus, id))
+		a.reg.Register(tool.NewTeamInvite(a.bus, id))
 		bg := tool.NewBackground(a.bus, id)
 		if a.cfg.Timeout.Background > 0 {
 			bg.SetTimeout(a.cfg.Timeout.Background)

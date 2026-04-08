@@ -30,6 +30,7 @@ func (a *Agent) buildPrompt(ctx context.Context, src string) string {
 	sections := []section{
 		a.sectionBase(),
 		a.sectionContext(),
+		a.sectionTeam(ctx),
 		a.sectionMemory(ctx),
 		a.sectionSoul(),
 		a.sectionTelegram(src),
@@ -86,6 +87,37 @@ func (a *Agent) sectionMemory(ctx context.Context) section {
 			return ""
 		}
 		return b.String()
+	}}
+}
+
+func (a *Agent) sectionTeam(ctx context.Context) section {
+	return section{head: "Team", body: func() string {
+		turn, ok := teamTurnFrom(ctx)
+		if !ok || turn.TeamID == "" {
+			return ""
+		}
+		var lines []string
+		lines = append(lines, "You are speaking inside a persistent team thread.")
+		lines = append(lines, fmt.Sprintf("- Team ID: %s", turn.TeamID))
+		lines = append(lines, fmt.Sprintf("- Thread ID: %s", turn.ThreadID))
+		lines = append(lines, fmt.Sprintf("- Current speaker identity: %s", turn.SpeakerAgentID))
+		if turn.SpeakerRole != "" {
+			lines = append(lines, fmt.Sprintf("- Current speaker role: %s", turn.SpeakerRole))
+		}
+		if turn.SpeakerProfile != "" {
+			lines = append(lines, fmt.Sprintf("- Current speaker profile: %s", turn.SpeakerProfile))
+		}
+		if turn.Goal != "" {
+			lines = append(lines, fmt.Sprintf("- Current thread goal: %s", turn.Goal))
+		}
+		if turn.MaxRounds > 0 {
+			lines = append(lines, fmt.Sprintf("- Team round: %d/%d", turn.Round, turn.MaxRounds))
+		}
+		if prompt := strings.TrimSpace(turn.Prompt); prompt != "" {
+			lines = append(lines, fmt.Sprintf("- Local turn directive: %s", prompt))
+		}
+		lines = append(lines, "- If you schedule another speaker with mention, stop after the handoff instead of emitting the final answer yourself.")
+		return strings.Join(lines, "\n")
 	}}
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,6 +147,12 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	if m.Type == bus.TypeDelegate {
 		return d.handleDelegate(ctx, m)
 	}
+	if m.Type == bus.TypeTeamMention {
+		return d.handleTeamMention(ctx, m)
+	}
+	if m.Type == bus.TypeTeamInvite {
+		return d.handleTeamInvite(ctx, m)
+	}
 
 	src := m.From
 	if src == "" {
@@ -253,7 +260,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 			idle.Reset(workerIdleTTL)
 
 			a := d.getOrCreateAgent(src)
-			in, ok := m.Payload.(string)
+			initialInput, ok := m.Payload.(string)
 			if !ok {
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
@@ -268,55 +275,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			teamTurn, release, teamErr := d.prepareTeamTurn(ctx, src, a)
-			if teamErr != nil {
-				d.pub(bus.Msg{
-					Type:    bus.TypeAssistant,
-					From:    d.agentID,
-					Payload: fmt.Sprintf("error: %v", teamErr),
-					To:      src,
-				})
-				d.pub(bus.Msg{
-					Type: bus.TypeTurnDone,
-					From: d.agentID,
-					To:   src,
-				})
-				continue
-			}
-			runSource := src
-			runAgentID := d.agentID
-			if release != nil {
-				runSource = teamTurn.RuntimeSource
-				runAgentID = teamTurn.SpeakerAgentID
-			}
-			state, err := d.startRunForAgent(ctx, runSource, a.Session().ID(), runAgentID, m.Type, in)
-			if err != nil {
-				if release != nil {
-					release()
-				}
-				d.pub(bus.Msg{
-					Type:    bus.TypeAssistant,
-					From:    d.agentID,
-					Payload: fmt.Sprintf("error: %v", err),
-					To:      src,
-				})
-				d.pub(bus.Msg{
-					Type: bus.TypeTurnDone,
-					From: d.agentID,
-					To:   src,
-				})
-				continue
-			}
-			runCtx := withRuntimeTurn(ctx, state, runSource)
-			if release != nil {
-				runCtx = withTeamTurn(runCtx, teamTurn)
-			}
-			err = d.runWithStatus(runCtx, src, m.Type, in, a)
-			_ = d.finishRun(ctx, state, err)
-			if release != nil {
-				d.team.Complete(runCtx, teamTurn, d.lastAssistantOutput(a), err)
-				release()
-			}
+			err := d.runSourceTurn(ctx, src, m.Type, initialInput, a)
 			if err != nil {
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
@@ -810,4 +769,102 @@ func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, a *Agent) 
 		return TeamTurn{}, nil, nil
 	}
 	return d.team.Prepare(ctx, src, a.Session())
+}
+
+func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, a *Agent) error {
+	currentInput := initialInput
+	for {
+		teamTurn, release, err := d.prepareTeamTurn(ctx, src, a)
+		if err != nil {
+			return err
+		}
+		runSource := src
+		runAgentID := d.agentID
+		runInput := currentInput
+		if release != nil {
+			runSource = teamTurn.RuntimeSource
+			runAgentID = teamTurn.SpeakerAgentID
+			if strings.TrimSpace(teamTurn.Prompt) != "" {
+				runInput = teamTurn.Prompt
+			}
+		}
+		state, err := d.startRunForAgent(ctx, runSource, a.Session().ID(), runAgentID, msgType, runInput)
+		if err != nil {
+			if release != nil {
+				release()
+			}
+			return err
+		}
+		runCtx := withRuntimeTurn(ctx, state, runSource)
+		if release != nil {
+			runCtx = withTeamTurn(runCtx, teamTurn)
+		}
+		err = d.runWithStatus(runCtx, src, msgType, runInput, a)
+		_ = d.finishRun(ctx, state, err)
+		if release != nil {
+			d.team.Complete(runCtx, teamTurn, d.lastAssistantOutput(a), err)
+			release()
+		}
+		if err != nil {
+			return err
+		}
+		handoff, ok := d.team.Pending(src)
+		if !ok {
+			return nil
+		}
+		currentInput = handoff.Prompt
+	}
+}
+
+func (d *Dispatcher) handleTeamMention(ctx context.Context, m bus.Msg) (bus.Msg, error) {
+	payload, ok := m.Payload.(map[string]string)
+	if !ok {
+		return bus.Msg{Type: bus.TypeTeamMention, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "invalid mention payload"}}, nil
+	}
+	src := payload["source"]
+	targetAgentID := payload["agent_id"]
+	question := payload["question"]
+	if src == "" || targetAgentID == "" || question == "" {
+		return bus.Msg{Type: bus.TypeTeamMention, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "source, agent_id, question are required"}}, nil
+	}
+	if d.team == nil {
+		return bus.Msg{Type: bus.TypeTeamMention, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "team runtime unavailable"}}, nil
+	}
+	if _, ok := d.team.Binding(src); !ok {
+		return bus.Msg{Type: bus.TypeTeamMention, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "source is not in active team thread"}}, nil
+	}
+	d.team.Schedule(src, targetAgentID, question)
+	return bus.Msg{Type: bus.TypeTeamMention, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"status": "ok"}}, nil
+}
+
+func (d *Dispatcher) handleTeamInvite(ctx context.Context, m bus.Msg) (bus.Msg, error) {
+	payload, ok := m.Payload.(map[string]string)
+	if !ok {
+		return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "invalid invite payload"}}, nil
+	}
+	src := payload["source"]
+	agentID := payload["agent_id"]
+	roleName := payload["role_name"]
+	roleDescription := payload["role_description"]
+	task := payload["task"]
+	if src == "" || agentID == "" {
+		return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "source and agent_id are required"}}, nil
+	}
+	if roleName == "" {
+		roleName = agentID
+	}
+	if d.team == nil || d.rt == nil {
+		return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "team runtime unavailable"}}, nil
+	}
+	binding, ok := d.team.Binding(src)
+	if !ok {
+		return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": "source is not in active team thread"}}, nil
+	}
+	if err := d.rt.AddTeamMember(ctx, binding.TeamID, agentID, roleName, roleDescription, "persistent"); err != nil {
+		return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"error": err.Error()}}, nil
+	}
+	if strings.TrimSpace(task) != "" {
+		d.team.Schedule(src, agentID, task)
+	}
+	return bus.Msg{Type: bus.TypeTeamInvite, From: d.agentID, To: m.From, ReplyTo: m.ID, Payload: map[string]string{"status": "ok"}}, nil
 }

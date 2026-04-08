@@ -125,6 +125,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	}
 
 	results := make([]msg.ToolResult, 0, len(r.ToolCalls))
+	handoffScheduled := false
 
 	for _, tc := range r.ToolCalls {
 		toolCorrID := a.logToolCall(stepNum, tc)
@@ -202,10 +203,17 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		}
 		a.hooks.Trigger(ctx, hook.AfterTool, tr)
 		results = append(results, tr)
+		if tc.Name == "mention" || tc.Name == "invite_agent" {
+			handoffScheduled = true
+		}
 	}
 
 	for _, tr := range results {
 		a.session.Add(msg.Message{Role: "tool", AgentID: speakerAgentID(ctx, a.id), ToolResults: []msg.ToolResult{tr}})
+	}
+
+	if handoffScheduled {
+		return true, nil
 	}
 
 	return false, nil

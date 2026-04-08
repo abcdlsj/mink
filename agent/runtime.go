@@ -51,6 +51,13 @@ func speakerAgentID(ctx context.Context, fallback string) string {
 	return fallback
 }
 
+func teamTurnPrompt(ctx context.Context) string {
+	if turn, ok := teamTurnFrom(ctx); ok {
+		return strings.TrimSpace(turn.Prompt)
+	}
+	return ""
+}
+
 func (a *Agent) appendEvent(ctx context.Context, typ, actorType string, payload any) {
 	if a.rt == nil {
 		return

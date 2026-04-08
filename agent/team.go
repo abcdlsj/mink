@@ -23,10 +23,18 @@ type TeamTurn struct {
 	TeamID         string
 	ThreadID       string
 	SpeakerAgentID string
+	SpeakerProfile string
+	SpeakerRole    string
 	Round          int
 	MaxRounds      int
 	Goal           string
+	Prompt         string
 	RuntimeSource  string
+}
+
+type TeamHandoff struct {
+	SpeakerAgentID string
+	Prompt         string
 }
 
 type TeamDispatcher struct {
@@ -36,6 +44,7 @@ type TeamDispatcher struct {
 	mu       sync.RWMutex
 	bindings map[string]TeamBinding
 	locks    map[string]*sync.Mutex
+	pending  map[string]TeamHandoff
 }
 
 func NewTeamDispatcher(rt *rtsqlite.DB, mem *memory.Store, sm *session.Manager) *TeamDispatcher {
@@ -45,6 +54,7 @@ func NewTeamDispatcher(rt *rtsqlite.DB, mem *memory.Store, sm *session.Manager) 
 		sm:       sm,
 		bindings: make(map[string]TeamBinding),
 		locks:    make(map[string]*sync.Mutex),
+		pending:  make(map[string]TeamHandoff),
 	}
 }
 
@@ -71,6 +81,35 @@ func (d *TeamDispatcher) Binding(src string) (TeamBinding, bool) {
 	defer d.mu.RUnlock()
 	binding, ok := d.bindings[src]
 	return binding, ok
+}
+
+func (d *TeamDispatcher) Schedule(src, speakerAgentID, prompt string) {
+	if strings.TrimSpace(src) == "" || strings.TrimSpace(speakerAgentID) == "" {
+		return
+	}
+	d.mu.Lock()
+	d.pending[src] = TeamHandoff{
+		SpeakerAgentID: speakerAgentID,
+		Prompt:         strings.TrimSpace(prompt),
+	}
+	d.mu.Unlock()
+}
+
+func (d *TeamDispatcher) Pending(src string) (TeamHandoff, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	handoff, ok := d.pending[src]
+	return handoff, ok
+}
+
+func (d *TeamDispatcher) takePending(src string) (TeamHandoff, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	handoff, ok := d.pending[src]
+	if ok {
+		delete(d.pending, src)
+	}
+	return handoff, ok
 }
 
 func (d *TeamDispatcher) lockFor(teamID string) func() {
@@ -137,13 +176,26 @@ func (d *TeamDispatcher) Prepare(ctx context.Context, src string, sess *session.
 		return TeamTurn{}, nil, err
 	}
 
+	handoff, hasHandoff := d.takePending(src)
+	speakerAgentID := firstNonEmpty(team.LeaderAgentID, bus.AddrAgentMain)
+	prompt := ""
+	if hasHandoff {
+		speakerAgentID = handoff.SpeakerAgentID
+		prompt = handoff.Prompt
+	}
+	identity, _ := d.rt.GetAgentIdentity(ctx, speakerAgentID)
+	roleName := d.roleName(ctx, team.ID, speakerAgentID)
+
 	return TeamTurn{
 		TeamID:         team.ID,
 		ThreadID:       thread.ID,
-		SpeakerAgentID: firstNonEmpty(team.LeaderAgentID, bus.AddrAgentMain),
+		SpeakerAgentID: speakerAgentID,
+		SpeakerProfile: identity.Profile,
+		SpeakerRole:    roleName,
 		Round:          round,
 		MaxRounds:      team.MaxRounds,
 		Goal:           thread.Title,
+		Prompt:         prompt,
 		RuntimeSource:  teamRuntimeSource(team.ID, thread.ID),
 	}, release, nil
 }
@@ -221,4 +273,20 @@ func firstNonEmpty(v, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func (d *TeamDispatcher) roleName(ctx context.Context, teamID, agentID string) string {
+	if d == nil || d.rt == nil || teamID == "" || agentID == "" {
+		return ""
+	}
+	members, err := d.rt.ListTeamMembers(ctx, teamID)
+	if err != nil {
+		return ""
+	}
+	for _, member := range members {
+		if member.AgentID == agentID {
+			return member.RoleName
+		}
+	}
+	return ""
 }
