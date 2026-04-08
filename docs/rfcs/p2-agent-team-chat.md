@@ -57,8 +57,9 @@ P2 should make the following layers explicit:
 
 1. `Agent`
 2. `Team`
-3. `Thread` or `Task`
-4. `Turn Policy`
+3. `Team Memory`
+4. `Thread` or `Task`
+5. `Turn Policy`
 
 These layers should not collapse into one another.
 
@@ -79,9 +80,21 @@ A team is a long-lived collaboration space with:
 - members
 - default leader
 - historical threads
+- team-level memory
 - current status
 
 The user should think in terms of “my release review team” or “my debugging team”, not “a temporary group chat that happened to use several agents”.
+
+### Team Memory
+
+Team memory is the team-scoped layer of durable knowledge shared across threads.
+
+It is different from agent memory:
+
+- `agent memory`: what one agent remembers across all teams and tasks
+- `team memory`: what this team has learned across its own threads
+
+This is what makes a persistent team feel like it has ongoing collective context rather than only a resumable transcript list.
 
 ### Thread or Task
 
@@ -104,6 +117,7 @@ It matters for runtime behavior, but it should not be the first product concept 
 Users care about:
 
 - what team they are talking to
+- what the team already knows
 - what thread is active
 - who is responsible
 - whether there is a conclusion
@@ -117,16 +131,22 @@ The user should enter a team-oriented console, not a patched single-agent transc
 Primary actions:
 
 - `create team`
+- `browse teams`
+- `open team home`
 - `invite agent`
+- `list threads`
+- `switch thread`
 - `start thread`
 - `resume thread`
+- `view latest summary`
 - `ask leader to summarize`
 
 When a team is active:
 
-- the transcript shows agent-authored lines such as `[Main]`, `[Researcher]`, `[Coder]`
 - the UI switches into a dedicated team console instead of trying to extend the normal single-agent layout
-- the team rail shows team members, current thread, current speaker, and overall status
+- `Team Home` is the default entry, not the transcript
+- `Thread View` is a separate process page inside the team
+- the transcript shows agent-authored lines such as `[Main]`, `[Researcher]`, `[Coder]`
 - delegation is no longer shown as opaque background work when it belongs to the team session
 - the leader answer is visually recognizable as the final synthesis
 - specialist turns are visually lighter than the leader closeout
@@ -142,6 +162,7 @@ Recommended behavior:
 - internal specialist collaboration may happen behind the scenes
 - Telegram receives the leader answer only
 - Telegram may optionally receive a short collaboration summary such as `Consulted: architecture, implementation`
+- one Telegram thread maps to one team thread or task, not to the whole team
 
 This keeps Telegram aligned with its single-bot identity and avoids a stream of fake multi-agent chatter.
 
@@ -295,14 +316,32 @@ This lets the leader say:
 - pull in an existing persistent agent when identity and memory matter
 - spawn a temporary specialist when only a one-off role is needed
 
+### Team Memory and Thread Inheritance
+
+Persistent team UX only works if a new thread can inherit team-level context.
+
+Recommended behavior:
+
+- when a thread finishes, the leader produces a durable thread summary
+- that summary is written into team memory
+- when a new thread starts, the runtime injects recent team summaries into the initial context
+- the runtime does not replay full thread history by default
+
+This gives the user the feeling that the team remembers prior work without forcing every new thread to carry all historical transcript tokens.
+
 ## User-Visible Actions
 
 P2 should center on a small set of user actions:
 
 - `Create team`
+- `Browse teams`
+- `Open team home`
 - `Invite agent`
+- `List threads`
+- `Switch thread`
 - `Start thread`
 - `Resume thread`
+- `View latest summary`
 - `Ask leader to summarize`
 
 These actions should come before advanced orchestration controls.
@@ -471,6 +510,56 @@ The local turn directive should include:
 
 CLI is where this feature becomes legible. This needs a dedicated team layout, not a few extra labels on the current single-agent console.
 
+### Team Home
+
+`Team Home` should be the default entry for an active team.
+
+Its job is to answer:
+
+- what this team is
+- what it has recently concluded
+- what is currently blocked
+- which thread deserves attention next
+
+Recommended information order:
+
+1. team name and overall status
+2. latest summary
+3. current blocker
+4. recent active threads
+5. team members
+
+`latest summary` and `current blocker` should be more prominent than the thread list.
+
+### Thread View
+
+`Thread View` is the process page inside a team.
+
+The transcript should not carry the burden of summarizing the state of work.
+
+Recommended fixed header blocks:
+
+1. current goal
+2. current best answer
+3. open blockers
+4. current active speaker
+
+Transcript comes below these blocks and explains how the thread reached the current state.
+
+### Team Rail
+
+`Team Rail` is supplemental context only.
+
+It should not contain more important information than the main area.
+
+Recommended fields:
+
+- team members
+- current active speaker
+- current thread
+- thread status
+- latest summary time
+
 Required changes:
 
 - a teams list or team switcher is always visible when team mode is enabled
@@ -488,6 +577,7 @@ Recommended behavior:
 - hide team rail when team mode is off
 - show only information that helps understand collaboration
 - do not show static empty agent slots before roles are synthesized
+- emphasize state, summary, and blocker information over transcript activity
 - emphasize the leader summary, not every intermediate thought
 - show which speaker is currently thinking so long gaps feel intentional
 - the input box is always framed as “talking to the current team”, not to one individual agent
@@ -541,6 +631,7 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 1: Persistent Team Model
 
 - introduce durable `Team` as a first-class object
+- introduce `Team Memory` as a first-class team subsystem
 - add `TeamState` recovery on runtime resume
 - support team membership with persistent agents
 - define `Thread` creation and resume inside a team
@@ -549,7 +640,10 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 2: CLI Team Console
 
 - ship a dedicated team console layout
+- make `Team Home` the default team entry
 - show team list, active team, current thread, and status
+- add thread navigation primitives
+- surface latest summary and current blocker above transcript
 - render speaker labels in transcript
 - make leader summary the default user-facing close behavior
 
@@ -573,6 +667,7 @@ If team orchestration fails, the leader should still be able to emit a final ans
 ### Phase 5: Polish
 
 - document Telegram as leader-only output
+- clarify Telegram thread-to-team-thread mapping
 - add `RoundRobin` policy for demos
 - add runtime metrics for team turns and failure reasons
 
