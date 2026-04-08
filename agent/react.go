@@ -78,6 +78,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	if len(r.ToolCalls) > 0 || assistantContent != "" {
 		a.session.Add(msg.Message{
 			Role:               "assistant",
+			AgentID:            speakerAgentID(ctx, a.id),
 			Content:            assistantContent,
 			Reasoning:          r.Reasoning,
 			ReasoningSignature: r.ReasoningSignature,
@@ -95,13 +96,13 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		if a.bus != nil && a.stream {
 			_ = a.bus.Pub(bus.Msg{
 				Type:    bus.TypeStreamChunk,
-				From:    a.id,
+				From:    speakerAgentID(ctx, a.id),
 				To:      src,
 				Payload: assistantContent,
 			})
 			_ = a.bus.Pub(bus.Msg{
 				Type: bus.TypeStreamEnd,
-				From: a.id,
+				From: speakerAgentID(ctx, a.id),
 				To:   src,
 			})
 		}
@@ -111,7 +112,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		if a.bus != nil && !a.stream {
 			_ = a.bus.Pub(bus.Msg{
 				Type:    bus.TypeAssistant,
-				From:    a.id,
+				From:    speakerAgentID(ctx, a.id),
 				To:      src,
 				Payload: assistantContent,
 			})
@@ -141,7 +142,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		if a.bus != nil {
 			_ = a.bus.Pub(bus.Msg{
 				Type: bus.TypeToolCall,
-				From: a.id,
+				From: speakerAgentID(ctx, a.id),
 				To:   src,
 				Payload: map[string]string{
 					"id":   tc.ID,
@@ -174,7 +175,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 			if a.bus != nil {
 				_ = a.bus.Pub(bus.Msg{
 					Type: bus.TypeToolError,
-					From: a.id,
+					From: speakerAgentID(ctx, a.id),
 					To:   src,
 					Payload: map[string]string{
 						"id":    tc.ID,
@@ -191,7 +192,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 			if a.bus != nil {
 				_ = a.bus.Pub(bus.Msg{
 					Type: bus.TypeToolResult,
-					From: a.id,
+					From: speakerAgentID(ctx, a.id),
 					To:   src,
 					Payload: map[string]string{
 						"id": tc.ID,
@@ -204,7 +205,7 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	}
 
 	for _, tr := range results {
-		a.session.Add(msg.Message{Role: "tool", ToolResults: []msg.ToolResult{tr}})
+		a.session.Add(msg.Message{Role: "tool", AgentID: speakerAgentID(ctx, a.id), ToolResults: []msg.ToolResult{tr}})
 	}
 
 	return false, nil

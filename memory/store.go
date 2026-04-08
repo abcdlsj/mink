@@ -245,6 +245,42 @@ func (s *Store) RecentByTask(ctx context.Context, taskID string, limit int) ([]D
 	return docs, err
 }
 
+func (s *Store) RecentBySource(ctx context.Context, source string, limit int) ([]Doc, error) {
+	if s == nil || s.db == nil || source == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	var docs []Doc
+	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT id, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			FROM memory_docs
+			WHERE source = ?
+			ORDER BY updated_at DESC
+			LIMIT ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{source, limit},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				docs = append(docs, Doc{
+					ID:      stmt.ColumnText(0),
+					Title:   stmt.ColumnText(1),
+					Kind:    stmt.ColumnText(2),
+					Tags:    splitTags(stmt.ColumnText(3)),
+					TaskID:  stmt.ColumnText(4),
+					RunID:   stmt.ColumnText(5),
+					Source:  stmt.ColumnText(6),
+					Summary: stmt.ColumnText(7),
+					Body:    stmt.ColumnText(8),
+				})
+				return nil
+			},
+		})
+	})
+	return docs, err
+}
+
 func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 	tags := joinTags(doc.Tags)
 	updatedAt := doc.UpdatedAt.UTC().Format(time.RFC3339Nano)

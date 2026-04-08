@@ -17,6 +17,8 @@ type runtimeTurn struct {
 
 type runtimeTurnKey struct{}
 
+type teamTurnKey struct{}
+
 func withRuntimeTurn(ctx context.Context, state rtsqlite.RunState, source string) context.Context {
 	if state.TaskID == "" || state.RunID == "" {
 		return ctx
@@ -31,6 +33,22 @@ func withRuntimeTurn(ctx context.Context, state rtsqlite.RunState, source string
 func runtimeTurnFrom(ctx context.Context) (runtimeTurn, bool) {
 	v, ok := ctx.Value(runtimeTurnKey{}).(runtimeTurn)
 	return v, ok
+}
+
+func withTeamTurn(ctx context.Context, turn TeamTurn) context.Context {
+	return context.WithValue(ctx, teamTurnKey{}, turn)
+}
+
+func teamTurnFrom(ctx context.Context) (TeamTurn, bool) {
+	v, ok := ctx.Value(teamTurnKey{}).(TeamTurn)
+	return v, ok
+}
+
+func speakerAgentID(ctx context.Context, fallback string) string {
+	if turn, ok := teamTurnFrom(ctx); ok && strings.TrimSpace(turn.SpeakerAgentID) != "" {
+		return turn.SpeakerAgentID
+	}
+	return fallback
 }
 
 func (a *Agent) appendEvent(ctx context.Context, typ, actorType string, payload any) {
@@ -49,7 +67,7 @@ func (a *Agent) appendEvent(ctx context.Context, typ, actorType string, payload 
 		RunID:     turn.RunID,
 		Type:      typ,
 		ActorType: actorType,
-		ActorID:   a.id,
+		ActorID:   speakerAgentID(ctx, a.id),
 		Source:    turn.Source,
 		Payload:   payload,
 	})

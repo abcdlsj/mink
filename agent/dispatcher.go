@@ -34,6 +34,7 @@ type Dispatcher struct {
 	sm          *session.Manager
 	agentID     string
 	registry    *Registry
+	team        *TeamDispatcher
 	agents      map[string]*Agent
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
@@ -46,6 +47,7 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader, rt *rt
 		deps:        deps,
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
+		team:        NewTeamDispatcher(rt, deps.Memory, sm),
 		agents:      make(map[string]*Agent),
 		workers:     make(map[string]*workerState),
 		rt:          rt,
@@ -198,6 +200,20 @@ func (d *Dispatcher) InvalidateSource(src string) {
 	}
 }
 
+func (d *Dispatcher) BindTeamSource(src, teamID, threadID string) {
+	if d.team == nil {
+		return
+	}
+	d.team.BindSource(src, teamID, threadID)
+}
+
+func (d *Dispatcher) UnbindTeamSource(src string) {
+	if d.team == nil {
+		return
+	}
+	d.team.UnbindSource(src)
+}
+
 func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -246,8 +262,32 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			state, err := d.startRun(ctx, src, m.Type, in, a)
+			teamTurn, release, teamErr := d.prepareTeamTurn(ctx, src, a)
+			if teamErr != nil {
+				d.pub(bus.Msg{
+					Type:    bus.TypeAssistant,
+					From:    d.agentID,
+					Payload: fmt.Sprintf("error: %v", teamErr),
+					To:      src,
+				})
+				d.pub(bus.Msg{
+					Type: bus.TypeTurnDone,
+					From: d.agentID,
+					To:   src,
+				})
+				continue
+			}
+			runSource := src
+			runAgentID := d.agentID
+			if release != nil {
+				runSource = teamTurn.RuntimeSource
+				runAgentID = teamTurn.SpeakerAgentID
+			}
+			state, err := d.startRunForAgent(ctx, runSource, a.Session().ID(), runAgentID, m.Type, in)
 			if err != nil {
+				if release != nil {
+					release()
+				}
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
 					From:    d.agentID,
@@ -261,9 +301,16 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				})
 				continue
 			}
-			runCtx := withRuntimeTurn(ctx, state, src)
+			runCtx := withRuntimeTurn(ctx, state, runSource)
+			if release != nil {
+				runCtx = withTeamTurn(runCtx, teamTurn)
+			}
 			err = d.runWithStatus(runCtx, src, m.Type, in, a)
 			_ = d.finishRun(ctx, state, err)
+			if release != nil {
+				d.team.Complete(runCtx, teamTurn, d.lastAssistantOutput(a), err)
+				release()
+			}
 			if err != nil {
 				d.pub(bus.Msg{
 					Type:    bus.TypeAssistant,
@@ -724,7 +771,7 @@ func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, a *A
 	if d.rt == nil || a == nil || a.Session() == nil {
 		return rtsqlite.RunState{}, nil
 	}
-	return d.rt.StartRun(ctx, src, a.Session().ID(), d.agentID, trigger(msgType), in)
+	return d.startRunForAgent(ctx, src, a.Session().ID(), d.agentID, msgType, in)
 }
 
 func (d *Dispatcher) finishRun(ctx context.Context, state rtsqlite.RunState, err error) error {
@@ -743,4 +790,18 @@ func trigger(msgType string) string {
 	default:
 		return "user_input"
 	}
+}
+
+func (d *Dispatcher) startRunForAgent(ctx context.Context, source, sessionID, agentID, msgType, in string) (rtsqlite.RunState, error) {
+	if d.rt == nil {
+		return rtsqlite.RunState{}, nil
+	}
+	return d.rt.StartRun(ctx, source, sessionID, agentID, trigger(msgType), in)
+}
+
+func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, a *Agent) (TeamTurn, func(), error) {
+	if d.team == nil || a == nil {
+		return TeamTurn{}, nil, nil
+	}
+	return d.team.Prepare(ctx, src, a.Session())
 }

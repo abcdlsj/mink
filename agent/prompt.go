@@ -50,24 +50,40 @@ func (a *Agent) sectionMemory(ctx context.Context) section {
 		if a.mem == nil {
 			return ""
 		}
-		turn, ok := runtimeTurnFrom(ctx)
-		if !ok || turn.TaskID == "" {
-			return ""
-		}
-		docs, err := a.mem.RecentByTask(ctx, turn.TaskID, 3)
-		if err != nil || len(docs) == 0 {
-			return ""
-		}
 		var b strings.Builder
-		for _, doc := range docs {
-			line := doc.Title
-			if doc.Summary != "" {
-				line += ": " + doc.Summary
+		turn, ok := runtimeTurnFrom(ctx)
+		if ok && turn.TaskID != "" {
+			docs, err := a.mem.RecentByTask(ctx, turn.TaskID, 3)
+			if err == nil {
+				for _, doc := range docs {
+					line := doc.Title
+					if doc.Summary != "" {
+						line += ": " + doc.Summary
+					}
+					if strings.TrimSpace(line) == "" {
+						line = doc.Body
+					}
+					fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))
+				}
 			}
-			if strings.TrimSpace(line) == "" {
-				line = doc.Body
+		}
+		if teamTurn, ok := teamTurnFrom(ctx); ok && teamTurn.TeamID != "" {
+			docs, err := a.mem.RecentBySource(ctx, teamMemorySource(teamTurn.TeamID), 3)
+			if err == nil {
+				for _, doc := range docs {
+					line := doc.Summary
+					if strings.TrimSpace(line) == "" {
+						line = doc.Body
+					}
+					if strings.TrimSpace(line) == "" {
+						continue
+					}
+					fmt.Fprintf(&b, "- team memory: %s\n", strings.TrimSpace(line))
+				}
 			}
-			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))
+		}
+		if b.Len() == 0 {
+			return ""
 		}
 		return b.String()
 	}}

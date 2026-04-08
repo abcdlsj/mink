@@ -74,6 +74,7 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 		}
 		a.setActiveTeam(src, teamID)
 		a.setActiveThread(src, "")
+		a.disp.UnbindTeamSource(src)
 		return fmt.Sprintf("created team %s (%s)", name, teamID), nil
 	case "open":
 		if len(args) < 2 {
@@ -88,6 +89,7 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 		}
 		a.setActiveTeam(src, team.ID)
 		a.setActiveThread(src, "")
+		a.disp.UnbindTeamSource(src)
 		return fmt.Sprintf("opened team %s (%s)", team.Name, team.ID), nil
 	case "home":
 		teamID := a.currentTeamID(src)
@@ -95,6 +97,7 @@ func (a *App) runTeamCommand(ctx context.Context, args []string) (string, error)
 			return "no active team", nil
 		}
 		a.setActiveThread(src, "")
+		a.disp.UnbindTeamSource(src)
 		team, err := a.rt.GetTeam(ctx, teamID)
 		if err != nil {
 			return "", err
@@ -153,6 +156,7 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 			return "", err
 		}
 		a.setActiveThread(src, threadID)
+		a.disp.BindTeamSource(src, teamID, threadID)
 		return fmt.Sprintf("created thread %s (%s)", title, threadID), nil
 	case "open":
 		if len(args) < 2 {
@@ -171,6 +175,7 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 		a.disp.InvalidateSource(src)
 		a.setActiveTeam(src, thread.TeamID)
 		a.setActiveThread(src, thread.ID)
+		a.disp.BindTeamSource(src, thread.TeamID, thread.ID)
 		return fmt.Sprintf("opened thread %s (%s)", thread.Title, thread.ID), nil
 	default:
 		return "usage: !thread [list|new <title>|open <thread_id>]", nil
