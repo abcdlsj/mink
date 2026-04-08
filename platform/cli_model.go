@@ -93,6 +93,20 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+p", "alt+up":
+			m.scrollUp(1)
+			return m, nil
+		case "ctrl+n", "alt+down":
+			m.scrollDown(1)
+			return m, nil
+		case "ctrl+b":
+			m.scrollUp(m.pageSize())
+			return m, nil
+		case "ctrl+f":
+			m.scrollDown(m.pageSize())
+			return m, nil
+		}
 		switch msg.Type {
 		case tea.KeyCtrlC:
 			m.quitting = true
