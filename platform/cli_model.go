@@ -349,7 +349,7 @@ func (m *model) writeMainHeader(b *strings.Builder, width int) {
 		parts = append(parts, status.Team.Status)
 		b.WriteString(styleMutedBlock.Render(truncate(strings.Join(parts, "  /  "), max(width-2, 20))))
 		b.WriteString("\n")
-		b.WriteString(truncate(metaBar, max(width-2, 20)))
+		b.WriteString(metaBar)
 		b.WriteString("\n")
 	} else {
 		var parts []string
@@ -361,7 +361,7 @@ func (m *model) writeMainHeader(b *strings.Builder, width int) {
 		if metaBar != "" {
 			line += "  " + styleDim.Render("·") + "  " + metaBar
 		}
-		b.WriteString(truncate(line, max(width-2, 20)))
+		b.WriteString(line)
 		b.WriteString("\n")
 	}
 
