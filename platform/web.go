@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -78,10 +80,11 @@ type WebCallbacks struct {
 }
 
 type Web struct {
-	addr   string
-	cb     WebCallbacks
-	server *http.Server
-	mu     sync.Mutex
+	addr      string
+	staticDir string
+	cb        WebCallbacks
+	server    *http.Server
+	mu        sync.Mutex
 }
 
 func NewWeb(addr string, cb WebCallbacks) *Web {
@@ -90,6 +93,8 @@ func NewWeb(addr string, cb WebCallbacks) *Web {
 	}
 	return &Web{addr: addr, cb: cb}
 }
+
+func (w *Web) SetStaticDir(dir string) { w.staticDir = dir }
 
 func (w *Web) ID() string { return "web" }
 
@@ -101,11 +106,28 @@ func (w *Web) Start(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", w.handleIndex)
 	mux.HandleFunc("/api/state", w.handleState)
 	mux.HandleFunc("/api/select", w.handleSelect)
 	mux.HandleFunc("/api/message", w.handleMessage)
 	mux.HandleFunc("/api/action", w.handleAction)
+
+	if w.staticDir != "" {
+		staticFS := os.DirFS(w.staticDir)
+		fileServer := http.FileServer(http.FS(staticFS))
+		mux.HandleFunc("/", func(rw http.ResponseWriter, req *http.Request) {
+			path := strings.TrimPrefix(req.URL.Path, "/")
+			if path == "" {
+				path = "index.html"
+			}
+			if _, err := fs.Stat(staticFS, path); err != nil {
+				path = "index.html"
+			}
+			req.URL.Path = "/" + path
+			fileServer.ServeHTTP(rw, req)
+		})
+	} else {
+		mux.HandleFunc("/", w.handleIndex)
+	}
 
 	srv := &http.Server{
 		Addr:              w.addr,

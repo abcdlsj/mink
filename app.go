@@ -261,6 +261,11 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 			return a.webNewSession(runCtx, webSource)
 		},
 	})
+
+	if staticDir := findWebDist(); staticDir != "" {
+		web.SetStaticDir(staticDir)
+	}
+
 	if err := web.Start(runCtx); err != nil {
 		return err
 	}

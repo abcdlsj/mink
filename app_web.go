@@ -650,3 +650,20 @@ func currentWorkspace() string {
 	}
 	return wd
 }
+
+func findWebDist() string {
+	// Look for web/dist relative to the binary, then relative to cwd.
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Join(filepath.Dir(exe), "..", "web", "dist")
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		dir := filepath.Join(wd, "web", "dist")
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+	}
+	return ""
+}
