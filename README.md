@@ -1,6 +1,6 @@
 # Mink
 
-Mink is a lightweight AI coding agent for local workflows. It supports interactive CLI usage and Telegram Bot mode.
+Mink is a lightweight AI coding agent for local workflows. It supports interactive CLI usage, a local Web UI, and Telegram Bot mode.
 
 The design goal is simple: keep the core small, fast, and easy to extend. Instead of hiding everything behind a heavy framework, Mink focuses on a minimal runtime, straightforward configuration, and a few practical extension points such as skills, external tools, and background jobs.
 
@@ -35,6 +35,7 @@ See `config.example.toml` for a full example.
 
 ```bash
 mink                # start interactive mode
+mink web            # start local Web UI
 mink tg             # start Telegram Bot mode
 mink version        # show version
 ```
@@ -56,7 +57,12 @@ Override config from flags:
 
 ```bash
 mink -p openai -m gpt-4o -k <api_key>
+mink web -addr 127.0.0.1:7788
 ```
+
+Web config:
+
+- `web_addr = "127.0.0.1:7788"`
 
 ## Telegram
 

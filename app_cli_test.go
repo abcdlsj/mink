@@ -31,7 +31,7 @@ func TestPrepareFreshCLISourceResetsRecoveredBinding(t *testing.T) {
 	}
 
 	app := &App{sm: sm, rt: rt}
-	if err := app.prepareFreshCLISource(ctx); err != nil {
+	if _, err := app.prepareFreshSource(ctx, bus.AddrPlatformCLI); err != nil {
 		t.Fatalf("prepare fresh cli source: %v", err)
 	}
 

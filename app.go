@@ -64,10 +64,13 @@ type App struct {
 	adapters []platform.Adapter
 
 	cli      *platform.CLI
+	web      *platform.Web
 	telegram *platform.Telegram
 
-	activeTeams   map[string]string
-	activeThreads map[string]string
+	activeTeams        map[string]string
+	activeThreads      map[string]string
+	activeSections     map[string]string
+	activeMainSessions map[string]string
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -106,8 +109,10 @@ func New(opts Options) (*App, error) {
 		hb:     agent.NewHeartbeatManager(reg, deps.bus),
 		cron:   cronSched,
 
-		activeTeams:   make(map[string]string),
-		activeThreads: make(map[string]string),
+		activeTeams:        make(map[string]string),
+		activeThreads:      make(map[string]string),
+		activeSections:     make(map[string]string),
+		activeMainSessions: make(map[string]string),
 	}
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
@@ -180,7 +185,7 @@ func (a *App) StartCLI(ctx context.Context) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
-	if err := a.prepareFreshCLISource(runCtx); err != nil {
+	if _, err := a.prepareFreshSource(runCtx, bus.AddrPlatformCLI); err != nil {
 		return err
 	}
 
@@ -221,27 +226,83 @@ func (a *App) RunCLI(ctx context.Context) error {
 	return cli.Run()
 }
 
-func (a *App) prepareFreshCLISource(ctx context.Context) error {
-	src := bus.AddrPlatformCLI
+func (a *App) StartWeb(ctx context.Context, addr string) error {
+	if err := a.Start(ctx); err != nil {
+		return err
+	}
 
+	a.mu.Lock()
+	if a.web != nil {
+		a.mu.Unlock()
+		return nil
+	}
+	runCtx := a.ctx
+	a.mu.Unlock()
+
+	webSource := bus.Platform("web")
+	sessionID, err := a.prepareFreshSource(runCtx, webSource)
+	if err != nil {
+		return err
+	}
+	a.setMainSession(webSource, sessionID)
+	a.setActiveSection(webSource, "main")
+
+	web := platform.NewWeb(addr, platform.WebCallbacks{
+		State: func() (platform.WebState, error) {
+			return a.webState(runCtx, webSource)
+		},
+		Select: func(section, id string) error {
+			return a.webSelect(runCtx, webSource, section, id)
+		},
+		SendMessage: func(text string) error {
+			return a.webSendMessage(runCtx, webSource, text)
+		},
+		NewSession: func() error {
+			return a.webNewSession(runCtx, webSource)
+		},
+	})
+	if err := web.Start(runCtx); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		_ = web.Stop()
+		return ErrClosed
+	}
+	if a.web != nil {
+		_ = web.Stop()
+		return nil
+	}
+
+	a.web = web
+	a.adapters = append(a.adapters, web)
+	return nil
+}
+
+func (a *App) prepareFreshSource(ctx context.Context, src string) (string, error) {
 	if a.disp != nil {
 		a.disp.InvalidateSource(src)
 		a.disp.UnbindTeamSource(src)
 	}
 	a.setActiveTeam(src, "")
 	a.setActiveThread(src, "")
+	a.setActiveSection(src, "")
 
 	if a.rt != nil {
 		if err := a.rt.ResetSource(ctx, src); err != nil {
-			return err
+			return "", err
 		}
 	}
 	if a.sm != nil {
-		if _, err := a.sm.ResetSource(src); err != nil {
-			return err
+		sess, err := a.sm.ResetSource(src)
+		if err != nil {
+			return "", err
 		}
+		return sess.ID(), nil
 	}
-	return nil
+	return "", nil
 }
 
 func (a *App) StartTelegram(ctx context.Context, token string) error {

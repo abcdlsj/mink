@@ -21,6 +21,8 @@ func main() {
 	switch os.Args[1] {
 	case "version":
 		runVersion()
+	case "web":
+		runWeb()
 	case "tg":
 		runTG()
 	default:
@@ -94,6 +96,40 @@ func runTG() {
 		os.Exit(1)
 	}
 	fmt.Println("TG Bot started, press Ctrl+C to stop")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	fmt.Println("\nShutting down...")
+}
+
+func runWeb() {
+	cfg := config.Load()
+
+	fs := flag.NewFlagSet("web", flag.ExitOnError)
+	fs.StringVar(&cfg.Active.Provider, "p", cfg.Active.Provider, "provider")
+	fs.StringVar(&cfg.Active.APIKey, "k", cfg.Active.APIKey, "api key")
+	fs.StringVar(&cfg.Active.BaseURL, "u", cfg.Active.BaseURL, "base url")
+	fs.StringVar(&cfg.Active.Model, "m", cfg.Active.Model, "model")
+	fs.StringVar(&cfg.WebAddr, "addr", cfg.WebAddr, "web bind address")
+	fs.Parse(os.Args[2:])
+
+	app, err := mink.New(mink.Options{Config: cfg})
+	if err != nil {
+		if err == mink.ErrAPIKeyRequired {
+			fmt.Fprintln(os.Stderr, "need api key")
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+	defer app.Close()
+
+	ctx := context.Background()
+	if err := app.StartWeb(ctx, cfg.WebAddr); err != nil {
+		fmt.Fprintf(os.Stderr, "error: web start failed: %v\n", err)
+		os.Exit(1)
+	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)

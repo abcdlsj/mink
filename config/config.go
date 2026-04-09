@@ -13,6 +13,7 @@ import (
 
 type Config struct {
 	Mode                 string                 `toml:"mode"`
+	WebAddr              string                 `toml:"web_addr"`
 	CustomPrompt         string                 `toml:"custom_prompt"`
 	Stream               bool                   `toml:"stream"`
 	TelegramStream       bool                   `toml:"telegram_stream"`
@@ -41,15 +42,15 @@ type Config struct {
 }
 
 type AgentConfig struct {
-	ID            string            `toml:"id"`
-	Name          string            `toml:"name"`
-	Capabilities  []string          `toml:"capabilities"`
-	Model         string            `toml:"model"`
-	SoulPath      string            `toml:"soul_path"`
-	Prompt        string            `toml:"prompt"`
-	Tools         []string          `toml:"tools"`
-	MaxConcurrent int               `toml:"max_concurrent"`
-	Heartbeat     *HeartbeatConfig  `toml:"heartbeat"`
+	ID            string           `toml:"id"`
+	Name          string           `toml:"name"`
+	Capabilities  []string         `toml:"capabilities"`
+	Model         string           `toml:"model"`
+	SoulPath      string           `toml:"soul_path"`
+	Prompt        string           `toml:"prompt"`
+	Tools         []string         `toml:"tools"`
+	MaxConcurrent int              `toml:"max_concurrent"`
+	Heartbeat     *HeartbeatConfig `toml:"heartbeat"`
 }
 
 type HeartbeatConfig struct {
@@ -106,6 +107,9 @@ func LoadWithDir(name string) Config {
 func (c *Config) Normalize() {
 	if c.Mode == "" {
 		c.Mode = "tui"
+	}
+	if c.WebAddr == "" {
+		c.WebAddr = "127.0.0.1:7788"
 	}
 	if c.MaxSteps == 0 {
 		c.MaxSteps = 100
