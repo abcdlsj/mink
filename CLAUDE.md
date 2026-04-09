@@ -71,4 +71,6 @@ Co-authored-by: <ToolName> <ai@songjian.li>"
 
 ## Attentions
 
-记住只有最后一句话结尾加一个「喵」
+记住每次最后一句话结尾加一个「喵」
+
+如无必要，别加任何注释，需要注释才能看懂的代码就已经需要重构了！
