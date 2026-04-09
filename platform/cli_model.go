@@ -73,6 +73,7 @@ type model struct {
 	thinkStart  int
 	scroll      int
 	statusCache *StatusInfo
+	lastSession string
 }
 
 type layoutMetrics struct {
@@ -296,8 +297,6 @@ func (m *model) renderMainPane(layout layoutMetrics) string {
 	var header strings.Builder
 	m.writeMainHeader(&header, layout.mainWidth)
 
-	teamPanel := m.renderTeamPanel(layout.mainWidth)
-
 	var transcript strings.Builder
 	m.writeOutputSection(&transcript, layout.outputHeight)
 
@@ -307,10 +306,6 @@ func (m *model) renderMainPane(layout layoutMetrics) string {
 	var b strings.Builder
 	b.WriteString(strings.TrimRight(header.String(), "\n"))
 	b.WriteString("\n")
-	if teamPanel != "" {
-		b.WriteString(teamPanel)
-		b.WriteString("\n")
-	}
 	b.WriteString(strings.TrimRight(transcript.String(), "\n"))
 
 	if !layout.showSidebar && m.hasLiveSidebarContent() {
@@ -327,16 +322,6 @@ func (m *model) renderMainPane(layout layoutMetrics) string {
 }
 
 func (m *model) writeOutputSection(b *strings.Builder, outputHeight int) {
-	title := "Conversation"
-	if team := m.statusInfo().Team; team != nil {
-		if team.ActiveThread != nil {
-			title = "Transcript"
-		} else {
-			title = "Team Activity"
-		}
-	}
-	b.WriteString(styleSectionTitle.Render(title))
-	b.WriteString("\n")
 	lines := m.visibleOutput(outputHeight)
 	for i := 0; i < max(outputHeight-len(lines), 0); i++ {
 		b.WriteString("\n")
@@ -353,36 +338,81 @@ func (m *model) writeMainHeader(b *strings.Builder, width int) {
 	b.WriteString("\n")
 
 	status := m.statusInfo()
-	if m.cli.statusFn != nil {
+	metaBar := m.renderMetadataBar(width)
+
+	if status.Team != nil {
 		var parts []string
-		if status.Team != nil {
-			parts = append(parts, status.Team.Name)
-			if status.Team.ActiveThread != nil && status.Team.ActiveThread.Title != "" {
-				parts = append(parts, status.Team.ActiveThread.Title)
-			}
+		parts = append(parts, status.Team.Name)
+		if status.Team.ActiveThread != nil && status.Team.ActiveThread.Title != "" {
+			parts = append(parts, status.Team.ActiveThread.Title)
 		}
+		parts = append(parts, status.Team.Status)
+		b.WriteString(styleMutedBlock.Render(truncate(strings.Join(parts, "  /  "), max(width-2, 20))))
+		b.WriteString("\n")
+		b.WriteString(truncate(metaBar, max(width-2, 20)))
+		b.WriteString("\n")
+	} else {
+		var parts []string
 		if status.Model != "" {
 			parts = append(parts, status.Model)
 		}
-		if status.Session != "" && status.Team == nil {
-			parts = append(parts, status.Session)
+		parts = append(parts, m.turnLabel())
+		line := styleMutedBlock.Render(strings.Join(parts, "  /  "))
+		if metaBar != "" {
+			line += "  " + styleDim.Render("·") + "  " + metaBar
 		}
-		if len(status.Agents) > 0 {
-			parts = append(parts, fmt.Sprintf("%d agents", len(status.Agents)))
-		}
-		parts = append(parts, fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)))
-		if len(parts) > 0 {
-			b.WriteString(styleMutedBlock.Render(strings.Join(parts, "  │  ")))
-			b.WriteString("\n")
-		}
-	} else {
-		b.WriteString(styleMutedBlock.Render("multi-agent workspace"))
+		b.WriteString(truncate(line, max(width-2, 20)))
 		b.WriteString("\n")
 	}
 
 	barWidth := max(width-2, 12)
 	b.WriteString(styleBar.Render(strings.Repeat("─", barWidth)))
 	b.WriteString("\n")
+}
+
+func (m *model) renderMetadataBar(width int) string {
+	status := m.statusInfo()
+	var chips []string
+	chipMax := max(width/6, 12)
+
+	if status.Team != nil {
+		team := status.Team
+		chips = append(chips, m.renderChip("members", fmt.Sprintf("%d", len(team.Members)), styleChipMembers))
+		if team.ActiveThread != nil {
+			chips = append(chips, m.renderChip("thread", truncate(team.ActiveThread.Title, chipMax), styleChipThread))
+		} else {
+			chips = append(chips, m.renderChip("thread", "none", styleChipThread))
+		}
+		blocker := "none"
+		if team.CurrentBlocker != "" {
+			blocker = truncate(team.CurrentBlocker, chipMax)
+		}
+		chips = append(chips, m.renderChip("blocker", blocker, styleChipBlocker))
+		speaker := "idle"
+		if team.ActiveSpeaker != "" {
+			speaker = truncate(team.ActiveSpeaker, chipMax)
+		}
+		chips = append(chips, m.renderChip("speaker", speaker, styleChipSpeaker))
+		summary := "—"
+		if team.SummaryTime != "" {
+			summary = team.SummaryTime
+		}
+		chips = append(chips, m.renderChip("summary", summary, styleChipSummary))
+	} else {
+		if status.Model != "" {
+			chips = append(chips, m.renderChip("model", truncate(status.Model, chipMax), styleChipValue))
+		}
+		if status.Session != "" {
+			chips = append(chips, m.renderChip("session", truncate(status.Session, chipMax), styleChipValue))
+		}
+		chips = append(chips, m.renderChip("tokens", fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)), styleChipValue))
+	}
+
+	return strings.Join(chips, " ")
+}
+
+func (m *model) renderChip(label, value string, valueStyle lipgloss.Style) string {
+	return styleChipLabel.Render(label+":") + " " + valueStyle.Render(value)
 }
 
 func (m *model) writeAgentSection(b *strings.Builder, detailLimit int) {
@@ -449,6 +479,8 @@ func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	}
 	if confirming {
 		b.WriteString(stylePromptDanger.Render("!! "))
+	} else if m.statusInfo().Team != nil {
+		b.WriteString(stylePrompt.Render("> Message team... "))
 	} else {
 		b.WriteString(stylePrompt.Render("» "))
 	}
@@ -514,74 +546,6 @@ func (m *model) renderRosterSection(status StatusInfo, width int) string {
 		lines = append(lines, styleDim.Render(fmt.Sprintf("+%d more", len(status.Agents)-limit)))
 	}
 	return m.renderSidebarSection("Agent Network", lines)
-}
-
-func (m *model) renderTeamPanel(width int) string {
-	team := m.statusInfo().Team
-	if team == nil {
-		return ""
-	}
-	if team.ActiveThread != nil {
-		return m.renderThreadPanel(team, width)
-	}
-	return m.renderTeamHome(team, width)
-}
-
-func (m *model) renderTeamHome(team *TeamStatus, width int) string {
-	var lines []string
-	lines = append(lines, styleSectionTitle.Render(strings.ToUpper(team.Name)))
-	lines = append(lines, styleMutedBlock.Render(fmt.Sprintf("%s · leader %s", team.Status, team.LeaderID)))
-	lines = append(lines, "")
-	lines = append(lines, styleSidebarLabel.Render("Latest Summary"))
-	lines = append(lines, team.LatestSummary)
-	lines = append(lines, "")
-	lines = append(lines, styleSidebarLabel.Render("Current Blocker"))
-	lines = append(lines, team.CurrentBlocker)
-	if len(team.RecentThreads) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, styleSidebarLabel.Render("Recent Threads"))
-		limit := min(len(team.RecentThreads), 3)
-		for i := 0; i < limit; i++ {
-			thread := team.RecentThreads[i]
-			lines = append(lines, fmt.Sprintf("%s · %s", thread.Status, thread.Title))
-		}
-	}
-	if len(team.Members) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, styleSidebarLabel.Render("Members"))
-		limit := min(len(team.Members), 4)
-		for i := 0; i < limit; i++ {
-			member := team.Members[i]
-			lines = append(lines, fmt.Sprintf("%s · %s", member.Name, member.Role))
-		}
-	}
-	return styleFrame.Width(max(width-4, 16)).Render(strings.Join(lines, "\n"))
-}
-
-func (m *model) renderThreadPanel(team *TeamStatus, width int) string {
-	thread := team.ActiveThread
-	if thread == nil {
-		return ""
-	}
-	var sections []string
-	sections = append(sections, m.renderInfoPanel("Goal", thread.Goal, width))
-	sections = append(sections, m.renderInfoPanel("Current Best Answer", thread.BestAnswer, width))
-	sections = append(sections, m.renderInfoPanel("Open Blockers", thread.OpenBlockers, width))
-	speaker := team.ActiveSpeaker
-	if speaker == "" {
-		speaker = "No active speaker"
-	}
-	sections = append(sections, m.renderInfoPanel("Current Speaker", speaker, width))
-	return strings.Join(sections, "\n")
-}
-
-func (m *model) renderInfoPanel(title, body string, width int) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		body = "None"
-	}
-	content := styleSidebarLabel.Render(title) + "\n" + body
-	return styleFrame.Width(max(width-4, 16)).Render(content)
 }
 
 func (m *model) renderTeamRail(team *TeamStatus, width int) string {
@@ -802,8 +766,11 @@ func (m *model) computeLayout() layoutMetrics {
 
 func (m *model) nonOutputLines(agentDetailLine int) int {
 	inputHeight := max(m.input.Height(), 1)
-	lines := inputHeight + 2 + mainHeaderLines + transcriptLines + composerLines
-	lines += m.teamPanelHeight(m.mainPaneWidth())
+	headerLines := 3 // title + combined line + rule (normal mode)
+	if m.statusInfo().Team != nil {
+		headerLines = 4 // title + status + metadata + rule (team mode)
+	}
+	lines := inputHeight + 2 + headerLines + transcriptLines + composerLines
 
 	if !m.useSidebar() && m.hasLiveSidebarContent() {
 		lines += 3
@@ -837,7 +804,11 @@ func (m *model) refreshInputMode() {
 		m.input.Placeholder = "Type y/a/n, then Enter"
 		return
 	}
-	m.input.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
+	if m.statusInfo().Team != nil {
+		m.input.Placeholder = "Message team... (Enter: submit, Ctrl+J: newline)"
+	} else {
+		m.input.Placeholder = "Type message... (Enter: submit, Ctrl+J: newline)"
+	}
 }
 
 func (m *model) updateInputHeight() {
@@ -997,21 +968,10 @@ func (m *model) sidebarWidth() int {
 }
 
 func (m *model) shouldShowSidebar() bool {
-	if m.statusInfo().Team != nil {
-		return true
-	}
 	if len(m.agentKeys) > 0 || len(m.delegateIDs) > 0 || len(m.activeTools()) > 0 {
 		return true
 	}
 	return len(m.statusInfo().Agents) > 1
-}
-
-func (m *model) teamPanelHeight(width int) int {
-	panel := m.renderTeamPanel(width)
-	if panel == "" {
-		return 0
-	}
-	return lipgloss.Height(panel) + 1
 }
 
 func (m *model) hasLiveSidebarContent() bool {

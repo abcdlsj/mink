@@ -81,11 +81,16 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 
 	case bus.TypeSessionNew:
 		if id, ok := msg.Payload.(string); ok {
-			m.appendOutput(styleSession.Render(fmt.Sprintf("[Session] %s", id)))
+			if m.lastSession == "" {
+				m.lastSession = id
+			} else if id != m.lastSession {
+				m.appendOutput(styleDim.Render(fmt.Sprintf("· session %s → %s", m.lastSession, id)))
+				m.lastSession = id
+			}
 		}
 
 	case bus.TypeSessionCompact:
-		m.appendOutput(styleTool.Render(fmt.Sprintf("[Compact] %v", msg.Payload)))
+		m.appendOutput(styleDim.Render("· context compacted"))
 	}
 
 	return m, nil
@@ -119,12 +124,12 @@ func (m *model) appendBusLine(showInline bool, from, line string) {
 func (m *model) handleAssistantMsg(msg bus.Msg, showInline bool) {
 	content := fmt.Sprintf("%v", msg.Payload)
 	if content == "busy" {
-		m.appendOutput(styleDim.Render("[busy] waiting for previous request..."))
+		m.appendOutput(styleDim.Render("· busy"))
 		return
 	}
 	if strings.HasPrefix(content, "[status] ") {
 		status := strings.TrimPrefix(content, "[status] ")
-		m.appendBusLine(showInline, msg.From, styleDim.Render("[status] "+status))
+		m.appendBusLine(showInline, msg.From, styleDim.Render("· "+status))
 		return
 	}
 	if showInline {

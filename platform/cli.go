@@ -30,9 +30,8 @@ const (
 	sidebarAgents    = 4
 	sidebarTools     = 6
 	sidebarDelegates = 5
-	mainHeaderLines  = 3
 	composerLines    = 0
-	transcriptLines  = 1
+	transcriptLines  = 0
 )
 
 var (
@@ -81,6 +80,14 @@ var (
 	styleAgentSleep   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7")).Bold(true)
 	styleAgentOff     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Bold(true)
 	styleSidebarBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#111827")).Background(lipgloss.Color("#D4A85C")).Bold(true).Padding(0, 1)
+
+	styleChipLabel   = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	styleChipValue   = lipgloss.NewStyle().Foreground(lipgloss.Color("#B8C0CC"))
+	styleChipThread  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7AA2F7"))
+	styleChipBlocker = lipgloss.NewStyle().Foreground(lipgloss.Color("#E06C75"))
+	styleChipSpeaker = lipgloss.NewStyle().Foreground(lipgloss.Color("#56B6C2"))
+	styleChipSummary = lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8790"))
+	styleChipMembers = lipgloss.NewStyle().Foreground(lipgloss.Color("#9CA3AF"))
 )
 
 type AgentInfo struct {
