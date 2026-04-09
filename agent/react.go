@@ -92,6 +92,8 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 		})
 	}
 
+	a.publishThinkingFallback(ctx, src, r.Reasoning)
+
 	if assistantContent != "" {
 		if a.bus != nil && a.stream {
 			_ = a.bus.Pub(bus.Msg{
@@ -217,6 +219,25 @@ func (a *Agent) step(ctx context.Context, src string, stepNum int) (bool, error)
 	}
 
 	return false, nil
+}
+
+func (a *Agent) publishThinkingFallback(ctx context.Context, src, reasoning string) {
+	if a.bus == nil || a.stream || strings.TrimSpace(reasoning) == "" {
+		return
+	}
+	from := speakerAgentID(ctx, a.id)
+	_ = a.bus.Pub(bus.Msg{
+		Type:    bus.TypeThinkingChunk,
+		From:    from,
+		To:      src,
+		Payload: reasoning,
+	})
+	_ = a.bus.Pub(bus.Msg{
+		Type:    bus.TypeThinkingEnd,
+		From:    from,
+		To:      src,
+		Payload: reasoning,
+	})
 }
 
 func (a *Agent) stepStream(ctx context.Context, src string, allMsgs []msg.Message, provider llm.Provider) (*llm.Response, error) {
