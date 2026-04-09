@@ -399,13 +399,10 @@ func (m *model) renderMetadataBar(width int) string {
 		}
 		chips = append(chips, m.renderChip("summary", summary, styleChipSummary))
 	} else {
-		if status.Model != "" {
-			chips = append(chips, m.renderChip("model", truncate(status.Model, chipMax), styleChipValue))
-		}
 		if status.Session != "" {
 			chips = append(chips, m.renderChip("session", truncate(status.Session, chipMax), styleChipValue))
 		}
-		chips = append(chips, m.renderChip("tokens", fmt.Sprintf("↑%s ↓%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)), styleChipValue))
+		chips = append(chips, m.renderChip("tokens", fmt.Sprintf("in:%s out:%s", fmtTokens(status.TokenIn), fmtTokens(status.TokenOut)), styleChipValue))
 	}
 
 	return strings.Join(chips, " ")
