@@ -1,4 +1,4 @@
-import { useState, useRef, type KeyboardEvent } from 'react'
+import { useState, useRef, useCallback, type KeyboardEvent, type ChangeEvent } from 'react'
 import styles from './Composer.module.css'
 
 interface ComposerProps {
@@ -13,6 +13,18 @@ export function Composer({ label, placeholder, disabled, onSend }: ComposerProps
   const [sending, setSending] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  const autoResize = useCallback(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+  }, [])
+
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setText(e.target.value)
+    autoResize()
+  }
+
   const handleSubmit = async () => {
     const trimmed = text.trim()
     if (!trimmed || disabled || sending) return
@@ -20,6 +32,9 @@ export function Composer({ label, placeholder, disabled, onSend }: ComposerProps
     try {
       await onSend(trimmed)
       setText('')
+      if (inputRef.current) {
+        inputRef.current.style.height = 'auto'
+      }
     } finally {
       setSending(false)
       inputRef.current?.focus()
@@ -41,7 +56,7 @@ export function Composer({ label, placeholder, disabled, onSend }: ComposerProps
           ref={inputRef}
           className={styles.input}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled || sending}

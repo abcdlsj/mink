@@ -20,10 +20,27 @@ export function CenterPane({
   emptyHint,
 }: CenterPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+  const seenMessageCountRef = useRef(0)
+
+  const syncStickToBottom = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = distance <= 64
+  }
 
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+
+    const nextCount = messages?.length ?? 0
+    const shouldScroll = seenMessageCountRef.current === 0 || stickToBottomRef.current
+    seenMessageCountRef.current = nextCount
+
+    if (shouldScroll) {
+      el.scrollTop = el.scrollHeight
+    }
   }, [messages?.length])
 
   const hasMessages = messages && messages.length > 0
@@ -44,7 +61,7 @@ export function CenterPane({
       </div>
 
       {hasMessages ? (
-        <div className={styles.messages} ref={scrollRef}>
+        <div className={styles.messages} ref={scrollRef} onScroll={syncStickToBottom}>
           {messages.map((msg, i) => (
             <MessageBubble key={i} msg={msg} />
           ))}

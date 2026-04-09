@@ -29,12 +29,24 @@
 
 .error {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--space-md);
   height: 100%;
   width: 100%;
   color: var(--color-accent-pink);
   font-size: var(--text-sm);
+}
+
+.retryBtn {
+  border: var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  padding: var(--space-xs) var(--space-lg);
+  cursor: pointer;
 }
 
 .topbar {
@@ -56,8 +68,40 @@
 }
 
 .section {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
   font-size: var(--text-sm);
   color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.connectionTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-paper);
+  color: var(--color-dim);
+  font-size: var(--text-xs);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.noticeInfo,
+.noticeError {
+  padding: 8px var(--space-xl);
+  border-bottom: var(--border);
+  font-size: var(--text-sm);
+}
+
+.noticeInfo {
+  color: var(--color-muted);
+  background: var(--color-panel);
+}
+
+.noticeError {
+  color: var(--color-accent-pink);
+  background: color-mix(in srgb, var(--color-accent-pink) 8%, var(--color-panel));
 }

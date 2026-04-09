@@ -85,13 +85,21 @@ type Web struct {
 	cb        WebCallbacks
 	server    *http.Server
 	mu        sync.Mutex
+
+	subMu       sync.Mutex
+	nextSubID   int
+	subscribers map[int]chan struct{}
 }
 
 func NewWeb(addr string, cb WebCallbacks) *Web {
 	if strings.TrimSpace(addr) == "" {
 		addr = "127.0.0.1:7788"
 	}
-	return &Web{addr: addr, cb: cb}
+	return &Web{
+		addr:        addr,
+		cb:          cb,
+		subscribers: make(map[int]chan struct{}),
+	}
 }
 
 func (w *Web) SetStaticDir(dir string) { w.staticDir = dir }
@@ -107,6 +115,7 @@ func (w *Web) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", w.handleState)
+	mux.HandleFunc("/api/events", w.handleEvents)
 	mux.HandleFunc("/api/select", w.handleSelect)
 	mux.HandleFunc("/api/message", w.handleMessage)
 	mux.HandleFunc("/api/action", w.handleAction)
@@ -164,6 +173,42 @@ func (w *Web) Stop() error {
 	return srv.Shutdown(ctx)
 }
 
+func (w *Web) NotifyStateChanged() {
+	w.subMu.Lock()
+	subs := make([]chan struct{}, 0, len(w.subscribers))
+	for _, ch := range w.subscribers {
+		subs = append(subs, ch)
+	}
+	w.subMu.Unlock()
+
+	for _, ch := range subs {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func (w *Web) subscribe() (int, chan struct{}) {
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	id := w.nextSubID
+	w.nextSubID++
+	ch := make(chan struct{}, 1)
+	w.subscribers[id] = ch
+	return id, ch
+}
+
+func (w *Web) unsubscribe(id int) {
+	w.subMu.Lock()
+	ch, ok := w.subscribers[id]
+	if ok {
+		delete(w.subscribers, id)
+		close(ch)
+	}
+	w.subMu.Unlock()
+}
+
 func (w *Web) handleIndex(rw http.ResponseWriter, _ *http.Request) {
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = rw.Write([]byte(webPage))
@@ -180,6 +225,44 @@ func (w *Web) handleState(rw http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(rw, state)
+}
+
+func (w *Web) handleEvents(rw http.ResponseWriter, req *http.Request) {
+	flusher, ok := rw.(http.Flusher)
+	if !ok {
+		http.Error(rw, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+	rw.Header().Set("X-Accel-Buffering", "no")
+
+	id, ch := w.subscribe()
+	defer w.unsubscribe(id)
+
+	fmt.Fprint(rw, "event: state\ndata: ready\n\n")
+	flusher.Flush()
+
+	keepAlive := time.NewTicker(25 * time.Second)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-req.Context().Done():
+			return
+		case <-keepAlive.C:
+			fmt.Fprint(rw, ": ping\n\n")
+			flusher.Flush()
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+			fmt.Fprint(rw, "event: state\ndata: refresh\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 func (w *Web) handleSelect(rw http.ResponseWriter, req *http.Request) {
@@ -203,6 +286,7 @@ func (w *Web) handleSelect(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+	w.NotifyStateChanged()
 	writeJSON(rw, map[string]bool{"ok": true})
 }
 
@@ -226,6 +310,7 @@ func (w *Web) handleMessage(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
 		return
 	}
+	w.NotifyStateChanged()
 	writeJSON(rw, map[string]bool{"ok": true})
 }
 
@@ -255,6 +340,7 @@ func (w *Web) handleAction(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "unknown action", http.StatusBadRequest)
 		return
 	}
+	w.NotifyStateChanged()
 	writeJSON(rw, map[string]bool{"ok": true})
 }
 

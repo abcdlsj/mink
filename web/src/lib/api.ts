@@ -73,6 +73,17 @@ export async function fetchState(): Promise<WebState> {
   return request('/api/state')
 }
 
+export function subscribeStateEvents(onStateChange: () => void, onError?: () => void): () => void {
+  const es = new EventSource(`${BASE}/api/events`)
+  es.addEventListener('state', () => onStateChange())
+  es.onerror = () => {
+    onError?.()
+  }
+  return () => {
+    es.close()
+  }
+}
+
 export async function selectItem(section: string, id: string): Promise<void> {
   await request('/api/select', {
     method: 'POST',

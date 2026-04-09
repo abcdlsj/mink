@@ -270,6 +270,23 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 		return err
 	}
 
+	observeCh := make(chan bus.Msg, 256)
+	a.bus.Observe(observeCh)
+	go func() {
+		defer a.bus.Unobserve(observeCh)
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case m := <-observeCh:
+				if m.From != webSource && m.To != webSource {
+					continue
+				}
+				web.NotifyStateChanged()
+			}
+		}
+	}()
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.closed {
