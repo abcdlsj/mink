@@ -13,6 +13,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/hook"
+	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/tool"
 )
 
@@ -143,11 +144,12 @@ type StatusInfo struct {
 }
 
 type CLI struct {
-	bus      *bus.Bus
-	router   *command.Router
-	hooks    *hook.Manager
-	statusFn func() StatusInfo
-	stop     chan struct{}
+	bus       *bus.Bus
+	router    *command.Router
+	hooks     *hook.Manager
+	statusFn  func() StatusInfo
+	sessionFn func() []msg.Message
+	stop      chan struct{}
 
 	program *tea.Program
 	model   *model
@@ -159,13 +161,14 @@ type CLI struct {
 	confirmQ  string
 }
 
-func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager, sf func() StatusInfo) *CLI {
+func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager, sf func() StatusInfo, sessionFn func() []msg.Message) *CLI {
 	return &CLI{
-		bus:      b,
-		router:   r,
-		hooks:    h,
-		statusFn: sf,
-		stop:     make(chan struct{}),
+		bus:       b,
+		router:    r,
+		hooks:     h,
+		statusFn:  sf,
+		sessionFn: sessionFn,
+		stop:      make(chan struct{}),
 	}
 }
 

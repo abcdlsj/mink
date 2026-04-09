@@ -83,9 +83,15 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 		if id, ok := msg.Payload.(string); ok {
 			if m.lastSession == "" {
 				m.lastSession = id
+				if len(m.currentSessionMessages()) > 0 {
+					m.clearSessionState()
+					m.reloadSessionOutput("", id)
+				}
 			} else if id != m.lastSession {
-				m.appendOutput(styleDim.Render(fmt.Sprintf("· session %s → %s", m.lastSession, id)))
+				prev := m.lastSession
 				m.lastSession = id
+				m.clearSessionState()
+				m.reloadSessionOutput(prev, id)
 			}
 		}
 
@@ -222,6 +228,15 @@ func (m *model) resetTurnState() {
 	if m.pending > 0 {
 		m.pending--
 	}
+	m.clearTurnState()
+}
+
+func (m *model) clearSessionState() {
+	m.pending = 0
+	m.clearTurnState()
+}
+
+func (m *model) clearTurnState() {
 	m.agentKeys = []string{}
 	m.agents = make(map[string]*agentState)
 	m.tools = make(map[string]*toolState)

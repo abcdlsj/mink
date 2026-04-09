@@ -180,7 +180,7 @@ func (a *App) StartCLI(ctx context.Context) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
-	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus())
+	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(bus.AddrPlatformCLI))
 	if err := cli.Start(runCtx); err != nil {
 		return err
 	}
@@ -412,10 +412,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 
 		u, _ := a.disp.Usage(bus.AddrPlatformCLI)
 
-		sessID := ""
-		if ag := a.disp.Agent(bus.AddrPlatformCLI); ag != nil {
-			sessID = ag.Session().ID()
-		}
+		sessID, _ := a.sm.CurrentID(bus.AddrPlatformCLI)
 
 		var agents []platform.AgentInfo
 		if a.reg != nil {
@@ -455,6 +452,19 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 			Agents:    agents,
 			Team:      a.teamStatusForSource(context.Background(), bus.AddrPlatformCLI),
 		}
+	}
+}
+
+func (a *App) cliSessionMessages(source string) func() []msg.Message {
+	return func() []msg.Message {
+		if source == "" {
+			return nil
+		}
+		sess, err := a.sm.Current(source)
+		if err != nil || sess == nil {
+			return nil
+		}
+		return sess.View().Messages
 	}
 }
 

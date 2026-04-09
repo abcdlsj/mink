@@ -22,7 +22,6 @@ const (
 	workerEnqueueTimeout     = 2 * time.Second
 	workerTaskEnqueueTimeout = 8 * time.Second
 	workerStatusFirstDelay   = 12 * time.Second
-	workerStatusInterval     = 20 * time.Second
 )
 
 type workerState struct {
@@ -699,34 +698,17 @@ func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string,
 
 	first := time.NewTimer(workerStatusFirstDelay)
 	defer first.Stop()
-	var ticker *time.Ticker
-	var tick <-chan time.Time
 
 	for {
 		select {
 		case err := <-errCh:
-			if ticker != nil {
-				ticker.Stop()
-			}
 			return err
 		case <-ctx.Done():
-			if ticker != nil {
-				ticker.Stop()
-			}
 			return ctx.Err()
 		case <-first.C:
 			if msgType == bus.TypeTaskDone {
 				continue
 			}
-			d.pub(bus.Msg{
-				Type:    bus.TypeAssistant,
-				From:    d.agentID,
-				To:      src,
-				Payload: "[status] still working, please wait...",
-			})
-			ticker = time.NewTicker(workerStatusInterval)
-			tick = ticker.C
-		case <-tick:
 			d.pub(bus.Msg{
 				Type:    bus.TypeAssistant,
 				From:    d.agentID,
