@@ -180,6 +180,10 @@ func (a *App) StartCLI(ctx context.Context) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
+	if err := a.prepareFreshCLISource(runCtx); err != nil {
+		return err
+	}
+
 	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(bus.AddrPlatformCLI))
 	if err := cli.Start(runCtx); err != nil {
 		return err
@@ -215,6 +219,29 @@ func (a *App) RunCLI(ctx context.Context) error {
 	}
 
 	return cli.Run()
+}
+
+func (a *App) prepareFreshCLISource(ctx context.Context) error {
+	src := bus.AddrPlatformCLI
+
+	if a.disp != nil {
+		a.disp.InvalidateSource(src)
+		a.disp.UnbindTeamSource(src)
+	}
+	a.setActiveTeam(src, "")
+	a.setActiveThread(src, "")
+
+	if a.rt != nil {
+		if err := a.rt.ResetSource(ctx, src); err != nil {
+			return err
+		}
+	}
+	if a.sm != nil {
+		if _, err := a.sm.ResetSource(src); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) StartTelegram(ctx context.Context, token string) error {
