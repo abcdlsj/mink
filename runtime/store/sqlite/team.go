@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/abcdlsj/mink/runtime/id"
 	zsqlite "zombiezen.com/go/sqlite"
@@ -62,10 +63,10 @@ func (db *DB) CreateTeam(ctx context.Context, name, leaderAgentID, turnPolicy st
 
 	return teamID, db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
-			INSERT INTO teams (id, name, leader_agent_id, status, turn_policy, max_rounds, created_at, updated_at)
-			VALUES (?, ?, ?, 'active', ?, ?, ?, ?)
+			INSERT INTO teams (id, workspace_id, name, leader_agent_id, status, turn_policy, max_rounds, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID, name, leaderAgentID, turnPolicy, maxRounds, now, now},
+			Args: []any{teamID, db.WorkspaceID(), name, leaderAgentID, turnPolicy, maxRounds, now, now},
 		}); err != nil {
 			return err
 		}
@@ -86,9 +87,9 @@ func (db *DB) GetTeam(ctx context.Context, teamID string) (Team, error) {
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT id, name, leader_agent_id, status, turn_policy, max_rounds, created_at, updated_at
-			FROM teams WHERE id = ?
+			FROM teams WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID},
+			Args: []any{db.WorkspaceID(), teamID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				t = Team{
 					ID:            stmt.ColumnText(0),
@@ -111,10 +112,10 @@ func (db *DB) ListTeams(ctx context.Context, status string) ([]Team, error) {
 	if db == nil {
 		return nil, nil
 	}
-	q := "SELECT id, name, leader_agent_id, status, turn_policy, max_rounds, created_at, updated_at FROM teams"
-	var args []any
+	q := "SELECT id, name, leader_agent_id, status, turn_policy, max_rounds, created_at, updated_at FROM teams WHERE workspace_id = ?"
+	args := []any{db.WorkspaceID()}
 	if status != "" {
-		q += " WHERE status = ?"
+		q += " AND status = ?"
 		args = append(args, status)
 	}
 	q += " ORDER BY updated_at DESC"
@@ -148,9 +149,9 @@ func (db *DB) UpdateTeamTurnPolicy(ctx context.Context, teamID, turnPolicy strin
 	now := nowString()
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			UPDATE teams SET turn_policy = ?, updated_at = ? WHERE id = ?
+			UPDATE teams SET turn_policy = ?, updated_at = ? WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{turnPolicy, now, teamID},
+			Args: []any{turnPolicy, now, db.WorkspaceID(), teamID},
 		})
 	})
 }
@@ -172,6 +173,23 @@ func (db *DB) AddTeamMemberWithProfile(ctx context.Context, teamID, agentID, rol
 	}
 	rawProfile, _ := json.Marshal(profile)
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		var exists bool
+		if err := sqlitex.ExecuteTransient(conn, `
+			SELECT 1
+			FROM teams
+			WHERE workspace_id = ? AND id = ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{db.WorkspaceID(), teamID},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				exists = stmt.ColumnInt(0) == 1
+				return nil
+			},
+		}); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("team %s not found", teamID)
+		}
 		return sqlitex.ExecuteTransient(conn, `
 			INSERT INTO team_members (team_id, agent_id, role_name, role_description, member_type, profile_json, joined_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -192,9 +210,14 @@ func (db *DB) RemoveTeamMember(ctx context.Context, teamID, agentID string) erro
 	}
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			DELETE FROM team_members WHERE team_id = ? AND agent_id = ?
+			DELETE FROM team_members
+			WHERE team_id = ? AND agent_id = ?
+			  AND EXISTS (
+			    SELECT 1 FROM teams
+			    WHERE teams.id = team_members.team_id AND teams.workspace_id = ?
+			  )
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID, agentID},
+			Args: []any{teamID, agentID, db.WorkspaceID()},
 		})
 	})
 }
@@ -206,11 +229,13 @@ func (db *DB) ListTeamMembers(ctx context.Context, teamID string) ([]TeamMember,
 	var members []TeamMember
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT team_id, agent_id, role_name, role_description, member_type, profile_json, joined_at
-			FROM team_members WHERE team_id = ?
+			SELECT team_members.team_id, team_members.agent_id, team_members.role_name, team_members.role_description, team_members.member_type, team_members.profile_json, team_members.joined_at
+			FROM team_members
+			JOIN teams ON teams.id = team_members.team_id
+			WHERE team_members.team_id = ? AND teams.workspace_id = ?
 			ORDER BY joined_at ASC
 		`, &sqlitex.ExecOptions{
-			Args: []any{teamID},
+			Args: []any{teamID, db.WorkspaceID()},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				var profile TeamMemberProfile
 				rawProfile := stmt.ColumnText(5)
@@ -241,18 +266,35 @@ func (db *DB) CreateThread(ctx context.Context, teamID, title, sessionID string)
 	now := nowString()
 	threadID := id.Thread()
 	return threadID, db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		var exists bool
 		if err := sqlitex.ExecuteTransient(conn, `
-			INSERT INTO team_threads (id, team_id, title, status, session_id, created_at, updated_at)
-			VALUES (?, ?, ?, 'active', ?, ?, ?)
+			SELECT 1
+			FROM teams
+			WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{threadID, teamID, title, sessionID, now, now},
+			Args: []any{db.WorkspaceID(), teamID},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				exists = stmt.ColumnInt(0) == 1
+				return nil
+			},
+		}); err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("team %s not found", teamID)
+		}
+		if err := sqlitex.ExecuteTransient(conn, `
+			INSERT INTO team_threads (id, workspace_id, team_id, title, status, session_id, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+		`, &sqlitex.ExecOptions{
+			Args: []any{threadID, db.WorkspaceID(), teamID, title, sessionID, now, now},
 		}); err != nil {
 			return err
 		}
 		return sqlitex.ExecuteTransient(conn, `
-			UPDATE teams SET updated_at = ? WHERE id = ?
+			UPDATE teams SET updated_at = ? WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{now, teamID},
+			Args: []any{now, db.WorkspaceID(), teamID},
 		})
 	})
 }
@@ -265,9 +307,9 @@ func (db *DB) GetThread(ctx context.Context, threadID string) (TeamThread, error
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT id, team_id, title, status, session_id, current_round, created_at, updated_at
-			FROM team_threads WHERE id = ?
+			FROM team_threads WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{threadID},
+			Args: []any{db.WorkspaceID(), threadID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				t = TeamThread{
 					ID:           stmt.ColumnText(0),
@@ -290,8 +332,8 @@ func (db *DB) ListThreads(ctx context.Context, teamID, status string) ([]TeamThr
 	if db == nil || teamID == "" {
 		return nil, nil
 	}
-	q := "SELECT id, team_id, title, status, session_id, current_round, created_at, updated_at FROM team_threads WHERE team_id = ?"
-	args := []any{teamID}
+	q := "SELECT id, team_id, title, status, session_id, current_round, created_at, updated_at FROM team_threads WHERE workspace_id = ? AND team_id = ?"
+	args := []any{db.WorkspaceID(), teamID}
 	if status != "" {
 		q += " AND status = ?"
 		args = append(args, status)
@@ -328,16 +370,16 @@ func (db *DB) IncrementThreadRound(ctx context.Context, threadID string) (int, e
 	var round int
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
-			UPDATE team_threads SET current_round = current_round + 1, updated_at = ? WHERE id = ?
+			UPDATE team_threads SET current_round = current_round + 1, updated_at = ? WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{now, threadID},
+			Args: []any{now, db.WorkspaceID(), threadID},
 		}); err != nil {
 			return err
 		}
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT current_round FROM team_threads WHERE id = ?
+			SELECT current_round FROM team_threads WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{threadID},
+			Args: []any{db.WorkspaceID(), threadID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				round = stmt.ColumnInt(0)
 				return nil

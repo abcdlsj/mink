@@ -146,6 +146,7 @@ ON source_bindings(workspace_id, source_kind, source_id, thread_id);
 
 CREATE TABLE IF NOT EXISTS teams (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
   name TEXT NOT NULL,
   leader_agent_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
@@ -157,6 +158,7 @@ CREATE TABLE IF NOT EXISTS teams (
 );
 
 CREATE INDEX IF NOT EXISTS idx_teams_status ON teams(status);
+CREATE INDEX IF NOT EXISTS idx_teams_workspace_status ON teams(workspace_id, status, updated_at);
 
 CREATE TABLE IF NOT EXISTS team_members (
   team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
@@ -171,6 +173,7 @@ CREATE TABLE IF NOT EXISTS team_members (
 
 CREATE TABLE IF NOT EXISTS team_threads (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
   team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   title TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
@@ -181,6 +184,7 @@ CREATE TABLE IF NOT EXISTS team_threads (
 );
 
 CREATE INDEX IF NOT EXISTS idx_team_threads_team ON team_threads(team_id, status);
+CREATE INDEX IF NOT EXISTS idx_team_threads_workspace_team ON team_threads(workspace_id, team_id, status, updated_at);
 
 CREATE TABLE IF NOT EXISTS agent_identities (
   agent_id TEXT PRIMARY KEY,

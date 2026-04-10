@@ -523,6 +523,63 @@ func TestThreadCRUD(t *testing.T) {
 	}
 }
 
+func TestWorkspaceScopedTeamsAndThreads(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	ctx := context.Background()
+
+	dbA, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+
+	teamID, err := dbA.CreateTeam(ctx, "alpha", "agent:leader", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	threadID, err := dbA.CreateThread(ctx, teamID, "alpha-thread", "sess-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbB, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	teams, err := dbB.ListTeams(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(teams) != 0 {
+		t.Fatalf("expected no teams in workspace b, got %#v", teams)
+	}
+
+	threads, err := dbB.ListThreads(ctx, teamID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 0 {
+		t.Fatalf("expected no threads in workspace b, got %#v", threads)
+	}
+
+	if _, err := dbB.GetTeam(ctx, teamID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := dbB.GetThread(ctx, threadID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dbB.AddTeamMember(ctx, teamID, "agent:worker", "coder", "writes code", "persistent"); err == nil {
+		t.Fatal("expected cross-workspace add member to fail")
+	}
+	if _, err := dbB.CreateThread(ctx, teamID, "wrong-thread", "sess-b"); err == nil {
+		t.Fatal("expected cross-workspace create thread to fail")
+	}
+}
+
 func TestAgentIdentity(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

@@ -149,6 +149,8 @@ func migrate(conn *zsqlite.Conn) error {
 	for _, stmt := range []string{
 		`ALTER TABLE tasks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE source_bindings ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
+		`ALTER TABLE teams ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
+		`ALTER TABLE team_threads ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {
