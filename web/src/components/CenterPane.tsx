@@ -125,14 +125,13 @@ function ToolCallBlock({ call }: { call: ToolCall }) {
   return (
     <div className={styles.toolBlock}>
       <div className={styles.toolTitle}>tool: {call.name}</div>
-      {call.args && <pre className={styles.toolBody}>{call.args}</pre>}
+      <pre className={styles.toolBody}>{call.args || '(no arguments)'}</pre>
     </div>
   )
 }
 
 function ToolResultBlock({ result }: { result: ToolResult }) {
-  const body = result.error || result.content
-  if (!body) return null
+  const body = result.error || result.content || '(no output)'
   return (
     <div className={`${styles.toolBlock} ${result.error ? styles.toolError : styles.toolResult}`}>
       <div className={styles.toolTitle}>{result.error ? 'tool error' : 'tool result'}</div>
