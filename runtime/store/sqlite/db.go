@@ -158,6 +158,63 @@ func migrate(conn *zsqlite.Conn) error {
 			return err
 		}
 	}
+	if err := rebuildAgentIdentities(conn); err != nil {
+		return err
+	}
+	return nil
+}
+
+func rebuildAgentIdentities(conn *zsqlite.Conn) error {
+	if conn == nil {
+		return nil
+	}
+	legacy := true
+	if err := sqlitex.ExecuteTransient(conn, `
+		SELECT 1
+		FROM pragma_table_info('agent_identities')
+		WHERE name = 'workspace_id'
+		LIMIT 1
+	`, &sqlitex.ExecOptions{
+		ResultFunc: func(stmt *zsqlite.Stmt) error {
+			legacy = false
+			return nil
+		},
+	}); err != nil {
+		return err
+	}
+	if !legacy {
+		return nil
+	}
+	if err := sqlitex.ExecuteScript(conn, `
+		DROP TABLE IF EXISTS agent_identities_new;
+		CREATE TABLE agent_identities_new (
+		  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
+		  agent_id TEXT NOT NULL,
+		  display_name TEXT NOT NULL DEFAULT '',
+		  profile TEXT NOT NULL DEFAULT '',
+		  memory_scope TEXT NOT NULL DEFAULT '',
+		  tool_constraints_json TEXT NOT NULL DEFAULT '[]',
+		  metadata_json TEXT NOT NULL DEFAULT '{}',
+		  created_at TEXT NOT NULL,
+		  updated_at TEXT NOT NULL,
+		  PRIMARY KEY (workspace_id, agent_id)
+		);
+		INSERT INTO agent_identities_new (
+		  workspace_id, agent_id, display_name, profile, memory_scope, tool_constraints_json, metadata_json, created_at, updated_at
+		)
+		SELECT
+		  'ws_default', agent_id, display_name, profile, memory_scope,
+		  COALESCE(tool_constraints_json, '[]'),
+		  COALESCE(metadata_json, '{}'),
+		  created_at, updated_at
+		FROM agent_identities;
+		DROP TABLE agent_identities;
+		ALTER TABLE agent_identities_new RENAME TO agent_identities;
+		CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace_created
+		ON agent_identities(workspace_id, created_at);
+	`, nil); err != nil {
+		return err
+	}
 	return nil
 }
 

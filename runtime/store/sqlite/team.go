@@ -405,15 +405,15 @@ func (db *DB) UpsertAgentIdentity(ctx context.Context, agentID, displayName, pro
 	now := nowString()
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			INSERT INTO agent_identities (agent_id, display_name, profile, memory_scope, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(agent_id) DO UPDATE SET
+			INSERT INTO agent_identities (workspace_id, agent_id, display_name, profile, memory_scope, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(workspace_id, agent_id) DO UPDATE SET
 				display_name = excluded.display_name,
 				profile = excluded.profile,
 				memory_scope = excluded.memory_scope,
 				updated_at = excluded.updated_at
 		`, &sqlitex.ExecOptions{
-			Args: []any{agentID, displayName, profile, memoryScope, now, now},
+			Args: []any{db.WorkspaceID(), agentID, displayName, profile, memoryScope, now, now},
 		})
 	})
 }
@@ -426,9 +426,9 @@ func (db *DB) GetAgentIdentity(ctx context.Context, agentID string) (AgentIdenti
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT agent_id, display_name, profile, memory_scope, created_at, updated_at
-			FROM agent_identities WHERE agent_id = ?
+			FROM agent_identities WHERE workspace_id = ? AND agent_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{agentID},
+			Args: []any{db.WorkspaceID(), agentID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				a = AgentIdentity{
 					AgentID:     stmt.ColumnText(0),
@@ -453,8 +453,11 @@ func (db *DB) ListAgentIdentities(ctx context.Context) ([]AgentIdentity, error) 
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT agent_id, display_name, profile, memory_scope, created_at, updated_at
-			FROM agent_identities ORDER BY created_at ASC
+			FROM agent_identities
+			WHERE workspace_id = ?
+			ORDER BY created_at ASC
 		`, &sqlitex.ExecOptions{
+			Args: []any{db.WorkspaceID()},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				agents = append(agents, AgentIdentity{
 					AgentID:     stmt.ColumnText(0),

@@ -619,6 +619,63 @@ func TestAgentIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkspaceScopedAgentIdentity(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	ctx := context.Background()
+
+	dbA, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+
+	dbB, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	if err := dbA.UpsertAgentIdentity(ctx, "agent:coder", "Coder A", "writes service code", "team:a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbB.UpsertAgentIdentity(ctx, "agent:coder", "Coder B", "writes ui code", "team:b"); err != nil {
+		t.Fatal(err)
+	}
+
+	identA, err := dbA.GetAgentIdentity(ctx, "agent:coder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identA.DisplayName != "Coder A" {
+		t.Fatalf("expected workspace a identity, got %#v", identA)
+	}
+
+	identB, err := dbB.GetAgentIdentity(ctx, "agent:coder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identB.DisplayName != "Coder B" {
+		t.Fatalf("expected workspace b identity, got %#v", identB)
+	}
+
+	listA, err := dbA.ListAgentIdentities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listA) != 1 || listA[0].DisplayName != "Coder A" {
+		t.Fatalf("unexpected workspace a identities: %#v", listA)
+	}
+
+	listB, err := dbB.ListAgentIdentities(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listB) != 1 || listB[0].DisplayName != "Coder B" {
+		t.Fatalf("unexpected workspace b identities: %#v", listB)
+	}
+}
+
 func TestCompactAndReplay(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

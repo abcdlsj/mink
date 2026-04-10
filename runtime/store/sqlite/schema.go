@@ -187,13 +187,18 @@ CREATE INDEX IF NOT EXISTS idx_team_threads_team ON team_threads(team_id, status
 CREATE INDEX IF NOT EXISTS idx_team_threads_workspace_team ON team_threads(workspace_id, team_id, status, updated_at);
 
 CREATE TABLE IF NOT EXISTS agent_identities (
-  agent_id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
+  agent_id TEXT NOT NULL,
   display_name TEXT NOT NULL DEFAULT '',
   profile TEXT NOT NULL DEFAULT '',
   memory_scope TEXT NOT NULL DEFAULT '',
   tool_constraints_json TEXT NOT NULL DEFAULT '[]',
   metadata_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (workspace_id, agent_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace_created
+ON agent_identities(workspace_id, created_at);
 `
