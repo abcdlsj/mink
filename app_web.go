@@ -413,6 +413,9 @@ func (a *App) webMessagesForSource(src string) []platform.WebMessage {
 			ToolCalls:   a.webToolCalls(message.ToolCalls),
 			ToolResults: a.webToolResults(message.ToolResults),
 		}
+		if webMsg.Content == "" {
+			webMsg.Content = a.webFallbackContent(message)
+		}
 		if !a.webMessageVisible(webMsg) {
 			continue
 		}
@@ -458,6 +461,43 @@ func (a *App) webToolResults(results []msg.ToolResult) []platform.WebToolResult 
 		})
 	}
 	return out
+}
+
+func (a *App) webFallbackContent(message msg.Message) string {
+	switch message.Role {
+	case "assistant":
+		if len(message.ToolCalls) == 0 {
+			return ""
+		}
+		lines := make([]string, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			args := strings.TrimSpace(string(call.Args))
+			if args == "" || args == "null" {
+				lines = append(lines, fmt.Sprintf("tool: %s", call.Name))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("tool: %s %s", call.Name, compactLine(args, 200)))
+		}
+		return strings.Join(lines, "\n")
+	case "tool":
+		if len(message.ToolResults) == 0 {
+			return ""
+		}
+		lines := make([]string, 0, len(message.ToolResults))
+		for _, result := range message.ToolResults {
+			switch {
+			case strings.TrimSpace(result.Error) != "":
+				lines = append(lines, "tool error: "+compactLine(result.Error, 200))
+			case strings.TrimSpace(result.Content) != "":
+				lines = append(lines, compactLine(result.Content, 240))
+			default:
+				lines = append(lines, "tool result: (no output)")
+			}
+		}
+		return strings.Join(lines, "\n")
+	default:
+		return ""
+	}
 }
 
 func (a *App) webSenderName(message msg.Message) string {
