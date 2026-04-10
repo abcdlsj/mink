@@ -1,13 +1,6 @@
 import type { NavItem } from '../lib/api'
 import styles from './Rail.module.css'
 
-const NAV_ICONS: Record<string, string> = {
-  inbox: '📥',
-  main: '💬',
-  teams: '👥',
-  threads: '🧵',
-}
-
 interface RailProps {
   nav: NavItem[]
   onSelect: (id: string) => void
@@ -22,9 +15,8 @@ export function Rail({ nav, onSelect }: RailProps) {
           key={item.id}
           className={`${styles.navBtn} ${item.active ? styles.navBtnActive : ''}`}
           onClick={() => onSelect(item.id)}
-          title={item.label}
         >
-          {NAV_ICONS[item.id] ?? item.label.charAt(0)}
+          {item.label}
         </button>
       ))}
       <div className={styles.spacer} />
