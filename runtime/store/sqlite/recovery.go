@@ -30,11 +30,13 @@ func (db *DB) Recover(ctx context.Context) error {
 
 		var stale []staleRun
 		if err := sqlitex.ExecuteTransient(conn, `
-			SELECT task_id, id
+			SELECT runs.task_id, runs.id
 			FROM runs
-			WHERE status = 'running'
-			ORDER BY started_at ASC
+			JOIN tasks ON tasks.id = runs.task_id
+			WHERE runs.status = 'running' AND tasks.workspace_id = ?
+			ORDER BY runs.started_at ASC
 		`, &sqlitex.ExecOptions{
+			Args: []any{db.WorkspaceID()},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				stale = append(stale, staleRun{
 					TaskID: stmt.ColumnText(0),
@@ -73,9 +75,9 @@ func (db *DB) Recover(ctx context.Context) error {
 				UPDATE tasks
 				SET status = 'waiting',
 					updated_at = ?
-				WHERE id = ? AND status = 'running'
+				WHERE id = ? AND workspace_id = ? AND status = 'running'
 			`, &sqlitex.ExecOptions{
-				Args: []any{now, run.TaskID},
+				Args: []any{now, run.TaskID, db.WorkspaceID()},
 			}); err != nil {
 				return err
 			}

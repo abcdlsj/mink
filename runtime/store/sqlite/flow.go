@@ -84,7 +84,7 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 			}
 		}()
 
-		taskID, err := activeTaskID(conn, key)
+		taskID, err := db.activeTaskID(conn, key)
 		if err != nil {
 			return err
 		}
@@ -92,11 +92,11 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 			taskID = id.Task()
 			if err := sqlitex.ExecuteTransient(conn, `
 				INSERT INTO tasks (
-					id, kind, title, status, source_kind, source_id, thread_id,
+					id, workspace_id, kind, title, status, source_kind, source_id, thread_id,
 					current_run_id, metadata_json, created_at, updated_at
-				) VALUES (?, ?, ?, 'queued', ?, ?, ?, '', '{}', ?, ?)
+				) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, '', '{}', ?, ?)
 			`, &sqlitex.ExecOptions{
-				Args: []any{taskID, taskKind, trimTitle(title), key.Kind, key.ID, key.ThreadID, now, now},
+				Args: []any{taskID, db.WorkspaceID(), taskKind, trimTitle(title), key.Kind, key.ID, key.ThreadID, now, now},
 			}); err != nil {
 				return err
 			}
@@ -114,7 +114,7 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 				return err
 			}
 		} else {
-			status, err := taskStatus(conn, taskID)
+			status, err := db.taskStatus(conn, taskID)
 			if err != nil {
 				return err
 			}
@@ -122,11 +122,11 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 				taskID = id.Task()
 				if err := sqlitex.ExecuteTransient(conn, `
 					INSERT INTO tasks (
-						id, kind, title, status, source_kind, source_id, thread_id,
+						id, workspace_id, kind, title, status, source_kind, source_id, thread_id,
 						current_run_id, metadata_json, created_at, updated_at
-					) VALUES (?, ?, ?, 'queued', ?, ?, ?, '', '{}', ?, ?)
+					) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, '', '{}', ?, ?)
 				`, &sqlitex.ExecOptions{
-					Args: []any{taskID, taskKind, trimTitle(title), key.Kind, key.ID, key.ThreadID, now, now},
+					Args: []any{taskID, db.WorkspaceID(), taskKind, trimTitle(title), key.Kind, key.ID, key.ThreadID, now, now},
 				}); err != nil {
 					return err
 				}
@@ -148,15 +148,15 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT INTO source_bindings (
-				source_kind, source_id, thread_id, active_task_id, active_session_id, updated_at
-			) VALUES (?, ?, ?, ?, ?, ?)
-			ON CONFLICT(source_kind, source_id, thread_id)
+				workspace_id, source_kind, source_id, thread_id, active_task_id, active_session_id, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(workspace_id, source_kind, source_id, thread_id)
 			DO UPDATE SET
 				active_task_id = excluded.active_task_id,
 				active_session_id = excluded.active_session_id,
 				updated_at = excluded.updated_at
 		`, &sqlitex.ExecOptions{
-			Args: []any{key.Kind, key.ID, key.ThreadID, taskID, sessionID, now},
+			Args: []any{db.WorkspaceID(), key.Kind, key.ID, key.ThreadID, taskID, sessionID, now},
 		}); err != nil {
 			return err
 		}
@@ -174,9 +174,9 @@ func (db *DB) StartRun(ctx context.Context, source, sessionID, agentID, trigger,
 		if err := sqlitex.ExecuteTransient(conn, `
 			UPDATE tasks
 			SET status = 'running', current_run_id = ?, updated_at = ?
-			WHERE id = ?
+			WHERE id = ? AND workspace_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{state.RunID, now, taskID},
+			Args: []any{state.RunID, now, taskID, db.WorkspaceID()},
 		}); err != nil {
 			return err
 		}
@@ -244,9 +244,9 @@ func (db *DB) FinishRun(ctx context.Context, state RunState, runErr error) error
 		if err := sqlitex.ExecuteTransient(conn, `
 			UPDATE tasks
 			SET status = ?, updated_at = ?
-			WHERE id = ?
+			WHERE id = ? AND workspace_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{taskSt, now, state.TaskID},
+			Args: []any{taskSt, now, state.TaskID, db.WorkspaceID()},
 		}); err != nil {
 			return err
 		}
@@ -281,9 +281,9 @@ func (db *DB) ResetSource(ctx context.Context, source string) error {
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			DELETE FROM source_bindings
-			WHERE source_kind = ? AND source_id = ? AND thread_id = ?
+			WHERE workspace_id = ? AND source_kind = ? AND source_id = ? AND thread_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{key.Kind, key.ID, key.ThreadID},
+			Args: []any{db.WorkspaceID(), key.Kind, key.ID, key.ThreadID},
 		})
 	})
 }
@@ -327,14 +327,14 @@ func taskKind(trigger string) string {
 	}
 }
 
-func activeTaskID(conn *zsqlite.Conn, key sourceKey) (string, error) {
+func (db *DB) activeTaskID(conn *zsqlite.Conn, key sourceKey) (string, error) {
 	var taskID string
 	err := sqlitex.ExecuteTransient(conn, `
 		SELECT active_task_id
 		FROM source_bindings
-		WHERE source_kind = ? AND source_id = ? AND thread_id = ?
+		WHERE workspace_id = ? AND source_kind = ? AND source_id = ? AND thread_id = ?
 	`, &sqlitex.ExecOptions{
-		Args: []any{key.Kind, key.ID, key.ThreadID},
+		Args: []any{db.WorkspaceID(), key.Kind, key.ID, key.ThreadID},
 		ResultFunc: func(stmt *zsqlite.Stmt) error {
 			taskID = stmt.ColumnText(0)
 			return nil
@@ -352,7 +352,7 @@ func (db *DB) ResumeTask(ctx context.Context, taskID, agentID, sessionID, source
 	state := RunState{TaskID: taskID, RunID: id.Run()}
 
 	return state, db.Tx(ctx, func(conn *zsqlite.Conn) error {
-		status, err := taskStatus(conn, taskID)
+		status, err := db.taskStatus(conn, taskID)
 		if err != nil {
 			return err
 		}
@@ -373,9 +373,9 @@ func (db *DB) ResumeTask(ctx context.Context, taskID, agentID, sessionID, source
 		if err := sqlitex.ExecuteTransient(conn, `
 			UPDATE tasks
 			SET status = 'running', current_run_id = ?, updated_at = ?
-			WHERE id = ?
+			WHERE id = ? AND workspace_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{state.RunID, now, taskID},
+			Args: []any{state.RunID, now, taskID, db.WorkspaceID()},
 		}); err != nil {
 			return err
 		}
@@ -404,9 +404,9 @@ func (db *DB) CompleteTask(ctx context.Context, taskID string) error {
 		return sqlitex.ExecuteTransient(conn, `
 			UPDATE tasks
 			SET status = 'done', closed_at = ?, updated_at = ?
-			WHERE id = ?
+			WHERE id = ? AND workspace_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{now, now, taskID},
+			Args: []any{now, now, taskID, db.WorkspaceID()},
 		})
 	})
 }
@@ -420,9 +420,9 @@ func (db *DB) GetTask(ctx context.Context, taskID string) (TaskInfo, error) {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT id, kind, title, status, priority, source_kind, source_id, thread_id,
 				COALESCE(parent_task_id, ''), current_run_id, created_at, updated_at, COALESCE(closed_at, '')
-			FROM tasks WHERE id = ?
+			FROM tasks WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{taskID},
+			Args: []any{db.WorkspaceID(), taskID},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				t = TaskInfo{
 					ID:           stmt.ColumnText(0),
@@ -454,8 +454,8 @@ func (db *DB) ListTasks(ctx context.Context, opts TaskListOptions) ([]TaskInfo, 
 		opts.Limit = 50
 	}
 
-	var where []string
-	var args []any
+	where := []string{"workspace_id = ?"}
+	args := []any{db.WorkspaceID()}
 	if opts.Status != "" {
 		where = append(where, "status = ?")
 		args = append(args, string(opts.Status))
@@ -518,11 +518,11 @@ func (db *DB) CreateChildTask(ctx context.Context, parentTaskID, kind, title, ag
 	return taskID, db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT INTO tasks (
-				id, kind, title, status, source_kind, source_id, thread_id,
+				id, workspace_id, kind, title, status, source_kind, source_id, thread_id,
 				parent_task_id, current_run_id, metadata_json, created_at, updated_at
-			) VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, '', '{}', ?, ?)
+			) VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?, '', '{}', ?, ?)
 		`, &sqlitex.ExecOptions{
-			Args: []any{taskID, kind, trimTitle(title), key.Kind, key.ID, key.ThreadID, parentTaskID, now, now},
+			Args: []any{taskID, db.WorkspaceID(), kind, trimTitle(title), key.Kind, key.ID, key.ThreadID, parentTaskID, now, now},
 		}); err != nil {
 			return err
 		}
@@ -541,12 +541,12 @@ func (db *DB) CreateChildTask(ctx context.Context, parentTaskID, kind, title, ag
 	})
 }
 
-func taskStatus(conn *zsqlite.Conn, taskID string) (TaskStatus, error) {
+func (db *DB) taskStatus(conn *zsqlite.Conn, taskID string) (TaskStatus, error) {
 	var status TaskStatus
 	err := sqlitex.ExecuteTransient(conn, `
-		SELECT status FROM tasks WHERE id = ?
+		SELECT status FROM tasks WHERE workspace_id = ? AND id = ?
 	`, &sqlitex.ExecOptions{
-		Args: []any{taskID},
+		Args: []any{db.WorkspaceID(), taskID},
 		ResultFunc: func(stmt *zsqlite.Stmt) error {
 			status = TaskStatus(stmt.ColumnText(0))
 			return nil

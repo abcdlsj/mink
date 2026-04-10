@@ -738,7 +738,7 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 		deps.sessionDir = defaultSessionDir(deps.workspace)
 	}
 	deps.memoryDir = defaultMemoryDir()
-	runtimeDB, err := rtsqlite.Open(defaultRuntimeDBPath(), rtsqlite.OpenOptions{})
+	runtimeDB, err := rtsqlite.Open(defaultRuntimeDBPath(), rtsqlite.OpenOptions{Workspace: deps.workspace})
 	if err != nil {
 		if opts.SessionStore == nil {
 			return runtimeDeps{}, err

@@ -23,8 +23,9 @@ func (db *DB) SessionBindings(ctx context.Context) (map[string]string, error) {
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT source_id, active_session_id
 			FROM source_bindings
-			WHERE active_session_id <> ''
+			WHERE workspace_id = ? AND active_session_id <> ''
 		`, &sqlitex.ExecOptions{
+			Args: []any{db.WorkspaceID()},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				out[stmt.ColumnText(0)] = stmt.ColumnText(1)
 				return nil
@@ -43,8 +44,9 @@ func (db *DB) TeamSourceBindings(ctx context.Context) ([]TeamSourceBinding, erro
 		return sqlitex.ExecuteTransient(conn, `
 			SELECT source_id, team_id, team_thread_id
 			FROM source_bindings
-			WHERE team_id <> '' AND team_thread_id <> ''
+			WHERE workspace_id = ? AND team_id <> '' AND team_thread_id <> ''
 		`, &sqlitex.ExecOptions{
+			Args: []any{db.WorkspaceID()},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				out = append(out, TeamSourceBinding{
 					Source:   stmt.ColumnText(0),
@@ -67,15 +69,15 @@ func (db *DB) UpsertTeamSourceBinding(ctx context.Context, source, teamID, teamT
 	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
 			INSERT INTO source_bindings (
-				source_kind, source_id, thread_id, active_task_id, active_session_id, team_id, team_thread_id, updated_at
-			) VALUES (?, ?, ?, '', '', ?, ?, ?)
-			ON CONFLICT(source_kind, source_id, thread_id)
+				workspace_id, source_kind, source_id, thread_id, active_task_id, active_session_id, team_id, team_thread_id, updated_at
+			) VALUES (?, ?, ?, ?, '', '', ?, ?, ?)
+			ON CONFLICT(workspace_id, source_kind, source_id, thread_id)
 			DO UPDATE SET
 				team_id = excluded.team_id,
 				team_thread_id = excluded.team_thread_id,
 				updated_at = excluded.updated_at
 		`, &sqlitex.ExecOptions{
-			Args: []any{key.Kind, key.ID, key.ThreadID, teamID, teamThreadID, now},
+			Args: []any{db.WorkspaceID(), key.Kind, key.ID, key.ThreadID, teamID, teamThreadID, now},
 		})
 	})
 }
@@ -89,9 +91,9 @@ func (db *DB) ClearTeamSourceBinding(ctx context.Context, source string) error {
 		return sqlitex.ExecuteTransient(conn, `
 			UPDATE source_bindings
 			SET team_id = '', team_thread_id = '', updated_at = ?
-			WHERE source_kind = ? AND source_id = ? AND thread_id = ?
+			WHERE workspace_id = ? AND source_kind = ? AND source_id = ? AND thread_id = ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{nowString(), key.Kind, key.ID, key.ThreadID},
+			Args: []any{nowString(), db.WorkspaceID(), key.Kind, key.ID, key.ThreadID},
 		})
 	})
 }

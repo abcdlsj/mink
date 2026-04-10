@@ -30,6 +30,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_workspace_updated ON sessions(workspace_
 
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   status TEXT NOT NULL,
@@ -47,6 +48,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status_updated ON tasks(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_updated ON tasks(workspace_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_workspace_source ON tasks(workspace_id, source_kind, source_id, thread_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_source ON tasks(source_kind, source_id, thread_id);
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -126,6 +129,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memory_docs_fts USING fts5(
 );
 
 CREATE TABLE IF NOT EXISTS source_bindings (
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
   source_kind TEXT NOT NULL,
   source_id TEXT NOT NULL,
   thread_id TEXT NOT NULL DEFAULT '',
@@ -134,8 +138,11 @@ CREATE TABLE IF NOT EXISTS source_bindings (
   team_id TEXT NOT NULL DEFAULT '',
   team_thread_id TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL,
-  PRIMARY KEY (source_kind, source_id, thread_id)
+  PRIMARY KEY (workspace_id, source_kind, source_id, thread_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_bindings_workspace_key
+ON source_bindings(workspace_id, source_kind, source_id, thread_id);
 
 CREATE TABLE IF NOT EXISTS teams (
   id TEXT PRIMARY KEY,

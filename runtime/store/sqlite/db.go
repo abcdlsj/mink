@@ -12,12 +12,16 @@ import (
 )
 
 type OpenOptions struct {
-	PoolSize int
+	PoolSize  int
+	Workspace string
 }
 
 type DB struct {
-	path string
-	pool *sqlitex.Pool
+	path          string
+	pool          *sqlitex.Pool
+	workspaceID   string
+	workspacePath string
+	workspaceName string
 }
 
 func Open(path string, opts OpenOptions) (*DB, error) {
@@ -35,12 +39,21 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 		return nil, err
 	}
 
-	db := &DB{path: path, pool: pool}
+	db := &DB{
+		path:          path,
+		pool:          pool,
+		workspaceID:   workspaceID(opts.Workspace),
+		workspacePath: strings.TrimSpace(opts.Workspace),
+		workspaceName: workspaceName(opts.Workspace),
+	}
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
 			return err
 		}
-		return migrate(conn)
+		if err := migrate(conn); err != nil {
+			return err
+		}
+		return db.ensureWorkspace(conn)
 	}); err != nil {
 		_ = pool.Close()
 		return nil, err
@@ -50,6 +63,16 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 
 func (db *DB) Path() string {
 	return db.path
+}
+
+func (db *DB) WorkspaceID() string {
+	if db == nil {
+		return defaultWorkspaceID
+	}
+	if db.workspaceID == "" {
+		return defaultWorkspaceID
+	}
+	return db.workspaceID
 }
 
 func (db *DB) Close() error {
@@ -124,6 +147,8 @@ func prepare(conn *zsqlite.Conn) error {
 
 func migrate(conn *zsqlite.Conn) error {
 	for _, stmt := range []string{
+		`ALTER TABLE tasks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
+		`ALTER TABLE source_bindings ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {
@@ -134,11 +159,37 @@ func migrate(conn *zsqlite.Conn) error {
 	return nil
 }
 
+func (db *DB) ensureWorkspace(conn *zsqlite.Conn) error {
+	if db == nil || conn == nil {
+		return nil
+	}
+	now := nowString()
+	return sqlitex.ExecuteTransient(conn, `
+		INSERT INTO workspaces (id, path, name, kind, status, metadata_json, created_at, updated_at)
+		VALUES (?, ?, ?, 'local', 'active', '{}', ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			path = excluded.path,
+			name = excluded.name,
+			updated_at = excluded.updated_at
+	`, &sqlitex.ExecOptions{
+		Args: []any{
+			db.WorkspaceID(),
+			db.workspacePath,
+			db.workspaceName,
+			now,
+			now,
+		},
+	})
+}
+
 func isDuplicateColumnErr(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := err.Error()
+	if strings.Contains(msg, "duplicate column name: workspace_id") {
+		return true
+	}
 	return strings.Contains(msg, "duplicate column name: team_id") ||
 		strings.Contains(msg, "duplicate column name: team_thread_id")
 }

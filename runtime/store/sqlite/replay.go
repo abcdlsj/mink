@@ -29,7 +29,7 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 	key := parseSource(source)
 	var events []storedEvent
 	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		taskID, err := taskIDForSource(conn, key)
+		taskID, err := db.taskIDForSource(conn, key)
 		if err != nil {
 			return err
 		}
@@ -163,13 +163,13 @@ func (db *DB) MessagesForRun(ctx context.Context, runID string, limit int) ([]ms
 
 func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	type payload struct {
-		ID        string          `json:"id"`
-		Content   string          `json:"content"`
-		Output    string          `json:"output"`
-		Error     string          `json:"error"`
-		Name      string          `json:"name"`
-		Args      json.RawMessage `json:"args"`
-		AgentID   string          `json:"agent_id"`
+		ID      string          `json:"id"`
+		Content string          `json:"content"`
+		Output  string          `json:"output"`
+		Error   string          `json:"error"`
+		Name    string          `json:"name"`
+		Args    json.RawMessage `json:"args"`
+		AgentID string          `json:"agent_id"`
 	}
 	var p payload
 	if ev.Payload != "" {
@@ -248,19 +248,19 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	}
 }
 
-func taskIDForSource(conn *zsqlite.Conn, key sourceKey) (string, error) {
-	taskID, err := activeTaskID(conn, key)
+func (db *DB) taskIDForSource(conn *zsqlite.Conn, key sourceKey) (string, error) {
+	taskID, err := db.activeTaskID(conn, key)
 	if err != nil || taskID != "" {
 		return taskID, err
 	}
 	err = sqlitex.ExecuteTransient(conn, `
 		SELECT id
 		FROM tasks
-		WHERE source_kind = ? AND source_id = ? AND thread_id = ?
+		WHERE workspace_id = ? AND source_kind = ? AND source_id = ? AND thread_id = ?
 		ORDER BY updated_at DESC
 		LIMIT 1
 	`, &sqlitex.ExecOptions{
-		Args: []any{key.Kind, key.ID, key.ThreadID},
+		Args: []any{db.WorkspaceID(), key.Kind, key.ID, key.ThreadID},
 		ResultFunc: func(stmt *zsqlite.Stmt) error {
 			taskID = stmt.ColumnText(0)
 			return nil

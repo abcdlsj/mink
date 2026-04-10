@@ -207,6 +207,77 @@ func TestRecoveryAndResume(t *testing.T) {
 	}
 }
 
+func TestWorkspaceScopedRuntimeState(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	ctx := context.Background()
+
+	dbA, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbA.Close()
+
+	state, err := dbA.StartRun(ctx, "cli:shared", "sess-a", "agent:main", "user_input", "hello from a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bindingsA, err := dbA.SessionBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bindingsA["cli:shared"] != "sess-a" {
+		t.Fatalf("expected workspace a binding, got %#v", bindingsA)
+	}
+
+	dbB, err := sqlite.Open(dbPath, sqlite.OpenOptions{PoolSize: 1, Workspace: "/tmp/ws-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dbB.Close()
+
+	bindingsB, err := dbB.SessionBindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindingsB) != 0 {
+		t.Fatalf("expected no bindings for workspace b, got %#v", bindingsB)
+	}
+
+	tasksB, err := dbB.ListTasks(ctx, sqlite.TaskListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasksB) != 0 {
+		t.Fatalf("expected no tasks for workspace b, got %#v", tasksB)
+	}
+
+	if err := dbB.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := dbA.GetTask(ctx, state.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != sqlite.TaskRunning {
+		t.Fatalf("expected workspace a task to stay running after workspace b recovery, got %s", task.Status)
+	}
+
+	if err := dbA.Recover(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err = dbA.GetTask(ctx, state.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != sqlite.TaskWaiting {
+		t.Fatalf("expected workspace a task to recover to waiting, got %s", task.Status)
+	}
+}
+
 func TestSessionDerivation(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

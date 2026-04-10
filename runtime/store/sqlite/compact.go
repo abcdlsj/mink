@@ -24,7 +24,7 @@ func (db *DB) CompactSource(ctx context.Context, source, summary, note string) e
 			}
 		}()
 
-		taskID, err := taskIDForSource(conn, key)
+		taskID, err := db.taskIDForSource(conn, key)
 		if err != nil || taskID == "" {
 			return err
 		}
