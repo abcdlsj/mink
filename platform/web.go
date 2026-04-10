@@ -32,12 +32,24 @@ type WebIndexGroup struct {
 }
 
 type WebMessage struct {
-	Role       string `json:"role"`
-	Sender     string `json:"sender"`
-	Descriptor string `json:"descriptor,omitempty"`
-	Time       string `json:"time,omitempty"`
-	Content    string `json:"content,omitempty"`
-	Reasoning  string `json:"reasoning,omitempty"`
+	Role        string          `json:"role"`
+	Sender      string          `json:"sender"`
+	Descriptor  string          `json:"descriptor,omitempty"`
+	Time        string          `json:"time,omitempty"`
+	Content     string          `json:"content,omitempty"`
+	Reasoning   string          `json:"reasoning,omitempty"`
+	ToolCalls   []WebToolCall   `json:"toolCalls,omitempty"`
+	ToolResults []WebToolResult `json:"toolResults,omitempty"`
+}
+
+type WebToolCall struct {
+	Name string `json:"name"`
+	Args string `json:"args,omitempty"`
+}
+
+type WebToolResult struct {
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type WebCard struct {

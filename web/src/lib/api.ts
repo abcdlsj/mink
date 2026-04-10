@@ -24,6 +24,18 @@ export interface Message {
   time?: string
   content?: string
   reasoning?: string
+  toolCalls?: ToolCall[]
+  toolResults?: ToolResult[]
+}
+
+export interface ToolCall {
+  name: string
+  args?: string
+}
+
+export interface ToolResult {
+  content?: string
+  error?: string
 }
 
 export interface Card {

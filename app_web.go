@@ -402,13 +402,58 @@ func (a *App) webMessagesForSource(src string) []platform.WebMessage {
 	msgs := sess.View().Messages
 	out := make([]platform.WebMessage, 0, len(msgs))
 	for _, message := range msgs {
-		out = append(out, platform.WebMessage{
-			Role:       message.Role,
-			Sender:     a.webSenderName(message),
-			Descriptor: a.webDescriptor(message),
-			Time:       webTime(message.Timestamp),
-			Content:    message.Content,
-			Reasoning:  message.Reasoning,
+		webMsg := platform.WebMessage{
+			Role:        message.Role,
+			Sender:      a.webSenderName(message),
+			Descriptor:  a.webDescriptor(message),
+			Time:        webTime(message.Timestamp),
+			Content:     strings.TrimSpace(message.Content),
+			Reasoning:   strings.TrimSpace(message.Reasoning),
+			ToolCalls:   a.webToolCalls(message.ToolCalls),
+			ToolResults: a.webToolResults(message.ToolResults),
+		}
+		if !a.webMessageVisible(webMsg) {
+			continue
+		}
+		out = append(out, webMsg)
+	}
+	return out
+}
+
+func (a *App) webMessageVisible(message platform.WebMessage) bool {
+	return message.Content != "" ||
+		message.Reasoning != "" ||
+		len(message.ToolCalls) > 0 ||
+		len(message.ToolResults) > 0
+}
+
+func (a *App) webToolCalls(calls []msg.ToolCall) []platform.WebToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]platform.WebToolCall, 0, len(calls))
+	for _, call := range calls {
+		args := strings.TrimSpace(string(call.Args))
+		if args == "" || args == "null" {
+			args = ""
+		}
+		out = append(out, platform.WebToolCall{
+			Name: call.Name,
+			Args: args,
+		})
+	}
+	return out
+}
+
+func (a *App) webToolResults(results []msg.ToolResult) []platform.WebToolResult {
+	if len(results) == 0 {
+		return nil
+	}
+	out := make([]platform.WebToolResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, platform.WebToolResult{
+			Content: strings.TrimSpace(result.Content),
+			Error:   strings.TrimSpace(result.Error),
 		})
 	}
 	return out
@@ -420,6 +465,8 @@ func (a *App) webSenderName(message msg.Message) string {
 		return "You"
 	case "system":
 		return "System"
+	case "tool":
+		return "Tool"
 	}
 	if message.AgentID == "" || message.AgentID == bus.AddrAgentMain {
 		return "Mink"
@@ -448,6 +495,8 @@ func (a *App) webDescriptor(message msg.Message) string {
 		return "Owner"
 	case "system":
 		return "System"
+	case "tool":
+		return "Tool"
 	default:
 		return ""
 	}

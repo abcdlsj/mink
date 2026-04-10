@@ -77,6 +77,11 @@
   max-width: 70%;
 }
 
+.msgTool {
+  align-self: stretch;
+  max-width: 100%;
+}
+
 .msgHeader {
   display: flex;
   align-items: baseline;
@@ -128,6 +133,14 @@
   font-style: italic;
 }
 
+.msgTool .msgContent {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  border: var(--border);
+}
+
 .reasoning {
   font-size: var(--text-sm);
   color: var(--color-muted);
@@ -139,6 +152,47 @@
   word-break: break-word;
   max-height: 120px;
   overflow-y: auto;
+}
+
+.toolStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.toolBlock {
+  background: var(--color-paper);
+  border: var(--border);
+  border-left: 3px solid var(--color-accent-yellow);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.toolResult {
+  border-left-color: var(--color-accent-blue);
+}
+
+.toolError {
+  border-left-color: var(--color-accent-pink);
+}
+
+.toolTitle {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-xs);
+}
+
+.toolBody {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-ink);
 }
 
 .cards {

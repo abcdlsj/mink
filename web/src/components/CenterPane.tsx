@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { Message, Card } from '../lib/api'
+import type { Message, Card, ToolCall, ToolResult } from '../lib/api'
 import styles from './CenterPane.module.css'
 
 interface CenterPaneProps {
@@ -86,6 +86,7 @@ export function CenterPane({
 function MessageBubble({ msg }: { msg: Message }) {
   const roleClass =
     msg.role === 'user' ? styles.msgUser :
+    msg.role === 'tool' ? styles.msgTool :
     msg.role === 'assistant' ? styles.msgAssistant :
     styles.msgSystem
 
@@ -99,9 +100,43 @@ function MessageBubble({ msg }: { msg: Message }) {
       {msg.reasoning && (
         <div className={styles.reasoning}>{msg.reasoning}</div>
       )}
+      {msg.toolCalls && msg.toolCalls.length > 0 && (
+        <div className={styles.toolStack}>
+          {msg.toolCalls.map((call, i) => (
+            <ToolCallBlock key={`${call.name}-${i}`} call={call} />
+          ))}
+        </div>
+      )}
+      {msg.toolResults && msg.toolResults.length > 0 && (
+        <div className={styles.toolStack}>
+          {msg.toolResults.map((result, i) => (
+            <ToolResultBlock key={i} result={result} />
+          ))}
+        </div>
+      )}
       {msg.content && (
         <div className={styles.msgContent}>{msg.content}</div>
       )}
+    </div>
+  )
+}
+
+function ToolCallBlock({ call }: { call: ToolCall }) {
+  return (
+    <div className={styles.toolBlock}>
+      <div className={styles.toolTitle}>tool: {call.name}</div>
+      {call.args && <pre className={styles.toolBody}>{call.args}</pre>}
+    </div>
+  )
+}
+
+function ToolResultBlock({ result }: { result: ToolResult }) {
+  const body = result.error || result.content
+  if (!body) return null
+  return (
+    <div className={`${styles.toolBlock} ${result.error ? styles.toolError : styles.toolResult}`}>
+      <div className={styles.toolTitle}>{result.error ? 'tool error' : 'tool result'}</div>
+      <pre className={styles.toolBody}>{body}</pre>
     </div>
   )
 }
