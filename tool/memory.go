@@ -118,7 +118,8 @@ func (r scopeResolver) search(ctx context.Context, kind, key string) ([]memory.S
 	}
 	if scope, ok := r.identity(ctx); ok {
 		add(scope)
-	} else if strings.TrimSpace(r.agentID) != "" {
+	}
+	if strings.TrimSpace(r.agentID) != "" {
 		add(memory.AgentScope(r.agentID))
 	}
 	if r.rt != nil {

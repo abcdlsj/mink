@@ -72,3 +72,36 @@ func TestSearchMemoryDefaultsToContextScopes(t *testing.T) {
 		t.Fatalf("expected workspace scope in output: %s", out)
 	}
 }
+
+func TestSearchMemoryIncludesIdentityAndAgentScopes(t *testing.T) {
+	mem, db := testMemoryStore(t)
+	ctx := context.Background()
+
+	if err := db.UpsertAgentIdentity(ctx, "agent:debug", "Debug", "handles incidents", "team:red"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mem.PutScoped(ctx, memory.TeamScope("red"), memory.Doc{
+		Title: "Team note",
+		Body:  "rollback checklist",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mem.PutScoped(ctx, memory.AgentScope("agent:debug"), memory.Doc{
+		Title: "Private note",
+		Body:  "rollback checklist",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewSearchMemory(mem, db, "agent:debug")
+	out, err := tool.Run(ctx, json.RawMessage(`{"query":"rollback checklist","limit":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "team:red") {
+		t.Fatalf("expected identity scope in output: %s", out)
+	}
+	if !strings.Contains(out, "agent:agent:debug") {
+		t.Fatalf("expected agent scope in output: %s", out)
+	}
+}
