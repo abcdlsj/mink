@@ -148,60 +148,20 @@
 .toolStack {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: 2px;
 }
 
-.toolBlock {
-  background: var(--color-paper);
-  border: var(--border);
-  border-left: 3px solid var(--color-accent-yellow);
-  border-radius: var(--radius-sm);
-  padding: var(--space-sm) var(--space-md);
-}
-
-.toolResult {
-  border-left-color: var(--color-accent-blue);
-}
-
-.toolError {
-  border-left-color: var(--color-accent-pink);
-}
-
-.toolToggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  cursor: pointer;
-  user-select: none;
-}
-
-.toolToggle:hover .toolTitle {
-  color: var(--color-ink);
-}
-
-.toolArrow {
-  font-size: 10px;
-  color: var(--color-dim);
-  flex-shrink: 0;
-  width: 12px;
-}
-
-.toolTitle {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.toolBody {
-  margin: var(--space-xs) 0 0 0;
+.toolLine {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  color: var(--color-muted);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--color-ink);
+}
+
+.toolLineError {
+  color: var(--color-accent-pink);
 }
 
 .cards {
