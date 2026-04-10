@@ -94,7 +94,7 @@ func New(opts Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
+	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir, workspacePlatformSource("cli", deps.workspace))
 
 	app := &App{
 		cfg:        deps.cfg,
@@ -191,11 +191,12 @@ func (a *App) StartCLI(ctx context.Context) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
-	if _, err := a.prepareFreshSource(runCtx, bus.AddrPlatformCLI); err != nil {
+	cliSource := a.cliSource()
+	if _, err := a.prepareFreshSource(runCtx, cliSource); err != nil {
 		return err
 	}
 
-	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(bus.AddrPlatformCLI))
+	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(cliSource), cliSource)
 	if err := cli.Start(runCtx); err != nil {
 		return err
 	}
@@ -213,7 +214,7 @@ func (a *App) StartCLI(ctx context.Context) error {
 
 	a.cli = cli
 	a.adapters = append(a.adapters, cli)
-	a.guard.Register(bus.AddrPlatformCLI, cli)
+	a.guard.Register(cliSource, cli)
 	return nil
 }
 
@@ -520,15 +521,16 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 	if home != "" && strings.HasPrefix(ws, home) {
 		ws = "~" + ws[len(home):]
 	}
+	cliSource := a.cliSource()
 
 	return func() platform.StatusInfo {
 		a.mu.Lock()
 		model := a.cfg.ActiveModel
 		a.mu.Unlock()
 
-		u, _ := a.disp.Usage(bus.AddrPlatformCLI)
+		u, _ := a.disp.Usage(cliSource)
 
-		sessID, _ := a.sm.CurrentID(bus.AddrPlatformCLI)
+		sessID, _ := a.sm.CurrentID(cliSource)
 
 		var agents []platform.AgentInfo
 		if a.reg != nil {
@@ -566,7 +568,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 			Workspace: ws,
 			Session:   sessID,
 			Agents:    agents,
-			Team:      a.teamStatusForSource(context.Background(), bus.AddrPlatformCLI),
+			Team:      a.teamStatusForSource(context.Background(), cliSource),
 		}
 	}
 }
@@ -779,6 +781,13 @@ func workspacePlatformSource(kind, workspace string) string {
 	return bus.Platform(kind + ":" + workspaceScopeID(workspace))
 }
 
+func (a *App) cliSource() string {
+	if a == nil {
+		return bus.AddrPlatformCLI
+	}
+	return workspacePlatformSource("cli", a.workspace)
+}
+
 func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *command.GuardMux) {
 	cmdReg := command.NewRegistry()
 	cmdReg.Register(command.NewHelpCmd(cmdReg))
@@ -857,13 +866,13 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	return sm, sup, disp, reg, cronSched, nil
 }
 
-func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir string) {
+func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir, cliSource string) {
 	if compact := command.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
 	cmdReg.Register(command.NewReplayCmd(sm, sessionDir))
 	cmdReg.Register(command.NewToolsCmd(func() []tool.Tool {
-		if a := disp.Agent(bus.AddrPlatformCLI); a != nil && a.Tools() != nil {
+		if a := disp.Agent(cliSource); a != nil && a.Tools() != nil {
 			return a.Tools().All()
 		}
 		reg := tool.NewRegistry(nil)

@@ -149,6 +149,7 @@ type CLI struct {
 	hooks     *hook.Manager
 	statusFn  func() StatusInfo
 	sessionFn func() []msg.Message
+	source    string
 	stop      chan struct{}
 
 	program *tea.Program
@@ -161,18 +162,26 @@ type CLI struct {
 	confirmQ  string
 }
 
-func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager, sf func() StatusInfo, sessionFn func() []msg.Message) *CLI {
+func NewCLI(b *bus.Bus, r *command.Router, h *hook.Manager, sf func() StatusInfo, sessionFn func() []msg.Message, source string) *CLI {
 	return &CLI{
 		bus:       b,
 		router:    r,
 		hooks:     h,
 		statusFn:  sf,
 		sessionFn: sessionFn,
+		source:    source,
 		stop:      make(chan struct{}),
 	}
 }
 
 func (c *CLI) ID() string { return "cli" }
+
+func (c *CLI) Source() string {
+	if c == nil || c.source == "" {
+		return bus.AddrPlatformCLI
+	}
+	return c.source
+}
 
 func (c *CLI) Start(ctx context.Context) error {
 	c.subscribeMessages(ctx)

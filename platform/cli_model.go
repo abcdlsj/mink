@@ -224,7 +224,8 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	m.appendOutput(stylePrompt.Render("» ") + text)
 
-	ctx := bus.WithSource(context.Background(), bus.AddrPlatformCLI)
+	src := m.cli.Source()
+	ctx := bus.WithSource(context.Background(), src)
 
 	m.cli.hooks.Trigger(ctx, hook.BeforeInput, text)
 
@@ -243,7 +244,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 
 	_ = m.cli.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
-		From:    bus.AddrPlatformCLI,
+		From:    src,
 		To:      bus.AddrAgentMain,
 		Payload: text,
 	})
@@ -261,7 +262,7 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 
 	_ = m.cli.bus.Pub(bus.Msg{
 		Type:    bus.TypeInterrupt,
-		From:    bus.AddrPlatformCLI,
+		From:    m.cli.Source(),
 		To:      bus.AddrAgentMain,
 		Payload: "user interrupted",
 	})

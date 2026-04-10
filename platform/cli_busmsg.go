@@ -103,7 +103,11 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) isRelevantMsg(msg bus.Msg) bool {
-	if msg.To == bus.AddrBroadcast || msg.To == bus.AddrPlatformCLI {
+	src := bus.AddrPlatformCLI
+	if m.cli != nil {
+		src = m.cli.Source()
+	}
+	if msg.To == bus.AddrBroadcast || msg.To == src {
 		return true
 	}
 	switch msg.Type {

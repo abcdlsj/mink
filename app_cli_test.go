@@ -15,6 +15,7 @@ func TestPrepareFreshCLISourceResetsRecoveredBinding(t *testing.T) {
 	store := session.NewFileStore(t.TempDir())
 	eventBus := bus.New()
 	sm := session.NewManager(store, eventBus)
+	workspace := filepath.Join(t.TempDir(), "ws")
 
 	rt, err := rtsqlite.Open(filepath.Join(t.TempDir(), "runtime.db"), rtsqlite.OpenOptions{})
 	if err != nil {
@@ -22,20 +23,22 @@ func TestPrepareFreshCLISourceResetsRecoveredBinding(t *testing.T) {
 	}
 	defer rt.Close()
 
-	oldSession, err := sm.ResetSource(bus.AddrPlatformCLI)
+	app := &App{sm: sm, rt: rt, workspace: workspace}
+	src := app.cliSource()
+
+	oldSession, err := sm.ResetSource(src)
 	if err != nil {
 		t.Fatalf("seed old session: %v", err)
 	}
-	if _, err := rt.StartRun(ctx, bus.AddrPlatformCLI, oldSession.ID(), bus.AddrAgentMain, "user_input", "hello"); err != nil {
+	if _, err := rt.StartRun(ctx, src, oldSession.ID(), bus.AddrAgentMain, "user_input", "hello"); err != nil {
 		t.Fatalf("seed runtime binding: %v", err)
 	}
 
-	app := &App{sm: sm, rt: rt}
-	if _, err := app.prepareFreshSource(ctx, bus.AddrPlatformCLI); err != nil {
+	if _, err := app.prepareFreshSource(ctx, src); err != nil {
 		t.Fatalf("prepare fresh cli source: %v", err)
 	}
 
-	currentID, ok := sm.CurrentID(bus.AddrPlatformCLI)
+	currentID, ok := sm.CurrentID(src)
 	if !ok {
 		t.Fatalf("expected current cli session")
 	}
@@ -47,7 +50,7 @@ func TestPrepareFreshCLISourceResetsRecoveredBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load session bindings: %v", err)
 	}
-	if _, ok := bindings[bus.AddrPlatformCLI]; ok {
-		t.Fatalf("expected runtime binding for cli source to be cleared, got %#v", bindings[bus.AddrPlatformCLI])
+	if _, ok := bindings[src]; ok {
+		t.Fatalf("expected runtime binding for cli source to be cleared, got %#v", bindings[src])
 	}
 }

@@ -13,7 +13,7 @@ import (
 func (a *App) sourceFromContext(ctx context.Context) string {
 	src := strings.TrimSpace(bus.SourceFrom(ctx))
 	if src == "" {
-		return bus.AddrPlatformCLI
+		return a.cliSource()
 	}
 	return src
 }
