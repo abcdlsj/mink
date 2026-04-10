@@ -137,6 +137,11 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 			a.reg = tool.NewRegistry(nil)
 		}
 	}
+	if a.mem != nil {
+		a.reg.Register(tool.NewSearchMemory(a.mem, a.rt, id))
+		a.reg.Register(tool.NewReadMemory(a.mem, a.rt, id))
+		a.reg.Register(tool.NewWriteMemory(a.mem, a.rt, id))
+	}
 	if a.guard != nil {
 		a.reg.SetGuard(a.guard)
 	}
