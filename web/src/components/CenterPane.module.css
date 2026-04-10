@@ -176,17 +176,35 @@
   border-left-color: var(--color-accent-pink);
 }
 
+.toolToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toolToggle:hover .toolTitle {
+  color: var(--color-ink);
+}
+
+.toolArrow {
+  font-size: 10px;
+  color: var(--color-dim);
+  flex-shrink: 0;
+  width: 12px;
+}
+
 .toolTitle {
   font-size: var(--text-xs);
   font-weight: 600;
   color: var(--color-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: var(--space-xs);
 }
 
 .toolBody {
-  margin: 0;
+  margin: var(--space-xs) 0 0 0;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.5;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Message, Card, ToolCall, ToolResult } from '../lib/api'
 import styles from './CenterPane.module.css'
 
@@ -122,20 +122,29 @@ function MessageBubble({ msg }: { msg: Message }) {
 }
 
 function ToolCallBlock({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false)
   return (
     <div className={styles.toolBlock}>
-      <div className={styles.toolTitle}>tool: {call.name}</div>
-      <pre className={styles.toolBody}>{call.args || '(no arguments)'}</pre>
+      <div className={styles.toolToggle} onClick={() => setOpen(!open)}>
+        <span className={styles.toolArrow}>{open ? '▼' : '▶'}</span>
+        <span className={styles.toolTitle}>tool: {call.name}</span>
+      </div>
+      {open && <pre className={styles.toolBody}>{call.args || '(no arguments)'}</pre>}
     </div>
   )
 }
 
 function ToolResultBlock({ result }: { result: ToolResult }) {
+  const [open, setOpen] = useState(false)
   const body = result.error || result.content || '(no output)'
+  const label = result.error ? 'tool error' : 'tool result'
   return (
     <div className={`${styles.toolBlock} ${result.error ? styles.toolError : styles.toolResult}`}>
-      <div className={styles.toolTitle}>{result.error ? 'tool error' : 'tool result'}</div>
-      <pre className={styles.toolBody}>{body}</pre>
+      <div className={styles.toolToggle} onClick={() => setOpen(!open)}>
+        <span className={styles.toolArrow}>{open ? '▼' : '▶'}</span>
+        <span className={styles.toolTitle}>{label}</span>
+      </div>
+      {open && <pre className={styles.toolBody}>{body}</pre>}
     </div>
   )
 }
