@@ -9,6 +9,7 @@ interface CenterPaneProps {
   messages?: Message[]
   cards?: Card[]
   emptyHint?: string
+  section?: string
 }
 
 export function CenterPane({
@@ -18,6 +19,7 @@ export function CenterPane({
   messages,
   cards,
   emptyHint,
+  section,
 }: CenterPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
@@ -45,6 +47,7 @@ export function CenterPane({
 
   const hasMessages = messages && messages.length > 0
   const hasCards = cards && cards.length > 0
+  const showTools = section === 'main' || !section
 
   return (
     <main className={styles.center}>
@@ -62,9 +65,18 @@ export function CenterPane({
 
       {hasMessages ? (
         <div className={styles.messages} ref={scrollRef} onScroll={syncStickToBottom}>
-          {messages.map((msg, i) => (
-            <MessageBubble key={i} msg={msg} />
-          ))}
+          {messages.map((msg, i) => {
+            const prev = i > 0 ? messages[i - 1] : null
+            const continuation = prev !== null && prev.sender === msg.sender && prev.role === msg.role
+            return (
+              <MessageBubble
+                key={i}
+                msg={msg}
+                continuation={continuation}
+                showTools={showTools}
+              />
+            )
+          })}
         </div>
       ) : hasCards ? (
         <div className={styles.cards}>
@@ -83,31 +95,43 @@ export function CenterPane({
   )
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({ msg, continuation, showTools }: {
+  msg: Message
+  continuation: boolean
+  showTools: boolean
+}) {
   const roleClass =
     msg.role === 'user' ? styles.msgUser :
     msg.role === 'tool' ? styles.msgTool :
     msg.role === 'assistant' ? styles.msgAssistant :
     styles.msgSystem
 
+  if (!showTools && msg.role === 'tool') return null
+  if (!showTools && !msg.content && !msg.reasoning &&
+    ((msg.toolCalls && msg.toolCalls.length > 0) || (msg.toolResults && msg.toolResults.length > 0))) {
+    return null
+  }
+
   return (
-    <div className={`${styles.msg} ${roleClass}`}>
-      <div className={styles.msgHeader}>
-        <span className={styles.msgSender}>{msg.sender}</span>
-        {msg.descriptor && <span className={styles.msgDescriptor}>{msg.descriptor}</span>}
-        {msg.time && <span className={styles.msgTime}>{msg.time}</span>}
-      </div>
+    <div className={`${styles.msg} ${roleClass} ${continuation ? styles.msgContinuation : ''}`}>
+      {!continuation && (
+        <div className={styles.msgHeader}>
+          <span className={styles.msgSender}>{msg.sender}</span>
+          {msg.descriptor && <span className={styles.msgDescriptor}>{msg.descriptor}</span>}
+          {msg.time && <span className={styles.msgTime}>{msg.time}</span>}
+        </div>
+      )}
       {msg.reasoning && (
         <div className={styles.reasoning}>{msg.reasoning}</div>
       )}
-      {msg.toolCalls && msg.toolCalls.length > 0 && (
+      {showTools && msg.toolCalls && msg.toolCalls.length > 0 && (
         <div className={styles.toolStack}>
           {msg.toolCalls.map((call, i) => (
             <ToolCallBlock key={`${call.name}-${i}`} call={call} />
           ))}
         </div>
       )}
-      {msg.toolResults && msg.toolResults.length > 0 && (
+      {showTools && msg.toolResults && msg.toolResults.length > 0 && (
         <div className={styles.toolStack}>
           {msg.toolResults.map((result, i) => (
             <ToolResultBlock key={i} result={result} />

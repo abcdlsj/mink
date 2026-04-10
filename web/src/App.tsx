@@ -154,6 +154,7 @@ function Shell() {
             messages={state.messages}
             cards={state.cards}
             emptyHint={state.emptyHint}
+            section={state.section}
           />
           {hasContext && <ContextPane title={state.contextTitle} blocks={state.contextBlocks!} />}
         </div>
