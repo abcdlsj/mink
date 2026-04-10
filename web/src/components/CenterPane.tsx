@@ -67,7 +67,10 @@ export function CenterPane({
         <div className={styles.messages} ref={scrollRef} onScroll={syncStickToBottom}>
           {messages.map((msg, i) => {
             const prev = i > 0 ? messages[i - 1] : null
-            const continuation = prev !== null && prev.sender === msg.sender && prev.role === msg.role
+            const isMinkRole = (r: string) => r === 'assistant' || r === 'tool'
+            const continuation = prev !== null &&
+              ((prev.sender === msg.sender && prev.role === msg.role) ||
+               (isMinkRole(prev.role) && isMinkRole(msg.role)))
             return (
               <MessageBubble
                 key={i}
@@ -102,7 +105,7 @@ function MessageBubble({ msg, continuation, showTools }: {
 }) {
   const roleClass =
     msg.role === 'user' ? styles.msgUser :
-    msg.role === 'tool' ? styles.msgTool :
+    msg.role === 'tool' ? styles.msgAssistant :
     msg.role === 'assistant' ? styles.msgAssistant :
     styles.msgSystem
 

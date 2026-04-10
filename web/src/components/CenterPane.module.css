@@ -77,11 +77,6 @@
   max-width: 70%;
 }
 
-.msgTool {
-  align-self: stretch;
-  max-width: 100%;
-}
-
 .msgContinuation {
   margin-top: calc(-1 * var(--space-sm));
 }
@@ -135,14 +130,6 @@
   color: var(--color-muted);
   text-align: center;
   font-style: italic;
-}
-
-.msgTool .msgContent {
-  background: var(--color-paper);
-  color: var(--color-ink);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-sm);
-  border: var(--border);
 }
 
 .reasoning {
