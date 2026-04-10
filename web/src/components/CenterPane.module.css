@@ -149,7 +149,7 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: var(--color-paper);
+  background: color-mix(in srgb, var(--color-paper) 50%, transparent);
   border-left: 2px solid var(--color-dim);
   border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-md);
