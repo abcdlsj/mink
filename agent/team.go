@@ -132,10 +132,6 @@ func teamRuntimeSource(teamID, threadID string) string {
 	return "team:" + teamID + ":" + threadID
 }
 
-func teamMemorySource(teamID string) string {
-	return "team-memory:" + teamID
-}
-
 func (d *TeamDispatcher) Prepare(ctx context.Context, src string, sess *session.Session) (TeamTurn, func(), error) {
 	if d == nil || d.rt == nil {
 		return TeamTurn{}, nil, nil
@@ -220,7 +216,7 @@ func (d *TeamDispatcher) injectMemory(ctx context.Context, team rtsqlite.Team, t
 	if d == nil || d.mem == nil || sess == nil || sess.EntryCount() > 0 {
 		return nil
 	}
-	docs, err := d.mem.RecentBySource(ctx, teamMemorySource(team.ID), 3)
+	docs, err := d.mem.RecentByScope(ctx, memory.TeamScope(team.ID), 3)
 	if err != nil || len(docs) == 0 {
 		return err
 	}
@@ -261,11 +257,11 @@ func (d *TeamDispatcher) Complete(ctx context.Context, turn TeamTurn, output str
 	if output == "" {
 		return
 	}
-	_, _ = d.mem.Put(ctx, "team-memory", memory.Doc{
+	_, _ = d.mem.PutScoped(ctx, memory.TeamScope(turn.TeamID), memory.Doc{
 		Title:     "Thread summary",
 		Kind:      "team_summary",
 		Tags:      []string{turn.TeamID, turn.ThreadID},
-		Source:    teamMemorySource(turn.TeamID),
+		Source:    teamRuntimeSource(turn.TeamID, turn.ThreadID),
 		Summary:   compactSummary(output, 160),
 		Body:      output,
 		UpdatedAt: time.Now().UTC(),

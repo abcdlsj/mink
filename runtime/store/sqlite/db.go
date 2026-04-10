@@ -47,10 +47,13 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 		workspaceName: workspaceName(opts.Workspace),
 	}
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
+		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil && !isDeferredSchemaErr(err) {
 			return err
 		}
 		if err := migrate(conn); err != nil {
+			return err
+		}
+		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
 			return err
 		}
 		return db.ensureWorkspace(conn)
@@ -151,6 +154,8 @@ func migrate(conn *zsqlite.Conn) error {
 		`ALTER TABLE source_bindings ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE teams ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE team_threads ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
+		`ALTER TABLE memory_docs ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'global'`,
+		`ALTER TABLE memory_docs ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {
@@ -249,6 +254,22 @@ func isDuplicateColumnErr(err error) bool {
 	if strings.Contains(msg, "duplicate column name: workspace_id") {
 		return true
 	}
+	if strings.Contains(msg, "duplicate column name: scope_kind") {
+		return true
+	}
+	if strings.Contains(msg, "duplicate column name: scope_key") {
+		return true
+	}
 	return strings.Contains(msg, "duplicate column name: team_id") ||
 		strings.Contains(msg, "duplicate column name: team_thread_id")
+}
+
+func isDeferredSchemaErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no such column: workspace_id") ||
+		strings.Contains(msg, "no such column: scope_kind") ||
+		strings.Contains(msg, "no such column: agent_id")
 }

@@ -21,6 +21,7 @@ import (
 
 type Doc struct {
 	ID        string
+	Scope     Scope
 	Title     string
 	Kind      string
 	Tags      []string
@@ -42,12 +43,14 @@ func New(root string, db *rtsqlite.DB) *Store {
 }
 
 func (s *Store) Put(ctx context.Context, scope string, doc Doc) (Doc, error) {
+	return s.PutScoped(ctx, ParseScope(scope), doc)
+}
+
+func (s *Store) PutScoped(ctx context.Context, scope Scope, doc Doc) (Doc, error) {
 	if s == nil || s.db == nil {
 		return Doc{}, fmt.Errorf("memory: nil store")
 	}
-	if strings.TrimSpace(scope) == "" {
-		scope = "knowledge"
-	}
+	doc.Scope = normalizeScope(scope)
 	doc.ID = nonEmpty(doc.ID, id.Memory())
 	doc.Kind = nonEmpty(doc.Kind, "note")
 	doc.Title = nonEmpty(strings.TrimSpace(doc.Title), doc.ID)
@@ -59,7 +62,7 @@ func (s *Store) Put(ctx context.Context, scope string, doc Doc) (Doc, error) {
 		doc.UpdatedAt = time.Now().UTC()
 	}
 
-	path := filepath.Join(s.root, scope, doc.ID+".md")
+	path := filepath.Join(doc.Scope.Dir(s.root), doc.ID+".md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Doc{}, err
 	}
@@ -165,6 +168,10 @@ func (s *Store) DeletePath(ctx context.Context, path string) error {
 }
 
 func (s *Store) Search(ctx context.Context, query string, limit int) ([]Doc, error) {
+	return s.SearchScoped(ctx, nil, query, limit)
+}
+
+func (s *Store) SearchScoped(ctx context.Context, scopes []Scope, query string, limit int) ([]Doc, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("memory: nil store")
 	}
@@ -179,29 +186,22 @@ func (s *Store) Search(ctx context.Context, query string, limit int) ([]Doc, err
 		return nil, nil
 	}
 
+	where, args := scopeWhere(scopes)
+	args = append(args, query, limit)
+
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		return sqlitex.ExecuteTransient(conn, `
-			SELECT d.id, d.title, d.kind, d.tags_json, d.task_id, d.run_id, d.source, d.summary, d.body, d.updated_at
+		q := `
+			SELECT d.id, d.scope_kind, d.scope_key, d.title, d.kind, d.tags_json, d.task_id, d.run_id, d.source, d.summary, d.body, d.updated_at
 			FROM memory_docs_fts f
 			JOIN memory_docs d ON d.rowid = f.rowid
-			WHERE memory_docs_fts MATCH ?
+			WHERE ` + where + ` AND memory_docs_fts MATCH ?
 			ORDER BY bm25(memory_docs_fts), d.updated_at DESC
-			LIMIT ?
-		`, &sqlitex.ExecOptions{
-			Args: []any{query, limit},
+			LIMIT ?`
+		return sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
+			Args: args,
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				docs = append(docs, Doc{
-					ID:      stmt.ColumnText(0),
-					Title:   stmt.ColumnText(1),
-					Kind:    stmt.ColumnText(2),
-					Tags:    splitTags(stmt.ColumnText(3)),
-					TaskID:  stmt.ColumnText(4),
-					RunID:   stmt.ColumnText(5),
-					Source:  stmt.ColumnText(6),
-					Summary: stmt.ColumnText(7),
-					Body:    stmt.ColumnText(8),
-				})
+				docs = append(docs, scanDoc(stmt))
 				return nil
 			},
 		})
@@ -219,7 +219,7 @@ func (s *Store) RecentByTask(ctx context.Context, taskID string, limit int) ([]D
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT id, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
 			FROM memory_docs
 			WHERE task_id = ?
 			ORDER BY updated_at DESC
@@ -227,19 +227,7 @@ func (s *Store) RecentByTask(ctx context.Context, taskID string, limit int) ([]D
 		`, &sqlitex.ExecOptions{
 			Args: []any{taskID, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(9))
-				docs = append(docs, Doc{
-					ID:        stmt.ColumnText(0),
-					Title:     stmt.ColumnText(1),
-					Kind:      stmt.ColumnText(2),
-					Tags:      splitTags(stmt.ColumnText(3)),
-					TaskID:    stmt.ColumnText(4),
-					RunID:     stmt.ColumnText(5),
-					Source:    stmt.ColumnText(6),
-					Summary:   stmt.ColumnText(7),
-					Body:      stmt.ColumnText(8),
-					UpdatedAt: updatedAt,
-				})
+				docs = append(docs, scanDoc(stmt))
 				return nil
 			},
 		})
@@ -257,7 +245,7 @@ func (s *Store) RecentBySource(ctx context.Context, source string, limit int) ([
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT id, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
 			FROM memory_docs
 			WHERE source = ?
 			ORDER BY updated_at DESC
@@ -265,19 +253,34 @@ func (s *Store) RecentBySource(ctx context.Context, source string, limit int) ([
 		`, &sqlitex.ExecOptions{
 			Args: []any{source, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(9))
-				docs = append(docs, Doc{
-					ID:        stmt.ColumnText(0),
-					Title:     stmt.ColumnText(1),
-					Kind:      stmt.ColumnText(2),
-					Tags:      splitTags(stmt.ColumnText(3)),
-					TaskID:    stmt.ColumnText(4),
-					RunID:     stmt.ColumnText(5),
-					Source:    stmt.ColumnText(6),
-					Summary:   stmt.ColumnText(7),
-					Body:      stmt.ColumnText(8),
-					UpdatedAt: updatedAt,
-				})
+				docs = append(docs, scanDoc(stmt))
+				return nil
+			},
+		})
+	})
+	return docs, err
+}
+
+func (s *Store) RecentByScope(ctx context.Context, scope Scope, limit int) ([]Doc, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	scope = normalizeScope(scope)
+	var docs []Doc
+	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			FROM memory_docs
+			WHERE scope_kind = ? AND scope_key = ?
+			ORDER BY updated_at DESC
+			LIMIT ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{scope.Kind, scope.Key, limit},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				docs = append(docs, scanDoc(stmt))
 				return nil
 			},
 		})
@@ -290,15 +293,18 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 	updatedAt := doc.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	indexedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	sum := hash(doc.Body)
+	scope := normalizeScope(doc.Scope)
 
 	if err := s.db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT INTO memory_docs (
-				id, path, title, kind, tags_json, task_id, run_id, source,
+				id, path, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source,
 				summary, body, sha256, updated_at, indexed_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(path) DO UPDATE SET
 				id = excluded.id,
+				scope_kind = excluded.scope_kind,
+				scope_key = excluded.scope_key,
 				title = excluded.title,
 				kind = excluded.kind,
 				tags_json = excluded.tags_json,
@@ -312,7 +318,7 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 				indexed_at = excluded.indexed_at
 		`, &sqlitex.ExecOptions{
 			Args: []any{
-				doc.ID, path, doc.Title, doc.Kind, tags, nullable(doc.TaskID), nullable(doc.RunID),
+				doc.ID, path, scope.Kind, scope.Key, doc.Title, doc.Kind, tags, nullable(doc.TaskID), nullable(doc.RunID),
 				doc.Source, doc.Summary, doc.Body, sum, updatedAt, indexedAt,
 			},
 		}); err != nil {
@@ -356,7 +362,7 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 			Payload: map[string]any{
 				"id":    doc.ID,
 				"path":  path,
-				"scope": filepath.Base(filepath.Dir(path)),
+				"scope": doc.Scope.String(),
 			},
 		})
 	}
@@ -364,9 +370,14 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 }
 
 func render(doc Doc) string {
+	doc.Scope = normalizeScope(doc.Scope)
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "id: %s\n", doc.ID)
+	fmt.Fprintf(&b, "scope_kind: %s\n", escape(doc.Scope.Kind))
+	if doc.Scope.Key != "" {
+		fmt.Fprintf(&b, "scope_key: %s\n", escape(doc.Scope.Key))
+	}
 	fmt.Fprintf(&b, "title: %s\n", escape(doc.Title))
 	fmt.Fprintf(&b, "kind: %s\n", escape(doc.Kind))
 	b.WriteString("tags:\n")
@@ -401,6 +412,7 @@ func (s *Store) loadPath(path string) (Doc, error) {
 	}
 	doc := Doc{
 		ID:    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		Scope: ScopeFromPath(s.root, path),
 		Title: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
 		Kind:  "note",
 		Body:  strings.TrimSpace(string(data)),
@@ -416,6 +428,7 @@ func (s *Store) loadPath(path string) (Doc, error) {
 		}
 	}
 	doc.Title = nonEmpty(strings.TrimSpace(doc.Title), doc.ID)
+	doc.Scope = normalizeScope(doc.Scope)
 	doc.Kind = nonEmpty(strings.TrimSpace(doc.Kind), "note")
 	if doc.Body == "" {
 		return Doc{}, fmt.Errorf("memory: empty body")
@@ -471,6 +484,10 @@ func parseFrontmatter(doc *Doc, head string) {
 		switch strings.TrimSpace(key) {
 		case "id":
 			doc.ID = nonEmpty(val, doc.ID)
+		case "scope_kind":
+			doc.Scope.Kind = val
+		case "scope_key":
+			doc.Scope.Key = val
 		case "title":
 			doc.Title = val
 		case "kind":
@@ -518,6 +535,37 @@ func nonEmpty(s, fallback string) string {
 func hash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+func scanDoc(stmt *zsqlite.Stmt) Doc {
+	updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(11))
+	return Doc{
+		ID:        stmt.ColumnText(0),
+		Scope:     normalizeScope(Scope{Kind: stmt.ColumnText(1), Key: stmt.ColumnText(2)}),
+		Title:     stmt.ColumnText(3),
+		Kind:      stmt.ColumnText(4),
+		Tags:      splitTags(stmt.ColumnText(5)),
+		TaskID:    stmt.ColumnText(6),
+		RunID:     stmt.ColumnText(7),
+		Source:    stmt.ColumnText(8),
+		Summary:   stmt.ColumnText(9),
+		Body:      stmt.ColumnText(10),
+		UpdatedAt: updatedAt,
+	}
+}
+
+func scopeWhere(scopes []Scope) (string, []any) {
+	if len(scopes) == 0 {
+		return "1 = 1", nil
+	}
+	parts := make([]string, 0, len(scopes))
+	args := make([]any, 0, len(scopes)*2)
+	for _, scope := range scopes {
+		scope = normalizeScope(scope)
+		parts = append(parts, "(d.scope_kind = ? AND d.scope_key = ?)")
+		args = append(args, scope.Kind, scope.Key)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
 func sanitizeMatchQuery(s string) string {

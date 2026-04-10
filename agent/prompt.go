@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/mink/memory"
 )
 
 type section struct {
@@ -31,7 +32,7 @@ func (a *Agent) buildPrompt(ctx context.Context, src string) string {
 		a.sectionBase(),
 		a.sectionContext(),
 		a.sectionTeam(ctx),
-		a.sectionMemory(ctx),
+		a.sectionMemory(ctx, src),
 		a.sectionSoul(),
 		a.sectionTelegram(src),
 		a.sectionCustom(),
@@ -46,42 +47,54 @@ func (a *Agent) buildPrompt(ctx context.Context, src string) string {
 	return b.String()
 }
 
-func (a *Agent) sectionMemory(ctx context.Context) section {
+func (a *Agent) sectionMemory(ctx context.Context, src string) section {
 	return section{head: "Memory", body: func() string {
 		if a.mem == nil {
 			return ""
 		}
 		var b strings.Builder
-		turn, ok := runtimeTurnFrom(ctx)
-		if ok && turn.TaskID != "" {
-			docs, err := a.mem.RecentByTask(ctx, turn.TaskID, 3)
-			if err == nil {
-				for _, doc := range docs {
-					line := doc.Title
-					if doc.Summary != "" {
-						line += ": " + doc.Summary
-					}
-					if strings.TrimSpace(line) == "" {
-						line = doc.Body
-					}
-					fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(line))
+		appendDocs := func(prefix string, docs []memory.Doc, err error) {
+			if err != nil {
+				return
+			}
+			for _, doc := range docs {
+				line := strings.TrimSpace(doc.Summary)
+				if line == "" {
+					line = strings.TrimSpace(doc.Body)
 				}
+				if line == "" {
+					line = strings.TrimSpace(doc.Title)
+				}
+				if line == "" {
+					continue
+				}
+				if prefix == "" {
+					fmt.Fprintf(&b, "- %s\n", line)
+					continue
+				}
+				fmt.Fprintf(&b, "- %s: %s\n", prefix, line)
 			}
 		}
+		docs, err := a.mem.RecentByScope(ctx, memory.GlobalScope(), 2)
+		appendDocs("global", docs, err)
+		if a.rt != nil {
+			docs, err = a.mem.RecentByScope(ctx, memory.WorkspaceScope(a.rt.WorkspaceID()), 3)
+			appendDocs("workspace", docs, err)
+		}
+		if src != "" {
+			docs, err = a.mem.RecentByScope(ctx, memory.ChannelScope(src), 3)
+			appendDocs("channel", docs, err)
+		}
+		docs, err = a.mem.RecentByScope(ctx, memory.AgentScope(a.id), 3)
+		appendDocs("agent", docs, err)
+		turn, ok := runtimeTurnFrom(ctx)
+		if ok && turn.TaskID != "" {
+			docs, err = a.mem.RecentByTask(ctx, turn.TaskID, 3)
+			appendDocs("task", docs, err)
+		}
 		if teamTurn, ok := teamTurnFrom(ctx); ok && teamTurn.TeamID != "" {
-			docs, err := a.mem.RecentBySource(ctx, teamMemorySource(teamTurn.TeamID), 3)
-			if err == nil {
-				for _, doc := range docs {
-					line := doc.Summary
-					if strings.TrimSpace(line) == "" {
-						line = doc.Body
-					}
-					if strings.TrimSpace(line) == "" {
-						continue
-					}
-					fmt.Fprintf(&b, "- team memory: %s\n", strings.TrimSpace(line))
-				}
-			}
+			docs, err = a.mem.RecentByScope(ctx, memory.TeamScope(teamTurn.TeamID), 3)
+			appendDocs("team", docs, err)
 		}
 		if b.Len() == 0 {
 			return ""

@@ -88,12 +88,16 @@ func (a *Agent) rememberSummary(ctx context.Context, source, summary, note strin
 	if !ok {
 		turn.Source = source
 	}
-	_, _ = a.mem.Put(ctx, "summaries", memory.Doc{
+	scopeSource := strings.TrimSpace(turn.Source)
+	if scopeSource == "" {
+		scopeSource = strings.TrimSpace(source)
+	}
+	_, _ = a.mem.PutScoped(ctx, memory.ChannelScope(scopeSource), memory.Doc{
 		Title:   "Session summary",
 		Kind:    "summary",
 		TaskID:  turn.TaskID,
 		RunID:   turn.RunID,
-		Source:  turn.Source,
+		Source:  scopeSource,
 		Summary: strings.TrimSpace(note),
 		Body:    summary,
 	})
