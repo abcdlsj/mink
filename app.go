@@ -63,9 +63,10 @@ type App struct {
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
-	cli      *platform.CLI
-	web      *platform.Web
-	telegram *platform.Telegram
+	cli        *platform.CLI
+	web        *platform.Web
+	telegram   *platform.Telegram
+	sessionDir string
 
 	activeTeams        map[string]string
 	activeThreads      map[string]string
@@ -93,21 +94,22 @@ func New(opts Options) (*App, error) {
 	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir)
 
 	app := &App{
-		cfg:    deps.cfg,
-		bus:    deps.bus,
-		p:      deps.provider,
-		sm:     sm,
-		rt:     deps.runtimeDB,
-		mw:     deps.memoryWatcher,
-		hooks:  deps.hooks,
-		cmdReg: cmdReg,
-		router: router,
-		guard:  guard,
-		sup:    sup,
-		disp:   disp,
-		reg:    reg,
-		hb:     agent.NewHeartbeatManager(reg, deps.bus),
-		cron:   cronSched,
+		cfg:        deps.cfg,
+		bus:        deps.bus,
+		p:          deps.provider,
+		sm:         sm,
+		rt:         deps.runtimeDB,
+		mw:         deps.memoryWatcher,
+		hooks:      deps.hooks,
+		cmdReg:     cmdReg,
+		router:     router,
+		guard:      guard,
+		sup:        sup,
+		disp:       disp,
+		reg:        reg,
+		hb:         agent.NewHeartbeatManager(reg, deps.bus),
+		cron:       cronSched,
+		sessionDir: deps.sessionDir,
 
 		activeTeams:        make(map[string]string),
 		activeThreads:      make(map[string]string),

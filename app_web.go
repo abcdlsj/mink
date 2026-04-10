@@ -2,6 +2,7 @@ package mink
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -531,7 +532,109 @@ func (a *App) webSessionContextBlocks(src string) []platform.WebContextBlock {
 			Body:  prov.ParentSessionID,
 		})
 	}
+	if activity := a.webRunlogSummary(sess.ID(), 18); activity != "" {
+		blocks = append(blocks, platform.WebContextBlock{
+			Title: "Recent Activity",
+			Body:  activity,
+		})
+	}
 	return blocks
+}
+
+func (a *App) webRunlogSummary(sessionID string, limit int) string {
+	if strings.TrimSpace(a.sessionDir) == "" || strings.TrimSpace(sessionID) == "" {
+		return ""
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	path := filepath.Join(a.sessionDir, sessionID+".log.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	raw := strings.TrimSpace(string(data))
+	if raw == "" {
+		return ""
+	}
+	lines := strings.Split(raw, "\n")
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		var ev webReplayEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if rendered := webReplayLine(ev); rendered != "" {
+			out = append(out, rendered)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+func webReplayLine(ev webReplayEvent) string {
+	ts := ""
+	if !ev.Timestamp.IsZero() {
+		ts = ev.Timestamp.Format("15:04:05")
+	}
+	step := ""
+	if ev.StepNum != nil {
+		step = fmt.Sprintf(" step=%d", *ev.StepNum)
+	}
+	extra := webReplayExtra(ev.Type, ev.Data)
+	if extra != "" {
+		extra = " " + extra
+	}
+	switch ev.Type {
+	case "user_input", "agent_output", "tool_call", "tool_end", "llm_error", "interrupt", "step_start", "step_end":
+		return strings.TrimSpace(fmt.Sprintf("%s %s%s%s", ts, ev.Type, step, extra))
+	default:
+		return ""
+	}
+}
+
+func webReplayExtra(kind string, data map[string]any) string {
+	if len(data) == 0 {
+		return ""
+	}
+	switch kind {
+	case "user_input":
+		if v, ok := data["input"].(string); ok {
+			return compactLine(v, 120)
+		}
+	case "agent_output":
+		if v, ok := data["content"].(string); ok {
+			return compactLine(v, 120)
+		}
+	case "tool_call":
+		name, _ := data["name"].(string)
+		if name != "" {
+			return name
+		}
+	case "tool_end":
+		name, _ := data["name"].(string)
+		if err, ok := data["error"].(string); ok && err != "" {
+			if name != "" {
+				return name + " error=" + compactLine(err, 120)
+			}
+			return compactLine(err, 120)
+		}
+		if name != "" {
+			return name
+		}
+	case "llm_error":
+		if err, ok := data["error"].(string); ok {
+			return compactLine(err, 120)
+		}
+	case "interrupt":
+		if reason, ok := data["reason"].(string); ok {
+			return compactLine(reason, 120)
+		}
+	}
+	return ""
 }
 
 func (a *App) webMainSessionItems(ctx context.Context, currentID string) ([]platform.WebIndexItem, error) {
@@ -683,6 +786,14 @@ func (a *App) wrapThreads(team rtsqlite.Team, threads []rtsqlite.TeamThread) []w
 type webThreadItem struct {
 	Team   rtsqlite.Team
 	Thread rtsqlite.TeamThread
+}
+
+type webReplayEvent struct {
+	Timestamp time.Time      `json:"timestamp"`
+	Type      string         `json:"type"`
+	Level     string         `json:"level"`
+	StepNum   *int           `json:"step_num"`
+	Data      map[string]any `json:"data"`
 }
 
 func webTime(ts time.Time) string {
