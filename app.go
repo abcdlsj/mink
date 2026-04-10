@@ -2,6 +2,8 @@ package mink
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -67,6 +69,7 @@ type App struct {
 	web        *platform.Web
 	telegram   *platform.Telegram
 	sessionDir string
+	workspace  string
 
 	activeTeams        map[string]string
 	activeThreads      map[string]string
@@ -110,6 +113,7 @@ func New(opts Options) (*App, error) {
 		hb:         agent.NewHeartbeatManager(reg, deps.bus),
 		cron:       cronSched,
 		sessionDir: deps.sessionDir,
+		workspace:  deps.workspace,
 
 		activeTeams:        make(map[string]string),
 		activeThreads:      make(map[string]string),
@@ -241,7 +245,7 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 	runCtx := a.ctx
 	a.mu.Unlock()
 
-	webSource := bus.Platform("web")
+	webSource := workspacePlatformSource("web", a.workspace)
 	sessionID, err := a.prepareFreshSource(runCtx, webSource)
 	if err != nil {
 		return err
@@ -626,12 +630,20 @@ func (a *App) switchModel(name string) error {
 	return config.SaveActiveModel(name)
 }
 
-func defaultSessionDir() string {
+func defaultSessionDirRoot() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return filepath.Join(".mink", "sessions")
 	}
 	return filepath.Join(home, ".mink", "sessions")
+}
+
+func defaultSessionDir(workspace string) string {
+	root := defaultSessionDirRoot()
+	if strings.TrimSpace(workspace) == "" {
+		return root
+	}
+	return filepath.Join(root, workspaceScopeID(workspace))
 }
 
 func defaultRuntimeDBPath() string {
@@ -714,9 +726,14 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 		deps.selector = newSelector(deps.cfg, deps.provider)
 	}
 
+	deps.workspace = opts.Workspace
+	if deps.workspace == "" {
+		deps.workspace, _ = os.Getwd()
+	}
+
 	deps.sessionDir = opts.SessionDir
 	if deps.sessionDir == "" {
-		deps.sessionDir = defaultSessionDir()
+		deps.sessionDir = defaultSessionDir(deps.workspace)
 	}
 	deps.memoryDir = defaultMemoryDir()
 
@@ -738,12 +755,25 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 		deps.hooks = hook.NewManager()
 	}
 
-	deps.workspace = opts.Workspace
-	if deps.workspace == "" {
-		deps.workspace, _ = os.Getwd()
-	}
-
 	return deps, nil
+}
+
+func workspaceScopeID(workspace string) string {
+	trimmed := strings.TrimSpace(workspace)
+	if trimmed == "" {
+		return "default"
+	}
+	sum := sha256.Sum256([]byte(trimmed))
+	name := filepath.Base(trimmed)
+	name = strings.ToLower(strings.ReplaceAll(name, " ", "_"))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = "workspace"
+	}
+	return fmt.Sprintf("%s_%s", name, hex.EncodeToString(sum[:])[:8])
+}
+
+func workspacePlatformSource(kind, workspace string) string {
+	return bus.Platform(kind + ":" + workspaceScopeID(workspace))
 }
 
 func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *command.GuardMux) {
