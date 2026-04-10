@@ -736,18 +736,21 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 		deps.sessionDir = defaultSessionDir(deps.workspace)
 	}
 	deps.memoryDir = defaultMemoryDir()
-
-	deps.store = opts.SessionStore
-	if deps.store == nil {
-		deps.store = session.NewFileStore(deps.sessionDir)
-	}
 	runtimeDB, err := rtsqlite.Open(defaultRuntimeDBPath(), rtsqlite.OpenOptions{})
 	if err != nil {
+		if opts.SessionStore == nil {
+			return runtimeDeps{}, err
+		}
 		fmt.Fprintf(os.Stderr, "warning: runtime sqlite disabled: %v\n", err)
 	} else {
 		deps.runtimeDB = runtimeDB
 		deps.memory = memory.New(deps.memoryDir, deps.runtimeDB)
 		deps.memoryWatcher = memory.NewWatcher(deps.memory)
+	}
+
+	deps.store = opts.SessionStore
+	if deps.store == nil {
+		deps.store = session.NewSQLiteStore(deps.runtimeDB, deps.workspace)
 	}
 
 	deps.hooks = opts.Hooks
@@ -792,7 +795,12 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	sm := session.NewManager(deps.store, deps.bus)
 	if deps.runtimeDB != nil {
 		if bindings, err := deps.runtimeDB.SessionBindings(context.Background()); err == nil {
-			_ = sm.RestoreSources(bindings)
+			for source, id := range bindings {
+				if _, err := sm.Get(id); err != nil {
+					continue
+				}
+				_ = sm.RestoreSource(source, id)
+			}
 		}
 	}
 	cronSched := mcron.NewScheduler(config.CronPath(), deps.bus)
