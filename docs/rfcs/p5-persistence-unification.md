@@ -19,7 +19,7 @@ It is a storage-model cleanup for:
 
 ## Why This RFC Exists
 
-Today Mink persistence is split across three different shapes:
+Today Mink persistence had been split across three different shapes:
 
 1. session snapshots in `~/.mink/sessions/*.json`
 2. runlog traces in `~/.mink/sessions/*.log.jsonl`
@@ -116,9 +116,11 @@ It should not also have to answer:
 
 ### 3. Sessions are split from runtime history
 
-Current session JSON snapshots are good for rebuilding a transcript quickly.
-Current JSONL runlogs are good for debugging.
-Current SQLite runtime events are good for durable orchestration.
+Historically:
+
+- session JSON snapshots rebuilt transcript state
+- JSONL runlogs captured debug traces
+- SQLite runtime events drove durable orchestration
 
 The problem is that no one layer is fully authoritative for all session-like questions.
 
@@ -407,13 +409,13 @@ Recommended layout under `.mink/`:
         knowledge/
         summaries/
   exports/
-    sessions/
-    runlogs/
+    replay/
 ```
 
 Important difference from today:
 
 - session durability no longer depends on `.json` files in `sessions/`
+- replay/activity no longer depends on `.log.jsonl`
 - JSON/JSONL are no longer read by the runtime
 
 ## SQLite Schema Direction

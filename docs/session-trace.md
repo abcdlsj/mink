@@ -190,6 +190,8 @@ type AgentOutputData struct {
 }
 ```
 
+> **状态更新**：这份设计稿里的 `session.jsonl` / `*.log.jsonl` 方案已经废弃。当前 Mink 已改为 `SQLite` 持久化：session 元数据在 `sessions`，消息在 `session_entries`，活动回放在 `events` / `runs`。下面的 JSONL 结构仅作为历史草稿保留，不再作为实现依据。
+
 ## 存储设计
 
 ### 文件结构
