@@ -40,12 +40,13 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	}
 
 	db := &DB{
-		path:          path,
-		pool:          pool,
-		workspaceID:   workspaceID(opts.Workspace),
-		workspacePath: strings.TrimSpace(opts.Workspace),
-		workspaceName: workspaceName(opts.Workspace),
+		path: path,
+		pool: pool,
 	}
+	ws := ResolveWorkspace(opts.Workspace)
+	db.workspaceID = ws.ID
+	db.workspacePath = ws.Path
+	db.workspaceName = ws.Name
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil && !isDeferredSchemaErr(err) {
 			return err

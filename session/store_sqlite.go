@@ -2,12 +2,9 @@ package session
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,12 +22,12 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(db *rtsqlite.DB, workspacePath string) *SQLiteStore {
-	trimmed := strings.TrimSpace(workspacePath)
+	ws := rtsqlite.ResolveWorkspace(workspacePath)
 	return &SQLiteStore{
 		db:            db,
-		workspaceID:   workspaceID(trimmed),
-		workspacePath: trimmed,
-		workspaceName: workspaceName(trimmed),
+		workspaceID:   ws.ID,
+		workspacePath: ws.Path,
+		workspaceName: ws.Name,
 	}
 }
 
@@ -360,25 +357,6 @@ func compactTitle(s string, n int) string {
 		return "…"
 	}
 	return string(r[:n-1]) + "…"
-}
-
-func workspaceID(path string) string {
-	if path == "" {
-		return "ws_default"
-	}
-	sum := sha256.Sum256([]byte(path))
-	return "ws_" + hex.EncodeToString(sum[:])[:12]
-}
-
-func workspaceName(path string) string {
-	if path == "" {
-		return "workspace"
-	}
-	name := filepath.Base(path)
-	if name == "." || name == string(filepath.Separator) || name == "" {
-		return "workspace"
-	}
-	return name
 }
 
 func firstNonEmpty(s, fallback string) string {

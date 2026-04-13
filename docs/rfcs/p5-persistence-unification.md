@@ -533,6 +533,7 @@ If `workspace_id` is derived only from the current path and the repo moves, iden
 
 Mitigation:
 
+- persist a stable workspace marker at `.mink/workspace.json` on first open
 - store stable workspace row on first open
 - allow path updates later
 
@@ -548,7 +549,7 @@ Mitigation:
 
 ## Open Questions
 
-1. Should `workspace_id` be generated from path on first open, or persisted in a small workspace marker file under `.mink/`?
+1. Resolved: persist `workspace_id` in `.mink/workspace.json`, use path only as fallback bootstrap.
 2. Should team memory be implemented as a special memory owner type, or as a separate first-class table plus Markdown projection?
 3. Should session titles remain derived from first user input, or become explicit mutable metadata?
 4. Should replay UI read from `events` directly, or from a prebuilt session activity projection?
