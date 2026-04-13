@@ -2,7 +2,6 @@ package mink
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -681,34 +680,7 @@ func (a *App) webRunlogSummary(sessionID string, limit int) string {
 			return strings.Join(out, "\n")
 		}
 	}
-	if strings.TrimSpace(a.sessionDir) == "" {
-		return ""
-	}
-	path := filepath.Join(a.sessionDir, sessionID+".log.jsonl")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	raw := strings.TrimSpace(string(data))
-	if raw == "" {
-		return ""
-	}
-	lines := strings.Split(raw, "\n")
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		var ev rtsqlite.ReplayEvent
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			continue
-		}
-		if rendered := webReplayLine(ev); rendered != "" {
-			out = append(out, rendered)
-		}
-	}
-	return strings.Join(out, "\n")
+	return ""
 }
 
 func webReplayLine(ev rtsqlite.ReplayEvent) string {

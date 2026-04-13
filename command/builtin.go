@@ -2,10 +2,7 @@ package command
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,17 +54,16 @@ func (c *toolsCmd) Run(ctx context.Context, args []string) (string, error) {
 }
 
 type replayCmd struct {
-	sm  *session.Manager
-	dir string
-	rt  *rtsqlite.DB
+	sm *session.Manager
+	rt *rtsqlite.DB
 }
 
-func NewReplayCmd(sm *session.Manager, dir string, rt *rtsqlite.DB) Command {
-	return &replayCmd{sm: sm, dir: dir, rt: rt}
+func NewReplayCmd(sm *session.Manager, rt *rtsqlite.DB) Command {
+	return &replayCmd{sm: sm, rt: rt}
 }
 
 func (c *replayCmd) Name() string { return "replay" }
-func (c *replayCmd) Desc() string { return "replay current session runlog (!replay [count])" }
+func (c *replayCmd) Desc() string { return "replay current session activity (!replay [count])" }
 
 func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 	src := bus.SourceFrom(ctx)
@@ -92,44 +88,15 @@ func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 		n = v
 	}
 
-	if c.rt != nil {
-		events, err := c.rt.ReplayEventsForSession(ctx, id, n)
-		if err != nil {
-			return "", err
-		}
-		if len(events) > 0 {
-			return renderReplay(id, events), nil
-		}
+	if c.rt == nil {
+		return "runtime database unavailable", nil
 	}
-
-	path := filepath.Join(c.dir, id+".log.jsonl")
-	data, err := os.ReadFile(path)
+	events, err := c.rt.ReplayEventsForSession(ctx, id, n)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return "no replay log for current session", nil
-		}
 		return "", err
 	}
-
-	raw := strings.TrimSpace(string(data))
-	if raw == "" {
-		return "no replay log for current session", nil
-	}
-	lines := strings.Split(raw, "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-
-	events := make([]rtsqlite.ReplayEvent, 0, len(lines))
-	for _, line := range lines {
-		var e rtsqlite.ReplayEvent
-		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			continue
-		}
-		events = append(events, e)
-	}
 	if len(events) == 0 {
-		return "no replay log for current session", nil
+		return "no replay activity for current session", nil
 	}
 	return renderReplay(id, events), nil
 }

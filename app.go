@@ -2,8 +2,6 @@ package mink
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -38,13 +36,11 @@ var (
 )
 
 type Options struct {
-	Config       config.Config
-	Bus          *bus.Bus
-	Provider     llm.Provider
-	SessionStore session.Store
-	SessionDir   string
-	Hooks        *hook.Manager
-	Workspace    string
+	Config    config.Config
+	Bus       *bus.Bus
+	Provider  llm.Provider
+	Hooks     *hook.Manager
+	Workspace string
 }
 
 type App struct {
@@ -65,11 +61,10 @@ type App struct {
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
-	cli        *platform.CLI
-	web        *platform.Web
-	telegram   *platform.Telegram
-	sessionDir string
-	workspace  string
+	cli       *platform.CLI
+	web       *platform.Web
+	telegram  *platform.Telegram
+	workspace string
 
 	activeTeams        map[string]string
 	activeThreads      map[string]string
@@ -94,26 +89,25 @@ func New(opts Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir, workspacePlatformSource("cli", deps.workspace), deps.memory, deps.runtimeDB)
+	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, workspacePlatformSource("cli", deps.workspace), deps.memory, deps.runtimeDB)
 
 	app := &App{
-		cfg:        deps.cfg,
-		bus:        deps.bus,
-		p:          deps.provider,
-		sm:         sm,
-		rt:         deps.runtimeDB,
-		mw:         deps.memoryWatcher,
-		hooks:      deps.hooks,
-		cmdReg:     cmdReg,
-		router:     router,
-		guard:      guard,
-		sup:        sup,
-		disp:       disp,
-		reg:        reg,
-		hb:         agent.NewHeartbeatManager(reg, deps.bus),
-		cron:       cronSched,
-		sessionDir: deps.sessionDir,
-		workspace:  deps.workspace,
+		cfg:       deps.cfg,
+		bus:       deps.bus,
+		p:         deps.provider,
+		sm:        sm,
+		rt:        deps.runtimeDB,
+		mw:        deps.memoryWatcher,
+		hooks:     deps.hooks,
+		cmdReg:    cmdReg,
+		router:    router,
+		guard:     guard,
+		sup:       sup,
+		disp:      disp,
+		reg:       reg,
+		hb:        agent.NewHeartbeatManager(reg, deps.bus),
+		cron:      cronSched,
+		workspace: deps.workspace,
 
 		activeTeams:        make(map[string]string),
 		activeThreads:      make(map[string]string),
@@ -639,22 +633,6 @@ func (a *App) switchModel(name string) error {
 	return config.SaveActiveModel(name)
 }
 
-func defaultSessionDirRoot() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.Join(".mink", "sessions")
-	}
-	return filepath.Join(home, ".mink", "sessions")
-}
-
-func defaultSessionDir(workspace string) string {
-	root := defaultSessionDirRoot()
-	if strings.TrimSpace(workspace) == "" {
-		return root
-	}
-	return filepath.Join(root, workspaceScopeID(workspace))
-}
-
 func defaultRuntimeDBPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -706,7 +684,6 @@ type runtimeDeps struct {
 	bus           *bus.Bus
 	provider      llm.Provider
 	selector      *llm.Sel
-	sessionDir    string
 	memoryDir     string
 	workspace     string
 	store         session.Store
@@ -739,28 +716,16 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 	if deps.workspace == "" {
 		deps.workspace, _ = os.Getwd()
 	}
-
-	deps.sessionDir = opts.SessionDir
-	if deps.sessionDir == "" {
-		deps.sessionDir = defaultSessionDir(deps.workspace)
-	}
 	deps.memoryDir = defaultMemoryDir()
 	runtimeDB, err := rtsqlite.Open(defaultRuntimeDBPath(), rtsqlite.OpenOptions{Workspace: deps.workspace})
 	if err != nil {
-		if opts.SessionStore == nil {
-			return runtimeDeps{}, err
-		}
-		fmt.Fprintf(os.Stderr, "warning: runtime sqlite disabled: %v\n", err)
-	} else {
-		deps.runtimeDB = runtimeDB
-		deps.memory = memory.New(deps.memoryDir, deps.runtimeDB)
-		deps.memoryWatcher = memory.NewWatcher(deps.memory)
+		return runtimeDeps{}, err
 	}
+	deps.runtimeDB = runtimeDB
+	deps.memory = memory.New(deps.memoryDir, deps.runtimeDB)
+	deps.memoryWatcher = memory.NewWatcher(deps.memory)
 
-	deps.store = opts.SessionStore
-	if deps.store == nil {
-		deps.store = session.NewSQLiteStore(deps.runtimeDB, deps.workspace)
-	}
+	deps.store = session.NewSQLiteStore(deps.runtimeDB, deps.workspace)
 
 	deps.hooks = opts.Hooks
 	if deps.hooks == nil {
@@ -768,20 +733,6 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 	}
 
 	return deps, nil
-}
-
-func workspaceScopeID(workspace string) string {
-	trimmed := strings.TrimSpace(workspace)
-	if trimmed == "" {
-		return "default"
-	}
-	sum := sha256.Sum256([]byte(trimmed))
-	name := filepath.Base(trimmed)
-	name = strings.ToLower(strings.ReplaceAll(name, " ", "_"))
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		name = "workspace"
-	}
-	return fmt.Sprintf("%s_%s", name, hex.EncodeToString(sum[:])[:8])
 }
 
 func workspacePlatformSource(kind, workspace string) string {
@@ -823,16 +774,15 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	cronSched := mcron.NewScheduler(config.CronPath(), deps.bus)
 
 	agentDeps := agent.AgentDeps{
-		Bus:        deps.bus,
-		Provider:   deps.provider,
-		Sel:        deps.selector,
-		Hooks:      deps.hooks,
-		ToolGuard:  guard,
-		Prompt:     deps.cfg.CustomPrompt,
-		Config:     deps.cfg,
-		SessionDir: deps.sessionDir,
-		RuntimeDB:  deps.runtimeDB,
-		Memory:     deps.memory,
+		Bus:       deps.bus,
+		Provider:  deps.provider,
+		Sel:       deps.selector,
+		Hooks:     deps.hooks,
+		ToolGuard: guard,
+		Prompt:    deps.cfg.CustomPrompt,
+		Config:    deps.cfg,
+		RuntimeDB: deps.runtimeDB,
+		Memory:    deps.memory,
 	}
 	agentDeps.CronTool = tool.NewCron(config.CronPath(), cronSched)
 
@@ -874,11 +824,11 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	return sm, sup, disp, reg, cronSched, nil
 }
 
-func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir, cliSource string, mem *memory.Store, rt *rtsqlite.DB) {
+func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, cliSource string, mem *memory.Store, rt *rtsqlite.DB) {
 	if compact := command.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
-	cmdReg.Register(command.NewReplayCmd(sm, sessionDir, rt))
+	cmdReg.Register(command.NewReplayCmd(sm, rt))
 	cmdReg.Register(command.NewToolsCmd(func() []tool.Tool {
 		if a := disp.Agent(cliSource); a != nil && a.Tools() != nil {
 			return a.Tools().All()

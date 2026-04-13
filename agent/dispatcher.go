@@ -959,7 +959,6 @@ func (d *Dispatcher) teamAgent(turn TeamTurn, sess *session.Session) *Agent {
 		WithToolGuard(d.deps.ToolGuard),
 		WithPrompt(prompt),
 		WithConfig(d.deps.Config),
-		WithSessionDir(d.deps.SessionDir),
 		WithRuntimeDB(d.deps.RuntimeDB),
 		WithMemoryStore(d.deps.Memory),
 		WithProvider(provider),

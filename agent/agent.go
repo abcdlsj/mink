@@ -13,7 +13,6 @@ import (
 	"github.com/abcdlsj/mink/llm"
 	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/runlog"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
@@ -39,10 +38,8 @@ type Agent struct {
 	base             tokenBaseline
 	turnToolHistory  map[string]turnToolRecord
 	turnStateVersion int
-	sessionDir       string
 	rt               *rtsqlite.DB
 	mem              *memory.Store
-	trace            *runlog.Logger
 	interrupted      bool
 	cancelFn         context.CancelFunc
 	mu               sync.Mutex
@@ -56,17 +53,16 @@ type tokenBaseline struct {
 }
 
 type AgentDeps struct {
-	Bus        *bus.Bus
-	Provider   llm.Provider
-	Sel        *llm.Sel
-	Hooks      *hook.Manager
-	ToolGuard  tool.Guard
-	CronTool   tool.Tool
-	Prompt     string
-	Config     config.Config
-	SessionDir string
-	RuntimeDB  *rtsqlite.DB
-	Memory     *memory.Store
+	Bus       *bus.Bus
+	Provider  llm.Provider
+	Sel       *llm.Sel
+	Hooks     *hook.Manager
+	ToolGuard tool.Guard
+	CronTool  tool.Tool
+	Prompt    string
+	Config    config.Config
+	RuntimeDB *rtsqlite.DB
+	Memory    *memory.Store
 }
 
 func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *Agent {
@@ -79,7 +75,6 @@ func (d *AgentDeps) newAgent(id string, sess *session.Session, subAgent bool) *A
 		WithPrompt(d.Prompt),
 		WithConfig(d.Config),
 		WithSubAgent(subAgent),
-		WithSessionDir(d.SessionDir),
 		WithRuntimeDB(d.RuntimeDB),
 		WithMemoryStore(d.Memory),
 	)
@@ -109,9 +104,8 @@ func WithConfig(c config.Config) Option {
 		a.ensureTokenEstimator()
 	}
 }
-func WithStream(s bool) Option       { return func(a *Agent) { a.stream = s } }
-func WithSessionDir(d string) Option { return func(a *Agent) { a.sessionDir = d } }
-func WithSel(s *llm.Sel) Option      { return func(a *Agent) { a.sel = s } }
+func WithStream(s bool) Option  { return func(a *Agent) { a.stream = s } }
+func WithSel(s *llm.Sel) Option { return func(a *Agent) { a.sel = s } }
 func WithRuntimeDB(db *rtsqlite.DB) Option {
 	return func(a *Agent) { a.rt = db }
 }
@@ -163,7 +157,6 @@ func New(id string, p llm.Provider, s *session.Session, opts ...Option) *Agent {
 	}
 	a.reg.Register(tool.NewBraveSearch(a.cfg.Key("BRAVE_API_KEY")))
 	a.ensureTokenEstimator()
-	a.initTrace()
 	return a
 }
 
