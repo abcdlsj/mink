@@ -94,7 +94,7 @@ func New(opts Options) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir, workspacePlatformSource("cli", deps.workspace))
+	registerRuntimeCommands(cmdReg, deps.bus, sm, disp, deps.sessionDir, workspacePlatformSource("cli", deps.workspace), deps.memory, deps.runtimeDB)
 
 	app := &App{
 		cfg:        deps.cfg,
@@ -867,7 +867,7 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 	return sm, sup, disp, reg, cronSched, nil
 }
 
-func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir, cliSource string) {
+func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, sessionDir, cliSource string, mem *memory.Store, rt *rtsqlite.DB) {
 	if compact := command.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
@@ -881,4 +881,7 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	}))
 	cmdReg.Register(command.NewTokensCmd(disp.Usage))
 	cmdReg.Register(command.NewSessionCmd(sm, disp))
+	if mem != nil {
+		cmdReg.Register(command.NewMemoryCmd(mem, rt))
+	}
 }
