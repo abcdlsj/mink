@@ -268,6 +268,8 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		s.SetKind("main")
+		s.SetStatus("active")
 		c.invalidate(src)
 		return fmt.Sprintf("switched to new session: %s", s.ID()), nil
 	case "switch":

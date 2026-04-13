@@ -14,6 +14,7 @@ import (
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/platform"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
+	"github.com/abcdlsj/mink/session"
 )
 
 func (a *App) currentSection(src string) string {
@@ -149,6 +150,10 @@ func (a *App) webNewSession(ctx context.Context, src string) error {
 	if err != nil {
 		return err
 	}
+	_ = a.sm.Update(sessionID, func(s *session.Session) {
+		s.SetKind("main")
+		s.SetStatus("active")
+	})
 	a.setMainSession(src, sessionID)
 	a.setActiveSection(src, "main")
 	return nil
@@ -161,6 +166,10 @@ func (a *App) webOpenSession(ctx context.Context, src, sessionID string) error {
 	if err := a.sm.RestoreSource(src, sessionID); err != nil {
 		return err
 	}
+	_ = a.sm.Update(sessionID, func(s *session.Session) {
+		s.SetKind("main")
+		s.SetStatus("active")
+	})
 	a.disp.InvalidateSource(src)
 	a.disp.UnbindTeamSource(src)
 	a.setActiveTeam(src, "")
@@ -199,6 +208,13 @@ func (a *App) webOpenThread(ctx context.Context, src, threadID string) error {
 	if err := a.sm.RestoreSource(src, thread.SessionID); err != nil {
 		return err
 	}
+	_ = a.sm.Update(thread.SessionID, func(s *session.Session) {
+		s.SetKind("team_thread")
+		s.SetStatus("active")
+		if strings.TrimSpace(s.Summary()) == "" {
+			s.SetSummary(thread.Title)
+		}
+	})
 	a.disp.InvalidateSource(src)
 	a.setActiveTeam(src, thread.TeamID)
 	a.setActiveThread(src, thread.ID)
@@ -691,6 +707,9 @@ func (a *App) webMainSessionItems(ctx context.Context, currentID string) ([]plat
 		}
 		sess, err := a.sm.Get(id)
 		if err != nil || sess == nil {
+			continue
+		}
+		if kind := strings.TrimSpace(sess.Kind()); kind != "" && kind != "main" {
 			continue
 		}
 		title := id

@@ -157,6 +157,10 @@ func (m *Manager) Fork(parent *Session) (*Session, error) {
 	defer m.mu.Unlock()
 
 	child := m.createLocked()
+	if parent != nil {
+		child.kind = firstNonEmptySnapshot(parent.Kind(), "main")
+		child.status = firstNonEmptySnapshot(parent.Status(), "active")
+	}
 	prov := Provenance{
 		ParentSessionID: parent.ID(),
 		ForkEntryCount:  parent.EntryCount(),
@@ -273,6 +277,30 @@ func (m *Manager) Bindings() map[string]string {
 		r[source] = id
 	}
 	return r
+}
+
+func (m *Manager) Update(id string, fn func(*Session)) error {
+	if fn == nil || id == "" {
+		return nil
+	}
+	s, err := m.Get(id)
+	if err != nil {
+		return err
+	}
+	fn(s)
+	return nil
+}
+
+func (m *Manager) UpdateSource(source string, fn func(*Session)) error {
+	if fn == nil || source == "" {
+		return nil
+	}
+	s, err := m.Current(source)
+	if err != nil {
+		return err
+	}
+	fn(s)
+	return nil
 }
 
 func (m *Manager) createLocked() *Session {

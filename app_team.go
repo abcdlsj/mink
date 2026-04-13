@@ -8,6 +8,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/platform"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
+	"github.com/abcdlsj/mink/session"
 )
 
 func (a *App) sourceFromContext(ctx context.Context) string {
@@ -166,6 +167,9 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 		if err != nil {
 			return "", err
 		}
+		sess.SetKind("team_thread")
+		sess.SetStatus("active")
+		sess.SetSummary(title)
 		a.disp.InvalidateSource(src)
 		threadID, err := a.rt.CreateThread(ctx, teamID, title, sess.ID())
 		if err != nil {
@@ -188,6 +192,13 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 		if err := a.sm.RestoreSource(src, thread.SessionID); err != nil {
 			return "", err
 		}
+		_ = a.sm.Update(thread.SessionID, func(s *session.Session) {
+			s.SetKind("team_thread")
+			s.SetStatus("active")
+			if strings.TrimSpace(s.Summary()) == "" {
+				s.SetSummary(thread.Title)
+			}
+		})
 		a.disp.InvalidateSource(src)
 		a.setActiveTeam(src, thread.TeamID)
 		a.setActiveThread(src, thread.ID)
@@ -327,6 +338,9 @@ func (a *App) threadInfoFromRecord(ctx context.Context, thread rtsqlite.TeamThre
 		return info
 	}
 	msgs := sess.Messages()
+	if summary := strings.TrimSpace(sess.Summary()); summary != "" {
+		info.LatestSummary = compactLine(summary, 120)
+	}
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if strings.TrimSpace(msgs[i].Content) == "" {
 			continue

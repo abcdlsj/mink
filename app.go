@@ -251,6 +251,10 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
+	_ = a.sm.Update(sessionID, func(s *session.Session) {
+		s.SetKind("main")
+		s.SetStatus("active")
+	})
 	a.setMainSession(webSource, sessionID)
 	a.setActiveSection(webSource, "main")
 

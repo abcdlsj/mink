@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,6 +134,45 @@ func (s *Session) ClosedAt() *time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneTimePtr(s.closedAt)
+}
+
+func (s *Session) SetKind(kind string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kind = firstNonEmptySnapshot(kind, "main")
+	if s.kind == kind {
+		return
+	}
+	s.kind = kind
+	s.touchLocked()
+}
+
+func (s *Session) SetStatus(status string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status = firstNonEmptySnapshot(status, "active")
+	if s.status == status {
+		return
+	}
+	s.status = status
+	if status == "closed" {
+		now := time.Now()
+		s.closedAt = &now
+	} else {
+		s.closedAt = nil
+	}
+	s.touchLocked()
+}
+
+func (s *Session) SetSummary(summary string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	summary = strings.TrimSpace(summary)
+	if s.summary == summary {
+		return
+	}
+	s.summary = summary
+	s.touchLocked()
 }
 
 func (s *Session) AddAnchor(kind AnchorKind, summary, note string, entryCount int) Anchor {
