@@ -686,7 +686,7 @@ type runtimeDeps struct {
 	selector      *llm.Sel
 	memoryDir     string
 	workspace     string
-	store         session.Store
+	store         *session.SQLiteStore
 	runtimeDB     *rtsqlite.DB
 	memory        *memory.Store
 	memoryWatcher *memory.Watcher
