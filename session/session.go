@@ -111,6 +111,30 @@ func (s *Session) Provenance() *Provenance {
 	return &p
 }
 
+func (s *Session) Kind() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.kind
+}
+
+func (s *Session) Status() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.status
+}
+
+func (s *Session) Summary() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.summary
+}
+
+func (s *Session) ClosedAt() *time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneTimePtr(s.closedAt)
+}
+
 func (s *Session) AddAnchor(kind AnchorKind, summary, note string, entryCount int) Anchor {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -224,7 +224,20 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 			if id == current {
 				mark = "* "
 			}
-			fmt.Fprintf(&b, "%s%s\n", mark, id)
+			line := id
+			if s, err := c.sm.Get(id); err == nil && s != nil {
+				meta := []string{}
+				if status := strings.TrimSpace(s.Status()); status != "" {
+					meta = append(meta, status)
+				}
+				if summary := strings.TrimSpace(s.Summary()); summary != "" {
+					meta = append(meta, replayTrim(summary, 48))
+				}
+				if len(meta) > 0 {
+					line += " [" + strings.Join(meta, " | ") + "]"
+				}
+			}
+			fmt.Fprintf(&b, "%s%s\n", mark, line)
 		}
 		return b.String(), nil
 	case "current":
@@ -238,9 +251,14 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "Current session: %s\n", id)
+		fmt.Fprintf(&b, "Kind: %s\n", s.Kind())
+		fmt.Fprintf(&b, "Status: %s\n", s.Status())
 		fmt.Fprintf(&b, "Source: %s\n", src)
 		fmt.Fprintf(&b, "Entries: %d\n", s.EntryCount())
 		fmt.Fprintf(&b, "Anchors: %d", len(s.Anchors()))
+		if summary := strings.TrimSpace(s.Summary()); summary != "" {
+			fmt.Fprintf(&b, "\nSummary: %s", summary)
+		}
 		if p := s.Provenance(); p != nil {
 			fmt.Fprintf(&b, "\nParent: %s\nFork point: %d", p.ParentSessionID, p.ForkEntryCount)
 		}

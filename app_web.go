@@ -694,17 +694,30 @@ func (a *App) webMainSessionItems(ctx context.Context, currentID string) ([]plat
 			continue
 		}
 		title := id
+		summary := ""
 		for _, message := range sess.View().Messages {
 			if message.Role == "user" && strings.TrimSpace(message.Content) != "" {
 				title = compactLine(message.Content, 28)
 				break
 			}
 		}
+		if s := strings.TrimSpace(sess.Summary()); s != "" {
+			summary = compactLine(s, 28)
+		}
+		meta := compactLine(id, 28)
+		if status := strings.TrimSpace(sess.Status()); status != "" {
+			meta = strings.ToUpper(status)
+			if summary != "" {
+				meta += " · " + summary
+			}
+		} else if summary != "" {
+			meta = summary
+		}
 		items = append(items, platform.WebIndexItem{
 			ID:      id,
 			Section: "main",
 			Label:   title,
-			Meta:    compactLine(id, 28),
+			Meta:    meta,
 			Active:  id == currentID,
 		})
 	}
