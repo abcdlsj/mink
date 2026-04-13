@@ -636,9 +636,9 @@ func (a *App) switchModel(name string) error {
 func defaultRuntimeDBPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return filepath.Join(".mink", "runtime", "v2", "runtime.db")
+		return filepath.Join(".mink", "runtime.db")
 	}
-	return filepath.Join(home, ".mink", "runtime", "v2", "runtime.db")
+	return filepath.Join(home, ".mink", "runtime.db")
 }
 
 func defaultMemoryDir() string {
