@@ -191,6 +191,11 @@ func (a *App) webOpenTeam(ctx context.Context, src, teamID string) error {
 	if err != nil || len(threads) == 0 {
 		return err
 	}
+	for _, thread := range threads {
+		if thread.Status == "active" {
+			return a.webOpenThread(ctx, src, thread.ID)
+		}
+	}
 	return a.webOpenThread(ctx, src, threads[0].ID)
 }
 

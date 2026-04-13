@@ -268,6 +268,29 @@ func (d *TeamDispatcher) Complete(ctx context.Context, turn TeamTurn, output str
 	})
 }
 
+func (d *TeamDispatcher) closeThread(ctx context.Context, threadID, summary string) {
+	if d == nil || d.rt == nil || threadID == "" {
+		return
+	}
+	thread, err := d.rt.GetThread(ctx, threadID)
+	if err != nil || thread.ID == "" {
+		return
+	}
+	_ = d.rt.UpdateThreadStatus(ctx, thread.ID, "closed")
+	if d.sm != nil && thread.SessionID != "" {
+		_ = d.sm.Update(thread.SessionID, func(s *session.Session) {
+			s.SetKind("team_thread")
+			s.SetStatus("closed")
+			if strings.TrimSpace(s.Summary()) == "" && strings.TrimSpace(summary) != "" {
+				s.SetSummary(summary)
+			}
+		})
+		if sess, err := d.sm.Get(thread.SessionID); err == nil && sess != nil {
+			_ = sess.Flush()
+		}
+	}
+}
+
 func compactSummary(s string, limit int) string {
 	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 	if limit <= 0 {
@@ -318,6 +341,7 @@ func (d *TeamDispatcher) AutoSchedule(ctx context.Context, src string, turn Team
 		return TeamHandoff{}, false, nil
 	}
 	if turn.MaxRounds > 0 && turn.Round >= turn.MaxRounds {
+		d.closeThread(ctx, turn.ThreadID, turn.Goal)
 		return TeamHandoff{}, false, nil
 	}
 	if turn.SpeakerAgentID == turn.LeaderAgentID && turn.Round > 1 {
