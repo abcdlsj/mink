@@ -305,10 +305,7 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 
 	if d.rt != nil {
 		parentTurn, _ := runtimeTurnFrom(ctx)
-		parentTaskID := parentTurn.TaskID
-		if _, err := d.rt.CreateChildTask(ctx, parentTaskID, "cron", prompt, d.agentID, src); err != nil {
-			_ = err
-		}
+		d.rt.CreateChildTask(ctx, parentTurn.TaskID, "cron", prompt, d.agentID, src)
 	}
 
 	a := d.getOrCreateAgent(src)
