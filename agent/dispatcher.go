@@ -20,7 +20,7 @@ type Dispatcher struct {
 	agentID     string
 	registry    *Registry
 	team        *TeamDispatcher
-	agents      map[string]*Agent
+	runtimes    map[string]*NativeRuntime
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
 	skillLoader *skill.Loader
@@ -33,7 +33,7 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader, rt *rt
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
 		team:        NewTeamDispatcher(rt, deps.Memory, sm),
-		agents:      make(map[string]*Agent),
+		runtimes:    make(map[string]*NativeRuntime),
 		workers:     make(map[string]*workerState),
 		rt:          rt,
 		skillLoader: sl,
@@ -67,7 +67,7 @@ func (d *Dispatcher) Registry() *Registry {
 
 func (d *Dispatcher) ResetAgents() {
 	d.mu.Lock()
-	d.agents = make(map[string]*Agent)
+	d.runtimes = make(map[string]*NativeRuntime)
 	d.mu.Unlock()
 }
 
@@ -97,8 +97,8 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 		if s, ok := m.Payload.(string); ok {
 			note = s
 		}
-		a := d.getOrCreateAgent(src)
-		out, err := a.Compact(ctx, src, note)
+		a := d.getOrCreateRuntime(src)
+		out, err := a.Agent().Compact(ctx, src, note)
 		if err != nil {
 			return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
 		}
@@ -116,12 +116,12 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 	if m.Type == bus.TypeInterrupt {
 		d.mu.RLock()
 		if m.From != "" {
-			if a, ok := d.agents[m.From]; ok {
-				a.Interrupt()
+			if rt, ok := d.runtimes[m.From]; ok {
+				rt.Interrupt()
 			}
 		} else {
-			for _, a := range d.agents {
-				a.Interrupt()
+			for _, rt := range d.runtimes {
+				rt.Interrupt()
 			}
 		}
 		d.mu.RUnlock()
@@ -182,7 +182,7 @@ func (d *Dispatcher) InvalidateSource(src string) {
 	var cancel context.CancelFunc
 
 	d.mu.Lock()
-	delete(d.agents, src)
+	delete(d.runtimes, src)
 	if w, ok := d.workers[src]; ok {
 		cancel = w.cancel
 		delete(d.workers, src)
@@ -214,19 +214,19 @@ func (d *Dispatcher) UnbindTeamSource(src string) {
 	}
 }
 
-func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
+func (d *Dispatcher) getOrCreateRuntime(src string) *NativeRuntime {
 	d.mu.RLock()
-	if a, ok := d.agents[src]; ok {
+	if rt, ok := d.runtimes[src]; ok {
 		d.mu.RUnlock()
-		return a
+		return rt
 	}
 	d.mu.RUnlock()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if a, ok := d.agents[src]; ok {
-		return a
+	if rt, ok := d.runtimes[src]; ok {
+		return rt
 	}
 
 	sess, err := d.sm.Current(src)
@@ -242,14 +242,19 @@ func (d *Dispatcher) getOrCreateAgent(src string) *Agent {
 	if d.skillLoader != nil {
 		skill.RegisterTools(a.Tools(), d.skillLoader)
 	}
-	d.agents[src] = a
-	return a
+	rt := NewNativeRuntime(a)
+	rt.source = src
+	d.runtimes[src] = rt
+	return rt
 }
 
 func (d *Dispatcher) Agent(src string) *Agent {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.agents[src]
+	if rt, ok := d.runtimes[src]; ok {
+		return rt.Agent()
+	}
+	return nil
 }
 
 func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
@@ -308,8 +313,8 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 		d.rt.CreateChildTask(ctx, parentTurn.TaskID, "cron", prompt, d.agentID, src)
 	}
 
-	a := d.getOrCreateAgent(src)
-	state, err := d.startRun(ctx, src, bus.TypeCronTrigger, prompt, a)
+	rt := d.getOrCreateRuntime(src)
+	state, err := d.startRun(ctx, src, bus.TypeCronTrigger, prompt, rt)
 	if err != nil {
 		d.pub(bus.Msg{
 			Type:    bus.TypeAssistant,
@@ -326,7 +331,7 @@ func (d *Dispatcher) HandleCronTrigger(ctx context.Context, m bus.Msg) {
 	}
 
 	runCtx := withRuntimeTurn(ctx, state, src)
-	err = a.Run(runCtx, src, prompt)
+	err = rt.Send(runCtx, prompt)
 	_ = d.finishRun(ctx, state, err)
 	if err != nil {
 		d.pub(bus.Msg{
@@ -476,8 +481,8 @@ func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targe
 		}
 	}
 
-	a := d.getOrCreateAgent(src)
-	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, a)
+	rt := d.getOrCreateRuntime(src)
+	state, err := d.startRun(ctx, src, bus.TypeDelegate, desc, rt)
 	if err != nil {
 		d.pub(bus.Msg{
 			Type:    bus.TypeDelegateResult,
@@ -495,7 +500,7 @@ func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targe
 
 	runCtx := withRuntimeTurn(ctx, state, src)
 	runCtx = bus.WithDelegationDepth(runCtx, depth+1)
-	err = a.Run(runCtx, src, desc)
+	err = rt.Send(runCtx, desc)
 	_ = d.finishRun(ctx, state, err)
 
 	if err != nil {
@@ -513,7 +518,7 @@ func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targe
 		return
 	}
 
-	output := d.lastAssistantOutput(a)
+	output := d.lastAssistantOutput(rt)
 	d.pub(bus.Msg{
 		Type:    bus.TypeDelegateResult,
 		From:    targetID,
@@ -527,11 +532,11 @@ func (d *Dispatcher) runDelegation(ctx context.Context, m bus.Msg, taskID, targe
 	})
 }
 
-func (d *Dispatcher) lastAssistantOutput(a *Agent) string {
-	if a == nil || a.Session() == nil {
+func (d *Dispatcher) lastAssistantOutput(rt Runtime) string {
+	if rt == nil || rt.Session() == nil {
 		return ""
 	}
-	msgs := a.Session().Messages()
+	msgs := rt.Session().Messages()
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == "assistant" && msgs[i].Content != "" {
 			return msgs[i].Content
@@ -559,11 +564,11 @@ func (d *Dispatcher) pub(m bus.Msg) {
 	_ = d.deps.Bus.Pub(m)
 }
 
-func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, a *Agent) (rtsqlite.RunState, error) {
-	if d.rt == nil || a == nil || a.Session() == nil {
+func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, rt Runtime) (rtsqlite.RunState, error) {
+	if d.rt == nil || rt == nil || rt.Session() == nil {
 		return rtsqlite.RunState{}, nil
 	}
-	return d.startRunForAgent(ctx, src, a.Session().ID(), d.agentID, msgType, in)
+	return d.startRunForAgent(ctx, src, rt.Session().ID(), d.agentID, msgType, in)
 }
 
 func (d *Dispatcher) finishRun(ctx context.Context, state rtsqlite.RunState, err error) error {
@@ -591,17 +596,17 @@ func (d *Dispatcher) startRunForAgent(ctx context.Context, source, sessionID, ag
 	return d.rt.StartRun(ctx, source, sessionID, agentID, trigger(msgType), in)
 }
 
-func (d *Dispatcher) setActiveAgent(src string, a *Agent) func() {
+func (d *Dispatcher) setActiveRuntime(src string, rt *NativeRuntime) func() {
 	d.mu.Lock()
-	prev := d.agents[src]
-	d.agents[src] = a
+	prev := d.runtimes[src]
+	d.runtimes[src] = rt
 	d.mu.Unlock()
 	return func() {
 		d.mu.Lock()
 		if prev != nil {
-			d.agents[src] = prev
+			d.runtimes[src] = prev
 		} else {
-			delete(d.agents, src)
+			delete(d.runtimes, src)
 		}
 		d.mu.Unlock()
 	}

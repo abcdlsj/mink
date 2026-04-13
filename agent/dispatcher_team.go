@@ -14,35 +14,36 @@ import (
 	"github.com/abcdlsj/mink/skill"
 )
 
-func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, a *Agent) (TeamTurn, func(), error) {
-	if d.team == nil || a == nil {
+func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, rt *NativeRuntime) (TeamTurn, func(), error) {
+	if d.team == nil || rt == nil {
 		return TeamTurn{}, nil, nil
 	}
-	return d.team.Prepare(ctx, src, a.Session())
+	return d.team.Prepare(ctx, src, rt.Session())
 }
 
-func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, a *Agent) (string, error) {
+func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, rt *NativeRuntime) (string, error) {
 	currentInput := initialInput
 	lastSpeakerID := d.agentID
 	for {
-		teamTurn, release, err := d.prepareTeamTurn(ctx, src, a)
+		teamTurn, release, err := d.prepareTeamTurn(ctx, src, rt)
 		if err != nil {
 			return lastSpeakerID, err
 		}
 		runSource := src
 		runAgentID := d.agentID
 		runInput := currentInput
-		runAgent := a
+		runRT := rt
 		if release != nil {
 			runSource = teamTurn.RuntimeSource
 			runAgentID = teamTurn.SpeakerAgentID
-			runAgent = d.teamAgent(teamTurn, a.Session())
+			runRT = NewNativeRuntime(d.teamAgent(teamTurn, rt.Session()))
+			runRT.source = runSource
 			if strings.TrimSpace(teamTurn.Prompt) != "" {
 				runInput = teamTurn.Prompt
 			}
 		}
 		lastSpeakerID = runAgentID
-		state, err := d.startRunForAgent(ctx, runSource, runAgent.Session().ID(), runAgentID, msgType, runInput)
+		state, err := d.startRunForAgent(ctx, runSource, runRT.Session().ID(), runAgentID, msgType, runInput)
 		if err != nil {
 			if release != nil {
 				release()
@@ -53,12 +54,12 @@ func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInp
 		if release != nil {
 			runCtx = withTeamTurn(runCtx, teamTurn)
 		}
-		restore := d.setActiveAgent(src, runAgent)
-		err = d.runWithStatus(runCtx, src, msgType, runInput, runAgent)
+		restore := d.setActiveRuntime(src, runRT)
+		err = d.runWithStatus(runCtx, src, msgType, runInput, runRT)
 		restore()
 		_ = d.finishRun(ctx, state, err)
 		if release != nil {
-			d.team.Complete(runCtx, teamTurn, d.lastAssistantOutput(runAgent), err)
+			d.team.Complete(runCtx, teamTurn, d.lastAssistantOutput(runRT), err)
 			release()
 		}
 		if err != nil {

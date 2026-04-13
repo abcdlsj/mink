@@ -53,7 +53,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 			}
 			idle.Reset(workerIdleTTL)
 
-			a := d.getOrCreateAgent(src)
+			rt := d.getOrCreateRuntime(src)
 			initialInput, ok := m.Payload.(string)
 			if !ok {
 				d.pub(bus.Msg{
@@ -70,7 +70,7 @@ func (d *Dispatcher) worker(ctx context.Context, src string, q chan bus.Msg) {
 				continue
 			}
 
-			speakerID, err := d.runSourceTurn(ctx, src, m.Type, initialInput, a)
+			speakerID, err := d.runSourceTurn(ctx, src, m.Type, initialInput, rt)
 			if err != nil {
 				if speakerID == "" {
 					speakerID = d.agentID
@@ -138,14 +138,14 @@ func enqueueWorker(parent context.Context, q chan bus.Msg, m bus.Msg, timeout ti
 	}
 }
 
-func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string, a *Agent) error {
+func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string, rt Runtime) error {
 	errCh := make(chan error, 1)
 	go func() {
 		if msgType == bus.TypeTaskDone {
-			errCh <- a.RunSystem(ctx, src, in)
+			errCh <- rt.SendSystem(ctx, in)
 			return
 		}
-		errCh <- a.Run(ctx, src, in)
+		errCh <- rt.Send(ctx, in)
 	}()
 
 	first := time.NewTimer(workerStatusFirstDelay)
