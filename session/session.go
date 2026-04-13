@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"os"
 	"sync"
 	"time"
@@ -12,6 +13,11 @@ import (
 
 type Session struct {
 	id        string
+	kind      string
+	status    string
+	summary   string
+	meta      json.RawMessage
+	closedAt  *time.Time
 	store     Store
 	entries   []Entry
 	anchors   []Anchor
@@ -25,7 +31,16 @@ type Session struct {
 
 func newSession(id string, store Store, resolve func(string) (*Session, error)) *Session {
 	now := time.Now()
-	return &Session{id: id, store: store, createdAt: now, updatedAt: now, resolve: resolve}
+	return &Session{
+		id:        id,
+		kind:      "main",
+		status:    "active",
+		meta:      json.RawMessage("{}"),
+		store:     store,
+		createdAt: now,
+		updatedAt: now,
+		resolve:   resolve,
+	}
 }
 
 func (s *Session) ID() string { return s.id }
@@ -114,6 +129,9 @@ func (s *Session) AddAnchor(kind AnchorKind, summary, note string, entryCount in
 		CreatedAt:  time.Now(),
 	}
 	s.anchors = append(s.anchors, a)
+	if kind == AnchorSummary {
+		s.summary = summary
+	}
 	s.touchLocked()
 	return a
 }
@@ -174,8 +192,13 @@ func (s *Session) snapshotLocked() *Snapshot {
 	return &Snapshot{
 		Version:    1,
 		ID:         s.id,
+		Kind:       firstNonEmptySnapshot(s.kind, "main"),
+		Status:     firstNonEmptySnapshot(s.status, "active"),
+		Summary:    s.summary,
+		Metadata:   cloneJSON(s.meta),
 		CreatedAt:  s.createdAt,
 		UpdatedAt:  s.updatedAt,
+		ClosedAt:   cloneTimePtr(s.closedAt),
 		Entries:    entries,
 		Anchors:    anchors,
 		Provenance: prov,
@@ -189,6 +212,11 @@ func (s *Session) applySnapshot(snap *Snapshot) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.id = snap.ID
+	s.kind = firstNonEmptySnapshot(snap.Kind, "main")
+	s.status = firstNonEmptySnapshot(snap.Status, "active")
+	s.summary = snap.Summary
+	s.meta = cloneJSON(snap.Metadata)
+	s.closedAt = cloneTimePtr(snap.ClosedAt)
 	s.createdAt = snap.CreatedAt
 	if s.createdAt.IsZero() {
 		s.createdAt = time.Now()
@@ -206,6 +234,30 @@ func (s *Session) applySnapshot(snap *Snapshot) {
 		s.prov = nil
 	}
 	s.dirty = false
+}
+
+func cloneJSON(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return json.RawMessage("{}")
+	}
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
+	return json.RawMessage(cp)
+}
+
+func cloneTimePtr(t *time.Time) *time.Time {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	return &cp
+}
+
+func firstNonEmptySnapshot(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 func (s *Session) parent(id string) (*Session, error) {

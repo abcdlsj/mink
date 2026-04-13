@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/abcdlsj/mink/msg"
@@ -46,13 +47,18 @@ type Provenance struct {
 }
 
 type Snapshot struct {
-	Version    int         `json:"version"`
-	ID         string      `json:"id"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
-	Entries    []Entry     `json:"entries,omitempty"`
-	Anchors    []Anchor    `json:"anchors,omitempty"`
-	Provenance *Provenance `json:"provenance,omitempty"`
+	Version    int             `json:"version"`
+	ID         string          `json:"id"`
+	Kind       string          `json:"kind,omitempty"`
+	Status     string          `json:"status,omitempty"`
+	Summary    string          `json:"summary,omitempty"`
+	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	ClosedAt   *time.Time      `json:"closed_at,omitempty"`
+	Entries    []Entry         `json:"entries,omitempty"`
+	Anchors    []Anchor        `json:"anchors,omitempty"`
+	Provenance *Provenance     `json:"provenance,omitempty"`
 }
 
 type View struct {

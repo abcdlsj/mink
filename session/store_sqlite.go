@@ -38,16 +38,42 @@ func (s *SQLiteStore) Load(id string) (*Snapshot, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("session: nil sqlite store")
 	}
-	var raw string
+	var row struct {
+		Kind         string
+		Title        string
+		Status       string
+		ParentID     string
+		ForkEntrySeq int
+		Summary      string
+		Metadata     string
+		Snapshot     string
+		CreatedAt    time.Time
+		UpdatedAt    time.Time
+		ClosedAt     *time.Time
+	}
 	err := s.db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT snapshot_json
+			SELECT kind, title, status, parent_session_id, fork_from_entry_seq, summary, metadata_json, snapshot_json, created_at, updated_at, closed_at
 			FROM sessions
 			WHERE workspace_id = ? AND id = ?
 		`, &sqlitex.ExecOptions{
 			Args: []any{s.workspaceID, id},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				raw = stmt.ColumnText(0)
+				row.Kind = stmt.ColumnText(0)
+				row.Title = stmt.ColumnText(1)
+				row.Status = stmt.ColumnText(2)
+				row.ParentID = stmt.ColumnText(3)
+				row.ForkEntrySeq = int(stmt.ColumnInt64(4))
+				row.Summary = stmt.ColumnText(5)
+				row.Metadata = stmt.ColumnText(6)
+				row.Snapshot = stmt.ColumnText(7)
+				row.CreatedAt, _ = time.Parse(time.RFC3339Nano, stmt.ColumnText(8))
+				row.UpdatedAt, _ = time.Parse(time.RFC3339Nano, stmt.ColumnText(9))
+				if stmt.ColumnType(10) != zsqlite.TypeNull {
+					if ts, err := time.Parse(time.RFC3339Nano, stmt.ColumnText(10)); err == nil {
+						row.ClosedAt = &ts
+					}
+				}
 				return nil
 			},
 		})
@@ -55,12 +81,33 @@ func (s *SQLiteStore) Load(id string) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	if raw == "" {
+	if row.Snapshot == "" {
 		return nil, os.ErrNotExist
 	}
 	var snap Snapshot
-	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
+	if err := json.Unmarshal([]byte(row.Snapshot), &snap); err != nil {
 		return nil, err
+	}
+	snap.Kind = firstNonEmpty(snap.Kind, row.Kind)
+	snap.Status = firstNonEmpty(snap.Status, row.Status)
+	snap.Summary = firstNonEmpty(snap.Summary, row.Summary)
+	if len(snap.Metadata) == 0 && row.Metadata != "" {
+		snap.Metadata = json.RawMessage(row.Metadata)
+	}
+	if snap.CreatedAt.IsZero() {
+		snap.CreatedAt = row.CreatedAt
+	}
+	if snap.UpdatedAt.IsZero() {
+		snap.UpdatedAt = row.UpdatedAt
+	}
+	if snap.ClosedAt == nil {
+		snap.ClosedAt = row.ClosedAt
+	}
+	if snap.Provenance == nil && row.ParentID != "" {
+		snap.Provenance = &Provenance{
+			ParentSessionID: row.ParentID,
+			ForkEntryCount:  row.ForkEntrySeq,
+		}
 	}
 	entries, err := s.loadEntries(id)
 	if err != nil {
@@ -92,6 +139,23 @@ func (s *SQLiteStore) Save(id string, snap *Snapshot) error {
 		updatedAt = createdAt
 	}
 	title := snapshotTitle(snap)
+	kind := firstNonEmpty(snap.Kind, "main")
+	status := firstNonEmpty(snap.Status, "active")
+	summary := strings.TrimSpace(snap.Summary)
+	if summary == "" && len(snap.Anchors) > 0 {
+		summary = strings.TrimSpace(snap.Anchors[len(snap.Anchors)-1].Summary)
+	}
+	parentID := ""
+	forkFromEntrySeq := 0
+	if snap.Provenance != nil {
+		parentID = strings.TrimSpace(snap.Provenance.ParentSessionID)
+		forkFromEntrySeq = snap.Provenance.ForkEntryCount
+	}
+	metadata := string(snapshotMetadataJSON(snap.Metadata))
+	var closedAt any
+	if snap.ClosedAt != nil && !snap.ClosedAt.IsZero() {
+		closedAt = snap.ClosedAt.UTC().Format(time.RFC3339Nano)
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return s.db.Tx(context.Background(), func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
@@ -113,22 +177,36 @@ func (s *SQLiteStore) Save(id string, snap *Snapshot) error {
 			return err
 		}
 		if err := sqlitex.ExecuteTransient(conn, `
-			INSERT INTO sessions (id, workspace_id, title, snapshot_json, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO sessions (id, workspace_id, kind, title, status, parent_session_id, fork_from_entry_seq, summary, metadata_json, snapshot_json, created_at, updated_at, closed_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				workspace_id = excluded.workspace_id,
+				kind = excluded.kind,
 				title = excluded.title,
+				status = excluded.status,
+				parent_session_id = excluded.parent_session_id,
+				fork_from_entry_seq = excluded.fork_from_entry_seq,
+				summary = excluded.summary,
+				metadata_json = excluded.metadata_json,
 				snapshot_json = excluded.snapshot_json,
 				created_at = excluded.created_at,
-				updated_at = excluded.updated_at
+				updated_at = excluded.updated_at,
+				closed_at = excluded.closed_at
 		`, &sqlitex.ExecOptions{
 			Args: []any{
 				id,
 				s.workspaceID,
+				kind,
 				title,
+				status,
+				parentID,
+				forkFromEntrySeq,
+				summary,
+				metadata,
 				string(data),
 				createdAt.UTC().Format(time.RFC3339Nano),
 				updatedAt.UTC().Format(time.RFC3339Nano),
+				closedAt,
 			},
 		}); err != nil {
 			return err
@@ -231,6 +309,13 @@ func snapshotMeta(snap *Snapshot) *Snapshot {
 	meta := *snap
 	meta.Entries = nil
 	return &meta
+}
+
+func snapshotMetadataJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return []byte("{}")
+	}
+	return raw
 }
 
 func (s *SQLiteStore) loadEntries(id string) ([]Entry, error) {

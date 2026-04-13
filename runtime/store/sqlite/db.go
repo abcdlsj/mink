@@ -157,6 +157,13 @@ func migrate(conn *zsqlite.Conn) error {
 		`ALTER TABLE memory_docs ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'global'`,
 		`ALTER TABLE memory_docs ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE memory_docs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
+		`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'`,
+		`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
+		`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN fork_from_entry_seq INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE sessions ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE sessions ADD COLUMN closed_at TEXT`,
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {
