@@ -1,7 +1,5 @@
 package sqlite
 
-const schemaVersion = 1
-
 const schema = `
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;

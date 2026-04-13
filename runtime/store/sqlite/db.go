@@ -46,24 +46,6 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	db.workspaceID = ws.ID
 	db.workspacePath = ws.Path
 	db.workspaceName = ws.Name
-	reset, err := db.needsReset(context.Background())
-	if err != nil {
-		_ = pool.Close()
-		return nil, err
-	}
-	if reset {
-		_ = pool.Close()
-		if err := resetDB(path); err != nil {
-			return nil, err
-		}
-		pool, err = sqlitex.NewPool(path, sqlitex.PoolOptions{
-			PoolSize: opts.PoolSize,
-		})
-		if err != nil {
-			return nil, err
-		}
-		db.pool = pool
-	}
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
 			return err
@@ -156,51 +138,6 @@ func prepare(conn *zsqlite.Conn) error {
 	}
 	if err := sqlitex.ExecuteTransient(conn, "PRAGMA busy_timeout=5000", nil); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (db *DB) needsReset(ctx context.Context) (bool, error) {
-	if db == nil {
-		return false, nil
-	}
-	var version int
-	var hasObjects bool
-	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteTransient(conn, `PRAGMA user_version`, &sqlitex.ExecOptions{
-			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				version = stmt.ColumnInt(0)
-				return nil
-			},
-		}); err != nil {
-			return err
-		}
-		return sqlitex.ExecuteTransient(conn, `
-			SELECT 1
-			FROM sqlite_master
-			WHERE name NOT LIKE 'sqlite_%'
-			LIMIT 1
-		`, &sqlitex.ExecOptions{
-			ResultFunc: func(stmt *zsqlite.Stmt) error {
-				hasObjects = stmt.ColumnInt(0) == 1
-				return nil
-			},
-		})
-	})
-	if err != nil {
-		return false, err
-	}
-	if !hasObjects {
-		return false, nil
-	}
-	return version != schemaVersion, nil
-}
-
-func resetDB(path string) error {
-	for _, name := range []string{path, path + "-wal", path + "-shm"} {
-		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
-			return err
-		}
 	}
 	return nil
 }
