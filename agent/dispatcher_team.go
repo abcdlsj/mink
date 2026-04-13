@@ -21,22 +21,34 @@ func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, rt *Native
 	return d.team.Prepare(ctx, src, rt.Session())
 }
 
-func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, rt *NativeRuntime) (string, error) {
+func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, rt Runtime) (string, error) {
+	nr, isNative := rt.(*NativeRuntime)
+	if !isNative {
+		state, err := d.startRun(ctx, src, msgType, initialInput, rt)
+		if err != nil {
+			return d.agentID, err
+		}
+		runCtx := withRuntimeTurn(ctx, state, src)
+		err = rt.Send(runCtx, initialInput)
+		_ = d.finishRun(ctx, state, err)
+		return d.agentID, err
+	}
+
 	currentInput := initialInput
 	lastSpeakerID := d.agentID
 	for {
-		teamTurn, release, err := d.prepareTeamTurn(ctx, src, rt)
+		teamTurn, release, err := d.prepareTeamTurn(ctx, src, nr)
 		if err != nil {
 			return lastSpeakerID, err
 		}
 		runSource := src
 		runAgentID := d.agentID
 		runInput := currentInput
-		runRT := rt
+		runRT := nr
 		if release != nil {
 			runSource = teamTurn.RuntimeSource
 			runAgentID = teamTurn.SpeakerAgentID
-			runRT = NewNativeRuntime(d.teamAgent(teamTurn, rt.Session()))
+			runRT = NewNativeRuntime(d.teamAgent(teamTurn, nr.Session()))
 			runRT.source = runSource
 			if strings.TrimSpace(teamTurn.Prompt) != "" {
 				runInput = teamTurn.Prompt

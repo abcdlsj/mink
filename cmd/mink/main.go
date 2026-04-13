@@ -4,8 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/abcdlsj/mink"
@@ -25,6 +28,8 @@ func main() {
 		runWeb()
 	case "tg":
 		runTG()
+	case "mcp-bridge":
+		runMCPBridge()
 	default:
 		os.Args = append([]string{os.Args[0]}, os.Args[1:]...)
 		runCLI()
@@ -135,4 +140,40 @@ func runWeb() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	fmt.Println("\nShutting down...")
+}
+
+func runMCPBridge() {
+	fs := flag.NewFlagSet("mcp-bridge", flag.ExitOnError)
+	sockPath := fs.String("sock", "", "Unix socket path to connect to")
+	fs.Parse(os.Args[2:])
+
+	if *sockPath == "" {
+		fmt.Fprintln(os.Stderr, "mcp-bridge: --sock is required")
+		os.Exit(1)
+	}
+
+	conn, err := net.Dial("unix", *sockPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mcp-bridge: connect: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		io.Copy(conn, os.Stdin)
+		if c, ok := conn.(*net.UnixConn); ok {
+			c.CloseWrite()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(os.Stdout, conn)
+	}()
+
+	wg.Wait()
 }

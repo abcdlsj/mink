@@ -44,6 +44,7 @@ type Config struct {
 type AgentConfig struct {
 	ID            string           `toml:"id"`
 	Name          string           `toml:"name"`
+	Runtime       string           `toml:"runtime"`
 	Capabilities  []string         `toml:"capabilities"`
 	Model         string           `toml:"model"`
 	SoulPath      string           `toml:"soul_path"`

@@ -72,6 +72,13 @@ func (db *DB) WorkspaceID() string {
 	return db.workspaceID
 }
 
+func (db *DB) WorkspacePath() string {
+	if db == nil {
+		return ""
+	}
+	return db.workspacePath
+}
+
 func (db *DB) Close() error {
 	if db == nil || db.pool == nil {
 		return nil
@@ -162,5 +169,5 @@ func (db *DB) ensureWorkspace(conn *zsqlite.Conn) error {
 			now,
 			now,
 		},
-		})
+	})
 }

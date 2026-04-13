@@ -20,7 +20,7 @@ type Dispatcher struct {
 	agentID     string
 	registry    *Registry
 	team        *TeamDispatcher
-	runtimes    map[string]*NativeRuntime
+	runtimes    map[string]Runtime
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
 	skillLoader *skill.Loader
@@ -33,7 +33,7 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader, rt *rt
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
 		team:        NewTeamDispatcher(rt, deps.Memory, sm),
-		runtimes:    make(map[string]*NativeRuntime),
+		runtimes:    make(map[string]Runtime),
 		workers:     make(map[string]*workerState),
 		rt:          rt,
 		skillLoader: sl,
@@ -67,7 +67,7 @@ func (d *Dispatcher) Registry() *Registry {
 
 func (d *Dispatcher) ResetAgents() {
 	d.mu.Lock()
-	d.runtimes = make(map[string]*NativeRuntime)
+	d.runtimes = make(map[string]Runtime)
 	d.mu.Unlock()
 }
 
@@ -98,17 +98,19 @@ func (d *Dispatcher) Handle(ctx context.Context, m bus.Msg) (bus.Msg, error) {
 			note = s
 		}
 		a := d.getOrCreateRuntime(src)
-		out, err := a.Agent().Compact(ctx, src, note)
-		if err != nil {
-			return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
-		}
-		if out != "" {
-			_ = d.deps.Bus.Pub(bus.Msg{
-				Type:    bus.TypeAssistant,
-				From:    d.agentID,
-				To:      src,
-				Payload: out,
-			})
+		if nr, ok := a.(*NativeRuntime); ok {
+			out, err := nr.Agent().Compact(ctx, src, note)
+			if err != nil {
+				return d.inputError(src, fmt.Sprintf("compact failed: %v", err)), nil
+			}
+			if out != "" {
+				_ = d.deps.Bus.Pub(bus.Msg{
+					Type:    bus.TypeAssistant,
+					From:    d.agentID,
+					To:      src,
+					Payload: out,
+				})
+			}
 		}
 		return bus.Msg{}, nil
 	}
@@ -214,7 +216,7 @@ func (d *Dispatcher) UnbindTeamSource(src string) {
 	}
 }
 
-func (d *Dispatcher) getOrCreateRuntime(src string) *NativeRuntime {
+func (d *Dispatcher) getOrCreateRuntime(src string) Runtime {
 	d.mu.RLock()
 	if rt, ok := d.runtimes[src]; ok {
 		d.mu.RUnlock()
@@ -226,6 +228,28 @@ func (d *Dispatcher) getOrCreateRuntime(src string) *NativeRuntime {
 	defer d.mu.Unlock()
 
 	if rt, ok := d.runtimes[src]; ok {
+		return rt
+	}
+
+	if driver, ok := d.resolveExternalDriver(); ok {
+		sess, err := d.sm.Current(src)
+		if err != nil {
+			sess, _ = d.sm.Create()
+		}
+		rt := NewExternalRuntime(ExternalRuntimeConfig{
+			Driver:  driver,
+			Memory:  d.deps.Memory,
+			RT:      d.rt,
+			Bus:     d.deps.Bus,
+			Session: sess,
+			WorkDir: workspacePath(d.rt),
+		})
+		rt.Start(context.Background(), RuntimeConfig{
+			Source:  src,
+			AgentID: d.agentID,
+			Session: sess,
+		})
+		d.runtimes[src] = rt
 		return rt
 	}
 
@@ -252,7 +276,9 @@ func (d *Dispatcher) Agent(src string) *Agent {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if rt, ok := d.runtimes[src]; ok {
-		return rt.Agent()
+		if nr, ok := rt.(*NativeRuntime); ok {
+			return nr.Agent()
+		}
 	}
 	return nil
 }
@@ -596,7 +622,7 @@ func (d *Dispatcher) startRunForAgent(ctx context.Context, source, sessionID, ag
 	return d.rt.StartRun(ctx, source, sessionID, agentID, trigger(msgType), in)
 }
 
-func (d *Dispatcher) setActiveRuntime(src string, rt *NativeRuntime) func() {
+func (d *Dispatcher) setActiveRuntime(src string, rt Runtime) func() {
 	d.mu.Lock()
 	prev := d.runtimes[src]
 	d.runtimes[src] = rt
@@ -610,4 +636,23 @@ func (d *Dispatcher) setActiveRuntime(src string, rt *NativeRuntime) func() {
 		}
 		d.mu.Unlock()
 	}
+}
+
+func (d *Dispatcher) resolveExternalDriver() (ExternalDriver, bool) {
+	for _, ac := range d.deps.Config.Agents {
+		if ac.ID == d.agentID || ac.ID == "" {
+			switch ac.Runtime {
+			case "claude":
+				return ClaudeCodeDriver(), true
+			}
+		}
+	}
+	return ExternalDriver{}, false
+}
+
+func workspacePath(db *rtsqlite.DB) string {
+	if db == nil {
+		return ""
+	}
+	return db.WorkspacePath()
 }
