@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	zsqlite "zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -47,16 +46,25 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	db.workspaceID = ws.ID
 	db.workspacePath = ws.Path
 	db.workspaceName = ws.Name
+	reset, err := db.needsReset(context.Background())
+	if err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
+	if reset {
+		_ = pool.Close()
+		if err := resetDB(path); err != nil {
+			return nil, err
+		}
+		pool, err = sqlitex.NewPool(path, sqlitex.PoolOptions{
+			PoolSize: opts.PoolSize,
+		})
+		if err != nil {
+			return nil, err
+		}
+		db.pool = pool
+	}
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteScript(conn, bootstrapSchema, nil); err != nil {
-			return err
-		}
-		if err := migrate(conn); err != nil {
-			return err
-		}
-		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil && !isDeferredSchemaErr(err) {
-			return err
-		}
 		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
 			return err
 		}
@@ -152,85 +160,47 @@ func prepare(conn *zsqlite.Conn) error {
 	return nil
 }
 
-func migrate(conn *zsqlite.Conn) error {
-	for _, stmt := range []string{
-		`ALTER TABLE tasks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
-		`ALTER TABLE source_bindings ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
-		`ALTER TABLE teams ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
-		`ALTER TABLE team_threads ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
-		`ALTER TABLE memory_docs ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'global'`,
-		`ALTER TABLE memory_docs ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE memory_docs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
-		`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'main'`,
-		`ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`,
-		`ALTER TABLE sessions ADD COLUMN parent_session_id TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE sessions ADD COLUMN fork_from_entry_seq INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE sessions ADD COLUMN summary TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE sessions ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'`,
-		`ALTER TABLE sessions ADD COLUMN closed_at TEXT`,
-		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
-	} {
-		if err := sqlitex.ExecuteTransient(conn, stmt, nil); err != nil && !isDuplicateColumnErr(err) && !isMissingTableErr(err) {
+func (db *DB) needsReset(ctx context.Context) (bool, error) {
+	if db == nil {
+		return false, nil
+	}
+	var version int
+	var hasObjects bool
+	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		if err := sqlitex.ExecuteTransient(conn, `PRAGMA user_version`, &sqlitex.ExecOptions{
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				version = stmt.ColumnInt(0)
+				return nil
+			},
+		}); err != nil {
 			return err
 		}
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT 1
+			FROM sqlite_master
+			WHERE name NOT LIKE 'sqlite_%'
+			LIMIT 1
+		`, &sqlitex.ExecOptions{
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				hasObjects = stmt.ColumnInt(0) == 1
+				return nil
+			},
+		})
+	})
+	if err != nil {
+		return false, err
 	}
-	if err := rebuildAgentIdentities(conn); err != nil {
-		return err
+	if !hasObjects {
+		return false, nil
 	}
-	return nil
+	return version != schemaVersion, nil
 }
 
-func rebuildAgentIdentities(conn *zsqlite.Conn) error {
-	if conn == nil {
-		return nil
-	}
-	legacy := true
-	if err := sqlitex.ExecuteTransient(conn, `
-		SELECT 1
-		FROM pragma_table_info('agent_identities')
-		WHERE name = 'workspace_id'
-		LIMIT 1
-	`, &sqlitex.ExecOptions{
-		ResultFunc: func(stmt *zsqlite.Stmt) error {
-			legacy = false
-			return nil
-		},
-	}); err != nil {
-		return err
-	}
-	if !legacy {
-		return nil
-	}
-	if err := sqlitex.ExecuteScript(conn, `
-		DROP TABLE IF EXISTS agent_identities_new;
-		CREATE TABLE agent_identities_new (
-		  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
-		  agent_id TEXT NOT NULL,
-		  display_name TEXT NOT NULL DEFAULT '',
-		  profile TEXT NOT NULL DEFAULT '',
-		  memory_scope TEXT NOT NULL DEFAULT '',
-		  tool_constraints_json TEXT NOT NULL DEFAULT '[]',
-		  metadata_json TEXT NOT NULL DEFAULT '{}',
-		  created_at TEXT NOT NULL,
-		  updated_at TEXT NOT NULL,
-		  PRIMARY KEY (workspace_id, agent_id)
-		);
-		INSERT INTO agent_identities_new (
-		  workspace_id, agent_id, display_name, profile, memory_scope, tool_constraints_json, metadata_json, created_at, updated_at
-		)
-		SELECT
-		  'ws_default', agent_id, display_name, profile, memory_scope,
-		  COALESCE(tool_constraints_json, '[]'),
-		  COALESCE(metadata_json, '{}'),
-		  created_at, updated_at
-		FROM agent_identities;
-		DROP TABLE agent_identities;
-		ALTER TABLE agent_identities_new RENAME TO agent_identities;
-		CREATE INDEX IF NOT EXISTS idx_agent_identities_workspace_created
-		ON agent_identities(workspace_id, created_at);
-	`, nil); err != nil {
-		return err
+func resetDB(path string) error {
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	}
 	return nil
 }
@@ -255,30 +225,5 @@ func (db *DB) ensureWorkspace(conn *zsqlite.Conn) error {
 			now,
 			now,
 		},
-	})
-}
-
-func isDuplicateColumnErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "duplicate column name:")
-}
-
-func isDeferredSchemaErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "no such column: workspace_id") ||
-		strings.Contains(msg, "no such column: scope_kind") ||
-		strings.Contains(msg, "no such column: agent_id")
-}
-
-func isMissingTableErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "no such table:")
+		})
 }
