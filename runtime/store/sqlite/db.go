@@ -48,10 +48,13 @@ func Open(path string, opts OpenOptions) (*DB, error) {
 	db.workspacePath = ws.Path
 	db.workspaceName = ws.Name
 	if err := db.WithConn(context.Background(), func(conn *zsqlite.Conn) error {
-		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil && !isDeferredSchemaErr(err) {
+		if err := sqlitex.ExecuteScript(conn, bootstrapSchema, nil); err != nil {
 			return err
 		}
 		if err := migrate(conn); err != nil {
+			return err
+		}
+		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil && !isDeferredSchemaErr(err) {
 			return err
 		}
 		if err := sqlitex.ExecuteScript(conn, schema, nil); err != nil {
@@ -168,7 +171,7 @@ func migrate(conn *zsqlite.Conn) error {
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {
-		if err := sqlitex.ExecuteTransient(conn, stmt, nil); err != nil && !isDuplicateColumnErr(err) {
+		if err := sqlitex.ExecuteTransient(conn, stmt, nil); err != nil && !isDuplicateColumnErr(err) && !isMissingTableErr(err) {
 			return err
 		}
 	}
@@ -260,17 +263,7 @@ func isDuplicateColumnErr(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	if strings.Contains(msg, "duplicate column name: workspace_id") {
-		return true
-	}
-	if strings.Contains(msg, "duplicate column name: scope_kind") {
-		return true
-	}
-	if strings.Contains(msg, "duplicate column name: scope_key") {
-		return true
-	}
-	return strings.Contains(msg, "duplicate column name: team_id") ||
-		strings.Contains(msg, "duplicate column name: team_thread_id")
+	return strings.Contains(msg, "duplicate column name:")
 }
 
 func isDeferredSchemaErr(err error) bool {
@@ -281,4 +274,11 @@ func isDeferredSchemaErr(err error) bool {
 	return strings.Contains(msg, "no such column: workspace_id") ||
 		strings.Contains(msg, "no such column: scope_kind") ||
 		strings.Contains(msg, "no such column: agent_id")
+}
+
+func isMissingTableErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "no such table:")
 }
