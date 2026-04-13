@@ -19,7 +19,7 @@ import (
 func (a *App) currentSection(src string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if section := a.activeSections[src]; section != "" {
+	if section := a.source(src).section; section != "" {
 		return section
 	}
 	return "main"
@@ -28,27 +28,19 @@ func (a *App) currentSection(src string) string {
 func (a *App) setActiveSection(src, section string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if strings.TrimSpace(section) == "" {
-		delete(a.activeSections, src)
-		return
-	}
-	a.activeSections[src] = section
+	a.source(src).section = strings.TrimSpace(section)
 }
 
 func (a *App) currentMainSession(src string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.activeMainSessions[src]
+	return a.source(src).sessionID
 }
 
 func (a *App) setMainSession(src, sessionID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if strings.TrimSpace(sessionID) == "" {
-		delete(a.activeMainSessions, src)
-		return
-	}
-	a.activeMainSessions[src] = sessionID
+	a.source(src).sessionID = strings.TrimSpace(sessionID)
 }
 
 func (a *App) webState(ctx context.Context, src string) (platform.WebState, error) {

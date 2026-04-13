@@ -43,6 +43,13 @@ type Options struct {
 	Workspace string
 }
 
+type sourceState struct {
+	teamID    string
+	threadID  string
+	section   string
+	sessionID string
+}
+
 type App struct {
 	cfg      config.Config
 	bus      *bus.Bus
@@ -66,10 +73,7 @@ type App struct {
 	telegram  *platform.Telegram
 	workspace string
 
-	activeTeams        map[string]string
-	activeThreads      map[string]string
-	activeSections     map[string]string
-	activeMainSessions map[string]string
+	sources map[string]*sourceState
 
 	mu      sync.Mutex
 	ctx     context.Context
@@ -109,10 +113,7 @@ func New(opts Options) (*App, error) {
 		cron:      cronSched,
 		workspace: deps.workspace,
 
-		activeTeams:        make(map[string]string),
-		activeThreads:      make(map[string]string),
-		activeSections:     make(map[string]string),
-		activeMainSessions: make(map[string]string),
+		sources: make(map[string]*sourceState),
 	}
 
 	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))

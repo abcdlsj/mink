@@ -20,37 +20,41 @@ func (a *App) sourceFromContext(ctx context.Context) string {
 	return src
 }
 
+func (a *App) source(src string) *sourceState {
+	s := a.sources[src]
+	if s == nil {
+		s = &sourceState{}
+		a.sources[src] = s
+	}
+	return s
+}
+
 func (a *App) currentTeamID(src string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.activeTeams[src]
+	return a.source(src).teamID
 }
 
 func (a *App) currentThreadID(src string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.activeThreads[src]
+	return a.source(src).threadID
 }
 
 func (a *App) setActiveTeam(src, teamID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	s := a.source(src)
+	s.teamID = teamID
 	if teamID == "" {
-		delete(a.activeTeams, src)
-		delete(a.activeThreads, src)
-		return
+		s.threadID = ""
 	}
-	a.activeTeams[src] = teamID
 }
 
 func (a *App) setActiveThread(src, threadID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if threadID == "" {
-		delete(a.activeThreads, src)
-		return
-	}
-	a.activeThreads[src] = threadID
+	a.source(src).threadID = threadID
 }
 
 func (a *App) closeThread(ctx context.Context, src, threadID string) (rtsqlite.TeamThread, error) {
