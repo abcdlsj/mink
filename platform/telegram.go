@@ -10,6 +10,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/tool"
 	tele "gopkg.in/telebot.v4"
 )
@@ -1303,13 +1304,7 @@ func shortReqID() string {
 	return val
 }
 
-func truncateTG(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
-}
+var truncateTG = xstr.TruncateAppend
 
 func (t *Telegram) handleToolCall(route string, chatID int64) {
 	t.setProgress(route, chatID, "[tool] calling tools...")

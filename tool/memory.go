@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/memory"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 )
@@ -327,10 +328,10 @@ func renderDocs(name string, scopes []memory.Scope, docs []memory.Doc, bodyLimit
 			fmt.Fprintf(&b, "updated_at: %s\n", doc.UpdatedAt.UTC().Format(time.RFC3339))
 		}
 		if summary := strings.TrimSpace(doc.Summary); summary != "" {
-			fmt.Fprintf(&b, "summary: %s\n", truncateStr(summary, 240))
+			fmt.Fprintf(&b, "summary: %s\n", xstr.TruncateASCII(summary, 240))
 		}
 		if body := strings.TrimSpace(doc.Body); body != "" {
-			fmt.Fprintf(&b, "body:\n%s\n", truncateStr(body, bodyLimit))
+			fmt.Fprintf(&b, "body:\n%s\n", xstr.TruncateASCII(body, bodyLimit))
 		}
 	}
 	return strings.TrimSpace(b.String())

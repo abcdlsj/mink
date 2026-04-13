@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/msg"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	zsqlite "zombiezen.com/go/sqlite"
@@ -292,7 +293,7 @@ func snapshotTitle(snap *Snapshot) string {
 		if entry.Message.Role == "user" {
 			text := strings.TrimSpace(entry.Message.Content)
 			if text != "" {
-				return compactTitle(text, 48)
+				return xstr.Truncate(text, 48)
 			}
 		}
 	}
@@ -348,20 +349,4 @@ func (s *SQLiteStore) loadEntries(id string) ([]Entry, error) {
 	return entries, err
 }
 
-func compactTitle(s string, n int) string {
-	r := []rune(strings.TrimSpace(s))
-	if len(r) <= n {
-		return string(r)
-	}
-	if n <= 1 {
-		return "…"
-	}
-	return string(r[:n-1]) + "…"
-}
-
-func firstNonEmpty(s, fallback string) string {
-	if strings.TrimSpace(s) == "" {
-		return fallback
-	}
-	return s
-}
+var firstNonEmpty = xstr.FirstNonEmpty

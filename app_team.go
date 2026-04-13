@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/platform"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
@@ -422,14 +423,4 @@ func (a *App) activeSpeaker() string {
 	return ""
 }
 
-func compactLine(s string, limit int) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	if limit <= 0 || len([]rune(s)) <= limit {
-		return s
-	}
-	runes := []rune(s)
-	if limit < 2 {
-		return string(runes[:limit])
-	}
-	return string(runes[:limit-1]) + "…"
-}
+var compactLine = xstr.CompactLine

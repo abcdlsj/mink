@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/abcdlsj/mink/internal/xstr"
 )
 
 type ErrorType string
@@ -36,7 +38,7 @@ func (e *ToolError) ForLLM() string {
 	fmt.Fprintf(&b, "<error type=%q tool=%q>\n", e.Type, e.Tool)
 	fmt.Fprintf(&b, "  <message>%s</message>\n", e.Message)
 	if e.Details != "" {
-		fmt.Fprintf(&b, "  <details>%s</details>\n", truncateStr(e.Details, 500))
+		fmt.Fprintf(&b, "  <details>%s</details>\n", xstr.TruncateASCII(e.Details, 500))
 	}
 	if e.Suggestion != "" {
 		fmt.Fprintf(&b, "  <suggestion>%s</suggestion>\n", e.Suggestion)
@@ -50,7 +52,7 @@ func TimeoutError(tool, cmd string, timeout int) *ToolError {
 		Type:       ErrTimeout,
 		Tool:       tool,
 		Message:    fmt.Sprintf("command timed out after %ds", timeout),
-		Details:    truncateStr(cmd, 100),
+		Details:    xstr.TruncateASCII(cmd, 100),
 		Suggestion: "Consider using 'background' tool for long-running commands, or break the task into smaller steps.",
 	}
 }
@@ -139,12 +141,4 @@ func WrapError(tool string, err error) *ToolError {
 func FormatErrorForLLM(tool string, err error) string {
 	te := WrapError(tool, err)
 	return te.ForLLM()
-}
-
-func truncateStr(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "..."
 }

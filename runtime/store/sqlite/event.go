@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/runtime/id"
 	zsqlite "zombiezen.com/go/sqlite"
 	"zombiezen.com/go/sqlite/sqlitex"
@@ -82,16 +83,7 @@ func nextSeq(conn *zsqlite.Conn, runID string) (int64, error) {
 	return seq, err
 }
 
-func nullable(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func nonEmpty(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
-}
+var (
+	nullable = xstr.Nullable
+	nonEmpty = xstr.NonEmpty
+)

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/runtime/id"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	zsqlite "zombiezen.com/go/sqlite"
@@ -535,12 +536,7 @@ func unquote(s string) string {
 	return s
 }
 
-func nonEmpty(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
-}
+var nonEmpty = xstr.NonEmpty
 
 func hash(s string) string {
 	sum := sha256.Sum256([]byte(s))
@@ -615,9 +611,4 @@ func sanitizeMatchQuery(s string) string {
 	return strings.Join(quoted, " AND ")
 }
 
-func nullable(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
+var nullable = xstr.Nullable

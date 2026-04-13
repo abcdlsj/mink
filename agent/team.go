@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
@@ -306,12 +307,7 @@ func compactSummary(s string, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-func firstNonEmpty(v, fallback string) string {
-	if strings.TrimSpace(v) == "" {
-		return fallback
-	}
-	return v
-}
+var firstNonEmpty = xstr.FirstNonEmpty
 
 func (d *TeamDispatcher) member(ctx context.Context, teamID, agentID string) (rtsqlite.TeamMember, bool) {
 	if d == nil || d.rt == nil || teamID == "" || agentID == "" {

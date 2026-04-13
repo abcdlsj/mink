@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/abcdlsj/mink/internal/xstr"
 )
 
 const braveSearchEndpoint = "https://api.search.brave.com/res/v1/web/search"
@@ -106,7 +108,7 @@ func (b *BraveSearch) Run(ctx context.Context, args json.RawMessage) (string, er
 		if msg == "" {
 			msg = resp.Status
 		}
-		return "", fmt.Errorf("brave search request failed: %s", truncate(msg, 500))
+		return "", fmt.Errorf("brave search request failed: %s", xstr.TruncateASCII(msg, 500))
 	}
 
 	var payload struct {
@@ -150,12 +152,4 @@ func (b *BraveSearch) Run(ctx context.Context, args json.RawMessage) (string, er
 	}
 
 	return strings.TrimSpace(out.String()), nil
-}
-
-func truncate(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max]) + "..."
 }

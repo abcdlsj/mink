@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -141,16 +142,7 @@ func fmtTokens(n int) string {
 	}
 }
 
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if n <= 1 {
-		return "…"
-	}
-	return string(r[:n-1]) + "…"
-}
+var truncate = xstr.Truncate
 
 func stripANSI(s string) string {
 	return ansiRE.ReplaceAllString(s, "")

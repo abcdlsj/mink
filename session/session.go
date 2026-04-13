@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/msg"
 )
 
@@ -317,12 +318,7 @@ func cloneTimePtr(t *time.Time) *time.Time {
 	return &cp
 }
 
-func firstNonEmptySnapshot(s, fallback string) string {
-	if s == "" {
-		return fallback
-	}
-	return s
-}
+var firstNonEmptySnapshot = xstr.NonEmpty
 
 func (s *Session) parent(id string) (*Session, error) {
 	if id == "" || s.resolve == nil {
