@@ -156,6 +156,7 @@ func migrate(conn *zsqlite.Conn) error {
 		`ALTER TABLE team_threads ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE memory_docs ADD COLUMN scope_kind TEXT NOT NULL DEFAULT 'global'`,
 		`ALTER TABLE memory_docs ADD COLUMN scope_key TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE memory_docs ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'ws_default'`,
 		`ALTER TABLE source_bindings ADD COLUMN team_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE source_bindings ADD COLUMN team_thread_id TEXT NOT NULL DEFAULT ''`,
 	} {

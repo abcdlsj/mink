@@ -25,7 +25,8 @@ func (w *Watcher) Start(ctx context.Context) error {
 	if w == nil || w.store == nil || w.store.db == nil {
 		return nil
 	}
-	if err := os.MkdirAll(w.store.root, 0o755); err != nil {
+	root := w.store.scopeRoot()
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
 	}
 	if err := w.store.Sync(ctx); err != nil {
@@ -35,7 +36,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := w.addDirs(fw, w.store.root); err != nil {
+	if err := w.addDirs(fw, root); err != nil {
 		_ = fw.Close()
 		return err
 	}

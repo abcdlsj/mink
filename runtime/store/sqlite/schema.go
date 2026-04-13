@@ -107,6 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_task_kind ON artifacts(task_id, kind);
 CREATE TABLE IF NOT EXISTS memory_docs (
   id TEXT PRIMARY KEY,
   path TEXT NOT NULL UNIQUE,
+  workspace_id TEXT NOT NULL DEFAULT 'ws_default',
   scope_kind TEXT NOT NULL DEFAULT 'global',
   scope_key TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
@@ -123,6 +124,7 @@ CREATE TABLE IF NOT EXISTS memory_docs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_memory_docs_scope_updated ON memory_docs(scope_kind, scope_key, updated_at);
+CREATE INDEX IF NOT EXISTS idx_memory_docs_workspace_scope_updated ON memory_docs(workspace_id, scope_kind, scope_key, updated_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_docs_fts USING fts5(
   title,

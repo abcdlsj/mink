@@ -21,6 +21,7 @@ import (
 
 type Doc struct {
 	ID        string
+	Workspace string
 	Scope     Scope
 	Title     string
 	Kind      string
@@ -50,6 +51,7 @@ func (s *Store) PutScoped(ctx context.Context, scope Scope, doc Doc) (Doc, error
 	if s == nil || s.db == nil {
 		return Doc{}, fmt.Errorf("memory: nil store")
 	}
+	doc.Workspace = nonEmpty(strings.TrimSpace(doc.Workspace), s.workspaceID())
 	doc.Scope = normalizeScope(scope)
 	doc.ID = nonEmpty(doc.ID, id.Memory())
 	doc.Kind = nonEmpty(doc.Kind, "note")
@@ -62,7 +64,7 @@ func (s *Store) PutScoped(ctx context.Context, scope Scope, doc Doc) (Doc, error
 		doc.UpdatedAt = time.Now().UTC()
 	}
 
-	path := filepath.Join(doc.Scope.Dir(s.root), doc.ID+".md")
+	path := filepath.Join(doc.Scope.Dir(s.scopeRoot()), doc.ID+".md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return Doc{}, err
 	}
@@ -79,10 +81,11 @@ func (s *Store) Sync(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return nil
 	}
-	if _, err := os.Stat(s.root); os.IsNotExist(err) {
+	root := s.scopeRoot()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil
 	}
-	return filepath.WalkDir(s.root, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d == nil || d.IsDir() || filepath.Ext(path) != ".md" {
 			return err
 		}
@@ -192,14 +195,14 @@ func (s *Store) SearchScoped(ctx context.Context, scopes []Scope, query string, 
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		q := `
-			SELECT d.id, d.scope_kind, d.scope_key, d.title, d.kind, d.tags_json, d.task_id, d.run_id, d.source, d.summary, d.body, d.updated_at
+			SELECT d.id, d.workspace_id, d.scope_kind, d.scope_key, d.title, d.kind, d.tags_json, d.task_id, d.run_id, d.source, d.summary, d.body, d.updated_at
 			FROM memory_docs_fts f
 			JOIN memory_docs d ON d.rowid = f.rowid
-			WHERE ` + where + ` AND memory_docs_fts MATCH ?
+			WHERE d.workspace_id = ? AND ` + where + ` AND memory_docs_fts MATCH ?
 			ORDER BY bm25(memory_docs_fts), d.updated_at DESC
 			LIMIT ?`
 		return sqlitex.ExecuteTransient(conn, q, &sqlitex.ExecOptions{
-			Args: args,
+			Args: append([]any{s.workspaceID()}, args...),
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				docs = append(docs, scanDoc(stmt))
 				return nil
@@ -219,13 +222,13 @@ func (s *Store) RecentByTask(ctx context.Context, taskID string, limit int) ([]D
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			SELECT id, workspace_id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
 			FROM memory_docs
-			WHERE task_id = ?
+			WHERE workspace_id = ? AND task_id = ?
 			ORDER BY updated_at DESC
 			LIMIT ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{taskID, limit},
+			Args: []any{s.workspaceID(), taskID, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				docs = append(docs, scanDoc(stmt))
 				return nil
@@ -245,13 +248,13 @@ func (s *Store) RecentBySource(ctx context.Context, source string, limit int) ([
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			SELECT id, workspace_id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
 			FROM memory_docs
-			WHERE source = ?
+			WHERE workspace_id = ? AND source = ?
 			ORDER BY updated_at DESC
 			LIMIT ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{source, limit},
+			Args: []any{s.workspaceID(), source, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				docs = append(docs, scanDoc(stmt))
 				return nil
@@ -272,13 +275,13 @@ func (s *Store) RecentByScope(ctx context.Context, scope Scope, limit int) ([]Do
 	var docs []Doc
 	err := s.db.WithConn(ctx, func(conn *zsqlite.Conn) error {
 		return sqlitex.ExecuteTransient(conn, `
-			SELECT id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
+			SELECT id, workspace_id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source, summary, body, updated_at
 			FROM memory_docs
-			WHERE scope_kind = ? AND scope_key = ?
+			WHERE workspace_id = ? AND scope_kind = ? AND scope_key = ?
 			ORDER BY updated_at DESC
 			LIMIT ?
 		`, &sqlitex.ExecOptions{
-			Args: []any{scope.Kind, scope.Key, limit},
+			Args: []any{s.workspaceID(), scope.Kind, scope.Key, limit},
 			ResultFunc: func(stmt *zsqlite.Stmt) error {
 				docs = append(docs, scanDoc(stmt))
 				return nil
@@ -298,11 +301,12 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 	if err := s.db.Tx(ctx, func(conn *zsqlite.Conn) error {
 		if err := sqlitex.ExecuteTransient(conn, `
 			INSERT INTO memory_docs (
-				id, path, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source,
+				id, path, workspace_id, scope_kind, scope_key, title, kind, tags_json, task_id, run_id, source,
 				summary, body, sha256, updated_at, indexed_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(path) DO UPDATE SET
 				id = excluded.id,
+				workspace_id = excluded.workspace_id,
 				scope_kind = excluded.scope_kind,
 				scope_key = excluded.scope_key,
 				title = excluded.title,
@@ -318,7 +322,7 @@ func (s *Store) index(ctx context.Context, path string, doc Doc) error {
 				indexed_at = excluded.indexed_at
 		`, &sqlitex.ExecOptions{
 			Args: []any{
-				doc.ID, path, scope.Kind, scope.Key, doc.Title, doc.Kind, tags, nullable(doc.TaskID), nullable(doc.RunID),
+				doc.ID, path, doc.Workspace, scope.Kind, scope.Key, doc.Title, doc.Kind, tags, nullable(doc.TaskID), nullable(doc.RunID),
 				doc.Source, doc.Summary, doc.Body, sum, updatedAt, indexedAt,
 			},
 		}); err != nil {
@@ -374,6 +378,9 @@ func render(doc Doc) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "id: %s\n", doc.ID)
+	if doc.Workspace != "" {
+		fmt.Fprintf(&b, "workspace_id: %s\n", escape(doc.Workspace))
+	}
 	fmt.Fprintf(&b, "scope_kind: %s\n", escape(doc.Scope.Kind))
 	if doc.Scope.Key != "" {
 		fmt.Fprintf(&b, "scope_key: %s\n", escape(doc.Scope.Key))
@@ -411,11 +418,12 @@ func (s *Store) loadPath(path string) (Doc, error) {
 		return Doc{}, err
 	}
 	doc := Doc{
-		ID:    strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
-		Scope: ScopeFromPath(s.root, path),
-		Title: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
-		Kind:  "note",
-		Body:  strings.TrimSpace(string(data)),
+		ID:        strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		Workspace: s.workspaceID(),
+		Scope:     ScopeFromPath(s.scopeRoot(), path),
+		Title:     strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		Kind:      "note",
+		Body:      strings.TrimSpace(string(data)),
 	}
 	if info, err := os.Stat(path); err == nil {
 		doc.UpdatedAt = info.ModTime().UTC()
@@ -484,6 +492,8 @@ func parseFrontmatter(doc *Doc, head string) {
 		switch strings.TrimSpace(key) {
 		case "id":
 			doc.ID = nonEmpty(val, doc.ID)
+		case "workspace_id":
+			doc.Workspace = val
 		case "scope_kind":
 			doc.Scope.Kind = val
 		case "scope_key":
@@ -538,20 +548,35 @@ func hash(s string) string {
 }
 
 func scanDoc(stmt *zsqlite.Stmt) Doc {
-	updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(11))
+	updatedAt, _ := time.Parse(time.RFC3339Nano, stmt.ColumnText(12))
 	return Doc{
 		ID:        stmt.ColumnText(0),
-		Scope:     normalizeScope(Scope{Kind: stmt.ColumnText(1), Key: stmt.ColumnText(2)}),
-		Title:     stmt.ColumnText(3),
-		Kind:      stmt.ColumnText(4),
-		Tags:      splitTags(stmt.ColumnText(5)),
-		TaskID:    stmt.ColumnText(6),
-		RunID:     stmt.ColumnText(7),
-		Source:    stmt.ColumnText(8),
-		Summary:   stmt.ColumnText(9),
-		Body:      stmt.ColumnText(10),
+		Workspace: stmt.ColumnText(1),
+		Scope:     normalizeScope(Scope{Kind: stmt.ColumnText(2), Key: stmt.ColumnText(3)}),
+		Title:     stmt.ColumnText(4),
+		Kind:      stmt.ColumnText(5),
+		Tags:      splitTags(stmt.ColumnText(6)),
+		TaskID:    stmt.ColumnText(7),
+		RunID:     stmt.ColumnText(8),
+		Source:    stmt.ColumnText(9),
+		Summary:   stmt.ColumnText(10),
+		Body:      stmt.ColumnText(11),
 		UpdatedAt: updatedAt,
 	}
+}
+
+func (s *Store) workspaceID() string {
+	if s == nil || s.db == nil {
+		return "ws_default"
+	}
+	return s.db.WorkspaceID()
+}
+
+func (s *Store) scopeRoot() string {
+	if s == nil {
+		return ""
+	}
+	return filepath.Join(s.root, "workspaces", s.workspaceID())
 }
 
 func scopeWhere(scopes []Scope) (string, []any) {

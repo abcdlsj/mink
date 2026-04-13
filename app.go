@@ -778,7 +778,8 @@ func workspaceScopeID(workspace string) string {
 }
 
 func workspacePlatformSource(kind, workspace string) string {
-	return bus.Platform(kind + ":" + workspaceScopeID(workspace))
+	_ = workspace
+	return bus.Platform(kind)
 }
 
 func (a *App) cliSource() string {
