@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -174,6 +175,64 @@ func (s *Session) SetSummary(summary string) {
 	}
 	s.summary = summary
 	s.touchLocked()
+}
+
+func (s *Session) MetaString(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if key == "" || len(s.meta) == 0 {
+		return ""
+	}
+	var data map[string]json.RawMessage
+	if err := json.Unmarshal(s.meta, &data); err != nil {
+		return ""
+	}
+	raw, ok := data[key]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+func (s *Session) SetMetaString(key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if key == "" {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	data := map[string]json.RawMessage{}
+	if len(s.meta) > 0 && json.Valid(s.meta) {
+		if err := json.Unmarshal(s.meta, &data); err != nil {
+			return err
+		}
+	}
+	if value == "" {
+		if _, ok := data[key]; !ok {
+			return nil
+		}
+		delete(data, key)
+	} else {
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return err
+		}
+		if cur, ok := data[key]; ok && string(cur) == string(raw) {
+			return nil
+		}
+		data[key] = raw
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("session metadata: %w", err)
+	}
+	s.meta = json.RawMessage(raw)
+	s.touchLocked()
+	return nil
 }
 
 func (s *Session) AddAnchor(kind AnchorKind, summary, note string, entryCount int) Anchor {

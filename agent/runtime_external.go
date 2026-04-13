@@ -39,6 +39,10 @@ type ExternalRuntime struct {
 	lastOutput string
 }
 
+func externalSessionMetaKey(name string) string {
+	return "external_session_" + strings.TrimSpace(name)
+}
+
 type ExternalDriver struct {
 	Name        string
 	Command     string
@@ -74,12 +78,13 @@ func (r *ExternalRuntime) Start(_ context.Context, cfg RuntimeConfig) error {
 	r.agentID = cfg.AgentID
 	if cfg.Session != nil {
 		r.sess = cfg.Session
+		r.externalSessionID = cfg.Session.MetaString(externalSessionMetaKey(r.driver.Name))
 	}
 	r.status = RuntimeIdle
 	return nil
 }
 
-func (r *ExternalRuntime) Send(ctx context.Context, input string) error {
+func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error) {
 	r.setStatus(RuntimeRunning)
 	defer r.setStatus(RuntimeIdle)
 
@@ -88,6 +93,18 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) error {
 	r.cancel = cancel
 	r.mu.Unlock()
 	defer cancel()
+	defer func() {
+		if r.sess == nil {
+			return
+		}
+		if err := r.sess.Flush(); err != nil {
+			if retErr == nil {
+				retErr = err
+				return
+			}
+			retErr = fmt.Errorf("%w; flush: %v", retErr, err)
+		}
+	}()
 
 	if r.sess != nil {
 		r.sess.Add(msg.Message{Role: "user", Content: input})
@@ -165,10 +182,16 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) error {
 	r.mu.Lock()
 	r.cmd = nil
 	r.lastOutput = output
+	externalSessionID = r.externalSessionID
 	r.mu.Unlock()
 
 	if r.sess != nil && output != "" {
 		r.sess.Add(msg.Message{Role: "assistant", Content: output})
+	}
+	if r.sess != nil && externalSessionID != "" {
+		if err := r.sess.SetMetaString(externalSessionMetaKey(r.driver.Name), externalSessionID); err != nil && retErr == nil {
+			retErr = err
+		}
 	}
 
 	if r.b != nil && output != "" {
