@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/abcdlsj/mink/msg"
@@ -16,6 +17,14 @@ type storedEvent struct {
 	ActorID   string
 	Payload   string
 	CreatedAt string
+}
+
+type ReplayEvent struct {
+	Timestamp time.Time      `json:"timestamp"`
+	Type      string         `json:"type"`
+	Level     string         `json:"level"`
+	StepNum   *int           `json:"step_num,omitempty"`
+	Data      map[string]any `json:"data,omitempty"`
 }
 
 func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) ([]msg.Message, error) {
@@ -69,6 +78,51 @@ func (db *DB) MessagesForSource(ctx context.Context, source string, limit int) (
 		msgs = msgs[len(msgs)-limit:]
 	}
 	return msgs, nil
+}
+
+func (db *DB) ReplayEventsForSession(ctx context.Context, sessionID string, limit int) ([]ReplayEvent, error) {
+	if db == nil || sessionID == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+
+	var rows []storedEvent
+	err := db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		return sqlitex.ExecuteTransient(conn, `
+			SELECT e.type, e.actor_type, COALESCE(e.actor_id, ''), e.payload_json, e.created_at
+			FROM events e
+			JOIN runs r ON r.id = e.run_id
+			WHERE r.session_id = ?
+			ORDER BY e.created_at DESC, e.seq DESC
+			LIMIT ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{sessionID, limit},
+			ResultFunc: func(stmt *zsqlite.Stmt) error {
+				rows = append(rows, storedEvent{
+					Type:      stmt.ColumnText(0),
+					ActorType: stmt.ColumnText(1),
+					ActorID:   stmt.ColumnText(2),
+					Payload:   stmt.ColumnText(3),
+					CreatedAt: stmt.ColumnText(4),
+				})
+				return nil
+			},
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ReplayEvent, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- {
+		ev, ok := replayEventFromStored(rows[i])
+		if ok {
+			out = append(out, ev)
+		}
+	}
+	return out, nil
 }
 
 func (db *DB) MessagesForTask(ctx context.Context, taskID string, limit int) ([]msg.Message, error) {
@@ -246,6 +300,49 @@ func eventToMessage(ev storedEvent) (msg.Message, bool) {
 	default:
 		return msg.Message{}, false
 	}
+}
+
+func replayEventFromStored(ev storedEvent) (ReplayEvent, bool) {
+	var data map[string]any
+	if ev.Payload != "" {
+		_ = json.Unmarshal([]byte(ev.Payload), &data)
+	}
+	timestamp, _ := time.Parse(time.RFC3339Nano, ev.CreatedAt)
+	out := ReplayEvent{
+		Timestamp: timestamp,
+		Type:      ev.Type,
+		Level:     "info",
+		Data:      data,
+	}
+	switch ev.Type {
+	case "input.received":
+		out.Type = "user_input"
+		if out.Data == nil {
+			out.Data = make(map[string]any)
+		}
+		if v, ok := out.Data["content"].(string); ok && strings.TrimSpace(v) != "" {
+			out.Data["input"] = v
+		}
+	case "assistant.emitted":
+		out.Type = "agent_output"
+	case "tool.called":
+		out.Type = "tool_call"
+	case "tool.completed", "tool.failed":
+		out.Type = "tool_end"
+		if ev.Type == "tool.failed" {
+			out.Level = "error"
+		}
+	case "llm.empty_response", "llm.empty_fallback":
+		out.Level = "warn"
+	case "session.compacted":
+		if out.Data == nil {
+			out.Data = make(map[string]any)
+		}
+		if v, ok := out.Data["content"].(string); ok && strings.TrimSpace(v) != "" {
+			out.Data["summary"] = v
+		}
+	}
+	return out, true
 }
 
 func (db *DB) taskIDForSource(conn *zsqlite.Conn, key sourceKey) (string, error) {

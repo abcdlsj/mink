@@ -14,6 +14,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/msg"
+	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -58,10 +59,11 @@ func (c *toolsCmd) Run(ctx context.Context, args []string) (string, error) {
 type replayCmd struct {
 	sm  *session.Manager
 	dir string
+	rt  *rtsqlite.DB
 }
 
-func NewReplayCmd(sm *session.Manager, dir string) Command {
-	return &replayCmd{sm: sm, dir: dir}
+func NewReplayCmd(sm *session.Manager, dir string, rt *rtsqlite.DB) Command {
+	return &replayCmd{sm: sm, dir: dir, rt: rt}
 }
 
 func (c *replayCmd) Name() string { return "replay" }
@@ -90,6 +92,16 @@ func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 		n = v
 	}
 
+	if c.rt != nil {
+		events, err := c.rt.ReplayEventsForSession(ctx, id, n)
+		if err != nil {
+			return "", err
+		}
+		if len(events) > 0 {
+			return renderReplay(id, events), nil
+		}
+	}
+
 	path := filepath.Join(c.dir, id+".log.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -108,22 +120,24 @@ func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 		lines = lines[len(lines)-n:]
 	}
 
-	type replayEvent struct {
-		Timestamp time.Time      `json:"timestamp"`
-		Type      string         `json:"type"`
-		Level     string         `json:"level"`
-		StepNum   *int           `json:"step_num"`
-		Data      map[string]any `json:"data"`
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "Replay session %s (last %d events)\n", id, len(lines))
+	events := make([]rtsqlite.ReplayEvent, 0, len(lines))
 	for _, line := range lines {
-		var e replayEvent
+		var e rtsqlite.ReplayEvent
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
-			fmt.Fprintf(&b, "%s\n", line)
 			continue
 		}
+		events = append(events, e)
+	}
+	if len(events) == 0 {
+		return "no replay log for current session", nil
+	}
+	return renderReplay(id, events), nil
+}
+
+func renderReplay(id string, events []rtsqlite.ReplayEvent) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Replay session %s (last %d events)\n", id, len(events))
+	for _, e := range events {
 		ts := e.Timestamp.Format("15:04:05")
 		if ts == "00:00:00" && !e.Timestamp.IsZero() {
 			ts = e.Timestamp.Format(time.RFC3339)
@@ -138,7 +152,7 @@ func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 		}
 		fmt.Fprintf(&b, "%s [%s] %s%s%s\n", ts, e.Level, e.Type, step, extra)
 	}
-	return strings.TrimSpace(b.String()), nil
+	return strings.TrimSpace(b.String())
 }
 
 func replayExtra(t string, data map[string]any) string {

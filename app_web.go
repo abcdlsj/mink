@@ -664,11 +664,25 @@ func (a *App) webSessionContextBlocks(src string) []platform.WebContextBlock {
 }
 
 func (a *App) webRunlogSummary(sessionID string, limit int) string {
-	if strings.TrimSpace(a.sessionDir) == "" || strings.TrimSpace(sessionID) == "" {
+	if strings.TrimSpace(sessionID) == "" {
 		return ""
 	}
 	if limit <= 0 {
 		limit = 20
+	}
+	if a.rt != nil {
+		if events, err := a.rt.ReplayEventsForSession(context.Background(), sessionID, limit); err == nil && len(events) > 0 {
+			out := make([]string, 0, len(events))
+			for _, ev := range events {
+				if rendered := webReplayLine(ev); rendered != "" {
+					out = append(out, rendered)
+				}
+			}
+			return strings.Join(out, "\n")
+		}
+	}
+	if strings.TrimSpace(a.sessionDir) == "" {
+		return ""
 	}
 	path := filepath.Join(a.sessionDir, sessionID+".log.jsonl")
 	data, err := os.ReadFile(path)
@@ -686,7 +700,7 @@ func (a *App) webRunlogSummary(sessionID string, limit int) string {
 
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
-		var ev webReplayEvent
+		var ev rtsqlite.ReplayEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
 		}
@@ -697,7 +711,7 @@ func (a *App) webRunlogSummary(sessionID string, limit int) string {
 	return strings.Join(out, "\n")
 }
 
-func webReplayLine(ev webReplayEvent) string {
+func webReplayLine(ev rtsqlite.ReplayEvent) string {
 	ts := ""
 	if !ev.Timestamp.IsZero() {
 		ts = ev.Timestamp.Format("15:04:05")
@@ -928,14 +942,6 @@ func (a *App) wrapThreads(team rtsqlite.Team, threads []rtsqlite.TeamThread) []w
 type webThreadItem struct {
 	Team   rtsqlite.Team
 	Thread rtsqlite.TeamThread
-}
-
-type webReplayEvent struct {
-	Timestamp time.Time      `json:"timestamp"`
-	Type      string         `json:"type"`
-	Level     string         `json:"level"`
-	StepNum   *int           `json:"step_num"`
-	Data      map[string]any `json:"data"`
 }
 
 func webTime(ts time.Time) string {

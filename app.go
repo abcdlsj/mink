@@ -878,7 +878,7 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	if compact := command.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
-	cmdReg.Register(command.NewReplayCmd(sm, sessionDir))
+	cmdReg.Register(command.NewReplayCmd(sm, sessionDir, rt))
 	cmdReg.Register(command.NewToolsCmd(func() []tool.Tool {
 		if a := disp.Agent(cliSource); a != nil && a.Tools() != nil {
 			return a.Tools().All()
