@@ -389,6 +389,33 @@ func (db *DB) IncrementThreadRound(ctx context.Context, threadID string) (int, e
 	return round, err
 }
 
+func (db *DB) UpdateThreadStatus(ctx context.Context, threadID, status string) error {
+	if db == nil || threadID == "" || status == "" {
+		return nil
+	}
+	now := nowString()
+	return db.WithConn(ctx, func(conn *zsqlite.Conn) error {
+		if err := sqlitex.ExecuteTransient(conn, `
+			UPDATE team_threads
+			SET status = ?, updated_at = ?
+			WHERE workspace_id = ? AND id = ?
+		`, &sqlitex.ExecOptions{
+			Args: []any{status, now, db.WorkspaceID(), threadID},
+		}); err != nil {
+			return err
+		}
+		return sqlitex.ExecuteTransient(conn, `
+			UPDATE teams
+			SET updated_at = ?
+			WHERE workspace_id = ? AND id = (
+				SELECT team_id FROM team_threads WHERE workspace_id = ? AND id = ?
+			)
+		`, &sqlitex.ExecOptions{
+			Args: []any{now, db.WorkspaceID(), db.WorkspaceID(), threadID},
+		})
+	})
+}
+
 type AgentIdentity struct {
 	AgentID     string
 	DisplayName string

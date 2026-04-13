@@ -148,7 +148,7 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 	}
 	src := a.sourceFromContext(ctx)
 	if len(args) == 0 {
-		return "usage: !thread [list|new <title>|open <thread_id>]", nil
+		return "usage: !thread [list|new <title>|open <thread_id>|close [thread_id]]", nil
 	}
 
 	switch args[0] {
@@ -204,8 +204,43 @@ func (a *App) runThreadCommand(ctx context.Context, args []string) (string, erro
 		a.setActiveThread(src, thread.ID)
 		a.disp.BindTeamSource(src, thread.TeamID, thread.ID)
 		return fmt.Sprintf("opened thread %s (%s)", thread.Title, thread.ID), nil
+	case "close":
+		threadID := a.currentThreadID(src)
+		if len(args) > 1 {
+			threadID = strings.TrimSpace(args[1])
+		}
+		if threadID == "" {
+			return "no active thread", nil
+		}
+		thread, err := a.rt.GetThread(ctx, threadID)
+		if err != nil {
+			return "", err
+		}
+		if thread.ID == "" {
+			return "thread not found", nil
+		}
+		if err := a.rt.UpdateThreadStatus(ctx, thread.ID, "closed"); err != nil {
+			return "", err
+		}
+		if thread.SessionID != "" {
+			_ = a.sm.Update(thread.SessionID, func(s *session.Session) {
+				s.SetKind("team_thread")
+				s.SetStatus("closed")
+				if strings.TrimSpace(s.Summary()) == "" {
+					s.SetSummary(thread.Title)
+				}
+			})
+			if sess, err := a.sm.Get(thread.SessionID); err == nil && sess != nil {
+				_ = sess.Flush()
+			}
+		}
+		if a.currentThreadID(src) == thread.ID {
+			a.setActiveThread(src, "")
+			a.disp.UnbindTeamSource(src)
+		}
+		return fmt.Sprintf("closed thread %s (%s)", thread.Title, thread.ID), nil
 	default:
-		return "usage: !thread [list|new <title>|open <thread_id>]", nil
+		return "usage: !thread [list|new <title>|open <thread_id>|close [thread_id]]", nil
 	}
 }
 

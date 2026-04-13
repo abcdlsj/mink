@@ -186,17 +186,25 @@ func replayTrim(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-type sessionCmd struct {
-	sm    *session.Manager
-	reset interface{ InvalidateSource(string) }
+type sessionResetter interface {
+	InvalidateSource(string)
 }
 
-func NewSessionCmd(sm *session.Manager, reset interface{ InvalidateSource(string) }) Command {
+type sessionTeamResetter interface {
+	UnbindTeamSource(string)
+}
+
+type sessionCmd struct {
+	sm    *session.Manager
+	reset sessionResetter
+}
+
+func NewSessionCmd(sm *session.Manager, reset sessionResetter) Command {
 	return &sessionCmd{sm: sm, reset: reset}
 }
 
 func (c *sessionCmd) Name() string { return "session" }
-func (c *sessionCmd) Desc() string { return "session management (list/current/new/switch/fork)" }
+func (c *sessionCmd) Desc() string { return "session management (list/current/new/switch/fork/close)" }
 
 func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 	src := bus.SourceFrom(ctx)
@@ -204,7 +212,7 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		src = bus.AddrPlatformCLI
 	}
 	if len(args) == 0 {
-		return "usage: !session [list|current|new|switch <id>|fork]", nil
+		return "usage: !session [list|current|new|switch <id>|fork|close]", nil
 	}
 
 	switch args[0] {
@@ -288,14 +296,34 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 		}
 		c.invalidate(src)
 		return fmt.Sprintf("forked current session: %s", s.ID()), nil
+	case "close":
+		s, err := c.sm.Current(src)
+		if err != nil {
+			return "", err
+		}
+		s.SetStatus("closed")
+		if err := s.Flush(); err != nil {
+			return "", err
+		}
+		next, err := c.sm.ResetSource(src)
+		if err != nil {
+			return "", err
+		}
+		next.SetKind("main")
+		next.SetStatus("active")
+		c.invalidate(src)
+		return fmt.Sprintf("closed session: %s\nswitched to new session: %s", s.ID(), next.ID()), nil
 	default:
-		return "usage: !session [list|current|new|switch <id>|fork]", nil
+		return "usage: !session [list|current|new|switch <id>|fork|close]", nil
 	}
 }
 
 func (c *sessionCmd) invalidate(src string) {
 	if c.reset != nil {
 		c.reset.InvalidateSource(src)
+		if teamReset, ok := any(c.reset).(sessionTeamResetter); ok {
+			teamReset.UnbindTeamSource(src)
+		}
 	}
 }
 
