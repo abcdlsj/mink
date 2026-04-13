@@ -271,6 +271,9 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 		NewSession: func() error {
 			return a.webNewSession(runCtx, webSource)
 		},
+		Action: func(name string) error {
+			return a.webAction(runCtx, webSource, name)
+		},
 	})
 
 	if staticDir := findWebDist(); staticDir != "" {

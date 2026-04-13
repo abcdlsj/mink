@@ -89,6 +89,7 @@ type WebCallbacks struct {
 	Select      func(section, id string) error
 	SendMessage func(text string) error
 	NewSession  func() error
+	Action      func(name string) error
 }
 
 type Web struct {
@@ -336,6 +337,15 @@ func (w *Web) handleAction(rw http.ResponseWriter, req *http.Request) {
 	}
 	if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
 		http.Error(rw, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if w.cb.Action != nil {
+		if err := w.cb.Action(payload.Name); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.NotifyStateChanged()
+		writeJSON(rw, map[string]bool{"ok": true})
 		return
 	}
 	switch payload.Name {

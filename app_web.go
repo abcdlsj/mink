@@ -137,12 +137,42 @@ func (a *App) webSendMessage(ctx context.Context, src, text string) error {
 	if a.currentSection(src) == "inbox" {
 		return fmt.Errorf("select a conversation before sending a message")
 	}
+	if sess, err := a.sm.Current(src); err == nil && sess != nil && strings.TrimSpace(sess.Status()) == "closed" {
+		return fmt.Errorf("active conversation is closed; start a new session or open an active thread")
+	}
+	if a.rt != nil {
+		if threadID := a.currentThreadID(src); threadID != "" {
+			thread, err := a.rt.GetThread(ctx, threadID)
+			if err != nil {
+				return err
+			}
+			if thread.ID != "" && strings.TrimSpace(thread.Status) == "closed" {
+				return fmt.Errorf("thread %s is closed", thread.Title)
+			}
+		}
+	}
 	return a.bus.Pub(bus.Msg{
 		Type:    bus.TypeUserInput,
 		From:    src,
 		To:      bus.AddrAgentMain,
 		Payload: text,
 	})
+}
+
+func (a *App) webAction(ctx context.Context, src, name string) error {
+	switch strings.TrimSpace(name) {
+	case "new_session":
+		return a.webNewSession(ctx, src)
+	case "close_thread":
+		threadID := a.currentThreadID(src)
+		if threadID == "" {
+			return fmt.Errorf("no active thread")
+		}
+		_, err := a.closeThread(ctx, src, threadID)
+		return err
+	default:
+		return fmt.Errorf("unknown action %q", name)
+	}
 }
 
 func (a *App) webNewSession(ctx context.Context, src string) error {
@@ -213,9 +243,13 @@ func (a *App) webOpenThread(ctx context.Context, src, threadID string) error {
 	if err := a.sm.RestoreSource(src, thread.SessionID); err != nil {
 		return err
 	}
+	status := strings.TrimSpace(thread.Status)
+	if status == "" {
+		status = "active"
+	}
 	_ = a.sm.Update(thread.SessionID, func(s *session.Session) {
 		s.SetKind("team_thread")
-		s.SetStatus("active")
+		s.SetStatus(status)
 		if strings.TrimSpace(s.Summary()) == "" {
 			s.SetSummary(thread.Title)
 		}
@@ -223,7 +257,11 @@ func (a *App) webOpenThread(ctx context.Context, src, threadID string) error {
 	a.disp.InvalidateSource(src)
 	a.setActiveTeam(src, thread.TeamID)
 	a.setActiveThread(src, thread.ID)
-	a.disp.BindTeamSource(src, thread.TeamID, thread.ID)
+	if status == "active" {
+		a.disp.BindTeamSource(src, thread.TeamID, thread.ID)
+	} else {
+		a.disp.UnbindTeamSource(src)
+	}
 	return nil
 }
 
@@ -253,6 +291,10 @@ func (a *App) webMainState(ctx context.Context, src string, state platform.WebSt
 	state.ContextBlocks = a.webSessionContextBlocks(src)
 	state.ComposerLabel = "Message Main Session"
 	state.ComposerPlaceholder = "Continue the active main session..."
+	if sess, err := a.sm.Current(src); err == nil && sess != nil && strings.TrimSpace(sess.Status()) == "closed" {
+		state.ComposerDisabled = true
+		state.ComposerPlaceholder = "Session is closed. Start a new session to continue..."
+	}
 	state.EmptyHint = "Start a new session or pick a resumable conversation."
 	return state, nil
 }
@@ -307,6 +349,8 @@ func (a *App) webTeamsState(ctx context.Context, src string, state platform.WebS
 	headerSubtitle := "Select a team"
 	contextBlocks := []platform.WebContextBlock{}
 	cards := []platform.WebCard{}
+	composerPlaceholder := "Select a thread to continue the team conversation..."
+	composerDisabled := currentThread == ""
 
 	for _, team := range teams {
 		teamItems = append(teamItems, platform.WebIndexItem{
@@ -345,6 +389,15 @@ func (a *App) webTeamsState(ctx context.Context, src string, state platform.WebS
 					info := a.threadInfoFromRecord(ctx, thread)
 					headerTitle = fmt.Sprintf("%s — %s", team.Name, thread.Title)
 					headerSubtitle = "Active team thread"
+					if strings.TrimSpace(thread.Status) == "closed" {
+						headerSubtitle = "Closed team thread"
+						composerDisabled = true
+						composerPlaceholder = "Thread is closed. Open an active thread to continue..."
+					} else {
+						composerDisabled = false
+						state.IndexAction = "close_thread"
+						state.IndexActionLabel = "Close Thread"
+					}
 					contextBlocks = append(contextBlocks,
 						platform.WebContextBlock{Title: "Best Answer", Body: info.BestAnswer},
 						platform.WebContextBlock{Title: "Open Blockers", Body: info.OpenBlockers},
@@ -368,8 +421,8 @@ func (a *App) webTeamsState(ctx context.Context, src string, state platform.WebS
 	state.ContextTitle = "Context"
 	state.ContextBlocks = contextBlocks
 	state.ComposerLabel = "Message Team Thread"
-	state.ComposerPlaceholder = "Select a thread to continue the team conversation..."
-	state.ComposerDisabled = currentThread == ""
+	state.ComposerPlaceholder = composerPlaceholder
+	state.ComposerDisabled = composerDisabled
 	state.EmptyHint = "Create or open a team thread to start working."
 	return state, nil
 }
@@ -405,6 +458,14 @@ func (a *App) webThreadsState(ctx context.Context, src string, state platform.We
 	info := a.threadInfoFromRecord(ctx, thread)
 	state.HeaderTitle = fmt.Sprintf("%s — %s", team.Name, thread.Title)
 	state.HeaderSubtitle = "Active thread"
+	if strings.TrimSpace(thread.Status) == "closed" {
+		state.HeaderSubtitle = "Closed thread"
+		state.ComposerDisabled = true
+		state.ComposerPlaceholder = "Thread is closed. Open an active thread to continue..."
+	} else {
+		state.IndexAction = "close_thread"
+		state.IndexActionLabel = "Close Thread"
+	}
 	state.HeaderMeta = a.webUsageMeta(src)
 	state.Messages = a.webMessagesForSource(src)
 	state.ContextTitle = "Context"
@@ -775,11 +836,15 @@ func (a *App) webRecentThreads(ctx context.Context) ([]webThreadItem, error) {
 func (a *App) webThreadIndexItems(threads []webThreadItem, currentThread, section string) []platform.WebIndexItem {
 	items := make([]platform.WebIndexItem, 0, len(threads))
 	for _, item := range threads {
+		meta := item.Team.Name
+		if status := strings.TrimSpace(item.Thread.Status); status != "" {
+			meta += " · " + strings.ToUpper(status)
+		}
 		items = append(items, platform.WebIndexItem{
 			ID:      item.Thread.ID,
 			Section: section,
 			Label:   item.Thread.Title,
-			Meta:    item.Team.Name,
+			Meta:    meta,
 			Active:  item.Thread.ID == currentThread,
 		})
 	}
