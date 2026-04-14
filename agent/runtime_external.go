@@ -173,7 +173,7 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 		return fmt.Errorf("start %s: %w", r.driver.Name, err)
 	}
 
-	output := r.readOutput(ctx, stdout)
+	output, streamed := r.readOutput(ctx, stdout)
 
 	err = cmd.Wait()
 	bridgeCancel()
@@ -194,7 +194,7 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 		}
 	}
 
-	if r.b != nil && output != "" {
+	if r.b != nil && output != "" && !streamed {
 		_ = r.b.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    r.agentID,
@@ -251,7 +251,7 @@ func (r *ExternalRuntime) Interrupt() {
 	}
 }
 
-func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) string {
+func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (string, bool) {
 	var sb strings.Builder
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 256*1024), 10*1024*1024)
@@ -260,40 +260,42 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) stri
 	for scanner.Scan() {
 		select {
 		case <-ctx.Done():
-			return sb.String()
+			return sb.String(), sawStream
 		default:
 		}
 
 		line := scanner.Text()
 
 		if r.driver.ParseOutput != nil {
-			if ev := r.driver.ParseOutput(line); ev != nil {
-				r.handleRuntimeMessage(ev)
-				switch ev.Type {
-				case MsgStreamChunk:
-					sawStream = true
-					sb.WriteString(ev.Text)
-				case MsgAssistantText:
-					if sawStream {
-						continue
-					}
-					if sb.Len() > 0 {
-						sb.WriteString("\n")
-					}
-					sb.WriteString(ev.Text)
-				case MsgTurnDone:
-					if sb.Len() == 0 && ev.Text != "" {
-						sb.WriteString(ev.Text)
-					}
-				case MsgError:
-					if sb.Len() > 0 {
-						sb.WriteString("\n")
-					}
-					sb.WriteString("error: ")
-					sb.WriteString(ev.Text)
-				}
+			ev := r.driver.ParseOutput(line)
+			if ev == nil {
 				continue
 			}
+			r.handleRuntimeMessage(ev)
+			switch ev.Type {
+			case MsgStreamChunk:
+				sawStream = true
+				sb.WriteString(ev.Text)
+			case MsgAssistantText:
+				if sawStream {
+					continue
+				}
+				if sb.Len() > 0 {
+					sb.WriteString("\n")
+				}
+				sb.WriteString(ev.Text)
+			case MsgTurnDone:
+				if sb.Len() == 0 && ev.Text != "" {
+					sb.WriteString(ev.Text)
+				}
+			case MsgError:
+				if sb.Len() > 0 {
+					sb.WriteString("\n")
+				}
+				sb.WriteString("error: ")
+				sb.WriteString(ev.Text)
+			}
+			continue
 		}
 
 		sb.WriteString(line)
@@ -317,7 +319,7 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) stri
 		})
 	}
 
-	return strings.TrimSpace(sb.String())
+	return strings.TrimSpace(sb.String()), sawStream
 }
 
 func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
@@ -333,6 +335,13 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
 	case MsgStreamChunk:
 		_ = r.b.Pub(bus.Msg{
 			Type:    bus.TypeStreamChunk,
+			From:    r.agentID,
+			To:      r.source,
+			Payload: m.Text,
+		})
+	case MsgThinkingChunk:
+		_ = r.b.Pub(bus.Msg{
+			Type:    bus.TypeThinkingChunk,
 			From:    r.agentID,
 			To:      r.source,
 			Payload: m.Text,

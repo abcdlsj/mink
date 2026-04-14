@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"time"
 
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
@@ -27,10 +26,9 @@ type Runtime interface {
 }
 
 type RuntimeConfig struct {
-	Source   string
-	AgentID  string
-	Session  *session.Session
-	SubAgent bool
+	Source  string
+	AgentID string
+	Session *session.Session
 }
 
 type RuntimeStatus int
@@ -62,7 +60,6 @@ type RuntimeMessage struct {
 	ToolID    string
 	SessionID string
 	Error     error
-	Timestamp time.Time
 }
 
 type RuntimeMessageType int
@@ -70,12 +67,9 @@ type RuntimeMessageType int
 const (
 	MsgAssistantText RuntimeMessageType = iota
 	MsgStreamChunk
-	MsgStreamEnd
+	MsgThinkingChunk
 	MsgToolCall
 	MsgToolResult
-	MsgToolError
-	MsgThinkingChunk
-	MsgThinkingEnd
 	MsgTurnDone
 	MsgError
 )

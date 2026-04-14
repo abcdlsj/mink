@@ -63,6 +63,7 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 			Delta struct {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
 				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 		} `json:"event"`
@@ -87,8 +88,19 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 	case "stream_event":
 		switch env.Event.Type {
 		case "content_block_delta":
-			if env.Event.Delta.Type == "text_delta" && env.Event.Delta.Text != "" {
-				return &RuntimeMessage{Type: MsgStreamChunk, Text: env.Event.Delta.Text}
+			switch env.Event.Delta.Type {
+			case "text_delta":
+				if env.Event.Delta.Text != "" {
+					return &RuntimeMessage{Type: MsgStreamChunk, Text: env.Event.Delta.Text}
+				}
+			case "thinking_delta":
+				if env.Event.Delta.Thinking != "" {
+					return &RuntimeMessage{Type: MsgThinkingChunk, Text: env.Event.Delta.Thinking}
+				}
+			case "input_json_delta":
+				if env.Event.Delta.PartialJSON != "" {
+					return &RuntimeMessage{Type: MsgToolCall, ToolArgs: env.Event.Delta.PartialJSON}
+				}
 			}
 		case "content_block_start":
 			if env.Event.ContentBlock.Type == "tool_use" {
@@ -103,10 +115,13 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 	case "assistant":
 		if env.Subtype == "message" || env.Subtype == "" {
 			var text strings.Builder
+			var thinking strings.Builder
 			for _, c := range env.Message.Content {
 				switch c.Type {
 				case "text":
 					text.WriteString(c.Text)
+				case "thinking":
+					thinking.WriteString(c.Text)
 				case "tool_use":
 					return &RuntimeMessage{
 						Type:     MsgToolCall,
@@ -115,6 +130,9 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 						ToolArgs: marshalClaudeToolInput(c.Input),
 					}
 				}
+			}
+			if thinking.Len() > 0 {
+				return &RuntimeMessage{Type: MsgThinkingChunk, Text: thinking.String()}
 			}
 			if text.Len() > 0 {
 				return &RuntimeMessage{Type: MsgAssistantText, Text: text.String()}
