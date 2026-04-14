@@ -1,4 +1,4 @@
-package agent
+package external
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 )
 
-type MCPBridge struct {
+type Bridge struct {
 	mem     *memory.Store
 	rt      *rtsqlite.DB
 	bus     *bus.Bus
@@ -23,7 +23,7 @@ type MCPBridge struct {
 	mu sync.Mutex
 }
 
-type MCPBridgeConfig struct {
+type BridgeConfig struct {
 	Memory  *memory.Store
 	RT      *rtsqlite.DB
 	Bus     *bus.Bus
@@ -31,8 +31,8 @@ type MCPBridgeConfig struct {
 	Source  string
 }
 
-func NewMCPBridge(cfg MCPBridgeConfig) *MCPBridge {
-	return &MCPBridge{
+func NewBridge(cfg BridgeConfig) *Bridge {
+	return &Bridge{
 		mem:     cfg.Memory,
 		rt:      cfg.RT,
 		bus:     cfg.Bus,
@@ -41,7 +41,7 @@ func NewMCPBridge(cfg MCPBridgeConfig) *MCPBridge {
 	}
 }
 
-func (b *MCPBridge) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
+func (b *Bridge) Serve(ctx context.Context, r io.Reader, w io.Writer) error {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
 
@@ -90,7 +90,7 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-func (b *MCPBridge) handleRequest(ctx context.Context, req *jsonRPCRequest) *jsonRPCResponse {
+func (b *Bridge) handleRequest(ctx context.Context, req *jsonRPCRequest) *jsonRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return b.handleInitialize(req)
@@ -111,7 +111,7 @@ func (b *MCPBridge) handleRequest(ctx context.Context, req *jsonRPCRequest) *jso
 	}
 }
 
-func (b *MCPBridge) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
+func (b *Bridge) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	return &jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      req.ID,
@@ -128,14 +128,14 @@ func (b *MCPBridge) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	}
 }
 
-func (b *MCPBridge) writeResponse(w io.Writer, resp *jsonRPCResponse) {
+func (b *Bridge) writeResponse(w io.Writer, resp *jsonRPCResponse) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	data, _ := json.Marshal(resp)
 	fmt.Fprintf(w, "%s\n", data)
 }
 
-func (b *MCPBridge) writeError(w io.Writer, id any, code int, message string) {
+func (b *Bridge) writeError(w io.Writer, id any, code int, message string) {
 	b.writeResponse(w, &jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,

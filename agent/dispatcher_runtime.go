@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 
+	"github.com/abcdlsj/mink/agent/external"
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
@@ -57,7 +59,7 @@ func (d *Dispatcher) UnbindTeamSource(src string) {
 	}
 }
 
-func (d *Dispatcher) getOrCreateRuntime(src string) Runtime {
+func (d *Dispatcher) getOrCreateRuntime(src string) agrt.Runtime {
 	d.mu.RLock()
 	if rt, ok := d.runtimes[src]; ok {
 		d.mu.RUnlock()
@@ -77,7 +79,7 @@ func (d *Dispatcher) getOrCreateRuntime(src string) Runtime {
 		if err != nil {
 			sess, _ = d.sm.Create()
 		}
-		rt := NewExternalRuntime(ExternalRuntimeConfig{
+		rt := external.New(external.Config{
 			Driver:  driver,
 			Memory:  d.deps.Memory,
 			RT:      d.rt,
@@ -85,7 +87,7 @@ func (d *Dispatcher) getOrCreateRuntime(src string) Runtime {
 			Session: sess,
 			WorkDir: workspacePath(d.rt),
 		})
-		rt.Start(context.Background(), RuntimeConfig{
+		rt.Start(context.Background(), agrt.Config{
 			Source:  src,
 			AgentID: d.agentID,
 			Session: sess,
@@ -134,7 +136,7 @@ func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
 	return msg.TokenUsage{}, false
 }
 
-func (d *Dispatcher) lastAssistantOutput(rt Runtime) string {
+func (d *Dispatcher) lastAssistantOutput(rt agrt.Runtime) string {
 	if rt == nil || rt.Session() == nil {
 		return ""
 	}
@@ -147,7 +149,7 @@ func (d *Dispatcher) lastAssistantOutput(rt Runtime) string {
 	return ""
 }
 
-func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, rt Runtime) (rtsqlite.RunState, error) {
+func (d *Dispatcher) startRun(ctx context.Context, src, msgType, in string, rt agrt.Runtime) (rtsqlite.RunState, error) {
 	if d.rt == nil || rt == nil || rt.Session() == nil {
 		return rtsqlite.RunState{}, nil
 	}
@@ -179,7 +181,7 @@ func (d *Dispatcher) startRunForAgent(ctx context.Context, source, sessionID, ag
 	return d.rt.StartRun(ctx, source, sessionID, agentID, trigger(msgType), in)
 }
 
-func (d *Dispatcher) setActiveRuntime(src string, rt Runtime) func() {
+func (d *Dispatcher) setActiveRuntime(src string, rt agrt.Runtime) func() {
 	d.mu.Lock()
 	prev := d.runtimes[src]
 	d.runtimes[src] = rt
@@ -202,18 +204,15 @@ func (d *Dispatcher) ModelDisplayName() string {
 	return d.deps.Config.ActiveModel
 }
 
-func (d *Dispatcher) resolveExternalDriver() (ExternalDriver, bool) {
+func (d *Dispatcher) resolveExternalDriver() (agrt.Driver, bool) {
 	for _, ac := range d.deps.Config.Agents {
 		if ac.ID == d.agentID || ac.ID == "" {
-			switch ac.Runtime {
-			case "claude":
-				return ClaudeCodeDriver(), true
-			case "codex":
-				return CodexDriver(), true
+			if d, ok := external.Driver(ac.Runtime); ok {
+				return d, true
 			}
 		}
 	}
-	return ExternalDriver{}, false
+	return agrt.Driver{}, false
 }
 
 func workspacePath(db *rtsqlite.DB) string {

@@ -1,13 +1,14 @@
-package agent
+package external
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
+
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 )
 
-func ClaudeCodeDriver() ExternalDriver {
-	return ExternalDriver{
+func ClaudeDriver() agrt.Driver {
+	return agrt.Driver{
 		Name:    "claude",
 		Command: "claude",
 		BuildArgs: func(prompt, mcpConfigPath, workDir, sessionID string) []string {
@@ -29,11 +30,11 @@ func ClaudeCodeDriver() ExternalDriver {
 			args = append(args, "-p", prompt)
 			return args
 		},
-		ParseOutput: parseClaudeCodeOutput,
+		ParseOutput: parseClaudeOutput,
 	}
 }
 
-func parseClaudeCodeOutput(line string) *RuntimeMessage {
+func parseClaudeOutput(line string) *agrt.Message {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return nil
@@ -97,20 +98,17 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 			switch env.Event.Delta.Type {
 			case "text_delta":
 				if env.Event.Delta.Text != "" {
-					return &RuntimeMessage{Type: MsgStreamChunk, Text: env.Event.Delta.Text}
+					return &agrt.Message{Type: agrt.MsgStreamChunk, Text: env.Event.Delta.Text}
 				}
 			case "thinking_delta":
 				if env.Event.Delta.Thinking != "" {
-					return &RuntimeMessage{Type: MsgThinkingChunk, Text: env.Event.Delta.Thinking}
+					return &agrt.Message{Type: agrt.MsgThinkingChunk, Text: env.Event.Delta.Thinking}
 				}
-			case "input_json_delta":
-				// Skip partial JSON fragments — the tool name from
-				// content_block_start is sufficient for display.
 			}
 		case "content_block_start":
 			if env.Event.ContentBlock.Type == "tool_use" {
-				return &RuntimeMessage{
-					Type:     MsgToolCall,
+				return &agrt.Message{
+					Type:     agrt.MsgToolCall,
 					ToolName: env.Event.ContentBlock.Name,
 					ToolID:   env.Event.ContentBlock.ID,
 					ToolArgs: marshalClaudeToolInput(env.Event.ContentBlock.Input),
@@ -128,8 +126,8 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 				case "thinking":
 					thinking.WriteString(c.Text)
 				case "tool_use":
-					return &RuntimeMessage{
-						Type:     MsgToolCall,
+					return &agrt.Message{
+						Type:     agrt.MsgToolCall,
 						ToolName: c.Name,
 						ToolID:   c.ID,
 						ToolArgs: marshalClaudeToolInput(c.Input),
@@ -137,21 +135,21 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 				}
 			}
 			if thinking.Len() > 0 {
-				return &RuntimeMessage{Type: MsgThinkingChunk, Text: thinking.String()}
+				return &agrt.Message{Type: agrt.MsgThinkingChunk, Text: thinking.String()}
 			}
 			if text.Len() > 0 {
-				return &RuntimeMessage{Type: MsgAssistantText, Text: text.String()}
+				return &agrt.Message{Type: agrt.MsgAssistantText, Text: text.String()}
 			}
 		}
 	case "content_block_delta":
 		if env.Delta.Type == "text_delta" && env.Delta.Text != "" {
-			return &RuntimeMessage{Type: MsgStreamChunk, Text: env.Delta.Text}
+			return &agrt.Message{Type: agrt.MsgStreamChunk, Text: env.Delta.Text}
 		}
 	case "tool_use":
 		for _, c := range env.Message.Content {
 			if c.Type == "tool_use" {
-				return &RuntimeMessage{
-					Type:     MsgToolCall,
+				return &agrt.Message{
+					Type:     agrt.MsgToolCall,
 					ToolName: c.Name,
 					ToolID:   c.ID,
 					ToolArgs: marshalClaudeToolInput(c.Input),
@@ -159,20 +157,20 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 			}
 		}
 	case "tool_result":
-		return &RuntimeMessage{Type: MsgToolResult, ToolID: env.Content.ToolUseID, Text: env.Content.Text}
+		return &agrt.Message{Type: agrt.MsgToolResult, ToolID: env.Content.ToolUseID, Text: env.Content.Text}
 	case "result":
 		if env.IsError {
-			return &RuntimeMessage{Type: MsgError, Text: env.Result, SessionID: env.SessionID}
+			return &agrt.Message{Type: agrt.MsgError, Text: env.Result, SessionID: env.SessionID}
 		}
-		return &RuntimeMessage{
-			Type:         MsgTurnDone,
+		return &agrt.Message{
+			Type:         agrt.MsgTurnDone,
 			Text:         env.Result,
 			SessionID:    env.SessionID,
 			InputTokens:  env.Usage.InputTokens,
 			OutputTokens: env.Usage.OutputTokens,
 		}
 	case "error":
-		return &RuntimeMessage{Type: MsgError, Text: env.Result, SessionID: env.SessionID}
+		return &agrt.Message{Type: agrt.MsgError, Text: env.Result, SessionID: env.SessionID}
 	}
 
 	return nil
@@ -184,7 +182,7 @@ func marshalClaudeToolInput(v any) string {
 	}
 	data, err := json.Marshal(v)
 	if err != nil {
-		return fmt.Sprintf("%v", v)
+		return ""
 	}
 	return string(data)
 }

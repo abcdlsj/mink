@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 )
 
@@ -138,7 +139,7 @@ func enqueueWorker(parent context.Context, q chan bus.Msg, m bus.Msg, timeout ti
 	}
 }
 
-func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string, rt Runtime) error {
+func (d *Dispatcher) runWithStatus(ctx context.Context, src, msgType, in string, rt agrt.Runtime) error {
 	errCh := make(chan error, 1)
 	go func() {
 		if msgType == bus.TypeTaskDone {

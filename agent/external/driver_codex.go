@@ -1,12 +1,14 @@
-package agent
+package external
 
 import (
 	"encoding/json"
 	"strings"
+
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 )
 
-func CodexDriver() ExternalDriver {
-	return ExternalDriver{
+func CodexDriver() agrt.Driver {
+	return agrt.Driver{
 		Name:        "codex",
 		Command:     "codex",
 		StdinPrompt: true,
@@ -22,7 +24,7 @@ func CodexDriver() ExternalDriver {
 	}
 }
 
-func parseCodexOutput(line string) *RuntimeMessage {
+func parseCodexOutput(line string) *agrt.Message {
 	line = strings.TrimSpace(line)
 	if line == "" {
 		return nil
@@ -53,12 +55,12 @@ func parseCodexOutput(line string) *RuntimeMessage {
 	switch ev.Type {
 	case "thread.started":
 		if ev.ThreadID != "" {
-			return &RuntimeMessage{Type: MsgTurnDone, SessionID: ev.ThreadID}
+			return &agrt.Message{Type: agrt.MsgTurnDone, SessionID: ev.ThreadID}
 		}
 	case "item.started":
 		if ev.Item.Type == "command_execution" {
-			return &RuntimeMessage{
-				Type:     MsgToolCall,
+			return &agrt.Message{
+				Type:     agrt.MsgToolCall,
 				ToolName: "shell",
 				ToolID:   ev.Item.ID,
 				ToolArgs: ev.Item.Command,
@@ -67,17 +69,17 @@ func parseCodexOutput(line string) *RuntimeMessage {
 	case "item.completed":
 		switch ev.Item.Type {
 		case "agent_message":
-			return &RuntimeMessage{Type: MsgStreamChunk, Text: ev.Item.Text}
+			return &agrt.Message{Type: agrt.MsgStreamChunk, Text: ev.Item.Text}
 		case "command_execution":
-			return &RuntimeMessage{
-				Type:   MsgToolResult,
+			return &agrt.Message{
+				Type:   agrt.MsgToolResult,
 				ToolID: ev.Item.ID,
 				Text:   ev.Item.AggregatedOutput,
 			}
 		}
 	case "turn.completed":
-		return &RuntimeMessage{
-			Type:         MsgTurnDone,
+		return &agrt.Message{
+			Type:         agrt.MsgTurnDone,
 			InputTokens:  ev.Usage.InputTokens,
 			OutputTokens: ev.Usage.OutputTokens,
 		}

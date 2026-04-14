@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/internal/xstr"
@@ -21,7 +22,7 @@ func (d *Dispatcher) prepareTeamTurn(ctx context.Context, src string, rt *Native
 	return d.team.Prepare(ctx, src, rt.Session())
 }
 
-func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, rt Runtime) (string, error) {
+func (d *Dispatcher) runSourceTurn(ctx context.Context, src, msgType, initialInput string, rt agrt.Runtime) (string, error) {
 	nr, isNative := rt.(*NativeRuntime)
 	if !isNative {
 		state, err := d.startRun(ctx, src, msgType, initialInput, rt)

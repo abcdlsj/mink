@@ -1,4 +1,4 @@
-package agent
+package external
 
 import (
 	"bufio"
@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 )
 
@@ -31,10 +32,10 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (str
 			}
 			r.handleRuntimeMessage(ev)
 			switch ev.Type {
-			case MsgStreamChunk:
+			case agrt.MsgStreamChunk:
 				sawStream = true
 				sb.WriteString(ev.Text)
-			case MsgAssistantText:
+			case agrt.MsgAssistantText:
 				if sawStream {
 					continue
 				}
@@ -42,11 +43,11 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (str
 					sb.WriteString("\n")
 				}
 				sb.WriteString(ev.Text)
-			case MsgTurnDone:
+			case agrt.MsgTurnDone:
 				if sb.Len() == 0 && ev.Text != "" {
 					sb.WriteString(ev.Text)
 				}
-			case MsgError:
+			case agrt.MsgError:
 				if sb.Len() > 0 {
 					sb.WriteString("\n")
 				}
@@ -80,7 +81,7 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (str
 	return strings.TrimSpace(sb.String()), sawStream
 }
 
-func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
+func (r *ExternalRuntime) handleRuntimeMessage(m *agrt.Message) {
 	if m.SessionID != "" || m.InputTokens > 0 || m.OutputTokens > 0 {
 		r.mu.Lock()
 		if m.SessionID != "" {
@@ -94,21 +95,21 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
 		return
 	}
 	switch m.Type {
-	case MsgStreamChunk:
+	case agrt.MsgStreamChunk:
 		_ = r.b.Pub(bus.Msg{
 			Type:    bus.TypeStreamChunk,
 			From:    r.agentID,
 			To:      r.source,
 			Payload: m.Text,
 		})
-	case MsgThinkingChunk:
+	case agrt.MsgThinkingChunk:
 		_ = r.b.Pub(bus.Msg{
 			Type:    bus.TypeThinkingChunk,
 			From:    r.agentID,
 			To:      r.source,
 			Payload: m.Text,
 		})
-	case MsgToolCall:
+	case agrt.MsgToolCall:
 		_ = r.b.Pub(bus.Msg{
 			Type: bus.TypeToolCall,
 			From: r.agentID,
@@ -119,7 +120,7 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
 				"args": m.ToolArgs,
 			},
 		})
-	case MsgToolResult:
+	case agrt.MsgToolResult:
 		_ = r.b.Pub(bus.Msg{
 			Type: bus.TypeToolResult,
 			From: r.agentID,
@@ -129,7 +130,7 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
 				"result": m.Text,
 			},
 		})
-	case MsgError:
+	case agrt.MsgError:
 		_ = r.b.Pub(bus.Msg{
 			Type:    bus.TypeAssistant,
 			From:    r.agentID,

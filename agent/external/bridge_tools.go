@@ -1,4 +1,4 @@
-package agent
+package external
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/abcdlsj/mink/memory"
 )
 
-func (b *MCPBridge) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
+func (b *Bridge) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	tools := []map[string]any{
 		{
 			"name":        "search_memory",
@@ -82,7 +82,7 @@ func (b *MCPBridge) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	}
 }
 
-func (b *MCPBridge) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *jsonRPCResponse {
+func (b *Bridge) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *jsonRPCResponse {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -120,7 +120,7 @@ func (b *MCPBridge) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *j
 	}
 }
 
-func (b *MCPBridge) callTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+func (b *Bridge) callTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	switch name {
 	case "search_memory":
 		return b.toolSearchMemory(ctx, args)
@@ -137,7 +137,7 @@ func (b *MCPBridge) callTool(ctx context.Context, name string, args json.RawMess
 	}
 }
 
-func (b *MCPBridge) toolSearchMemory(ctx context.Context, args json.RawMessage) (string, error) {
+func (b *Bridge) toolSearchMemory(ctx context.Context, args json.RawMessage) (string, error) {
 	if b.mem == nil {
 		return "memory store not available", nil
 	}
@@ -165,7 +165,7 @@ func (b *MCPBridge) toolSearchMemory(ctx context.Context, args json.RawMessage) 
 	return formatDocs(docs), nil
 }
 
-func (b *MCPBridge) toolReadMemory(ctx context.Context, args json.RawMessage) (string, error) {
+func (b *Bridge) toolReadMemory(ctx context.Context, args json.RawMessage) (string, error) {
 	if b.mem == nil {
 		return "memory store not available", nil
 	}
@@ -194,7 +194,7 @@ func (b *MCPBridge) toolReadMemory(ctx context.Context, args json.RawMessage) (s
 	return formatDocs(docs), nil
 }
 
-func (b *MCPBridge) toolWriteMemory(ctx context.Context, args json.RawMessage) (string, error) {
+func (b *Bridge) toolWriteMemory(ctx context.Context, args json.RawMessage) (string, error) {
 	if b.mem == nil {
 		return "", fmt.Errorf("memory store not available")
 	}
@@ -227,7 +227,7 @@ func (b *MCPBridge) toolWriteMemory(ctx context.Context, args json.RawMessage) (
 	return fmt.Sprintf("saved memory doc %s in scope %s", saved.ID, scope.String()), nil
 }
 
-func (b *MCPBridge) toolSessionContext(_ context.Context) (string, error) {
+func (b *Bridge) toolSessionContext(_ context.Context) (string, error) {
 	info := map[string]string{
 		"agent_id": b.agentID,
 		"source":   b.source,
@@ -239,7 +239,7 @@ func (b *MCPBridge) toolSessionContext(_ context.Context) (string, error) {
 	return string(data), nil
 }
 
-func (b *MCPBridge) toolNotify(_ context.Context, args json.RawMessage) (string, error) {
+func (b *Bridge) toolNotify(_ context.Context, args json.RawMessage) (string, error) {
 	if b.bus == nil {
 		return "", fmt.Errorf("bus not available")
 	}

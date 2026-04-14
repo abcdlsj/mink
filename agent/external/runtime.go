@@ -1,4 +1,4 @@
-package agent
+package external
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
@@ -15,7 +16,7 @@ import (
 )
 
 type ExternalRuntime struct {
-	driver ExternalDriver
+	driver agrt.Driver
 	mem    *memory.Store
 	rt     *rtsqlite.DB
 	b      *bus.Bus
@@ -24,7 +25,7 @@ type ExternalRuntime struct {
 	source            string
 	agentID           string
 	workDir           string
-	status            RuntimeStatus
+	status            agrt.Status
 	externalSessionID string
 	inputTokens       int
 	outputTokens      int
@@ -39,16 +40,8 @@ func externalSessionMetaKey(name string) string {
 	return "external_session_" + strings.TrimSpace(name)
 }
 
-type ExternalDriver struct {
-	Name        string
-	Command     string
-	StdinPrompt bool // if true, prompt is piped via stdin instead of as a CLI argument
-	BuildArgs   func(prompt, mcpConfigPath, workDir, sessionID string) []string
-	ParseOutput func(line string) *RuntimeMessage
-}
-
-type ExternalRuntimeConfig struct {
-	Driver  ExternalDriver
+type Config struct {
+	Driver  agrt.Driver
 	Memory  *memory.Store
 	RT      *rtsqlite.DB
 	Bus     *bus.Bus
@@ -56,7 +49,7 @@ type ExternalRuntimeConfig struct {
 	WorkDir string
 }
 
-func NewExternalRuntime(cfg ExternalRuntimeConfig) *ExternalRuntime {
+func New(cfg Config) *ExternalRuntime {
 	return &ExternalRuntime{
 		driver:  cfg.Driver,
 		mem:     cfg.Memory,
@@ -64,14 +57,14 @@ func NewExternalRuntime(cfg ExternalRuntimeConfig) *ExternalRuntime {
 		b:       cfg.Bus,
 		sess:    cfg.Session,
 		workDir: cfg.WorkDir,
-		status:  RuntimeIdle,
+		status:  agrt.Idle,
 	}
 }
 
 func (r *ExternalRuntime) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.status = RuntimeStopped
+	r.status = agrt.Stopped
 	if r.cancel != nil {
 		r.cancel()
 	}
@@ -81,7 +74,7 @@ func (r *ExternalRuntime) Stop() error {
 	return nil
 }
 
-func (r *ExternalRuntime) Status() RuntimeStatus {
+func (r *ExternalRuntime) Status() agrt.Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.status
@@ -109,7 +102,7 @@ func (r *ExternalRuntime) Interrupt() {
 	}
 }
 
-func (r *ExternalRuntime) setStatus(s RuntimeStatus) {
+func (r *ExternalRuntime) setStatus(s agrt.Status) {
 	r.mu.Lock()
 	r.status = s
 	r.mu.Unlock()

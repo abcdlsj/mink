@@ -3,6 +3,7 @@ package agent
 import (
 	"sync"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/llm"
@@ -17,7 +18,7 @@ type Dispatcher struct {
 	agentID     string
 	registry    *Registry
 	team        *TeamDispatcher
-	runtimes    map[string]Runtime
+	runtimes    map[string]agrt.Runtime
 	workers     map[string]*workerState
 	rt          *rtsqlite.DB
 	skillLoader *skill.Loader
@@ -30,7 +31,7 @@ func NewDispatcher(deps AgentDeps, sm *session.Manager, sl *skill.Loader, rt *rt
 		sm:          sm,
 		agentID:     bus.AddrAgentMain,
 		team:        NewTeamDispatcher(rt, deps.Memory, sm),
-		runtimes:    make(map[string]Runtime),
+		runtimes:    make(map[string]agrt.Runtime),
 		workers:     make(map[string]*workerState),
 		rt:          rt,
 		skillLoader: sl,
@@ -64,6 +65,6 @@ func (d *Dispatcher) Registry() *Registry {
 
 func (d *Dispatcher) ResetAgents() {
 	d.mu.Lock()
-	d.runtimes = make(map[string]Runtime)
+	d.runtimes = make(map[string]agrt.Runtime)
 	d.mu.Unlock()
 }

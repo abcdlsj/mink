@@ -1,4 +1,4 @@
-package agent
+package external
 
 import (
 	"context"
@@ -9,11 +9,12 @@ import (
 	"os/exec"
 	"sync"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 )
 
-func (r *ExternalRuntime) Start(_ context.Context, cfg RuntimeConfig) error {
+func (r *ExternalRuntime) Start(_ context.Context, cfg agrt.Config) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.source = cfg.Source
@@ -22,13 +23,13 @@ func (r *ExternalRuntime) Start(_ context.Context, cfg RuntimeConfig) error {
 		r.sess = cfg.Session
 		r.externalSessionID = cfg.Session.MetaString(externalSessionMetaKey(r.driver.Name))
 	}
-	r.status = RuntimeIdle
+	r.status = agrt.Idle
 	return nil
 }
 
 func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error) {
-	r.setStatus(RuntimeRunning)
-	defer r.setStatus(RuntimeIdle)
+	r.setStatus(agrt.Running)
+	defer r.setStatus(agrt.Idle)
 
 	ctx, cancel := context.WithCancel(ctx)
 	r.mu.Lock()
@@ -55,7 +56,7 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 	bridgeR, bridgeW := io.Pipe()
 	clientR, clientW := io.Pipe()
 
-	bridge := NewMCPBridge(MCPBridgeConfig{
+	bridge := NewBridge(BridgeConfig{
 		Memory:  r.mem,
 		RT:      r.rt,
 		Bus:     r.b,

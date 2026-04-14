@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 )
@@ -12,48 +13,48 @@ import (
 type NativeRuntime struct {
 	agent  *Agent
 	source string
-	status RuntimeStatus
+	status agrt.Status
 	mu     sync.Mutex
 }
 
 func NewNativeRuntime(a *Agent) *NativeRuntime {
-	return &NativeRuntime{agent: a, status: RuntimeIdle}
+	return &NativeRuntime{agent: a, status: agrt.Idle}
 }
 
-func (r *NativeRuntime) Start(_ context.Context, cfg RuntimeConfig) error {
+func (r *NativeRuntime) Start(_ context.Context, cfg agrt.Config) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.status == RuntimeRunning {
+	if r.status == agrt.Running {
 		return fmt.Errorf("runtime already running")
 	}
 	r.source = cfg.Source
 	if cfg.Session != nil {
 		r.agent.session = cfg.Session
 	}
-	r.status = RuntimeIdle
+	r.status = agrt.Idle
 	return nil
 }
 
 func (r *NativeRuntime) Send(ctx context.Context, input string) error {
-	r.setStatus(RuntimeRunning)
-	defer r.setStatus(RuntimeIdle)
+	r.setStatus(agrt.Running)
+	defer r.setStatus(agrt.Idle)
 	return r.agent.Run(ctx, r.source, input)
 }
 
 func (r *NativeRuntime) SendSystem(ctx context.Context, input string) error {
-	r.setStatus(RuntimeRunning)
-	defer r.setStatus(RuntimeIdle)
+	r.setStatus(agrt.Running)
+	defer r.setStatus(agrt.Idle)
 	return r.agent.RunSystem(ctx, r.source, input)
 }
 
 func (r *NativeRuntime) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.status = RuntimeStopped
+	r.status = agrt.Stopped
 	return nil
 }
 
-func (r *NativeRuntime) Status() RuntimeStatus {
+func (r *NativeRuntime) Status() agrt.Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.status
@@ -75,7 +76,7 @@ func (r *NativeRuntime) Agent() *Agent {
 	return r.agent
 }
 
-func (r *NativeRuntime) setStatus(s RuntimeStatus) {
+func (r *NativeRuntime) setStatus(s agrt.Status) {
 	r.mu.Lock()
 	r.status = s
 	r.mu.Unlock()
