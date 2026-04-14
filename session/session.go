@@ -18,7 +18,7 @@ type Session struct {
 	summary   string
 	meta      json.RawMessage
 	closedAt  *time.Time
-	store     *SQLiteStore
+	store     Store
 	entries   []Entry
 	anchors   []Anchor
 	prov      *Provenance
@@ -29,7 +29,7 @@ type Session struct {
 	mu        sync.RWMutex
 }
 
-func newSession(id string, store *SQLiteStore, resolve func(string) (*Session, error)) *Session {
+func newSession(id string, store Store, resolve func(string) (*Session, error)) *Session {
 	now := time.Now()
 	return &Session{
 		id:        id,

@@ -12,14 +12,14 @@ import (
 )
 
 type Manager struct {
-	store    *SQLiteStore
+	store    Store
 	sessions map[string]*Session
 	sources  map[string]string
 	bus      *bus.Bus
 	mu       sync.RWMutex
 }
 
-func NewManager(store *SQLiteStore, b *bus.Bus) *Manager {
+func NewManager(store Store, b *bus.Bus) *Manager {
 	return &Manager{
 		store:    store,
 		sessions: make(map[string]*Session),
