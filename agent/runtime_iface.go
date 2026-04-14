@@ -53,13 +53,15 @@ func (s RuntimeStatus) String() string {
 }
 
 type RuntimeMessage struct {
-	Type      RuntimeMessageType
-	Text      string
-	ToolName  string
-	ToolArgs  string
-	ToolID    string
-	SessionID string
-	Error     error
+	Type        RuntimeMessageType
+	Text        string
+	ToolName    string
+	ToolArgs    string
+	ToolID      string
+	SessionID   string
+	InputTokens int
+	OutputTokens int
+	Error       error
 }
 
 type RuntimeMessageType int

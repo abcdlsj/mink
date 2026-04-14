@@ -165,6 +165,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinner.TickMsg:
+		if m.pending > 0 {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		for _, agent := range m.agents {
 			if !agent.done {
 				var cmd tea.Cmd
@@ -247,7 +252,7 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 	m.cli.hooks.Trigger(ctx, hook.AfterInput, text)
 	m.pending++
 	m.scrollToBottom()
-	return m, nil
+	return m, m.spinner.Tick
 }
 
 func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {

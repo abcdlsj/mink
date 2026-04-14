@@ -72,12 +72,17 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 			Text string `json:"text"`
 		} `json:"delta"`
 		Content struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type      string `json:"type"`
+			Text      string `json:"text"`
+			ToolUseID string `json:"tool_use_id"`
 		} `json:"content"`
 		Result    string `json:"result"`
 		IsError   bool   `json:"is_error"`
 		SessionID string `json:"session_id"`
+		Usage     struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
@@ -98,9 +103,8 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 					return &RuntimeMessage{Type: MsgThinkingChunk, Text: env.Event.Delta.Thinking}
 				}
 			case "input_json_delta":
-				if env.Event.Delta.PartialJSON != "" {
-					return &RuntimeMessage{Type: MsgToolCall, ToolArgs: env.Event.Delta.PartialJSON}
-				}
+				// Skip partial JSON fragments — the tool name from
+				// content_block_start is sufficient for display.
 			}
 		case "content_block_start":
 			if env.Event.ContentBlock.Type == "tool_use" {
@@ -154,12 +158,18 @@ func parseClaudeCodeOutput(line string) *RuntimeMessage {
 			}
 		}
 	case "tool_result":
-		return &RuntimeMessage{Type: MsgToolResult, Text: env.Content.Text}
+		return &RuntimeMessage{Type: MsgToolResult, ToolID: env.Content.ToolUseID, Text: env.Content.Text}
 	case "result":
 		if env.IsError {
 			return &RuntimeMessage{Type: MsgError, Text: env.Result, SessionID: env.SessionID}
 		}
-		return &RuntimeMessage{Type: MsgTurnDone, Text: env.Result, SessionID: env.SessionID}
+		return &RuntimeMessage{
+			Type:         MsgTurnDone,
+			Text:         env.Result,
+			SessionID:    env.SessionID,
+			InputTokens:  env.Usage.InputTokens,
+			OutputTokens: env.Usage.OutputTokens,
+		}
 	case "error":
 		return &RuntimeMessage{Type: MsgError, Text: env.Result, SessionID: env.SessionID}
 	}

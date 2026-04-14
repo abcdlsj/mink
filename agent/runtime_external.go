@@ -32,6 +32,8 @@ type ExternalRuntime struct {
 	workDir           string
 	status            RuntimeStatus
 	externalSessionID string
+	inputTokens       int
+	outputTokens      int
 	mu                sync.Mutex
 
 	cmd        *exec.Cmd
@@ -240,7 +242,13 @@ func (r *ExternalRuntime) Session() *session.Session {
 }
 
 func (r *ExternalRuntime) TokenUsage() msg.TokenUsage {
-	return msg.TokenUsage{}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return msg.TokenUsage{
+		Input:  r.inputTokens,
+		Output: r.outputTokens,
+		Total:  r.inputTokens + r.outputTokens,
+	}
 }
 
 func (r *ExternalRuntime) Interrupt() {
@@ -323,9 +331,13 @@ func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (str
 }
 
 func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
-	if m.SessionID != "" {
+	if m.SessionID != "" || m.InputTokens > 0 || m.OutputTokens > 0 {
 		r.mu.Lock()
-		r.externalSessionID = m.SessionID
+		if m.SessionID != "" {
+			r.externalSessionID = m.SessionID
+		}
+		r.inputTokens += m.InputTokens
+		r.outputTokens += m.OutputTokens
 		r.mu.Unlock()
 	}
 	if r.b == nil {
@@ -347,22 +359,25 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *RuntimeMessage) {
 			Payload: m.Text,
 		})
 	case MsgToolCall:
-		payload := m.ToolName
-		if m.ToolArgs != "" {
-			payload += " " + m.ToolArgs
-		}
 		_ = r.b.Pub(bus.Msg{
-			Type:    bus.TypeToolCall,
-			From:    r.agentID,
-			To:      r.source,
-			Payload: payload,
+			Type: bus.TypeToolCall,
+			From: r.agentID,
+			To:   r.source,
+			Payload: map[string]string{
+				"id":   m.ToolID,
+				"name": m.ToolName,
+				"args": m.ToolArgs,
+			},
 		})
 	case MsgToolResult:
 		_ = r.b.Pub(bus.Msg{
-			Type:    bus.TypeToolResult,
-			From:    r.agentID,
-			To:      r.source,
-			Payload: m.Text,
+			Type: bus.TypeToolResult,
+			From: r.agentID,
+			To:   r.source,
+			Payload: map[string]string{
+				"id":     m.ToolID,
+				"result": m.Text,
+			},
 		})
 	case MsgError:
 		_ = r.b.Pub(bus.Msg{

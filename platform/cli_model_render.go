@@ -203,7 +203,7 @@ func (m *model) writeInputSection(b *strings.Builder, confirming bool) {
 	b.WriteString(styleBar.Render(strings.Repeat("─", max(m.mainPaneWidth()-2, 12))))
 	b.WriteString("\n")
 	if m.pending > 0 {
-		b.WriteString(styleDim.Render("…"))
+		b.WriteString(m.spinner.View())
 		b.WriteString(" ")
 	}
 	if confirming {

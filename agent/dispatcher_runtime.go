@@ -125,11 +125,13 @@ func (d *Dispatcher) Agent(src string) *Agent {
 }
 
 func (d *Dispatcher) Usage(src string) (msg.TokenUsage, bool) {
-	a := d.Agent(src)
-	if a == nil {
-		return msg.TokenUsage{}, false
+	d.mu.RLock()
+	rt, ok := d.runtimes[src]
+	d.mu.RUnlock()
+	if ok {
+		return rt.TokenUsage(), true
 	}
-	return a.TokenUsage(), true
+	return msg.TokenUsage{}, false
 }
 
 func (d *Dispatcher) lastAssistantOutput(rt Runtime) string {
