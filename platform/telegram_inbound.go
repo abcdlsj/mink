@@ -1,15 +1,106 @@
 package platform
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/internal/xstr"
 	tele "gopkg.in/telebot.v4"
 )
+
+func (t *Telegram) routeTarget(text string) string {
+	t.agentNamesMu.RLock()
+	defer t.agentNamesMu.RUnlock()
+	lower := strings.ToLower(text)
+	for name, id := range t.agentNames {
+		if strings.Contains(lower, "@"+strings.ToLower(name)) {
+			return id
+		}
+	}
+	return bus.AddrAgentMain
+}
+
+func (t *Telegram) handleMessage(c tele.Context) error {
+	msg := c.Message()
+	if msg == nil || msg.Chat == nil {
+		return nil
+	}
+
+	chatID := msg.Chat.ID
+	text := strings.TrimSpace(c.Text())
+	src := t.source(chatID, msg.ThreadID)
+
+	if text == "/new" {
+		_ = t.bus.Pub(bus.Msg{
+			Type:    bus.TypeSessionReset,
+			From:    src,
+			To:      bus.AddrAgentMain,
+			Payload: src,
+		})
+		return c.Send("session reset. started a new session")
+	}
+
+	if text == "/cancel" {
+		_ = t.bus.Pub(bus.Msg{
+			Type:    bus.TypeInterrupt,
+			From:    src,
+			To:      bus.AddrAgentMain,
+			Payload: "user cancelled",
+		})
+		t.stopTyping(chatID)
+		return c.Send("cancelled current task")
+	}
+
+	t.touchActive(chatID)
+	if command.IsCommand(text) && t.router != nil {
+		ctx := bus.WithSource(context.Background(), src)
+		out, ok, err := t.router.Route(ctx, text)
+		if ok {
+			if err != nil {
+				out = "error: " + err.Error()
+			}
+			if strings.TrimSpace(out) == "" {
+				out = "ok"
+			}
+			opts := &tele.SendOptions{}
+			if msg.ThreadID != 0 {
+				opts.ThreadID = msg.ThreadID
+			}
+			if msg.ID != 0 {
+				opts.ReplyTo = &tele.Message{ID: msg.ID, Chat: msg.Chat}
+			}
+			t.sendTextWithOptions(chatID, out, opts)
+			return nil
+		}
+	}
+	mentioned := t.isMentioned(msg)
+	if !t.shouldHandleMessage(msg, text, mentioned) {
+		return nil
+	}
+	t.pushInboundState(src, inboundState{
+		msgID:    msg.ID,
+		threadID: msg.ThreadID,
+	})
+	t.applyReaction(src, chatID, "👀", msg.ID)
+
+	payload := t.formatInboundPayload(msg, text, mentioned)
+	t.debugf("inbound chat=%d msg=%d thread=%d mentioned=%v text=%q", chatID, msg.ID, msg.ThreadID, mentioned, truncateTG(text, 160))
+
+	_ = t.bus.Pub(bus.Msg{
+		Type:    bus.TypeUserInput,
+		From:    src,
+		To:      t.routeTarget(text),
+		Payload: payload,
+	})
+	t.startTyping(chatID)
+
+	return nil
+}
 
 func (t *Telegram) pushInboundState(route string, s inboundState) {
 	t.inboundMu.Lock()
