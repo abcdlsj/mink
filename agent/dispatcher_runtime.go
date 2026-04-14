@@ -208,6 +208,8 @@ func (d *Dispatcher) resolveExternalDriver() (ExternalDriver, bool) {
 			switch ac.Runtime {
 			case "claude":
 				return ClaudeCodeDriver(), true
+			case "codex":
+				return CodexDriver(), true
 			}
 		}
 	}
