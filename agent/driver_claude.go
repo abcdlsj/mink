@@ -17,6 +17,7 @@ func ClaudeCodeDriver() ExternalDriver {
 				"--verbose",
 				"--include-partial-messages",
 				"--permission-mode", "acceptEdits",
+				"--allowedTools", "Bash(command:bash *)",
 				"--mcp-config", mcpConfigPath,
 			}
 			if workDir != "" && workDir != "." {

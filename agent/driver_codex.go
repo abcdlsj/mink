@@ -14,9 +14,6 @@ func CodexDriver() ExternalDriver {
 			if workDir != "" && workDir != "." {
 				args = append(args, "-C", workDir)
 			}
-			if mcpConfigPath != "" {
-				args = append(args, "--mcp-config", mcpConfigPath)
-			}
 			args = append(args, prompt)
 			return args
 		},
