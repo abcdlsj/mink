@@ -22,7 +22,7 @@ type webActionPayload struct {
 
 func (w *Web) handleIndex(rw http.ResponseWriter, _ *http.Request) {
 	rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = rw.Write([]byte(webPage))
+	_, _ = rw.Write([]byte(webMissingPage))
 }
 
 func (w *Web) handleState(rw http.ResponseWriter, _ *http.Request) {

@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
+	commandbuiltin "github.com/abcdlsj/mink/command/builtin"
 	"github.com/abcdlsj/mink/config"
 	mcron "github.com/abcdlsj/mink/cron"
 	"github.com/abcdlsj/mink/hook"
@@ -113,9 +114,9 @@ func New(opts Options) (*App, error) {
 		sources: make(map[string]*sourceState),
 	}
 
-	cmdReg.Register(command.NewModelsCmd(app.modelsInfo))
-	cmdReg.Register(command.NewModelCmd(app.switchModel))
-	cmdReg.Register(command.NewAgentsCmd(app.agentsInfo))
+	cmdReg.Register(commandbuiltin.NewModelsCmd(app.modelsInfo))
+	cmdReg.Register(commandbuiltin.NewModelCmd(app.switchModel))
+	cmdReg.Register(commandbuiltin.NewAgentsCmd(app.agentsInfo))
 	cmdReg.Register(command.NewFuncCmd("team", "manage teams (!team list|create|open|home|invite)", app.runTeamCommand))
 	cmdReg.Register(command.NewFuncCmd("thread", "manage team threads (!thread list|new|open)", app.runThreadCommand))
 
@@ -302,10 +303,10 @@ func (a *App) cliSessionMessages(source string) func() []msg.Message {
 	}
 }
 
-func (a *App) modelsInfo() command.ModelInfo {
+func (a *App) modelsInfo() commandbuiltin.ModelInfo {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return command.ModelInfo{Models: a.cfg.Models, Active: a.cfg.ActiveModel}
+	return commandbuiltin.ModelInfo{Models: a.cfg.Models, Active: a.cfg.ActiveModel}
 }
 
 func (a *App) agentsInfo() string {

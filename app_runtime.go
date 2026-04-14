@@ -9,6 +9,7 @@ import (
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
+	commandbuiltin "github.com/abcdlsj/mink/command/builtin"
 	"github.com/abcdlsj/mink/config"
 	mcron "github.com/abcdlsj/mink/cron"
 	"github.com/abcdlsj/mink/hook"
@@ -124,7 +125,7 @@ func resolveRuntimeDeps(opts Options) (runtimeDeps, error) {
 
 func buildCommandInfra(workspace string) (*command.Registry, *command.Router, *command.GuardMux) {
 	cmdReg := command.NewRegistry()
-	cmdReg.Register(command.NewHelpCmd(cmdReg))
+	cmdReg.Register(commandbuiltin.NewHelpCmd(cmdReg))
 
 	perms := tool.NewPermissions(filepath.Join(workspace, ".mink", "permissions.json"))
 	router := command.NewRouter(cmdReg)
@@ -200,19 +201,19 @@ func buildAgentInfra(deps runtimeDeps, guard *command.GuardMux) (*session.Manage
 }
 
 func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *session.Manager, disp *agent.Dispatcher, cliSource string, mem *memory.Store, rt *rtsqlite.DB) {
-	if compact := command.NewCompactCmd(eventBus); compact != nil {
+	if compact := commandbuiltin.NewCompactCmd(eventBus); compact != nil {
 		cmdReg.Register(compact)
 	}
-	cmdReg.Register(command.NewReplayCmd(sm, rt))
-	cmdReg.Register(command.NewToolsCmd(func() []tool.Tool {
+	cmdReg.Register(commandbuiltin.NewReplayCmd(sm, rt))
+	cmdReg.Register(commandbuiltin.NewToolsCmd(func() []tool.Tool {
 		if a := disp.Agent(cliSource); a != nil && a.Tools() != nil {
 			return a.Tools().All()
 		}
 		reg := tool.NewRegistry(nil)
 		return reg.All()
 	}))
-	cmdReg.Register(command.NewTokensCmd(disp.Usage))
-	cmdReg.Register(command.NewSessionCmd(sm, disp))
+	cmdReg.Register(commandbuiltin.NewTokensCmd(disp.Usage))
+	cmdReg.Register(commandbuiltin.NewSessionCmd(sm, disp))
 	if mem != nil {
 		cmdReg.Register(command.NewMemoryCmd(mem, rt))
 	}

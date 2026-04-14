@@ -1,4 +1,4 @@
-package command
+package builtin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 )
 
@@ -18,7 +19,7 @@ type modelsCmd struct {
 	info func() ModelInfo
 }
 
-func NewModelsCmd(info func() ModelInfo) Command { return &modelsCmd{info: info} }
+func NewModelsCmd(info func() ModelInfo) command.Command { return &modelsCmd{info: info} }
 
 func (c *modelsCmd) Name() string { return "models" }
 func (c *modelsCmd) Desc() string { return "list available models" }
@@ -59,7 +60,9 @@ type modelCmd struct {
 	switchFn func(name string) error
 }
 
-func NewModelCmd(switchFn func(name string) error) Command { return &modelCmd{switchFn: switchFn} }
+func NewModelCmd(switchFn func(name string) error) command.Command {
+	return &modelCmd{switchFn: switchFn}
+}
 
 func (c *modelCmd) Name() string { return "model" }
 func (c *modelCmd) Desc() string { return "switch model (!model <name>)" }
@@ -79,7 +82,7 @@ type agentsCmd struct {
 	info func() string
 }
 
-func NewAgentsCmd(info func() string) Command { return &agentsCmd{info: info} }
+func NewAgentsCmd(info func() string) command.Command { return &agentsCmd{info: info} }
 
 func (c *agentsCmd) Name() string { return "agents" }
 func (c *agentsCmd) Desc() string { return "show registered agents" }

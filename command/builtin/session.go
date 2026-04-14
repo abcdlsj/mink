@@ -1,4 +1,4 @@
-package command
+package builtin
 
 import (
 	"context"
@@ -6,16 +6,25 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 )
+
+type sessionResetter interface {
+	InvalidateSource(string)
+}
+
+type sessionTeamResetter interface {
+	UnbindTeamSource(string)
+}
 
 type sessionCmd struct {
 	sm    *session.Manager
 	reset sessionResetter
 }
 
-func NewSessionCmd(sm *session.Manager, reset sessionResetter) Command {
+func NewSessionCmd(sm *session.Manager, reset sessionResetter) command.Command {
 	return &sessionCmd{sm: sm, reset: reset}
 }
 
@@ -147,7 +156,7 @@ type compactCmd struct {
 	b *bus.Bus
 }
 
-func NewCompactCmd(b *bus.Bus) Command { return &compactCmd{b: b} }
+func NewCompactCmd(b *bus.Bus) command.Command { return &compactCmd{b: b} }
 
 func (c *compactCmd) Name() string { return "compact" }
 func (c *compactCmd) Desc() string { return "compact current conversation context" }
@@ -178,7 +187,7 @@ type tokensCmd struct {
 	usage func(src string) (msg.TokenUsage, bool)
 }
 
-func NewTokensCmd(usage func(src string) (msg.TokenUsage, bool)) Command {
+func NewTokensCmd(usage func(src string) (msg.TokenUsage, bool)) command.Command {
 	return &tokensCmd{usage: usage}
 }
 

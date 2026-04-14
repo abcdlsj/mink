@@ -1,4 +1,4 @@
-package command
+package builtin
 
 import (
 	"context"
@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/tool"
 )
 
 type helpCmd struct {
-	reg *Registry
+	reg *command.Registry
 }
 
-func NewHelpCmd(reg *Registry) Command { return &helpCmd{reg: reg} }
+func NewHelpCmd(reg *command.Registry) command.Command { return &helpCmd{reg: reg} }
 
 func (c *helpCmd) Name() string { return "help" }
 func (c *helpCmd) Desc() string { return "show available commands" }
@@ -36,7 +37,7 @@ type toolsCmd struct {
 	all func() []tool.Tool
 }
 
-func NewToolsCmd(all func() []tool.Tool) Command { return &toolsCmd{all: all} }
+func NewToolsCmd(all func() []tool.Tool) command.Command { return &toolsCmd{all: all} }
 
 func (c *toolsCmd) Name() string { return "tools" }
 func (c *toolsCmd) Desc() string { return "list available tools" }
@@ -55,7 +56,7 @@ type replayCmd struct {
 	rt *rtsqlite.DB
 }
 
-func NewReplayCmd(sm *session.Manager, rt *rtsqlite.DB) Command {
+func NewReplayCmd(sm *session.Manager, rt *rtsqlite.DB) command.Command {
 	return &replayCmd{sm: sm, rt: rt}
 }
 
