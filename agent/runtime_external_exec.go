@@ -96,6 +96,7 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = os.Stderr
+	cmd.Stdin = nil
 
 	r.mu.Lock()
 	r.cmd = cmd
