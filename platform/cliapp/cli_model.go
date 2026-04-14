@@ -1,4 +1,4 @@
-package platform
+package cliapp
 
 import (
 	"context"
@@ -270,4 +270,3 @@ func (m *model) handleInterrupt() (tea.Model, tea.Cmd) {
 	m.appendOutput(styleDim.Render("[Interrupted]"))
 	return m, nil
 }
-

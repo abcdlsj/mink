@@ -1,14 +1,16 @@
-package platform
+package webapp
 
 import (
 	"net/http"
 	"sync"
+
+	platformshared "github.com/abcdlsj/mink/platform"
 )
 
 type Web struct {
 	addr      string
 	staticDir string
-	cb        WebCallbacks
+	cb        platformshared.WebCallbacks
 	server    *http.Server
 	mu        sync.Mutex
 

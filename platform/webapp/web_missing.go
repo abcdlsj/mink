@@ -1,4 +1,4 @@
-package platform
+package webapp
 
 const webMissingPage = `<!doctype html>
 <html lang="en">

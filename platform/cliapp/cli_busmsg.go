@@ -1,4 +1,4 @@
-package platform
+package cliapp
 
 import (
 	tea "github.com/charmbracelet/bubbletea"

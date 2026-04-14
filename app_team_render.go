@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/internal/xstr"
-	"github.com/abcdlsj/mink/platform"
+	"github.com/abcdlsj/mink/platform/cliapp"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 )
 
@@ -56,7 +56,7 @@ func (a *App) renderThreadList(ctx context.Context, src string) (string, error) 
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
-func (a *App) teamStatusForSource(ctx context.Context, src string) *platform.TeamStatus {
+func (a *App) teamStatusForSource(ctx context.Context, src string) *cliapp.TeamStatus {
 	if a.rt == nil {
 		return nil
 	}
@@ -72,7 +72,7 @@ func (a *App) teamStatusForSource(ctx context.Context, src string) *platform.Tea
 	members, _ := a.rt.ListTeamMembers(ctx, teamID)
 	threads, _ := a.rt.ListThreads(ctx, teamID, "")
 
-	out := &platform.TeamStatus{
+	out := &cliapp.TeamStatus{
 		ID:       team.ID,
 		Name:     team.Name,
 		Status:   team.Status,
@@ -84,7 +84,7 @@ func (a *App) teamStatusForSource(ctx context.Context, src string) *platform.Tea
 		if ident, err := a.rt.GetAgentIdentity(ctx, member.AgentID); err == nil && ident.DisplayName != "" {
 			name = ident.DisplayName
 		}
-		out.Members = append(out.Members, platform.TeamMemberInfo{
+		out.Members = append(out.Members, cliapp.TeamMemberInfo{
 			ID:   member.AgentID,
 			Name: name,
 			Role: member.RoleName,
@@ -119,8 +119,8 @@ func (a *App) teamStatusForSource(ctx context.Context, src string) *platform.Tea
 	return out
 }
 
-func (a *App) threadInfoFromRecord(ctx context.Context, thread rtsqlite.TeamThread) platform.ThreadInfo {
-	info := platform.ThreadInfo{
+func (a *App) threadInfoFromRecord(ctx context.Context, thread rtsqlite.TeamThread) cliapp.ThreadInfo {
+	info := cliapp.ThreadInfo{
 		ID:            thread.ID,
 		Title:         thread.Title,
 		Status:        thread.Status,

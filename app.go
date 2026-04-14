@@ -20,6 +20,9 @@ import (
 	"github.com/abcdlsj/mink/memory"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/platform"
+	"github.com/abcdlsj/mink/platform/cliapp"
+	"github.com/abcdlsj/mink/platform/telegrambot"
+	"github.com/abcdlsj/mink/platform/webapp"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 	"github.com/abcdlsj/mink/session"
 )
@@ -66,9 +69,9 @@ type App struct {
 	cron     *mcron.Scheduler
 	adapters []platform.Adapter
 
-	cli       *platform.CLI
-	web       *platform.Web
-	telegram  *platform.Telegram
+	cli       *cliapp.CLI
+	web       *webapp.Web
+	telegram  *telegrambot.Telegram
 	workspace string
 
 	sources map[string]*sourceState
@@ -233,7 +236,7 @@ func (a *App) Unsubscribe(msgType string, ch chan bus.Msg) {
 	a.bus.Unsubscribe(msgType, ch)
 }
 
-func (a *App) cliStatus() func() platform.StatusInfo {
+func (a *App) cliStatus() func() cliapp.StatusInfo {
 	home, _ := os.UserHomeDir()
 	pwd, _ := os.Getwd()
 	ws := pwd
@@ -242,14 +245,14 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 	}
 	cliSource := a.cliSource()
 
-	return func() platform.StatusInfo {
+	return func() cliapp.StatusInfo {
 		model := a.disp.ModelDisplayName()
 
 		u, _ := a.disp.Usage(cliSource)
 
 		sessID, _ := a.sm.CurrentID(cliSource)
 
-		var agents []platform.AgentInfo
+		var agents []cliapp.AgentInfo
 		if a.reg != nil {
 			states := a.reg.All()
 			sort.Slice(states, func(i, j int) bool {
@@ -266,9 +269,9 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 				}
 				return left < right
 			})
-			agents = make([]platform.AgentInfo, 0, len(states))
+			agents = make([]cliapp.AgentInfo, 0, len(states))
 			for _, state := range states {
-				agents = append(agents, platform.AgentInfo{
+				agents = append(agents, cliapp.AgentInfo{
 					ID:     state.Descriptor.ID,
 					Name:   state.Descriptor.Name,
 					Status: string(state.Status),
@@ -278,7 +281,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 			}
 		}
 
-		return platform.StatusInfo{
+		return cliapp.StatusInfo{
 			Model:     model,
 			TokenIn:   u.Input,
 			TokenOut:  u.Output,

@@ -6,6 +6,9 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/platform"
+	"github.com/abcdlsj/mink/platform/cliapp"
+	"github.com/abcdlsj/mink/platform/telegrambot"
+	"github.com/abcdlsj/mink/platform/webapp"
 	"github.com/abcdlsj/mink/session"
 )
 
@@ -39,7 +42,7 @@ func (a *App) StartCLI(ctx context.Context) error {
 		return err
 	}
 
-	cli := platform.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(cliSource), cliSource)
+	cli := cliapp.NewCLI(a.bus, a.router, a.hooks, a.cliStatus(), a.cliSessionMessages(cliSource), cliSource)
 	if err := cli.Start(runCtx); err != nil {
 		return err
 	}
@@ -101,7 +104,7 @@ func (a *App) StartWeb(ctx context.Context, addr string) error {
 	a.setMainSession(webSource, sessionID)
 	a.setActiveSection(webSource, "main")
 
-	web := platform.NewWeb(addr, platform.WebCallbacks{
+	web := webapp.NewWeb(addr, platform.WebCallbacks{
 		State: func() (platform.WebState, error) {
 			return a.webState(runCtx, webSource)
 		},
@@ -221,7 +224,7 @@ func (a *App) StartTelegram(ctx context.Context, token string) error {
 		_ = oldTG.Stop()
 	}
 
-	tg := platform.NewTelegram(token, a.bus, a.router, platform.TelegramOptions{
+	tg := telegrambot.NewTelegram(token, a.bus, a.router, telegrambot.TelegramOptions{
 		MentionMode:  a.cfg.TelegramMentionMode,
 		SessionScope: a.cfg.TelegramSessionScope,
 	})

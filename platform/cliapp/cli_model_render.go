@@ -1,4 +1,4 @@
-package platform
+package cliapp
 
 import (
 	"fmt"
@@ -391,4 +391,3 @@ func (m *model) delegationGlyph(d *delegationState) string {
 		return styleDim.Render("…")
 	}
 }
-

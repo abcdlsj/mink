@@ -1,4 +1,4 @@
-package platform
+package webapp
 
 import (
 	"context"
@@ -8,9 +8,11 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	platformshared "github.com/abcdlsj/mink/platform"
 )
 
-func NewWeb(addr string, cb WebCallbacks) *Web {
+func NewWeb(addr string, cb platformshared.WebCallbacks) *Web {
 	if strings.TrimSpace(addr) == "" {
 		addr = "127.0.0.1:7788"
 	}

@@ -1,4 +1,4 @@
-package platform
+package telegrambot
 
 import (
 	tele "gopkg.in/telebot.v4"

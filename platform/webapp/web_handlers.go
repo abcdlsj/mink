@@ -1,4 +1,4 @@
-package platform
+package webapp
 
 import (
 	"encoding/json"
