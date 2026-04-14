@@ -7,14 +7,15 @@ import (
 
 func CodexDriver() ExternalDriver {
 	return ExternalDriver{
-		Name:    "codex",
-		Command: "codex",
+		Name:        "codex",
+		Command:     "codex",
+		StdinPrompt: true,
 		BuildArgs: func(prompt, mcpConfigPath, workDir, sessionID string) []string {
 			args := []string{"exec", "--json", "--full-auto"}
 			if workDir != "" && workDir != "." {
 				args = append(args, "-C", workDir)
 			}
-			args = append(args, prompt)
+			args = append(args, "-")
 			return args
 		},
 		ParseOutput: parseCodexOutput,

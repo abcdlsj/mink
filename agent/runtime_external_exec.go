@@ -96,7 +96,19 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = os.Stderr
-	cmd.Stdin = nil
+	if r.driver.StdinPrompt {
+		stdinPipe, err := cmd.StdinPipe()
+		if err != nil {
+			bridgeCancel()
+			return fmt.Errorf("stdin pipe: %w", err)
+		}
+		go func() {
+			_, _ = io.WriteString(stdinPipe, input)
+			stdinPipe.Close()
+		}()
+	} else {
+		cmd.Stdin = nil
+	}
 
 	r.mu.Lock()
 	r.cmd = cmd

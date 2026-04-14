@@ -42,6 +42,7 @@ func externalSessionMetaKey(name string) string {
 type ExternalDriver struct {
 	Name        string
 	Command     string
+	StdinPrompt bool // if true, prompt is piped via stdin instead of as a CLI argument
 	BuildArgs   func(prompt, mcpConfigPath, workDir, sessionID string) []string
 	ParseOutput func(line string) *RuntimeMessage
 }
