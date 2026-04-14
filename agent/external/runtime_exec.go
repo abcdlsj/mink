@@ -123,6 +123,7 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 	output, streamed := r.readOutput(ctx, stdout)
 
 	err = cmd.Wait()
+	bridgeW.Close()
 	bridgeCancel()
 	wg.Wait()
 
