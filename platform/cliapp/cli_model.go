@@ -222,6 +222,10 @@ func (m *model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	if len(m.output) > 0 {
+		w := max(m.mainPaneWidth()-2, 12)
+		m.appendOutput(styleBar.Render(strings.Repeat("─", w)))
+	}
 	m.appendOutput(stylePrompt.Render("» ") + text)
 
 	src := m.cli.Source()
