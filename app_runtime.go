@@ -215,6 +215,6 @@ func registerRuntimeCommands(cmdReg *command.Registry, eventBus *bus.Bus, sm *se
 	cmdReg.Register(commandbuiltin.NewTokensCmd(disp.Usage))
 	cmdReg.Register(commandbuiltin.NewSessionCmd(sm, disp))
 	if mem != nil {
-		cmdReg.Register(command.NewMemoryCmd(mem, rt))
+		cmdReg.Register(commandbuiltin.NewMemoryCmd(mem, rt))
 	}
 }

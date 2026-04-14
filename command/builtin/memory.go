@@ -1,4 +1,4 @@
-package command
+package builtin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/memory"
 	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
 )
@@ -16,7 +17,7 @@ type memoryCmd struct {
 	rt  *rtsqlite.DB
 }
 
-func NewMemoryCmd(mem *memory.Store, rt *rtsqlite.DB) Command {
+func NewMemoryCmd(mem *memory.Store, rt *rtsqlite.DB) command.Command {
 	return &memoryCmd{mem: mem, rt: rt}
 }
 
