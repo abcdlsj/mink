@@ -13,6 +13,9 @@ func CodexDriver() agrt.Driver {
 		Command:     "codex",
 		StdinPrompt: true,
 		BuildArgs: func(prompt, mcpConfigPath, workDir, sessionID string) []string {
+			if sessionID != "" {
+				return []string{"exec", "resume", "--json", "--full-auto", sessionID, "-"}
+			}
 			args := []string{"exec", "--json", "--full-auto"}
 			if workDir != "" && workDir != "." {
 				args = append(args, "-C", workDir)
