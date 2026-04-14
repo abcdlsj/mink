@@ -1,6 +1,8 @@
 package cliapp
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/mink/bus"
@@ -36,6 +38,11 @@ func (m *model) handleBusMsg(msg bus.Msg) (tea.Model, tea.Cmd) {
 
 	case bus.TypeTurnDone:
 		if msg.From == bus.AddrAgentMain {
+			w := m.mainPaneWidth()
+			if w <= 0 {
+				w = 80
+			}
+			m.appendOutput(styleBar.Render(strings.Repeat("─", w)))
 			m.resetTurnState()
 		}
 
