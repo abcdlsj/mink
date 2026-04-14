@@ -1,4 +1,4 @@
-package mink
+package app
 
 import (
 	"context"

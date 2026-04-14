@@ -1,4 +1,4 @@
-package mink
+package app
 
 import (
 	"context"
@@ -250,4 +250,3 @@ func (a *App) webOpenThread(ctx context.Context, src, threadID string) error {
 	}
 	return nil
 }
-

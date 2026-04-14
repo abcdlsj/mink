@@ -1,4 +1,4 @@
-package mink
+package app
 
 import (
 	"context"
@@ -219,4 +219,3 @@ func (a *App) webThreadsState(ctx context.Context, src string, state platform.We
 	}
 	return state, nil
 }
-
