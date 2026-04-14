@@ -242,9 +242,7 @@ func (a *App) cliStatus() func() platform.StatusInfo {
 	cliSource := a.cliSource()
 
 	return func() platform.StatusInfo {
-		a.mu.Lock()
-		model := a.cfg.ActiveModel
-		a.mu.Unlock()
+		model := a.disp.ModelDisplayName()
 
 		u, _ := a.disp.Usage(cliSource)
 
