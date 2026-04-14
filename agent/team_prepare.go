@@ -1,0 +1,184 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/internal/xstr"
+	"github.com/abcdlsj/mink/memory"
+	"github.com/abcdlsj/mink/msg"
+	rtsqlite "github.com/abcdlsj/mink/runtime/store/sqlite"
+	"github.com/abcdlsj/mink/session"
+)
+
+func (d *TeamDispatcher) Prepare(ctx context.Context, src string, sess *session.Session) (TeamTurn, func(), error) {
+	if d == nil || d.rt == nil {
+		return TeamTurn{}, nil, nil
+	}
+	binding, ok := d.Binding(src)
+	if !ok {
+		return TeamTurn{}, nil, nil
+	}
+
+	release := d.lockFor(binding.TeamID)
+	thread, err := d.rt.GetThread(ctx, binding.ThreadID)
+	if err != nil {
+		release()
+		return TeamTurn{}, nil, err
+	}
+	if thread.ID == "" {
+		release()
+		return TeamTurn{}, nil, fmt.Errorf("team thread %s not found", binding.ThreadID)
+	}
+	team, err := d.rt.GetTeam(ctx, binding.TeamID)
+	if err != nil {
+		release()
+		return TeamTurn{}, nil, err
+	}
+	if team.ID == "" {
+		release()
+		return TeamTurn{}, nil, fmt.Errorf("team %s not found", binding.TeamID)
+	}
+	if sess != nil && thread.SessionID != "" && sess.ID() != thread.SessionID {
+		if err := d.sm.RestoreSource(src, thread.SessionID); err != nil {
+			release()
+			return TeamTurn{}, nil, err
+		}
+	}
+	if err := d.injectMemory(ctx, team, thread, sess); err != nil {
+		release()
+		return TeamTurn{}, nil, err
+	}
+	round, err := d.rt.IncrementThreadRound(ctx, thread.ID)
+	if err != nil {
+		release()
+		return TeamTurn{}, nil, err
+	}
+
+	handoff, hasHandoff := d.takePending(src)
+	speakerAgentID := firstNonEmpty(team.LeaderAgentID, bus.AddrAgentMain)
+	prompt := ""
+	if hasHandoff {
+		speakerAgentID = handoff.SpeakerAgentID
+		prompt = handoff.Prompt
+	}
+	member, _ := d.member(ctx, team.ID, speakerAgentID)
+	identity, _ := d.rt.GetAgentIdentity(ctx, speakerAgentID)
+	speakerProfile := identity.Profile
+	if speakerProfile == "" {
+		speakerProfile = firstNonEmpty(member.ProfileHint, member.RoleDescription)
+	}
+	runtimeAgentID := speakerAgentID
+	if member.RuntimeAgentID != "" {
+		runtimeAgentID = member.RuntimeAgentID
+	}
+
+	return TeamTurn{
+		TeamID:          team.ID,
+		ThreadID:        thread.ID,
+		LeaderAgentID:   firstNonEmpty(team.LeaderAgentID, bus.AddrAgentMain),
+		SpeakerAgentID:  speakerAgentID,
+		RuntimeAgentID:  runtimeAgentID,
+		SpeakerProfile:  speakerProfile,
+		SpeakerRole:     member.RoleName,
+		SpeakerRoleDesc: member.RoleDescription,
+		Round:           round,
+		MaxRounds:       team.MaxRounds,
+		TurnPolicy:      team.TurnPolicy,
+		Goal:            thread.Title,
+		Prompt:          prompt,
+		RuntimeSource:   teamRuntimeSource(team.ID, thread.ID),
+	}, release, nil
+}
+
+func (d *TeamDispatcher) injectMemory(ctx context.Context, team rtsqlite.Team, thread rtsqlite.TeamThread, sess *session.Session) error {
+	if d == nil || d.mem == nil || sess == nil || sess.EntryCount() > 0 {
+		return nil
+	}
+	docs, err := d.mem.RecentByScope(ctx, memory.TeamScope(team.ID), 3)
+	if err != nil || len(docs) == 0 {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("[Team Memory]\n")
+	b.WriteString("Recent summaries for team ")
+	b.WriteString(team.Name)
+	b.WriteString(" relevant to thread ")
+	b.WriteString(thread.Title)
+	b.WriteString(":\n")
+	for _, doc := range docs {
+		line := strings.TrimSpace(doc.Summary)
+		if line == "" {
+			line = strings.TrimSpace(doc.Body)
+		}
+		if line == "" {
+			continue
+		}
+		b.WriteString("- ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	sess.Add(msg.Message{
+		Role:    "system",
+		Content: strings.TrimSpace(b.String()),
+	})
+	return nil
+}
+
+func (d *TeamDispatcher) Complete(ctx context.Context, turn TeamTurn, output string, runErr error) {
+	if d == nil || d.mem == nil || runErr != nil {
+		return
+	}
+	if turn.LeaderAgentID != "" && turn.SpeakerAgentID != turn.LeaderAgentID {
+		return
+	}
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return
+	}
+	_, _ = d.mem.PutScoped(ctx, memory.TeamScope(turn.TeamID), memory.Doc{
+		Title:     "Thread summary",
+		Kind:      "team_summary",
+		Tags:      []string{turn.TeamID, turn.ThreadID},
+		Source:    teamRuntimeSource(turn.TeamID, turn.ThreadID),
+		Summary:   compactSummary(output, 160),
+		Body:      output,
+		UpdatedAt: time.Now().UTC(),
+	})
+}
+
+func compactSummary(s string, limit int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if limit <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	if limit == 1 {
+		return string(runes[:1])
+	}
+	return string(runes[:limit-1]) + "…"
+}
+
+var firstNonEmpty = xstr.FirstNonEmpty
+
+func (d *TeamDispatcher) member(ctx context.Context, teamID, agentID string) (rtsqlite.TeamMember, bool) {
+	if d == nil || d.rt == nil || teamID == "" || agentID == "" {
+		return rtsqlite.TeamMember{}, false
+	}
+	members, err := d.rt.ListTeamMembers(ctx, teamID)
+	if err != nil {
+		return rtsqlite.TeamMember{}, false
+	}
+	for _, member := range members {
+		if member.AgentID == agentID {
+			return member, true
+		}
+	}
+	return rtsqlite.TeamMember{}, false
+}
