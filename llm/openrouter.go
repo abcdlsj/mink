@@ -264,10 +264,6 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 	return req
 }
 
-func assistantToolCallReplayContent() string {
-	return " "
-}
-
 func toTokenUsageFromOR(u *openrouter.Usage) *TokenUsage {
 	if u == nil {
 		return nil

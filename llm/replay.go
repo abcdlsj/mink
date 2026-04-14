@@ -15,3 +15,7 @@ func replayToolCallArgs(raw json.RawMessage) string {
 	}
 	return "{}"
 }
+
+func assistantToolCallReplayContent() string {
+	return " "
+}
