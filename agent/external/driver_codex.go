@@ -69,7 +69,11 @@ func parseCodexOutput(line string) *agrt.Message {
 	case "item.completed":
 		switch ev.Item.Type {
 		case "agent_message":
-			return &agrt.Message{Type: agrt.MsgStreamChunk, Text: ev.Item.Text}
+			text := ev.Item.Text
+			if text != "" && !strings.HasSuffix(text, "\n") {
+				text += "\n"
+			}
+			return &agrt.Message{Type: agrt.MsgStreamChunk, Text: text}
 		case "command_execution":
 			return &agrt.Message{
 				Type:   agrt.MsgToolResult,
