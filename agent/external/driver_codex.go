@@ -2,9 +2,11 @@ package external
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	agrt "github.com/abcdlsj/mink/agent/runtime"
+	"github.com/abcdlsj/mink/msg"
 )
 
 func CodexDriver() agrt.Driver {
@@ -13,9 +15,6 @@ func CodexDriver() agrt.Driver {
 		Command:     "codex",
 		StdinPrompt: true,
 		BuildArgs: func(prompt, mcpConfigPath, workDir, sessionID string) []string {
-			if sessionID != "" {
-				return []string{"exec", "resume", "--json", "--full-auto", sessionID, "-"}
-			}
 			args := []string{"exec", "--json", "--full-auto"}
 			if workDir != "" && workDir != "." {
 				args = append(args, "-C", workDir)
@@ -23,8 +22,39 @@ func CodexDriver() agrt.Driver {
 			args = append(args, "-")
 			return args
 		},
-		ParseOutput: parseCodexOutput,
+		ParseOutput:   parseCodexOutput,
+		FormatHistory: formatCodexHistory,
 	}
+}
+
+func formatCodexHistory(messages []msg.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("<conversation_history>\n")
+	for _, m := range messages {
+		switch {
+		case m.Role == "user" && m.Content != "":
+			fmt.Fprintf(&sb, "[user]: %s\n", m.Content)
+		case m.Role == "assistant" && len(m.ToolCalls) > 0:
+			for _, tc := range m.ToolCalls {
+				fmt.Fprintf(&sb, "[tool_call]: %s(%s)\n", tc.Name, string(tc.Args))
+			}
+		case m.Role == "tool" && len(m.ToolResults) > 0:
+			for _, tr := range m.ToolResults {
+				result := tr.Content
+				if len(result) > 500 {
+					result = result[:500] + "...(truncated)"
+				}
+				fmt.Fprintf(&sb, "[tool_result]: %s\n", result)
+			}
+		case m.Role == "assistant" && m.Content != "":
+			fmt.Fprintf(&sb, "[assistant]: %s\n", m.Content)
+		}
+	}
+	sb.WriteString("</conversation_history>")
+	return sb.String()
 }
 
 func parseCodexOutput(line string) *agrt.Message {

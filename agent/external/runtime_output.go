@@ -3,11 +3,13 @@ package external
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 
 	agrt "github.com/abcdlsj/mink/agent/runtime"
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/msg"
 )
 
 func (r *ExternalRuntime) readOutput(ctx context.Context, stdout io.Reader) (string, bool) {
@@ -91,6 +93,23 @@ func (r *ExternalRuntime) handleRuntimeMessage(m *agrt.Message) {
 		r.outputTokens += m.OutputTokens
 		r.mu.Unlock()
 	}
+
+	// Record tool events in session regardless of bus availability.
+	if r.sess != nil {
+		switch m.Type {
+		case agrt.MsgToolCall:
+			r.sess.Add(msg.Message{
+				Role:      "assistant",
+				ToolCalls: []msg.ToolCall{{ID: m.ToolID, Name: m.ToolName, Args: json.RawMessage(m.ToolArgs)}},
+			})
+		case agrt.MsgToolResult:
+			r.sess.Add(msg.Message{
+				Role:        "tool",
+				ToolResults: []msg.ToolResult{{ToolCallID: m.ToolID, Content: m.Text}},
+			})
+		}
+	}
+
 	if r.b == nil {
 		return
 	}

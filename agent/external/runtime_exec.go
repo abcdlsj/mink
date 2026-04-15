@@ -51,6 +51,15 @@ func (r *ExternalRuntime) Send(ctx context.Context, input string) (retErr error)
 
 	if r.sess != nil {
 		r.sess.Add(msg.Message{Role: "user", Content: input})
+		if r.driver.FormatHistory != nil {
+			msgs := r.sess.Messages()
+			// Exclude the message we just added (last one).
+			if len(msgs) > 1 {
+				if h := r.driver.FormatHistory(msgs[:len(msgs)-1]); h != "" {
+					input = h + "\n\n" + input
+				}
+			}
+		}
 	}
 
 	bridgeR, bridgeW := io.Pipe()
