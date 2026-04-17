@@ -1,6 +1,2 @@
-/mink
-!cmd/mink/
 .mink/
-.cache/
-web/node_modules/
-web/dist/
+mink

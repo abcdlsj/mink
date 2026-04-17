@@ -1,303 +1,207 @@
 package config
 
 import (
-	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
 
 type Config struct {
-	Mode                 string                 `toml:"mode"`
-	WebAddr              string                 `toml:"web_addr"`
-	CustomPrompt         string                 `toml:"custom_prompt"`
-	Stream               bool                   `toml:"stream"`
-	TelegramStream       bool                   `toml:"telegram_stream"`
-	TelegramMentionMode  string                 `toml:"telegram_mention_mode"`
-	TelegramSessionScope string                 `toml:"telegram_session_scope"`
-	MaxSteps             int                    `toml:"max_steps"`
-	Timeout              TimeoutConfig          `toml:"timeout"`
-	Compact              CompactConfig          `toml:"compact"`
-	ActiveModel          string                 `toml:"active_model"`
-	DefaultModel         string                 `toml:"default"`
-	CheapModel           string                 `toml:"cheap"`
-	Models               map[string]ModelConfig `toml:"models"`
-	APIKeys              map[string]string      `toml:"api_keys"`
-	Provider             string                 `toml:"provider"`
-	Model                string                 `toml:"model"`
-	APIKey               string                 `toml:"api_key"`
-	BaseURL              string                 `toml:"base_url"`
-	Headers              map[string]string      `toml:"headers"`
-	MaxTokens            int                    `toml:"max_tokens"`
-	ContextWindow        int                    `toml:"context_window"`
-	Reasoning            bool                   `toml:"reasoning"`
-
-	Agents []AgentConfig `toml:"agents"`
-
-	Active ModelConfig
+	Provider  string            `toml:"provider"`
+	Model     string            `toml:"model"`
+	APIKey    string            `toml:"api_key"`
+	BaseURL   string            `toml:"base_url"`
+	Runtime   string            `toml:"runtime"`
+	DBPath    string            `toml:"db_path"`
+	Workspace string            `toml:"workspace"`
+	Prompt    string            `toml:"prompt"`
+	MaxTokens int               `toml:"max_tokens"`
+	Headers   map[string]string `toml:"headers"`
 }
 
-type AgentConfig struct {
-	ID            string           `toml:"id"`
-	Name          string           `toml:"name"`
-	Runtime       string           `toml:"runtime"`
-	Capabilities  []string         `toml:"capabilities"`
-	Model         string           `toml:"model"`
-	SoulPath      string           `toml:"soul_path"`
-	Prompt        string           `toml:"prompt"`
-	Tools         []string         `toml:"tools"`
-	MaxConcurrent int              `toml:"max_concurrent"`
-	Heartbeat     *HeartbeatConfig `toml:"heartbeat"`
-}
-
-type HeartbeatConfig struct {
-	Schedule string `toml:"schedule"`
-	Prompt   string `toml:"prompt"`
-}
-
-type ModelConfig struct {
-	Provider      string            `toml:"provider"`
-	Model         string            `toml:"model"`
-	APIKey        string            `toml:"api_key"`
-	BaseURL       string            `toml:"base_url"`
-	Headers       map[string]string `toml:"headers"`
-	MaxTokens     int               `toml:"max_tokens"`
-	ContextWindow int               `toml:"context_window"`
-	Reasoning     bool              `toml:"reasoning"`
-}
-
-type CompactConfig struct {
-	Auto               bool `toml:"auto"`
-	TriggerTokens      int  `toml:"trigger_tokens"`
-	TriggerMessages    int  `toml:"trigger_messages"`
-	KeepRecentMessages int  `toml:"keep_recent_messages"`
-	ReserveTokens      int  `toml:"reserve_tokens"`
-}
-
-type TimeoutConfig struct {
-	Tool       int `toml:"tool"`
-	Agent      int `toml:"agent"`
-	Background int `toml:"background"`
-	LLM        int `toml:"llm"`
+type Option struct {
+	Provider string
+	Model    string
+	Source   string
+	APIKey   string
+	BaseURL  string
 }
 
 func Load() Config {
-	return LoadWithDir("mink")
-}
-
-func LoadWithDir(name string) Config {
-	c := Config{Stream: true}
-
-	configDir := defaultConfigDir(name)
-	path := filepath.Join(configDir, "config.toml")
-
-	if _, err := os.Stat(path); err == nil {
-		_, _ = toml.DecodeFile(path, &c)
+	cfg := Config{
+		Runtime:   "native",
+		MaxTokens: 4096,
+		Headers:   map[string]string{},
 	}
-
-	c.Normalize()
-	c.ResolveActive()
-
-	return c
+	if path := ConfigPath(); path != "" {
+		_, _ = toml.DecodeFile(path, &cfg)
+	}
+	cfg.applyEnv()
+	cfg.Normalize()
+	return cfg
 }
 
 func (c *Config) Normalize() {
-	if c.Mode == "" {
-		c.Mode = "tui"
+	if c.Runtime == "" {
+		c.Runtime = "native"
 	}
-	if c.WebAddr == "" {
-		c.WebAddr = "127.0.0.1:7788"
+	if c.Workspace == "" {
+		c.Workspace, _ = os.Getwd()
 	}
-	if c.MaxSteps == 0 {
-		c.MaxSteps = 100
+	if c.DBPath == "" {
+		c.DBPath = filepath.Join(DataDir(), "mink.db")
 	}
-	if c.Timeout.Tool == 0 {
-		c.Timeout.Tool = 60
+	if c.MaxTokens == 0 {
+		c.MaxTokens = 4096
 	}
-	if c.Timeout.Agent == 0 {
-		c.Timeout.Agent = 600
+	if c.Provider == "" || c.Model == "" || c.APIKey == "" {
+		c.applyDetected()
 	}
-	if c.Timeout.Background == 0 {
-		c.Timeout.Background = 1800
-	}
-	if c.Timeout.LLM == 0 {
-		c.Timeout.LLM = 120
-	}
-	if c.Compact.TriggerMessages == 0 {
-		c.Compact.TriggerMessages = 80
-	}
-	if c.Compact.KeepRecentMessages == 0 {
-		c.Compact.KeepRecentMessages = 20
-	}
-	if c.Compact.ReserveTokens == 0 {
-		c.Compact.ReserveTokens = 2048
-	}
-	switch strings.ToLower(strings.TrimSpace(c.TelegramMentionMode)) {
-	case "", "always":
-		c.TelegramMentionMode = "always"
-	case "smart":
-		c.TelegramMentionMode = "smart"
-	case "mention_only":
-		c.TelegramMentionMode = "mention_only"
-	default:
-		c.TelegramMentionMode = "always"
-	}
-	switch strings.ToLower(strings.TrimSpace(c.TelegramSessionScope)) {
-	case "", "chat":
-		c.TelegramSessionScope = "chat"
-	case "thread":
-		c.TelegramSessionScope = "thread"
-	default:
-		c.TelegramSessionScope = "chat"
+	if c.Headers == nil {
+		c.Headers = map[string]string{}
 	}
 }
 
-func ResolveModel(c *Config, name string) bool {
-	if name == "" || len(c.Models) == 0 {
-		return false
-	}
-	mc, ok := c.Models[name]
-	if !ok {
-		return false
-	}
-	c.ActiveModel = name
-	c.Active = mc
-	c.Active.APIKey = expand(mc.APIKey, c.APIKeys)
-	return true
+func (c *Config) Ready() bool {
+	return strings.TrimSpace(c.Provider) != "" && strings.TrimSpace(c.Model) != "" && strings.TrimSpace(c.APIKey) != ""
 }
 
-func (c *Config) ResolveDefaultModel() bool {
-	if c.DefaultModel == "" {
-		c.DefaultModel = c.ActiveModel
-	}
-	return ResolveModel(c, c.DefaultModel)
-}
-
-func (c *Config) ResolveCheapModel() bool {
-	if c.CheapModel == "" {
-		return false
-	}
-	return ResolveModel(c, c.CheapModel)
-}
-
-func (c *Config) ResolveActive() bool {
-	if ResolveModel(c, c.ActiveModel) {
-		return true
-	}
-	if c.DefaultModel != "" && ResolveModel(c, c.DefaultModel) {
-		return true
-	}
-
-	if len(c.Models) > 0 {
-		names := make([]string, 0, len(c.Models))
-		for name := range c.Models {
-			names = append(names, name)
+func (c *Config) Resolve(provider, model string) {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	model = strings.TrimSpace(model)
+	for _, opt := range Detect() {
+		if opt.Provider != provider {
+			continue
 		}
-		sort.Strings(names)
-		if len(names) > 0 {
-			if c.DefaultModel == "" {
-				c.DefaultModel = names[0]
-			}
-			return ResolveModel(c, names[0])
+		c.Provider = opt.Provider
+		c.APIKey = opt.APIKey
+		c.BaseURL = opt.BaseURL
+		if model != "" {
+			c.Model = model
+		} else {
+			c.Model = opt.Model
 		}
+		return
 	}
-
-	if c.Provider == "" || c.Model == "" {
-		return false
+	c.Provider = provider
+	if model != "" {
+		c.Model = model
 	}
-	c.Active = ModelConfig{
-		Provider:      c.Provider,
-		Model:         c.Model,
-		APIKey:        expand(c.APIKey, c.APIKeys),
-		BaseURL:       c.BaseURL,
-		Headers:       c.Headers,
-		MaxTokens:     c.MaxTokens,
-		ContextWindow: c.ContextWindow,
-		Reasoning:     c.Reasoning,
-	}
-	if c.ActiveModel == "" {
-		c.ActiveModel = "inline"
-	}
-	if c.DefaultModel == "" {
-		c.DefaultModel = c.ActiveModel
-	}
-	return true
-}
-
-func (c *Config) Key(name string) string {
-	if v, ok := c.APIKeys[name]; ok {
-		return v
-	}
-	return os.Getenv(name)
-}
-
-var envRe = regexp.MustCompile(`\$\{(\w+)\}`)
-
-func expand(s string, keys map[string]string) string {
-	return envRe.ReplaceAllStringFunc(s, func(m string) string {
-		key := envRe.FindStringSubmatch(m)[1]
-		if v, ok := keys[key]; ok && v != "" {
-			return v
-		}
-		if v := os.Getenv(key); v != "" {
-			return v
-		}
-		return m
-	})
-}
-
-var activeModelRe = regexp.MustCompile(`(?m)^active_model\s*=\s*"[^"]*"`)
-
-func SaveActiveModel(name string) error {
-	path := ConfigPath()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return os.WriteFile(path, []byte(fmt.Sprintf("active_model = %q\n", name)), 0644)
-	}
-
-	text := string(data)
-	if activeModelRe.MatchString(text) {
-		text = activeModelRe.ReplaceAllString(text, fmt.Sprintf("active_model = %q", name))
-	} else {
-		text = fmt.Sprintf("active_model = %q\n", name) + text
-	}
-	return os.WriteFile(path, []byte(text), 0644)
-}
-
-func DataDir(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "mink"
-	}
-	home, _ := os.UserHomeDir()
-	if home == "" {
-		if strings.HasPrefix(name, ".") {
-			return name
-		}
-		return "." + name
-	}
-	if strings.HasPrefix(name, ".") {
-		return filepath.Join(home, name)
-	}
-	return filepath.Join(home, "."+name)
 }
 
 func ConfigPath() string {
-	return filepath.Join(DataDir("mink"), "config.toml")
+	return filepath.Join(DataDir(), "config.toml")
 }
 
-func SoulPath() string {
-	return filepath.Join(DataDir("mink"), "SOUL.md")
+func DataDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ".mink"
+	}
+	return filepath.Join(home, ".mink")
 }
 
-func CronPath() string {
-	return filepath.Join(DataDir("mink"), "cron.json")
+func Detect() []Option {
+	var opts []Option
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		opts = append(opts, Option{
+			Provider: "openai",
+			Model:    envOr("MINK_OPENAI_MODEL", envOr("MINK_MODEL", "gpt-4.1-mini")),
+			Source:   "OPENAI_API_KEY",
+			APIKey:   key,
+			BaseURL:  envOr("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		})
+	}
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		opts = append(opts, Option{
+			Provider: "anthropic",
+			Model:    envOr("MINK_ANTHROPIC_MODEL", envOr("MINK_MODEL", "claude-sonnet-4-20250514")),
+			Source:   "ANTHROPIC_API_KEY",
+			APIKey:   key,
+		})
+	}
+	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+		opts = append(opts, Option{
+			Provider: "openrouter",
+			Model:    envOr("MINK_OPENROUTER_MODEL", envOr("MINK_MODEL", "openai/gpt-4.1-mini")),
+			Source:   "OPENROUTER_API_KEY",
+			APIKey:   key,
+			BaseURL:  envOr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+		})
+	}
+	if host, ok := ollamaURL(); ok {
+		opts = append(opts, Option{
+			Provider: "openai",
+			Model:    envOr("MINK_OLLAMA_MODEL", envOr("MINK_MODEL", "qwen2.5-coder:latest")),
+			Source:   "ollama",
+			APIKey:   "ollama",
+			BaseURL:  host + "/v1",
+		})
+	}
+	return opts
 }
 
-func defaultConfigDir(name string) string {
-	return DataDir(name)
+func (c *Config) applyDetected() {
+	opts := Detect()
+	if len(opts) == 0 {
+		return
+	}
+	if c.Provider == "" {
+		c.Provider = opts[0].Provider
+	}
+	if c.Model == "" {
+		c.Model = opts[0].Model
+	}
+	if c.APIKey == "" {
+		c.APIKey = opts[0].APIKey
+	}
+	if c.BaseURL == "" {
+		c.BaseURL = opts[0].BaseURL
+	}
+}
+
+func (c *Config) applyEnv() {
+	if v := os.Getenv("MINK_PROVIDER"); v != "" {
+		c.Provider = v
+	}
+	if v := os.Getenv("MINK_MODEL"); v != "" {
+		c.Model = v
+	}
+	if v := os.Getenv("MINK_API_KEY"); v != "" {
+		c.APIKey = v
+	}
+	if v := os.Getenv("MINK_BASE_URL"); v != "" {
+		c.BaseURL = v
+	}
+	if v := os.Getenv("MINK_RUNTIME"); v != "" {
+		c.Runtime = v
+	}
+	if v := os.Getenv("MINK_DB_PATH"); v != "" {
+		c.DBPath = v
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func ollamaURL() (string, bool) {
+	host := envOr("OLLAMA_HOST", "http://127.0.0.1:11434")
+	client := &http.Client{Timeout: 300 * time.Millisecond}
+	resp, err := client.Get(host + "/api/tags")
+	if err != nil {
+		return "", false
+	}
+	resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", false
+	}
+	return strings.TrimRight(host, "/"), true
 }

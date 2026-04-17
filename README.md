@@ -1,108 +1,72 @@
-# Mink
+# Mink v3
 
-Mink is a lightweight AI coding agent for local workflows. It supports interactive CLI usage, a local Web UI, and Telegram Bot mode.
+Mink v3 is a clean rewrite around a small agent core and simple plugins.
 
-The design goal is simple: keep the core small, fast, and easy to extend. Instead of hiding everything behind a heavy framework, Mink focuses on a minimal runtime, straightforward configuration, and a few practical extension points such as skills, external tools, and background jobs.
+## Shape
 
-## Install
+- `app/`: composition root
+- `agent/`: native runtime
+- `bus/`: event bus for facts, not orchestration
+- `command/`: `!help`, `!model`, `!session`
+- `config/`: zero-config detection plus optional TOML
+- `llm/`: native providers
+- `plugins/`: pluggable runtimes and services
+- `session/` + `store/`: durable conversation state
+- `tool/`: builtin tools
 
-```bash
-go install github.com/abcdlsj/mink@latest
+## Rules
+
+- one core app
+- one current session per source
+- direct runtime execution
+- bus is observer-only
+- plugins register things; they do not own the system
+- no compatibility layer for old data or old architecture
+
+## Runtime Model
+
+Native model-backed execution stays in core.
+
+External agent CLIs are plugins:
+
+- `native`
+- `claude`
+- `codex`
+
+The plugin API stays small:
+
+```go
+type Plugin func(*App) error
 ```
 
-You can also download a binary from [Releases](https://github.com/abcdlsj/mink/releases).
+Plugins can register runtimes, tools, commands, entrypoints, or background services through `App`.
 
-## Quick Start
+## Zero Config
 
-1. Create a config file:
+Mink auto-detects the first available backend from:
 
-```bash
-mkdir -p ~/.mink
-cp config.example.toml ~/.mink/config.toml
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `OPENROUTER_API_KEY`
+- local Ollama at `http://127.0.0.1:11434`
+
+If you want explicit config, use `~/.mink/config.toml`:
+
+```toml
+runtime = "native"
+provider = "openai"
+model = "gpt-4.1-mini"
 ```
 
-2. Edit `~/.mink/config.toml` and set at least your model and API key.
-
-3. Start Mink:
+## Run
 
 ```bash
-mink
+go run ./cmd/mink
 ```
 
-See `config.example.toml` for a full example.
-
-## Commands
+Switch runtime with env or config:
 
 ```bash
-mink                # start interactive mode
-mink web            # start local Web UI
-mink tg             # start Telegram Bot mode
-mink version        # show version
+MINK_RUNTIME=codex go run ./cmd/mink
+MINK_RUNTIME=claude go run ./cmd/mink
 ```
-
-CLI builtin commands:
-
-```bash
-!help
-!session list|current|new|switch <id>|fork
-!compact [note]
-!tokens
-!tools
-!models
-!model <name>
-!replay [count]
-```
-
-Override config from flags:
-
-```bash
-mink -p openai -m gpt-4o -k <api_key>
-mink web -addr 127.0.0.1:7788
-```
-
-Web config:
-
-- `web_addr = "127.0.0.1:7788"`
-
-## Telegram
-
-Config keys:
-
-- `telegram_mention_mode = "always" | "smart" | "mention_only"`
-- `telegram_session_scope = "chat" | "thread"`
-
-Assistant directives:
-
-- `[[reply_to_current]]`
-- `[[reply_to:<message_id>]]`
-- `[[react:👍]]`
-- `NO_REPLY`
-
-## Deploy (Telegram Bot)
-
-Linux (systemd):
-
-```bash
-sudo bash deploy/install-systemd.sh install --config /path/to/config.toml
-sudo bash deploy/install-systemd.sh upgrade --version latest
-```
-
-`install-systemd.sh` defaults to `/opt/mink` and supports `install` (default) / `upgrade` modes.
-
-macOS (launchd):
-
-```bash
-cp deploy/com.mink.agent.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.mink.agent.plist
-```
-
-## Paths
-
-- `~/.mink/config.toml` — main config
-- `~/.mink/skills/` — custom skills
-- `~/.mink/ext/` — external executable tools
-- `~/.mink/SOUL.md` — extra behavior guidance
-
-## License
-
-MIT

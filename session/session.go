@@ -1,146 +1,75 @@
 package session
 
 import (
-	"encoding/json"
-	"sync"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/abcdlsj/mink/internal/xstr"
 	"github.com/abcdlsj/mink/msg"
 )
 
 type Session struct {
-	id        string
-	kind      string
-	status    string
-	summary   string
-	meta      json.RawMessage
-	closedAt  *time.Time
-	store     Store
-	entries   []Entry
-	anchors   []Anchor
-	prov      *Provenance
-	createdAt time.Time
-	updatedAt time.Time
-	dirty     bool
-	resolve   func(string) (*Session, error)
-	mu        sync.RWMutex
+	ID        string
+	Source    string
+	Title     string
+	Summary   string
+	Messages  []msg.Message
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-func newSession(id string, store Store, resolve func(string) (*Session, error)) *Session {
+func New(source string) *Session {
 	now := time.Now()
 	return &Session{
-		id:        id,
-		kind:      "main",
-		status:    "active",
-		meta:      json.RawMessage("{}"),
-		store:     store,
-		createdAt: now,
-		updatedAt: now,
-		resolve:   resolve,
+		ID:        uuid.New().String()[:8],
+		Source:    strings.TrimSpace(source),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 }
 
-func (s *Session) ID() string { return s.id }
-
 func (s *Session) Add(m msg.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if m.ID == "" {
 		m.ID = uuid.New().String()[:8]
 	}
 	if m.Timestamp.IsZero() {
 		m.Timestamp = time.Now()
 	}
-	s.entries = append(s.entries, Entry{
-		ID:        m.ID,
-		Kind:      entryKind(m),
-		Message:   m,
-		CreatedAt: m.Timestamp,
-	})
-	s.touchLocked()
-}
-
-func (s *Session) Messages() []msg.Message {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return entriesToMessages(s.entries)
-}
-
-func (s *Session) Entries() []Entry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	r := make([]Entry, len(s.entries))
-	copy(r, s.entries)
-	return r
-}
-
-func (s *Session) EntryCount() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return len(s.entries)
-}
-
-func (s *Session) AddAnchor(kind AnchorKind, summary, note string, entryCount int) Anchor {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if entryCount < 0 {
-		entryCount = 0
+	s.Messages = append(s.Messages, m)
+	s.UpdatedAt = m.Timestamp
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = m.Timestamp
 	}
-	if entryCount > len(s.entries) {
-		entryCount = len(s.entries)
+	if s.Title == "" && m.Role == "user" && m.Content != "" {
+		s.Title = trimTitle(m.Content)
 	}
-	a := Anchor{
-		ID:         uuid.New().String()[:8],
-		Kind:       kind,
-		Summary:    summary,
-		Note:       note,
-		EntryCount: entryCount,
-		CreatedAt:  time.Now(),
-	}
-	s.anchors = append(s.anchors, a)
-	if kind == AnchorSummary {
-		s.summary = summary
-	}
-	s.touchLocked()
-	return a
 }
 
-func (s *Session) View() View {
-	msgs, anchor := buildView(s, -1)
-	return View{Messages: msgs, Anchor: anchor}
+func (s *Session) Compact(summary string, keep int) {
+	if keep <= 0 {
+		keep = 8
+	}
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return
+	}
+	s.Summary = summary
+	if len(s.Messages) > keep {
+		s.Messages = append([]msg.Message{{
+			ID:        uuid.New().String()[:8],
+			Role:      "system",
+			Content:   "[Context Summary]\n" + summary,
+			Timestamp: time.Now(),
+		}}, s.Messages[len(s.Messages)-keep:]...)
+	}
+	s.UpdatedAt = time.Now()
 }
 
-var firstNonEmptySnapshot = xstr.NonEmpty
-
-func (s *Session) parent(id string) (*Session, error) {
-	if id == "" || s.resolve == nil {
-		return nil, nil
+func trimTitle(s string) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) > 48 {
+		return s[:48] + "..."
 	}
-	return s.resolve(id)
-}
-
-func (s *Session) touchLocked() {
-	if s.createdAt.IsZero() {
-		s.createdAt = time.Now()
-	}
-	s.updatedAt = time.Now()
-	s.dirty = true
-}
-
-func entryKind(m msg.Message) EntryKind {
-	switch m.Role {
-	case "user":
-		return EntryUser
-	case "assistant":
-		return EntryAssistant
-	case "tool":
-		return EntryTool
-	case "system":
-		return EntrySystem
-	default:
-		return EntryNote
-	}
+	return s
 }
