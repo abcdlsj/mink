@@ -27,7 +27,7 @@ func TestWaitFallsBackToRunLog(t *testing.T) {
 		teams: map[string]map[string]string{},
 	}
 	a.Bus().Publish(bus.Event{
-		Type:      taskFinished,
+		Type:      bus.DelegateFinished,
 		Source:    "cli",
 		SessionID: "sess-1",
 		TaskID:    "task-123",

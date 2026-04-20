@@ -22,7 +22,7 @@ func (m *manager) spawn(ctx context.Context, source, runtime, input string, shar
 
 func (m *manager) delegate(source, runtime, input string, share, direct bool) string {
 	t := m.newTask()
-	m.publishTask(taskStarted, source, t.id, strings.TrimSpace(input), "")
+	m.publishTask(bus.DelegateStarted, source, t.id, strings.TrimSpace(input), "")
 	go m.runDelegation(t, source, runtime, input, share, direct)
 	return t.id
 }
@@ -58,7 +58,7 @@ func (m *manager) publishTask(typ, source, id, out, err string) {
 		Source: source,
 		TaskID: id,
 	}
-	if typ == taskStarted {
+	if typ == bus.DelegateStarted {
 		ev.Text = out
 	} else {
 		ev.Output = out
@@ -97,9 +97,9 @@ func (m *manager) waitPersisted(id string) (string, error) {
 	}
 	for i := len(evs) - 1; i >= 0; i-- {
 		switch evs[i].Type {
-		case taskFinished:
+		case bus.DelegateFinished:
 			return evs[i].Output, nil
-		case taskFailed:
+		case bus.DelegateFailed:
 			return "", fmt.Errorf("%s", strings.TrimSpace(evs[i].Err))
 		}
 	}

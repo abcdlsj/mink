@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/abcdlsj/mink/bus"
 )
 
 func capabilityHint(v []string) string {
@@ -20,9 +22,9 @@ func parseError(name string, err error) error {
 
 func taskType(err error) string {
 	if err != nil {
-		return taskFailed
+		return bus.DelegateFailed
 	}
-	return taskFinished
+	return bus.DelegateFinished
 }
 
 func errString(err error) string {

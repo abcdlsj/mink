@@ -7,12 +7,6 @@ import (
 	"github.com/abcdlsj/mink/app"
 )
 
-const (
-	taskStarted  = "delegate.started"
-	taskFinished = "delegate.finished"
-	taskFailed   = "delegate.failed"
-)
-
 type manager struct {
 	app   *app.App
 	mu    sync.Mutex
