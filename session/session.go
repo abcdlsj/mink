@@ -47,7 +47,7 @@ func (s *Session) Add(m msg.Message) {
 }
 
 func (s *Session) Compact(summary string, keep int) {
-	if keep <= 0 {
+	if keep < 0 {
 		keep = 8
 	}
 	summary = strings.TrimSpace(summary)
@@ -56,12 +56,13 @@ func (s *Session) Compact(summary string, keep int) {
 	}
 	s.Summary = summary
 	if len(s.Messages) > keep {
-		s.Messages = append([]msg.Message{{
+		msgs := append([]msg.Message{{
 			ID:        uuid.New().String()[:8],
 			Role:      "system",
 			Content:   "[Context Summary]\n" + summary,
 			Timestamp: time.Now(),
 		}}, s.Messages[len(s.Messages)-keep:]...)
+		s.Messages = msgs
 	}
 	s.UpdatedAt = time.Now()
 }

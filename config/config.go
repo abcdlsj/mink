@@ -24,11 +24,13 @@ type Config struct {
 	Runtime     string            `toml:"runtime"`
 	DataDir     string            `toml:"data_dir"`
 	Workspace   string            `toml:"workspace"`
+	SoulPath    string            `toml:"soul_path"`
 	Prompt      string            `toml:"prompt"`
 	MaxTokens   int               `toml:"max_tokens"`
 	Headers     map[string]string `toml:"headers"`
 	Reasoning   bool              `toml:"reasoning"`
 	WebAddr     string            `toml:"web_addr"`
+	Compact     CompactConfig     `toml:"compact"`
 	Telegram    TelegramConfig    `toml:"telegram"`
 	BraveSearch BraveConfig       `toml:"brave_search"`
 
@@ -36,13 +38,22 @@ type Config struct {
 }
 
 type ModelConfig struct {
-	Provider  string            `toml:"provider"`
-	Model     string            `toml:"model"`
-	APIKey    string            `toml:"api_key"`
-	BaseURL   string            `toml:"base_url"`
-	Headers   map[string]string `toml:"headers"`
-	MaxTokens int               `toml:"max_tokens"`
-	Reasoning bool              `toml:"reasoning"`
+	Provider      string            `toml:"provider"`
+	Model         string            `toml:"model"`
+	APIKey        string            `toml:"api_key"`
+	BaseURL       string            `toml:"base_url"`
+	Headers       map[string]string `toml:"headers"`
+	MaxTokens     int               `toml:"max_tokens"`
+	ContextWindow int               `toml:"context_window"`
+	Reasoning     bool              `toml:"reasoning"`
+}
+
+type CompactConfig struct {
+	Auto               bool `toml:"auto"`
+	TriggerTokens      int  `toml:"trigger_tokens"`
+	TriggerMessages    int  `toml:"trigger_messages"`
+	KeepRecentMessages int  `toml:"keep_recent_messages"`
+	ReserveTokens      int  `toml:"reserve_tokens"`
 }
 
 type TelegramConfig struct {
@@ -70,6 +81,12 @@ func Load() Config {
 		WebAddr:   "127.0.0.1:7788",
 		Models:    map[string]ModelConfig{},
 		APIKeys:   map[string]string{},
+		Compact: CompactConfig{
+			TriggerTokens:      20000,
+			TriggerMessages:    80,
+			KeepRecentMessages: 8,
+			ReserveTokens:      2048,
+		},
 	}
 	if path := ConfigPath(); path != "" {
 		_, _ = toml.DecodeFile(path, &c)
@@ -94,6 +111,9 @@ func (c *Config) Normalize() {
 	}
 	if c.WebAddr == "" {
 		c.WebAddr = "127.0.0.1:7788"
+	}
+	if c.Compact.KeepRecentMessages < 0 {
+		c.Compact.KeepRecentMessages = 8
 	}
 	switch strings.TrimSpace(strings.ToLower(c.Telegram.MentionMode)) {
 	case "", "always":
@@ -163,13 +183,14 @@ func (c *Config) Resolve(provider, model string) {
 		c.APIKey = opt.APIKey
 		c.BaseURL = opt.BaseURL
 		c.Active = ModelConfig{
-			Provider:  c.Provider,
-			Model:     c.Model,
-			APIKey:    c.APIKey,
-			BaseURL:   c.BaseURL,
-			Headers:   cloneHeaders(c.Headers),
-			MaxTokens: c.MaxTokens,
-			Reasoning: c.Reasoning,
+			Provider:      c.Provider,
+			Model:         c.Model,
+			APIKey:        c.APIKey,
+			BaseURL:       c.BaseURL,
+			Headers:       cloneHeaders(c.Headers),
+			MaxTokens:     c.MaxTokens,
+			ContextWindow: 0,
+			Reasoning:     c.Reasoning,
 		}
 		return
 	}
@@ -179,13 +200,14 @@ func (c *Config) Resolve(provider, model string) {
 		c.Model = model
 	}
 	c.Active = ModelConfig{
-		Provider:  c.Provider,
-		Model:     c.Model,
-		APIKey:    c.expandKey(c.APIKey),
-		BaseURL:   c.BaseURL,
-		Headers:   cloneHeaders(c.Headers),
-		MaxTokens: c.MaxTokens,
-		Reasoning: c.Reasoning,
+		Provider:      c.Provider,
+		Model:         c.Model,
+		APIKey:        c.expandKey(c.APIKey),
+		BaseURL:       c.BaseURL,
+		Headers:       cloneHeaders(c.Headers),
+		MaxTokens:     c.MaxTokens,
+		ContextWindow: 0,
+		Reasoning:     c.Reasoning,
 	}
 }
 
@@ -205,13 +227,14 @@ func (c *Config) ResolveActive() bool {
 	}
 	if c.Provider != "" && c.Model != "" {
 		c.Active = ModelConfig{
-			Provider:  c.Provider,
-			Model:     c.Model,
-			APIKey:    c.expandKey(c.APIKey),
-			BaseURL:   c.BaseURL,
-			Headers:   cloneHeaders(c.Headers),
-			MaxTokens: max(c.MaxTokens, 4096),
-			Reasoning: c.Reasoning,
+			Provider:      c.Provider,
+			Model:         c.Model,
+			APIKey:        c.expandKey(c.APIKey),
+			BaseURL:       c.BaseURL,
+			Headers:       cloneHeaders(c.Headers),
+			MaxTokens:     max(c.MaxTokens, 4096),
+			ContextWindow: 0,
+			Reasoning:     c.Reasoning,
 		}
 		c.syncActive()
 		return true
@@ -245,6 +268,17 @@ func (c Config) MemoryDir() string {
 
 func (c Config) CronPath() string {
 	return filepath.Join(c.DataRoot(), "cron", "tasks.json")
+}
+
+func (c Config) PermissionsPath() string {
+	return filepath.Join(c.DataRoot(), "state", "permissions.json")
+}
+
+func (c Config) ResolvedSoulPath() string {
+	if path := strings.TrimSpace(c.SoulPath); path != "" {
+		return path
+	}
+	return filepath.Join(c.DataRoot(), "SOUL.md")
 }
 
 func ConfigPath() string {
@@ -305,13 +339,14 @@ func (c *Config) useModel(mc ModelConfig) {
 		headers = cloneHeaders(c.Headers)
 	}
 	c.Active = ModelConfig{
-		Provider:  blank(mc.Provider, c.Provider),
-		Model:     blank(mc.Model, c.Model),
-		APIKey:    c.expandKey(blank(mc.APIKey, c.APIKey)),
-		BaseURL:   blank(mc.BaseURL, c.BaseURL),
-		Headers:   headers,
-		MaxTokens: mc.MaxTokens,
-		Reasoning: mc.Reasoning || c.Reasoning,
+		Provider:      blank(mc.Provider, c.Provider),
+		Model:         blank(mc.Model, c.Model),
+		APIKey:        c.expandKey(blank(mc.APIKey, c.APIKey)),
+		BaseURL:       blank(mc.BaseURL, c.BaseURL),
+		Headers:       headers,
+		MaxTokens:     mc.MaxTokens,
+		ContextWindow: mc.ContextWindow,
+		Reasoning:     mc.Reasoning || c.Reasoning,
 	}
 	if c.Active.MaxTokens == 0 {
 		c.Active.MaxTokens = c.MaxTokens
@@ -389,6 +424,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("MINK_DATA_DIR"); v != "" {
 		c.DataDir = v
+	}
+	if v := os.Getenv("MINK_SOUL_PATH"); v != "" {
+		c.SoulPath = v
 	}
 	if v := os.Getenv("MINK_WEB_ADDR"); v != "" {
 		c.WebAddr = v

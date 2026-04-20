@@ -10,14 +10,25 @@ OPENAI_API_KEY = "${OPENAI_API_KEY}"
 provider = "openai"
 model = "gpt-4.1-mini"
 api_key = "OPENAI_API_KEY"
+max_tokens = 8192
+context_window = 128000
 
+# Optional compact defaults.
+# [compact]
+# auto = true
+# trigger_messages = 80
+# keep_recent_messages = 8
+# reserve_tokens = 2048
+#
 # Optional.
 # data_dir = "/path/to/.mink"
 # workspace = "/path/to/repo"
+# soul_path = "/path/to/SOUL.md"
 # prompt = "Project-specific system prompt"
 # [telegram]
 # token = "..."
 # mention_mode = "always"
 # session_scope = "chat"
+# Telegram tool approvals are persisted under data_dir/state/permissions.json.
 # [brave_search]
 # api_key = "..."

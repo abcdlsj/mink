@@ -11,7 +11,7 @@ Mink v3 is a clean rewrite around a small agent core and simple plugins.
 - `config/`: zero-config detection plus structured TOML
 - `llm/`: native providers
 - `plugins/`: pluggable runtimes and services
-- `session/` + `store/`: text-based conversation state
+- `session/` + `store/`: text-based conversation state and run logs
 - `tool/`: builtin tools
 
 ## Rules
@@ -85,12 +85,21 @@ OPENAI_API_KEY = "${OPENAI_API_KEY}"
 provider = "openai"
 model = "gpt-4.1-mini"
 api_key = "OPENAI_API_KEY"
+max_tokens = 8192
+context_window = 128000
 ```
 
 Optional plugin config:
 
 ```toml
 data_dir = "~/.mink"
+soul_path = "~/.mink/SOUL.md"
+
+[compact]
+auto = true
+trigger_messages = 80
+keep_recent_messages = 8
+reserve_tokens = 2048
 
 [telegram]
 token = "..."
@@ -100,6 +109,23 @@ session_scope = "chat"
 [brave_search]
 api_key = "..."
 ```
+
+Runtime activity is written to `runlog.jsonl` under `data_dir`, and `!replay` reads from that event log instead of reconstructing output from session messages.
+
+Prompt composition is shared by `native`, `claude`, and `codex` runtimes:
+
+- base runtime prompt
+- workspace + session summary context
+- `SOUL.md` from `soul_path` or `data_dir/SOUL.md`
+- custom `prompt`
+- Telegram-specific reply directives when the source is `telegram:*`
+
+In Telegram mode, dangerous tool actions use inline approval with session or persistent allow rules. Assistant output also supports:
+
+- `[[reply_to_current]]`
+- `[[reply_to:<message_id>]]`
+- `[[react:👍]]`
+- `NO_REPLY`
 
 ## Run
 
