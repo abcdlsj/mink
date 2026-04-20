@@ -2,8 +2,6 @@ package config
 
 import (
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -63,14 +61,6 @@ type TelegramConfig struct {
 
 type BraveConfig struct {
 	APIKey string `toml:"api_key"`
-}
-
-type Option struct {
-	Provider string
-	Model    string
-	Source   string
-	APIKey   string
-	BaseURL  string
 }
 
 func Load() Config {
@@ -140,84 +130,6 @@ func (c *Config) Ready() bool {
 		return true
 	}
 	return strings.TrimSpace(c.Provider) != "" && strings.TrimSpace(c.Model) != "" && strings.TrimSpace(c.APIKey) != ""
-}
-
-func (c Config) DataRoot() string {
-	if strings.TrimSpace(c.DataDir) != "" {
-		return strings.TrimSpace(c.DataDir)
-	}
-	return DefaultDataDir()
-}
-
-func (c Config) MemoryDir() string {
-	return filepath.Join(c.DataRoot(), "memory")
-}
-
-func (c Config) CronPath() string {
-	return filepath.Join(c.DataRoot(), "cron", "tasks.json")
-}
-
-func (c Config) PermissionsPath() string {
-	return filepath.Join(c.DataRoot(), "state", "permissions.json")
-}
-
-func (c Config) ResolvedSoulPath() string {
-	if path := strings.TrimSpace(c.SoulPath); path != "" {
-		return path
-	}
-	return filepath.Join(c.DataRoot(), "SOUL.md")
-}
-
-func ConfigPath() string {
-	return filepath.Join(DefaultDataDir(), "config.toml")
-}
-
-func DefaultDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ".mink"
-	}
-	return filepath.Join(home, ".mink")
-}
-
-func Detect() []Option {
-	var opts []Option
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		opts = append(opts, Option{
-			Provider: "openai",
-			Model:    envOr("MINK_OPENAI_MODEL", envOr("MINK_MODEL", "gpt-4.1-mini")),
-			Source:   "OPENAI_API_KEY",
-			APIKey:   key,
-			BaseURL:  envOr("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		})
-	}
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		opts = append(opts, Option{
-			Provider: "anthropic",
-			Model:    envOr("MINK_ANTHROPIC_MODEL", envOr("MINK_MODEL", "claude-sonnet-4-20250514")),
-			Source:   "ANTHROPIC_API_KEY",
-			APIKey:   key,
-		})
-	}
-	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
-		opts = append(opts, Option{
-			Provider: "openrouter",
-			Model:    envOr("MINK_OPENROUTER_MODEL", envOr("MINK_MODEL", "openai/gpt-4.1-mini")),
-			Source:   "OPENROUTER_API_KEY",
-			APIKey:   key,
-			BaseURL:  envOr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-		})
-	}
-	return opts
-}
-
-func DetectRuntime() string {
-	for _, name := range []string{"claude", "codex"} {
-		if _, err := exec.LookPath(name); err == nil {
-			return name
-		}
-	}
-	return "native"
 }
 
 func (c *Config) useModel(mc ModelConfig) {
@@ -293,30 +205,6 @@ func (c *Config) applyDetected() {
 	}
 }
 
-func (c *Config) applyEnv() {
-	applyEnv(&c.Provider, "MINK_PROVIDER")
-	applyEnv(&c.Model, "MINK_MODEL")
-	applyEnv(&c.APIKey, "MINK_API_KEY")
-	applyEnv(&c.BaseURL, "MINK_BASE_URL")
-	applyEnv(&c.Runtime, "MINK_RUNTIME")
-	applyEnv(&c.DataDir, "MINK_DATA_DIR")
-	applyEnv(&c.SoulPath, "MINK_SOUL_PATH")
-	applyEnv(&c.WebAddr, "MINK_WEB_ADDR")
-	applyEnv(&c.Telegram.Token, "TELEGRAM_TOKEN", "MINK_TELEGRAM_TOKEN")
-	applyEnv(&c.Telegram.MentionMode, "MINK_TELEGRAM_MENTION_MODE")
-	applyEnv(&c.Telegram.SessionScope, "MINK_TELEGRAM_SESSION_SCOPE")
-	applyEnv(&c.BraveSearch.APIKey, "BRAVE_SEARCH_API_KEY", "MINK_BRAVE_SEARCH_API_KEY")
-}
-
-func applyEnv(dst *string, keys ...string) {
-	for _, key := range keys {
-		if v := os.Getenv(key); v != "" {
-			*dst = v
-			return
-		}
-	}
-}
-
 func cloneHeaders(src map[string]string) map[string]string {
 	if len(src) == 0 {
 		return map[string]string{}
@@ -360,13 +248,6 @@ func blank(s, fallback string) string {
 		return fallback
 	}
 	return strings.TrimSpace(s)
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func max(a, b int) int {
