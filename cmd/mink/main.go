@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
+	"net"
 	"os"
+	"sync"
 
 	"github.com/abcdlsj/mink/app"
 	"github.com/abcdlsj/mink/config"
@@ -17,6 +21,12 @@ import (
 	pluginssessioncmd "github.com/abcdlsj/mink/plugins/sessioncmd"
 	pluginstelegram "github.com/abcdlsj/mink/plugins/telegram"
 	pluginsweb "github.com/abcdlsj/mink/plugins/web"
+)
+
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildTime = "unknown"
 )
 
 func main() {
@@ -65,6 +75,44 @@ func plugins() []app.Plugin {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
 	os.Exit(1)
+}
+
+func runVersion() {
+	fmt.Printf("mink version %s\n", Version)
+	fmt.Printf("  commit: %s\n", Commit)
+	fmt.Printf("  built:  %s\n", BuildTime)
+}
+
+func runBridge(args []string) error {
+	fs := flag.NewFlagSet("mcp-bridge", flag.ContinueOnError)
+	sock := fs.String("sock", "", "Unix socket path to connect to")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *sock == "" {
+		return errf("mcp-bridge: --sock is required")
+	}
+	conn, err := net.Dial("unix", *sock)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(conn, os.Stdin)
+		if c, ok := conn.(*net.UnixConn); ok {
+			_ = c.CloseWrite()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		_, _ = io.Copy(os.Stdout, conn)
+	}()
+	wg.Wait()
+	return nil
 }
 
 func errf(format string, args ...any) error { return fmt.Errorf(format, args...) }
