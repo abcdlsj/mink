@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -75,19 +74,7 @@ type Option struct {
 }
 
 func Load() Config {
-	c := Config{
-		MaxTokens: 4096,
-		Headers:   map[string]string{},
-		WebAddr:   "127.0.0.1:7788",
-		Models:    map[string]ModelConfig{},
-		APIKeys:   map[string]string{},
-		Compact: CompactConfig{
-			TriggerTokens:      20000,
-			TriggerMessages:    80,
-			KeepRecentMessages: 8,
-			ReserveTokens:      2048,
-		},
-	}
+	c := defaultConfig()
 	if path := ConfigPath(); path != "" {
 		_, _ = toml.DecodeFile(path, &c)
 	}
@@ -97,6 +84,17 @@ func Load() Config {
 }
 
 func (c *Config) Normalize() {
+	c.normalizePaths()
+	c.normalizeDefaults()
+	c.normalizeCollections()
+	c.normalizeTelegram()
+	if !c.ResolveActive() {
+		c.applyDetected()
+		_ = c.ResolveActive()
+	}
+}
+
+func (c *Config) normalizePaths() {
 	if c.Runtime == "" {
 		c.Runtime = DetectRuntime()
 	}
@@ -106,6 +104,9 @@ func (c *Config) Normalize() {
 	if c.DataDir == "" {
 		c.DataDir = DefaultDataDir()
 	}
+}
+
+func (c *Config) normalizeDefaults() {
 	if c.MaxTokens == 0 {
 		c.MaxTokens = 4096
 	}
@@ -115,24 +116,9 @@ func (c *Config) Normalize() {
 	if c.Compact.KeepRecentMessages < 0 {
 		c.Compact.KeepRecentMessages = 8
 	}
-	switch strings.TrimSpace(strings.ToLower(c.Telegram.MentionMode)) {
-	case "", "always":
-		c.Telegram.MentionMode = "always"
-	case "smart":
-		c.Telegram.MentionMode = "smart"
-	case "mention_only":
-		c.Telegram.MentionMode = "mention_only"
-	default:
-		c.Telegram.MentionMode = "always"
-	}
-	switch strings.TrimSpace(strings.ToLower(c.Telegram.SessionScope)) {
-	case "", "chat":
-		c.Telegram.SessionScope = "chat"
-	case "thread":
-		c.Telegram.SessionScope = "thread"
-	default:
-		c.Telegram.SessionScope = "chat"
-	}
+}
+
+func (c *Config) normalizeCollections() {
 	if c.Headers == nil {
 		c.Headers = map[string]string{}
 	}
@@ -142,10 +128,11 @@ func (c *Config) Normalize() {
 	if c.APIKeys == nil {
 		c.APIKeys = map[string]string{}
 	}
-	if !c.ResolveActive() {
-		c.applyDetected()
-		_ = c.ResolveActive()
-	}
+}
+
+func (c *Config) normalizeTelegram() {
+	c.Telegram.MentionMode = normalizeTelegramMode(c.Telegram.MentionMode)
+	c.Telegram.SessionScope = normalizeTelegramScope(c.Telegram.SessionScope)
 }
 
 func (c *Config) Ready() bool {
@@ -153,106 +140,6 @@ func (c *Config) Ready() bool {
 		return true
 	}
 	return strings.TrimSpace(c.Provider) != "" && strings.TrimSpace(c.Model) != "" && strings.TrimSpace(c.APIKey) != ""
-}
-
-func (c *Config) Resolve(provider, model string) {
-	provider = strings.TrimSpace(strings.ToLower(provider))
-	model = strings.TrimSpace(model)
-	for name, mc := range c.Models {
-		if strings.TrimSpace(strings.ToLower(mc.Provider)) != provider {
-			continue
-		}
-		if model != "" && strings.TrimSpace(mc.Model) != model {
-			continue
-		}
-		c.ActiveModel = name
-		c.useModel(mc)
-		if model != "" {
-			c.Model = model
-			c.Active.Model = model
-		}
-		return
-	}
-	for _, opt := range Detect() {
-		if opt.Provider != provider {
-			continue
-		}
-		c.ActiveModel = ""
-		c.Provider = opt.Provider
-		c.Model = blank(model, opt.Model)
-		c.APIKey = opt.APIKey
-		c.BaseURL = opt.BaseURL
-		c.Active = ModelConfig{
-			Provider:      c.Provider,
-			Model:         c.Model,
-			APIKey:        c.APIKey,
-			BaseURL:       c.BaseURL,
-			Headers:       cloneHeaders(c.Headers),
-			MaxTokens:     c.MaxTokens,
-			ContextWindow: 0,
-			Reasoning:     c.Reasoning,
-		}
-		return
-	}
-	c.ActiveModel = ""
-	c.Provider = provider
-	if model != "" {
-		c.Model = model
-	}
-	c.Active = ModelConfig{
-		Provider:      c.Provider,
-		Model:         c.Model,
-		APIKey:        c.expandKey(c.APIKey),
-		BaseURL:       c.BaseURL,
-		Headers:       cloneHeaders(c.Headers),
-		MaxTokens:     c.MaxTokens,
-		ContextWindow: 0,
-		Reasoning:     c.Reasoning,
-	}
-}
-
-func (c *Config) ResolveActive() bool {
-	if c.ActiveModel != "" {
-		if mc, ok := c.Models[c.ActiveModel]; ok {
-			c.useModel(mc)
-			return true
-		}
-	}
-	if c.Default != "" {
-		if mc, ok := c.Models[c.Default]; ok {
-			c.ActiveModel = c.Default
-			c.useModel(mc)
-			return true
-		}
-	}
-	if c.Provider != "" && c.Model != "" {
-		c.Active = ModelConfig{
-			Provider:      c.Provider,
-			Model:         c.Model,
-			APIKey:        c.expandKey(c.APIKey),
-			BaseURL:       c.BaseURL,
-			Headers:       cloneHeaders(c.Headers),
-			MaxTokens:     max(c.MaxTokens, 4096),
-			ContextWindow: 0,
-			Reasoning:     c.Reasoning,
-		}
-		c.syncActive()
-		return true
-	}
-	if len(c.Models) == 0 {
-		return false
-	}
-	names := make([]string, 0, len(c.Models))
-	for name := range c.Models {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	c.ActiveModel = names[0]
-	if c.Default == "" {
-		c.Default = c.ActiveModel
-	}
-	c.useModel(c.Models[c.ActiveModel])
-	return true
 }
 
 func (c Config) DataRoot() string {
@@ -407,47 +294,26 @@ func (c *Config) applyDetected() {
 }
 
 func (c *Config) applyEnv() {
-	if v := os.Getenv("MINK_PROVIDER"); v != "" {
-		c.Provider = v
-	}
-	if v := os.Getenv("MINK_MODEL"); v != "" {
-		c.Model = v
-	}
-	if v := os.Getenv("MINK_API_KEY"); v != "" {
-		c.APIKey = v
-	}
-	if v := os.Getenv("MINK_BASE_URL"); v != "" {
-		c.BaseURL = v
-	}
-	if v := os.Getenv("MINK_RUNTIME"); v != "" {
-		c.Runtime = v
-	}
-	if v := os.Getenv("MINK_DATA_DIR"); v != "" {
-		c.DataDir = v
-	}
-	if v := os.Getenv("MINK_SOUL_PATH"); v != "" {
-		c.SoulPath = v
-	}
-	if v := os.Getenv("MINK_WEB_ADDR"); v != "" {
-		c.WebAddr = v
-	}
-	if v := os.Getenv("TELEGRAM_TOKEN"); v != "" {
-		c.Telegram.Token = v
-	}
-	if v := os.Getenv("MINK_TELEGRAM_TOKEN"); v != "" {
-		c.Telegram.Token = v
-	}
-	if v := os.Getenv("MINK_TELEGRAM_MENTION_MODE"); v != "" {
-		c.Telegram.MentionMode = v
-	}
-	if v := os.Getenv("MINK_TELEGRAM_SESSION_SCOPE"); v != "" {
-		c.Telegram.SessionScope = v
-	}
-	if v := os.Getenv("BRAVE_SEARCH_API_KEY"); v != "" {
-		c.BraveSearch.APIKey = v
-	}
-	if v := os.Getenv("MINK_BRAVE_SEARCH_API_KEY"); v != "" {
-		c.BraveSearch.APIKey = v
+	applyEnv(&c.Provider, "MINK_PROVIDER")
+	applyEnv(&c.Model, "MINK_MODEL")
+	applyEnv(&c.APIKey, "MINK_API_KEY")
+	applyEnv(&c.BaseURL, "MINK_BASE_URL")
+	applyEnv(&c.Runtime, "MINK_RUNTIME")
+	applyEnv(&c.DataDir, "MINK_DATA_DIR")
+	applyEnv(&c.SoulPath, "MINK_SOUL_PATH")
+	applyEnv(&c.WebAddr, "MINK_WEB_ADDR")
+	applyEnv(&c.Telegram.Token, "TELEGRAM_TOKEN", "MINK_TELEGRAM_TOKEN")
+	applyEnv(&c.Telegram.MentionMode, "MINK_TELEGRAM_MENTION_MODE")
+	applyEnv(&c.Telegram.SessionScope, "MINK_TELEGRAM_SESSION_SCOPE")
+	applyEnv(&c.BraveSearch.APIKey, "BRAVE_SEARCH_API_KEY", "MINK_BRAVE_SEARCH_API_KEY")
+}
+
+func applyEnv(dst *string, keys ...string) {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			*dst = v
+			return
+		}
 	}
 }
 

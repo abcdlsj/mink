@@ -2,12 +2,9 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
@@ -65,19 +62,9 @@ func New(cfg config.Config) (*App, error) {
 	a.router = command.NewRouter(a.cmds)
 	a.skills = skill.NewLoader(cfg.Workspace)
 	skill.RegisterTools(a.tools, a.skills)
-	if cfg.Ready() {
-		provider, err := llm.NewProvider(llm.Config{
-			Provider:  cfg.Provider,
-			APIKey:    cfg.APIKey,
-			BaseURL:   cfg.BaseURL,
-			Model:     cfg.Model,
-			Headers:   cfg.Headers,
-			MaxTokens: cfg.MaxTokens,
-		})
-		if err != nil {
-			return nil, err
-		}
-		a.provider = provider
+	a.provider, err = newProvider(cfg)
+	if err != nil {
+		return nil, err
 	}
 	a.RegisterRuntime("native", agent.NewNative)
 	a.registerBuiltinCommands()
@@ -150,166 +137,6 @@ func (a *App) Bus() *bus.Bus {
 
 func (a *App) Config() config.Config {
 	return a.cfg
-}
-
-func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {
-	return a.handleInput(ctx, source, a.cfg.Runtime, input)
-}
-
-func (a *App) HandleInputWithRuntime(ctx context.Context, source, runtime, input string) (string, error) {
-	return a.handleInput(ctx, source, runtime, input)
-}
-
-func (a *App) handleInput(ctx context.Context, source, runtime, input string) (string, error) {
-	ctx = command.WithSource(ctx, source)
-	if out, ok, err := a.router.Route(ctx, input); ok {
-		a.bus.Publish(bus.Event{
-			Type:   bus.CommandHandled,
-			Source: source,
-			Text:   strings.TrimSpace(out),
-			Err:    errString(err),
-		})
-		return out, err
-	}
-	if command.IsCommand(input) {
-		out, ok, err := a.runShellShortcut(ctx, source, input)
-		if ok {
-			a.bus.Publish(bus.Event{
-				Type:   bus.CommandHandled,
-				Source: source,
-				Text:   strings.TrimSpace(out),
-				Err:    errString(err),
-			})
-			return out, err
-		}
-	}
-	s, err := a.sessions.Current(source)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(runtime) == "" {
-		runtime = a.cfg.Runtime
-	}
-	if err := a.autoCompact(ctx, source, runtime, s); err != nil {
-		return "", err
-	}
-	f := a.runtimes[runtime]
-	if f == nil {
-		f = a.runtimes["native"]
-	}
-	if f == nil {
-		return "", fmt.Errorf("runtime not found: %s", runtime)
-	}
-	rt, err := f(&agent.RuntimeEnv{
-		Provider:             a.provider,
-		Tools:                a.tools,
-		Workspace:            a.cfg.Workspace,
-		SoulPath:             a.cfg.ResolvedSoulPath(),
-		Prompt:               a.cfg.Prompt,
-		TelegramMentionMode:  a.cfg.Telegram.MentionMode,
-		TelegramSessionScope: a.cfg.Telegram.SessionScope,
-		MaxSteps:             8,
-	})
-	if err != nil {
-		return "", err
-	}
-	a.bus.Publish(bus.Event{Type: bus.TurnStarted, Source: source, SessionID: s.ID})
-	err = rt.Run(ctx, &agent.Turn{
-		Source:  source,
-		Input:   input,
-		Session: s,
-		Bus:     a.bus,
-	})
-	if err != nil {
-		a.bus.Publish(bus.Event{Type: bus.TurnError, Source: source, SessionID: s.ID, Err: err.Error()})
-		return "", err
-	}
-	if err := a.sessions.Save(s); err != nil {
-		return "", err
-	}
-	a.bus.Publish(bus.Event{Type: bus.SessionUpdated, Source: source, SessionID: s.ID})
-	a.bus.Publish(bus.Event{Type: bus.TurnFinished, Source: source, SessionID: s.ID})
-	for i := len(s.Messages) - 1; i >= 0; i-- {
-		if s.Messages[i].Role == "assistant" {
-			return s.Messages[i].Content, nil
-		}
-	}
-	return "", nil
-}
-
-func (a *App) runShellShortcut(ctx context.Context, source, input string) (string, bool, error) {
-	cmd := strings.TrimSpace(strings.TrimPrefix(input, "!"))
-	if cmd == "" {
-		return "", false, nil
-	}
-	if a.tools.Get("bash") == nil {
-		return "", false, nil
-	}
-	args, _ := json.Marshal(map[string]string{"cmd": cmd})
-	id := uuid.New().String()[:8]
-	a.bus.Publish(bus.Event{
-		Type:       bus.ToolCallStarted,
-		Source:     source,
-		ToolCallID: id,
-		Tool:       "bash",
-		Input:      string(args),
-	})
-	out, err := a.tools.Run(ctx, "bash", args)
-	if err != nil {
-		a.bus.Publish(bus.Event{
-			Type:       bus.ToolCallFailed,
-			Source:     source,
-			ToolCallID: id,
-			Tool:       "bash",
-			Input:      string(args),
-			Output:     out,
-			Err:        err.Error(),
-		})
-		return out, true, err
-	}
-	a.bus.Publish(bus.Event{
-		Type:       bus.ToolCallFinished,
-		Source:     source,
-		ToolCallID: id,
-		Tool:       "bash",
-		Input:      string(args),
-		Output:     out,
-	})
-	return out, true, nil
-}
-
-func (a *App) switchModel(provider, model string) error {
-	next := a.cfg
-	next.Resolve(provider, model)
-	if !next.Ready() {
-		return fmt.Errorf("provider %s is not configured", provider)
-	}
-	p, err := llm.NewProvider(llm.Config{
-		Provider:  next.Provider,
-		APIKey:    next.APIKey,
-		BaseURL:   next.BaseURL,
-		Model:     next.Model,
-		Headers:   next.Headers,
-		MaxTokens: next.MaxTokens,
-	})
-	if err != nil {
-		return err
-	}
-	a.cfg = next
-	a.provider = p
-	a.bus.Publish(bus.Event{
-		Type:   bus.ModelChanged,
-		Source: "system",
-		Text:   a.currentModel(),
-	})
-	return nil
-}
-
-func (a *App) currentModel() string {
-	if a.cfg.Provider == "" {
-		return "(unconfigured)"
-	}
-	return a.cfg.Provider + " / " + a.cfg.Model
 }
 
 func (a *App) registerBuiltinCommands() {

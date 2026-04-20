@@ -3,21 +3,15 @@ package external
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os/exec"
-	"sort"
 	"strings"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
 )
 
 type Driver struct {
@@ -71,15 +65,6 @@ type Runtime struct {
 	workspace string
 }
 
-type runState struct {
-	assistant strings.Builder
-	reasoning strings.Builder
-	order     []string
-	toolCalls map[string]msg.ToolCall
-	toolOut   map[string]string
-	streamed  bool
-}
-
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	prompt := r.buildPrompt(turn)
 	addUser(turn.Session, turn.Input)
@@ -118,8 +103,7 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	}()
 
 	st := runState{
-		toolCalls: map[string]msg.ToolCall{},
-		toolOut:   map[string]string{},
+		calls: map[string]toolCallState{},
 	}
 	scanner := bufio.NewScanner(stdout)
 	const maxLine = 10 * 1024 * 1024
@@ -146,8 +130,7 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		return err
 	}
 	<-errCh
-	addAssistant(turn.Session, st.assistant.String(), st.reasoning.String(), st.toolCalls, st.order)
-	addToolResults(turn.Session, st.toolCalls, st.toolOut, st.order)
+	st.flush(turn.Session)
 	return nil
 }
 
@@ -164,152 +147,21 @@ func (r *Runtime) buildPrompt(turn *agent.Turn) string {
 func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {
 	switch m.Type {
 	case MsgStreamChunk:
-		st.assistant.WriteString(m.Text)
-		st.streamed = true
-		publish(turn, bus.Event{
-			Type:      bus.TurnChunk,
-			Source:    turn.Source,
-			SessionID: turn.Session.ID,
-			Text:      m.Text,
-		})
+		st.onStream(turn, m.Text)
 	case MsgAssistantText:
-		st.assistant.WriteString(m.Text)
-		if !st.streamed {
-			publish(turn, bus.Event{
-				Type:      bus.TurnChunk,
-				Source:    turn.Source,
-				SessionID: turn.Session.ID,
-				Text:      m.Text,
-			})
-		}
+		st.onAssistant(turn, m.Text)
 	case MsgThinkingChunk:
 		st.reasoning.WriteString(m.Text)
 	case MsgToolCall:
-		if m.ToolID == "" {
-			m.ToolID = uuid.New().String()[:8]
-		}
-		if _, ok := st.toolCalls[m.ToolID]; !ok {
-			st.order = append(st.order, m.ToolID)
-		}
-		st.toolCalls[m.ToolID] = msg.ToolCall{
-			ID:   m.ToolID,
-			Name: m.ToolName,
-			Args: json.RawMessage(m.ToolArgs),
-		}
-		publish(turn, bus.Event{
-			Type:       bus.ToolCallStarted,
-			Source:     turn.Source,
-			SessionID:  turn.Session.ID,
-			ToolCallID: m.ToolID,
-			Tool:       m.ToolName,
-			Input:      m.ToolArgs,
-		})
+		st.onToolCall(turn, m)
 	case MsgToolResult:
-		st.toolOut[m.ToolID] = m.Text
-		tc := st.toolCalls[m.ToolID]
-		publish(turn, bus.Event{
-			Type:       bus.ToolCallFinished,
-			Source:     turn.Source,
-			SessionID:  turn.Session.ID,
-			ToolCallID: m.ToolID,
-			Tool:       tc.Name,
-			Input:      string(tc.Args),
-			Output:     m.Text,
-		})
+		st.onToolResult(turn, m)
 	case MsgError:
-		err := m.Error
-		if err == nil && m.Text != "" {
-			err = errors.New(m.Text)
-		}
-		if err == nil {
-			err = fmt.Errorf("%s runtime failed", name)
-		}
-		publish(turn, bus.Event{
-			Type:      bus.TurnError,
-			Source:    turn.Source,
-			SessionID: turn.Session.ID,
-			Err:       err.Error(),
-		})
+		err := wrapMessageError(name, m)
+		publish(turn, bus.Event{Type: bus.TurnError, Err: err.Error()})
 		return err
 	}
 	return nil
-}
-
-func addUser(s *session.Session, input string) {
-	if s == nil || strings.TrimSpace(input) == "" {
-		return
-	}
-	s.Add(msg.Message{
-		ID:        uuid.New().String()[:8],
-		Role:      "user",
-		Content:   input,
-		Timestamp: time.Now(),
-	})
-}
-
-func addAssistant(s *session.Session, text, reasoning string, calls map[string]msg.ToolCall, order []string) {
-	if strings.TrimSpace(text) == "" && len(calls) == 0 {
-		return
-	}
-	var list []msg.ToolCall
-	if len(calls) > 0 {
-		list = make([]msg.ToolCall, 0, len(calls))
-		for _, id := range stableIDs(order, calls) {
-			list = append(list, calls[id])
-		}
-	}
-	s.Add(msg.Message{
-		ID:        uuid.New().String()[:8],
-		Role:      "assistant",
-		Content:   text,
-		Reasoning: reasoning,
-		ToolCalls: list,
-		Timestamp: time.Now(),
-	})
-}
-
-func addToolResults(s *session.Session, calls map[string]msg.ToolCall, outs map[string]string, order []string) {
-	if len(outs) == 0 {
-		return
-	}
-	results := make([]msg.ToolResult, 0, len(outs))
-	for _, id := range stableIDs(order, calls) {
-		out, ok := outs[id]
-		if !ok {
-			continue
-		}
-		results = append(results, msg.ToolResult{
-			ToolCallID: id,
-			Content:    out,
-		})
-	}
-	if len(results) == 0 {
-		return
-	}
-	s.Add(msg.Message{
-		ID:          uuid.New().String()[:8],
-		Role:        "tool",
-		ToolResults: results,
-		Timestamp:   time.Now(),
-	})
-}
-
-func stableIDs(order []string, calls map[string]msg.ToolCall) []string {
-	if len(order) != 0 {
-		out := make([]string, 0, len(order))
-		for _, id := range order {
-			if _, ok := calls[id]; ok {
-				out = append(out, id)
-			}
-		}
-		return out
-	}
-	out := make([]string, 0, len(calls))
-	for id := range calls {
-		out = append(out, id)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func publish(turn *agent.Turn, ev bus.Event) {

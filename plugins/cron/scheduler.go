@@ -1,0 +1,81 @@
+package cron
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	robcron "github.com/robfig/cron/v3"
+)
+
+func (s *scheduler) Start(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.c != nil {
+		return nil
+	}
+	c := robcron.New()
+	if err := s.load(c); err != nil {
+		return err
+	}
+	s.c = c
+	s.c.Start()
+	go s.stopOnDone(ctx)
+	return nil
+}
+
+func (s *scheduler) stopOnDone(ctx context.Context) {
+	<-ctx.Done()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.c == nil {
+		return
+	}
+	s.c.Stop()
+	s.c = nil
+}
+
+func (s *scheduler) Reload() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.c == nil {
+		return nil
+	}
+	for _, e := range s.c.Entries() {
+		s.c.Remove(e.ID)
+	}
+	return s.load(s.c)
+}
+
+func (s *scheduler) load(c *robcron.Cron) error {
+	tasks, err := loadTasks(s.path)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if !task.Enabled {
+			continue
+		}
+		task := task
+		if _, err := c.AddFunc(task.Schedule, func() {
+			if _, err := s.app.HandleInput(context.Background(), task.Source, task.Prompt); err != nil {
+				s.app.PublishNotice(task.Source, fmt.Sprintf("[cron %s] error: %s", task.ID, err))
+			}
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validSchedule(v string) error {
+	_, err := robcron.ParseStandard(v)
+	if err != nil {
+		return fmt.Errorf("invalid cron expression: %w", err)
+	}
+	return nil
+}
+
+func newTaskID() string {
+	return fmt.Sprintf("cron-%d", time.Now().UnixNano())
+}

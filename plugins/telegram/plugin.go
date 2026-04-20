@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/mink/config"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -18,66 +19,21 @@ func Plugin() app.Plugin {
 }
 
 func run(ctx context.Context, a *app.App, args []string) error {
-	token := strings.TrimSpace(a.Config().Telegram.Token)
+	cfg := a.Config().Telegram
+	token := strings.TrimSpace(cfg.Token)
 	if token == "" {
 		return fmt.Errorf("telegram token is not configured")
 	}
-	pref := tele.Settings{
+	bot, err := tele.NewBot(tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 10 * time.Second},
-	}
-	bot, err := tele.NewBot(pref)
+	})
 	if err != nil {
 		return err
 	}
 	ap := newApprover(bot)
 	a.SetToolApprover(ap)
-
-	bot.Handle(tele.OnCallback, func(c tele.Context) error {
-		if ap.handleCallback(c) {
-			return nil
-		}
-		return nil
-	})
-
-	bot.Handle(tele.OnText, func(c tele.Context) error {
-		msg := c.Message()
-		if msg == nil || msg.Chat == nil {
-			return nil
-		}
-		text := strings.TrimSpace(c.Text())
-		if text == "" {
-			return nil
-		}
-		if ap.handleText(c) {
-			return nil
-		}
-		if !shouldHandle(a.Config().Telegram.MentionMode, bot.Me.Username, msg, text) {
-			return nil
-		}
-		src := source(a.Config().Telegram.SessionScope, msg.Chat.ID, msg.ThreadID)
-		switch text {
-		case "/new":
-			if _, err := a.NewSession(src); err != nil {
-				return c.Send("error: " + err.Error())
-			}
-			return c.Send("started a new session")
-		case "/model":
-			return c.Send(a.CurrentModel())
-		}
-
-		done := make(chan struct{})
-		go typingLoop(c, done)
-		out, err := a.HandleInput(ctx, src, stripMention(bot.Me.Username, text))
-		close(done)
-		if err != nil {
-			return c.Send("error: " + err.Error())
-		}
-		if strings.TrimSpace(out) == "" {
-			out = "ok"
-		}
-		return sendOutput(bot, c, out)
-	})
+	wireHandlers(ctx, a, bot, ap, cfg)
 
 	go func() {
 		<-ctx.Done()
@@ -87,6 +43,61 @@ func run(ctx context.Context, a *app.App, args []string) error {
 	fmt.Println("telegram bot started")
 	bot.Start()
 	return nil
+}
+
+func wireHandlers(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cfg config.TelegramConfig) {
+	bot.Handle(tele.OnCallback, func(c tele.Context) error {
+		ap.handleCallback(c)
+		return nil
+	})
+	bot.Handle(tele.OnText, func(c tele.Context) error {
+		return handleText(ctx, a, bot, ap, cfg, c)
+	})
+}
+
+func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cfg config.TelegramConfig, c tele.Context) error {
+	msg := c.Message()
+	if msg == nil || msg.Chat == nil {
+		return nil
+	}
+	text := strings.TrimSpace(c.Text())
+	if text == "" || ap.handleText(c) {
+		return nil
+	}
+	if !shouldHandle(cfg.MentionMode, bot.Me.Username, msg, text) {
+		return nil
+	}
+	src := source(cfg.SessionScope, msg.Chat.ID, msg.ThreadID)
+	if out, ok, err := handleTelegramCommand(a, src, text); ok {
+		if err != nil {
+			return c.Send("error: " + err.Error())
+		}
+		return c.Send(out)
+	}
+
+	done := make(chan struct{})
+	go typingLoop(c, done)
+	out, err := a.HandleInput(ctx, src, stripMention(bot.Me.Username, text))
+	close(done)
+	if err != nil {
+		return c.Send("error: " + err.Error())
+	}
+	if strings.TrimSpace(out) == "" {
+		out = "ok"
+	}
+	return sendOutput(bot, c, out)
+}
+
+func handleTelegramCommand(a *app.App, src, text string) (string, bool, error) {
+	switch text {
+	case "/new":
+		_, err := a.NewSession(src)
+		return "started a new session", true, err
+	case "/model":
+		return a.CurrentModel(), true, nil
+	default:
+		return "", false, nil
+	}
 }
 
 func typingLoop(c tele.Context, done <-chan struct{}) {
