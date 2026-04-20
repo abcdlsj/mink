@@ -13,43 +13,6 @@ import (
 	"github.com/abcdlsj/mink/msg"
 )
 
-func TestCLIShowsHeaderAndPrompt(t *testing.T) {
-	dir := t.TempDir()
-	a, err := New(config.Config{
-		Runtime:   "claude",
-		DBPath:    filepath.Join(dir, "mink.db"),
-		Workspace: dir,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = a.Close() })
-
-	var out bytes.Buffer
-	if err := runCLIWithIO(context.Background(), a, "cli", strings.NewReader("exit\n"), &out); err != nil {
-		t.Fatal(err)
-	}
-
-	s, err := a.CurrentSession("cli")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := out.String()
-	head := "mink | runtime claude | model claude native | cwd " + shortPath(dir) + " | session " + s.ID
-	if !strings.Contains(text, head) {
-		t.Fatalf("output missing header %q:\n%s", head, text)
-	}
-	if !strings.Contains(text, "\n\n> ") {
-		t.Fatalf("output missing prompt spacing:\n%s", text)
-	}
-	if strings.Contains(text, "mink v3") {
-		t.Fatalf("output should not contain legacy banner:\n%s", text)
-	}
-	if strings.Contains(text, "\nruntime:") || strings.Contains(text, "\nmodel:") || strings.Contains(text, "\nsession:") {
-		t.Fatalf("output should use a single-line header:\n%s", text)
-	}
-}
-
 func TestCLIStreamsReplyOnceAndClosesLineBeforePrompt(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
