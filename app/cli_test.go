@@ -35,20 +35,18 @@ func TestCLIShowsHeaderAndPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	for _, want := range []string{
-		"mink\n",
-		"runtime: claude\n",
-		"model: claude native\n",
-		"cwd: " + dir + "\n",
-		"session: " + s.ID + "\n",
-		"\n> ",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("output missing %q:\n%s", want, text)
-		}
+	head := "mink | runtime claude | model claude native | cwd " + shortPath(dir) + " | session " + s.ID
+	if !strings.Contains(text, head) {
+		t.Fatalf("output missing header %q:\n%s", head, text)
+	}
+	if !strings.Contains(text, "\n\n> ") {
+		t.Fatalf("output missing prompt spacing:\n%s", text)
 	}
 	if strings.Contains(text, "mink v3") {
 		t.Fatalf("output should not contain legacy banner:\n%s", text)
+	}
+	if strings.Contains(text, "\nruntime:") || strings.Contains(text, "\nmodel:") || strings.Contains(text, "\nsession:") {
+		t.Fatalf("output should use a single-line header:\n%s", text)
 	}
 }
 

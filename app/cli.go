@@ -124,7 +124,7 @@ type cliUI struct {
 
 func (u *cliUI) header() {
 	st := u.state()
-	fmt.Fprintf(u.out, "mink\nruntime: %s\nmodel: %s\ncwd: %s\nsession: %s\n\n", st.Runtime, st.Model, st.Cwd, st.Session)
+	fmt.Fprintf(u.out, "mink | runtime %s | model %s | cwd %s | session %s\n\n", st.Runtime, st.Model, st.Cwd, st.Session)
 }
 
 func (u *cliUI) prompt() {
@@ -199,7 +199,7 @@ func (u *cliUI) state() cliState {
 	return cliState{
 		Runtime: rt,
 		Model:   model,
-		Cwd:     filepath.Clean(ws),
+		Cwd:     shortPath(filepath.Clean(ws)),
 		Session: sid,
 	}
 }
@@ -209,4 +209,18 @@ type cliState struct {
 	Model   string
 	Cwd     string
 	Session string
+}
+
+func shortPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if strings.HasPrefix(path, home+"/") {
+		return "~/" + strings.TrimPrefix(path, home+"/")
+	}
+	return path
 }
