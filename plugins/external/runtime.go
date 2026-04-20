@@ -69,6 +69,15 @@ type Runtime struct {
 	workspace string
 }
 
+type runState struct {
+	assistant strings.Builder
+	reasoning strings.Builder
+	order     []string
+	toolCalls map[string]msg.ToolCall
+	toolOut   map[string]string
+	streamed  bool
+}
+
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	prompt := turn.Input
 	if r.driver.FormatHistory != nil {
@@ -114,11 +123,10 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		errCh <- strings.TrimSpace(string(data))
 	}()
 
-	var assistant strings.Builder
-	var reasoning strings.Builder
-	var order []string
-	toolCalls := map[string]msg.ToolCall{}
-	toolOut := map[string]string{}
+	st := runState{
+		toolCalls: map[string]msg.ToolCall{},
+		toolOut:   map[string]string{},
+	}
 	scanner := bufio.NewScanner(stdout)
 	const maxLine = 10 * 1024 * 1024
 	buf := make([]byte, 0, 64*1024)
@@ -129,63 +137,7 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		if m == nil {
 			continue
 		}
-		switch m.Type {
-		case MsgAssistantText, MsgStreamChunk:
-			assistant.WriteString(m.Text)
-			publish(turn, bus.Event{
-				Type:      bus.TurnChunk,
-				Source:    turn.Source,
-				SessionID: turn.Session.ID,
-				Text:      m.Text,
-			})
-		case MsgThinkingChunk:
-			reasoning.WriteString(m.Text)
-		case MsgToolCall:
-			if m.ToolID == "" {
-				m.ToolID = uuid.New().String()[:8]
-			}
-			if _, ok := toolCalls[m.ToolID]; !ok {
-				order = append(order, m.ToolID)
-			}
-			toolCalls[m.ToolID] = msg.ToolCall{
-				ID:   m.ToolID,
-				Name: m.ToolName,
-				Args: json.RawMessage(m.ToolArgs),
-			}
-			publish(turn, bus.Event{
-				Type:       bus.ToolCallStarted,
-				Source:     turn.Source,
-				SessionID:  turn.Session.ID,
-				ToolCallID: m.ToolID,
-				Tool:       m.ToolName,
-				Input:      m.ToolArgs,
-			})
-		case MsgToolResult:
-			toolOut[m.ToolID] = m.Text
-			tc := toolCalls[m.ToolID]
-			publish(turn, bus.Event{
-				Type:       bus.ToolCallFinished,
-				Source:     turn.Source,
-				SessionID:  turn.Session.ID,
-				ToolCallID: m.ToolID,
-				Tool:       tc.Name,
-				Input:      string(tc.Args),
-				Output:     m.Text,
-			})
-		case MsgError:
-			err := m.Error
-			if err == nil && m.Text != "" {
-				err = errors.New(m.Text)
-			}
-			if err == nil {
-				err = fmt.Errorf("%s runtime failed", r.driver.Name)
-			}
-			publish(turn, bus.Event{
-				Type:      bus.TurnError,
-				Source:    turn.Source,
-				SessionID: turn.Session.ID,
-				Err:       err.Error(),
-			})
+		if err := handleMessage(r.driver.Name, turn, &st, m); err != nil {
 			return err
 		}
 	}
@@ -200,8 +152,82 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		return err
 	}
 	<-errCh
-	addAssistant(turn.Session, assistant.String(), reasoning.String(), toolCalls, order)
-	addToolResults(turn.Session, toolCalls, toolOut, order)
+	addAssistant(turn.Session, st.assistant.String(), st.reasoning.String(), st.toolCalls, st.order)
+	addToolResults(turn.Session, st.toolCalls, st.toolOut, st.order)
+	return nil
+}
+
+func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {
+	switch m.Type {
+	case MsgStreamChunk:
+		st.assistant.WriteString(m.Text)
+		st.streamed = true
+		publish(turn, bus.Event{
+			Type:      bus.TurnChunk,
+			Source:    turn.Source,
+			SessionID: turn.Session.ID,
+			Text:      m.Text,
+		})
+	case MsgAssistantText:
+		st.assistant.WriteString(m.Text)
+		if !st.streamed {
+			publish(turn, bus.Event{
+				Type:      bus.TurnChunk,
+				Source:    turn.Source,
+				SessionID: turn.Session.ID,
+				Text:      m.Text,
+			})
+		}
+	case MsgThinkingChunk:
+		st.reasoning.WriteString(m.Text)
+	case MsgToolCall:
+		if m.ToolID == "" {
+			m.ToolID = uuid.New().String()[:8]
+		}
+		if _, ok := st.toolCalls[m.ToolID]; !ok {
+			st.order = append(st.order, m.ToolID)
+		}
+		st.toolCalls[m.ToolID] = msg.ToolCall{
+			ID:   m.ToolID,
+			Name: m.ToolName,
+			Args: json.RawMessage(m.ToolArgs),
+		}
+		publish(turn, bus.Event{
+			Type:       bus.ToolCallStarted,
+			Source:     turn.Source,
+			SessionID:  turn.Session.ID,
+			ToolCallID: m.ToolID,
+			Tool:       m.ToolName,
+			Input:      m.ToolArgs,
+		})
+	case MsgToolResult:
+		st.toolOut[m.ToolID] = m.Text
+		tc := st.toolCalls[m.ToolID]
+		publish(turn, bus.Event{
+			Type:       bus.ToolCallFinished,
+			Source:     turn.Source,
+			SessionID:  turn.Session.ID,
+			ToolCallID: m.ToolID,
+			Tool:       tc.Name,
+			Input:      string(tc.Args),
+			Output:     m.Text,
+		})
+	case MsgError:
+		err := m.Error
+		if err == nil && m.Text != "" {
+			err = errors.New(m.Text)
+		}
+		if err == nil {
+			err = fmt.Errorf("%s runtime failed", name)
+		}
+		publish(turn, bus.Event{
+			Type:      bus.TurnError,
+			Source:    turn.Source,
+			SessionID: turn.Session.ID,
+			Err:       err.Error(),
+		})
+		return err
+	}
 	return nil
 }
 
