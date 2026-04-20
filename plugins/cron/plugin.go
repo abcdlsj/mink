@@ -44,7 +44,7 @@ func Plugin() app.Plugin {
 	return func(a *app.App) error {
 		s := &scheduler{
 			app:  a,
-			path: filepath.Join(filepath.Dir(a.Config().DBPath), "cron.json"),
+			path: a.Config().CronPath(),
 		}
 		a.RegisterTool(&toolImpl{s: s})
 		a.RegisterService("cron", func(ctx context.Context, _ *app.App) error {

@@ -17,7 +17,7 @@ func TestCLIStreamsReplyOnceAndClosesLineBeforePrompt(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DBPath:    filepath.Join(dir, "mink.db"),
+		DataDir:   filepath.Join(dir, "mink-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -56,7 +56,7 @@ func TestCLIFallsBackToReturnedReplyWhenNoChunksArrive(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DBPath:    filepath.Join(dir, "mink.db"),
+		DataDir:   filepath.Join(dir, "mink-data"),
 		Workspace: dir,
 	})
 	if err != nil {

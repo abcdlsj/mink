@@ -14,7 +14,7 @@ func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DBPath:    filepath.Join(dir, "mink.db"),
+		DataDir:   filepath.Join(dir, "mink-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -43,7 +43,7 @@ func TestHandleInputReturnsLatestAssistant(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DBPath:    filepath.Join(dir, "mink.db"),
+		DataDir:   filepath.Join(dir, "mink-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -76,7 +76,7 @@ func TestHandleInputRunsBangCommandAsShellShortcut(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "native",
-		DBPath:    filepath.Join(dir, "mink.db"),
+		DataDir:   filepath.Join(dir, "mink-data"),
 		Workspace: dir,
 	})
 	if err != nil {

@@ -18,7 +18,7 @@ func Plugin() app.Plugin {
 }
 
 func run(ctx context.Context, a *app.App, args []string) error {
-	token := strings.TrimSpace(a.Config().TelegramToken)
+	token := strings.TrimSpace(a.Config().Telegram.Token)
 	if token == "" {
 		return fmt.Errorf("telegram token is not configured")
 	}
@@ -40,10 +40,10 @@ func run(ctx context.Context, a *app.App, args []string) error {
 		if text == "" {
 			return nil
 		}
-		if !shouldHandle(a.Config().TelegramMentionMode, bot.Me.Username, msg, text) {
+		if !shouldHandle(a.Config().Telegram.MentionMode, bot.Me.Username, msg, text) {
 			return nil
 		}
-		src := source(a.Config().TelegramSessionScope, msg.Chat.ID, msg.ThreadID)
+		src := source(a.Config().Telegram.SessionScope, msg.Chat.ID, msg.ThreadID)
 		switch text {
 		case "/new":
 			if _, err := a.NewSession(src); err != nil {

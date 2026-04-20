@@ -24,7 +24,7 @@ type brave struct {
 
 func Plugin() app.Plugin {
 	return func(a *app.App) error {
-		key := strings.TrimSpace(a.Config().BraveSearchAPIKey)
+		key := strings.TrimSpace(a.Config().BraveSearch.APIKey)
 		if key == "" {
 			return nil
 		}

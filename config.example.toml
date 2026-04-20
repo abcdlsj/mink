@@ -1,12 +1,23 @@
-provider = "openai"
-model = "gpt-4.1-mini"
+active_model = "main"
+default_model = "main"
+runtime = "codex"
 web_addr = "127.0.0.1:7788"
 
+[api_keys]
+OPENAI_API_KEY = "${OPENAI_API_KEY}"
+
+[models.main]
+provider = "openai"
+model = "gpt-4.1-mini"
+api_key = "OPENAI_API_KEY"
+
 # Optional.
+# data_dir = "/path/to/.mink"
 # workspace = "/path/to/repo"
-# db_path = "/path/to/mink.db"
 # prompt = "Project-specific system prompt"
-# telegram_token = "..."
-# telegram_mention_mode = "always"
-# telegram_session_scope = "chat"
-# brave_search_api_key = "..."
+# [telegram]
+# token = "..."
+# mention_mode = "always"
+# session_scope = "chat"
+# [brave_search]
+# api_key = "..."

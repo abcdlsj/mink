@@ -8,10 +8,10 @@ Mink v3 is a clean rewrite around a small agent core and simple plugins.
 - `agent/`: native runtime
 - `bus/`: event bus for facts, not orchestration
 - `command/`: `!help`, `!model`, `!session`
-- `config/`: zero-config detection plus optional TOML
+- `config/`: zero-config detection plus structured TOML
 - `llm/`: native providers
 - `plugins/`: pluggable runtimes and services
-- `session/` + `store/`: durable conversation state
+- `session/` + `store/`: text-based conversation state
 - `tool/`: builtin tools
 
 ## Rules
@@ -74,18 +74,31 @@ Runtime defaults to:
 If you want explicit config, use `~/.mink/config.toml`:
 
 ```toml
+active_model = "main"
+default_model = "main"
+web_addr = "127.0.0.1:7788"
+
+[api_keys]
+OPENAI_API_KEY = "${OPENAI_API_KEY}"
+
+[models.main]
 provider = "openai"
 model = "gpt-4.1-mini"
-web_addr = "127.0.0.1:7788"
+api_key = "OPENAI_API_KEY"
 ```
 
 Optional plugin config:
 
 ```toml
-telegram_token = "..."
-telegram_mention_mode = "always"
-telegram_session_scope = "chat"
-brave_search_api_key = "..."
+data_dir = "~/.mink"
+
+[telegram]
+token = "..."
+mention_mode = "always"
+session_scope = "chat"
+
+[brave_search]
+api_key = "..."
 ```
 
 ## Run
@@ -107,7 +120,6 @@ Extra entrypoints:
 go run ./cmd/mink web
 go run ./cmd/mink tg
 go run ./cmd/mink version
-go run ./cmd/mink mcp-bridge --sock /path/to/socket
 ```
 
 Useful commands and tools:

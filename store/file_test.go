@@ -9,7 +9,7 @@ import (
 )
 
 func TestRoundTripSession(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "mink.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "mink-data"))
 	if err != nil {
 		t.Fatal(err)
 	}

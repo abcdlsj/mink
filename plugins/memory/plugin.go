@@ -2,18 +2,19 @@ package memory
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abcdlsj/mink/app"
 	"github.com/abcdlsj/mink/command"
-	_ "modernc.org/sqlite"
 )
 
 type scope struct {
@@ -29,14 +30,17 @@ type doc struct {
 	Body      string
 	Summary   string
 	Kind      string
-	Tags      string
+	Tags      []string
 	Source    string
+	Path      string
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 type store struct {
-	sql       *sql.DB
+	root      string
 	workspace string
+	mu        sync.Mutex
 }
 
 type readArgs struct {
@@ -68,8 +72,7 @@ const saveUsageText = "usage: !memory save [scope] <title> :: <body>"
 
 func Plugin() app.Plugin {
 	return func(a *app.App) error {
-		path := filepath.Join(filepath.Dir(a.Config().DBPath), "memory.db")
-		s, err := open(path, a.Workspace())
+		s, err := open(a.Config().MemoryDir(), a.Workspace())
 		if err != nil {
 			return err
 		}
@@ -81,88 +84,81 @@ func Plugin() app.Plugin {
 	}
 }
 
-func open(path, workspace string) (*store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func open(root, workspace string) (*store, error) {
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	s := &store{sql: db, workspace: workspace}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS docs (
-		id TEXT PRIMARY KEY,
-		scope_kind TEXT NOT NULL,
-		scope_key TEXT NOT NULL,
-		title TEXT NOT NULL,
-		body TEXT NOT NULL,
-		summary TEXT NOT NULL,
-		kind TEXT NOT NULL,
-		tags TEXT NOT NULL,
-		source TEXT NOT NULL,
-		created_at TEXT NOT NULL
-	)`); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return s, nil
+	return &store{root: root, workspace: workspace}, nil
 }
 
 func (s *store) put(ctx context.Context, sc scope, d doc) (doc, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if strings.TrimSpace(d.ID) == "" {
 		d.ID = fmt.Sprintf("mem-%d", time.Now().UnixNano())
 	}
+	now := time.Now().UTC()
 	if d.CreatedAt.IsZero() {
-		d.CreatedAt = time.Now()
+		d.CreatedAt = now
 	}
-	if _, err := s.sql.ExecContext(ctx, `
-		INSERT INTO docs (id, scope_kind, scope_key, title, body, summary, kind, tags, source, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, d.ID, sc.Kind, sc.Key, d.Title, d.Body, d.Summary, blank(d.Kind, "note"), d.Tags, d.Source, d.CreatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
-		return doc{}, err
-	}
+	d.UpdatedAt = now
 	d.ScopeKind = sc.Kind
 	d.ScopeKey = sc.Key
+	if strings.TrimSpace(d.Kind) == "" {
+		d.Kind = "note"
+	}
+	if strings.TrimSpace(d.Summary) == "" {
+		d.Summary = summarize(d.Body, 140)
+	}
+	path := filepath.Join(scopeDir(s.root, sc), slug(d.Title, d.ID)+".md")
+	d.Path = path
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return doc{}, err
+	}
+	if err := writeFile(path, []byte(renderDoc(d))); err != nil {
+		return doc{}, err
+	}
 	return d, nil
 }
 
 func (s *store) recent(ctx context.Context, sc scope, limit int) ([]doc, error) {
-	rows, err := s.sql.QueryContext(ctx, `
-		SELECT id, scope_kind, scope_key, title, body, summary, kind, tags, source, created_at
-		FROM docs WHERE scope_kind = ? AND scope_key = ?
-		ORDER BY created_at DESC LIMIT ?
-	`, sc.Kind, sc.Key, limit)
+	docs, err := s.loadScope(sc)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	return scan(rows)
+	sort.Slice(docs, func(i, j int) bool {
+		return docs[i].UpdatedAt.After(docs[j].UpdatedAt)
+	})
+	if len(docs) > limit {
+		docs = docs[:limit]
+	}
+	return docs, nil
 }
 
 func (s *store) search(ctx context.Context, scopes []scope, q string, limit int) ([]doc, error) {
-	q = "%" + strings.TrimSpace(q) + "%"
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil, nil
+	}
 	var out []doc
 	seen := map[string]bool{}
 	for _, sc := range scopes {
-		rows, err := s.sql.QueryContext(ctx, `
-			SELECT id, scope_kind, scope_key, title, body, summary, kind, tags, source, created_at
-			FROM docs
-			WHERE scope_kind = ? AND scope_key = ? AND (title LIKE ? OR body LIKE ? OR summary LIKE ?)
-			ORDER BY created_at DESC LIMIT ?
-		`, sc.Kind, sc.Key, q, q, q, limit)
+		docs, err := s.loadScope(sc)
 		if err != nil {
 			return nil, err
 		}
-		docs, err := scan(rows)
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
+		sort.Slice(docs, func(i, j int) bool {
+			return docs[i].UpdatedAt.After(docs[j].UpdatedAt)
+		})
 		for _, d := range docs {
-			if seen[d.ID] {
+			if seen[d.Path] {
 				continue
 			}
-			seen[d.ID] = true
+			text := strings.ToLower(strings.Join([]string{d.Title, d.Summary, d.Body}, "\n"))
+			if !strings.Contains(text, q) {
+				continue
+			}
+			seen[d.Path] = true
 			out = append(out, d)
 			if len(out) >= limit {
 				return out, nil
@@ -172,18 +168,230 @@ func (s *store) search(ctx context.Context, scopes []scope, q string, limit int)
 	return out, nil
 }
 
-func scan(rows *sql.Rows) ([]doc, error) {
-	var out []doc
-	for rows.Next() {
-		var d doc
-		var created string
-		if err := rows.Scan(&d.ID, &d.ScopeKind, &d.ScopeKey, &d.Title, &d.Body, &d.Summary, &d.Kind, &d.Tags, &d.Source, &created); err != nil {
-			return nil, err
+func (s *store) loadScope(sc scope) ([]doc, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	root := scopeDir(s.root, sc)
+	if _, err := os.Stat(root); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
 		}
-		d.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-		out = append(out, d)
+		return nil, err
 	}
-	return out, rows.Err()
+	var out []doc
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || filepath.Ext(path) != ".md" {
+			return nil
+		}
+		doc, err := loadDoc(path, sc)
+		if err != nil {
+			return err
+		}
+		out = append(out, doc)
+		return nil
+	})
+	return out, err
+}
+
+func loadDoc(path string, sc scope) (doc, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return doc{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return doc{}, err
+	}
+	body := string(data)
+	head := ""
+	if strings.HasPrefix(body, "---\n") {
+		rest := body[4:]
+		if i := strings.Index(rest, "\n---\n"); i >= 0 {
+			head = rest[:i]
+			body = rest[i+5:]
+		}
+	}
+	d := doc{
+		ID:        strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
+		ScopeKind: sc.Kind,
+		ScopeKey:  sc.Key,
+		Path:      path,
+		Body:      strings.TrimSpace(body),
+		CreatedAt: info.ModTime().UTC(),
+		UpdatedAt: info.ModTime().UTC(),
+		Kind:      "note",
+	}
+	parseFrontmatter(&d, head)
+	if d.Title == "" {
+		d.Title = firstHeading(d.Body)
+	}
+	if d.Title == "" {
+		d.Title = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	}
+	if d.Summary == "" {
+		d.Summary = summarize(d.Body, 160)
+	}
+	return d, nil
+}
+
+func renderDoc(d doc) string {
+	var b strings.Builder
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "title: %s\n", quote(d.Title))
+	fmt.Fprintf(&b, "kind: %s\n", quote(d.Kind))
+	if d.Source != "" {
+		fmt.Fprintf(&b, "source: %s\n", quote(d.Source))
+	}
+	if d.Summary != "" {
+		fmt.Fprintf(&b, "summary: %s\n", quote(d.Summary))
+	}
+	if len(d.Tags) > 0 {
+		b.WriteString("tags:\n")
+		for _, tag := range d.Tags {
+			fmt.Fprintf(&b, "  - %s\n", quote(tag))
+		}
+	}
+	fmt.Fprintf(&b, "updated_at: %s\n", d.UpdatedAt.Format(time.RFC3339Nano))
+	b.WriteString("---\n\n")
+	b.WriteString("# ")
+	b.WriteString(strings.TrimSpace(d.Title))
+	b.WriteString("\n\n")
+	b.WriteString(strings.TrimSpace(d.Body))
+	if !strings.HasSuffix(d.Body, "\n") {
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func parseFrontmatter(d *doc, head string) {
+	if strings.TrimSpace(head) == "" {
+		return
+	}
+	lines := strings.Split(head, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		if line == "tags:" {
+			for i+1 < len(lines) {
+				next := strings.TrimSpace(lines[i+1])
+				if !strings.HasPrefix(next, "- ") {
+					break
+				}
+				d.Tags = append(d.Tags, unquote(strings.TrimSpace(strings.TrimPrefix(next, "- "))))
+				i++
+			}
+			continue
+		}
+		key, val, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		val = unquote(strings.TrimSpace(val))
+		switch strings.TrimSpace(key) {
+		case "title":
+			d.Title = val
+		case "kind":
+			d.Kind = val
+		case "source":
+			d.Source = val
+		case "summary":
+			d.Summary = val
+		case "updated_at":
+			if ts, err := time.Parse(time.RFC3339Nano, val); err == nil {
+				d.UpdatedAt = ts
+			}
+		}
+	}
+}
+
+func firstHeading(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			return strings.TrimSpace(strings.TrimLeft(line, "#"))
+		}
+	}
+	return ""
+}
+
+func quote(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	return strconv.Quote(s)
+}
+
+func unquote(s string) string {
+	if v, err := strconv.Unquote(s); err == nil {
+		return v
+	}
+	return s
+}
+
+func scopeDir(root string, sc scope) string {
+	sc = normalizeScope(sc)
+	if sc.Key == "" {
+		return filepath.Join(root, sc.Kind)
+	}
+	return filepath.Join(root, sc.Kind, sanitize(sc.Key))
+}
+
+func sanitize(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "_"
+	}
+	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "\n", "_", "\t", "_")
+	return r.Replace(s)
+}
+
+func slug(title, fallback string) string {
+	title = strings.ToLower(strings.TrimSpace(title))
+	if title == "" {
+		return fallback
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case !lastDash:
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return fallback
+	}
+	return out
+}
+
+func writeFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return nil
 }
 
 func decode[T any](name string, args json.RawMessage, dst *T) error {
@@ -204,6 +412,7 @@ func (t *readTool) Schema() map[string]any {
 		"limit":      map[string]any{"type": "integer"},
 	}}
 }
+
 func (t *readTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var in readArgs
 	if err := decode("read_memory", args, &in); err != nil {
@@ -230,6 +439,7 @@ func (t *searchTool) Schema() map[string]any {
 		"limit":      map[string]any{"type": "integer"},
 	}, "required": []string{"query"}}
 }
+
 func (t *searchTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var in searchArgs
 	if err := decode("search_memory", args, &in); err != nil {
@@ -262,6 +472,7 @@ func (t *writeTool) Schema() map[string]any {
 		"tags":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	}, "required": []string{"title", "body"}}
 }
+
 func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var in writeArgs
 	if err := decode("write_memory", args, &in); err != nil {
@@ -276,7 +487,7 @@ func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 		Body:    strings.TrimSpace(in.Body),
 		Summary: blank(in.Summary, summarize(in.Body, 140)),
 		Kind:    blank(in.Kind, "note"),
-		Tags:    strings.Join(in.Tags, ","),
+		Tags:    in.Tags,
 		Source:  command.SourceFrom(ctx),
 	})
 	if err != nil {
@@ -289,6 +500,7 @@ type cmd struct{ s *store }
 
 func (c *cmd) Name() string { return "memory" }
 func (c *cmd) Desc() string { return "memory lookup and notes (!memory recent|search|save)" }
+
 func (c *cmd) Run(ctx context.Context, args []string) (string, error) {
 	if len(args) == 0 {
 		return usageText, nil
@@ -426,6 +638,15 @@ func resolveScope(src, kind, key, workspace string) scope {
 	}
 }
 
+func normalizeScope(sc scope) scope {
+	sc.Kind = strings.TrimSpace(sc.Kind)
+	sc.Key = strings.TrimSpace(sc.Key)
+	if sc.Kind == "" {
+		sc.Kind = "global"
+	}
+	return sc
+}
+
 func parseScope(src, raw, workspace string) scope {
 	raw = strings.TrimSpace(raw)
 	switch raw {
@@ -455,11 +676,7 @@ func render(mode string, scopes []scope, docs []doc) string {
 	if len(scopes) > 0 {
 		var parts []string
 		for _, sc := range scopes {
-			if sc.Key == "" {
-				parts = append(parts, sc.Kind)
-			} else {
-				parts = append(parts, sc.Kind+":"+sc.Key)
-			}
+			parts = append(parts, scopeText(sc))
 		}
 		sb.WriteString(" [")
 		sb.WriteString(strings.Join(parts, ", "))
@@ -483,10 +700,10 @@ func summarize(s string, n int) string {
 	if len(rs) <= n {
 		return s
 	}
-	if n <= 1 {
-		return "…"
+	if n <= 3 {
+		return "..."
 	}
-	return string(rs[:n-1]) + "…"
+	return string(rs[:n-3]) + "..."
 }
 
 func blank(s, fallback string) string {

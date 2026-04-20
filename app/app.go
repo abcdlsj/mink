@@ -28,7 +28,7 @@ type Service func(context.Context, *App) error
 type App struct {
 	cfg      config.Config
 	bus      *bus.Bus
-	store    *store.DB
+	store    *store.Store
 	provider llm.Provider
 	sessions *session.Manager
 	tools    *tool.Registry
@@ -41,7 +41,8 @@ type App struct {
 }
 
 func New(cfg config.Config) (*App, error) {
-	db, err := store.Open(cfg.DBPath)
+	cfg.Normalize()
+	db, err := store.Open(cfg.DataRoot())
 	if err != nil {
 		return nil, err
 	}
