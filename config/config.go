@@ -1,11 +1,10 @@
 package config
 
 import (
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -38,7 +37,6 @@ type Option struct {
 
 func Load() Config {
 	cfg := Config{
-		Runtime:   "native",
 		MaxTokens: 4096,
 		Headers:   map[string]string{},
 		WebAddr:   "127.0.0.1:7788",
@@ -53,7 +51,7 @@ func Load() Config {
 
 func (c *Config) Normalize() {
 	if c.Runtime == "" {
-		c.Runtime = "native"
+		c.Runtime = DetectRuntime()
 	}
 	if c.Workspace == "" {
 		c.Workspace, _ = os.Getwd()
@@ -160,16 +158,16 @@ func Detect() []Option {
 			BaseURL:  envOr("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
 		})
 	}
-	if host, ok := ollamaURL(); ok {
-		opts = append(opts, Option{
-			Provider: "openai",
-			Model:    envOr("MINK_OLLAMA_MODEL", envOr("MINK_MODEL", "qwen2.5-coder:latest")),
-			Source:   "ollama",
-			APIKey:   "ollama",
-			BaseURL:  host + "/v1",
-		})
-	}
 	return opts
+}
+
+func DetectRuntime() string {
+	for _, name := range []string{"claude", "codex"} {
+		if _, err := exec.LookPath(name); err == nil {
+			return name
+		}
+	}
+	return "native"
 }
 
 func (c *Config) applyDetected() {
@@ -238,18 +236,4 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
-}
-
-func ollamaURL() (string, bool) {
-	host := envOr("OLLAMA_HOST", "http://127.0.0.1:11434")
-	client := &http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Get(host + "/api/tags")
-	if err != nil {
-		return "", false
-	}
-	resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", false
-	}
-	return strings.TrimRight(host, "/"), true
 }

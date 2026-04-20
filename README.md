@@ -59,17 +59,21 @@ This keeps the core focused on direct agent execution while non-core features li
 
 ## Zero Config
 
-Mink auto-detects the first available backend from:
+Mink auto-detects the first available native model backend from:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `OPENROUTER_API_KEY`
-- local Ollama at `http://127.0.0.1:11434`
+
+Runtime defaults to:
+
+- `claude` when the `claude` CLI is available
+- `codex` when the `codex` CLI is available
+- `native` otherwise
 
 If you want explicit config, use `~/.mink/config.toml`:
 
 ```toml
-runtime = "native"
 provider = "openai"
 model = "gpt-4.1-mini"
 web_addr = "127.0.0.1:7788"
