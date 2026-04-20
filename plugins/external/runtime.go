@@ -59,6 +59,7 @@ func NewRuntime(driver Driver) agent.RuntimeFactory {
 		}
 		return &Runtime{
 			driver:    driver,
+			env:       env,
 			workspace: env.Workspace,
 		}, nil
 	}
@@ -66,6 +67,7 @@ func NewRuntime(driver Driver) agent.RuntimeFactory {
 
 type Runtime struct {
 	driver    Driver
+	env       *agent.RuntimeEnv
 	workspace string
 }
 
@@ -79,15 +81,7 @@ type runState struct {
 }
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
-	prompt := turn.Input
-	if r.driver.FormatHistory != nil {
-		msgs := turn.Session.Messages
-		if len(msgs) > 0 {
-			if h := strings.TrimSpace(r.driver.FormatHistory(msgs)); h != "" {
-				prompt = h + "\n\n" + turn.Input
-			}
-		}
-	}
+	prompt := r.buildPrompt(turn)
 	addUser(turn.Session, turn.Input)
 
 	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace)...)
@@ -155,6 +149,16 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	addAssistant(turn.Session, st.assistant.String(), st.reasoning.String(), st.toolCalls, st.order)
 	addToolResults(turn.Session, st.toolCalls, st.toolOut, st.order)
 	return nil
+}
+
+func (r *Runtime) buildPrompt(turn *agent.Turn) string {
+	var hist string
+	if r.driver.FormatHistory != nil && turn != nil && turn.Session != nil {
+		if msgs := turn.Session.Messages; len(msgs) > 0 {
+			hist = strings.TrimSpace(r.driver.FormatHistory(msgs))
+		}
+	}
+	return agent.BuildExternalPrompt(r.env, turn, hist)
 }
 
 func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {

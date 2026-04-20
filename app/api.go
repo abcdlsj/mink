@@ -5,6 +5,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/tool"
 )
 
 func (a *App) Workspace() string {
@@ -45,4 +46,37 @@ func (a *App) PublishNotice(source, text string) {
 		Source: source,
 		Text:   text,
 	})
+}
+
+func (a *App) ReplaySession(id string, limit int) ([]bus.Event, error) {
+	if a == nil || a.store == nil {
+		return nil, nil
+	}
+	return a.store.ReplaySession(id, limit)
+}
+
+func (a *App) ReplayTask(id string, limit int) ([]bus.Event, error) {
+	if a == nil || a.store == nil {
+		return nil, nil
+	}
+	return a.store.ReplayTask(id, limit)
+}
+
+func (a *App) SetToolGuard(g tool.Guard) {
+	if a == nil || a.tools == nil {
+		return
+	}
+	a.tools.SetGuard(g)
+}
+
+func (a *App) SetToolApprover(v tool.Approver) {
+	if a == nil || a.tools == nil {
+		return
+	}
+	type approverSetter interface {
+		SetApprover(tool.Approver)
+	}
+	if setter, ok := any(a.tools.Guard()).(approverSetter); ok {
+		setter.SetApprover(v)
+	}
 }

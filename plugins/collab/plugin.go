@@ -9,8 +9,15 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/msg"
+)
+
+const (
+	taskStarted  = "delegate.started"
+	taskFinished = "delegate.finished"
+	taskFailed   = "delegate.failed"
 )
 
 type manager struct {
@@ -102,6 +109,12 @@ func (m *manager) delegate(source, runtime, input string, share, direct bool) st
 	m.mu.Lock()
 	m.tasks[t.id] = t
 	m.mu.Unlock()
+	m.app.Bus().Publish(bus.Event{
+		Type:   taskStarted,
+		Source: source,
+		TaskID: t.id,
+		Text:   strings.TrimSpace(input),
+	})
 
 	go func() {
 		defer close(t.done)
@@ -110,6 +123,17 @@ func (m *manager) delegate(source, runtime, input string, share, direct bool) st
 		t.output = out
 		t.err = err
 		m.mu.Unlock()
+		ev := bus.Event{
+			Type:   taskFinished,
+			Source: source,
+			TaskID: t.id,
+			Output: out,
+		}
+		if err != nil {
+			ev.Type = taskFailed
+			ev.Err = err.Error()
+		}
+		m.app.Bus().Publish(ev)
 		if direct {
 			if err != nil {
 				m.app.PublishNotice(source, fmt.Sprintf("[%s] error: %s", t.id, err))
@@ -124,7 +148,7 @@ func (m *manager) delegate(source, runtime, input string, share, direct bool) st
 func (m *manager) wait(id string, timeout time.Duration) (string, error) {
 	t := m.task(id)
 	if t == nil {
-		return "", fmt.Errorf("task not found: %s", id)
+		return m.waitPersisted(id)
 	}
 	select {
 	case <-t.done:
@@ -137,6 +161,22 @@ func (m *manager) wait(id string, timeout time.Duration) (string, error) {
 		return "", t.err
 	}
 	return t.output, nil
+}
+
+func (m *manager) waitPersisted(id string) (string, error) {
+	evs, err := m.app.ReplayTask(id, 32)
+	if err != nil {
+		return "", err
+	}
+	for i := len(evs) - 1; i >= 0; i-- {
+		switch evs[i].Type {
+		case taskFinished:
+			return evs[i].Output, nil
+		case taskFailed:
+			return "", fmt.Errorf("%s", strings.TrimSpace(evs[i].Err))
+		}
+	}
+	return "", fmt.Errorf("task not found: %s", id)
 }
 
 func (m *manager) task(id string) *task {

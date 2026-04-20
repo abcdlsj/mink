@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 )
@@ -17,6 +18,7 @@ import (
 type Store struct {
 	path    string
 	current string
+	runlog  string
 	mu      sync.Mutex
 }
 
@@ -35,6 +37,7 @@ func Open(root string) (*Store, error) {
 	s := &Store{
 		path:    filepath.Join(root, "sessions.jsonl"),
 		current: filepath.Join(root, "state", "current_sessions.json"),
+		runlog:  filepath.Join(root, "runlog.jsonl"),
 	}
 	for _, dir := range []string{root, filepath.Dir(s.current)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -42,6 +45,9 @@ func Open(root string) (*Store, error) {
 		}
 	}
 	if err := touch(s.path); err != nil {
+		return nil, err
+	}
+	if err := touch(s.runlog); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -223,4 +229,87 @@ func writeFile(path string, data []byte) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) AppendEvent(ev bus.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	line, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.runlog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func (s *Store) ReplaySession(id string, limit int) ([]bus.Event, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	evs, err := s.loadEvents(func(ev bus.Event) bool {
+		return ev.SessionID == id
+	})
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(evs) > limit {
+		evs = evs[len(evs)-limit:]
+	}
+	return evs, nil
+}
+
+func (s *Store) ReplayTask(id string, limit int) ([]bus.Event, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+	evs, err := s.loadEvents(func(ev bus.Event) bool {
+		return ev.TaskID == id
+	})
+	if err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(evs) > limit {
+		evs = evs[len(evs)-limit:]
+	}
+	return evs, nil
+}
+
+func (s *Store) loadEvents(keep func(bus.Event) bool) ([]bus.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	f, err := os.Open(s.runlog)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	var out []bus.Event
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var ev bus.Event
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			return nil, err
+		}
+		if keep != nil && !keep(ev) {
+			continue
+		}
+		out = append(out, ev)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

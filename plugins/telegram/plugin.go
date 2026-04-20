@@ -30,6 +30,15 @@ func run(ctx context.Context, a *app.App, args []string) error {
 	if err != nil {
 		return err
 	}
+	ap := newApprover(bot)
+	a.SetToolApprover(ap)
+
+	bot.Handle(tele.OnCallback, func(c tele.Context) error {
+		if ap.handleCallback(c) {
+			return nil
+		}
+		return nil
+	})
 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		msg := c.Message()
@@ -38,6 +47,9 @@ func run(ctx context.Context, a *app.App, args []string) error {
 		}
 		text := strings.TrimSpace(c.Text())
 		if text == "" {
+			return nil
+		}
+		if ap.handleText(c) {
 			return nil
 		}
 		if !shouldHandle(a.Config().Telegram.MentionMode, bot.Me.Username, msg, text) {
@@ -64,7 +76,7 @@ func run(ctx context.Context, a *app.App, args []string) error {
 		if strings.TrimSpace(out) == "" {
 			out = "ok"
 		}
-		return sendLong(c, out)
+		return sendOutput(bot, c, out)
 	})
 
 	go func() {
@@ -90,10 +102,10 @@ func typingLoop(c tele.Context, done <-chan struct{}) {
 	}
 }
 
-func sendLong(c tele.Context, text string) error {
+func sendLong(c tele.Context, text string, opts ...interface{}) error {
 	parts := split(text, 3500)
 	for _, part := range parts {
-		if err := c.Send(part); err != nil {
+		if err := c.Send(part, opts...); err != nil {
 			return err
 		}
 	}

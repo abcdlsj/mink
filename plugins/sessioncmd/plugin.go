@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
@@ -225,19 +226,14 @@ func (c *replayCmd) Run(ctx context.Context, args []string) (string, error) {
 		}
 		n = v
 	}
-	msgs := s.Messages
-	if len(msgs) > n {
-		msgs = msgs[len(msgs)-n:]
+	evs, err := c.app.ReplaySession(s.ID, n)
+	if err != nil {
+		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Replay session %s (last %d events)\n", s.ID, len(msgs))
-	for _, m := range msgs {
-		ts := m.Timestamp.Format("15:04:05")
-		text := trim(primaryText(m), 96)
-		if text == "" {
-			text = "(empty)"
-		}
-		fmt.Fprintf(&b, "%s [%s] %s\n", ts, m.Role, text)
+	fmt.Fprintf(&b, "Replay session %s (last %d events)\n", s.ID, len(evs))
+	for _, ev := range evs {
+		fmt.Fprintf(&b, "%s [%s] %s\n", ev.Time.Format("15:04:05"), ev.Type, replayLine(ev))
 	}
 	return strings.TrimSpace(b.String()), nil
 }
@@ -342,6 +338,30 @@ func trim(s string, n int) string {
 		return "…"
 	}
 	return string(rs[:n-1]) + "…"
+}
+
+func replayLine(ev bus.Event) string {
+	parts := []string{}
+	if ev.Tool != "" {
+		parts = append(parts, ev.Tool)
+	}
+	if text := firstNonEmpty(ev.Text, ev.Output, ev.Input, ev.Err); text != "" {
+		parts = append(parts, trim(text, 96))
+	}
+	if len(parts) == 0 {
+		return "(empty)"
+	}
+	return strings.Join(parts, " ")
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func blank(s, fallback string) string {

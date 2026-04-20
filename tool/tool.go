@@ -20,9 +20,20 @@ type Tool interface {
 	Run(context.Context, json.RawMessage) (string, error)
 }
 
+type Call struct {
+	Tool   string
+	Action string
+	Args   json.RawMessage
+}
+
+type Guard interface {
+	Allow(context.Context, Call) (bool, error)
+}
+
 type Registry struct {
 	workspace string
 	tools     map[string]Tool
+	guard     Guard
 }
 
 func NewRegistry(workspace string) *Registry {
@@ -39,6 +50,17 @@ func NewRegistry(workspace string) *Registry {
 
 func (r *Registry) Register(t Tool) {
 	r.tools[t.Name()] = t
+}
+
+func (r *Registry) SetGuard(g Guard) {
+	r.guard = g
+}
+
+func (r *Registry) Guard() Guard {
+	if r == nil {
+		return nil
+	}
+	return r.guard
 }
 
 func (r *Registry) Get(name string) Tool {
@@ -78,7 +100,23 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) (
 	if t == nil {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+	if ok, err := r.allow(ctx, name, args); err != nil {
+		return "", err
+	} else if !ok {
+		return "cancelled", nil
+	}
 	return t.Run(ctx, args)
+}
+
+func (r *Registry) allow(ctx context.Context, name string, args json.RawMessage) (bool, error) {
+	if r == nil || r.guard == nil {
+		return true, nil
+	}
+	call, ok := guardedCall(r.workspace, name, args)
+	if !ok {
+		return true, nil
+	}
+	return r.guard.Allow(ctx, call)
 }
 
 type Read struct {
@@ -269,6 +307,45 @@ func guardCommand(cmd string) error {
 		}
 	}
 	return nil
+}
+
+func guardedCall(workspace, name string, args json.RawMessage) (Call, bool) {
+	switch name {
+	case "bash":
+		var in struct {
+			Cmd string `json:"cmd"`
+		}
+		if json.Unmarshal(args, &in) != nil || strings.TrimSpace(in.Cmd) == "" {
+			return Call{}, false
+		}
+		return Call{Tool: name, Action: "bash " + strings.TrimSpace(in.Cmd), Args: args}, true
+	case "read":
+		var in struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(args, &in) != nil {
+			return Call{}, false
+		}
+		return guardPathCall(workspace, name, in.Path, args)
+	case "write", "edit":
+		var in struct {
+			Path string `json:"path"`
+		}
+		if json.Unmarshal(args, &in) != nil {
+			return Call{}, false
+		}
+		return guardPathCall(workspace, name, in.Path, args)
+	default:
+		return Call{}, false
+	}
+}
+
+func guardPathCall(workspace, name, path string, args json.RawMessage) (Call, bool) {
+	path = resolvePath(workspace, path)
+	if strings.TrimSpace(path) == "" {
+		return Call{}, false
+	}
+	return Call{Tool: name, Action: name + " " + path, Args: args}, true
 }
 
 func objectSchema(parts ...map[string]any) map[string]any {

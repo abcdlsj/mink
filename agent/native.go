@@ -22,11 +22,14 @@ type Runtime interface {
 type RuntimeFactory func(*RuntimeEnv) (Runtime, error)
 
 type RuntimeEnv struct {
-	Provider  llm.Provider
-	Tools     *tool.Registry
-	Workspace string
-	Prompt    string
-	MaxSteps  int
+	Provider             llm.Provider
+	Tools                *tool.Registry
+	Workspace            string
+	SoulPath             string
+	Prompt               string
+	TelegramMentionMode  string
+	TelegramSessionScope string
+	MaxSteps             int
 }
 
 type Turn struct {
@@ -76,7 +79,7 @@ func (n *Native) Run(ctx context.Context, t *Turn) error {
 func (n *Native) runOnce(ctx context.Context, t *Turn) (*llm.Response, error) {
 	msgs := append([]msg.Message{{
 		Role:    "system",
-		Content: n.systemPrompt(t.Session),
+		Content: n.systemPrompt(t),
 	}}, t.Session.Messages...)
 
 	ch, err := n.env.Provider.ChatStream(ctx, msgs, n.env.Tools.Definitions())
@@ -178,21 +181,8 @@ func (n *Native) runOnce(ctx context.Context, t *Turn) (*llm.Response, error) {
 	return res, nil
 }
 
-func (n *Native) systemPrompt(s *session.Session) string {
-	var b strings.Builder
-	b.WriteString("You are Mink, a local coding agent.\n")
-	b.WriteString("Work directly and concisely.\n")
-	b.WriteString("Use tools when needed. Prefer read before edit. Keep changes within the workspace.\n")
-	if n.env.Workspace != "" {
-		b.WriteString("Workspace: " + n.env.Workspace + "\n")
-	}
-	if s != nil && strings.TrimSpace(s.Summary) != "" {
-		b.WriteString("Conversation summary:\n" + s.Summary + "\n")
-	}
-	if p := strings.TrimSpace(n.env.Prompt); p != "" {
-		b.WriteString(p + "\n")
-	}
-	return strings.TrimSpace(b.String())
+func (n *Native) systemPrompt(t *Turn) string {
+	return BuildSystemPrompt(n.env, t)
 }
 
 func (n *Native) publish(t *Turn, ev bus.Event) {
