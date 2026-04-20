@@ -7,7 +7,9 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.22.1
 	github.com/google/uuid v1.6.0
 	github.com/revrost/go-openrouter v1.1.6
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/sashabaranov/go-openai v1.41.2
+	gopkg.in/telebot.v4 v4.0.0-beta.7
 	modernc.org/sqlite v1.37.1
 )
 

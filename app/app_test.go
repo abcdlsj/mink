@@ -72,6 +72,27 @@ func TestHandleInputReturnsLatestAssistant(t *testing.T) {
 	}
 }
 
+func TestHandleInputRunsBangCommandAsShellShortcut(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "native",
+		DBPath:    filepath.Join(dir, "mink.db"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	out, err := a.HandleInput(context.Background(), "test", "!printf hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "hello" {
+		t.Fatalf("reply = %q, want %q", out, "hello")
+	}
+}
+
 type runtimeFunc func(context.Context, *agent.Turn) error
 
 func (f runtimeFunc) Run(ctx context.Context, turn *agent.Turn) error {

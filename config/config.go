@@ -11,16 +11,21 @@ import (
 )
 
 type Config struct {
-	Provider  string            `toml:"provider"`
-	Model     string            `toml:"model"`
-	APIKey    string            `toml:"api_key"`
-	BaseURL   string            `toml:"base_url"`
-	Runtime   string            `toml:"runtime"`
-	DBPath    string            `toml:"db_path"`
-	Workspace string            `toml:"workspace"`
-	Prompt    string            `toml:"prompt"`
-	MaxTokens int               `toml:"max_tokens"`
-	Headers   map[string]string `toml:"headers"`
+	Provider             string            `toml:"provider"`
+	Model                string            `toml:"model"`
+	APIKey               string            `toml:"api_key"`
+	BaseURL              string            `toml:"base_url"`
+	Runtime              string            `toml:"runtime"`
+	DBPath               string            `toml:"db_path"`
+	Workspace            string            `toml:"workspace"`
+	Prompt               string            `toml:"prompt"`
+	MaxTokens            int               `toml:"max_tokens"`
+	Headers              map[string]string `toml:"headers"`
+	WebAddr              string            `toml:"web_addr"`
+	TelegramToken        string            `toml:"telegram_token"`
+	TelegramMentionMode  string            `toml:"telegram_mention_mode"`
+	TelegramSessionScope string            `toml:"telegram_session_scope"`
+	BraveSearchAPIKey    string            `toml:"brave_search_api_key"`
 }
 
 type Option struct {
@@ -36,6 +41,7 @@ func Load() Config {
 		Runtime:   "native",
 		MaxTokens: 4096,
 		Headers:   map[string]string{},
+		WebAddr:   "127.0.0.1:7788",
 	}
 	if path := ConfigPath(); path != "" {
 		_, _ = toml.DecodeFile(path, &cfg)
@@ -57,6 +63,27 @@ func (c *Config) Normalize() {
 	}
 	if c.MaxTokens == 0 {
 		c.MaxTokens = 4096
+	}
+	if c.WebAddr == "" {
+		c.WebAddr = "127.0.0.1:7788"
+	}
+	switch strings.TrimSpace(strings.ToLower(c.TelegramMentionMode)) {
+	case "", "always":
+		c.TelegramMentionMode = "always"
+	case "smart":
+		c.TelegramMentionMode = "smart"
+	case "mention_only":
+		c.TelegramMentionMode = "mention_only"
+	default:
+		c.TelegramMentionMode = "always"
+	}
+	switch strings.TrimSpace(strings.ToLower(c.TelegramSessionScope)) {
+	case "", "chat":
+		c.TelegramSessionScope = "chat"
+	case "thread":
+		c.TelegramSessionScope = "thread"
+	default:
+		c.TelegramSessionScope = "chat"
 	}
 	if c.Provider == "" || c.Model == "" || c.APIKey == "" {
 		c.applyDetected()
@@ -180,8 +207,29 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("MINK_RUNTIME"); v != "" {
 		c.Runtime = v
 	}
+	if v := os.Getenv("MINK_WEB_ADDR"); v != "" {
+		c.WebAddr = v
+	}
 	if v := os.Getenv("MINK_DB_PATH"); v != "" {
 		c.DBPath = v
+	}
+	if v := os.Getenv("TELEGRAM_TOKEN"); v != "" {
+		c.TelegramToken = v
+	}
+	if v := os.Getenv("MINK_TELEGRAM_TOKEN"); v != "" {
+		c.TelegramToken = v
+	}
+	if v := os.Getenv("MINK_TELEGRAM_MENTION_MODE"); v != "" {
+		c.TelegramMentionMode = v
+	}
+	if v := os.Getenv("MINK_TELEGRAM_SESSION_SCOPE"); v != "" {
+		c.TelegramSessionScope = v
+	}
+	if v := os.Getenv("BRAVE_SEARCH_API_KEY"); v != "" {
+		c.BraveSearchAPIKey = v
+	}
+	if v := os.Getenv("MINK_BRAVE_SEARCH_API_KEY"); v != "" {
+		c.BraveSearchAPIKey = v
 	}
 }
 

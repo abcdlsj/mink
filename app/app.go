@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
@@ -144,6 +147,14 @@ func (a *App) Config() config.Config {
 }
 
 func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {
+	return a.handleInput(ctx, source, a.cfg.Runtime, input)
+}
+
+func (a *App) HandleInputWithRuntime(ctx context.Context, source, runtime, input string) (string, error) {
+	return a.handleInput(ctx, source, runtime, input)
+}
+
+func (a *App) handleInput(ctx context.Context, source, runtime, input string) (string, error) {
 	ctx = command.WithSource(ctx, source)
 	if out, ok, err := a.router.Route(ctx, input); ok {
 		a.bus.Publish(bus.Event{
@@ -154,16 +165,31 @@ func (a *App) HandleInput(ctx context.Context, source, input string) (string, er
 		})
 		return out, err
 	}
+	if command.IsCommand(input) {
+		out, ok, err := a.runShellShortcut(ctx, source, input)
+		if ok {
+			a.bus.Publish(bus.Event{
+				Type:   bus.CommandHandled,
+				Source: source,
+				Text:   strings.TrimSpace(out),
+				Err:    errString(err),
+			})
+			return out, err
+		}
+	}
 	s, err := a.sessions.Current(source)
 	if err != nil {
 		return "", err
 	}
-	f := a.runtimes[a.cfg.Runtime]
+	if strings.TrimSpace(runtime) == "" {
+		runtime = a.cfg.Runtime
+	}
+	f := a.runtimes[runtime]
 	if f == nil {
 		f = a.runtimes["native"]
 	}
 	if f == nil {
-		return "", fmt.Errorf("runtime not found: %s", a.cfg.Runtime)
+		return "", fmt.Errorf("runtime not found: %s", runtime)
 	}
 	rt, err := f(&agent.RuntimeEnv{
 		Provider:  a.provider,
@@ -197,6 +223,47 @@ func (a *App) HandleInput(ctx context.Context, source, input string) (string, er
 		}
 	}
 	return "", nil
+}
+
+func (a *App) runShellShortcut(ctx context.Context, source, input string) (string, bool, error) {
+	cmd := strings.TrimSpace(strings.TrimPrefix(input, "!"))
+	if cmd == "" {
+		return "", false, nil
+	}
+	if a.tools.Get("bash") == nil {
+		return "", false, nil
+	}
+	args, _ := json.Marshal(map[string]string{"cmd": cmd})
+	id := uuid.New().String()[:8]
+	a.bus.Publish(bus.Event{
+		Type:       bus.ToolCallStarted,
+		Source:     source,
+		ToolCallID: id,
+		Tool:       "bash",
+		Input:      string(args),
+	})
+	out, err := a.tools.Run(ctx, "bash", args)
+	if err != nil {
+		a.bus.Publish(bus.Event{
+			Type:       bus.ToolCallFailed,
+			Source:     source,
+			ToolCallID: id,
+			Tool:       "bash",
+			Input:      string(args),
+			Output:     out,
+			Err:        err.Error(),
+		})
+		return out, true, err
+	}
+	a.bus.Publish(bus.Event{
+		Type:       bus.ToolCallFinished,
+		Source:     source,
+		ToolCallID: id,
+		Tool:       "bash",
+		Input:      string(args),
+		Output:     out,
+	})
+	return out, true, nil
 }
 
 func (a *App) switchModel(provider, model string) error {

@@ -21,3 +21,13 @@ Current runtime plugins:
 - `plugins/external`
 
 `plugins/external` is a thin adapter for line-oriented JSON agent CLIs. Provider-specific parsing belongs in the leaf plugin, not in core.
+
+Current feature plugins:
+
+- `plugins/background`
+- `plugins/collab`
+- `plugins/cron`
+- `plugins/memory`
+- `plugins/search`
+- `plugins/telegram`
+- `plugins/web`

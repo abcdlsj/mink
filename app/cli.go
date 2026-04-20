@@ -52,6 +52,12 @@ func runCLI(ctx context.Context, a *App, args []string) error {
 					open = false
 				}
 				fmt.Printf("error: %s\n", ev.Err)
+			case bus.ServiceNotice:
+				if open {
+					fmt.Println()
+					open = false
+				}
+				fmt.Println(ev.Text)
 			}
 		}
 	}()
