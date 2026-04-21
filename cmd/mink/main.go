@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/mink/cli"
 	"github.com/abcdlsj/mink/config"
 	pluginsbackground "github.com/abcdlsj/mink/plugins/background"
 	pluginsclaude "github.com/abcdlsj/mink/plugins/claude"
@@ -40,6 +41,7 @@ func main() {
 		fail(err)
 	}
 	defer a.Close()
+	a.RegisterEntrypoint("cli", cli.Run)
 	if err := a.Use(plugins()...); err != nil {
 		fail(err)
 	}

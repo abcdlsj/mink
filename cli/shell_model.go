@@ -1,4 +1,4 @@
-package app
+package cli
 
 import (
 	"context"
@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/abcdlsj/mink/app"
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/textutil"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -70,7 +72,7 @@ type shellSpan struct {
 
 type shellModel struct {
 	ctx    context.Context
-	app    *App
+	app    *app.App
 	source string
 
 	width  int
@@ -94,7 +96,7 @@ type shellModel struct {
 	follow   bool
 }
 
-func newShellModel(ctx context.Context, a *App, source string) shellModel {
+func newShellModel(ctx context.Context, a *app.App, source string) shellModel {
 	in := textarea.New()
 	in.Prompt = ""
 	in.Placeholder = "Ask Mink anything. Use !command for local commands."
@@ -274,7 +276,10 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	m.input.SetHeight(4)
 	m.busy = true
 	m.toolItems = map[string]shellToolRef{}
-	m.turn = shellTurn{assistantIndex: -1}
+	m.turn = shellTurn{
+		assistantIndex: -1,
+		commandHandled: command.IsCommand(text),
+	}
 	m.addItem(chatItem{
 		Kind: itemUser,
 		Time: time.Now(),
@@ -320,15 +325,7 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 			return
 		}
 		if m.turn.toolCount == 0 && strings.TrimSpace(ev.Text) != "" {
-			m.addItem(chatItem{
-				Kind: itemNotice,
-				Time: eventTime(ev),
-				Segments: []chatSegment{{
-					Kind: segText,
-					Text: ev.Text,
-					Time: eventTime(ev),
-				}},
-			})
+			m.appendAssistantAt(eventTime(ev), ev.Text)
 		}
 	case bus.ServiceNotice:
 		m.addItem(chatItem{
@@ -406,6 +403,10 @@ func (m *shellModel) addItem(item chatItem) int {
 }
 
 func (m *shellModel) appendAssistant(text string) {
+	m.appendAssistantAt(time.Now(), text)
+}
+
+func (m *shellModel) appendAssistantAt(t time.Time, text string) {
 	text = textutil.Valid(text)
 	if text == "" {
 		return
@@ -413,7 +414,7 @@ func (m *shellModel) appendAssistant(text string) {
 	if m.turn.assistantIndex < 0 {
 		m.turn.assistantIndex = m.addItem(chatItem{
 			Kind: itemAssistant,
-			Time: time.Now(),
+			Time: t,
 		})
 	}
 	item := m.items[m.turn.assistantIndex]
@@ -649,7 +650,7 @@ type cliState struct {
 }
 
 func (m *shellModel) state() cliState {
-	rt := strings.TrimSpace(m.app.cfg.Runtime)
+	rt := strings.TrimSpace(m.app.Config().Runtime)
 	if rt == "" {
 		rt = "native"
 	}

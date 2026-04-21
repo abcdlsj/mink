@@ -65,7 +65,6 @@ func New(cfg config.Config) (*App, error) {
 	}
 	a.RegisterRuntime("native", agent.NewNative)
 	a.registerBuiltinCommands()
-	a.RegisterEntrypoint("cli", runCLI)
 	return a, nil
 }
 

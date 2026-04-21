@@ -1,14 +1,15 @@
-package app
+package cli
 
 import (
 	"context"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/abcdlsj/mink/app"
 	"github.com/abcdlsj/mink/bus"
 )
 
-func runCLI(ctx context.Context, a *App, args []string) error {
+func Run(ctx context.Context, a *app.App, args []string) error {
 	ui, err := newShell(ctx, a, "cli")
 	if err != nil {
 		return err
@@ -19,7 +20,7 @@ func runCLI(ctx context.Context, a *App, args []string) error {
 type shell struct {
 	ctx    context.Context
 	stop   context.CancelFunc
-	app    *App
+	app    *app.App
 	source string
 
 	events <-chan bus.Event
@@ -29,7 +30,7 @@ type shell struct {
 	program  *tea.Program
 }
 
-func newShell(ctx context.Context, a *App, source string) (*shell, error) {
+func newShell(ctx context.Context, a *app.App, source string) (*shell, error) {
 	events, cancel := a.Bus().Subscribe(256)
 	runCtx, stop := context.WithCancel(ctx)
 	s := &shell{

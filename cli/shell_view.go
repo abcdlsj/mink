@@ -1,4 +1,4 @@
-package app
+package cli
 
 import (
 	"fmt"
@@ -71,15 +71,13 @@ var shellTheme = struct {
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func (m shellModel) renderHeader() string {
-	st := m.state()
 	state := "idle"
 	if m.busy {
 		state = shellSpin[m.spinner%len(shellSpin)] + " running"
 	}
 	title := shellTheme.TitleChip.Render("Mink")
 	line1 := lipgloss.JoinHorizontal(lipgloss.Left, title, shellTheme.HeaderMeta.Render("  "+state))
-	line2 := shellTheme.HeaderMeta.Render(fmt.Sprintf("runtime %s   cwd %s", st.Runtime, st.Cwd))
-	return shellTheme.Header.Width(m.width).Render(line1 + "\n" + line2)
+	return shellTheme.Header.Width(m.width).Render(line1)
 }
 
 func (m shellModel) renderTranscript() string {
@@ -103,9 +101,12 @@ func (m shellModel) renderFooter() string {
 	if m.overlay == overlayApproval {
 		return shellTheme.Footer.Width(m.width).Render("Approve with y / a / n. Press Esc to deny.")
 	}
-	left := shellTheme.Meta.Render("model ") + shellTheme.BadgeMuted.Render(st.Model)
-	right := shellTheme.Meta.Render("session ") + shellTheme.BadgeMuted.Render(st.Session)
-	return shellTheme.Footer.Width(m.width).Render(lipgloss.JoinHorizontal(lipgloss.Left, left, "   ", right))
+	model := shellTheme.Meta.Render("model ") + shellTheme.BadgeMuted.Render(st.Model)
+	session := shellTheme.Meta.Render("session ") + shellTheme.BadgeMuted.Render(st.Session)
+	cwd := shellTheme.Meta.Render("cwd ") + shellTheme.BadgeMuted.Render(st.Cwd)
+	return shellTheme.Footer.Width(m.width).Render(
+		lipgloss.JoinHorizontal(lipgloss.Left, model, "   ", session, "   ", cwd),
+	)
 }
 
 func (m shellModel) renderItem(item *chatItem, idx int) []string {
@@ -157,7 +158,7 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 		return nil
 	}
 	if len(segs) == 1 {
-		return []string{"", m.renderToolLine(segs[0], selected)}
+		return []string{"", m.renderToolLine(segs[0], selected), ""}
 	}
 	var done, failed, running int
 	counts := map[string]int{}
@@ -197,7 +198,7 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 	if selected {
 		line = shellTheme.SelectedBody.Render(line)
 	}
-	return []string{"", line}
+	return []string{"", line, ""}
 }
 
 func (m shellModel) approvalBody() string {
