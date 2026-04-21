@@ -21,7 +21,7 @@ Replace the line-based CLI with a full-screen TUI that keeps runtime logic uncha
 - `Inspector`
   - Details for the selected transcript item: raw tool args, full output, reasoning, raw event metadata.
 - `Input`
-  - Multi-line input using `tview.TextArea`.
+  - Multi-line input using a dedicated composer state built on `bubbletea`.
 - `Modal`
   - Tool approval requests, help, session picker, confirm dialogs.
 
