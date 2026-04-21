@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,9 +28,7 @@ type shellOverlay int
 
 const (
 	overlayNone shellOverlay = iota
-	overlayDetail
 	overlayApproval
-	overlayHelp
 )
 
 type shellBusMsg struct {
@@ -59,6 +58,11 @@ type shellTurn struct {
 	toolCount      int
 }
 
+type shellToolRef struct {
+	Item int
+	Seg  int
+}
+
 type shellSpan struct {
 	Start int
 	End   int
@@ -77,12 +81,13 @@ type shellModel struct {
 
 	items     []*chatItem
 	spans     []shellSpan
-	toolItems map[string]int
+	toolItems map[string]shellToolRef
 	approvals []*approvalRequest
 	turn      shellTurn
 
 	focus    shellFocus
 	overlay  shellOverlay
+	expanded int
 	selected int
 	spinner  int
 	busy     bool
@@ -95,6 +100,10 @@ func newShellModel(ctx context.Context, a *App, source string) shellModel {
 	in.Placeholder = "Ask Mink anything. Use !command for local commands."
 	in.ShowLineNumbers = false
 	in.SetHeight(4)
+	in.KeyMap.InsertNewline = key.NewBinding(
+		key.WithKeys("ctrl+j"),
+		key.WithHelp("ctrl+j", "newline"),
+	)
 	in.FocusedStyle.Base = in.FocusedStyle.Base.BorderStyle(shellTheme.NoBorder)
 	in.BlurredStyle.Base = in.BlurredStyle.Base.BorderStyle(shellTheme.NoBorder)
 	in.FocusedStyle.Text = shellTheme.Text
@@ -114,9 +123,10 @@ func newShellModel(ctx context.Context, a *App, source string) shellModel {
 		source:    source,
 		viewport:  vp,
 		input:     in,
-		toolItems: map[string]int{},
+		toolItems: map[string]shellToolRef{},
 		turn:      shellTurn{assistantIndex: -1},
 		focus:     focusComposer,
+		expanded:  -1,
 		selected:  -1,
 		follow:    true,
 	}
@@ -178,12 +188,8 @@ func (m shellModel) View() string {
 		),
 	)
 	switch m.overlay {
-	case overlayDetail:
-		return m.renderOverlay(base, "Details", m.detailBody())
 	case overlayApproval:
 		return m.renderOverlay(base, "Approval", m.approvalBody())
-	case overlayHelp:
-		return m.renderOverlay(base, "Keys", m.helpBody())
 	default:
 		return base
 	}
@@ -197,30 +203,20 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.handleApprovalKey(msg.String())
 		return *m, m.nextTick()
 	}
-	if m.overlay == overlayDetail || m.overlay == overlayHelp {
-		switch msg.String() {
-		case "esc", "ctrl+o", "ctrl+g":
-			m.overlay = overlayNone
-		}
-		return *m, m.nextTick()
-	}
 
 	switch msg.String() {
 	case "tab":
 		return m.toggleFocus()
 	case "ctrl+o":
 		if len(m.items) > 0 {
-			m.overlay = overlayDetail
+			m.toggleExpanded(m.selected)
 		}
-		return *m, nil
-	case "ctrl+g":
-		m.overlay = overlayHelp
 		return *m, nil
 	}
 
 	if m.focus == focusComposer {
 		switch msg.String() {
-		case "ctrl+s":
+		case "enter":
 			return m.submit()
 		case "esc":
 			m.focus = focusTranscript
@@ -248,7 +244,7 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pageSelection(-1)
 	case "enter":
 		if len(m.items) > 0 {
-			m.overlay = overlayDetail
+			m.toggleExpanded(m.selected)
 		}
 	case "esc":
 		m.focus = focusComposer
@@ -260,9 +256,13 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	if m.busy {
 		m.addItem(chatItem{
-			Kind:    itemNotice,
-			Content: "The current turn is still running. Wait for it to finish before sending another input.",
-			Time:    time.Now(),
+			Kind: itemNotice,
+			Time: time.Now(),
+			Segments: []chatSegment{{
+				Kind: segText,
+				Text: "The current turn is still running. Wait for it to finish before sending another input.",
+				Time: time.Now(),
+			}},
 		})
 		return *m, nil
 	}
@@ -273,11 +273,16 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	m.input.Reset()
 	m.input.SetHeight(4)
 	m.busy = true
+	m.toolItems = map[string]shellToolRef{}
 	m.turn = shellTurn{assistantIndex: -1}
 	m.addItem(chatItem{
-		Kind:    itemUser,
-		Content: text,
-		Time:    time.Now(),
+		Kind: itemUser,
+		Time: time.Now(),
+		Segments: []chatSegment{{
+			Kind: segText,
+			Text: text,
+			Time: time.Now(),
+		}},
 	})
 	return *m, func() tea.Msg {
 		reply, err := m.app.HandleInput(m.ctx, m.source, text)
@@ -303,22 +308,62 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 		m.turn.commandHandled = true
 		if strings.TrimSpace(ev.Err) != "" {
 			m.turn.errored = true
-			m.addItem(chatItem{Kind: itemError, Content: ev.Err, Time: eventTime(ev)})
+			m.addItem(chatItem{
+				Kind: itemError,
+				Time: eventTime(ev),
+				Segments: []chatSegment{{
+					Kind: segText,
+					Text: ev.Err,
+					Time: eventTime(ev),
+				}},
+			})
 			return
 		}
 		if m.turn.toolCount == 0 && strings.TrimSpace(ev.Text) != "" {
-			m.addItem(chatItem{Kind: itemNotice, Content: ev.Text, Time: eventTime(ev)})
+			m.addItem(chatItem{
+				Kind: itemNotice,
+				Time: eventTime(ev),
+				Segments: []chatSegment{{
+					Kind: segText,
+					Text: ev.Text,
+					Time: eventTime(ev),
+				}},
+			})
 		}
 	case bus.ServiceNotice:
-		m.addItem(chatItem{Kind: itemNotice, Content: ev.Text, Time: eventTime(ev)})
+		m.addItem(chatItem{
+			Kind: itemNotice,
+			Time: eventTime(ev),
+			Segments: []chatSegment{{
+				Kind: segText,
+				Text: ev.Text,
+				Time: eventTime(ev),
+			}},
+		})
 	case bus.ModelChanged:
-		m.addItem(chatItem{Kind: itemNotice, Content: "Model switched to " + ev.Text, Time: eventTime(ev)})
+		m.addItem(chatItem{
+			Kind: itemNotice,
+			Time: eventTime(ev),
+			Segments: []chatSegment{{
+				Kind: segText,
+				Text: "Model switched to " + ev.Text,
+				Time: eventTime(ev),
+			}},
+		})
 	case bus.TurnFinished:
 		m.busy = false
 	case bus.TurnError:
 		m.turn.errored = true
 		m.busy = false
-		m.addItem(chatItem{Kind: itemError, Content: ev.Err, Time: eventTime(ev)})
+		m.addItem(chatItem{
+			Kind: itemError,
+			Time: eventTime(ev),
+			Segments: []chatSegment{{
+				Kind: segText,
+				Text: ev.Err,
+				Time: eventTime(ev),
+			}},
+		})
 	}
 }
 
@@ -327,9 +372,13 @@ func (m *shellModel) finishTurn(reply string, err error) {
 	if err != nil {
 		if !m.turn.errored {
 			m.addItem(chatItem{
-				Kind:    itemError,
-				Content: err.Error(),
-				Time:    time.Now(),
+				Kind: itemError,
+				Time: time.Now(),
+				Segments: []chatSegment{{
+					Kind: segText,
+					Text: err.Error(),
+					Time: time.Now(),
+				}},
 			})
 		}
 		m.turn = shellTurn{assistantIndex: -1}
@@ -337,11 +386,7 @@ func (m *shellModel) finishTurn(reply string, err error) {
 	}
 	reply = textutil.Valid(strings.TrimSpace(reply))
 	if !m.turn.commandHandled && !m.turn.streamed && reply != "" {
-		m.addItem(chatItem{
-			Kind:    itemAssistant,
-			Content: reply,
-			Time:    time.Now(),
-		})
+		m.appendAssistant(reply)
 	}
 	m.turn = shellTurn{assistantIndex: -1}
 }
@@ -367,53 +412,54 @@ func (m *shellModel) appendAssistant(text string) {
 	}
 	if m.turn.assistantIndex < 0 {
 		m.turn.assistantIndex = m.addItem(chatItem{
-			Kind:    itemAssistant,
-			Content: text,
-			Time:    time.Now(),
+			Kind: itemAssistant,
+			Time: time.Now(),
 		})
-		return
 	}
 	item := m.items[m.turn.assistantIndex]
-	item.Content += text
+	item.appendText(text)
 	m.syncViewport()
 }
 
 func (m *shellModel) startTool(ev bus.Event) {
-	item := chatItem{
-		Kind:    itemTool,
-		Content: summarizeToolAction(ev.Tool, ev.Input),
-		Status:  "running",
-		Detail:  renderToolDetail(ev, false),
-		Time:    eventTime(ev),
+	if m.turn.assistantIndex < 0 {
+		m.turn.assistantIndex = m.addItem(chatItem{
+			Kind: itemAssistant,
+			Time: eventTime(ev),
+		})
 	}
-	idx := m.addItem(item)
+	item := m.items[m.turn.assistantIndex]
+	seg := item.addTool(ev.Tool, summarizeToolAction(ev.Tool, ev.Input), renderToolDetail(ev, false), eventTime(ev))
+	idx := m.turn.assistantIndex
 	if ev.ToolCallID != "" {
-		m.toolItems[ev.ToolCallID] = idx
+		m.toolItems[ev.ToolCallID] = shellToolRef{Item: idx, Seg: seg}
 	}
+	m.syncViewport()
 }
 
 func (m *shellModel) finishTool(ev bus.Event, failed bool) {
-	idx, ok := m.toolItems[ev.ToolCallID]
+	ref, ok := m.toolItems[ev.ToolCallID]
 	if !ok {
-		idx = m.addItem(chatItem{
-			Kind:    itemTool,
-			Content: summarizeToolAction(ev.Tool, ev.Input),
-			Time:    eventTime(ev),
-		})
+		m.startTool(ev)
+		ref = m.toolItems[ev.ToolCallID]
 	}
-	item := m.items[idx]
+	item := m.items[ref.Item]
+	if ref.Seg < 0 || ref.Seg >= len(item.Segments) {
+		return
+	}
+	seg := &item.Segments[ref.Seg]
 	if failed {
-		item.Status = "failed"
+		seg.Status = "failed"
 		if strings.TrimSpace(ev.Err) != "" {
-			item.Content += " -> " + textutil.Preview(ev.Err, 72)
+			seg.Text += " -> " + textutil.Preview(ev.Err, 72)
 		}
 	} else {
-		item.Status = "done"
+		seg.Status = "done"
 		if out := summarizeToolOutput(ev.Output); out != "" {
-			item.Content += " -> " + out
+			seg.Text += " -> " + out
 		}
 	}
-	item.Detail = renderToolDetail(ev, failed)
+	seg.Detail = renderToolDetail(ev, failed)
 	m.syncViewport()
 }
 
@@ -455,6 +501,19 @@ func (m *shellModel) selectItem(i int) {
 	}
 	m.selected = i
 	m.follow = i == len(m.items)-1
+	m.syncViewport()
+}
+
+func (m *shellModel) toggleExpanded(i int) {
+	if i < 0 || i >= len(m.items) {
+		return
+	}
+	if m.expanded == i {
+		m.expanded = -1
+	} else {
+		m.expanded = i
+	}
+	m.keepSelectionVisible()
 	m.syncViewport()
 }
 

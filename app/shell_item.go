@@ -13,17 +13,29 @@ import (
 const (
 	itemUser = iota
 	itemAssistant
-	itemTool
 	itemNotice
 	itemError
 )
 
+const (
+	segText = iota
+	segTool
+)
+
 type chatItem struct {
-	Kind    int
-	Content string
-	Status  string
-	Detail  string
-	Time    time.Time
+	Kind     int
+	Status   string
+	Time     time.Time
+	Segments []chatSegment
+}
+
+type chatSegment struct {
+	Kind   int
+	Tool   string
+	Text   string
+	Status string
+	Detail string
+	Time   time.Time
 }
 
 func (i chatItem) role() string {
@@ -32,8 +44,6 @@ func (i chatItem) role() string {
 		return "you"
 	case itemAssistant:
 		return "mink"
-	case itemTool:
-		return "tool"
 	case itemNotice:
 		return "note"
 	case itemError:
@@ -57,15 +67,58 @@ func (i chatItem) title() string {
 func (i chatItem) detailText() string {
 	var b strings.Builder
 	b.WriteString(i.title())
-	if text := strings.TrimSpace(textutil.Valid(i.Content)); text != "" {
-		b.WriteString("\n\n")
-		b.WriteString(text)
-	}
-	if detail := strings.TrimSpace(textutil.Valid(i.Detail)); detail != "" {
-		b.WriteString("\n\n")
-		b.WriteString(detail)
+	for _, s := range i.Segments {
+		switch s.Kind {
+		case segText:
+			if text := strings.TrimSpace(textutil.Valid(s.Text)); text != "" {
+				b.WriteString("\n\n")
+				b.WriteString(text)
+			}
+		case segTool:
+			if text := strings.TrimSpace(textutil.Valid(s.Text)); text != "" {
+				b.WriteString("\n\n")
+				b.WriteString("Tool: ")
+				b.WriteString(text)
+			}
+			if detail := strings.TrimSpace(textutil.Valid(s.Detail)); detail != "" {
+				b.WriteString("\n")
+				b.WriteString(detail)
+			}
+		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func (i *chatItem) appendText(text string) {
+	text = textutil.Valid(text)
+	if text == "" {
+		return
+	}
+	n := len(i.Segments)
+	if n > 0 && i.Segments[n-1].Kind == segText {
+		i.Segments[n-1].Text += text
+		return
+	}
+	i.Segments = append(i.Segments, chatSegment{
+		Kind: segText,
+		Text: text,
+		Time: time.Now(),
+	})
+}
+
+func (i *chatItem) addTool(name, text, detail string, t time.Time) int {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	i.Segments = append(i.Segments, chatSegment{
+		Kind:   segTool,
+		Tool:   textutil.Valid(strings.TrimSpace(name)),
+		Text:   textutil.Valid(text),
+		Status: "running",
+		Detail: textutil.Valid(detail),
+		Time:   t,
+	})
+	return len(i.Segments) - 1
 }
 
 func summarizeToolAction(name, raw string) string {
