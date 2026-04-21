@@ -77,7 +77,8 @@ func (m shellModel) renderHeader() string {
 	}
 	title := shellTheme.TitleChip.Render("Mink")
 	line1 := lipgloss.JoinHorizontal(lipgloss.Left, title, shellTheme.HeaderMeta.Render("  "+state))
-	return shellTheme.Header.Width(m.width).Render(line1)
+	divider := shellTheme.Divider.Render(strings.Repeat("─", max(0, m.width-2)))
+	return shellTheme.Header.Width(m.width).Render(line1 + "\n" + divider)
 }
 
 func (m shellModel) renderTranscript() string {
@@ -118,6 +119,9 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 	for i := 0; i < len(item.Segments); {
 		switch item.Segments[i].Kind {
 		case segText:
+			if i == 0 {
+				lines = append(lines, "")
+			}
 			lines = append(lines, m.renderTextSegment(item.Segments[i], idx)...)
 			i++
 		case segTool:
