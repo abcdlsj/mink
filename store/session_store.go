@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ func (s *Store) SaveSession(v *session.Session) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return appendLine(s.path, line)
+	return writeFile(s.sessionPath(v.ID, v.Source, v.CreatedAt), append(line, '\n'))
 }
 
 func (s *Store) LoadSession(id string) (*session.Session, error) {
@@ -40,19 +41,19 @@ func (s *Store) LoadSession(id string) (*session.Session, error) {
 	if id == "" {
 		return nil, fmt.Errorf("session not found: %s", id)
 	}
-	m, err := s.loadSessions()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.loadSessionLocked(id)
 	if err != nil {
 		return nil, err
-	}
-	d, ok := m[id]
-	if !ok {
-		return nil, fmt.Errorf("session not found: %s", id)
 	}
 	return fromDisk(d), nil
 }
 
 func (s *Store) ListSessions() ([]*session.Session, error) {
-	m, err := s.loadSessions()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, err := s.loadSessionsLocked()
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func (s *Store) ListSessions() ([]*session.Session, error) {
 func (s *Store) CurrentSessionID(source string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, err := s.loadCurrent()
+	m, err := s.loadCurrentLocked()
 	if err != nil {
 		return "", err
 	}
@@ -76,7 +77,7 @@ func (s *Store) CurrentSessionID(source string) (string, error) {
 func (s *Store) SetCurrentSession(source, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, err := s.loadCurrent()
+	m, err := s.loadCurrentLocked()
 	if err != nil {
 		return err
 	}
@@ -88,18 +89,56 @@ func (s *Store) SetCurrentSession(source, id string) error {
 	return writeFile(s.current, append(data, '\n'))
 }
 
-func (s *Store) loadSessions() (map[string]diskSession, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Store) loadSessionLocked(id string) (diskSession, error) {
+	if path, ok, err := s.findSessionPathLocked(id); err != nil {
+		return diskSession{}, err
+	} else if ok {
+		return loadSessionFile(path)
+	}
+	if fileExists(s.legacySessions) {
+		m, err := s.loadLegacySessionsLocked()
+		if err != nil {
+			return diskSession{}, err
+		}
+		if d, ok := m[id]; ok {
+			return d, nil
+		}
+	}
+	return diskSession{}, fmt.Errorf("session not found: %s", id)
+}
+
+func (s *Store) loadSessionsLocked() (map[string]diskSession, error) {
 	out := map[string]diskSession{}
-	err := scanJSONLines(s.path, func(d diskSession) error {
+	if fileExists(s.legacySessions) {
+		m, err := s.loadLegacySessionsLocked()
+		if err != nil {
+			return nil, err
+		}
+		for id, d := range m {
+			out[id] = d
+		}
+	}
+	err := walkFiles(s.sessionsDir, ".json", func(path string) error {
+		d, err := loadSessionFile(path)
+		if err != nil {
+			return err
+		}
 		out[d.ID] = d
 		return nil
 	})
 	return out, err
 }
 
-func (s *Store) loadCurrent() (map[string]string, error) {
+func (s *Store) loadLegacySessionsLocked() (map[string]diskSession, error) {
+	out := map[string]diskSession{}
+	err := scanJSONLines(s.legacySessions, func(d diskSession) error {
+		out[d.ID] = d
+		return nil
+	})
+	return out, err
+}
+
+func (s *Store) loadCurrentLocked() (map[string]string, error) {
 	data, err := os.ReadFile(s.current)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -118,6 +157,16 @@ func (s *Store) loadCurrent() (map[string]string, error) {
 		m = map[string]string{}
 	}
 	return m, nil
+}
+
+func (s *Store) findSessionPathLocked(id string) (string, bool, error) {
+	if date, tag, ok := parseSessionID(id); ok {
+		path := filepath.Join(s.sessionsDir, tag, date, id+".json")
+		if fileExists(path) {
+			return path, true, nil
+		}
+	}
+	return findFile(s.sessionsDir, id+".json")
 }
 
 func toDisk(s *session.Session) diskSession {
@@ -144,7 +193,22 @@ func fromDisk(d diskSession) *session.Session {
 	}
 }
 
+func loadSessionFile(path string) (diskSession, error) {
+	data, err := readFile(path)
+	if err != nil {
+		return diskSession{}, err
+	}
+	var d diskSession
+	if err := json.Unmarshal(data, &d); err != nil {
+		return diskSession{}, err
+	}
+	return d, nil
+}
+
 func appendLine(path string, line []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,7 +10,8 @@ import (
 )
 
 func TestRoundTripSession(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "mink-data"))
+	root := filepath.Join(t.TempDir(), "mink-data")
+	db, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,5 +44,14 @@ func TestRoundTripSession(t *testing.T) {
 	}
 	if loaded.Messages[0].Content != "hello" {
 		t.Fatalf("got content %q", loaded.Messages[0].Content)
+	}
+
+	date, tag, ok := parseSessionID(s.ID)
+	if !ok {
+		t.Fatalf("invalid session id %q", s.ID)
+	}
+	want := filepath.Join(root, "sessions", tag, date, s.ID+".json")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("session file missing: %v", err)
 	}
 }

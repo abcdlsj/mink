@@ -1,6 +1,8 @@
 package session
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -23,7 +25,7 @@ type Session struct {
 func New(source string) *Session {
 	now := time.Now()
 	return &Session{
-		ID:        uuid.New().String()[:8],
+		ID:        newID(source, now),
 		Source:    strings.TrimSpace(source),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -70,4 +72,40 @@ func (s *Session) Compact(summary string, keep int) {
 
 func trimTitle(s string) string {
 	return textutil.Preview(strings.ReplaceAll(s, "\n", " "), 48)
+}
+
+func newID(source string, now time.Time) string {
+	src := sourceTag(source)
+	sum := sha1.Sum([]byte(source + now.UTC().Format(time.RFC3339Nano) + uuid.NewString()))
+	return now.Format("20060102") + "-" + src + "-" + hex.EncodeToString(sum[:4])
+}
+
+func sourceTag(source string) string {
+	source = strings.TrimSpace(strings.ToLower(source))
+	if source == "" {
+		return "default"
+	}
+	if i := strings.IndexByte(source, ':'); i >= 0 {
+		source = source[:i]
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range source {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case !lastDash:
+			b.WriteByte('-')
+			lastDash = true
+		}
+		if b.Len() >= 12 {
+			break
+		}
+	}
+	tag := strings.Trim(b.String(), "-")
+	if tag == "" {
+		return "default"
+	}
+	return tag
 }

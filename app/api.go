@@ -36,6 +36,10 @@ func (a *App) ListSessions() ([]*session.Session, error) {
 	return a.sessions.List()
 }
 
+func (a *App) ListSessionsBySource(source string) ([]*session.Session, error) {
+	return a.sessions.ListBySource(source)
+}
+
 func (a *App) PublishNotice(source, text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {

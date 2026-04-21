@@ -1,10 +1,34 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/abcdlsj/mink/msg"
 )
+
+func TestNewSessionIDIncludesDateAndSourceTag(t *testing.T) {
+	s := New("telegram:42:7")
+
+	parts := strings.Split(s.ID, "-")
+	if len(parts) != 3 {
+		t.Fatalf("got id %q", s.ID)
+	}
+	if len(parts[0]) != 8 {
+		t.Fatalf("got date %q", parts[0])
+	}
+	if parts[1] != "telegram" {
+		t.Fatalf("got source tag %q", parts[1])
+	}
+	if len(parts[2]) != 8 {
+		t.Fatalf("got hash %q", parts[2])
+	}
+	for _, r := range parts[2] {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			t.Fatalf("hash is not hex: %q", parts[2])
+		}
+	}
+}
 
 func TestCompactKeepsSummaryAndRecentMessages(t *testing.T) {
 	s := New("cli")

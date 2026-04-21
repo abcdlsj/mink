@@ -2,7 +2,7 @@ GO ?= go
 PKG ?= ./cmd/mink
 BIN_DIR ?= bin
 BIN ?= $(BIN_DIR)/mink
-MAIN ?= github.com/abcdlsj/mink/cmd/mink
+MAIN ?= main
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)

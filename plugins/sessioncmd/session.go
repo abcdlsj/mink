@@ -44,7 +44,7 @@ func (c *sessionCmd) Run(ctx context.Context, args []string) (string, error) {
 }
 
 func (c *sessionCmd) list(ctx context.Context) (string, error) {
-	ss, err := c.app.ListSessions()
+	ss, err := c.app.ListSessionsBySource(command.SourceFrom(ctx))
 	if err != nil {
 		return "", err
 	}

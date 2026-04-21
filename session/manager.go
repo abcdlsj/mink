@@ -108,6 +108,9 @@ func (m *Manager) Switch(source, id string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if normalizeSource(s.Source) != source {
+		return nil, fmt.Errorf("session %s belongs to source %s, not %s", id, normalizeSource(s.Source), source)
+	}
 	if err := m.store.SetCurrentSession(source, id); err != nil {
 		return nil, err
 	}
@@ -127,6 +130,21 @@ func (m *Manager) List() ([]*Session, error) {
 		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
 	})
 	return sessions, nil
+}
+
+func (m *Manager) ListBySource(source string) ([]*Session, error) {
+	source = normalizeSource(source)
+	sessions, err := m.List()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Session, 0, len(sessions))
+	for _, s := range sessions {
+		if normalizeSource(s.Source) == source {
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 
 func normalizeSource(source string) string {

@@ -58,7 +58,7 @@ func (a *App) runSessionCommand(ctx context.Context, args []string) (string, err
 	}
 	switch args[0] {
 	case "list":
-		sessions, err := a.sessions.List()
+		sessions, err := a.sessions.ListBySource(source)
 		if err != nil {
 			return "", err
 		}

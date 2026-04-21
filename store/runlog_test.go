@@ -1,11 +1,13 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/session"
 )
 
 func TestRunLogReplaySession(t *testing.T) {
@@ -43,5 +45,34 @@ func TestRunLogReplaySession(t *testing.T) {
 	}
 	if got[2].Type != bus.ToolCallFinished {
 		t.Fatalf("last event = %q", got[2].Type)
+	}
+}
+
+func TestRunLogUsesSessionPrefixPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "mink-data")
+	db, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	s := session.New("telegram:42")
+	ev := bus.Event{
+		Type:      bus.TurnStarted,
+		Source:    s.Source,
+		SessionID: s.ID,
+		Time:      s.CreatedAt,
+	}
+	if err := db.AppendEvent(ev); err != nil {
+		t.Fatal(err)
+	}
+
+	date, tag, ok := parseSessionID(s.ID)
+	if !ok {
+		t.Fatalf("invalid session id %q", s.ID)
+	}
+	want := filepath.Join(root, "runlog", tag, date, s.ID+".jsonl")
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("runlog file missing: %v", err)
 	}
 }

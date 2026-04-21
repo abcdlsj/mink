@@ -9,7 +9,7 @@ import (
 )
 
 func (s *server) state() (state, error) {
-	sessions, err := s.app.ListSessions()
+	sessions, err := s.app.ListSessionsBySource(source)
 	if err != nil {
 		return state{}, err
 	}

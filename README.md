@@ -110,7 +110,7 @@ session_scope = "chat"
 api_key = "..."
 ```
 
-Runtime activity is written to `runlog.jsonl` under `data_dir`, and `!replay` reads from that event log instead of reconstructing output from session messages.
+Runtime activity is written under `runlog/` in `data_dir`, and `!replay` reads from that event log instead of reconstructing output from session messages.
 
 Prompt composition is shared by `native`, `claude`, and `codex` runtimes:
 
