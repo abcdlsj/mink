@@ -133,6 +133,20 @@ In Telegram mode, dangerous tool actions use inline approval with session or per
 go run ./cmd/mink
 ```
 
+Build a local binary with version metadata:
+
+```bash
+make build
+./bin/mink version
+```
+
+Install `mink` into `GOBIN` or `GOPATH/bin` with version metadata:
+
+```bash
+make install
+mink version
+```
+
 Switch runtime with env or config:
 
 ```bash
