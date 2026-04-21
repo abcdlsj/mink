@@ -7,6 +7,7 @@ import (
 
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/plugins/external"
+	"github.com/abcdlsj/mink/textutil"
 )
 
 func driver() external.Driver {
@@ -47,14 +48,11 @@ func formatHistory(messages []msg.Message) string {
 			}
 		case m.Role == "tool" && len(m.ToolResults) > 0:
 			for _, tr := range m.ToolResults {
-				result := tr.Content
-				if len(result) > 500 {
-					result = result[:500] + "...(truncated)"
-				}
+				result := textutil.Ellipsis(tr.Content, 500)
 				fmt.Fprintf(&sb, "[tool_result]: %s\n", result)
 			}
 		case m.Role == "assistant" && m.Content != "":
-			fmt.Fprintf(&sb, "[assistant]: %s\n", m.Content)
+			fmt.Fprintf(&sb, "[assistant]: %s\n", textutil.Valid(m.Content))
 		}
 	}
 	sb.WriteString("</conversation_history>")

@@ -8,6 +8,7 @@ import (
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/textutil"
 )
 
 func estimate(m msg.Message) int {
@@ -51,15 +52,7 @@ func clone(in []msg.Message) []msg.Message {
 }
 
 func trim(s string, n int) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	rs := []rune(s)
-	if len(rs) <= n {
-		return s
-	}
-	if n <= 1 {
-		return "…"
-	}
-	return string(rs[:n-1]) + "…"
+	return textutil.Ellipsis(strings.Join(strings.Fields(strings.TrimSpace(s)), " "), n)
 }
 
 func firstNonEmpty(v ...string) string {

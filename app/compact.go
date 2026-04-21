@@ -8,6 +8,7 @@ import (
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/textutil"
 )
 
 func (a *App) compactSession(ctx context.Context, s *session.Session) (string, error) {
@@ -192,13 +193,5 @@ func estimateMessage(m msg.Message) int {
 }
 
 func trimText(s string, n int) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	rs := []rune(s)
-	if len(rs) <= n {
-		return s
-	}
-	if n <= 3 {
-		return "..."
-	}
-	return string(rs[:n-3]) + "..."
+	return textutil.Ellipsis(strings.Join(strings.Fields(strings.TrimSpace(s)), " "), n)
 }

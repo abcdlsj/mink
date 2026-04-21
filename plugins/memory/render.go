@@ -3,6 +3,8 @@ package memory
 import (
 	"fmt"
 	"strings"
+
+	"github.com/abcdlsj/mink/textutil"
 )
 
 func render(mode string, scopes []scope, docs []doc) string {
@@ -30,15 +32,7 @@ func render(mode string, scopes []scope, docs []doc) string {
 }
 
 func summarize(s string, n int) string {
-	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
-	rs := []rune(s)
-	if len(rs) <= n {
-		return s
-	}
-	if n <= 3 {
-		return "..."
-	}
-	return string(rs[:n-3]) + "..."
+	return textutil.Ellipsis(strings.Join(strings.Fields(strings.TrimSpace(s)), " "), n)
 }
 
 func blank(s, fallback string) string {

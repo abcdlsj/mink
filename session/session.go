@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/mink/textutil"
 )
 
 type Session struct {
@@ -68,9 +69,5 @@ func (s *Session) Compact(summary string, keep int) {
 }
 
 func trimTitle(s string) string {
-	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
-	if len(s) > 48 {
-		return s[:48] + "..."
-	}
-	return s
+	return textutil.Preview(strings.ReplaceAll(s, "\n", " "), 48)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/mink/textutil"
 )
 
 type Driver struct {
@@ -66,7 +67,7 @@ type Runtime struct {
 }
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
-	prompt := r.buildPrompt(turn)
+	prompt := textutil.Valid(r.buildPrompt(turn))
 	addUser(turn.Session, turn.Input)
 
 	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace)...)
