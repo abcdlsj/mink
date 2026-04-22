@@ -106,33 +106,39 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	st := runState{
 		calls: map[string]toolCallState{},
 	}
+	defer st.flush(turn.Session)
 	scanner := bufio.NewScanner(stdout)
 	const maxLine = 10 * 1024 * 1024
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, maxLine)
 
+	var runErr error
 	for scanner.Scan() {
 		m := r.driver.ParseOutput(scanner.Text())
 		if m == nil {
 			continue
 		}
 		if err := handleMessage(r.driver.Name, turn, &st, m); err != nil {
-			return err
+			runErr = err
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+			break
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		return err
+	if err := scanner.Err(); err != nil && runErr == nil {
+		runErr = err
 	}
-	if err := cmd.Wait(); err != nil {
-		stderrText := <-errCh
+	waitErr := cmd.Wait()
+	stderrText := <-errCh
+	if runErr == nil && waitErr != nil {
 		if stderrText != "" {
-			return errors.New(stderrText)
+			runErr = errors.New(stderrText)
+		} else {
+			runErr = waitErr
 		}
-		return err
 	}
-	<-errCh
-	st.flush(turn.Session)
-	return nil
+	return runErr
 }
 
 func (r *Runtime) buildPrompt(turn *agent.Turn) string {
@@ -158,9 +164,7 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 	case MsgToolResult:
 		st.onToolResult(turn, m)
 	case MsgError:
-		err := wrapMessageError(name, m)
-		publish(turn, bus.Event{Type: bus.TurnError, Err: err.Error()})
-		return err
+		return wrapMessageError(name, m)
 	}
 	return nil
 }

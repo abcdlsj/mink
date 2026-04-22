@@ -60,22 +60,37 @@ func (a *App) newRuntime(name string) (agent.Runtime, error) {
 
 func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, s *session.Session) error {
 	a.bus.Publish(bus.Event{Type: bus.TurnStarted, Source: source, SessionID: s.ID})
-	err := rt.Run(ctx, &agent.Turn{
+	runErr := rt.Run(ctx, &agent.Turn{
 		Source:  source,
 		Input:   input,
 		Session: s,
 		Bus:     a.bus,
 	})
-	if err != nil {
+	saveErr := a.sessions.Save(s)
+	if runErr != nil {
+		err := turnErr(runErr, saveErr)
 		a.bus.Publish(bus.Event{Type: bus.TurnError, Source: source, SessionID: s.ID, Err: err.Error()})
+		if saveErr == nil {
+			a.bus.Publish(bus.Event{Type: bus.SessionUpdated, Source: source, SessionID: s.ID})
+		}
 		return err
 	}
-	if err := a.sessions.Save(s); err != nil {
-		return err
+	if saveErr != nil {
+		return saveErr
 	}
 	a.bus.Publish(bus.Event{Type: bus.SessionUpdated, Source: source, SessionID: s.ID})
 	a.bus.Publish(bus.Event{Type: bus.TurnFinished, Source: source, SessionID: s.ID})
 	return nil
+}
+
+func turnErr(runErr, saveErr error) error {
+	if runErr == nil {
+		return saveErr
+	}
+	if saveErr == nil {
+		return runErr
+	}
+	return fmt.Errorf("%w; save session: %v", runErr, saveErr)
 }
 
 func latestAssistant(s *session.Session) string {

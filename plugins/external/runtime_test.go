@@ -72,3 +72,27 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestHandleMessageReturnsMsgErrorWithoutPublishingTurnError(t *testing.T) {
+	b := bus.New()
+	evs, cancel := b.Subscribe(8)
+	defer cancel()
+
+	turn := &agent.Turn{
+		Source:  "test",
+		Session: session.New("test"),
+		Bus:     b,
+	}
+	st := &runState{}
+
+	err := handleMessage("test", turn, st, &Message{Type: MsgError, Text: "boom"})
+	if err == nil || err.Error() != "boom" {
+		t.Fatalf("err = %v, want boom", err)
+	}
+
+	select {
+	case ev := <-evs:
+		t.Fatalf("unexpected event: %#v", ev)
+	default:
+	}
+}

@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/abcdlsj/mink/agent"
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/msg"
 )
@@ -258,6 +260,73 @@ func TestHandleInputPassesPromptSettingsToRuntimeEnv(t *testing.T) {
 	}
 	if out != "ok" {
 		t.Fatalf("reply = %q, want %q", out, "ok")
+	}
+}
+
+func TestHandleInputPersistsSessionWhenRuntimeFails(t *testing.T) {
+	dir := t.TempDir()
+	dataDir := filepath.Join(dir, "mink-data")
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   dataDir,
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "partial"})
+			return errors.New("boom")
+		}), nil
+	})
+
+	if _, err := a.HandleInput(context.Background(), "test", "ping"); err == nil || err.Error() != "boom" {
+		t.Fatalf("err = %v, want boom", err)
+	}
+
+	a2, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   dataDir,
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a2.Close() })
+
+	s, err := a2.CurrentSession("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(s.Messages))
+	}
+	if s.Messages[0].Role != "assistant" || s.Messages[0].Content != "partial" {
+		t.Fatalf("message = %#v", s.Messages[0])
+	}
+
+	evs, err := a2.ReplaySession(s.ID, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) == 0 {
+		t.Fatal("expected replay events for failed turn")
+	}
+	if evs[len(evs)-1].Type != bus.SessionUpdated {
+		t.Fatalf("last event = %q, want %q", evs[len(evs)-1].Type, bus.SessionUpdated)
+	}
+	found := false
+	for _, ev := range evs {
+		if ev.Type == bus.TurnError && ev.Err == "boom" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing turn.error event: %#v", evs)
 	}
 }
 
