@@ -15,13 +15,13 @@ func BuildSystemPrompt(env *RuntimeEnv, t *Turn) string {
 func BuildExternalPrompt(env *RuntimeEnv, t *Turn, hist string) string {
 	var parts []string
 	if sys := strings.TrimSpace(BuildSystemPrompt(env, t)); sys != "" {
-		parts = append(parts, "<system_prompt>\n"+sys+"\n</system_prompt>")
+		parts = append(parts, block("system_prompt", sys))
 	}
 	if hist = strings.TrimSpace(hist); hist != "" {
 		parts = append(parts, hist)
 	}
 	if t != nil && strings.TrimSpace(t.Input) != "" {
-		parts = append(parts, "<user_message>\n"+strings.TrimSpace(t.Input)+"\n</user_message>")
+		parts = append(parts, block("user_message", strings.TrimSpace(t.Input)))
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
@@ -96,7 +96,7 @@ func (b promptBuilder) telegram() string {
 		mentionLine = "- Group delivery mode: selective prefiltering is enabled."
 	}
 	return strings.Join([]string{
-		"You operate inside Telegram chats. Messages may include [telegram_context]...[/telegram_context] with sender, mention status, message id, thread id, and reply chain.",
+		"You operate inside Telegram chats. Input is forwarded Telegram chat text after mention filtering.",
 		"",
 		"Behavior:",
 		mentionLine,
@@ -171,4 +171,17 @@ func loadSoulPrompt(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+func block(tag, body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	return "<" + tag + ">\n" + cdata(body) + "\n</" + tag + ">"
+}
+
+func cdata(s string) string {
+	s = strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[\n" + s + "\n]]>"
 }

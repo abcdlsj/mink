@@ -2,12 +2,10 @@ package claude
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/plugins/external"
-	"github.com/abcdlsj/mink/textutil"
 )
 
 func driver() external.Driver {
@@ -33,30 +31,7 @@ func driver() external.Driver {
 }
 
 func formatHistory(messages []msg.Message) string {
-	if len(messages) == 0 {
-		return ""
-	}
-	var sb strings.Builder
-	sb.WriteString("<conversation_history>\n")
-	for _, m := range messages {
-		switch {
-		case m.Role == "user" && m.Content != "":
-			fmt.Fprintf(&sb, "[user]: %s\n", m.Content)
-		case m.Role == "assistant" && len(m.ToolCalls) > 0:
-			for _, tc := range m.ToolCalls {
-				fmt.Fprintf(&sb, "[tool_call]: %s(%s)\n", tc.Name, string(tc.Args))
-			}
-		case m.Role == "tool" && len(m.ToolResults) > 0:
-			for _, tr := range m.ToolResults {
-				result := textutil.Ellipsis(tr.Content, 500)
-				fmt.Fprintf(&sb, "[tool_result]: %s\n", result)
-			}
-		case m.Role == "assistant" && m.Content != "":
-			fmt.Fprintf(&sb, "[assistant]: %s\n", textutil.Valid(m.Content))
-		}
-	}
-	sb.WriteString("</conversation_history>")
-	return sb.String()
+	return external.FormatHistory(messages)
 }
 
 func parseOutput(line string) *external.Message {
