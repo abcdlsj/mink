@@ -1,8 +1,19 @@
 GO ?= go
 PKG ?= ./cmd/mink
 BIN_DIR ?= bin
-BIN ?= $(BIN_DIR)/mink
+GOEXE ?= $(shell $(GO) env GOEXE)
+GOBIN ?= $(shell $(GO) env GOBIN)
+GOPATH ?= $(shell $(GO) env GOPATH)
+BIN ?= $(BIN_DIR)/mink$(GOEXE)
 MAIN ?= main
+
+ifeq ($(strip $(GOBIN)),)
+INSTALL_DIR ?= $(firstword $(subst :, ,$(GOPATH)))/bin
+else
+INSTALL_DIR ?= $(GOBIN)
+endif
+
+INSTALL_BIN ?= $(INSTALL_DIR)/mink$(GOEXE)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -15,7 +26,7 @@ LDFLAGS := -X '$(MAIN).Version=$(VERSION)' -X '$(MAIN).Commit=$(COMMIT)' -X '$(M
 help:
 	@printf "%s\n" \
 		"make build    Build ./bin/mink with version metadata" \
-		"make install  Install mink with version metadata" \
+		"make install  Build and overwrite $(INSTALL_BIN)" \
 		"make version  Print build metadata values" \
 		"make clean    Remove local build artifacts"
 
@@ -24,7 +35,8 @@ build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 
 install:
-	$(GO) install -ldflags "$(LDFLAGS)" $(PKG)
+	@mkdir -p $(INSTALL_DIR)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(INSTALL_BIN) $(PKG)
 
 version:
 	@printf "version: %s\ncommit: %s\nbuilt: %s\n" "$(VERSION)" "$(COMMIT)" "$(BUILD_TIME)"

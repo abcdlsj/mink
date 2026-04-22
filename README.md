@@ -140,7 +140,7 @@ make build
 ./bin/mink version
 ```
 
-Install `mink` into `GOBIN` or `GOPATH/bin` with version metadata:
+Install or overwrite `mink` in `GOBIN` or `GOPATH/bin` with version metadata:
 
 ```bash
 make install
