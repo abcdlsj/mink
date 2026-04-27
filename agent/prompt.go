@@ -13,17 +13,17 @@ func BuildSystemPrompt(env *RuntimeEnv, t *Turn) string {
 }
 
 func BuildExternalPrompt(env *RuntimeEnv, t *Turn, hist string) string {
-	var parts []string
+	var p promptEnvelope
 	if sys := strings.TrimSpace(BuildSystemPrompt(env, t)); sys != "" {
-		parts = append(parts, block("system_prompt", sys))
+		p.Add("system_prompt", sys)
 	}
 	if hist = strings.TrimSpace(hist); hist != "" {
-		parts = append(parts, hist)
+		p.AddRaw(hist)
 	}
 	if t != nil && strings.TrimSpace(t.Input) != "" {
-		parts = append(parts, block("user_message", strings.TrimSpace(t.Input)))
+		p.Add("user_message", t.Input)
 	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+	return p.String()
 }
 
 type promptBuilder struct {
@@ -32,23 +32,13 @@ type promptBuilder struct {
 }
 
 func (b promptBuilder) system() string {
-	var parts []string
-	if s := b.base(); s != "" {
-		parts = append(parts, s)
-	}
-	if s := b.context(); s != "" {
-		parts = append(parts, s)
-	}
-	if s := b.soul(); s != "" {
-		parts = append(parts, s)
-	}
-	if s := b.telegram(); s != "" {
-		parts = append(parts, s)
-	}
-	if s := b.custom(); s != "" {
-		parts = append(parts, s)
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+	var p promptSections
+	p.Add(b.base())
+	p.Add(b.context())
+	p.Add(b.soul())
+	p.Add(b.telegram())
+	p.Add(b.custom())
+	return p.String()
 }
 
 func (b promptBuilder) base() string {
@@ -171,17 +161,4 @@ func loadSoulPrompt(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-func block(tag, body string) string {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return ""
-	}
-	return "<" + tag + ">\n" + cdata(body) + "\n</" + tag + ">"
-}
-
-func cdata(s string) string {
-	s = strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
-	return "<![CDATA[\n" + s + "\n]]>"
 }

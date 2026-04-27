@@ -32,7 +32,7 @@ type runState struct {
 func (s *runState) onStream(turn *agent.Turn, text string) {
 	s.assistant.WriteString(text)
 	s.streamed = true
-	publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+	agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 }
 
 func (s *runState) onAssistant(turn *agent.Turn, text string, snapshot bool) {
@@ -42,7 +42,7 @@ func (s *runState) onAssistant(turn *agent.Turn, text string, snapshot bool) {
 	}
 	s.assistant.WriteString(text)
 	if !s.streamed {
-		publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+		agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 	}
 }
 
@@ -55,7 +55,7 @@ func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 	case cur == "":
 		s.assistant.WriteString(text)
 		if !s.streamed {
-			publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+			agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 		}
 	case text == cur, strings.HasPrefix(cur, text):
 		return
@@ -63,11 +63,11 @@ func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 		extra := text[len(cur):]
 		s.assistant.WriteString(extra)
 		if extra != "" {
-			publish(turn, bus.Event{Type: bus.TurnChunk, Text: extra})
+			agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: extra})
 		}
 	case !s.streamed:
 		s.assistant.WriteString(text)
-		publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+		agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 	}
 }
 
@@ -85,7 +85,7 @@ func (s *runState) onToolCall(turn *agent.Turn, m *Message) {
 			Args: json.RawMessage(m.ToolArgs),
 		},
 	}
-	publish(turn, bus.Event{
+	agent.Publish(turn, bus.Event{
 		Type:       bus.ToolCallStarted,
 		ToolCallID: m.ToolID,
 		Tool:       m.ToolName,
@@ -97,7 +97,7 @@ func (s *runState) onToolResult(turn *agent.Turn, m *Message) {
 	tc := s.calls[m.ToolID]
 	tc.out = m.Text
 	s.calls[m.ToolID] = tc
-	publish(turn, bus.Event{
+	agent.Publish(turn, bus.Event{
 		Type:       bus.ToolCallFinished,
 		ToolCallID: m.ToolID,
 		Tool:       tc.call.Name,
@@ -192,12 +192,7 @@ func addUser(s *session.Session, input string) {
 	if s == nil || strings.TrimSpace(input) == "" {
 		return
 	}
-	s.Add(msg.Message{
-		ID:        uuid.New().String()[:8],
-		Role:      "user",
-		Content:   input,
-		Timestamp: time.Now(),
-	})
+	s.Add(agent.NewUserMessage(input))
 }
 
 func wrapMessageError(name string, m *Message) error {

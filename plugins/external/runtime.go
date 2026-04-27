@@ -12,7 +12,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/textutil"
@@ -178,17 +177,4 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 		return wrapMessageError(name, m)
 	}
 	return nil
-}
-
-func publish(turn *agent.Turn, ev bus.Event) {
-	if turn == nil || turn.Bus == nil {
-		return
-	}
-	if ev.Source == "" {
-		ev.Source = turn.Source
-	}
-	if ev.SessionID == "" && turn.Session != nil {
-		ev.SessionID = turn.Session.ID
-	}
-	turn.Bus.Publish(ev)
 }

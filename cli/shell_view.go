@@ -80,10 +80,12 @@ func (m shellModel) renderHeader() string {
 	if m.busy {
 		state = " " + shellSpin[m.spinner%len(shellSpin)]
 	}
-	title := shellTheme.Title.Render("mink") + state
+	title := shellTheme.Title.Render("Mink") + state
 	meta := shellTheme.HeaderMeta.Render(m.state().Model)
+	line := lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", meta)
+	divider := shellTheme.Divider.Render(strings.Repeat("─", max(1, m.width)))
 	return shellTheme.Header.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", meta),
+		lipgloss.JoinVertical(lipgloss.Left, line, divider),
 	)
 }
 
@@ -135,6 +137,9 @@ func (m shellModel) renderFooter() string {
 }
 
 func (m shellModel) execStatusLine() string {
+	if m.app == nil {
+		return ""
+	}
 	script := strings.TrimSpace(m.app.Config().StatusLine)
 	if script == "" {
 		return ""

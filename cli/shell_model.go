@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/abcdlsj/mink/app"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/textutil"
@@ -32,6 +31,8 @@ const (
 	overlayNone shellOverlay = iota
 	overlayApproval
 )
+
+const shellHeaderHeight = 2
 
 type shellBusMsg struct {
 	Event bus.Event
@@ -72,7 +73,7 @@ type shellSpan struct {
 
 type shellModel struct {
 	ctx    context.Context
-	app    *app.App
+	app    shellApp
 	source string
 
 	width  int
@@ -96,7 +97,7 @@ type shellModel struct {
 	follow   bool
 }
 
-func newShellModel(ctx context.Context, a *app.App, source string) shellModel {
+func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in := textarea.New()
 	in.Prompt = ""
 	in.Placeholder = "Ask Mink anything. Use !command for local commands."
@@ -577,7 +578,7 @@ func (m *shellModel) syncLayout() {
 	} else {
 		m.input.Blur()
 	}
-	header := 1
+	header := shellHeaderHeight
 	footer := 1
 	composer := inHeight + 3
 	m.viewport.Width = max(20, m.width-4)
@@ -655,22 +656,28 @@ type cliState struct {
 }
 
 func (m *shellModel) state() cliState {
-	rt := strings.TrimSpace(m.app.Config().Runtime)
+	rt := "native"
+	model := ""
+	ws := "."
+	sid := "(new)"
+	if m == nil || m.app == nil {
+		return cliState{Runtime: rt, Model: model, Cwd: ws, Session: sid}
+	}
+	rt = strings.TrimSpace(m.app.Config().Runtime)
 	if rt == "" {
 		rt = "native"
 	}
-	model := m.app.CurrentModel()
+	model = m.app.CurrentModel()
 	switch rt {
 	case "claude":
 		model = "claude native"
 	case "codex":
 		model = "codex native"
 	}
-	ws := strings.TrimSpace(m.app.Workspace())
+	ws = strings.TrimSpace(m.app.Workspace())
 	if ws == "" {
 		ws = "."
 	}
-	sid := "(new)"
 	if s, err := m.app.CurrentSession(m.source); err == nil && s != nil && s.ID != "" {
 		sid = s.ID
 	}

@@ -15,14 +15,23 @@ func (s *Store) AppendEvent(ev bus.Event) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	switch {
-	case strings.TrimSpace(ev.SessionID) != "":
-		return appendLine(s.runlogPath(ev.SessionID, ev.Source, ev.Time), line)
-	case strings.TrimSpace(ev.TaskID) != "":
-		return appendLine(s.taskRunlogPath(ev.TaskID), line)
-	default:
-		return appendLine(s.globalRunlog, line)
+	var wrote bool
+	if strings.TrimSpace(ev.SessionID) != "" {
+		if err := appendLine(s.runlogPath(ev.SessionID, ev.Source, ev.Time), line); err != nil {
+			return err
+		}
+		wrote = true
 	}
+	if strings.TrimSpace(ev.TaskID) != "" {
+		if err := appendLine(s.taskRunlogPath(ev.TaskID), line); err != nil {
+			return err
+		}
+		wrote = true
+	}
+	if wrote {
+		return nil
+	}
+	return appendLine(s.globalRunlog, line)
 }
 
 func (s *Store) ReplaySession(id string, limit int) ([]bus.Event, error) {
