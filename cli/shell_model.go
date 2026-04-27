@@ -100,7 +100,13 @@ type shellModel struct {
 
 func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in := textarea.New()
-	in.Prompt = "› "
+	in.Prompt = ""
+	in.SetPromptFunc(2, func(line int) string {
+		if line == 0 {
+			return "› "
+		}
+		return "  "
+	})
 	in.Placeholder = "Ask Mink to do anything"
 	in.ShowLineNumbers = false
 	in.SetHeight(4)
@@ -315,6 +321,8 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 	case bus.TurnChunk:
 		m.turn.streamed = true
 		m.appendAssistant(ev.Text)
+	case bus.TurnReasoning:
+		m.appendReasoning(ev.Text)
 	case bus.ToolCallStarted:
 		m.turn.toolCount++
 		m.startTool(ev)
@@ -432,6 +440,22 @@ func (m *shellModel) appendAssistantAt(t time.Time, text string) {
 	}
 	item := m.items[m.turn.assistantIndex]
 	item.appendText(text)
+	m.syncViewport()
+}
+
+func (m *shellModel) appendReasoning(text string) {
+	text = textutil.Valid(text)
+	if text == "" {
+		return
+	}
+	if m.turn.assistantIndex < 0 {
+		m.turn.assistantIndex = m.addItem(chatItem{
+			Kind: itemAssistant,
+			Time: time.Now(),
+		})
+	}
+	item := m.items[m.turn.assistantIndex]
+	item.appendReasoning(text)
 	m.syncViewport()
 }
 

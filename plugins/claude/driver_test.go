@@ -42,7 +42,7 @@ func TestDriverFormatsSessionHistory(t *testing.T) {
 }
 
 func TestDriverBuildArgsDoesNotRequestPartialMessages(t *testing.T) {
-	args := driver().BuildArgs("hello", "/tmp/demo", "")
+	args := driver().BuildArgs("hello", "/tmp/demo", "", false)
 	for _, arg := range args {
 		if arg == "--include-partial-messages" {
 			t.Fatalf("unexpected arg %q", arg)
@@ -51,7 +51,7 @@ func TestDriverBuildArgsDoesNotRequestPartialMessages(t *testing.T) {
 }
 
 func TestDriverBuildArgsWithSessionID(t *testing.T) {
-	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123")
+	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123", false)
 	found := false
 	for i, arg := range args {
 		if arg == "--session-id" && i+1 < len(args) && args[i+1] == "test-session-123" {
@@ -62,6 +62,16 @@ func TestDriverBuildArgsWithSessionID(t *testing.T) {
 	if !found {
 		t.Fatalf("--session-id not found in args: %v", args)
 	}
+}
+
+func TestDriverBuildArgsResumesExistingSession(t *testing.T) {
+	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123", true)
+	for i, arg := range args {
+		if arg == "--resume" && i+1 < len(args) && args[i+1] == "test-session-123" {
+			return
+		}
+	}
+	t.Fatalf("--resume not found in args: %v", args)
 }
 
 func TestParseOutputMarksAssistantSnapshots(t *testing.T) {
@@ -90,6 +100,22 @@ func TestParseOutputMarksAssistantSnapshots(t *testing.T) {
 		if m.Type != external.MsgAssistantText || !m.Snapshot || m.Text != "hello" {
 			t.Fatalf("got %#v", m)
 		}
+	}
+}
+
+func TestParseOutputCapturesThinking(t *testing.T) {
+	m := parseOutput(mustJSON(t, map[string]any{
+		"type": "stream_event",
+		"event": map[string]any{
+			"type": "content_block_delta",
+			"delta": map[string]any{
+				"type":     "thinking_delta",
+				"thinking": "think",
+			},
+		},
+	}))
+	if m == nil || m.Type != external.MsgThinkingChunk || m.Text != "think" {
+		t.Fatalf("got %#v", m)
 	}
 }
 

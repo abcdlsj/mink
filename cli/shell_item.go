@@ -20,6 +20,7 @@ const (
 const (
 	segText = iota
 	segTool
+	segReasoning
 )
 
 type chatItem struct {
@@ -84,6 +85,12 @@ func (i chatItem) detailText() string {
 				b.WriteString("\n")
 				b.WriteString(detail)
 			}
+		case segReasoning:
+			if text := strings.TrimSpace(textutil.Valid(s.Text)); text != "" {
+				b.WriteString("\n\n")
+				b.WriteString("Thinking: ")
+				b.WriteString(text)
+			}
 		}
 	}
 	return strings.TrimSpace(b.String())
@@ -101,6 +108,23 @@ func (i *chatItem) appendText(text string) {
 	}
 	i.Segments = append(i.Segments, chatSegment{
 		Kind: segText,
+		Text: text,
+		Time: time.Now(),
+	})
+}
+
+func (i *chatItem) appendReasoning(text string) {
+	text = textutil.Valid(text)
+	if text == "" {
+		return
+	}
+	n := len(i.Segments)
+	if n > 0 && i.Segments[n-1].Kind == segReasoning {
+		i.Segments[n-1].Text += text
+		return
+	}
+	i.Segments = append(i.Segments, chatSegment{
+		Kind: segReasoning,
 		Text: text,
 		Time: time.Now(),
 	})

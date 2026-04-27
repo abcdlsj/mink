@@ -72,6 +72,7 @@ func collect(ctx context.Context, sink turnSink, ch <-chan llm.Chunk) (*llm.Resp
 			sink.Publish(bus.Event{Type: bus.TurnChunk, Text: part.Delta})
 		case llm.ChunkReasoning:
 			reasoning.WriteString(part.ReasoningDelta)
+			sink.Publish(bus.Event{Type: bus.TurnReasoning, Text: part.ReasoningDelta})
 		case llm.ChunkToolCall:
 			if part.ToolCall != nil {
 				calls = append(calls, *part.ToolCall)

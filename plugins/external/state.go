@@ -46,6 +46,14 @@ func (s *runState) onAssistant(turn *agent.Turn, text string, snapshot bool) {
 	}
 }
 
+func (s *runState) onThinking(turn *agent.Turn, text string) {
+	if text == "" {
+		return
+	}
+	s.reasoning.WriteString(text)
+	agent.Publish(turn, bus.Event{Type: bus.TurnReasoning, Text: text})
+}
+
 func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 	if text == "" {
 		return
@@ -112,7 +120,7 @@ func (s *runState) flush(sess *session.Session) {
 }
 
 func (s *runState) addAssistant(sess *session.Session) {
-	if sess == nil || (strings.TrimSpace(s.assistant.String()) == "" && len(s.calls) == 0) {
+	if sess == nil || (strings.TrimSpace(s.assistant.String()) == "" && strings.TrimSpace(s.reasoning.String()) == "" && len(s.calls) == 0) {
 		return
 	}
 	sess.Add(msg.Message{

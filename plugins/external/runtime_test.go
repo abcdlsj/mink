@@ -81,6 +81,34 @@ func TestHandleMessageMergesAssistantSnapshots(t *testing.T) {
 	}
 }
 
+func TestHandleMessagePublishesThinking(t *testing.T) {
+	b := bus.New()
+	evs, cancel := b.Subscribe(8)
+	defer cancel()
+
+	turn := &agent.Turn{
+		Source:  "test",
+		Session: session.New("test"),
+		Bus:     b,
+	}
+	st := &runState{}
+
+	handleMessage("test", turn, st, &Message{Type: MsgThinkingChunk, Text: "think"})
+	st.flush(turn.Session)
+
+	select {
+	case ev := <-evs:
+		if ev.Type != bus.TurnReasoning || ev.Text != "think" {
+			t.Fatalf("event = %#v", ev)
+		}
+	default:
+		t.Fatal("missing thinking event")
+	}
+	if got := turn.Session.Messages[len(turn.Session.Messages)-1].Reasoning; got != "think" {
+		t.Fatalf("reasoning = %q", got)
+	}
+}
+
 func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 	r := &Runtime{
 		driver: Driver{
@@ -109,6 +137,20 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestRuntimeSessionIDResumeFlag(t *testing.T) {
+	r := &Runtime{driver: Driver{Name: "claude"}}
+	s := session.New("test")
+
+	id, resume := r.getOrCreateSessionID(s)
+	if id == "" || resume {
+		t.Fatalf("first = %q %v", id, resume)
+	}
+	got, resume := r.getOrCreateSessionID(s)
+	if got != id || !resume {
+		t.Fatalf("second = %q %v, want %q true", got, resume, id)
 	}
 }
 

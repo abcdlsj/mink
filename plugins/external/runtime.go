@@ -21,7 +21,7 @@ type Driver struct {
 	Name          string
 	Command       string
 	StdinPrompt   bool
-	BuildArgs     func(prompt, workDir, sessionID string) []string
+	BuildArgs     func(prompt, workDir, sessionID string, resume bool) []string
 	ParseOutput   func(line string) *Message
 	FormatHistory func(messages []msg.Message) string
 }
@@ -73,8 +73,8 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	prompt := textutil.Valid(r.buildPrompt(turn))
 	addUser(turn.Session, turn.Input)
 
-	sessionID := r.getOrCreateSessionID(turn.Session)
-	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID)...)
+	sessionID, resume := r.getOrCreateSessionID(turn.Session)
+	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)...)
 	if r.workspace != "" {
 		cmd.Dir = r.workspace
 	}
@@ -149,16 +149,19 @@ func (r *Runtime) buildPrompt(turn *agent.Turn) string {
 	return agent.BuildExternalPrompt(r.env, turn, "")
 }
 
-func (r *Runtime) getOrCreateSessionID(s *session.Session) string {
-	if s == nil || s.ExternalSession == nil {
-		return ""
+func (r *Runtime) getOrCreateSessionID(s *session.Session) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	if s.ExternalSession == nil {
+		s.ExternalSession = map[string]string{}
 	}
 	if sid := s.ExternalSession[r.driver.Name]; sid != "" {
-		return sid
+		return sid, true
 	}
 	sid := uuid.New().String()
 	s.ExternalSession[r.driver.Name] = sid
-	return sid
+	return sid, false
 }
 
 func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {
@@ -168,7 +171,7 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 	case MsgAssistantText:
 		st.onAssistant(turn, m.Text, m.Snapshot)
 	case MsgThinkingChunk:
-		st.reasoning.WriteString(m.Text)
+		st.onThinking(turn, m.Text)
 	case MsgToolCall:
 		st.onToolCall(turn, m)
 	case MsgToolResult:

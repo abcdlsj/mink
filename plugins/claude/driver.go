@@ -12,14 +12,18 @@ func driver() external.Driver {
 	return external.Driver{
 		Name:    "claude",
 		Command: "claude",
-		BuildArgs: func(prompt, workDir, sessionID string) []string {
+		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
 			args := []string{
 				"--print",
 				"--output-format", "stream-json",
 				"--verbose",
 			}
 			if sessionID != "" {
-				args = append(args, "--session-id", sessionID)
+				if resume {
+					args = append(args, "--resume", sessionID)
+				} else {
+					args = append(args, "--session-id", sessionID)
+				}
 			}
 			if workDir != "" && workDir != "." {
 				args = append(args, "--add-dir", workDir)
@@ -47,11 +51,12 @@ func parseOutput(line string) *external.Message {
 		Subtype string `json:"subtype"`
 		Message struct {
 			Content []struct {
-				Type  string `json:"type"`
-				Text  string `json:"text"`
-				Name  string `json:"name"`
-				ID    string `json:"id"`
-				Input any    `json:"input"`
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
+				Name     string `json:"name"`
+				ID       string `json:"id"`
+				Input    any    `json:"input"`
 			} `json:"content"`
 		} `json:"message"`
 		Event struct {
@@ -103,10 +108,15 @@ func parseOutput(line string) *external.Message {
 	case "assistant":
 		if env.Subtype == "message" || env.Subtype == "" {
 			var text strings.Builder
+			var thinking strings.Builder
 			for _, c := range env.Message.Content {
 				switch c.Type {
 				case "text":
 					text.WriteString(c.Text)
+				case "thinking":
+					if c.Thinking != "" {
+						thinking.WriteString(c.Thinking)
+					}
 				case "tool_use":
 					return &external.Message{
 						Type:     external.MsgToolCall,
@@ -115,6 +125,9 @@ func parseOutput(line string) *external.Message {
 						ToolArgs: marshalInput(c.Input),
 					}
 				}
+			}
+			if thinking.Len() > 0 && text.Len() == 0 {
+				return &external.Message{Type: external.MsgThinkingChunk, Text: thinking.String()}
 			}
 			if text.Len() > 0 {
 				return &external.Message{

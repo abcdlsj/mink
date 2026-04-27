@@ -5,6 +5,7 @@ import "time"
 const (
 	TurnStarted      = "turn.started"
 	TurnChunk        = "turn.chunk"
+	TurnReasoning    = "turn.reasoning"
 	TurnFinished     = "turn.finished"
 	TurnError        = "turn.error"
 	ToolCallStarted  = "tool.call.started"

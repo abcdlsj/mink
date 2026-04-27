@@ -79,12 +79,13 @@ var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 
 func (m shellModel) renderHeader() string {
 	st := m.state()
+	w := max(1, m.width-6)
 	title := shellTheme.Title.Render(">_ Mink")
 	lines := []string{
-		title,
+		runewidth.Truncate(title, w, "…"),
 		"",
-		"model:     " + shellTheme.HeaderMeta.Render(nonEmpty(st.Model, "unknown")),
-		"directory: " + shellTheme.HeaderMeta.Render(st.Cwd),
+		"model:     " + shellTheme.HeaderMeta.Render(headerValue(nonEmpty(st.Model, "unknown"), w-11)),
+		"directory: " + shellTheme.HeaderMeta.Render(headerValue(st.Cwd, w-11)),
 	}
 	return shellTheme.Header.Width(max(1, m.width-2)).Render(strings.Join(lines, "\n"))
 }
@@ -154,6 +155,9 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 		switch item.Segments[i].Kind {
 		case segText:
 			lines = append(lines, m.renderTextSegment(item, item.Segments[i], idx)...)
+			i++
+		case segReasoning:
+			lines = append(lines, m.renderReasoningSegment(item.Segments[i], idx)...)
 			i++
 		case segTool:
 			j := i + 1
@@ -292,6 +296,19 @@ func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) 
 	}
 	out = append(out, "")
 	return out
+}
+
+func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
+	text := strings.TrimSpace(textutil.Valid(seg.Text))
+	if text == "" {
+		return nil
+	}
+	body := textutil.Preview(strings.Join(strings.Fields(text), " "), max(16, m.viewport.Width-13))
+	line := shellTheme.Tool.Render("✦ Thinking ") + shellTheme.TextMuted.Render(body)
+	if idx == m.selected {
+		line = shellTheme.SelectedBody.Render(line)
+	}
+	return []string{"", line, ""}
 }
 
 func (m shellModel) renderUserText(text string, idx int) []string {
@@ -433,6 +450,10 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+func headerValue(s string, width int) string {
+	return runewidth.Truncate(textutil.Valid(s), max(1, width), "…")
 }
 
 func nonEmpty(s, fallback string) string {
