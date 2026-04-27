@@ -32,7 +32,7 @@ const (
 	overlayApproval
 )
 
-const shellHeaderHeight = 2
+const shellHeaderHeight = 6
 
 type shellBusMsg struct {
 	Event bus.Event
@@ -55,6 +55,7 @@ type shellTickMsg struct{}
 
 type shellTurn struct {
 	assistantIndex int
+	started        time.Time
 	streamed       bool
 	commandHandled bool
 	errored        bool
@@ -99,8 +100,8 @@ type shellModel struct {
 
 func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in := textarea.New()
-	in.Prompt = ""
-	in.Placeholder = "Ask Mink anything. Use !command for local commands."
+	in.Prompt = "› "
+	in.Placeholder = "Ask Mink to do anything"
 	in.ShowLineNumbers = false
 	in.SetHeight(4)
 	in.KeyMap.InsertNewline = key.NewBinding(
@@ -111,6 +112,8 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in.BlurredStyle.Base = in.BlurredStyle.Base.BorderStyle(shellTheme.NoBorder)
 	in.FocusedStyle.Text = shellTheme.Text
 	in.BlurredStyle.Text = shellTheme.TextMuted
+	in.FocusedStyle.Prompt = shellTheme.Prompt
+	in.BlurredStyle.Prompt = shellTheme.TextMuted
 	in.FocusedStyle.Placeholder = shellTheme.TextMuted
 	in.BlurredStyle.Placeholder = shellTheme.TextMuted
 	in.FocusedStyle.CursorLine = shellTheme.Text
@@ -190,6 +193,7 @@ func (m shellModel) View() string {
 		lipJoinVertical(
 			m.renderHeader(),
 			m.renderTranscript(),
+			m.renderStatus(),
 			m.renderComposer(),
 			m.renderFooter(),
 		),
@@ -283,6 +287,7 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	m.toolItems = map[string]shellToolRef{}
 	m.turn = shellTurn{
 		assistantIndex: -1,
+		started:        time.Now(),
 		commandHandled: command.IsCommand(text),
 	}
 	m.addItem(chatItem{
@@ -304,6 +309,9 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 	switch ev.Type {
 	case bus.TurnStarted:
 		m.busy = true
+		if m.turn.started.IsZero() {
+			m.turn.started = eventTime(ev)
+		}
 	case bus.TurnChunk:
 		m.turn.streamed = true
 		m.appendAssistant(ev.Text)
@@ -569,8 +577,8 @@ func (m *shellModel) syncLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	inWidth := max(20, m.width-4)
-	inHeight := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 4, 8)
+	inWidth := max(20, m.width)
+	inHeight := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 3, 8)
 	m.input.SetWidth(inWidth)
 	m.input.SetHeight(inHeight)
 	if m.focus == focusComposer {
@@ -579,10 +587,14 @@ func (m *shellModel) syncLayout() {
 		m.input.Blur()
 	}
 	header := shellHeaderHeight
+	status := 0
+	if m.busy {
+		status = 1
+	}
 	footer := 1
-	composer := inHeight + 3
-	m.viewport.Width = max(20, m.width-4)
-	m.viewport.Height = max(3, m.height-header-footer-composer)
+	composer := inHeight
+	m.viewport.Width = max(20, m.width)
+	m.viewport.Height = max(3, m.height-header-status-footer-composer)
 	m.syncViewport()
 }
 
