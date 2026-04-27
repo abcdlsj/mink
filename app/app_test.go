@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
@@ -92,6 +93,41 @@ func TestHandleInputRunsBangCommandAsShellShortcut(t *testing.T) {
 	}
 	if out != "hello" {
 		t.Fatalf("reply = %q, want %q", out, "hello")
+	}
+}
+
+func TestHandleInputPublishesCommandHandledForShellShortcut(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "native",
+		DataDir:   filepath.Join(dir, "mink-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	events, cancel := a.Bus().Subscribe(8)
+	defer cancel()
+
+	if _, err := a.HandleInput(context.Background(), "test", "!printf hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == bus.CommandHandled {
+				if ev.Source != "test" || ev.Text != "hello" || ev.Err != "" {
+					t.Fatalf("command event = %+v", ev)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("missing command handled event")
+		}
 	}
 }
 

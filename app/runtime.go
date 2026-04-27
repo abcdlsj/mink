@@ -59,28 +59,13 @@ func (a *App) newRuntime(name string) (agent.Runtime, error) {
 }
 
 func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, s *session.Session) error {
-	a.bus.Publish(bus.Event{Type: bus.TurnStarted, Source: source, SessionID: s.ID})
-	runErr := rt.Run(ctx, &agent.Turn{
-		Source:  source,
-		Input:   input,
-		Session: s,
-		Bus:     a.bus,
-	})
-	saveErr := a.sessions.Save(s)
-	if runErr != nil {
-		err := turnErr(runErr, saveErr)
-		a.bus.Publish(bus.Event{Type: bus.TurnError, Source: source, SessionID: s.ID, Err: err.Error()})
-		if saveErr == nil {
-			a.bus.Publish(bus.Event{Type: bus.SessionUpdated, Source: source, SessionID: s.ID})
-		}
-		return err
-	}
-	if saveErr != nil {
-		return saveErr
-	}
-	a.bus.Publish(bus.Event{Type: bus.SessionUpdated, Source: source, SessionID: s.ID})
-	a.bus.Publish(bus.Event{Type: bus.TurnFinished, Source: source, SessionID: s.ID})
-	return nil
+	return turnFlow{
+		app:     a,
+		runtime: rt,
+		source:  source,
+		input:   input,
+		session: s,
+	}.run(ctx)
 }
 
 func turnErr(runErr, saveErr error) error {

@@ -20,70 +20,86 @@ func (a *App) HandleInputWithRuntime(ctx context.Context, source, runtime, input
 }
 
 func (a *App) handleInput(ctx context.Context, source, runtime, input string) (string, error) {
-	ctx = command.WithSource(ctx, source)
-	if out, ok, err := a.routeInput(ctx, source, input); ok {
+	return inputFlow{
+		app:     a,
+		source:  source,
+		runtime: runtime,
+		input:   input,
+	}.run(ctx)
+}
+
+type inputFlow struct {
+	app     *App
+	source  string
+	runtime string
+	input   string
+}
+
+func (f inputFlow) run(ctx context.Context) (string, error) {
+	ctx = command.WithSource(ctx, f.source)
+	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
-	s, err := a.sessions.Current(source)
+	s, err := f.app.sessions.Current(f.source)
 	if err != nil {
 		return "", err
 	}
-	if err := a.autoCompact(ctx, source, runtime, s); err != nil {
+	if err := f.app.autoCompact(ctx, f.source, f.runtime, s); err != nil {
 		return "", err
 	}
-	rt, err := a.newRuntime(runtime)
+	rt, err := f.app.newRuntime(f.runtime)
 	if err != nil {
 		return "", err
 	}
-	if err := a.runTurn(ctx, rt, source, input, s); err != nil {
+	if err := f.app.runTurn(ctx, rt, f.source, f.input, s); err != nil {
 		return "", err
 	}
 	return latestAssistant(s), nil
 }
 
-func (a *App) routeInput(ctx context.Context, source, input string) (string, bool, error) {
-	if out, ok, err := a.router.Route(ctx, input); ok {
-		a.publishCommandHandled(source, out, err)
+func (f inputFlow) route(ctx context.Context) (string, bool, error) {
+	if out, ok, err := f.app.router.Route(ctx, f.input); ok {
+		f.publishCommandHandled(out, err)
 		return out, true, err
 	}
-	if !command.IsCommand(input) {
+	if !command.IsCommand(f.input) {
 		return "", false, nil
 	}
-	out, ok, err := a.runShellShortcut(ctx, source, input)
+	out, ok, err := f.runShellShortcut(ctx)
 	if ok {
-		a.publishCommandHandled(source, out, err)
+		f.publishCommandHandled(out, err)
 	}
 	return out, ok, err
 }
 
-func (a *App) publishCommandHandled(source, out string, err error) {
-	a.bus.Publish(bus.Event{
+func (f inputFlow) publishCommandHandled(out string, err error) {
+	f.app.bus.Publish(bus.Event{
 		Type:   bus.CommandHandled,
-		Source: source,
+		Source: f.source,
 		Text:   strings.TrimSpace(out),
 		Err:    errString(err),
 	})
 }
 
-func (a *App) runShellShortcut(ctx context.Context, source, input string) (string, bool, error) {
-	cmd := strings.TrimSpace(strings.TrimPrefix(input, "!"))
-	if cmd == "" || a.tools.Get("bash") == nil {
+func (f inputFlow) runShellShortcut(ctx context.Context) (string, bool, error) {
+	cmd := strings.TrimSpace(strings.TrimPrefix(f.input, "!"))
+	if cmd == "" || f.app.tools.Get("bash") == nil {
 		return "", false, nil
 	}
 	args, _ := json.Marshal(map[string]string{"cmd": cmd})
 	ev := bus.Event{
-		Source:     source,
+		Source:     f.source,
 		ToolCallID: uuid.New().String()[:8],
 		Tool:       "bash",
 		Input:      string(args),
 	}
-	a.bus.Publish(shellEvent(ev, bus.ToolCallStarted, "", ""))
-	out, err := a.tools.Run(ctx, "bash", args)
+	f.app.bus.Publish(shellEvent(ev, bus.ToolCallStarted, "", ""))
+	out, err := f.app.tools.Run(ctx, "bash", args)
 	if err != nil {
-		a.bus.Publish(shellEvent(ev, bus.ToolCallFailed, out, err.Error()))
+		f.app.bus.Publish(shellEvent(ev, bus.ToolCallFailed, out, err.Error()))
 		return out, true, err
 	}
-	a.bus.Publish(shellEvent(ev, bus.ToolCallFinished, out, ""))
+	f.app.bus.Publish(shellEvent(ev, bus.ToolCallFinished, out, ""))
 	return out, true, nil
 }
 
