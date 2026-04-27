@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,28 +10,22 @@ import (
 )
 
 type Store struct {
-	sessionsDir    string
-	sessionIndex   string
-	current        string
-	runlogDir      string
-	taskRunlogDir  string
-	globalRunlog   string
-	legacySessions string
-	legacyRunlog   string
-	mu             sync.Mutex
+	sessionsDir   string
+	sessionIndex  string
+	runlogDir     string
+	taskRunlogDir string
+	globalRunlog  string
+	mu            sync.Mutex
 }
 
 func Open(root string) (*Store, error) {
 	root = strings.TrimSpace(root)
 	s := &Store{
-		sessionsDir:    filepath.Join(root, "sessions"),
-		sessionIndex:   filepath.Join(root, "state", "session_index.json"),
-		current:        filepath.Join(root, "state", "current_sessions.json"),
-		runlogDir:      filepath.Join(root, "runlog"),
-		taskRunlogDir:  filepath.Join(root, "runlog", "tasks"),
-		globalRunlog:   filepath.Join(root, "runlog", "global.jsonl"),
-		legacySessions: filepath.Join(root, "sessions.jsonl"),
-		legacyRunlog:   filepath.Join(root, "runlog.jsonl"),
+		sessionsDir:   filepath.Join(root, "sessions"),
+		sessionIndex:  filepath.Join(root, "state", "session_index.json"),
+		runlogDir:     filepath.Join(root, "runlog"),
+		taskRunlogDir: filepath.Join(root, "runlog", "tasks"),
+		globalRunlog:  filepath.Join(root, "runlog", "global.jsonl"),
 	}
 	if err := s.ensurePaths(); err != nil {
 		return nil, err
@@ -43,7 +36,7 @@ func Open(root string) (*Store, error) {
 func (s *Store) ensurePaths() error {
 	for _, dir := range []string{
 		s.sessionsDir,
-		filepath.Dir(s.current),
+		filepath.Dir(s.sessionIndex),
 		s.runlogDir,
 		s.taskRunlogDir,
 	} {
@@ -199,47 +192,4 @@ func readFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
-}
-
-func walkFiles(root, ext string, fn func(string) error) error {
-	info, err := os.Stat(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if !info.IsDir() {
-		if ext == "" || filepath.Ext(root) == ext {
-			return fn(root)
-		}
-		return nil
-	}
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if ext != "" && filepath.Ext(path) != ext {
-			return nil
-		}
-		return fn(path)
-	})
-}
-
-func findFile(root, name string) (string, bool, error) {
-	var found string
-	err := walkFiles(root, filepath.Ext(name), func(path string) error {
-		if filepath.Base(path) != name {
-			return nil
-		}
-		found = path
-		return fs.SkipAll
-	})
-	if err != nil && err != fs.SkipAll {
-		return "", false, err
-	}
-	return found, found != "", nil
 }

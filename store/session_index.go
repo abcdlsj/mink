@@ -43,7 +43,7 @@ func (s *Store) loadIndexLocked() (map[string]SessionMeta, error) {
 	data, err := os.ReadFile(s.sessionIndex)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return s.rebuildIndexLocked()
+			return map[string]SessionMeta{}, nil
 		}
 		return nil, err
 	}
@@ -67,22 +67,6 @@ func (s *Store) updateIndexLocked(v *session.Session, path string) error {
 	}
 	idx[v.ID] = s.meta(v, path)
 	return s.saveIndexLocked(idx)
-}
-
-func (s *Store) rebuildIndexLocked() (map[string]SessionMeta, error) {
-	idx := map[string]SessionMeta{}
-	err := walkFiles(s.sessionsDir, ".json", func(path string) error {
-		d, err := loadSessionFile(path)
-		if err != nil {
-			return err
-		}
-		idx[d.ID] = s.meta(fromDisk(d), path)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return idx, s.saveIndexLocked(idx)
 }
 
 func (s *Store) saveIndexLocked(idx map[string]SessionMeta) error {

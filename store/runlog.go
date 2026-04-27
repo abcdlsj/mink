@@ -49,9 +49,6 @@ func (s *Store) ReplaySession(id string, limit int) ([]bus.Event, error) {
 	if ok {
 		return s.replayPathLocked(path, limit, nil)
 	}
-	if fileExists(s.legacyRunlog) {
-		return s.replayPathLocked(s.legacyRunlog, limit, func(ev bus.Event) bool { return ev.SessionID == id })
-	}
 	return nil, nil
 }
 
@@ -65,9 +62,6 @@ func (s *Store) ReplayTask(id string, limit int) ([]bus.Event, error) {
 	path := s.taskRunlogPath(id)
 	if fileExists(path) {
 		return s.replayPathLocked(path, limit, nil)
-	}
-	if fileExists(s.legacyRunlog) {
-		return s.replayPathLocked(s.legacyRunlog, limit, func(ev bus.Event) bool { return ev.TaskID == id })
 	}
 	return nil, nil
 }
@@ -97,7 +91,7 @@ func (s *Store) findRunlogPathLocked(id string) (string, bool, error) {
 			return path, true, nil
 		}
 	}
-	return findFile(s.runlogDir, id+".jsonl")
+	return "", false, nil
 }
 
 func (s *Store) appendSessionOpLocked(typ, source, id string, created time.Time, path string) error {
@@ -123,11 +117,6 @@ func (s *Store) appendSessionOpLocked(typ, source, id string, created time.Time,
 func (s *Store) currentFromRunlogLocked(source string) (string, error) {
 	source = strings.TrimSpace(source)
 	var id string
-	if fileExists(s.legacyRunlog) {
-		if err := scanCurrentSession(s.legacyRunlog, source, &id); err != nil {
-			return "", err
-		}
-	}
 	if fileExists(s.globalRunlog) {
 		if err := scanCurrentSession(s.globalRunlog, source, &id); err != nil {
 			return "", err

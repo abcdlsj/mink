@@ -77,10 +77,6 @@ func TestSessionIndexAndRunLogFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "state", "current_sessions.json")); !os.IsNotExist(err) {
-		t.Fatalf("current_sessions.json should not be written, err=%v", err)
-	}
-
 	idx, err := db.SessionIndex()
 	if err != nil {
 		t.Fatal(err)

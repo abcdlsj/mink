@@ -18,11 +18,13 @@ func TestRunLogReplaySession(t *testing.T) {
 	defer db.Close()
 
 	base := time.Date(2026, 4, 20, 10, 0, 0, 0, time.UTC)
+	sa := session.New("cli")
+	sb := session.New("cli")
 	evs := []bus.Event{
-		{Type: bus.TurnStarted, Source: "cli", SessionID: "sess-a", Time: base},
-		{Type: bus.ToolCallStarted, Source: "cli", SessionID: "sess-a", ToolCallID: "tool-1", Tool: "bash", Input: `{"cmd":"printf hi"}`, Time: base.Add(time.Second)},
-		{Type: bus.TurnFinished, Source: "cli", SessionID: "sess-b", Time: base.Add(2 * time.Second)},
-		{Type: bus.ToolCallFinished, Source: "cli", SessionID: "sess-a", ToolCallID: "tool-1", Tool: "bash", Output: "hi", Time: base.Add(3 * time.Second)},
+		{Type: bus.TurnStarted, Source: "cli", SessionID: sa.ID, Time: base},
+		{Type: bus.ToolCallStarted, Source: "cli", SessionID: sa.ID, ToolCallID: "tool-1", Tool: "bash", Input: `{"cmd":"printf hi"}`, Time: base.Add(time.Second)},
+		{Type: bus.TurnFinished, Source: "cli", SessionID: sb.ID, Time: base.Add(2 * time.Second)},
+		{Type: bus.ToolCallFinished, Source: "cli", SessionID: sa.ID, ToolCallID: "tool-1", Tool: "bash", Output: "hi", Time: base.Add(3 * time.Second)},
 	}
 	for _, ev := range evs {
 		if err := db.AppendEvent(ev); err != nil {
@@ -30,7 +32,7 @@ func TestRunLogReplaySession(t *testing.T) {
 		}
 	}
 
-	got, err := db.ReplaySession("sess-a", 10)
+	got, err := db.ReplaySession(sa.ID, 10)
 	if err != nil {
 		t.Fatal(err)
 	}

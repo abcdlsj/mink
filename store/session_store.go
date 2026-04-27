@@ -82,11 +82,6 @@ func (s *Store) CurrentSessionID(source string) (string, error) {
 	} else if id != "" {
 		return id, nil
 	}
-	if id, err := s.currentFromLegacyLocked(source); err != nil {
-		return "", err
-	} else if id != "" {
-		return id, nil
-	}
 	idx, err := s.loadIndexLocked()
 	if err != nil {
 		return "", err
@@ -114,68 +109,27 @@ func (s *Store) loadSessionLocked(id string) (diskSession, error) {
 	} else if ok {
 		return loadSessionFile(path)
 	}
-	if fileExists(s.legacySessions) {
-		m, err := s.loadLegacySessionsLocked()
-		if err != nil {
-			return diskSession{}, err
-		}
-		if d, ok := m[id]; ok {
-			return d, nil
-		}
-	}
 	return diskSession{}, fmt.Errorf("session not found: %s", id)
 }
 
 func (s *Store) loadSessionsLocked() (map[string]diskSession, error) {
 	out := map[string]diskSession{}
-	if fileExists(s.legacySessions) {
-		m, err := s.loadLegacySessionsLocked()
+	idx, err := s.loadIndexLocked()
+	if err != nil {
+		return nil, err
+	}
+	for id, meta := range idx {
+		d, err := loadSessionFile(meta.Path)
 		if err != nil {
 			return nil, err
 		}
-		for id, d := range m {
-			out[id] = d
-		}
-	}
-	err := walkFiles(s.sessionsDir, ".json", func(path string) error {
-		d, err := loadSessionFile(path)
-		if err != nil {
-			return err
-		}
 		out[d.ID] = d
-		return nil
-	})
-	return out, err
-}
-
-func (s *Store) loadLegacySessionsLocked() (map[string]diskSession, error) {
-	out := map[string]diskSession{}
-	err := scanJSONLines(s.legacySessions, func(d diskSession) error {
-		out[d.ID] = d
-		return nil
-	})
-	return out, err
-}
-
-func (s *Store) loadCurrentLocked() (map[string]string, error) {
-	data, err := os.ReadFile(s.current)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]string{}, nil
+		if d.ID != id {
+			out[d.ID] = d
+			delete(out, id)
 		}
-		return nil, err
 	}
-	if len(data) == 0 {
-		return map[string]string{}, nil
-	}
-	var m map[string]string
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	if m == nil {
-		m = map[string]string{}
-	}
-	return m, nil
+	return out, nil
 }
 
 func (s *Store) findSessionPathLocked(id string) (string, bool, error) {
@@ -185,7 +139,7 @@ func (s *Store) findSessionPathLocked(id string) (string, bool, error) {
 			return path, true, nil
 		}
 	}
-	return findFile(s.sessionsDir, id+".json")
+	return "", false, nil
 }
 
 func toDisk(s *session.Session) diskSession {
@@ -235,14 +189,6 @@ func sessionOpType(path string) string {
 		return bus.SessionSaved
 	}
 	return bus.SessionCreated
-}
-
-func (s *Store) currentFromLegacyLocked(source string) (string, error) {
-	m, err := s.loadCurrentLocked()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(m[source]), nil
 }
 
 func appendLine(path string, line []byte) error {
