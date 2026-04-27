@@ -116,8 +116,7 @@ func newShellModel(ctx context.Context, a *app.App, source string) shellModel {
 	in.BlurredStyle.CursorLine = shellTheme.TextMuted
 
 	vp := viewport.New(0, 0)
-	vp.KeyMap = viewport.KeyMap{}
-	vp.MouseWheelEnabled = false
+	vp.MouseWheelEnabled = true
 
 	return shellModel{
 		ctx:       ctx,
@@ -172,6 +171,11 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.focus == focusComposer && m.overlay == overlayNone {
 		m.input, cmd = m.input.Update(msg)
 		m.syncLayout()
+		return m, cmd
+	}
+	if m.focus == focusTranscript && m.overlay == overlayNone {
+		m.viewport, cmd = m.viewport.Update(msg)
+		m.follow = false
 		return m, cmd
 	}
 	return m, nil
@@ -621,7 +625,8 @@ func (m *shellModel) keepSelectionVisible() {
 		return
 	}
 	if span.End > bot {
-		m.viewport.SetYOffset(span.End - m.viewport.Height)
+		off := max(0, span.End-m.viewport.Height)
+		m.viewport.SetYOffset(off)
 	}
 }
 

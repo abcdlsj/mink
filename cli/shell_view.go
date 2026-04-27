@@ -356,22 +356,6 @@ func wrapDisplay(s string, width int) []string {
 	return out
 }
 
-func stripANSI(s string) string {
-	var b strings.Builder
-	skip := false
-	for _, r := range s {
-		switch {
-		case r == '\x1b':
-			skip = true
-		case skip && r == 'm':
-			skip = false
-		case !skip:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
 func placeOverlay(base, overlay string, x, y int) string {
 	lines := strings.Split(base, "\n")
 	box := strings.Split(overlay, "\n")
