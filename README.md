@@ -94,6 +94,7 @@ Optional plugin config:
 ```toml
 data_dir = "~/.mink"
 soul_path = "~/.mink/SOUL.md"
+status_line = "git branch --show-current 2>/dev/null | sed 's/^/git:/'"
 
 [compact]
 auto = true
@@ -108,6 +109,25 @@ session_scope = "chat"
 
 [brave_search]
 api_key = "..."
+```
+
+### Custom Status Line
+
+Set `status_line` to a bash script or command (500ms timeout):
+
+```toml
+status_line = "/path/to/script.sh"
+```
+
+Example inline:
+```toml
+status_line = "git branch --show-current 2>/dev/null | sed 's/^/git:/'"
+```
+
+Example script:
+```bash
+#!/bin/bash
+[ -d .git ] && git branch --show-current 2>/dev/null | sed 's/^/git:/'
 ```
 
 Runtime activity is written under `runlog/` in `data_dir`, and `!replay` reads from that event log instead of reconstructing output from session messages.
