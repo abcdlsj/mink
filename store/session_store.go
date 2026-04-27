@@ -14,13 +14,14 @@ import (
 )
 
 type diskSession struct {
-	ID        string        `json:"id"`
-	Source    string        `json:"source"`
-	Title     string        `json:"title,omitempty"`
-	Summary   string        `json:"summary,omitempty"`
-	Messages  []msg.Message `json:"messages,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID              string            `json:"id"`
+	Source          string            `json:"source"`
+	Title           string            `json:"title,omitempty"`
+	Summary         string            `json:"summary,omitempty"`
+	Messages        []msg.Message     `json:"messages,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+	ExternalSession map[string]string `json:"external_session,omitempty"`
 }
 
 func (s *Store) SaveSession(v *session.Session) error {
@@ -171,25 +172,31 @@ func (s *Store) findSessionPathLocked(id string) (string, bool, error) {
 
 func toDisk(s *session.Session) diskSession {
 	return diskSession{
-		ID:        s.ID,
-		Source:    s.Source,
-		Title:     s.Title,
-		Summary:   s.Summary,
-		Messages:  s.Messages,
-		CreatedAt: s.CreatedAt,
-		UpdatedAt: s.UpdatedAt,
+		ID:              s.ID,
+		Source:          s.Source,
+		Title:           s.Title,
+		Summary:         s.Summary,
+		Messages:        s.Messages,
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       s.UpdatedAt,
+		ExternalSession: s.ExternalSession,
 	}
 }
 
 func fromDisk(d diskSession) *session.Session {
+	es := d.ExternalSession
+	if es == nil {
+		es = make(map[string]string)
+	}
 	return &session.Session{
-		ID:        d.ID,
-		Source:    d.Source,
-		Title:     d.Title,
-		Summary:   d.Summary,
-		Messages:  d.Messages,
-		CreatedAt: d.CreatedAt,
-		UpdatedAt: d.UpdatedAt,
+		ID:              d.ID,
+		Source:          d.Source,
+		Title:           d.Title,
+		Summary:         d.Summary,
+		Messages:        d.Messages,
+		CreatedAt:       d.CreatedAt,
+		UpdatedAt:       d.UpdatedAt,
+		ExternalSession: es,
 	}
 }
 

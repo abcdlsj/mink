@@ -30,6 +30,7 @@ type Config struct {
 	Compact     CompactConfig     `toml:"compact"`
 	Telegram    TelegramConfig    `toml:"telegram"`
 	BraveSearch BraveConfig       `toml:"brave_search"`
+	StatusLine  string            `toml:"status_line"`
 
 	Active ModelConfig `toml:"-"`
 }

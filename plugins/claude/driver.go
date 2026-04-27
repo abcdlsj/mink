@@ -12,12 +12,14 @@ func driver() external.Driver {
 	return external.Driver{
 		Name:    "claude",
 		Command: "claude",
-		BuildArgs: func(prompt, workDir string) []string {
+		BuildArgs: func(prompt, workDir, sessionID string) []string {
 			args := []string{
 				"--print",
 				"--output-format", "stream-json",
 				"--verbose",
-				"--include-partial-messages",
+			}
+			if sessionID != "" {
+				args = append(args, "--session-id", sessionID)
 			}
 			if workDir != "" && workDir != "." {
 				args = append(args, "--add-dir", workDir)
@@ -115,7 +117,11 @@ func parseOutput(line string) *external.Message {
 				}
 			}
 			if text.Len() > 0 {
-				return &external.Message{Type: external.MsgAssistantText, Text: text.String()}
+				return &external.Message{
+					Type:     external.MsgAssistantText,
+					Text:     text.String(),
+					Snapshot: true,
+				}
 			}
 		}
 	case "result":
@@ -123,7 +129,11 @@ func parseOutput(line string) *external.Message {
 			return &external.Message{Type: external.MsgError, Text: env.Result}
 		}
 		if env.Result != "" {
-			return &external.Message{Type: external.MsgAssistantText, Text: env.Result}
+			return &external.Message{
+				Type:     external.MsgAssistantText,
+				Text:     env.Result,
+				Snapshot: true,
+			}
 		}
 	}
 

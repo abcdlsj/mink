@@ -23,7 +23,8 @@ func TestHandleMessageDoesNotRepublishFinalAssistantTextAfterStreaming(t *testin
 	st := &runState{}
 
 	handleMessage("test", turn, st, &Message{Type: MsgStreamChunk, Text: "hello"})
-	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "hello"})
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "hello", Snapshot: true})
+	st.flush(turn.Session)
 
 	var chunks []string
 	for {
@@ -35,6 +36,45 @@ func TestHandleMessageDoesNotRepublishFinalAssistantTextAfterStreaming(t *testin
 		default:
 			if got := strings.Join(chunks, ""); got != "hello" {
 				t.Fatalf("chunks = %q, want %q", got, "hello")
+			}
+			if got := turn.Session.Messages[len(turn.Session.Messages)-1].Content; got != "hello" {
+				t.Fatalf("assistant = %q, want %q", got, "hello")
+			}
+			return
+		}
+	}
+}
+
+func TestHandleMessageMergesAssistantSnapshots(t *testing.T) {
+	b := bus.New()
+	evs, cancel := b.Subscribe(8)
+	defer cancel()
+
+	turn := &agent.Turn{
+		Source:  "test",
+		Session: session.New("test"),
+		Bus:     b,
+	}
+	st := &runState{}
+
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "hel", Snapshot: true})
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "hello", Snapshot: true})
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "hello", Snapshot: true})
+	st.flush(turn.Session)
+
+	var chunks []string
+	for {
+		select {
+		case ev := <-evs:
+			if ev.Type == bus.TurnChunk {
+				chunks = append(chunks, ev.Text)
+			}
+		default:
+			if got := strings.Join(chunks, ""); got != "hello" {
+				t.Fatalf("chunks = %q, want %q", got, "hello")
+			}
+			if got := turn.Session.Messages[len(turn.Session.Messages)-1].Content; got != "hello" {
+				t.Fatalf("assistant = %q, want %q", got, "hello")
 			}
 			return
 		}
@@ -63,7 +103,6 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 	for _, want := range []string{
 		"<system_prompt>",
 		"项目约束",
-		"<conversation_history>",
 		"<user_message>",
 		"继续",
 	} {

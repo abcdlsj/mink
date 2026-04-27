@@ -13,22 +13,24 @@ import (
 )
 
 type Session struct {
-	ID        string
-	Source    string
-	Title     string
-	Summary   string
-	Messages  []msg.Message
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string
+	Source          string
+	Title           string
+	Summary         string
+	Messages        []msg.Message
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	ExternalSession map[string]string
 }
 
 func New(source string) *Session {
 	now := time.Now()
 	return &Session{
-		ID:        newID(source, now),
-		Source:    strings.TrimSpace(source),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:              newID(source, now),
+		Source:          strings.TrimSpace(source),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		ExternalSession: make(map[string]string),
 	}
 }
 

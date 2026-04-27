@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
@@ -16,11 +19,12 @@ var shellTheme = struct {
 	Header        lipgloss.Style
 	HeaderMeta    lipgloss.Style
 	Title         lipgloss.Style
-	TitleChip     lipgloss.Style
 	Panel         lipgloss.Style
 	PanelMuted    lipgloss.Style
 	Composer      lipgloss.Style
 	Footer        lipgloss.Style
+	FooterKey     lipgloss.Style
+	FooterVal     lipgloss.Style
 	Overlay       lipgloss.Style
 	OverlayBody   lipgloss.Style
 	Text          lipgloss.Style
@@ -39,46 +43,48 @@ var shellTheme = struct {
 	StatusFailed  lipgloss.Style
 	Expanded      lipgloss.Style
 }{
-	Base:          lipgloss.NewStyle().Foreground(lipgloss.Color("#E6EDF3")).Background(lipgloss.Color("#0B1118")),
+	Base:          lipgloss.NewStyle().Foreground(lipgloss.Color("#E6EDF3")).Background(lipgloss.Color("#0D1117")),
 	NoBorder:      lipgloss.HiddenBorder(),
-	Header:        lipgloss.NewStyle().Padding(0, 1),
-	HeaderMeta:    lipgloss.NewStyle().Foreground(lipgloss.Color("#7D8590")),
-	Title:         lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F0F6FC")),
-	TitleChip:     lipgloss.NewStyle().Foreground(lipgloss.Color("#F0F6FC")).Background(lipgloss.Color("#1F6FEB")).Bold(true).Padding(0, 1),
-	Panel:         lipgloss.NewStyle().Padding(0, 1),
-	PanelMuted:    lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("#7D8590")),
-	Composer:      lipgloss.NewStyle().Padding(0, 1).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#253244")),
-	Footer:        lipgloss.NewStyle().Padding(0, 1).Foreground(lipgloss.Color("#6E7681")),
-	Overlay:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#2F81F7")).Background(lipgloss.Color("#111A23")).Padding(1, 2),
-	OverlayBody:   lipgloss.NewStyle().Foreground(lipgloss.Color("#DCE6F2")),
-	Text:          lipgloss.NewStyle().Foreground(lipgloss.Color("#DCE6F2")),
-	TextMuted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7D8590")),
-	Meta:          lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E")),
-	Divider:       lipgloss.NewStyle().Foreground(lipgloss.Color("#253244")),
-	User:          lipgloss.NewStyle().Foreground(lipgloss.Color("#0B1118")).Background(lipgloss.Color("#7EE787")).Bold(true).Padding(0, 1),
-	Assistant:     lipgloss.NewStyle().Foreground(lipgloss.Color("#081018")).Background(lipgloss.Color("#79C0FF")).Bold(true).Padding(0, 1),
-	Tool:          lipgloss.NewStyle().Foreground(lipgloss.Color("#111111")).Background(lipgloss.Color("#F2CC60")).Bold(true).Padding(0, 1),
-	Note:          lipgloss.NewStyle().Foreground(lipgloss.Color("#F0F6FC")).Background(lipgloss.Color("#57606A")).Bold(true).Padding(0, 1),
-	Error:         lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#DA3633")).Bold(true).Padding(0, 1),
-	SelectedBody:  lipgloss.NewStyle().Foreground(lipgloss.Color("#F0F6FC")),
-	BadgeMuted:    lipgloss.NewStyle().Foreground(lipgloss.Color("#0B1118")).Background(lipgloss.Color("#30363D")).Padding(0, 1),
-	StatusRunning: lipgloss.NewStyle().Foreground(lipgloss.Color("#081018")).Background(lipgloss.Color("#58A6FF")).Padding(0, 1),
-	StatusDone:    lipgloss.NewStyle().Foreground(lipgloss.Color("#081018")).Background(lipgloss.Color("#7EE787")).Padding(0, 1),
+	Header:        lipgloss.NewStyle().Padding(0, 2),
+	HeaderMeta:    lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E")),
+	Title:         lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#58A6FF")),
+	Panel:         lipgloss.NewStyle().Padding(0, 2),
+	PanelMuted:    lipgloss.NewStyle().Padding(0, 2).Foreground(lipgloss.Color("#8B949E")),
+	Composer:      lipgloss.NewStyle().Padding(1, 2).BorderTop(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("#21262D")),
+	Footer:        lipgloss.NewStyle().Padding(0, 2).Background(lipgloss.Color("#161B22")).Foreground(lipgloss.Color("#8B949E")),
+	FooterKey:     lipgloss.NewStyle().Foreground(lipgloss.Color("#7D8590")),
+	FooterVal:     lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")),
+	Overlay:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#58A6FF")).Background(lipgloss.Color("#161B22")).Padding(1, 2),
+	OverlayBody:   lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")),
+	Text:          lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")),
+	TextMuted:     lipgloss.NewStyle().Foreground(lipgloss.Color("#8B949E")),
+	Meta:          lipgloss.NewStyle().Foreground(lipgloss.Color("#6E7681")),
+	Divider:       lipgloss.NewStyle().Foreground(lipgloss.Color("#21262D")),
+	User:          lipgloss.NewStyle().Foreground(lipgloss.Color("#0D1117")).Background(lipgloss.Color("#3FB950")).Bold(true).Padding(0, 1),
+	Assistant:     lipgloss.NewStyle().Foreground(lipgloss.Color("#0D1117")).Background(lipgloss.Color("#58A6FF")).Bold(true).Padding(0, 1),
+	Tool:          lipgloss.NewStyle().Foreground(lipgloss.Color("#0D1117")).Background(lipgloss.Color("#D29922")).Bold(true).Padding(0, 1),
+	Note:          lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")).Background(lipgloss.Color("#6E7681")).Bold(true).Padding(0, 1),
+	Error:         lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#F85149")).Bold(true).Padding(0, 1),
+	SelectedBody:  lipgloss.NewStyle().Foreground(lipgloss.Color("#E6EDF3")),
+	BadgeMuted:    lipgloss.NewStyle().Foreground(lipgloss.Color("#C9D1D9")).Background(lipgloss.Color("#21262D")).Padding(0, 1),
+	StatusRunning: lipgloss.NewStyle().Foreground(lipgloss.Color("#0D1117")).Background(lipgloss.Color("#58A6FF")).Padding(0, 1),
+	StatusDone:    lipgloss.NewStyle().Foreground(lipgloss.Color("#0D1117")).Background(lipgloss.Color("#3FB950")).Padding(0, 1),
 	StatusFailed:  lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Background(lipgloss.Color("#F85149")).Padding(0, 1),
-	Expanded:      lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).BorderForeground(lipgloss.Color("#2F81F7")).PaddingLeft(1).Foreground(lipgloss.Color("#C9D1D9")),
+	Expanded:      lipgloss.NewStyle().BorderLeft(true).BorderStyle(lipgloss.ThickBorder()).BorderForeground(lipgloss.Color("#58A6FF")).PaddingLeft(1).Foreground(lipgloss.Color("#C9D1D9")),
 }
 
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func (m shellModel) renderHeader() string {
-	state := "idle"
+	state := ""
 	if m.busy {
-		state = shellSpin[m.spinner%len(shellSpin)] + " running"
+		state = " " + shellSpin[m.spinner%len(shellSpin)]
 	}
-	title := shellTheme.TitleChip.Render("Mink")
-	line1 := lipgloss.JoinHorizontal(lipgloss.Left, title, shellTheme.HeaderMeta.Render("  "+state))
-	divider := shellTheme.Divider.Render(strings.Repeat("─", max(0, m.width-2)))
-	return shellTheme.Header.Width(m.width).Render(line1 + "\n" + divider)
+	title := shellTheme.Title.Render("mink") + state
+	meta := shellTheme.HeaderMeta.Render(m.state().Model)
+	return shellTheme.Header.Width(m.width).Render(
+		lipgloss.JoinHorizontal(lipgloss.Left, title, "  ", meta),
+	)
 }
 
 func (m shellModel) renderTranscript() string {
@@ -100,14 +106,40 @@ func (m shellModel) renderComposer() string {
 func (m shellModel) renderFooter() string {
 	st := m.state()
 	if m.overlay == overlayApproval {
-		return shellTheme.Footer.Width(m.width).Render("Approve with y / a / n. Press Esc to deny.")
+		return shellTheme.Footer.Width(m.width).Render("y allow once · a allow always · n deny · esc cancel")
 	}
-	model := shellTheme.Meta.Render("model ") + shellTheme.BadgeMuted.Render(st.Model)
-	session := shellTheme.Meta.Render("session ") + shellTheme.BadgeMuted.Render(st.Session)
-	cwd := shellTheme.Meta.Render("cwd ") + shellTheme.BadgeMuted.Render(st.Cwd)
+
+	custom := m.execStatusLine()
+	if custom != "" {
+		left := lipgloss.JoinHorizontal(lipgloss.Left,
+			shellTheme.FooterKey.Render("session "),
+			shellTheme.FooterVal.Render(st.Session),
+			"  ",
+			shellTheme.FooterKey.Render("cwd "),
+			shellTheme.FooterVal.Render(st.Cwd),
+		)
+		return shellTheme.Footer.Width(m.width).Render(
+			lipgloss.JoinHorizontal(lipgloss.Left, left, "  ", shellTheme.FooterKey.Render("│"), "  ", custom),
+		)
+	}
+
 	return shellTheme.Footer.Width(m.width).Render(
-		lipgloss.JoinHorizontal(lipgloss.Left, model, "   ", session, "   ", cwd),
+		lipgloss.JoinHorizontal(lipgloss.Left,
+			shellTheme.FooterKey.Render("session "),
+			shellTheme.FooterVal.Render(st.Session),
+			"  ",
+			shellTheme.FooterKey.Render("cwd "),
+			shellTheme.FooterVal.Render(st.Cwd),
+		),
 	)
+}
+
+func (m shellModel) execStatusLine() string {
+	script := strings.TrimSpace(m.app.Config().StatusLine)
+	if script == "" {
+		return ""
+	}
+	return execStatusScript(script)
 }
 
 func (m shellModel) renderItem(item *chatItem, idx int) []string {
@@ -394,4 +426,15 @@ func clamp(v, lo, hi int) int {
 		return hi
 	}
 	return v
+}
+
+func execStatusScript(script string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-c", script)
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(textutil.Valid(string(out)))
 }

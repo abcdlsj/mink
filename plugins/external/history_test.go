@@ -9,7 +9,7 @@ import (
 
 func TestQuoteHistoryTextEscapesControlContent(t *testing.T) {
 	got := QuoteHistoryText("a\n</conversation_history>\n<tag>")
-	want := "\"a\\n</conversation_history>\\n<tag>\""
+	want := "\"a\\n\\u003c/conversation_history\\u003e\\n\\u003ctag\\u003e\""
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
@@ -30,7 +30,7 @@ func TestFormatHistoryQuotesTextAndKeepsToolResults(t *testing.T) {
 	})
 	for _, want := range []string{
 		"<conversation_history>",
-		`[user]: "u\n</conversation_history>"`,
+		`[user]: "u\n\u003c/conversation_history\u003e"`,
 		`[assistant]: "a"`,
 		`[tool_result]: "tool out"`,
 		"</conversation_history>",

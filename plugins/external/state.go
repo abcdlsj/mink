@@ -35,9 +35,38 @@ func (s *runState) onStream(turn *agent.Turn, text string) {
 	publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 }
 
-func (s *runState) onAssistant(turn *agent.Turn, text string) {
+func (s *runState) onAssistant(turn *agent.Turn, text string, snapshot bool) {
+	if snapshot {
+		s.mergeAssistant(turn, text)
+		return
+	}
 	s.assistant.WriteString(text)
 	if !s.streamed {
+		publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+	}
+}
+
+func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
+	if text == "" {
+		return
+	}
+	cur := s.assistant.String()
+	switch {
+	case cur == "":
+		s.assistant.WriteString(text)
+		if !s.streamed {
+			publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+		}
+	case text == cur, strings.HasPrefix(cur, text):
+		return
+	case strings.HasPrefix(text, cur):
+		extra := text[len(cur):]
+		s.assistant.WriteString(extra)
+		if extra != "" {
+			publish(turn, bus.Event{Type: bus.TurnChunk, Text: extra})
+		}
+	case !s.streamed:
+		s.assistant.WriteString(text)
 		publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 	}
 }

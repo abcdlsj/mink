@@ -9,9 +9,12 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/abcdlsj/mink/agent"
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/textutil"
 )
 
@@ -19,7 +22,7 @@ type Driver struct {
 	Name          string
 	Command       string
 	StdinPrompt   bool
-	BuildArgs     func(prompt, workDir string) []string
+	BuildArgs     func(prompt, workDir, sessionID string) []string
 	ParseOutput   func(line string) *Message
 	FormatHistory func(messages []msg.Message) string
 }
@@ -39,6 +42,7 @@ const (
 type Message struct {
 	Type         MessageType
 	Text         string
+	Snapshot     bool
 	ToolName     string
 	ToolArgs     string
 	ToolID       string
@@ -70,7 +74,8 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	prompt := textutil.Valid(r.buildPrompt(turn))
 	addUser(turn.Session, turn.Input)
 
-	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace)...)
+	sessionID := r.getOrCreateSessionID(turn.Session)
+	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID)...)
 	if r.workspace != "" {
 		cmd.Dir = r.workspace
 	}
@@ -142,13 +147,19 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 }
 
 func (r *Runtime) buildPrompt(turn *agent.Turn) string {
-	var hist string
-	if r.driver.FormatHistory != nil && turn != nil && turn.Session != nil {
-		if msgs := turn.Session.Messages; len(msgs) > 0 {
-			hist = strings.TrimSpace(r.driver.FormatHistory(msgs))
-		}
+	return agent.BuildExternalPrompt(r.env, turn, "")
+}
+
+func (r *Runtime) getOrCreateSessionID(s *session.Session) string {
+	if s == nil || s.ExternalSession == nil {
+		return ""
 	}
-	return agent.BuildExternalPrompt(r.env, turn, hist)
+	if sid := s.ExternalSession[r.driver.Name]; sid != "" {
+		return sid
+	}
+	sid := uuid.New().String()
+	s.ExternalSession[r.driver.Name] = sid
+	return sid
 }
 
 func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {
@@ -156,7 +167,7 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 	case MsgStreamChunk:
 		st.onStream(turn, m.Text)
 	case MsgAssistantText:
-		st.onAssistant(turn, m.Text)
+		st.onAssistant(turn, m.Text, m.Snapshot)
 	case MsgThinkingChunk:
 		st.reasoning.WriteString(m.Text)
 	case MsgToolCall:

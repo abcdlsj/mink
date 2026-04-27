@@ -573,9 +573,9 @@ func (m *shellModel) syncLayout() {
 	} else {
 		m.input.Blur()
 	}
-	header := 3
+	header := 1
 	footer := 1
-	composer := inHeight + 4
+	composer := inHeight + 3
 	m.viewport.Width = max(20, m.width-4)
 	m.viewport.Height = max(3, m.height-header-footer-composer)
 	m.syncViewport()
