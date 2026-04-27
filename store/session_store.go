@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/msg"
 	"github.com/abcdlsj/mink/session"
 )
@@ -34,7 +35,15 @@ func (s *Store) SaveSession(v *session.Session) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return writeFile(s.sessionPath(v.ID, v.Source, v.CreatedAt), append(line, '\n'))
+	path := s.sessionPath(v.ID, v.Source, v.CreatedAt)
+	typ := sessionOpType(path)
+	if err := writeFile(path, append(line, '\n')); err != nil {
+		return err
+	}
+	if err := s.updateIndexLocked(v, path); err != nil {
+		return err
+	}
+	return s.appendSessionOpLocked(typ, v.Source, v.ID, v.CreatedAt, path)
 }
 
 func (s *Store) LoadSession(id string) (*session.Session, error) {
@@ -68,26 +77,35 @@ func (s *Store) ListSessions() ([]*session.Session, error) {
 func (s *Store) CurrentSessionID(source string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, err := s.loadCurrentLocked()
+	if id, err := s.currentFromRunlogLocked(source); err != nil {
+		return "", err
+	} else if id != "" {
+		return id, nil
+	}
+	if id, err := s.currentFromLegacyLocked(source); err != nil {
+		return "", err
+	} else if id != "" {
+		return id, nil
+	}
+	idx, err := s.loadIndexLocked()
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(m[source]), nil
+	return latestBySource(idx, source), nil
 }
 
 func (s *Store) SetCurrentSession(source, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, err := s.loadCurrentLocked()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	d, err := s.loadSessionLocked(id)
 	if err != nil {
 		return err
 	}
-	m[source] = strings.TrimSpace(id)
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFile(s.current, append(data, '\n'))
+	return s.appendSessionOpLocked(bus.SessionSwitched, source, id, d.CreatedAt, "")
 }
 
 func (s *Store) loadSessionLocked(id string) (diskSession, error) {
@@ -210,6 +228,21 @@ func loadSessionFile(path string) (diskSession, error) {
 		return diskSession{}, err
 	}
 	return d, nil
+}
+
+func sessionOpType(path string) string {
+	if fileExists(path) {
+		return bus.SessionSaved
+	}
+	return bus.SessionCreated
+}
+
+func (s *Store) currentFromLegacyLocked(source string) (string, error) {
+	m, err := s.loadCurrentLocked()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(m[source]), nil
 }
 
 func appendLine(path string, line []byte) error {

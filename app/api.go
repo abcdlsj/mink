@@ -5,6 +5,7 @@ import (
 
 	"github.com/abcdlsj/mink/bus"
 	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/mink/store"
 	"github.com/abcdlsj/mink/tool"
 )
 
@@ -38,6 +39,13 @@ func (a *App) ListSessions() ([]*session.Session, error) {
 
 func (a *App) ListSessionsBySource(source string) ([]*session.Session, error) {
 	return a.sessions.ListBySource(source)
+}
+
+func (a *App) SessionIndex() ([]store.SessionMeta, error) {
+	if a == nil || a.store == nil {
+		return nil, nil
+	}
+	return a.store.SessionIndex()
 }
 
 func (a *App) PublishNotice(source, text string) {

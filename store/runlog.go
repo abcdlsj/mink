@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/mink/bus"
 )
@@ -97,4 +98,49 @@ func (s *Store) findRunlogPathLocked(id string) (string, bool, error) {
 		}
 	}
 	return findFile(s.runlogDir, id+".jsonl")
+}
+
+func (s *Store) appendSessionOpLocked(typ, source, id string, created time.Time, path string) error {
+	ev := bus.Event{
+		Type:      typ,
+		Source:    strings.TrimSpace(source),
+		SessionID: strings.TrimSpace(id),
+		Output:    strings.TrimSpace(path),
+		Time:      time.Now(),
+	}
+	line, err := json.Marshal(ev)
+	if err != nil {
+		return err
+	}
+	if ev.SessionID != "" {
+		if err := appendLine(s.runlogPath(ev.SessionID, ev.Source, created), line); err != nil {
+			return err
+		}
+	}
+	return appendLine(s.globalRunlog, line)
+}
+
+func (s *Store) currentFromRunlogLocked(source string) (string, error) {
+	source = strings.TrimSpace(source)
+	var id string
+	if fileExists(s.legacyRunlog) {
+		if err := scanCurrentSession(s.legacyRunlog, source, &id); err != nil {
+			return "", err
+		}
+	}
+	if fileExists(s.globalRunlog) {
+		if err := scanCurrentSession(s.globalRunlog, source, &id); err != nil {
+			return "", err
+		}
+	}
+	return id, nil
+}
+
+func scanCurrentSession(path, source string, id *string) error {
+	return scanJSONLines(path, func(ev bus.Event) error {
+		if ev.Type == bus.SessionSwitched && strings.TrimSpace(ev.Source) == source {
+			*id = strings.TrimSpace(ev.SessionID)
+		}
+		return nil
+	})
 }

@@ -12,6 +12,7 @@ import (
 
 type Store struct {
 	sessionsDir    string
+	sessionIndex   string
 	current        string
 	runlogDir      string
 	taskRunlogDir  string
@@ -25,6 +26,7 @@ func Open(root string) (*Store, error) {
 	root = strings.TrimSpace(root)
 	s := &Store{
 		sessionsDir:    filepath.Join(root, "sessions"),
+		sessionIndex:   filepath.Join(root, "state", "session_index.json"),
 		current:        filepath.Join(root, "state", "current_sessions.json"),
 		runlogDir:      filepath.Join(root, "runlog"),
 		taskRunlogDir:  filepath.Join(root, "runlog", "tasks"),

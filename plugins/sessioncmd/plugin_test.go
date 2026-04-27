@@ -68,6 +68,41 @@ func TestReplayCommandUsesRunLog(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsSnapshotAndRunLog(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "mink-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "user", Content: turn.Input})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+
+	if _, err := a.HandleInput(context.Background(), "cli", "ping"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := (&inspectCmd{app: a}).Run(command.WithSource(context.Background(), "cli"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, part := range []string{"Session ", "snapshot:", "runlog:", "Recent events:", "session.saved"} {
+		if !strings.Contains(out, part) {
+			t.Fatalf("inspect output missing %q:\n%s", part, out)
+		}
+	}
+}
+
 type runtimeFunc func(context.Context, *agent.Turn) error
 
 func (f runtimeFunc) Run(ctx context.Context, turn *agent.Turn) error {
