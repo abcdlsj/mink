@@ -46,7 +46,7 @@ var shellTheme = struct {
 }{
 	Base:          lipgloss.NewStyle(),
 	NoBorder:      lipgloss.HiddenBorder(),
-	Header:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1),
+	Header:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
 	HeaderMeta:    lipgloss.NewStyle().Faint(true),
 	Title:         lipgloss.NewStyle().Bold(true),
 	Panel:         lipgloss.NewStyle(),
@@ -79,13 +79,13 @@ var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 
 func (m shellModel) renderHeader() string {
 	st := m.state()
-	w := max(1, m.width-6)
+	w := max(1, m.width-4)
 	title := shellTheme.Title.Render(">_ Mink")
 	lines := []string{
 		runewidth.Truncate(title, w, "…"),
 		"",
-		"model:     " + shellTheme.HeaderMeta.Render(headerValue(nonEmpty(st.Model, "unknown"), w-11)),
-		"directory: " + shellTheme.HeaderMeta.Render(headerValue(st.Cwd, w-11)),
+		"model:     " + shellTheme.HeaderMeta.Render(headerValue(nonEmpty(st.Model, "unknown"), w-lipgloss.Width("model:     "))),
+		"directory: " + shellTheme.HeaderMeta.Render(headerValue(st.Cwd, w-lipgloss.Width("directory: "))),
 	}
 	return shellTheme.Header.Width(max(1, m.width-2)).Render(strings.Join(lines, "\n"))
 }

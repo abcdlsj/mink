@@ -175,6 +175,10 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.nextTick()
 	case tea.KeyMsg:
 		return m.updateKey(msg)
+	case tea.MouseMsg:
+		if m.overlay == overlayNone {
+			return m.updateMouse(msg)
+		}
 	}
 
 	var cmd tea.Cmd
@@ -189,6 +193,16 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m shellModel) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if !tea.MouseEvent(msg).IsWheel() {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	m.follow = false
+	return m, cmd
 }
 
 func (m shellModel) View() string {
@@ -602,23 +616,24 @@ func (m *shellModel) syncLayout() {
 		return
 	}
 	inWidth := max(20, m.width)
-	inHeight := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 3, 8)
-	m.input.SetWidth(inWidth)
-	m.input.SetHeight(inHeight)
-	if m.focus == focusComposer {
-		_ = m.input.Focus()
-	} else {
-		m.input.Blur()
-	}
 	header := shellHeaderHeight
 	status := 0
 	if m.busy {
 		status = 1
 	}
 	footer := 1
-	composer := inHeight
+	room := max(1, m.height-header-status-footer)
+	wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 3, 8)
+	composer := min(wantComposer, room)
+	m.input.SetWidth(inWidth)
+	m.input.SetHeight(composer)
+	if m.focus == focusComposer {
+		_ = m.input.Focus()
+	} else {
+		m.input.Blur()
+	}
 	m.viewport.Width = max(20, m.width)
-	m.viewport.Height = max(3, m.height-header-status-footer-composer)
+	m.viewport.Height = max(0, room-composer)
 	m.syncViewport()
 }
 
