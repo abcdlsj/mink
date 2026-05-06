@@ -250,10 +250,3 @@ func blank(s, fallback string) string {
 	}
 	return strings.TrimSpace(s)
 }
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}

@@ -348,54 +348,22 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 		m.turn.commandHandled = true
 		if strings.TrimSpace(ev.Err) != "" {
 			m.turn.errored = true
-			m.addItem(chatItem{
-				Kind: itemError,
-				Time: eventTime(ev),
-				Segments: []chatSegment{{
-					Kind: segText,
-					Text: ev.Err,
-					Time: eventTime(ev),
-				}},
-			})
+			m.addTextItem(itemError, ev.Err, eventTime(ev))
 			return
 		}
 		if m.turn.toolCount == 0 && strings.TrimSpace(ev.Text) != "" {
 			m.appendAssistantAt(eventTime(ev), ev.Text)
 		}
 	case bus.ServiceNotice:
-		m.addItem(chatItem{
-			Kind: itemNotice,
-			Time: eventTime(ev),
-			Segments: []chatSegment{{
-				Kind: segText,
-				Text: ev.Text,
-				Time: eventTime(ev),
-			}},
-		})
+		m.addTextItem(itemNotice, ev.Text, eventTime(ev))
 	case bus.ModelChanged:
-		m.addItem(chatItem{
-			Kind: itemNotice,
-			Time: eventTime(ev),
-			Segments: []chatSegment{{
-				Kind: segText,
-				Text: "Model switched to " + ev.Text,
-				Time: eventTime(ev),
-			}},
-		})
+		m.addTextItem(itemNotice, "Model switched to "+ev.Text, eventTime(ev))
 	case bus.TurnFinished:
 		m.busy = false
 	case bus.TurnError:
 		m.turn.errored = true
 		m.busy = false
-		m.addItem(chatItem{
-			Kind: itemError,
-			Time: eventTime(ev),
-			Segments: []chatSegment{{
-				Kind: segText,
-				Text: ev.Err,
-				Time: eventTime(ev),
-			}},
-		})
+		m.addTextItem(itemError, ev.Err, eventTime(ev))
 	}
 }
 
@@ -403,15 +371,7 @@ func (m *shellModel) finishTurn(reply string, err error) {
 	m.busy = false
 	if err != nil {
 		if !m.turn.errored {
-			m.addItem(chatItem{
-				Kind: itemError,
-				Time: time.Now(),
-				Segments: []chatSegment{{
-					Kind: segText,
-					Text: err.Error(),
-					Time: time.Now(),
-				}},
-			})
+			m.addTextItem(itemError, err.Error(), time.Now())
 		}
 		m.turn = shellTurn{assistantIndex: -1}
 		return
@@ -437,6 +397,34 @@ func (m *shellModel) addItem(item chatItem) int {
 	return len(m.items) - 1
 }
 
+func (m *shellModel) addTextItem(kind int, text string, t time.Time) int {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	return m.addItem(chatItem{
+		Kind: kind,
+		Time: t,
+		Segments: []chatSegment{{
+			Kind: segText,
+			Text: text,
+			Time: t,
+		}},
+	})
+}
+
+func (m *shellModel) assistantItem(t time.Time) *chatItem {
+	if t.IsZero() {
+		t = time.Now()
+	}
+	if m.turn.assistantIndex < 0 {
+		m.turn.assistantIndex = m.addItem(chatItem{
+			Kind: itemAssistant,
+			Time: t,
+		})
+	}
+	return m.items[m.turn.assistantIndex]
+}
+
 func (m *shellModel) appendAssistant(text string) {
 	m.appendAssistantAt(time.Now(), text)
 }
@@ -446,14 +434,7 @@ func (m *shellModel) appendAssistantAt(t time.Time, text string) {
 	if text == "" {
 		return
 	}
-	if m.turn.assistantIndex < 0 {
-		m.turn.assistantIndex = m.addItem(chatItem{
-			Kind: itemAssistant,
-			Time: t,
-		})
-	}
-	item := m.items[m.turn.assistantIndex]
-	item.appendText(text)
+	m.assistantItem(t).appendText(text)
 	m.syncViewport()
 }
 
@@ -462,25 +443,12 @@ func (m *shellModel) appendReasoning(text string) {
 	if text == "" {
 		return
 	}
-	if m.turn.assistantIndex < 0 {
-		m.turn.assistantIndex = m.addItem(chatItem{
-			Kind: itemAssistant,
-			Time: time.Now(),
-		})
-	}
-	item := m.items[m.turn.assistantIndex]
-	item.appendReasoning(text)
+	m.assistantItem(time.Now()).appendReasoning(text)
 	m.syncViewport()
 }
 
 func (m *shellModel) startTool(ev bus.Event) {
-	if m.turn.assistantIndex < 0 {
-		m.turn.assistantIndex = m.addItem(chatItem{
-			Kind: itemAssistant,
-			Time: eventTime(ev),
-		})
-	}
-	item := m.items[m.turn.assistantIndex]
+	item := m.assistantItem(eventTime(ev))
 	seg := item.addTool(ev.Tool, summarizeToolAction(ev.Tool, ev.Input), renderToolDetail(ev, false), eventTime(ev))
 	idx := m.turn.assistantIndex
 	if ev.ToolCallID != "" {
@@ -492,8 +460,13 @@ func (m *shellModel) startTool(ev bus.Event) {
 func (m *shellModel) finishTool(ev bus.Event, failed bool) {
 	ref, ok := m.toolItems[ev.ToolCallID]
 	if !ok {
-		m.startTool(ev)
-		ref = m.toolItems[ev.ToolCallID]
+		if ev.ToolCallID != "" {
+			m.startTool(ev)
+			ref, ok = m.toolItems[ev.ToolCallID]
+		}
+		if !ok {
+			return
+		}
 	}
 	item := m.items[ref.Item]
 	if ref.Seg < 0 || ref.Seg >= len(item.Segments) {

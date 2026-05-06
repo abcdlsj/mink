@@ -148,7 +148,7 @@ func ensureWritePath(workspace, path string) error {
 	if err != nil {
 		return err
 	}
-	if strings.HasPrefix(rel, "..") {
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return fmt.Errorf("write outside workspace is not allowed: %s", path)
 	}
 	return nil

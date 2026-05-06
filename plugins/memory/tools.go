@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/mink/tool"
 )
 
 type readTool struct{ s *store }
@@ -14,11 +15,11 @@ type readTool struct{ s *store }
 func (t *readTool) Name() string { return "read_memory" }
 func (t *readTool) Desc() string { return "Read recent memory docs from a scope" }
 func (t *readTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"scope_kind": map[string]any{"type": "string"},
-		"scope_key":  map[string]any{"type": "string"},
-		"limit":      map[string]any{"type": "integer"},
-	}}
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("limit", "integer", "Maximum results"),
+	)
 }
 
 func (t *readTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -40,12 +41,13 @@ type searchTool struct{ s *store }
 func (t *searchTool) Name() string { return "search_memory" }
 func (t *searchTool) Desc() string { return "Search memory docs across scopes" }
 func (t *searchTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"query":      map[string]any{"type": "string"},
-		"scope_kind": map[string]any{"type": "string"},
-		"scope_key":  map[string]any{"type": "string"},
-		"limit":      map[string]any{"type": "integer"},
-	}, "required": []string{"query"}}
+	return tool.ObjectSchema(
+		tool.Prop("query", "string", "Search query"),
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("limit", "integer", "Maximum results"),
+		tool.Required("query"),
+	)
 }
 
 func (t *searchTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -70,15 +72,16 @@ type writeTool struct{ s *store }
 func (t *writeTool) Name() string { return "write_memory" }
 func (t *writeTool) Desc() string { return "Write a memory doc" }
 func (t *writeTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"scope_kind": map[string]any{"type": "string"},
-		"scope_key":  map[string]any{"type": "string"},
-		"title":      map[string]any{"type": "string"},
-		"body":       map[string]any{"type": "string"},
-		"summary":    map[string]any{"type": "string"},
-		"kind":       map[string]any{"type": "string"},
-		"tags":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-	}, "required": []string{"title", "body"}}
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("title", "string", "Title"),
+		tool.Prop("body", "string", "Body"),
+		tool.Prop("summary", "string", "Summary"),
+		tool.Prop("kind", "string", "Memory kind"),
+		tool.StringArrayProp("tags", "Tags"),
+		tool.Required("title", "body"),
+	)
 }
 
 func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, error) {

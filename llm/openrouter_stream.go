@@ -3,8 +3,6 @@ package llm
 import (
 	"context"
 	"io"
-	"sort"
-	"strings"
 
 	"github.com/abcdlsj/mink/msg"
 	openrouter "github.com/revrost/go-openrouter"
@@ -25,7 +23,7 @@ func (o *openRouter) ChatStream(ctx context.Context, msgs []msg.Message, tools [
 		defer stream.Close()
 		defer close(ch)
 
-		st := openRouterStreamState{toolCalls: map[int]*msg.ToolCall{}}
+		st := openRouterStreamState{streamState: newStreamState()}
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
@@ -48,9 +46,7 @@ func (o *openRouter) ChatStream(ctx context.Context, msgs []msg.Message, tools [
 }
 
 type openRouterStreamState struct {
-	reasoning strings.Builder
-	usage     *TokenUsage
-	toolCalls map[int]*msg.ToolCall
+	streamState
 }
 
 func (s *openRouterStreamState) updateUsage(chunk openrouter.ChatCompletionStreamResponse) bool {
@@ -68,55 +64,22 @@ func (s *openRouterStreamState) updateUsage(chunk openrouter.ChatCompletionStrea
 
 func (s *openRouterStreamState) pushDelta(ctx context.Context, ch chan<- Chunk, delta openrouter.ChatCompletionStreamChoiceDelta) bool {
 	if delta.Reasoning != nil && *delta.Reasoning != "" {
-		s.reasoning.WriteString(*delta.Reasoning)
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkReasoning, ReasoningDelta: *delta.Reasoning}) {
+		if !s.pushReasoning(ctx, ch, *delta.Reasoning) {
 			return false
 		}
 	}
-	if delta.ReasoningContent != "" {
-		s.reasoning.WriteString(delta.ReasoningContent)
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkReasoning, ReasoningDelta: delta.ReasoningContent}) {
-			return false
-		}
+	if !s.pushReasoning(ctx, ch, delta.ReasoningContent) {
+		return false
 	}
-	if delta.Content != "" {
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkText, Delta: delta.Content}) {
-			return false
-		}
+	if !s.pushText(ctx, ch, delta.Content) {
+		return false
 	}
 	for _, tc := range delta.ToolCalls {
 		idx := 0
 		if tc.Index != nil {
 			idx = *tc.Index
 		}
-		if s.toolCalls[idx] == nil {
-			s.toolCalls[idx] = &msg.ToolCall{}
-		}
-		if tc.ID != "" {
-			s.toolCalls[idx].ID = tc.ID
-		}
-		if tc.Function.Name != "" {
-			s.toolCalls[idx].Name = tc.Function.Name
-		}
-		s.toolCalls[idx].Args = append(s.toolCalls[idx].Args, []byte(tc.Function.Arguments)...)
+		s.addToolCall(idx, tc.ID, tc.Function.Name, tc.Function.Arguments)
 	}
 	return true
-}
-
-func (s *openRouterStreamState) flush(ctx context.Context, ch chan<- Chunk) {
-	var idxs []int
-	for idx := range s.toolCalls {
-		idxs = append(idxs, idx)
-	}
-	sort.Ints(idxs)
-	for _, idx := range idxs {
-		tc := s.toolCalls[idx]
-		if tc == nil || tc.Name == "" || len(tc.Args) == 0 {
-			continue
-		}
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkToolCall, ToolCall: tc}) {
-			return
-		}
-	}
-	emitChunk(ctx, ch, Chunk{Type: ChunkDone, Usage: s.usage, Reasoning: s.reasoning.String()})
 }

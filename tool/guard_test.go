@@ -44,6 +44,22 @@ func TestRegistryGuardReceivesResolvedPath(t *testing.T) {
 	}
 }
 
+func TestEnsureWritePathAllowsDotPrefixedNamesInsideWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "..note")
+	if err := ensureWritePath(dir, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEnsureWritePathRejectsParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "..", "note")
+	if err := ensureWritePath(dir, path); err == nil {
+		t.Fatal("expected outside workspace error")
+	}
+}
+
 func TestPolicyGuardAllowAlwaysPersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "permissions.json")
 	g := NewPolicyGuard("", path)

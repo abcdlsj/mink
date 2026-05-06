@@ -21,10 +21,7 @@ type listTool struct {
 func (t *listTool) Name() string { return "skills_list" }
 func (t *listTool) Desc() string { return "List available skills" }
 func (t *listTool) Schema() map[string]any {
-	return map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
-	}
+	return tool.ObjectSchema()
 }
 func (t *listTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	skills := t.loader.Discover()
@@ -46,16 +43,10 @@ type describeTool struct {
 func (t *describeTool) Name() string { return "skills_describe" }
 func (t *describeTool) Desc() string { return "Load full skill body by name" }
 func (t *describeTool) Schema() map[string]any {
-	return map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"name": map[string]any{
-				"type":        "string",
-				"description": "Skill name",
-			},
-		},
-		"required": []string{"name"},
-	}
+	return tool.ObjectSchema(
+		tool.Prop("name", "string", "Skill name"),
+		tool.Required("name"),
+	)
 }
 func (t *describeTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {

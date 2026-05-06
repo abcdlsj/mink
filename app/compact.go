@@ -93,7 +93,7 @@ func (a *App) shouldAutoCompact(runtime string, s *session.Session) bool {
 func (a *App) compactTokenLimit() int {
 	mc := a.cfg.Active
 	if mc.ContextWindow > 0 {
-		limit := mc.ContextWindow - maxInt(mc.MaxTokens, a.cfg.MaxTokens) - a.cfg.Compact.ReserveTokens
+		limit := mc.ContextWindow - max(mc.MaxTokens, a.cfg.MaxTokens) - a.cfg.Compact.ReserveTokens
 		if limit > 0 {
 			return limit
 		}
@@ -111,13 +111,6 @@ func isExternalDriverRuntime(runtime string) bool {
 	default:
 		return false
 	}
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func heuristicSummary(msgs []msg.Message) string {

@@ -121,7 +121,7 @@ func (r *Registry) allow(ctx context.Context, name string, args json.RawMessage)
 	return r.guard.Allow(ctx, call)
 }
 
-func objectSchema(parts ...map[string]any) map[string]any {
+func ObjectSchema(parts ...map[string]any) map[string]any {
 	out := map[string]any{"type": "object", "properties": map[string]any{}}
 	props := out["properties"].(map[string]any)
 	for _, part := range parts {
@@ -139,12 +139,24 @@ func objectSchema(parts ...map[string]any) map[string]any {
 	return out
 }
 
-func prop(name, typ, desc string) map[string]any {
+func Prop(name, typ, desc string) map[string]any {
 	return map[string]any{name: map[string]any{"type": typ, "description": desc}}
 }
 
-func required(names ...string) map[string]any {
+func StringArrayProp(name, desc string) map[string]any {
+	return map[string]any{name: map[string]any{
+		"type":        "array",
+		"description": desc,
+		"items":       map[string]any{"type": "string"},
+	}}
+}
+
+func Required(names ...string) map[string]any {
 	req := make([]string, len(names))
 	copy(req, names)
 	return map[string]any{"_required": req}
 }
+
+func objectSchema(parts ...map[string]any) map[string]any { return ObjectSchema(parts...) }
+func prop(name, typ, desc string) map[string]any          { return Prop(name, typ, desc) }
+func required(names ...string) map[string]any             { return Required(names...) }

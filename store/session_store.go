@@ -125,7 +125,6 @@ func (s *Store) loadSessionsLocked() (map[string]diskSession, error) {
 		}
 		out[d.ID] = d
 		if d.ID != id {
-			out[d.ID] = d
 			delete(out, id)
 		}
 	}

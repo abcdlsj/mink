@@ -3,8 +3,6 @@ package llm
 import (
 	"context"
 	"io"
-	"sort"
-	"strings"
 
 	"github.com/abcdlsj/mink/msg"
 	"github.com/sashabaranov/go-openai"
@@ -28,7 +26,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 		defer stream.Close()
 		defer close(ch)
 
-		st := openAIStreamState{toolCalls: map[int]*msg.ToolCall{}}
+		st := openAIStreamState{streamState: newStreamState()}
 		for {
 			chunk, err := stream.Recv()
 			if err != nil {
@@ -52,9 +50,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 }
 
 type openAIStreamState struct {
-	reasoning strings.Builder
-	usage     *TokenUsage
-	toolCalls map[int]*msg.ToolCall
+	streamState
 }
 
 func (s *openAIStreamState) updateUsage(chunk openai.ChatCompletionStreamResponse) bool {
@@ -72,58 +68,17 @@ func (s *openAIStreamState) updateUsage(chunk openai.ChatCompletionStreamRespons
 
 func (s *openAIStreamState) pushDelta(ctx context.Context, ch chan<- Chunk, chunk openai.ChatCompletionStreamResponse) {
 	delta := chunk.Choices[0].Delta
-	if delta.ReasoningContent != "" {
-		s.reasoning.WriteString(delta.ReasoningContent)
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkReasoning, ReasoningDelta: delta.ReasoningContent}) {
-			return
-		}
+	if !s.pushReasoning(ctx, ch, delta.ReasoningContent) {
+		return
 	}
-	if delta.Content != "" {
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkText, Delta: delta.Content}) {
-			return
-		}
+	if !s.pushText(ctx, ch, delta.Content) {
+		return
 	}
 	for _, tc := range delta.ToolCalls {
 		idx := 0
 		if tc.Index != nil {
 			idx = *tc.Index
 		}
-		if s.toolCalls[idx] == nil {
-			s.toolCalls[idx] = &msg.ToolCall{}
-		}
-		if tc.ID != "" {
-			s.toolCalls[idx].ID = tc.ID
-		}
-		if tc.Function.Name != "" {
-			s.toolCalls[idx].Name = tc.Function.Name
-		}
-		s.toolCalls[idx].Args = append(s.toolCalls[idx].Args, []byte(tc.Function.Arguments)...)
-	}
-}
-
-func (s *openAIStreamState) flush(ctx context.Context, ch chan<- Chunk) {
-	var idxs []int
-	for idx := range s.toolCalls {
-		idxs = append(idxs, idx)
-	}
-	sort.Ints(idxs)
-	for _, idx := range idxs {
-		tc := s.toolCalls[idx]
-		if tc == nil || tc.Name == "" || len(tc.Args) == 0 {
-			continue
-		}
-		if !emitChunk(ctx, ch, Chunk{Type: ChunkToolCall, ToolCall: tc}) {
-			return
-		}
-	}
-	emitChunk(ctx, ch, Chunk{Type: ChunkDone, Usage: s.usage, Reasoning: s.reasoning.String()})
-}
-
-func emitChunk(ctx context.Context, ch chan<- Chunk, chunk Chunk) bool {
-	select {
-	case ch <- chunk:
-		return true
-	case <-ctx.Done():
-		return false
+		s.addToolCall(idx, tc.ID, tc.Function.Name, tc.Function.Arguments)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/mink/tool"
 )
 
 type spawnTool struct{ m *manager }
@@ -17,12 +18,13 @@ func (t spawnTool) Desc() string {
 	return "Run a subtask with a child agent and return its final result"
 }
 func (t spawnTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"task":          map[string]any{"type": "string"},
-		"share_context": map[string]any{"type": "boolean"},
-		"direct_output": map[string]any{"type": "boolean"},
-		"runtime":       map[string]any{"type": "string"},
-	}, "required": []string{"task"}}
+	return tool.ObjectSchema(
+		tool.Prop("task", "string", "Task to run"),
+		tool.Prop("share_context", "boolean", "Share current context"),
+		tool.Prop("direct_output", "boolean", "Publish output directly"),
+		tool.Prop("runtime", "string", "Runtime name"),
+		tool.Required("task"),
+	)
 }
 
 func (t spawnTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -52,13 +54,14 @@ func (t delegateTool) Desc() string {
 	return "Delegate a task asynchronously and return a task id"
 }
 func (t delegateTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"task":          map[string]any{"type": "string"},
-		"target":        map[string]any{"type": "string"},
-		"capabilities":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		"share_context": map[string]any{"type": "boolean"},
-		"direct_output": map[string]any{"type": "boolean"},
-	}, "required": []string{"task"}}
+	return tool.ObjectSchema(
+		tool.Prop("task", "string", "Task to delegate"),
+		tool.Prop("target", "string", "Target runtime or alias"),
+		tool.StringArrayProp("capabilities", "Capability hints"),
+		tool.Prop("share_context", "boolean", "Share current context"),
+		tool.Prop("direct_output", "boolean", "Publish output directly"),
+		tool.Required("task"),
+	)
 }
 
 func (t delegateTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -82,9 +85,10 @@ func (t delegatePollTool) Desc() string {
 	return "Wait for an async delegation to finish"
 }
 func (t delegatePollTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"task_id": map[string]any{"type": "string"},
-	}, "required": []string{"task_id"}}
+	return tool.ObjectSchema(
+		tool.Prop("task_id", "string", "Delegation task id"),
+		tool.Required("task_id"),
+	)
 }
 
 func (t delegatePollTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -105,12 +109,13 @@ func (t inviteTool) Desc() string {
 	return "Bind a visible team alias to a runtime in the current source"
 }
 func (t inviteTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"agent_id":         map[string]any{"type": "string"},
-		"role_name":        map[string]any{"type": "string"},
-		"role_description": map[string]any{"type": "string"},
-		"task":             map[string]any{"type": "string"},
-	}, "required": []string{"agent_id"}}
+	return tool.ObjectSchema(
+		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Prop("role_name", "string", "Visible role name"),
+		tool.Prop("role_description", "string", "Role description"),
+		tool.Prop("task", "string", "Optional first task"),
+		tool.Required("agent_id"),
+	)
 }
 
 func (t inviteTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -142,10 +147,11 @@ func (t mentionTool) Desc() string {
 	return "Route a question to a bound team alias asynchronously"
 }
 func (t mentionTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"agent_id": map[string]any{"type": "string"},
-		"question": map[string]any{"type": "string"},
-	}, "required": []string{"agent_id", "question"}}
+	return tool.ObjectSchema(
+		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Prop("question", "string", "Question to ask"),
+		tool.Required("agent_id", "question"),
+	)
 }
 
 func (t mentionTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -169,14 +175,15 @@ func (t specialistTool) Desc() string {
 	return "Create a team alias backed by a runtime and optionally schedule its first task"
 }
 func (t specialistTool) Schema() map[string]any {
-	return map[string]any{"type": "object", "properties": map[string]any{
-		"role_name":        map[string]any{"type": "string"},
-		"role_description": map[string]any{"type": "string"},
-		"profile_hint":     map[string]any{"type": "string"},
-		"capabilities":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		"task":             map[string]any{"type": "string"},
-		"agent_id":         map[string]any{"type": "string"},
-	}, "required": []string{"role_name", "role_description"}}
+	return tool.ObjectSchema(
+		tool.Prop("role_name", "string", "Visible role name"),
+		tool.Prop("role_description", "string", "Role description"),
+		tool.Prop("profile_hint", "string", "Runtime selection hint"),
+		tool.StringArrayProp("capabilities", "Capability hints"),
+		tool.Prop("task", "string", "Optional first task"),
+		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Required("role_name", "role_description"),
+	)
 }
 
 func (t specialistTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
