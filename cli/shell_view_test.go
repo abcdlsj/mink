@@ -46,13 +46,13 @@ func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	if len(lines) != shellHeaderHeight {
 		t.Fatalf("renderHeader() lines = %d, want %d:\n%s", len(lines), shellHeaderHeight, out)
 	}
-	if !strings.Contains(lines[0], "╭") {
-		t.Fatalf("renderHeader() first line = %q, want rounded border", lines[0])
+	if strings.ContainsAny(out, "╭╮╰╯─│") {
+		t.Fatalf("renderHeader() = %q, want no border", out)
 	}
-	if !strings.Contains(out, ">_ Mink") {
+	if !strings.Contains(out, "Mink") {
 		t.Fatalf("renderHeader() = %q, want title", out)
 	}
-	if !strings.Contains(out, "model:") || !strings.Contains(out, "directory:") {
+	if !strings.Contains(out, "model") || !strings.Contains(out, "cwd") || !strings.Contains(out, "session") {
 		t.Fatalf("renderHeader() = %q, want session facts", out)
 	}
 	for _, line := range lines {
@@ -73,10 +73,13 @@ func TestViewKeepsFullHeaderVisible(t *testing.T) {
 		t.Fatalf("View() lines = %d, want header:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	head := strings.Join(lines[:shellHeaderHeight], "\n")
-	for _, want := range []string{"╭", ">_ Mink", "model:", "directory:", "╰"} {
+	for _, want := range []string{"Mink", "model", "cwd", "session"} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("header missing %q:\n%s", want, head)
 		}
+	}
+	if strings.ContainsAny(head, "╭╮╰╯─│") {
+		t.Fatalf("header has border:\n%s", head)
 	}
 	for i, line := range lines {
 		if w := runewidth.StringWidth(line); w > m.width {

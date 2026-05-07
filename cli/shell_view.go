@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
 	"github.com/abcdlsj/mink/textutil"
@@ -19,6 +20,8 @@ var shellTheme = struct {
 	Header        lipgloss.Style
 	HeaderMeta    lipgloss.Style
 	Title         lipgloss.Style
+	Chip          lipgloss.Style
+	ChipDim       lipgloss.Style
 	Panel         lipgloss.Style
 	PanelMuted    lipgloss.Style
 	Composer      lipgloss.Style
@@ -48,9 +51,11 @@ var shellTheme = struct {
 }{
 	Base:          lipgloss.NewStyle(),
 	NoBorder:      lipgloss.HiddenBorder(),
-	Header:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()),
+	Header:        lipgloss.NewStyle(),
 	HeaderMeta:    lipgloss.NewStyle().Faint(true),
-	Title:         lipgloss.NewStyle().Bold(true),
+	Title:         lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6")),
+	Chip:          lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
+	ChipDim:       lipgloss.NewStyle().Faint(true),
 	Panel:         lipgloss.NewStyle(),
 	PanelMuted:    lipgloss.NewStyle().Faint(true),
 	Composer:      lipgloss.NewStyle(),
@@ -58,10 +63,10 @@ var shellTheme = struct {
 	Footer:        lipgloss.NewStyle().Faint(true),
 	FooterKey:     lipgloss.NewStyle().Faint(true),
 	FooterVal:     lipgloss.NewStyle(),
-	Overlay:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2),
+	Overlay:       lipgloss.NewStyle().Padding(1, 2).Background(lipgloss.Color("235")),
 	OverlayBody:   lipgloss.NewStyle(),
 	Suggest:       lipgloss.NewStyle().Faint(true),
-	SuggestActive: lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
+	SuggestActive: lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Background(lipgloss.Color("235")),
 	Text:          lipgloss.NewStyle(),
 	TextMuted:     lipgloss.NewStyle().Faint(true),
 	Meta:          lipgloss.NewStyle().Faint(true),
@@ -71,7 +76,7 @@ var shellTheme = struct {
 	Tool:          lipgloss.NewStyle().Faint(true),
 	Note:          lipgloss.NewStyle().Faint(true),
 	Error:         lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
-	SelectedBody:  lipgloss.NewStyle(),
+	SelectedBody:  lipgloss.NewStyle().Background(lipgloss.Color("235")),
 	BadgeMuted:    lipgloss.NewStyle().Faint(true),
 	StatusRunning: lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 	StatusDone:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
@@ -83,15 +88,18 @@ var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 
 func (m shellModel) renderHeader() string {
 	st := m.state()
-	w := max(1, m.width-4)
-	title := shellTheme.Title.Render(">_ Mink")
+	w := max(1, m.width)
+	title := shellTheme.Title.Render("Mink")
+	mode := shellTheme.ChipDim.Render(nonEmpty(st.Runtime, "native"))
+	session := shellTheme.ChipDim.Render("session ") + shellTheme.Chip.Render(shortID(st.Session))
+
+	top := alignFooter(title+"  "+mode, session, w-4)
 	lines := []string{
-		runewidth.Truncate(title, w, "…"),
+		padLine(top, w),
+		padLine(headerFacts(st, w-4), w),
 		"",
-		"model:     " + shellTheme.HeaderMeta.Render(headerValue(nonEmpty(st.Model, "unknown"), w-lipgloss.Width("model:     "))),
-		"directory: " + shellTheme.HeaderMeta.Render(headerValue(st.Cwd, w-lipgloss.Width("directory: "))),
 	}
-	return shellTheme.Header.Width(max(1, m.width-2)).Render(strings.Join(lines, "\n"))
+	return shellTheme.Header.Width(w).Render(strings.Join(lines, "\n"))
 }
 
 func (m shellModel) renderTranscript() string {
@@ -114,14 +122,15 @@ func (m shellModel) renderStatus() string {
 	if !started.IsZero() {
 		elapsed = int(time.Since(started).Round(time.Second).Seconds())
 	}
-	head := shellTheme.StatusRunning.Render("• Working")
+	spin := shellSpin[m.spinner%len(shellSpin)]
+	head := shellTheme.StatusRunning.Render(spin + " working")
 	parts := []string{formatElapsed(elapsed)}
 	if len(m.queue) > 0 {
 		parts = append(parts, fmt.Sprintf("%d queued", len(m.queue)))
 	}
-	parts = append(parts, "esc to interrupt")
-	tail := shellTheme.TextMuted.Render(" (" + strings.Join(parts, " · ") + ")")
-	return shellTheme.Panel.Width(m.width).Render(head + tail)
+	parts = append(parts, "esc interrupt")
+	tail := shellTheme.TextMuted.Render("  " + strings.Join(parts, " · "))
+	return shellTheme.Panel.Width(m.width).Render(padLine(head+tail, m.width))
 }
 
 func (m shellModel) renderComposer() string {
@@ -133,14 +142,14 @@ func (m shellModel) renderComposer() string {
 func (m shellModel) renderFooter() string {
 	st := m.state()
 	if m.overlay == overlayApproval {
-		return shellTheme.Footer.Width(m.width).Render("  y allow once   a allow always   n deny   esc cancel")
+		return shellTheme.Footer.Width(m.width).Render(padLine("y allow once   a allow always   n deny   esc cancel", m.width))
 	}
 	if m.overlay == overlaySession {
-		return shellTheme.Footer.Width(m.width).Render("  enter switch   n new   j/k move   esc close")
+		return shellTheme.Footer.Width(m.width).Render(padLine("enter switch   n new   j/k move   esc close", m.width))
 	}
 
-	left := "  / commands   tab focus   ctrl+o expand"
-	right := "session " + shortID(st.Session) + "   cwd " + st.Cwd
+	left := "/ commands   tab focus   ctrl+o expand"
+	right := "session " + shortID(st.Session) + "   " + st.Cwd
 	if len(m.queue) > 0 {
 		right = fmt.Sprintf("%d queued   %s", len(m.queue), right)
 	}
@@ -148,7 +157,7 @@ func (m shellModel) renderFooter() string {
 	if custom != "" {
 		right = custom
 	}
-	return shellTheme.Footer.Width(m.width).Render(alignFooter(left, right, m.width))
+	return shellTheme.Footer.Width(m.width).Render(padLine(alignFooter(left, right, max(1, m.width-4)), m.width))
 }
 
 func (m shellModel) renderSuggestions() []string {
@@ -167,9 +176,9 @@ func (m shellModel) renderSuggestions() []string {
 			style = shellTheme.SuggestActive
 		}
 		label, desc := completionLabel(item)
-		name := style.Render(prefix + label)
+		name := style.Render(prefix + runewidth.Truncate(label, max(8, width-24), "…"))
 		desc = shellTheme.TextMuted.Render(desc)
-		lines = append(lines, alignFooter(name, desc, width))
+		lines = append(lines, style.Width(width).Render(alignFooter(name, desc, width)))
 	}
 	return lines
 }
@@ -227,20 +236,25 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 }
 
 func (m shellModel) renderToolLine(seg chatSegment, selected bool) string {
-	icon := shellTheme.StatusRunning.Render("•")
-	label := shellTheme.TextMuted.Render(" Running ")
+	name := strings.TrimSpace(seg.Tool)
+	if name == "" {
+		name = "tool"
+	}
+	icon := shellTheme.StatusRunning.Render("●")
+	label := shellTheme.TextMuted.Render(" running ")
 	switch seg.Status {
 	case "done":
 		icon = shellTheme.StatusDone.Render("✓")
-		label = shellTheme.TextMuted.Render(" Ran ")
+		label = shellTheme.TextMuted.Render(" ran ")
 	case "failed":
 		icon = shellTheme.StatusFailed.Render("✗")
-		label = shellTheme.Error.Render(" Failed ")
+		label = shellTheme.Error.Render(" failed ")
 	}
-	body := textutil.Preview(seg.Text, max(16, m.viewport.Width-12))
-	line := icon + label + shellTheme.TextMuted.Render(body)
+	head := icon + label + shellTheme.Chip.Render(name)
+	body := textutil.Preview(seg.Text, max(16, m.viewport.Width-lipgloss.Width(head)-3))
+	line := head + shellTheme.TextMuted.Render("  "+body)
 	if selected {
-		return shellTheme.SelectedBody.Render(line)
+		return m.selectedLine(line)
 	}
 	return line
 }
@@ -277,18 +291,18 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 		parts = append(parts, fmt.Sprintf("%s %d", name, counts[name]))
 	}
 	icon := shellTheme.StatusDone.Render("✓")
-	label := fmt.Sprintf(" Ran %d tools ", len(segs))
+	label := fmt.Sprintf(" ran %d tools ", len(segs))
 	switch {
 	case failed > 0:
 		icon = shellTheme.StatusFailed.Render("✗")
-		label = fmt.Sprintf(" Failed %d tools ", failed)
+		label = fmt.Sprintf(" failed %d tools ", failed)
 	case running > 0:
-		icon = shellTheme.StatusRunning.Render("•")
-		label = fmt.Sprintf(" Running %d tools ", running)
+		icon = shellTheme.StatusRunning.Render("●")
+		label = fmt.Sprintf(" running %d tools ", running)
 	}
 	line := icon + shellTheme.TextMuted.Render(label+textutil.Preview(strings.Join(parts, " · "), max(18, m.viewport.Width-18)))
 	if selected {
-		line = shellTheme.SelectedBody.Render(line)
+		line = m.selectedLine(line)
 	}
 	return []string{"", line, ""}
 }
@@ -312,6 +326,7 @@ func (m shellModel) sessionBody() string {
 		start = m.session - limit + 1
 	}
 	lines := make([]string, 0, limit)
+	width := max(24, m.width-18)
 	for i := start; i < len(m.sessions) && len(lines) < limit; i++ {
 		s := m.sessions[i]
 		if s == nil {
@@ -323,14 +338,14 @@ func (m shellModel) sessionBody() string {
 			prefix = "› "
 			style = shellTheme.SuggestActive
 		}
-		title := sessionLabel(s)
+		title := runewidth.Truncate(sessionLabel(s), max(8, width-18), "…")
 		meta := s.UpdatedAt.Format("2006-01-02 15:04")
 		if s.UpdatedAt.IsZero() {
 			meta = s.CreatedAt.Format("2006-01-02 15:04")
 		}
 		left := style.Render(prefix + title)
 		right := shellTheme.TextMuted.Render(meta)
-		lines = append(lines, alignFooter(left, right, max(24, m.width-18)))
+		lines = append(lines, style.Width(width).Render(alignFooter(left, right, width)))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -342,11 +357,11 @@ func (m shellModel) renderItemLead(item *chatItem, idx int) []string {
 	var head string
 	switch item.Kind {
 	case itemNotice:
-		head = shellTheme.Note.Render("• Notice")
+		head = shellTheme.Note.Render("notice")
 	case itemError:
-		head = shellTheme.Error.Render("✗ Error")
+		head = shellTheme.Error.Render("error")
 	default:
-		head = shellTheme.BadgeMuted.Render("• Item")
+		head = shellTheme.BadgeMuted.Render("item")
 	}
 	meta := item.Time.Format("15:04:05")
 	if item.Status != "" {
@@ -358,7 +373,11 @@ func (m shellModel) renderItemLead(item *chatItem, idx int) []string {
 	if idx == m.selected {
 		meta = "› " + meta
 	}
-	return []string{lipgloss.JoinHorizontal(lipgloss.Left, head, " ", shellTheme.Meta.Render(meta))}
+	line := lipgloss.JoinHorizontal(lipgloss.Left, head, "  ", shellTheme.Meta.Render(meta))
+	if idx == m.selected {
+		line = m.selectedLine(line)
+	}
+	return []string{line}
 }
 
 func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) []string {
@@ -372,7 +391,7 @@ func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) 
 	out := make([]string, 0, len(lines)+1)
 	for _, line := range lines {
 		if idx == m.selected {
-			out = append(out, shellTheme.SelectedBody.Render(line))
+			out = append(out, m.selectedLine(line))
 			continue
 		}
 		out = append(out, line)
@@ -389,7 +408,7 @@ func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
 	body := textutil.Preview(strings.Join(strings.Fields(text), " "), max(16, m.viewport.Width-13))
 	line := shellTheme.Tool.Render("✦ Thinking ") + shellTheme.TextMuted.Render(body)
 	if idx == m.selected {
-		line = shellTheme.SelectedBody.Render(line)
+		line = m.selectedLine(line)
 	}
 	return []string{"", line, ""}
 }
@@ -405,7 +424,7 @@ func (m shellModel) renderUserText(text string, idx int) []string {
 		}
 		row := prefix + line
 		if idx == m.selected {
-			row = shellTheme.SelectedBody.Render(row)
+			row = m.selectedLine(row)
 		}
 		out = append(out, row)
 	}
@@ -438,11 +457,28 @@ func (m shellModel) renderOverlay(base, title, body string) string {
 	w := min(max(52, m.width*2/3), m.width-4)
 	h := min(max(10, m.height*2/3), m.height-4)
 	panel := shellTheme.Overlay.Width(w).Height(h).Render(
-		shellTheme.Title.Render(title) + "\n\n" + shellTheme.OverlayBody.Render(body),
+		alignFooter(shellTheme.Title.Render(title), shellTheme.HeaderMeta.Render(overlayHint(title)), max(1, w-4)) +
+			"\n\n" +
+			shellTheme.OverlayBody.Render(body),
 	)
 	x := max(0, (m.width-lipgloss.Width(panel))/2)
 	y := max(0, (m.height-lipgloss.Height(panel))/2)
 	return placeOverlay(base, panel, x, y)
+}
+
+func (m shellModel) selectedLine(line string) string {
+	return shellTheme.SelectedBody.Width(max(1, m.viewport.Width)).Render(line)
+}
+
+func overlayHint(title string) string {
+	switch title {
+	case "Approval":
+		return "permission"
+	case "Sessions":
+		return "enter/n/esc"
+	default:
+		return ""
+	}
 }
 
 func wrapDisplay(s string, width int) []string {
@@ -490,10 +526,10 @@ func placeOverlay(base, overlay string, x, y int) string {
 		for lipgloss.Width(lines[row]) < x {
 			lines[row] += " "
 		}
-		left := runewidth.Truncate(lines[row], x, "")
+		left := ansi.Truncate(lines[row], x, "")
 		right := ""
 		if w := lipgloss.Width(lines[row]); w > x+lipgloss.Width(line) {
-			right = runewidth.TruncateLeft(lines[row], w-(x+lipgloss.Width(line)), "")
+			right = ansi.TruncateLeft(lines[row], w-(x+lipgloss.Width(line)), "")
 		}
 		lines[row] = left + line + right
 	}
@@ -525,6 +561,32 @@ func headerValue(s string, width int) string {
 	return runewidth.Truncate(textutil.Valid(s), max(1, width), "…")
 }
 
+func headerFacts(st cliState, width int) string {
+	width = max(1, width)
+	model := nonEmpty(st.Model, "unknown")
+	cwd := nonEmpty(st.Cwd, ".")
+	modelRoom := clamp(width/2-6, 8, max(8, width-12))
+	model = headerValue(model, modelRoom)
+	used := lipgloss.Width("model " + model + "   cwd ")
+	cwd = headerValue(cwd, max(8, width-used))
+	return shellTheme.ChipDim.Render("model ") +
+		shellTheme.Text.Render(model) +
+		shellTheme.ChipDim.Render("   cwd ") +
+		shellTheme.Text.Render(cwd)
+}
+
+func padLine(s string, width int) string {
+	width = max(1, width)
+	s = textutil.Valid(s)
+	if width <= 2 {
+		return ansi.Truncate(s, width, "")
+	}
+	if lipgloss.Width(s) > width-2 {
+		s = ansi.Truncate(s, max(1, width-2), "…")
+	}
+	return "  " + s + strings.Repeat(" ", max(0, width-2-lipgloss.Width(s)))
+}
+
 func nonEmpty(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback
@@ -553,7 +615,7 @@ func alignFooter(left, right string, width int) string {
 	rw := lipgloss.Width(right)
 	if lw+rw+1 > width {
 		room := max(0, width-lw-1)
-		right = runewidth.Truncate(right, room, "…")
+		right = ansi.Truncate(right, room, "…")
 		rw = lipgloss.Width(right)
 	}
 	gap := max(1, width-lw-rw)
