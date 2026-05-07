@@ -87,6 +87,23 @@ func TestShellModelGroupsToolIntoAssistantTurn(t *testing.T) {
 	}
 }
 
+func TestShellModelIgnoresLateDuplicateChunk(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.turn = shellTurn{assistantIndex: -1}
+
+	m.appendAssistant("done")
+	m.turn = shellTurn{assistantIndex: -1}
+	m.handleEvent(bus.Event{Type: bus.TurnChunk, Source: "cli", Text: "done"})
+	m.handleEvent(bus.Event{Type: bus.TurnChunk, Source: "cli", Text: "one"})
+
+	if len(m.items) != 1 {
+		t.Fatalf("items = %d, want 1", len(m.items))
+	}
+	if got := assistantText(m.items[0]); got != "done" {
+		t.Fatalf("assistant text = %q, want done", got)
+	}
+}
+
 func TestMouseWheelScrollsTranscriptWhileComposerFocused(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.width = 40

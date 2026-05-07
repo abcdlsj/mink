@@ -41,7 +41,7 @@ func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
 	m.width = 32
 
-	out := ansi.Strip(m.renderHeader())
+	out := ansi.Strip(m.renderHeader(m.state()))
 	lines := strings.Split(out, "\n")
 	if len(lines) != shellHeaderHeight {
 		t.Fatalf("renderHeader() lines = %d, want %d:\n%s", len(lines), shellHeaderHeight, out)
@@ -158,5 +158,15 @@ func TestRenderItemAddsSingleGapBetweenSegments(t *testing.T) {
 	lines := ansi.Strip(strings.Join(m.renderItem(item, 0), "\n"))
 	if got := strings.Count(lines, "\n\n"); got != 1 {
 		t.Fatalf("segment gaps = %d, want 1:\n%s", got, lines)
+	}
+}
+
+func TestSelectedToolLineDoesNotPaintTrailingBlock(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 64
+	line := m.renderToolLine(chatSegment{Tool: "bash", Text: "pwd", Status: "done"}, true)
+
+	if strings.Contains(line, "\x1b[48;5;235m") {
+		t.Fatalf("selected tool line has background block: %q", line)
 	}
 }

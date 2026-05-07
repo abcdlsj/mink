@@ -66,7 +66,7 @@ var shellTheme = struct {
 	Tool:          lipgloss.NewStyle().Faint(true),
 	Note:          lipgloss.NewStyle().Faint(true),
 	Error:         lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
-	SelectedBody:  lipgloss.NewStyle().Background(lipgloss.Color("235")),
+	SelectedBody:  lipgloss.NewStyle(),
 	BadgeMuted:    lipgloss.NewStyle().Faint(true),
 	StatusRunning: lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 	StatusDone:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
@@ -76,8 +76,7 @@ var shellTheme = struct {
 
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-func (m shellModel) renderHeader() string {
-	st := m.state()
+func (m shellModel) renderHeader(st cliState) string {
 	w := max(1, m.width)
 	title := shellTheme.Title.Render("Mink")
 	mode := shellTheme.ChipDim.Render(nonEmpty(st.Runtime, "native"))
@@ -132,8 +131,7 @@ func (m shellModel) renderComposer() string {
 	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
 
-func (m shellModel) renderFooter() string {
-	st := m.state()
+func (m shellModel) renderFooter(st cliState) string {
 	if m.overlay == overlayApproval {
 		return shellTheme.Footer.Width(m.width).Render(padLine("y allow once   a allow always   n deny   esc cancel", m.width))
 	}
@@ -188,14 +186,7 @@ func completionLabel(h completionHint) (string, string) {
 }
 
 func (m shellModel) execStatusLine() string {
-	if m.app == nil {
-		return ""
-	}
-	script := strings.TrimSpace(m.app.Config().StatusLine)
-	if script == "" {
-		return ""
-	}
-	return execStatusScript(script)
+	return m.statusLine
 }
 
 func (m shellModel) renderItem(item *chatItem, idx int) []string {
@@ -471,7 +462,7 @@ func (m shellModel) renderOverlay(base, title, body string) string {
 }
 
 func (m shellModel) selectedLine(line string) string {
-	return shellTheme.SelectedBody.Width(max(1, m.viewport.Width)).Render(line)
+	return shellTheme.SelectedBody.Render(line)
 }
 
 func overlayHint(title string) string {

@@ -55,6 +55,10 @@ type shellApprovalDroppedMsg struct {
 
 type shellTickMsg struct{}
 
+type shellStatusLineMsg struct {
+	Text string
+}
+
 type shellTurn struct {
 	assistantIndex int
 	started        time.Time
@@ -95,17 +99,20 @@ type shellModel struct {
 	files       []string
 	filesOK     bool
 	sessions    []*session.Session
+	statusLine  string
 	turn        shellTurn
 
-	focus    shellFocus
-	overlay  shellOverlay
-	expanded int
-	selected int
-	suggest  int
-	session  int
-	spinner  int
-	busy     bool
-	follow   bool
+	focus      shellFocus
+	overlay    shellOverlay
+	expanded   int
+	selected   int
+	suggest    int
+	session    int
+	spinner    int
+	busy       bool
+	statusBusy bool
+	statusAt   time.Time
+	follow     bool
 }
 
 func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
@@ -154,7 +161,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 }
 
 func (m shellModel) Init() tea.Cmd {
-	return tea.Batch(m.input.Focus(), shellTick())
+	return tea.Batch(m.input.Focus(), shellTick(), m.statusLineCmd(true))
 }
 
 func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -166,9 +173,18 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case shellTickMsg:
 		m.spinner++
+		var cmds []tea.Cmd
 		if m.shouldTick() {
-			return m, shellTick()
+			cmds = append(cmds, shellTick())
 		}
+		if cmd := m.statusLineCmd(false); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return m, tea.Batch(cmds...)
+	case shellStatusLineMsg:
+		m.statusLine = msg.Text
+		m.statusBusy = false
+		m.statusAt = time.Now()
 		return m, nil
 	case shellBusMsg:
 		m.handleEvent(msg.Event)
@@ -221,13 +237,14 @@ func (m shellModel) View() string {
 	if m.width <= 0 || m.height <= 0 {
 		return ""
 	}
+	st := m.state()
 	base := shellTheme.Base.Width(m.width).Height(m.height).Render(
 		lipJoinVertical(
-			m.renderHeader(),
+			m.renderHeader(st),
 			m.renderTranscript(),
 			m.renderStatus(),
 			m.renderComposer(),
-			m.renderFooter(),
+			m.renderFooter(st),
 		),
 	)
 	switch m.overlay {
@@ -492,8 +509,66 @@ func (m *shellModel) appendAssistantAt(t time.Time, text string) {
 	if text == "" {
 		return
 	}
-	m.assistantItem(t).appendText(text)
+	if m.turn.assistantIndex < 0 && m.mergeLateAssistant(text) {
+		m.syncViewport()
+		return
+	}
+	item := m.assistantItem(t)
+	if text = assistantDelta(item, text); text == "" {
+		m.syncViewport()
+		return
+	}
+	item.appendText(text)
 	m.syncViewport()
+}
+
+func (m *shellModel) mergeLateAssistant(text string) bool {
+	if len(m.items) == 0 {
+		return false
+	}
+	item := m.items[len(m.items)-1]
+	if item == nil || item.Kind != itemAssistant {
+		return false
+	}
+	cur := assistantText(item)
+	switch {
+	case cur == "", text == "":
+		return false
+	case strings.Contains(cur, text), strings.HasPrefix(cur, text):
+		return true
+	case strings.HasPrefix(text, cur):
+		item.appendText(text[len(cur):])
+		return true
+	default:
+		return false
+	}
+}
+
+func assistantDelta(item *chatItem, text string) string {
+	cur := assistantText(item)
+	switch {
+	case cur == "", text == "":
+		return text
+	case strings.HasPrefix(cur, text):
+		return ""
+	case strings.HasPrefix(text, cur):
+		return text[len(cur):]
+	default:
+		return text
+	}
+}
+
+func assistantText(item *chatItem) string {
+	if item == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, seg := range item.Segments {
+		if seg.Kind == segText {
+			b.WriteString(seg.Text)
+		}
+	}
+	return b.String()
 }
 
 func (m *shellModel) appendReasoning(text string) {
@@ -673,9 +748,16 @@ func (m *shellModel) syncLayout() {
 		}
 		m.suggestRows--
 	}
-	m.viewport.Width = max(20, m.width)
-	m.viewport.Height = max(0, m.height-fixed-m.composerHeight())
-	m.syncViewport()
+	nextWidth := max(20, m.width)
+	nextHeight := max(0, m.height-fixed-m.composerHeight())
+	if m.viewport.Width != nextWidth || m.viewport.Height != nextHeight {
+		m.viewport.Width = nextWidth
+		m.viewport.Height = nextHeight
+		m.syncViewport()
+		return
+	}
+	m.viewport.Width = nextWidth
+	m.viewport.Height = nextHeight
 }
 
 func (m *shellModel) suggestionHeight() int {
@@ -743,6 +825,24 @@ func (m *shellModel) nextTick() tea.Cmd {
 		return shellTick()
 	}
 	return nil
+}
+
+func (m *shellModel) statusLineCmd(force bool) tea.Cmd {
+	if m == nil || m.app == nil || m.statusBusy {
+		return nil
+	}
+	script := strings.TrimSpace(m.app.Config().StatusLine)
+	if script == "" {
+		m.statusLine = ""
+		return nil
+	}
+	if !force && !m.statusAt.IsZero() && time.Since(m.statusAt) < 2*time.Second {
+		return nil
+	}
+	m.statusBusy = true
+	return func() tea.Msg {
+		return shellStatusLineMsg{Text: execStatusScript(script)}
+	}
 }
 
 func shellTick() tea.Cmd {
