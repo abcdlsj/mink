@@ -14,11 +14,12 @@ func NewRouter(reg *Registry) *Router {
 }
 
 func IsCommand(input string) bool {
-	return strings.HasPrefix(strings.TrimSpace(input), "!")
+	input = strings.TrimSpace(input)
+	return strings.HasPrefix(input, "!") || strings.HasPrefix(input, "/")
 }
 
 func (r *Router) Route(ctx context.Context, input string) (string, bool, error) {
-	raw := strings.TrimSpace(strings.TrimPrefix(input, "!"))
+	raw := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(input), "!/"))
 	if raw == "" {
 		return "", false, nil
 	}

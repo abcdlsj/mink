@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/textutil"
 	"github.com/abcdlsj/mink/tool"
 )
@@ -30,6 +31,7 @@ type shellOverlay int
 const (
 	overlayNone shellOverlay = iota
 	overlayApproval
+	overlaySession
 )
 
 const shellHeaderHeight = 6
@@ -87,12 +89,19 @@ type shellModel struct {
 	spans     []shellSpan
 	toolItems map[string]shellToolRef
 	approvals []*approvalRequest
+	queue     []string
+	suggests  []completionHint
+	files     []string
+	filesOK   bool
+	sessions  []*session.Session
 	turn      shellTurn
 
 	focus    shellFocus
 	overlay  shellOverlay
 	expanded int
 	selected int
+	suggest  int
+	session  int
 	spinner  int
 	busy     bool
 	follow   bool
@@ -164,7 +173,9 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleEvent(msg.Event)
 		return m, m.nextTick()
 	case shellTurnDoneMsg:
-		m.finishTurn(msg.Reply, msg.Err)
+		if cmd := m.finishTurn(msg.Reply, msg.Err); cmd != nil {
+			return m, tea.Batch(cmd, m.nextTick())
+		}
 		return m, m.nextTick()
 	case shellApprovalEnqueuedMsg:
 		m.approvals = append(m.approvals, msg.Request)
@@ -221,6 +232,8 @@ func (m shellModel) View() string {
 	switch m.overlay {
 	case overlayApproval:
 		return m.renderOverlay(base, "Approval", m.approvalBody())
+	case overlaySession:
+		return m.renderOverlay(base, "Sessions", m.sessionBody())
 	default:
 		return base
 	}
@@ -234,8 +247,40 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.handleApprovalKey(msg.String())
 		return *m, m.nextTick()
 	}
+	if m.overlay == overlaySession {
+		m.handleSessionKey(msg.String())
+		return *m, nil
+	}
+
+	if m.focus == focusComposer && m.overlay == overlayNone && len(m.suggests) > 0 {
+		switch msg.String() {
+		case "enter":
+			if m.exactSuggestion() {
+				return m.submit()
+			}
+			m.acceptSuggestion()
+			m.syncLayout()
+			return *m, nil
+		case "tab":
+			m.acceptSuggestion()
+			m.syncLayout()
+			return *m, nil
+		case "down", "ctrl+n":
+			m.moveSuggestion(1)
+			return *m, nil
+		case "up", "ctrl+p", "shift+tab":
+			m.moveSuggestion(-1)
+			return *m, nil
+		case "esc":
+			m.suggests = nil
+			return *m, nil
+		}
+	}
 
 	switch msg.String() {
+	case "ctrl+r":
+		m.openSessionOverlay()
+		return *m, nil
 	case "tab":
 		return m.toggleFocus()
 	case "ctrl+o":
@@ -285,41 +330,39 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *shellModel) submit() (tea.Model, tea.Cmd) {
-	if m.busy {
-		m.addItem(chatItem{
-			Kind: itemNotice,
-			Time: time.Now(),
-			Segments: []chatSegment{{
-				Kind: segText,
-				Text: "The current turn is still running. Wait for it to finish before sending another input.",
-				Time: time.Now(),
-			}},
-		})
-		return *m, nil
-	}
 	text := textutil.Valid(strings.TrimSpace(m.input.Value()))
 	if text == "" {
 		return *m, nil
 	}
+	if isSessionSelectorCommand(text) {
+		m.input.Reset()
+		m.input.SetHeight(4)
+		m.clearSuggestions()
+		m.openSessionOverlay()
+		return *m, nil
+	}
 	m.input.Reset()
 	m.input.SetHeight(4)
+	m.suggests = nil
+	if m.busy {
+		m.queue = append(m.queue, text)
+		m.addTextItem(itemNotice, fmt.Sprintf("Queued #%d: %s", len(m.queue), textutil.Preview(text, 96)), time.Now())
+		m.syncLayout()
+		return *m, nil
+	}
+	return *m, m.startInput(text)
+}
+
+func (m *shellModel) startInput(text string) tea.Cmd {
 	m.busy = true
 	m.toolItems = map[string]shellToolRef{}
 	m.turn = shellTurn{
 		assistantIndex: -1,
 		started:        time.Now(),
-		commandHandled: command.IsCommand(text),
 	}
-	m.addItem(chatItem{
-		Kind: itemUser,
-		Time: time.Now(),
-		Segments: []chatSegment{{
-			Kind: segText,
-			Text: text,
-			Time: time.Now(),
-		}},
-	})
-	return *m, func() tea.Msg {
+	m.addTextItem(itemUser, text, time.Now())
+	m.syncLayout()
+	return func() tea.Msg {
 		reply, err := m.app.HandleInput(m.ctx, m.source, text)
 		return shellTurnDoneMsg{Reply: reply, Err: err}
 	}
@@ -367,20 +410,34 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 	}
 }
 
-func (m *shellModel) finishTurn(reply string, err error) {
+func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 	m.busy = false
 	if err != nil {
 		if !m.turn.errored {
 			m.addTextItem(itemError, err.Error(), time.Now())
 		}
 		m.turn = shellTurn{assistantIndex: -1}
-		return
+		return m.startQueued()
 	}
 	reply = textutil.Valid(strings.TrimSpace(reply))
 	if !m.turn.commandHandled && !m.turn.streamed && reply != "" {
 		m.appendAssistant(reply)
 	}
 	m.turn = shellTurn{assistantIndex: -1}
+	return m.startQueued()
+}
+
+func (m *shellModel) startQueued() tea.Cmd {
+	for len(m.queue) > 0 {
+		text := m.queue[0]
+		m.queue = m.queue[1:]
+		text = textutil.Valid(strings.TrimSpace(text))
+		if text == "" {
+			continue
+		}
+		return m.startInput(text)
+	}
+	return nil
 }
 
 func (m *shellModel) addItem(item chatItem) int {
@@ -588,6 +645,7 @@ func (m *shellModel) syncLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
+	m.refreshSuggestions()
 	inWidth := max(20, m.width)
 	header := shellHeaderHeight
 	status := 0
@@ -596,8 +654,9 @@ func (m *shellModel) syncLayout() {
 	}
 	footer := 1
 	room := max(1, m.height-header-status-footer)
+	suggestions := min(len(m.suggests), 6)
 	wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 3, 8)
-	composer := min(wantComposer, room)
+	composer := min(wantComposer, max(1, room-suggestions))
 	m.input.SetWidth(inWidth)
 	m.input.SetHeight(composer)
 	if m.focus == focusComposer {
@@ -606,7 +665,7 @@ func (m *shellModel) syncLayout() {
 		m.input.Blur()
 	}
 	m.viewport.Width = max(20, m.width)
-	m.viewport.Height = max(0, room-composer)
+	m.viewport.Height = max(0, room-composer-suggestions)
 	m.syncViewport()
 }
 

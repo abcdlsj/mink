@@ -28,6 +28,8 @@ var shellTheme = struct {
 	FooterVal     lipgloss.Style
 	Overlay       lipgloss.Style
 	OverlayBody   lipgloss.Style
+	Suggest       lipgloss.Style
+	SuggestActive lipgloss.Style
 	Text          lipgloss.Style
 	TextMuted     lipgloss.Style
 	Meta          lipgloss.Style
@@ -58,6 +60,8 @@ var shellTheme = struct {
 	FooterVal:     lipgloss.NewStyle(),
 	Overlay:       lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2),
 	OverlayBody:   lipgloss.NewStyle(),
+	Suggest:       lipgloss.NewStyle().Faint(true),
+	SuggestActive: lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 	Text:          lipgloss.NewStyle(),
 	TextMuted:     lipgloss.NewStyle().Faint(true),
 	Meta:          lipgloss.NewStyle().Faint(true),
@@ -111,13 +115,19 @@ func (m shellModel) renderStatus() string {
 		elapsed = int(time.Since(started).Round(time.Second).Seconds())
 	}
 	head := shellTheme.StatusRunning.Render("• Working")
-	tail := shellTheme.TextMuted.Render(fmt.Sprintf(" (%s · esc to interrupt)", formatElapsed(elapsed)))
+	parts := []string{formatElapsed(elapsed)}
+	if len(m.queue) > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued", len(m.queue)))
+	}
+	parts = append(parts, "esc to interrupt")
+	tail := shellTheme.TextMuted.Render(" (" + strings.Join(parts, " · ") + ")")
 	return shellTheme.Panel.Width(m.width).Render(head + tail)
 }
 
 func (m shellModel) renderComposer() string {
-	input := m.input.View()
-	return shellTheme.Composer.Width(m.width).Render(input)
+	parts := m.renderSuggestions()
+	parts = append(parts, m.input.View())
+	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
 
 func (m shellModel) renderFooter() string {
@@ -125,14 +135,54 @@ func (m shellModel) renderFooter() string {
 	if m.overlay == overlayApproval {
 		return shellTheme.Footer.Width(m.width).Render("  y allow once   a allow always   n deny   esc cancel")
 	}
+	if m.overlay == overlaySession {
+		return shellTheme.Footer.Width(m.width).Render("  enter switch   n new   j/k move   esc close")
+	}
 
-	left := "  ? for shortcuts"
+	left := "  / commands   tab focus   ctrl+o expand"
 	right := "session " + shortID(st.Session) + "   cwd " + st.Cwd
+	if len(m.queue) > 0 {
+		right = fmt.Sprintf("%d queued   %s", len(m.queue), right)
+	}
 	custom := m.execStatusLine()
 	if custom != "" {
 		right = custom
 	}
 	return shellTheme.Footer.Width(m.width).Render(alignFooter(left, right, m.width))
+}
+
+func (m shellModel) renderSuggestions() []string {
+	if len(m.suggests) == 0 {
+		return nil
+	}
+	limit := min(len(m.suggests), 6)
+	lines := make([]string, 0, limit)
+	width := max(20, m.width)
+	for i := 0; i < limit; i++ {
+		item := m.suggests[i]
+		prefix := "  "
+		style := shellTheme.Suggest
+		if i == m.suggest {
+			prefix = "› "
+			style = shellTheme.SuggestActive
+		}
+		label, desc := completionLabel(item)
+		name := style.Render(prefix + label)
+		desc = shellTheme.TextMuted.Render(desc)
+		lines = append(lines, alignFooter(name, desc, width))
+	}
+	return lines
+}
+
+func completionLabel(h completionHint) (string, string) {
+	switch h.Kind {
+	case completionCommand:
+		return "/" + h.Value, h.Desc
+	case completionFile:
+		return "@" + h.Value, "file"
+	default:
+		return h.Value, h.Desc
+	}
 }
 
 func (m shellModel) execStatusLine() string {
@@ -250,6 +300,39 @@ func (m shellModel) approvalBody() string {
 	req := m.approvals[0].req
 	body := fmt.Sprintf("Action\n%s\n\nPattern\n%s\n\nPress y to allow once, a to allow always, n to deny.", req.Action, req.Pattern)
 	return strings.Join(wrapDisplay(body, max(16, m.width-18)), "\n")
+}
+
+func (m shellModel) sessionBody() string {
+	if len(m.sessions) == 0 {
+		return "No sessions.\n\nPress n to create one."
+	}
+	limit := min(len(m.sessions), max(1, m.height-10))
+	start := 0
+	if m.session >= limit {
+		start = m.session - limit + 1
+	}
+	lines := make([]string, 0, limit)
+	for i := start; i < len(m.sessions) && len(lines) < limit; i++ {
+		s := m.sessions[i]
+		if s == nil {
+			continue
+		}
+		prefix := "  "
+		style := shellTheme.Suggest
+		if i == m.session {
+			prefix = "› "
+			style = shellTheme.SuggestActive
+		}
+		title := sessionLabel(s)
+		meta := s.UpdatedAt.Format("2006-01-02 15:04")
+		if s.UpdatedAt.IsZero() {
+			meta = s.CreatedAt.Format("2006-01-02 15:04")
+		}
+		left := style.Render(prefix + title)
+		right := shellTheme.TextMuted.Render(meta)
+		lines = append(lines, alignFooter(left, right, max(24, m.width-18)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m shellModel) renderItemLead(item *chatItem, idx int) []string {

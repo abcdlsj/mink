@@ -7,7 +7,7 @@ Mink v3 is a clean rewrite around a small agent core and simple plugins.
 - `app/`: composition root
 - `agent/`: native runtime
 - `bus/`: event bus for facts, not orchestration
-- `command/`: `!help`, `!model`, `!session`
+- `command/`: `/help`, `/model`, `/session`
 - `config/`: zero-config detection plus structured TOML
 - `llm/`: native providers
 - `plugins/`: pluggable runtimes and services
@@ -184,15 +184,15 @@ go run ./cmd/mink version
 
 Useful commands and tools:
 
-- `!help`
+- `/help`
 - `!<shell command>`
-- `!model`
-- `!models`
-- `!session`
-- `!compact`
-- `!tokens`
-- `!replay`
-- `!memory`
+- `/model`
+- `/models`
+- `/session`
+- `/compact`
+- `/tokens`
+- `/replay`
+- `/memory`
 - `background`
 - `brave_search`
 - `cron`

@@ -14,7 +14,7 @@ import (
 func (a *App) registerBuiltinCommands() {
 	a.RegisterCommand(command.NewFuncCmd("help", "show help", func(ctx context.Context, args []string) (string, error) {
 		return listItems("Commands", a.cmds.All(), func(c command.Command) string {
-			return "!" + c.Name() + " - " + c.Desc()
+			return "/" + c.Name() + " - " + c.Desc()
 		}), nil
 	}))
 
@@ -24,12 +24,12 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: !model [provider model]", func(ctx context.Context, args []string) (string, error) {
+	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: /model [provider model]", func(ctx context.Context, args []string) (string, error) {
 		if len(args) == 0 {
 			return a.currentModel(), nil
 		}
 		if len(args) != 2 {
-			return "usage: !model <provider> <model>", nil
+			return "usage: /model <provider> <model>", nil
 		}
 		if err := a.switchModel(args[0], args[1]); err != nil {
 			return "", err
@@ -54,7 +54,7 @@ func (a *App) registerBuiltinCommands() {
 func (a *App) runSessionCommand(ctx context.Context, args []string) (string, error) {
 	source := command.SourceFrom(ctx)
 	if len(args) == 0 {
-		return "usage: !session [list|current|new|switch <id>]", nil
+		return "usage: /session [list|current|new|switch <id>]", nil
 	}
 	switch args[0] {
 	case "list":

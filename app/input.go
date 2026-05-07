@@ -82,7 +82,11 @@ func (f inputFlow) publishCommandHandled(out string, err error) {
 }
 
 func (f inputFlow) runShellShortcut(ctx context.Context) (string, bool, error) {
-	cmd := strings.TrimSpace(strings.TrimPrefix(f.input, "!"))
+	input := strings.TrimSpace(f.input)
+	if !strings.HasPrefix(input, "!") {
+		return "", false, nil
+	}
+	cmd := strings.TrimSpace(strings.TrimPrefix(input, "!"))
 	if cmd == "" || f.app.tools.Get("bash") == nil {
 		return "", false, nil
 	}

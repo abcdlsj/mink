@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/session"
 	"github.com/abcdlsj/mink/store"
 	"github.com/abcdlsj/mink/tool"
@@ -15,6 +16,13 @@ func (a *App) Workspace() string {
 
 func (a *App) CurrentModel() string {
 	return a.currentModel()
+}
+
+func (a *App) Commands() []command.Command {
+	if a == nil || a.cmds == nil {
+		return nil
+	}
+	return a.cmds.All()
 }
 
 func (a *App) CurrentSession(source string) (*session.Session, error) {

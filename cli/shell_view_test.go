@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/abcdlsj/mink/command"
 	"github.com/abcdlsj/mink/config"
 	"github.com/abcdlsj/mink/session"
 )
@@ -18,10 +19,23 @@ type fakeShellApp struct{}
 func (fakeShellApp) HandleInput(context.Context, string, string) (string, error) { return "", nil }
 func (fakeShellApp) Config() config.Config                                       { return config.Config{} }
 func (fakeShellApp) CurrentModel() string                                        { return "claude-sonnet-4-6 with a long suffix" }
+func (fakeShellApp) Commands() []command.Command {
+	return []command.Command{
+		command.NewFuncCmd("help", "show help", nil),
+		command.NewFuncCmd("session", "manage sessions", nil),
+	}
+}
 func (fakeShellApp) Workspace() string {
 	return "/Users/lisongjian/Workspace/gh/abcdlsj/mink/very/long/path"
 }
 func (fakeShellApp) CurrentSession(string) (*session.Session, error) { return session.New("cli"), nil }
+func (fakeShellApp) NewSession(string) (*session.Session, error)     { return session.New("cli"), nil }
+func (fakeShellApp) SwitchSession(string, string) (*session.Session, error) {
+	return session.New("cli"), nil
+}
+func (fakeShellApp) ListSessionsBySource(string) ([]*session.Session, error) {
+	return []*session.Session{session.New("cli")}, nil
+}
 
 func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
