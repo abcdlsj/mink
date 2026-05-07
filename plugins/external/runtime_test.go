@@ -154,6 +154,30 @@ func TestRuntimeSessionIDResumeFlag(t *testing.T) {
 	}
 }
 
+func TestRuntimeResetSessionIDReplacesStaleExternalSession(t *testing.T) {
+	r := &Runtime{driver: Driver{Name: "claude"}}
+	s := session.New("test")
+	s.ExternalSession["claude"] = "stale"
+
+	next := r.resetSessionID(s)
+	if next == "" || next == "stale" {
+		t.Fatalf("next = %q", next)
+	}
+	if got := s.ExternalSession["claude"]; got != next {
+		t.Fatalf("external session = %q, want %q", got, next)
+	}
+}
+
+func TestMissingExternalSessionDetectsClaudeResumeError(t *testing.T) {
+	err := wrapMessageError("claude", &Message{Type: MsgError, Text: "error_during_execution: No conversation found with session ID: 67c492f4-8d18-4552-b6cc-698de0082a2d"})
+	if !missingExternalSession(err) {
+		t.Fatalf("missingExternalSession(%v) = false", err)
+	}
+	if missingExternalSession(wrapMessageError("claude", &Message{Type: MsgError, Text: "auth failed"})) {
+		t.Fatal("auth failure detected as missing session")
+	}
+}
+
 func TestHandleMessageReturnsMsgErrorWithoutPublishingTurnError(t *testing.T) {
 	b := bus.New()
 	evs, cancel := b.Subscribe(8)

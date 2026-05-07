@@ -74,6 +74,22 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	addUser(turn.Session, turn.Input)
 
 	sessionID, resume := r.getOrCreateSessionID(turn.Session)
+	st := newRunState()
+	runErr := r.runCommand(ctx, turn, st, prompt, sessionID, resume)
+	if runErr != nil && resume && missingExternalSession(runErr) {
+		sessionID = r.resetSessionID(turn.Session)
+		st = newRunState()
+		runErr = r.runCommand(ctx, turn, st, prompt, sessionID, false)
+	}
+	st.flush(turn.Session)
+	return runErr
+}
+
+func newRunState() *runState {
+	return &runState{calls: map[string]toolCallState{}}
+}
+
+func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState, prompt, sessionID string, resume bool) error {
 	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)...)
 	if r.workspace != "" {
 		cmd.Dir = r.workspace
@@ -107,10 +123,6 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		errCh <- strings.TrimSpace(string(data))
 	}()
 
-	st := runState{
-		calls: map[string]toolCallState{},
-	}
-	defer st.flush(turn.Session)
 	scanner := bufio.NewScanner(stdout)
 	const maxLine = 10 * 1024 * 1024
 	buf := make([]byte, 0, 64*1024)
@@ -122,7 +134,7 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 		if m == nil {
 			continue
 		}
-		if err := handleMessage(r.driver.Name, turn, &st, m); err != nil {
+		if err := handleMessage(r.driver.Name, turn, st, m); err != nil {
 			runErr = err
 			if cmd.Process != nil {
 				_ = cmd.Process.Kill()
@@ -165,6 +177,26 @@ func (r *Runtime) getOrCreateSessionID(s *session.Session) (string, bool) {
 	sid := uuid.New().String()
 	s.ExternalSession[r.driver.Name] = sid
 	return sid, false
+}
+
+func (r *Runtime) resetSessionID(s *session.Session) string {
+	sid := uuid.New().String()
+	if s == nil {
+		return sid
+	}
+	if s.ExternalSession == nil {
+		s.ExternalSession = map[string]string{}
+	}
+	s.ExternalSession[r.driver.Name] = sid
+	return sid
+}
+
+func missingExternalSession(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no conversation found with session id")
 }
 
 func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) error {
