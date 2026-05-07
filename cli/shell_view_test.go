@@ -39,7 +39,7 @@ func (fakeShellApp) ListSessionsBySource(string) ([]*session.Session, error) {
 
 func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
-	m.width = 32
+	m.width = 96
 
 	out := ansi.Strip(m.renderHeader(m.state()))
 	lines := strings.Split(out, "\n")
@@ -52,10 +52,25 @@ func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	if !strings.Contains(out, "Mink") {
 		t.Fatalf("renderHeader() = %q, want title", out)
 	}
-	if !strings.Contains(out, "model") || !strings.Contains(out, "cwd") || !strings.Contains(out, "session") {
+	if !strings.Contains(out, "model") || !strings.Contains(out, "cwd") || !strings.Contains(out, "-cli-") {
 		t.Fatalf("renderHeader() = %q, want session facts", out)
 	}
 	for _, line := range lines {
+		if w := runewidth.StringWidth(line); w > m.width {
+			t.Fatalf("header line width = %d, want <= %d: %q\n%s", w, m.width, line, out)
+		}
+	}
+}
+
+func TestRenderHeaderKeepsSessionOnNarrowWidth(t *testing.T) {
+	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
+	m.width = 32
+
+	out := ansi.Strip(m.renderHeader(m.state()))
+	if !strings.Contains(out, "-cli-") {
+		t.Fatalf("renderHeader() = %q, want session visible", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
 		if w := runewidth.StringWidth(line); w > m.width {
 			t.Fatalf("header line width = %d, want <= %d: %q\n%s", w, m.width, line, out)
 		}
@@ -73,7 +88,7 @@ func TestViewKeepsFullHeaderVisible(t *testing.T) {
 		t.Fatalf("View() lines = %d, want header:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	head := strings.Join(lines[:shellHeaderHeight], "\n")
-	for _, want := range []string{"Mink", "model", "cwd", "session"} {
+	for _, want := range []string{"Mink", "-cli-"} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("header missing %q:\n%s", want, head)
 		}
@@ -137,7 +152,7 @@ func requireHeaderFacts(t *testing.T, m shellModel, note string) {
 		t.Fatalf("View() lines = %d, want <= %d %s:\n%s", len(lines), m.height, note, out)
 	}
 	head := strings.Join(lines[:shellHeaderHeight], "\n")
-	for _, want := range []string{"Mink", "model", "cwd", "session"} {
+	for _, want := range []string{"Mink", "-cli-"} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("header missing %q %s:\n%s", want, note, head)
 		}

@@ -34,7 +34,7 @@ const (
 	overlaySession
 )
 
-const shellHeaderHeight = 3
+const shellHeaderHeight = 2
 
 type shellBusMsg struct {
 	Event bus.Event

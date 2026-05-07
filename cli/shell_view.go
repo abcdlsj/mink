@@ -78,14 +78,8 @@ var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧",
 
 func (m shellModel) renderHeader(st cliState) string {
 	w := max(1, m.width)
-	title := shellTheme.Title.Render("Mink")
-	mode := shellTheme.ChipDim.Render(nonEmpty(st.Runtime, "native"))
-	session := shellTheme.ChipDim.Render("session ") + shellTheme.Chip.Render(shortID(st.Session))
-
-	top := alignFooter(title+"  "+mode, session, w-4)
 	lines := []string{
-		padLine(top, w),
-		padLine(headerFacts(st, w-4), w),
+		padLine(headerLine(st, w-4), w),
 		"",
 	}
 	return shellTheme.Header.Width(w).Render(strings.Join(lines, "\n"))
@@ -567,22 +561,22 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func headerValue(s string, width int) string {
-	return runewidth.Truncate(textutil.Valid(s), max(1, width), "…")
-}
-
-func headerFacts(st cliState, width int) string {
+func headerLine(st cliState, width int) string {
 	width = max(1, width)
-	model := nonEmpty(st.Model, "unknown")
-	cwd := nonEmpty(st.Cwd, ".")
-	modelRoom := clamp(width/2-6, 8, max(8, width-12))
-	model = headerValue(model, modelRoom)
-	used := lipgloss.Width("model " + model + "   cwd ")
-	cwd = headerValue(cwd, max(8, width-used))
-	return shellTheme.ChipDim.Render("model ") +
-		shellTheme.Text.Render(model) +
-		shellTheme.ChipDim.Render("   cwd ") +
-		shellTheme.Text.Render(cwd)
+	session := shellTheme.Chip.Render(nonEmpty(st.Session, "(new)"))
+	if lipgloss.Width(session) >= width {
+		return ansi.Truncate(session, width, "…")
+	}
+	left := strings.Join([]string{
+		shellTheme.Title.Render("Mink"),
+		shellTheme.ChipDim.Render("model ") + shellTheme.Text.Render(nonEmpty(st.Model, "unknown")),
+		shellTheme.ChipDim.Render("cwd ") + shellTheme.Text.Render(nonEmpty(st.Cwd, ".")),
+	}, "  ")
+	room := width - lipgloss.Width(session) - 2
+	if lipgloss.Width(left) > room {
+		left = ansi.Truncate(left, max(1, room), "…")
+	}
+	return alignFooter(left, session, width)
 }
 
 func padLine(s string, width int) string {
