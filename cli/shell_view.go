@@ -23,12 +23,9 @@ var shellTheme = struct {
 	Chip          lipgloss.Style
 	ChipDim       lipgloss.Style
 	Panel         lipgloss.Style
-	PanelMuted    lipgloss.Style
 	Composer      lipgloss.Style
 	Prompt        lipgloss.Style
 	Footer        lipgloss.Style
-	FooterKey     lipgloss.Style
-	FooterVal     lipgloss.Style
 	Overlay       lipgloss.Style
 	OverlayBody   lipgloss.Style
 	Suggest       lipgloss.Style
@@ -36,9 +33,7 @@ var shellTheme = struct {
 	Text          lipgloss.Style
 	TextMuted     lipgloss.Style
 	Meta          lipgloss.Style
-	Divider       lipgloss.Style
 	User          lipgloss.Style
-	Assistant     lipgloss.Style
 	Tool          lipgloss.Style
 	Note          lipgloss.Style
 	Error         lipgloss.Style
@@ -57,12 +52,9 @@ var shellTheme = struct {
 	Chip:          lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 	ChipDim:       lipgloss.NewStyle().Faint(true),
 	Panel:         lipgloss.NewStyle(),
-	PanelMuted:    lipgloss.NewStyle().Faint(true),
 	Composer:      lipgloss.NewStyle(),
 	Prompt:        lipgloss.NewStyle().Foreground(lipgloss.Color("6")),
 	Footer:        lipgloss.NewStyle().Faint(true),
-	FooterKey:     lipgloss.NewStyle().Faint(true),
-	FooterVal:     lipgloss.NewStyle(),
 	Overlay:       lipgloss.NewStyle().Padding(1, 2).Background(lipgloss.Color("235")),
 	OverlayBody:   lipgloss.NewStyle(),
 	Suggest:       lipgloss.NewStyle().Faint(true),
@@ -70,9 +62,7 @@ var shellTheme = struct {
 	Text:          lipgloss.NewStyle(),
 	TextMuted:     lipgloss.NewStyle().Faint(true),
 	Meta:          lipgloss.NewStyle().Faint(true),
-	Divider:       lipgloss.NewStyle().Faint(true),
 	User:          lipgloss.NewStyle().Bold(true).Faint(true),
-	Assistant:     lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5")),
 	Tool:          lipgloss.NewStyle().Faint(true),
 	Note:          lipgloss.NewStyle().Faint(true),
 	Error:         lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
@@ -135,6 +125,9 @@ func (m shellModel) renderStatus() string {
 
 func (m shellModel) renderComposer() string {
 	parts := m.renderSuggestions()
+	if len(parts) > 0 {
+		parts = append(parts, "")
+	}
 	parts = append(parts, m.input.View())
 	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
@@ -210,27 +203,38 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 		return nil
 	}
 	lines := m.renderItemLead(item, idx)
+	hasBody := false
+	add := func(seg []string) {
+		if len(seg) == 0 {
+			return
+		}
+		if hasBody {
+			lines = append(lines, "")
+		}
+		lines = append(lines, seg...)
+		hasBody = true
+	}
 	for i := 0; i < len(item.Segments); {
 		switch item.Segments[i].Kind {
 		case segText:
-			lines = append(lines, m.renderTextSegment(item, item.Segments[i], idx)...)
+			add(m.renderTextSegment(item, item.Segments[i], idx))
 			i++
 		case segReasoning:
-			lines = append(lines, m.renderReasoningSegment(item.Segments[i], idx)...)
+			add(m.renderReasoningSegment(item.Segments[i], idx))
 			i++
 		case segTool:
 			j := i + 1
 			for j < len(item.Segments) && item.Segments[j].Kind == segTool {
 				j++
 			}
-			lines = append(lines, m.renderToolRun(item.Segments[i:j], idx == m.selected)...)
+			add(m.renderToolRun(item.Segments[i:j], idx == m.selected))
 			i = j
 		default:
 			i++
 		}
 	}
 	if m.expanded == idx {
-		lines = append(lines, m.renderExpanded(item)...)
+		add(m.renderExpanded(item))
 	}
 	return lines
 }
@@ -264,7 +268,7 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 		return nil
 	}
 	if len(segs) == 1 {
-		return []string{"", m.renderToolLine(segs[0], selected), ""}
+		return []string{m.renderToolLine(segs[0], selected)}
 	}
 	var failed, running int
 	counts := map[string]int{}
@@ -304,7 +308,7 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 	if selected {
 		line = m.selectedLine(line)
 	}
-	return []string{"", line, ""}
+	return []string{line}
 }
 
 func (m shellModel) approvalBody() string {
@@ -312,13 +316,16 @@ func (m shellModel) approvalBody() string {
 		return "No pending approvals."
 	}
 	req := m.approvals[0].req
-	body := fmt.Sprintf("Action\n%s\n\nPattern\n%s\n\nPress y to allow once, a to allow always, n to deny.", req.Action, req.Pattern)
-	return strings.Join(wrapDisplay(body, max(16, m.width-18)), "\n")
+	width := max(16, m.width-18)
+	lines := fieldBlock("action", req.Action, width)
+	lines = append(lines, "")
+	lines = append(lines, fieldBlock("pattern", req.Pattern, width)...)
+	return strings.Join(lines, "\n")
 }
 
 func (m shellModel) sessionBody() string {
 	if len(m.sessions) == 0 {
-		return "No sessions.\n\nPress n to create one."
+		return "No sessions."
 	}
 	limit := min(len(m.sessions), max(1, m.height-10))
 	start := 0
@@ -396,7 +403,6 @@ func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) 
 		}
 		out = append(out, line)
 	}
-	out = append(out, "")
 	return out
 }
 
@@ -410,13 +416,12 @@ func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
 	if idx == m.selected {
 		line = m.selectedLine(line)
 	}
-	return []string{"", line, ""}
+	return []string{line}
 }
 
 func (m shellModel) renderUserText(text string, idx int) []string {
 	lines := wrapDisplay(strings.TrimRight(textutil.Valid(text), "\r\n"), max(12, m.viewport.Width-2))
-	out := make([]string, 0, len(lines)+2)
-	out = append(out, "")
+	out := make([]string, 0, len(lines))
 	for i, line := range lines {
 		prefix := "  "
 		if i == 0 {
@@ -428,7 +433,6 @@ func (m shellModel) renderUserText(text string, idx int) []string {
 		}
 		out = append(out, row)
 	}
-	out = append(out, "")
 	return out
 }
 
@@ -479,6 +483,14 @@ func overlayHint(title string) string {
 	default:
 		return ""
 	}
+}
+
+func fieldBlock(label, value string, width int) []string {
+	lines := []string{shellTheme.Meta.Render(label)}
+	for _, line := range wrapDisplay(strings.TrimSpace(value), max(8, width-2)) {
+		lines = append(lines, "  "+line)
+	}
+	return lines
 }
 
 func wrapDisplay(s string, width int) []string {

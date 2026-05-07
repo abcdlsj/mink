@@ -118,7 +118,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	})
 	in.Placeholder = "Ask Mink to do anything"
 	in.ShowLineNumbers = false
-	in.SetHeight(4)
+	in.SetHeight(2)
 	in.KeyMap.InsertNewline = key.NewBinding(
 		key.WithKeys("ctrl+j"),
 		key.WithHelp("ctrl+j", "newline"),
@@ -336,13 +336,13 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	}
 	if isSessionSelectorCommand(text) {
 		m.input.Reset()
-		m.input.SetHeight(4)
+		m.input.SetHeight(2)
 		m.clearSuggestions()
 		m.openSessionOverlay()
 		return *m, nil
 	}
 	m.input.Reset()
-	m.input.SetHeight(4)
+	m.input.SetHeight(2)
 	m.suggests = nil
 	if m.busy {
 		m.queue = append(m.queue, text)
@@ -655,7 +655,10 @@ func (m *shellModel) syncLayout() {
 	footer := 1
 	room := max(1, m.height-header-status-footer)
 	suggestions := min(len(m.suggests), 6)
-	wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 3, 8)
+	if suggestions > 0 {
+		suggestions++
+	}
+	wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 2, 7)
 	composer := min(wantComposer, max(1, room-suggestions))
 	m.input.SetWidth(inWidth)
 	m.input.SetHeight(composer)

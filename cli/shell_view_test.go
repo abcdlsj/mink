@@ -88,7 +88,7 @@ func TestViewKeepsFullHeaderVisible(t *testing.T) {
 	}
 }
 
-func TestRenderItemAddsGapBeforeFirstTextSegment(t *testing.T) {
+func TestRenderItemKeepsUserMessageCompact(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.viewport.Width = 48
 	item := &chatItem{
@@ -101,13 +101,27 @@ func TestRenderItemAddsGapBeforeFirstTextSegment(t *testing.T) {
 	}
 
 	lines := m.renderItem(item, 0)
-	if len(lines) < 3 {
-		t.Fatalf("renderItem() lines = %d, want at least 3", len(lines))
+	if len(lines) != 1 {
+		t.Fatalf("renderItem() lines = %d, want 1: %#v", len(lines), lines)
 	}
-	if lines[0] != "" {
-		t.Fatalf("renderItem() gap line = %q, want empty line", lines[0])
+	if !strings.Contains(ansi.Strip(lines[0]), "› 你是什么模型") {
+		t.Fatalf("renderItem() body line = %q", lines[0])
 	}
-	if !strings.Contains(ansi.Strip(lines[1]), "› 你是什么模型") {
-		t.Fatalf("renderItem() body line = %q", lines[1])
+}
+
+func TestRenderItemAddsSingleGapBetweenSegments(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 64
+	item := &chatItem{
+		Kind: itemAssistant,
+		Segments: []chatSegment{
+			{Kind: segTool, Tool: "bash", Text: "pwd", Status: "done"},
+			{Kind: segText, Text: "done"},
+		},
+	}
+
+	lines := ansi.Strip(strings.Join(m.renderItem(item, 0), "\n"))
+	if got := strings.Count(lines, "\n\n"); got != 1 {
+		t.Fatalf("segment gaps = %d, want 1:\n%s", got, lines)
 	}
 }
