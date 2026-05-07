@@ -85,16 +85,17 @@ type shellModel struct {
 	viewport viewport.Model
 	input    textarea.Model
 
-	items     []*chatItem
-	spans     []shellSpan
-	toolItems map[string]shellToolRef
-	approvals []*approvalRequest
-	queue     []string
-	suggests  []completionHint
-	files     []string
-	filesOK   bool
-	sessions  []*session.Session
-	turn      shellTurn
+	items       []*chatItem
+	spans       []shellSpan
+	toolItems   map[string]shellToolRef
+	approvals   []*approvalRequest
+	queue       []string
+	suggests    []completionHint
+	suggestRows int
+	files       []string
+	filesOK     bool
+	sessions    []*session.Session
+	turn        shellTurn
 
 	focus    shellFocus
 	overlay  shellOverlay
@@ -653,23 +654,39 @@ func (m *shellModel) syncLayout() {
 		status = 1
 	}
 	footer := 1
-	room := max(1, m.height-header-status-footer)
-	suggestions := min(len(m.suggests), 6)
-	if suggestions > 0 {
-		suggestions++
-	}
-	wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 2, 7)
-	composer := min(wantComposer, max(1, room-suggestions))
+	fixed := header + status + footer
+	room := max(1, m.height-fixed)
 	m.input.SetWidth(inWidth)
-	m.input.SetHeight(composer)
 	if m.focus == focusComposer {
 		_ = m.input.Focus()
 	} else {
 		m.input.Blur()
 	}
+	m.suggestRows = min(len(m.suggests), 6)
+	for {
+		suggestions := m.suggestionHeight()
+		wantComposer := clamp(len(strings.Split(textutil.Valid(m.input.Value()), "\n"))+1, 2, 7)
+		composer := min(wantComposer, max(1, room-suggestions))
+		m.input.SetHeight(composer)
+		if fixed+m.composerHeight() <= m.height || m.suggestRows == 0 {
+			break
+		}
+		m.suggestRows--
+	}
 	m.viewport.Width = max(20, m.width)
-	m.viewport.Height = max(0, room-composer-suggestions)
+	m.viewport.Height = max(0, m.height-fixed-m.composerHeight())
 	m.syncViewport()
+}
+
+func (m *shellModel) suggestionHeight() int {
+	if len(m.suggests) == 0 || m.suggestRows == 0 {
+		return 0
+	}
+	return min(len(m.suggests), m.suggestRows) + 1
+}
+
+func (m *shellModel) composerHeight() int {
+	return viewHeight(m.renderComposer())
 }
 
 func (m *shellModel) syncViewport() {

@@ -128,7 +128,7 @@ func (m shellModel) renderComposer() string {
 	if len(parts) > 0 {
 		parts = append(parts, "")
 	}
-	parts = append(parts, m.input.View())
+	parts = append(parts, strings.TrimRight(m.input.View(), "\n"))
 	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
 
@@ -154,10 +154,10 @@ func (m shellModel) renderFooter() string {
 }
 
 func (m shellModel) renderSuggestions() []string {
-	if len(m.suggests) == 0 {
+	if len(m.suggests) == 0 || m.suggestRows == 0 {
 		return nil
 	}
-	limit := min(len(m.suggests), 6)
+	limit := min(len(m.suggests), m.suggestRows)
 	lines := make([]string, 0, limit)
 	width := max(20, m.width)
 	for i := 0; i < limit; i++ {
@@ -557,6 +557,13 @@ func lipJoinVertical(parts ...string) string {
 		out = append(out, p)
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, out...)
+}
+
+func viewHeight(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
 }
 
 func clamp(v, lo, hi int) int {

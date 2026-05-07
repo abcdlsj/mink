@@ -78,6 +78,7 @@ func (m *shellModel) refreshFileSuggestions() bool {
 
 func (m *shellModel) clearSuggestions() {
 	m.suggests = nil
+	m.suggestRows = 0
 	m.suggest = 0
 }
 

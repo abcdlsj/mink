@@ -88,6 +88,26 @@ func TestViewKeepsFullHeaderVisible(t *testing.T) {
 	}
 }
 
+func TestViewKeepsHeaderFactsWhileTyping(t *testing.T) {
+	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
+	m.width = 32
+	m.height = 10
+	m.input.SetValue("this is a long enough prompt to wrap in the composer")
+	m.syncLayout()
+
+	requireHeaderFacts(t, m, "while typing")
+}
+
+func TestViewKeepsHeaderFactsWithSuggestions(t *testing.T) {
+	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
+	m.width = 32
+	m.height = 10
+	m.input.SetValue("/")
+	m.syncLayout()
+
+	requireHeaderFacts(t, m, "with suggestions")
+}
+
 func TestRenderItemKeepsUserMessageCompact(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.viewport.Width = 48
@@ -106,6 +126,21 @@ func TestRenderItemKeepsUserMessageCompact(t *testing.T) {
 	}
 	if !strings.Contains(ansi.Strip(lines[0]), "› 你是什么模型") {
 		t.Fatalf("renderItem() body line = %q", lines[0])
+	}
+}
+
+func requireHeaderFacts(t *testing.T, m shellModel, note string) {
+	t.Helper()
+	out := ansi.Strip(m.View())
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) > m.height {
+		t.Fatalf("View() lines = %d, want <= %d %s:\n%s", len(lines), m.height, note, out)
+	}
+	head := strings.Join(lines[:shellHeaderHeight], "\n")
+	for _, want := range []string{"Mink", "model", "cwd", "session"} {
+		if !strings.Contains(head, want) {
+			t.Fatalf("header missing %q %s:\n%s", want, note, head)
+		}
 	}
 }
 
