@@ -73,8 +73,12 @@ func parseOutput(line string) *external.Message {
 				Thinking string `json:"thinking"`
 			} `json:"delta"`
 		} `json:"event"`
-		Result  string `json:"result"`
-		IsError bool   `json:"is_error"`
+		Result string `json:"result"`
+		Error  struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+		IsError bool `json:"is_error"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
@@ -139,7 +143,7 @@ func parseOutput(line string) *external.Message {
 		}
 	case "result":
 		if env.IsError {
-			return &external.Message{Type: external.MsgError, Text: env.Result}
+			return &external.Message{Type: external.MsgError, Text: resultError(env.Result, env.Subtype, env.Error.Type, env.Error.Message)}
 		}
 		if env.Result != "" {
 			return &external.Message{
@@ -151,6 +155,15 @@ func parseOutput(line string) *external.Message {
 	}
 
 	return nil
+}
+
+func resultError(result, subtype, typ, message string) string {
+	for _, s := range []string{result, message, typ, subtype} {
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+	}
+	return "claude returned an error without details"
 }
 
 func marshalInput(v any) string {

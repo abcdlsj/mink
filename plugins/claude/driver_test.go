@@ -119,6 +119,55 @@ func TestParseOutputCapturesThinking(t *testing.T) {
 	}
 }
 
+func TestParseOutputCapturesResultErrorDetails(t *testing.T) {
+	tests := []struct {
+		name string
+		line string
+		want string
+	}{
+		{
+			name: "result",
+			line: mustJSON(t, map[string]any{
+				"type":     "result",
+				"is_error": true,
+				"result":   "budget exceeded",
+			}),
+			want: "budget exceeded",
+		},
+		{
+			name: "message",
+			line: mustJSON(t, map[string]any{
+				"type":     "result",
+				"is_error": true,
+				"subtype":  "error_during_execution",
+				"error": map[string]any{
+					"type":    "api_error",
+					"message": "invalid auth",
+				},
+			}),
+			want: "invalid auth",
+		},
+		{
+			name: "subtype",
+			line: mustJSON(t, map[string]any{
+				"type":     "result",
+				"is_error": true,
+				"subtype":  "error_during_execution",
+			}),
+			want: "error_during_execution",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := parseOutput(tt.line)
+			if m == nil || m.Type != external.MsgError || m.Text != tt.want {
+				t.Fatalf("got %#v, want %q", m, tt.want)
+			}
+		})
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	data, err := json.Marshal(v)

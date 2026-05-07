@@ -135,6 +135,9 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	}
 	waitErr := cmd.Wait()
 	stderrText := <-errCh
+	if runErr != nil && stderrText != "" {
+		runErr = fmt.Errorf("%w: %s", runErr, stderrText)
+	}
 	if runErr == nil && waitErr != nil {
 		if stderrText != "" {
 			runErr = errors.New(stderrText)
