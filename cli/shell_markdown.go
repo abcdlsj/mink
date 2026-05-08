@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/glamour/ansi"
 	mdstyles "github.com/charmbracelet/glamour/styles"
 
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 var markdownCache sync.Map

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/config"
 	tele "gopkg.in/telebot.v4"
 )
 

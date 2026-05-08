@@ -3,7 +3,7 @@ package llm
 import (
 	"context"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 	openrouter "github.com/revrost/go-openrouter"
 )
 
@@ -15,7 +15,7 @@ type openRouter struct {
 
 func newOpenRouter(cfg Config) *openRouter {
 	clientCfg := openrouter.DefaultConfig(cfg.APIKey)
-	clientCfg.XTitle = "Mink"
+	clientCfg.XTitle = "Sumi"
 	clientCfg.HTTPClient = newRetryHTTPClient(nil)
 	if cfg.BaseURL != "" {
 		clientCfg.BaseURL = cfg.BaseURL

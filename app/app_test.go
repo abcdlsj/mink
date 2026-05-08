@@ -7,17 +7,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -46,7 +46,7 @@ func TestHandleInputReturnsLatestAssistant(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestHandleInputRunsBangCommandAsShellShortcut(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "native",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -100,7 +100,7 @@ func TestHandleInputPublishesCommandHandledForShellShortcut(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "native",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -135,7 +135,7 @@ func TestHandleInputAutoCompactsNativeRuntimeByModelWindow(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:     "native",
-		DataDir:     filepath.Join(dir, "mink-data"),
+		DataDir:     filepath.Join(dir, "sumi-data"),
 		Workspace:   dir,
 		MaxTokens:   1,
 		ActiveModel: "main",
@@ -199,7 +199,7 @@ func TestHandleInputDoesNotAutoCompactExternalDriverRuntime(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:     "codex",
-		DataDir:     filepath.Join(dir, "mink-data"),
+		DataDir:     filepath.Join(dir, "sumi-data"),
 		Workspace:   dir,
 		MaxTokens:   1,
 		ActiveModel: "main",
@@ -257,7 +257,7 @@ func TestHandleInputPassesPromptSettingsToRuntimeEnv(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 		Prompt:    "项目约束",
 		SoulPath:  filepath.Join(dir, "SOUL.md"),
@@ -301,7 +301,7 @@ func TestHandleInputPassesPromptSettingsToRuntimeEnv(t *testing.T) {
 
 func TestHandleInputPersistsSessionWhenRuntimeFails(t *testing.T) {
 	dir := t.TempDir()
-	dataDir := filepath.Join(dir, "mink-data")
+	dataDir := filepath.Join(dir, "sumi-data")
 	a, err := New(config.Config{
 		Runtime:   "stub",
 		DataDir:   dataDir,

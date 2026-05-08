@@ -12,10 +12,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 type Driver struct {

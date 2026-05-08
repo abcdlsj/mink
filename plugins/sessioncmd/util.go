@@ -4,11 +4,11 @@ import (
 	"context"
 	"strings"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 func estimate(m msg.Message) int {

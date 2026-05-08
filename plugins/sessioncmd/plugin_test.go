@@ -6,19 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func TestReplayCommandUsesRunLog(t *testing.T) {
 	dir := t.TempDir()
 	a, err := app.New(config.Config{
 		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {
@@ -72,7 +72,7 @@ func TestInspectCommandShowsSnapshotAndRunLog(t *testing.T) {
 	dir := t.TempDir()
 	a, err := app.New(config.Config{
 		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {

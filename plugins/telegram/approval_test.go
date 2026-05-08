@@ -3,7 +3,7 @@ package telegram
 import (
 	"testing"
 
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 func TestParseApprovalReply(t *testing.T) {

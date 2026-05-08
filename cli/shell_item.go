@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 const (
@@ -44,7 +44,7 @@ func (i chatItem) role() string {
 	case itemUser:
 		return "you"
 	case itemAssistant:
-		return "mink"
+		return "sumi"
 	case itemNotice:
 		return "note"
 	case itemError:

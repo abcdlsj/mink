@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 type shellApprover struct {

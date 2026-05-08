@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 type engine struct {

@@ -1,6 +1,6 @@
 package sessioncmd
 
-import "github.com/abcdlsj/mink/app"
+import "github.com/abcdlsj/sumi/app"
 
 func Plugin() app.Plugin {
 	return func(a *app.App) error {

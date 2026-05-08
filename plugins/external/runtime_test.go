@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func TestHandleMessageDoesNotRepublishFinalAssistantTextAfterStreaming(t *testing.T) {
@@ -156,10 +156,10 @@ func TestRuntimeSessionIDResumeFlag(t *testing.T) {
 
 func TestRuntimeSessionIDIsScopedByWorkspace(t *testing.T) {
 	s := session.New("test")
-	mink := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/mink"}
+	sumi := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/sumi"}
 	dyn := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/go-dynamic"}
 
-	first, resume := mink.getOrCreateSessionID(s)
+	first, resume := sumi.getOrCreateSessionID(s)
 	if first == "" || resume {
 		t.Fatalf("first = %q %v", first, resume)
 	}
@@ -170,8 +170,8 @@ func TestRuntimeSessionIDIsScopedByWorkspace(t *testing.T) {
 	if first == second {
 		t.Fatalf("workspace sessions share id %q", first)
 	}
-	if got := s.ExternalSession["claude:/tmp/mink"]; got != first {
-		t.Fatalf("mink session = %q, want %q", got, first)
+	if got := s.ExternalSession["claude:/tmp/sumi"]; got != first {
+		t.Fatalf("sumi session = %q, want %q", got, first)
 	}
 	if got := s.ExternalSession["claude:/tmp/go-dynamic"]; got != second {
 		t.Fatalf("dynamic session = %q, want %q", got, second)

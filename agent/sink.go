@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/sumi/bus"
 )
 
 type turnSink struct {

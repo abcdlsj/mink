@@ -1,10 +1,10 @@
 GO ?= go
-PKG ?= ./cmd/mink
+PKG ?= ./cmd/sumi
 BIN_DIR ?= bin
 GOEXE ?= $(shell $(GO) env GOEXE)
 GOBIN ?= $(shell $(GO) env GOBIN)
 GOPATH ?= $(shell $(GO) env GOPATH)
-BIN ?= $(BIN_DIR)/mink$(GOEXE)
+BIN ?= $(BIN_DIR)/sumi$(GOEXE)
 MAIN ?= main
 
 ifeq ($(strip $(GOBIN)),)
@@ -13,7 +13,7 @@ else
 INSTALL_DIR ?= $(GOBIN)
 endif
 
-INSTALL_BIN ?= $(INSTALL_DIR)/mink$(GOEXE)
+INSTALL_BIN ?= $(INSTALL_DIR)/sumi$(GOEXE)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -25,7 +25,7 @@ LDFLAGS := -X '$(MAIN).Version=$(VERSION)' -X '$(MAIN).Commit=$(COMMIT)' -X '$(M
 
 help:
 	@printf "%s\n" \
-		"make build    Build ./bin/mink with version metadata" \
+		"make build    Build ./bin/sumi with version metadata" \
 		"make install  Build and overwrite $(INSTALL_BIN)" \
 		"make version  Print build metadata values" \
 		"make clean    Remove local build artifacts"

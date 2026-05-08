@@ -3,7 +3,7 @@ package llm
 import (
 	"context"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )

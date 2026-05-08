@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/sumi/bus"
 )
 
 func capabilityHint(v []string) string {

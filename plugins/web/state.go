@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func (s *server) state() (state, error) {

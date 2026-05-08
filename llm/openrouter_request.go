@@ -3,7 +3,7 @@ package llm
 import (
 	"io"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 	openrouter "github.com/revrost/go-openrouter"
 )
 

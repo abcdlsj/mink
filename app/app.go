@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/skill"
-	"github.com/abcdlsj/mink/store"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/skill"
+	"github.com/abcdlsj/sumi/store"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 type Plugin func(*App) error

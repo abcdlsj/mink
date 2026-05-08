@@ -1,4 +1,4 @@
-# Mink
+# Sumi
 
 An AI Agent assistant implemented in Go.
 

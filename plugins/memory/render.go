@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 func render(mode string, scopes []scope, docs []doc) string {

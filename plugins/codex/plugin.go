@@ -1,8 +1,8 @@
 package codex
 
 import (
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/plugins/external"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/plugins/external"
 )
 
 func Plugin() app.Plugin {

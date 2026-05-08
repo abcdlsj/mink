@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/plugins/external"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/plugins/external"
 )
 
 func driver() external.Driver {

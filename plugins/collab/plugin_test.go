@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/config"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/config"
 )
 
 func TestWaitFallsBackToRunLog(t *testing.T) {
 	dir := t.TempDir()
 	a, err := app.New(config.Config{
-		DataDir:   filepath.Join(dir, "mink-data"),
+		DataDir:   filepath.Join(dir, "sumi-data"),
 		Workspace: dir,
 	})
 	if err != nil {

@@ -5,7 +5,7 @@ var indexHTML = `<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mink</title>
+  <title>Sumi</title>
   <style>
     :root { color-scheme: light; --bg:#f3efe5; --panel:#fffdf8; --line:#d9cfbf; --ink:#201a14; --muted:#6f6558; --accent:#c45b2d; }
     * { box-sizing:border-box; }
@@ -43,7 +43,7 @@ var indexHTML = `<!doctype html>
   <div class="app">
     <aside>
       <div class="brand">
-        <h1>Mink</h1>
+        <h1>Sumi</h1>
         <p id="workspace"></p>
       </div>
       <button class="primary" id="new-session">New Session</button>

@@ -9,9 +9,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type fakeShellApp struct{}
@@ -26,7 +26,7 @@ func (fakeShellApp) Commands() []command.Command {
 	}
 }
 func (fakeShellApp) Workspace() string {
-	return "/Users/lisongjian/Workspace/gh/abcdlsj/mink/very/long/path"
+	return "/Users/lisongjian/Workspace/gh/abcdlsj/sumi/very/long/path"
 }
 func (fakeShellApp) CurrentSession(string) (*session.Session, error) { return session.New("cli"), nil }
 func (fakeShellApp) NewSession(string) (*session.Session, error)     { return session.New("cli"), nil }
@@ -49,7 +49,7 @@ func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	if strings.ContainsAny(out, "╭╮╰╯─│") {
 		t.Fatalf("renderHeader() = %q, want no border", out)
 	}
-	if !strings.Contains(out, "Mink") {
+	if !strings.Contains(out, "Sumi") {
 		t.Fatalf("renderHeader() = %q, want title", out)
 	}
 	if !strings.Contains(out, "model") || !strings.Contains(out, "cwd") || !strings.Contains(out, "-cli-") {
@@ -88,7 +88,7 @@ func TestViewKeepsFullHeaderVisible(t *testing.T) {
 		t.Fatalf("View() lines = %d, want header:\n%s", len(lines), strings.Join(lines, "\n"))
 	}
 	head := strings.Join(lines[:shellHeaderHeight], "\n")
-	for _, want := range []string{"Mink", "-cli-"} {
+	for _, want := range []string{"Sumi", "-cli-"} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("header missing %q:\n%s", want, head)
 		}
@@ -152,7 +152,7 @@ func requireHeaderFacts(t *testing.T, m shellModel, note string) {
 		t.Fatalf("View() lines = %d, want <= %d %s:\n%s", len(lines), m.height, note, out)
 	}
 	head := strings.Join(lines[:shellHeaderHeight], "\n")
-	for _, want := range []string{"Mink", "-cli-"} {
+	for _, want := range []string{"Sumi", "-cli-"} {
 		if !strings.Contains(head, want) {
 			t.Fatalf("header missing %q %s:\n%s", want, note, head)
 		}

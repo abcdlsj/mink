@@ -3,11 +3,11 @@ package app
 import (
 	"strings"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/store"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/store"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 func (a *App) Workspace() string {

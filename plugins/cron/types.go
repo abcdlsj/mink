@@ -3,7 +3,7 @@ package cron
 import (
 	"sync"
 
-	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/sumi/app"
 	robcron "github.com/robfig/cron/v3"
 )
 

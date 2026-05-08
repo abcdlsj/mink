@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type compactCmd struct {

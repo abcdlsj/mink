@@ -29,5 +29,6 @@ Current feature plugins:
 - `plugins/cron`
 - `plugins/memory`
 - `plugins/search`
+- `plugins/sessioncmd`
 - `plugins/telegram`
 - `plugins/web`

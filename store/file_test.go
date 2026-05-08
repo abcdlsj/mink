@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func TestRoundTripSession(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "mink-data")
+	root := filepath.Join(t.TempDir(), "sumi-data")
 	db, err := Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestRoundTripSession(t *testing.T) {
 }
 
 func TestSessionIndexAndRunLogFacts(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "mink-data")
+	root := filepath.Join(t.TempDir(), "sumi-data")
 	db, err := Open(root)
 	if err != nil {
 		t.Fatal(err)

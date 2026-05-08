@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 type Tool struct {

@@ -3,9 +3,9 @@ package cli
 import (
 	"context"
 
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type shellApp interface {

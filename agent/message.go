@@ -5,8 +5,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func NewUserMessage(text string) msg.Message {

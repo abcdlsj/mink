@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/bus"
 )
 
 const source = "web"

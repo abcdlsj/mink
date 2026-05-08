@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/sumi/command"
 )
 
 type cmd struct{ s *store }

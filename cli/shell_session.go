@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func isSessionSelectorCommand(text string) bool {

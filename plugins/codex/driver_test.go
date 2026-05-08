@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func TestDriverFormatsSessionHistory(t *testing.T) {

@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type turnFlow struct {

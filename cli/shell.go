@@ -5,8 +5,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/bus"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/bus"
 )
 
 func Run(ctx context.Context, a *app.App, args []string) error {

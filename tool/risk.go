@@ -22,7 +22,7 @@ var sensitiveReadMarks = []string{
 	"/.docker/",
 	"/.config/gcloud/",
 	"/.config/gh/",
-	"/.mink/",
+	"/.sumi/",
 	"/etc/ssh/",
 	"/etc/ssl/private/",
 }

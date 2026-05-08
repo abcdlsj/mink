@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 type streamState struct {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 type Session struct {

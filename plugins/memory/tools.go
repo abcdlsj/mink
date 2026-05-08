@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 type readTool struct{ s *store }

@@ -1,4 +1,4 @@
-module github.com/abcdlsj/mink
+module github.com/abcdlsj/sumi
 
 go 1.24.2
 

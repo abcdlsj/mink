@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/abcdlsj/mink/llm"
+	"github.com/abcdlsj/sumi/llm"
 )
 
 type Tool interface {

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/agent"
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func newProvider(cfg config.Config) (llm.Provider, error) {

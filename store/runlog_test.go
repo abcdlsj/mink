@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func TestRunLogReplaySession(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "mink-data"))
+	db, err := Open(filepath.Join(t.TempDir(), "sumi-data"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestRunLogReplaySession(t *testing.T) {
 }
 
 func TestRunLogUsesSessionPrefixPath(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "mink-data")
+	root := filepath.Join(t.TempDir(), "sumi-data")
 	db, err := Open(root)
 	if err != nil {
 		t.Fatal(err)

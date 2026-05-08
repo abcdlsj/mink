@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
@@ -29,7 +29,7 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 
 	out := BuildSystemPrompt(env, turn)
 	for _, want := range []string{
-		"You are Mink, a local coding agent.",
+		"You are Sumi, a local coding agent.",
 		"Workspace: /tmp/work",
 		"Conversation summary:\n历史摘要",
 		"保持锋利",

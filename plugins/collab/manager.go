@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func (m *manager) spawn(ctx context.Context, source, runtime, input string, share bool) (string, error) {

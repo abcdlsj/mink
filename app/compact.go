@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 func (a *App) compactSession(ctx context.Context, s *session.Session) (string, error) {

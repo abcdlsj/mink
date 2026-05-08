@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/llm"
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type Runtime interface {

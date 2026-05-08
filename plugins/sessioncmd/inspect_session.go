@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/store"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/store"
 )
 
 type inspectCmd struct {

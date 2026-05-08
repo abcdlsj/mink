@@ -3,7 +3,7 @@ package cron
 import (
 	"context"
 
-	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/sumi/app"
 )
 
 func Plugin() app.Plugin {

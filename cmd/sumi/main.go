@@ -5,19 +5,19 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/cli"
-	"github.com/abcdlsj/mink/config"
-	pluginsbackground "github.com/abcdlsj/mink/plugins/background"
-	pluginsclaude "github.com/abcdlsj/mink/plugins/claude"
-	pluginscodex "github.com/abcdlsj/mink/plugins/codex"
-	pluginscollab "github.com/abcdlsj/mink/plugins/collab"
-	pluginscron "github.com/abcdlsj/mink/plugins/cron"
-	pluginsmemory "github.com/abcdlsj/mink/plugins/memory"
-	pluginssearch "github.com/abcdlsj/mink/plugins/search"
-	pluginssessioncmd "github.com/abcdlsj/mink/plugins/sessioncmd"
-	pluginstelegram "github.com/abcdlsj/mink/plugins/telegram"
-	pluginsweb "github.com/abcdlsj/mink/plugins/web"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/cli"
+	"github.com/abcdlsj/sumi/config"
+	pluginsbackground "github.com/abcdlsj/sumi/plugins/background"
+	pluginsclaude "github.com/abcdlsj/sumi/plugins/claude"
+	pluginscodex "github.com/abcdlsj/sumi/plugins/codex"
+	pluginscollab "github.com/abcdlsj/sumi/plugins/collab"
+	pluginscron "github.com/abcdlsj/sumi/plugins/cron"
+	pluginsmemory "github.com/abcdlsj/sumi/plugins/memory"
+	pluginssearch "github.com/abcdlsj/sumi/plugins/search"
+	pluginssessioncmd "github.com/abcdlsj/sumi/plugins/sessioncmd"
+	pluginstelegram "github.com/abcdlsj/sumi/plugins/telegram"
+	pluginsweb "github.com/abcdlsj/sumi/plugins/web"
 )
 
 var (
@@ -71,7 +71,7 @@ func fail(err error) {
 }
 
 func runVersion() {
-	fmt.Printf("mink version %s\n", Version)
+	fmt.Printf("sumi version %s\n", Version)
 	fmt.Printf("  commit: %s\n", Commit)
 	fmt.Printf("  built:  %s\n", BuildTime)
 }

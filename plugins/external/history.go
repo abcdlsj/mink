@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/msg"
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 func QuoteHistoryText(s string) string {

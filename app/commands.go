@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/config"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 func (a *App) registerBuiltinCommands() {

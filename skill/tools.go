@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 func RegisterTools(reg *tool.Registry, loader *Loader) {

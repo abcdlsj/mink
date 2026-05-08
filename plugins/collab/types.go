@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/abcdlsj/mink/app"
+	"github.com/abcdlsj/sumi/app"
 )
 
 type manager struct {

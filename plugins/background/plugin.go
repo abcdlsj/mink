@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/command"
 )
 
 type runner struct {

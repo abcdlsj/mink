@@ -39,7 +39,7 @@ func ConfigPath() string {
 func DefaultDataDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return ".mink"
+		return ".sumi"
 	}
-	return filepath.Join(home, ".mink")
+	return filepath.Join(home, ".sumi")
 }

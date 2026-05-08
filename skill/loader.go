@@ -140,10 +140,10 @@ func (l *Loader) parseFrontmatter(content string) (name, desc string) {
 }
 
 func (l *Loader) projectPath() string {
-	return filepath.Join(l.workspace, ".mink", "skills")
+	return filepath.Join(l.workspace, ".sumi", "skills")
 }
 
 func (l *Loader) globalPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".mink", "skills")
+	return filepath.Join(home, ".sumi", "skills")
 }

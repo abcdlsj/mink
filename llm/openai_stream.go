@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/abcdlsj/mink/msg"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/sashabaranov/go-openai"
 )
 

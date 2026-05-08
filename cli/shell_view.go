@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-runewidth"
 
-	"github.com/abcdlsj/mink/textutil"
+	"github.com/abcdlsj/sumi/textutil"
 )
 
 var shellTheme = struct {
@@ -568,7 +568,7 @@ func headerLine(st cliState, width int) string {
 		return ansi.Truncate(session, width, "…")
 	}
 	left := strings.Join([]string{
-		shellTheme.Title.Render("Mink"),
+		shellTheme.Title.Render("Sumi"),
 		shellTheme.ChipDim.Render("model ") + shellTheme.Text.Render(nonEmpty(st.Model, "unknown")),
 		shellTheme.ChipDim.Render("cwd ") + shellTheme.Text.Render(nonEmpty(st.Cwd, ".")),
 	}, "  ")

@@ -13,10 +13,10 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/session"
-	"github.com/abcdlsj/mink/textutil"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/textutil"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 type shellFocus int
@@ -124,7 +124,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 		}
 		return "  "
 	})
-	in.Placeholder = "Ask Mink to do anything"
+	in.Placeholder = "Ask Sumi to do anything"
 	in.ShowLineNumbers = false
 	in.SetHeight(2)
 	in.KeyMap.InsertNewline = key.NewBinding(

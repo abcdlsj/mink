@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/app"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 const braveEndpoint = "https://api.search.brave.com/res/v1/web/search"

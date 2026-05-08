@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/abcdlsj/mink/bus"
-	"github.com/abcdlsj/mink/command"
+	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 )
 
 func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {

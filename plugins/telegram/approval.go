@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abcdlsj/mink/command"
-	"github.com/abcdlsj/mink/tool"
+	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/tool"
 	tele "gopkg.in/telebot.v4"
 )
 

@@ -1,6 +1,6 @@
-# Mink v3
+# Sumi v3
 
-Mink v3 is a clean rewrite around a small agent core and simple plugins.
+Sumi v3 is a clean rewrite around a small agent core and simple plugins.
 
 ## Shape
 
@@ -43,7 +43,7 @@ Plugins can register runtimes, tools, commands, entrypoints, or background servi
 
 ## Plugin Set
 
-Built-in runtime and feature plugins now cover the old repo's main capability clusters:
+Built-in runtime and feature plugins:
 
 - `plugins/claude`
 - `plugins/codex`
@@ -52,6 +52,7 @@ Built-in runtime and feature plugins now cover the old repo's main capability cl
 - `plugins/cron`
 - `plugins/memory`
 - `plugins/search`
+- `plugins/sessioncmd`
 - `plugins/telegram`
 - `plugins/web`
 
@@ -59,7 +60,7 @@ This keeps the core focused on direct agent execution while non-core features li
 
 ## Zero Config
 
-Mink auto-detects the first available native model backend from:
+Sumi auto-detects the first available native model backend from:
 
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -71,7 +72,7 @@ Runtime defaults to:
 - `codex` when the `codex` CLI is available
 - `native` otherwise
 
-If you want explicit config, use `~/.mink/config.toml`:
+If you want explicit config, use `~/.sumi/config.toml`:
 
 ```toml
 active_model = "main"
@@ -92,8 +93,8 @@ context_window = 128000
 Optional plugin config:
 
 ```toml
-data_dir = "~/.mink"
-soul_path = "~/.mink/SOUL.md"
+data_dir = "~/.sumi"
+soul_path = "~/.sumi/SOUL.md"
 status_line = "git branch --show-current 2>/dev/null | sed 's/^/git:/'"
 
 [compact]
@@ -150,36 +151,36 @@ In Telegram mode, dangerous tool actions use inline approval with session or per
 ## Run
 
 ```bash
-go run ./cmd/mink
+go run ./cmd/sumi
 ```
 
 Build a local binary with version metadata:
 
 ```bash
 make build
-./bin/mink version
+./bin/sumi version
 ```
 
-Install or overwrite `mink` in `GOBIN` or `GOPATH/bin` with version metadata:
+Install or overwrite `sumi` in `GOBIN` or `GOPATH/bin` with version metadata:
 
 ```bash
 make install
-mink version
+sumi version
 ```
 
 Switch runtime with env or config:
 
 ```bash
-MINK_RUNTIME=codex go run ./cmd/mink
-MINK_RUNTIME=claude go run ./cmd/mink
+SUMI_RUNTIME=codex go run ./cmd/sumi
+SUMI_RUNTIME=claude go run ./cmd/sumi
 ```
 
 Extra entrypoints:
 
 ```bash
-go run ./cmd/mink web
-go run ./cmd/mink tg
-go run ./cmd/mink version
+go run ./cmd/sumi web
+go run ./cmd/sumi tg
+go run ./cmd/sumi version
 ```
 
 Useful commands and tools:

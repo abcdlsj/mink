@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/session"
 )
 
 type SessionMeta struct {

@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/abcdlsj/mink/session"
+	"github.com/abcdlsj/sumi/session"
 )
 
 func BuildSystemPrompt(env *RuntimeEnv, t *Turn) string {
@@ -43,7 +43,7 @@ func (b promptBuilder) system() string {
 
 func (b promptBuilder) base() string {
 	return strings.Join([]string{
-		"You are Mink, a local coding agent.",
+		"You are Sumi, a local coding agent.",
 		"Work directly and concisely.",
 		"Use tools when needed. Prefer read before edit.",
 		"Keep changes within the workspace unless the user asks otherwise.",
