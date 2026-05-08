@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/google/uuid"
@@ -171,11 +172,12 @@ func (r *Runtime) getOrCreateSessionID(s *session.Session) (string, bool) {
 	if s.ExternalSession == nil {
 		s.ExternalSession = map[string]string{}
 	}
-	if sid := s.ExternalSession[r.driver.Name]; sid != "" {
+	key := r.sessionKey()
+	if sid := s.ExternalSession[key]; sid != "" {
 		return sid, true
 	}
 	sid := uuid.New().String()
-	s.ExternalSession[r.driver.Name] = sid
+	s.ExternalSession[key] = sid
 	return sid, false
 }
 
@@ -187,8 +189,23 @@ func (r *Runtime) resetSessionID(s *session.Session) string {
 	if s.ExternalSession == nil {
 		s.ExternalSession = map[string]string{}
 	}
-	s.ExternalSession[r.driver.Name] = sid
+	s.ExternalSession[r.sessionKey()] = sid
 	return sid
+}
+
+func (r *Runtime) sessionKey() string {
+	name := strings.TrimSpace(r.driver.Name)
+	if name == "" {
+		name = strings.TrimSpace(r.driver.Command)
+	}
+	if name == "" {
+		name = "external"
+	}
+	workspace := strings.TrimSpace(r.workspace)
+	if workspace == "" || workspace == "." {
+		return name
+	}
+	return name + ":" + filepath.Clean(workspace)
 }
 
 func missingExternalSession(err error) bool {

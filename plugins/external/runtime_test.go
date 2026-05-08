@@ -154,6 +154,30 @@ func TestRuntimeSessionIDResumeFlag(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionIDIsScopedByWorkspace(t *testing.T) {
+	s := session.New("test")
+	mink := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/mink"}
+	dyn := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/go-dynamic"}
+
+	first, resume := mink.getOrCreateSessionID(s)
+	if first == "" || resume {
+		t.Fatalf("first = %q %v", first, resume)
+	}
+	second, resume := dyn.getOrCreateSessionID(s)
+	if second == "" || resume {
+		t.Fatalf("second = %q %v", second, resume)
+	}
+	if first == second {
+		t.Fatalf("workspace sessions share id %q", first)
+	}
+	if got := s.ExternalSession["claude:/tmp/mink"]; got != first {
+		t.Fatalf("mink session = %q, want %q", got, first)
+	}
+	if got := s.ExternalSession["claude:/tmp/go-dynamic"]; got != second {
+		t.Fatalf("dynamic session = %q, want %q", got, second)
+	}
+}
+
 func TestRuntimeResetSessionIDReplacesStaleExternalSession(t *testing.T) {
 	r := &Runtime{driver: Driver{Name: "claude"}}
 	s := session.New("test")
