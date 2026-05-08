@@ -36,7 +36,9 @@ func (e *engine) step(ctx context.Context, t *Turn) (*llm.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.Session.Add(newAssistantMessage(resp))
+	if resp.Content != "" || resp.Reasoning != "" || len(resp.ToolCalls) > 0 {
+		t.Session.Add(newAssistantMessage(resp))
+	}
 	if len(resp.ToolCalls) > 0 {
 		toolExecutor{tools: e.env.Tools, sink: turnSink{turn: t}}.run(ctx, t, resp.ToolCalls)
 	}

@@ -36,6 +36,9 @@ func toOpenRouterMessages(msgs []msg.Message) []openrouter.ChatCompletionMessage
 			}
 			continue
 		}
+		if m.Role == "assistant" && m.Content == "" && len(m.ToolCalls) == 0 {
+			continue
+		}
 		out = append(out, openRouterMessage(m))
 	}
 	return out

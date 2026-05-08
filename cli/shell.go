@@ -10,8 +10,7 @@ import (
 )
 
 func Run(ctx context.Context, a *app.App, args []string) error {
-	_, err := a.CurrentSession("cli")
-	if err != nil {
+	if _, err := a.NewSession("cli"); err != nil {
 		return err
 	}
 	ui, err := newShell(ctx, a, "cli")

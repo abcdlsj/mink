@@ -84,6 +84,9 @@ func toOpenAIMessages(msgs []msg.Message) []openai.ChatCompletionMessage {
 			}
 			continue
 		}
+		if m.Role == "assistant" && m.Content == "" && len(m.ToolCalls) == 0 {
+			continue
+		}
 		out = append(out, openAIMessage(m))
 	}
 	return out
