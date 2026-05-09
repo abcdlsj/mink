@@ -143,7 +143,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in.BlurredStyle.CursorLine = shellTheme.TextMuted
 
 	vp := viewport.New(0, 0)
-	vp.MouseWheelEnabled = true
+	vp.MouseWheelEnabled = false
 
 	return shellModel{
 		ctx:       ctx,
@@ -746,11 +746,9 @@ func (m *shellModel) syncLayout() {
 	m.refreshSuggestions()
 	inWidth := max(20, m.width)
 	header := shellHeaderHeight
-	status := 0
+	status := 1
 	if len(m.approvals) > 0 {
 		status = viewHeight(m.renderStatus())
-	} else if m.busy {
-		status = 1
 	}
 	footer := 1
 	fixed := header + status + footer

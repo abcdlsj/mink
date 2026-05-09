@@ -79,6 +79,19 @@ var shellTheme = struct {
 
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+const shellContentMaxWidth = 100
+
+func (m shellModel) contentWidth() int {
+	w := m.viewport.Width
+	if w <= 0 {
+		w = m.width
+	}
+	if w > shellContentMaxWidth {
+		return shellContentMaxWidth
+	}
+	return w
+}
+
 func (m shellModel) renderHeader(st cliState) string {
 	w := max(1, m.width)
 	lines := []string{
@@ -104,7 +117,7 @@ func (m shellModel) renderStatus() string {
 		return m.renderApprovalBox()
 	}
 	if !m.busy {
-		return ""
+		return shellTheme.Panel.Width(m.width).Render(padLine("", m.width))
 	}
 	started := m.turn.started
 	elapsed := 0
@@ -178,6 +191,7 @@ func (m shellModel) renderComposer() string {
 	if len(parts) > 0 {
 		parts = append(parts, "")
 	}
+	parts = append(parts, "")
 	parts = append(parts, strings.TrimRight(m.input.View(), "\n"))
 	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
@@ -297,7 +311,9 @@ func (m shellModel) renderToolLine(seg chatSegment, selected bool) string {
 		label = shellTheme.Error.Render(" failed ")
 	}
 	head := icon + label + shellTheme.Chip.Render(name)
-	body := textutil.Preview(seg.Text, max(16, m.viewport.Width-lipgloss.Width(head)-3))
+	width := max(20, m.viewport.Width)
+	room := max(16, width-lipgloss.Width(head)-4)
+	body := textutil.Preview(seg.Text, room)
 	line := head + shellTheme.TextMuted.Render("  "+body)
 	if selected {
 		return m.selectedLine(line)
@@ -346,7 +362,9 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 		icon = shellTheme.StatusRunning.Render("●")
 		label = fmt.Sprintf(" running %d tools ", running)
 	}
-	line := icon + shellTheme.TextMuted.Render(label+textutil.Preview(strings.Join(parts, " · "), max(18, m.viewport.Width-18)))
+	headText := icon + shellTheme.TextMuted.Render(label)
+	room := max(18, m.viewport.Width-lipgloss.Width(headText)-4)
+	line := headText + shellTheme.TextMuted.Render(textutil.Preview(strings.Join(parts, " · "), room))
 	if selected {
 		line = m.selectedLine(line)
 	}
@@ -421,7 +439,7 @@ func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) 
 	if item.Kind == itemUser {
 		return m.renderUserText(seg.Text, idx)
 	}
-	lines := renderMarkdown(seg.Text, max(12, m.viewport.Width))
+	lines := renderMarkdown(seg.Text, max(12, m.contentWidth()))
 	if len(lines) == 0 {
 		return nil
 	}
@@ -441,7 +459,7 @@ func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
 	if text == "" {
 		return nil
 	}
-	width := max(16, m.viewport.Width)
+	width := max(16, m.contentWidth())
 	head := shellTheme.Tool.Render("✦ Thinking")
 	lines := wrapDisplay(text, max(8, width-2))
 	out := make([]string, 0, len(lines)+1)
@@ -460,7 +478,7 @@ func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
 }
 
 func (m shellModel) renderUserText(text string, idx int) []string {
-	lines := wrapDisplay(strings.TrimRight(textutil.Valid(text), "\r\n"), max(12, m.viewport.Width-2))
+	lines := wrapDisplay(strings.TrimRight(textutil.Valid(text), "\r\n"), max(12, m.contentWidth()-2))
 	out := make([]string, 0, len(lines))
 	for i, line := range lines {
 		prefix := "  "
@@ -485,11 +503,11 @@ func (m shellModel) renderExpanded(item *chatItem) []string {
 		case segTool:
 			title := shellTheme.Tool.Render("  └ tool details")
 			out = append(out, title)
-			out = append(out, indentLines(renderMarkdown(seg.Detail, max(16, m.viewport.Width-6)), "    ")...)
+			out = append(out, indentLines(renderMarkdown(seg.Detail, max(16, m.contentWidth()-6)), "    ")...)
 		}
 	}
 	if len(out) == 0 {
-		out = indentLines(renderMarkdown(item.detailText(), max(16, m.viewport.Width-6)), "  └ ")
+		out = indentLines(renderMarkdown(item.detailText(), max(16, m.contentWidth()-6)), "  └ ")
 	}
 	for i, line := range out {
 		out[i] = shellTheme.Expanded.Render(line)

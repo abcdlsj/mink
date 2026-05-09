@@ -12,7 +12,6 @@ import (
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/session"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 type commandShellApp struct {
@@ -104,39 +103,10 @@ func TestShellModelIgnoresLateDuplicateChunk(t *testing.T) {
 	}
 }
 
-func TestMouseWheelScrollsTranscriptWhileComposerFocused(t *testing.T) {
+func TestMouseTrackingDisabledForCopy(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
-	m.width = 40
-	m.height = 12
-	m.syncLayout()
-	for i := 0; i < 24; i++ {
-		m.addItem(chatItem{
-			Kind: itemAssistant,
-			Segments: []chatSegment{{
-				Kind: segText,
-				Text: fmt.Sprintf("line %02d", i),
-			}},
-		})
-	}
-	if m.focus != focusComposer {
-		t.Fatalf("focus = %v, want composer", m.focus)
-	}
-	before := m.viewport.YOffset
-	if before == 0 {
-		t.Fatal("viewport did not start at bottom")
-	}
-
-	next, _ := m.Update(tea.MouseMsg{
-		Type:   tea.MouseWheelUp,
-		Button: tea.MouseButtonWheelUp,
-		Action: tea.MouseActionPress,
-	})
-	got := next.(shellModel)
-	if got.viewport.YOffset >= before {
-		t.Fatalf("YOffset = %d, want less than %d", got.viewport.YOffset, before)
-	}
-	if got.focus != focusComposer {
-		t.Fatalf("focus = %v, want composer", got.focus)
+	if m.viewport.MouseWheelEnabled {
+		t.Fatal("mouse wheel should be disabled so terminal selection works")
 	}
 }
 
