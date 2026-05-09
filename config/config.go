@@ -30,6 +30,7 @@ type Config struct {
 	Compact     CompactConfig     `toml:"compact"`
 	Telegram    TelegramConfig    `toml:"telegram"`
 	BraveSearch BraveConfig       `toml:"brave_search"`
+	Collab      CollabConfig      `toml:"collab"`
 	StatusLine  string            `toml:"status_line"`
 
 	Active ModelConfig `toml:"-"`
@@ -62,6 +63,12 @@ type TelegramConfig struct {
 
 type BraveConfig struct {
 	APIKey string `toml:"api_key"`
+}
+
+type CollabConfig struct {
+	MaxConcurrent int `toml:"max_concurrent"`
+	QueueDepth    int `toml:"queue_depth"`
+	PollTimeoutMS int `toml:"poll_timeout_ms"`
 }
 
 func Load() Config {
@@ -106,6 +113,18 @@ func (c *Config) normalizeDefaults() {
 	}
 	if c.Compact.KeepRecentMessages < 0 {
 		c.Compact.KeepRecentMessages = 8
+	}
+	if c.Collab.MaxConcurrent <= 0 {
+		c.Collab.MaxConcurrent = 4
+	}
+	if c.Collab.QueueDepth <= 0 {
+		c.Collab.QueueDepth = 32
+	}
+	if c.Collab.QueueDepth < c.Collab.MaxConcurrent {
+		c.Collab.QueueDepth = c.Collab.MaxConcurrent
+	}
+	if c.Collab.PollTimeoutMS <= 0 {
+		c.Collab.PollTimeoutMS = 120000
 	}
 }
 

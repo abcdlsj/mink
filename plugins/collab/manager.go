@@ -2,6 +2,7 @@ package collab
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 )
+
+var errQueueFull = errors.New("delegate queue full, retry later")
 
 func (m *manager) spawn(ctx context.Context, source, runtime, input string, share bool) (string, error) {
 	child := "subtask:" + newID()
@@ -20,29 +23,62 @@ func (m *manager) spawn(ctx context.Context, source, runtime, input string, shar
 	return m.app.HandleInputWithRuntime(ctx, child, runtime, input)
 }
 
-func (m *manager) delegate(source, runtime, input string, share, direct bool) string {
-	t := m.newTask()
-	m.publishTask(bus.DelegateStarted, source, t.id, strings.TrimSpace(input), "")
-	go m.runDelegation(t, source, runtime, input, share, direct)
-	return t.id
+func (m *manager) delegate(source, runtime, input string, share, direct bool) (string, error) {
+	select {
+	case m.queue <- struct{}{}:
+	default:
+		return "", errQueueFull
+	}
+	t := m.newTask(source)
+	m.publishTask(bus.DelegateQueued, source, t.id, strings.TrimSpace(input), "")
+	go m.runDelegation(t, runtime, input, share, direct)
+	return t.id, nil
 }
 
-func (m *manager) newTask() *task {
-	t := &task{id: "task-" + newID(), done: make(chan struct{})}
+func (m *manager) newTask(source string) *task {
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &task{
+		id:     "task-" + newID(),
+		source: source,
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+	t.ctx = ctx
 	m.mu.Lock()
 	m.tasks[t.id] = t
 	m.mu.Unlock()
 	return t
 }
 
-func (m *manager) runDelegation(t *task, source, runtime, input string, share, direct bool) {
+func (m *manager) runDelegation(t *task, runtime, input string, share, direct bool) {
 	defer close(t.done)
-	out, err := m.spawn(context.Background(), source, runtime, input, share)
-	m.finishTask(t, out, err)
-	m.publishTask(taskType(err), source, t.id, out, errString(err))
-	if direct {
-		m.publishResultNotice(source, t.id, out, err)
+	defer func() { <-m.queue }()
+
+	select {
+	case m.sem <- struct{}{}:
+	case <-t.ctx.Done():
+		m.finishTask(t, "", t.ctx.Err())
+		m.publishTask(bus.DelegateCanceled, t.source, t.id, "", errString(t.ctx.Err()))
+		return
 	}
+	defer func() { <-m.sem }()
+
+	m.publishTask(bus.DelegateStarted, t.source, t.id, strings.TrimSpace(input), "")
+	out, err := m.spawn(t.ctx, t.source, runtime, input, share)
+	m.finishTask(t, out, err)
+	m.publishTask(taskType(t.ctx, err), t.source, t.id, out, errString(err))
+	if direct {
+		m.publishResultNotice(t.source, t.id, out, err)
+	}
+}
+
+func (m *manager) cancel(id string) error {
+	t := m.task(id)
+	if t == nil {
+		return fmt.Errorf("task not found: %s", id)
+	}
+	t.cancel()
+	return nil
 }
 
 func (m *manager) finishTask(t *task, out string, err error) {
@@ -58,9 +94,10 @@ func (m *manager) publishTask(typ, source, id, out, err string) {
 		Source: source,
 		TaskID: id,
 	}
-	if typ == bus.DelegateStarted {
+	switch typ {
+	case bus.DelegateQueued, bus.DelegateStarted:
 		ev.Text = out
-	} else {
+	default:
 		ev.Output = out
 		ev.Err = err
 	}
@@ -101,6 +138,8 @@ func (m *manager) waitPersisted(id string) (string, error) {
 			return evs[i].Output, nil
 		case bus.DelegateFailed:
 			return "", fmt.Errorf("%s", strings.TrimSpace(evs[i].Err))
+		case bus.DelegateCanceled:
+			return "", fmt.Errorf("canceled: %s", strings.TrimSpace(evs[i].Err))
 		}
 	}
 	return "", fmt.Errorf("task not found: %s", id)
@@ -145,33 +184,45 @@ func (m *manager) bind(source, alias, runtime string) {
 		return
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.teams[source] == nil {
 		m.teams[source] = map[string]string{}
 	}
 	m.teams[source][alias] = runtime
+	snap := cloneTeams(m.teams)
+	m.mu.Unlock()
+	if err := m.saveTeams(snap); err != nil {
+		m.app.PublishNotice(source, fmt.Sprintf("collab: persist teams failed: %s", err))
+	}
 }
 
 func (m *manager) pickRuntime(source, target, hint string) string {
 	target = strings.TrimSpace(target)
 	hint = strings.TrimSpace(strings.ToLower(hint))
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if source != "" && target != "" {
 		if rt := m.teams[source][target]; rt != "" {
+			m.mu.Unlock()
 			return rt
 		}
 	}
+	m.mu.Unlock()
+	candidate := ""
 	switch {
 	case target != "":
-		return target
+		candidate = target
 	case hint == "claude" || strings.Contains(hint, "anthropic"):
-		return "claude"
+		candidate = "claude"
 	case hint == "codex" || strings.Contains(hint, "openai"):
-		return "codex"
-	default:
-		return m.app.Config().Runtime
+		candidate = "codex"
 	}
+	if candidate != "" && m.app.HasRuntime(candidate) {
+		return candidate
+	}
+	fallback := m.app.Config().Runtime
+	if candidate != "" && candidate != fallback {
+		m.app.PublishNotice(source, fmt.Sprintf("collab: runtime %q unavailable, using %q", candidate, fallback))
+	}
+	return fallback
 }
 
 func cloneMessages(in []msg.Message) []msg.Message {
@@ -185,6 +236,18 @@ func cloneMessages(in []msg.Message) []msg.Message {
 			cp.ToolResults = append([]msg.ToolResult(nil), m.ToolResults...)
 		}
 		out = append(out, cp)
+	}
+	return out
+}
+
+func cloneTeams(in map[string]map[string]string) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(in))
+	for k, v := range in {
+		cp := make(map[string]string, len(v))
+		for a, r := range v {
+			cp[a] = r
+		}
+		out[k] = cp
 	}
 	return out
 }

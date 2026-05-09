@@ -22,6 +22,8 @@ const (
 	DelegateStarted  = "delegate.started"
 	DelegateFinished = "delegate.finished"
 	DelegateFailed   = "delegate.failed"
+	DelegateCanceled = "delegate.canceled"
+	DelegateQueued   = "delegate.queued"
 )
 
 type Event struct {

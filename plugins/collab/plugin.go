@@ -8,6 +8,7 @@ func Plugin() app.Plugin {
 		a.RegisterTool(spawnTool{m: m})
 		a.RegisterTool(delegateTool{m: m})
 		a.RegisterTool(delegatePollTool{m: m})
+		a.RegisterTool(cancelTool{m: m})
 		a.RegisterTool(inviteTool{m: m})
 		a.RegisterTool(mentionTool{m: m})
 		a.RegisterTool(specialistTool{m: m})

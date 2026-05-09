@@ -119,6 +119,10 @@ func (a *App) RegisterRuntime(name string, f agent.RuntimeFactory) {
 	a.runtimes[name] = f
 }
 
+func (a *App) HasRuntime(name string) bool {
+	return a.runtimes[name] != nil
+}
+
 func (a *App) RegisterEntrypoint(name string, f Entrypoint) {
 	a.entries[name] = f
 }

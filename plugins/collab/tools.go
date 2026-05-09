@@ -74,7 +74,10 @@ func (t delegateTool) Run(ctx context.Context, args json.RawMessage) (string, er
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.Target, capabilityHint(in.Capabilities))
-	id := t.m.delegate(src, rt, in.Task, in.ShareContext, in.DirectOutput)
+	id, err := t.m.delegate(src, rt, in.Task, in.ShareContext, in.DirectOutput)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("delegation accepted, task_id=%s", id), nil
 }
 
@@ -99,7 +102,36 @@ func (t delegatePollTool) Run(ctx context.Context, args json.RawMessage) (string
 	if strings.TrimSpace(in.TaskID) == "" {
 		return "", fmt.Errorf("task_id is required")
 	}
-	return t.m.wait(strings.TrimSpace(in.TaskID), 2*time.Minute)
+	timeout := time.Duration(t.m.app.Config().Collab.PollTimeoutMS) * time.Millisecond
+	return t.m.wait(strings.TrimSpace(in.TaskID), timeout)
+}
+
+type cancelTool struct{ m *manager }
+
+func (t cancelTool) Name() string { return "cancel_delegation" }
+func (t cancelTool) Desc() string {
+	return "Cancel a running async delegation by task_id"
+}
+func (t cancelTool) Schema() map[string]any {
+	return tool.ObjectSchema(
+		tool.Prop("task_id", "string", "Delegation task id"),
+		tool.Required("task_id"),
+	)
+}
+
+func (t cancelTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
+	var in cancelArgs
+	if err := decode("cancel_delegation", args, &in); err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(in.TaskID)
+	if id == "" {
+		return "", fmt.Errorf("task_id is required")
+	}
+	if err := t.m.cancel(id); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("cancel requested for %s", id), nil
 }
 
 type inviteTool struct{ m *manager }
@@ -134,7 +166,10 @@ func (t inviteTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	rt := t.m.pickRuntime(src, in.AgentID, in.AgentID)
 	t.m.bind(src, alias, rt)
 	if strings.TrimSpace(in.Task) != "" {
-		id := t.m.delegate(src, rt, in.Task, true, true)
+		id, err := t.m.delegate(src, rt, in.Task, true, true)
+		if err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("invited %s backed by %s, task_id=%s", alias, rt, id), nil
 	}
 	return fmt.Sprintf("invited %s backed by %s", alias, rt), nil
@@ -164,7 +199,10 @@ func (t mentionTool) Run(ctx context.Context, args json.RawMessage) (string, err
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.AgentID, in.AgentID)
-	id := t.m.delegate(src, rt, in.Question, true, true)
+	id, err := t.m.delegate(src, rt, in.Question, true, true)
+	if err != nil {
+		return "", err
+	}
 	return fmt.Sprintf("scheduled next team turn for %s, task_id=%s", strings.TrimSpace(in.AgentID), id), nil
 }
 
@@ -203,7 +241,10 @@ func (t specialistTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	alias := strings.TrimSpace(in.RoleName)
 	t.m.bind(src, alias, rt)
 	if strings.TrimSpace(in.Task) != "" {
-		id := t.m.delegate(src, rt, in.Task, true, true)
+		id, err := t.m.delegate(src, rt, in.Task, true, true)
+		if err != nil {
+			return "", err
+		}
 		return fmt.Sprintf("spawned %s backed by %s, task_id=%s", alias, rt, id), nil
 	}
 	return fmt.Sprintf("spawned %s backed by %s", alias, rt), nil

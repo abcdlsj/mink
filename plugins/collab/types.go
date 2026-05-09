@@ -1,6 +1,7 @@
 package collab
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 
@@ -9,6 +10,10 @@ import (
 
 type manager struct {
 	app   *app.App
+	path  string
+	sem   chan struct{}
+	queue chan struct{}
+
 	mu    sync.Mutex
 	tasks map[string]*task
 	teams map[string]map[string]string
@@ -16,8 +21,11 @@ type manager struct {
 
 type task struct {
 	id     string
+	source string
 	output string
 	err    error
+	ctx    context.Context
+	cancel context.CancelFunc
 	done   chan struct{}
 }
 
@@ -52,6 +60,10 @@ type pollArgs struct {
 	TaskID string `json:"task_id"`
 }
 
+type cancelArgs struct {
+	TaskID string `json:"task_id"`
+}
+
 type specialistArgs struct {
 	RoleName        string   `json:"role_name"`
 	RoleDescription string   `json:"role_description"`
@@ -62,11 +74,17 @@ type specialistArgs struct {
 }
 
 func newManager(a *app.App) *manager {
-	return &manager{
+	cfg := a.Config()
+	m := &manager{
 		app:   a,
+		path:  cfg.CollabTeamsPath(),
+		sem:   make(chan struct{}, cfg.Collab.MaxConcurrent),
+		queue: make(chan struct{}, cfg.Collab.QueueDepth),
 		tasks: map[string]*task{},
 		teams: map[string]map[string]string{},
 	}
+	m.loadTeams()
+	return m
 }
 
 func decode[T any](name string, args json.RawMessage, dst *T) error {

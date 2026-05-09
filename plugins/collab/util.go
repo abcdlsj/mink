@@ -1,7 +1,7 @@
 package collab
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -20,11 +20,14 @@ func parseError(name string, err error) error {
 	return fmt.Errorf("%s: parse error: %w", name, err)
 }
 
-func taskType(err error) string {
-	if err != nil {
-		return bus.DelegateFailed
+func taskType(ctx context.Context, err error) string {
+	if err == nil {
+		return bus.DelegateFinished
 	}
-	return bus.DelegateFinished
+	if ctx != nil && ctx.Err() != nil {
+		return bus.DelegateCanceled
+	}
+	return bus.DelegateFailed
 }
 
 func errString(err error) string {
@@ -36,11 +39,4 @@ func errString(err error) string {
 
 func newID() string {
 	return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)
-}
-
-func wrapErr(text string, err error) error {
-	if err == nil && strings.TrimSpace(text) != "" {
-		return errors.New(text)
-	}
-	return err
 }
