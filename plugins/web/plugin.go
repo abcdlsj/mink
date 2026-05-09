@@ -47,6 +47,7 @@ type state struct {
 	Workspace string        `json:"workspace"`
 	Model     string        `json:"model"`
 	Notice    string        `json:"notice,omitempty"`
+	Queued    int           `json:"queued,omitempty"`
 	Sessions  []sessionItem `json:"sessions"`
 	Current   currentState  `json:"current"`
 	Messages  []message     `json:"messages"`

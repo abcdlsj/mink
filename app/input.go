@@ -44,6 +44,14 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
+		f.app.bus.Publish(bus.Event{
+			Type:      bus.TurnQueued,
+			Source:    f.source,
+			SessionID: s.ID,
+		})
+	})
+	defer release()
 	if err := f.app.autoCompact(ctx, f.source, f.runtime, s); err != nil {
 		return "", err
 	}

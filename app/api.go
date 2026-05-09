@@ -56,6 +56,13 @@ func (a *App) SessionIndex() ([]store.SessionMeta, error) {
 	return a.store.SessionIndex()
 }
 
+func (a *App) SessionTurnDepth(id string) int {
+	if a == nil || a.sessions == nil {
+		return 0
+	}
+	return a.sessions.TurnDepth(id)
+}
+
 func (a *App) PublishNotice(source, text string) {
 	text = strings.TrimSpace(text)
 	if text == "" {

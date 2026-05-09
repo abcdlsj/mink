@@ -20,6 +20,14 @@ type Manager struct {
 	sessions map[string]*Session
 	currents map[string]string
 	mu       sync.RWMutex
+
+	turnMu sync.Mutex
+	turns  map[string]*turnLock
+}
+
+type turnLock struct {
+	mu    sync.Mutex
+	depth int
 }
 
 func NewManager(store Store) *Manager {
@@ -27,7 +35,51 @@ func NewManager(store Store) *Manager {
 		store:    store,
 		sessions: map[string]*Session{},
 		currents: map[string]string{},
+		turns:    map[string]*turnLock{},
 	}
+}
+
+func (m *Manager) AcquireTurn(id string, onQueue func(depth int)) (release func()) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return func() {}
+	}
+	m.turnMu.Lock()
+	lock := m.turns[id]
+	if lock == nil {
+		lock = &turnLock{}
+		m.turns[id] = lock
+	}
+	lock.depth++
+	depth := lock.depth
+	m.turnMu.Unlock()
+
+	if depth > 1 && onQueue != nil {
+		onQueue(depth)
+	}
+	lock.mu.Lock()
+	return func() {
+		m.turnMu.Lock()
+		lock.depth--
+		if lock.depth <= 0 {
+			delete(m.turns, id)
+		}
+		m.turnMu.Unlock()
+		lock.mu.Unlock()
+	}
+}
+
+func (m *Manager) TurnDepth(id string) int {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return 0
+	}
+	m.turnMu.Lock()
+	defer m.turnMu.Unlock()
+	if lock, ok := m.turns[id]; ok {
+		return lock.depth
+	}
+	return 0
 }
 
 func (m *Manager) Current(source string) (*Session, error) {

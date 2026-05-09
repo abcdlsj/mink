@@ -28,6 +28,7 @@ var indexHTML = `<!doctype html>
     .title { font-size:28px; margin:0; }
     .meta { color:var(--muted); }
     .notice { padding:10px 12px; background:#fff4dc; border:1px solid #efc17c; }
+    .queue { color:var(--muted); font-size:12px; padding:2px 0; }
     .messages { border:1px solid var(--line); background:rgba(255,253,248,.86); padding:16px; overflow:auto; min-height:50vh; }
     .msg { padding:10px 0; border-bottom:1px dashed var(--line); white-space:pre-wrap; }
     .msg:last-child { border-bottom:none; }
@@ -61,6 +62,7 @@ var indexHTML = `<!doctype html>
       </div>
       <div class="messages" id="messages"></div>
       <div class="composer">
+        <div class="queue" id="queue"></div>
         <textarea id="text" placeholder="Send a message"></textarea>
         <div><button class="primary" id="send">Send</button></div>
       </div>
@@ -75,6 +77,7 @@ var indexHTML = `<!doctype html>
       qs('#title').textContent = st.current && st.current.title ? st.current.title : 'Session'
       qs('#model').textContent = st.model
       qs('#notice').innerHTML = st.notice ? '<div class="notice">'+escapeHtml(st.notice)+'</div>' : ''
+      qs('#queue').textContent = st.queued ? (st.queued === 1 ? '1 message queued' : st.queued + ' messages queued') : ''
       qs('#sessions').innerHTML = (st.sessions || []).map(s =>
         '<button class="session'+(s.active?' active':'')+'" data-id="'+s.id+'"><div>'+escapeHtml(s.title)+'</div><div class="meta">'+escapeHtml(s.updated)+'</div></button>'
       ).join('')

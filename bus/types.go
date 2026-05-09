@@ -4,6 +4,7 @@ import "time"
 
 const (
 	TurnStarted      = "turn.started"
+	TurnQueued       = "turn.queued"
 	TurnChunk        = "turn.chunk"
 	TurnReasoning    = "turn.reasoning"
 	TurnFinished     = "turn.finished"

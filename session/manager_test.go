@@ -1,6 +1,11 @@
 package session
 
-import "testing"
+import (
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
 
 type memStore struct {
 	sessions map[string]*Session
@@ -74,6 +79,63 @@ func TestSwitchRejectsDifferentSource(t *testing.T) {
 
 	if _, err := m.Switch("cli", tg.ID); err == nil {
 		t.Fatal("expected source mismatch error")
+	}
+}
+
+func TestAcquireTurnSerializesSameSession(t *testing.T) {
+	m := NewManager(newMemStore())
+	const id = "sess-1"
+
+	var active int32
+	var peak int32
+	var queued int32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			release := m.AcquireTurn(id, func(int) { atomic.AddInt32(&queued, 1) })
+			defer release()
+			n := atomic.AddInt32(&active, 1)
+			if n > atomic.LoadInt32(&peak) {
+				atomic.StoreInt32(&peak, n)
+			}
+			time.Sleep(5 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if got := atomic.LoadInt32(&peak); got != 1 {
+		t.Fatalf("peak concurrent holders = %d, want 1", got)
+	}
+	if got := atomic.LoadInt32(&queued); got == 0 {
+		t.Fatalf("onQueue never fired, want at least one queued caller")
+	}
+	if d := m.TurnDepth(id); d != 0 {
+		t.Fatalf("turn depth after release = %d, want 0", d)
+	}
+}
+
+func TestAcquireTurnDifferentSessionsRunConcurrently(t *testing.T) {
+	m := NewManager(newMemStore())
+
+	r1 := m.AcquireTurn("a", nil)
+	defer r1()
+	done := make(chan struct{})
+	go func() {
+		r2 := m.AcquireTurn("b", nil)
+		r2()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("acquiring a different session blocked on unrelated lock")
 	}
 }
 

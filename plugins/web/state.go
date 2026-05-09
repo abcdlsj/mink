@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -33,10 +34,22 @@ func (s *server) state() (state, error) {
 		Workspace: s.app.Workspace(),
 		Model:     s.app.CurrentModel(),
 		Notice:    s.currentNotice(),
+		Queued:    queued(s.app, current),
 		Sessions:  items,
 		Current:   currentView(current),
 		Messages:  renderMessages(current),
 	}, nil
+}
+
+func queued(a *app.App, current *session.Session) int {
+	if current == nil {
+		return 0
+	}
+	d := a.SessionTurnDepth(current.ID)
+	if d <= 1 {
+		return 0
+	}
+	return d - 1
 }
 
 func (s *server) currentNotice() string {
