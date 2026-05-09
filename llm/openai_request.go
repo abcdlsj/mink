@@ -78,7 +78,7 @@ func toOpenAIMessages(msgs []msg.Message) []openai.ChatCompletionMessage {
 			for _, tr := range m.ToolResults {
 				out = append(out, openai.ChatCompletionMessage{
 					Role:       openai.ChatMessageRoleTool,
-					Content:    tr.Content,
+					Content:    toolResultContent(tr),
 					ToolCallID: tr.ToolCallID,
 				})
 			}

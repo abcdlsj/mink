@@ -30,7 +30,7 @@ func toOpenRouterMessages(msgs []msg.Message) []openrouter.ChatCompletionMessage
 			for _, tr := range m.ToolResults {
 				out = append(out, openrouter.ChatCompletionMessage{
 					Role:       openrouter.ChatMessageRoleTool,
-					Content:    openrouter.Content{Text: tr.Content},
+					Content:    openrouter.Content{Text: toolResultContent(tr)},
 					ToolCallID: tr.ToolCallID,
 				})
 			}

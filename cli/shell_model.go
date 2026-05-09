@@ -30,7 +30,6 @@ type shellOverlay int
 
 const (
 	overlayNone shellOverlay = iota
-	overlayApproval
 	overlaySession
 )
 
@@ -92,8 +91,9 @@ type shellModel struct {
 	items       []*chatItem
 	spans       []shellSpan
 	toolItems   map[string]shellToolRef
-	approvals   []*approvalRequest
-	queue       []string
+	approvals    []*approvalRequest
+	approvalPick int
+	queue        []string
 	suggests    []completionHint
 	suggestRows int
 	files       []string
@@ -196,7 +196,6 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.nextTick()
 	case shellApprovalEnqueuedMsg:
 		m.approvals = append(m.approvals, msg.Request)
-		m.overlay = overlayApproval
 		return m, m.nextTick()
 	case shellApprovalDroppedMsg:
 		m.dropApproval(msg.ID)
@@ -248,8 +247,6 @@ func (m shellModel) View() string {
 		),
 	)
 	switch m.overlay {
-	case overlayApproval:
-		return m.renderOverlay(base, "Approval", m.approvalBody())
 	case overlaySession:
 		return m.renderOverlay(base, "Sessions", m.sessionBody())
 	default:
@@ -261,12 +258,14 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.overlay == overlayApproval {
-		m.handleApprovalKey(msg.String())
-		return *m, m.nextTick()
-	}
 	if m.overlay == overlaySession {
 		m.handleSessionKey(msg.String())
+		return *m, nil
+	}
+	if len(m.approvals) > 0 {
+		if m.handleApprovalKey(msg.String()) {
+			return *m, m.nextTick()
+		}
 		return *m, nil
 	}
 
@@ -693,28 +692,51 @@ func (m *shellModel) dropApproval(id int) {
 		}
 	}
 	m.approvals = out
-	if len(m.approvals) == 0 && m.overlay == overlayApproval {
-		m.overlay = overlayNone
-	}
 }
 
-func (m *shellModel) handleApprovalKey(key string) {
+func (m *shellModel) handleApprovalKey(key string) bool {
 	if len(m.approvals) == 0 {
-		m.overlay = overlayNone
+		return false
+	}
+	opts := approvalOptions()
+	switch key {
+	case "j", "down", "tab":
+		m.approvalPick = (m.approvalPick + 1) % len(opts)
+		return true
+	case "k", "up", "shift+tab":
+		m.approvalPick = (m.approvalPick - 1 + len(opts)) % len(opts)
+		return true
+	case "1", "2", "3":
+		idx := int(key[0] - '1')
+		if idx < len(opts) {
+			m.approvalPick = idx
+			m.resolveApproval(opts[idx].value)
+		}
+		return true
+	case "enter":
+		m.resolveApproval(opts[m.approvalPick].value)
+		return true
+	case "esc", "n":
+		m.resolveApproval(tool.Denied)
+		return true
+	case "y":
+		m.resolveApproval(tool.AllowOnce)
+		return true
+	case "a":
+		m.resolveApproval(tool.AllowAlways)
+		return true
+	}
+	return false
+}
+
+func (m *shellModel) resolveApproval(v tool.Approval) {
+	if len(m.approvals) == 0 {
 		return
 	}
 	req := m.approvals[0]
-	switch key {
-	case "a":
-		req.resp <- tool.AllowAlways
-	case "y", "enter":
-		req.resp <- tool.AllowOnce
-	case "n", "esc":
-		req.resp <- tool.Denied
-	default:
-		return
-	}
+	req.resp <- v
 	m.dropApproval(req.id)
+	m.approvalPick = 0
 }
 
 func (m *shellModel) syncLayout() {
@@ -725,7 +747,9 @@ func (m *shellModel) syncLayout() {
 	inWidth := max(20, m.width)
 	header := shellHeaderHeight
 	status := 0
-	if m.busy {
+	if len(m.approvals) > 0 {
+		status = viewHeight(m.renderStatus())
+	} else if m.busy {
 		status = 1
 	}
 	footer := 1

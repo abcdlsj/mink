@@ -99,3 +99,13 @@ func replayToolCallArgs(raw json.RawMessage) string {
 func assistantToolCallReplayContent() string {
 	return " "
 }
+
+func toolResultContent(tr msg.ToolResult) string {
+	if tr.Content != "" {
+		return tr.Content
+	}
+	if tr.Error != "" {
+		return "error: " + tr.Error
+	}
+	return "(no output)"
+}

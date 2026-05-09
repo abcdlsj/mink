@@ -12,6 +12,7 @@ import (
 	"github.com/mattn/go-runewidth"
 
 	"github.com/abcdlsj/sumi/textutil"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 var shellTheme = struct {
@@ -43,6 +44,7 @@ var shellTheme = struct {
 	StatusDone    lipgloss.Style
 	StatusFailed  lipgloss.Style
 	Expanded      lipgloss.Style
+	ApprovalBox   lipgloss.Style
 }{
 	Base:          lipgloss.NewStyle(),
 	NoBorder:      lipgloss.HiddenBorder(),
@@ -72,6 +74,7 @@ var shellTheme = struct {
 	StatusDone:    lipgloss.NewStyle().Foreground(lipgloss.Color("2")),
 	StatusFailed:  lipgloss.NewStyle().Foreground(lipgloss.Color("1")),
 	Expanded:      lipgloss.NewStyle().Faint(true),
+	ApprovalBox:   lipgloss.NewStyle().Border(lipgloss.NormalBorder(), true, false, true, false).BorderForeground(lipgloss.Color("8")).Padding(0, 1),
 }
 
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -97,6 +100,9 @@ func (m shellModel) renderTranscript() string {
 }
 
 func (m shellModel) renderStatus() string {
+	if len(m.approvals) > 0 {
+		return m.renderApprovalBox()
+	}
 	if !m.busy {
 		return ""
 	}
@@ -116,6 +122,57 @@ func (m shellModel) renderStatus() string {
 	return shellTheme.Panel.Width(m.width).Render(padLine(head+tail, m.width))
 }
 
+type approvalOption struct {
+	label string
+	value tool.Approval
+}
+
+func approvalOptions() []approvalOption {
+	return []approvalOption{
+		{label: "Yes", value: tool.AllowOnce},
+		{label: "Yes, don't ask again for this pattern", value: tool.AllowAlways},
+		{label: "No, tell Sumi what to do differently", value: tool.Denied},
+	}
+}
+
+func (m shellModel) renderApprovalBox() string {
+	req := m.approvals[0].req
+	name := strings.TrimSpace(req.Tool)
+	if name == "" {
+		name = "tool"
+	}
+	action := strings.TrimSpace(req.Action)
+	if action == "" {
+		action = name
+	}
+	width := max(20, m.width)
+	inner := max(8, width-4)
+
+	title := shellTheme.Title.Render(name)
+	if n := len(m.approvals) - 1; n > 0 {
+		title += shellTheme.TextMuted.Render(fmt.Sprintf("  (+%d queued)", n))
+	}
+	lines := []string{title}
+	for _, row := range wrapDisplay(action, inner) {
+		lines = append(lines, shellTheme.TextMuted.Render(row))
+	}
+	if p := strings.TrimSpace(req.Pattern); p != "" {
+		lines = append(lines, shellTheme.TextMuted.Render("pattern  "+textutil.Preview(p, max(8, inner-9))))
+	}
+	lines = append(lines, "")
+	for i, opt := range approvalOptions() {
+		prefix := "  "
+		style := shellTheme.Text
+		if i == m.approvalPick {
+			prefix = "› "
+			style = shellTheme.Chip
+		}
+		lines = append(lines, style.Render(prefix+opt.label))
+	}
+
+	return shellTheme.ApprovalBox.Width(width).Render(strings.Join(lines, "\n"))
+}
+
 func (m shellModel) renderComposer() string {
 	parts := m.renderSuggestions()
 	if len(parts) > 0 {
@@ -126,8 +183,8 @@ func (m shellModel) renderComposer() string {
 }
 
 func (m shellModel) renderFooter(st cliState) string {
-	if m.overlay == overlayApproval {
-		return shellTheme.Footer.Width(m.width).Render(padLine("y allow once   a allow always   n deny   esc cancel", m.width))
+	if len(m.approvals) > 0 {
+		return shellTheme.Footer.Width(m.width).Render(padLine("enter confirm   esc deny", m.width))
 	}
 	if m.overlay == overlaySession {
 		return shellTheme.Footer.Width(m.width).Render(padLine("enter switch   n new   j/k move   esc close", m.width))
@@ -296,18 +353,6 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 	return []string{line}
 }
 
-func (m shellModel) approvalBody() string {
-	if len(m.approvals) == 0 {
-		return "No pending approvals."
-	}
-	req := m.approvals[0].req
-	width := max(16, m.width-18)
-	lines := fieldBlock("action", req.Action, width)
-	lines = append(lines, "")
-	lines = append(lines, fieldBlock("pattern", req.Pattern, width)...)
-	return strings.Join(lines, "\n")
-}
-
 func (m shellModel) sessionBody() string {
 	if len(m.sessions) == 0 {
 		return "No sessions."
@@ -396,12 +441,22 @@ func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
 	if text == "" {
 		return nil
 	}
-	body := textutil.Preview(strings.Join(strings.Fields(text), " "), max(16, m.viewport.Width-13))
-	line := shellTheme.Tool.Render("✦ Thinking ") + shellTheme.TextMuted.Render(body)
-	if idx == m.selected {
-		line = m.selectedLine(line)
+	width := max(16, m.viewport.Width)
+	head := shellTheme.Tool.Render("✦ Thinking")
+	lines := wrapDisplay(text, max(8, width-2))
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, head)
+	for _, line := range lines {
+		row := shellTheme.TextMuted.Render("  " + line)
+		if idx == m.selected {
+			row = m.selectedLine(row)
+		}
+		out = append(out, row)
 	}
-	return []string{line}
+	if idx == m.selected {
+		out[0] = m.selectedLine(head)
+	}
+	return out
 }
 
 func (m shellModel) renderUserText(text string, idx int) []string {
@@ -461,21 +516,11 @@ func (m shellModel) selectedLine(line string) string {
 
 func overlayHint(title string) string {
 	switch title {
-	case "Approval":
-		return "permission"
 	case "Sessions":
 		return "enter/n/esc"
 	default:
 		return ""
 	}
-}
-
-func fieldBlock(label, value string, width int) []string {
-	lines := []string{shellTheme.Meta.Render(label)}
-	for _, line := range wrapDisplay(strings.TrimSpace(value), max(8, width-2)) {
-		lines = append(lines, "  "+line)
-	}
-	return lines
 }
 
 func wrapDisplay(s string, width int) []string {
