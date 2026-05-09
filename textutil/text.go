@@ -3,6 +3,8 @@ package textutil
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
 )
 
 func Valid(s string) string {
@@ -43,14 +45,14 @@ func Ellipsis(s string, n int) string {
 	if n <= 0 {
 		return ""
 	}
-	rs := []rune(Valid(s))
-	if len(rs) <= n {
-		return string(rs)
+	s = Valid(s)
+	if runewidth.StringWidth(s) <= n {
+		return s
 	}
 	if n == 1 {
 		return "…"
 	}
-	return string(rs[:n-1]) + "…"
+	return runewidth.Truncate(s, n, "…")
 }
 
 func Preview(s string, n int) string {
