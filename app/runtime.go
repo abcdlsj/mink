@@ -35,7 +35,6 @@ func (a *App) runtimeEnv() *agent.RuntimeEnv {
 		Prompt:               a.cfg.Prompt,
 		TelegramMentionMode:  a.cfg.Telegram.MentionMode,
 		TelegramSessionScope: a.cfg.Telegram.SessionScope,
-		MaxSteps:             8,
 	}
 }
 

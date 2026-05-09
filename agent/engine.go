@@ -19,7 +19,10 @@ func (e *engine) run(ctx context.Context, t *Turn) error {
 		return fmt.Errorf("turn requires session")
 	}
 	t.Session.Add(NewUserMessage(t.Input))
-	for step := 0; step < e.env.MaxSteps; step++ {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		resp, err := e.step(ctx, t)
 		if err != nil {
 			return err
@@ -28,7 +31,6 @@ func (e *engine) run(ctx context.Context, t *Turn) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("max steps reached")
 }
 
 func (e *engine) step(ctx context.Context, t *Turn) (*llm.Response, error) {

@@ -29,7 +29,6 @@ type RuntimeEnv struct {
 	Prompt               string
 	TelegramMentionMode  string
 	TelegramSessionScope string
-	MaxSteps             int
 }
 
 type Turn struct {
@@ -49,9 +48,6 @@ func NewNative(env *RuntimeEnv) (Runtime, error) {
 	}
 	if env.Tools == nil {
 		return nil, fmt.Errorf("native runtime requires tools")
-	}
-	if env.MaxSteps <= 0 {
-		env.MaxSteps = 8
 	}
 	return &Native{engine: &engine{env: env}}, nil
 }
