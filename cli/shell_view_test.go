@@ -11,6 +11,7 @@ import (
 
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
 
@@ -27,6 +28,9 @@ func (fakeShellApp) Commands() []command.Command {
 }
 func (fakeShellApp) Workspace() string {
 	return "/Users/lisongjian/Workspace/gh/abcdlsj/sumi/very/long/path"
+}
+func (fakeShellApp) Personas() *persona.Registry {
+	return persona.NewRegistry("")
 }
 func (fakeShellApp) CurrentSession(string) (*session.Session, error) { return session.New("cli"), nil }
 func (fakeShellApp) NewSession(string) (*session.Session, error)     { return session.New("cli"), nil }

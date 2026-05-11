@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
 
@@ -33,6 +35,9 @@ func (a commandShellApp) Workspace() string {
 		return a.workspace
 	}
 	return "."
+}
+func (commandShellApp) Personas() *persona.Registry {
+	return persona.NewRegistry("")
 }
 func (commandShellApp) CurrentSession(string) (*session.Session, error) {
 	return session.New("cli"), nil
@@ -189,6 +194,66 @@ func TestAtFileSuggestionsCanBeAccepted(t *testing.T) {
 	m.acceptSuggestion()
 	if got := m.input.Value(); got != "read @cli/shell_model.go " {
 		t.Fatalf("input = %q", got)
+	}
+}
+
+type personaShellApp struct {
+	commandShellApp
+	reg *persona.Registry
+}
+
+func (a *personaShellApp) Personas() *persona.Registry { return a.reg }
+
+func TestAtPersonaSuggestionsList(t *testing.T) {
+	dir := t.TempDir()
+	reg := persona.NewRegistry(dir)
+	if _, err := reg.Create("tshoot", persona.Meta{Display: "Tshoot", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reg.Create("reviewer", persona.Meta{Display: "Reviewer", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newShellModel(context.Background(), &personaShellApp{reg: reg}, "cli")
+	m.width = 80
+	m.height = 24
+	m.input.SetValue("@persona:")
+	m.syncLayout()
+
+	if len(m.suggests) != 2 {
+		t.Fatalf("suggests = %#v", m.suggests)
+	}
+	if m.suggests[0].Kind != completionPersona || m.suggests[0].Value != "reviewer" {
+		t.Fatalf("first suggest = %#v", m.suggests[0])
+	}
+
+	m.moveSuggestion(1)
+	m.acceptSuggestion()
+	if got := m.input.Value(); got != "@tshoot " {
+		t.Fatalf("input = %q, want @tshoot ", got)
+	}
+}
+
+func TestRenderSuggestionsScrollsPastWindow(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.width = 60
+	m.height = 20
+	m.suggests = make([]completionHint, 10)
+	for i := range m.suggests {
+		m.suggests[i] = completionHint{Kind: completionFile, Value: fmt.Sprintf("f%02d.go", i)}
+	}
+	m.suggestRows = 6
+	m.suggest = 9
+
+	lines := m.renderSuggestions()
+	if len(lines) != 6 {
+		t.Fatalf("lines = %d", len(lines))
+	}
+	if !strings.Contains(lines[5], "f09.go") {
+		t.Fatalf("last line missing f09.go: %q", lines[5])
+	}
+	if strings.Contains(lines[0], "f00.go") {
+		t.Fatalf("window did not scroll: %q", lines[0])
 	}
 }
 

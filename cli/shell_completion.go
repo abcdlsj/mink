@@ -16,6 +16,7 @@ type completionKind int
 const (
 	completionCommand completionKind = iota
 	completionFile
+	completionPersona
 )
 
 type completionHint struct {
@@ -38,6 +39,10 @@ func (m *shellModel) refreshSuggestions() tea.Cmd {
 		m.clampSuggestion()
 		return nil
 	}
+	if m.refreshPersonaSuggestions() {
+		m.clampSuggestion()
+		return nil
+	}
 	cmd := m.refreshFileSuggestions()
 	if m.suggests != nil {
 		m.clampSuggestion()
@@ -45,6 +50,32 @@ func (m *shellModel) refreshSuggestions() tea.Cmd {
 		m.clearSuggestions()
 	}
 	return cmd
+}
+
+func (m *shellModel) refreshPersonaSuggestions() bool {
+	_, query, ok := personaQuery(m.input.Value())
+	if !ok {
+		return false
+	}
+	reg := m.app.Personas()
+	if reg == nil {
+		m.suggests = nil
+		return true
+	}
+	q := strings.ToLower(query)
+	var out []completionHint
+	for _, p := range reg.List() {
+		if q != "" && !strings.Contains(strings.ToLower(p.ID), q) {
+			continue
+		}
+		desc := p.Display
+		if desc == "" {
+			desc = "persona"
+		}
+		out = append(out, completionHint{Kind: completionPersona, Value: p.ID, Desc: desc})
+	}
+	m.suggests = out
+	return true
 }
 
 func (m *shellModel) refreshCommandSuggestions() bool {
@@ -142,7 +173,27 @@ func fileQuery(input string) (head, query string, ok bool) {
 	if strings.ContainsAny(tail, " \t\r\n") {
 		return "", "", false
 	}
+	if strings.HasPrefix(tail, "persona:") {
+		return "", "", false
+	}
 	return input[:i], tail, true
+}
+
+func personaQuery(input string) (head, query string, ok bool) {
+	input = strings.TrimRight(input, " \t\r\n")
+	i := strings.LastIndexByte(input, '@')
+	if i < 0 {
+		return "", "", false
+	}
+	tail := input[i+1:]
+	if !strings.HasPrefix(tail, "persona:") {
+		return "", "", false
+	}
+	q := strings.TrimPrefix(tail, "persona:")
+	if strings.ContainsAny(q, " \t\r\n") {
+		return "", "", false
+	}
+	return input[:i], q, true
 }
 
 func (m *shellModel) moveSuggestion(delta int) {
@@ -168,6 +219,9 @@ func (m *shellModel) acceptSuggestion() {
 		m.input.SetValue("/" + h.Value + " ")
 	case completionFile:
 		head, _, _ := fileQuery(m.input.Value())
+		m.input.SetValue(head + "@" + h.Value + " ")
+	case completionPersona:
+		head, _, _ := personaQuery(m.input.Value())
 		m.input.SetValue(head + "@" + h.Value + " ")
 	}
 	m.input.CursorEnd()

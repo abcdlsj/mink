@@ -228,13 +228,21 @@ func (m shellModel) renderSuggestions() []string {
 		return nil
 	}
 	limit := min(len(m.suggests), m.suggestRows)
+	start := 0
+	if m.suggest >= limit {
+		start = m.suggest - limit + 1
+	}
+	if start+limit > len(m.suggests) {
+		start = len(m.suggests) - limit
+	}
 	lines := make([]string, 0, limit)
 	width := max(20, m.width)
 	for i := 0; i < limit; i++ {
-		item := m.suggests[i]
+		idx := start + i
+		item := m.suggests[idx]
 		prefix := "  "
 		style := shellTheme.Suggest
-		if i == m.suggest {
+		if idx == m.suggest {
 			prefix = "› "
 			style = shellTheme.SuggestActive
 		}
@@ -252,6 +260,8 @@ func completionLabel(h completionHint) (string, string) {
 		return "/" + h.Value, h.Desc
 	case completionFile:
 		return "@" + h.Value, "file"
+	case completionPersona:
+		return "@" + h.Value, h.Desc
 	default:
 		return h.Value, h.Desc
 	}
