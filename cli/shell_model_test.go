@@ -108,6 +108,64 @@ func TestShellModelIgnoresLateDuplicateChunk(t *testing.T) {
 	}
 }
 
+func TestShellModelHandlesBatchedStreamEventsInOrder(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 24
+	m.syncLayout()
+
+	m.handleEvents([]bus.Event{
+		{Type: bus.TurnChunk, Source: "cli", Text: "调用方：`mobile.app-im.im"},
+		{Type: bus.TurnChunk, Source: "cli", Text: "-interface` 调用触发，在 "},
+		{Type: bus.TurnChunk, Source: "cli", Text: "`service_dyn_intra.go:253`。"},
+	})
+
+	if len(m.items) != 1 {
+		t.Fatalf("items = %d, want 1", len(m.items))
+	}
+	want := "调用方：`mobile.app-im.im-interface` 调用触发，在 `service_dyn_intra.go:253`。"
+	if got := assistantText(m.items[0]); got != want {
+		t.Fatalf("assistant text = %q, want %q", got, want)
+	}
+	if m.deferSync || m.syncDirty {
+		t.Fatalf("sync flags left dirty: defer=%v dirty=%v", m.deferSync, m.syncDirty)
+	}
+}
+
+func TestShellModelReconcilesStreamedAssistantSnapshot(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 24
+	m.syncLayout()
+
+	m.handleEvent(bus.Event{Type: bus.TurnChunk, Source: "cli", Text: "调用方：`mobile.app-im.im"})
+	m.handleEvent(bus.Event{Type: bus.TurnChunk, Source: "cli", Text: " 调用触发"})
+	m.turn.streamed = true
+	m.finishTurn("调用方：`mobile.app-im.im-interface` 调用触发", nil)
+
+	if len(m.items) != 1 {
+		t.Fatalf("items = %d, want 1", len(m.items))
+	}
+	want := "调用方：`mobile.app-im.im-interface` 调用触发"
+	if got := assistantText(m.items[0]); got != want {
+		t.Fatalf("assistant text = %q, want %q", got, want)
+	}
+}
+
+func TestAppendEventMergesConsecutiveStreamEvents(t *testing.T) {
+	evs := appendEvent(nil, bus.Event{Type: bus.TurnChunk, Source: "cli", Text: "a"})
+	evs = appendEvent(evs, bus.Event{Type: bus.TurnChunk, Source: "cli", Text: "b"})
+	evs = appendEvent(evs, bus.Event{Type: bus.TurnReasoning, Source: "cli", Text: "c"})
+	evs = appendEvent(evs, bus.Event{Type: bus.TurnReasoning, Source: "cli", Text: "d"})
+
+	if len(evs) != 2 {
+		t.Fatalf("events = %d, want 2: %#v", len(evs), evs)
+	}
+	if evs[0].Text != "ab" || evs[1].Text != "cd" {
+		t.Fatalf("merged texts = %q, %q", evs[0].Text, evs[1].Text)
+	}
+}
+
 func TestMouseTrackingDisabledForCopy(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	if m.viewport.MouseWheelEnabled {
@@ -185,7 +243,7 @@ func TestAtFileSuggestionsCanBeAccepted(t *testing.T) {
 	m.height = 24
 	m.files = listWorkspaceFiles(dir)
 	m.filesOK = true
-	m.input.SetValue("read @shell")
+	m.input.SetValue("read @files:shell")
 	m.syncLayout()
 
 	if len(m.suggests) != 1 || m.suggests[0].Value != "cli/shell_model.go" {
@@ -194,6 +252,60 @@ func TestAtFileSuggestionsCanBeAccepted(t *testing.T) {
 	m.acceptSuggestion()
 	if got := m.input.Value(); got != "read @cli/shell_model.go " {
 		t.Fatalf("input = %q", got)
+	}
+}
+
+func TestAtMentionStartsWithSourceSuggestions(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.width = 80
+	m.height = 24
+	m.input.SetValue("@")
+	m.syncLayout()
+
+	if m.filesLoading || m.filesOK {
+		t.Fatalf("files loaded before source selection: loading=%v ok=%v", m.filesLoading, m.filesOK)
+	}
+	if len(m.suggests) != 2 {
+		t.Fatalf("suggests = %#v, want persona and files", m.suggests)
+	}
+	if m.suggests[0].Kind != completionMention || m.suggests[0].Value != "persona" {
+		t.Fatalf("first suggest = %#v, want persona source", m.suggests[0])
+	}
+	if m.suggests[1].Kind != completionMention || m.suggests[1].Value != "files" {
+		t.Fatalf("second suggest = %#v, want files source", m.suggests[1])
+	}
+}
+
+func TestAtFilesSelectionLoadsFiles(t *testing.T) {
+	dir := t.TempDir()
+	app := commandShellApp{workspace: dir}
+	m := newShellModel(context.Background(), app, "cli")
+	m.width = 80
+	m.height = 24
+	m.input.SetValue("@")
+	m.syncLayout()
+
+	m.moveSuggestion(1)
+	m.acceptSuggestion()
+	m.syncLayout()
+
+	if got := m.input.Value(); got != "@files:" {
+		t.Fatalf("input = %q, want @files:", got)
+	}
+	if !m.filesLoading {
+		t.Fatal("files should start loading after files source selection")
+	}
+	if m.pendingCmd == nil {
+		t.Fatal("files source selection should queue load command")
+	}
+
+	next, _ := m.Update(shellFilesLoadedMsg{Root: dir, Files: []string{"cli/shell_model.go"}})
+	got := next.(shellModel)
+	if len(got.suggests) != 1 || got.suggests[0].Value != "cli/shell_model.go" {
+		t.Fatalf("suggests after load = %#v", got.suggests)
+	}
+	if got.suggestRows == 0 {
+		t.Fatal("suggest rows should be recalculated after files load")
 	}
 }
 

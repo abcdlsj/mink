@@ -114,6 +114,32 @@ func (i *chatItem) appendText(text string) {
 	})
 }
 
+func (i *chatItem) setText(text string) {
+	text = textutil.Valid(text)
+	kept := i.Segments[:0]
+	set := false
+	for _, seg := range i.Segments {
+		if seg.Kind != segText {
+			kept = append(kept, seg)
+			continue
+		}
+		if set || text == "" {
+			continue
+		}
+		seg.Text = text
+		kept = append(kept, seg)
+		set = true
+	}
+	if !set && text != "" {
+		kept = append(kept, chatSegment{
+			Kind: segText,
+			Text: text,
+			Time: time.Now(),
+		})
+	}
+	i.Segments = kept
+}
+
 func (i *chatItem) appendReasoning(text string) {
 	text = textutil.Valid(text)
 	if text == "" {

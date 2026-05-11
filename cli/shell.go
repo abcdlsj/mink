@@ -9,6 +9,8 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 )
 
+const shellEventBatch = 128
+
 func Run(ctx context.Context, a *app.App, args []string) error {
 	if _, err := a.NewSession("cli"); err != nil {
 		return err
@@ -34,7 +36,7 @@ type shell struct {
 }
 
 func newShell(ctx context.Context, a *app.App, source string) (*shell, error) {
-	events, cancel := a.Bus().Subscribe(256)
+	events, cancel := a.Bus().Subscribe(4096)
 	runCtx, stop := context.WithCancel(ctx)
 	s := &shell{
 		ctx:      runCtx,
@@ -77,7 +79,47 @@ func (s *shell) consume() {
 			if ev.Source != s.source || s.program == nil {
 				continue
 			}
-			s.program.Send(shellBusMsg{Event: ev})
+			batch := []bus.Event{ev}
+			for n := 1; n < shellEventBatch; n++ {
+				select {
+				case ev, ok := <-s.events:
+					if !ok {
+						return
+					}
+					if ev.Source == s.source {
+						batch = appendEvent(batch, ev)
+					}
+				default:
+					s.program.Send(shellBusMsg{Events: batch})
+					batch = nil
+				}
+				if batch == nil {
+					break
+				}
+			}
+			if len(batch) > 0 {
+				s.program.Send(shellBusMsg{Events: batch})
+			}
 		}
+	}
+}
+
+func appendEvent(evs []bus.Event, ev bus.Event) []bus.Event {
+	if len(evs) == 0 || !mergeStreamEvent(&evs[len(evs)-1], ev) {
+		return append(evs, ev)
+	}
+	return evs
+}
+
+func mergeStreamEvent(dst *bus.Event, ev bus.Event) bool {
+	if dst.Source != ev.Source || dst.SessionID != ev.SessionID || dst.Type != ev.Type {
+		return false
+	}
+	switch ev.Type {
+	case bus.TurnChunk, bus.TurnReasoning:
+		dst.Text += ev.Text
+		return true
+	default:
+		return false
 	}
 }

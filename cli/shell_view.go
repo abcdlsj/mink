@@ -258,6 +258,8 @@ func completionLabel(h completionHint) (string, string) {
 	switch h.Kind {
 	case completionCommand:
 		return "/" + h.Value, h.Desc
+	case completionMention:
+		return "@" + h.Value, h.Desc
 	case completionFile:
 		return "@" + h.Value, "file"
 	case completionPersona:

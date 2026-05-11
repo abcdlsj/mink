@@ -36,7 +36,7 @@ const (
 const shellHeaderHeight = 2
 
 type shellBusMsg struct {
-	Event bus.Event
+	Events []bus.Event
 }
 
 type shellTurnDoneMsg struct {
@@ -115,6 +115,8 @@ type shellModel struct {
 	statusBusy bool
 	statusAt   time.Time
 	follow     bool
+	deferSync  bool
+	syncDirty  bool
 }
 
 func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
@@ -169,11 +171,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 }
 
 func (m shellModel) Init() tea.Cmd {
-	root := ""
-	if m.app != nil {
-		root = m.app.Workspace()
-	}
-	return tea.Batch(m.input.Focus(), shellTick(), m.statusLineCmd(true), loadWorkspaceFilesCmd(root))
+	return tea.Batch(m.input.Focus(), shellTick(), m.statusLineCmd(true))
 }
 
 func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -204,10 +202,11 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filesOK = true
 			m.filesLoading = false
 			m.refreshSuggestions()
+			m.syncLayout()
 		}
 		return m, nil
 	case shellBusMsg:
-		m.handleEvent(msg.Event)
+		m.handleEvents(msg.Events)
 		return m, m.nextTick()
 	case shellTurnDoneMsg:
 		if cmd := m.finishTurn(msg.Reply, msg.Err); cmd != nil {
@@ -302,11 +301,11 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.acceptSuggestion()
 			m.syncLayout()
-			return *m, nil
+			return *m, m.takePendingCmd()
 		case "tab":
 			m.acceptSuggestion()
 			m.syncLayout()
-			return *m, nil
+			return *m, m.takePendingCmd()
 		case "down", "ctrl+n":
 			m.moveSuggestion(1)
 			return *m, nil
@@ -345,7 +344,7 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		m.cleanInput()
 		m.syncLayout()
-		return *m, cmd
+		return *m, tea.Batch(cmd, m.takePendingCmd())
 	}
 
 	switch msg.String() {
@@ -370,6 +369,12 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return *m, m.input.Focus()
 	}
 	return *m, nil
+}
+
+func (m *shellModel) takePendingCmd() tea.Cmd {
+	cmd := m.pendingCmd
+	m.pendingCmd = nil
+	return cmd
 }
 
 func (m *shellModel) submit() (tea.Model, tea.Cmd) {
@@ -454,6 +459,21 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 	}
 }
 
+func (m *shellModel) handleEvents(evs []bus.Event) {
+	if len(evs) == 0 {
+		return
+	}
+	m.deferSync = true
+	for _, ev := range evs {
+		m.handleEvent(ev)
+	}
+	m.deferSync = false
+	if m.syncDirty {
+		m.syncDirty = false
+		m.syncViewport()
+	}
+}
+
 func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 	m.busy = false
 	if err != nil {
@@ -466,6 +486,9 @@ func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 	reply = textutil.Valid(strings.TrimSpace(reply))
 	if !m.turn.commandHandled && !m.turn.streamed && reply != "" {
 		m.appendAssistant(reply)
+	}
+	if !m.turn.commandHandled && m.turn.streamed && reply != "" {
+		m.reconcileAssistant(reply)
 	}
 	m.turn = shellTurn{assistantIndex: -1}
 	return m.startQueued()
@@ -595,6 +618,18 @@ func assistantText(item *chatItem) string {
 		}
 	}
 	return b.String()
+}
+
+func (m *shellModel) reconcileAssistant(text string) {
+	if m.turn.assistantIndex < 0 || m.turn.assistantIndex >= len(m.items) {
+		return
+	}
+	item := m.items[m.turn.assistantIndex]
+	if item == nil || item.Kind != itemAssistant || assistantText(item) == text {
+		return
+	}
+	item.setText(text)
+	m.syncViewport()
 }
 
 func (m *shellModel) appendReasoning(text string) {
@@ -823,6 +858,10 @@ func (m *shellModel) composerHeight() int {
 }
 
 func (m *shellModel) syncViewport() {
+	if m.deferSync {
+		m.syncDirty = true
+		return
+	}
 	if m.viewport.Width <= 0 {
 		return
 	}

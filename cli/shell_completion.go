@@ -15,6 +15,7 @@ type completionKind int
 
 const (
 	completionCommand completionKind = iota
+	completionMention
 	completionFile
 	completionPersona
 )
@@ -49,7 +50,31 @@ func (m *shellModel) refreshSuggestions() tea.Cmd {
 	} else if cmd == nil {
 		m.clearSuggestions()
 	}
+	if m.refreshMentionSuggestions() {
+		m.clampSuggestion()
+		return nil
+	}
 	return cmd
+}
+
+func (m *shellModel) refreshMentionSuggestions() bool {
+	_, query, ok := mentionQuery(m.input.Value())
+	if !ok {
+		return false
+	}
+	q := strings.ToLower(query)
+	opts := []completionHint{
+		{Kind: completionMention, Value: "persona", Desc: "personas"},
+		{Kind: completionMention, Value: "files", Desc: "workspace files"},
+	}
+	out := opts[:0]
+	for _, h := range opts {
+		if q == "" || strings.HasPrefix(h.Value, q) {
+			out = append(out, h)
+		}
+	}
+	m.suggests = out
+	return true
 }
 
 func (m *shellModel) refreshPersonaSuggestions() bool {
@@ -106,9 +131,11 @@ func (m *shellModel) refreshFileSuggestions() tea.Cmd {
 	root := m.app.Workspace()
 	if !m.filesOK && !m.filesLoading {
 		m.filesLoading = true
+		m.suggests = nil
 		return loadWorkspaceFilesCmd(root)
 	}
 	if !m.filesOK {
+		m.suggests = nil
 		return nil
 	}
 	var out []completionHint
@@ -169,13 +196,14 @@ func fileQuery(input string) (head, query string, ok bool) {
 		return "", "", false
 	}
 	tail := input[i+1:]
-	if strings.ContainsAny(tail, " \t\r\n") {
+	if !strings.HasPrefix(tail, "files:") {
 		return "", "", false
 	}
-	if strings.HasPrefix(tail, "persona:") {
+	q := strings.TrimPrefix(tail, "files:")
+	if strings.ContainsAny(q, " \t\r\n") {
 		return "", "", false
 	}
-	return input[:i], tail, true
+	return input[:i], q, true
 }
 
 func personaQuery(input string) (head, query string, ok bool) {
@@ -192,6 +220,21 @@ func personaQuery(input string) (head, query string, ok bool) {
 		return "", "", false
 	}
 	return input[:i], q, true
+}
+
+func mentionQuery(input string) (head, query string, ok bool) {
+	i := strings.LastIndexByte(input, '@')
+	if i < 0 {
+		return "", "", false
+	}
+	tail := input[i+1:]
+	if tail == "" {
+		return input[:i], "", true
+	}
+	if strings.ContainsAny(tail, ": \t\r\n") {
+		return "", "", false
+	}
+	return input[:i], tail, true
 }
 
 func (m *shellModel) moveSuggestion(delta int) {
@@ -215,6 +258,9 @@ func (m *shellModel) acceptSuggestion() {
 	switch h.Kind {
 	case completionCommand:
 		m.input.SetValue("/" + h.Value + " ")
+	case completionMention:
+		head, _, _ := mentionQuery(m.input.Value())
+		m.input.SetValue(head + "@" + h.Value + ":")
 	case completionFile:
 		head, _, _ := fileQuery(m.input.Value())
 		m.input.SetValue(head + "@" + h.Value + " ")
