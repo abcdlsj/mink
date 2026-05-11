@@ -98,6 +98,8 @@ type shellModel struct {
 	suggestRows  int
 	files        []string
 	filesOK      bool
+	filesLoading bool
+	pendingCmd   tea.Cmd
 	sessions     []*session.Session
 	statusLine   string
 	turn         shellTurn
@@ -167,7 +169,11 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 }
 
 func (m shellModel) Init() tea.Cmd {
-	return tea.Batch(m.input.Focus(), shellTick(), m.statusLineCmd(true))
+	root := ""
+	if m.app != nil {
+		root = m.app.Workspace()
+	}
+	return tea.Batch(m.input.Focus(), shellTick(), m.statusLineCmd(true), loadWorkspaceFilesCmd(root))
 }
 
 func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -191,6 +197,14 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusLine = msg.Text
 		m.statusBusy = false
 		m.statusAt = time.Now()
+		return m, nil
+	case shellFilesLoadedMsg:
+		if m.app != nil && msg.Root == m.app.Workspace() {
+			m.files = msg.Files
+			m.filesOK = true
+			m.filesLoading = false
+			m.refreshSuggestions()
+		}
 		return m, nil
 	case shellBusMsg:
 		m.handleEvent(msg.Event)
@@ -219,6 +233,10 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		m.cleanInput()
 		m.syncLayout()
+		if m.pendingCmd != nil {
+			cmd = tea.Batch(cmd, m.pendingCmd)
+			m.pendingCmd = nil
+		}
 		return m, cmd
 	}
 	if m.focus == focusTranscript && m.overlay == overlayNone {
@@ -752,7 +770,9 @@ func (m *shellModel) syncLayout() {
 	if m.width <= 0 || m.height <= 0 {
 		return
 	}
-	m.refreshSuggestions()
+	if cmd := m.refreshSuggestions(); cmd != nil {
+		m.pendingCmd = tea.Batch(m.pendingCmd, cmd)
+	}
 	inWidth := max(20, m.width)
 	header := shellHeaderHeight
 	status := 1

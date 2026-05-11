@@ -178,6 +178,8 @@ func TestAtFileSuggestionsCanBeAccepted(t *testing.T) {
 	m := newShellModel(context.Background(), app, "cli")
 	m.width = 80
 	m.height = 24
+	m.files = listWorkspaceFiles(dir)
+	m.filesOK = true
 	m.input.SetValue("read @shell")
 	m.syncLayout()
 

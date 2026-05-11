@@ -5,7 +5,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+const fileSuggestionLimit = 2000
 
 type completionKind int
 
@@ -20,16 +24,27 @@ type completionHint struct {
 	Desc  string
 }
 
-func (m *shellModel) refreshSuggestions() {
+type shellFilesLoadedMsg struct {
+	Root  string
+	Files []string
+}
+
+func (m *shellModel) refreshSuggestions() tea.Cmd {
 	if m.focus != focusComposer || m.overlay != overlayNone || m.app == nil {
 		m.clearSuggestions()
-		return
+		return nil
 	}
-	if m.refreshCommandSuggestions() || m.refreshFileSuggestions() {
+	if m.refreshCommandSuggestions() {
 		m.clampSuggestion()
-		return
+		return nil
 	}
-	m.clearSuggestions()
+	cmd := m.refreshFileSuggestions()
+	if m.suggests != nil {
+		m.clampSuggestion()
+	} else if cmd == nil {
+		m.clearSuggestions()
+	}
+	return cmd
 }
 
 func (m *shellModel) refreshCommandSuggestions() bool {
@@ -52,14 +67,18 @@ func (m *shellModel) refreshCommandSuggestions() bool {
 	return true
 }
 
-func (m *shellModel) refreshFileSuggestions() bool {
+func (m *shellModel) refreshFileSuggestions() tea.Cmd {
 	head, query, ok := fileQuery(m.input.Value())
 	if !ok {
-		return false
+		return nil
+	}
+	root := m.app.Workspace()
+	if !m.filesOK && !m.filesLoading {
+		m.filesLoading = true
+		return loadWorkspaceFilesCmd(root)
 	}
 	if !m.filesOK {
-		m.files = listWorkspaceFiles(m.app.Workspace())
-		m.filesOK = true
+		return nil
 	}
 	var out []completionHint
 	q := strings.ToLower(query)
@@ -73,7 +92,13 @@ func (m *shellModel) refreshFileSuggestions() bool {
 		}
 	}
 	m.suggests = out
-	return true
+	return nil
+}
+
+func loadWorkspaceFilesCmd(root string) tea.Cmd {
+	return func() tea.Msg {
+		return shellFilesLoadedMsg{Root: root, Files: listWorkspaceFiles(root)}
+	}
 }
 
 func (m *shellModel) clearSuggestions() {
@@ -169,7 +194,7 @@ func listWorkspaceFiles(root string) []string {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			if skipFileDir(name) && path != root {
+			if path != root && skipFileDir(name) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -182,6 +207,9 @@ func listWorkspaceFiles(root string) []string {
 			return nil
 		}
 		out = append(out, filepath.ToSlash(rel))
+		if len(out) >= fileSuggestionLimit {
+			return filepath.SkipAll
+		}
 		return nil
 	})
 	sort.Strings(out)
@@ -189,8 +217,13 @@ func listWorkspaceFiles(root string) []string {
 }
 
 func skipFileDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
 	switch name {
-	case ".git", ".hg", ".svn", ".idea", ".vscode", "node_modules", "vendor", "dist", "build", "target", ".next", ".turbo":
+	case "node_modules", "vendor", "dist", "build", "target",
+		"Library", "Applications", "Downloads", "Music", "Movies", "Pictures", "Public",
+		"go", "venv", ".venv", "__pycache__":
 		return true
 	default:
 		return false
