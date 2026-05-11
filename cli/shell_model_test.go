@@ -232,6 +232,10 @@ func TestAtPersonaSuggestionsList(t *testing.T) {
 	if got := m.input.Value(); got != "@tshoot " {
 		t.Fatalf("input = %q, want @tshoot ", got)
 	}
+	m.syncLayout()
+	if len(m.suggests) != 0 {
+		t.Fatalf("suggests after accept should be empty, got %#v", m.suggests)
+	}
 }
 
 func TestRenderSuggestionsScrollsPastWindow(t *testing.T) {

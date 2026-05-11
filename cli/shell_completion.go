@@ -164,7 +164,6 @@ func commandQuery(input string) (string, bool) {
 }
 
 func fileQuery(input string) (head, query string, ok bool) {
-	input = strings.TrimRight(input, " \t\r\n")
 	i := strings.LastIndexByte(input, '@')
 	if i < 0 {
 		return "", "", false
@@ -180,7 +179,6 @@ func fileQuery(input string) (head, query string, ok bool) {
 }
 
 func personaQuery(input string) (head, query string, ok bool) {
-	input = strings.TrimRight(input, " \t\r\n")
 	i := strings.LastIndexByte(input, '@')
 	if i < 0 {
 		return "", "", false
