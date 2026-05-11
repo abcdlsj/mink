@@ -14,6 +14,7 @@ import (
 	pluginscollab "github.com/abcdlsj/sumi/plugins/collab"
 	pluginscron "github.com/abcdlsj/sumi/plugins/cron"
 	pluginsmemory "github.com/abcdlsj/sumi/plugins/memory"
+	pluginspersona "github.com/abcdlsj/sumi/plugins/persona"
 	pluginssearch "github.com/abcdlsj/sumi/plugins/search"
 	pluginssessioncmd "github.com/abcdlsj/sumi/plugins/sessioncmd"
 	pluginstelegram "github.com/abcdlsj/sumi/plugins/telegram"
@@ -58,6 +59,7 @@ func plugins() []app.Plugin {
 		pluginscron.Plugin(),
 		pluginscodex.Plugin(),
 		pluginsmemory.Plugin(),
+		pluginspersona.Plugin(),
 		pluginssearch.Plugin(),
 		pluginssessioncmd.Plugin(),
 		pluginstelegram.Plugin(),

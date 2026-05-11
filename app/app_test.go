@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/persona"
 )
 
 func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
@@ -370,4 +371,110 @@ type runtimeFunc func(context.Context, *agent.Turn) error
 
 func (f runtimeFunc) Run(ctx context.Context, turn *agent.Turn) error {
 	return f(ctx, turn)
+}
+
+func TestMentionReroutesToPersona(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("debug", persona.Meta{Runtime: "stub", Description: "bug hunter"}, "# Debug SOUL"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotInput string
+	var gotPersona *agent.Persona
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		gotPersona = env.Persona
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+
+	out, err := a.HandleInput(context.Background(), "cli", "@debug 看看这个报错")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "ok" {
+		t.Fatalf("out = %q", out)
+	}
+	if gotInput != "看看这个报错" {
+		t.Fatalf("input = %q, want stripped", gotInput)
+	}
+	if gotPersona == nil || gotPersona.ID != "debug" {
+		t.Fatalf("persona = %#v, want debug", gotPersona)
+	}
+}
+
+func TestHandleInputAsMissingPersona(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error { return nil }), nil
+	})
+
+	if _, err := a.HandleInputAs(context.Background(), "cli", "ghost", "hi"); err == nil {
+		t.Fatal("expected error for missing persona")
+	}
+}
+
+func TestPersonaEnvWiresSoulAndRuntime(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "fallback",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("reviewer", persona.Meta{Runtime: "stub"}, "stay critical"); err != nil {
+		t.Fatal(err)
+	}
+
+	var env *agent.RuntimeEnv
+	a.RegisterRuntime("stub", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		env = e
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("fallback", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatalf("fallback runtime should not be invoked for persona with explicit runtime")
+		return nil, nil
+	})
+
+	if _, err := a.HandleInputAs(context.Background(), "cli", "reviewer", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	if env == nil || env.Persona == nil {
+		t.Fatal("persona env not populated")
+	}
+	if env.Persona.ID != "reviewer" {
+		t.Fatalf("persona id = %q", env.Persona.ID)
+	}
+	if env.Persona.SoulPath == "" {
+		t.Fatal("persona SoulPath empty")
+	}
 }

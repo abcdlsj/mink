@@ -1,13 +1,19 @@
 package memory
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
+
+	"github.com/abcdlsj/sumi/command"
 )
 
-func (s *store) resolveReadScope(src, kind, key string) scope {
+func (s *store) resolveReadScope(ctx context.Context, src, kind, key string) scope {
 	if strings.TrimSpace(kind) != "" {
-		return s.scope(src, kind, key)
+		return s.scope(ctx, src, kind, key)
+	}
+	if p := command.PersonaFrom(ctx); p != "" {
+		return scope{Kind: "persona", Key: p}
 	}
 	if strings.TrimSpace(src) != "" {
 		return scope{Kind: "channel", Key: strings.TrimSpace(src)}
@@ -18,15 +24,18 @@ func (s *store) resolveReadScope(src, kind, key string) scope {
 	return scope{Kind: "global", Key: ""}
 }
 
-func (s *store) resolveWriteScope(src, kind, key string) scope {
-	return s.resolveReadScope(src, kind, key)
+func (s *store) resolveWriteScope(ctx context.Context, src, kind, key string) scope {
+	return s.resolveReadScope(ctx, src, kind, key)
 }
 
-func (s *store) resolveSearchScopes(src, kind, key string) []scope {
+func (s *store) resolveSearchScopes(ctx context.Context, src, kind, key string) []scope {
 	if strings.TrimSpace(kind) != "" {
-		return []scope{s.scope(src, kind, key)}
+		return []scope{s.scope(ctx, src, kind, key)}
 	}
 	var out []scope
+	if p := command.PersonaFrom(ctx); p != "" {
+		out = append(out, scope{Kind: "persona", Key: p})
+	}
 	if strings.TrimSpace(src) != "" {
 		out = append(out, scope{Kind: "channel", Key: strings.TrimSpace(src)})
 	}
@@ -37,11 +46,11 @@ func (s *store) resolveSearchScopes(src, kind, key string) []scope {
 	return out
 }
 
-func (s *store) scope(src, kind, key string) scope {
-	return resolveScope(src, kind, key, s.workspace)
+func (s *store) scope(ctx context.Context, src, kind, key string) scope {
+	return resolveScope(ctx, src, kind, key, s.workspace)
 }
 
-func resolveScope(src, kind, key, workspace string) scope {
+func resolveScope(ctx context.Context, src, kind, key, workspace string) scope {
 	kind = strings.TrimSpace(kind)
 	key = strings.TrimSpace(key)
 	switch kind {
@@ -51,6 +60,8 @@ func resolveScope(src, kind, key, workspace string) scope {
 		return scope{Kind: "workspace", Key: blank(key, workspace)}
 	case "channel":
 		return scope{Kind: "channel", Key: blank(key, src)}
+	case "persona":
+		return scope{Kind: "persona", Key: blank(key, command.PersonaFrom(ctx))}
 	default:
 		return scope{Kind: blank(kind, "custom"), Key: key}
 	}

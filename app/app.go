@@ -9,6 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/skill"
 	"github.com/abcdlsj/sumi/store"
@@ -30,6 +31,7 @@ type App struct {
 	cmds     *command.Registry
 	router   *command.Router
 	skills   *skill.Loader
+	personas *persona.Registry
 	runtimes map[string]agent.RuntimeFactory
 	entries  map[string]Entrypoint
 	services map[string]Service
@@ -58,6 +60,10 @@ func New(cfg config.Config) (*App, error) {
 	})
 	a.router = command.NewRouter(a.cmds)
 	a.skills = skill.NewLoader(cfg.Workspace)
+	a.personas = persona.NewRegistry(cfg.PersonasDir())
+	if err := a.personas.Load(); err != nil {
+		return nil, err
+	}
 	skill.RegisterTools(a.tools, a.skills)
 	a.provider, err = newProvider(cfg)
 	if err != nil {

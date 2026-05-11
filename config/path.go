@@ -29,6 +29,10 @@ func (c Config) CollabTeamsPath() string {
 	return filepath.Join(c.DataRoot(), "collab", "teams.json")
 }
 
+func (c Config) PersonasDir() string {
+	return filepath.Join(c.DataRoot(), "personas")
+}
+
 func (c Config) ResolvedSoulPath() string {
 	if path := strings.TrimSpace(c.SoulPath); path != "" {
 		return path

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,31 +13,51 @@ import (
 )
 
 func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {
-	return a.handleInput(ctx, source, a.cfg.Runtime, input)
+	return a.handleInput(ctx, source, "", a.cfg.Runtime, input)
 }
 
 func (a *App) HandleInputWithRuntime(ctx context.Context, source, runtime, input string) (string, error) {
-	return a.handleInput(ctx, source, runtime, input)
+	return a.handleInput(ctx, source, "", runtime, input)
 }
 
-func (a *App) handleInput(ctx context.Context, source, runtime, input string) (string, error) {
+func (a *App) HandleInputAs(ctx context.Context, source, personaID, input string) (string, error) {
+	p := a.personas.Get(personaID)
+	if p == nil {
+		return "", fmt.Errorf("persona not found: %s", personaID)
+	}
+	rt := p.Runtime
+	if rt == "" {
+		rt = a.cfg.Runtime
+	}
+	return a.handleInput(ctx, source, p.ID, rt, input)
+}
+
+func (a *App) handleInput(ctx context.Context, source, personaID, runtime, input string) (string, error) {
 	return inputFlow{
-		app:     a,
-		source:  source,
-		runtime: runtime,
-		input:   input,
+		app:       a,
+		source:    source,
+		personaID: personaID,
+		runtime:   runtime,
+		input:     input,
 	}.run(ctx)
 }
 
 type inputFlow struct {
-	app     *App
-	source  string
-	runtime string
-	input   string
+	app       *App
+	source    string
+	personaID string
+	runtime   string
+	input     string
 }
 
 func (f inputFlow) run(ctx context.Context) (string, error) {
 	ctx = command.WithSource(ctx, f.source)
+	if f.personaID != "" {
+		ctx = command.WithPersona(ctx, f.personaID)
+	}
+	if out, ok, err := f.mention(ctx); ok {
+		return out, err
+	}
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
@@ -55,7 +76,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err := f.app.autoCompact(ctx, f.source, f.runtime, s); err != nil {
 		return "", err
 	}
-	rt, err := f.app.newRuntime(f.runtime)
+	rt, err := f.app.newRuntimeFor(f.runtime, f.app.personas.Get(f.personaID))
 	if err != nil {
 		return "", err
 	}
@@ -78,6 +99,44 @@ func (f inputFlow) route(ctx context.Context) (string, bool, error) {
 		f.publishCommandHandled(out, err)
 	}
 	return out, ok, err
+}
+
+func (f inputFlow) mention(ctx context.Context) (string, bool, error) {
+	if f.personaID != "" {
+		return "", false, nil
+	}
+	id, rest, ok := parseMention(f.input)
+	if !ok {
+		return "", false, nil
+	}
+	p := f.app.personas.Get(id)
+	if p == nil {
+		return "", false, nil
+	}
+	out, err := f.app.HandleInputAs(ctx, f.source, p.ID, rest)
+	return out, true, err
+}
+
+func parseMention(input string) (string, string, bool) {
+	s := strings.TrimSpace(input)
+	if !strings.HasPrefix(s, "@") {
+		return "", "", false
+	}
+	rest := s[1:]
+	idEnd := 0
+	for idEnd < len(rest) {
+		c := rest[idEnd]
+		if c == ' ' || c == '\t' || c == '\n' {
+			break
+		}
+		idEnd++
+	}
+	id := rest[:idEnd]
+	body := strings.TrimSpace(rest[idEnd:])
+	if id == "" {
+		return "", "", false
+	}
+	return id, body, true
 }
 
 func (f inputFlow) publishCommandHandled(out string, err error) {

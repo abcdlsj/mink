@@ -28,7 +28,7 @@ func (t *readTool) Run(ctx context.Context, args json.RawMessage) (string, error
 		return "", err
 	}
 	limit := defaultLimit(in.Limit, 3)
-	sc := t.s.resolveReadScope(command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	sc := t.s.resolveReadScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
 	docs, err := t.s.recent(ctx, sc, limit)
 	if err != nil {
 		return "", err
@@ -59,7 +59,7 @@ func (t *searchTool) Run(ctx context.Context, args json.RawMessage) (string, err
 		return "", fmt.Errorf("query is required")
 	}
 	limit := defaultLimit(in.Limit, 5)
-	scopes := t.s.resolveSearchScopes(command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	scopes := t.s.resolveSearchScopes(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
 	docs, err := t.s.search(ctx, scopes, in.Query, limit)
 	if err != nil {
 		return "", err
@@ -92,7 +92,7 @@ func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Body) == "" {
 		return "", fmt.Errorf("title and body are required")
 	}
-	sc := t.s.resolveWriteScope(command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
 	d, err := t.s.put(ctx, sc, doc{
 		Title:   strings.TrimSpace(in.Title),
 		Body:    strings.TrimSpace(in.Body),

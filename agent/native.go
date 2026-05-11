@@ -29,6 +29,14 @@ type RuntimeEnv struct {
 	Prompt               string
 	TelegramMentionMode  string
 	TelegramSessionScope string
+	Persona              *Persona
+}
+
+type Persona struct {
+	ID          string
+	Display     string
+	Description string
+	SoulPath    string
 }
 
 type Turn struct {

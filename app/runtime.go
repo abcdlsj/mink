@@ -9,6 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
 
@@ -38,6 +39,19 @@ func (a *App) runtimeEnv() *agent.RuntimeEnv {
 	}
 }
 
+func (a *App) runtimeEnvFor(p *persona.Persona) *agent.RuntimeEnv {
+	env := a.runtimeEnv()
+	if p != nil {
+		env.Persona = &agent.Persona{
+			ID:          p.ID,
+			Display:     p.Display,
+			Description: p.Description,
+			SoulPath:    p.SoulPath,
+		}
+	}
+	return env
+}
+
 func (a *App) runtimeFactory(name string) agent.RuntimeFactory {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -49,12 +63,12 @@ func (a *App) runtimeFactory(name string) agent.RuntimeFactory {
 	return a.runtimes["native"]
 }
 
-func (a *App) newRuntime(name string) (agent.Runtime, error) {
+func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, error) {
 	f := a.runtimeFactory(name)
 	if f == nil {
 		return nil, fmt.Errorf("runtime not found: %s", name)
 	}
-	return f(a.runtimeEnv())
+	return f(a.runtimeEnvFor(p))
 }
 
 func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, s *session.Session) error {

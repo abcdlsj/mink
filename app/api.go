@@ -5,6 +5,7 @@ import (
 
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/store"
 	"github.com/abcdlsj/sumi/tool"
@@ -12,6 +13,10 @@ import (
 
 func (a *App) Workspace() string {
 	return a.cfg.Workspace
+}
+
+func (a *App) Personas() *persona.Registry {
+	return a.personas
 }
 
 func (a *App) CurrentModel() string {

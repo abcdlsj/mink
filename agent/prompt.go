@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -34,6 +35,7 @@ type promptBuilder struct {
 func (b promptBuilder) system() string {
 	var p promptSections
 	p.Add(b.base())
+	p.Add(b.persona())
 	p.Add(b.context())
 	p.Add(b.soul())
 	p.Add(b.telegram())
@@ -50,6 +52,28 @@ func (b promptBuilder) base() string {
 	}, "\n")
 }
 
+func (b promptBuilder) persona() string {
+	if b.env == nil || b.env.Persona == nil {
+		return ""
+	}
+	p := b.env.Persona
+	lines := []string{fmt.Sprintf("Persona: %s (id=%s).", blankString(p.Display, p.ID), p.ID)}
+	if strings.TrimSpace(p.Description) != "" {
+		lines = append(lines, "Role: "+strings.TrimSpace(p.Description))
+	}
+	lines = append(lines,
+		"Stay in character. When the chat is a group, reply only when @mentioned; otherwise output exactly NO_REPLY.",
+	)
+	return strings.Join(lines, "\n")
+}
+
+func blankString(s, fallback string) string {
+	if strings.TrimSpace(s) == "" {
+		return strings.TrimSpace(fallback)
+	}
+	return strings.TrimSpace(s)
+}
+
 func (b promptBuilder) context() string {
 	var lines []string
 	if b.env != nil && strings.TrimSpace(b.env.Workspace) != "" {
@@ -64,6 +88,11 @@ func (b promptBuilder) context() string {
 func (b promptBuilder) soul() string {
 	if b.env == nil {
 		return ""
+	}
+	if b.env.Persona != nil {
+		if v := loadSoulPrompt(b.env.Persona.SoulPath); v != "" {
+			return v
+		}
 	}
 	return loadSoulPrompt(b.env.SoulPath)
 }
