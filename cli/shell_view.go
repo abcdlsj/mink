@@ -258,6 +258,9 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 	if item == nil {
 		return nil
 	}
+	if item.Kind == itemAssistant {
+		return m.renderAssistantItem(item, idx)
+	}
 	lines := m.renderItemLead(item, idx)
 	hasBody := false
 	add := func(seg []string) {
@@ -293,6 +296,68 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 		add(m.renderExpanded(item))
 	}
 	return lines
+}
+
+func (m shellModel) renderAssistantItem(item *chatItem, idx int) []string {
+	var lines []string
+	hasBody := false
+	add := func(seg []string) {
+		if len(seg) == 0 {
+			return
+		}
+		if hasBody {
+			lines = append(lines, "")
+		}
+		lines = append(lines, seg...)
+		hasBody = true
+	}
+	for _, seg := range item.Segments {
+		if seg.Kind == segReasoning {
+			add(m.renderReasoningSegment(seg, idx))
+		}
+	}
+	if text := itemText(item); text != "" {
+		add(m.renderTextSegment(item, chatSegment{Kind: segText, Text: text}, idx))
+	}
+	tools := visibleTools(item)
+	if len(tools) > 0 {
+		add(m.renderToolRun(tools, idx == m.selected))
+	}
+	if m.expanded == idx {
+		add(m.renderExpanded(item))
+	}
+	return lines
+}
+
+func itemText(item *chatItem) string {
+	if item == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, seg := range item.Segments {
+		if seg.Kind == segText {
+			b.WriteString(seg.Text)
+		}
+	}
+	return textutil.Valid(b.String())
+}
+
+func visibleTools(item *chatItem) []chatSegment {
+	if item == nil {
+		return nil
+	}
+	hasText := strings.TrimSpace(itemText(item)) != ""
+	out := make([]chatSegment, 0, len(item.Segments))
+	for _, seg := range item.Segments {
+		if seg.Kind != segTool {
+			continue
+		}
+		if hasText && seg.Status != "running" {
+			continue
+		}
+		out = append(out, seg)
+	}
+	return out
 }
 
 func (m shellModel) renderToolLine(seg chatSegment, selected bool) string {

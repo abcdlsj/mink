@@ -144,6 +144,21 @@ func TestSubmitQueuesWhileBusy(t *testing.T) {
 	}
 }
 
+func TestSubmitStripsTerminalStatusResponses(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.busy = true
+	m.input.SetValue("\x1b]11;rgb:1515/1111/1010\x1b\\]11;rgb:1515/1111/1010\\你好\x1b[24;1R")
+
+	next, cmd := m.submit()
+	got := next.(shellModel)
+	if cmd != nil {
+		t.Fatal("busy submit returned command")
+	}
+	if len(got.queue) != 1 || got.queue[0] != "你好" {
+		t.Fatalf("queue = %#v, want 你好", got.queue)
+	}
+}
+
 func TestAtFileSuggestionsCanBeAccepted(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "cli"), 0o755); err != nil {

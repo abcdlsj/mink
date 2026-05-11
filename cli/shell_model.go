@@ -88,19 +88,19 @@ type shellModel struct {
 	viewport viewport.Model
 	input    textarea.Model
 
-	items       []*chatItem
-	spans       []shellSpan
-	toolItems   map[string]shellToolRef
+	items        []*chatItem
+	spans        []shellSpan
+	toolItems    map[string]shellToolRef
 	approvals    []*approvalRequest
 	approvalPick int
 	queue        []string
-	suggests    []completionHint
-	suggestRows int
-	files       []string
-	filesOK     bool
-	sessions    []*session.Session
-	statusLine  string
-	turn        shellTurn
+	suggests     []completionHint
+	suggestRows  int
+	files        []string
+	filesOK      bool
+	sessions     []*session.Session
+	statusLine   string
+	turn         shellTurn
 
 	focus      shellFocus
 	overlay    shellOverlay
@@ -141,6 +141,12 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 	in.BlurredStyle.Placeholder = shellTheme.TextMuted
 	in.FocusedStyle.CursorLine = shellTheme.Text
 	in.BlurredStyle.CursorLine = shellTheme.TextMuted
+	in.FocusedStyle.CursorLineNumber = shellTheme.TextMuted
+	in.BlurredStyle.CursorLineNumber = shellTheme.TextMuted
+	in.FocusedStyle.EndOfBuffer = shellTheme.TextMuted
+	in.BlurredStyle.EndOfBuffer = shellTheme.TextMuted
+	in.FocusedStyle.LineNumber = shellTheme.TextMuted
+	in.BlurredStyle.LineNumber = shellTheme.TextMuted
 
 	vp := viewport.New(0, 0)
 	vp.MouseWheelEnabled = false
@@ -211,6 +217,7 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	if m.focus == focusComposer && m.overlay == overlayNone {
 		m.input, cmd = m.input.Update(msg)
+		m.cleanInput()
 		m.syncLayout()
 		return m, cmd
 	}
@@ -318,6 +325,7 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
+		m.cleanInput()
 		m.syncLayout()
 		return *m, cmd
 	}
@@ -347,7 +355,8 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *shellModel) submit() (tea.Model, tea.Cmd) {
-	text := textutil.Valid(strings.TrimSpace(m.input.Value()))
+	m.cleanInput()
+	text := textutil.Valid(strings.TrimSpace(cleanTerminalInput(m.input.Value())))
 	if text == "" {
 		return *m, nil
 	}
@@ -448,7 +457,7 @@ func (m *shellModel) startQueued() tea.Cmd {
 	for len(m.queue) > 0 {
 		text := m.queue[0]
 		m.queue = m.queue[1:]
-		text = textutil.Valid(strings.TrimSpace(text))
+		text = textutil.Valid(strings.TrimSpace(cleanTerminalInput(text)))
 		if text == "" {
 			continue
 		}

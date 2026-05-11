@@ -171,8 +171,34 @@ func TestRenderItemAddsSingleGapBetweenSegments(t *testing.T) {
 	}
 
 	lines := ansi.Strip(strings.Join(m.renderItem(item, 0), "\n"))
-	if got := strings.Count(lines, "\n\n"); got != 1 {
-		t.Fatalf("segment gaps = %d, want 1:\n%s", got, lines)
+	if strings.Contains(lines, "ran") || strings.Contains(lines, "bash") {
+		t.Fatalf("completed tool leaked into assistant body:\n%s", lines)
+	}
+	if !strings.Contains(lines, "done") {
+		t.Fatalf("assistant text missing:\n%s", lines)
+	}
+}
+
+func TestRenderAssistantKeepsFailedToolsOutOfBody(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 80
+	item := &chatItem{
+		Kind: itemAssistant,
+		Segments: []chatSegment{
+			{Kind: segReasoning, Text: "先想"},
+			{Kind: segTool, Tool: "read", Text: "read self", Status: "failed", Detail: "no file"},
+			{Kind: segText, Text: "看起来我的自我目录尚未初始化。"},
+			{Kind: segTool, Tool: "bash", Text: "mkdir self", Status: "failed", Detail: "denied"},
+			{Kind: segText, Text: "你好！我是 Sumi。"},
+		},
+	}
+
+	out := ansi.Strip(strings.Join(m.renderItem(item, 0), "\n"))
+	if strings.Contains(out, "failed") || strings.Contains(out, "read self") || strings.Contains(out, "mkdir self") {
+		t.Fatalf("failed tool leaked into assistant body:\n%s", out)
+	}
+	if !strings.Contains(out, "看起来我的自我目录尚未初始化。你好！我是 Sumi。") {
+		t.Fatalf("assistant text was not kept together:\n%s", out)
 	}
 }
 
