@@ -18,6 +18,9 @@ func renderMarkdown(text string, width int) []string {
 	if text == "" {
 		return nil
 	}
+	if hasMarkdownTable(text) {
+		return wrapDisplay(text, width)
+	}
 	if width < 12 {
 		return wrapDisplay(text, width)
 	}
@@ -95,6 +98,39 @@ func indentLines(lines []string, prefix string) []string {
 		out = append(out, prefix+line)
 	}
 	return out
+}
+
+func indentBlock(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func hasMarkdownTable(s string) bool {
+	lines := strings.Split(textutil.Valid(s), "\n")
+	for i := 0; i+1 < len(lines); i++ {
+		if strings.Contains(lines[i], "|") && markdownTableSep(lines[i+1]) {
+			return true
+		}
+	}
+	return false
+}
+
+func markdownTableSep(s string) bool {
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, "|") || !strings.Contains(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		switch r {
+		case '|', ':', '-', ' ':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func ptr(s string) *string {

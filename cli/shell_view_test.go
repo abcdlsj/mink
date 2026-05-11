@@ -123,6 +123,25 @@ func TestViewKeepsHeaderFactsWithSuggestions(t *testing.T) {
 	requireHeaderFacts(t, m, "with suggestions")
 }
 
+func TestTranscriptUsesSameOuterIndent(t *testing.T) {
+	m := newShellModel(context.Background(), fakeShellApp{}, "cli")
+	m.width = 48
+	m.height = 10
+	m.syncLayout()
+	m.addTextItem(itemUser, "你是什么模型", time.Now())
+
+	out := ansi.Strip(m.renderTranscript())
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "  ") {
+			t.Fatalf("transcript line missing outer indent: %q\n%s", line, out)
+		}
+		break
+	}
+}
+
 func TestRenderItemKeepsUserMessageCompact(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.viewport.Width = 48

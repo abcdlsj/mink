@@ -80,11 +80,16 @@ var shellTheme = struct {
 var shellSpin = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 const shellContentMaxWidth = 100
+const shellContentIndent = 2
 
 func (m shellModel) contentWidth() int {
 	w := m.viewport.Width
 	if w <= 0 {
 		w = m.width
+	}
+	w -= shellContentIndent
+	if w < 1 {
+		w = 1
 	}
 	if w > shellContentMaxWidth {
 		return shellContentMaxWidth
@@ -108,6 +113,8 @@ func (m shellModel) renderTranscript() string {
 	body := m.viewport.View()
 	if strings.TrimSpace(body) == "" {
 		body = ""
+	} else {
+		body = indentBlock(body, strings.Repeat(" ", shellContentIndent))
 	}
 	return shellTheme.Panel.Width(m.width).Height(m.viewport.Height).Render(body)
 }
@@ -376,7 +383,7 @@ func (m shellModel) renderToolLine(seg chatSegment, selected bool) string {
 		label = shellTheme.Error.Render(" failed ")
 	}
 	head := icon + label + shellTheme.Chip.Render(name)
-	width := max(20, m.viewport.Width)
+	width := max(20, m.contentWidth())
 	room := max(16, width-lipgloss.Width(head)-4)
 	body := textutil.Preview(seg.Text, room)
 	line := head + shellTheme.TextMuted.Render("  "+body)
@@ -428,7 +435,7 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 		label = fmt.Sprintf(" running %d tools ", running)
 	}
 	headText := icon + shellTheme.TextMuted.Render(label)
-	room := max(18, m.viewport.Width-lipgloss.Width(headText)-4)
+	room := max(18, m.contentWidth()-lipgloss.Width(headText)-4)
 	line := headText + shellTheme.TextMuted.Render(textutil.Preview(strings.Join(parts, " · "), room))
 	if selected {
 		line = m.selectedLine(line)
