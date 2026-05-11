@@ -72,6 +72,7 @@ func (o *openAI) buildRequest(msgs []msg.Message, tools []Tool) openai.ChatCompl
 }
 
 func toOpenAIMessages(msgs []msg.Message) []openai.ChatCompletionMessage {
+	msgs = repairToolPairs(msgs)
 	var out []openai.ChatCompletionMessage
 	for _, m := range msgs {
 		if m.Role == "tool" && len(m.ToolResults) > 0 {

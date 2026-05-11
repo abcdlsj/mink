@@ -81,6 +81,42 @@ func TestHandleMessageMergesAssistantSnapshots(t *testing.T) {
 	}
 }
 
+func TestFlushFillsMissingToolResults(t *testing.T) {
+	turn := &agent.Turn{Source: "test", Session: session.New("test")}
+	st := &runState{calls: map[string]toolCallState{}}
+
+	handleMessage("test", turn, st, &Message{Type: MsgToolCall, ToolID: "a", ToolName: "bash", ToolArgs: "{}"})
+	handleMessage("test", turn, st, &Message{Type: MsgToolCall, ToolID: "b", ToolName: "read", ToolArgs: "{}"})
+	handleMessage("test", turn, st, &Message{Type: MsgToolResult, ToolID: "a", Text: "ok"})
+	st.flush(turn.Session)
+
+	var assistant, tool msg.Message
+	for _, m := range turn.Session.Messages {
+		if m.Role == "assistant" {
+			assistant = m
+		}
+		if m.Role == "tool" {
+			tool = m
+		}
+	}
+	if len(assistant.ToolCalls) != 2 {
+		t.Fatalf("assistant tool_calls = %d, want 2", len(assistant.ToolCalls))
+	}
+	if len(tool.ToolResults) != 2 {
+		t.Fatalf("tool results = %d, want 2: %+v", len(tool.ToolResults), tool.ToolResults)
+	}
+	ids := map[string]string{}
+	for _, tr := range tool.ToolResults {
+		ids[tr.ToolCallID] = tr.Content
+	}
+	if ids["a"] != "ok" {
+		t.Fatalf("a content = %q", ids["a"])
+	}
+	if ids["b"] == "" || ids["b"] == "ok" {
+		t.Fatalf("b filler missing or wrong: %q", ids["b"])
+	}
+}
+
 func TestHandleMessagePublishesThinking(t *testing.T) {
 	b := bus.New()
 	evs, cancel := b.Subscribe(8)

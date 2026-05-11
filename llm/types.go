@@ -100,6 +100,41 @@ func assistantToolCallReplayContent() string {
 	return " "
 }
 
+func repairToolPairs(msgs []msg.Message) []msg.Message {
+	out := make([]msg.Message, 0, len(msgs))
+	for i := 0; i < len(msgs); i++ {
+		m := msgs[i]
+		out = append(out, m)
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		seen := map[string]bool{}
+		j := i + 1
+		for ; j < len(msgs); j++ {
+			next := msgs[j]
+			if next.Role != "tool" {
+				break
+			}
+			for _, tr := range next.ToolResults {
+				seen[tr.ToolCallID] = true
+			}
+		}
+		var missing []msg.ToolResult
+		for _, tc := range m.ToolCalls {
+			if !seen[tc.ID] {
+				missing = append(missing, msg.ToolResult{
+					ToolCallID: tc.ID,
+					Content:    "(no result captured; run ended before the tool reported back)",
+				})
+			}
+		}
+		if len(missing) > 0 {
+			out = append(out, msg.Message{Role: "tool", ToolResults: missing})
+		}
+	}
+	return out
+}
+
 func toolResultContent(tr msg.ToolResult) string {
 	if tr.Content != "" {
 		return tr.Content

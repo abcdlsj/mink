@@ -12,7 +12,7 @@ func (p *anthropicProvider) buildRequest(msgs []msg.Message, tools []Tool) anthr
 		Model:     anthropic.Model(p.model),
 		MaxTokens: int64(p.cfg.MaxTokens),
 	}
-	for _, m := range msgs {
+	for _, m := range repairToolPairs(msgs) {
 		if m.Role == "system" {
 			params.System = []anthropic.TextBlockParam{{
 				Type: "text",

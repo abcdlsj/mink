@@ -167,12 +167,13 @@ func (s *runState) toolResults() []msg.ToolResult {
 	out := make([]msg.ToolResult, 0, len(s.calls))
 	for _, id := range s.stableIDs() {
 		call := s.calls[id]
-		if call.out == "" {
-			continue
+		content := call.out
+		if content == "" {
+			content = "(no result captured; run ended before the tool reported back)"
 		}
 		out = append(out, msg.ToolResult{
 			ToolCallID: id,
-			Content:    call.out,
+			Content:    content,
 		})
 	}
 	return out

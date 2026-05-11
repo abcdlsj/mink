@@ -24,6 +24,7 @@ func (o *openRouter) buildRequest(msgs []msg.Message, tools []Tool) openrouter.C
 }
 
 func toOpenRouterMessages(msgs []msg.Message) []openrouter.ChatCompletionMessage {
+	msgs = repairToolPairs(msgs)
 	var out []openrouter.ChatCompletionMessage
 	for _, m := range msgs {
 		if m.Role == "tool" && len(m.ToolResults) > 0 {
