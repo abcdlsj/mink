@@ -70,7 +70,7 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	src := source(cfg.SessionScope, msg.Chat.ID, msg.ThreadID)
 	if out, ok, err := handleTelegramCommand(a, src, text); ok {
 		if err != nil {
-			return c.Send("error: " + err.Error())
+			return c.Send(userError(err))
 		}
 		return c.Send(out)
 	}
@@ -80,7 +80,7 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	out, err := a.HandleInput(ctx, src, stripMention(bot.Me.Username, text))
 	close(done)
 	if err != nil {
-		return c.Send("error: " + err.Error())
+		return c.Send(userError(err))
 	}
 	if strings.TrimSpace(out) == "" {
 		out = "ok"

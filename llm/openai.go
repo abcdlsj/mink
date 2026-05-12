@@ -47,6 +47,17 @@ func (o *openAI) Chat(ctx context.Context, msgs []msg.Message, tools []Tool) (*R
 }
 
 func wrapOpenAIErr(err error) error {
+	var ae *openai.APIError
+	if errors.As(err, &ae) {
+		msg := strings.TrimSpace(ae.Message)
+		if msg == "" {
+			msg = strings.TrimSpace(ae.HTTPStatus)
+		}
+		if msg == "" {
+			msg = http.StatusText(ae.HTTPStatusCode)
+		}
+		return fmt.Errorf("%s (HTTP %d)", msg, ae.HTTPStatusCode)
+	}
 	var re *openai.RequestError
 	if errors.As(err, &re) {
 		body := strings.TrimSpace(string(re.Body))

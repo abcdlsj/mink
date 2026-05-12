@@ -32,7 +32,7 @@ func (o *openAI) ChatStream(ctx context.Context, msgs []msg.Message, tools []Too
 			if err != nil {
 				if err != io.EOF {
 					select {
-					case ch <- Chunk{Type: ChunkError, Error: err}:
+					case ch <- Chunk{Type: ChunkError, Error: wrapOpenAIErr(err)}:
 					case <-ctx.Done():
 					}
 				}
