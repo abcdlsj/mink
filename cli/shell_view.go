@@ -298,7 +298,7 @@ func (m shellModel) renderItem(item *chatItem, idx int) []string {
 			add(m.renderTextSegment(item, item.Segments[i], idx))
 			i++
 		case segReasoning:
-			add(m.renderReasoningSegment(item.Segments[i], idx))
+			add(m.renderReasoningSegment(item.Segments[i].Text, idx))
 			i++
 		case segTool:
 			j := i + 1
@@ -330,10 +330,8 @@ func (m shellModel) renderAssistantItem(item *chatItem, idx int) []string {
 		lines = append(lines, seg...)
 		hasBody = true
 	}
-	for _, seg := range item.Segments {
-		if seg.Kind == segReasoning {
-			add(m.renderReasoningSegment(seg, idx))
-		}
+	if text := reasoningText(item); text != "" {
+		add(m.renderReasoningSegment(text, idx))
 	}
 	if text := itemText(item); text != "" {
 		add(m.renderTextSegment(item, chatSegment{Kind: segText, Text: text}, idx))
@@ -538,8 +536,24 @@ func (m shellModel) renderTextSegment(item *chatItem, seg chatSegment, idx int) 
 	return out
 }
 
-func (m shellModel) renderReasoningSegment(seg chatSegment, idx int) []string {
-	text := strings.TrimSpace(textutil.Valid(seg.Text))
+func reasoningText(item *chatItem) string {
+	if item == nil {
+		return ""
+	}
+	var parts []string
+	for _, seg := range item.Segments {
+		if seg.Kind != segReasoning {
+			continue
+		}
+		if text := strings.TrimSpace(textutil.Valid(seg.Text)); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func (m shellModel) renderReasoningSegment(text string, idx int) []string {
+	text = strings.TrimSpace(textutil.Valid(text))
 	if text == "" {
 		return nil
 	}

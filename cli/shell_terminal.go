@@ -9,6 +9,7 @@ import (
 var terminalInputNoise = []*regexp.Regexp{
 	regexp.MustCompile(`(?:\x1b\]|\x9d|\])(?:10|11|12);(?:rgb:)?[0-9A-Fa-f]{1,4}/[0-9A-Fa-f]{1,4}/[0-9A-Fa-f]{1,4}(?:\x07|\x1b\\|\x9c|\\)?`),
 	regexp.MustCompile(`(?:\x1b\[|\x9b|\[)\d{1,3};\d{1,3}R`),
+	regexp.MustCompile(`(?:\x1b\[|\x9b|\[)<\d{1,4};\d{1,4};\d{1,4}[mM]`),
 }
 
 func cleanTerminalInput(s string) string {

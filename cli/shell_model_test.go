@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
@@ -166,10 +168,104 @@ func TestAppendEventMergesConsecutiveStreamEvents(t *testing.T) {
 	}
 }
 
-func TestMouseTrackingDisabledForCopy(t *testing.T) {
+func TestViewportMouseWheelIsHandledByShell(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	if m.viewport.MouseWheelEnabled {
-		t.Fatal("mouse wheel should be disabled so terminal selection works")
+		t.Fatal("viewport mouse wheel should stay disabled; shell handles wheel events")
+	}
+}
+
+func TestMouseWheelScrollsTranscript(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 10
+	m.syncLayout()
+	for i := 0; i < 20; i++ {
+		m.addTextItem(itemNotice, fmt.Sprintf("line %02d", i), time.Now())
+	}
+	m.viewport.SetYOffset(0)
+
+	next, _ := m.updateMouse(tea.MouseMsg(tea.MouseEvent{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	}))
+	got := next.(shellModel)
+	if got.viewport.YOffset == 0 {
+		t.Fatal("wheel down should scroll transcript")
+	}
+	if got.follow {
+		t.Fatal("wheel scroll should disable follow mode")
+	}
+}
+
+func TestMouseWheelAtBottomKeepsFollow(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 10
+	m.syncLayout()
+	for i := 0; i < 20; i++ {
+		m.addTextItem(itemNotice, fmt.Sprintf("line %02d", i), time.Now())
+	}
+	m.follow = true
+	y := m.viewport.YOffset
+
+	next, _ := m.updateMouse(tea.MouseMsg(tea.MouseEvent{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	}))
+	got := next.(shellModel)
+	if got.viewport.YOffset != y {
+		t.Fatalf("offset = %d, want %d", got.viewport.YOffset, y)
+	}
+	if !got.follow {
+		t.Fatal("wheel down at bottom should keep follow mode")
+	}
+}
+
+func TestMouseMotionDoesNotScrollTranscript(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 10
+	m.syncLayout()
+	for i := 0; i < 20; i++ {
+		m.addTextItem(itemNotice, fmt.Sprintf("line %02d", i), time.Now())
+	}
+	m.viewport.SetYOffset(0)
+
+	next, _ := m.updateMouse(tea.MouseMsg(tea.MouseEvent{
+		Action: tea.MouseActionMotion,
+		Button: tea.MouseButtonWheelDown,
+	}))
+	got := next.(shellModel)
+	if got.viewport.YOffset != 0 {
+		t.Fatalf("motion wheel event changed offset to %d", got.viewport.YOffset)
+	}
+}
+
+func TestStreamEventsThrottleViewportSync(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 24
+	m.syncLayout()
+	m.lastSync = time.Now()
+
+	cmd := m.handleEvents([]bus.Event{
+		{Type: bus.TurnChunk, Source: "cli", Text: "stream"},
+	})
+	if cmd == nil {
+		t.Fatal("stream event should schedule a delayed sync")
+	}
+	if !m.syncPending || !m.syncDirty {
+		t.Fatalf("sync state = pending:%v dirty:%v, want pending and dirty", m.syncPending, m.syncDirty)
+	}
+	if got := assistantText(m.items[0]); got != "stream" {
+		t.Fatalf("assistant text = %q, want stream", got)
+	}
+
+	next, _ := m.Update(shellSyncMsg{})
+	got := next.(shellModel)
+	if got.syncPending || got.syncDirty {
+		t.Fatalf("sync state after tick = pending:%v dirty:%v", got.syncPending, got.syncDirty)
 	}
 }
 

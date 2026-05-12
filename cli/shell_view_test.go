@@ -225,6 +225,27 @@ func TestRenderAssistantKeepsFailedToolsOutOfBody(t *testing.T) {
 	}
 }
 
+func TestRenderAssistantJoinsReasoningPhasesOnce(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 80
+	item := &chatItem{
+		Kind: itemAssistant,
+		Segments: []chatSegment{
+			{Kind: segReasoning, Text: "Let me check first."},
+			{Kind: segTool, Tool: "bash", Text: "pwd", Status: "done"},
+			{Kind: segReasoning, Text: "There's a workspace."},
+		},
+	}
+
+	out := ansi.Strip(strings.Join(m.renderItem(item, 0), "\n"))
+	if strings.Count(out, "Thinking") != 1 {
+		t.Fatalf("thinking header count wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "Let me check first.\n  \n  There's a workspace.") {
+		t.Fatalf("reasoning phases not separated cleanly:\n%s", out)
+	}
+}
+
 func TestSelectedToolLineDoesNotPaintTrailingBlock(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.viewport.Width = 64

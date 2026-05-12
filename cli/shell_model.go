@@ -33,7 +33,10 @@ const (
 	overlaySession
 )
 
-const shellHeaderHeight = 2
+const (
+	shellHeaderHeight = 2
+	shellSyncInterval = 40 * time.Millisecond
+)
 
 type shellBusMsg struct {
 	Events []bus.Event
@@ -57,6 +60,8 @@ type shellTickMsg struct{}
 type shellStatusLineMsg struct {
 	Text string
 }
+
+type shellSyncMsg struct{}
 
 type shellTurn struct {
 	assistantIndex int
@@ -104,19 +109,21 @@ type shellModel struct {
 	statusLine   string
 	turn         shellTurn
 
-	focus      shellFocus
-	overlay    shellOverlay
-	expanded   int
-	selected   int
-	suggest    int
-	session    int
-	spinner    int
-	busy       bool
-	statusBusy bool
-	statusAt   time.Time
-	follow     bool
-	deferSync  bool
-	syncDirty  bool
+	focus       shellFocus
+	overlay     shellOverlay
+	expanded    int
+	selected    int
+	suggest     int
+	session     int
+	spinner     int
+	busy        bool
+	statusBusy  bool
+	statusAt    time.Time
+	follow      bool
+	deferSync   bool
+	syncDirty   bool
+	syncPending bool
+	lastSync    time.Time
 }
 
 func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
@@ -196,6 +203,12 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusBusy = false
 		m.statusAt = time.Now()
 		return m, nil
+	case shellSyncMsg:
+		m.syncPending = false
+		if m.syncDirty {
+			m.syncViewport()
+		}
+		return m, nil
 	case shellFilesLoadedMsg:
 		if m.app != nil && msg.Root == m.app.Workspace() {
 			m.files = msg.Files
@@ -206,8 +219,8 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case shellBusMsg:
-		m.handleEvents(msg.Events)
-		return m, m.nextTick()
+		cmd := m.handleEvents(msg.Events)
+		return m, tea.Batch(cmd, m.nextTick())
 	case shellTurnDoneMsg:
 		if cmd := m.finishTurn(msg.Reply, msg.Err); cmd != nil {
 			return m, tea.Batch(cmd, m.nextTick())
@@ -222,6 +235,9 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	case tea.MouseMsg:
+		if m.overlay == overlaySession {
+			return m.updateSessionMouse(msg), nil
+		}
 		if m.overlay == overlayNone {
 			return m.updateMouse(msg)
 		}
@@ -247,13 +263,54 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m shellModel) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if !tea.MouseEvent(msg).IsWheel() {
+	if !wheelPress(msg) {
 		return m, nil
 	}
-	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
-	m.follow = false
-	return m, cmd
+	delta := m.viewport.MouseWheelDelta
+	if delta <= 0 {
+		delta = 3
+	}
+	y := m.viewport.YOffset
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		if msg.Shift {
+			m.viewport.ScrollLeft(delta)
+		} else {
+			m.viewport.ScrollUp(delta)
+		}
+	case tea.MouseButtonWheelDown:
+		if msg.Shift {
+			m.viewport.ScrollRight(delta)
+		} else {
+			m.viewport.ScrollDown(delta)
+		}
+	case tea.MouseButtonWheelLeft:
+		m.viewport.ScrollLeft(delta)
+	case tea.MouseButtonWheelRight:
+		m.viewport.ScrollRight(delta)
+	}
+	if m.viewport.YOffset != y {
+		m.follow = false
+	}
+	return m, nil
+}
+
+func (m shellModel) updateSessionMouse(msg tea.MouseMsg) tea.Model {
+	if !wheelPress(msg) {
+		return m
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.moveSession(-1)
+	case tea.MouseButtonWheelDown:
+		m.moveSession(1)
+	}
+	return m
+}
+
+func wheelPress(msg tea.MouseMsg) bool {
+	ev := tea.MouseEvent(msg)
+	return ev.Action == tea.MouseActionPress && ev.IsWheel()
 }
 
 func (m shellModel) View() string {
@@ -459,19 +516,27 @@ func (m *shellModel) handleEvent(ev bus.Event) {
 	}
 }
 
-func (m *shellModel) handleEvents(evs []bus.Event) {
+func (m *shellModel) handleEvents(evs []bus.Event) tea.Cmd {
 	if len(evs) == 0 {
-		return
+		return nil
 	}
 	m.deferSync = true
 	for _, ev := range evs {
 		m.handleEvent(ev)
 	}
 	m.deferSync = false
-	if m.syncDirty {
-		m.syncDirty = false
-		m.syncViewport()
+	return m.flushDeferredSync(streamEventsOnly(evs))
+}
+
+func streamEventsOnly(evs []bus.Event) bool {
+	for _, ev := range evs {
+		switch ev.Type {
+		case bus.TurnChunk, bus.TurnReasoning:
+		default:
+			return false
+		}
 	}
+	return true
 }
 
 func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
@@ -862,6 +927,8 @@ func (m *shellModel) syncViewport() {
 		m.syncDirty = true
 		return
 	}
+	m.syncDirty = false
+	m.syncPending = false
 	if m.viewport.Width <= 0 {
 		return
 	}
@@ -882,11 +949,34 @@ func (m *shellModel) syncViewport() {
 	}
 	m.spans = spans
 	m.viewport.SetContent(strings.Join(lines, "\n"))
+	m.lastSync = time.Now()
 	if m.follow {
 		m.viewport.GotoBottom()
 		return
 	}
 	m.keepSelectionVisible()
+}
+
+func (m *shellModel) flushDeferredSync(throttle bool) tea.Cmd {
+	if !m.syncDirty {
+		return nil
+	}
+	if !throttle || m.lastSync.IsZero() {
+		m.syncViewport()
+		return nil
+	}
+	left := shellSyncInterval - time.Since(m.lastSync)
+	if left <= 0 {
+		m.syncViewport()
+		return nil
+	}
+	if m.syncPending {
+		return nil
+	}
+	m.syncPending = true
+	return tea.Tick(left, func(time.Time) tea.Msg {
+		return shellSyncMsg{}
+	})
 }
 
 func (m *shellModel) keepSelectionVisible() {

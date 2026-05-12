@@ -145,11 +145,9 @@ func (i *chatItem) appendReasoning(text string) {
 	if text == "" {
 		return
 	}
-	for j := len(i.Segments) - 1; j >= 0; j-- {
-		if i.Segments[j].Kind == segReasoning {
-			i.Segments[j].Text += text
-			return
-		}
+	if n := len(i.Segments); n > 0 && i.Segments[n-1].Kind == segReasoning {
+		i.Segments[n-1].Text += text
+		return
 	}
 	i.Segments = append(i.Segments, chatSegment{
 		Kind: segReasoning,
