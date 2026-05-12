@@ -84,7 +84,7 @@ func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
 	if out.Silent || strings.TrimSpace(out.Text) == "" {
 		return nil
 	}
-	return sendLong(c, out.Text, sendOptions(target))
+	return sendLong(c, out.Text, sendOptions(target)...)
 }
 
 func replyTarget(msg *tele.Message, out output) *tele.Message {
@@ -100,11 +100,11 @@ func replyTarget(msg *tele.Message, out output) *tele.Message {
 	}
 }
 
-func sendOptions(reply *tele.Message) *tele.SendOptions {
+func sendOptions(reply *tele.Message) []interface{} {
 	if reply == nil {
 		return nil
 	}
-	return &tele.SendOptions{ReplyTo: reply}
+	return []interface{}{&tele.SendOptions{ReplyTo: reply}}
 }
 
 func normalizeReaction(raw string) string {

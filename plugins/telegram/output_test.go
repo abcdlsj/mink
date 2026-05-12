@@ -1,6 +1,10 @@
 package telegram
 
-import "testing"
+import (
+	"testing"
+
+	tele "gopkg.in/telebot.v4"
+)
 
 func TestParseTelegramOutput(t *testing.T) {
 	out := parseOutput("[[reply_to:42]] [[react:👍]] done")
@@ -35,5 +39,27 @@ func TestParseTelegramOutputReplyCurrent(t *testing.T) {
 	}
 	if out.Text != "hi" {
 		t.Fatalf("text = %q", out.Text)
+	}
+}
+
+func TestSendOptionsOmitsNilReply(t *testing.T) {
+	opts := sendOptions(nil)
+	if len(opts) != 0 {
+		t.Fatalf("len = %d", len(opts))
+	}
+}
+
+func TestSendOptionsRepliesToMessage(t *testing.T) {
+	reply := &tele.Message{ID: 42}
+	opts := sendOptions(reply)
+	if len(opts) != 1 {
+		t.Fatalf("len = %d", len(opts))
+	}
+	opt, ok := opts[0].(*tele.SendOptions)
+	if !ok {
+		t.Fatalf("option type = %T", opts[0])
+	}
+	if opt.ReplyTo != reply {
+		t.Fatalf("reply = %v", opt.ReplyTo)
 	}
 }
