@@ -87,6 +87,41 @@ func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
 	return sendLong(c, out.Text, sendOptions(target)...)
 }
 
+func sendNotice(bot *tele.Bot, source, raw string) error {
+	if bot == nil {
+		return nil
+	}
+	chatID, threadID, ok := parseTelegramSource(source)
+	if !ok {
+		return nil
+	}
+	out := parseOutput(raw)
+	if !out.HasAction {
+		return nil
+	}
+	chat := &tele.Chat{ID: chatID}
+	target := noticeReplyTarget(chat, out)
+	if out.Reaction != "" && target != nil {
+		_ = bot.React(chat, target, tele.Reactions{
+			Reactions: []tele.Reaction{{
+				Type:  tele.ReactionTypeEmoji,
+				Emoji: out.Reaction,
+			}},
+		})
+	}
+	if out.Silent || strings.TrimSpace(out.Text) == "" {
+		return nil
+	}
+	opts := &tele.SendOptions{}
+	if threadID > 0 {
+		opts.ThreadID = threadID
+	}
+	if target != nil {
+		opts.ReplyTo = target
+	}
+	return botSendLong(bot, chat, out.Text, opts)
+}
+
 func replyTarget(msg *tele.Message, out output) *tele.Message {
 	switch {
 	case msg == nil || msg.Chat == nil:
@@ -100,11 +135,27 @@ func replyTarget(msg *tele.Message, out output) *tele.Message {
 	}
 }
 
+func noticeReplyTarget(chat *tele.Chat, out output) *tele.Message {
+	if chat == nil || out.ReplyToID <= 0 {
+		return nil
+	}
+	return &tele.Message{ID: out.ReplyToID, Chat: chat}
+}
+
 func sendOptions(reply *tele.Message) []interface{} {
 	if reply == nil {
 		return nil
 	}
 	return []interface{}{&tele.SendOptions{ReplyTo: reply}}
+}
+
+func botSendLong(bot *tele.Bot, chat *tele.Chat, text string, opts *tele.SendOptions) error {
+	for _, part := range split(text, 3500) {
+		if _, err := bot.Send(chat, part, opts); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeReaction(raw string) string {

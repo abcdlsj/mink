@@ -58,14 +58,21 @@ func (s *scheduler) load(c *robcron.Cron) error {
 		}
 		task := task
 		if _, err := c.AddFunc(task.Schedule, func() {
-			if _, err := s.app.HandleInput(context.Background(), task.Source, task.Prompt); err != nil {
-				s.app.PublishNotice(task.Source, fmt.Sprintf("[cron %s] error: %s", task.ID, err))
-			}
+			s.run(task)
 		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *scheduler) run(task Task) {
+	out, err := s.app.HandleInput(context.Background(), task.Source, task.Prompt)
+	if err != nil {
+		s.app.PublishNotice(task.Source, fmt.Sprintf("[cron %s] error: %s", task.ID, err))
+		return
+	}
+	s.app.PublishNotice(task.Source, out)
 }
 
 func validSchedule(v string) error {

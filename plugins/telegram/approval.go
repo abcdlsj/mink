@@ -40,7 +40,7 @@ func newApprover(bot *tele.Bot) *approver {
 }
 
 func (a *approver) Approve(ctx context.Context, req tool.Request) (tool.Approval, error) {
-	chatID, threadID, ok := parseApprovalSource(command.SourceFrom(ctx))
+	chatID, threadID, ok := parseTelegramSource(command.SourceFrom(ctx))
 	if !ok {
 		return tool.Denied, nil
 	}
@@ -195,7 +195,7 @@ func approvalMarkup(reqID string) *tele.ReplyMarkup {
 	}}}
 }
 
-func parseApprovalSource(src string) (int64, int, bool) {
+func parseTelegramSource(src string) (int64, int, bool) {
 	if !strings.HasPrefix(src, "telegram:") {
 		return 0, 0, false
 	}

@@ -32,8 +32,8 @@ func TestParseApprovalCallback(t *testing.T) {
 	}
 }
 
-func TestParseApprovalSource(t *testing.T) {
-	chatID, threadID, ok := parseApprovalSource("telegram:42:7")
+func TestParseTelegramSource(t *testing.T) {
+	chatID, threadID, ok := parseTelegramSource("telegram:42:7")
 	if !ok {
 		t.Fatal("expected parse ok")
 	}

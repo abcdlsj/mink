@@ -63,3 +63,14 @@ func TestSendOptionsRepliesToMessage(t *testing.T) {
 		t.Fatalf("reply = %v", opt.ReplyTo)
 	}
 }
+
+func TestNoticeReplyTargetRequiresExplicitReplyID(t *testing.T) {
+	chat := &tele.Chat{ID: 7}
+	if got := noticeReplyTarget(chat, output{ReplyNow: true}); got != nil {
+		t.Fatalf("target = %#v", got)
+	}
+	got := noticeReplyTarget(chat, output{ReplyToID: 42})
+	if got == nil || got.ID != 42 || got.Chat != chat {
+		t.Fatalf("target = %#v", got)
+	}
+}

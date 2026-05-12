@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	tele "gopkg.in/telebot.v4"
 )
@@ -34,6 +35,7 @@ func run(ctx context.Context, a *app.App, args []string) error {
 	ap := newApprover(bot)
 	a.SetToolApprover(ap)
 	wireHandlers(ctx, a, bot, ap, cfg)
+	go relayNotices(ctx, a, bot)
 
 	go func() {
 		<-ctx.Done()
@@ -53,6 +55,24 @@ func wireHandlers(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, 
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		return handleText(ctx, a, bot, ap, cfg, c)
 	})
+}
+
+func relayNotices(ctx context.Context, a *app.App, bot *tele.Bot) {
+	events, cancel := a.Bus().Subscribe(256)
+	defer cancel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			if ev.Type == bus.ServiceNotice {
+				_ = sendNotice(bot, ev.Source, ev.Text)
+			}
+		}
+	}
 }
 
 func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cfg config.TelegramConfig, c tele.Context) error {
