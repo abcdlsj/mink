@@ -668,6 +668,49 @@ func TestChannelNewCreatesSessionForChannel(t *testing.T) {
 	}
 }
 
+func TestChannelCommandSubmitsOnCtrlJ(t *testing.T) {
+	var src string
+	m := newShellModel(context.Background(), commandShellApp{newSessionSource: &src}, "cli")
+	m.input.SetValue("/channel new bugfix")
+
+	next, cmd := m.updateKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if cmd != nil {
+		t.Fatal("channel command returned command")
+	}
+	got := next.(shellModel)
+	if got.channel != "bugfix" {
+		t.Fatalf("channel = %q", got.channel)
+	}
+	if src != "cli:channel:bugfix" {
+		t.Fatalf("new session source = %q", src)
+	}
+}
+
+func TestNavCommandNoticeFollowsBottom(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.busy = true
+	m.addTextItem(itemAssistant, "one", time.Now())
+	m.addTextItem(itemAssistant, "two", time.Now())
+	m.follow = false
+	m.selected = 0
+	m.input.SetValue("/channel new bugfix")
+
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("busy channel command returned command")
+	}
+	got := next.(shellModel)
+	if !got.follow {
+		t.Fatal("notice should force follow")
+	}
+	if got.selected != len(got.items)-1 {
+		t.Fatalf("selected = %d, want last", got.selected)
+	}
+	if !strings.Contains(itemText(got.items[len(got.items)-1]), "Finish the running turn") {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
 func TestThreadCommandCanOpenByMessageID(t *testing.T) {
 	m := newShellModel(context.Background(), commandShellApp{}, "cli")
 	m.addTextItem(itemAssistant, "panic in cache", time.Now())

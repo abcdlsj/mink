@@ -373,13 +373,17 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.focus == focusComposer && m.overlay == overlayNone && len(m.suggests) > 0 {
 		switch msg.String() {
-		case "enter":
+		case "enter", "ctrl+m":
 			if m.exactSuggestion() {
 				return m.submit()
 			}
 			m.acceptSuggestion()
 			m.syncLayout()
 			return *m, m.takePendingCmd()
+		case "ctrl+j":
+			if m.commandInput() {
+				return m.submit()
+			}
 		case "tab":
 			m.acceptSuggestion()
 			m.syncLayout()
@@ -411,8 +415,12 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.focus == focusComposer {
 		switch msg.String() {
-		case "enter":
+		case "enter", "ctrl+m":
 			return m.submit()
+		case "ctrl+j":
+			if m.commandInput() {
+				return m.submit()
+			}
 		case "esc":
 			m.focus = focusTranscript
 			m.input.Blur()
@@ -466,6 +474,7 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 		m.input.SetHeight(2)
 		m.clearSuggestions()
 		if out != "" {
+			m.follow = true
 			m.addTextItem(itemNotice, out, time.Now())
 		}
 		m.syncLayout()
@@ -488,6 +497,17 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 		return *m, nil
 	}
 	return *m, m.startInput(text)
+}
+
+func (m *shellModel) commandInput() bool {
+	text := textutil.Valid(strings.TrimSpace(cleanTerminalInput(m.input.Value())))
+	if text == "" {
+		return false
+	}
+	if _, _, ok := parseNavCommand(text); ok {
+		return true
+	}
+	return isSessionSelectorCommand(text)
 }
 
 func (m *shellModel) startInput(text string) tea.Cmd {
