@@ -3,13 +3,12 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/abcdlsj/sumi/textutil"
 )
 
-func (m *shellModel) runSpaceCommand(text string) (string, bool) {
-	cmd, args, ok := parseSpaceCommand(text)
+func (m *shellModel) runNavCommand(text string) (string, bool) {
+	cmd, args, ok := parseNavCommand(text)
 	if !ok {
 		return "", false
 	}
@@ -27,7 +26,7 @@ func (m *shellModel) runSpaceCommand(text string) (string, bool) {
 	}
 }
 
-func parseSpaceCommand(text string) (cmd string, args []string, ok bool) {
+func parseNavCommand(text string) (cmd string, args []string, ok bool) {
 	s := strings.TrimSpace(text)
 	if !strings.HasPrefix(s, "/") {
 		return "", nil, false
@@ -66,9 +65,6 @@ func (m *shellModel) runThreadCommand(args []string) string {
 	switch args[0] {
 	case "new":
 		title := strings.TrimSpace(strings.Join(args[1:], " "))
-		if title == "" {
-			title = "thread-" + m.nextItemID()
-		}
 		th := m.createThread(title, "")
 		m.enterThread(th)
 		return "thread: " + m.threadLabel()
@@ -90,9 +86,13 @@ func (m *shellModel) runThreadCommand(args []string) string {
 }
 
 func (m *shellModel) switchChannel(name string) string {
-	name = cleanSpaceName(name)
-	if name == "" || name == "main" {
+	raw := strings.TrimSpace(name)
+	name = cleanSpaceName(raw)
+	if raw == "" || raw == "main" {
 		name = "main"
+	}
+	if name == "" {
+		return "usage: /channel <name>"
 	}
 	if m.busy {
 		return "Finish the running turn before switching channels."
@@ -138,19 +138,18 @@ func (m *shellModel) openThread(id string) string {
 }
 
 func (m *shellModel) createThread(title, id string) shellThread {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		title = "thread"
-	}
+	id = cleanSpaceName(id)
 	if id == "" {
 		id = m.nextItemID()
 	}
-	id = cleanSpaceName(id)
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "thread-" + id
+	}
 	th := shellThread{
-		ID:      id,
-		Title:   title,
-		Source:  m.channelSource(m.channel) + ":thread:" + id,
-		Created: time.Now(),
+		ID:     id,
+		Title:  title,
+		Source: m.channelSource(m.channel) + ":thread:" + id,
 	}
 	key := m.channelKey()
 	m.threads[key] = append(m.threads[key], th)
@@ -210,7 +209,10 @@ func (m shellModel) channelSource(name string) string {
 }
 
 func (m shellModel) channelKey() string {
-	return cleanSpaceName(m.channel)
+	if key := cleanSpaceName(m.channel); key != "" {
+		return key
+	}
+	return "main"
 }
 
 func (m shellModel) channelLabel() string {

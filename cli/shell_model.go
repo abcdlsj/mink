@@ -80,10 +80,9 @@ type shellToolRef struct {
 }
 
 type shellThread struct {
-	ID      string
-	Title   string
-	Source  string
-	Created time.Time
+	ID     string
+	Title  string
+	Source string
 }
 
 type shellSpan struct {
@@ -462,7 +461,7 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return *m, nil
 	}
-	if out, ok := m.runSpaceCommand(text); ok {
+	if out, ok := m.runNavCommand(text); ok {
 		m.input.Reset()
 		m.input.SetHeight(2)
 		m.clearSuggestions()
