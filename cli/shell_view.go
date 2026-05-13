@@ -211,7 +211,7 @@ func (m shellModel) renderFooter(st cliState) string {
 		return shellTheme.Footer.Width(m.width).Render(padLine("enter switch   n new   j/k move   esc close", m.width))
 	}
 
-	left := "/ commands   tab focus   ctrl+o expand"
+	left := "/ commands   /channel   /thread   tab focus"
 	right := "session " + shortID(st.Session) + "   " + st.Cwd
 	if len(m.queue) > 0 {
 		right = fmt.Sprintf("%d queued   %s", len(m.queue), right)
@@ -329,6 +329,13 @@ func (m shellModel) renderAssistantItem(item *chatItem, idx int) []string {
 		}
 		lines = append(lines, seg...)
 		hasBody = true
+	}
+	if item.ID != "" {
+		meta := shellTheme.Meta.Render("sumi " + item.ID)
+		if idx == m.selected {
+			meta = m.selectedLine(meta)
+		}
+		lines = append(lines, meta)
 	}
 	if text := reasoningText(item); text != "" {
 		add(m.renderReasoningSegment(text, idx))
@@ -581,7 +588,11 @@ func (m shellModel) renderUserText(text string, idx int) []string {
 	for i, line := range lines {
 		prefix := "  "
 		if i == 0 {
-			prefix = shellTheme.User.Render("› ")
+			id := ""
+			if idx >= 0 && idx < len(m.items) && m.items[idx] != nil && m.items[idx].ID != "" {
+				id = m.items[idx].ID + " "
+			}
+			prefix = shellTheme.User.Render("› " + id)
 		}
 		row := prefix + line
 		if idx == m.selected {
@@ -730,6 +741,7 @@ func headerLine(st cliState, width int) string {
 	}
 	left := strings.Join([]string{
 		shellTheme.Title.Render("Sumi"),
+		shellTheme.Chip.Render(spaceLabel(st)),
 		shellTheme.ChipDim.Render("model ") + shellTheme.Text.Render(nonEmpty(st.Model, "unknown")),
 		shellTheme.ChipDim.Render("cwd ") + shellTheme.Text.Render(nonEmpty(st.Cwd, ".")),
 	}, "  ")
@@ -738,6 +750,17 @@ func headerLine(st cliState, width int) string {
 		left = ansi.Truncate(left, max(1, room), "…")
 	}
 	return alignFooter(left, session, width)
+}
+
+func spaceLabel(st cliState) string {
+	ch := strings.TrimSpace(st.Channel)
+	if ch == "" {
+		ch = "#main"
+	}
+	if th := strings.TrimSpace(st.Thread); th != "" {
+		return ch + " > " + th
+	}
+	return ch
 }
 
 func padLine(s string, width int) string {

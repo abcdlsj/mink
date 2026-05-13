@@ -79,15 +79,25 @@ type shellToolRef struct {
 	Seg  int
 }
 
+type shellThread struct {
+	ID      string
+	Title   string
+	Source  string
+	Created time.Time
+}
+
 type shellSpan struct {
 	Start int
 	End   int
 }
 
 type shellModel struct {
-	ctx    context.Context
-	app    shellApp
-	source string
+	ctx     context.Context
+	app     shellApp
+	source  string
+	base    string
+	channel string
+	thread  *shellThread
 
 	width  int
 	height int
@@ -111,6 +121,8 @@ type shellModel struct {
 	statusLine   string
 	turn         shellTurn
 	turnCancel   context.CancelFunc
+	threads      map[string][]shellThread
+	itemSeq      int
 
 	focus       shellFocus
 	overlay     shellOverlay
@@ -169,9 +181,12 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 		ctx:       ctx,
 		app:       a,
 		source:    source,
+		base:      source,
+		channel:   "main",
 		viewport:  vp,
 		input:     in,
 		toolItems: map[string]shellToolRef{},
+		threads:   map[string][]shellThread{},
 		turn:      shellTurn{assistantIndex: -1},
 		focus:     focusComposer,
 		expanded:  -1,
@@ -447,6 +462,16 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	if text == "" {
 		return *m, nil
 	}
+	if out, ok := m.runSpaceCommand(text); ok {
+		m.input.Reset()
+		m.input.SetHeight(2)
+		m.clearSuggestions()
+		if out != "" {
+			m.addTextItem(itemNotice, out, time.Now())
+		}
+		m.syncLayout()
+		return *m, nil
+	}
 	if isSessionSelectorCommand(text) {
 		m.input.Reset()
 		m.input.SetHeight(2)
@@ -597,6 +622,9 @@ func (m *shellModel) addItem(item chatItem) int {
 	if item.Time.IsZero() {
 		item.Time = time.Now()
 	}
+	if item.ID == "" {
+		item.ID = m.nextItemID()
+	}
 	follow := m.follow || m.selected >= len(m.items)-1
 	m.items = append(m.items, &item)
 	if follow {
@@ -605,6 +633,11 @@ func (m *shellModel) addItem(item chatItem) int {
 	}
 	m.syncViewport()
 	return len(m.items) - 1
+}
+
+func (m *shellModel) nextItemID() string {
+	m.itemSeq++
+	return fmt.Sprintf("m%02x", m.itemSeq)
 }
 
 func (m *shellModel) addTextItem(kind int, text string, t time.Time) int {
@@ -1057,6 +1090,8 @@ type cliState struct {
 	Model   string
 	Cwd     string
 	Session string
+	Channel string
+	Thread  string
 }
 
 func (m *shellModel) state() cliState {
@@ -1090,6 +1125,8 @@ func (m *shellModel) state() cliState {
 		Model:   model,
 		Cwd:     shortPath(filepath.Clean(ws)),
 		Session: sid,
+		Channel: m.channelLabel(),
+		Thread:  m.threadLabel(),
 	}
 }
 

@@ -24,6 +24,7 @@ const (
 )
 
 type chatItem struct {
+	ID       string
 	Kind     int
 	Status   string
 	Time     time.Time
@@ -56,6 +57,9 @@ func (i chatItem) role() string {
 
 func (i chatItem) title() string {
 	title := i.role()
+	if i.ID != "" {
+		title += " · " + i.ID
+	}
 	if i.Status != "" {
 		title += " · " + i.Status
 	}

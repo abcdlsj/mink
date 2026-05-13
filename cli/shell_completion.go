@@ -109,6 +109,11 @@ func (m *shellModel) refreshCommandSuggestions() bool {
 		return false
 	}
 	var out []completionHint
+	for _, h := range localCommandHints() {
+		if strings.HasPrefix(h.Value, query) {
+			out = append(out, h)
+		}
+	}
 	for _, c := range m.app.Commands() {
 		name := strings.TrimSpace(c.Name())
 		if name == "" || !strings.HasPrefix(name, query) {
@@ -121,6 +126,15 @@ func (m *shellModel) refreshCommandSuggestions() bool {
 	})
 	m.suggests = out
 	return true
+}
+
+func localCommandHints() []completionHint {
+	return []completionHint{
+		{Kind: completionCommand, Value: "channel", Desc: "switch channels"},
+		{Kind: completionCommand, Value: "thread", Desc: "switch threads"},
+		{Kind: completionCommand, Value: "threads", Desc: "list threads"},
+		{Kind: completionCommand, Value: "main", Desc: "return to #main"},
+	}
 }
 
 func (m *shellModel) refreshFileSuggestions() tea.Cmd {

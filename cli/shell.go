@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -76,7 +77,7 @@ func (s *shell) consume() {
 			if !ok {
 				return
 			}
-			if ev.Source != s.source || s.program == nil {
+			if !shellSourceMatch(s.source, ev.Source) || s.program == nil {
 				continue
 			}
 			batch := []bus.Event{ev}
@@ -86,7 +87,7 @@ func (s *shell) consume() {
 					if !ok {
 						return
 					}
-					if ev.Source == s.source {
+					if shellSourceMatch(s.source, ev.Source) {
 						batch = appendEvent(batch, ev)
 					}
 				default:
@@ -102,6 +103,12 @@ func (s *shell) consume() {
 			}
 		}
 	}
+}
+
+func shellSourceMatch(base, source string) bool {
+	base = strings.TrimSpace(base)
+	source = strings.TrimSpace(source)
+	return source == base || strings.HasPrefix(source, base+":")
 }
 
 func appendEvent(evs []bus.Event, ev bus.Event) []bus.Event {

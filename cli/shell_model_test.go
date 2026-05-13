@@ -599,3 +599,61 @@ func TestSessionSelectorCanCreateSession(t *testing.T) {
 		t.Fatalf("overlay = %v, want none", m.overlay)
 	}
 }
+
+func TestChannelCommandSwitchesSource(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.input.SetValue("/channel bugfix")
+
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("channel command returned command")
+	}
+	got := next.(shellModel)
+	if got.channel != "bugfix" {
+		t.Fatalf("channel = %q", got.channel)
+	}
+	if got.source != "cli:channel:bugfix" {
+		t.Fatalf("source = %q", got.source)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "#bugfix") {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
+func TestThreadCommandCanOpenByMessageID(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.addTextItem(itemAssistant, "panic in cache", time.Now())
+	id := m.items[0].ID
+	m.input.SetValue("/thread " + id)
+
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("thread command returned command")
+	}
+	got := next.(shellModel)
+	if got.thread == nil || got.thread.ID != id {
+		t.Fatalf("thread = %#v, want %s", got.thread, id)
+	}
+	if got.source != "cli:thread:"+id {
+		t.Fatalf("source = %q", got.source)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), id) {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
+func TestThreadLeaveReturnsToChannel(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	th := m.createThread("panic", "m0a")
+	m.enterThread(th)
+	m.input.SetValue("/thread leave")
+
+	next, _ := m.submit()
+	got := next.(shellModel)
+	if got.thread != nil {
+		t.Fatalf("thread = %#v, want nil", got.thread)
+	}
+	if got.source != "cli" {
+		t.Fatalf("source = %q", got.source)
+	}
+}
