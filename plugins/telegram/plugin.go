@@ -84,7 +84,7 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	if text == "" || ap.handleText(c) {
 		return nil
 	}
-	if !shouldHandle(cfg.MentionMode, bot.Me.Username, msg, text) {
+	if !shouldHandle(cfg.MentionMode, bot.Me.Username, msg, text) && !mentionsPersona(a, text) {
 		return nil
 	}
 	src := source(cfg.SessionScope, msg.Chat.ID, msg.ThreadID)
@@ -137,6 +137,11 @@ func sendLong(c tele.Context, text string, opts ...interface{}) error {
 	parts := split(text, 3500)
 	for _, part := range parts {
 		if err := c.Send(part, opts...); err != nil {
+			if hasMarkdown(opts) && markdownParseError(err) {
+				if retryErr := c.Send(part, plainSendOptions(opts)...); retryErr == nil {
+					continue
+				}
+			}
 			return err
 		}
 	}
@@ -196,4 +201,26 @@ func stripMention(username, text string) string {
 		return text
 	}
 	return strings.TrimSpace(strings.ReplaceAll(text, "@"+tag, ""))
+}
+
+func mentionsPersona(a *app.App, text string) bool {
+	if a == nil || a.Personas() == nil {
+		return false
+	}
+	id := leadingMentionID(text)
+	return id != "" && a.Personas().Get(id) != nil
+}
+
+func leadingMentionID(text string) string {
+	s := strings.TrimSpace(text)
+	if !strings.HasPrefix(s, "@") {
+		return ""
+	}
+	s = s[1:]
+	for i, r := range s {
+		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			return s[:i]
+		}
+	}
+	return s
 }

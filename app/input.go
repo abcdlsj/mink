@@ -61,7 +61,8 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
-	s, err := f.app.sessions.Current(f.source)
+	sessionSource := f.sessionSource()
+	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
 		return "", err
 	}
@@ -84,6 +85,22 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return latestAssistant(s), nil
+}
+
+func (f inputFlow) sessionSource() string {
+	return personaSessionSource(f.source, f.personaID)
+}
+
+func personaSessionSource(source, personaID string) string {
+	source = strings.TrimSpace(source)
+	personaID = strings.TrimSpace(personaID)
+	if personaID == "" {
+		return source
+	}
+	if source == "" {
+		source = "default"
+	}
+	return source + ":persona:" + personaID
 }
 
 func (f inputFlow) route(ctx context.Context) (string, bool, error) {

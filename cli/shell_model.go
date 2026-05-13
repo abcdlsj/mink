@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,6 +70,7 @@ type shellTurn struct {
 	streamed       bool
 	commandHandled bool
 	errored        bool
+	interrupted    bool
 	toolCount      int
 }
 
@@ -108,6 +110,7 @@ type shellModel struct {
 	sessions     []*session.Session
 	statusLine   string
 	turn         shellTurn
+	turnCancel   context.CancelFunc
 
 	focus       shellFocus
 	overlay     shellOverlay
@@ -349,6 +352,10 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return *m, nil
 	}
+	if msg.String() == "esc" && m.busy {
+		m.interruptTurn()
+		return *m, nil
+	}
 
 	if m.focus == focusComposer && m.overlay == overlayNone && len(m.suggests) > 0 {
 		switch msg.String() {
@@ -460,7 +467,9 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 }
 
 func (m *shellModel) startInput(text string) tea.Cmd {
+	ctx, cancel := context.WithCancel(m.ctx)
 	m.busy = true
+	m.turnCancel = cancel
 	m.toolItems = map[string]shellToolRef{}
 	m.turn = shellTurn{
 		assistantIndex: -1,
@@ -469,9 +478,19 @@ func (m *shellModel) startInput(text string) tea.Cmd {
 	m.addTextItem(itemUser, text, time.Now())
 	m.syncLayout()
 	return func() tea.Msg {
-		reply, err := m.app.HandleInput(m.ctx, m.source, text)
+		reply, err := m.app.HandleInput(ctx, m.source, text)
 		return shellTurnDoneMsg{Reply: reply, Err: err}
 	}
+}
+
+func (m *shellModel) interruptTurn() {
+	if m.turnCancel == nil {
+		return
+	}
+	cancel := m.turnCancel
+	m.turnCancel = nil
+	m.turn.interrupted = true
+	cancel()
 }
 
 func (m *shellModel) handleEvent(ev bus.Event) {
@@ -541,8 +560,10 @@ func streamEventsOnly(evs []bus.Event) bool {
 
 func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 	m.busy = false
+	m.turnCancel = nil
 	if err != nil {
-		if !m.turn.errored {
+		interrupted := m.turn.interrupted && errors.Is(err, context.Canceled)
+		if !m.turn.errored && !interrupted {
 			m.addTextItem(itemError, err.Error(), time.Now())
 		}
 		m.turn = shellTurn{assistantIndex: -1}

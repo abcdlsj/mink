@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -315,6 +316,49 @@ func TestSubmitStripsTerminalStatusResponses(t *testing.T) {
 	}
 	if len(got.queue) != 1 || got.queue[0] != "你好" {
 		t.Fatalf("queue = %#v, want 你好", got.queue)
+	}
+}
+
+type cancelShellApp struct {
+	commandShellApp
+	started chan struct{}
+}
+
+func (a cancelShellApp) HandleInput(ctx context.Context, source, input string) (string, error) {
+	close(a.started)
+	<-ctx.Done()
+	return "", ctx.Err()
+}
+
+func TestEscInterruptsRunningTurn(t *testing.T) {
+	app := cancelShellApp{started: make(chan struct{})}
+	m := newShellModel(context.Background(), app, "cli")
+	m.input.SetValue("long task")
+
+	next, cmd := m.submit()
+	m = next.(shellModel)
+	if cmd == nil {
+		t.Fatal("submit returned nil command")
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	<-app.started
+
+	next, _ = m.updateKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(shellModel)
+	if !m.turn.interrupted {
+		t.Fatal("turn should be marked interrupted")
+	}
+
+	msg := (<-done).(shellTurnDoneMsg)
+	if !errors.Is(msg.Err, context.Canceled) {
+		t.Fatalf("err = %v, want context canceled", msg.Err)
+	}
+
+	m.finishTurn(msg.Reply, msg.Err)
+	if len(m.items) != 1 || m.items[0].Kind != itemUser {
+		t.Fatalf("items = %#v, want user item only", m.items)
 	}
 }
 

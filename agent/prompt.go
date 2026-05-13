@@ -62,7 +62,8 @@ func (b promptBuilder) persona() string {
 		lines = append(lines, "Role: "+strings.TrimSpace(p.Description))
 	}
 	lines = append(lines,
-		"Stay in character. When the chat is a group, reply only when @mentioned; otherwise output exactly NO_REPLY.",
+		"Stay in character. A turn routed to this persona is an explicit invocation; answer normally.",
+		"In Telegram group chats, output exactly NO_REPLY only for unrelated forwarded chatter.",
 	)
 	return strings.Join(lines, "\n")
 }

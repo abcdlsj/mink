@@ -1,8 +1,13 @@
 package telegram
 
 import (
+	"errors"
+	"path/filepath"
 	"testing"
 
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/persona"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -42,10 +47,20 @@ func TestParseTelegramOutputReplyCurrent(t *testing.T) {
 	}
 }
 
-func TestSendOptionsOmitsNilReply(t *testing.T) {
+func TestSendOptionsEnableMarkdownWithoutReply(t *testing.T) {
 	opts := sendOptions(nil)
-	if len(opts) != 0 {
+	if len(opts) != 1 {
 		t.Fatalf("len = %d", len(opts))
+	}
+	opt, ok := opts[0].(*tele.SendOptions)
+	if !ok {
+		t.Fatalf("option type = %T", opts[0])
+	}
+	if opt.ReplyTo != nil {
+		t.Fatalf("reply = %v", opt.ReplyTo)
+	}
+	if opt.ParseMode != tele.ModeMarkdown {
+		t.Fatalf("parse mode = %q", opt.ParseMode)
 	}
 }
 
@@ -62,6 +77,9 @@ func TestSendOptionsRepliesToMessage(t *testing.T) {
 	if opt.ReplyTo != reply {
 		t.Fatalf("reply = %v", opt.ReplyTo)
 	}
+	if opt.ParseMode != tele.ModeMarkdown {
+		t.Fatalf("parse mode = %q", opt.ParseMode)
+	}
 }
 
 func TestNoticeReplyTargetRequiresExplicitReplyID(t *testing.T) {
@@ -72,5 +90,49 @@ func TestNoticeReplyTargetRequiresExplicitReplyID(t *testing.T) {
 	got := noticeReplyTarget(chat, output{ReplyToID: 42})
 	if got == nil || got.ID != 42 || got.Chat != chat {
 		t.Fatalf("target = %#v", got)
+	}
+}
+
+func TestPlainSendOptionsDropMarkdown(t *testing.T) {
+	reply := &tele.Message{ID: 42}
+	opts := plainSendOptions(sendOptions(reply))
+	opt := opts[0].(*tele.SendOptions)
+	if opt.ReplyTo != reply {
+		t.Fatalf("reply = %v", opt.ReplyTo)
+	}
+	if opt.ParseMode != tele.ModeDefault {
+		t.Fatalf("parse mode = %q", opt.ParseMode)
+	}
+}
+
+func TestMarkdownParseError(t *testing.T) {
+	if !markdownParseError(errors.New("Bad Request: can't parse entities")) {
+		t.Fatal("expected parse error")
+	}
+	if markdownParseError(errors.New("network timeout")) {
+		t.Fatal("unexpected parse error")
+	}
+}
+
+func TestMentionsPersona(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("debug", persona.Meta{}, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !mentionsPersona(a, "@debug check this") {
+		t.Fatal("expected persona mention")
+	}
+	if mentionsPersona(a, "@ghost check this") {
+		t.Fatal("unexpected persona mention")
 	}
 }

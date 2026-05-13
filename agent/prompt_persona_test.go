@@ -42,6 +42,9 @@ func TestSystemPromptPrefersPersonaSoul(t *testing.T) {
 	if !strings.Contains(s, "Role: bug hunter") {
 		t.Fatalf("prompt missing role line:\n%s", s)
 	}
+	if !strings.Contains(s, "explicit invocation") {
+		t.Fatalf("prompt missing invocation guidance:\n%s", s)
+	}
 }
 
 func TestSystemPromptFallsBackToGlobalSoulWhenPersonaHasNone(t *testing.T) {

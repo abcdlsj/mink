@@ -413,6 +413,81 @@ func TestMentionReroutesToPersona(t *testing.T) {
 	if gotPersona == nil || gotPersona.ID != "debug" {
 		t.Fatalf("persona = %#v, want debug", gotPersona)
 	}
+	main, err := a.CurrentSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(main.Messages) != 0 {
+		t.Fatalf("main session messages = %d, want 0", len(main.Messages))
+	}
+	ps, err := a.CurrentSession(personaSessionSource("cli", "debug"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ps.Messages) != 1 {
+		t.Fatalf("persona session messages = %d, want 1", len(ps.Messages))
+	}
+}
+
+func TestPersonaMentionKeepsSeparateThreadedContext(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("debug", persona.Meta{Runtime: "stub"}, "# Debug SOUL"); err != nil {
+		t.Fatal(err)
+	}
+
+	var turns []struct {
+		persona string
+		input   string
+		seen    int
+	}
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		id := ""
+		if env.Persona != nil {
+			id = env.Persona.ID
+		}
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turns = append(turns, struct {
+				persona string
+				input   string
+				seen    int
+			}{persona: id, input: turn.Input, seen: len(turn.Session.Messages)})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: id + ":" + turn.Input})
+			return nil
+		}), nil
+	})
+
+	if _, err := a.HandleInput(context.Background(), "cli", "@debug first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.HandleInput(context.Background(), "cli", "plain reply"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.HandleInput(context.Background(), "cli", "@debug second"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(turns) != 3 {
+		t.Fatalf("turns = %#v", turns)
+	}
+	if turns[0].persona != "debug" || turns[0].input != "first" || turns[0].seen != 0 {
+		t.Fatalf("first turn = %#v", turns[0])
+	}
+	if turns[1].persona != "" || turns[1].input != "plain reply" || turns[1].seen != 0 {
+		t.Fatalf("plain turn = %#v", turns[1])
+	}
+	if turns[2].persona != "debug" || turns[2].input != "second" || turns[2].seen == 0 {
+		t.Fatalf("second persona turn = %#v", turns[2])
+	}
 }
 
 func TestHandleInputAsMissingPersona(t *testing.T) {

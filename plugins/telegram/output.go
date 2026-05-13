@@ -112,12 +112,9 @@ func sendNotice(bot *tele.Bot, source, raw string) error {
 	if out.Silent || strings.TrimSpace(out.Text) == "" {
 		return nil
 	}
-	opts := &tele.SendOptions{}
+	opts := sendOption(target)
 	if threadID > 0 {
 		opts.ThreadID = threadID
-	}
-	if target != nil {
-		opts.ReplyTo = target
 	}
 	return botSendLong(bot, chat, out.Text, opts)
 }
@@ -143,19 +140,74 @@ func noticeReplyTarget(chat *tele.Chat, out output) *tele.Message {
 }
 
 func sendOptions(reply *tele.Message) []interface{} {
-	if reply == nil {
-		return nil
+	return []interface{}{sendOption(reply)}
+}
+
+func sendOption(reply *tele.Message) *tele.SendOptions {
+	return &tele.SendOptions{
+		ReplyTo:   reply,
+		ParseMode: tele.ModeMarkdown,
 	}
-	return []interface{}{&tele.SendOptions{ReplyTo: reply}}
 }
 
 func botSendLong(bot *tele.Bot, chat *tele.Chat, text string, opts *tele.SendOptions) error {
 	for _, part := range split(text, 3500) {
 		if _, err := bot.Send(chat, part, opts); err != nil {
+			if shouldRetryPlain(err, opts) {
+				plain := plainSendOption(opts)
+				if _, retryErr := bot.Send(chat, part, plain); retryErr == nil {
+					continue
+				}
+			}
 			return err
 		}
 	}
 	return nil
+}
+
+func plainSendOption(opts *tele.SendOptions) *tele.SendOptions {
+	if opts == nil {
+		return nil
+	}
+	plain := *opts
+	plain.ParseMode = tele.ModeDefault
+	return &plain
+}
+
+func plainSendOptions(opts []interface{}) []interface{} {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make([]interface{}, 0, len(opts))
+	for _, opt := range opts {
+		if so, ok := opt.(*tele.SendOptions); ok {
+			out = append(out, plainSendOption(so))
+			continue
+		}
+		out = append(out, opt)
+	}
+	return out
+}
+
+func hasMarkdown(opts []interface{}) bool {
+	for _, opt := range opts {
+		if so, ok := opt.(*tele.SendOptions); ok && so.ParseMode == tele.ModeMarkdown {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldRetryPlain(err error, opts *tele.SendOptions) bool {
+	if err == nil || opts == nil || opts.ParseMode != tele.ModeMarkdown {
+		return false
+	}
+	return markdownParseError(err)
+}
+
+func markdownParseError(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "parse") || strings.Contains(s, "entity") || strings.Contains(s, "markdown")
 }
 
 func normalizeReaction(raw string) string {
