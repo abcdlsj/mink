@@ -233,7 +233,20 @@ func sendImages(send sender, images []image, opts ...interface{}) error {
 }
 
 func sendPhoto(send sender, img image, caption string, opts ...interface{}) error {
-	p := telegramPhoto(img, caption)
+	err := sendPreparedPhoto(send, telegramPhoto(img, caption), opts...)
+	if err == nil {
+		return nil
+	}
+	if shouldUploadHTTPImage(img, err) {
+		err = sendDownloadedPhoto(send, img, caption, opts...)
+		if err == nil {
+			return nil
+		}
+	}
+	return sendPhotoError(send, img, caption, err, opts...)
+}
+
+func sendPreparedPhoto(send sender, p *tele.Photo, opts ...interface{}) error {
 	if err := send(p, opts...); err != nil {
 		if hasMarkdown(opts) && markdownParseError(err) {
 			if retryErr := send(p, plainSendOptions(opts)...); retryErr == nil {

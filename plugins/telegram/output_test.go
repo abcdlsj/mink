@@ -2,7 +2,11 @@ package telegram
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/abcdlsj/sumi/app"
@@ -98,6 +102,119 @@ func TestTelegramPhotoSource(t *testing.T) {
 	got = telegramPhoto(image{Ref: "AgAC/with/slash"}, "")
 	if got.FileID != "AgAC/with/slash" {
 		t.Fatalf("file id with slash = %q", got.FileID)
+	}
+}
+
+func TestTelegramPhotoDownloadsHTTP(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("png"))
+	}))
+	defer s.Close()
+
+	got, cleanup, err := downloadedTelegramPhoto(image{Ref: s.URL + "/a.png"}, "cap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if got.FileURL != "" {
+		t.Fatalf("url = %q", got.FileURL)
+	}
+	if got.FileLocal == "" {
+		t.Fatal("expected local file")
+	}
+	b, err := os.ReadFile(got.FileLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != "png" {
+		t.Fatalf("file = %q", b)
+	}
+	if got.Caption != "cap" {
+		t.Fatalf("caption = %q", got.Caption)
+	}
+}
+
+func TestSendPhotoFallsBackToText(t *testing.T) {
+	var sent []any
+	send := func(what any, opts ...interface{}) error {
+		sent = append(sent, what)
+		if _, ok := what.(*tele.Photo); ok {
+			return errors.New("telegram: failed to get HTTP URL content (400)")
+		}
+		return nil
+	}
+
+	if err := sendPhoto(send, image{Ref: "AgACAgUAAxkBAAIB"}, "cap", sendOptions(nil)...); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	text, ok := sent[1].(string)
+	if !ok {
+		t.Fatalf("fallback = %T", sent[1])
+	}
+	if !strings.Contains(text, "cap") || !strings.Contains(text, "image failed to send") || !strings.Contains(text, "400") {
+		t.Fatalf("fallback = %q", text)
+	}
+}
+
+func TestSendHTTPPhotoFallsBackToUpload(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("png"))
+	}))
+	defer s.Close()
+
+	var sent []any
+	send := func(what any, opts ...interface{}) error {
+		sent = append(sent, what)
+		if p, ok := what.(*tele.Photo); ok && p.FileURL != "" {
+			return errors.New("telegram: failed to get HTTP URL content (400)")
+		}
+		return nil
+	}
+
+	if err := sendPhoto(send, image{Ref: s.URL + "/a.png"}, "cap", sendOptions(nil)...); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	first := sent[0].(*tele.Photo)
+	if first.FileURL == "" {
+		t.Fatalf("first photo = %#v", first)
+	}
+	second := sent[1].(*tele.Photo)
+	if second.FileLocal == "" {
+		t.Fatalf("second photo = %#v", second)
+	}
+}
+
+func TestSendHTTPPhotoDownloadFailureFallsBackToText(t *testing.T) {
+	s := httptest.NewServer(http.NotFoundHandler())
+	defer s.Close()
+
+	var sent []any
+	send := func(what any, opts ...interface{}) error {
+		sent = append(sent, what)
+		if p, ok := what.(*tele.Photo); ok && p.FileURL != "" {
+			return errors.New("telegram: failed to get HTTP URL content (400)")
+		}
+		return nil
+	}
+
+	if err := sendPhoto(send, image{Ref: s.URL + "/missing.png"}, "", sendOptions(nil)...); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	text, ok := sent[1].(string)
+	if !ok {
+		t.Fatalf("fallback = %T", sent[0])
+	}
+	if !strings.Contains(text, "image failed to send") || !strings.Contains(text, "HTTP 404") {
+		t.Fatalf("fallback = %q", text)
 	}
 }
 
