@@ -620,6 +620,26 @@ func TestChannelCommandSwitchesSource(t *testing.T) {
 	}
 }
 
+func TestChannelCommandAcceptsHumanTitle(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.input.SetValue("/channel 排查 app-opus报错")
+
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("channel command returned command")
+	}
+	got := next.(shellModel)
+	if got.channel != "排查-app-opus报错" {
+		t.Fatalf("channel = %q", got.channel)
+	}
+	if got.source != "cli:channel:排查-app-opus报错" {
+		t.Fatalf("source = %q", got.source)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "#排查-app-opus报错") {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
 func TestThreadCommandCanOpenByMessageID(t *testing.T) {
 	m := newShellModel(context.Background(), commandShellApp{}, "cli")
 	m.addTextItem(itemAssistant, "panic in cache", time.Now())

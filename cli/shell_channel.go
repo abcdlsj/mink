@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/abcdlsj/sumi/textutil"
 )
@@ -47,11 +48,11 @@ func (m *shellModel) runChannelCommand(args []string) string {
 		if len(args) < 2 {
 			return "usage: /channel new <name>"
 		}
-		return m.switchChannel(args[1])
+		return m.switchChannel(strings.Join(args[1:], " "))
 	case "main":
 		return m.switchChannel("main")
 	default:
-		return m.switchChannel(args[0])
+		return m.switchChannel(strings.Join(args, " "))
 	}
 }
 
@@ -81,7 +82,7 @@ func (m *shellModel) runThreadCommand(args []string) string {
 		}
 		return m.openThread(id)
 	default:
-		return m.openThread(args[0])
+		return m.openThread(strings.Join(args, " "))
 	}
 }
 
@@ -246,10 +247,10 @@ func cleanSpaceName(s string) string {
 	lastDash := false
 	for _, r := range s {
 		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '_':
 			b.WriteRune(r)
 			lastDash = false
-		case r == '-' && !lastDash:
+		case !lastDash:
 			b.WriteByte('-')
 			lastDash = true
 		}
