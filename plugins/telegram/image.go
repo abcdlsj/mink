@@ -42,6 +42,7 @@ func shouldUploadHTTPImage(img image, err error) bool {
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "http url") ||
 		strings.Contains(s, "url content") ||
+		strings.Contains(s, "web page content") ||
 		strings.Contains(s, "wrong file identifier")
 }
 

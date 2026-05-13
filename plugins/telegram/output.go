@@ -192,7 +192,10 @@ func sendParsed(send sender, out output, opts ...interface{}) error {
 
 func sendText(send sender, text string, opts ...interface{}) error {
 	for _, part := range split(text, 3500) {
-		msg := renderTelegramHTML(part)
+		msg := part
+		if hasParseMode(opts) {
+			msg = renderTelegramHTML(part)
+		}
 		if err := send(msg, opts...); err != nil {
 			if hasParseMode(opts) && parseModeError(err) {
 				if retryErr := send(part, plainSendOptions(opts)...); retryErr == nil {

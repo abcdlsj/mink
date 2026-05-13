@@ -159,6 +159,24 @@ func TestSendPhotoFallsBackToText(t *testing.T) {
 	}
 }
 
+func TestSendPlainTextDoesNotRenderHTML(t *testing.T) {
+	var sent []any
+	send := func(what any, opts ...interface{}) error {
+		sent = append(sent, what)
+		return nil
+	}
+
+	if err := sendText(send, "https://x.test/a?height=600&tag=abc", plainSendOptions(sendOptions(nil))...); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 1 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if sent[0] != "https://x.test/a?height=600&tag=abc" {
+		t.Fatalf("text = %q", sent[0])
+	}
+}
+
 func TestSendHTTPPhotoFallsBackToUpload(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("png"))
@@ -187,6 +205,32 @@ func TestSendHTTPPhotoFallsBackToUpload(t *testing.T) {
 	second := sent[1].(*tele.Photo)
 	if second.FileLocal == "" {
 		t.Fatalf("second photo = %#v", second)
+	}
+}
+
+func TestSendHTTPPhotoWrongWebPageContentFallsBackToUpload(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("png"))
+	}))
+	defer s.Close()
+
+	var sent []any
+	send := func(what any, opts ...interface{}) error {
+		sent = append(sent, what)
+		if p, ok := what.(*tele.Photo); ok && p.FileURL != "" {
+			return errors.New("telegram: wrong type of the web page content (400)")
+		}
+		return nil
+	}
+
+	if err := sendPhoto(send, image{Ref: s.URL + "/a.png"}, "cap", sendOptions(nil)...); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("sent = %#v", sent)
+	}
+	if sent[1].(*tele.Photo).FileLocal == "" {
+		t.Fatalf("upload = %#v", sent[1])
 	}
 }
 
