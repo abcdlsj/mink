@@ -1,6 +1,9 @@
 package telegram
 
 import (
+	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -9,33 +12,46 @@ import (
 )
 
 const silentToken = "NO_REPLY"
+const captionLimit = 1024
 
 var (
 	reactTagRe        = regexp.MustCompile(`(?is)\[\[\s*react\s*:\s*([^\]]+?)\s*\]\]`)
 	replyCurrentTagRe = regexp.MustCompile(`(?is)\[\[\s*reply_to_current\s*\]\]`)
 	replyIDTagRe      = regexp.MustCompile(`(?is)\[\[\s*reply_to\s*:\s*([0-9]+)\s*\]\]`)
+	imageTagRe        = regexp.MustCompile(`(?is)\[\[\s*(?:photo|image)\s*:\s*([^\]]+?)\s*\]\]`)
+	markdownImageRe   = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 )
 
 type output struct {
 	Text      string
 	Reaction  string
+	Images    []image
 	ReplyToID int
 	ReplyNow  bool
 	Silent    bool
 	HasAction bool
 }
 
+type image struct {
+	Ref string
+}
+
+type sender func(any, ...interface{}) error
+
 func parseOutput(raw string) output {
 	idMatches := replyIDTagRe.FindAllStringSubmatch(raw, -1)
 	replyNow := replyCurrentTagRe.MatchString(raw)
 
 	matches := reactTagRe.FindAllStringSubmatch(raw, -1)
+	images := parseImages(raw)
 	clean := reactTagRe.ReplaceAllString(raw, "")
 	clean = replyCurrentTagRe.ReplaceAllString(clean, "")
 	clean = replyIDTagRe.ReplaceAllString(clean, "")
+	clean = imageTagRe.ReplaceAllString(clean, "")
+	clean = markdownImageRe.ReplaceAllString(clean, "")
 	clean = strings.TrimSpace(clean)
 
-	out := output{Text: clean, ReplyNow: replyNow}
+	out := output{Text: clean, Images: images, ReplyNow: replyNow}
 	for _, m := range idMatches {
 		if len(m) < 2 {
 			continue
@@ -55,11 +71,27 @@ func parseOutput(raw string) output {
 		}
 	}
 	tok := strings.Trim(clean, " \t\n\r'\"`")
-	if strings.EqualFold(tok, silentToken) {
+	if strings.EqualFold(tok, silentToken) && len(images) == 0 {
 		out.Silent = true
 		out.Text = ""
 	}
-	out.HasAction = out.Silent || out.Reaction != "" || out.Text != ""
+	out.HasAction = out.Silent || out.Reaction != "" || out.Text != "" || len(out.Images) > 0
+	return out
+}
+
+func parseImages(raw string) []image {
+	var out []image
+	for _, re := range []*regexp.Regexp{imageTagRe, markdownImageRe} {
+		for _, m := range re.FindAllStringSubmatch(raw, -1) {
+			if len(m) < 2 {
+				continue
+			}
+			ref := cleanImageRef(m[1])
+			if ref != "" {
+				out = append(out, image{Ref: ref})
+			}
+		}
+	}
 	return out
 }
 
@@ -81,10 +113,7 @@ func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
 			}},
 		})
 	}
-	if out.Silent || strings.TrimSpace(out.Text) == "" {
-		return nil
-	}
-	return sendLong(c, out.Text, sendOptions(target)...)
+	return sendParsed(c.Send, out, sendOptions(target)...)
 }
 
 func sendNotice(bot *tele.Bot, source, raw string) error {
@@ -109,14 +138,15 @@ func sendNotice(bot *tele.Bot, source, raw string) error {
 			}},
 		})
 	}
-	if out.Silent || strings.TrimSpace(out.Text) == "" {
-		return nil
-	}
 	opts := sendOption(target)
 	if threadID > 0 {
 		opts.ThreadID = threadID
 	}
-	return botSendLong(bot, chat, out.Text, opts)
+	send := func(what any, opts ...interface{}) error {
+		_, err := bot.Send(chat, what, opts...)
+		return err
+	}
+	return sendParsed(send, out, opts)
 }
 
 func replyTarget(msg *tele.Message, out output) *tele.Message {
@@ -150,12 +180,21 @@ func sendOption(reply *tele.Message) *tele.SendOptions {
 	}
 }
 
-func botSendLong(bot *tele.Bot, chat *tele.Chat, text string, opts *tele.SendOptions) error {
+func sendParsed(send sender, out output, opts ...interface{}) error {
+	if out.Silent {
+		return nil
+	}
+	if strings.TrimSpace(out.Text) == "" {
+		return sendImages(send, out.Images, opts...)
+	}
+	return sendTextImages(send, out.Text, out.Images, opts...)
+}
+
+func sendText(send sender, text string, opts ...interface{}) error {
 	for _, part := range split(text, 3500) {
-		if _, err := bot.Send(chat, part, opts); err != nil {
-			if shouldRetryPlain(err, opts) {
-				plain := plainSendOption(opts)
-				if _, retryErr := bot.Send(chat, part, plain); retryErr == nil {
+		if err := send(part, opts...); err != nil {
+			if hasMarkdown(opts) && markdownParseError(err) {
+				if retryErr := send(part, plainSendOptions(opts)...); retryErr == nil {
 					continue
 				}
 			}
@@ -163,6 +202,119 @@ func botSendLong(bot *tele.Bot, chat *tele.Chat, text string, opts *tele.SendOpt
 		}
 	}
 	return nil
+}
+
+func sendTextImages(send sender, text string, images []image, opts ...interface{}) error {
+	text = strings.TrimSpace(text)
+	if len(images) == 0 {
+		if text == "" {
+			return nil
+		}
+		return sendText(send, text, opts...)
+	}
+	if text != "" && len(images) == 1 && captionOK(text) {
+		return sendPhoto(send, images[0], text, opts...)
+	}
+	if text != "" {
+		if err := sendText(send, text, opts...); err != nil {
+			return err
+		}
+	}
+	return sendImages(send, images, opts...)
+}
+
+func sendImages(send sender, images []image, opts ...interface{}) error {
+	for _, img := range images {
+		if err := sendPhoto(send, img, "", opts...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sendPhoto(send sender, img image, caption string, opts ...interface{}) error {
+	p := telegramPhoto(img, caption)
+	if err := send(p, opts...); err != nil {
+		if hasMarkdown(opts) && markdownParseError(err) {
+			if retryErr := send(p, plainSendOptions(opts)...); retryErr == nil {
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
+}
+
+func telegramPhoto(img image, caption string) *tele.Photo {
+	ref := cleanImageRef(img.Ref)
+	p := &tele.Photo{Caption: caption}
+	switch {
+	case ref == "":
+	case isHTTPURL(ref):
+		p.File = tele.FromURL(ref)
+	case strings.HasPrefix(ref, "file://"):
+		p.File = tele.FromDisk(fileURLPath(ref))
+	case isLocalImageRef(ref):
+		p.File = tele.FromDisk(expandHome(ref))
+	default:
+		p.File = tele.File{FileID: ref}
+	}
+	return p
+}
+
+func cleanImageRef(ref string) string {
+	return strings.Trim(strings.TrimSpace(ref), "`'\"")
+}
+
+func captionOK(s string) bool {
+	return len([]rune(s)) <= captionLimit
+}
+
+func isHTTPURL(ref string) bool {
+	u, err := url.Parse(ref)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func isLocalImageRef(ref string) bool {
+	ref = expandHome(ref)
+	if filepath.IsAbs(ref) || strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "~") {
+		return true
+	}
+	if _, err := os.Stat(ref); err == nil {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(ref)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif":
+		return true
+	default:
+		return false
+	}
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
+func fileURLPath(ref string) string {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return strings.TrimPrefix(ref, "file://")
+	}
+	path, err := url.PathUnescape(u.Path)
+	if err != nil {
+		return u.Path
+	}
+	return path
 }
 
 func plainSendOption(opts *tele.SendOptions) *tele.SendOptions {

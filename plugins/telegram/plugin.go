@@ -134,18 +134,7 @@ func typingLoop(c tele.Context, done <-chan struct{}) {
 }
 
 func sendLong(c tele.Context, text string, opts ...interface{}) error {
-	parts := split(text, 3500)
-	for _, part := range parts {
-		if err := c.Send(part, opts...); err != nil {
-			if hasMarkdown(opts) && markdownParseError(err) {
-				if retryErr := c.Send(part, plainSendOptions(opts)...); retryErr == nil {
-					continue
-				}
-			}
-			return err
-		}
-	}
-	return nil
+	return sendText(c.Send, text, opts...)
 }
 
 func split(text string, n int) []string {

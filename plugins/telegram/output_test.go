@@ -47,6 +47,60 @@ func TestParseTelegramOutputReplyCurrent(t *testing.T) {
 	}
 }
 
+func TestParseTelegramOutputImages(t *testing.T) {
+	out := parseOutput("[[reply_to:42]] look [[photo:https://example.com/a.png]] and ![b](./b.jpg)")
+	if out.Text != "look  and" {
+		t.Fatalf("text = %q", out.Text)
+	}
+	if len(out.Images) != 2 {
+		t.Fatalf("images = %#v", out.Images)
+	}
+	if out.Images[0].Ref != "https://example.com/a.png" {
+		t.Fatalf("image 0 = %#v", out.Images[0])
+	}
+	if out.Images[1].Ref != "./b.jpg" {
+		t.Fatalf("image 1 = %#v", out.Images[1])
+	}
+	if !out.HasAction {
+		t.Fatal("expected action")
+	}
+}
+
+func TestParseTelegramOutputImageKeepsNoReplyText(t *testing.T) {
+	out := parseOutput("NO_REPLY [[photo:https://example.com/a.png]]")
+	if out.Silent {
+		t.Fatal("unexpected silent")
+	}
+	if out.Text != "NO_REPLY" {
+		t.Fatalf("text = %q", out.Text)
+	}
+}
+
+func TestTelegramPhotoSource(t *testing.T) {
+	got := telegramPhoto(image{Ref: "https://example.com/a.png"}, "cap")
+	if got.FileURL != "https://example.com/a.png" {
+		t.Fatalf("url = %q", got.FileURL)
+	}
+	if got.Caption != "cap" {
+		t.Fatalf("caption = %q", got.Caption)
+	}
+
+	got = telegramPhoto(image{Ref: "./a.png"}, "")
+	if got.FileLocal != "./a.png" {
+		t.Fatalf("local = %q", got.FileLocal)
+	}
+
+	got = telegramPhoto(image{Ref: "AgACAgUAAxkBAAIB"}, "")
+	if got.FileID != "AgACAgUAAxkBAAIB" {
+		t.Fatalf("file id = %q", got.FileID)
+	}
+
+	got = telegramPhoto(image{Ref: "AgAC/with/slash"}, "")
+	if got.FileID != "AgAC/with/slash" {
+		t.Fatalf("file id with slash = %q", got.FileID)
+	}
+}
+
 func TestSendOptionsEnableMarkdownWithoutReply(t *testing.T) {
 	opts := sendOptions(nil)
 	if len(opts) != 1 {

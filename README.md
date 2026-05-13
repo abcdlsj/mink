@@ -146,6 +146,7 @@ In Telegram mode, dangerous tool actions use inline approval with session or per
 - `[[reply_to_current]]`
 - `[[reply_to:<message_id>]]`
 - `[[react:👍]]`
+- `[[photo:<url_or_path_or_file_id>]]`
 - `NO_REPLY`
 
 ## Run

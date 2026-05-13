@@ -127,6 +127,7 @@ func (b promptBuilder) telegram() string {
 		"Directives:",
 		"- [[reply_to_current]] or [[reply_to:<message_id>]]",
 		"- [[react:👍]]",
+		"- [[photo:<url_or_path_or_file_id>]]",
 	}, "\n")
 }
 
