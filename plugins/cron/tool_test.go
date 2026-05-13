@@ -1,6 +1,18 @@
 package cron
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestSchemaDescribesCurrentSource(t *testing.T) {
+	props := (&toolImpl{}).Schema()["properties"].(map[string]any)
+	source := props["source"].(map[string]any)
+	desc := source["description"].(string)
+	if !strings.Contains(desc, "literal value `current`") {
+		t.Fatalf("source description = %q", desc)
+	}
+}
 
 func TestDefaultSourceTreatsCurrentAsContextSource(t *testing.T) {
 	got := defaultSource("telegram:42", "current")

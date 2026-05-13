@@ -23,12 +23,18 @@ func (t *toolImpl) Schema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":   map[string]any{"type": "string", "enum": []string{"add", "list", "update", "remove", "toggle"}},
-			"id":       map[string]any{"type": "string"},
-			"name":     map[string]any{"type": "string"},
-			"schedule": map[string]any{"type": "string"},
-			"prompt":   map[string]any{"type": "string"},
-			"source":   map[string]any{"type": "string"},
+			"action": map[string]any{"type": "string", "enum": []string{"add", "list", "update", "remove", "toggle"}},
+			"id":     map[string]any{"type": "string"},
+			"name":   map[string]any{"type": "string"},
+			"schedule": map[string]any{
+				"type":        "string",
+				"description": "Standard 5-field cron expression: minute hour day month weekday.",
+			},
+			"prompt": map[string]any{"type": "string"},
+			"source": map[string]any{
+				"type":        "string",
+				"description": "Optional delivery source. Omit or pass the literal value `current` for the current conversation. Only pass an explicit source when targeting a known destination, e.g. `telegram:<chat_id>` or `telegram:<chat_id>:<thread_id>`.",
+			},
 		},
 		"required": []string{"action"},
 	}
