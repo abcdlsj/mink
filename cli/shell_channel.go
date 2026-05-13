@@ -44,9 +44,14 @@ func (m *shellModel) runChannelCommand(args []string) string {
 		return fmt.Sprintf("channel: %s", m.channelLabel())
 	}
 	switch args[0] {
-	case "new", "switch":
+	case "new":
 		if len(args) < 2 {
 			return "usage: /channel new <name>"
+		}
+		return m.newChannel(strings.Join(args[1:], " "))
+	case "switch":
+		if len(args) < 2 {
+			return "usage: /channel switch <name>"
 		}
 		return m.switchChannel(strings.Join(args[1:], " "))
 	case "main":
@@ -87,11 +92,7 @@ func (m *shellModel) runThreadCommand(args []string) string {
 }
 
 func (m *shellModel) switchChannel(name string) string {
-	raw := strings.TrimSpace(name)
-	name = cleanSpaceName(raw)
-	if raw == "" || raw == "main" {
-		name = "main"
-	}
+	name = channelName(name)
 	if name == "" {
 		return "usage: /channel <name>"
 	}
@@ -103,6 +104,33 @@ func (m *shellModel) switchChannel(name string) string {
 	m.source = m.channelSource(name)
 	m.resetTranscript()
 	return "channel: " + m.channelLabel()
+}
+
+func (m *shellModel) newChannel(name string) string {
+	name = channelName(name)
+	if name == "" {
+		return "usage: /channel new <name>"
+	}
+	if m.busy {
+		return "Finish the running turn before switching channels."
+	}
+	source := m.channelSource(name)
+	var label string
+	if m.app != nil {
+		s, err := m.app.NewSession(source)
+		if err != nil {
+			return err.Error()
+		}
+		label = sessionLabel(s)
+	}
+	m.channel = name
+	m.thread = nil
+	m.source = source
+	m.resetTranscript()
+	if label == "" {
+		return "channel: " + m.channelLabel()
+	}
+	return "channel: " + m.channelLabel() + "\nNew session: " + label
 }
 
 func (m *shellModel) enterThread(th shellThread) {
@@ -259,4 +287,13 @@ func cleanSpaceName(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+func channelName(s string) string {
+	raw := strings.TrimSpace(s)
+	name := cleanSpaceName(raw)
+	if raw == "" || raw == "main" {
+		return "main"
+	}
+	return name
 }

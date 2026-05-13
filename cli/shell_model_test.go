@@ -20,7 +20,8 @@ import (
 )
 
 type commandShellApp struct {
-	workspace string
+	workspace        string
+	newSessionSource *string
 }
 
 func (commandShellApp) HandleInput(context.Context, string, string) (string, error) { return "ok", nil }
@@ -45,8 +46,11 @@ func (commandShellApp) Personas() *persona.Registry {
 func (commandShellApp) CurrentSession(string) (*session.Session, error) {
 	return session.New("cli"), nil
 }
-func (commandShellApp) NewSession(string) (*session.Session, error) {
-	return session.New("cli"), nil
+func (a commandShellApp) NewSession(src string) (*session.Session, error) {
+	if a.newSessionSource != nil {
+		*a.newSessionSource = src
+	}
+	return session.New(src), nil
 }
 func (commandShellApp) SwitchSession(string, string) (*session.Session, error) {
 	return session.New("cli"), nil
@@ -636,6 +640,30 @@ func TestChannelCommandAcceptsHumanTitle(t *testing.T) {
 		t.Fatalf("source = %q", got.source)
 	}
 	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "#排查-app-opus报错") {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
+func TestChannelNewCreatesSessionForChannel(t *testing.T) {
+	var src string
+	m := newShellModel(context.Background(), commandShellApp{newSessionSource: &src}, "cli")
+	m.input.SetValue("/channel new bugfix")
+
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("channel command returned command")
+	}
+	got := next.(shellModel)
+	if got.channel != "bugfix" {
+		t.Fatalf("channel = %q", got.channel)
+	}
+	if got.source != "cli:channel:bugfix" {
+		t.Fatalf("source = %q", got.source)
+	}
+	if src != "cli:channel:bugfix" {
+		t.Fatalf("new session source = %q", src)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "New session:") {
 		t.Fatalf("items = %#v", got.items)
 	}
 }
