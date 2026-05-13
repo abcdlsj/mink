@@ -45,7 +45,7 @@ func (t *toolImpl) Run(ctx context.Context, args json.RawMessage) (string, error
 	case "list":
 		return t.list()
 	case "update":
-		return t.update(in)
+		return t.update(ctx, in)
 	case "remove":
 		return t.remove(in.ID)
 	case "toggle":
@@ -103,7 +103,7 @@ func (t *toolImpl) list() (string, error) {
 	return strings.TrimSpace(sb.String()), nil
 }
 
-func (t *toolImpl) update(in params) (string, error) {
+func (t *toolImpl) update(ctx context.Context, in params) (string, error) {
 	id := strings.TrimSpace(in.ID)
 	if id == "" {
 		return "", fmt.Errorf("id is required")
@@ -121,7 +121,7 @@ func (t *toolImpl) update(in params) (string, error) {
 		if tasks[i].ID != id {
 			continue
 		}
-		updateTask(&tasks[i], in)
+		updateTask(&tasks[i], command.SourceFrom(ctx), in)
 		if err := saveTasks(t.s.path, tasks); err != nil {
 			return "", err
 		}
@@ -133,7 +133,7 @@ func (t *toolImpl) update(in params) (string, error) {
 	return "", fmt.Errorf("task not found: %s", in.ID)
 }
 
-func updateTask(task *Task, in params) {
+func updateTask(task *Task, ctxSource string, in params) {
 	if v := strings.TrimSpace(in.Name); v != "" {
 		task.Name = v
 	}
@@ -143,7 +143,7 @@ func updateTask(task *Task, in params) {
 	if v := strings.TrimSpace(in.Prompt); v != "" {
 		task.Prompt = v
 	}
-	if v := strings.TrimSpace(in.Source); v != "" {
+	if v := sourceValue(ctxSource, in.Source); v != "" {
 		task.Source = v
 	}
 }
@@ -207,11 +207,22 @@ func (t *toolImpl) toggle(id string) (string, error) {
 }
 
 func defaultSource(ctxSource, explicit string) string {
-	if v := strings.TrimSpace(explicit); v != "" {
+	if v := sourceValue(ctxSource, explicit); v != "" {
 		return v
 	}
 	if v := strings.TrimSpace(ctxSource); v != "" {
 		return v
 	}
 	return "cli"
+}
+
+func sourceValue(ctxSource, explicit string) string {
+	v := strings.TrimSpace(explicit)
+	if v == "" {
+		return ""
+	}
+	if strings.EqualFold(v, "current") {
+		return strings.TrimSpace(ctxSource)
+	}
+	return v
 }
