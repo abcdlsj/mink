@@ -24,7 +24,7 @@ func sendDownloadedPhoto(send sender, img image, caption string, opts ...interfa
 	if err != nil {
 		return err
 	}
-	return sendPreparedPhoto(send, p, opts...)
+	return sendPreparedPhoto(send, p, caption, opts...)
 }
 
 func downloadedTelegramPhoto(img image, caption string) (*tele.Photo, func(), error) {

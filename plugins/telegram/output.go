@@ -176,7 +176,7 @@ func sendOptions(reply *tele.Message) []interface{} {
 func sendOption(reply *tele.Message) *tele.SendOptions {
 	return &tele.SendOptions{
 		ReplyTo:   reply,
-		ParseMode: tele.ModeMarkdown,
+		ParseMode: tele.ModeHTML,
 	}
 }
 
@@ -192,8 +192,9 @@ func sendParsed(send sender, out output, opts ...interface{}) error {
 
 func sendText(send sender, text string, opts ...interface{}) error {
 	for _, part := range split(text, 3500) {
-		if err := send(part, opts...); err != nil {
-			if hasMarkdown(opts) && markdownParseError(err) {
+		msg := renderTelegramHTML(part)
+		if err := send(msg, opts...); err != nil {
+			if hasParseMode(opts) && parseModeError(err) {
 				if retryErr := send(part, plainSendOptions(opts)...); retryErr == nil {
 					continue
 				}
@@ -233,7 +234,7 @@ func sendImages(send sender, images []image, opts ...interface{}) error {
 }
 
 func sendPhoto(send sender, img image, caption string, opts ...interface{}) error {
-	err := sendPreparedPhoto(send, telegramPhoto(img, caption), opts...)
+	err := sendPreparedPhoto(send, telegramPhoto(img, caption), caption, opts...)
 	if err == nil {
 		return nil
 	}
@@ -246,9 +247,13 @@ func sendPhoto(send sender, img image, caption string, opts ...interface{}) erro
 	return sendPhotoError(send, img, caption, err, opts...)
 }
 
-func sendPreparedPhoto(send sender, p *tele.Photo, opts ...interface{}) error {
+func sendPreparedPhoto(send sender, p *tele.Photo, caption string, opts ...interface{}) error {
+	if p.Caption != "" {
+		p.Caption = renderTelegramHTML(p.Caption)
+	}
 	if err := send(p, opts...); err != nil {
-		if hasMarkdown(opts) && markdownParseError(err) {
+		if hasParseMode(opts) && parseModeError(err) {
+			p.Caption = caption
 			if retryErr := send(p, plainSendOptions(opts)...); retryErr == nil {
 				return nil
 			}
@@ -354,23 +359,16 @@ func plainSendOptions(opts []interface{}) []interface{} {
 	return out
 }
 
-func hasMarkdown(opts []interface{}) bool {
+func hasParseMode(opts []interface{}) bool {
 	for _, opt := range opts {
-		if so, ok := opt.(*tele.SendOptions); ok && so.ParseMode == tele.ModeMarkdown {
+		if so, ok := opt.(*tele.SendOptions); ok && so.ParseMode != tele.ModeDefault {
 			return true
 		}
 	}
 	return false
 }
 
-func shouldRetryPlain(err error, opts *tele.SendOptions) bool {
-	if err == nil || opts == nil || opts.ParseMode != tele.ModeMarkdown {
-		return false
-	}
-	return markdownParseError(err)
-}
-
-func markdownParseError(err error) bool {
+func parseModeError(err error) bool {
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "parse") || strings.Contains(s, "entity") || strings.Contains(s, "markdown")
 }

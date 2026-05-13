@@ -218,7 +218,7 @@ func TestSendHTTPPhotoDownloadFailureFallsBackToText(t *testing.T) {
 	}
 }
 
-func TestSendOptionsEnableMarkdownWithoutReply(t *testing.T) {
+func TestSendOptionsEnableHTMLWithoutReply(t *testing.T) {
 	opts := sendOptions(nil)
 	if len(opts) != 1 {
 		t.Fatalf("len = %d", len(opts))
@@ -230,7 +230,7 @@ func TestSendOptionsEnableMarkdownWithoutReply(t *testing.T) {
 	if opt.ReplyTo != nil {
 		t.Fatalf("reply = %v", opt.ReplyTo)
 	}
-	if opt.ParseMode != tele.ModeMarkdown {
+	if opt.ParseMode != tele.ModeHTML {
 		t.Fatalf("parse mode = %q", opt.ParseMode)
 	}
 }
@@ -248,7 +248,7 @@ func TestSendOptionsRepliesToMessage(t *testing.T) {
 	if opt.ReplyTo != reply {
 		t.Fatalf("reply = %v", opt.ReplyTo)
 	}
-	if opt.ParseMode != tele.ModeMarkdown {
+	if opt.ParseMode != tele.ModeHTML {
 		t.Fatalf("parse mode = %q", opt.ParseMode)
 	}
 }
@@ -264,7 +264,7 @@ func TestNoticeReplyTargetRequiresExplicitReplyID(t *testing.T) {
 	}
 }
 
-func TestPlainSendOptionsDropMarkdown(t *testing.T) {
+func TestPlainSendOptionsDropParseMode(t *testing.T) {
 	reply := &tele.Message{ID: 42}
 	opts := plainSendOptions(sendOptions(reply))
 	opt := opts[0].(*tele.SendOptions)
@@ -276,11 +276,11 @@ func TestPlainSendOptionsDropMarkdown(t *testing.T) {
 	}
 }
 
-func TestMarkdownParseError(t *testing.T) {
-	if !markdownParseError(errors.New("Bad Request: can't parse entities")) {
+func TestParseModeError(t *testing.T) {
+	if !parseModeError(errors.New("Bad Request: can't parse entities")) {
 		t.Fatal("expected parse error")
 	}
-	if markdownParseError(errors.New("network timeout")) {
+	if parseModeError(errors.New("network timeout")) {
 		t.Fatal("unexpected parse error")
 	}
 }
