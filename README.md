@@ -151,6 +151,16 @@ In Telegram mode, dangerous tool actions use inline approval with session or per
 
 ## Run
 
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abcdlsj/sumi/main/install.sh | sh
+```
+
+Release binaries are built for macOS and Linux on `amd64` (`x86_64`) and `arm64` (`aarch64`/Apple Silicon). The installer always downloads the latest release.
+
+Build from source:
+
 ```bash
 go run ./cmd/sumi
 ```

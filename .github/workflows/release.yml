@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -eu
+          mkdir -p dist
+          build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          short_commit=$(printf "%.7s" "$COMMIT")
+          go build -trimpath -ldflags "-s -w -X 'main.Version=$VERSION' -X 'main.Commit=$short_commit' -X 'main.BuildTime=$build_time'" -o dist/sumi ./cmd/sumi
+          tar -C dist -czf "dist/sumi_${GOOS}_${GOARCH}.tar.gz" sumi
+          rm dist/sumi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sumi_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/sumi_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          set -eu
+          cd dist
+          shasum -a 256 *.tar.gz > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          make_latest: true
