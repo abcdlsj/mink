@@ -18,6 +18,39 @@ fetch() {
 	die "curl or wget is required"
 }
 
+restart_tg() {
+	pidfile=$HOME/.sumi/sumi-tg.pid
+	log=$HOME/.sumi/logs/sumi-tg.log
+
+	[ -s "$pidfile" ] || return 0
+	pid=$(cat "$pidfile")
+	kill -0 "$pid" 2>/dev/null || return 0
+
+	cmd=$(ps -p "$pid" -o args= 2>/dev/null || ps -p "$pid" -o command= 2>/dev/null || true)
+	case "$cmd" in
+	*"sumi tg"*) ;;
+	*) return 0 ;;
+	esac
+
+	echo "sumi tg is running, restarting it"
+	kill -TERM "$pid" 2>/dev/null || true
+	i=0
+	while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 10 ]; do
+		i=$((i + 1))
+		sleep 1
+	done
+
+	if kill -0 "$pid" 2>/dev/null; then
+		echo "sumi install: warning: old sumi tg process still running, skip restart" >&2
+		return 0
+	fi
+
+	mkdir -p "$HOME/.sumi/logs"
+	nohup "$bin/sumi" tg >"$log" 2>&1 &
+	echo $! >"$pidfile"
+	echo "sumi tg restarted with pid $(cat "$pidfile")"
+}
+
 repo=abcdlsj/sumi
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -72,6 +105,7 @@ chmod 755 "$bin/sumi"
 
 echo "sumi installed to $bin/sumi"
 "$bin/sumi" version || true
+restart_tg
 
 case ":$PATH:" in
 *":$bin:"*) ;;

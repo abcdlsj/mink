@@ -157,7 +157,7 @@ Install the latest release:
 curl -fsSL https://raw.githubusercontent.com/abcdlsj/sumi/main/install.sh | sh
 ```
 
-Release binaries are built for macOS and Linux on `amd64` (`x86_64`) and `arm64` (`aarch64`/Apple Silicon). The installer always downloads the latest release.
+Release binaries are built for macOS and Linux on `amd64` (`x86_64`) and `arm64` (`aarch64`/Apple Silicon). The installer always downloads the latest release. If `sumi tg` is running with `~/.sumi/sumi-tg.pid`, it is restarted with `nohup` after the binary is replaced.
 
 Build from source:
 
