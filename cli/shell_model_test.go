@@ -260,6 +260,31 @@ func TestMouseWheelScrollsTranscript(t *testing.T) {
 	}
 }
 
+func TestTranscriptKeyScrollDoesNotResyncViewport(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.width = 80
+	m.height = 10
+	m.syncLayout()
+	for i := 0; i < 40; i++ {
+		m.addTextItem(itemNotice, fmt.Sprintf("line %02d", i), time.Now())
+	}
+	m.viewport.SetYOffset(0)
+	m.focus = focusTranscript
+	last := m.lastSync
+
+	next, _ := m.updateKey(tea.KeyMsg{Type: tea.KeyDown})
+	got := next.(shellModel)
+	if got.viewport.YOffset == 0 {
+		t.Fatal("down key should scroll transcript")
+	}
+	if !got.lastSync.Equal(last) {
+		t.Fatalf("key scroll resynced viewport: before %s after %s", last, got.lastSync)
+	}
+	if got.follow {
+		t.Fatal("scrolling away from bottom should disable follow")
+	}
+}
+
 func TestMouseWheelAtBottomKeepsFollow(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.width = 80

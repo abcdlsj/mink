@@ -436,17 +436,21 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "j", "down":
-		m.moveSelection(1)
+		m.scrollTranscript(3)
 	case "k", "up":
-		m.moveSelection(-1)
+		m.scrollTranscript(-3)
 	case "g", "home":
-		m.selectItem(0)
+		m.viewport.GotoTop()
+		m.follow = false
+		m.selected = m.itemAtLine(m.viewport.YOffset)
 	case "G", "end":
-		m.selectItem(len(m.items) - 1)
+		m.viewport.GotoBottom()
+		m.follow = true
+		m.selected = len(m.items) - 1
 	case "pgdown":
-		m.pageSelection(1)
+		m.scrollTranscript(max(1, m.viewport.Height-2))
 	case "pgup":
-		m.pageSelection(-1)
+		m.scrollTranscript(-max(1, m.viewport.Height-2))
 	case "enter":
 		if len(m.items) > 0 {
 			m.toggleExpanded(m.selected)
@@ -859,7 +863,44 @@ func (m *shellModel) selectItem(i int) {
 	}
 	m.selected = i
 	m.follow = i == len(m.items)-1
-	m.syncViewport()
+	if len(m.spans) == 0 {
+		m.syncViewport()
+		return
+	}
+	m.keepSelectionVisible()
+}
+
+func (m *shellModel) scrollTranscript(delta int) {
+	if m.viewport.Height <= 0 || delta == 0 {
+		return
+	}
+	before := m.viewport.YOffset
+	if delta > 0 {
+		m.viewport.ScrollDown(delta)
+	} else {
+		m.viewport.ScrollUp(-delta)
+	}
+	if m.viewport.YOffset != before {
+		m.follow = false
+	}
+	if m.viewport.AtBottom() {
+		m.follow = true
+		m.selected = len(m.items) - 1
+		return
+	}
+	m.selected = m.itemAtLine(m.viewport.YOffset)
+}
+
+func (m *shellModel) itemAtLine(line int) int {
+	if len(m.spans) == 0 {
+		return -1
+	}
+	for i, span := range m.spans {
+		if line < span.End {
+			return i
+		}
+	}
+	return len(m.spans) - 1
 }
 
 func (m *shellModel) toggleExpanded(i int) {
