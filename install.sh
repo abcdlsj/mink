@@ -72,7 +72,8 @@ url="${base}/latest/download/${asset}"
 sum_url="${base}/latest/download/checksums.txt"
 
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t sumi)
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+new=
+trap 'rm -rf "$tmp"; [ -n "${new:-}" ] && rm -f "$new"' EXIT HUP INT TERM
 
 fetch "$url" "$tmp/$asset" || die "download failed: $url"
 if fetch "$sum_url" "$tmp/checksums.txt" 2>/dev/null; then
@@ -100,8 +101,11 @@ fi
 mkdir -p "$bin"
 [ -w "$bin" ] || die "$bin is not writable"
 
-cp "$tmp/sumi" "$bin/sumi"
-chmod 755 "$bin/sumi"
+new="$bin/.sumi.$$"
+cp "$tmp/sumi" "$new"
+chmod 755 "$new"
+mv -f "$new" "$bin/sumi"
+new=
 
 echo "sumi installed to $bin/sumi"
 "$bin/sumi" version || true
