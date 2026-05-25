@@ -20,6 +20,7 @@ type diskSession struct {
 	Title           string            `json:"title,omitempty"`
 	Summary         string            `json:"summary,omitempty"`
 	Messages        []msg.Message     `json:"messages,omitempty"`
+	Usage           session.Usage     `json:"usage,omitempty"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	ExternalSession map[string]string `json:"external_session,omitempty"`
@@ -148,6 +149,7 @@ func toDisk(s *session.Session) diskSession {
 		Title:           s.Title,
 		Summary:         s.Summary,
 		Messages:        s.Messages,
+		Usage:           s.Usage,
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
 		ExternalSession: s.ExternalSession,
@@ -165,6 +167,7 @@ func fromDisk(d diskSession) *session.Session {
 		Title:           d.Title,
 		Summary:         d.Summary,
 		Messages:        d.Messages,
+		Usage:           d.Usage,
 		CreatedAt:       d.CreatedAt,
 		UpdatedAt:       d.UpdatedAt,
 		ExternalSession: es,

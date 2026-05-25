@@ -20,6 +20,7 @@ func TestRoundTripSession(t *testing.T) {
 
 	s := session.New("cli")
 	s.Add(msg.Message{Role: "user", Content: "hello"})
+	s.Add(msg.Message{Role: "assistant", Content: "ok", Usage: &msg.TokenUsage{Input: 10, Output: 5, Total: 15}})
 
 	if err := db.SaveSession(s); err != nil {
 		t.Fatal(err)
@@ -40,11 +41,14 @@ func TestRoundTripSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded.Messages) != 1 {
+	if len(loaded.Messages) != 2 {
 		t.Fatalf("got %d messages", len(loaded.Messages))
 	}
 	if loaded.Messages[0].Content != "hello" {
 		t.Fatalf("got content %q", loaded.Messages[0].Content)
+	}
+	if loaded.Usage.Calls != 1 || loaded.Usage.Input != 10 || loaded.Usage.Output != 5 || loaded.Usage.Total != 15 {
+		t.Fatalf("usage = %+v", loaded.Usage)
 	}
 
 	date, tag, ok := parseSessionID(s.ID)

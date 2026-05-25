@@ -122,6 +122,9 @@ func TestUsageCommandAggregatesRecordedUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Add(msg.Message{Role: "assistant", Content: "ok", Usage: &msg.TokenUsage{Input: 10, Output: 5, Total: 15}})
+	if s.Usage.Total != 15 {
+		t.Fatalf("session usage = %+v", s.Usage)
+	}
 	if err := a.sessions.Save(s); err != nil {
 		t.Fatal(err)
 	}

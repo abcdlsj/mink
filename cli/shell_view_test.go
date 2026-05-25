@@ -168,6 +168,35 @@ func TestRenderItemKeepsUserMessageCompact(t *testing.T) {
 	}
 }
 
+func TestMainConversationHidesMessageIDs(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 80
+	user := &chatItem{ID: "m01", Kind: itemUser, Segments: []chatSegment{{Kind: segText, Text: "hello"}}}
+	assistant := &chatItem{ID: "m02", Kind: itemAssistant, Segments: []chatSegment{{Kind: segText, Text: "world"}}}
+	m.items = []*chatItem{user, assistant}
+
+	out := ansi.Strip(strings.Join(append(m.renderItem(user, 0), m.renderItem(assistant, 1)...), "\n"))
+	if strings.Contains(out, "m01") || strings.Contains(out, "m02") {
+		t.Fatalf("main conversation leaked ids:\n%s", out)
+	}
+}
+
+func TestThreadConversationShowsMessageIDs(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.viewport.Width = 80
+	m.thread = &shellThread{ID: "t1", Title: "thread"}
+	user := &chatItem{ID: "m01", Kind: itemUser, Segments: []chatSegment{{Kind: segText, Text: "hello"}}}
+	assistant := &chatItem{ID: "m02", Kind: itemAssistant, Segments: []chatSegment{{Kind: segText, Text: "world"}}}
+	m.items = []*chatItem{user, assistant}
+
+	out := ansi.Strip(strings.Join(append(m.renderItem(user, 0), m.renderItem(assistant, 1)...), "\n"))
+	for _, want := range []string{"m01", "m02"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("thread output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func requireHeaderFacts(t *testing.T, m shellModel, note string) {
 	t.Helper()
 	out := ansi.Strip(m.View())

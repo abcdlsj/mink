@@ -106,10 +106,10 @@ func (a *App) runUsageCommand(ctx context.Context, args []string) (string, error
 	now := time.Now()
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	var current, month, all usageTotal
-	current.AddSession(cur, time.Time{})
+	current.AddUsage(cur.Usage, time.Time{})
 	for _, s := range sessions {
-		all.AddSession(s, time.Time{})
-		month.AddSession(s, monthStart)
+		all.AddUsage(s.Usage, time.Time{})
+		month.AddUsage(s.Usage, monthStart)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Usage (%s)\n", a.currentModel())
@@ -117,7 +117,7 @@ func (a *App) runUsageCommand(ctx context.Context, args []string) (string, error
 	fmt.Fprintf(&b, "\nThis month:\n%s\n", month.String())
 	fmt.Fprintf(&b, "\nAll time:\n%s", all.String())
 	if all.Total == 0 {
-		b.WriteString("\n\nNo provider token usage recorded yet. Older sessions may only have estimates via /tokens.")
+		b.WriteString("\n\nNo provider token usage recorded yet. Sessions created before usage metadata will show zero.")
 	}
 	return b.String(), nil
 }
@@ -129,20 +129,21 @@ type usageTotal struct {
 	Calls  int
 }
 
-func (u *usageTotal) AddSession(s *session.Session, since time.Time) {
-	if s == nil {
+func (u *usageTotal) AddUsage(v session.Usage, since time.Time) {
+	if since.IsZero() {
+		u.Input += v.Input
+		u.Output += v.Output
+		u.Total += v.Total
+		u.Calls += v.Calls
 		return
 	}
-	for _, m := range s.Messages {
-		if !since.IsZero() && m.Timestamp.Before(since) {
+	for _, r := range v.Records {
+		if r.At.Before(since) {
 			continue
 		}
-		if m.Usage == nil {
-			continue
-		}
-		u.Input += m.Usage.Input
-		u.Output += m.Usage.Output
-		u.Total += m.Usage.Total
+		u.Input += r.Input
+		u.Output += r.Output
+		u.Total += r.Total
 		u.Calls++
 	}
 }

@@ -330,7 +330,7 @@ func (m shellModel) renderAssistantItem(item *chatItem, idx int) []string {
 		lines = append(lines, seg...)
 		hasBody = true
 	}
-	if item.ID != "" {
+	if m.showMessageIDs() && item.ID != "" {
 		meta := shellTheme.Meta.Render("sumi " + item.ID)
 		if idx == m.selected {
 			meta = m.selectedLine(meta)
@@ -570,7 +570,7 @@ func (m shellModel) renderUserText(text string, idx int) []string {
 		prefix := "  "
 		if i == 0 {
 			id := ""
-			if idx >= 0 && idx < len(m.items) && m.items[idx] != nil && m.items[idx].ID != "" {
+			if m.showMessageIDs() && idx >= 0 && idx < len(m.items) && m.items[idx] != nil && m.items[idx].ID != "" {
 				id = m.items[idx].ID + " "
 			}
 			prefix = shellTheme.User.Render("› " + id)
@@ -607,6 +607,10 @@ func (m shellModel) renderExpanded(item *chatItem) []string {
 
 func (m shellModel) selectedLine(line string) string {
 	return shellTheme.SelectedBody.Render(line)
+}
+
+func (m shellModel) showMessageIDs() bool {
+	return m.thread != nil
 }
 
 func wrapDisplay(s string, width int) []string {

@@ -18,9 +18,27 @@ type Session struct {
 	Title           string
 	Summary         string
 	Messages        []msg.Message
+	Usage           Usage
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	ExternalSession map[string]string
+}
+
+type Usage struct {
+	Calls   int           `json:"calls"`
+	Input   int           `json:"input"`
+	Output  int           `json:"output"`
+	Total   int           `json:"total"`
+	Records []UsageRecord `json:"records,omitempty"`
+}
+
+type UsageRecord struct {
+	MessageID string    `json:"message_id,omitempty"`
+	Input     int       `json:"input"`
+	Output    int       `json:"output"`
+	Total     int       `json:"total"`
+	Source    string    `json:"source,omitempty"`
+	At        time.Time `json:"at"`
 }
 
 func New(source string) *Session {
@@ -49,6 +67,7 @@ func (s *Session) Add(m msg.Message) {
 	if s.Title == "" && m.Role == "user" && m.Content != "" {
 		s.Title = trimTitle(m.Content)
 	}
+	s.addUsage(m.ID, m.Usage, m.Timestamp)
 }
 
 func (s *Session) Empty() bool {
@@ -59,6 +78,47 @@ func (s *Session) Empty() bool {
 		return false
 	}
 	return len(s.Messages) == 0
+}
+
+func (s *Session) addUsage(id string, u *msg.TokenUsage, at time.Time) {
+	if s == nil || u == nil {
+		return
+	}
+	if u.Input == 0 && u.Output == 0 && u.Total == 0 {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id != "" && s.hasUsage(id) {
+		return
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	total := u.Total
+	if total == 0 {
+		total = u.Input + u.Output
+	}
+	s.Usage.Calls++
+	s.Usage.Input += u.Input
+	s.Usage.Output += u.Output
+	s.Usage.Total += total
+	s.Usage.Records = append(s.Usage.Records, UsageRecord{
+		MessageID: id,
+		Input:     u.Input,
+		Output:    u.Output,
+		Total:     total,
+		Source:    strings.TrimSpace(u.Source),
+		At:        at,
+	})
+}
+
+func (s *Session) hasUsage(id string) bool {
+	for _, r := range s.Usage.Records {
+		if r.MessageID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Session) Compact(summary string, keep int) {

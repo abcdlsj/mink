@@ -64,3 +64,42 @@ func TestCompactAllowsKeepingZeroRecentMessages(t *testing.T) {
 		t.Fatalf("expected system summary message")
 	}
 }
+
+func TestAddRecordsUsageByMessageID(t *testing.T) {
+	s := New("cli")
+	m := msg.Message{
+		ID:      "m1",
+		Role:    "assistant",
+		Content: "ok",
+		Usage:   &msg.TokenUsage{Input: 10, Output: 5, Total: 15, Source: "provider"},
+	}
+
+	s.Add(m)
+	s.Add(m)
+
+	if s.Usage.Calls != 1 || s.Usage.Input != 10 || s.Usage.Output != 5 || s.Usage.Total != 15 {
+		t.Fatalf("usage = %+v", s.Usage)
+	}
+	if len(s.Usage.Records) != 1 {
+		t.Fatalf("records = %d, want 1", len(s.Usage.Records))
+	}
+	if s.Usage.Records[0].MessageID != "m1" {
+		t.Fatalf("message id = %q", s.Usage.Records[0].MessageID)
+	}
+}
+
+func TestAddRecordsUsageAfterGeneratingMessageID(t *testing.T) {
+	s := New("cli")
+	s.Add(msg.Message{
+		Role:    "assistant",
+		Content: "ok",
+		Usage:   &msg.TokenUsage{Input: 2, Output: 3, Total: 5},
+	})
+
+	if len(s.Usage.Records) != 1 {
+		t.Fatalf("records = %d, want 1", len(s.Usage.Records))
+	}
+	if s.Usage.Records[0].MessageID == "" {
+		t.Fatal("usage record missing generated message id")
+	}
+}
