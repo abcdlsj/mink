@@ -80,6 +80,9 @@ func (b promptBuilder) context() string {
 	if b.env != nil && strings.TrimSpace(b.env.Workspace) != "" {
 		lines = append(lines, "Workspace: "+strings.TrimSpace(b.env.Workspace))
 	}
+	if b.env != nil && strings.TrimSpace(b.env.ProjectContext) != "" {
+		lines = append(lines, "Project context:\n"+strings.TrimSpace(b.env.ProjectContext))
+	}
 	if s := b.session(); s != nil && strings.TrimSpace(s.Summary) != "" {
 		lines = append(lines, "Conversation summary:\n"+strings.TrimSpace(s.Summary))
 	}

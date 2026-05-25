@@ -51,6 +51,16 @@ func (s *Session) Add(m msg.Message) {
 	}
 }
 
+func (s *Session) Empty() bool {
+	if s == nil {
+		return true
+	}
+	if strings.TrimSpace(s.Summary) != "" {
+		return false
+	}
+	return len(s.Messages) == 0
+}
+
 func (s *Session) Compact(summary string, keep int) {
 	if keep < 0 {
 		keep = 8

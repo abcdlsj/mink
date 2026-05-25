@@ -15,6 +15,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -51,6 +52,12 @@ func (a commandShellApp) NewSession(src string) (*session.Session, error) {
 		*a.newSessionSource = src
 	}
 	return session.New(src), nil
+}
+func (a commandShellApp) DraftSession(src string) *session.Session {
+	if a.newSessionSource != nil {
+		*a.newSessionSource = src
+	}
+	return session.New(src)
 }
 func (commandShellApp) SwitchSession(string, string) (*session.Session, error) {
 	return session.New("cli"), nil
@@ -95,6 +102,56 @@ func TestShellModelGroupsToolIntoAssistantTurn(t *testing.T) {
 	}
 	if item.Segments[1].Kind != segText {
 		t.Fatalf("segment[1].Kind = %d, want text", item.Segments[1].Kind)
+	}
+}
+
+func TestShellModelLoadsSessionTranscript(t *testing.T) {
+	s := session.New("cli")
+	s.Add(msg.Message{Role: "user", Content: "hello"})
+	s.Add(msg.Message{Role: "assistant", Content: "world"})
+
+	m := newShellModel(context.Background(), nil, "cli")
+	m.loadTranscript(s)
+
+	if len(m.items) != 2 {
+		t.Fatalf("items = %d, want 2", len(m.items))
+	}
+	if m.items[0].Kind != itemUser || m.items[1].Kind != itemAssistant {
+		t.Fatalf("item kinds = %d, %d", m.items[0].Kind, m.items[1].Kind)
+	}
+	if got := assistantText(m.items[1]); got != "world" {
+		t.Fatalf("assistant text = %q, want world", got)
+	}
+}
+
+func TestSessionPanelFiltersFullHistory(t *testing.T) {
+	s := session.New("cli")
+	s.Title = "deploy"
+	s.Add(msg.Message{Role: "assistant", Content: "Dockerfile 使用多阶段构建"})
+
+	m := newShellModel(context.Background(), nil, "cli")
+	m.sessions = []*session.Session{s}
+	m.sessionQuery = "dockerfile"
+
+	items := m.sessionItems()
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	if !strings.Contains(items[0].Title, "deploy") {
+		t.Fatalf("title = %q", items[0].Title)
+	}
+}
+
+func TestSessionPanelIncludesNewSessionAction(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli")
+	m.sessions = []*session.Session{session.New("cli")}
+
+	items := m.sessionItems()
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if items[0].Title != "New session" {
+		t.Fatalf("first item = %q", items[0].Title)
 	}
 }
 
@@ -530,11 +587,15 @@ func (a *sessionShellApp) CurrentSession(string) (*session.Session, error) {
 }
 
 func (a *sessionShellApp) NewSession(src string) (*session.Session, error) {
+	return a.DraftSession(src), nil
+}
+
+func (a *sessionShellApp) DraftSession(src string) *session.Session {
 	a.created = true
 	s := session.New(src)
 	s.Title = "new"
 	a.current = s
-	return s, nil
+	return s
 }
 
 func (a *sessionShellApp) SwitchSession(_ string, id string) (*session.Session, error) {

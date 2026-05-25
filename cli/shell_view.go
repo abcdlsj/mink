@@ -208,7 +208,7 @@ func (m shellModel) renderFooter(st cliState) string {
 		return shellTheme.Footer.Width(m.width).Render(padLine("enter confirm   esc deny", m.width))
 	}
 	if m.overlay == overlaySession {
-		return shellTheme.Footer.Width(m.width).Render(padLine("enter switch   n new   j/k move   esc close", m.width))
+		return shellTheme.Footer.Width(m.width).Render(padLine("type filter   enter switch   n new   j/k move   esc close", m.width))
 	}
 
 	left := "/ commands   /channel   /thread   tab focus"
@@ -460,38 +460,19 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 	return []string{line}
 }
 
-func (m shellModel) sessionBody() string {
-	if len(m.sessions) == 0 {
-		return "No sessions."
+func (m shellModel) renderSessionOverlay(base string) string {
+	empty := "No sessions."
+	if strings.TrimSpace(m.sessionQuery) != "" {
+		empty = "No matching sessions."
 	}
-	limit := min(len(m.sessions), max(1, m.height-10))
-	start := 0
-	if m.session >= limit {
-		start = m.session - limit + 1
-	}
-	lines := make([]string, 0, limit)
-	width := max(24, m.width-18)
-	for i := start; i < len(m.sessions) && len(lines) < limit; i++ {
-		s := m.sessions[i]
-		if s == nil {
-			continue
-		}
-		prefix := "  "
-		style := shellTheme.Suggest
-		if i == m.session {
-			prefix = "› "
-			style = shellTheme.SuggestActive
-		}
-		title := runewidth.Truncate(sessionLabel(s), max(8, width-18), "…")
-		meta := s.UpdatedAt.Format("2006-01-02 15:04")
-		if s.UpdatedAt.IsZero() {
-			meta = s.CreatedAt.Format("2006-01-02 15:04")
-		}
-		left := style.Render(prefix + title)
-		right := shellTheme.TextMuted.Render(meta)
-		lines = append(lines, style.Width(width).Render(alignFooter(left, right, width)))
-	}
-	return strings.Join(lines, "\n")
+	return m.renderPopupList(base, popupList{
+		Title:    "Sessions",
+		Hint:     "type filter · enter select · esc close",
+		Query:    m.sessionQuery,
+		Empty:    empty,
+		Items:    m.sessionItems(),
+		Selected: m.session,
+	})
 }
 
 func (m shellModel) renderItemLead(item *chatItem, idx int) []string {
@@ -624,30 +605,8 @@ func (m shellModel) renderExpanded(item *chatItem) []string {
 	return out
 }
 
-func (m shellModel) renderOverlay(base, title, body string) string {
-	w := min(max(52, m.width*2/3), m.width-4)
-	h := min(max(10, m.height*2/3), m.height-4)
-	panel := shellTheme.Overlay.Width(w).Height(h).Render(
-		alignFooter(shellTheme.Title.Render(title), shellTheme.HeaderMeta.Render(overlayHint(title)), max(1, w-4)) +
-			"\n\n" +
-			shellTheme.OverlayBody.Render(body),
-	)
-	x := max(0, (m.width-lipgloss.Width(panel))/2)
-	y := max(0, (m.height-lipgloss.Height(panel))/2)
-	return placeOverlay(base, panel, x, y)
-}
-
 func (m shellModel) selectedLine(line string) string {
 	return shellTheme.SelectedBody.Render(line)
-}
-
-func overlayHint(title string) string {
-	switch title {
-	case "Sessions":
-		return "enter/n/esc"
-	default:
-		return ""
-	}
 }
 
 func wrapDisplay(s string, width int) []string {

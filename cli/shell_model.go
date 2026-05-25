@@ -117,6 +117,7 @@ type shellModel struct {
 	filesLoading bool
 	pendingCmd   tea.Cmd
 	sessions     []*session.Session
+	sessionQuery string
 	statusLine   string
 	turn         shellTurn
 	turnCancel   context.CancelFunc
@@ -346,7 +347,7 @@ func (m shellModel) View() string {
 	)
 	switch m.overlay {
 	case overlaySession:
-		return m.renderOverlay(base, "Sessions", m.sessionBody())
+		return m.renderSessionOverlay(base)
 	default:
 		return base
 	}

@@ -18,6 +18,7 @@ type shellApp interface {
 	Personas() *persona.Registry
 	CurrentSession(string) (*session.Session, error)
 	NewSession(string) (*session.Session, error)
+	DraftSession(string) *session.Session
 	SwitchSession(string, string) (*session.Session, error)
 	ListSessionsBySource(string) ([]*session.Session, error)
 }

@@ -34,6 +34,7 @@ func (fakeShellApp) Personas() *persona.Registry {
 }
 func (fakeShellApp) CurrentSession(string) (*session.Session, error) { return session.New("cli"), nil }
 func (fakeShellApp) NewSession(string) (*session.Session, error)     { return session.New("cli"), nil }
+func (fakeShellApp) DraftSession(string) *session.Session            { return session.New("cli") }
 func (fakeShellApp) SwitchSession(string, string) (*session.Session, error) {
 	return session.New("cli"), nil
 }

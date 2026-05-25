@@ -17,6 +17,7 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 
 	env := &RuntimeEnv{
 		Workspace:            "/tmp/work",
+		ProjectContext:       "Use tiny functions.",
 		Prompt:               "项目约束",
 		SoulPath:             soul,
 		TelegramMentionMode:  "smart",
@@ -31,6 +32,7 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 	for _, want := range []string{
 		"You are Sumi, a local coding agent.",
 		"Workspace: /tmp/work",
+		"Project context:\nUse tiny functions.",
 		"Conversation summary:\n历史摘要",
 		"保持锋利",
 		"项目约束",

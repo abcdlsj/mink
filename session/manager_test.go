@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/abcdlsj/sumi/msg"
 )
 
 type memStore struct {
@@ -54,7 +56,9 @@ func TestListBySourceFiltersSessions(t *testing.T) {
 	m := NewManager(st)
 
 	cli := New("cli")
+	cli.Add(testMsg("hello"))
 	tg := New("telegram:42")
+	tg.Add(testMsg("hello"))
 	_ = st.SaveSession(cli)
 	_ = st.SaveSession(tg)
 
@@ -67,6 +71,52 @@ func TestListBySourceFiltersSessions(t *testing.T) {
 	}
 	if got[0].ID != cli.ID {
 		t.Fatalf("got session %q", got[0].ID)
+	}
+}
+
+func TestListSkipsEmptySessions(t *testing.T) {
+	st := newMemStore()
+	m := NewManager(st)
+
+	empty := New("cli")
+	full := New("cli")
+	full.Add(testMsg("hello"))
+	_ = st.SaveSession(empty)
+	_ = st.SaveSession(full)
+
+	got, err := m.ListBySource("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != full.ID {
+		t.Fatalf("sessions = %#v, want only %s", got, full.ID)
+	}
+}
+
+func TestDraftSessionIsNotSavedUntilItHasContent(t *testing.T) {
+	st := newMemStore()
+	m := NewManager(st)
+
+	s := m.Draft("cli")
+	if len(st.sessions) != 0 {
+		t.Fatalf("draft was saved immediately")
+	}
+	if err := m.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.sessions) != 0 {
+		t.Fatalf("empty draft was saved")
+	}
+
+	s.Add(testMsg("hello"))
+	if err := m.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	if st.sessions[s.ID] == nil {
+		t.Fatalf("non-empty draft was not saved")
+	}
+	if st.current["cli"] != s.ID {
+		t.Fatalf("current = %q, want %q", st.current["cli"], s.ID)
 	}
 }
 
@@ -141,6 +191,10 @@ func TestAcquireTurnDifferentSessionsRunConcurrently(t *testing.T) {
 
 func errMissingSession(id string) error {
 	return &missingSessionError{id: id}
+}
+
+func testMsg(s string) msg.Message {
+	return msg.Message{Role: "user", Content: s}
 }
 
 type missingSessionError struct {

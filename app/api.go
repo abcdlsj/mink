@@ -38,6 +38,10 @@ func (a *App) NewSession(source string) (*session.Session, error) {
 	return a.sessions.New(source)
 }
 
+func (a *App) DraftSession(source string) *session.Session {
+	return a.sessions.Draft(source)
+}
+
 func (a *App) SwitchSession(source, id string) (*session.Session, error) {
 	return a.sessions.Switch(source, id)
 }

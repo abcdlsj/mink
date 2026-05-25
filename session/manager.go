@@ -19,6 +19,7 @@ type Manager struct {
 	store    Store
 	sessions map[string]*Session
 	currents map[string]string
+	drafts   map[string]bool
 	mu       sync.RWMutex
 
 	turnMu sync.Mutex
@@ -35,6 +36,7 @@ func NewManager(store Store) *Manager {
 		store:    store,
 		sessions: map[string]*Session{},
 		currents: map[string]string{},
+		drafts:   map[string]bool{},
 		turns:    map[string]*turnLock{},
 	}
 }
@@ -137,15 +139,39 @@ func (m *Manager) New(source string) (*Session, error) {
 	return s, nil
 }
 
+func (m *Manager) Draft(source string) *Session {
+	source = normalizeSource(source)
+	s := New(source)
+	m.mu.Lock()
+	m.sessions[s.ID] = s
+	m.currents[source] = s.ID
+	m.drafts[s.ID] = true
+	m.mu.Unlock()
+	return s
+}
+
 func (m *Manager) Save(s *Session) error {
 	if s == nil {
 		return fmt.Errorf("session is nil")
+	}
+	m.mu.RLock()
+	draft := m.drafts[s.ID]
+	m.mu.RUnlock()
+	if draft && s.Empty() {
+		return nil
 	}
 	if err := m.store.SaveSession(s); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
+	if m.drafts[s.ID] {
+		if err := m.store.SetCurrentSession(normalizeSource(s.Source), s.ID); err != nil {
+			m.mu.Unlock()
+			return err
+		}
+		delete(m.drafts, s.ID)
+	}
 	m.mu.Unlock()
 	return nil
 }
@@ -169,6 +195,7 @@ func (m *Manager) Switch(source, id string) (*Session, error) {
 	m.mu.Lock()
 	m.sessions[id] = s
 	m.currents[source] = id
+	delete(m.drafts, id)
 	m.mu.Unlock()
 	return s, nil
 }
@@ -178,10 +205,16 @@ func (m *Manager) List() ([]*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
+	out := sessions[:0]
+	for _, s := range sessions {
+		if !s.Empty() {
+			out = append(out, s)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
-	return sessions, nil
+	return out, nil
 }
 
 func (m *Manager) ListBySource(source string) ([]*Session, error) {

@@ -25,6 +25,7 @@ type RuntimeEnv struct {
 	Provider             llm.Provider
 	Tools                ToolRunner
 	Workspace            string
+	ProjectContext       string
 	SoulPath             string
 	Prompt               string
 	TelegramMentionMode  string

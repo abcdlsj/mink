@@ -25,6 +25,7 @@ func newAssistantMessage(resp *llm.Response) msg.Message {
 		Content:   resp.Content,
 		Reasoning: resp.Reasoning,
 		ToolCalls: resp.ToolCalls,
+		Usage:     tokenUsage(resp.Usage),
 		Timestamp: now(),
 	}
 }
@@ -44,4 +45,16 @@ func newID() string {
 
 func now() time.Time {
 	return time.Now()
+}
+
+func tokenUsage(u *llm.TokenUsage) *msg.TokenUsage {
+	if u == nil {
+		return nil
+	}
+	return &msg.TokenUsage{
+		Total:  u.TotalTokens,
+		Input:  u.InputTokens,
+		Output: u.OutputTokens,
+		Source: u.InputSource,
+	}
 }

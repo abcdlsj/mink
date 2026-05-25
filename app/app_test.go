@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +42,98 @@ func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
 	}
 	if out != "ok" {
 		t.Fatalf("reply = %q, want %q", out, "ok")
+	}
+}
+
+func TestFileCommandAttachesTextToCurrentSession(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("hello file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.HandleInput(context.Background(), "cli", "/file note.md"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CurrentSession("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := s.Messages[len(s.Messages)-1]
+	if last.Role != "system" || !strings.Contains(last.Content, "hello file") {
+		t.Fatalf("last message = %#v", last)
+	}
+}
+
+func TestProjectContextIsPassedToRuntime(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".sumi"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".sumi", "context.md"), []byte("Use tiny functions."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	var got string
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		got = env.ProjectContext
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+	if _, err := a.HandleInput(context.Background(), "cli", "ping"); err != nil {
+		t.Fatal(err)
+	}
+	if got != "Use tiny functions." {
+		t.Fatalf("project context = %q", got)
+	}
+}
+
+func TestUsageCommandAggregatesRecordedUsage(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	s, err := a.sessions.New("cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Add(msg.Message{Role: "assistant", Content: "ok", Usage: &msg.TokenUsage{Input: 10, Output: 5, Total: 15}})
+	if err := a.sessions.Save(s); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := a.HandleInput(context.Background(), "cli", "/usage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Current session", "input tokens: 10", "output tokens: 5", "total tokens: 15"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("usage output missing %q:\n%s", want, out)
+		}
 	}
 }
 

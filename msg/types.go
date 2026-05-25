@@ -58,5 +58,6 @@ type Message struct {
 	ReasoningSignature string       `json:"reasoning_signature,omitempty"`
 	ToolCalls          []ToolCall   `json:"tool_calls,omitempty"`
 	ToolResults        []ToolResult `json:"tool_results,omitempty"`
+	Usage              *TokenUsage  `json:"usage,omitempty"`
 	Timestamp          time.Time    `json:"timestamp,omitempty"`
 }

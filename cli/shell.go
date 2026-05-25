@@ -13,9 +13,7 @@ import (
 const shellEventBatch = 128
 
 func Run(ctx context.Context, a *app.App, args []string) error {
-	if _, err := a.NewSession("cli"); err != nil {
-		return err
-	}
+	a.DraftSession("cli")
 	ui, err := newShell(ctx, a, "cli")
 	if err != nil {
 		return err

@@ -49,6 +49,9 @@ func (a *App) registerBuiltinCommands() {
 
 	a.RegisterCommand(command.NewFuncCmd("session", "manage sessions", a.runSessionCommand))
 	a.RegisterCommand(command.NewFuncCmd("compact", "summarize and compact current session", a.runCompactCommand))
+	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
+	a.RegisterCommand(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
+	a.RegisterCommand(command.NewFuncCmd("usage", "show recorded API token usage", a.runUsageCommand))
 }
 
 func (a *App) runSessionCommand(ctx context.Context, args []string) (string, error) {
