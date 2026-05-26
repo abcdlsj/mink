@@ -59,3 +59,39 @@ func TestRepairToolPairsHandlesSplitToolMessages(t *testing.T) {
 		t.Fatalf("should not inject when all covered via split tool msgs: %+v", out)
 	}
 }
+
+func TestToolResultContentIncludesErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		in   msg.ToolResult
+		want string
+	}{
+		{
+			name: "content",
+			in:   msg.ToolResult{Content: "ok"},
+			want: "ok",
+		},
+		{
+			name: "error",
+			in:   msg.ToolResult{Error: "exit 1"},
+			want: "error: exit 1",
+		},
+		{
+			name: "content and error",
+			in:   msg.ToolResult{Content: "partial", Error: "exit 1"},
+			want: "partial\nerror: exit 1",
+		},
+		{
+			name: "empty",
+			in:   msg.ToolResult{},
+			want: "(no output)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolResultContent(tt.in); got != tt.want {
+				t.Fatalf("content = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

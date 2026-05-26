@@ -136,11 +136,14 @@ func repairToolPairs(msgs []msg.Message) []msg.Message {
 }
 
 func toolResultContent(tr msg.ToolResult) string {
+	if tr.Error != "" {
+		if tr.Content != "" {
+			return tr.Content + "\nerror: " + tr.Error
+		}
+		return "error: " + tr.Error
+	}
 	if tr.Content != "" {
 		return tr.Content
-	}
-	if tr.Error != "" {
-		return "error: " + tr.Error
 	}
 	return "(no output)"
 }

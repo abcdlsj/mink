@@ -80,11 +80,7 @@ func anthropicAssistantBlocks(m msg.Message) []anthropic.ContentBlockParamUnion 
 func anthropicToolResultBlocks(results []msg.ToolResult, emptyOK bool) []anthropic.ContentBlockParamUnion {
 	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(results))
 	for _, tr := range results {
-		content := tr.Content
-		if content == "" {
-			content = "(no output)"
-		}
-		blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, content, false))
+		blocks = append(blocks, anthropic.NewToolResultBlock(tr.ToolCallID, toolResultContent(tr), tr.Error != ""))
 	}
 	if !emptyOK && len(blocks) == 0 {
 		return nil
