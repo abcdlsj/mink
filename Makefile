@@ -21,16 +21,26 @@ BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -X '$(MAIN).Version=$(VERSION)' -X '$(MAIN).Commit=$(COMMIT)' -X '$(MAIN).BuildTime=$(BUILD_TIME)'
 
-.PHONY: help build install version clean
+.PHONY: help build install version clean desktop desktop-deps
 
 help:
 	@printf "%s\n" \
-		"make build    Build ./bin/sumi with version metadata" \
-		"make install  Build and overwrite $(INSTALL_BIN)" \
-		"make version  Print build metadata values" \
-		"make clean    Remove local build artifacts"
+		"make build         Build ./bin/sumi with version metadata" \
+		"make install       Build and overwrite $(INSTALL_BIN)" \
+		"make desktop       Build the desktop frontend then ./bin/sumi" \
+		"make desktop-deps  Install desktop frontend npm deps" \
+		"make version       Print build metadata values" \
+		"make clean         Remove local build artifacts"
 
 build:
+	@mkdir -p $(BIN_DIR)
+	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
+
+desktop-deps:
+	cd plugins/desktop/frontend && npm install
+
+desktop: desktop-deps
+	cd plugins/desktop/frontend && npm run build
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
 

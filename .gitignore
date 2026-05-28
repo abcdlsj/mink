@@ -1,3 +1,7 @@
 .sumi/
 /sumi
 /bin/
+plugins/desktop/frontend/node_modules/
+plugins/desktop/frontend/dist/*
+!plugins/desktop/frontend/dist/.gitkeep
+plugins/desktop/frontend/tsconfig.tsbuildinfo

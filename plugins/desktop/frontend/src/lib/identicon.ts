@@ -1,4 +1,4 @@
-function hash32(s) {
+function hash32(s: string): number {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -11,20 +11,19 @@ const AGENT_HUES = [
   "#7C8FA8", "#8FA88A", "#B59A85", "#A088A6",
   "#6FA0A0", "#A78D6F", "#9090B5", "#7CAA94",
 ];
-const USER_HUE = "#8A93A0";
-const CHANNEL_HUE = "#7CA98A";
-const THREAD_HUE = "#A08AAB";
 
-function identiconSVG(seed, kind) {
+export type IdenticonKind = "agent" | "user" | "channel" | "thread";
+
+export function identiconSVG(seed: string, kind: IdenticonKind = "agent"): string {
   const h = hash32(seed || "anon");
   const grid = 5;
-  let fill;
-  if (kind === "user") fill = USER_HUE;
-  else if (kind === "channel") fill = CHANNEL_HUE;
-  else if (kind === "thread") fill = THREAD_HUE;
+  let fill: string;
+  if (kind === "user") fill = "#8A93A0";
+  else if (kind === "channel") fill = "#7CA98A";
+  else if (kind === "thread") fill = "#A08AAB";
   else fill = AGENT_HUES[h % AGENT_HUES.length];
 
-  const cells = [];
+  const cells: string[] = [];
   for (let y = 0; y < grid; y++) {
     for (let x = 0; x < Math.ceil(grid / 2); x++) {
       const bit = (h >>> (y * 3 + x)) & 1;
@@ -35,5 +34,5 @@ function identiconSVG(seed, kind) {
       }
     }
   }
-  return `<svg class="identicon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${grid} ${grid}" shape-rendering="crispEdges">${cells.join("")}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${grid} ${grid}" shape-rendering="crispEdges">${cells.join("")}</svg>`;
 }

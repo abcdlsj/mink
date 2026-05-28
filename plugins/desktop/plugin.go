@@ -14,7 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/app"
 )
 
-//go:embed frontend/*
+//go:embed all:frontend/dist
 var frontendFS embed.FS
 
 func Plugin() app.Plugin {
@@ -58,7 +58,7 @@ func newServer(addr string, b *Backend) *server {
 
 func (s *server) run(ctx context.Context) error {
 	mux := http.NewServeMux()
-	sub, err := fs.Sub(frontendFS, "frontend")
+	sub, err := fs.Sub(frontendFS, "frontend/dist")
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,14 @@ func (s *server) run(ctx context.Context) error {
 		writeJSON(rw, map[string]string{"reply": out})
 	})
 	mux.HandleFunc("/api/stop", func(rw http.ResponseWriter, req *http.Request) {
-		_ = s.backend.StopTurn(req.URL.Query().Get("session"))
+		var in struct {
+			SessionID string `json:"session_id"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&in)
+		if in.SessionID == "" {
+			in.SessionID = req.URL.Query().Get("session")
+		}
+		_ = s.backend.StopTurn(in.SessionID)
 		writeJSON(rw, map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/api/personas", s.json(func() any { return s.backend.ListPersonas() }))
