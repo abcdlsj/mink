@@ -211,12 +211,15 @@ function PaletteIcon({ type }: { type: CommandItemRow["type"] }) {
 }
 
 function parseQuery(q: string): { mode: CommandItemRow["type"] | null; normalized: string } {
-  const trimmed = q.trim();
-  const lower = trimmed.toLowerCase();
+  const lower = q.replace(/^\s+/, "").toLowerCase();
   if (lower.startsWith("#")) return { mode: "channel", normalized: lower.slice(1).trim() };
   if (lower.startsWith("@")) return { mode: "agent", normalized: lower.slice(1).trim() };
-  if (lower.startsWith("/")) return { mode: "command", normalized: lower };
-  if (lower.startsWith("thread ")) return { mode: "thread", normalized: lower.slice(7).trim() };
-  if (lower.startsWith("model ")) return { mode: "model", normalized: lower.slice(6).trim() };
-  return { mode: null, normalized: lower };
+  if (lower.startsWith("/")) return { mode: "command", normalized: lower.trim() };
+  if (lower.startsWith("thread ") || lower === "thread") {
+    return { mode: "thread", normalized: lower.slice(6).trim() };
+  }
+  if (lower.startsWith("model ") || lower === "model") {
+    return { mode: "model", normalized: lower.slice(5).trim() };
+  }
+  return { mode: null, normalized: lower.trim() };
 }
