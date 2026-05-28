@@ -145,6 +145,7 @@ export function CommandPalette() {
     >
       <Command
         loop
+        shouldFilter={false}
         label="Command palette"
         onClick={(e) => e.stopPropagation()}
         className="w-[600px] max-w-[92vw] bg-panel border border-border rounded-lg overflow-hidden shadow-[0_24px_56px_rgba(31,41,51,0.12),_0_4px_12px_rgba(31,41,51,0.06)]"
