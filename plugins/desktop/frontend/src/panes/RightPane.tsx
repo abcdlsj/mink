@@ -161,7 +161,19 @@ export function RightPane() {
         </Section>
         {ag?.role && (
           <Section label="Role">
-            <div className="text-[13px] text-text">{ag.role}</div>
+            <div className="text-[12.5px] text-text leading-[1.55]">{firstSentence(ag.role)}</div>
+            {personaTools(activeAgent, useStore.getState().personas).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {personaTools(activeAgent, useStore.getState().personas).map((t) => (
+                  <span
+                    key={t}
+                    className="text-[11px] text-text-muted bg-panel-2 border border-border-soft rounded-[3px] px-1.5 py-px font-mono"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
           </Section>
         )}
         {runtimeRuns.length > 0 && (
@@ -213,7 +225,7 @@ export function RightPane() {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <div className="text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1.5 font-semibold">
+      <div className="font-display text-[10px] uppercase tracking-[0.9px] text-text-whisper mb-1.5 font-semibold">
         {label}
       </div>
       <div>{children}</div>
@@ -329,4 +341,18 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
       </div>
     </button>
   );
+}
+
+function firstSentence(s: string): string {
+  const trimmed = s.trim();
+  const m = trimmed.match(/^(.{0,140}?[.。!?！？])/);
+  if (m) return m[1];
+  if (trimmed.length <= 140) return trimmed;
+  return trimmed.slice(0, 140) + "…";
+}
+
+function personaTools(id: string | null, personas: import("@/lib/types").PersonaItem[]): string[] {
+  if (!id) return [];
+  const p = personas.find((p) => p.id === id);
+  return p?.tools || [];
 }

@@ -10,16 +10,16 @@ interface MarkdownProps {
 }
 
 const fullComponents: Components = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-  h1: ({ children }) => <h1 className="text-[16px] font-semibold mt-3 mb-1.5 first:mt-0">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-[15px] font-semibold mt-3 mb-1.5 first:mt-0">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-[14px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h3>,
-  h4: ({ children }) => <h4 className="text-[13.5px] font-semibold mt-2 mb-1 first:mt-0">{children}</h4>,
+  p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-[1.68]">{children}</p>,
+  h1: ({ children }) => <h1 className="font-display text-[16px] font-semibold mt-4 mb-1.5 first:mt-0 tracking-[-0.2px]">{children}</h1>,
+  h2: ({ children }) => <h2 className="font-display text-[15px] font-semibold mt-4 mb-1.5 first:mt-0 tracking-[-0.15px]">{children}</h2>,
+  h3: ({ children }) => <h3 className="font-display text-[14px] font-semibold mt-3 mb-1 first:mt-0">{children}</h3>,
+  h4: ({ children }) => <h4 className="font-display text-[13.5px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h4>,
   h5: ({ children }) => <h5 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0">{children}</h5>,
   h6: ({ children }) => <h6 className="text-[12.5px] font-semibold text-text-muted mt-2 mb-1 first:mt-0">{children}</h6>,
-  ul: ({ children }) => <ul className="my-1 pl-5 list-disc marker:text-text-faint">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
-  li: ({ children }) => <li className="my-0.5 leading-[1.65]">{children}</li>,
+  ul: ({ children }) => <ul className="my-1.5 pl-5 list-disc marker:text-text-faint">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
+  li: ({ children }) => <li className="my-1 leading-[1.68] pl-0.5">{children}</li>,
   a: ({ href, children }) => (
     <a
       href={href}
@@ -31,25 +31,25 @@ const fullComponents: Components = {
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-border-strong pl-3 my-1.5 text-text-muted">{children}</blockquote>
+    <blockquote className="border-l-2 border-border-strong pl-3.5 my-2.5 text-text-muted italic">{children}</blockquote>
   ),
   code: codeRenderer,
   pre: ({ children }) => (
-    <pre className="my-2 rounded-md border border-border-soft bg-panel-event px-3 py-2 overflow-x-auto text-[12.5px] leading-[1.55]">
+    <pre className="my-2.5 rounded-md bg-panel-event px-3.5 py-2.5 overflow-x-auto text-[12.5px] leading-[1.6]">
       {children}
     </pre>
   ),
-  hr: () => <hr className="my-3 border-border-soft" />,
+  hr: () => <hr className="my-3.5 border-border-soft" />,
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto">
+    <div className="my-2.5 overflow-x-auto">
       <table className="text-[13px] border-collapse w-max max-w-full">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="text-left text-[12px] text-text-muted">{children}</thead>,
+  thead: ({ children }) => <thead className="text-left font-display text-[11.5px] uppercase tracking-[0.5px] text-text-faint">{children}</thead>,
   th: ({ children }) => (
-    <th className="border-b border-border px-2 py-1 font-semibold align-bottom whitespace-nowrap">{children}</th>
+    <th className="border-b border-border px-2.5 py-1 font-semibold align-bottom whitespace-nowrap">{children}</th>
   ),
-  td: ({ children }) => <td className="border-b border-border-soft px-2 py-1 align-top">{children}</td>,
+  td: ({ children }) => <td className="border-b border-border-soft px-2.5 py-1 align-top">{children}</td>,
   input: ({ checked, type, ...rest }) => {
     if (type === "checkbox") {
       return (

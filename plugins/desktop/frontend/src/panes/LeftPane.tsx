@@ -104,7 +104,7 @@ export function LeftPane() {
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[10.5px] uppercase tracking-[0.7px] text-text-faint pt-3.5 pb-1 px-2 font-semibold">
+    <div className="font-display text-[10.5px] uppercase tracking-[0.9px] text-text-faint pt-3.5 pb-1 px-2 font-semibold">
       {children}
     </div>
   );

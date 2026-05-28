@@ -50,11 +50,11 @@ export function CenterPane() {
     <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
       <div className="flex items-end justify-between border-b border-border-soft px-8 pt-4 pb-3.5">
         <div>
-          <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-text tracking-[-0.1px]">
-            <TitleIcon className="size-4 text-text-muted" />
+          <h2 className="flex items-center gap-1.5 text-[16px] font-display font-semibold text-text tracking-[-0.2px]">
+            <TitleIcon className="size-[18px] text-text-muted" />
             <span>{titleText}</span>
           </h2>
-          {metaText && <div className="mt-0.5 text-[11.5px] text-text-faint">{metaText}</div>}
+          {metaText && <div className="mt-1 text-[12px] text-text-faint">{metaText}</div>}
         </div>
         {showStop && (
           <Button variant="danger" size="sm" onClick={() => void useStore.getState().stop()}>
@@ -93,37 +93,49 @@ function EmptyState() {
   const detail = useStore((s) => s.detail);
   const agents = useStore((s) => s.agents);
   const activeAgent = useStore((s) => s.activeAgent);
+  const activeChannel = useStore((s) => s.activeChannel);
   const threads = useStore((s) => s.threads);
   const channels = useStore((s) => s.channels);
   const openThread = useStore((s) => s.openThread);
 
-  if (view !== "agent") {
+  if (view === "channel") {
+    const ch = channels.find((c) => c.id === activeChannel);
     return (
-      <div className="text-text-faint text-[12.5px] py-10 text-center">No messages yet.</div>
+      <div className="text-text-faint text-[13px] py-12 text-center">
+        Start in #{ch?.name || "channel"}.
+      </div>
     );
   }
+  if (view === "thread") {
+    return (
+      <div className="text-text-faint text-[13px] py-12 text-center">
+        Reply in this thread.
+      </div>
+    );
+  }
+
   const ag = agents.find((a) => a.id === activeAgent);
   const recent = threads.slice(0, 3);
 
   return (
     <div className="py-6">
       <div className="flex items-center gap-3 mb-2">
-        <div className="size-9 rounded-md border border-border-soft bg-panel overflow-hidden">
+        <div className="size-10 rounded-md border border-border-soft bg-panel overflow-hidden">
           <Identicon seed={ag?.id || activeAgent || "agent"} kind="agent" />
         </div>
         <div>
-          <div className="text-[15px] font-semibold text-text">
+          <div className="font-display text-[16px] font-semibold text-text tracking-[-0.2px]">
             {detail?.item?.title || "@" + (ag?.display || "")}
           </div>
-          {ag?.role && <div className="text-[12px] text-text-muted mt-0.5">{ag.role}</div>}
+          {ag?.role && <div className="text-[12.5px] text-text-muted mt-0.5">{ag.role}</div>}
         </div>
       </div>
-      <div className="text-[12.5px] text-text-faint leading-relaxed mb-6">
-        Send a message to start a direct conversation. Replies stay private to you and {ag?.display || "this agent"}.
+      <div className="text-[13px] text-text-faint leading-[1.6] mb-6">
+        Message {ag?.display || "this agent"} directly.
       </div>
       {recent.length > 0 && (
         <div>
-          <div className="text-[10.5px] uppercase tracking-[0.7px] text-text-faint mb-2 font-semibold">
+          <div className="font-display text-[10px] uppercase tracking-[0.9px] text-text-whisper mb-2 font-semibold">
             Recently with {ag?.display || "this agent"}
           </div>
           <div className="flex flex-col gap-1">
@@ -181,19 +193,19 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       </div>
       <div>
         {!compact && (
-          <div className="flex items-baseline gap-1.5 mb-0.5">
-            <span className="text-[12.5px] font-semibold text-text tracking-[0.1px]">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="font-display text-[13px] font-semibold text-text tracking-[-0.1px]">
               {m.role === "user" ? "You" : m.author_name || "Sumi"}
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium"
+                className="font-display text-[10.5px] uppercase tracking-[0.7px] text-text-faint font-medium"
                 title={ag.role}
               >
                 {shortRole(ag.role)}
               </span>
             )}
-            <span className="text-[11px] text-text-whisper">{relTime(m.time)}</span>
+            <span className="text-[11px] text-text-whisper tabular-nums">{relTime(m.time)}</span>
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
@@ -201,8 +213,8 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "text-[14px] text-text leading-[1.7] whitespace-pre-wrap",
-                m.reasoning && "mt-1",
+                "text-[14px] text-text leading-[1.68] whitespace-pre-wrap max-w-[70ch]",
+                m.reasoning && "mt-2",
               )}
             >
               {m.content}
@@ -210,8 +222,8 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "text-[14px] text-text leading-[1.65]",
-                m.reasoning && "mt-1",
+                "text-[14px] text-text leading-[1.68] max-w-[70ch]",
+                m.reasoning && "mt-2",
               )}
             >
               {m.content}
@@ -244,7 +256,7 @@ function ReasoningPreface({ text }: { text: string }) {
   const isLong = flat.length > 280;
   const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="text-[11.5px] text-text-faint leading-[1.45] mb-1.5 max-w-prose">
+    <div className="text-[11.5px] text-text-faint leading-[1.5] mb-1.5 max-w-[68ch] tracking-[-0.05px]">
       {open ? (
         <Markdown variant="lite" className="whitespace-pre-wrap">
           {text}
@@ -259,7 +271,7 @@ function ReasoningPreface({ text }: { text: string }) {
             onClick={() => setOpen((v) => !v)}
             className="text-[11px] text-text-whisper hover:text-text-faint underline underline-offset-2 cursor-pointer"
           >
-            {open ? "Show less thinking" : "Show more thinking"}
+            {open ? "Show less" : "Show full thinking"}
           </button>
         </>
       )}

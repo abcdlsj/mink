@@ -32,6 +32,7 @@ export default {
       },
       fontFamily: {
         ui: 'var(--font-ui)',
+        display: 'var(--font-display)',
         mono: 'var(--font-mono)',
       },
     },

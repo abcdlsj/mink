@@ -1,3 +1,10 @@
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource-variable/inter-tight/index.css";
+@import "@fontsource-variable/jetbrains-mono/index.css";
+@import "@fontsource/noto-sans-sc/400.css";
+@import "@fontsource/noto-sans-sc/500.css";
+@import "@fontsource/noto-sans-sc/600.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -26,8 +33,9 @@
     --done: #15803D;
     --reasoning: #7C6AA8;
 
-    --font-ui: -apple-system, system-ui, "SF Pro Text", "Helvetica Neue", sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+    --font-ui: "Inter Variable", "Noto Sans SC", -apple-system, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
+    --font-display: "Inter Tight Variable", "Inter Variable", "Noto Sans SC", -apple-system, system-ui, "PingFang SC", sans-serif;
+    --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, "Sarasa Mono SC", "Noto Sans SC", monospace;
   }
 
   html, body, #root {
