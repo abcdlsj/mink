@@ -183,10 +183,10 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium max-w-[180px] truncate"
+                className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium"
                 title={ag.role}
               >
-                {ag.role}
+                {shortRole(ag.role)}
               </span>
             )}
             <span className="text-[11px] text-text-faint">{relTime(m.time)}</span>
@@ -194,7 +194,14 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {m.content && (
-          <div className="text-[14px] text-text leading-[1.7] whitespace-pre-wrap">{m.content}</div>
+          <div
+            className={cn(
+              "text-[14px] text-text leading-[1.7] whitespace-pre-wrap",
+              m.reasoning && m.role !== "user" && "mt-1",
+            )}
+          >
+            {m.content}
+          </div>
         )}
         {events.length > 0 && (
           <div className="mt-2 flex flex-col gap-1">
@@ -217,14 +224,14 @@ function ReasoningPreface({ text }: { text: string }) {
   const isLong = lineCount > 5 || text.length > 320;
   const display = !isLong || open ? text : text.replace(/\n+/g, " ").slice(0, 320) + "…";
   return (
-    <div className="text-[12px] text-text-muted leading-[1.55] whitespace-pre-wrap mb-1.5 max-w-prose">
+    <div className="text-[11.5px] text-text-faint leading-[1.45] whitespace-pre-wrap mb-1.5 max-w-prose">
       {display}
       {isLong && (
         <>
           {" "}
           <button
             onClick={() => setOpen((v) => !v)}
-            className="text-[11.5px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
+            className="text-[11px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
           >
             {open ? "Show less thinking" : "Show more thinking"}
           </button>
@@ -232,6 +239,14 @@ function ReasoningPreface({ text }: { text: string }) {
       )}
     </div>
   );
+}
+
+function shortRole(role: string): string {
+  const trimmed = role.trim().replace(/[.。!?！？]$/, "");
+  if (!trimmed) return "";
+  const firstWord = trimmed.split(/[\s—·,、/]+/)[0] || trimmed;
+  if (firstWord.length <= 14) return firstWord;
+  return firstWord.slice(0, 14) + "…";
 }
 
 function ThreadLink({ threadId, summary }: { threadId: string; summary: string }) {
