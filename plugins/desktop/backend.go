@@ -37,7 +37,18 @@ func (b *Backend) WorkspaceInfo() WorkspaceState {
 
 func (b *Backend) ListSessions() ([]SessionItem, error) {
 	if b.app == nil {
-		return mockSessions(), nil
+		out := []SessionItem{}
+		for _, c := range mockChannels() {
+			out = append(out, SessionItem{
+				ID:        c.ID,
+				Title:     "#" + c.Name,
+				Runtime:   "local",
+				Model:     "claude-sonnet-4",
+				UpdatedAt: c.UpdatedAt,
+				Running:   c.HasRunning,
+			})
+		}
+		return out, nil
 	}
 	idx, err := b.app.SessionIndex()
 	if err != nil {
@@ -58,9 +69,46 @@ func (b *Backend) ListSessions() ([]SessionItem, error) {
 
 func (b *Backend) GetSession(id string) (SessionDetail, error) {
 	if b.app == nil {
-		return mockSessionDetail(id), nil
+		return mockChannelDetail(id), nil
 	}
 	return SessionDetail{}, nil
+}
+
+func (b *Backend) ListChannels() []ChannelItem {
+	if b.app == nil {
+		return mockChannels()
+	}
+	return mockChannels()
+}
+
+func (b *Backend) ListThreads() []ThreadItem {
+	if b.app == nil {
+		return mockThreads()
+	}
+	return mockThreads()
+}
+
+func (b *Backend) ListAgents() []AgentItem {
+	if b.app == nil {
+		return mockAgents()
+	}
+	out := make([]AgentItem, 0)
+	for _, p := range b.app.Personas().List() {
+		out = append(out, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
+	}
+	return out
+}
+
+func (b *Backend) GetChannel(id string) SessionDetail {
+	return mockChannelDetail(id)
+}
+
+func (b *Backend) GetThread(id string) SessionDetail {
+	return mockThreadDetail(id)
+}
+
+func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
+	return mockParticipants(channelID, threadID)
 }
 
 func (b *Backend) ListPersonas() []PersonaItem {

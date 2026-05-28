@@ -73,6 +73,18 @@ func (s *server) run(ctx context.Context) error {
 		out, _ := s.backend.GetSession(id)
 		writeJSON(rw, out)
 	})
+	mux.HandleFunc("/api/channels", s.json(func() any { return s.backend.ListChannels() }))
+	mux.HandleFunc("/api/threads", s.json(func() any { return s.backend.ListThreads() }))
+	mux.HandleFunc("/api/agents", s.json(func() any { return s.backend.ListAgents() }))
+	mux.HandleFunc("/api/channel", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, s.backend.GetChannel(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/thread", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, s.backend.GetThread(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/participants", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, s.backend.GetParticipants(req.URL.Query().Get("channel"), req.URL.Query().Get("thread")))
+	})
 	mux.HandleFunc("/api/personas", s.json(func() any { return s.backend.ListPersonas() }))
 	mux.HandleFunc("/api/models", s.json(func() any { return s.backend.ListModels() }))
 	mux.HandleFunc("/api/tools", s.json(func() any { return s.backend.ListTools() }))

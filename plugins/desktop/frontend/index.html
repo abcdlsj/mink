@@ -10,35 +10,46 @@
   <div class="shell">
     <header class="topbar">
       <div class="brand">Sumi</div>
-      <div class="status" id="status">native · claude-sonnet-4 · <span class="dot done"></span></div>
+      <div class="status" id="status">claude-sonnet-4 · Ready</div>
     </header>
 
-    <aside class="left" id="left">
+    <aside class="left">
       <div class="left-head">
-        <button class="btn primary" id="new-session">New</button>
-        <button class="btn" id="open-palette" title="⌘K">Search</button>
+        <button class="btn primary" id="new-conv">New</button>
+        <button class="btn search-trigger" id="open-palette">
+          <span class="icon" data-icon="search"></span>
+          <span>Search</span>
+          <span class="kbd">⌘K</span>
+        </button>
       </div>
-      <div class="group-label">Pinned</div>
-      <ul class="sessions" id="pinned"></ul>
-      <div class="group-label">Recent</div>
-      <ul class="sessions" id="recent"></ul>
+
+      <div class="group-label">Channels</div>
+      <ul class="nav-list" id="channels"></ul>
+
+      <div class="group-label">Direct Agents</div>
+      <ul class="nav-list" id="agents"></ul>
+
+      <div class="group-label">Recent Threads</div>
+      <ul class="nav-list" id="threads"></ul>
     </aside>
 
     <main class="center">
-      <div class="session-head">
+      <div class="conv-head">
         <div>
-          <div class="session-title" id="session-title">Session</div>
-          <div class="session-meta" id="session-meta"></div>
+          <div class="conv-title" id="conv-title">Channel</div>
+          <div class="conv-meta" id="conv-meta"></div>
         </div>
-        <div class="session-actions">
-          <button class="btn danger hidden" id="stop-btn">Stop</button>
+        <div class="conv-actions">
+          <button class="btn outline" id="stop-btn" hidden>
+            <span class="icon" data-icon="square"></span> Stop
+          </button>
         </div>
       </div>
       <div class="messages" id="messages"></div>
       <div class="composer">
-        <textarea id="input" placeholder="Ask Sumi..." rows="3"></textarea>
+        <textarea id="input" placeholder="Message #channel..." rows="2"></textarea>
         <div class="composer-row">
-          <select id="persona-select" class="select"></select>
+          <select id="agent-select" class="select"></select>
           <select id="model-select" class="select"></select>
           <span class="grow"></span>
           <button class="btn primary" id="send-btn">Send</button>
@@ -46,39 +57,17 @@
       </div>
     </main>
 
-    <aside class="right" id="right">
-      <div class="inspector-section">
-        <div class="inspector-label">Persona</div>
-        <div class="inspector-value" id="ins-persona">—</div>
-      </div>
-      <div class="inspector-section">
-        <div class="inspector-label">Current Model</div>
-        <div class="inspector-value" id="ins-model">—</div>
-        <div class="inspector-hint">applies to all sessions</div>
-      </div>
-      <div class="inspector-section">
-        <div class="inspector-label">Runtime</div>
-        <div class="inspector-value" id="ins-runtime">—</div>
-        <div class="inspector-hint">read-only</div>
-      </div>
-      <div class="inspector-section">
-        <div class="inspector-label">Tools</div>
-        <ul class="tool-list" id="ins-tools"></ul>
-      </div>
-      <div class="inspector-section">
-        <div class="inspector-label">Runlog</div>
-        <div class="inspector-value" id="ins-runlog">—</div>
-      </div>
-    </aside>
+    <aside class="right" id="right"></aside>
   </div>
 
-  <div class="palette hidden" id="palette">
+  <div class="palette" id="palette" hidden>
     <div class="palette-box">
-      <input id="palette-input" type="text" placeholder="Search sessions, /commands, persona, model" autocomplete="off">
+      <input id="palette-input" type="text" placeholder="Search #channel, thread, @agent, /command, model" autocomplete="off">
       <div class="palette-results" id="palette-results"></div>
     </div>
   </div>
 
+  <script src="icons.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

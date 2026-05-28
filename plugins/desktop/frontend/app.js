@@ -1,26 +1,41 @@
 const api = {
-  async state() { return fetch("/api/state").then(r => r.json()); },
-  async sessions() { return fetch("/api/sessions").then(r => r.json()); },
-  async session(id) { return fetch("/api/session?id=" + encodeURIComponent(id)).then(r => r.json()); },
-  async personas() { return fetch("/api/personas").then(r => r.json()); },
-  async models() { return fetch("/api/models").then(r => r.json()); },
-  async tools() { return fetch("/api/tools").then(r => r.json()); },
-  async commands() { return fetch("/api/commands").then(r => r.json()); },
+  state: () => fetch("/api/state").then(r => r.json()),
+  channels: () => fetch("/api/channels").then(r => r.json()),
+  threads: () => fetch("/api/threads").then(r => r.json()),
+  agents: () => fetch("/api/agents").then(r => r.json()),
+  channel: (id) => fetch("/api/channel?id=" + encodeURIComponent(id)).then(r => r.json()),
+  thread: (id) => fetch("/api/thread?id=" + encodeURIComponent(id)).then(r => r.json()),
+  participants: (channelID, threadID) => {
+    const q = new URLSearchParams();
+    if (channelID) q.set("channel", channelID);
+    if (threadID) q.set("thread", threadID);
+    return fetch("/api/participants?" + q).then(r => r.json());
+  },
+  models: () => fetch("/api/models").then(r => r.json()),
+  tools: () => fetch("/api/tools").then(r => r.json()),
+  commands: () => fetch("/api/commands").then(r => r.json()),
 };
 
-const state = {
-  sessions: [],
-  session: null,
-  personas: [],
+const view = {
+  mode: "channel",
+  activeChannel: null,
+  activeThread: null,
+  activeAgent: null,
+};
+
+const data = {
+  state: null,
+  channels: [],
+  threads: [],
+  agents: [],
   models: [],
   tools: [],
   commands: [],
-  workspace: null,
-  activeId: null,
+  detail: null,
+  participants: null,
 };
 
-const el = (sel) => document.querySelector(sel);
-const els = (sel) => Array.from(document.querySelectorAll(sel));
+const $ = (sel) => document.querySelector(sel);
 
 function relTime(t) {
   const d = new Date(t);
@@ -31,283 +46,516 @@ function relTime(t) {
   return Math.floor(s/86400) + "d ago";
 }
 
+function el(tag, opts = {}, children = []) {
+  const e = document.createElement(tag);
+  if (opts.class) e.className = opts.class;
+  if (opts.text != null) e.textContent = opts.text;
+  if (opts.html != null) e.innerHTML = opts.html;
+  if (opts.onclick) e.onclick = opts.onclick;
+  if (opts.attrs) for (const [k,v] of Object.entries(opts.attrs)) {
+    if (v === true) e.setAttribute(k, "");
+    else if (v != null && v !== false) e.setAttribute(k, v);
+  }
+  for (const c of children) if (c) e.appendChild(c);
+  return e;
+}
+
+function icon(name) {
+  return el("span", { class: "icon", attrs: { "data-icon": name }});
+}
+
+function initials(s) {
+  return (s || "?").trim().slice(0, 2).toUpperCase();
+}
+
+// ========== Top bar ==========
+
 function renderTopbar() {
-  if (!state.workspace) return;
-  const w = state.workspace;
-  el("#status").innerHTML = `${w.runtime} · ${w.model} · <span class="dot ${w.ready ? "done" : "error"}"></span>`;
+  const s = data.state;
+  if (!s) return;
+  const stateLabel = s.ready ? "Ready" : "Not configured";
+  $("#status").innerHTML = `${s.model} · ${stateLabel}`;
 }
 
-function sessionItem(s) {
-  const li = document.createElement("li");
-  li.className = "session-item" + (s.id === state.activeId ? " active" : "");
-  li.dataset.id = s.id;
-  if (s.running) {
-    const dot = document.createElement("span");
-    dot.className = "si-running";
-    li.appendChild(dot);
-  }
-  const title = document.createElement("div");
-  title.className = "si-title";
-  title.textContent = s.title;
-  const meta = document.createElement("div");
-  meta.className = "si-meta";
-  meta.textContent = (s.persona_name || "Default") + " · " + s.runtime;
-  const stat = document.createElement("div");
-  stat.className = "si-stat";
-  stat.textContent = relTime(s.updated_at) + " · " + s.event_count + " events";
-  li.append(title, meta, stat);
-  li.onclick = () => selectSession(s.id);
-  return li;
+// ========== Left pane ==========
+
+function navItem({ icon: ic, name, meta, badge, running, active, onclick }) {
+  const item = el("div", { class: "nav-item" + (active ? " active" : ""), onclick });
+  item.appendChild(icon(ic));
+  const nameEl = el("div", { class: "nav-name", text: name });
+  item.appendChild(nameEl);
+  const right = el("div", { class: "nav-meta" });
+  if (badge) right.appendChild(el("span", { class: "badge", text: String(badge) }));
+  if (running) right.appendChild(el("span", { class: "dot running" }));
+  if (meta) right.appendChild(el("span", { text: meta }));
+  item.appendChild(right);
+  return item;
 }
 
-function renderSessions() {
-  const pinned = state.sessions.filter(s => s.pinned);
-  const recent = state.sessions.filter(s => !s.pinned);
-  const pe = el("#pinned");
-  const re = el("#recent");
-  pe.innerHTML = "";
-  re.innerHTML = "";
-  if (pinned.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "No pinned sessions";
-    pe.appendChild(empty);
-  }
-  pinned.forEach(s => pe.appendChild(sessionItem(s)));
-  recent.forEach(s => re.appendChild(sessionItem(s)));
+function renderChannels() {
+  const list = $("#channels");
+  list.innerHTML = "";
+  data.channels.forEach(c => {
+    const li = el("li");
+    li.appendChild(navItem({
+      icon: "hash",
+      name: c.name,
+      badge: c.unread_count > 0 ? c.unread_count : null,
+      running: c.has_running,
+      active: view.mode === "channel" && view.activeChannel === c.id,
+      onclick: () => openChannel(c.id),
+    }));
+    list.appendChild(li);
+  });
 }
 
-function eventBlock(ev) {
-  const wrap = document.createElement("div");
-  const cls = (ev.kind === "service_notice") ? "notice" : "event " + (ev.status || "idle") + (ev.kind === "reasoning" ? " reasoning" : "");
-  wrap.className = cls;
+function renderAgents() {
+  const list = $("#agents");
+  list.innerHTML = "";
+  data.agents.forEach(a => {
+    const li = el("li");
+    const item = navItem({
+      icon: "at",
+      name: a.display,
+      meta: a.status === "running" ? "running" : null,
+      active: view.mode === "agent" && view.activeAgent === a.id,
+      onclick: () => openAgent(a.id),
+    });
+    list.appendChild(li);
+    li.appendChild(item);
+  });
+}
+
+function renderThreads() {
+  const list = $("#threads");
+  list.innerHTML = "";
+  data.threads.forEach(t => {
+    const channel = data.channels.find(c => c.id === t.channel_id);
+    const item = el("div", {
+      class: "thread-item" + (view.mode === "thread" && view.activeThread === t.id ? " active" : ""),
+      onclick: () => openThread(t.id),
+    });
+    const title = el("div", { class: "ti-title" }, [
+      icon("thread"),
+      el("span", { text: t.title }),
+    ]);
+    const meta = el("div", {
+      class: "ti-meta",
+      text: (channel ? "#" + channel.name : "") + " · " + relTime(t.updated_at) + (t.has_running ? " · running" : "")
+    });
+    item.appendChild(title);
+    item.appendChild(meta);
+    const li = el("li");
+    li.appendChild(item);
+    list.appendChild(li);
+  });
+}
+
+// ========== Center: messages & events ==========
+
+function eventBlock(ev, idx) {
   if (ev.kind === "service_notice") {
-    const dot = document.createElement("span"); dot.className = "dot";
-    const txt = document.createElement("span"); txt.textContent = ev.output || "";
-    wrap.append(dot, txt);
+    const wrap = el("div", { class: "notice" });
+    wrap.appendChild(icon("info"));
+    wrap.appendChild(el("span", { text: ev.output || "" }));
     return wrap;
   }
-  wrap.classList.add("collapsed");
-  const header = document.createElement("div");
-  header.className = "event-header";
-  const chev = document.createElement("span"); chev.className = "event-chevron"; chev.textContent = "▸";
-  const label = document.createElement("span"); label.className = "event-label";
-  const name = document.createElement("span"); name.className = "event-name";
-  const meta = document.createElement("span"); meta.className = "event-meta";
+  const status = ev.status || "idle";
+  const wrap = el("div", { class: "event collapsed " + status + (ev.kind === "reasoning" ? " reasoning" : "") });
+  const header = el("div", { class: "event-header" });
+  const chev = icon("chevron_right");
+  chev.classList.add("event-chevron");
+  header.appendChild(chev);
+
+  const evIcon = icon(ev.kind === "reasoning" ? "brain" : "terminal");
+  evIcon.classList.add("event-icon");
+  header.appendChild(evIcon);
+
   if (ev.kind === "reasoning") {
-    label.textContent = "Reasoning";
-    name.textContent = "";
-    meta.textContent = "view";
-  } else if (ev.kind === "tool_call") {
-    label.textContent = "Tool";
-    name.textContent = ev.tool_name || "";
-    let m = ev.status || "";
-    if (ev.duration_ms) m += " · " + ev.duration_ms + "ms";
-    meta.textContent = m;
+    header.appendChild(el("span", { class: "event-label", text: "Reasoning" }));
+    header.appendChild(el("span", { class: "event-name", text: "" }));
+  } else {
+    header.appendChild(el("span", { class: "event-label", text: "Tool" }));
+    header.appendChild(el("span", { class: "event-name", text: ev.tool_name || "" }));
   }
-  header.append(chev, label, name, meta);
-  const body = document.createElement("div");
-  body.className = "event-body";
+  header.appendChild(el("span"));
+  let metaText = ev.kind === "reasoning" ? "view" : (status + (ev.duration_ms ? " · " + ev.duration_ms + "ms" : ""));
+  header.appendChild(el("span", { class: "event-meta", text: metaText }));
+  wrap.appendChild(header);
+
+  const body = el("div", { class: "event-body" });
   if (ev.kind === "reasoning") {
     body.textContent = ev.output || "(no reasoning text)";
   } else {
-    if (ev.args) {
-      const k = document.createElement("div"); k.className = "kv"; k.textContent = ev.args;
-      body.appendChild(k);
-    }
-    if (ev.output) {
-      const o = document.createElement("div"); o.textContent = ev.output;
-      body.appendChild(o);
-    }
-    if (ev.err) {
-      const e = document.createElement("div"); e.className = "err"; e.textContent = ev.err;
-      body.appendChild(e);
-    }
+    if (ev.args) body.appendChild(el("div", { class: "kv", text: ev.args }));
+    if (ev.output) body.appendChild(el("div", { text: ev.output }));
+    if (ev.err) body.appendChild(el("div", { class: "err", text: ev.err }));
   }
+  wrap.appendChild(body);
+
   header.onclick = () => {
-    wrap.classList.toggle("collapsed");
-    chev.textContent = wrap.classList.contains("collapsed") ? "▸" : "▾";
+    const collapsed = wrap.classList.toggle("collapsed");
+    chev.innerHTML = "";
+    chev.setAttribute("data-icon", collapsed ? "chevron_right" : "chevron_down");
+    chev.removeAttribute("data-injected");
+    injectIcons(chev);
   };
-  wrap.append(header, body);
   return wrap;
 }
 
 function messageBlock(m) {
-  const wrap = document.createElement("div");
-  wrap.className = "message " + m.role;
-  const role = document.createElement("div");
-  role.className = "message-role";
-  role.textContent = m.role === "user" ? "You" : "Sumi";
-  const content = document.createElement("div");
-  content.className = "message-content";
-  content.textContent = m.content || "";
-  wrap.append(role, content);
+  const wrap = el("div", { class: "msg " + (m.role === "user" ? "user" : "agent") });
+  const av = el("div", { class: "msg-avatar", text: initials(m.role === "user" ? "You" : (m.author_name || "AI")) });
+  wrap.appendChild(av);
+
+  const body = el("div");
+  const authorRow = el("div", { class: "msg-author-row" });
+  authorRow.appendChild(el("span", { class: "msg-author", text: m.role === "user" ? "You" : (m.author_name || "Sumi") }));
+  if (m.role !== "user") {
+    const ag = data.agents.find(a => a.id === m.author_id);
+    if (ag && ag.role) authorRow.appendChild(el("span", { class: "msg-role-tag", text: ag.role }));
+  }
+  authorRow.appendChild(el("span", { class: "msg-time", text: relTime(m.time) }));
+  body.appendChild(authorRow);
+
+  if (m.content) body.appendChild(el("div", { class: "msg-content", text: m.content }));
 
   const events = [];
-  if (m.reasoning) events.push({kind: "reasoning", status: "done", output: m.reasoning});
+  if (m.reasoning) events.push({ kind: "reasoning", status: "done", output: m.reasoning });
   if (m.events) events.push(...m.events);
   if (events.length) {
-    const ec = document.createElement("div");
-    ec.className = "events";
-    events.forEach(ev => ec.appendChild(eventBlock(ev)));
-    wrap.appendChild(ec);
+    const ec = el("div", { class: "events" });
+    events.forEach((ev, i) => ec.appendChild(eventBlock(ev, i)));
+    body.appendChild(ec);
   }
+
+  if (m.thread_id) {
+    const tl = el("div", {
+      class: "thread-link",
+      onclick: () => openThread(m.thread_id),
+    }, [
+      icon("corner_down_right"),
+      el("span", { text: m.thread_summary || "Open thread" }),
+    ]);
+    body.appendChild(tl);
+  }
+
+  wrap.appendChild(body);
   return wrap;
 }
 
-function renderSession() {
-  if (!state.session) return;
-  const s = state.session;
-  el("#session-title").textContent = s.item.title;
-  el("#session-meta").textContent =
-    (s.item.persona_name || "Default") + " · " + s.item.model + " · " + relTime(s.item.updated_at);
-  el("#stop-btn").classList.toggle("hidden", !s.item.running);
-  const m = el("#messages");
+function renderConvHead() {
+  const detail = data.detail;
+  if (!detail) return;
+  const item = detail.item;
+  $("#stop-btn").hidden = !item.running;
+
+  $("#conv-title").innerHTML = "";
+  if (view.mode === "channel") {
+    $("#conv-title").appendChild(icon("hash"));
+    $("#conv-title").appendChild(el("span", { text: data.channels.find(c => c.id === view.activeChannel)?.name || "channel" }));
+    $("#conv-meta").textContent = (detail.summary || "") + (item.running ? " · agents running" : "");
+  } else if (view.mode === "thread") {
+    $("#conv-title").appendChild(icon("thread"));
+    $("#conv-title").appendChild(el("span", { text: item.title }));
+    $("#conv-meta").textContent = detail.summary || "";
+  } else {
+    $("#conv-title").appendChild(icon("at"));
+    const ag = data.agents.find(a => a.id === view.activeAgent);
+    $("#conv-title").appendChild(el("span", { text: ag?.display || view.activeAgent }));
+    $("#conv-meta").textContent = ag?.role || "";
+  }
+  injectIcons($("#conv-head"));
+}
+
+function renderMessages() {
+  const m = $("#messages");
   m.innerHTML = "";
-  s.messages.forEach(msg => m.appendChild(messageBlock(msg)));
+  if (!data.detail) return;
+  data.detail.messages.forEach(msg => m.appendChild(messageBlock(msg)));
+  injectIcons(m);
   m.scrollTop = m.scrollHeight;
+}
 
-  el("#ins-persona").textContent = s.item.persona_name || "Default";
-  el("#ins-model").textContent = s.item.model;
-  el("#ins-runtime").textContent = s.item.runtime;
-  const tl = el("#ins-tools");
-  tl.innerHTML = "";
-  state.tools.forEach(t => {
-    const li = document.createElement("li");
-    li.innerHTML = `<span>${t.name}</span><span class="ok">${t.enabled ? "on" : "off"}</span>`;
-    tl.appendChild(li);
+// ========== Right pane ==========
+
+function insSection(label, body, hint) {
+  const sec = el("div", { class: "ins-section" });
+  sec.appendChild(el("div", { class: "ins-label", text: label }));
+  if (typeof body === "string") sec.appendChild(el("div", { class: "ins-value", text: body }));
+  else sec.appendChild(body);
+  if (hint) sec.appendChild(el("div", { class: "ins-hint", text: hint }));
+  return sec;
+}
+
+function participantRow(p) {
+  const w = el("div", { class: "participant" + (p.role === "user" ? " user" : "") });
+  w.appendChild(el("div", { class: "av", text: initials(p.display) }));
+  const name = el("div");
+  name.appendChild(el("span", { class: "name", text: p.display }));
+  if (p.role) name.appendChild(el("span", { class: "role", text: p.role }));
+  w.appendChild(name);
+  if (p.status) {
+    const s = el("span", { class: "dot " + (p.status === "running" ? "running" : (p.status === "done" ? "done" : "")) });
+    w.appendChild(s);
+  } else {
+    w.appendChild(el("span"));
+  }
+  return w;
+}
+
+function runCard(r) {
+  const w = el("div", { class: "run-card " + (r.status || "idle") });
+  const ag = data.agents.find(a => a.id === r.agent_id);
+  w.appendChild(el("div", { class: "run-title", text: r.title }));
+  w.appendChild(el("div", {
+    class: "run-meta",
+    text: (ag?.display || r.agent_id) + " · " + (r.status || "") + " · " + relTime(r.time),
+  }));
+  return w;
+}
+
+function renderRight() {
+  const right = $("#right");
+  right.innerHTML = "";
+
+  const modelSec = insSection("Current Model", data.state?.model || "—", "Used by all new agent runs");
+
+  const toolsList = el("ul", { class: "ins-list" });
+  data.tools.forEach(t => {
+    const li = el("li", { class: "participant" });
+    li.appendChild(el("div", { class: "av", text: initials(t.name) }));
+    const name = el("div");
+    name.appendChild(el("span", { class: "name", text: t.name }));
+    li.appendChild(name);
+    li.appendChild(el("span", { class: "dot done" }));
+    toolsList.appendChild(li);
   });
-  el("#ins-runlog").textContent = s.item.event_count + " events";
+
+  if (view.mode === "channel" && data.detail) {
+    const channel = data.channels.find(c => c.id === view.activeChannel);
+    const summary = el("div", { class: "ins-value", text: channel?.topic || "" });
+    right.appendChild(insSection("Channel", channel?.name ? "#" + channel.name : "—"));
+    if (channel?.topic) right.appendChild(insSection("Topic", channel.topic));
+
+    const partsList = el("div", { class: "ins-list" });
+    (data.participants?.agents || []).forEach(p => partsList.appendChild(participantRow(p)));
+    right.appendChild(insSection("Participants", partsList));
+
+    const runs = data.participants?.active_runs || [];
+    if (runs.length) {
+      const runsWrap = el("div");
+      runs.forEach(r => runsWrap.appendChild(runCard(r)));
+      right.appendChild(insSection("Active Runs", runsWrap));
+    }
+
+    const threadsInChannel = data.threads.filter(t => t.channel_id === view.activeChannel).slice(0, 4);
+    if (threadsInChannel.length) {
+      const tlist = el("div");
+      threadsInChannel.forEach(t => {
+        const card = el("div", { class: "thread-card", onclick: () => openThread(t.id) });
+        card.appendChild(el("div", { class: "t-title", text: t.title }));
+        card.appendChild(el("div", { class: "t-meta", text: t.event_count + " events · " + relTime(t.updated_at) + (t.has_running ? " · running" : "") }));
+        tlist.appendChild(card);
+      });
+      right.appendChild(insSection("Recent Threads", tlist));
+    }
+
+    right.appendChild(modelSec);
+    right.appendChild(insSection("Execution", "Local", "read-only"));
+    right.appendChild(insSection("Tools", toolsList));
+  } else if (view.mode === "thread" && data.detail) {
+    const item = data.detail.item;
+    right.appendChild(insSection("Thread", item.title));
+    right.appendChild(insSection("Status", item.running ? "running" : "open"));
+
+    const runs = data.participants?.active_runs || [];
+    if (runs.length) {
+      const w = el("div");
+      runs.forEach(r => w.appendChild(runCard(r)));
+      right.appendChild(insSection("Active Run", w));
+    }
+
+    const partsList = el("div", { class: "ins-list" });
+    (data.participants?.agents || []).forEach(p => partsList.appendChild(participantRow(p)));
+    right.appendChild(insSection("Participants", partsList));
+
+    const recent = data.participants?.recent_runs || [];
+    if (recent.length) {
+      const w = el("div");
+      recent.forEach(r => w.appendChild(runCard(r)));
+      right.appendChild(insSection("Recent Subtasks", w));
+    }
+
+    right.appendChild(modelSec);
+    right.appendChild(insSection("Tools", toolsList));
+  } else if (view.mode === "agent") {
+    const ag = data.agents.find(a => a.id === view.activeAgent);
+    right.appendChild(insSection("Agent", ag?.display || "—"));
+    if (ag?.role) right.appendChild(insSection("Role", ag.role));
+    right.appendChild(modelSec);
+    right.appendChild(insSection("Execution", "Local", "read-only"));
+    right.appendChild(insSection("Tools", toolsList));
+  }
+
+  injectIcons(right);
 }
 
-async function selectSession(id) {
-  state.activeId = id;
-  state.session = await api.session(id);
-  renderSessions();
-  renderSession();
+// ========== Open views ==========
+
+async function openChannel(id) {
+  view.mode = "channel";
+  view.activeChannel = id;
+  view.activeThread = null;
+  view.activeAgent = null;
+  data.detail = await api.channel(id);
+  data.participants = await api.participants(id, "");
+  $("#input").placeholder = "Message #" + (data.channels.find(c => c.id === id)?.name || "channel") + "...";
+  renderChannels(); renderAgents(); renderThreads();
+  renderConvHead(); renderMessages(); renderRight();
 }
+
+async function openThread(id) {
+  view.mode = "thread";
+  view.activeThread = id;
+  view.activeAgent = null;
+  data.detail = await api.thread(id);
+  data.participants = await api.participants(view.activeChannel, id);
+  $("#input").placeholder = "Reply in thread...";
+  renderChannels(); renderAgents(); renderThreads();
+  renderConvHead(); renderMessages(); renderRight();
+}
+
+async function openAgent(id) {
+  view.mode = "agent";
+  view.activeAgent = id;
+  view.activeChannel = null;
+  view.activeThread = null;
+  data.detail = { item: { id, title: id, running: false }, messages: [] };
+  data.participants = null;
+  $("#input").placeholder = "Message @" + id + "...";
+  renderChannels(); renderAgents(); renderThreads();
+  renderConvHead(); renderMessages(); renderRight();
+}
+
+// ========== Composer ==========
 
 function renderComposer() {
-  const ps = el("#persona-select");
-  ps.innerHTML = "";
-  const def = document.createElement("option");
-  def.value = ""; def.textContent = "Persona: Default";
-  ps.appendChild(def);
-  state.personas.forEach(p => {
-    const o = document.createElement("option");
-    o.value = p.id; o.textContent = "Persona: " + p.display;
-    ps.appendChild(o);
-  });
-  const ms = el("#model-select");
+  const ag = $("#agent-select");
+  ag.innerHTML = "";
+  ag.appendChild(el("option", { attrs: { value: "" }, text: "Persona: Default" }));
+  data.agents.forEach(a => ag.appendChild(el("option", { attrs: { value: a.id }, text: "@" + a.display })));
+  const ms = $("#model-select");
   ms.innerHTML = "";
-  state.models.forEach(m => {
-    const o = document.createElement("option");
-    o.value = m.name; o.textContent = "Model: " + m.model;
-    ms.appendChild(o);
-  });
+  data.models.forEach(m => ms.appendChild(el("option", { attrs: { value: m.name }, text: m.model })));
 }
 
-const palette = {
-  open: false,
-  query: "",
-  selected: 0,
-  rows: [],
-};
+// ========== Cmd+K ==========
 
-function fuzzyMatch(text, q) {
-  if (!q) return true;
-  return text.toLowerCase().includes(q.toLowerCase());
-}
+const palette = { open: false, query: "", selected: 0, rows: [] };
+
+function fuzzy(text, q) { return !q || text.toLowerCase().includes(q.toLowerCase()); }
 
 function buildPaletteRows(query) {
   let q = query.trim();
   let scope = null;
-  if (q.startsWith("/")) { scope = "command"; q = q.slice(1); }
-  else if (q.startsWith("session ")) { scope = "session"; q = q.slice(8); }
-  else if (q.startsWith("persona ") || q.startsWith("@")) { scope = "persona"; q = q.replace(/^persona |^@/, ""); }
+  if (q.startsWith("#")) { scope = "channel"; q = q.slice(1); }
+  else if (q.startsWith("thread ")) { scope = "thread"; q = q.slice(7); }
+  else if (q.startsWith("@")) { scope = "agent"; q = q.slice(1); }
+  else if (q.startsWith("/")) { scope = "command"; q = q.slice(1); }
   else if (q.startsWith("model ")) { scope = "model"; q = q.slice(6); }
   const rows = [];
-  if (scope === null || scope === "session") {
-    const ss = state.sessions
-      .filter(s => fuzzyMatch(s.title, q))
-      .sort((a,b) => (b.running - a.running) || (b.pinned - a.pinned))
-      .slice(0, 5);
-    if (ss.length) {
-      rows.push({label: "Sessions", group: true});
-      ss.forEach(s => rows.push({type: "session", id: s.id, title: s.title, meta: (s.persona_name || "Default") + " · " + relTime(s.updated_at)}));
-    }
+  const add = (group, items, type, mapper) => {
+    if (!items.length) return;
+    rows.push({ group: true, label: group });
+    items.forEach(it => rows.push({ type, ...mapper(it) }));
+  };
+  if (scope === null || scope === "channel") {
+    add("Channels",
+      data.channels.filter(c => fuzzy(c.name, q)).slice(0, 4),
+      "channel",
+      c => ({ id: c.id, title: "#" + c.name, meta: c.topic || "", icon: "hash" })
+    );
+  }
+  if (scope === null || scope === "thread") {
+    add("Threads",
+      data.threads.filter(t => fuzzy(t.title, q)).slice(0, 4),
+      "thread",
+      t => {
+        const ch = data.channels.find(c => c.id === t.channel_id);
+        return { id: t.id, title: t.title, meta: (ch ? "#" + ch.name : "") + " · " + relTime(t.updated_at), icon: "thread" };
+      }
+    );
+  }
+  if (scope === null || scope === "agent") {
+    add("Agents",
+      data.agents.filter(a => fuzzy(a.display, q)).slice(0, 3),
+      "agent",
+      a => ({ id: a.id, title: "@" + a.display, meta: a.role || "", icon: "at" })
+    );
   }
   if (scope === null || scope === "command") {
-    const cs = state.commands.filter(c => fuzzyMatch(c.name, q)).slice(0, 3);
-    if (cs.length) {
-      rows.push({label: "Commands", group: true});
-      cs.forEach(c => rows.push({type: "command", title: c.name, meta: c.summary || ""}));
-    }
-  }
-  if (scope === null || scope === "persona") {
-    const ps = state.personas.filter(p => fuzzyMatch(p.display, q)).slice(0, 2);
-    if (ps.length) {
-      rows.push({label: "Personas", group: true});
-      ps.forEach(p => rows.push({type: "persona", id: p.id, title: p.display, meta: p.runtime}));
-    }
+    add("Commands",
+      data.commands.filter(c => fuzzy(c.name, q)).slice(0, 3),
+      "command",
+      c => ({ title: c.name, meta: c.summary || "", icon: "terminal" })
+    );
   }
   if (scope === null || scope === "model") {
-    const ms = state.models.filter(m => fuzzyMatch(m.model, q)).slice(0, 2);
-    if (ms.length) {
-      rows.push({label: "Models", group: true});
-      ms.forEach(m => rows.push({type: "model", id: m.name, title: m.model, meta: m.ready ? "ready" : "not ready"}));
-    }
+    add("Models",
+      data.models.filter(m => fuzzy(m.model, q)).slice(0, 2),
+      "model",
+      m => ({ id: m.name, title: m.model, meta: m.ready ? "ready" : "not ready", icon: "info" })
+    );
   }
   return rows;
 }
 
 function renderPalette() {
-  const c = el("#palette-results");
+  const c = $("#palette-results");
   c.innerHTML = "";
   palette.rows = buildPaletteRows(palette.query);
-  if (palette.rows.length === 0) {
-    const e = document.createElement("div");
-    e.className = "empty";
-    e.textContent = "No results · try session title, /command, persona name, or model name.";
-    c.appendChild(e);
+  if (!palette.rows.length) {
+    c.appendChild(el("div", { class: "empty", text: "No results · try #channel, thread, @agent, /command, or model name." }));
     return;
   }
-  let actionIndex = -1;
-  palette.rows.forEach((row, i) => {
+  let actionIdx = -1;
+  palette.rows.forEach(row => {
     if (row.group) {
-      const g = document.createElement("div");
-      g.className = "palette-group-label";
-      g.textContent = row.label;
-      c.appendChild(g);
+      c.appendChild(el("div", { class: "palette-group-label", text: row.label }));
       return;
     }
-    actionIndex++;
-    const r = document.createElement("div");
-    r.className = "palette-row" + (actionIndex === palette.selected ? " selected" : "");
-    r.innerHTML = `<span>${row.title}</span><span class="meta">${row.meta || ""}</span>`;
-    r.onclick = () => paletteActivate(row);
+    actionIdx++;
+    const r = el("div", { class: "palette-row" + (actionIdx === palette.selected ? " selected" : ""), onclick: () => activate(row) });
+    const label = el("div", { class: "label" });
+    label.appendChild(icon(row.icon));
+    label.appendChild(el("span", { class: "label-title", text: row.title }));
+    r.appendChild(label);
+    r.appendChild(el("span", { class: "meta", text: row.meta || "" }));
     c.appendChild(r);
   });
+  injectIcons(c);
 }
 
-function paletteActivate(row) {
+function activate(row) {
   closePalette();
-  if (row.type === "session") selectSession(row.id);
+  if (row.type === "channel") openChannel(row.id);
+  else if (row.type === "thread") openThread(row.id);
+  else if (row.type === "agent") openAgent(row.id);
 }
 
 function openPalette() {
   palette.open = true;
   palette.query = "";
   palette.selected = 0;
-  el("#palette").classList.remove("hidden");
-  el("#palette-input").value = "";
-  el("#palette-input").focus();
+  $("#palette").hidden = false;
+  $("#palette-input").value = "";
+  $("#palette-input").focus();
   renderPalette();
 }
-
 function closePalette() {
   palette.open = false;
-  el("#palette").classList.add("hidden");
+  $("#palette").hidden = true;
 }
 
 function bindGlobalKeys() {
@@ -316,10 +564,10 @@ function bindGlobalKeys() {
       e.preventDefault();
       palette.open ? closePalette() : openPalette();
     } else if (palette.open) {
-      if (e.key === "Escape") { closePalette(); }
+      if (e.key === "Escape") closePalette();
       else if (e.key === "ArrowDown") {
-        const actionRows = palette.rows.filter(r => !r.group).length;
-        palette.selected = Math.min(palette.selected + 1, actionRows - 1);
+        const n = palette.rows.filter(r => !r.group).length;
+        palette.selected = Math.min(palette.selected + 1, n - 1);
         renderPalette();
         e.preventDefault();
       } else if (e.key === "ArrowUp") {
@@ -328,36 +576,38 @@ function bindGlobalKeys() {
         e.preventDefault();
       } else if (e.key === "Enter") {
         const actions = palette.rows.filter(r => !r.group);
-        if (actions[palette.selected]) paletteActivate(actions[palette.selected]);
+        if (actions[palette.selected]) activate(actions[palette.selected]);
         e.preventDefault();
       }
     }
   });
-  el("#palette-input").addEventListener("input", (e) => {
+  $("#palette-input").addEventListener("input", e => {
     palette.query = e.target.value;
     palette.selected = 0;
     renderPalette();
   });
-  el("#open-palette").onclick = openPalette;
+  $("#open-palette").onclick = openPalette;
 }
 
-async function main() {
-  const [state0, sessions, personas, models, tools, commands] = await Promise.all([
-    api.state(), api.sessions(), api.personas(), api.models(), api.tools(), api.commands()
-  ]);
-  state.workspace = state0;
-  state.sessions = sessions;
-  state.personas = personas;
-  state.models = models;
-  state.tools = tools;
-  state.commands = commands;
-  state.activeId = sessions[0]?.id;
+// ========== Bootstrap ==========
 
+async function main() {
+  const [state, channels, threads, agents, models, tools, commands] = await Promise.all([
+    api.state(), api.channels(), api.threads(), api.agents(), api.models(), api.tools(), api.commands()
+  ]);
+  data.state = state;
+  data.channels = channels;
+  data.threads = threads;
+  data.agents = agents;
+  data.models = models;
+  data.tools = tools;
+  data.commands = commands;
   renderTopbar();
-  renderSessions();
   renderComposer();
-  if (state.activeId) selectSession(state.activeId);
+  injectIcons();
   bindGlobalKeys();
+  if (channels[0]) await openChannel(channels[0].id);
+  injectIcons();
 }
 
 main();

@@ -2,132 +2,187 @@ package desktop
 
 import "time"
 
+type ChannelItem struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Topic       string    `json:"topic,omitempty"`
+	Agents      []string  `json:"agents"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	UnreadCount int       `json:"unread_count"`
+	HasRunning  bool      `json:"has_running"`
+}
+
+type ThreadItem struct {
+	ID         string    `json:"id"`
+	ChannelID  string    `json:"channel_id"`
+	Title      string    `json:"title"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	EventCount int       `json:"event_count"`
+	HasRunning bool      `json:"has_running"`
+}
+
+type AgentItem struct {
+	ID      string `json:"id"`
+	Display string `json:"display"`
+	Role    string `json:"role,omitempty"`
+	Status  string `json:"status"`
+}
+
+type ParticipantsView struct {
+	Agents       []AgentItem `json:"agents"`
+	RunningAgent string      `json:"running_agent,omitempty"`
+	ActiveRuns   []AgentRun  `json:"active_runs,omitempty"`
+	RecentRuns   []AgentRun  `json:"recent_runs,omitempty"`
+}
+
+type AgentRun struct {
+	ID       string    `json:"id"`
+	AgentID  string    `json:"agent_id"`
+	Title    string    `json:"title"`
+	Status   string    `json:"status"`
+	ThreadID string    `json:"thread_id,omitempty"`
+	Time     time.Time `json:"time"`
+}
+
 func mockState() WorkspaceState {
 	return WorkspaceState{
 		Workspace: "/Users/lisongjian/Workspace/gh/abcdlsj/sumi",
 		Provider:  "anthropic",
 		Model:     "claude-sonnet-4",
-		Runtime:   "native",
+		Runtime:   "local",
 		Ready:     true,
 		DataDir:   "~/.sumi",
 	}
 }
 
-func mockSessions() []SessionItem {
+func mockChannels() []ChannelItem {
 	now := time.Now()
-	return []SessionItem{
-		{
-			ID:           "20260528-desktop-a1b2",
-			Title:        "Fix provider fallback",
-			PersonaID:    "dev",
-			PersonaName:  "Dev Agent",
-			Runtime:      "native",
+	return []ChannelItem{
+		{ID: "ch-research", Name: "research", Topic: "Investigations and prior art", Agents: []string{"researcher", "writer"}, UpdatedAt: now.Add(-3 * time.Minute), UnreadCount: 2, HasRunning: true},
+		{ID: "ch-coding", Name: "coding", Topic: "Implementation work", Agents: []string{"coder", "reviewer"}, UpdatedAt: now.Add(-25 * time.Minute), UnreadCount: 0},
+		{ID: "ch-general", Name: "general", Topic: "Default workspace channel", Agents: []string{"coder", "writer"}, UpdatedAt: now.Add(-2 * time.Hour), UnreadCount: 0},
+	}
+}
+
+func mockThreads() []ThreadItem {
+	now := time.Now()
+	return []ThreadItem{
+		{ID: "th-fallback", ChannelID: "ch-coding", Title: "Provider fallback path", UpdatedAt: now.Add(-2 * time.Minute), EventCount: 12, HasRunning: true},
+		{ID: "th-design", ChannelID: "ch-research", Title: "Design review for runlog", UpdatedAt: now.Add(-1 * time.Hour), EventCount: 6},
+		{ID: "th-tools", ChannelID: "ch-coding", Title: "Tool registry refactor", UpdatedAt: now.Add(-3 * time.Hour), EventCount: 4},
+	}
+}
+
+func mockAgents() []AgentItem {
+	return []AgentItem{
+		{ID: "coder", Display: "Coder", Role: "Implementation", Status: "running"},
+		{ID: "reviewer", Display: "Reviewer", Role: "Code review", Status: "idle"},
+		{ID: "researcher", Display: "Researcher", Role: "Investigation", Status: "idle"},
+		{ID: "writer", Display: "Writer", Role: "Drafting", Status: "idle"},
+	}
+}
+
+func mockChannelDetail(id string) SessionDetail {
+	now := time.Now()
+	channel := mockChannels()[0]
+	for _, c := range mockChannels() {
+		if c.ID == id {
+			channel = c
+			break
+		}
+	}
+	return SessionDetail{
+		Item: SessionItem{
+			ID:           channel.ID,
+			Title:        "#" + channel.Name,
+			Runtime:      "local",
 			Model:        "claude-sonnet-4",
-			UpdatedAt:    now.Add(-2 * time.Minute),
-			MessageCount: 8,
-			EventCount:   12,
-			Running:      true,
-			Pinned:       true,
-		},
-		{
-			ID:           "20260528-desktop-c3d4",
-			Title:        "Refactor tool registry",
-			PersonaID:    "",
-			PersonaName:  "Default",
-			Runtime:      "native",
-			Model:        "claude-sonnet-4",
-			UpdatedAt:    now.Add(-1 * time.Hour),
-			MessageCount: 4,
-			EventCount:   4,
-		},
-		{
-			ID:           "20260527-desktop-e5f6",
-			Title:        "Inspect runlog format",
-			PersonaName:  "Default",
-			Runtime:      "codex",
-			Model:        "gpt-4.1-mini",
-			UpdatedAt:    now.Add(-26 * time.Hour),
+			UpdatedAt:    channel.UpdatedAt,
 			MessageCount: 14,
 			EventCount:   18,
+			Running:      channel.HasRunning,
+		},
+		Summary: channel.Topic,
+		Messages: []MessageView{
+			{ID: "c1", Role: "user", Content: "Anyone found a clean way to do provider fallback?", Time: now.Add(-15 * time.Minute)},
+			{ID: "c2", Role: "agent", AuthorID: "researcher", AuthorName: "Researcher", Content: "Looked at Anthropic and OpenAI SDK retry patterns. They both use header-based fallback hints.", Time: now.Add(-13 * time.Minute)},
+			{ID: "c3", Role: "agent", AuthorID: "coder", AuthorName: "Coder", Content: "I'll prototype it. Going into a thread to keep this channel clean.",
+				Time:           now.Add(-5 * time.Minute),
+				ThreadID:       "th-fallback",
+				ThreadSummary:  "Provider fallback path · 12 events · running"},
+			{ID: "c4", Role: "user", Content: "@reviewer can you scan recent commits while they work?", Time: now.Add(-3 * time.Minute)},
+			{ID: "c5", Role: "agent", AuthorID: "reviewer", AuthorName: "Reviewer", Content: "On it.", Time: now.Add(-2 * time.Minute)},
 		},
 	}
 }
 
-func mockSessionDetail(id string) SessionDetail {
+func mockThreadDetail(id string) SessionDetail {
 	now := time.Now()
-	item := mockSessions()[0]
 	return SessionDetail{
-		Item: item,
+		Item: SessionItem{
+			ID:           id,
+			Title:        "Provider fallback path",
+			Runtime:      "local",
+			Model:        "claude-sonnet-4",
+			UpdatedAt:    now.Add(-2 * time.Minute),
+			MessageCount: 4,
+			EventCount:   12,
+			Running:      true,
+		},
+		Summary: "Thread in #coding · started by Coder",
 		Messages: []MessageView{
-			{
-				ID:      "m1",
-				Role:    "user",
-				Content: "Check this project structure.",
-				Time:    now.Add(-3 * time.Minute),
-			},
-			{
-				ID:        "m2",
-				Role:      "assistant",
-				Content:   "Reading the workspace to understand layout, then I will summarize the key directories.",
-				Reasoning: "The user wants a structural overview. Best approach: list top-level dirs first, then drill into app/agent for entrypoints.",
-				Time:      now.Add(-150 * time.Second),
+			{ID: "t1", Role: "agent", AuthorID: "coder", AuthorName: "Coder", Content: "Reading the workspace to map the fallback surface.", Time: now.Add(-4 * time.Minute),
 				Events: []EventBlock{
-					{
-						Kind:       "tool_call",
-						ToolName:   "list_files",
-						Args:       `{"path":"/Users/lisongjian/Workspace/gh/abcdlsj/sumi"}`,
-						Output:     "app/, agent/, bus/, cli/, cmd/, command/, config/, llm/, msg/, persona/, plugins/, session/, skill/, store/, textutil/, tool/",
-						Status:     "done",
-						DurationMs: 340,
-						Time:       now.Add(-140 * time.Second),
-					},
-					{
-						Kind:   "service_notice",
-						Output: "Model changed to claude-sonnet-4",
-						Status: "done",
-						Time:   now.Add(-135 * time.Second),
-					},
-					{
-						Kind:       "tool_call",
-						ToolName:   "shell",
-						Args:       `{"cmd":"go test ./..."}`,
-						Output:     "FAIL\tgithub.com/abcdlsj/sumi/agent\t0.812s\nFAIL\tgithub.com/abcdlsj/sumi/llm\t0.541s",
-						Status:     "error",
-						Err:        "exit status 1",
-						DurationMs: 81,
-						Time:       now.Add(-90 * time.Second),
-					},
+					{Kind: "tool_call", ToolName: "list_files", Args: `{"path":"llm"}`, Output: "anthropic.go, openai.go, openrouter.go, retry_transport.go", Status: "done", DurationMs: 240, Time: now.Add(-4 * time.Minute)},
+					{Kind: "service_notice", Output: "Model changed to claude-sonnet-4", Status: "done", Time: now.Add(-3 * time.Minute)},
 				},
 			},
-			{
-				ID:      "m3",
-				Role:    "user",
-				Content: "Why did the tests fail?",
-				Time:    now.Add(-60 * time.Second),
-			},
-			{
-				ID:      "m4",
-				Role:    "assistant",
-				Content: "Investigating now.",
-				Time:    now.Add(-30 * time.Second),
+			{ID: "t2", Role: "user", Content: "Why did the tests fail earlier?", Time: now.Add(-90 * time.Second)},
+			{ID: "t3", Role: "agent", AuthorID: "coder", AuthorName: "Coder", Reasoning: "Need to inspect the retry path and the test expectations to find the divergence.", Content: "Investigating now.", Time: now.Add(-60 * time.Second),
 				Events: []EventBlock{
-					{
-						Kind:     "tool_call",
-						ToolName: "list_files",
-						Args:     `{"path":"agent"}`,
-						Status:   "running",
-						Time:     now.Add(-10 * time.Second),
-					},
+					{Kind: "tool_call", ToolName: "shell", Args: `{"cmd":"go test ./llm/..."}`, Output: "FAIL\tgithub.com/abcdlsj/sumi/llm\t0.541s", Err: "exit status 1", Status: "error", DurationMs: 81, Time: now.Add(-50 * time.Second)},
 				},
 			},
+			{ID: "t4", Role: "agent", AuthorID: "reviewer", AuthorName: "Reviewer", Content: "Delegated to me: check the recent commits touching llm/.", Time: now.Add(-30 * time.Second),
+				Events: []EventBlock{
+					{Kind: "tool_call", ToolName: "list_files", Args: `{"path":"llm"}`, Status: "running", Time: now.Add(-10 * time.Second)},
+				},
+			},
+		},
+	}
+}
+
+func mockParticipants(channelID, threadID string) ParticipantsView {
+	now := time.Now()
+	if threadID != "" {
+		return ParticipantsView{
+			Agents: []AgentItem{
+				{ID: "coder", Display: "Coder", Role: "Implementation", Status: "running"},
+				{ID: "reviewer", Display: "Reviewer", Role: "Code review", Status: "running"},
+			},
+			RunningAgent: "coder",
+			ActiveRuns: []AgentRun{
+				{ID: "r1", AgentID: "reviewer", Title: "Scanning recent commits", Status: "running", ThreadID: threadID, Time: now.Add(-30 * time.Second)},
+			},
+			RecentRuns: []AgentRun{
+				{ID: "r0", AgentID: "coder", Title: "list_files llm/", Status: "done", ThreadID: threadID, Time: now.Add(-4 * time.Minute)},
+			},
+		}
+	}
+	return ParticipantsView{
+		Agents: []AgentItem{
+			{ID: "researcher", Display: "Researcher", Role: "Investigation", Status: "idle"},
+			{ID: "writer", Display: "Writer", Role: "Drafting", Status: "idle"},
 		},
 	}
 }
 
 func mockPersonas() []PersonaItem {
 	return []PersonaItem{
-		{ID: "dev", Display: "Dev Agent", Runtime: "native", Description: "Code-focused engineering agent.", Tools: []string{"shell", "search", "memory"}},
-		{ID: "writer", Display: "Writer", Runtime: "native", Description: "Drafts and edits prose.", Tools: []string{"search"}},
+		{ID: "coder", Display: "Coder", Runtime: "local", Description: "Implementation-focused agent.", Tools: []string{"shell", "search", "memory"}},
+		{ID: "reviewer", Display: "Reviewer", Runtime: "local", Description: "Reviews code and prior changes.", Tools: []string{"search"}},
+		{ID: "researcher", Display: "Researcher", Runtime: "local", Description: "Looks up references and prior art.", Tools: []string{"search", "memory"}},
+		{ID: "writer", Display: "Writer", Runtime: "local", Description: "Drafts and edits prose.", Tools: []string{"search"}},
 	}
 }
 
