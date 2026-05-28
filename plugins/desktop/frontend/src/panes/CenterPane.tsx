@@ -2,8 +2,10 @@ import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
+import { EventBlock } from "@/components/EventBlock";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
+import type { EventBlock as EventBlockData } from "@/lib/types";
 
 export function CenterPane() {
   const view = useStore((s) => s.view);
@@ -88,23 +90,64 @@ export function CenterPane() {
 function EmptyState() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
+  const agents = useStore((s) => s.agents);
+  const activeAgent = useStore((s) => s.activeAgent);
+  const threads = useStore((s) => s.threads);
+  const channels = useStore((s) => s.channels);
+  const openThread = useStore((s) => s.openThread);
+
   if (view !== "agent") {
     return (
       <div className="text-text-faint text-[12.5px] py-10 text-center">No messages yet.</div>
     );
   }
-  const ag = detail?.item;
+  const ag = agents.find((a) => a.id === activeAgent);
+  const recent = threads.slice(0, 3);
+
   return (
-    <div className="rounded-md border border-border-soft bg-panel-2 px-6 py-6 mb-4">
-      <div className="text-[14px] font-semibold text-text">
-        Direct conversation with {ag?.title || ""}
+    <div className="py-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="size-9 rounded-md border border-border-soft bg-panel overflow-hidden">
+          <Identicon seed={ag?.id || activeAgent || "agent"} kind="agent" />
+        </div>
+        <div>
+          <div className="text-[15px] font-semibold text-text">
+            {detail?.item?.title || "@" + (ag?.display || "")}
+          </div>
+          {ag?.role && <div className="text-[12px] text-text-muted mt-0.5">{ag.role}</div>}
+        </div>
       </div>
-      {detail?.summary && (
-        <div className="mt-1 text-[12px] text-text-muted">{detail.summary}</div>
+      <div className="text-[12.5px] text-text-faint leading-relaxed mb-6">
+        Send a message to start a direct conversation. Replies stay private to you and {ag?.display || "this agent"}.
+      </div>
+      {recent.length > 0 && (
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.7px] text-text-faint mb-2 font-semibold">
+            Recently with {ag?.display || "this agent"}
+          </div>
+          <div className="flex flex-col gap-1">
+            {recent.map((t) => {
+              const ch = channels.find((c) => c.id === t.channel_id);
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => void openThread(t.id)}
+                  className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm hover:bg-panel-2 cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5 text-[12.5px] text-text min-w-0">
+                    {t.has_running && <Dot status="running" />}
+                    <span className="truncate">{t.title}</span>
+                  </span>
+                  <span className="text-[11px] text-text-faint shrink-0">
+                    {ch ? `#${ch.name} · ` : ""}
+                    {relTime(t.updated_at)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
-      <div className="mt-2.5 text-[12.5px] text-text-faint leading-relaxed">
-        Send a message below to start. Threads and channels involving this agent appear on the right.
-      </div>
     </div>
   );
 }
@@ -114,6 +157,12 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
   const ag = agents.find((a) => a.id === m.author_id);
   const seed = m.role === "user" ? "user" : m.author_id || m.author_name || "agent";
   const kind = m.role === "user" ? "user" : "agent";
+
+  const events: EventBlockData[] = [];
+  if (m.reasoning) {
+    events.push({ kind: "reasoning", status: "done", output: m.reasoning, time: m.time });
+  }
+  if (m.events) events.push(...m.events);
 
   return (
     <div
@@ -137,7 +186,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
               {m.role === "user" ? "You" : m.author_name || "Sumi"}
             </span>
             {m.role !== "user" && ag?.role && (
-              <span className="text-[10px] uppercase tracking-[0.4px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium">
+              <span className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium">
                 {ag.role}
               </span>
             )}
@@ -146,6 +195,13 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
         )}
         {m.content && (
           <div className="text-[14px] text-text leading-[1.7] whitespace-pre-wrap">{m.content}</div>
+        )}
+        {events.length > 0 && (
+          <div className="mt-2 flex flex-col gap-1">
+            {events.map((ev, i) => (
+              <EventBlock key={i} ev={ev} />
+            ))}
+          </div>
         )}
         {m.thread_id && m.thread_summary && (
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />

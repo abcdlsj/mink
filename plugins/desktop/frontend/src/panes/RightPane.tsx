@@ -270,7 +270,7 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
   return (
     <button
       onClick={() => void openThread(thread.id)}
-      className="w-full text-left border border-border-soft rounded-md bg-panel px-2.5 py-2 mb-1.5 hover:border-border-strong"
+      className="w-full text-left px-2 py-1.5 rounded-sm hover:bg-panel-2 cursor-pointer transition-colors"
     >
       <div className="flex items-center gap-1.5 text-[12.5px] text-text">
         {thread.has_running && <Dot status="running" />}
