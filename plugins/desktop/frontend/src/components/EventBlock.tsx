@@ -116,8 +116,8 @@ function MentionLine({ ev }: EventBlockProps) {
       <div className="flex items-center gap-1.5">
         <ArrowRight className="size-3 text-text-faint shrink-0" />
         <span>called</span>
-        <span className="font-display font-medium text-text inline-flex items-center gap-0.5">
-          <AtSign className="size-3" />
+        <span className="font-display font-medium text-text inline-flex items-baseline">
+          <AtSign className="size-3 self-center" />
           {display}
         </span>
         {ev.duration_ms ? (
@@ -195,26 +195,28 @@ function DelegateLine({ ev }: EventBlockProps) {
         )}
       </div>
       {open && hasDetails && (
-        <div className="mt-1 ml-4 pl-3 border-l-2 border-border-soft text-[12.5px] text-text">
+        <div className="mt-1.5 ml-4 pl-3 border-l-2 border-border-soft text-[12.5px] text-text space-y-2.5">
           {ev.task && (
-            <div className="text-text-muted mb-1">
-              <span className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mr-1.5">task</span>
-              {ev.task}
+            <div>
+              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">task</div>
+              <div className="text-text-muted whitespace-pre-wrap leading-[1.55]">{ev.task}</div>
             </div>
           )}
           {ev.output && (
-            <div className="mt-1">
-              <span className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mr-1.5">result</span>
-              <span className="whitespace-pre-wrap">{ev.output}</span>
+            <div>
+              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">result</div>
+              <div className="text-text whitespace-pre-wrap leading-[1.6]">
+                <Markdown variant="lite">{ev.output}</Markdown>
+              </div>
             </div>
           )}
           {ev.err && (
-            <div className="mt-1 text-error">
-              <span className="font-display text-[10px] uppercase tracking-[0.7px] mr-1.5">error</span>
-              {ev.err}
+            <div>
+              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-error mb-1">error</div>
+              <div className="text-error whitespace-pre-wrap leading-[1.55]">{ev.err}</div>
             </div>
           )}
-          <div className="mt-1.5 text-[10.5px] text-text-whisper font-mono">
+          <div className="text-[10.5px] text-text-whisper font-mono pt-0.5">
             task: {ev.task_id || "—"}
           </div>
         </div>

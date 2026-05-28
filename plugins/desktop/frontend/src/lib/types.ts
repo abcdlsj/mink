@@ -103,6 +103,7 @@ export interface AgentRun {
   status: EventStatus;
   thread_id?: string;
   time: string;
+  duration_ms?: number;
 }
 
 export interface ParticipantsView {

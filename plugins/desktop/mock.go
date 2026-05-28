@@ -39,12 +39,13 @@ type ParticipantsView struct {
 }
 
 type AgentRun struct {
-	ID       string    `json:"id"`
-	AgentID  string    `json:"agent_id"`
-	Title    string    `json:"title"`
-	Status   string    `json:"status"`
-	ThreadID string    `json:"thread_id,omitempty"`
-	Time     time.Time `json:"time"`
+	ID         string    `json:"id"`
+	AgentID    string    `json:"agent_id"`
+	Title      string    `json:"title"`
+	Status     string    `json:"status"`
+	ThreadID   string    `json:"thread_id,omitempty"`
+	Time       time.Time `json:"time"`
+	DurationMs int64     `json:"duration_ms,omitempty"`
 }
 
 func mockState() WorkspaceState {

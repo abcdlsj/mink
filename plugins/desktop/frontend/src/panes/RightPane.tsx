@@ -135,8 +135,8 @@ export function RightPane() {
           </Section>
         )}
         {recent.length > 0 && (
-          <Section label="Subtasks">
-            {recent.slice(0, 3).map((r) => (
+          <Section label="Recent Results">
+            {recent.slice(0, 4).map((r) => (
               <RunCard key={r.id} run={r} />
             ))}
           </Section>
@@ -277,9 +277,11 @@ function RunCard({ run }: { run: AgentRun }) {
 
   const isCurrent = streaming?.messageID === run.id;
   const startedAt = isCurrent && streaming ? streaming.startedAt : run.time;
-  const elapsedMs = run.status === "running" ? Date.now() - new Date(startedAt).getTime() : 0;
+  const liveElapsed = run.status === "running" ? Date.now() - new Date(startedAt).getTime() : 0;
+  const finishedDuration = run.status !== "running" && run.duration_ms ? run.duration_ms : 0;
+  const elapsedMs = liveElapsed || finishedDuration;
   const elapsedLabel =
-    elapsedMs > 0 ? Math.round(elapsedMs / 100) / 10 + "s" : relTime(run.time);
+    elapsedMs > 0 ? fmtDur(elapsedMs) : relTime(run.time);
 
   let currentStep = "";
   if (isCurrent && streaming) {
@@ -349,6 +351,18 @@ function firstSentence(s: string): string {
   if (m) return m[1];
   if (trimmed.length <= 140) return trimmed;
   return trimmed.slice(0, 140) + "…";
+}
+
+function fmtDur(ms: number): string {
+  if (ms < 1000) return ms + "ms";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return Math.round(ms / 100) / 10 + "s";
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return s ? m + "m " + s + "s" : m + "m";
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm ? h + "h " + mm + "m" : h + "h";
 }
 
 function personaTools(id: string | null, personas: import("@/lib/types").PersonaItem[]): string[] {

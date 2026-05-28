@@ -342,11 +342,145 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	if b.app == nil {
 		return mockParticipants(channelID, threadID)
 	}
-	agents := make([]AgentItem, 0)
-	for _, p := range b.app.Personas().List() {
-		agents = append(agents, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
+	if threadID != "" {
+		return b.threadParticipants(threadID)
 	}
-	return ParticipantsView{Agents: agents}
+	// Channel view: synthesize from team aliases under the desktop source.
+	return ParticipantsView{Agents: b.allAgents()}
+}
+
+func (b *Backend) threadParticipants(threadID string) ParticipantsView {
+	sessions, err := b.app.ListSessions()
+	if err != nil {
+		return ParticipantsView{}
+	}
+	var sess *session.Session
+	for _, s := range sessions {
+		if s.ID == threadID {
+			sess = s
+			break
+		}
+	}
+	if sess == nil {
+		return ParticipantsView{}
+	}
+
+	seen := map[string]bool{}
+	add := func(id string) {
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+	}
+
+	if def := personaFromSource(sess.Source); def != "" {
+		add(def)
+	}
+
+	resultsByID := map[string]msg.ToolResult{}
+	for _, m := range sess.Messages {
+		for _, r := range m.ToolResults {
+			resultsByID[r.ToolCallID] = r
+		}
+	}
+
+	recent := make([]AgentRun, 0)
+	for _, m := range sess.Messages {
+		if m.AgentID != "" {
+			add(m.AgentID)
+		}
+		for _, c := range m.ToolCalls {
+			if !isCollabTool(c.Name) {
+				continue
+			}
+			target := mentionTargetFromArgs(c.Args, c.Name)
+			add(target)
+			if r, ok := resultsByID[c.ID]; ok && isSchedulingAck(r.Content) {
+				if taskID := parseTaskID(r.Content); taskID != "" {
+					if run := b.taskAsRun(taskID, target); run != nil {
+						recent = append(recent, *run)
+					}
+				}
+			}
+		}
+	}
+
+	personas := b.app.Personas().List()
+	agents := make([]AgentItem, 0, len(seen))
+	for id := range seen {
+		display := id
+		role := ""
+		for _, p := range personas {
+			if p.ID == id {
+				display = p.Display
+				role = p.Description
+				break
+			}
+		}
+		agents = append(agents, AgentItem{ID: id, Display: display, Role: role, Status: "idle"})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+
+	if len(recent) > 6 {
+		recent = recent[len(recent)-6:]
+	}
+
+	return ParticipantsView{
+		Agents:     agents,
+		RecentRuns: recent,
+	}
+}
+
+func (b *Backend) allAgents() []AgentItem {
+	out := make([]AgentItem, 0)
+	for _, p := range b.app.Personas().List() {
+		out = append(out, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
+	}
+	return out
+}
+
+func (b *Backend) taskAsRun(taskID, agentID string) *AgentRun {
+	evs, err := b.app.ReplayTask(taskID, 32)
+	if err != nil || len(evs) == 0 {
+		return nil
+	}
+	run := &AgentRun{
+		ID:      taskID,
+		AgentID: agentID,
+		Status:  "running",
+	}
+	var firstTime, lastTime time.Time
+	for _, e := range evs {
+		if firstTime.IsZero() || e.Time.Before(firstTime) {
+			firstTime = e.Time
+		}
+		if lastTime.IsZero() || e.Time.After(lastTime) {
+			lastTime = e.Time
+		}
+		switch e.Type {
+		case bus.DelegateQueued:
+			run.Status = "pending"
+			if run.Title == "" {
+				run.Title = e.Text
+			}
+		case bus.DelegateStarted:
+			run.Status = "running"
+		case bus.DelegateFinished:
+			run.Status = "done"
+		case bus.DelegateFailed, bus.DelegateCanceled:
+			run.Status = "error"
+		}
+	}
+	if run.Title == "" {
+		run.Title = "delegated"
+	}
+	if !firstTime.IsZero() {
+		run.Time = firstTime
+	}
+	if !lastTime.IsZero() && !firstTime.IsZero() {
+		run.DurationMs = lastTime.Sub(firstTime).Milliseconds()
+	}
+	return run
 }
 
 func (b *Backend) GetAgentDM(agentID string) SessionDetail {
