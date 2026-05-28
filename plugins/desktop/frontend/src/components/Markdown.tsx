@@ -90,13 +90,11 @@ const liteComponents: Components = {
   table: ({ children }) => <span>{children}</span>,
 };
 
-function codeRenderer({ inline, children, className: _className }: any) {
-  if (inline === false) {
-    return (
-      <code className="block font-mono text-[12.5px] leading-[1.55] whitespace-pre">
-        {children}
-      </code>
-    );
+function codeRenderer({ children, className }: any) {
+  const text = String(children ?? "");
+  const isBlock = (typeof className === "string" && className.startsWith("language-")) || text.includes("\n");
+  if (isBlock) {
+    return <code className="font-mono text-[12.5px] leading-[1.55] whitespace-pre">{children}</code>;
   }
   return (
     <code className="font-mono text-[12.5px] rounded-[3px] border border-border-soft bg-panel-event px-1 py-px">

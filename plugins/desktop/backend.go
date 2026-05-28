@@ -239,27 +239,33 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if b.app == nil {
 		return SessionDetail{}
 	}
-	source := "desktop:agent:" + agentID
-	sessions, err := b.app.ListSessionsBySource(source)
-	if err != nil || len(sessions) == 0 {
+	prefix := "desktop:agent:" + agentID
+	all, err := b.app.ListSessions()
+	if err != nil {
+		return SessionDetail{}
+	}
+	var latest *session.Session
+	for _, s := range all {
+		if !strings.HasPrefix(s.Source, prefix) {
+			continue
+		}
+		if latest == nil || s.UpdatedAt.After(latest.UpdatedAt) {
+			latest = s
+		}
+	}
+	if latest == nil {
 		return SessionDetail{
 			Item: SessionItem{
-				ID:        source,
+				ID:        prefix,
 				Title:     "@" + agentID,
 				UpdatedAt: time.Now(),
 			},
 			Messages: []MessageView{},
 		}
 	}
-	latest := sessions[0]
-	for _, s := range sessions {
-		if s.UpdatedAt.After(latest.UpdatedAt) {
-			latest = s
-		}
-	}
 	return SessionDetail{
 		Item: SessionItem{
-			ID:           source,
+			ID:           prefix,
 			Title:        "@" + agentID,
 			UpdatedAt:    latest.UpdatedAt,
 			MessageCount: len(latest.Messages),

@@ -1,5 +1,7 @@
 import { useStore } from "@/lib/store";
 
+const isWails = typeof window !== "undefined" && !!(window as any).runtime;
+
 export function TopBar() {
   const state = useStore((s) => s.state);
   const detail = useStore((s) => s.detail);
@@ -9,7 +11,10 @@ export function TopBar() {
   else if (detail?.item?.running) label = "Running";
 
   return (
-    <header className="flex items-center justify-between border-b border-border bg-bg px-3.5 pl-[78px] h-9 select-none">
+    <header
+      className="flex items-center justify-between border-b border-border bg-bg pr-3.5 h-9 select-none"
+      style={{ paddingLeft: isWails ? 78 : 12 }}
+    >
       <div className="flex items-center gap-2">
         <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-[4px]" />
         <div className="text-[13px] font-semibold tracking-[0.2px] text-text">Sumi</div>

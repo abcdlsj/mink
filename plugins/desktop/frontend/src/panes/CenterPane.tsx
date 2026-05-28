@@ -66,11 +66,11 @@ export function CenterPane() {
 
       <div className="overflow-y-auto px-8 pt-5 pb-6">
         <div className="mx-auto max-w-[800px]">
-          {detail.messages.length === 0 ? (
-            <EmptyState />
-          ) : (
-            detail.messages.map((m, i) => {
-              const prev = detail.messages[i - 1];
+          {(() => {
+            const visible = detail.messages.filter(renderableMessage);
+            if (visible.length === 0) return <EmptyState />;
+            return visible.map((m, i) => {
+              const prev = visible[i - 1];
               const sameAuthor =
                 prev && prev.role === m.role && (prev.author_id || "") === (m.author_id || "");
               const close =
@@ -78,8 +78,8 @@ export function CenterPane() {
               const compact =
                 sameAuthor && close && !m.thread_id && !(m.events && m.events.length);
               return <MessageRow key={m.id} m={m} compact={!!compact} />;
-            })
-          )}
+            });
+          })()}
         </div>
       </div>
 
@@ -160,6 +160,9 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
   const kind = m.role === "user" ? "user" : "agent";
 
   const events = m.events || [];
+  const expandableEvents = events.filter((e) => e.kind !== "service_notice");
+  const noticeEvents = events.filter((e) => e.kind === "service_notice");
+  const shouldFold = expandableEvents.length > 1;
 
   return (
     <div
@@ -217,8 +220,13 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
         )}
         {events.length > 0 && (
           <div className="mt-2 flex flex-col gap-1">
-            {events.map((ev, i) => (
-              <EventBlock key={i} ev={ev} />
+            {shouldFold ? (
+              <ToolFold events={expandableEvents} />
+            ) : (
+              expandableEvents.map((ev, i) => <EventBlock key={"e" + i} ev={ev} />)
+            )}
+            {noticeEvents.map((ev, i) => (
+              <EventBlock key={"n" + i} ev={ev} />
             ))}
           </div>
         )}
@@ -259,12 +267,62 @@ function ReasoningPreface({ text }: { text: string }) {
   );
 }
 
+function renderableMessage(m: import("@/lib/types").MessageView): boolean {
+  if (m.content && m.content.trim() !== "") return true;
+  if (m.reasoning && m.reasoning.trim() !== "") return true;
+  if (m.events && m.events.length > 0) return true;
+  if (m.thread_id && m.thread_summary) return true;
+  return false;
+}
+
 function shortRole(role: string): string {
   const trimmed = role.trim().replace(/[.。!?！？]$/, "");
   if (!trimmed) return "";
   const firstWord = trimmed.split(/[\s—·,、/]+/)[0] || trimmed;
   if (firstWord.length <= 14) return firstWord;
   return firstWord.slice(0, 14) + "…";
+}
+
+function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
+  const [open, setOpen] = useState(false);
+  const totalMs = events.reduce((sum, e) => sum + (e.duration_ms || 0), 0);
+  const anyRunning = events.some((e) => e.status === "running");
+  const anyError = events.some((e) => e.status === "error");
+  const status = anyRunning ? "running" : anyError ? "error" : "done";
+  const label =
+    "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
+  if (open) {
+    return (
+      <div className="flex flex-col gap-1">
+        <button
+          onClick={() => setOpen(false)}
+          className={cn(
+            "self-start text-[12px] underline underline-offset-2 cursor-pointer",
+            status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
+          )}
+        >
+          Hide {events.length} tool details
+        </button>
+        {events.map((ev, i) => (
+          <EventBlock key={i} ev={ev} />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={() => setOpen(true)}
+      className={cn(
+        "self-start text-[12px] cursor-pointer",
+        status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
+      )}
+    >
+      <span>{label}</span>
+      <span className="text-text-faint"> · </span>
+      <span className="underline underline-offset-2 text-text-faint">view details</span>
+      {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running dot-pulse align-middle" />}
+    </button>
+  );
 }
 
 function ThreadLink({ threadId, summary }: { threadId: string; summary: string }) {
