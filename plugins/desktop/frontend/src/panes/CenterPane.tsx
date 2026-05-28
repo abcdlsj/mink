@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,28 @@ export function CenterPane() {
   const detail = useStore((s) => s.detail);
   const channels = useStore((s) => s.channels);
   const activeChannel = useStore((s) => s.activeChannel);
+  const activeAgent = useStore((s) => s.activeAgent);
+  const activeThread = useStore((s) => s.activeThread);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const lastScopeRef = useRef<string>("");
+
+  const messageCount = detail?.messages.length ?? 0;
+  const scope = `${view}:${activeChannel || ""}:${activeThread || ""}:${activeAgent || ""}`;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (lastScopeRef.current !== scope) {
+      el.scrollTop = el.scrollHeight;
+      lastScopeRef.current = scope;
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < 120) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [scope, messageCount]);
 
   if (!detail) {
     return (
@@ -64,7 +86,7 @@ export function CenterPane() {
         )}
       </div>
 
-      <div className="overflow-y-auto px-8 pt-5 pb-6">
+      <div ref={scrollRef} className="overflow-y-auto px-8 pt-5 pb-6">
         <div className="mx-auto max-w-[800px]">
           {(() => {
             const visible = detail.messages.filter(renderableMessage);
