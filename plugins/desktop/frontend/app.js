@@ -14,6 +14,7 @@ const api = {
   models: () => fetch("/api/models").then(r => r.json()),
   tools: () => fetch("/api/tools").then(r => r.json()),
   commands: () => fetch("/api/commands").then(r => r.json()),
+  stop: (id) => fetch("/api/stop", { method: "POST", body: JSON.stringify({ session_id: id }), headers: { "Content-Type": "application/json" } }).then(r => r.json()).catch(() => null),
 };
 
 const view = {
@@ -84,6 +85,7 @@ function renderTopbar() {
 
 function navItem({ icon: ic, name, meta, badge, running, active, onclick, plus }) {
   const item = el("div", { class: "nav-item" + (active ? " active" : ""), onclick });
+  if (running) item.title = name + " · agent running";
   item.appendChild(icon(ic));
   const nameWrap = el("div", { class: "nav-name-wrap" });
   if (running) nameWrap.appendChild(el("span", { class: "dot running nav-running" }));
@@ -140,6 +142,7 @@ function renderThreads() {
       class: "thread-item" + (view.mode === "thread" && view.activeThread === t.id ? " active" : ""),
       onclick: () => openThread(t.id),
     });
+    if (t.has_running) item.title = t.title + " · agent running";
     const title = el("div", { class: "ti-title" });
     if (t.has_running) title.appendChild(el("span", { class: "dot running" }));
     title.appendChild(el("span", { class: "ti-name", text: t.title }));
@@ -255,7 +258,7 @@ function renderConvHead() {
   const detail = data.detail;
   if (!detail) return;
   const item = detail.item;
-  $("#stop-btn").hidden = !item.running;
+  $("#stop-btn").hidden = !(item.running && view.mode === "thread");
 
   $("#conv-title").innerHTML = "";
   if (view.mode === "channel") {
@@ -326,7 +329,16 @@ function participantRow(p) {
 function runCard(r) {
   const w = el("div", { class: "run-card " + (r.status || "idle") });
   const ag = data.agents.find(a => a.id === r.agent_id);
-  w.appendChild(el("div", { class: "run-title", text: r.title }));
+  const head = el("div", { class: "run-head" });
+  head.appendChild(el("div", { class: "run-title", text: r.title }));
+  if (r.status === "running") {
+    const stop = el("button", {
+      class: "btn outline danger run-stop",
+      onclick: (e) => { e.stopPropagation(); api.stop(r.id); },
+    }, [icon("square"), el("span", { text: "Stop" })]);
+    head.appendChild(stop);
+  }
+  w.appendChild(head);
   w.appendChild(el("div", {
     class: "run-meta",
     text: (ag?.display || r.agent_id) + " · " + (r.status || "") + " · " + relTime(r.time),
@@ -412,10 +424,16 @@ function renderRight() {
   right.appendChild(stack);
 
   if (more.children.length) {
-    const toggle = el("button", { class: "ins-more-toggle", onclick: () => {
+    const toggle = el("button", { class: "ins-more-toggle" });
+    const labelEl = el("span", { class: "ins-more-label", text: "More details" });
+    const chev = icon("chevron_right");
+    chev.classList.add("ins-more-chev");
+    toggle.appendChild(labelEl);
+    toggle.appendChild(chev);
+    toggle.onclick = () => {
       const open = right.classList.toggle("more-open");
-      toggle.textContent = open ? "Show less" : "More";
-    } }, [el("span", { text: "More" })]);
+      labelEl.textContent = open ? "Hide details" : "More details";
+    };
     right.appendChild(toggle);
     right.appendChild(more);
   }
@@ -426,12 +444,16 @@ function renderRight() {
 function participantsRow(agents) {
   const row = el("div", { class: "participants-row" });
   const stack = el("div", { class: "av-stack" });
-  agents.slice(0, 4).forEach(p => {
+  agents.slice(0, 3).forEach(p => {
     const a = el("div", { class: "av sm" });
     a.innerHTML = identiconSVG(p.id || p.display, p.role === "user" ? "user" : "agent");
     a.title = p.display + (p.status === "running" ? " · running" : "");
     stack.appendChild(a);
   });
+  if (agents.length > 3) {
+    const more = el("div", { class: "av sm av-more", text: "+" + (agents.length - 3) });
+    stack.appendChild(more);
+  }
   row.appendChild(stack);
   const count = agents.length;
   row.appendChild(el("span", { class: "participants-count", text: count + " participant" + (count === 1 ? "" : "s") }));

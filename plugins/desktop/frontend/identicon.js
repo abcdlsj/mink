@@ -7,26 +7,31 @@ function hash32(s) {
   return h >>> 0;
 }
 
+const AGENT_HUES = [
+  "#7C8FA8", "#8FA88A", "#B59A85", "#A088A6",
+  "#6FA0A0", "#A78D6F", "#9090B5", "#7CAA94",
+];
+const USER_HUE = "#8A93A0";
+const CHANNEL_HUE = "#7CA98A";
+const THREAD_HUE = "#A08AAB";
+
 function identiconSVG(seed, kind) {
   const h = hash32(seed || "anon");
   const grid = 5;
-  const palette = {
-    agent:   ["#3b6fa8", "#4a7fb8"],
-    user:    ["#5b6470", "#6f7884"],
-    channel: ["#4f8c54", "#5e9b63"],
-    thread:  ["#9c5b97", "#aa6ea6"],
-  };
-  const [c1] = palette[kind] || palette.agent;
+  let fill;
+  if (kind === "user") fill = USER_HUE;
+  else if (kind === "channel") fill = CHANNEL_HUE;
+  else if (kind === "thread") fill = THREAD_HUE;
+  else fill = AGENT_HUES[h % AGENT_HUES.length];
+
   const cells = [];
   for (let y = 0; y < grid; y++) {
     for (let x = 0; x < Math.ceil(grid / 2); x++) {
       const bit = (h >>> (y * 3 + x)) & 1;
-      const fill = bit ? c1 : null;
-      if (fill) {
-        cells.push(`<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`);
-        if (x !== grid - 1 - x) {
-          cells.push(`<rect x="${grid - 1 - x}" y="${y}" width="1" height="1" fill="${fill}"/>`);
-        }
+      if (!bit) continue;
+      cells.push(`<rect x="${x}" y="${y}" width="1" height="1" fill="${fill}"/>`);
+      if (x !== grid - 1 - x) {
+        cells.push(`<rect x="${grid - 1 - x}" y="${y}" width="1" height="1" fill="${fill}"/>`);
       }
     }
   }
