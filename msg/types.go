@@ -49,11 +49,22 @@ type TokenUsage struct {
 	Source         string
 }
 
+type Attachment struct {
+	Kind     string `json:"kind"`
+	Label    string `json:"label,omitempty"`
+	Name     string `json:"name,omitempty"`
+	MIME     string `json:"mime,omitempty"`
+	Data     string `json:"data,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Telegram string `json:"telegram,omitempty"`
+}
+
 type Message struct {
 	ID                 string       `json:"id,omitempty"`
 	Role               string       `json:"role"`
 	AgentID            string       `json:"agent_id,omitempty"`
 	Content            string       `json:"content,omitempty"`
+	Attachments        []Attachment `json:"attachments,omitempty"`
 	Reasoning          string       `json:"reasoning,omitempty"`
 	ReasoningSignature string       `json:"reasoning_signature,omitempty"`
 	ToolCalls          []ToolCall   `json:"tool_calls,omitempty"`

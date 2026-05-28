@@ -199,6 +199,9 @@ func (m shellModel) renderComposer() string {
 		parts = append(parts, "")
 	}
 	parts = append(parts, "")
+	if len(m.attachments) > 0 {
+		parts = append(parts, shellTheme.TextMuted.Render(fmt.Sprintf("%d image attached", len(m.attachments))))
+	}
 	parts = append(parts, strings.TrimRight(m.input.View(), "\n"))
 	return shellTheme.Composer.Width(m.width).Render(strings.Join(parts, "\n"))
 }
@@ -211,7 +214,7 @@ func (m shellModel) renderFooter(st cliState) string {
 		return shellTheme.Footer.Width(m.width).Render(padLine("type filter   enter switch   n new   j/k move   esc close", m.width))
 	}
 
-	left := "/ commands   /channel   /thread   tab focus"
+	left := "/ commands   /channel   /thread   ctrl+v image   tab focus"
 	right := "session " + shortID(st.Session) + "   " + st.Cwd
 	if len(m.queue) > 0 {
 		right = fmt.Sprintf("%d queued   %s", len(m.queue), right)

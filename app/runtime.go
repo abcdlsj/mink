@@ -9,6 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/llm"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -72,13 +73,14 @@ func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, err
 	return f(a.runtimeEnvFor(p))
 }
 
-func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, s *session.Session) error {
+func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, attachments []msg.Attachment, s *session.Session) error {
 	return turnFlow{
-		app:     a,
-		runtime: rt,
-		source:  source,
-		input:   input,
-		session: s,
+		app:         a,
+		runtime:     rt,
+		source:      source,
+		input:       input,
+		attachments: attachments,
+		session:     s,
 	}.run(ctx)
 }
 

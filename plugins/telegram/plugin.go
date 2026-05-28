@@ -2,13 +2,17 @@ package telegram
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"io"
+	"mime"
 	"strings"
 	"time"
 
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/msg"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -54,6 +58,12 @@ func wireHandlers(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, 
 	})
 	bot.Handle(tele.OnText, func(c tele.Context) error {
 		return handleText(ctx, a, bot, ap, cfg, c)
+	})
+	bot.Handle(tele.OnPhoto, func(c tele.Context) error {
+		return handleImage(ctx, a, bot, ap, cfg, c)
+	})
+	bot.Handle(tele.OnDocument, func(c tele.Context) error {
+		return handleImage(ctx, a, bot, ap, cfg, c)
 	})
 }
 
@@ -106,6 +116,111 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 		out = "ok"
 	}
 	return sendOutput(bot, c, out)
+}
+
+func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cfg config.TelegramConfig, c tele.Context) error {
+	tgmsg := c.Message()
+	if tgmsg == nil || tgmsg.Chat == nil {
+		return nil
+	}
+	text := strings.TrimSpace(tgmsg.Caption)
+	if ap.handleText(c) {
+		return nil
+	}
+	if !shouldHandle(cfg.MentionMode, bot.Me.Username, tgmsg, text) && !mentionsPersona(a, text) {
+		return nil
+	}
+	att, err := telegramImageAttachment(bot, tgmsg)
+	if err != nil {
+		return c.Send(userError(err))
+	}
+	src := source(cfg.SessionScope, tgmsg.Chat.ID, tgmsg.ThreadID)
+
+	done := make(chan struct{})
+	go typingLoop(c, done)
+	out, err := a.HandleInputWithAttachments(ctx, src, stripMention(bot.Me.Username, text), []msg.Attachment{att})
+	close(done)
+	if err != nil {
+		return c.Send(userError(err))
+	}
+	if strings.TrimSpace(out) == "" {
+		out = "ok"
+	}
+	return sendOutput(bot, c, out)
+}
+
+func telegramImageAttachment(bot *tele.Bot, m *tele.Message) (msg.Attachment, error) {
+	if bot == nil || m == nil {
+		return msg.Attachment{}, fmt.Errorf("missing telegram image")
+	}
+	file, name, mt, err := telegramImageFile(m)
+	if err != nil {
+		return msg.Attachment{}, err
+	}
+	r, err := bot.File(&file)
+	if err != nil {
+		return msg.Attachment{}, err
+	}
+	defer r.Close()
+	data, err := io.ReadAll(io.LimitReader(r, imageDownloadLimit+1))
+	if err != nil {
+		return msg.Attachment{}, err
+	}
+	if len(data) > imageDownloadLimit {
+		return msg.Attachment{}, fmt.Errorf("telegram image is larger than %d bytes", imageDownloadLimit)
+	}
+	if mt == "" {
+		mt = detectTelegramImageMIME(data, name)
+	}
+	if mt == "" {
+		return msg.Attachment{}, fmt.Errorf("unsupported telegram image type")
+	}
+	return msg.Attachment{
+		Kind:     "image",
+		Name:     name,
+		MIME:     mt,
+		Data:     base64.StdEncoding.EncodeToString(data),
+		Telegram: file.FileID,
+	}, nil
+}
+
+func telegramImageFile(m *tele.Message) (tele.File, string, string, error) {
+	if m.Photo != nil && m.Photo.FileID != "" {
+		return m.Photo.File, "telegram-photo.jpg", "", nil
+	}
+	if m.Document != nil && m.Document.FileID != "" {
+		mt := strings.TrimSpace(m.Document.MIME)
+		if !strings.HasPrefix(mt, "image/") {
+			return tele.File{}, "", "", fmt.Errorf("telegram document is not an image")
+		}
+		return m.Document.File, m.Document.FileName, mt, nil
+	}
+	return tele.File{}, "", "", fmt.Errorf("telegram message has no image")
+}
+
+func detectTelegramImageMIME(data []byte, name string) string {
+	switch strings.ToLower(mime.TypeByExtension(imageExt(name))) {
+	case "image/jpeg":
+		return "image/jpeg"
+	case "image/png":
+		return "image/png"
+	case "image/gif":
+		return "image/gif"
+	case "image/webp":
+		return "image/webp"
+	}
+	switch {
+	case len(data) >= 3 && string(data[:3]) == "\xff\xd8\xff":
+		return "image/jpeg"
+	case len(data) >= 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n":
+		return "image/png"
+	case len(data) >= 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a"):
+		return "image/gif"
+	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+		return "image/webp"
+	default:
+		return ""
+	}
 }
 
 func handleTelegramCommand(a *app.App, src, text string) (string, bool, error) {

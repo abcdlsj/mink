@@ -26,8 +26,11 @@ type commandShellApp struct {
 }
 
 func (commandShellApp) HandleInput(context.Context, string, string) (string, error) { return "ok", nil }
-func (commandShellApp) Config() config.Config                                       { return config.Config{} }
-func (commandShellApp) CurrentModel() string                                        { return "test-model" }
+func (commandShellApp) HandleInputWithAttachments(context.Context, string, string, []msg.Attachment) (string, error) {
+	return "ok", nil
+}
+func (commandShellApp) Config() config.Config { return config.Config{} }
+func (commandShellApp) CurrentModel() string  { return "test-model" }
 func (commandShellApp) Commands() []command.Command {
 	return []command.Command{
 		command.NewFuncCmd("compact", "compact current session", nil),
@@ -66,6 +69,18 @@ func (commandShellApp) ListSessionsBySource(string) ([]*session.Session, error) 
 	return []*session.Session{session.New("cli")}, nil
 }
 
+type attachmentShellApp struct {
+	commandShellApp
+	text        string
+	attachments []msg.Attachment
+}
+
+func (a *attachmentShellApp) HandleInputWithAttachments(ctx context.Context, source, input string, attachments []msg.Attachment) (string, error) {
+	a.text = input
+	a.attachments = attachments
+	return "ok", nil
+}
+
 func TestShellModelGroupsToolIntoAssistantTurn(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
 	m.turn = shellTurn{assistantIndex: -1}
@@ -102,6 +117,51 @@ func TestShellModelGroupsToolIntoAssistantTurn(t *testing.T) {
 	}
 	if item.Segments[1].Kind != segText {
 		t.Fatalf("segment[1].Kind = %d, want text", item.Segments[1].Kind)
+	}
+}
+
+func TestClipboardImageMessageAddsAttachment(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	next, _ := m.Update(shellClipboardImageMsg{Attachment: msg.Attachment{
+		Kind: "image",
+		Name: "clip.png",
+		MIME: "image/png",
+		Data: "abcd",
+	}})
+	got := next.(shellModel)
+	if len(got.attachments) != 1 {
+		t.Fatalf("attachments = %#v", got.attachments)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "clip.png") {
+		t.Fatalf("items = %#v", got.items)
+	}
+}
+
+func TestSubmitSendsPendingAttachment(t *testing.T) {
+	app := &attachmentShellApp{}
+	m := newShellModel(context.Background(), app, "cli")
+	m.attachments = []msg.Attachment{{Kind: "image", Name: "clip.png", MIME: "image/png", Data: "abcd"}}
+
+	next, cmd := m.submit()
+	got := next.(shellModel)
+	if cmd == nil {
+		t.Fatal("submit did not start turn")
+	}
+	if len(got.attachments) != 0 {
+		t.Fatalf("pending attachments = %#v", got.attachments)
+	}
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "clip.png") {
+		t.Fatalf("items = %#v", got.items)
+	}
+	done := cmd()
+	if _, ok := done.(shellTurnDoneMsg); !ok {
+		t.Fatalf("cmd = %#v", done)
+	}
+	if app.text != "请看这张图片。" {
+		t.Fatalf("text = %q", app.text)
+	}
+	if len(app.attachments) != 1 || app.attachments[0].Name != "clip.png" {
+		t.Fatalf("attachments = %#v", app.attachments)
 	}
 }
 
@@ -382,7 +442,7 @@ func TestSubmitQueuesWhileBusy(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("busy submit returned command")
 	}
-	if len(got.queue) != 1 || got.queue[0] != "second task" {
+	if len(got.queue) != 1 || got.queue[0].Text != "second task" {
 		t.Fatalf("queue = %#v", got.queue)
 	}
 	if got.input.Value() != "" {
@@ -400,7 +460,7 @@ func TestSubmitStripsTerminalStatusResponses(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("busy submit returned command")
 	}
-	if len(got.queue) != 1 || got.queue[0] != "你好" {
+	if len(got.queue) != 1 || got.queue[0].Text != "你好" {
 		t.Fatalf("queue = %#v, want 你好", got.queue)
 	}
 }
@@ -414,6 +474,10 @@ func (a cancelShellApp) HandleInput(ctx context.Context, source, input string) (
 	close(a.started)
 	<-ctx.Done()
 	return "", ctx.Err()
+}
+
+func (a cancelShellApp) HandleInputWithAttachments(ctx context.Context, source, input string, attachments []msg.Attachment) (string, error) {
+	return a.HandleInput(ctx, source, input)
 }
 
 func TestEscInterruptsRunningTurn(t *testing.T) {

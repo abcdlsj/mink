@@ -10,17 +10,26 @@ import (
 
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {
-	return a.handleInput(ctx, source, "", a.cfg.Runtime, input)
+	return a.handleInput(ctx, source, "", a.cfg.Runtime, input, nil)
 }
 
 func (a *App) HandleInputWithRuntime(ctx context.Context, source, runtime, input string) (string, error) {
-	return a.handleInput(ctx, source, "", runtime, input)
+	return a.handleInput(ctx, source, "", runtime, input, nil)
+}
+
+func (a *App) HandleInputWithAttachments(ctx context.Context, source, input string, attachments []msg.Attachment) (string, error) {
+	return a.handleInput(ctx, source, "", a.cfg.Runtime, input, attachments)
 }
 
 func (a *App) HandleInputAs(ctx context.Context, source, personaID, input string) (string, error) {
+	return a.handleInputAs(ctx, source, personaID, input, nil)
+}
+
+func (a *App) handleInputAs(ctx context.Context, source, personaID, input string, attachments []msg.Attachment) (string, error) {
 	p := a.personas.Get(personaID)
 	if p == nil {
 		return "", fmt.Errorf("persona not found: %s", personaID)
@@ -29,25 +38,27 @@ func (a *App) HandleInputAs(ctx context.Context, source, personaID, input string
 	if rt == "" {
 		rt = a.cfg.Runtime
 	}
-	return a.handleInput(ctx, source, p.ID, rt, input)
+	return a.handleInput(ctx, source, p.ID, rt, input, attachments)
 }
 
-func (a *App) handleInput(ctx context.Context, source, personaID, runtime, input string) (string, error) {
+func (a *App) handleInput(ctx context.Context, source, personaID, runtime, input string, attachments []msg.Attachment) (string, error) {
 	return inputFlow{
-		app:       a,
-		source:    source,
-		personaID: personaID,
-		runtime:   runtime,
-		input:     input,
+		app:         a,
+		source:      source,
+		personaID:   personaID,
+		runtime:     runtime,
+		input:       input,
+		attachments: attachments,
 	}.run(ctx)
 }
 
 type inputFlow struct {
-	app       *App
-	source    string
-	personaID string
-	runtime   string
-	input     string
+	app         *App
+	source      string
+	personaID   string
+	runtime     string
+	input       string
+	attachments []msg.Attachment
 }
 
 func (f inputFlow) run(ctx context.Context) (string, error) {
@@ -61,6 +72,12 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
+	input, attachments, err := prepareImageInput(f.input, f.attachments)
+	if err != nil {
+		return "", err
+	}
+	f.input = input
+	f.attachments = attachments
 	sessionSource := f.sessionSource()
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
@@ -81,7 +98,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := f.app.runTurn(ctx, rt, f.source, f.input, s); err != nil {
+	if err := f.app.runTurn(ctx, rt, f.source, f.input, f.attachments, s); err != nil {
 		return "", err
 	}
 	return latestAssistant(s), nil
@@ -130,7 +147,7 @@ func (f inputFlow) mention(ctx context.Context) (string, bool, error) {
 	if p == nil {
 		return "", false, nil
 	}
-	out, err := f.app.HandleInputAs(ctx, f.source, p.ID, rest)
+	out, err := f.app.handleInputAs(ctx, f.source, p.ID, rest, f.attachments)
 	return out, true, err
 }
 

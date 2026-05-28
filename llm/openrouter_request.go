@@ -54,6 +54,26 @@ func openRouterMessage(m msg.Message) openrouter.ChatCompletionMessage {
 		Role:    m.Role,
 		Content: openrouter.Content{Text: content},
 	}
+	if m.Role == "user" {
+		for _, img := range imageAttachments(m) {
+			if len(cm.Content.Multi) == 0 && content != "" {
+				cm.Content.Text = ""
+				cm.Content.Multi = append(cm.Content.Multi, openrouter.ChatMessagePart{
+					Type: openrouter.ChatMessagePartTypeText,
+					Text: content,
+				})
+			}
+			if u := imageURL(img); u != "" {
+				cm.Content.Multi = append(cm.Content.Multi, openrouter.ChatMessagePart{
+					Type: openrouter.ChatMessagePartTypeImageURL,
+					ImageURL: &openrouter.ChatMessageImageURL{
+						URL:    u,
+						Detail: openrouter.ImageURLDetailAuto,
+					},
+				})
+			}
+		}
+	}
 	if m.Reasoning != "" {
 		cm.Reasoning = &m.Reasoning
 	}

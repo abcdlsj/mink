@@ -41,12 +41,65 @@ func TestParseTelegramOutputSilent(t *testing.T) {
 	}
 }
 
+func TestParseTelegramOutputReactionOnly(t *testing.T) {
+	out := parseOutput("[[react:👍]]")
+	if out.Reaction != "👍" {
+		t.Fatalf("reaction = %q", out.Reaction)
+	}
+	if out.Text != "" {
+		t.Fatalf("text = %q", out.Text)
+	}
+	if !out.HasAction {
+		t.Fatal("expected action")
+	}
+}
+
+func TestReactionOnlyTargetsCurrentMessage(t *testing.T) {
+	msg := &tele.Message{ID: 11, Chat: &tele.Chat{ID: 42}}
+	out := parseOutput("[[react:👍]]")
+	got := reactionTarget(msg, replyTarget(msg, out), out)
+	if got == nil || got.ID != 11 {
+		t.Fatalf("target = %#v", got)
+	}
+}
+
+func TestReactionWithReplyTargetUsesReply(t *testing.T) {
+	msg := &tele.Message{ID: 11, Chat: &tele.Chat{ID: 42}}
+	out := parseOutput("[[reply_to:99]] [[react:👍]]")
+	got := reactionTarget(msg, replyTarget(msg, out), out)
+	if got == nil || got.ID != 99 {
+		t.Fatalf("target = %#v", got)
+	}
+}
+
 func TestParseTelegramOutputReplyCurrent(t *testing.T) {
 	out := parseOutput("[[reply_to_current]] hi")
 	if !out.ReplyNow {
 		t.Fatal("expected reply_now")
 	}
 	if out.Text != "hi" {
+		t.Fatalf("text = %q", out.Text)
+	}
+}
+
+func TestParseTelegramOutputIgnoresReactionInFencedCode(t *testing.T) {
+	raw := "我的原始输出就是：\n\n```markdown\n[[react:👍]]\n```\n\n拿这个排查"
+	out := parseOutput(raw)
+	if out.Reaction != "" {
+		t.Fatalf("reaction = %q", out.Reaction)
+	}
+	if out.Text != raw {
+		t.Fatalf("text = %q", out.Text)
+	}
+}
+
+func TestParseTelegramOutputIgnoresReactionInCodeSpan(t *testing.T) {
+	raw := "directive 是 `[[react:👍]]`"
+	out := parseOutput(raw)
+	if out.Reaction != "" {
+		t.Fatalf("reaction = %q", out.Reaction)
+	}
+	if out.Text != raw {
 		t.Fatalf("text = %q", out.Text)
 	}
 }

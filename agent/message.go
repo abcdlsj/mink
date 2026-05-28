@@ -10,11 +10,16 @@ import (
 )
 
 func NewUserMessage(text string) msg.Message {
+	return NewUserMessageWithAttachments(text, nil)
+}
+
+func NewUserMessageWithAttachments(text string, attachments []msg.Attachment) msg.Message {
 	return msg.Message{
-		ID:        newID(),
-		Role:      "user",
-		Content:   text,
-		Timestamp: now(),
+		ID:          newID(),
+		Role:        "user",
+		Content:     text,
+		Attachments: attachments,
+		Timestamp:   now(),
 	}
 }
 

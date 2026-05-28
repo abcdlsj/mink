@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/textutil"
 	"github.com/abcdlsj/sumi/tool"
@@ -62,6 +63,11 @@ type shellStatusLineMsg struct {
 	Text string
 }
 
+type shellClipboardImageMsg struct {
+	Attachment msg.Attachment
+	Err        error
+}
+
 type shellSyncMsg struct{}
 
 type shellTurn struct {
@@ -77,6 +83,11 @@ type shellTurn struct {
 type shellToolRef struct {
 	Item int
 	Seg  int
+}
+
+type queuedInput struct {
+	Text        string
+	Attachments []msg.Attachment
 }
 
 type shellThread struct {
@@ -109,7 +120,8 @@ type shellModel struct {
 	toolItems    map[string]shellToolRef
 	approvals    []*approvalRequest
 	approvalPick int
-	queue        []string
+	queue        []queuedInput
+	attachments  []msg.Attachment
 	suggests     []completionHint
 	suggestRows  int
 	files        []string
@@ -220,6 +232,19 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.statusLine = msg.Text
 		m.statusBusy = false
 		m.statusAt = time.Now()
+		return m, nil
+	case shellClipboardImageMsg:
+		if msg.Err != nil {
+			m.addTextItem(itemError, msg.Err.Error(), time.Now())
+			return m, nil
+		}
+		m.attachments = append(m.attachments, msg.Attachment)
+		name := strings.TrimSpace(msg.Attachment.Name)
+		if name == "" {
+			name = "clipboard image"
+		}
+		m.addTextItem(itemNotice, "Attached image: "+name, time.Now())
+		m.syncLayout()
 		return m, nil
 	case shellSyncMsg:
 		m.syncPending = false
@@ -422,6 +447,8 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.commandInput() {
 				return m.submit()
 			}
+		case "ctrl+v":
+			return *m, pasteClipboardImage()
 		case "esc":
 			m.focus = focusTranscript
 			m.input.Blur()
@@ -471,42 +498,49 @@ func (m *shellModel) takePendingCmd() tea.Cmd {
 func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 	m.cleanInput()
 	text := textutil.Valid(strings.TrimSpace(cleanTerminalInput(m.input.Value())))
-	if text == "" {
+	attachments := append([]msg.Attachment(nil), m.attachments...)
+	if text == "" && len(attachments) == 0 {
 		return *m, nil
 	}
-	if out, ok := m.runNavCommand(text); ok {
-		m.input.Reset()
-		m.input.SetHeight(2)
-		m.clearSuggestions()
-		if out != "" {
-			m.follow = true
-			m.addTextItem(itemNotice, out, time.Now())
+	if len(attachments) == 0 {
+		if out, ok := m.runNavCommand(text); ok {
+			m.input.Reset()
+			m.input.SetHeight(2)
+			m.clearSuggestions()
+			if out != "" {
+				m.follow = true
+				m.addTextItem(itemNotice, out, time.Now())
+			}
+			m.syncLayout()
+			return *m, nil
 		}
-		m.syncLayout()
-		return *m, nil
+		if isSessionSelectorCommand(text) {
+			m.input.Reset()
+			m.input.SetHeight(2)
+			m.clearSuggestions()
+			m.openSessionOverlay()
+			return *m, nil
+		}
 	}
-	if isSessionSelectorCommand(text) {
-		m.input.Reset()
-		m.input.SetHeight(2)
-		m.clearSuggestions()
-		m.openSessionOverlay()
-		return *m, nil
+	if text == "" {
+		text = "请看这张图片。"
 	}
+	m.attachments = nil
 	m.input.Reset()
 	m.input.SetHeight(2)
 	m.suggests = nil
 	if m.busy {
-		m.queue = append(m.queue, text)
-		m.addTextItem(itemNotice, fmt.Sprintf("Queued #%d: %s", len(m.queue), textutil.Preview(text, 96)), time.Now())
+		m.queue = append(m.queue, queuedInput{Text: text, Attachments: attachments})
+		m.addTextItem(itemNotice, fmt.Sprintf("Queued #%d: %s", len(m.queue), textutil.Preview(displayInput(text, attachments), 96)), time.Now())
 		m.syncLayout()
 		return *m, nil
 	}
-	return *m, m.startInput(text)
+	return *m, m.startInput(text, attachments)
 }
 
 func (m *shellModel) commandInput() bool {
 	text := textutil.Valid(strings.TrimSpace(cleanTerminalInput(m.input.Value())))
-	if text == "" {
+	if text == "" || len(m.attachments) > 0 {
 		return false
 	}
 	if _, _, ok := parseNavCommand(text); ok {
@@ -515,8 +549,9 @@ func (m *shellModel) commandInput() bool {
 	return isSessionSelectorCommand(text)
 }
 
-func (m *shellModel) startInput(text string) tea.Cmd {
+func (m *shellModel) startInput(text string, attachments []msg.Attachment) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.ctx)
+	attachments = labelDisplayAttachments(attachments)
 	m.busy = true
 	m.turnCancel = cancel
 	m.toolItems = map[string]shellToolRef{}
@@ -524,12 +559,51 @@ func (m *shellModel) startInput(text string) tea.Cmd {
 		assistantIndex: -1,
 		started:        time.Now(),
 	}
-	m.addTextItem(itemUser, text, time.Now())
+	m.addTextItem(itemUser, displayInput(text, attachments), time.Now())
 	m.syncLayout()
 	return func() tea.Msg {
-		reply, err := m.app.HandleInput(ctx, m.source, text)
+		reply, err := m.app.HandleInputWithAttachments(ctx, m.source, text, attachments)
 		return shellTurnDoneMsg{Reply: reply, Err: err}
 	}
+}
+
+func displayInput(text string, attachments []msg.Attachment) string {
+	text = strings.TrimSpace(text)
+	if len(attachments) == 0 {
+		return text
+	}
+	attachments = labelDisplayAttachments(attachments)
+	var lines []string
+	if text != "" {
+		lines = append(lines, text)
+	}
+	for _, a := range attachments {
+		label := strings.TrimSpace(a.Label)
+		if label == "" {
+			label = "image"
+		}
+		name := strings.TrimSpace(a.Name)
+		if name == "" {
+			name = "image"
+		}
+		lines = append(lines, "["+label+": "+name+"]")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func labelDisplayAttachments(attachments []msg.Attachment) []msg.Attachment {
+	out := append([]msg.Attachment(nil), attachments...)
+	n := 0
+	for i := range out {
+		if out[i].Kind != "image" {
+			continue
+		}
+		n++
+		if strings.TrimSpace(out[i].Label) == "" {
+			out[i].Label = fmt.Sprintf("image_%d", n)
+		}
+	}
+	return out
 }
 
 func (m *shellModel) interruptTurn() {
@@ -631,13 +705,16 @@ func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 
 func (m *shellModel) startQueued() tea.Cmd {
 	for len(m.queue) > 0 {
-		text := m.queue[0]
+		next := m.queue[0]
 		m.queue = m.queue[1:]
-		text = textutil.Valid(strings.TrimSpace(cleanTerminalInput(text)))
-		if text == "" {
+		text := textutil.Valid(strings.TrimSpace(cleanTerminalInput(next.Text)))
+		if text == "" && len(next.Attachments) == 0 {
 			continue
 		}
-		return m.startInput(text)
+		if text == "" {
+			text = "请看这张图片。"
+		}
+		return m.startInput(text, next.Attachments)
 	}
 	return nil
 }

@@ -18,7 +18,7 @@ func (e *engine) run(ctx context.Context, t *Turn) error {
 	if t == nil || t.Session == nil {
 		return fmt.Errorf("turn requires session")
 	}
-	t.Session.Add(NewUserMessage(t.Input))
+	t.Session.Add(NewUserMessageWithAttachments(t.Input, t.Attachments))
 	for {
 		if err := ctx.Err(); err != nil {
 			return err

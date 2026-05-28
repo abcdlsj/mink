@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -21,6 +22,12 @@ var (
 	imageTagRe        = regexp.MustCompile(`(?is)\[\[\s*(?:photo|image)\s*:\s*([^\]]+?)\s*\]\]`)
 	markdownImageRe   = regexp.MustCompile(`!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 )
+
+type matchRange struct {
+	start int
+	end   int
+	idx   []int
+}
 
 type output struct {
 	Text      string
@@ -39,33 +46,32 @@ type image struct {
 type sender func(any, ...interface{}) error
 
 func parseOutput(raw string) output {
-	idMatches := replyIDTagRe.FindAllStringSubmatch(raw, -1)
-	replyNow := replyCurrentTagRe.MatchString(raw)
+	mask := markdownCodeMask(raw)
+	idMatches := directiveMatches(raw, replyIDTagRe, mask)
+	replyNowMatches := directiveMatches(raw, replyCurrentTagRe, mask)
+	reactMatches := directiveMatches(raw, reactTagRe, mask)
+	imageMatches := directiveMatches(raw, imageTagRe, mask)
+	mdImageMatches := directiveMatches(raw, markdownImageRe, mask)
 
-	matches := reactTagRe.FindAllStringSubmatch(raw, -1)
-	images := parseImages(raw)
-	clean := reactTagRe.ReplaceAllString(raw, "")
-	clean = replyCurrentTagRe.ReplaceAllString(clean, "")
-	clean = replyIDTagRe.ReplaceAllString(clean, "")
-	clean = imageTagRe.ReplaceAllString(clean, "")
-	clean = markdownImageRe.ReplaceAllString(clean, "")
+	images := parseImages(raw, imageMatches, mdImageMatches)
+	clean := removeMatches(raw, reactMatches, replyNowMatches, idMatches, imageMatches, mdImageMatches)
 	clean = strings.TrimSpace(clean)
 
-	out := output{Text: clean, Images: images, ReplyNow: replyNow}
+	out := output{Text: clean, Images: images, ReplyNow: len(replyNowMatches) > 0}
 	for _, m := range idMatches {
-		if len(m) < 2 {
+		if len(m.idx) < 4 {
 			continue
 		}
-		n, err := strconv.Atoi(strings.TrimSpace(m[1]))
+		n, err := strconv.Atoi(strings.TrimSpace(raw[m.idx[2]:m.idx[3]]))
 		if err == nil && n > 0 {
 			out.ReplyToID = n
 		}
 	}
-	for _, m := range matches {
-		if len(m) < 2 {
+	for _, m := range reactMatches {
+		if len(m.idx) < 4 {
 			continue
 		}
-		if emoji := normalizeReaction(m[1]); emoji != "" {
+		if emoji := normalizeReaction(raw[m.idx[2]:m.idx[3]]); emoji != "" {
 			out.Reaction = emoji
 			break
 		}
@@ -79,20 +85,174 @@ func parseOutput(raw string) output {
 	return out
 }
 
-func parseImages(raw string) []image {
+func parseImages(raw string, matches ...[]matchRange) []image {
 	var out []image
-	for _, re := range []*regexp.Regexp{imageTagRe, markdownImageRe} {
-		for _, m := range re.FindAllStringSubmatch(raw, -1) {
-			if len(m) < 2 {
+	for _, group := range matches {
+		for _, m := range group {
+			if len(m.idx) < 4 {
 				continue
 			}
-			ref := cleanImageRef(m[1])
+			ref := cleanImageRef(raw[m.idx[2]:m.idx[3]])
 			if ref != "" {
 				out = append(out, image{Ref: ref})
 			}
 		}
 	}
 	return out
+}
+
+func directiveMatches(raw string, re *regexp.Regexp, mask []bool) []matchRange {
+	idxs := re.FindAllStringSubmatchIndex(raw, -1)
+	out := make([]matchRange, 0, len(idxs))
+	for _, idx := range idxs {
+		if len(idx) < 2 || protected(mask, idx[0], idx[1]) {
+			continue
+		}
+		out = append(out, matchRange{start: idx[0], end: idx[1], idx: idx})
+	}
+	return out
+}
+
+func protected(mask []bool, start, end int) bool {
+	for i := start; i < end && i < len(mask); i++ {
+		if mask[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func removeMatches(raw string, groups ...[]matchRange) string {
+	var ranges []matchRange
+	for _, group := range groups {
+		ranges = append(ranges, group...)
+	}
+	if len(ranges) == 0 {
+		return raw
+	}
+	sort.Slice(ranges, func(i, j int) bool {
+		if ranges[i].start == ranges[j].start {
+			return ranges[i].end < ranges[j].end
+		}
+		return ranges[i].start < ranges[j].start
+	})
+	var b strings.Builder
+	pos := 0
+	for _, r := range ranges {
+		if r.start < pos {
+			continue
+		}
+		b.WriteString(raw[pos:r.start])
+		pos = r.end
+	}
+	b.WriteString(raw[pos:])
+	return b.String()
+}
+
+func markdownCodeMask(raw string) []bool {
+	mask := make([]bool, len(raw))
+	markFencedCode(mask, raw)
+	markCodeSpans(mask, raw)
+	return mask
+}
+
+func markFencedCode(mask []bool, raw string) {
+	inFence := false
+	var fence byte
+	fenceLen := 0
+	for start := 0; start < len(raw); {
+		end := strings.IndexByte(raw[start:], '\n')
+		if end < 0 {
+			end = len(raw)
+		} else {
+			end += start + 1
+		}
+		line := raw[start:end]
+		if inFence {
+			mark(mask, start, end)
+			if closesFence(line, fence, fenceLen) {
+				inFence = false
+			}
+			start = end
+			continue
+		}
+		if ch, n, ok := opensFence(line); ok {
+			mark(mask, start, end)
+			inFence = true
+			fence = ch
+			fenceLen = n
+		}
+		start = end
+	}
+}
+
+func opensFence(line string) (byte, int, bool) {
+	i := indent(line)
+	if i > 3 || i >= len(line) {
+		return 0, 0, false
+	}
+	ch := line[i]
+	if ch != '`' && ch != '~' {
+		return 0, 0, false
+	}
+	n := fenceRun(line[i:], ch)
+	if n < 3 {
+		return 0, 0, false
+	}
+	return ch, n, true
+}
+
+func closesFence(line string, fence byte, min int) bool {
+	i := indent(line)
+	if i > 3 || i >= len(line) || line[i] != fence {
+		return false
+	}
+	n := fenceRun(line[i:], fence)
+	if n < min {
+		return false
+	}
+	return strings.TrimSpace(strings.TrimRight(line[i+n:], "\n\r")) == ""
+}
+
+func indent(line string) int {
+	i := 0
+	for i < len(line) && i < 4 && line[i] == ' ' {
+		i++
+	}
+	return i
+}
+
+func fenceRun(s string, ch byte) int {
+	i := 0
+	for i < len(s) && s[i] == ch {
+		i++
+	}
+	return i
+}
+
+func markCodeSpans(mask []bool, raw string) {
+	for i := 0; i < len(raw); i++ {
+		if mask[i] || raw[i] != '`' {
+			continue
+		}
+		n := fenceRun(raw[i:], '`')
+		for j := i + n; j < len(raw); j++ {
+			if mask[j] || raw[j] != '`' {
+				continue
+			}
+			if fenceRun(raw[j:], '`') == n {
+				mark(mask, i, j+n)
+				i = j + n - 1
+				break
+			}
+		}
+	}
+}
+
+func mark(mask []bool, start, end int) {
+	for i := start; i < end && i < len(mask); i++ {
+		mask[i] = true
+	}
 }
 
 func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
@@ -104,7 +264,8 @@ func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
 	if msg == nil || msg.Chat == nil {
 		return nil
 	}
-	target := replyTarget(msg, out)
+	reply := replyTarget(msg, out)
+	target := reactionTarget(msg, reply, out)
 	if out.Reaction != "" && bot != nil && target != nil {
 		_ = bot.React(msg.Chat, target, tele.Reactions{
 			Reactions: []tele.Reaction{{
@@ -113,7 +274,7 @@ func sendOutput(bot *tele.Bot, c tele.Context, raw string) error {
 			}},
 		})
 	}
-	return sendParsed(c.Send, out, sendOptions(target)...)
+	return sendParsed(c.Send, out, sendOptions(reply)...)
 }
 
 func sendNotice(bot *tele.Bot, source, raw string) error {
@@ -160,6 +321,19 @@ func replyTarget(msg *tele.Message, out output) *tele.Message {
 	default:
 		return nil
 	}
+}
+
+func reactionTarget(msg, reply *tele.Message, out output) *tele.Message {
+	if out.Reaction == "" {
+		return nil
+	}
+	if reply != nil {
+		return reply
+	}
+	if msg == nil || msg.Chat == nil {
+		return nil
+	}
+	return msg
 }
 
 func noticeReplyTarget(chat *tele.Chat, out output) *tele.Message {

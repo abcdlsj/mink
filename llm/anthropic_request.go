@@ -55,6 +55,16 @@ func anthropicUserBlocks(m msg.Message) []anthropic.ContentBlockParamUnion {
 	if m.Content != "" {
 		blocks = append([]anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}, blocks...)
 	}
+	for _, img := range imageAttachments(m) {
+		switch {
+		case img.URL != "":
+			blocks = append(blocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
+				URL: img.URL,
+			}))
+		case img.Data != "" && img.MIME != "":
+			blocks = append(blocks, anthropic.NewImageBlockBase64(img.MIME, img.Data))
+		}
+	}
 	if len(blocks) == 0 {
 		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock("(empty)")}
 	}

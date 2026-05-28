@@ -103,6 +103,26 @@ func openAIMessage(m msg.Message) openai.ChatCompletionMessage {
 		Content:          content,
 		ReasoningContent: m.Reasoning,
 	}
+	if m.Role == "user" {
+		for _, img := range imageAttachments(m) {
+			if len(cm.MultiContent) == 0 && content != "" {
+				cm.Content = ""
+				cm.MultiContent = append(cm.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeText,
+					Text: content,
+				})
+			}
+			if u := imageURL(img); u != "" {
+				cm.MultiContent = append(cm.MultiContent, openai.ChatMessagePart{
+					Type: openai.ChatMessagePartTypeImageURL,
+					ImageURL: &openai.ChatMessageImageURL{
+						URL:    u,
+						Detail: openai.ImageURLDetailAuto,
+					},
+				})
+			}
+		}
+	}
 	for _, tc := range m.ToolCalls {
 		cm.ToolCalls = append(cm.ToolCalls, openai.ToolCall{
 			ID:   tc.ID,

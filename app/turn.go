@@ -5,24 +5,27 @@ import (
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 )
 
 type turnFlow struct {
-	app     *App
-	runtime agent.Runtime
-	source  string
-	input   string
-	session *session.Session
+	app         *App
+	runtime     agent.Runtime
+	source      string
+	input       string
+	attachments []msg.Attachment
+	session     *session.Session
 }
 
 func (f turnFlow) run(ctx context.Context) error {
 	f.publish(bus.TurnStarted, "")
 	runErr := f.runtime.Run(ctx, &agent.Turn{
-		Source:  f.source,
-		Input:   f.input,
-		Session: f.session,
-		Bus:     f.app.bus,
+		Source:      f.source,
+		Input:       f.input,
+		Attachments: f.attachments,
+		Session:     f.session,
+		Bus:         f.app.bus,
 	})
 	saveErr := f.app.sessions.Save(f.session)
 	if runErr != nil {

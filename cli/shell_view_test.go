@@ -11,6 +11,7 @@ import (
 
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -18,8 +19,11 @@ import (
 type fakeShellApp struct{}
 
 func (fakeShellApp) HandleInput(context.Context, string, string) (string, error) { return "", nil }
-func (fakeShellApp) Config() config.Config                                       { return config.Config{} }
-func (fakeShellApp) CurrentModel() string                                        { return "claude-sonnet-4-6 with a long suffix" }
+func (fakeShellApp) HandleInputWithAttachments(context.Context, string, string, []msg.Attachment) (string, error) {
+	return "", nil
+}
+func (fakeShellApp) Config() config.Config { return config.Config{} }
+func (fakeShellApp) CurrentModel() string  { return "claude-sonnet-4-6 with a long suffix" }
 func (fakeShellApp) Commands() []command.Command {
 	return []command.Command{
 		command.NewFuncCmd("help", "show help", nil),
