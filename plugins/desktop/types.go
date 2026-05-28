@@ -99,7 +99,9 @@ type SendRequest struct {
 
 type BusEvent struct {
 	Type       string    `json:"type"`
+	Source     string    `json:"source,omitempty"`
 	SessionID  string    `json:"session_id,omitempty"`
+	TaskID     string    `json:"task_id,omitempty"`
 	ToolCallID string    `json:"tool_call_id,omitempty"`
 	Tool       string    `json:"tool,omitempty"`
 	Input      string    `json:"input,omitempty"`

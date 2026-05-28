@@ -472,9 +472,11 @@ func (b *Backend) start(ctx context.Context) {
 }
 
 func toBusEvent(ev bus.Event) BusEvent {
-	return BusEvent{
+	out := BusEvent{
 		Type:       ev.Type,
+		Source:     ev.Source,
 		SessionID:  ev.SessionID,
+		TaskID:     ev.TaskID,
 		ToolCallID: ev.ToolCallID,
 		Tool:       ev.Tool,
 		Input:      ev.Input,
@@ -483,6 +485,59 @@ func toBusEvent(ev bus.Event) BusEvent {
 		Err:        ev.Err,
 		Time:       ev.Time,
 	}
+	switch ev.Type {
+	case bus.DelegateQueued:
+		out.Type = "agent.delegate.started"
+		out.ToolCallID = "delegate-" + ev.TaskID
+		out.Input = ev.Text
+	case bus.DelegateStarted:
+		out.Type = "agent.delegate.progress"
+		out.ToolCallID = "delegate-" + ev.TaskID
+		out.Text = "running"
+	case bus.DelegateFinished:
+		out.Type = "agent.delegate.finished"
+		out.ToolCallID = "delegate-" + ev.TaskID
+	case bus.DelegateFailed, bus.DelegateCanceled:
+		out.Type = "agent.delegate.failed"
+		out.ToolCallID = "delegate-" + ev.TaskID
+	case bus.ToolCallStarted, bus.ToolCallFinished, bus.ToolCallFailed:
+		switch ev.Tool {
+		case "mention", "spawn", "spawn_specialist", "invite_agent":
+			if ev.Type == bus.ToolCallStarted {
+				out.Type = "agent.mention"
+			} else if ev.Type == bus.ToolCallFinished {
+				out.Type = "agent.mention.reply"
+			} else {
+				out.Type = "agent.mention.reply"
+				if out.Output == "" {
+					out.Output = "(failed: " + ev.Err + ")"
+				}
+			}
+			out.Tool = mentionTarget(ev)
+		}
+	}
+	return out
+}
+
+func mentionTarget(ev bus.Event) string {
+	if ev.Input == "" {
+		return ev.Tool
+	}
+	var args struct {
+		Target string `json:"target"`
+		Agent  string `json:"agent"`
+		Name   string `json:"name"`
+		To     string `json:"to"`
+	}
+	if err := json.Unmarshal([]byte(ev.Input), &args); err != nil {
+		return ev.Tool
+	}
+	for _, v := range []string{args.Target, args.Agent, args.Name, args.To} {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ev.Tool
 }
 
 func convertMessages(s *session.Session) []MessageView {

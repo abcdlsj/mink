@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -122,5 +123,42 @@ func TestIsThreadIDDistinguishesChannel(t *testing.T) {
 	}
 	if !isThreadID("20260528-desktop-abcdef12") {
 		t.Error("session-shaped id should be a thread id")
+	}
+}
+
+func TestToBusEventMapsCollab(t *testing.T) {
+	cases := []struct {
+		name string
+		in   bus.Event
+		want string
+	}{
+		{"queued", bus.Event{Type: bus.DelegateQueued, TaskID: "t1", Text: "audit retry"}, "agent.delegate.started"},
+		{"started", bus.Event{Type: bus.DelegateStarted, TaskID: "t1"}, "agent.delegate.progress"},
+		{"finished", bus.Event{Type: bus.DelegateFinished, TaskID: "t1", Output: "done"}, "agent.delegate.finished"},
+		{"failed", bus.Event{Type: bus.DelegateFailed, TaskID: "t1", Err: "oops"}, "agent.delegate.failed"},
+		{"mention call", bus.Event{Type: bus.ToolCallStarted, Tool: "mention", Input: `{"target":"coder"}`}, "agent.mention"},
+		{"mention reply", bus.Event{Type: bus.ToolCallFinished, Tool: "mention", Output: "ok", Input: `{"target":"coder"}`}, "agent.mention.reply"},
+		{"plain tool", bus.Event{Type: bus.ToolCallStarted, Tool: "shell"}, bus.ToolCallStarted},
+	}
+	for _, c := range cases {
+		got := toBusEvent(c.in).Type
+		if got != c.want {
+			t.Errorf("%s: toBusEvent type = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestMentionTargetReadsArgs(t *testing.T) {
+	got := mentionTarget(bus.Event{Tool: "mention", Input: `{"target":"reviewer"}`})
+	if got != "reviewer" {
+		t.Errorf("mentionTarget = %q, want reviewer", got)
+	}
+	got = mentionTarget(bus.Event{Tool: "mention", Input: `{"agent":"coder"}`})
+	if got != "coder" {
+		t.Errorf("mentionTarget agent fallback = %q", got)
+	}
+	got = mentionTarget(bus.Event{Tool: "mention", Input: ""})
+	if got != "mention" {
+		t.Errorf("mentionTarget empty fallback = %q", got)
 	}
 }
