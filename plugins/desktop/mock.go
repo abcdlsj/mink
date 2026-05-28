@@ -1,6 +1,9 @@
 package desktop
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type ChannelItem struct {
 	ID          string    `json:"id"`
@@ -209,4 +212,54 @@ func mockCommands() []CommandItem {
 		{Name: "/replay", Summary: "Replay session events"},
 		{Name: "/tokens", Summary: "Show token usage"},
 	}
+}
+
+var mockReplyChunks = []string{
+	"Looking into ", "your request",
+	" — let me check the workspace",
+	" first.",
+}
+
+var mockReasoning = "Looking at the workspace to understand the structure before answering."
+
+func runMockStream(f *fanout, req SendRequest) {
+	sid := req.SessionID
+	if sid == "" {
+		sid = "mock"
+	}
+	emit := func(ev BusEvent) {
+		ev.SessionID = sid
+		if ev.Time.IsZero() {
+			ev.Time = time.Now()
+		}
+		f.publish(ev)
+	}
+
+	emit(BusEvent{Type: "turn.started"})
+
+	for _, r := range strings.Split(mockReasoning, " ") {
+		time.Sleep(60 * time.Millisecond)
+		emit(BusEvent{Type: "turn.reasoning", Text: r + " "})
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	emit(BusEvent{
+		Type: "tool.call.started",
+		ToolCallID: "tc-1", Tool: "list_files",
+		Input: `{"path":"."}`,
+	})
+	time.Sleep(300 * time.Millisecond)
+	emit(BusEvent{
+		Type: "tool.call.finished",
+		ToolCallID: "tc-1", Tool: "list_files",
+		Output: "agent/, app/, bus/, cli/, cmd/, plugins/",
+	})
+
+	time.Sleep(180 * time.Millisecond)
+	for _, c := range mockReplyChunks {
+		emit(BusEvent{Type: "turn.chunk", Text: c})
+		time.Sleep(110 * time.Millisecond)
+	}
+
+	emit(BusEvent{Type: "turn.finished"})
 }

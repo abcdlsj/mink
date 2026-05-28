@@ -9,10 +9,16 @@ export default function App() {
   const ready = useStore((s) => s.ready);
   const loadInitial = useStore((s) => s.loadInitial);
   const setPalette = useStore((s) => s.setPalette);
+  const connectStream = useStore((s) => s.connectStream);
 
   useEffect(() => {
     void loadInitial();
   }, [loadInitial]);
+
+  useEffect(() => {
+    if (!ready) return;
+    return connectStream();
+  }, [ready, connectStream]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

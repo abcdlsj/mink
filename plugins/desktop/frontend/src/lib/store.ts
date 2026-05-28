@@ -3,6 +3,8 @@ import type {
   AgentItem,
   ChannelItem,
   CommandItem,
+  EventBlock,
+  MessageView,
   ModelItem,
   ParticipantsView,
   PersonaItem,
@@ -13,6 +15,26 @@ import type {
   WorkspaceState,
 } from "./types";
 import { api } from "./api";
+
+interface BusEvent {
+  type: string;
+  session_id?: string;
+  tool_call_id?: string;
+  tool?: string;
+  input?: string;
+  output?: string;
+  text?: string;
+  err?: string;
+  time: string;
+}
+
+interface StreamingTurn {
+  messageID: string;
+  startedAt: string;
+  content: string;
+  reasoning: string;
+  toolCalls: Map<string, EventBlock>;
+}
 
 interface State {
   ready: boolean;
@@ -33,12 +55,26 @@ interface State {
   activeAgent: string | null;
 
   paletteOpen: boolean;
+  sending: boolean;
+  streaming: StreamingTurn | null;
 
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
   openAgent: (id: string) => Promise<void>;
   setPalette: (open: boolean) => void;
+  send: (input: string, personaID?: string) => Promise<void>;
+  stop: () => Promise<void>;
+  connectStream: () => () => void;
+  applyEvent: (ev: BusEvent) => void;
+}
+
+function activeSessionID(s: State): string {
+  return s.activeThread || s.activeChannel || s.activeAgent || "";
+}
+
+function newID(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -60,6 +96,8 @@ export const useStore = create<State>((set, get) => ({
   activeAgent: null,
 
   paletteOpen: false,
+  sending: false,
+  streaming: null,
 
   async loadInitial() {
     const [state, channels, threads, agents, personas, models, tools, commands] = await Promise.all([
@@ -88,6 +126,7 @@ export const useStore = create<State>((set, get) => ({
       activeAgent: null,
       detail,
       participants,
+      streaming: null,
     });
   },
 
@@ -100,6 +139,7 @@ export const useStore = create<State>((set, get) => ({
       activeAgent: null,
       detail,
       participants,
+      streaming: null,
     });
   },
 
@@ -121,10 +161,210 @@ export const useStore = create<State>((set, get) => ({
         messages: [],
       },
       participants: null,
+      streaming: null,
     });
   },
 
   setPalette(open) {
     set({ paletteOpen: open });
   },
+
+  async send(input, personaID) {
+    const sid = activeSessionID(get());
+    if (!sid || !input.trim() || get().sending) return;
+    const detail = get().detail;
+    if (!detail) return;
+    const userMsg: MessageView = {
+      id: "u-" + newID(),
+      role: "user",
+      content: input,
+      time: new Date().toISOString(),
+    };
+    set({
+      sending: true,
+      detail: {
+        ...detail,
+        item: { ...detail.item, running: true },
+        messages: [...detail.messages, userMsg],
+      },
+    });
+    try {
+      await api.send(sid, input, personaID);
+    } catch {
+      set({ sending: false });
+    }
+  },
+
+  async stop() {
+    const sid = activeSessionID(get());
+    if (!sid) return;
+    try {
+      await api.stop(sid);
+    } catch {
+      // noop
+    }
+    set({ sending: false, streaming: null });
+    const detail = get().detail;
+    if (detail) {
+      set({ detail: { ...detail, item: { ...detail.item, running: false } } });
+    }
+  },
+
+  connectStream() {
+    const src = new EventSource("/api/events");
+    const onMessage = (e: MessageEvent) => {
+      try {
+        const ev = JSON.parse(e.data) as BusEvent;
+        get().applyEvent(ev);
+      } catch {
+        // skip
+      }
+    };
+    src.addEventListener("bus", onMessage);
+    return () => {
+      src.removeEventListener("bus", onMessage);
+      src.close();
+    };
+  },
+
+  applyEvent(ev) {
+    const cur = get();
+    const detail = cur.detail;
+    if (!detail) return;
+
+    switch (ev.type) {
+      case "turn.started": {
+        const placeholder: MessageView = {
+          id: "a-" + newID(),
+          role: "agent",
+          author_id: cur.agents[0]?.id,
+          author_name: cur.agents[0]?.display || "Sumi",
+          content: "",
+          reasoning: "",
+          time: ev.time,
+          events: [],
+        };
+        set({
+          streaming: {
+            messageID: placeholder.id,
+            startedAt: ev.time,
+            content: "",
+            reasoning: "",
+            toolCalls: new Map(),
+          },
+          detail: {
+            ...detail,
+            item: { ...detail.item, running: true },
+            messages: [...detail.messages, placeholder],
+          },
+        });
+        return;
+      }
+      case "turn.chunk": {
+        if (!cur.streaming) return;
+        const next = cur.streaming.content + (ev.text || "");
+        set({
+          streaming: { ...cur.streaming, content: next },
+          detail: {
+            ...detail,
+            messages: detail.messages.map((m) =>
+              m.id === cur.streaming!.messageID ? { ...m, content: next } : m,
+            ),
+          },
+        });
+        return;
+      }
+      case "turn.reasoning": {
+        if (!cur.streaming) return;
+        const next = cur.streaming.reasoning + (ev.text || "");
+        set({
+          streaming: { ...cur.streaming, reasoning: next },
+          detail: {
+            ...detail,
+            messages: detail.messages.map((m) =>
+              m.id === cur.streaming!.messageID ? { ...m, reasoning: next } : m,
+            ),
+          },
+        });
+        return;
+      }
+      case "tool.call.started": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "tc-" + newID();
+        const block: EventBlock = {
+          kind: "tool_call",
+          tool_name: ev.tool,
+          args: ev.input,
+          status: "running",
+          time: ev.time,
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "tool.call.finished":
+      case "tool.call.failed": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "";
+        const prev = cur.streaming.toolCalls.get(id);
+        const failed = ev.type === "tool.call.failed";
+        const block: EventBlock = {
+          kind: "tool_call",
+          tool_name: prev?.tool_name || ev.tool,
+          args: prev?.args || ev.input,
+          output: ev.output,
+          err: ev.err,
+          status: failed ? "error" : "done",
+          duration_ms: 0,
+          time: ev.time,
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "service.notice": {
+        if (!cur.streaming) return;
+        const id = "n-" + newID();
+        cur.streaming.toolCalls.set(id, {
+          kind: "service_notice",
+          output: ev.text,
+          status: "done",
+          time: ev.time,
+        });
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "turn.finished":
+      case "turn.error": {
+        const detailNow = get().detail;
+        if (!detailNow) return;
+        set({
+          sending: false,
+          streaming: null,
+          detail: { ...detailNow, item: { ...detailNow.item, running: false } },
+        });
+        return;
+      }
+    }
+  },
 }));
+
+function updateStreamEvents(
+  detail: SessionDetail,
+  messageID: string,
+  toolCalls: Map<string, EventBlock>,
+): SessionDetail {
+  const events = Array.from(toolCalls.values());
+  return {
+    ...detail,
+    messages: detail.messages.map((m) =>
+      m.id === messageID ? { ...m, events } : m,
+    ),
+  };
+}

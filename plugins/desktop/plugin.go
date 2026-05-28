@@ -40,20 +40,21 @@ func run(ctx context.Context, a *app.App, args []string) error {
 		backend = newBackend(a)
 		backend.start(ctx)
 	}
-	srv := newServer(addr, backend)
+	srv := newServer(addr, backend, mock)
 	return srv.run(ctx)
 }
 
 type server struct {
 	addr    string
 	backend *Backend
+	mock    bool
 }
 
-func newServer(addr string, b *Backend) *server {
+func newServer(addr string, b *Backend, mock bool) *server {
 	if strings.TrimSpace(addr) == "" {
 		addr = "127.0.0.1:7799"
 	}
-	return &server{addr: addr, backend: b}
+	return &server{addr: addr, backend: b, mock: mock}
 }
 
 func (s *server) run(ctx context.Context) error {
@@ -94,6 +95,11 @@ func (s *server) run(ctx context.Context) error {
 		var in SendRequest
 		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if s.mock {
+			s.backend.MockStream(in)
+			writeJSON(rw, map[string]string{"reply": ""})
 			return
 		}
 		out, err := s.backend.SendMessage(in)

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ export function CenterPane() {
           {metaText && <div className="mt-0.5 text-[12px] text-text-muted">{metaText}</div>}
         </div>
         {showStop && (
-          <Button variant="danger" size="sm">
+          <Button variant="danger" size="sm" onClick={() => void useStore.getState().stop()}>
             <Square className="size-3" />
             <span>Stop run</span>
           </Button>
@@ -232,6 +233,11 @@ function Composer() {
   const activeAgent = useStore((s) => s.activeAgent);
   const personas = useStore((s) => s.personas);
   const models = useStore((s) => s.models);
+  const sending = useStore((s) => s.sending);
+  const send = useStore((s) => s.send);
+
+  const [input, setInput] = useState("");
+  const [persona, setPersona] = useState("");
 
   let placeholder = "Message...";
   if (view === "channel") {
@@ -244,16 +250,41 @@ function Composer() {
     placeholder = `Message @${ag?.display || "agent"}...`;
   }
 
+  const trimmed = input.trim();
+  const canSend = trimmed.length > 0 && !sending;
+
+  const handleSend = async () => {
+    if (!canSend) return;
+    const text = trimmed;
+    setInput("");
+    await send(text, persona || undefined);
+  };
+
+  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      void handleSend();
+    }
+  };
+
   return (
     <div className="border-t border-border-soft px-8 pb-5 pt-3.5 bg-panel">
       <div className="mx-auto max-w-[800px]">
         <textarea
           rows={2}
           placeholder={placeholder}
-          className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.55] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKey}
+          disabled={sending}
+          className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.55] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
         />
         <div className="mt-2.5 flex items-center gap-2">
-          <select className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer">
+          <select
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer"
+          >
             <option value="">Default agent</option>
             {personas.map((p) => (
               <option key={p.id} value={p.id}>
@@ -269,7 +300,9 @@ function Composer() {
             ))}
           </select>
           <span className="flex-1" />
-          <Button variant="primary">Send</Button>
+          <Button variant="primary" disabled={!canSend} onClick={() => void handleSend()}>
+            {sending ? "Sending…" : "Send"}
+          </Button>
         </div>
       </div>
     </div>

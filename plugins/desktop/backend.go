@@ -213,6 +213,10 @@ func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 	return b.subs.subscribe(256)
 }
 
+func (b *Backend) MockStream(req SendRequest) {
+	go runMockStream(b.subs, req)
+}
+
 func (b *Backend) start(ctx context.Context) {
 	if b.app == nil {
 		return
