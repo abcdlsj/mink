@@ -280,35 +280,51 @@ func (b *Backend) replayDelegateTask(taskID, agentID, agentDisplay, mentionArgs 
 		Task:         questionFromArgs(mentionArgs),
 		Time:         evs[0].Time,
 	}
+	var queuedAt, finishedAt time.Time
 	for _, e := range evs {
 		switch e.Type {
 		case bus.DelegateQueued:
 			block.Status = "pending"
+			queuedAt = e.Time
 			if block.Task == "" {
 				block.Task = e.Text
 			}
 		case bus.DelegateStarted:
 			block.Status = "running"
+			if queuedAt.IsZero() {
+				queuedAt = e.Time
+			}
 		case bus.DelegateFinished:
 			block.Status = "done"
 			block.Output = e.Output
+			finishedAt = e.Time
 			if !e.Time.IsZero() && !block.Time.IsZero() {
 				block.DurationMs = e.Time.Sub(block.Time).Milliseconds()
 			}
 		case bus.DelegateFailed, bus.DelegateCanceled:
 			block.Status = "error"
 			block.Err = e.Err
+			finishedAt = e.Time
 		}
 	}
-	block.Steps = b.subtaskSteps(taskID)
+	if queuedAt.IsZero() {
+		queuedAt = block.Time
+	}
+	block.Steps = b.subtaskSteps(taskID, block.Status, queuedAt, finishedAt)
 	return &block
 }
 
 // subtaskSteps walks the sub-session that ran the delegate task and
-// returns a short ordered summary suitable for the first-level expand.
-// Iris's spec asks for at most 3-5 key steps; the full timeline is
-// kept inside SubtaskFull for an opt-in second-level expand.
-func (b *Backend) subtaskSteps(taskID string) []DelegateStep {
+// returns a short, human-readable summary of the agent's actions for
+// the first-level expand. We deliberately strip raw tool output and
+// keep verb + target so the rail reads like a journal instead of a
+// console replay.
+//
+// outerStatus + window bound the result so an old session that
+// happens to share the source string can't bleed events into the
+// current task. Successful tasks suppress exploratory tool errors;
+// failed tasks keep the error step that ended the run.
+func (b *Backend) subtaskSteps(taskID, outerStatus string, queuedAt, finishedAt time.Time) []DelegateStep {
 	source := "subtask:" + taskID
 	sessions, err := b.app.ListSessionsBySource(source)
 	if err != nil || len(sessions) == 0 {
@@ -321,9 +337,12 @@ func (b *Backend) subtaskSteps(taskID string) []DelegateStep {
 			results[r.ToolCallID] = r
 		}
 	}
-	steps := make([]DelegateStep, 0, 5)
+	steps := make([]DelegateStep, 0, 8)
 	for _, m := range sess.Messages {
 		if m.Role == "tool" {
+			continue
+		}
+		if !timeInWindow(m.Timestamp, queuedAt, finishedAt) {
 			continue
 		}
 		for _, c := range m.ToolCalls {
@@ -336,20 +355,147 @@ func (b *Backend) subtaskSteps(taskID string) []DelegateStep {
 				if r.Error != "" {
 					step.Status = "error"
 					step.Err = oneLine(r.Error)
-				} else {
-					step.Output = oneLine(r.Content)
 				}
 			}
+			step.Output = humanizeStep(c.Name, string(c.Args), results[c.ID])
 			steps = append(steps, step)
 		}
 	}
+	if outerStatus == "done" {
+		steps = dropExploratoryErrors(steps)
+	}
 	if len(steps) > 5 {
-		// keep first 2 and last 3 so the head and tail of the run are visible
 		head := steps[:2]
 		tail := steps[len(steps)-3:]
 		steps = append(append([]DelegateStep{}, head...), tail...)
 	}
 	return steps
+}
+
+func timeInWindow(t, lo, hi time.Time) bool {
+	if lo.IsZero() && hi.IsZero() {
+		return true
+	}
+	if !lo.IsZero() && t.Before(lo.Add(-2*time.Second)) {
+		return false
+	}
+	if !hi.IsZero() && t.After(hi.Add(2*time.Second)) {
+		return false
+	}
+	return true
+}
+
+func dropExploratoryErrors(steps []DelegateStep) []DelegateStep {
+	out := steps[:0]
+	for _, s := range steps {
+		if s.Status == "error" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// humanizeStep turns a tool call into a one-line action summary the
+// reader can scan without reading raw output. `read /a/b/c.go` becomes
+// "read c.go", `bash {cmd:"go test ./..."}` becomes "ran go test", etc.
+func humanizeStep(tool, rawArgs string, r msg.ToolResult) string {
+	verb := stepVerb(tool)
+	target := stepTarget(tool, rawArgs, r)
+	if target == "" {
+		return verb
+	}
+	return verb + " " + target
+}
+
+func stepVerb(tool string) string {
+	switch strings.ToLower(tool) {
+	case "read":
+		return "read"
+	case "list_files", "ls":
+		return "listed"
+	case "bash", "shell", "exec":
+		return "ran"
+	case "write":
+		return "wrote"
+	case "edit", "patch":
+		return "edited"
+	case "grep", "search":
+		return "searched"
+	default:
+		return tool
+	}
+}
+
+func stepTarget(tool, rawArgs string, r msg.ToolResult) string {
+	if rawArgs == "" {
+		return ""
+	}
+	var args struct {
+		Path string `json:"path"`
+		Cmd  string `json:"cmd"`
+		File string `json:"file"`
+		Q    string `json:"query"`
+		Dir  string `json:"dir"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return ""
+	}
+	switch strings.ToLower(tool) {
+	case "read", "write", "edit", "patch":
+		if p := strings.TrimSpace(args.Path); p != "" {
+			return basenameOf(p)
+		}
+		if p := strings.TrimSpace(args.File); p != "" {
+			return basenameOf(p)
+		}
+	case "list_files", "ls":
+		if p := strings.TrimSpace(args.Path); p != "" {
+			return strings.TrimRight(basenameOf(p), "/") + "/"
+		}
+		if p := strings.TrimSpace(args.Dir); p != "" {
+			return strings.TrimRight(basenameOf(p), "/") + "/"
+		}
+	case "bash", "shell", "exec":
+		if c := strings.TrimSpace(args.Cmd); c != "" {
+			return shortCmd(c)
+		}
+	case "grep", "search":
+		if q := strings.TrimSpace(args.Q); q != "" {
+			return "for " + clip(q, 40)
+		}
+	}
+	_ = r
+	return ""
+}
+
+func basenameOf(p string) string {
+	p = strings.TrimRight(p, "/")
+	if i := strings.LastIndexAny(p, "/\\"); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
+func shortCmd(c string) string {
+	c = strings.TrimSpace(c)
+	if i := strings.IndexAny(c, " \t"); i > 0 {
+		head := c[:i]
+		rest := strings.TrimSpace(c[i:])
+		if rest == "" {
+			return head
+		}
+		return clip(head+" "+rest, 60)
+	}
+	return clip(c, 60)
+}
+
+func clip(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) <= n {
+		return string(r)
+	}
+	return string(r[:n]) + "…"
 }
 
 func oneLine(s string) string {

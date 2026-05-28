@@ -219,21 +219,17 @@ function DelegateLine({ ev }: EventBlockProps) {
           {ev.steps && ev.steps.length > 0 && (
             <div>
               <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">key steps</div>
-              <ol className="space-y-1">
+              <ol className="space-y-0.5">
                 {ev.steps.map((s, i) => (
-                  <li key={i} className="flex items-baseline gap-1.5 text-[12px] leading-[1.5]">
-                    <span className={cn(
-                      "font-display text-[10px] tabular-nums shrink-0",
-                      s.status === "error" ? "text-error" : "text-text-whisper",
-                    )}>
+                  <li key={i} className="flex items-baseline gap-2 text-[12px] leading-[1.55]">
+                    <span className="font-display text-[10px] tabular-nums shrink-0 text-text-whisper">
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <span className="font-mono text-[11.5px] text-text-muted shrink-0">{s.tool}</span>
                     <span className={cn(
                       "truncate",
-                      s.status === "error" ? "text-error" : "text-text-faint",
+                      s.status === "error" ? "text-error" : "text-text-muted",
                     )}>
-                      {s.err || s.output || "—"}
+                      {s.output || s.tool}
                     </span>
                   </li>
                 ))}
