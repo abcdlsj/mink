@@ -70,7 +70,9 @@ interface State {
 }
 
 function activeSessionID(s: State): string {
-  return s.activeThread || s.activeChannel || s.activeAgent || "";
+  if (s.view === "thread" && s.activeThread) return s.activeThread;
+  if (s.view === "agent" && s.activeAgent) return "desktop:agent:" + s.activeAgent;
+  return s.activeChannel || "";
 }
 
 function newID(): string {

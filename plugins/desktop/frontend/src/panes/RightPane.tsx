@@ -213,7 +213,7 @@ export function RightPane() {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <div className="text-[10.5px] uppercase tracking-[0.7px] text-text-faint mb-1.5 font-semibold">
+      <div className="text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1.5 font-semibold">
         {label}
       </div>
       <div>{children}</div>

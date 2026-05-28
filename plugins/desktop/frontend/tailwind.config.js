@@ -16,6 +16,7 @@ export default {
         text: "var(--text)",
         "text-muted": "var(--text-muted)",
         "text-faint": "var(--text-faint)",
+        "text-whisper": "var(--text-whisper)",
         accent: "var(--accent)",
         "accent-bg": "var(--accent-bg)",
         "accent-border": "var(--accent-border)",

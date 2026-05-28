@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
 import { EventBlock } from "@/components/EventBlock";
+import { Markdown } from "@/components/Markdown";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
 
@@ -49,11 +50,11 @@ export function CenterPane() {
     <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
       <div className="flex items-end justify-between border-b border-border-soft px-8 pt-4 pb-3.5">
         <div>
-          <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-text">
+          <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-text tracking-[-0.1px]">
             <TitleIcon className="size-4 text-text-muted" />
             <span>{titleText}</span>
           </h2>
-          {metaText && <div className="mt-0.5 text-[12px] text-text-muted">{metaText}</div>}
+          {metaText && <div className="mt-0.5 text-[11.5px] text-text-faint">{metaText}</div>}
         </div>
         {showStop && (
           <Button variant="danger" size="sm" onClick={() => void useStore.getState().stop()}>
@@ -178,7 +179,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       <div>
         {!compact && (
           <div className="flex items-baseline gap-1.5 mb-0.5">
-            <span className="text-[12.5px] font-semibold text-text-muted tracking-[0.1px]">
+            <span className="text-[12.5px] font-semibold text-text tracking-[0.1px]">
               {m.role === "user" ? "You" : m.author_name || "Sumi"}
             </span>
             {m.role !== "user" && ag?.role && (
@@ -189,19 +190,30 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
                 {shortRole(ag.role)}
               </span>
             )}
-            <span className="text-[11px] text-text-faint">{relTime(m.time)}</span>
+            <span className="text-[11px] text-text-whisper">{relTime(m.time)}</span>
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {m.content && (
-          <div
-            className={cn(
-              "text-[14px] text-text leading-[1.7] whitespace-pre-wrap",
-              m.reasoning && m.role !== "user" && "mt-1",
-            )}
-          >
-            {m.content}
-          </div>
+          m.role === "user" ? (
+            <div
+              className={cn(
+                "text-[14px] text-text leading-[1.7] whitespace-pre-wrap",
+                m.reasoning && "mt-1",
+              )}
+            >
+              {m.content}
+            </div>
+          ) : (
+            <Markdown
+              className={cn(
+                "text-[14px] text-text leading-[1.65]",
+                m.reasoning && "mt-1",
+              )}
+            >
+              {m.content}
+            </Markdown>
+          )
         )}
         {events.length > 0 && (
           <div className="mt-2 flex flex-col gap-1">
@@ -220,18 +232,24 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
 
 function ReasoningPreface({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
-  const lineCount = (text.match(/\n/g)?.length ?? 0) + 1;
-  const isLong = lineCount > 5 || text.length > 320;
-  const display = !isLong || open ? text : text.replace(/\n+/g, " ").slice(0, 320) + "…";
+  const flat = text.replace(/\s+/g, " ").trim();
+  const isLong = flat.length > 280;
+  const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="text-[11.5px] text-text-faint leading-[1.45] whitespace-pre-wrap mb-1.5 max-w-prose">
-      {display}
+    <div className="text-[11.5px] text-text-faint leading-[1.45] mb-1.5 max-w-prose">
+      {open ? (
+        <Markdown variant="lite" className="whitespace-pre-wrap">
+          {text}
+        </Markdown>
+      ) : (
+        <span className="whitespace-pre-wrap">{collapsed}</span>
+      )}
       {isLong && (
         <>
           {" "}
           <button
             onClick={() => setOpen((v) => !v)}
-            className="text-[11px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
+            className="text-[11px] text-text-whisper hover:text-text-faint underline underline-offset-2 cursor-pointer"
           >
             {open ? "Show less thinking" : "Show more thinking"}
           </button>
@@ -266,15 +284,34 @@ function Composer() {
   const view = useStore((s) => s.view);
   const channels = useStore((s) => s.channels);
   const activeChannel = useStore((s) => s.activeChannel);
+  const activeThread = useStore((s) => s.activeThread);
   const agents = useStore((s) => s.agents);
   const activeAgent = useStore((s) => s.activeAgent);
   const personas = useStore((s) => s.personas);
+  const detail = useStore((s) => s.detail);
   const models = useStore((s) => s.models);
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
+  const [personaTouched, setPersonaTouched] = useState(false);
+
+  const inferredPersona = (() => {
+    if (view === "agent" && activeAgent) return activeAgent;
+    if (view === "thread" && detail) {
+      for (let i = detail.messages.length - 1; i >= 0; i--) {
+        const m = detail.messages[i];
+        if (m.role !== "user" && m.author_id) return m.author_id;
+      }
+    }
+    return "";
+  })();
+
+  useEffect(() => {
+    setPersona(inferredPersona);
+    setPersonaTouched(false);
+  }, [view, activeAgent, activeChannel, activeThread, inferredPersona]);
 
   let placeholder = "Message...";
   if (view === "channel") {
@@ -289,6 +326,7 @@ function Composer() {
 
   const trimmed = input.trim();
   const canSend = trimmed.length > 0 && !sending;
+  const personaLocked = view === "agent" && !personaTouched;
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -319,8 +357,12 @@ function Composer() {
         <div className="mt-2.5 flex items-center gap-2">
           <select
             value={persona}
-            onChange={(e) => setPersona(e.target.value)}
-            className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer"
+            onChange={(e) => {
+              setPersona(e.target.value);
+              setPersonaTouched(true);
+            }}
+            disabled={personaLocked}
+            className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-text-muted"
           >
             <option value="">Default agent</option>
             {personas.map((p) => (

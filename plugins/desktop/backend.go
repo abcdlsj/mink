@@ -101,15 +101,18 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		b.mu.Unlock()
 		cancel()
 	}()
+	source := desktopSource
 	if isThreadID(req.SessionID) {
 		if _, err := b.app.SwitchSession(desktopSource, req.SessionID); err != nil {
 			return "", err
 		}
+	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
+		source = req.SessionID
 	}
 	if req.PersonaID != "" {
-		return b.app.HandleInputAs(ctx, desktopSource, req.PersonaID, req.Input)
+		return b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
 	}
-	return b.app.HandleInput(ctx, desktopSource, req.Input)
+	return b.app.HandleInput(ctx, source, req.Input)
 }
 
 func (b *Backend) StopTurn(sessionID string) error {
