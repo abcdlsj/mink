@@ -15,7 +15,7 @@
 
     <aside class="left">
       <div class="left-head">
-        <button class="btn primary" id="new-conv">
+        <button class="btn" id="new-conv">
           <span class="icon" data-icon="plus"></span> New
         </button>
         <button class="btn search-trigger" id="open-palette">
@@ -42,19 +42,21 @@
           <div class="conv-meta" id="conv-meta"></div>
         </div>
         <div class="conv-actions">
-          <button class="btn outline" id="stop-btn" hidden>
+          <button class="btn outline danger" id="stop-btn" hidden>
             <span class="icon" data-icon="square"></span> Stop run
           </button>
         </div>
       </div>
       <div class="messages" id="messages"></div>
       <div class="composer">
-        <textarea id="input" placeholder="Message #channel..." rows="2"></textarea>
-        <div class="composer-row">
-          <select id="agent-select" class="select"></select>
-          <select id="model-select" class="select"></select>
-          <span class="grow"></span>
-          <button class="btn primary" id="send-btn">Send</button>
+        <div class="composer-inner">
+          <textarea id="input" placeholder="Message #channel..." rows="2"></textarea>
+          <div class="composer-row">
+            <select id="agent-select" class="select"></select>
+            <select id="model-select" class="select"></select>
+            <span class="grow"></span>
+            <button class="btn primary" id="send-btn">Send</button>
+          </div>
         </div>
       </div>
     </main>

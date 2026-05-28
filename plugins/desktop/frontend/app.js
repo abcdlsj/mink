@@ -73,8 +73,11 @@ function initials(s) {
 function renderTopbar() {
   const s = data.state;
   if (!s) return;
-  const stateLabel = s.ready ? "Ready" : "Not configured";
-  $("#status").innerHTML = `${s.model} · ${stateLabel}`;
+  const detail = data.detail;
+  let label = "Ready";
+  if (!s.ready) label = "Offline";
+  else if (detail?.item?.running) label = "Running";
+  $("#status").innerHTML = label;
 }
 
 // ========== Left pane ==========
@@ -119,7 +122,7 @@ function renderAgents() {
     const item = navItem({
       icon: "at",
       name: a.display,
-      meta: a.status === "running" ? "running" : null,
+      running: a.status === "running",
       active: view.mode === "agent" && view.activeAgent === a.id,
       onclick: () => openAgent(a.id),
     });
@@ -137,13 +140,12 @@ function renderThreads() {
       class: "thread-item" + (view.mode === "thread" && view.activeThread === t.id ? " active" : ""),
       onclick: () => openThread(t.id),
     });
-    const title = el("div", { class: "ti-title" }, [
-      icon("thread"),
-      el("span", { text: t.title }),
-    ]);
+    const title = el("div", { class: "ti-title" });
+    if (t.has_running) title.appendChild(el("span", { class: "dot running" }));
+    title.appendChild(el("span", { class: "ti-name", text: t.title }));
     const meta = el("div", {
       class: "ti-meta",
-      text: (channel ? "#" + channel.name : "") + " · " + relTime(t.updated_at) + (t.has_running ? " · running" : "")
+      text: (channel ? "#" + channel.name : "") + " · " + relTime(t.updated_at),
     });
     item.appendChild(title);
     item.appendChild(meta);
@@ -205,8 +207,8 @@ function eventBlock(ev, idx) {
   return wrap;
 }
 
-function messageBlock(m) {
-  const wrap = el("div", { class: "msg " + (m.role === "user" ? "user" : "agent") });
+function messageBlock(m, compact) {
+  const wrap = el("div", { class: "msg " + (m.role === "user" ? "user" : "agent") + (compact ? " compact" : "") });
   const av = el("div", { class: "msg-avatar" });
   const seed = m.role === "user" ? "user" : (m.author_id || m.author_name || "agent");
   const kind = m.role === "user" ? "user" : "agent";
@@ -259,11 +261,12 @@ function renderConvHead() {
   if (view.mode === "channel") {
     $("#conv-title").appendChild(icon("hash"));
     $("#conv-title").appendChild(el("span", { text: data.channels.find(c => c.id === view.activeChannel)?.name || "channel" }));
-    $("#conv-meta").textContent = (detail.summary || "") + (item.running ? " · agents running" : "");
+    $("#conv-meta").textContent = item.running ? "agents running" : "";
   } else if (view.mode === "thread") {
     $("#conv-title").appendChild(icon("thread"));
     $("#conv-title").appendChild(el("span", { text: item.title }));
-    $("#conv-meta").textContent = detail.summary || "";
+    const ch = data.channels.find(c => c.id === view.activeChannel);
+    $("#conv-meta").textContent = ch ? "in #" + ch.name : "";
   } else {
     $("#conv-title").appendChild(icon("at"));
     const ag = data.agents.find(a => a.id === view.activeAgent);
@@ -277,7 +280,16 @@ function renderMessages() {
   const m = $("#messages");
   m.innerHTML = "";
   if (!data.detail) return;
-  data.detail.messages.forEach(msg => m.appendChild(messageBlock(msg)));
+  const inner = el("div", { class: "messages-inner" });
+  let prev = null;
+  data.detail.messages.forEach(msg => {
+    const sameAuthor = prev && prev.role === msg.role && (prev.author_id || "") === (msg.author_id || "");
+    const close = prev && (new Date(msg.time) - new Date(prev.time)) < 5 * 60 * 1000;
+    const compact = sameAuthor && close && !msg.thread_id && !(msg.events && msg.events.length);
+    inner.appendChild(messageBlock(msg, compact));
+    prev = msg;
+  });
+  m.appendChild(inner);
   injectIcons(m);
   m.scrollTop = m.scrollHeight;
 }
@@ -326,101 +338,115 @@ function renderRight() {
   const right = $("#right");
   right.innerHTML = "";
 
-  const modelSec = insSection("Current Model", data.state?.model || "—", "Used by all new agent runs");
+  const modelSec = () => insSection("Current Model", data.state?.model || "—", "Used by all new agent runs");
+  const execSec = () => insSection("Execution", "Local", "Configured in settings");
+  const toolsSec = () => {
+    const list = el("div", { class: "ins-tools" });
+    data.tools.forEach(t => list.appendChild(el("div", { class: "ins-tool-row", text: t.name })));
+    return insSection("Tools", list);
+  };
+  const runlogSec = () => insSection("Runlog", el("a", { class: "ins-link", text: "Open timeline", href: "#" }));
 
-  const toolsList = el("ul", { class: "ins-list" });
-  data.tools.forEach(t => {
-    const li = el("li", { class: "participant" });
-    li.appendChild(el("div", { class: "av", text: initials(t.name) }));
-    const name = el("div");
-    name.appendChild(el("span", { class: "name", text: t.name }));
-    li.appendChild(name);
-    li.appendChild(el("span", { class: "dot done" }));
-    toolsList.appendChild(li);
-  });
+  const stack = el("div", { class: "ins-stack" });
+  const more = el("div", { class: "ins-more" });
 
   if (view.mode === "channel" && data.detail) {
     const channel = data.channels.find(c => c.id === view.activeChannel);
-    const summary = el("div", { class: "ins-value", text: channel?.topic || "" });
-    right.appendChild(insSection("Channel", channel?.name ? "#" + channel.name : "—"));
-    if (channel?.topic) right.appendChild(insSection("Topic", channel.topic));
+    if (channel?.topic) stack.appendChild(insSection("Topic", channel.topic));
 
-    const partsList = el("div", { class: "ins-list" });
-    (data.participants?.agents || []).forEach(p => partsList.appendChild(participantRow(p)));
-    right.appendChild(insSection("Participants", partsList));
+    const agents = data.participants?.agents || [];
+    if (agents.length) stack.appendChild(insSection("Participants", participantsRow(agents)));
 
     const runs = data.participants?.active_runs || [];
     if (runs.length) {
       const runsWrap = el("div");
       runs.forEach(r => runsWrap.appendChild(runCard(r)));
-      right.appendChild(insSection("Active Runs", runsWrap));
+      stack.appendChild(insSection("Active Runs", runsWrap));
     }
 
-    const threadsInChannel = data.threads.filter(t => t.channel_id === view.activeChannel).slice(0, 4);
+    const threadsInChannel = data.threads.filter(t => t.channel_id === view.activeChannel).slice(0, 3);
     if (threadsInChannel.length) {
       const tlist = el("div");
-      threadsInChannel.forEach(t => {
-        const card = el("div", { class: "thread-card", onclick: () => openThread(t.id) });
-        card.appendChild(el("div", { class: "t-title", text: t.title }));
-        card.appendChild(el("div", { class: "t-meta", text: t.event_count + " events · " + relTime(t.updated_at) + (t.has_running ? " · running" : "") }));
-        tlist.appendChild(card);
-      });
-      right.appendChild(insSection("Recent Threads", tlist));
+      threadsInChannel.forEach(t => tlist.appendChild(threadMiniCard(t, false)));
+      stack.appendChild(insSection("Recent Threads", tlist));
     }
 
-    right.appendChild(modelSec);
-    right.appendChild(insSection("Execution", "Local", "Configured in settings"));
-    right.appendChild(insSection("Tools", toolsList));
+    more.append(modelSec(), execSec(), toolsSec(), runlogSec());
   } else if (view.mode === "thread" && data.detail) {
     const item = data.detail.item;
-    right.appendChild(insSection("Thread", item.title));
-    right.appendChild(insSection("Status", item.running ? "running" : "open"));
+    stack.appendChild(insSection("Status", item.running ? "running" : "open"));
 
     const runs = data.participants?.active_runs || [];
     if (runs.length) {
       const w = el("div");
       runs.forEach(r => w.appendChild(runCard(r)));
-      right.appendChild(insSection("Active Run", w));
+      stack.appendChild(insSection("Active Run", w));
     }
 
-    const partsList = el("div", { class: "ins-list" });
-    (data.participants?.agents || []).forEach(p => partsList.appendChild(participantRow(p)));
-    right.appendChild(insSection("Participants", partsList));
+    const agents = data.participants?.agents || [];
+    if (agents.length) stack.appendChild(insSection("Participants", participantsRow(agents)));
 
     const recent = data.participants?.recent_runs || [];
     if (recent.length) {
       const w = el("div");
-      recent.forEach(r => w.appendChild(runCard(r)));
-      right.appendChild(insSection("Recent Subtasks", w));
+      recent.slice(0, 3).forEach(r => w.appendChild(runCard(r)));
+      stack.appendChild(insSection("Subtasks", w));
     }
 
-    right.appendChild(modelSec);
-    right.appendChild(insSection("Tools", toolsList));
+    more.append(modelSec(), execSec(), toolsSec(), runlogSec());
   } else if (view.mode === "agent") {
     const ag = data.agents.find(a => a.id === view.activeAgent);
-    right.appendChild(insSection("Agent", ag?.display || "—"));
-    right.appendChild(insSection("Status", ag?.status === "running" ? "running" : "idle"));
-    if (ag?.role) right.appendChild(insSection("Role", ag.role));
+    stack.appendChild(insSection("Status", ag?.status === "running" ? "running" : "idle"));
+    if (ag?.role) stack.appendChild(insSection("Role", ag.role));
 
-    const involvedThreads = data.threads.slice(0, 4);
+    const involvedThreads = data.threads.slice(0, 3);
     if (involvedThreads.length) {
       const tlist = el("div");
-      involvedThreads.forEach(t => {
-        const ch = data.channels.find(c => c.id === t.channel_id);
-        const card = el("div", { class: "thread-card", onclick: () => openThread(t.id) });
-        card.appendChild(el("div", { class: "t-title", text: t.title }));
-        card.appendChild(el("div", { class: "t-meta", text: (ch ? "#" + ch.name + " · " : "") + relTime(t.updated_at) + (t.has_running ? " · running" : "") }));
-        tlist.appendChild(card);
-      });
-      right.appendChild(insSection("Recent Threads", tlist));
+      involvedThreads.forEach(t => tlist.appendChild(threadMiniCard(t, true)));
+      stack.appendChild(insSection("Recent Threads", tlist));
     }
 
-    right.appendChild(modelSec);
-    right.appendChild(insSection("Execution", "Local", "Configured in settings"));
-    right.appendChild(insSection("Tools", toolsList));
+    more.append(modelSec(), execSec(), toolsSec());
+  }
+
+  right.appendChild(stack);
+
+  if (more.children.length) {
+    const toggle = el("button", { class: "ins-more-toggle", onclick: () => {
+      const open = right.classList.toggle("more-open");
+      toggle.textContent = open ? "Show less" : "More";
+    } }, [el("span", { text: "More" })]);
+    right.appendChild(toggle);
+    right.appendChild(more);
   }
 
   injectIcons(right);
+}
+
+function participantsRow(agents) {
+  const row = el("div", { class: "participants-row" });
+  const stack = el("div", { class: "av-stack" });
+  agents.slice(0, 4).forEach(p => {
+    const a = el("div", { class: "av sm" });
+    a.innerHTML = identiconSVG(p.id || p.display, p.role === "user" ? "user" : "agent");
+    a.title = p.display + (p.status === "running" ? " · running" : "");
+    stack.appendChild(a);
+  });
+  row.appendChild(stack);
+  const count = agents.length;
+  row.appendChild(el("span", { class: "participants-count", text: count + " participant" + (count === 1 ? "" : "s") }));
+  return row;
+}
+
+function threadMiniCard(t, showChannel) {
+  const ch = data.channels.find(c => c.id === t.channel_id);
+  const card = el("div", { class: "thread-card", onclick: () => openThread(t.id) });
+  const title = el("div", { class: "t-title" });
+  if (t.has_running) title.appendChild(el("span", { class: "dot running" }));
+  title.appendChild(el("span", { text: t.title }));
+  card.appendChild(title);
+  card.appendChild(el("div", { class: "t-meta", text: (showChannel && ch ? "#" + ch.name + " · " : "") + relTime(t.updated_at) }));
+  return card;
 }
 
 // ========== Open views ==========
@@ -434,7 +460,7 @@ async function openChannel(id) {
   data.participants = await api.participants(id, "");
   $("#input").placeholder = "Message #" + (data.channels.find(c => c.id === id)?.name || "channel") + "...";
   renderChannels(); renderAgents(); renderThreads();
-  renderConvHead(); renderMessages(); renderRight();
+  renderConvHead(); renderMessages(); renderRight(); renderTopbar();
 }
 
 async function openThread(id) {
@@ -445,7 +471,7 @@ async function openThread(id) {
   data.participants = await api.participants(view.activeChannel, id);
   $("#input").placeholder = "Reply in thread...";
   renderChannels(); renderAgents(); renderThreads();
-  renderConvHead(); renderMessages(); renderRight();
+  renderConvHead(); renderMessages(); renderRight(); renderTopbar();
 }
 
 async function openAgent(id) {
@@ -462,18 +488,20 @@ async function openAgent(id) {
   data.participants = null;
   $("#input").placeholder = "Message @" + (ag?.display || id) + "...";
   renderChannels(); renderAgents(); renderThreads();
-  renderConvHead(); renderAgentBody(id); renderRight();
+  renderConvHead(); renderAgentBody(id); renderRight(); renderTopbar();
 }
 
 function renderAgentBody(id) {
   const m = $("#messages");
   m.innerHTML = "";
+  const inner = el("div", { class: "messages-inner" });
   const wrap = el("div", { class: "agent-empty" });
   const ag = data.agents.find(a => a.id === id);
   wrap.appendChild(el("div", { class: "ae-headline", text: "Direct conversation with @" + (ag?.display || id) }));
   if (ag?.role) wrap.appendChild(el("div", { class: "ae-sub", text: ag.role }));
   wrap.appendChild(el("div", { class: "ae-hint", text: "Send a message below to start. Threads and channels involving this agent appear on the right." }));
-  m.appendChild(wrap);
+  inner.appendChild(wrap);
+  m.appendChild(inner);
   injectIcons(m);
 }
 
