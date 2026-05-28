@@ -231,15 +231,31 @@ func runMockStream(f *fanout, req SendRequest) {
 		f.publish(ev)
 	}
 
-	emit(BusEvent{Type: "turn.started"})
+	low := strings.ToLower(req.Input)
 
+	switch {
+	case strings.Contains(low, "fail delegate"):
+		runMockFailDelegate(emit)
+		return
+	case strings.Contains(low, "delegate"):
+		runMockDelegate(emit)
+		return
+	case strings.Contains(low, "mention"):
+		runMockMention(emit)
+		return
+	case strings.Contains(low, "parallel"):
+		runMockParallel(emit)
+		return
+	case strings.Contains(low, "error") || strings.Contains(low, "fail"):
+		runMockToolFail(emit)
+		return
+	}
+
+	emit(BusEvent{Type: "turn.started"})
 	for _, r := range strings.Split(mockReasoning, " ") {
 		time.Sleep(60 * time.Millisecond)
 		emit(BusEvent{Type: "turn.reasoning", Text: r + " "})
 	}
-
-	failing := strings.Contains(strings.ToLower(req.Input), "error") ||
-		strings.Contains(strings.ToLower(req.Input), "fail")
 
 	time.Sleep(200 * time.Millisecond)
 	emit(BusEvent{
@@ -247,22 +263,6 @@ func runMockStream(f *fanout, req SendRequest) {
 		ToolCallID: "tc-1", Tool: "list_files",
 		Input: `{"path":"."}`,
 	})
-
-	if failing {
-		time.Sleep(380 * time.Millisecond)
-		emit(BusEvent{
-			Type: "tool.call.failed",
-			ToolCallID: "tc-1", Tool: "list_files",
-			Output: "stat .: permission denied",
-			Err:    "exit status 1",
-		})
-		time.Sleep(200 * time.Millisecond)
-		emit(BusEvent{Type: "service.notice", Text: "Halted on tool error"})
-		time.Sleep(120 * time.Millisecond)
-		emit(BusEvent{Type: "turn.error", Err: "list_files failed: permission denied"})
-		return
-	}
-
 	time.Sleep(300 * time.Millisecond)
 	emit(BusEvent{
 		Type: "tool.call.finished",
@@ -275,6 +275,109 @@ func runMockStream(f *fanout, req SendRequest) {
 		emit(BusEvent{Type: "turn.chunk", Text: c})
 		time.Sleep(110 * time.Millisecond)
 	}
+	emit(BusEvent{Type: "turn.finished"})
+}
 
+func runMockToolFail(emit func(BusEvent)) {
+	emit(BusEvent{Type: "turn.started"})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "tool.call.started", ToolCallID: "tc-1", Tool: "list_files", Input: `{"path":"."}`})
+	time.Sleep(380 * time.Millisecond)
+	emit(BusEvent{Type: "tool.call.failed", ToolCallID: "tc-1", Tool: "list_files", Output: "stat .: permission denied", Err: "exit status 1"})
+	time.Sleep(160 * time.Millisecond)
+	emit(BusEvent{Type: "service.notice", Text: "Halted on tool error"})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.error", Err: "list_files failed: permission denied"})
+}
+
+func runMockMention(emit func(BusEvent)) {
+	emit(BusEvent{Type: "turn.started"})
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "Let me ask "})
+	time.Sleep(80 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "Coder to take a look."})
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.mention", ToolCallID: "mn-1",
+		Tool: "coder", Input: "@Coder",
+	})
+	time.Sleep(700 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.mention.reply", ToolCallID: "mn-1",
+		Tool: "coder", Output: "Looked at the file. The fallback only triggers on 5xx, missing 429. I'd add a retry on 429 with backoff.",
+	})
+	time.Sleep(180 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "\n\nThanks Coder. Will follow up."})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.finished"})
+}
+
+func runMockDelegate(emit func(BusEvent)) {
+	emit(BusEvent{Type: "turn.started"})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "I'll hand this off to Reviewer for a deeper look."})
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.delegate.started", ToolCallID: "dg-1",
+		Tool: "reviewer", Input: "Review the recent commits in llm/ for retry behavior",
+	})
+	time.Sleep(900 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.delegate.progress", ToolCallID: "dg-1",
+		Tool: "reviewer", Text: "running",
+	})
+	time.Sleep(900 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.delegate.finished", ToolCallID: "dg-1",
+		Tool: "reviewer",
+		Output: "Reviewed 3 commits. Suggest splitting retry policy into its own type and unit-testing the 429 path.",
+	})
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "\n\nReviewer is back with notes."})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.finished"})
+}
+
+func runMockFailDelegate(emit func(BusEvent)) {
+	emit(BusEvent{Type: "turn.started"})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "Trying to delegate to Reviewer..."})
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.delegate.started", ToolCallID: "dg-2",
+		Tool: "reviewer", Input: "Review llm/ retry policy",
+	})
+	time.Sleep(700 * time.Millisecond)
+	emit(BusEvent{
+		Type: "agent.delegate.failed", ToolCallID: "dg-2",
+		Tool: "reviewer",
+		Err: "reviewer is offline (last heartbeat 4m ago)",
+	})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "\n\nCouldn't reach Reviewer. I'll continue here."})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.finished"})
+}
+
+func runMockParallel(emit func(BusEvent)) {
+	emit(BusEvent{Type: "turn.started"})
+	time.Sleep(120 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "Let me coordinate."})
+	time.Sleep(150 * time.Millisecond)
+
+	emit(BusEvent{Type: "tool.call.started", ToolCallID: "tc-p1", Tool: "list_files", Input: `{"path":"llm"}`})
+	emit(BusEvent{Type: "agent.mention", ToolCallID: "mn-p1", Tool: "coder", Input: "@Coder"})
+	emit(BusEvent{Type: "agent.delegate.started", ToolCallID: "dg-p1", Tool: "reviewer", Input: "Audit retry policy"})
+
+	time.Sleep(600 * time.Millisecond)
+	emit(BusEvent{Type: "tool.call.finished", ToolCallID: "tc-p1", Tool: "list_files", Output: "anthropic.go, openai.go, retry_transport.go"})
+	time.Sleep(300 * time.Millisecond)
+	emit(BusEvent{Type: "agent.mention.reply", ToolCallID: "mn-p1", Tool: "coder", Output: "Looks scoped. Suggest a dedicated retry struct."})
+	time.Sleep(400 * time.Millisecond)
+	emit(BusEvent{Type: "agent.delegate.finished", ToolCallID: "dg-p1", Tool: "reviewer", Output: "Done. Recommend extracting retry policy."})
+
+	time.Sleep(150 * time.Millisecond)
+	emit(BusEvent{Type: "turn.chunk", Text: "\n\nAll three agree on extracting the retry policy."})
+	time.Sleep(120 * time.Millisecond)
 	emit(BusEvent{Type: "turn.finished"})
 }

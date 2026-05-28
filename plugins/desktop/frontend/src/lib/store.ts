@@ -364,6 +364,94 @@ export const useStore = create<State>((set, get) => ({
         });
         return;
       }
+      case "agent.mention": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "mn-" + newID();
+        const block: EventBlock = {
+          kind: "mention",
+          status: "running",
+          time: ev.time,
+          agent_id: ev.tool,
+          agent_display: prettyAgentName(ev.tool, cur.agents),
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "agent.mention.reply": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "";
+        const prev = cur.streaming.toolCalls.get(id);
+        const block: EventBlock = {
+          kind: "mention",
+          status: "done",
+          time: ev.time,
+          agent_id: prev?.agent_id || ev.tool,
+          agent_display: prev?.agent_display || prettyAgentName(ev.tool, cur.agents),
+          reply: ev.output,
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "agent.delegate.started": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "dg-" + newID();
+        const block: EventBlock = {
+          kind: "delegate",
+          status: "pending",
+          time: ev.time,
+          agent_id: ev.tool,
+          agent_display: prettyAgentName(ev.tool, cur.agents),
+          task: ev.input,
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "agent.delegate.progress": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "";
+        const prev = cur.streaming.toolCalls.get(id);
+        if (!prev) return;
+        cur.streaming.toolCalls.set(id, {
+          ...prev,
+          status: "running",
+          time: ev.time,
+        });
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
+      case "agent.delegate.finished":
+      case "agent.delegate.failed": {
+        if (!cur.streaming) return;
+        const id = ev.tool_call_id || "";
+        const prev = cur.streaming.toolCalls.get(id);
+        const failed = ev.type === "agent.delegate.failed";
+        const block: EventBlock = {
+          kind: "delegate",
+          status: failed ? "error" : "done",
+          time: ev.time,
+          agent_id: prev?.agent_id || ev.tool,
+          agent_display: prev?.agent_display || prettyAgentName(ev.tool, cur.agents),
+          task: prev?.task,
+          output: ev.output,
+          err: ev.err,
+        };
+        cur.streaming.toolCalls.set(id, block);
+        set({
+          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+        });
+        return;
+      }
       case "service.notice": {
         if (!cur.streaming) return;
         const id = "n-" + newID();
@@ -435,4 +523,11 @@ function updateStreamEvents(
       m.id === messageID ? { ...m, events } : m,
     ),
   };
+}
+
+function prettyAgentName(id: string | undefined, agents: AgentItem[]): string {
+  if (!id) return "agent";
+  const a = agents.find((x) => x.id === id);
+  if (a) return a.display;
+  return id.charAt(0).toUpperCase() + id.slice(1);
 }

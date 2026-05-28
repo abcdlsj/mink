@@ -47,8 +47,8 @@ export interface ToolResult {
   error?: string;
 }
 
-export type EventKind = "tool_call" | "tool_result" | "reasoning" | "service_notice";
-export type EventStatus = "running" | "done" | "error" | "idle";
+export type EventKind = "tool_call" | "tool_result" | "reasoning" | "service_notice" | "mention" | "delegate";
+export type EventStatus = "running" | "done" | "error" | "idle" | "pending";
 
 export interface EventBlock {
   kind: EventKind;
@@ -59,6 +59,10 @@ export interface EventBlock {
   status: EventStatus;
   duration_ms?: number;
   time: string;
+  agent_id?: string;
+  agent_display?: string;
+  task?: string;
+  reply?: string;
 }
 
 export interface MessageView {

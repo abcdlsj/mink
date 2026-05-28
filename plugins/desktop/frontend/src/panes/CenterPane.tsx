@@ -343,7 +343,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
   const anyError = events.some((e) => e.status === "error");
   const status = anyRunning ? "running" : anyError ? "error" : "done";
   const label =
-    "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
+    "Used " + events.length + " actions · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
   if (open) {
     return (
       <div className="flex flex-col gap-1">
@@ -354,7 +354,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
             status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
           )}
         >
-          Hide {events.length} tool details
+          Hide {events.length} action details
         </button>
         {events.map((ev, i) => (
           <EventBlock key={i} ev={ev} />
