@@ -113,15 +113,15 @@ function MentionLine({ ev }: EventBlockProps) {
   const display = ev.agent_display || ev.agent_id || "agent";
   return (
     <div className="py-0.5 text-[12px] text-text-muted">
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 flex-wrap">
         <ArrowRight className="size-3 text-text-faint shrink-0" />
-        <span>called</span>
-        <span className="font-display font-medium text-text inline-flex items-baseline">
+        <span className="whitespace-nowrap">called</span>
+        <span className="font-display font-medium text-text inline-flex items-baseline whitespace-nowrap">
           <AtSign className="size-3 self-center" />
           {display}
         </span>
         {ev.duration_ms ? (
-          <span className="text-text-faint tabular-nums">· {fmtMs(ev.duration_ms, ev.status)}</span>
+          <span className="text-text-faint tabular-nums whitespace-nowrap">· {fmtMs(ev.duration_ms, ev.status)}</span>
         ) : null}
       </div>
       {ev.reply && (
@@ -175,13 +175,13 @@ function DelegateLine({ ev }: EventBlockProps) {
     <div className={cn("py-0.5 text-[12px]", status === "error" ? "text-error" : "text-text-muted")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <ArrowRight className="size-3 text-text-faint shrink-0 self-center" />
-        <span>delegated to</span>
-        <span className="font-display font-medium text-text inline-flex items-center gap-0.5">
+        <span className="whitespace-nowrap">delegated to</span>
+        <span className="font-display font-medium text-text inline-flex items-center gap-0.5 whitespace-nowrap">
           <AtSign className="size-3" />
           {display}
         </span>
-        <span className={cn("tabular-nums", statusColor)}>· {statusText}</span>
-        {elapsedMs ? <span className="text-text-faint tabular-nums">· {fmtMs(elapsedMs, status)}</span> : null}
+        <span className={cn("tabular-nums whitespace-nowrap", statusColor)}>· {statusText}</span>
+        {elapsedMs ? <span className="text-text-faint tabular-nums whitespace-nowrap">· {fmtMs(elapsedMs, status)}</span> : null}
         {hasDetails && (
           <button
             onClick={() => setOpen((v) => !v)}

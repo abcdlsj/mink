@@ -309,8 +309,13 @@ function RunCard({ run }: { run: AgentRun }) {
         run.status === "error" && "border-l-2 border-l-error",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[12.5px] text-text">{run.title}</div>
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className="text-[12.5px] text-text leading-[1.45] line-clamp-2 break-words"
+          title={run.title}
+        >
+          {run.title}
+        </div>
         {run.status === "running" && (
           <Button variant="danger" size="xs" onClick={onStop}>
             <Square className="size-2.5" />
