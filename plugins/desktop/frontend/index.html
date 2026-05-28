@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sumi</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">Sumi</div>
+      <div class="status" id="status">native · claude-sonnet-4 · <span class="dot done"></span></div>
+    </header>
+
+    <aside class="left" id="left">
+      <div class="left-head">
+        <button class="btn primary" id="new-session">New</button>
+        <button class="btn" id="open-palette" title="⌘K">Search</button>
+      </div>
+      <div class="group-label">Pinned</div>
+      <ul class="sessions" id="pinned"></ul>
+      <div class="group-label">Recent</div>
+      <ul class="sessions" id="recent"></ul>
+    </aside>
+
+    <main class="center">
+      <div class="session-head">
+        <div>
+          <div class="session-title" id="session-title">Session</div>
+          <div class="session-meta" id="session-meta"></div>
+        </div>
+        <div class="session-actions">
+          <button class="btn danger hidden" id="stop-btn">Stop</button>
+        </div>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="composer">
+        <textarea id="input" placeholder="Ask Sumi..." rows="3"></textarea>
+        <div class="composer-row">
+          <select id="persona-select" class="select"></select>
+          <select id="model-select" class="select"></select>
+          <span class="grow"></span>
+          <button class="btn primary" id="send-btn">Send</button>
+        </div>
+      </div>
+    </main>
+
+    <aside class="right" id="right">
+      <div class="inspector-section">
+        <div class="inspector-label">Persona</div>
+        <div class="inspector-value" id="ins-persona">—</div>
+      </div>
+      <div class="inspector-section">
+        <div class="inspector-label">Current Model</div>
+        <div class="inspector-value" id="ins-model">—</div>
+        <div class="inspector-hint">applies to all sessions</div>
+      </div>
+      <div class="inspector-section">
+        <div class="inspector-label">Runtime</div>
+        <div class="inspector-value" id="ins-runtime">—</div>
+        <div class="inspector-hint">read-only</div>
+      </div>
+      <div class="inspector-section">
+        <div class="inspector-label">Tools</div>
+        <ul class="tool-list" id="ins-tools"></ul>
+      </div>
+      <div class="inspector-section">
+        <div class="inspector-label">Runlog</div>
+        <div class="inspector-value" id="ins-runlog">—</div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="palette hidden" id="palette">
+    <div class="palette-box">
+      <input id="palette-input" type="text" placeholder="Search sessions, /commands, persona, model" autocomplete="off">
+      <div class="palette-results" id="palette-results"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
