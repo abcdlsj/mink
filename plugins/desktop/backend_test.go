@@ -192,3 +192,48 @@ func TestConvertMessagesUsesSourcePersonaAsAuthor(t *testing.T) {
 		t.Errorf("assistant author should default to coder from source, got %q", views[1].AuthorID)
 	}
 }
+
+func TestCollectEventsClassifiesMentionAsCollab(t *testing.T) {
+	now := time.Now()
+	m := msg.Message{
+		Role:      "assistant",
+		Timestamp: now,
+		ToolCalls: []msg.ToolCall{
+			{ID: "tc1", Name: "mention", Args: []byte(`{"agent_id":"coder","question":"check retry"}`)},
+		},
+		ToolResults: []msg.ToolResult{
+			{ToolCallID: "tc1", Content: "scheduled next team turn for coder, task_id=task-abc"},
+		},
+	}
+	evs := collectEvents(m)
+	if len(evs) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evs))
+	}
+	if evs[0].Kind != "mention" {
+		t.Errorf("mention tool should map to mention event, got %q", evs[0].Kind)
+	}
+	if evs[0].AgentID != "coder" {
+		t.Errorf("agent id wrong: %q", evs[0].AgentID)
+	}
+	if evs[0].Reply != "" {
+		t.Errorf("scheduling ack should not surface as reply, got %q", evs[0].Reply)
+	}
+}
+
+func TestParseTaskID(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"scheduled next team turn for coder, task_id=task-abc123", "task-abc123"},
+		{"foo task_id=task-xyz bar", "task-xyz"},
+		{"no task here", ""},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := parseTaskID(c.in)
+		if got != c.want {
+			t.Errorf("parseTaskID(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

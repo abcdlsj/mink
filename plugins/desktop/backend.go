@@ -210,6 +210,7 @@ func (b *Backend) GetThread(id string) SessionDetail {
 			continue
 		}
 		messages := convertMessages(s)
+		messages = b.attachDelegateOutcomes(messages)
 		return SessionDetail{
 			Item: SessionItem{
 				ID:           s.ID,
@@ -222,6 +223,116 @@ func (b *Backend) GetThread(id string) SessionDetail {
 		}
 	}
 	return SessionDetail{}
+}
+
+// attachDelegateOutcomes scans every assistant message for mention tool
+// calls whose result contains a "task_id=<id>" scheduling ack. For each
+// task id it replays the collab task's bus history and appends a
+// synthetic "delegate" event block under the same message so the
+// persisted view shows the same called/delegated/completed semantics
+// the live stream draws.
+func (b *Backend) attachDelegateOutcomes(messages []MessageView) []MessageView {
+	if b.app == nil {
+		return messages
+	}
+	for i, m := range messages {
+		if len(m.Events) == 0 {
+			continue
+		}
+		extra := make([]EventBlock, 0)
+		for _, ev := range m.Events {
+			if ev.Kind != "mention" {
+				continue
+			}
+			taskID := parseTaskID(ev.Output)
+			if taskID == "" && ev.Reply != "" {
+				taskID = parseTaskID(ev.Reply)
+			}
+			if taskID == "" {
+				continue
+			}
+			block := b.replayDelegateTask(taskID, ev.AgentID, ev.AgentDisplay, ev.Args)
+			if block != nil {
+				extra = append(extra, *block)
+			}
+		}
+		if len(extra) > 0 {
+			messages[i].Events = append(messages[i].Events, extra...)
+		}
+	}
+	return messages
+}
+
+func (b *Backend) replayDelegateTask(taskID, agentID, agentDisplay, mentionArgs string) *EventBlock {
+	evs, err := b.app.ReplayTask(taskID, 64)
+	if err != nil || len(evs) == 0 {
+		return nil
+	}
+	block := EventBlock{
+		Kind:         "delegate",
+		Status:       "running",
+		AgentID:      agentID,
+		AgentDisplay: agentDisplay,
+		TaskID:       taskID,
+		Task:         questionFromArgs(mentionArgs),
+		Time:         evs[0].Time,
+	}
+	for _, e := range evs {
+		switch e.Type {
+		case bus.DelegateQueued:
+			block.Status = "pending"
+			if block.Task == "" {
+				block.Task = e.Text
+			}
+		case bus.DelegateStarted:
+			block.Status = "running"
+		case bus.DelegateFinished:
+			block.Status = "done"
+			block.Output = e.Output
+			if !e.Time.IsZero() && !block.Time.IsZero() {
+				block.DurationMs = e.Time.Sub(block.Time).Milliseconds()
+			}
+		case bus.DelegateFailed, bus.DelegateCanceled:
+			block.Status = "error"
+			block.Err = e.Err
+		}
+	}
+	return &block
+}
+
+func parseTaskID(s string) string {
+	const tag = "task_id="
+	i := strings.Index(s, tag)
+	if i < 0 {
+		return ""
+	}
+	rest := s[i+len(tag):]
+	end := strings.IndexAny(rest, " \n\t,)")
+	if end < 0 {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(rest[:end])
+}
+
+func questionFromArgs(rawArgs string) string {
+	if rawArgs == "" {
+		return ""
+	}
+	var args struct {
+		Question string `json:"question"`
+		Task     string `json:"task"`
+		Prompt   string `json:"prompt"`
+		Input    string `json:"input"`
+	}
+	if err := json.Unmarshal([]byte(rawArgs), &args); err != nil {
+		return ""
+	}
+	for _, v := range []string{args.Question, args.Task, args.Prompt, args.Input} {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
@@ -263,6 +374,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 			Messages: []MessageView{},
 		}
 	}
+	messages := b.attachDelegateOutcomes(convertMessages(latest))
 	return SessionDetail{
 		Item: SessionItem{
 			ID:           prefix,
@@ -270,7 +382,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 			UpdatedAt:    latest.UpdatedAt,
 			MessageCount: len(latest.Messages),
 		},
-		Messages: convertMessages(latest),
+		Messages: messages,
 	}
 }
 
@@ -622,6 +734,29 @@ func collectEvents(m msg.Message) []EventBlock {
 		results[r.ToolCallID] = r
 	}
 	for _, c := range m.ToolCalls {
+		if isCollabTool(c.Name) {
+			ev := EventBlock{
+				Kind:        "mention",
+				ToolName:    c.Name,
+				Args:        string(c.Args),
+				Status:      "running",
+				Time:        m.Timestamp,
+				AgentID:     mentionTargetFromArgs(c.Args, c.Name),
+				AgentDisplay: titleCase(mentionTargetFromArgs(c.Args, c.Name)),
+			}
+			if r, ok := results[c.ID]; ok {
+				ev.Status = "done"
+				if r.Error != "" {
+					ev.Status = "error"
+					ev.Err = r.Error
+				}
+				if !isSchedulingAck(r.Content) {
+					ev.Reply = r.Content
+				}
+			}
+			out = append(out, ev)
+			continue
+		}
 		ev := EventBlock{
 			Kind:     "tool_call",
 			ToolName: c.Name,
@@ -639,6 +774,43 @@ func collectEvents(m msg.Message) []EventBlock {
 		out = append(out, ev)
 	}
 	return out
+}
+
+func isCollabTool(name string) bool {
+	switch name {
+	case "mention", "spawn", "spawn_specialist", "invite_agent":
+		return true
+	}
+	return false
+}
+
+func mentionTargetFromArgs(rawArgs []byte, fallback string) string {
+	if len(rawArgs) == 0 {
+		return fallback
+	}
+	var args struct {
+		Target  string `json:"target"`
+		Agent   string `json:"agent"`
+		AgentID string `json:"agent_id"`
+		Name    string `json:"name"`
+		To      string `json:"to"`
+	}
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return fallback
+	}
+	for _, v := range []string{args.Target, args.Agent, args.AgentID, args.Name, args.To} {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return fallback
+}
+
+func titleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func personaIDs(a *app.App) []string {
