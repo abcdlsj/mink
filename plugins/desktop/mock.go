@@ -242,12 +242,31 @@ func runMockStream(f *fanout, req SendRequest) {
 		emit(BusEvent{Type: "turn.reasoning", Text: r + " "})
 	}
 
+	failing := strings.Contains(strings.ToLower(req.Input), "error") ||
+		strings.Contains(strings.ToLower(req.Input), "fail")
+
 	time.Sleep(200 * time.Millisecond)
 	emit(BusEvent{
 		Type: "tool.call.started",
 		ToolCallID: "tc-1", Tool: "list_files",
 		Input: `{"path":"."}`,
 	})
+
+	if failing {
+		time.Sleep(380 * time.Millisecond)
+		emit(BusEvent{
+			Type: "tool.call.failed",
+			ToolCallID: "tc-1", Tool: "list_files",
+			Output: "stat .: permission denied",
+			Err:    "exit status 1",
+		})
+		time.Sleep(200 * time.Millisecond)
+		emit(BusEvent{Type: "service.notice", Text: "Halted on tool error"})
+		time.Sleep(120 * time.Millisecond)
+		emit(BusEvent{Type: "turn.error", Err: "list_files failed: permission denied"})
+		return
+	}
+
 	time.Sleep(300 * time.Millisecond)
 	emit(BusEvent{
 		Type: "tool.call.finished",

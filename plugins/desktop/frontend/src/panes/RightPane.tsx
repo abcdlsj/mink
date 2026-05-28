@@ -1,11 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Identicon } from "@/components/Identicon";
 import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
-import { api } from "@/lib/api";
 import type { AgentItem, AgentRun, ThreadItem } from "@/lib/types";
 
 export function RightPane() {
@@ -253,15 +252,44 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
 
 function RunCard({ run }: { run: AgentRun }) {
   const agents = useStore((s) => s.agents);
+  const streaming = useStore((s) => s.streaming);
+  const stop = useStore((s) => s.stop);
   const ag = agents.find((a) => a.id === run.agent_id);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    if (run.status !== "running") return;
+    const id = setInterval(() => setTick((n) => n + 1), 250);
+    return () => clearInterval(id);
+  }, [run.status]);
+
+  const isCurrent = streaming?.messageID === run.id;
+  const startedAt = isCurrent && streaming ? streaming.startedAt : run.time;
+  const elapsedMs = run.status === "running" ? Date.now() - new Date(startedAt).getTime() : 0;
+  const elapsedLabel =
+    elapsedMs > 0 ? Math.round(elapsedMs / 100) / 10 + "s" : relTime(run.time);
+
+  let currentStep = "";
+  if (isCurrent && streaming) {
+    const calls = Array.from(streaming.toolCalls.values());
+    const lastRunning = [...calls].reverse().find((c) => c.status === "running");
+    if (lastRunning) currentStep = lastRunning.tool_name || "running";
+    else if (streaming.content) currentStep = "writing reply";
+    else if (streaming.reasoning) currentStep = "reasoning";
+    else currentStep = "starting";
+  }
+
   const onStop = (e: React.MouseEvent) => {
     e.stopPropagation();
-    void api.stop(run.id).catch(() => null);
+    void stop();
   };
+
+  void tick;
+
   return (
     <div
       className={cn(
-        "border border-border-soft rounded-md bg-panel px-2.5 py-2 mb-1.5",
+        "border border-border-soft rounded-md bg-panel px-2.5 py-2 mb-1.5 transition-colors",
         run.status === "running" && "border-l-2 border-l-running",
         run.status === "done" && "border-l-2 border-l-done",
         run.status === "error" && "border-l-2 border-l-error",
@@ -276,8 +304,8 @@ function RunCard({ run }: { run: AgentRun }) {
           </Button>
         )}
       </div>
-      <div className="text-[11px] text-text-faint mt-0.5">
-        {(ag?.display || run.agent_id) + " · " + run.status + " · " + relTime(run.time)}
+      <div className="text-[11px] text-text-faint mt-0.5 tabular-nums">
+        {(ag?.display || run.agent_id) + " · " + (currentStep || run.status) + " · " + elapsedLabel}
       </div>
     </div>
   );

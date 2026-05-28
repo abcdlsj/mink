@@ -364,10 +364,31 @@ export const useStore = create<State>((set, get) => ({
       case "turn.error": {
         const detailNow = get().detail;
         if (!detailNow) return;
+        const isError = ev.type === "turn.error";
+        let messages = detailNow.messages;
+        if (isError && cur.streaming) {
+          const errMsg = ev.err || "Turn failed";
+          messages = messages.map((m) =>
+            m.id === cur.streaming!.messageID
+              ? {
+                  ...m,
+                  events: [
+                    ...(m.events || []),
+                    {
+                      kind: "service_notice",
+                      status: "error",
+                      output: errMsg,
+                      time: ev.time,
+                    },
+                  ],
+                }
+              : m,
+          );
+        }
         set({
           sending: false,
           streaming: null,
-          detail: { ...detailNow, item: { ...detailNow.item, running: false } },
+          detail: { ...detailNow, item: { ...detailNow.item, running: false }, messages },
           channels: get().channels.map((c) =>
             c.id === get().activeChannel ? { ...c, has_running: false } : c,
           ),
