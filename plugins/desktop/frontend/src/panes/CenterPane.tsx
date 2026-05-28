@@ -206,9 +206,10 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
     : (dmAgent?.display || m.author_name || ag?.display || "Sumi");
 
   const events = m.events || [];
-  const expandableEvents = events.filter((e) => e.kind !== "service_notice");
+  const collabEvents = events.filter((e) => e.kind === "mention" || e.kind === "delegate");
+  const toolEvents = events.filter((e) => e.kind === "tool_call");
   const noticeEvents = events.filter((e) => e.kind === "service_notice");
-  const shouldFold = expandableEvents.length > 1;
+  const shouldFoldTools = toolEvents.length > 1;
 
   return (
     <div
@@ -260,16 +261,19 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
                 m.reasoning && "mt-2",
               )}
             >
-              {m.content}
+              {stripCollabLeak(m.content)}
             </Markdown>
           )
         )}
         {events.length > 0 && (
           <div className="mt-2 flex flex-col gap-1">
-            {shouldFold ? (
-              <ToolFold events={expandableEvents} />
+            {collabEvents.map((ev, i) => (
+              <EventBlock key={"c" + i} ev={ev} />
+            ))}
+            {shouldFoldTools ? (
+              <ToolFold events={toolEvents} />
             ) : (
-              expandableEvents.map((ev, i) => <EventBlock key={"e" + i} ev={ev} />)
+              toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)
             )}
             {noticeEvents.map((ev, i) => (
               <EventBlock key={"n" + i} ev={ev} />
@@ -329,6 +333,16 @@ function shortRole(role: string): string {
   return titleCase(word);
 }
 
+function stripCollabLeak(text: string): string {
+  // Collab task ids and scheduling acks belong on the delegate event row,
+  // not in the assistant prose. Strip the most common leak patterns.
+  let out = text;
+  out = out.replace(/[（(]\s*task_id\s*=\s*[A-Za-z0-9_-]+\s*[）)]/g, "");
+  out = out.replace(/[,，]?\s*task_id\s*=\s*[A-Za-z0-9_-]+/g, "");
+  out = out.replace(/\bscheduled\s+next\s+team\s+turn\s+for\s+\S+.*$/gim, "");
+  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function titleCase(s: string): string {
   if (!/[a-zA-Z]/.test(s)) return s;
   return s
@@ -343,7 +357,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
   const anyError = events.some((e) => e.status === "error");
   const status = anyRunning ? "running" : anyError ? "error" : "done";
   const label =
-    "Used " + events.length + " actions · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
+    "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
   if (open) {
     return (
       <div className="flex flex-col gap-1">
@@ -354,7 +368,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
             status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
           )}
         >
-          Hide {events.length} action details
+          Hide {events.length} tool details
         </button>
         {events.map((ev, i) => (
           <EventBlock key={i} ev={ev} />
