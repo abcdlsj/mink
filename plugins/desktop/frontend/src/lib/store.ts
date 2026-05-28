@@ -187,6 +187,12 @@ export const useStore = create<State>((set, get) => ({
         item: { ...detail.item, running: true },
         messages: [...detail.messages, userMsg],
       },
+      channels: get().channels.map((c) =>
+        c.id === get().activeChannel ? { ...c, has_running: true } : c,
+      ),
+      threads: get().threads.map((t) =>
+        t.id === get().activeThread ? { ...t, has_running: true } : t,
+      ),
     });
     try {
       await api.send(sid, input, personaID);
@@ -203,11 +209,18 @@ export const useStore = create<State>((set, get) => ({
     } catch {
       // noop
     }
-    set({ sending: false, streaming: null });
     const detail = get().detail;
-    if (detail) {
-      set({ detail: { ...detail, item: { ...detail.item, running: false } } });
-    }
+    set({
+      sending: false,
+      streaming: null,
+      detail: detail ? { ...detail, item: { ...detail.item, running: false } } : detail,
+      channels: get().channels.map((c) =>
+        c.id === get().activeChannel ? { ...c, has_running: false } : c,
+      ),
+      threads: get().threads.map((t) =>
+        t.id === get().activeThread ? { ...t, has_running: false } : t,
+      ),
+    });
   },
 
   connectStream() {
@@ -348,6 +361,12 @@ export const useStore = create<State>((set, get) => ({
           sending: false,
           streaming: null,
           detail: { ...detailNow, item: { ...detailNow.item, running: false } },
+          channels: get().channels.map((c) =>
+            c.id === get().activeChannel ? { ...c, has_running: false } : c,
+          ),
+          threads: get().threads.map((t) =>
+            t.id === get().activeThread ? { ...t, has_running: false } : t,
+          ),
         });
         return;
       }

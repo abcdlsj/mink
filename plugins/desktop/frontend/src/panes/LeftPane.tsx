@@ -17,7 +17,7 @@ export function LeftPane() {
   const setPalette = useStore((s) => s.setPalette);
 
   return (
-    <aside className="border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
+    <aside className="h-full border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
       <div className="flex flex-col gap-1.5 px-1 pb-1.5">
         <Button variant="default" size="default" className="justify-start">
           <Plus className="size-3" />

@@ -19,9 +19,22 @@ export function RightPane() {
   const participants = useStore((s) => s.participants);
   const state = useStore((s) => s.state);
   const tools = useStore((s) => s.tools);
+  const streaming = useStore((s) => s.streaming);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  if (!detail) return <aside className="border-l border-border bg-panel-3 px-4 py-4" />;
+  if (!detail) return <aside className="h-full border-l border-border bg-panel-3 px-4 py-4" />;
+
+  const runtimeRuns: AgentRun[] = streaming
+    ? [
+        {
+          id: streaming.messageID,
+          agent_id: agents[0]?.id || "agent",
+          title: "Current turn",
+          status: "running",
+          time: streaming.startedAt,
+        },
+      ]
+    : participants?.active_runs || [];
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -63,7 +76,6 @@ export function RightPane() {
   if (view === "channel") {
     const ch = channels.find((c) => c.id === activeChannel);
     const participantsList = participants?.agents || [];
-    const runs = participants?.active_runs || [];
     const channelThreads = threads.filter((t) => t.channel_id === activeChannel).slice(0, 3);
     main = (
       <>
@@ -77,9 +89,9 @@ export function RightPane() {
             <ParticipantsRow agents={participantsList} />
           </Section>
         )}
-        {runs.length > 0 && (
+        {runtimeRuns.length > 0 && (
           <Section label="Active Runs">
-            {runs.map((r) => (
+            {runtimeRuns.map((r) => (
               <RunCard key={r.id} run={r} />
             ))}
           </Section>
@@ -104,16 +116,16 @@ export function RightPane() {
   } else if (view === "thread") {
     const item = detail.item;
     const participantsList = participants?.agents || [];
-    const runs = participants?.active_runs || [];
     const recent = participants?.recent_runs || [];
+    const status = item.running ? "running" : "open";
     main = (
       <>
         <Section label="Status">
-          <div className="text-[13px] text-text">{item.running ? "running" : "open"}</div>
+          <div className="text-[13px] text-text">{status}</div>
         </Section>
-        {runs.length > 0 && (
+        {runtimeRuns.length > 0 && (
           <Section label="Active Run">
-            {runs.map((r) => (
+            {runtimeRuns.map((r) => (
               <RunCard key={r.id} run={r} />
             ))}
           </Section>
@@ -171,7 +183,7 @@ export function RightPane() {
   }
 
   return (
-    <aside className="border-l border-border bg-panel-3 overflow-y-auto px-4 pt-4 pb-6">
+    <aside className="h-full border-l border-border bg-panel-3 overflow-y-auto px-4 pt-4 pb-6">
       <div>{main}</div>
       {more && (
         <>

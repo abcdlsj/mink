@@ -16,7 +16,7 @@ export function CenterPane() {
 
   if (!detail) {
     return (
-      <main className="grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
+      <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
         <div className="border-b border-border-soft px-8 py-4" />
         <div className="overflow-y-auto px-8 py-6 text-text-faint text-[12.5px]">
           Pick a channel, agent, or thread to start.
@@ -47,7 +47,7 @@ export function CenterPane() {
   const showStop = item.running && view === "thread";
 
   return (
-    <main className="grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
+    <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
       <div className="flex items-end justify-between border-b border-border-soft px-8 pt-4 pb-3.5">
         <div>
           <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-text">
