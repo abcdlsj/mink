@@ -167,9 +167,21 @@ function EmptyState() {
 
 function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; compact: boolean }) {
   const agents = useStore((s) => s.agents);
-  const ag = agents.find((a) => a.id === m.author_id);
-  const seed = m.role === "user" ? "user" : m.author_id || m.author_name || "agent";
+  const view = useStore((s) => s.view);
+  const activeAgent = useStore((s) => s.activeAgent);
+
+  const dmAgent = view === "agent" && m.role !== "user"
+    ? agents.find((a) => a.id === activeAgent)
+    : undefined;
+
+  const ag = dmAgent || agents.find((a) => a.id === m.author_id);
+  const seed = m.role === "user"
+    ? "user"
+    : (dmAgent?.id || m.author_id || m.author_name || "agent");
   const kind = m.role === "user" ? "user" : "agent";
+  const displayName = m.role === "user"
+    ? "You"
+    : (dmAgent?.display || m.author_name || ag?.display || "Sumi");
 
   const events = m.events || [];
   const expandableEvents = events.filter((e) => e.kind !== "service_notice");
@@ -195,11 +207,11 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
         {!compact && (
           <div className="flex items-baseline gap-2 mb-1">
             <span className="font-display text-[13px] font-semibold text-text tracking-[-0.1px]">
-              {m.role === "user" ? "You" : m.author_name || "Sumi"}
+              {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="font-display text-[10.5px] uppercase tracking-[0.7px] text-text-faint font-medium"
+                className="font-display text-[10.5px] tracking-[0.3px] text-text-faint font-medium"
                 title={ag.role}
               >
                 {shortRole(ag.role)}
@@ -291,8 +303,15 @@ function shortRole(role: string): string {
   const trimmed = role.trim().replace(/[.。!?！？]$/, "");
   if (!trimmed) return "";
   const firstWord = trimmed.split(/[\s—·,、/]+/)[0] || trimmed;
-  if (firstWord.length <= 14) return firstWord;
-  return firstWord.slice(0, 14) + "…";
+  const word = firstWord.length <= 14 ? firstWord : firstWord.slice(0, 14) + "…";
+  return titleCase(word);
+}
+
+function titleCase(s: string): string {
+  if (!/[a-zA-Z]/.test(s)) return s;
+  return s
+    .toLowerCase()
+    .replace(/(?:^|[\s-])(\p{L})/gu, (m) => m.toUpperCase());
 }
 
 function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
