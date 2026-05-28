@@ -1,6 +1,12 @@
 package desktop
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
+)
 
 func TestBackendNilAppFallsBackToMock(t *testing.T) {
 	b := newBackend(nil)
@@ -65,5 +71,56 @@ func TestFallback(t *testing.T) {
 	}
 	if got := fallback("real", "default"); got != "real" {
 		t.Errorf("fallback non-empty: %q", got)
+	}
+}
+
+func TestConvertMessagesIncludesToolEvents(t *testing.T) {
+	now := time.Now()
+	s := session.New("desktop")
+	s.Add(msg.Message{ID: "u1", Role: "user", Content: "hi", Timestamp: now})
+	s.Add(msg.Message{
+		ID: "a1", Role: "assistant", AgentID: "coder", Content: "ran ls", Timestamp: now,
+		ToolCalls:   []msg.ToolCall{{ID: "tc1", Name: "shell", Args: []byte(`{"cmd":"ls"}`)}},
+		ToolResults: []msg.ToolResult{{ToolCallID: "tc1", Content: "a b c"}},
+	})
+	views := convertMessages(s)
+	if len(views) != 2 {
+		t.Fatalf("convertMessages: want 2 views, got %d", len(views))
+	}
+	if views[0].Role != "user" || views[1].Role != "agent" {
+		t.Errorf("role mapping wrong: %q %q", views[0].Role, views[1].Role)
+	}
+	if len(views[1].Events) != 1 {
+		t.Fatalf("expected 1 tool event on assistant message, got %d", len(views[1].Events))
+	}
+	ev := views[1].Events[0]
+	if ev.ToolName != "shell" || ev.Output != "a b c" || ev.Status != "done" {
+		t.Errorf("tool event mapped wrong: %+v", ev)
+	}
+}
+
+func TestConvertMessagesMarksToolErrorEvents(t *testing.T) {
+	now := time.Now()
+	s := session.New("desktop")
+	s.Add(msg.Message{
+		Role: "assistant", AgentID: "coder", Timestamp: now,
+		ToolCalls:   []msg.ToolCall{{ID: "tc1", Name: "shell", Args: []byte(`{}`)}},
+		ToolResults: []msg.ToolResult{{ToolCallID: "tc1", Error: "boom"}},
+	})
+	views := convertMessages(s)
+	if got := views[0].Events[0].Status; got != "error" {
+		t.Errorf("error tool result must mark event status error, got %q", got)
+	}
+	if views[0].Events[0].Err != "boom" {
+		t.Errorf("error message lost: %+v", views[0].Events[0])
+	}
+}
+
+func TestIsThreadIDDistinguishesChannel(t *testing.T) {
+	if isThreadID(defaultChannelID) {
+		t.Error("default channel id must not look like a thread id")
+	}
+	if !isThreadID("20260528-desktop-abcdef12") {
+		t.Error("session-shaped id should be a thread id")
 	}
 }

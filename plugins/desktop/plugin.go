@@ -136,7 +136,11 @@ func (s *server) run(ctx context.Context) error {
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdown)
 	}()
-	fmt.Printf("desktop mock listening on http://%s\n", s.addr)
+	mode := "live"
+	if s.mock {
+		mode = "mock"
+	}
+	fmt.Printf("desktop %s listening on http://%s\n", mode, s.addr)
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}
