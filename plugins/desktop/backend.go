@@ -507,6 +507,9 @@ func toBusEvent(ev bus.Event) BusEvent {
 				out.Type = "agent.mention"
 			} else if ev.Type == bus.ToolCallFinished {
 				out.Type = "agent.mention.reply"
+				if isSchedulingAck(ev.Output) {
+					out.Output = ""
+				}
 			} else {
 				out.Type = "agent.mention.reply"
 				if out.Output == "" {
@@ -517,6 +520,11 @@ func toBusEvent(ev bus.Event) BusEvent {
 		}
 	}
 	return out
+}
+
+func isSchedulingAck(s string) bool {
+	low := strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(low, "scheduled ") || strings.Contains(low, "task_id=")
 }
 
 func mentionTarget(ev bus.Event) string {

@@ -526,8 +526,8 @@ function updateStreamEvents(
 }
 
 function prettyAgentName(id: string | undefined, agents: AgentItem[]): string {
-  if (!id) return "agent";
+  if (!id || !id.trim()) return "Unknown agent";
   const a = agents.find((x) => x.id === id);
   if (a) return a.display;
-  return id.charAt(0).toUpperCase() + id.slice(1);
+  return "Unknown agent (" + id + ")";
 }
