@@ -4,18 +4,21 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
 )
 
 type Backend struct {
-	app  *app.App
-	subs *fanout
+	app    *app.App
+	subs   *fanout
+	mu     sync.Mutex
+	cancel map[string]context.CancelFunc
 }
 
 func newBackend(a *app.App) *Backend {
-	return &Backend{app: a, subs: newFanout()}
+	return &Backend{app: a, subs: newFanout(), cancel: map[string]context.CancelFunc{}}
 }
 
 func (b *Backend) WorkspaceInfo() WorkspaceState {
@@ -71,7 +74,65 @@ func (b *Backend) GetSession(id string) (SessionDetail, error) {
 	if b.app == nil {
 		return mockChannelDetail(id), nil
 	}
-	return SessionDetail{}, nil
+	sessions, err := b.app.SessionIndex()
+	if err != nil {
+		return SessionDetail{}, err
+	}
+	var meta *struct {
+		ID, Title, Source string
+		Messages          int
+	}
+	for _, m := range sessions {
+		if m.ID == id {
+			meta = &struct {
+				ID, Title, Source string
+				Messages          int
+			}{ID: m.ID, Title: m.Title, Source: m.Source, Messages: m.Messages}
+			break
+		}
+	}
+	if meta == nil {
+		return SessionDetail{}, nil
+	}
+	return SessionDetail{
+		Item: SessionItem{
+			ID:           meta.ID,
+			Title:        fallback(meta.Title, "(untitled)"),
+			MessageCount: meta.Messages,
+		},
+	}, nil
+}
+
+func (b *Backend) SendMessage(req SendRequest) (string, error) {
+	if b.app == nil {
+		return "", nil
+	}
+	source := "desktop"
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	b.cancel[req.SessionID] = cancel
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		delete(b.cancel, req.SessionID)
+		b.mu.Unlock()
+		cancel()
+	}()
+	if req.PersonaID != "" {
+		return b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
+	}
+	return b.app.HandleInput(ctx, source, req.Input)
+}
+
+func (b *Backend) StopTurn(sessionID string) error {
+	b.mu.Lock()
+	cancel := b.cancel[sessionID]
+	delete(b.cancel, sessionID)
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
 }
 
 func (b *Backend) ListChannels() []ChannelItem {
@@ -165,21 +226,6 @@ func (b *Backend) ListCommands() []CommandItem {
 		out = append(out, CommandItem{Name: "/" + c.Name(), Summary: c.Desc()})
 	}
 	return out
-}
-
-func (b *Backend) SendMessage(req SendRequest) (string, error) {
-	if b.app == nil {
-		return "", nil
-	}
-	ctx := context.Background()
-	if req.PersonaID != "" {
-		return b.app.HandleInputAs(ctx, "desktop", req.PersonaID, req.Input)
-	}
-	return b.app.HandleInput(ctx, "desktop", req.Input)
-}
-
-func (b *Backend) StopTurn(sessionID string) error {
-	return nil
 }
 
 func (b *Backend) Subscribe() (<-chan BusEvent, func()) {

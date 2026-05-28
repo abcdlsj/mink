@@ -19,7 +19,6 @@ import (
 	pluginssearch "github.com/abcdlsj/sumi/plugins/search"
 	pluginssessioncmd "github.com/abcdlsj/sumi/plugins/sessioncmd"
 	pluginstelegram "github.com/abcdlsj/sumi/plugins/telegram"
-	pluginsweb "github.com/abcdlsj/sumi/plugins/web"
 )
 
 var (
@@ -65,7 +64,6 @@ func plugins() []app.Plugin {
 		pluginssearch.Plugin(),
 		pluginssessioncmd.Plugin(),
 		pluginstelegram.Plugin(),
-		pluginsweb.Plugin(),
 	}
 }
 

@@ -79,15 +79,17 @@ function renderTopbar() {
 
 // ========== Left pane ==========
 
-function navItem({ icon: ic, name, meta, badge, running, active, onclick }) {
+function navItem({ icon: ic, name, meta, badge, running, active, onclick, plus }) {
   const item = el("div", { class: "nav-item" + (active ? " active" : ""), onclick });
   item.appendChild(icon(ic));
-  const nameEl = el("div", { class: "nav-name", text: name });
-  item.appendChild(nameEl);
+  const nameWrap = el("div", { class: "nav-name-wrap" });
+  if (running) nameWrap.appendChild(el("span", { class: "dot running nav-running" }));
+  nameWrap.appendChild(el("span", { class: "nav-name", text: name }));
+  item.appendChild(nameWrap);
   const right = el("div", { class: "nav-meta" });
   if (badge) right.appendChild(el("span", { class: "badge", text: String(badge) }));
-  if (running) right.appendChild(el("span", { class: "dot running" }));
   if (meta) right.appendChild(el("span", { text: meta }));
+  if (plus) right.appendChild(icon("plus"));
   item.appendChild(right);
   return item;
 }
@@ -205,7 +207,10 @@ function eventBlock(ev, idx) {
 
 function messageBlock(m) {
   const wrap = el("div", { class: "msg " + (m.role === "user" ? "user" : "agent") });
-  const av = el("div", { class: "msg-avatar", text: initials(m.role === "user" ? "You" : (m.author_name || "AI")) });
+  const av = el("div", { class: "msg-avatar" });
+  const seed = m.role === "user" ? "user" : (m.author_id || m.author_name || "agent");
+  const kind = m.role === "user" ? "user" : "agent";
+  av.innerHTML = identiconSVG(seed, kind);
   wrap.appendChild(av);
 
   const body = el("div");
@@ -290,7 +295,9 @@ function insSection(label, body, hint) {
 
 function participantRow(p) {
   const w = el("div", { class: "participant" + (p.role === "user" ? " user" : "") });
-  w.appendChild(el("div", { class: "av", text: initials(p.display) }));
+  const av = el("div", { class: "av" });
+  av.innerHTML = identiconSVG(p.id || p.display, p.role === "user" ? "user" : "agent");
+  w.appendChild(av);
   const name = el("div");
   name.appendChild(el("span", { class: "name", text: p.display }));
   if (p.role) name.appendChild(el("span", { class: "role", text: p.role }));
@@ -362,7 +369,7 @@ function renderRight() {
     }
 
     right.appendChild(modelSec);
-    right.appendChild(insSection("Execution", "Local", "read-only"));
+    right.appendChild(insSection("Execution", "Local", "Configured in settings"));
     right.appendChild(insSection("Tools", toolsList));
   } else if (view.mode === "thread" && data.detail) {
     const item = data.detail.item;
@@ -392,9 +399,24 @@ function renderRight() {
   } else if (view.mode === "agent") {
     const ag = data.agents.find(a => a.id === view.activeAgent);
     right.appendChild(insSection("Agent", ag?.display || "—"));
+    right.appendChild(insSection("Status", ag?.status === "running" ? "running" : "idle"));
     if (ag?.role) right.appendChild(insSection("Role", ag.role));
+
+    const involvedThreads = data.threads.slice(0, 4);
+    if (involvedThreads.length) {
+      const tlist = el("div");
+      involvedThreads.forEach(t => {
+        const ch = data.channels.find(c => c.id === t.channel_id);
+        const card = el("div", { class: "thread-card", onclick: () => openThread(t.id) });
+        card.appendChild(el("div", { class: "t-title", text: t.title }));
+        card.appendChild(el("div", { class: "t-meta", text: (ch ? "#" + ch.name + " · " : "") + relTime(t.updated_at) + (t.has_running ? " · running" : "") }));
+        tlist.appendChild(card);
+      });
+      right.appendChild(insSection("Recent Threads", tlist));
+    }
+
     right.appendChild(modelSec);
-    right.appendChild(insSection("Execution", "Local", "read-only"));
+    right.appendChild(insSection("Execution", "Local", "Configured in settings"));
     right.appendChild(insSection("Tools", toolsList));
   }
 
@@ -431,11 +453,28 @@ async function openAgent(id) {
   view.activeAgent = id;
   view.activeChannel = null;
   view.activeThread = null;
-  data.detail = { item: { id, title: id, running: false }, messages: [] };
+  const ag = data.agents.find(a => a.id === id);
+  data.detail = {
+    item: { id, title: "@" + (ag?.display || id), running: ag?.status === "running" },
+    messages: [],
+    summary: ag?.role || "",
+  };
   data.participants = null;
-  $("#input").placeholder = "Message @" + id + "...";
+  $("#input").placeholder = "Message @" + (ag?.display || id) + "...";
   renderChannels(); renderAgents(); renderThreads();
-  renderConvHead(); renderMessages(); renderRight();
+  renderConvHead(); renderAgentBody(id); renderRight();
+}
+
+function renderAgentBody(id) {
+  const m = $("#messages");
+  m.innerHTML = "";
+  const wrap = el("div", { class: "agent-empty" });
+  const ag = data.agents.find(a => a.id === id);
+  wrap.appendChild(el("div", { class: "ae-headline", text: "Direct conversation with @" + (ag?.display || id) }));
+  if (ag?.role) wrap.appendChild(el("div", { class: "ae-sub", text: ag.role }));
+  wrap.appendChild(el("div", { class: "ae-hint", text: "Send a message below to start. Threads and channels involving this agent appear on the right." }));
+  m.appendChild(wrap);
+  injectIcons(m);
 }
 
 // ========== Composer ==========
@@ -459,11 +498,11 @@ function fuzzy(text, q) { return !q || text.toLowerCase().includes(q.toLowerCase
 function buildPaletteRows(query) {
   let q = query.trim();
   let scope = null;
-  if (q.startsWith("#")) { scope = "channel"; q = q.slice(1); }
-  else if (q.startsWith("thread ")) { scope = "thread"; q = q.slice(7); }
+  if (q === "thread" || q.startsWith("thread ")) { scope = "thread"; q = q.replace(/^thread ?/, ""); }
+  else if (q === "model" || q.startsWith("model ")) { scope = "model"; q = q.replace(/^model ?/, ""); }
+  else if (q.startsWith("#")) { scope = "channel"; q = q.slice(1); }
   else if (q.startsWith("@")) { scope = "agent"; q = q.slice(1); }
   else if (q.startsWith("/")) { scope = "command"; q = q.slice(1); }
-  else if (q.startsWith("model ")) { scope = "model"; q = q.slice(6); }
   const rows = [];
   const add = (group, items, type, mapper) => {
     if (!items.length) return;
