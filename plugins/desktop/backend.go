@@ -300,7 +300,68 @@ func (b *Backend) replayDelegateTask(taskID, agentID, agentDisplay, mentionArgs 
 			block.Err = e.Err
 		}
 	}
+	block.Steps = b.subtaskSteps(taskID)
 	return &block
+}
+
+// subtaskSteps walks the sub-session that ran the delegate task and
+// returns a short ordered summary suitable for the first-level expand.
+// Iris's spec asks for at most 3-5 key steps; the full timeline is
+// kept inside SubtaskFull for an opt-in second-level expand.
+func (b *Backend) subtaskSteps(taskID string) []DelegateStep {
+	source := "subtask:" + taskID
+	sessions, err := b.app.ListSessionsBySource(source)
+	if err != nil || len(sessions) == 0 {
+		return nil
+	}
+	sess := sessions[0]
+	results := map[string]msg.ToolResult{}
+	for _, m := range sess.Messages {
+		for _, r := range m.ToolResults {
+			results[r.ToolCallID] = r
+		}
+	}
+	steps := make([]DelegateStep, 0, 5)
+	for _, m := range sess.Messages {
+		if m.Role == "tool" {
+			continue
+		}
+		for _, c := range m.ToolCalls {
+			step := DelegateStep{
+				Tool:   c.Name,
+				Status: "done",
+				Time:   m.Timestamp,
+			}
+			if r, ok := results[c.ID]; ok {
+				if r.Error != "" {
+					step.Status = "error"
+					step.Err = oneLine(r.Error)
+				} else {
+					step.Output = oneLine(r.Content)
+				}
+			}
+			steps = append(steps, step)
+		}
+	}
+	if len(steps) > 5 {
+		// keep first 2 and last 3 so the head and tail of the run are visible
+		head := steps[:2]
+		tail := steps[len(steps)-3:]
+		steps = append(append([]DelegateStep{}, head...), tail...)
+	}
+	return steps
+}
+
+func oneLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len([]rune(s)) > 120 {
+		r := []rune(s)
+		s = string(r[:120]) + "…"
+	}
+	return s
 }
 
 func parseTaskID(s string) string {

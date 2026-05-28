@@ -14,7 +14,13 @@ import (
 var errQueueFull = errors.New("delegate queue full, retry later")
 
 func (m *manager) spawn(ctx context.Context, source, runtime, input string, share bool) (string, error) {
-	child := "subtask:" + newID()
+	return m.spawnWithChild(ctx, source, runtime, input, share, "subtask:"+newID())
+}
+
+// spawnWithChild lets callers (like runDelegation) pin a deterministic
+// child source so the resulting sub-session can be correlated back to
+// the originating task by the desktop UI / replay layer.
+func (m *manager) spawnWithChild(ctx context.Context, source, runtime, input string, share bool, child string) (string, error) {
 	if share {
 		if err := m.clone(source, child); err != nil {
 			return "", err
@@ -64,7 +70,8 @@ func (m *manager) runDelegation(t *task, runtime, input string, share, direct bo
 	defer func() { <-m.sem }()
 
 	m.publishTask(bus.DelegateStarted, t.source, t.id, strings.TrimSpace(input), "")
-	out, err := m.spawn(t.ctx, t.source, runtime, input, share)
+	child := "subtask:" + t.id
+	out, err := m.spawnWithChild(t.ctx, t.source, runtime, input, share, child)
 	m.finishTask(t, out, err)
 	m.publishTask(taskType(t.ctx, err), t.source, t.id, out, errString(err))
 	if direct {

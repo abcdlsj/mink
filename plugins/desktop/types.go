@@ -37,19 +37,28 @@ type MessageView struct {
 }
 
 type EventBlock struct {
-	Kind         string    `json:"kind"`
-	ToolName     string    `json:"tool_name,omitempty"`
-	Args         string    `json:"args,omitempty"`
-	Output       string    `json:"output,omitempty"`
-	Status       string    `json:"status,omitempty"`
-	Err          string    `json:"err,omitempty"`
-	DurationMs   int64     `json:"duration_ms,omitempty"`
-	Time         time.Time `json:"time"`
-	AgentID      string    `json:"agent_id,omitempty"`
-	AgentDisplay string    `json:"agent_display,omitempty"`
-	Task         string    `json:"task,omitempty"`
-	TaskID       string    `json:"task_id,omitempty"`
-	Reply        string    `json:"reply,omitempty"`
+	Kind         string         `json:"kind"`
+	ToolName     string         `json:"tool_name,omitempty"`
+	Args         string         `json:"args,omitempty"`
+	Output       string         `json:"output,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	Err          string         `json:"err,omitempty"`
+	DurationMs   int64          `json:"duration_ms,omitempty"`
+	Time         time.Time      `json:"time"`
+	AgentID      string         `json:"agent_id,omitempty"`
+	AgentDisplay string         `json:"agent_display,omitempty"`
+	Task         string         `json:"task,omitempty"`
+	TaskID       string         `json:"task_id,omitempty"`
+	Reply        string         `json:"reply,omitempty"`
+	Steps        []DelegateStep `json:"steps,omitempty"`
+}
+
+type DelegateStep struct {
+	Tool   string    `json:"tool"`
+	Status string    `json:"status"`
+	Output string    `json:"output,omitempty"`
+	Err    string    `json:"err,omitempty"`
+	Time   time.Time `json:"time"`
 }
 
 type TokenUsage struct {

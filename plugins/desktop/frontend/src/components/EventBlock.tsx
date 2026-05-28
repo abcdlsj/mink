@@ -168,7 +168,7 @@ function DelegateLine({ ev }: EventBlockProps) {
     status === "running" || status === "pending" ? "text-running" :
     "text-text-faint";
 
-  const hasDetails = !!(ev.task || ev.output || ev.err);
+  const hasDetails = !!(ev.task || ev.output || ev.err || (ev.steps && ev.steps.length));
   const detailLabel = status === "done" ? "view result" : status === "error" ? "view details" : "view details";
 
   return (
@@ -196,13 +196,19 @@ function DelegateLine({ ev }: EventBlockProps) {
       </div>
       {open && hasDetails && (
         <div className="mt-1.5 ml-4 pl-3 border-l-2 border-border-soft text-[12.5px] text-text space-y-2.5">
+          {ev.err && (
+            <div>
+              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-error mb-1">error</div>
+              <div className="text-error whitespace-pre-wrap leading-[1.55]">{ev.err}</div>
+            </div>
+          )}
           {ev.task && (
             <div>
               <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">task</div>
               <div className="text-text-muted whitespace-pre-wrap leading-[1.55]">{ev.task}</div>
             </div>
           )}
-          {ev.output && (
+          {ev.output && !ev.err && (
             <div>
               <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">result</div>
               <div className="text-text whitespace-pre-wrap leading-[1.6]">
@@ -210,10 +216,28 @@ function DelegateLine({ ev }: EventBlockProps) {
               </div>
             </div>
           )}
-          {ev.err && (
+          {ev.steps && ev.steps.length > 0 && (
             <div>
-              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-error mb-1">error</div>
-              <div className="text-error whitespace-pre-wrap leading-[1.55]">{ev.err}</div>
+              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">key steps</div>
+              <ol className="space-y-1">
+                {ev.steps.map((s, i) => (
+                  <li key={i} className="flex items-baseline gap-1.5 text-[12px] leading-[1.5]">
+                    <span className={cn(
+                      "font-display text-[10px] tabular-nums shrink-0",
+                      s.status === "error" ? "text-error" : "text-text-whisper",
+                    )}>
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="font-mono text-[11.5px] text-text-muted shrink-0">{s.tool}</span>
+                    <span className={cn(
+                      "truncate",
+                      s.status === "error" ? "text-error" : "text-text-faint",
+                    )}>
+                      {s.err || s.output || "—"}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
           <div className="text-[10.5px] text-text-whisper font-mono pt-0.5">

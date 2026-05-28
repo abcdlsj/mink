@@ -50,6 +50,14 @@ export interface ToolResult {
 export type EventKind = "tool_call" | "tool_result" | "reasoning" | "service_notice" | "mention" | "delegate";
 export type EventStatus = "running" | "done" | "error" | "idle" | "pending";
 
+export interface DelegateStep {
+  tool: string;
+  status: EventStatus;
+  output?: string;
+  err?: string;
+  time: string;
+}
+
 export interface EventBlock {
   kind: EventKind;
   tool_name?: string;
@@ -64,6 +72,7 @@ export interface EventBlock {
   task?: string;
   task_id?: string;
   reply?: string;
+  steps?: DelegateStep[];
 }
 
 export interface MessageView {
