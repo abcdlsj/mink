@@ -60,10 +60,13 @@ func TestMockThreadDetailMessagesHaveAuthors(t *testing.T) {
 func TestMockParticipantsScopedByView(t *testing.T) {
 	channelOnly := mockParticipants("ch-coding", "")
 	threadView := mockParticipants("ch-coding", "th-fallback")
-	if len(threadView.ActiveRuns) == 0 {
-		t.Fatal("thread view should expose active runs")
+	if len(threadView.RecentRuns) == 0 {
+		t.Fatal("thread view should expose recent runs")
 	}
 	if len(channelOnly.ActiveRuns) != 0 {
 		t.Errorf("channel view active runs should be empty in mock, got %d", len(channelOnly.ActiveRuns))
+	}
+	if len(threadView.ActiveRuns) != 0 {
+		t.Errorf("thread view active runs should be empty in clean fixture, got %d", len(threadView.ActiveRuns))
 	}
 }

@@ -61,7 +61,7 @@ func mockState() WorkspaceState {
 func mockChannels() []ChannelItem {
 	now := time.Now()
 	return []ChannelItem{
-		{ID: "ch-research", Name: "research", Topic: "Investigations and prior art", Agents: []string{"researcher", "writer"}, UpdatedAt: now.Add(-3 * time.Minute), UnreadCount: 2, HasRunning: true},
+		{ID: "ch-research", Name: "research", Topic: "Investigations and prior art", Agents: []string{"researcher", "writer"}, UpdatedAt: now.Add(-3 * time.Minute), UnreadCount: 2},
 		{ID: "ch-coding", Name: "coding", Topic: "Implementation work", Agents: []string{"coder", "reviewer"}, UpdatedAt: now.Add(-25 * time.Minute), UnreadCount: 0},
 		{ID: "ch-general", Name: "general", Topic: "Default workspace channel", Agents: []string{"coder", "writer"}, UpdatedAt: now.Add(-2 * time.Hour), UnreadCount: 0},
 	}
@@ -70,7 +70,7 @@ func mockChannels() []ChannelItem {
 func mockThreads() []ThreadItem {
 	now := time.Now()
 	return []ThreadItem{
-		{ID: "th-fallback", ChannelID: "ch-coding", Title: "Provider fallback path", UpdatedAt: now.Add(-2 * time.Minute), EventCount: 12, HasRunning: true},
+		{ID: "th-fallback", ChannelID: "ch-coding", Title: "Provider fallback path", UpdatedAt: now.Add(-2 * time.Minute), EventCount: 12},
 		{ID: "th-design", ChannelID: "ch-research", Title: "Design review for runlog", UpdatedAt: now.Add(-1 * time.Hour), EventCount: 6},
 		{ID: "th-tools", ChannelID: "ch-coding", Title: "Tool registry refactor", UpdatedAt: now.Add(-3 * time.Hour), EventCount: 4},
 	}
@@ -78,7 +78,7 @@ func mockThreads() []ThreadItem {
 
 func mockAgents() []AgentItem {
 	return []AgentItem{
-		{ID: "coder", Display: "Coder", Role: "Implementation", Status: "running"},
+		{ID: "coder", Display: "Coder", Role: "Implementation", Status: "idle"},
 		{ID: "reviewer", Display: "Reviewer", Role: "Code review", Status: "idle"},
 		{ID: "researcher", Display: "Researcher", Role: "Investigation", Status: "idle"},
 		{ID: "writer", Display: "Writer", Role: "Drafting", Status: "idle"},
@@ -130,7 +130,7 @@ func mockThreadDetail(id string) SessionDetail {
 			UpdatedAt:    now.Add(-2 * time.Minute),
 			MessageCount: 4,
 			EventCount:   12,
-			Running:      true,
+			Running:      false,
 		},
 		Summary: "Thread in #coding · started by Coder",
 		Messages: []MessageView{
@@ -148,7 +148,7 @@ func mockThreadDetail(id string) SessionDetail {
 			},
 			{ID: "t4", Role: "agent", AuthorID: "reviewer", AuthorName: "Reviewer", Content: "Delegated to me: check the recent commits touching llm/.", Time: now.Add(-30 * time.Second),
 				Events: []EventBlock{
-					{Kind: "tool_call", ToolName: "list_files", Args: `{"path":"llm"}`, Status: "running", Time: now.Add(-10 * time.Second)},
+					{Kind: "tool_call", ToolName: "list_files", Args: `{"path":"llm"}`, Output: "anthropic.go, openai.go, openrouter.go, retry_transport.go", Status: "done", DurationMs: 320, Time: now.Add(-25 * time.Second)},
 				},
 			},
 		},
@@ -160,12 +160,8 @@ func mockParticipants(channelID, threadID string) ParticipantsView {
 	if threadID != "" {
 		return ParticipantsView{
 			Agents: []AgentItem{
-				{ID: "coder", Display: "Coder", Role: "Implementation", Status: "running"},
-				{ID: "reviewer", Display: "Reviewer", Role: "Code review", Status: "running"},
-			},
-			RunningAgent: "coder",
-			ActiveRuns: []AgentRun{
-				{ID: "r1", AgentID: "reviewer", Title: "Scanning recent commits", Status: "running", ThreadID: threadID, Time: now.Add(-30 * time.Second)},
+				{ID: "coder", Display: "Coder", Role: "Implementation", Status: "idle"},
+				{ID: "reviewer", Display: "Reviewer", Role: "Code review", Status: "idle"},
 			},
 			RecentRuns: []AgentRun{
 				{ID: "r0", AgentID: "coder", Title: "list_files llm/", Status: "done", ThreadID: threadID, Time: now.Add(-4 * time.Minute)},

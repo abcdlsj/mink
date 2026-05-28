@@ -9,7 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-panel-2 border border-border text-text hover:bg-panel-3 hover:border-border-strong",
-        primary: "bg-accent border border-accent text-white hover:brightness-95 disabled:bg-panel-2 disabled:border-border disabled:text-text-faint",
+        primary: "bg-accent border border-accent text-white hover:brightness-95 disabled:bg-panel-3 disabled:border-border disabled:text-text-faint disabled:opacity-100",
         outline: "bg-transparent border border-border text-text-muted hover:text-text hover:border-border-strong hover:bg-panel-2",
         ghost: "bg-transparent border border-transparent text-text-muted hover:text-text hover:bg-panel-2",
         danger: "bg-transparent border border-border text-text-muted hover:text-error hover:border-error",

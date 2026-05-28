@@ -4,6 +4,7 @@ import { TopBar } from "@/panes/TopBar";
 import { LeftPane } from "@/panes/LeftPane";
 import { CenterPane } from "@/panes/CenterPane";
 import { RightPane } from "@/panes/RightPane";
+import { CommandPalette } from "@/components/CommandPalette";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -61,6 +62,7 @@ export default function App() {
       <div style={{ gridArea: "right" }} className="min-h-0">
         <RightPane />
       </div>
+      <CommandPalette />
     </div>
   );
 }
