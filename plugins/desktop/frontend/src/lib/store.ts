@@ -180,6 +180,7 @@ export const useStore = create<State>((set, get) => ({
       content: input,
       time: new Date().toISOString(),
     };
+    const activeAg = get().activeAgent;
     set({
       sending: true,
       detail: {
@@ -192,6 +193,9 @@ export const useStore = create<State>((set, get) => ({
       ),
       threads: get().threads.map((t) =>
         t.id === get().activeThread ? { ...t, has_running: true } : t,
+      ),
+      agents: get().agents.map((a) =>
+        a.id === activeAg ? { ...a, status: "running" } : a,
       ),
     });
     try {
@@ -219,6 +223,9 @@ export const useStore = create<State>((set, get) => ({
       ),
       threads: get().threads.map((t) =>
         t.id === get().activeThread ? { ...t, has_running: false } : t,
+      ),
+      agents: get().agents.map((a) =>
+        a.id === get().activeAgent ? { ...a, status: "idle" } : a,
       ),
     });
   },
@@ -366,6 +373,9 @@ export const useStore = create<State>((set, get) => ({
           ),
           threads: get().threads.map((t) =>
             t.id === get().activeThread ? { ...t, has_running: false } : t,
+          ),
+          agents: get().agents.map((a) =>
+            a.id === get().activeAgent ? { ...a, status: "idle" } : a,
           ),
         });
         return;

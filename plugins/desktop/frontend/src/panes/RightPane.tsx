@@ -154,14 +154,22 @@ export function RightPane() {
     );
   } else if (view === "agent") {
     const ag = agents.find((a) => a.id === activeAgent);
+    const agentRunning = !!streaming || detail.item.running || ag?.status === "running";
     main = (
       <>
         <Section label="Status">
-          <div className="text-[13px] text-text">{ag?.status === "running" ? "running" : "idle"}</div>
+          <div className="text-[13px] text-text">{agentRunning ? "running" : "idle"}</div>
         </Section>
         {ag?.role && (
           <Section label="Role">
             <div className="text-[13px] text-text">{ag.role}</div>
+          </Section>
+        )}
+        {runtimeRuns.length > 0 && (
+          <Section label="Active Run">
+            {runtimeRuns.map((r) => (
+              <RunCard key={r.id} run={r} />
+            ))}
           </Section>
         )}
         {threads.length > 0 && (
