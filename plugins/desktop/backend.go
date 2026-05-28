@@ -235,6 +235,39 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	return ParticipantsView{Agents: agents}
 }
 
+func (b *Backend) GetAgentDM(agentID string) SessionDetail {
+	if b.app == nil {
+		return SessionDetail{}
+	}
+	source := "desktop:agent:" + agentID
+	sessions, err := b.app.ListSessionsBySource(source)
+	if err != nil || len(sessions) == 0 {
+		return SessionDetail{
+			Item: SessionItem{
+				ID:        source,
+				Title:     "@" + agentID,
+				UpdatedAt: time.Now(),
+			},
+			Messages: []MessageView{},
+		}
+	}
+	latest := sessions[0]
+	for _, s := range sessions {
+		if s.UpdatedAt.After(latest.UpdatedAt) {
+			latest = s
+		}
+	}
+	return SessionDetail{
+		Item: SessionItem{
+			ID:           source,
+			Title:        "@" + agentID,
+			UpdatedAt:    latest.UpdatedAt,
+			MessageCount: len(latest.Messages),
+		},
+		Messages: convertMessages(latest),
+	}
+}
+
 func (b *Backend) ListPersonas() []PersonaItem {
 	if b.app == nil {
 		return mockPersonas()
@@ -318,6 +351,9 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	})
 	mux.HandleFunc("/api/participants", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetParticipants(req.URL.Query().Get("channel"), req.URL.Query().Get("thread")))
+	})
+	mux.HandleFunc("/api/agent-dm", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetAgentDM(req.URL.Query().Get("agent")))
 	})
 	mux.HandleFunc("/api/events", b.handleEvents)
 	mux.HandleFunc("/api/send", func(rw http.ResponseWriter, req *http.Request) {

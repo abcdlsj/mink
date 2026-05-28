@@ -147,21 +147,28 @@ export const useStore = create<State>((set, get) => ({
 
   async openAgent(id) {
     const ag = get().agents.find((a) => a.id === id);
+    let detail: SessionDetail;
+    try {
+      detail = await api.agentDM(id);
+    } catch {
+      detail = {
+        item: {
+          id: "desktop:agent:" + id,
+          title: "@" + (ag?.display || id),
+          updated_at: new Date().toISOString(),
+        },
+        summary: ag?.role || "",
+        messages: [],
+      };
+    }
+    if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
+    if (!detail.summary && ag?.role) detail.summary = ag.role;
     set({
       view: "agent",
       activeAgent: id,
       activeChannel: null,
       activeThread: null,
-      detail: {
-        item: {
-          id,
-          title: "@" + (ag?.display || id),
-          updated_at: new Date().toISOString(),
-          running: ag?.status === "running",
-        },
-        summary: ag?.role || "",
-        messages: [],
-      },
+      detail,
       participants: null,
       streaming: null,
     });

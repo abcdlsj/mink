@@ -24,6 +24,8 @@ export const api = {
   agents: () => j<AgentItem[]>(fetch("/api/agents")),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
   thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
+  agentDM: (agentID: string) =>
+    j<SessionDetail>(fetch("/api/agent-dm?agent=" + encodeURIComponent(agentID))),
   participants: (channelID: string, threadID: string) => {
     const q = new URLSearchParams();
     if (channelID) q.set("channel", channelID);
