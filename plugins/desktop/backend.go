@@ -244,7 +244,10 @@ func (b *Backend) attachDelegateOutcomes(messages []MessageView) []MessageView {
 			if ev.Kind != "mention" {
 				continue
 			}
-			taskID := parseTaskID(ev.Output)
+			taskID := ev.TaskID
+			if taskID == "" {
+				taskID = parseTaskID(ev.Output)
+			}
 			if taskID == "" && ev.Reply != "" {
 				taskID = parseTaskID(ev.Reply)
 			}
@@ -665,8 +668,17 @@ func convertMessages(s *session.Session) []MessageView {
 		return nil
 	}
 	defaultAgent := personaFromSource(s.Source)
+	resultsByID := map[string]msg.ToolResult{}
+	for _, m := range s.Messages {
+		for _, r := range m.ToolResults {
+			resultsByID[r.ToolCallID] = r
+		}
+	}
 	out := make([]MessageView, 0, len(s.Messages))
 	for _, m := range s.Messages {
+		if m.Role == "tool" {
+			continue
+		}
 		authorID := m.AgentID
 		if authorID == "" && roleFor(m) != "user" && defaultAgent != "" {
 			authorID = defaultAgent
@@ -680,8 +692,66 @@ func convertMessages(s *session.Session) []MessageView {
 			Reasoning:  m.Reasoning,
 			Time:       m.Timestamp,
 		}
-		view.Events = collectEvents(m)
+		view.Events = collectEventsWithResults(m, resultsByID)
 		out = append(out, view)
+	}
+	return out
+}
+
+func collectEvents(m msg.Message) []EventBlock {
+	results := map[string]msg.ToolResult{}
+	for _, r := range m.ToolResults {
+		results[r.ToolCallID] = r
+	}
+	return collectEventsWithResults(m, results)
+}
+
+func collectEventsWithResults(m msg.Message, results map[string]msg.ToolResult) []EventBlock {
+	if len(m.ToolCalls) == 0 {
+		return nil
+	}
+	out := make([]EventBlock, 0, len(m.ToolCalls))
+	for _, c := range m.ToolCalls {
+		if isCollabTool(c.Name) {
+			ev := EventBlock{
+				Kind:         "mention",
+				ToolName:     c.Name,
+				Args:         string(c.Args),
+				Status:       "running",
+				Time:         m.Timestamp,
+				AgentID:      mentionTargetFromArgs(c.Args, c.Name),
+				AgentDisplay: titleCase(mentionTargetFromArgs(c.Args, c.Name)),
+			}
+			if r, ok := results[c.ID]; ok {
+				ev.Status = "done"
+				if r.Error != "" {
+					ev.Status = "error"
+					ev.Err = r.Error
+				}
+				if isSchedulingAck(r.Content) {
+					ev.TaskID = parseTaskID(r.Content)
+				} else {
+					ev.Reply = r.Content
+				}
+			}
+			out = append(out, ev)
+			continue
+		}
+		ev := EventBlock{
+			Kind:     "tool_call",
+			ToolName: c.Name,
+			Args:     string(c.Args),
+			Status:   "done",
+			Time:     m.Timestamp,
+		}
+		if r, ok := results[c.ID]; ok {
+			ev.Output = r.Content
+			if r.Error != "" {
+				ev.Err = r.Error
+				ev.Status = "error"
+			}
+		}
+		out = append(out, ev)
 	}
 	return out
 }
@@ -722,58 +792,6 @@ func roleFor(m msg.Message) string {
 		return "system"
 	}
 	return m.Role
-}
-
-func collectEvents(m msg.Message) []EventBlock {
-	if len(m.ToolCalls) == 0 && len(m.ToolResults) == 0 {
-		return nil
-	}
-	out := make([]EventBlock, 0, len(m.ToolCalls)+len(m.ToolResults))
-	results := map[string]msg.ToolResult{}
-	for _, r := range m.ToolResults {
-		results[r.ToolCallID] = r
-	}
-	for _, c := range m.ToolCalls {
-		if isCollabTool(c.Name) {
-			ev := EventBlock{
-				Kind:        "mention",
-				ToolName:    c.Name,
-				Args:        string(c.Args),
-				Status:      "running",
-				Time:        m.Timestamp,
-				AgentID:     mentionTargetFromArgs(c.Args, c.Name),
-				AgentDisplay: titleCase(mentionTargetFromArgs(c.Args, c.Name)),
-			}
-			if r, ok := results[c.ID]; ok {
-				ev.Status = "done"
-				if r.Error != "" {
-					ev.Status = "error"
-					ev.Err = r.Error
-				}
-				if !isSchedulingAck(r.Content) {
-					ev.Reply = r.Content
-				}
-			}
-			out = append(out, ev)
-			continue
-		}
-		ev := EventBlock{
-			Kind:     "tool_call",
-			ToolName: c.Name,
-			Args:     string(c.Args),
-			Status:   "done",
-			Time:     m.Timestamp,
-		}
-		if r, ok := results[c.ID]; ok {
-			ev.Output = r.Content
-			if r.Error != "" {
-				ev.Err = r.Error
-				ev.Status = "error"
-			}
-		}
-		out = append(out, ev)
-	}
-	return out
 }
 
 func isCollabTool(name string) bool {
