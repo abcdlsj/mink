@@ -237,3 +237,26 @@ func TestParseTaskID(t *testing.T) {
 		}
 	}
 }
+
+func TestHumanizeStep(t *testing.T) {
+	ws := "/Users/me/repo"
+	cases := []struct {
+		tool string
+		args string
+		want string
+	}{
+		{"read", `{"path":"/Users/me/repo/llm/anthropic.go"}`, "read llm/anthropic.go"},
+		{"list_files", `{"path":"/Users/me/repo/plugins/collab"}`, "listed plugins/collab/"},
+		{"bash", `{"cmd":"ls /Users/me/repo/cmd"}`, "ran ls cmd"},
+		{"bash", `{"cmd":"go test ./..."}`, "ran go test ./..."},
+		{"grep", `{"query":"retry behaviour"}`, "searched for retry behaviour"},
+		{"read", `{"path":"/etc/passwd"}`, "read passwd"},
+		{"unknown_tool", `{}`, "unknown_tool"},
+	}
+	for _, c := range cases {
+		got := humanizeStep(c.tool, c.args, ws)
+		if got != c.want {
+			t.Errorf("humanizeStep(%s, %s) = %q, want %q", c.tool, c.args, got, c.want)
+		}
+	}
+}

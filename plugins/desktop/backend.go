@@ -337,6 +337,7 @@ func (b *Backend) subtaskSteps(taskID, outerStatus string, queuedAt, finishedAt 
 			results[r.ToolCallID] = r
 		}
 	}
+	workspace := strings.TrimRight(b.app.Config().Workspace, "/")
 	steps := make([]DelegateStep, 0, 8)
 	for _, m := range sess.Messages {
 		if m.Role == "tool" {
@@ -357,7 +358,7 @@ func (b *Backend) subtaskSteps(taskID, outerStatus string, queuedAt, finishedAt 
 					step.Err = oneLine(r.Error)
 				}
 			}
-			step.Output = humanizeStep(c.Name, string(c.Args), results[c.ID])
+			step.Output = humanizeStep(c.Name, string(c.Args), workspace)
 			steps = append(steps, step)
 		}
 	}
@@ -397,11 +398,10 @@ func dropExploratoryErrors(steps []DelegateStep) []DelegateStep {
 }
 
 // humanizeStep turns a tool call into a one-line action summary the
-// reader can scan without reading raw output. `read /a/b/c.go` becomes
-// "read c.go", `bash {cmd:"go test ./..."}` becomes "ran go test", etc.
-func humanizeStep(tool, rawArgs string, r msg.ToolResult) string {
+// reader can scan without reading raw output.
+func humanizeStep(tool, rawArgs, workspace string) string {
 	verb := stepVerb(tool)
-	target := stepTarget(tool, rawArgs, r)
+	target := stepTarget(tool, rawArgs, workspace)
 	if target == "" {
 		return verb
 	}
@@ -427,7 +427,7 @@ func stepVerb(tool string) string {
 	}
 }
 
-func stepTarget(tool, rawArgs string, r msg.ToolResult) string {
+func stepTarget(tool, rawArgs, workspace string) string {
 	if rawArgs == "" {
 		return ""
 	}
@@ -444,29 +444,49 @@ func stepTarget(tool, rawArgs string, r msg.ToolResult) string {
 	switch strings.ToLower(tool) {
 	case "read", "write", "edit", "patch":
 		if p := strings.TrimSpace(args.Path); p != "" {
-			return basenameOf(p)
+			return projectRel(p, workspace)
 		}
 		if p := strings.TrimSpace(args.File); p != "" {
-			return basenameOf(p)
+			return projectRel(p, workspace)
 		}
 	case "list_files", "ls":
 		if p := strings.TrimSpace(args.Path); p != "" {
-			return strings.TrimRight(basenameOf(p), "/") + "/"
+			return strings.TrimSuffix(projectRel(p, workspace), "/") + "/"
 		}
 		if p := strings.TrimSpace(args.Dir); p != "" {
-			return strings.TrimRight(basenameOf(p), "/") + "/"
+			return strings.TrimSuffix(projectRel(p, workspace), "/") + "/"
 		}
 	case "bash", "shell", "exec":
 		if c := strings.TrimSpace(args.Cmd); c != "" {
-			return shortCmd(c)
+			return shortCmd(c, workspace)
 		}
 	case "grep", "search":
 		if q := strings.TrimSpace(args.Q); q != "" {
 			return "for " + clip(q, 40)
 		}
 	}
-	_ = r
 	return ""
+}
+
+// projectRel rewrites an absolute path under the workspace into a
+// relative-from-workspace form. Paths outside the workspace fall back
+// to the basename so the rail never shows a full machine-local path.
+func projectRel(p, workspace string) string {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return ""
+	}
+	if workspace != "" && strings.HasPrefix(p, workspace+"/") {
+		rel := strings.TrimPrefix(p, workspace+"/")
+		return clip(rel, 60)
+	}
+	if workspace != "" && p == workspace {
+		return "./"
+	}
+	if !strings.HasPrefix(p, "/") {
+		return clip(p, 60)
+	}
+	return basenameOf(p)
 }
 
 func basenameOf(p string) string {
@@ -477,8 +497,15 @@ func basenameOf(p string) string {
 	return p
 }
 
-func shortCmd(c string) string {
+// shortCmd reduces a shell command to something readable: strips a
+// leading absolute workspace path and clips to ~60 chars while
+// preserving the command head so the verb is visible.
+func shortCmd(c, workspace string) string {
 	c = strings.TrimSpace(c)
+	if workspace != "" {
+		c = strings.ReplaceAll(c, workspace+"/", "")
+		c = strings.ReplaceAll(c, workspace, ".")
+	}
 	if i := strings.IndexAny(c, " \t"); i > 0 {
 		head := c[:i]
 		rest := strings.TrimSpace(c[i:])
