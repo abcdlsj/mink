@@ -21,7 +21,7 @@ BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -X '$(MAIN).Version=$(VERSION)' -X '$(MAIN).Commit=$(COMMIT)' -X '$(MAIN).BuildTime=$(BUILD_TIME)'
 
-.PHONY: help build install version clean desktop desktop-deps
+.PHONY: help build install version clean desktop desktop-deps desktop-app
 
 help:
 	@printf "%s\n" \
@@ -29,6 +29,7 @@ help:
 		"make install       Build and overwrite $(INSTALL_BIN)" \
 		"make desktop       Build the desktop frontend then ./bin/sumi" \
 		"make desktop-deps  Install desktop frontend npm deps" \
+		"make desktop-app   Build the macOS Sumi.app via Wails" \
 		"make version       Print build metadata values" \
 		"make clean         Remove local build artifacts"
 
@@ -43,6 +44,9 @@ desktop: desktop-deps
 	cd plugins/desktop/frontend && npm run build
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
+
+desktop-app:
+	cd cmd/sumi-desktop && wails build -skipbindings
 
 install:
 	@mkdir -p $(INSTALL_DIR)

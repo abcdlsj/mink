@@ -6,7 +6,6 @@ import { Identicon } from "@/components/Identicon";
 import { EventBlock } from "@/components/EventBlock";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
-import type { EventBlock as EventBlockData } from "@/lib/types";
 
 export function CenterPane() {
   const view = useStore((s) => s.view);
@@ -159,11 +158,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
   const seed = m.role === "user" ? "user" : m.author_id || m.author_name || "agent";
   const kind = m.role === "user" ? "user" : "agent";
 
-  const events: EventBlockData[] = [];
-  if (m.reasoning) {
-    events.push({ kind: "reasoning", status: "done", output: m.reasoning, time: m.time });
-  }
-  if (m.events) events.push(...m.events);
+  const events = m.events || [];
 
   return (
     <div
@@ -187,13 +182,17 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
               {m.role === "user" ? "You" : m.author_name || "Sumi"}
             </span>
             {m.role !== "user" && ag?.role && (
-              <span className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium">
+              <span
+                className="text-[10.5px] text-text-faint border border-border-soft rounded-[3px] px-1.5 py-px font-medium max-w-[180px] truncate"
+                title={ag.role}
+              >
                 {ag.role}
               </span>
             )}
             <span className="text-[11px] text-text-faint">{relTime(m.time)}</span>
           </div>
         )}
+        {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {m.content && (
           <div className="text-[14px] text-text leading-[1.7] whitespace-pre-wrap">{m.content}</div>
         )}
@@ -208,6 +207,29 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
       </div>
+    </div>
+  );
+}
+
+function ReasoningPreface({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const lineCount = (text.match(/\n/g)?.length ?? 0) + 1;
+  const isLong = lineCount > 5 || text.length > 320;
+  const display = !isLong || open ? text : text.replace(/\n+/g, " ").slice(0, 320) + "…";
+  return (
+    <div className="text-[12px] text-text-muted leading-[1.55] whitespace-pre-wrap mb-1.5 max-w-prose">
+      {display}
+      {isLong && (
+        <>
+          {" "}
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="text-[11.5px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
+          >
+            {open ? "Show less thinking" : "Show more thinking"}
+          </button>
+        </>
+      )}
     </div>
   );
 }

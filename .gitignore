@@ -5,3 +5,8 @@ plugins/desktop/frontend/node_modules/
 plugins/desktop/frontend/dist/*
 !plugins/desktop/frontend/dist/.gitkeep
 plugins/desktop/frontend/tsconfig.tsbuildinfo
+plugins/desktop/frontend/package.json.md5
+plugins/desktop/frontend/src/wails/
+cmd/sumi-desktop/build/bin/
+cmd/sumi-desktop/build/appicon.png
+cmd/sumi-desktop/build/darwin/Info.plist

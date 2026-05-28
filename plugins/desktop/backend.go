@@ -2,6 +2,9 @@ package desktop
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -128,8 +131,8 @@ func (b *Backend) ListChannels() []ChannelItem {
 	return []ChannelItem{
 		{
 			ID:        defaultChannelID,
-			Name:      "default",
-			Topic:     cfg.Workspace,
+			Name:      workspaceName(cfg.Workspace),
+			Topic:     "",
 			Agents:    personaIDs(b.app),
 			UpdatedAt: time.Now(),
 		},
@@ -152,7 +155,7 @@ func (b *Backend) ListThreads() []ThreadItem {
 		out = append(out, ThreadItem{
 			ID:         m.ID,
 			ChannelID:  defaultChannelID,
-			Title:      fallback(m.Title, "(untitled)"),
+			Title:      threadTitle(m.Title, m.Summary, m.UpdatedAt),
 			UpdatedAt:  m.UpdatedAt,
 			EventCount: m.Messages,
 		})
@@ -179,13 +182,14 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 	if b.app == nil {
 		return mockChannelDetail(id)
 	}
+	name := workspaceName(b.app.Config().Workspace)
 	return SessionDetail{
 		Item: SessionItem{
 			ID:        id,
-			Title:     "#default",
+			Title:     "#" + name,
 			UpdatedAt: time.Now(),
 		},
-		Summary:  b.app.Config().Workspace,
+		Summary:  "",
 		Messages: []MessageView{},
 	}
 }
@@ -202,15 +206,16 @@ func (b *Backend) GetThread(id string) SessionDetail {
 		if s.ID != id {
 			continue
 		}
+		messages := convertMessages(s)
 		return SessionDetail{
 			Item: SessionItem{
 				ID:           s.ID,
-				Title:        fallback(s.Title, "(untitled)"),
+				Title:        threadTitleFromSession(s.Title, s.Summary, messages, s.UpdatedAt),
 				UpdatedAt:    s.UpdatedAt,
 				MessageCount: len(s.Messages),
 			},
 			Summary:  s.Summary,
-			Messages: convertMessages(s),
+			Messages: messages,
 		}
 	}
 	return SessionDetail{}
@@ -286,6 +291,118 @@ func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 
 func (b *Backend) MockStream(req SendRequest) {
 	go runMockStream(b.subs, req)
+}
+
+func (b *Backend) APIHandler(mock bool) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/state", jsonHandler(func() any { return b.WorkspaceInfo() }))
+	mux.HandleFunc("/api/sessions", jsonHandler(func() any {
+		out, _ := b.ListSessions()
+		return out
+	}))
+	mux.HandleFunc("/api/session", func(rw http.ResponseWriter, req *http.Request) {
+		out, _ := b.GetSession(req.URL.Query().Get("id"))
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/channels", jsonHandler(func() any { return b.ListChannels() }))
+	mux.HandleFunc("/api/threads", jsonHandler(func() any { return b.ListThreads() }))
+	mux.HandleFunc("/api/agents", jsonHandler(func() any { return b.ListAgents() }))
+	mux.HandleFunc("/api/channel", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetChannel(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/thread", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetThread(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/participants", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetParticipants(req.URL.Query().Get("channel"), req.URL.Query().Get("thread")))
+	})
+	mux.HandleFunc("/api/events", b.handleEvents)
+	mux.HandleFunc("/api/send", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in SendRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if mock {
+			b.MockStream(in)
+			writeJSON(rw, map[string]string{"reply": ""})
+			return
+		}
+		out, err := b.SendMessage(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(rw, map[string]string{"reply": out})
+	})
+	mux.HandleFunc("/api/stop", func(rw http.ResponseWriter, req *http.Request) {
+		var in struct {
+			SessionID string `json:"session_id"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&in)
+		if in.SessionID == "" {
+			in.SessionID = req.URL.Query().Get("session")
+		}
+		_ = b.StopTurn(in.SessionID)
+		writeJSON(rw, map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("/api/personas", jsonHandler(func() any { return b.ListPersonas() }))
+	mux.HandleFunc("/api/models", jsonHandler(func() any { return b.ListModels() }))
+	mux.HandleFunc("/api/tools", jsonHandler(func() any { return b.ListTools() }))
+	mux.HandleFunc("/api/commands", jsonHandler(func() any { return b.ListCommands() }))
+	return mux
+}
+
+func (b *Backend) handleEvents(rw http.ResponseWriter, req *http.Request) {
+	flusher, ok := rw.(http.Flusher)
+	if !ok {
+		http.Error(rw, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+	events, cancel := b.Subscribe()
+	defer cancel()
+	flusher.Flush()
+	tick := time.NewTicker(25 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-req.Context().Done():
+			return
+		case <-tick.C:
+			fmt.Fprint(rw, ": ping\n\n")
+			flusher.Flush()
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(rw, "event: bus\ndata: %s\n\n", data)
+			flusher.Flush()
+		}
+	}
+}
+
+func jsonHandler(get func() any) http.HandlerFunc {
+	return func(rw http.ResponseWriter, _ *http.Request) {
+		writeJSON(rw, get())
+	}
+}
+
+func writeJSON(rw http.ResponseWriter, v any) {
+	rw.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(rw)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
 }
 
 func (b *Backend) start(ctx context.Context) {
@@ -395,6 +512,59 @@ func personaIDs(a *app.App) []string {
 
 func isThreadID(id string) bool {
 	return strings.Contains(id, "-") && !strings.HasPrefix(id, defaultChannelID)
+}
+
+func workspaceName(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "workspace"
+	}
+	if i := strings.LastIndexByte(path, '/'); i >= 0 && i < len(path)-1 {
+		return path[i+1:]
+	}
+	return path
+}
+
+func threadTitle(title, summary string, updated time.Time) string {
+	t := strings.TrimSpace(title)
+	if t != "" && !looksInternal(t) {
+		return t
+	}
+	if s := strings.TrimSpace(summary); s != "" {
+		return truncate(s, 60)
+	}
+	return updated.Format("Jan 2, 15:04")
+}
+
+func threadTitleFromSession(title, summary string, messages []MessageView, updated time.Time) string {
+	if t := strings.TrimSpace(title); t != "" && !looksInternal(t) {
+		return t
+	}
+	for _, m := range messages {
+		if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+			return truncate(strings.ReplaceAll(strings.TrimSpace(m.Content), "\n", " "), 60)
+		}
+	}
+	if s := strings.TrimSpace(summary); s != "" {
+		return truncate(s, 60)
+	}
+	return updated.Format("Jan 2, 15:04")
+}
+
+func looksInternal(t string) bool {
+	lower := strings.ToLower(t)
+	if lower == "default" || lower == "(untitled)" || strings.HasPrefix(lower, "desktop:") {
+		return true
+	}
+	return false
+}
+
+func truncate(s string, n int) string {
+	if len([]rune(s)) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:n]) + "…"
 }
 
 func splitModel(s string) (string, string) {

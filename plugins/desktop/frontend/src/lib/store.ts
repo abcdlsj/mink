@@ -231,6 +231,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   connectStream() {
+    const wails = (window as any).runtime;
+    if (wails && typeof wails.EventsOn === "function") {
+      const off = wails.EventsOn("bus", (ev: BusEvent) => {
+        get().applyEvent(ev);
+      });
+      return () => {
+        if (typeof off === "function") off();
+      };
+    }
     const src = new EventSource("/api/events");
     const onMessage = (e: MessageEvent) => {
       try {
