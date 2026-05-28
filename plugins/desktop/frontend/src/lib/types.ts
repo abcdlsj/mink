@@ -62,6 +62,7 @@ export interface EventBlock {
   agent_id?: string;
   agent_display?: string;
   task?: string;
+  task_id?: string;
   reply?: string;
 }
 

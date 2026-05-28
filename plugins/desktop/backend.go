@@ -552,13 +552,18 @@ func convertMessages(s *session.Session) []MessageView {
 	if s == nil {
 		return nil
 	}
+	defaultAgent := personaFromSource(s.Source)
 	out := make([]MessageView, 0, len(s.Messages))
 	for _, m := range s.Messages {
+		authorID := m.AgentID
+		if authorID == "" && roleFor(m) != "user" && defaultAgent != "" {
+			authorID = defaultAgent
+		}
 		view := MessageView{
 			ID:         m.ID,
 			Role:       roleFor(m),
-			AuthorID:   m.AgentID,
-			AuthorName: m.AgentID,
+			AuthorID:   authorID,
+			AuthorName: authorID,
 			Content:    m.Content,
 			Reasoning:  m.Reasoning,
 			Time:       m.Timestamp,
@@ -567,6 +572,32 @@ func convertMessages(s *session.Session) []MessageView {
 		out = append(out, view)
 	}
 	return out
+}
+
+// personaFromSource extracts the agent id from a session source string.
+// Examples:
+//   "desktop:agent:coder"            -> "coder"
+//   "desktop:agent:coder:persona:coder" -> "coder"
+//   "desktop:persona:reviewer"       -> "reviewer"
+//   "desktop"                        -> ""
+func personaFromSource(src string) string {
+	const personaTag = ":persona:"
+	if i := strings.LastIndex(src, personaTag); i >= 0 {
+		rest := src[i+len(personaTag):]
+		if j := strings.IndexByte(rest, ':'); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	const agentTag = "desktop:agent:"
+	if strings.HasPrefix(src, agentTag) {
+		rest := src[len(agentTag):]
+		if j := strings.IndexByte(rest, ':'); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	return ""
 }
 
 func roleFor(m msg.Message) string {

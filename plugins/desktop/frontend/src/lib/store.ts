@@ -416,6 +416,7 @@ export const useStore = create<State>((set, get) => ({
           agent_id: ev.tool,
           agent_display: prettyAgentName(ev.tool, cur.agents),
           task: ev.input,
+          task_id: ev.task_id,
         };
         cur.streaming.toolCalls.set(id, block);
         set({
@@ -432,6 +433,7 @@ export const useStore = create<State>((set, get) => ({
           ...prev,
           status: "running",
           time: ev.time,
+          task_id: ev.task_id || prev.task_id,
         });
         set({
           detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
@@ -451,6 +453,7 @@ export const useStore = create<State>((set, get) => ({
           agent_id: prev?.agent_id || ev.tool,
           agent_display: prev?.agent_display || prettyAgentName(ev.tool, cur.agents),
           task: prev?.task,
+          task_id: ev.task_id || prev?.task_id,
           output: ev.output,
           err: ev.err,
         };

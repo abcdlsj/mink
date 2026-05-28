@@ -162,3 +162,33 @@ func TestMentionTargetReadsArgs(t *testing.T) {
 		t.Errorf("mentionTarget empty fallback = %q", got)
 	}
 }
+
+func TestPersonaFromSource(t *testing.T) {
+	cases := []struct {
+		src  string
+		want string
+	}{
+		{"desktop", ""},
+		{"desktop:agent:coder", "coder"},
+		{"desktop:agent:coder:persona:coder", "coder"},
+		{"desktop:persona:reviewer", "reviewer"},
+		{"cli", ""},
+	}
+	for _, c := range cases {
+		got := personaFromSource(c.src)
+		if got != c.want {
+			t.Errorf("personaFromSource(%q) = %q, want %q", c.src, got, c.want)
+		}
+	}
+}
+
+func TestConvertMessagesUsesSourcePersonaAsAuthor(t *testing.T) {
+	now := time.Now()
+	s := session.New("desktop:agent:coder")
+	s.Add(msg.Message{ID: "u1", Role: "user", Content: "hi", Timestamp: now})
+	s.Add(msg.Message{ID: "a1", Role: "assistant", Content: "answer", Timestamp: now})
+	views := convertMessages(s)
+	if views[1].AuthorID != "coder" {
+		t.Errorf("assistant author should default to coder from source, got %q", views[1].AuthorID)
+	}
+}

@@ -97,9 +97,16 @@ function ToolLine({ ev }: EventBlockProps) {
 }
 
 function fmtMs(ms: number, status: EventStatus): string {
-  if (status === "running") return Math.round(ms / 100) / 10 + "s";
-  if (ms >= 1000) return Math.round(ms / 100) / 10 + "s";
-  return ms + "ms";
+  if (ms < 1000) return ms + "ms";
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return Math.round(ms / 100) / 10 + "s";
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return s ? m + "m " + s + "s" : m + "m";
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return mm ? h + "h " + mm + "m" : h + "h";
+  void status;
 }
 
 function MentionLine({ ev }: EventBlockProps) {
@@ -148,14 +155,21 @@ function DelegateLine({ ev }: EventBlockProps) {
     : ev.duration_ms;
 
   const display = ev.agent_display || ev.agent_id || "agent";
-  const statusText = status === "pending" ? "pending" : status === "running" ? "running" : status;
+  const longRunning = (status === "running" || status === "pending") && elapsedMs && elapsedMs >= 5 * 60 * 1000;
+  const statusText =
+    status === "pending" ? "pending" :
+    status === "running" ? (longRunning ? "still running" : "running") :
+    status === "done" ? "completed" :
+    status === "error" ? "failed" :
+    status;
   const statusColor =
     status === "error" ? "text-error" :
-    status === "done" ? "text-done" :
+    status === "done" ? "text-text-muted" :
     status === "running" || status === "pending" ? "text-running" :
     "text-text-faint";
 
   const hasDetails = !!(ev.task || ev.output || ev.err);
+  const detailLabel = status === "done" ? "view result" : status === "error" ? "view details" : "view details";
 
   return (
     <div className={cn("py-0.5 text-[12px]", status === "error" ? "text-error" : "text-text-muted")}>
@@ -173,7 +187,7 @@ function DelegateLine({ ev }: EventBlockProps) {
             onClick={() => setOpen((v) => !v)}
             className="text-[11.5px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
           >
-            {open ? "hide details" : "view details"}
+            {open ? "hide details" : detailLabel}
           </button>
         )}
         {(status === "running" || status === "pending") && (
@@ -200,6 +214,9 @@ function DelegateLine({ ev }: EventBlockProps) {
               {ev.err}
             </div>
           )}
+          <div className="mt-1.5 text-[10.5px] text-text-whisper font-mono">
+            task: {ev.task_id || "—"}
+          </div>
         </div>
       )}
     </div>
