@@ -18,7 +18,9 @@ import { api } from "./api";
 
 interface BusEvent {
   type: string;
+  source?: string;
   session_id?: string;
+  task_id?: string;
   tool_call_id?: string;
   tool?: string;
   input?: string;
@@ -269,6 +271,12 @@ export const useStore = create<State>((set, get) => ({
     const cur = get();
     const detail = cur.detail;
     if (!detail) return;
+
+    // Subtask events (delegated sub-agent runs) must not surface in the
+    // main turn. Only delegate.* lifecycle events from the parent source
+    // reach the message stream; subtask reads/bashes/reasoning are
+    // suppressed entirely.
+    if (ev.source && ev.source.startsWith("subtask:")) return;
 
     switch (ev.type) {
       case "turn.started": {
