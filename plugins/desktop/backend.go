@@ -74,33 +74,23 @@ func (b *Backend) GetSession(id string) (SessionDetail, error) {
 	if b.app == nil {
 		return mockChannelDetail(id), nil
 	}
-	sessions, err := b.app.SessionIndex()
+	idx, err := b.app.SessionIndex()
 	if err != nil {
 		return SessionDetail{}, err
 	}
-	var meta *struct {
-		ID, Title, Source string
-		Messages          int
-	}
-	for _, m := range sessions {
-		if m.ID == id {
-			meta = &struct {
-				ID, Title, Source string
-				Messages          int
-			}{ID: m.ID, Title: m.Title, Source: m.Source, Messages: m.Messages}
-			break
+	for _, m := range idx {
+		if m.ID != id {
+			continue
 		}
+		return SessionDetail{
+			Item: SessionItem{
+				ID:           m.ID,
+				Title:        fallback(m.Title, "(untitled)"),
+				MessageCount: m.Messages,
+			},
+		}, nil
 	}
-	if meta == nil {
-		return SessionDetail{}, nil
-	}
-	return SessionDetail{
-		Item: SessionItem{
-			ID:           meta.ID,
-			Title:        fallback(meta.Title, "(untitled)"),
-			MessageCount: meta.Messages,
-		},
-	}, nil
+	return SessionDetail{}, nil
 }
 
 func (b *Backend) SendMessage(req SendRequest) (string, error) {
@@ -136,16 +126,10 @@ func (b *Backend) StopTurn(sessionID string) error {
 }
 
 func (b *Backend) ListChannels() []ChannelItem {
-	if b.app == nil {
-		return mockChannels()
-	}
 	return mockChannels()
 }
 
 func (b *Backend) ListThreads() []ThreadItem {
-	if b.app == nil {
-		return mockThreads()
-	}
 	return mockThreads()
 }
 
@@ -210,9 +194,6 @@ func (b *Backend) ListModels() []ModelItem {
 }
 
 func (b *Backend) ListTools() []ToolItem {
-	if b.app == nil {
-		return mockTools()
-	}
 	return mockTools()
 }
 
