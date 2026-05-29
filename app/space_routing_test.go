@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
@@ -348,5 +349,68 @@ func TestScratchSourceDoesNotMapToChannel(t *testing.T) {
 	target := space.MapSource("scratch:wake:abc")
 	if target.Kind != "" {
 		t.Errorf("scratch source should produce empty target, got %+v", target)
+	}
+}
+
+// P2.5c — bus notices.
+
+func TestRoutingNoticesAreEmittedOnBus(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "ok"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	events, unsub := a.bus.Subscribe(16)
+	defer unsub()
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "no mention here"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	if !drainForType(t, events, string(space.NoticeChannelNoTarget)) {
+		t.Errorf("expected %q on bus, none observed", space.NoticeChannelNoTarget)
+	}
+}
+
+func TestSelfMentionStaysQuietOnBus(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "again @coder, just kidding"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	events, unsub := a.bus.Subscribe(16)
+	defer unsub()
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder kick"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == string(space.NoticeDuplicateSkipped) ||
+				ev.Type == string(space.NoticeBudgetExhausted) {
+				t.Errorf("self-mention should be silent on the bus, got %q", ev.Type)
+			}
+		default:
+			return
+		}
+	}
+}
+
+// drainForType pulls events from the bus channel until it finds the
+// expected type or the channel runs dry. Returns true when the type
+// was observed.
+func drainForType(t *testing.T, ch <-chan bus.Event, want string) bool {
+	t.Helper()
+	for {
+		select {
+		case ev := <-ch:
+			if ev.Type == want {
+				return true
+			}
+		default:
+			return false
+		}
 	}
 }

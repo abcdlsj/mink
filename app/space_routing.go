@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
@@ -99,6 +100,7 @@ func (a *App) interceptChannelInput(ctx context.Context, source, content string)
 	if err != nil {
 		return nil, err
 	}
+	a.publishRoutingNotices(source, notices)
 	result := &channelInterceptResult{
 		spaceID: sp.ID,
 		wakes:   wakes,
@@ -106,6 +108,7 @@ func (a *App) interceptChannelInput(ctx context.Context, source, content string)
 	}
 	for _, w := range wakes {
 		extraNotices := a.runChannelWake(ctx, source, sp.ID, w, content)
+		a.publishRoutingNotices(source, extraNotices)
 		result.notices = append(result.notices, extraNotices...)
 	}
 	return result, nil
@@ -178,6 +181,32 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		notices = append(notices, extra...)
 	}
 	return notices
+}
+
+// publishRoutingNotices forwards every space.RoutingNotice onto the
+// app bus as a bus.Event the desktop / CLI / TG adapters can listen
+// for. Per Iris (P2.5c review):
+//   - notices are hints, never errors;
+//   - channel.no_target / budget_exhausted / duplicate_skipped use
+//     event types directly named after the notice kind so subscribers
+//     can match on Type;
+//   - unknown_mention is intentionally not produced today (the
+//     parser drops unknowns silently); when we add it later it will
+//     ride the same channel as a quiet/debug-level signal.
+func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice) {
+	if a == nil || a.bus == nil || len(notices) == 0 {
+		return
+	}
+	for _, n := range notices {
+		a.bus.Publish(bus.Event{
+			Type:       string(n.Kind),
+			Source:     source,
+			SessionID:  n.SpaceID,
+			ToolCallID: n.MessageID,
+			Tool:       n.AgentID, // reuse Tool slot for the per-agent subject
+			Time:       n.At,
+		})
+	}
 }
 
 // assembleAssistantOutput concatenates assistant role messages
