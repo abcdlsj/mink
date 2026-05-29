@@ -195,11 +195,23 @@ func approvalMarkup(reqID string) *tele.ReplyMarkup {
 	}}}
 }
 
+// parseTelegramSource recovers (chatID, threadID) from a Telegram
+// source string. P4 supports both the new chat-type-aware forms
+// ("tg:dm:<chat>", "tg:channel:<chat>") and a graceful no-match
+// for legacy / unrelated sources. The boolean is false when the
+// source isn't a Telegram message.
 func parseTelegramSource(src string) (int64, int, bool) {
-	if !strings.HasPrefix(src, "telegram:") {
+	src = strings.TrimSpace(src)
+	var rest string
+	switch {
+	case strings.HasPrefix(src, "tg:dm:"):
+		rest = strings.TrimPrefix(src, "tg:dm:")
+	case strings.HasPrefix(src, "tg:channel:"):
+		rest = strings.TrimPrefix(src, "tg:channel:")
+	default:
 		return 0, 0, false
 	}
-	parts := strings.Split(strings.TrimPrefix(src, "telegram:"), ":")
+	parts := strings.Split(rest, ":")
 	if len(parts) == 0 {
 		return 0, 0, false
 	}

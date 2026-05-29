@@ -97,7 +97,12 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	if !shouldHandle(cfg.MentionMode, bot.Me.Username, msg, text) && !mentionsPersona(a, text) {
 		return nil
 	}
-	src := source(cfg.SessionScope, msg.Chat.ID, msg.ThreadID)
+	src := source(cfg.SessionScope, msg.Chat, msg.ThreadID)
+	if src == "" {
+		// Unknown chat type — refuse to route this message rather
+		// than fall back to a default Space.
+		return nil
+	}
 	if out, ok, err := handleTelegramCommand(a, src, text); ok {
 		if err != nil {
 			return c.Send(userError(err))
@@ -134,7 +139,10 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 	if err != nil {
 		return c.Send(userError(err))
 	}
-	src := source(cfg.SessionScope, tgmsg.Chat.ID, tgmsg.ThreadID)
+	src := source(cfg.SessionScope, tgmsg.Chat, tgmsg.ThreadID)
+	if src == "" {
+		return nil
+	}
 
 	done := make(chan struct{})
 	go typingLoop(c, done)
@@ -269,11 +277,36 @@ func split(text string, n int) []string {
 	return out
 }
 
-func source(scope string, chatID int64, threadID int) string {
-	if strings.TrimSpace(scope) == "thread" && threadID != 0 {
-		return fmt.Sprintf("telegram:%d:%d", chatID, threadID)
+// source builds the routed source string for a Telegram message
+// per P4 v3:
+//
+//   private chat                 -> "tg:dm:<chat>"
+//   group / supergroup / channel -> "tg:channel:<chat>"
+//
+// scope == "thread" appends ":<threadID>" for forum-style topics.
+//
+// Per Iris: unknown chat types are NOT silently treated as DM. We
+// emit a tg:dm:<chat> with a leading underscore namespace so the
+// Space mapping rejects it (MapSource keeps the strict prefixes).
+// Callers should treat an empty return as "do not route".
+func source(scope string, chat *tele.Chat, threadID int) string {
+	if chat == nil {
+		return ""
 	}
-	return fmt.Sprintf("telegram:%d", chatID)
+	id := chat.ID
+	suffix := ""
+	if strings.TrimSpace(scope) == "thread" && threadID != 0 {
+		suffix = fmt.Sprintf(":%d", threadID)
+	}
+	switch chat.Type {
+	case tele.ChatPrivate:
+		return fmt.Sprintf("tg:dm:%d%s", id, suffix)
+	case tele.ChatGroup, tele.ChatSuperGroup, tele.ChatChannel:
+		return fmt.Sprintf("tg:channel:%d%s", id, suffix)
+	}
+	// Unknown chat type — refuse to map. The caller will skip this
+	// message rather than fall into a default DM bucket.
+	return ""
 }
 
 func shouldHandle(mode, username string, msg *tele.Message, text string) bool {

@@ -18,7 +18,7 @@ func TestResolveReadScopePrefersPersona(t *testing.T) {
 
 func TestResolveSearchScopesPersonaFirst(t *testing.T) {
 	s := &store{root: "/tmp/irrelevant", workspace: "/ws"}
-	ctx := command.WithPersona(command.WithSource(context.Background(), "telegram:42"), "reviewer")
+	ctx := command.WithPersona(command.WithSource(context.Background(), "tg:dm:42"), "reviewer")
 	scopes := s.resolveSearchScopes(ctx, command.SourceFrom(ctx), "", "")
 	if len(scopes) == 0 || scopes[0].Kind != "persona" || scopes[0].Key != "reviewer" {
 		t.Fatalf("first scope = %+v, want persona:reviewer", scopes[0])

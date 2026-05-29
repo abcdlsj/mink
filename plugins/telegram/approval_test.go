@@ -33,11 +33,24 @@ func TestParseApprovalCallback(t *testing.T) {
 }
 
 func TestParseTelegramSource(t *testing.T) {
-	chatID, threadID, ok := parseTelegramSource("telegram:42:7")
-	if !ok {
-		t.Fatal("expected parse ok")
+	cases := []struct {
+		src       string
+		wantChat  int64
+		wantThr   int
+		wantOK    bool
+	}{
+		{"tg:dm:42", 42, 0, true},
+		{"tg:dm:42:7", 42, 7, true},
+		{"tg:channel:42", 42, 0, true},
+		{"tg:channel:42:7", 42, 7, true},
+		{"telegram:42:7", 0, 0, false}, // legacy form rejected
+		{"desktop", 0, 0, false},
 	}
-	if chatID != 42 || threadID != 7 {
-		t.Fatalf("got chat=%d thread=%d", chatID, threadID)
+	for _, c := range cases {
+		chatID, threadID, ok := parseTelegramSource(c.src)
+		if ok != c.wantOK || chatID != c.wantChat || threadID != c.wantThr {
+			t.Errorf("parseTelegramSource(%q) = %d / %d / %v, want %d / %d / %v",
+				c.src, chatID, threadID, ok, c.wantChat, c.wantThr, c.wantOK)
+		}
 	}
 }
