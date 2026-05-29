@@ -32,6 +32,7 @@ type Config struct {
 	BraveSearch BraveConfig       `toml:"brave_search"`
 	Collab      CollabConfig      `toml:"collab"`
 	StatusLine  string            `toml:"status_line"`
+	DefaultPersona string         `toml:"default_persona"`
 
 	Active ModelConfig `toml:"-"`
 }

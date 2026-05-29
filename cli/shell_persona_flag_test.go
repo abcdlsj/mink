@@ -65,8 +65,52 @@ func TestResolveCLISourcePrefersExplicitPersonaFlag(t *testing.T) {
 func TestResolveCLISourceFallsBackToDefaultPersona(t *testing.T) {
 	a := newPersonaTestApp(t, "tshoot", "coder")
 	got := resolveCLISource(a, nil)
-	if got != "cli:agent:tshoot" && got != "cli:agent:coder" {
-		t.Fatalf("source = %q, want cli:agent:<some persona>", got)
+	if got != "cli:agent:coder" {
+		t.Fatalf("source = %q, want cli:agent:coder (alphabetically first)", got)
+	}
+}
+
+func TestResolveCLISourceHonorsConfigDefaultPersona(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:        "stub",
+		DataDir:        filepath.Join(dir, "sumi-data"),
+		Workspace:      dir,
+		DefaultPersona: "tshoot",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	for _, id := range []string{"tshoot", "coder"} {
+		if _, err := a.Personas().Create(id, persona.Meta{Display: id, Runtime: "stub"}, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := resolveCLISource(a, nil)
+	if got != "cli:agent:tshoot" {
+		t.Fatalf("source = %q, want cli:agent:tshoot (config override)", got)
+	}
+}
+
+func TestResolveCLISourceConfigDefaultMissingPersonaFallsThrough(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:        "stub",
+		DataDir:        filepath.Join(dir, "sumi-data"),
+		Workspace:      dir,
+		DefaultPersona: "ghost",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	got := resolveCLISource(a, nil)
+	if got != "cli:agent:coder" {
+		t.Fatalf("source = %q, want cli:agent:coder (fallback when config name missing)", got)
 	}
 }
 

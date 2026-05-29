@@ -55,6 +55,11 @@ func defaultPersonaID(a *app.App) string {
 	if a == nil || a.Personas() == nil {
 		return ""
 	}
+	if id := strings.TrimSpace(a.Config().DefaultPersona); id != "" {
+		if p := a.Personas().Get(id); p != nil {
+			return p.ID
+		}
+	}
 	list := a.Personas().List()
 	if len(list) == 0 {
 		return ""
