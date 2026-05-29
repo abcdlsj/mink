@@ -2,11 +2,8 @@ package desktop
 
 import (
 	"testing"
-	"time"
 
 	"github.com/abcdlsj/sumi/bus"
-	"github.com/abcdlsj/sumi/msg"
-	"github.com/abcdlsj/sumi/session"
 )
 
 func TestBackendNilAppFallsBackToMock(t *testing.T) {
@@ -75,46 +72,13 @@ func TestFallback(t *testing.T) {
 	}
 }
 
-func TestConvertMessagesIncludesToolEvents(t *testing.T) {
-	now := time.Now()
-	s := session.New("desktop")
-	s.Add(msg.Message{ID: "u1", Role: "user", Content: "hi", Timestamp: now})
-	s.Add(msg.Message{
-		ID: "a1", Role: "assistant", AgentID: "coder", Content: "ran ls", Timestamp: now,
-		ToolCalls:   []msg.ToolCall{{ID: "tc1", Name: "shell", Args: []byte(`{"cmd":"ls"}`)}},
-		ToolResults: []msg.ToolResult{{ToolCallID: "tc1", Content: "a b c"}},
-	})
-	views := convertMessages(s)
-	if len(views) != 2 {
-		t.Fatalf("convertMessages: want 2 views, got %d", len(views))
-	}
-	if views[0].Role != "user" || views[1].Role != "agent" {
-		t.Errorf("role mapping wrong: %q %q", views[0].Role, views[1].Role)
-	}
-	if len(views[1].Events) != 1 {
-		t.Fatalf("expected 1 tool event on assistant message, got %d", len(views[1].Events))
-	}
-	ev := views[1].Events[0]
-	if ev.ToolName != "shell" || ev.Output != "a b c" || ev.Status != "done" {
-		t.Errorf("tool event mapped wrong: %+v", ev)
-	}
-}
-
-func TestConvertMessagesMarksToolErrorEvents(t *testing.T) {
-	now := time.Now()
-	s := session.New("desktop")
-	s.Add(msg.Message{
-		Role: "assistant", AgentID: "coder", Timestamp: now,
-		ToolCalls:   []msg.ToolCall{{ID: "tc1", Name: "shell", Args: []byte(`{}`)}},
-		ToolResults: []msg.ToolResult{{ToolCallID: "tc1", Error: "boom"}},
-	})
-	views := convertMessages(s)
-	if got := views[0].Events[0].Status; got != "error" {
-		t.Errorf("error tool result must mark event status error, got %q", got)
-	}
-	if views[0].Events[0].Err != "boom" {
-		t.Errorf("error message lost: %+v", views[0].Events[0])
-	}
+func TestConvertMessages_Removed(t *testing.T) {
+	// convertMessages / personaFromSource / collectEvents were removed
+	// in P3.6 once every desktop API switched to space.Manager. The
+	// previous tests asserted behaviors that the new helpers
+	// (spaceMessagesToView in particular) cover indirectly through
+	// the live API tests in this package and in app/.
+	t.Skip("convertMessages removed in P3.6 — see backend.go header")
 }
 
 func TestIsThreadIDDistinguishesChannel(t *testing.T) {
@@ -163,62 +127,9 @@ func TestMentionTargetReadsArgs(t *testing.T) {
 	}
 }
 
-func TestPersonaFromSource(t *testing.T) {
-	cases := []struct {
-		src  string
-		want string
-	}{
-		{"desktop", ""},
-		{"desktop:agent:coder", "coder"},
-		{"desktop:agent:coder:persona:coder", "coder"},
-		{"desktop:persona:reviewer", "reviewer"},
-		{"cli", ""},
-	}
-	for _, c := range cases {
-		got := personaFromSource(c.src)
-		if got != c.want {
-			t.Errorf("personaFromSource(%q) = %q, want %q", c.src, got, c.want)
-		}
-	}
-}
-
-func TestConvertMessagesUsesSourcePersonaAsAuthor(t *testing.T) {
-	now := time.Now()
-	s := session.New("desktop:agent:coder")
-	s.Add(msg.Message{ID: "u1", Role: "user", Content: "hi", Timestamp: now})
-	s.Add(msg.Message{ID: "a1", Role: "assistant", Content: "answer", Timestamp: now})
-	views := convertMessages(s)
-	if views[1].AuthorID != "coder" {
-		t.Errorf("assistant author should default to coder from source, got %q", views[1].AuthorID)
-	}
-}
-
-func TestCollectEventsClassifiesMentionAsCollab(t *testing.T) {
-	now := time.Now()
-	m := msg.Message{
-		Role:      "assistant",
-		Timestamp: now,
-		ToolCalls: []msg.ToolCall{
-			{ID: "tc1", Name: "mention", Args: []byte(`{"agent_id":"coder","question":"check retry"}`)},
-		},
-		ToolResults: []msg.ToolResult{
-			{ToolCallID: "tc1", Content: "scheduled next team turn for coder, task_id=task-abc"},
-		},
-	}
-	evs := collectEvents(m)
-	if len(evs) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(evs))
-	}
-	if evs[0].Kind != "mention" {
-		t.Errorf("mention tool should map to mention event, got %q", evs[0].Kind)
-	}
-	if evs[0].AgentID != "coder" {
-		t.Errorf("agent id wrong: %q", evs[0].AgentID)
-	}
-	if evs[0].Reply != "" {
-		t.Errorf("scheduling ack should not surface as reply, got %q", evs[0].Reply)
-	}
-}
+// Tests for the removed legacy reader (personaFromSource,
+// convertMessages, collectEvents) were dropped together with the
+// helpers themselves in P3.6 — see backend.go header comment.
 
 func TestParseTaskID(t *testing.T) {
 	cases := []struct {

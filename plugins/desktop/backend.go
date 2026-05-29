@@ -16,7 +16,6 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
-	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 )
 
@@ -428,201 +427,29 @@ type appAccessor interface {
 	Personas() *persona.Registry
 }
 
+// GetThread is the legacy thread-detail endpoint. v1 has no real
+// parent_message threads yet, so the only reason a frontend would
+// hit this endpoint is to load a Space detail through the wrong
+// route. Per Iris's P3.5 review we don't want a "/api/thread can
+// load any Space" loophole — the proper endpoints are
+// /api/channel, /api/direct-chat, /api/agent-dm. This handler
+// returns an empty SessionDetail to make stale links 404 cleanly.
+//
+// The endpoint stays as a stub for one release so existing app
+// builds don't break on missing routes; P4 removes the route.
 func (b *Backend) GetThread(id string) SessionDetail {
 	if b.app == nil {
 		return mockThreadDetail(id)
 	}
-	// P3.4: a frontend "thread" id now maps onto a Space — almost
-	// always a KindDirectChat. Try the Space store first; only fall
-	// back to the legacy session reader if it's not a Space (e.g.
-	// pre-P3 desktop session that hasn't been migrated). The legacy
-	// fallback goes away in P3.6.
-	if sp, err := b.app.Spaces().LoadSpace(id); err == nil && sp != nil {
-		title := directChatTitle(sp)
-		if sp.Kind == space.KindChannel {
-			title = "#" + channelDisplayName(sp, b.app.Config().Workspace)
-		}
-		return SessionDetail{
-			Item: SessionItem{
-				ID:           sp.ID,
-				Title:        title,
-				UpdatedAt:    sp.UpdatedAt,
-				MessageCount: len(sp.Messages),
-			},
-			Messages: spaceMessagesToView(sp, b.app),
-		}
-	}
-	sessions, err := b.app.ListSessions()
-	if err != nil {
-		return SessionDetail{}
-	}
-	for _, s := range sessions {
-		if s.ID != id {
-			continue
-		}
-		messages := convertMessages(s)
-		messages = b.attachDelegateOutcomes(messages)
-		return SessionDetail{
-			Item: SessionItem{
-				ID:           s.ID,
-				Title:        threadTitleFromSession(s.Title, s.Summary, messages, s.UpdatedAt),
-				UpdatedAt:    s.UpdatedAt,
-				MessageCount: len(s.Messages),
-			},
-			Summary:  s.Summary,
-			Messages: messages,
-		}
-	}
 	return SessionDetail{}
 }
 
-// attachDelegateOutcomes scans every assistant message for mention tool
-// calls whose result contains a "task_id=<id>" scheduling ack. For each
-// task id it replays the collab task's bus history and appends a
-// synthetic "delegate" event block under the same message so the
-// persisted view shows the same called/delegated/completed semantics
-// the live stream draws.
-func (b *Backend) attachDelegateOutcomes(messages []MessageView) []MessageView {
-	if b.app == nil {
-		return messages
-	}
-	for i, m := range messages {
-		if len(m.Events) == 0 {
-			continue
-		}
-		extra := make([]EventBlock, 0)
-		for _, ev := range m.Events {
-			if ev.Kind != "mention" {
-				continue
-			}
-			taskID := ev.TaskID
-			if taskID == "" {
-				taskID = parseTaskID(ev.Output)
-			}
-			if taskID == "" && ev.Reply != "" {
-				taskID = parseTaskID(ev.Reply)
-			}
-			if taskID == "" {
-				continue
-			}
-			block := b.replayDelegateTask(taskID, ev.AgentID, ev.AgentDisplay, ev.Args)
-			if block != nil {
-				extra = append(extra, *block)
-			}
-		}
-		if len(extra) > 0 {
-			messages[i].Events = append(messages[i].Events, extra...)
-		}
-	}
-	return messages
-}
-
-func (b *Backend) replayDelegateTask(taskID, agentID, agentDisplay, mentionArgs string) *EventBlock {
-	evs, err := b.app.ReplayTask(taskID, 64)
-	if err != nil || len(evs) == 0 {
-		return nil
-	}
-	block := EventBlock{
-		Kind:         "delegate",
-		Status:       "running",
-		AgentID:      agentID,
-		AgentDisplay: agentDisplay,
-		TaskID:       taskID,
-		Task:         questionFromArgs(mentionArgs),
-		Time:         evs[0].Time,
-	}
-	var queuedAt, finishedAt time.Time
-	for _, e := range evs {
-		switch e.Type {
-		case bus.DelegateQueued:
-			block.Status = "pending"
-			queuedAt = e.Time
-			if block.Task == "" {
-				block.Task = e.Text
-			}
-		case bus.DelegateStarted:
-			block.Status = "running"
-			if queuedAt.IsZero() {
-				queuedAt = e.Time
-			}
-		case bus.DelegateFinished:
-			block.Status = "done"
-			block.Output = e.Output
-			finishedAt = e.Time
-			if !e.Time.IsZero() && !block.Time.IsZero() {
-				block.DurationMs = e.Time.Sub(block.Time).Milliseconds()
-			}
-		case bus.DelegateFailed, bus.DelegateCanceled:
-			block.Status = "error"
-			block.Err = e.Err
-			finishedAt = e.Time
-		}
-	}
-	if queuedAt.IsZero() {
-		queuedAt = block.Time
-	}
-	block.Steps = b.subtaskSteps(taskID, block.Status, queuedAt, finishedAt)
-	return &block
-}
-
-// subtaskSteps walks the sub-session that ran the delegate task and
-// returns a short, human-readable summary of the agent's actions for
-// the first-level expand. We deliberately strip raw tool output and
-// keep verb + target so the rail reads like a journal instead of a
-// console replay.
-//
-// outerStatus + window bound the result so an old session that
-// happens to share the source string can't bleed events into the
-// current task. Successful tasks suppress exploratory tool errors;
-// failed tasks keep the error step that ended the run.
-func (b *Backend) subtaskSteps(taskID, outerStatus string, queuedAt, finishedAt time.Time) []DelegateStep {
-	source := "subtask:" + taskID
-	sessions, err := b.app.ListSessionsBySource(source)
-	if err != nil || len(sessions) == 0 {
-		return nil
-	}
-	sess := sessions[0]
-	results := map[string]msg.ToolResult{}
-	for _, m := range sess.Messages {
-		for _, r := range m.ToolResults {
-			results[r.ToolCallID] = r
-		}
-	}
-	workspace := strings.TrimRight(b.app.Config().Workspace, "/")
-	steps := make([]DelegateStep, 0, 8)
-	for _, m := range sess.Messages {
-		if m.Role == "tool" {
-			continue
-		}
-		if !timeInWindow(m.Timestamp, queuedAt, finishedAt) {
-			continue
-		}
-		for _, c := range m.ToolCalls {
-			step := DelegateStep{
-				Tool:   c.Name,
-				Status: "done",
-				Time:   m.Timestamp,
-			}
-			if r, ok := results[c.ID]; ok {
-				if r.Error != "" {
-					step.Status = "error"
-					step.Err = oneLine(r.Error)
-				}
-			}
-			step.Output = humanizeStep(c.Name, string(c.Args), workspace)
-			steps = append(steps, step)
-		}
-	}
-	if outerStatus == "done" {
-		steps = dropExploratoryErrors(steps)
-	}
-	if len(steps) > 5 {
-		head := steps[:2]
-		tail := steps[len(steps)-3:]
-		steps = append(append([]DelegateStep{}, head...), tail...)
-	}
-	return steps
-}
+// attachDelegateOutcomes / replayDelegateTask / subtaskSteps /
+// taskAsRun were P2.6 helpers that synthesized delegate task
+// playback by walking the legacy session store. P3.6 removed every
+// caller; the helpers themselves go away with the upcoming Task
+// store migration in P5. The git history for this file holds the
+// reference if needed.
 
 func timeInWindow(t, lo, hi time.Time) bool {
 	if lo.IsZero() && hi.IsZero() {
@@ -912,47 +739,11 @@ func (b *Backend) allAgents() []AgentItem {
 }
 
 func (b *Backend) taskAsRun(taskID, agentID string) *AgentRun {
-	evs, err := b.app.ReplayTask(taskID, 32)
-	if err != nil || len(evs) == 0 {
-		return nil
-	}
-	run := &AgentRun{
-		ID:      taskID,
-		AgentID: agentID,
-		Status:  "running",
-	}
-	var firstTime, lastTime time.Time
-	for _, e := range evs {
-		if firstTime.IsZero() || e.Time.Before(firstTime) {
-			firstTime = e.Time
-		}
-		if lastTime.IsZero() || e.Time.After(lastTime) {
-			lastTime = e.Time
-		}
-		switch e.Type {
-		case bus.DelegateQueued:
-			run.Status = "pending"
-			if run.Title == "" {
-				run.Title = e.Text
-			}
-		case bus.DelegateStarted:
-			run.Status = "running"
-		case bus.DelegateFinished:
-			run.Status = "done"
-		case bus.DelegateFailed, bus.DelegateCanceled:
-			run.Status = "error"
-		}
-	}
-	if run.Title == "" {
-		run.Title = "delegated"
-	}
-	if !firstTime.IsZero() {
-		run.Time = firstTime
-	}
-	if !lastTime.IsZero() && !firstTime.IsZero() {
-		run.DurationMs = lastTime.Sub(firstTime).Milliseconds()
-	}
-	return run
+	// Removed in P3.6 — see comment near subtaskSteps. Returns nil
+	// so any leftover transitive caller behaves as "no replay".
+	_ = taskID
+	_ = agentID
+	return nil
 }
 
 func (b *Backend) GetAgentDM(agentID string) SessionDetail {
@@ -1283,124 +1074,12 @@ func mentionTarget(ev bus.Event) string {
 	return ev.Tool
 }
 
-func convertMessages(s *session.Session) []MessageView {
-	if s == nil {
-		return nil
-	}
-	defaultAgent := personaFromSource(s.Source)
-	resultsByID := map[string]msg.ToolResult{}
-	for _, m := range s.Messages {
-		for _, r := range m.ToolResults {
-			resultsByID[r.ToolCallID] = r
-		}
-	}
-	out := make([]MessageView, 0, len(s.Messages))
-	for _, m := range s.Messages {
-		if m.Role == "tool" {
-			continue
-		}
-		authorID := m.AgentID
-		if authorID == "" && roleFor(m) != "user" && defaultAgent != "" {
-			authorID = defaultAgent
-		}
-		view := MessageView{
-			ID:         m.ID,
-			Role:       roleFor(m),
-			AuthorID:   authorID,
-			AuthorName: authorID,
-			Content:    m.Content,
-			Reasoning:  m.Reasoning,
-			Time:       m.Timestamp,
-		}
-		view.Events = collectEventsWithResults(m, resultsByID)
-		out = append(out, view)
-	}
-	return out
-}
-
-func collectEvents(m msg.Message) []EventBlock {
-	results := map[string]msg.ToolResult{}
-	for _, r := range m.ToolResults {
-		results[r.ToolCallID] = r
-	}
-	return collectEventsWithResults(m, results)
-}
-
-func collectEventsWithResults(m msg.Message, results map[string]msg.ToolResult) []EventBlock {
-	if len(m.ToolCalls) == 0 {
-		return nil
-	}
-	out := make([]EventBlock, 0, len(m.ToolCalls))
-	for _, c := range m.ToolCalls {
-		if isCollabTool(c.Name) {
-			ev := EventBlock{
-				Kind:         "mention",
-				ToolName:     c.Name,
-				Args:         string(c.Args),
-				Status:       "running",
-				Time:         m.Timestamp,
-				AgentID:      mentionTargetFromArgs(c.Args, c.Name),
-				AgentDisplay: titleCase(mentionTargetFromArgs(c.Args, c.Name)),
-			}
-			if r, ok := results[c.ID]; ok {
-				ev.Status = "done"
-				if r.Error != "" {
-					ev.Status = "error"
-					ev.Err = r.Error
-				}
-				if isSchedulingAck(r.Content) {
-					ev.TaskID = parseTaskID(r.Content)
-				} else {
-					ev.Reply = r.Content
-				}
-			}
-			out = append(out, ev)
-			continue
-		}
-		ev := EventBlock{
-			Kind:     "tool_call",
-			ToolName: c.Name,
-			Args:     string(c.Args),
-			Status:   "done",
-			Time:     m.Timestamp,
-		}
-		if r, ok := results[c.ID]; ok {
-			ev.Output = r.Content
-			if r.Error != "" {
-				ev.Err = r.Error
-				ev.Status = "error"
-			}
-		}
-		out = append(out, ev)
-	}
-	return out
-}
-
-// personaFromSource extracts the agent id from a session source string.
-// Examples:
-//   "desktop:agent:coder"            -> "coder"
-//   "desktop:agent:coder:persona:coder" -> "coder"
-//   "desktop:persona:reviewer"       -> "reviewer"
-//   "desktop"                        -> ""
-func personaFromSource(src string) string {
-	const personaTag = ":persona:"
-	if i := strings.LastIndex(src, personaTag); i >= 0 {
-		rest := src[i+len(personaTag):]
-		if j := strings.IndexByte(rest, ':'); j >= 0 {
-			rest = rest[:j]
-		}
-		return rest
-	}
-	const agentTag = "desktop:agent:"
-	if strings.HasPrefix(src, agentTag) {
-		rest := src[len(agentTag):]
-		if j := strings.IndexByte(rest, ':'); j >= 0 {
-			rest = rest[:j]
-		}
-		return rest
-	}
-	return ""
-}
+// convertMessages, collectEvents, collectEventsWithResults, and
+// personaFromSource were the desktop session reader. P3.1–P3.5
+// migrated every API to read from space.Manager directly, so these
+// helpers no longer have a caller. They have been deleted in P3.6
+// per Iris's review: "P3 的 delete list 聚焦 desktop session
+// reader". The git history holds the previous shape.
 
 func roleFor(m msg.Message) string {
 	switch m.Role {
