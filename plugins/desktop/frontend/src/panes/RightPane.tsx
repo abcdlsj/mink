@@ -4,8 +4,9 @@ import { useStore } from "@/lib/store";
 import { Identicon } from "@/components/Identicon";
 import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
+import { api } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
-import type { AgentItem, AgentRun, ThreadItem } from "@/lib/types";
+import type { AgentItem, AgentRun, RunDetail, ThreadItem } from "@/lib/types";
 
 export function RightPane() {
   const view = useStore((s) => s.view);
@@ -283,12 +284,43 @@ function RunCard({ run }: { run: AgentRun }) {
   const stop = useStore((s) => s.stop);
   const ag = agents.find((a) => a.id === run.agent_id);
   const [tick, setTick] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const [detail, setDetail] = useState<RunDetail | null>(null);
+  const [detailErr, setDetailErr] = useState<string | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     if (run.status !== "running") return;
     const id = setInterval(() => setTick((n) => n + 1), 250);
     return () => clearInterval(id);
   }, [run.status]);
+
+  useEffect(() => {
+    if (!expanded || run.status === "running") return;
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailErr(null);
+    api
+      .run(run.id)
+      .then((d) => {
+        if (cancelled) return;
+        if (!d.task_id) {
+          setDetail(null);
+          setDetailErr("Task not found");
+        } else {
+          setDetail(d);
+        }
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setDetailErr(e.message);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [expanded, run.id, run.status]);
 
   const isCurrent = streaming?.messageID === run.id;
   const startedAt = isCurrent && streaming ? streaming.startedAt : run.time;
@@ -314,6 +346,11 @@ function RunCard({ run }: { run: AgentRun }) {
   };
 
   void tick;
+  const canExpand = run.status !== "running";
+  const onCardClick = () => {
+    if (!canExpand) return;
+    setExpanded((e) => !e);
+  };
 
   return (
     <div
@@ -323,7 +360,9 @@ function RunCard({ run }: { run: AgentRun }) {
         (run.status === "done" || run.status === "finished") && "border-l-2 border-l-done",
         (run.status === "error" || run.status === "failed") && "border-l-2 border-l-error",
         run.status === "no_output" && "border-l-2 border-l-text-faint",
+        canExpand && "cursor-pointer hover:bg-panel-2",
       )}
+      onClick={onCardClick}
     >
       <div className="flex items-start justify-between gap-2">
         <div
@@ -342,8 +381,81 @@ function RunCard({ run }: { run: AgentRun }) {
       <div className="text-[11px] text-text-faint mt-0.5 tabular-nums">
         {(ag?.display || run.agent_id) + " · " + (currentStep || statusLabel(run.status)) + " · " + elapsedLabel}
       </div>
+      {expanded && canExpand && (
+        <RunCardDetail loading={detailLoading} error={detailErr} detail={detail} />
+      )}
     </div>
   );
+}
+
+function RunCardDetail({
+  loading,
+  error,
+  detail,
+}: {
+  loading: boolean;
+  error: string | null;
+  detail: RunDetail | null;
+}) {
+  if (loading) {
+    return <div className="mt-2 text-[11.5px] text-text-faint">Loading…</div>;
+  }
+  if (error) {
+    return <div className="mt-2 text-[11.5px] text-error">{error}</div>;
+  }
+  if (!detail) {
+    return <div className="mt-2 text-[11.5px] text-text-faint">No detail.</div>;
+  }
+  const isEmpty = detail.status === "no_output";
+  const hasSteps = (detail.key_steps?.length ?? 0) > 0;
+  return (
+    <div className="mt-2 pt-2 border-t border-border-soft flex flex-col gap-1.5">
+      {detail.outcome && (
+        <div className="text-[11.5px] text-text leading-[1.45] break-words">
+          {detail.outcome}
+        </div>
+      )}
+      {!isEmpty && detail.result_message_id && (
+        <div className="text-[11px] text-text-faint">
+          Reply: <span className="font-mono">{detail.result_message_id.slice(0, 8)}</span>
+        </div>
+      )}
+      {hasSteps ? (
+        <ul className="flex flex-col gap-1 mt-0.5">
+          {detail.key_steps!.map((s, i) => (
+            <li
+              key={i}
+              className="text-[11.5px] text-text-muted leading-[1.4] flex gap-1.5"
+            >
+              <span className="text-text-faint shrink-0">{stepKindLabel(s.kind)}</span>
+              <span className="break-words">{s.title}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="text-[11px] text-text-faint">No recorded steps.</div>
+      )}
+    </div>
+  );
+}
+
+function stepKindLabel(kind: string): string {
+  switch (kind) {
+    case "read":
+      return "·";
+    case "write":
+      return "·";
+    case "run":
+      return "·";
+    case "subtask":
+      return "·";
+    case "summary":
+      return "·";
+    case "error":
+      return "!";
+    default:
+      return "·";
+  }
 }
 
 function statusLabel(status: string): string {
