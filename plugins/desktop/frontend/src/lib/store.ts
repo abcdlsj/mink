@@ -114,6 +114,26 @@ function streamingEventInScope(ev: BusEvent, s: State): boolean {
   return false;
 }
 
+function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
+  if (!ev.space_id) return false;
+  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+    if (ev.space_id !== s.activeChannel) return false;
+    if (!ev.parent_message_id) return false;
+    if (ev.parent_message_id === s.threadDetail.parent_id) return true;
+    // Trigger may be a reply inside this thread.
+    return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id);
+  }
+  if (s.view === "agent") {
+    if (!s.detail) return false;
+    return ev.space_id === s.detail.item.id;
+  }
+  if (s.view === "channel" || s.view === "thread") {
+    if (ev.space_id !== s.activeChannel) return false;
+    return !ev.parent_message_id;
+  }
+  return false;
+}
+
 function streamingViewUpdates(
   s: State,
   placeholder: MessageView,
@@ -473,6 +493,9 @@ export const useStore = create<State>((set, get) => ({
 
     switch (ev.type) {
       case "turn.started": {
+        if (lifecycleEventInScope(ev, cur)) {
+          void refetchActiveScope(get, set);
+        }
         const author = ev.agent_id;
         if (!author) {
           // Per Iris: no Sumi-by-default placeholder. If the publisher
@@ -655,6 +678,9 @@ export const useStore = create<State>((set, get) => ({
       }
       case "agent.delegate.finished":
       case "agent.delegate.failed": {
+        if (lifecycleEventInScope(ev, cur)) {
+          void refetchActiveScope(get, set);
+        }
         if (!cur.streaming) return;
         const id = ev.tool_call_id || "";
         const prev = cur.streaming.toolCalls.get(id);
@@ -691,6 +717,9 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       case "turn.finished": {
+        if (lifecycleEventInScope(ev, cur)) {
+          void refetchActiveScope(get, set);
+        }
         if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
         const detailNow = get().detail;
         const placeholderID = cur.streaming.messageID;
@@ -722,10 +751,12 @@ export const useStore = create<State>((set, get) => ({
           a.id === get().activeAgent ? { ...a, status: "idle" } : a,
         );
         set(updates);
-        void refetchActiveScope(get, set);
         return;
       }
       case "turn.error": {
+        if (lifecycleEventInScope(ev, cur)) {
+          void refetchActiveScope(get, set);
+        }
         if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
         const errMsg = ev.err || "Turn failed";
         const placeholderID = cur.streaming.messageID;
