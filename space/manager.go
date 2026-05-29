@@ -84,6 +84,8 @@ type SourceTarget struct {
 //   "cli"                -> direct_chat "cli"
 //   "tg:<chat>"          -> direct_chat tg:<chat>
 //   "subtask:..."        -> not a Space; caller should not call MapSource
+//   "scratch:..."        -> not a Space; reserved for ephemeral
+//                           runtime scratch (see app/space_routing.go)
 //   anything else        -> direct_chat with the raw source as seed
 func MapSource(source string) SourceTarget {
 	source = strings.TrimSpace(source)
@@ -103,6 +105,12 @@ func MapSource(source string) SourceTarget {
 	case strings.HasPrefix(source, "subtask:"):
 		// subtasks live on a Task's private timeline, not a Space;
 		// callers are expected to skip MapSource for these.
+		return SourceTarget{}
+	case strings.HasPrefix(source, "scratch:"):
+		// scratch:* is reserved for runtime ephemeral sessions used
+		// during P2.5b agent wake-ups. They are deliberately invisible
+		// to the Space model so the channel router can never accidentally
+		// reverse-map a scratch run back into a real channel/DM space.
 		return SourceTarget{}
 	default:
 		return SourceTarget{Kind: KindDirectChat, Seed: source}

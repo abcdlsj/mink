@@ -66,9 +66,6 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if f.personaID != "" {
 		ctx = command.WithPersona(ctx, f.personaID)
 	}
-	if out, ok, err := f.mention(ctx); ok {
-		return out, err
-	}
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
@@ -78,18 +75,20 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
-	// P2.5a: when the input lands in a channel-kind space, route via
+	// P2.5a/b: when the input lands in a channel-kind space, route via
 	// the new Space router instead of running the active persona.
+	// This must run BEFORE the legacy `f.mention` shortcut so that
+	// `@coder` does not fall back to handleInputAs(active-persona).
 	// DM, direct chat, and subtask sources continue through the
 	// legacy active-persona handoff below.
 	if f.personaID == "" && sourceIsChannel(f.source) {
-		if _, err := f.app.interceptChannelInput(f.source, f.input); err != nil {
+		if _, err := f.app.interceptChannelInput(ctx, f.source, f.input); err != nil {
 			return "", err
 		}
-		// P2.5a stops here: wake targets and notices are computed but
-		// not executed. P2.5b wires the runtime; P2.5c publishes
-		// notices onto the bus.
 		return "", nil
+	}
+	if out, ok, err := f.mention(ctx); ok {
+		return out, err
 	}
 	// P1 dual-write: mirror the user's message into the Space store.
 	// Failures are swallowed so the primary session path is unaffected.

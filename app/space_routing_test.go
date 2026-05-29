@@ -10,6 +10,8 @@ import (
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/space"
 )
 
 // runtimeRecorder counts Run invocations and the sources they
@@ -56,6 +58,62 @@ func newRoutingTestApp(t *testing.T) (*App, *runtimeRecorder) {
 	return a, rec
 }
 
+// agentTurn captures a per-persona scripted reply so wake-runtime
+// tests can assert exact Space content.
+type agentTurn struct {
+	content   string
+	reasoning string
+	silent    bool // emit no assistant message at all
+}
+
+// scriptedRuntimeApp returns an App whose runtime emits a different
+// scripted reply per persona id, plus a recorder of every Run call.
+func scriptedRuntimeApp(t *testing.T, scripts map[string]agentTurn) (*App, *runtimeRecorder) {
+	t.Helper()
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	rec := &runtimeRecorder{}
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		var personaID string
+		if env != nil && env.Persona != nil {
+			personaID = env.Persona.ID
+		}
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			rec.record(turn)
+			script, ok := scripts[personaID]
+			if !ok || script.silent {
+				return nil
+			}
+			turn.Session.Add(msg.Message{
+				Role:      "assistant",
+				Content:   script.content,
+				Reasoning: script.reasoning,
+				AgentID:   personaID,
+			})
+			return nil
+		}), nil
+	})
+	return a, rec
+}
+
+// seedPersona inserts a persona into the registry so the resolver
+// can find it during routing tests.
+func seedPersona(t *testing.T, a *App, id, display string) {
+	t.Helper()
+	if _, err := a.personas.Create(id, persona.Meta{Display: display, Runtime: "stub"}, "stub soul"); err != nil {
+		t.Fatalf("create persona %q: %v", id, err)
+	}
+}
+
 // P2.5a isolation tests — Iris's three checks before P2.5b lands.
 
 func TestChannelInputWithMentionDoesNotRunActivePersona(t *testing.T) {
@@ -63,8 +121,11 @@ func TestChannelInputWithMentionDoesNotRunActivePersona(t *testing.T) {
 	if _, err := a.HandleInput(context.Background(), "desktop", "@coder look at this"); err != nil {
 		t.Fatalf("HandleInput: %v", err)
 	}
+	// In P2.5a the runtime never ran. P2.5b allows scripted wakes,
+	// but with no persona registered "coder" cannot resolve, so the
+	// router still produces zero wakes and runtime stays at 0.
 	if got := rec.Sources(); len(got) != 0 {
-		t.Errorf("active persona must not run on channel input; got runtime calls %v", got)
+		t.Errorf("active persona must not run for unresolved @; got %v", got)
 	}
 	spaces, err := a.store.ListSpaces()
 	if err != nil {
@@ -128,5 +189,164 @@ func TestSubtaskSourceStillUsesLegacyPath(t *testing.T) {
 	}
 	if got := rec.Sources(); len(got) == 0 {
 		t.Errorf("subtask source must continue through legacy path; got 0 runtime calls")
+	}
+}
+
+// P2.5b wake-runtime tests.
+
+func TestChannelWakeRunsResolvedAgentOnly(t *testing.T) {
+	a, rec := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "coder reply"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+	seedPersona(t, a, "tshoot", "Tshoot")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder look"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	// Exactly one runtime call, on a scratch source.
+	got := rec.Sources()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 runtime call, got %d (%v)", len(got), got)
+	}
+	if !strings.HasPrefix(got[0], "scratch:wake:") {
+		t.Errorf("runtime should run on scratch source, got %q", got[0])
+	}
+
+	spaces, _ := a.store.ListSpaces()
+	if len(spaces) != 1 {
+		t.Fatalf("expected 1 space, got %d", len(spaces))
+	}
+	sp := spaces[0]
+	if len(sp.Messages) != 2 {
+		t.Fatalf("expected 2 messages (user + coder), got %d: %+v", len(sp.Messages), sp.Messages)
+	}
+	if sp.Messages[1].AuthorID != "coder" || sp.Messages[1].AuthorKind != space.ParticipantAgent {
+		t.Errorf("agent message author wrong: %+v", sp.Messages[1])
+	}
+	if sp.Messages[1].Content != "coder reply" {
+		t.Errorf("agent reply content = %q, want %q", sp.Messages[1].Content, "coder reply")
+	}
+}
+
+func TestScratchSessionDoesNotLeakIntoStore(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "ok"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder hi"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	sessions, err := a.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	for _, s := range sessions {
+		if strings.HasPrefix(s.Source, "scratch:") {
+			t.Errorf("scratch session leaked into ListSessions: %+v", s)
+		}
+	}
+	storeSessions, _ := a.store.ListSessions()
+	for _, s := range storeSessions {
+		if strings.HasPrefix(s.Source, "scratch:") {
+			t.Errorf("scratch session leaked onto disk: %+v", s)
+		}
+	}
+}
+
+func TestChannelWakeWithEmptyReplyDoesNotWriteSpace(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {silent: true},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder hi"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	spaces, _ := a.store.ListSpaces()
+	sp := spaces[0]
+	if len(sp.Messages) != 1 {
+		t.Errorf("silent agent should not produce a Space message; got %d messages", len(sp.Messages))
+	}
+}
+
+func TestChannelWakeAgentReplyMentionFansOut(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder":    {content: "looking, ping @reviewer for a second pair"},
+		"reviewer": {content: "reviewer looked"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+	seedPersona(t, a, "reviewer", "Reviewer")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder look"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	spaces, _ := a.store.ListSpaces()
+	if len(spaces) != 1 {
+		t.Fatalf("expected 1 space, got %d", len(spaces))
+	}
+	sp := spaces[0]
+	// user message + coder reply + reviewer reply
+	if len(sp.Messages) != 3 {
+		t.Fatalf("expected 3 messages (user/coder/reviewer), got %d: %+v", len(sp.Messages), sp.Messages)
+	}
+	if sp.Messages[1].AuthorID != "coder" {
+		t.Errorf("second message should be coder, got %q", sp.Messages[1].AuthorID)
+	}
+	if sp.Messages[2].AuthorID != "reviewer" || sp.Messages[2].AuthorKind != space.ParticipantAgent {
+		t.Errorf("third message should be reviewer-authored, got %+v", sp.Messages[2])
+	}
+}
+
+func TestChannelWakeAgentSelfMentionDoesNotRecurse(t *testing.T) {
+	a, rec := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "thinking @coder more"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder look"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	if got := rec.Sources(); len(got) != 1 {
+		t.Errorf("self-mention must not re-wake; runtime called %d times (%v)", len(got), got)
+	}
+}
+
+func TestChannelWakeIndependentChainsDoNotInterfere(t *testing.T) {
+	a, rec := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "ok"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder a"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, err := a.HandleInput(context.Background(), "desktop", "@coder b"); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+
+	// Both messages should produce a coder wake — separate chains.
+	if got := rec.Sources(); len(got) != 2 {
+		t.Errorf("expected 2 runtime calls across two chains, got %d (%v)", len(got), got)
+	}
+	spaces, _ := a.store.ListSpaces()
+	sp := spaces[0]
+	if len(sp.Messages) != 4 {
+		t.Errorf("expected 4 messages (user/coder/user/coder), got %d", len(sp.Messages))
+	}
+}
+
+func TestScratchSourceDoesNotMapToChannel(t *testing.T) {
+	if sourceIsChannel("scratch:wake:abc") {
+		t.Error("scratch source must not be classified as channel")
+	}
+	target := space.MapSource("scratch:wake:abc")
+	if target.Kind != "" {
+		t.Errorf("scratch source should produce empty target, got %+v", target)
 	}
 }
