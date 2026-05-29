@@ -1,4 +1,4 @@
-import { Hash, AtSign, MessageSquare, Plus, Search, ChevronDown } from "lucide-react";
+import { Hash, AtSign, MessageCircle, Plus, Search, ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -7,14 +7,15 @@ import { cn, relTime } from "@/lib/utils";
 export function LeftPane() {
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
-  const threads = useStore((s) => s.threads);
+  const directChats = useStore((s) => s.directChats);
+  const recent = useStore((s) => s.recent);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
-  const openThread = useStore((s) => s.openThread);
+  const openDirectChat = useStore((s) => s.openDirectChat);
   const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
 
@@ -76,38 +77,64 @@ export function LeftPane() {
         ))}
       </ul>
 
+      <GroupLabel>Direct Chats</GroupLabel>
+      <ul className="flex flex-col gap-px">
+        {directChats.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct chats yet.</li>
+        )}
+        {directChats.map((dc) => (
+          <NavItem
+            key={dc.id}
+            icon={<MessageCircle className="size-4" />}
+            name={dc.title}
+            running={dc.has_running}
+            active={view === "thread" && activeThread === dc.id}
+            onClick={() => void openDirectChat(dc.id)}
+            tooltip={dc.has_running ? `${dc.title} · running` : undefined}
+          />
+        ))}
+      </ul>
+
       <GroupLabel>Recent</GroupLabel>
       <ul className="flex flex-col gap-px">
-        {threads.length === 0 && (
-          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent conversations.</li>
+        {recent.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent activity.</li>
         )}
-        {threads.map((t) => {
-          const ch = channels.find((c) => c.id === t.channel_id);
-          return (
-            <li key={t.id}>
-              <button
-                onClick={() => void openThread(t.id)}
-                title={t.has_running ? `${t.title} · agent running` : undefined}
-                className={cn(
-                  "w-full text-left px-2 py-1.5 rounded-sm border-l-2 border-transparent cursor-pointer transition-colors",
-                  view === "thread" && activeThread === t.id
-                    ? "bg-accent-bg border-l-accent"
-                    : "hover:bg-panel",
-                )}
-              >
-                <div className="flex items-center gap-1.5 text-[12.5px] text-text">
-                  {t.has_running && <Dot status="running" />}
-                  <MessageSquare className="size-3 text-text-faint shrink-0" />
-                  <span className="truncate">{t.title}</span>
-                </div>
-                <div className="text-[11px] text-text-faint mt-0.5">
-                  {ch ? `#${ch.name} · ` : ""}
-                  {relTime(t.updated_at)}
-                </div>
-              </button>
-            </li>
-          );
-        })}
+        {recent.map((r) => (
+          <li key={r.id}>
+            <button
+              onClick={() => {
+                if (r.kind === "channel") void openChannel(r.id);
+                else if (r.kind === "agent_dm") {
+                  // Recent gives a Space id but openAgent needs the persona id.
+                  // We pull it from the displayed title which is "@<display>";
+                  // fall back to opening by id if the lookup fails.
+                  const personaID = r.title.startsWith("@") ? r.title.slice(1) : r.title;
+                  void openAgent(personaID);
+                } else if (r.kind === "direct_chat") void openDirectChat(r.id);
+              }}
+              className={cn(
+                "w-full text-left px-2 py-1.5 rounded-sm border-l-2 border-transparent cursor-pointer transition-colors",
+                ((r.kind === "channel" && activeChannel === r.id) ||
+                  (r.kind === "direct_chat" && activeThread === r.id))
+                  ? "bg-accent-bg border-l-accent"
+                  : "hover:bg-panel",
+              )}
+              title={r.kind}
+            >
+              <div className="flex items-center gap-1.5 text-[12.5px] text-text">
+                {r.kind === "channel" && <Hash className="size-3 text-text-faint shrink-0" />}
+                {r.kind === "direct_chat" && <MessageCircle className="size-3 text-text-faint shrink-0" />}
+                {r.kind === "agent_dm" && <AtSign className="size-3 text-text-faint shrink-0" />}
+                <span className="truncate">{r.title}</span>
+              </div>
+              {r.subtitle && (
+                <div className="text-[11px] text-text-faint mt-0.5 truncate">{r.subtitle}</div>
+              )}
+              <div className="text-[10.5px] text-text-faint">{relTime(r.updated_at)}</div>
+            </button>
+          </li>
+        ))}
       </ul>
     </aside>
   );

@@ -38,6 +38,20 @@ type DirectChatItem struct {
 	HasRunning  bool      `json:"has_running"`
 }
 
+// RecentItem is one row in the left rail's "Recent" aggregator.
+// Recent is NOT a Space — it's a derived view across every kind.
+// Each item carries its kind so the frontend can dispatch the
+// click correctly: kind="channel" navigates via openChannel,
+// "direct_chat" via the direct-chat detail, "agent_dm" via
+// openAgent.
+type RecentItem struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"` // "channel" | "direct_chat" | "agent_dm"
+	Title     string    `json:"title"`
+	Subtitle  string    `json:"subtitle,omitempty"` // optional last-message preview
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type AgentItem struct {
 	ID      string `json:"id"`
 	Display string `json:"display"`

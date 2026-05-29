@@ -2,9 +2,11 @@ import type {
   AgentItem,
   ChannelItem,
   CommandItem,
+  DirectChatItem,
   ModelItem,
   ParticipantsView,
   PersonaItem,
+  RecentItem,
   SessionDetail,
   ThreadItem,
   ToolItem,
@@ -30,6 +32,10 @@ export const api = {
     j<SessionDetail>(
       fetch("/api/new-direct", { method: "POST" }),
     ),
+  directChats: () => j<DirectChatItem[]>(fetch("/api/direct-chats")),
+  directChat: (id: string) =>
+    j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
+  recent: () => j<RecentItem[]>(fetch("/api/recent")),
   participants: (channelID: string, threadID: string) => {
     const q = new URLSearchParams();
     if (channelID) q.set("channel", channelID);

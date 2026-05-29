@@ -3,11 +3,13 @@ import type {
   AgentItem,
   ChannelItem,
   CommandItem,
+  DirectChatItem,
   EventBlock,
   MessageView,
   ModelItem,
   ParticipantsView,
   PersonaItem,
+  RecentItem,
   SessionDetail,
   ThreadItem,
   ToolItem,
@@ -43,6 +45,8 @@ interface State {
   state: WorkspaceState | null;
   channels: ChannelItem[];
   threads: ThreadItem[];
+  directChats: DirectChatItem[];
+  recent: RecentItem[];
   agents: AgentItem[];
   personas: PersonaItem[];
   models: ModelItem[];
@@ -64,6 +68,7 @@ interface State {
   openChannel: (id: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
   openAgent: (id: string) => Promise<void>;
+  openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
@@ -87,6 +92,8 @@ export const useStore = create<State>((set, get) => ({
   state: null,
   channels: [],
   threads: [],
+  directChats: [],
+  recent: [],
   agents: [],
   personas: [],
   models: [],
@@ -105,17 +112,19 @@ export const useStore = create<State>((set, get) => ({
   streaming: null,
 
   async loadInitial() {
-    const [state, channels, threads, agents, personas, models, tools, commands] = await Promise.all([
+    const [state, channels, threads, directChats, recent, agents, personas, models, tools, commands] = await Promise.all([
       api.state(),
       api.channels(),
       api.threads(),
+      api.directChats(),
+      api.recent(),
       api.agents(),
       api.personas(),
       api.models(),
       api.tools(),
       api.commands(),
     ]);
-    set({ state, channels, threads, agents, personas, models, tools, commands, ready: true });
+    set({ state, channels, threads, directChats, recent, agents, personas, models, tools, commands, ready: true });
     if (channels.length) {
       await get().openChannel(channels[0].id);
     }
@@ -185,22 +194,46 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (!detail.item?.id) return;
-    const channelID = get().channels[0]?.id || null;
     set({
       view: "thread",
       activeThread: detail.item.id,
-      activeChannel: channelID,
+      activeChannel: null,
       activeAgent: null,
       detail,
-      participants: null,
+      participants: { agents: [] },
       streaming: null,
     });
     try {
-      const threads = await api.threads();
-      set({ threads });
+      const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
+      set({ directChats, recent });
     } catch {
       // ignore refresh failure
     }
+  },
+
+  async openDirectChat(id) {
+    let detail: SessionDetail;
+    try {
+      detail = await api.directChat(id);
+    } catch {
+      return;
+    }
+    if (!detail.item?.id) return;
+    let participants: ParticipantsView | null = null;
+    try {
+      participants = await api.participants("", id);
+    } catch {
+      participants = { agents: [] };
+    }
+    set({
+      view: "thread",
+      activeThread: id,
+      activeChannel: null,
+      activeAgent: null,
+      detail,
+      participants,
+      streaming: null,
+    });
   },
 
   setPalette(open) {

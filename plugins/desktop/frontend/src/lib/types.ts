@@ -28,6 +28,23 @@ export interface ThreadItem {
   has_running: boolean;
 }
 
+export interface DirectChatItem {
+  id: string;
+  title: string;
+  agents: string[];
+  updated_at: string;
+  unread_count: number;
+  has_running: boolean;
+}
+
+export interface RecentItem {
+  id: string;
+  kind: "channel" | "direct_chat" | "agent_dm";
+  title: string;
+  subtitle?: string;
+  updated_at: string;
+}
+
 export interface AgentItem {
   id: string;
   display: string;

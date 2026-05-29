@@ -281,7 +281,96 @@ func (b *Backend) ListChannels() []ChannelItem {
 	}
 }
 
-// channelDisplayName chooses the rail label for a channel Space.
+// ListRecent returns the recent-activity aggregator for the left
+// rail. It walks every persisted Space, surfaces a kind-tagged row
+// per entry, and sorts by updated_at descending. Recent is a
+// derived view: clicking an item should dispatch by kind back to
+// the kind-specific detail endpoint, not to /api/thread.
+func (b *Backend) ListRecent() []RecentItem {
+	if b.app == nil {
+		return nil
+	}
+	spaces, err := b.app.Spaces().ListSpaces()
+	if err != nil {
+		return nil
+	}
+	cfg := b.app.Config()
+	out := make([]RecentItem, 0, len(spaces))
+	for _, sp := range spaces {
+		var item RecentItem
+		switch sp.Kind {
+		case space.KindChannel:
+			item = RecentItem{
+				ID:        sp.ID,
+				Kind:      "channel",
+				Title:     "#" + channelDisplayName(sp, cfg.Workspace),
+				Subtitle:  recentSubtitle(sp),
+				UpdatedAt: sp.UpdatedAt,
+			}
+		case space.KindDirectChat:
+			item = RecentItem{
+				ID:        sp.ID,
+				Kind:      "direct_chat",
+				Title:     directChatTitle(sp),
+				Subtitle:  recentSubtitle(sp),
+				UpdatedAt: sp.UpdatedAt,
+			}
+		case space.KindAgentDM:
+			display := sp.Title
+			if p := b.app.Personas().Get(sp.Title); p != nil {
+				display = p.Display
+			}
+			item = RecentItem{
+				ID:        sp.ID,
+				Kind:      "agent_dm",
+				Title:     "@" + display,
+				Subtitle:  recentSubtitle(sp),
+				UpdatedAt: sp.UpdatedAt,
+			}
+		default:
+			continue
+		}
+		// Skip spaces with no activity (channel default, brand-new
+		// agent DMs that have never been used). Recent should only
+		// surface things the user has actually touched.
+		if len(sp.Messages) == 0 {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	if len(out) > 12 {
+		out = out[:12]
+	}
+	return out
+}
+
+// recentSubtitle picks a one-line preview from the last message in
+// a Space. Empty when the space has no messages.
+func recentSubtitle(sp *space.Space) string {
+	if sp == nil || len(sp.Messages) == 0 {
+		return ""
+	}
+	last := sp.Messages[len(sp.Messages)-1]
+	c := strings.TrimSpace(last.Content)
+	if c == "" {
+		return ""
+	}
+	c = strings.ReplaceAll(c, "\n", " ")
+	if len([]rune(c)) > 60 {
+		r := []rune(c)
+		c = string(r[:60]) + "…"
+	}
+	prefix := ""
+	switch last.AuthorKind {
+	case space.ParticipantUser:
+		prefix = "You: "
+	case space.ParticipantAgent:
+		display := last.AuthorID
+		prefix = display + ": "
+	}
+	return prefix + c
+}
 // Channel Spaces are auto-created with title "default" today; we
 // surface the workspace folder name instead so users see "#sumi"
 // rather than "#default".
@@ -875,6 +964,7 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	mux.HandleFunc("/api/direct-chat", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetDirectChat(req.URL.Query().Get("id")))
 	})
+	mux.HandleFunc("/api/recent", jsonHandler(func() any { return b.ListRecent() }))
 	mux.HandleFunc("/api/new-direct", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
