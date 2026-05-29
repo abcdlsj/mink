@@ -53,11 +53,11 @@ func TestReplayCommandUsesRunLog(t *testing.T) {
 		}), nil
 	})
 
-	if _, err := a.HandleInput(context.Background(), "cli", "ping"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "ping"); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := (&replayCmd{app: a}).Run(command.WithSource(context.Background(), "cli"), []string{"10"})
+	out, err := (&replayCmd{app: a}).Run(command.WithSource(context.Background(), "test"), []string{"10"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,11 +88,11 @@ func TestInspectCommandShowsSnapshotAndRunLog(t *testing.T) {
 		}), nil
 	})
 
-	if _, err := a.HandleInput(context.Background(), "cli", "ping"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "ping"); err != nil {
 		t.Fatal(err)
 	}
 
-	out, err := (&inspectCmd{app: a}).Run(command.WithSource(context.Background(), "cli"), nil)
+	out, err := (&inspectCmd{app: a}).Run(command.WithSource(context.Background(), "test"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
