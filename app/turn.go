@@ -64,17 +64,16 @@ func (a *App) persistAssistantTurn(source, personaID string, s *session.Session,
 	if s == nil {
 		return nil
 	}
-	added := s.Messages[baseline:]
-	if space.MapSource(source).Kind == space.KindAgentDM {
-		content, reasoning := assembleAssistantOutput(added)
-		if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
-			return nil
-		}
-		_, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
-		return err
+	if space.MapSource(source).Kind != space.KindAgentDM {
+		return nil
 	}
-	a.dualWriteAssistantsFromSession(source, personaID, s)
-	return nil
+	added := s.Messages[baseline:]
+	content, reasoning := assembleAssistantOutput(added)
+	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
+		return nil
+	}
+	_, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
+	return err
 }
 
 func (f turnFlow) publish(typ, err string) {

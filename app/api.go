@@ -7,9 +7,15 @@ import (
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/store"
+	"github.com/abcdlsj/sumi/task"
 	"github.com/abcdlsj/sumi/tool"
 )
+
+func (a *App) Spaces() *space.Manager { return a.spaces }
+
+func (a *App) Tasks() *task.Manager { return a.tasks }
 
 func (a *App) Workspace() string {
 	return a.cfg.Workspace

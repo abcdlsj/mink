@@ -103,8 +103,6 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		if _, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input); err != nil {
 			return "", err
 		}
-	} else {
-		f.app.dualWriteUserInput(f.source, f.personaID, f.input)
 	}
 	sessionSource := f.sessionSource()
 	s, err := f.app.sessions.Current(sessionSource)
