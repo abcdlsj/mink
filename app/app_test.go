@@ -98,7 +98,7 @@ func TestProjectContextIsPassedToRuntime(t *testing.T) {
 			return nil
 		}), nil
 	})
-	if _, err := a.HandleInput(context.Background(), "cli", "ping"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "ping"); err != nil {
 		t.Fatal(err)
 	}
 	if got != "Use tiny functions." {
@@ -497,7 +497,7 @@ func TestMentionReroutesToPersona(t *testing.T) {
 		}), nil
 	})
 
-	out, err := a.HandleInput(context.Background(), "cli", "@debug 看看这个报错")
+	out, err := a.HandleInput(context.Background(), "test", "@debug 看看这个报错")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -510,14 +510,14 @@ func TestMentionReroutesToPersona(t *testing.T) {
 	if gotPersona == nil || gotPersona.ID != "debug" {
 		t.Fatalf("persona = %#v, want debug", gotPersona)
 	}
-	main, err := a.CurrentSession("cli")
+	main, err := a.CurrentSession("test")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(main.Messages) != 0 {
 		t.Fatalf("main session messages = %d, want 0", len(main.Messages))
 	}
-	ps, err := a.CurrentSession(personaSessionSource("cli", "debug"))
+	ps, err := a.CurrentSession(personaSessionSource("test", "debug"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,13 +563,13 @@ func TestPersonaMentionKeepsSeparateThreadedContext(t *testing.T) {
 		}), nil
 	})
 
-	if _, err := a.HandleInput(context.Background(), "cli", "@debug first"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "@debug first"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.HandleInput(context.Background(), "cli", "plain reply"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "plain reply"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.HandleInput(context.Background(), "cli", "@debug second"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "test", "@debug second"); err != nil {
 		t.Fatal(err)
 	}
 

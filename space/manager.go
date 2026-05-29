@@ -94,18 +94,25 @@ type SourceTarget struct {
 // (Kind, Seed). It is the bridge between sumi's per-source single
 // session and the multi-Space model.
 //
-// Mapping rules (proposal §8):
+// Mapping rules (proposal §8 + P4):
 //   "desktop"             -> channel "default"
-//   "desktop:agent:<id>"  -> agent_dm <id>      (incl. :persona:<id> tail)
-//   "desktop:direct:<id>" -> direct_chat <id>   (the seed IS the Space title;
-//                                               the manager finds the singleton
-//                                               instance by FindSpaceByKindAndSeed)
+//   "desktop:agent:<id>"  -> agent_dm <id>           (incl. :persona:<id> tail)
+//   "desktop:direct:<id>" -> direct_chat <id>
 //   "cli"                 -> direct_chat "cli"
-//   "tg:<chat>"           -> direct_chat tg:<chat>
+//   "cli:agent:<id>"      -> agent_dm <id>           (shared with PC's
+//                                                     desktop:agent:<id>)
+//   "tg:dm:<chat>"        -> direct_chat tg:dm:<chat>
+//   "tg:channel:<chat>"   -> channel    tg:channel:<chat>
 //   "subtask:..."         -> not a Space; caller should not call MapSource
 //   "scratch:..."         -> not a Space; reserved for ephemeral
 //                            runtime scratch (see app/space_routing.go)
 //   anything else         -> direct_chat with the raw source as seed
+//
+// NOTE on Telegram: pre-P4 Telegram used a flat "tg:<chat>" source.
+// P4 replaces it with the chat-type-aware "tg:dm:<chat>" and
+// "tg:channel:<chat>" prefixes. Per Iris's review the legacy form
+// is no longer accepted — the adapter must produce the typed form
+// directly, otherwise we'd grow a third "uncategorized" Space kind.
 func MapSource(source string) SourceTarget {
 	source = strings.TrimSpace(source)
 	switch {
@@ -123,10 +130,18 @@ func MapSource(source string) SourceTarget {
 			rest = rest[:i]
 		}
 		return SourceTarget{Kind: KindDirectChat, Seed: rest}
+	case strings.HasPrefix(source, "cli:agent:"):
+		rest := strings.TrimPrefix(source, "cli:agent:")
+		if i := strings.IndexByte(rest, ':'); i >= 0 {
+			rest = rest[:i]
+		}
+		return SourceTarget{Kind: KindAgentDM, Seed: rest}
 	case source == "cli":
 		return SourceTarget{Kind: KindDirectChat, Seed: "cli"}
-	case strings.HasPrefix(source, "tg:"):
+	case strings.HasPrefix(source, "tg:dm:"):
 		return SourceTarget{Kind: KindDirectChat, Seed: source}
+	case strings.HasPrefix(source, "tg:channel:"):
+		return SourceTarget{Kind: KindChannel, Seed: source}
 	case strings.HasPrefix(source, "subtask:"):
 		// subtasks live on a Task's private timeline, not a Space;
 		// callers are expected to skip MapSource for these.

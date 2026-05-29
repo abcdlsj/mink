@@ -434,14 +434,26 @@ func TestDirectChatSourceUsesRouter(t *testing.T) {
 	if !sourceUsesRouter("desktop:direct:abc") {
 		t.Error("desktop:direct:abc should use router")
 	}
+	if !sourceUsesRouter("cli") {
+		t.Error("cli should use router (P4)")
+	}
+	if !sourceUsesRouter("tg:dm:42") {
+		t.Error("tg:dm:* should use router (P4)")
+	}
+	if !sourceUsesRouter("tg:channel:42") {
+		t.Error("tg:channel:* should use router (P4)")
+	}
 	if sourceUsesRouter("desktop:agent:tshoot") {
 		t.Error("agent DM source must NOT use router")
+	}
+	if sourceUsesRouter("cli:agent:tshoot") {
+		t.Error("cli:agent:* must NOT use router (DM is legacy)")
 	}
 	if sourceUsesRouter("subtask:task-1") || sourceUsesRouter("scratch:wake:x") {
 		t.Error("subtask/scratch must NOT use router")
 	}
-	if sourceUsesRouter("cli") {
-		t.Error("CLI must NOT use router in v1 (P4 will widen)")
+	if sourceUsesRouter("tg:42") {
+		t.Error("legacy flat tg:<chat> must NOT route — adapter is required to produce the typed form")
 	}
 }
 

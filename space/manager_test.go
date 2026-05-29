@@ -62,9 +62,13 @@ func TestMapSource(t *testing.T) {
 		{"", KindChannel, "default", false},
 		{"desktop:agent:coder", KindAgentDM, "coder", false},
 		{"desktop:agent:coder:persona:coder", KindAgentDM, "coder", false},
+		{"desktop:direct:dchat-abc", KindDirectChat, "dchat-abc", false},
 		{"cli", KindDirectChat, "cli", false},
-		{"tg:42", KindDirectChat, "tg:42", false},
+		{"cli:agent:coder", KindAgentDM, "coder", false},
+		{"tg:dm:42", KindDirectChat, "tg:dm:42", false},
+		{"tg:channel:42", KindChannel, "tg:channel:42", false},
 		{"subtask:task-abc", "", "", true},
+		{"scratch:wake:xyz", "", "", true},
 		{"random-other", KindDirectChat, "random-other", false},
 	}
 	for _, c := range cases {
