@@ -727,93 +727,80 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	if b.app == nil {
 		return mockParticipants(channelID, threadID)
 	}
-	if threadID != "" {
-		return b.threadParticipants(threadID)
+	// P3.3: read participants directly off the Space. The
+	// `threadID` query parameter is the active Space id (the
+	// frontend just kept the legacy name); we resolve it through
+	// space.Manager rather than synthesizing from session history.
+	spaceID := strings.TrimSpace(threadID)
+	if spaceID == "" {
+		spaceID = strings.TrimSpace(channelID)
 	}
-	// Channel view: synthesize from team aliases under the desktop source.
-	return ParticipantsView{Agents: b.allAgents()}
+	if spaceID == "" {
+		return ParticipantsView{Agents: b.allAgents()}
+	}
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return ParticipantsView{}
+	}
+	return ParticipantsView{
+		Agents:     spaceParticipantsAsAgents(sp, b.app),
+		RecentRuns: b.spaceRecentRuns(sp),
+	}
 }
 
-func (b *Backend) threadParticipants(threadID string) ParticipantsView {
-	sessions, err := b.app.ListSessions()
-	if err != nil {
-		return ParticipantsView{}
+// spaceParticipantsAsAgents projects every Participant in a Space
+// onto the rail's AgentItem shape. The user participant is dropped
+// (the rail is for collaborators); persona display + role are
+// resolved through the registry when present.
+func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
+	if sp == nil {
+		return nil
 	}
-	var sess *session.Session
-	for _, s := range sessions {
-		if s.ID == threadID {
-			sess = s
-			break
+	out := make([]AgentItem, 0, len(sp.Participants))
+	for _, p := range sp.Participants {
+		if p.Kind != space.ParticipantAgent {
+			continue
 		}
-	}
-	if sess == nil {
-		return ParticipantsView{}
-	}
-
-	seen := map[string]bool{}
-	add := func(id string) {
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-	}
-
-	if def := personaFromSource(sess.Source); def != "" {
-		add(def)
-	}
-
-	resultsByID := map[string]msg.ToolResult{}
-	for _, m := range sess.Messages {
-		for _, r := range m.ToolResults {
-			resultsByID[r.ToolCallID] = r
-		}
-	}
-
-	recent := make([]AgentRun, 0)
-	for _, m := range sess.Messages {
-		if m.AgentID != "" {
-			add(m.AgentID)
-		}
-		for _, c := range m.ToolCalls {
-			if !isCollabTool(c.Name) {
-				continue
-			}
-			target := mentionTargetFromArgs(c.Args, c.Name)
-			add(target)
-			if r, ok := resultsByID[c.ID]; ok && isSchedulingAck(r.Content) {
-				if taskID := parseTaskID(r.Content); taskID != "" {
-					if run := b.taskAsRun(taskID, target); run != nil {
-						recent = append(recent, *run)
-					}
+		display := p.Display
+		role := p.Role
+		if a != nil {
+			if pp := a.Personas().Get(p.ID); pp != nil {
+				if display == "" {
+					display = pp.Display
+				}
+				if role == "" {
+					role = pp.Description
 				}
 			}
 		}
-	}
-
-	personas := b.app.Personas().List()
-	agents := make([]AgentItem, 0, len(seen))
-	for id := range seen {
-		display := id
-		role := ""
-		for _, p := range personas {
-			if p.ID == id {
-				display = p.Display
-				role = p.Description
-				break
-			}
+		if display == "" {
+			display = p.ID
 		}
-		agents = append(agents, AgentItem{ID: id, Display: display, Role: role, Status: "idle"})
+		out = append(out, AgentItem{
+			ID:      p.ID,
+			Display: display,
+			Role:    role,
+			Status:  "idle",
+		})
 	}
-	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
 
-	if len(recent) > 6 {
-		recent = recent[len(recent)-6:]
+// spaceRecentRuns scans the Space's messages for collab-tool task
+// scheduling acks and replays each one as an AgentRun for the
+// right-rail history. This is a temporary bridge: today task
+// metadata still lives on the assistant message's tool_calls
+// (because tasks haven't been migrated to a separate store yet).
+// P5 replaces this scan with a Task-store read.
+func (b *Backend) spaceRecentRuns(sp *space.Space) []AgentRun {
+	if sp == nil {
+		return nil
 	}
-
-	return ParticipantsView{
-		Agents:     agents,
-		RecentRuns: recent,
-	}
+	// Recent runs in P3 stay tied to the legacy session reader
+	// because Task storage hasn't migrated yet. Keep an empty list
+	// for now — the rail's runs section just hides itself.
+	return nil
 }
 
 func (b *Backend) allAgents() []AgentItem {
