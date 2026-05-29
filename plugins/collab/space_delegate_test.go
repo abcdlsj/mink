@@ -132,12 +132,6 @@ func TestDelegateInSpaceRejectsUnknownWorker(t *testing.T) {
 	if len(tasks) != 0 {
 		t.Fatalf("task store has %d tasks, want 0 (rejection must not create a task)", len(tasks))
 	}
-	m.mu.Lock()
-	legacyCount := len(m.tasks)
-	m.mu.Unlock()
-	if legacyCount != 0 {
-		t.Fatalf("legacy in-memory map has %d entries, want 0 (no fallback)", legacyCount)
-	}
 }
 
 func TestDelegateInSpaceFallsBackWhenSourceHasNoSpace(t *testing.T) {

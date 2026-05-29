@@ -15,14 +15,14 @@ type spawnTool struct{ m *manager }
 
 func (t spawnTool) Name() string { return "spawn" }
 func (t spawnTool) Desc() string {
-	return "Run a subtask with a child agent and return its final result"
+	return "Run a subtask with a worker agent and return a result message pointer plus short outcome"
 }
 func (t spawnTool) Schema() map[string]any {
 	return tool.ObjectSchema(
 		tool.Prop("task", "string", "Task to run"),
 		tool.Prop("share_context", "boolean", "Share current context"),
-		tool.Prop("direct_output", "boolean", "Publish output directly"),
-		tool.Prop("runtime", "string", "Runtime name"),
+		tool.Prop("direct_output", "boolean", "Publish outcome directly"),
+		tool.Prop("runtime", "string", "Worker persona id or registered alias"),
 		tool.Required("task"),
 	)
 }
@@ -37,16 +37,10 @@ func (t spawnTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.Runtime, in.Runtime)
-	if out, ok, err := t.m.trySpawnInSpace(ctx, src, in, rt); ok {
-		if err != nil {
-			return "", err
-		}
-		if in.DirectOutput && strings.TrimSpace(out) != "" {
-			t.m.app.PublishNotice(src, out)
-		}
-		return out, nil
+	out, ok, err := t.m.trySpawnInSpace(ctx, src, in, rt)
+	if !ok {
+		return "", fmt.Errorf("spawn requires a Space-mapped source (channel / direct chat / agent dm)")
 	}
-	out, err := t.m.spawn(ctx, src, rt, in.Task, in.ShareContext)
 	if err != nil {
 		return "", err
 	}
@@ -65,10 +59,10 @@ func (t delegateTool) Desc() string {
 func (t delegateTool) Schema() map[string]any {
 	return tool.ObjectSchema(
 		tool.Prop("task", "string", "Task to delegate"),
-		tool.Prop("target", "string", "Target runtime or alias"),
+		tool.Prop("target", "string", "Worker persona id or registered alias"),
 		tool.StringArrayProp("capabilities", "Capability hints"),
 		tool.Prop("share_context", "boolean", "Share current context"),
-		tool.Prop("direct_output", "boolean", "Publish output directly"),
+		tool.Prop("direct_output", "boolean", "Publish outcome directly"),
 		tool.Required("task"),
 	)
 }
@@ -83,13 +77,10 @@ func (t delegateTool) Run(ctx context.Context, args json.RawMessage) (string, er
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.Target, capabilityHint(in.Capabilities))
-	if id, ok, err := t.m.tryDelegateInSpace(ctx, src, in.Target, rt, in.Task); ok {
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("delegation accepted, task_id=%s", id), nil
+	id, ok, err := t.m.tryDelegateInSpace(ctx, src, in.Target, rt, in.Task)
+	if !ok {
+		return "", fmt.Errorf("delegate requires a Space-mapped source (channel / direct chat / agent dm)")
 	}
-	id, err := t.m.delegate(src, rt, in.Task, in.ShareContext, in.DirectOutput)
 	if err != nil {
 		return "", err
 	}
@@ -153,11 +144,11 @@ type inviteTool struct{ m *manager }
 
 func (t inviteTool) Name() string { return "invite_agent" }
 func (t inviteTool) Desc() string {
-	return "Bind a visible team alias to a runtime in the current source"
+	return "Bind a visible team alias to a registered persona in the current source"
 }
 func (t inviteTool) Schema() map[string]any {
 	return tool.ObjectSchema(
-		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Prop("agent_id", "string", "Worker persona id or alias"),
 		tool.Prop("role_name", "string", "Visible role name"),
 		tool.Prop("role_description", "string", "Role description"),
 		tool.Prop("task", "string", "Optional first task"),
@@ -183,13 +174,10 @@ func (t inviteTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	if strings.TrimSpace(in.Task) == "" {
 		return fmt.Sprintf("invited %s backed by %s", alias, rt), nil
 	}
-	if id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, in.AgentID, in.Task); ok {
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("invited %s backed by %s, task_id=%s", alias, rt, id), nil
+	id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, in.AgentID, in.Task)
+	if !ok {
+		return "", fmt.Errorf("invite_agent task requires a Space-mapped source")
 	}
-	id, err := t.m.delegate(src, rt, in.Task, true, true)
 	if err != nil {
 		return "", err
 	}
@@ -200,11 +188,11 @@ type mentionTool struct{ m *manager }
 
 func (t mentionTool) Name() string { return "mention" }
 func (t mentionTool) Desc() string {
-	return "Route a question to a bound team alias asynchronously"
+	return "Ask a bound team alias a question; result is a worker-authored Space message, not a Background Task"
 }
 func (t mentionTool) Schema() map[string]any {
 	return tool.ObjectSchema(
-		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Prop("agent_id", "string", "Worker persona id or alias"),
 		tool.Prop("question", "string", "Question to ask"),
 		tool.Required("agent_id", "question"),
 	)
@@ -219,25 +207,21 @@ func (t mentionTool) Run(ctx context.Context, args json.RawMessage) (string, err
 		return "", fmt.Errorf("agent_id and question are required")
 	}
 	src := command.SourceFrom(ctx)
-	if out, ok, err := t.m.tryMentionInSpace(ctx, src, in); ok {
-		if err != nil {
-			return "", err
-		}
-		return out, nil
+	out, ok, err := t.m.tryMentionInSpace(ctx, src, in)
+	if !ok {
+		return "", fmt.Errorf("mention requires a Space-mapped source")
 	}
-	rt := t.m.pickRuntime(src, in.AgentID, in.AgentID)
-	id, err := t.m.delegate(src, rt, in.Question, true, true)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("scheduled next team turn for %s, task_id=%s", strings.TrimSpace(in.AgentID), id), nil
+	return out, nil
 }
 
 type specialistTool struct{ m *manager }
 
 func (t specialistTool) Name() string { return "spawn_specialist" }
 func (t specialistTool) Desc() string {
-	return "Create a team alias backed by a runtime and optionally schedule its first task"
+	return "Bind a visible team alias to a registered persona; optional first task creates a Task in the store"
 }
 func (t specialistTool) Schema() map[string]any {
 	return tool.ObjectSchema(
@@ -246,7 +230,7 @@ func (t specialistTool) Schema() map[string]any {
 		tool.Prop("profile_hint", "string", "Runtime selection hint"),
 		tool.StringArrayProp("capabilities", "Capability hints"),
 		tool.Prop("task", "string", "Optional first task"),
-		tool.Prop("agent_id", "string", "Runtime or alias"),
+		tool.Prop("agent_id", "string", "Worker persona id or alias"),
 		tool.Required("role_name", "role_description"),
 	)
 }
@@ -274,13 +258,10 @@ func (t specialistTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	if aliasArg == "" {
 		aliasArg = alias
 	}
-	if id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, aliasArg, in.Task); ok {
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("spawned %s backed by %s, task_id=%s", alias, rt, id), nil
+	id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, aliasArg, in.Task)
+	if !ok {
+		return "", fmt.Errorf("spawn_specialist task requires a Space-mapped source")
 	}
-	id, err := t.m.delegate(src, rt, in.Task, true, true)
 	if err != nil {
 		return "", err
 	}

@@ -1,7 +1,6 @@
 package collab
 
 import (
-	"context"
 	"encoding/json"
 	"sync"
 
@@ -9,24 +8,12 @@ import (
 )
 
 type manager struct {
-	app   *app.App
-	path  string
-	sem   chan struct{}
-	queue chan struct{}
+	app  *app.App
+	path string
+	sem  chan struct{}
 
 	mu    sync.Mutex
-	tasks map[string]*task
 	teams map[string]map[string]string
-}
-
-type task struct {
-	id     string
-	source string
-	output string
-	err    error
-	ctx    context.Context
-	cancel context.CancelFunc
-	done   chan struct{}
 }
 
 type spawnArgs struct {
@@ -79,8 +66,6 @@ func newManager(a *app.App) *manager {
 		app:   a,
 		path:  cfg.CollabTeamsPath(),
 		sem:   make(chan struct{}, cfg.Collab.MaxConcurrent),
-		queue: make(chan struct{}, cfg.Collab.QueueDepth),
-		tasks: map[string]*task{},
 		teams: map[string]map[string]string{},
 	}
 	m.loadTeams()
