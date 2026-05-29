@@ -22,10 +22,11 @@ const DefaultRoutingBudget = 3
 // chains; that's fine because chains are short-lived (one user
 // turn) and can't outlive a process.
 type RoutingChain struct {
-	RootMessageID string
-	SpaceID       string
-	Budget        int
-	StartedAt     time.Time
+	RootMessageID   string
+	ParentMessageID string
+	SpaceID         string
+	Budget          int
+	StartedAt       time.Time
 
 	repliedAgents map[string]bool
 }

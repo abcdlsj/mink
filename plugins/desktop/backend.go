@@ -14,6 +14,7 @@ import (
 
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
@@ -106,13 +107,9 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		cancel()
 	}()
 	source := desktopSource
-	// P3.5/P3.8: when session_id refers to a real Space, route to
-	// the right source so the router (or active-persona path)
-	// targets the correct Space:
-	//   KindChannel    -> "desktop"            (router)
-	//   KindDirectChat -> "desktop:direct:<seed>" (router)
-	//   KindAgentDM    -> "desktop:agent:<seed>"  (legacy active persona)
-	if sp, err := b.app.Spaces().LoadSpace(req.SessionID); err == nil && sp != nil {
+	var sp *space.Space
+	if loaded, err := b.app.Spaces().LoadSpace(req.SessionID); err == nil && loaded != nil {
+		sp = loaded
 		switch sp.Kind {
 		case space.KindChannel:
 			source = desktopSource
@@ -122,19 +119,38 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 			source = "desktop:agent:" + sp.Title
 		}
 	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
-		// Frontend may still send the synthetic agent source string.
 		source = req.SessionID
 	} else if isThreadID(req.SessionID) {
-		// Pre-P3 desktop session id; preserve the legacy switch path
-		// so behavior doesn't break for old data on disk.
 		if _, err := b.app.SwitchSession(desktopSource, req.SessionID); err != nil {
 			return "", err
 		}
+	}
+	parentID := strings.TrimSpace(req.ParentMessageID)
+	if parentID != "" {
+		if sp == nil || sp.Kind == space.KindAgentDM {
+			return "", fmt.Errorf("threads are not supported in this Space kind")
+		}
+		normalized, ok := b.normalizeThreadParentID(sp, parentID)
+		if !ok {
+			return "", fmt.Errorf("thread parent message %q not found in this Space", parentID)
+		}
+		ctx = command.WithParentMessage(ctx, normalized)
 	}
 	if req.PersonaID != "" {
 		return b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
 	}
 	return b.app.HandleInput(ctx, source, req.Input)
+}
+
+func (b *Backend) normalizeThreadParentID(sp *space.Space, parentID string) (string, bool) {
+	target, ok := findMessage(sp.Messages, parentID)
+	if !ok {
+		return "", false
+	}
+	if strings.TrimSpace(target.ParentMessageID) != "" {
+		return target.ParentMessageID, true
+	}
+	return target.ID, true
 }
 
 func (b *Backend) StopTurn(sessionID string) error {

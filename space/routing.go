@@ -112,16 +112,21 @@ func (r *Router) MaxMentions() int { return r.maxMentions }
 // caller. That keeps the resolver and the participant-add path on
 // the same authoritative reading of the text.
 func (r *Router) RouteUserChannelMessage(spaceID, content string) ([]RoutingTarget, []RoutingNotice, error) {
+	return r.RouteUserChannelMessageInThread(spaceID, content, "")
+}
+
+func (r *Router) RouteUserChannelMessageInThread(spaceID, content, parentMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
 	if r == nil || r.spaces == nil {
 		return nil, nil, fmt.Errorf("router not configured")
 	}
 	mentions := ParseMentions(content, r.resolverFunc(), r.maxMentions)
 	user := r.spaces.UserParticipant()
 	draft := Message{
-		AuthorID:   user.ID,
-		AuthorKind: ParticipantUser,
-		Content:    content,
-		Mentions:   mentions,
+		AuthorID:        user.ID,
+		AuthorKind:      ParticipantUser,
+		Content:         content,
+		Mentions:        mentions,
+		ParentMessageID: strings.TrimSpace(parentMessageID),
 	}
 	written, _, err := r.spaces.AppendMessageWithRouting(spaceID, draft, mentions, func(id string) PersonaInfo {
 		if r.persona == nil {
@@ -144,6 +149,7 @@ func (r *Router) RouteUserChannelMessage(spaceID, content string) ([]RoutingTarg
 		}}, nil
 	}
 	chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
+	chain.ParentMessageID = strings.TrimSpace(parentMessageID)
 	return r.fanOut(chain, mentions, spaceID, written.ID)
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
@@ -103,7 +104,8 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 	if err != nil {
 		return nil, err
 	}
-	wakes, notices, err := r.RouteUserChannelMessage(sp.ID, content)
+	parentMessageID := command.ParentMessageFrom(ctx)
+	wakes, notices, err := r.RouteUserChannelMessageInThread(sp.ID, content, parentMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -188,11 +190,12 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	resolved = filterOut(resolved, target.AgentID)
 
 	draft := space.Message{
-		AuthorID:   persona.ID,
-		AuthorKind: space.ParticipantAgent,
-		Content:    content,
-		Reasoning:  reasoning,
-		Mentions:   resolved,
+		AuthorID:        persona.ID,
+		AuthorKind:      space.ParticipantAgent,
+		Content:         content,
+		Reasoning:       reasoning,
+		Mentions:        resolved,
+		ParentMessageID: target.Chain.ParentMessageID,
 	}
 	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
 		if p := a.personas.Get(id); p != nil {

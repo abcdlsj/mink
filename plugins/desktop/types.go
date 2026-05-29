@@ -106,9 +106,10 @@ type WorkspaceState struct {
 }
 
 type SendRequest struct {
-	SessionID string `json:"session_id"`
-	PersonaID string `json:"persona_id,omitempty"`
-	Input     string `json:"input"`
+	SessionID       string `json:"session_id"`
+	PersonaID       string `json:"persona_id,omitempty"`
+	Input           string `json:"input"`
+	ParentMessageID string `json:"parent_message_id,omitempty"`
 }
 
 type BusEvent struct {

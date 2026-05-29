@@ -4,6 +4,7 @@ import "context"
 
 type sourceKey struct{}
 type personaKey struct{}
+type parentMessageKey struct{}
 
 func WithSource(ctx context.Context, source string) context.Context {
 	return context.WithValue(ctx, sourceKey{}, source)
@@ -28,6 +29,20 @@ func PersonaFrom(ctx context.Context) string {
 		return ""
 	}
 	if v, ok := ctx.Value(personaKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func WithParentMessage(ctx context.Context, parentMessageID string) context.Context {
+	return context.WithValue(ctx, parentMessageKey{}, parentMessageID)
+}
+
+func ParentMessageFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(parentMessageKey{}).(string); ok {
 		return v
 	}
 	return ""
