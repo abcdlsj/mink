@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 type Store struct {
 	sessionsDir   string
+	spacesRoot    string
 	sessionIndex  string
 	runlogDir     string
 	taskRunlogDir string
@@ -22,6 +24,7 @@ func Open(root string) (*Store, error) {
 	root = strings.TrimSpace(root)
 	s := &Store{
 		sessionsDir:   filepath.Join(root, "sessions"),
+		spacesRoot:    filepath.Join(root, "spaces"),
 		sessionIndex:  filepath.Join(root, "state", "session_index.json"),
 		runlogDir:     filepath.Join(root, "runlog"),
 		taskRunlogDir: filepath.Join(root, "runlog", "tasks"),
@@ -36,6 +39,7 @@ func Open(root string) (*Store, error) {
 func (s *Store) ensurePaths() error {
 	for _, dir := range []string{
 		s.sessionsDir,
+		s.spacesRoot,
 		filepath.Dir(s.sessionIndex),
 		s.runlogDir,
 		s.taskRunlogDir,
@@ -184,6 +188,23 @@ func parseSessionID(id string) (date, tag string, ok bool) {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// filepathWalk visits every entry under root with a small adapter
+// over filepath.WalkDir so callers do not have to pull fs.DirEntry
+// each time. Errors from fn abort the walk.
+func filepathWalk(root string, fn func(path string, isDir bool) error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return fn(path, d.IsDir())
+	})
 }
 
 func readFile(path string) ([]byte, error) {
