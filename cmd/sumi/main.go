@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -19,6 +20,7 @@ import (
 	pluginssearch "github.com/abcdlsj/sumi/plugins/search"
 	pluginssessioncmd "github.com/abcdlsj/sumi/plugins/sessioncmd"
 	pluginstelegram "github.com/abcdlsj/sumi/plugins/telegram"
+	"github.com/abcdlsj/sumi/store"
 )
 
 var (
@@ -32,6 +34,9 @@ func main() {
 		switch os.Args[1] {
 		case "version":
 			runVersion()
+			return
+		case "spaces":
+			runSpacesDump(os.Args[2:])
 			return
 		}
 	}
@@ -76,4 +81,52 @@ func runVersion() {
 	fmt.Printf("sumi version %s\n", Version)
 	fmt.Printf("  commit: %s\n", Commit)
 	fmt.Printf("  built:  %s\n", BuildTime)
+}
+
+// runSpacesDump prints the new Space store contents as JSON for the
+// P1 dual-write verification path Iris asked for. It opens the
+// store directly without spinning up the full app — that way we can
+// inspect the data even when something else in app init breaks.
+//
+// Usage:
+//   sumi spaces           list every space
+//   sumi spaces <id>      print one space (full timeline)
+func runSpacesDump(args []string) {
+	cfg := config.Load()
+	st, err := store.Open(cfg.DataRoot())
+	if err != nil {
+		fail(err)
+	}
+	if len(args) == 0 {
+		spaces, err := st.ListSpaces()
+		if err != nil {
+			fail(err)
+		}
+		out := make([]map[string]any, 0, len(spaces))
+		for _, sp := range spaces {
+			out = append(out, map[string]any{
+				"id":           sp.ID,
+				"kind":         sp.Kind,
+				"title":        sp.Title,
+				"participants": len(sp.Participants),
+				"messages":     len(sp.Messages),
+				"updated_at":   sp.UpdatedAt,
+			})
+		}
+		printJSON(out)
+		return
+	}
+	sp, err := st.LoadSpace(args[0])
+	if err != nil {
+		fail(err)
+	}
+	printJSON(sp)
+}
+
+func printJSON(v any) {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		fail(err)
+	}
 }
