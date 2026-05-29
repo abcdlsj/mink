@@ -158,6 +158,38 @@ function streamingMessageUpdates(
   return updates;
 }
 
+async function refetchActiveScope(
+  get: () => State,
+  set: (partial: Partial<State>) => void,
+): Promise<void> {
+  const s = get();
+  try {
+    if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+      const td = await api.threadDetail(s.threadDetail.space_id, s.threadDetail.parent_id);
+      set({ threadDetail: td });
+      return;
+    }
+    if (s.view === "channel" && s.activeChannel) {
+      const detail = await api.channel(s.activeChannel);
+      set({ detail });
+      return;
+    }
+    if (s.view === "thread" && s.activeThread) {
+      const detail = await api.directChat(s.activeThread);
+      set({ detail });
+      return;
+    }
+    if (s.view === "agent" && s.activeAgent) {
+      const detail = await api.agentDM(s.activeAgent);
+      set({ detail });
+      return;
+    }
+  } catch {
+    // ignore: stale refetch is not fatal; the streaming convergence
+    // will heal the next time the user touches the scope.
+  }
+}
+
 export const useStore = create<State>((set, get) => ({
   ready: false,
   state: null,
@@ -658,45 +690,89 @@ export const useStore = create<State>((set, get) => ({
         });
         return;
       }
-      case "turn.finished":
-      case "turn.error": {
+      case "turn.finished": {
+        if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
         const detailNow = get().detail;
-        if (!detailNow) return;
-        const isError = ev.type === "turn.error";
-        let messages = detailNow.messages;
-        if (isError && cur.streaming) {
-          const errMsg = ev.err || "Turn failed";
-          messages = messages.map((m) =>
-            m.id === cur.streaming!.messageID
-              ? {
-                  ...m,
-                  events: [
-                    ...(m.events || []),
-                    {
-                      kind: "service_notice",
-                      status: "error",
-                      output: errMsg,
-                      time: ev.time,
-                    },
-                  ],
-                }
-              : m,
-          );
-        }
-        set({
+        const placeholderID = cur.streaming.messageID;
+        const updates: Partial<State> = {
           sending: false,
           streaming: null,
-          detail: { ...detailNow, item: { ...detailNow.item, running: false }, messages },
-          channels: get().channels.map((c) =>
-            c.id === get().activeChannel ? { ...c, has_running: false } : c,
-          ),
-          threads: get().threads.map((t) =>
-            t.id === get().activeThread ? { ...t, has_running: false } : t,
-          ),
-          agents: get().agents.map((a) =>
-            a.id === get().activeAgent ? { ...a, status: "idle" } : a,
-          ),
+        };
+        if (detailNow) {
+          updates.detail = {
+            ...detailNow,
+            item: { ...detailNow.item, running: false },
+            messages: detailNow.messages.filter((m) => m.id !== placeholderID),
+          };
+        }
+        const td = get().threadDetail;
+        if (td) {
+          updates.threadDetail = {
+            ...td,
+            replies: td.replies.filter((m) => m.id !== placeholderID),
+          };
+        }
+        updates.channels = get().channels.map((c) =>
+          c.id === get().activeChannel ? { ...c, has_running: false } : c,
+        );
+        updates.threads = get().threads.map((t) =>
+          t.id === get().activeThread ? { ...t, has_running: false } : t,
+        );
+        updates.agents = get().agents.map((a) =>
+          a.id === get().activeAgent ? { ...a, status: "idle" } : a,
+        );
+        set(updates);
+        void refetchActiveScope(get, set);
+        return;
+      }
+      case "turn.error": {
+        if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
+        const errMsg = ev.err || "Turn failed";
+        const placeholderID = cur.streaming.messageID;
+        const errorPatch = (m: MessageView): MessageView => ({
+          ...m,
+          content: m.content || "",
+          events: [
+            ...(m.events || []),
+            {
+              kind: "service_notice",
+              status: "error",
+              output: errMsg,
+              time: ev.time,
+            },
+          ],
         });
+        const updates: Partial<State> = {
+          sending: false,
+          streaming: null,
+        };
+        const detailNow = get().detail;
+        if (detailNow) {
+          updates.detail = {
+            ...detailNow,
+            item: { ...detailNow.item, running: false },
+            messages: detailNow.messages.map((m) =>
+              m.id === placeholderID ? errorPatch(m) : m,
+            ),
+          };
+        }
+        const td = get().threadDetail;
+        if (td) {
+          updates.threadDetail = {
+            ...td,
+            replies: td.replies.map((m) => (m.id === placeholderID ? errorPatch(m) : m)),
+          };
+        }
+        updates.channels = get().channels.map((c) =>
+          c.id === get().activeChannel ? { ...c, has_running: false } : c,
+        );
+        updates.threads = get().threads.map((t) =>
+          t.id === get().activeThread ? { ...t, has_running: false } : t,
+        );
+        updates.agents = get().agents.map((a) =>
+          a.id === get().activeAgent ? { ...a, status: "idle" } : a,
+        );
+        set(updates);
         return;
       }
     }
