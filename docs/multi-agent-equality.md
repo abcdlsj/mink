@@ -386,25 +386,42 @@ These are scoping units, not code instructions. The actual
 implementation tasks will be derived after this proposal is
 approved.
 
-| Phase | Scope | Touches |
-|---|---|---|
-| P1 | Space model + Participant table + Message.parent_message_id | sumi core: `session/` → `space/`, store schema |
-| P2 | Routing layer: `@` triggers wake; `@` adds to participants atomically; turn budget enforcement | sumi core: `app/HandleInput`, bus |
-| P3 | Migrate desktop to Spaces; New menu maps to space creation; thread UI uses parent_message_id; participants rail reads `space.participants` directly | desktop plugin |
-| P4 | CLI / TUI / Telegram adapters render single-Space-per-source linear view on the new model | each adapter plugin |
-| P5 | Task/Run lifecycle moves out of session.Messages into Task store; result message authored by working agent | sumi core: collab, app, store |
+| Phase | Scope | Touches | Dual-write state | Delete list |
+|---|---|---|---|---|
+| P1 | Space model + Participant table + Message.parent_message_id; space store; HandleInput dual-writes (session is source of truth, space is shadow) | sumi core: new `space/`, new `store/space_store.go`, `app/HandleInput` | Both written. Session still authoritative. | — |
+| P2 | Routing layer: `@` triggers wake; `@` adds to participants atomically; turn budget enforcement. **Routing reads space, not session.** | sumi core: `app/HandleInput`, bus | Both written. Space now authoritative for new behaviors. Session no longer gains new features. | — |
+| P3 | Desktop reads from space. Thread UI uses parent_message_id. Participants rail reads `space.participants` directly. | desktop plugin | Both still written, but desktop no longer reads session. | desktop session reader, thread fake-session synthesis, attachDelegateOutcomes / subtaskSteps replay shims |
+| P4 | CLI / TUI / Telegram adapters render single-Space-per-source linear view on the new model. | each adapter plugin | Single-write to space. Session write branch removed. | adapter session readers; the dual-write branch in `HandleInput` |
+| P5 | Task/Run lifecycle moves out of session.Messages into Task store; result message authored by working agent. Session package deprecated or deleted. | sumi core: collab, app, store | n/a | `session/` pkg, `store/session_*.go`, `app.NewSession`/`SwitchSession` and friends |
 
-P1–P3 unlock the user-visible promise. P4 keeps every adapter
-working on the new model. P5 cleans up the temporary
-task-as-tool-call shape and locks the result-author rule.
+P1–P3 unlock the user-visible promise. P4 closes dual-write by
+moving the remaining adapters; P5 cleans up the temporary
+task-as-tool-call shape and removes the session package.
+
+### 10.1 Dual-write exit criteria
+
+The session/space dual-write is an engineering scaffold for
+P1–P2, not a long-term compatibility layer. Iris's hard rules:
+
+1. **Bounded.** Dual-write must not survive past P4. P3 starts
+   removing readers; P4 removes the writer.
+2. **Asymmetric authority.** From P2 onward, Space is authoritative
+   for new semantics. Session writes exist only to keep CLI / TUI
+   / Telegram alive while they migrate. Any new feature added
+   during P1–P4 lands on Space only.
+3. **Per-phase delete list.** Every phase that does not delete
+   something must justify why. Adding without subtracting on a
+   migration is how dual-write turns into permanent debt.
+4. **No data-migration promise.** Old sessions on disk are not
+   replayed under the new model. A best-effort import may run
+   once on first boot but is not relied on.
 
 No data migration phase: per lsoooj, this is an MVP and a clean
 Space/Message store is more important than preserving the existing
-session corpus. A best-effort one-shot import may be added during
-P1 implementation, but is not a separate phase or release blocker.
+session corpus.
 
 Estimated ordering: P1 → P2 → P3 → P4 in lockstep with the rest;
-P5 folds in once P1 lands.
+P5 folds in once P4 closes dual-write.
 
 ---
 
