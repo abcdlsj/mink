@@ -110,6 +110,11 @@ func (m *Manager) Get(id string) (*Task, error) {
 	return t, nil
 }
 
+func (m *Manager) Cancel(id string) error {
+	_, err := m.Update(id, UpdateTaskInput{Status: StatusCanceled})
+	return err
+}
+
 func (m *Manager) ListBySpace(spaceID string) ([]*Task, error) {
 	if strings.TrimSpace(spaceID) == "" {
 		return nil, ErrSpaceIDRequired
