@@ -135,7 +135,7 @@ export function RightPane() {
           </Section>
         )}
         {recent.length > 0 && (
-          <Section label="Recent Results">
+          <Section label="Background Tasks">
             {recent.slice(0, 4).map((r) => (
               <RunCard key={r.id} run={r} />
             ))}
@@ -234,6 +234,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 }
 
 function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
+  const runningCount = agents.filter((a) => a.status === "running").length;
   return (
     <div className="flex items-center gap-2.5">
       <div className="inline-flex">
@@ -241,12 +242,15 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
           <span
             key={p.id}
             className={cn(
-              "size-[22px] rounded-[4px] overflow-hidden border-[1.5px] border-panel-3 bg-panel",
+              "relative size-[22px] rounded-[4px] overflow-hidden border-[1.5px] border-panel-3 bg-panel",
               i > 0 && "-ml-1.5",
             )}
-            title={p.display + (p.status === "running" ? " · running" : "")}
+            title={p.display + " · " + (p.status === "running" ? "running" : "available")}
           >
             <Identicon seed={p.id || p.display} kind="agent" />
+            {p.status === "running" && (
+              <span className="absolute -bottom-0.5 -right-0.5 size-[7px] rounded-full bg-running border-[1.5px] border-panel" />
+            )}
           </span>
         ))}
         {agents.length > 3 && (
@@ -257,6 +261,9 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
       </div>
       <span className="text-[12px] text-text-muted">
         {agents.length} participant{agents.length === 1 ? "" : "s"}
+        {runningCount > 0 && (
+          <span className="text-running"> · {runningCount} running</span>
+        )}
       </span>
     </div>
   );

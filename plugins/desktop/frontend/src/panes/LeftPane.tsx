@@ -1,4 +1,5 @@
-import { Hash, AtSign, MessageSquare, Plus, Search } from "lucide-react";
+import { Hash, AtSign, MessageSquare, Plus, Search, ChevronDown } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
@@ -19,10 +20,16 @@ export function LeftPane() {
   return (
     <aside className="h-full border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
       <div className="flex flex-col gap-1.5 px-1 pb-1.5">
-        <Button variant="default" size="default" className="justify-start">
-          <Plus className="size-3" />
-          <span>New</span>
-        </Button>
+        <NewMenu
+          onChannel={() => {
+            if (channels[0]) void openChannel(channels[0].id);
+          }}
+          onDirect={() => {
+            if (channels[0]) void openChannel(channels[0].id);
+          }}
+          onMessageAgent={(id) => void openAgent(id)}
+          agents={agents}
+        />
         <Button
           variant="default"
           size="default"
@@ -53,7 +60,7 @@ export function LeftPane() {
         ))}
       </ul>
 
-      <GroupLabel>Direct Agents</GroupLabel>
+      <GroupLabel>Agent DMs</GroupLabel>
       <ul className="flex flex-col gap-px">
         {agents.map((a) => (
           <NavItem
@@ -68,8 +75,14 @@ export function LeftPane() {
         ))}
       </ul>
 
-      <GroupLabel>Recent Threads</GroupLabel>
+      <GroupLabel>Direct Chats</GroupLabel>
+      <p className="px-2 pb-1 text-[10.5px] text-text-whisper leading-[1.45]">
+        Recent shortcuts. Threads under a channel message are coming.
+      </p>
       <ul className="flex flex-col gap-px">
+        {threads.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent direct chats.</li>
+        )}
         {threads.map((t) => {
           const ch = channels.find((c) => c.id === t.channel_id);
           return (
@@ -99,6 +112,100 @@ export function LeftPane() {
         })}
       </ul>
     </aside>
+  );
+}
+
+function NewMenu({
+  onChannel,
+  onDirect,
+  onMessageAgent,
+  agents,
+}: {
+  onChannel: () => void;
+  onDirect: () => void;
+  onMessageAgent: (id: string) => void;
+  agents: { id: string; display: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <Button
+        variant="default"
+        size="default"
+        className="justify-between w-full"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="flex items-center gap-2">
+          <Plus className="size-3" />
+          <span>New</span>
+        </span>
+        <ChevronDown className={cn("size-3 text-text-faint transition-transform", open && "rotate-180")} />
+      </Button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-[220px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+          <MenuItem
+            label="New direct chat"
+            sub="A standalone conversation."
+            onClick={() => {
+              setOpen(false);
+              onDirect();
+            }}
+          />
+          <MenuItem
+            label="Open channel"
+            sub="Group room with all agents."
+            onClick={() => {
+              setOpen(false);
+              onChannel();
+            }}
+          />
+          <div className="my-1 border-t border-border-soft" />
+          <div className="px-3 pb-0.5 pt-1 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
+            Message agent
+          </div>
+          {agents.length === 0 ? (
+            <div className="px-3 py-1.5 text-text-faint text-[12.5px]">No agents configured.</div>
+          ) : (
+            agents.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => {
+                  setOpen(false);
+                  onMessageAgent(a.id);
+                }}
+                className="w-full text-left px-3 py-1.5 hover:bg-panel-2 cursor-pointer flex items-center gap-2"
+              >
+                <AtSign className="size-3 text-text-faint" />
+                <span>{a.display}</span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ label, sub, onClick }: { label: string; sub: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full text-left px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+    >
+      <div className="text-text">{label}</div>
+      <div className="text-[11px] text-text-faint">{sub}</div>
+    </button>
   );
 }
 
