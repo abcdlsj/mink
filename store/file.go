@@ -13,6 +13,8 @@ import (
 type Store struct {
 	sessionsDir   string
 	spacesRoot    string
+	tasksDir      string
+	runsDir       string
 	sessionIndex  string
 	runlogDir     string
 	taskRunlogDir string
@@ -25,6 +27,8 @@ func Open(root string) (*Store, error) {
 	s := &Store{
 		sessionsDir:   filepath.Join(root, "sessions"),
 		spacesRoot:    filepath.Join(root, "spaces"),
+		tasksDir:      filepath.Join(root, "tasks"),
+		runsDir:       filepath.Join(root, "runs"),
 		sessionIndex:  filepath.Join(root, "state", "session_index.json"),
 		runlogDir:     filepath.Join(root, "runlog"),
 		taskRunlogDir: filepath.Join(root, "runlog", "tasks"),
@@ -40,6 +44,8 @@ func (s *Store) ensurePaths() error {
 	for _, dir := range []string{
 		s.sessionsDir,
 		s.spacesRoot,
+		s.tasksDir,
+		s.runsDir,
 		filepath.Dir(s.sessionIndex),
 		s.runlogDir,
 		s.taskRunlogDir,

@@ -6,11 +6,14 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
+	"github.com/abcdlsj/sumi/task"
 )
 
 // Spaces returns the space.Manager. Plugins / adapters may use it
 // during P2 onward when readers begin to migrate.
 func (a *App) Spaces() *space.Manager { return a.spaces }
+
+func (a *App) Tasks() *task.Manager { return a.tasks }
 
 // dualWriteUserInput mirrors a user-authored message into the new
 // Space store. The session write is still authoritative during
