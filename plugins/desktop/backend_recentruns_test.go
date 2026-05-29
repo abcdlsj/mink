@@ -1,0 +1,150 @@
+package desktop
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/space"
+	taskpkg "github.com/abcdlsj/sumi/task"
+)
+
+func newBackendWithApp(t *testing.T) (*Backend, *app.App) {
+	t.Helper()
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	return newBackend(a), a
+}
+
+func TestSpaceRecentRunsReadsTaskStoreBySpaceID(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := a.Spaces().EnsureSpace(space.KindChannel, "beta", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-1", InitiatorID: "user", WorkerID: "coder", Title: "alpha task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: other.ID, TriggerMessageID: "msg-2", InitiatorID: "user", WorkerID: "coder", Title: "beta task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.spaceRecentRuns(sp)
+	if len(got) != 1 {
+		t.Fatalf("got %d runs for space alpha, want 1: %#v", len(got), got)
+	}
+	if got[0].Title != "alpha task" {
+		t.Fatalf("title = %q, want alpha task", got[0].Title)
+	}
+	if got[0].AgentID != "coder" {
+		t.Fatalf("AgentID = %q, want coder", got[0].AgentID)
+	}
+}
+
+func TestGetRunDetailReturnsKeyStepsButNotResultBody(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-1", InitiatorID: "user", WorkerID: "coder", Title: "audit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := a.Tasks().StartRun(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().FinishRun(r.ID, taskpkg.FinishRunInput{
+		Status: taskpkg.StatusFinished,
+		KeySteps: []taskpkg.KeyStep{
+			{Kind: taskpkg.KindRead, Title: "Read plan.md", OK: true},
+			{Kind: taskpkg.KindRun, Title: "Ran tests", OK: true},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(tk.ID, taskpkg.UpdateTaskInput{
+		Status:          taskpkg.StatusFinished,
+		ResultMessageID: "msg-99",
+		Outcome:         "all green",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetRunDetail(tk.ID)
+	if detail.TaskID != tk.ID {
+		t.Fatalf("TaskID = %q", detail.TaskID)
+	}
+	if detail.WorkerID != "coder" || detail.WorkerName != "Coder" {
+		t.Fatalf("worker = %q/%q", detail.WorkerID, detail.WorkerName)
+	}
+	if detail.ResultMessageID != "msg-99" {
+		t.Fatalf("ResultMessageID = %q", detail.ResultMessageID)
+	}
+	if detail.Outcome != "all green" {
+		t.Fatalf("Outcome = %q", detail.Outcome)
+	}
+	if len(detail.KeySteps) != 2 {
+		t.Fatalf("KeySteps = %d, want 2", len(detail.KeySteps))
+	}
+}
+
+func TestGetRunDetailEmptyOutputUsesNoOutputUIToken(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-1", InitiatorID: "user", WorkerID: "coder", Title: "audit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(tk.ID, taskpkg.UpdateTaskInput{
+		Status: taskpkg.StatusEmptyOutput,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetRunDetail(tk.ID)
+	if detail.Status != "no_output" {
+		t.Fatalf("status token = %q, want no_output", detail.Status)
+	}
+}
+
+func TestGetRunDetailMissingTaskReturnsZero(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+	if got := b.GetRunDetail("task-does-not-exist"); got.TaskID != "" {
+		t.Fatalf("expected zero RunDetail, got %#v", got)
+	}
+}

@@ -7,6 +7,7 @@ import type {
   ParticipantsView,
   PersonaItem,
   RecentItem,
+  RunDetail,
   SessionDetail,
   ThreadItem,
   ToolItem,
@@ -36,6 +37,7 @@ export const api = {
   directChat: (id: string) =>
     j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
   recent: () => j<RecentItem[]>(fetch("/api/recent")),
+  run: (id: string) => j<RunDetail>(fetch("/api/run?id=" + encodeURIComponent(id))),
   participants: (channelID: string, threadID: string) => {
     const q = new URLSearchParams();
     if (channelID) q.set("channel", channelID);

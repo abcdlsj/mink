@@ -320,8 +320,9 @@ function RunCard({ run }: { run: AgentRun }) {
       className={cn(
         "border border-border-soft rounded-md bg-panel px-2.5 py-2 mb-1.5 transition-colors",
         run.status === "running" && "border-l-2 border-l-running",
-        run.status === "done" && "border-l-2 border-l-done",
-        run.status === "error" && "border-l-2 border-l-error",
+        (run.status === "done" || run.status === "finished") && "border-l-2 border-l-done",
+        (run.status === "error" || run.status === "failed") && "border-l-2 border-l-error",
+        run.status === "no_output" && "border-l-2 border-l-text-faint",
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -339,10 +340,29 @@ function RunCard({ run }: { run: AgentRun }) {
         )}
       </div>
       <div className="text-[11px] text-text-faint mt-0.5 tabular-nums">
-        {(ag?.display || run.agent_id) + " · " + (currentStep || run.status) + " · " + elapsedLabel}
+        {(ag?.display || run.agent_id) + " · " + (currentStep || statusLabel(run.status)) + " · " + elapsedLabel}
       </div>
     </div>
   );
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "no_output":
+      return "Finished with no output";
+    case "finished":
+      return "Finished";
+    case "failed":
+      return "Failed";
+    case "canceled":
+      return "Canceled";
+    case "queued":
+      return "Queued";
+    case "running":
+      return "Running";
+    default:
+      return status;
+  }
 }
 
 function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChannel: boolean }) {

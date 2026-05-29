@@ -126,10 +126,32 @@ export interface AgentRun {
   id: string;
   agent_id: string;
   title: string;
-  status: EventStatus;
+  status: string;
   thread_id?: string;
   time: string;
   duration_ms?: number;
+}
+
+export interface RunStep {
+  kind: string;
+  title: string;
+  at: string;
+  ok: boolean;
+}
+
+export interface RunDetail {
+  task_id: string;
+  space_id: string;
+  worker_id: string;
+  worker_name?: string;
+  title: string;
+  status: string;
+  outcome?: string;
+  result_message_id?: string;
+  trigger_message_id?: string;
+  created_at: string;
+  updated_at: string;
+  key_steps?: RunStep[];
 }
 
 export interface ParticipantsView {

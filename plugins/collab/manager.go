@@ -122,6 +122,9 @@ func (m *manager) publishResultNotice(source, id, out string, err error) {
 }
 
 func (m *manager) wait(id string, timeout time.Duration) (string, error) {
+	if out, ok, err := m.waitTaskStore(id, timeout); ok {
+		return out, err
+	}
 	t := m.task(id)
 	if t == nil {
 		return m.waitPersisted(id)
@@ -132,6 +135,37 @@ func (m *manager) wait(id string, timeout time.Duration) (string, error) {
 		return "", fmt.Errorf("delegation timed out after %s", timeout)
 	}
 	return t.result()
+}
+
+func (m *manager) waitTaskStore(id string, timeout time.Duration) (string, bool, error) {
+	if m.app == nil || m.app.Tasks() == nil {
+		return "", false, nil
+	}
+	tk, err := m.app.Tasks().Get(id)
+	if err != nil || tk == nil {
+		return "", false, nil
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		switch tk.Status {
+		case "finished":
+			return tk.Outcome, true, nil
+		case "failed":
+			return "", true, fmt.Errorf("%s", strings.TrimSpace(tk.Outcome))
+		case "canceled":
+			return "", true, fmt.Errorf("canceled: %s", strings.TrimSpace(tk.Outcome))
+		case "empty_output":
+			return tk.Outcome, true, nil
+		}
+		if time.Now().After(deadline) {
+			return "", true, fmt.Errorf("delegation timed out after %s", timeout)
+		}
+		time.Sleep(50 * time.Millisecond)
+		tk, err = m.app.Tasks().Get(id)
+		if err != nil || tk == nil {
+			return "", true, fmt.Errorf("task not found: %s", id)
+		}
+	}
 }
 
 func (m *manager) waitPersisted(id string) (string, error) {

@@ -17,6 +17,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
+	taskpkg "github.com/abcdlsj/sumi/task"
 )
 
 const desktopSource = "desktop"
@@ -840,20 +841,118 @@ func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 	return out
 }
 
-// spaceRecentRuns scans the Space's messages for collab-tool task
-// scheduling acks and replays each one as an AgentRun for the
-// right-rail history. This is a temporary bridge: today task
-// metadata still lives on the assistant message's tool_calls
-// (because tasks haven't been migrated to a separate store yet).
-// P5 replaces this scan with a Task-store read.
 func (b *Backend) spaceRecentRuns(sp *space.Space) []AgentRun {
-	if sp == nil {
+	if sp == nil || b.app == nil || b.app.Tasks() == nil {
 		return nil
 	}
-	// Recent runs in P3 stay tied to the legacy session reader
-	// because Task storage hasn't migrated yet. Keep an empty list
-	// for now — the rail's runs section just hides itself.
-	return nil
+	tasks, err := b.app.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		return nil
+	}
+	out := make([]AgentRun, 0, len(tasks))
+	for _, tk := range tasks {
+		out = append(out, agentRunFromTask(tk))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out
+}
+
+func agentRunFromTask(tk *taskpkg.Task) AgentRun {
+	return AgentRun{
+		ID:      tk.ID,
+		AgentID: tk.WorkerID,
+		Title:   tk.Title,
+		Status:  taskStatusForUI(tk.Status),
+		Time:    tk.UpdatedAt,
+	}
+}
+
+func taskStatusForUI(s taskpkg.Status) string {
+	switch s {
+	case taskpkg.StatusEmptyOutput:
+		return "no_output"
+	default:
+		return string(s)
+	}
+}
+
+type RunStep struct {
+	Kind  string    `json:"kind"`
+	Title string    `json:"title"`
+	At    time.Time `json:"at"`
+	OK    bool      `json:"ok"`
+}
+
+type RunDetail struct {
+	TaskID           string    `json:"task_id"`
+	SpaceID          string    `json:"space_id"`
+	WorkerID         string    `json:"worker_id"`
+	WorkerName       string    `json:"worker_name,omitempty"`
+	Title            string    `json:"title"`
+	Status           string    `json:"status"`
+	Outcome          string    `json:"outcome,omitempty"`
+	ResultMessageID  string    `json:"result_message_id,omitempty"`
+	TriggerMessageID string    `json:"trigger_message_id,omitempty"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+	KeySteps         []RunStep `json:"key_steps,omitempty"`
+}
+
+func (b *Backend) GetRunDetail(taskID string) RunDetail {
+	if b.app == nil || b.app.Tasks() == nil {
+		return RunDetail{}
+	}
+	tk, err := b.app.Tasks().Get(strings.TrimSpace(taskID))
+	if err != nil || tk == nil {
+		return RunDetail{}
+	}
+	detail := RunDetail{
+		TaskID:           tk.ID,
+		SpaceID:          tk.SpaceID,
+		WorkerID:         tk.WorkerID,
+		WorkerName:       resolveWorkerDisplay(tk.WorkerID, b.app),
+		Title:            tk.Title,
+		Status:           taskStatusForUI(tk.Status),
+		Outcome:          tk.Outcome,
+		ResultMessageID:  tk.ResultMessageID,
+		TriggerMessageID: tk.TriggerMessageID,
+		CreatedAt:        tk.CreatedAt,
+		UpdatedAt:        tk.UpdatedAt,
+	}
+	runs, err := b.app.Tasks().ListRuns(tk.ID)
+	if err != nil {
+		return detail
+	}
+	if len(runs) == 0 {
+		return detail
+	}
+	latest := runs[0]
+	for _, r := range runs[1:] {
+		if r.StartedAt.After(latest.StartedAt) {
+			latest = r
+		}
+	}
+	steps := make([]RunStep, 0, len(latest.KeySteps))
+	for _, s := range latest.KeySteps {
+		steps = append(steps, RunStep{
+			Kind:  string(s.Kind),
+			Title: s.Title,
+			At:    s.At,
+			OK:    s.OK,
+		})
+	}
+	detail.KeySteps = steps
+	return detail
+}
+
+func resolveWorkerDisplay(workerID string, a appAccessor) string {
+	if a == nil || strings.TrimSpace(workerID) == "" {
+		return ""
+	}
+	if p := a.Personas().Get(workerID); p != nil && strings.TrimSpace(p.Display) != "" {
+		return p.Display
+	}
+	return workerID
 }
 
 func (b *Backend) allAgents() []AgentItem {
@@ -1002,6 +1101,9 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 		writeJSON(rw, b.GetDirectChat(req.URL.Query().Get("id")))
 	})
 	mux.HandleFunc("/api/recent", jsonHandler(func() any { return b.ListRecent() }))
+	mux.HandleFunc("/api/run", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetRunDetail(req.URL.Query().Get("id")))
+	})
 	mux.HandleFunc("/api/new-direct", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
 			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
