@@ -312,44 +312,18 @@ func spaceAgentIDs(sp *space.Space) []string {
 	return out
 }
 
+// ListThreads previously walked desktop sessions to fake threads,
+// then briefly returned KindDirectChat spaces under the old shape.
+// Per Iris's P3.4 review, endpoint semantics must not blur Spaces
+// into the Thread concept — threads are parent_message replies,
+// which v1 doesn't have yet. Until /api/threads is removed in P3.6
+// it returns an empty list so the frontend cannot accidentally
+// depend on it carrying Direct Chats.
 func (b *Backend) ListThreads() []ThreadItem {
 	if b.app == nil {
 		return mockThreads()
 	}
-	// P3.4 transitional: surface KindDirectChat spaces under the
-	// existing /api/threads endpoint so the legacy "Recent" rail
-	// continues to show entries (now real Direct Chats). P3.7 will
-	// split this into a dedicated direct-chats group; until then we
-	// keep the same shape so the frontend keeps rendering.
-	spaces, err := b.app.Spaces().ListSpaces()
-	if err != nil {
-		return nil
-	}
-	channelID := defaultChannelID
-	for _, sp := range spaces {
-		if sp.Kind == space.KindChannel {
-			channelID = sp.ID
-			break
-		}
-	}
-	out := make([]ThreadItem, 0)
-	for _, sp := range spaces {
-		if sp.Kind != space.KindDirectChat {
-			continue
-		}
-		out = append(out, ThreadItem{
-			ID:         sp.ID,
-			ChannelID:  channelID,
-			Title:      directChatTitle(sp),
-			UpdatedAt:  sp.UpdatedAt,
-			EventCount: len(sp.Messages),
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	if len(out) > 12 {
-		out = out[:12]
-	}
-	return out
+	return []ThreadItem{}
 }
 
 func (b *Backend) ListAgents() []AgentItem {

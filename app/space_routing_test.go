@@ -424,3 +424,117 @@ func drainForType(t *testing.T, ch <-chan bus.Event, want string) bool {
 		}
 	}
 }
+
+// P3.5 — Direct Chat routing.
+
+func TestDirectChatSourceUsesRouter(t *testing.T) {
+	if !sourceUsesRouter("desktop") {
+		t.Error("desktop source should use router")
+	}
+	if !sourceUsesRouter("desktop:direct:abc") {
+		t.Error("desktop:direct:abc should use router")
+	}
+	if sourceUsesRouter("desktop:agent:tshoot") {
+		t.Error("agent DM source must NOT use router")
+	}
+	if sourceUsesRouter("subtask:task-1") || sourceUsesRouter("scratch:wake:x") {
+		t.Error("subtask/scratch must NOT use router")
+	}
+	if sourceUsesRouter("cli") {
+		t.Error("CLI must NOT use router in v1 (P4 will widen)")
+	}
+}
+
+func TestDirectChatMentionWakesAgentInDirectSpace(t *testing.T) {
+	a, _ := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "looking at it"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	// Create a fresh direct chat Space.
+	dc, err := a.spaces.EnsureSpace(space.KindDirectChat, "dchat-test", space.PersonaInfo{})
+	if err != nil {
+		t.Fatalf("ensure direct chat: %v", err)
+	}
+	source := "desktop:direct:" + dc.Title
+
+	if _, err := a.HandleInput(context.Background(), source, "@coder look"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+
+	// Reload the same space; user message + coder reply must be there.
+	loaded, err := a.spaces.LoadSpace(dc.ID)
+	if err != nil {
+		t.Fatalf("LoadSpace: %v", err)
+	}
+	if len(loaded.Messages) != 2 {
+		t.Fatalf("expected 2 messages in direct chat, got %d: %+v", len(loaded.Messages), loaded.Messages)
+	}
+	if loaded.Messages[0].AuthorID != "user" {
+		t.Errorf("first message author = %q, want user", loaded.Messages[0].AuthorID)
+	}
+	if loaded.Messages[1].AuthorID != "coder" || loaded.Messages[1].AuthorKind != space.ParticipantAgent {
+		t.Errorf("second message should be coder-authored, got %+v", loaded.Messages[1])
+	}
+	if !loaded.HasParticipant("coder") {
+		t.Error("coder should be a participant after wake")
+	}
+
+	// The channel default Space must NOT have received either
+	// message — direct chat boundary holds.
+	chSpaces, _ := a.spaces.ListSpaces()
+	for _, sp := range chSpaces {
+		if sp.Kind == space.KindChannel {
+			if len(sp.Messages) > 0 {
+				t.Errorf("channel space should not have received direct chat messages, got %d", len(sp.Messages))
+			}
+		}
+	}
+}
+
+func TestDirectChatNoMentionDoesNotRunRuntime(t *testing.T) {
+	a, rec := scriptedRuntimeApp(t, map[string]agentTurn{
+		"coder": {content: "ok"},
+	})
+	seedPersona(t, a, "coder", "Coder")
+
+	dc, _ := a.spaces.EnsureSpace(space.KindDirectChat, "dchat-test", space.PersonaInfo{})
+	source := "desktop:direct:" + dc.Title
+
+	events, unsub := a.bus.Subscribe(16)
+	defer unsub()
+
+	if _, err := a.HandleInput(context.Background(), source, "just a thought"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	if got := rec.Sources(); len(got) != 0 {
+		t.Errorf("no-mention direct chat input must not run runtime, got %v", got)
+	}
+	if !drainForType(t, events, string(space.NoticeChannelNoTarget)) {
+		t.Errorf("expected no_target notice on direct chat")
+	}
+	loaded, _ := a.spaces.LoadSpace(dc.ID)
+	if len(loaded.Messages) != 1 {
+		t.Errorf("user message should still persist in direct chat, got %d", len(loaded.Messages))
+	}
+}
+
+func TestAgentDMStillSkipsRouter(t *testing.T) {
+	a, rec := scriptedRuntimeApp(t, map[string]agentTurn{
+		"tshoot": {content: "DM reply"},
+	})
+	seedPersona(t, a, "tshoot", "Tshoot")
+
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	got := rec.Sources()
+	if len(got) == 0 {
+		t.Fatal("Agent DM must still run legacy runtime")
+	}
+	for _, src := range got {
+		if strings.HasPrefix(src, "scratch:") {
+			t.Errorf("Agent DM ran scratch source — router was invoked, but it must not be: %v", got)
+		}
+	}
+}

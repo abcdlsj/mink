@@ -95,14 +95,17 @@ type SourceTarget struct {
 // session and the multi-Space model.
 //
 // Mapping rules (proposal §8):
-//   "desktop"            -> channel "default"
-//   "desktop:agent:<id>" -> agent_dm <id>      (incl. :persona:<id> tail)
-//   "cli"                -> direct_chat "cli"
-//   "tg:<chat>"          -> direct_chat tg:<chat>
-//   "subtask:..."        -> not a Space; caller should not call MapSource
-//   "scratch:..."        -> not a Space; reserved for ephemeral
-//                           runtime scratch (see app/space_routing.go)
-//   anything else        -> direct_chat with the raw source as seed
+//   "desktop"             -> channel "default"
+//   "desktop:agent:<id>"  -> agent_dm <id>      (incl. :persona:<id> tail)
+//   "desktop:direct:<id>" -> direct_chat <id>   (the seed IS the Space title;
+//                                               the manager finds the singleton
+//                                               instance by FindSpaceByKindAndSeed)
+//   "cli"                 -> direct_chat "cli"
+//   "tg:<chat>"           -> direct_chat tg:<chat>
+//   "subtask:..."         -> not a Space; caller should not call MapSource
+//   "scratch:..."         -> not a Space; reserved for ephemeral
+//                            runtime scratch (see app/space_routing.go)
+//   anything else         -> direct_chat with the raw source as seed
 func MapSource(source string) SourceTarget {
 	source = strings.TrimSpace(source)
 	switch {
@@ -114,6 +117,12 @@ func MapSource(source string) SourceTarget {
 			rest = rest[:i]
 		}
 		return SourceTarget{Kind: KindAgentDM, Seed: rest}
+	case strings.HasPrefix(source, "desktop:direct:"):
+		rest := strings.TrimPrefix(source, "desktop:direct:")
+		if i := strings.IndexByte(rest, ':'); i >= 0 {
+			rest = rest[:i]
+		}
+		return SourceTarget{Kind: KindDirectChat, Seed: rest}
 	case source == "cli":
 		return SourceTarget{Kind: KindDirectChat, Seed: "cli"}
 	case strings.HasPrefix(source, "tg:"):

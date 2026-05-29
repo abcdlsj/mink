@@ -43,10 +43,33 @@ func (a *App) channelRouter() *space.Router {
 	return a.spaceRouter
 }
 
-// sourceIsChannel returns true when a source string lands in a
-// Space of kind channel. P2.5a only intercepts these; DM, direct
-// chat, subtask, and scratch sources continue through the legacy
-// active-persona path or stay invisible to the Space model.
+// sourceUsesRouter returns true when a source string lands in a
+// Space whose write path goes through the routing layer (Channel
+// or Direct Chat, originated by the desktop UI).
+//
+// In v1 we deliberately scope this to desktop sources only:
+//   "desktop"             -> KindChannel
+//   "desktop:direct:<id>" -> KindDirectChat
+// Other sources (CLI / Telegram / anything that maps to direct
+// chat by default) keep using the legacy active-persona handoff.
+// P4 will widen this when those adapters migrate.
+//
+// Agent DM (desktop:agent:*), subtask, and scratch are never
+// router-managed in v1.
+func sourceUsesRouter(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "desktop" {
+		return true
+	}
+	if strings.HasPrefix(source, "desktop:direct:") {
+		return true
+	}
+	return false
+}
+
+// sourceIsChannel is kept for backwards-compat with the few call
+// sites that strictly mean "channel kind" (not direct chat). New
+// callers should use sourceUsesRouter.
 func sourceIsChannel(source string) bool {
 	source = strings.TrimSpace(source)
 	if strings.HasPrefix(source, "subtask:") || strings.HasPrefix(source, "scratch:") {
@@ -69,8 +92,8 @@ type channelInterceptResult struct {
 	notices []space.RoutingNotice
 }
 
-// interceptChannelInput is the P2.5a/b entry point. It writes the
-// user message to the Space via the router (which also handles
+// interceptRoutedInput is the P2.5a/b/P3.5 entry point. It writes
+// the user message to the Space via the router (which also handles
 // atomic participant insertion) and runs every wake target the
 // router decided on. Each wake produces one ephemeral runtime turn
 // whose assistant output is mirrored back into the same Space as
@@ -78,18 +101,22 @@ type channelInterceptResult struct {
 // so further @-mentions wake more agents within the same chain
 // and budget.
 //
+// In P3.5 this entry handles both Channel and DirectChat kinds
+// (anything that satisfies sourceUsesRouter). The earlier name
+// "interceptChannelInput" was misleading once Direct Chats joined.
+//
 // Errors propagate: if the user-message Space write fails, the
 // caller sees the failure rather than a half-applied turn.
 // Per-wake runtime errors are recorded but do NOT fail the user
 // message — Iris's amendment 5: "budget/duplicate notice 不要变成
 // error，也不要让用户消息失败".
-func (a *App) interceptChannelInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
+func (a *App) interceptRoutedInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
 	r := a.channelRouter()
 	if r == nil {
 		return nil, nil
 	}
 	target := space.MapSource(source)
-	if target.Kind != space.KindChannel {
+	if target.Kind != space.KindChannel && target.Kind != space.KindDirectChat {
 		return nil, nil
 	}
 	sp, err := a.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{})
@@ -112,6 +139,13 @@ func (a *App) interceptChannelInput(ctx context.Context, source, content string)
 		result.notices = append(result.notices, extraNotices...)
 	}
 	return result, nil
+}
+
+// interceptChannelInput is preserved as a thin alias so any legacy
+// caller / test names still compile. New code should call
+// interceptRoutedInput directly.
+func (a *App) interceptChannelInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
+	return a.interceptRoutedInput(ctx, source, content)
 }
 
 // runChannelWake fires one agent's turn against the channel Space.
