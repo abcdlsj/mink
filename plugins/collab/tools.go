@@ -180,14 +180,20 @@ func (t inviteTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	}
 	rt := t.m.pickRuntime(src, in.AgentID, in.AgentID)
 	t.m.bind(src, alias, rt)
-	if strings.TrimSpace(in.Task) != "" {
-		id, err := t.m.delegate(src, rt, in.Task, true, true)
+	if strings.TrimSpace(in.Task) == "" {
+		return fmt.Sprintf("invited %s backed by %s", alias, rt), nil
+	}
+	if id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, in.AgentID, in.Task); ok {
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("invited %s backed by %s, task_id=%s", alias, rt, id), nil
 	}
-	return fmt.Sprintf("invited %s backed by %s", alias, rt), nil
+	id, err := t.m.delegate(src, rt, in.Task, true, true)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("invited %s backed by %s, task_id=%s", alias, rt, id), nil
 }
 
 type mentionTool struct{ m *manager }
@@ -261,12 +267,22 @@ func (t specialistTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	rt := t.m.pickRuntime(src, in.AgentID, hint)
 	alias := strings.TrimSpace(in.RoleName)
 	t.m.bind(src, alias, rt)
-	if strings.TrimSpace(in.Task) != "" {
-		id, err := t.m.delegate(src, rt, in.Task, true, true)
+	if strings.TrimSpace(in.Task) == "" {
+		return fmt.Sprintf("spawned %s backed by %s", alias, rt), nil
+	}
+	aliasArg := strings.TrimSpace(in.AgentID)
+	if aliasArg == "" {
+		aliasArg = alias
+	}
+	if id, ok, err := t.m.tryDelegateInSpaceForAlias(ctx, src, aliasArg, in.Task); ok {
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("spawned %s backed by %s, task_id=%s", alias, rt, id), nil
 	}
-	return fmt.Sprintf("spawned %s backed by %s", alias, rt), nil
+	id, err := t.m.delegate(src, rt, in.Task, true, true)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("spawned %s backed by %s, task_id=%s", alias, rt, id), nil
 }
