@@ -11,6 +11,7 @@ import type { AgentItem, AgentRun, RunDetail, ThreadItem } from "@/lib/types";
 export function RightPane() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
+  const threadDetail = useStore((s) => s.threadDetail);
   const channels = useStore((s) => s.channels);
   const threads = useStore((s) => s.threads);
   const agents = useStore((s) => s.agents);
@@ -22,7 +23,11 @@ export function RightPane() {
   const streaming = useStore((s) => s.streaming);
   const [moreOpen, setMoreOpen] = useState(false);
 
-  if (!detail) return <aside className="h-full border-l border-border bg-panel-3 px-4 py-4" />;
+  const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
+  const threadParticipants = inThread ? threadDetail!.participants : null;
+  const threadRecentRuns = inThread ? threadDetail!.recent_runs : null;
+
+  if (!detail && !inThread) return <aside className="h-full border-l border-border bg-panel-3 px-4 py-4" />;
 
   const runtimeRuns: AgentRun[] = streaming
     ? [
@@ -73,7 +78,7 @@ export function RightPane() {
     </Section>
   );
 
-  if (view === "channel") {
+  if (view === "channel" && !inThread) {
     const ch = channels.find((c) => c.id === activeChannel);
     const participantsList = participants?.agents || [];
     const channelThreads = threads.filter((t) => t.channel_id === activeChannel).slice(0, 3);
@@ -117,11 +122,15 @@ export function RightPane() {
         {runlogSec}
       </>
     );
-  } else if (view === "thread") {
-    const item = detail.item;
-    const participantsList = participants?.agents || [];
-    const recent = participants?.recent_runs || [];
-    const status = item.running ? "running" : "open";
+  } else if (view === "thread" || inThread) {
+    const item = detail?.item;
+    const participantsList = inThread
+      ? (threadParticipants || [])
+      : (participants?.agents || []);
+    const recent = inThread
+      ? (threadRecentRuns || [])
+      : (participants?.recent_runs || []);
+    const status = item?.running ? "running" : (inThread ? "thread open" : "open");
     main = (
       <>
         <Section label="Status">
@@ -162,7 +171,7 @@ export function RightPane() {
     );
   } else if (view === "agent") {
     const ag = agents.find((a) => a.id === activeAgent);
-    const agentRunning = !!streaming || detail.item.running || ag?.status === "running";
+    const agentRunning = !!streaming || (detail?.item.running ?? false) || ag?.status === "running";
     main = (
       <>
         <Section label="Status">

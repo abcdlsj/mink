@@ -11,6 +11,7 @@ import type {
   PersonaItem,
   RecentItem,
   SessionDetail,
+  ThreadDetail,
   ThreadItem,
   ToolItem,
   ViewMode,
@@ -53,6 +54,7 @@ interface State {
   tools: ToolItem[];
   commands: CommandItem[];
   detail: SessionDetail | null;
+  threadDetail: ThreadDetail | null;
   participants: ParticipantsView | null;
 
   view: ViewMode;
@@ -67,6 +69,7 @@ interface State {
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
+  closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
   openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
@@ -100,6 +103,7 @@ export const useStore = create<State>((set, get) => ({
   tools: [],
   commands: [],
   detail: null,
+  threadDetail: null,
   participants: null,
 
   view: "channel",
@@ -139,22 +143,25 @@ export const useStore = create<State>((set, get) => ({
       activeThread: null,
       activeAgent: null,
       detail,
+      threadDetail: null,
       participants,
       streaming: null,
     });
   },
 
   async openThread(id) {
-    const detail = await api.thread(id);
-    const participants = await api.participants(get().activeChannel || "", id);
+    const spaceId = get().activeChannel;
+    if (!spaceId) return;
+    const detail = await api.threadDetail(spaceId, id);
     set({
-      view: "thread",
       activeThread: id,
-      activeAgent: null,
-      detail,
-      participants,
+      threadDetail: detail,
       streaming: null,
     });
+  },
+
+  closeThread() {
+    set({ activeThread: null, threadDetail: null, streaming: null });
   },
 
   async openAgent(id) {
@@ -181,6 +188,7 @@ export const useStore = create<State>((set, get) => ({
       activeChannel: null,
       activeThread: null,
       detail,
+      threadDetail: null,
       participants: null,
       streaming: null,
     });
@@ -245,11 +253,15 @@ export const useStore = create<State>((set, get) => ({
     if (!sid || !input.trim() || get().sending) return;
     const detail = get().detail;
     if (!detail) return;
+    const threadDetail = get().threadDetail;
+    const parentMessageID = threadDetail?.parent_id;
     const userMsg: MessageView = {
       id: "u-" + newID(),
       role: "user",
       content: input,
       time: new Date().toISOString(),
+      thread_id: parentMessageID,
+      is_thread_reply: !!parentMessageID,
     };
     const activeAg = get().activeAgent;
     set({
@@ -259,6 +271,9 @@ export const useStore = create<State>((set, get) => ({
         item: { ...detail.item, running: true },
         messages: [...detail.messages, userMsg],
       },
+      threadDetail: threadDetail
+        ? { ...threadDetail, replies: [...threadDetail.replies, userMsg] }
+        : null,
       channels: get().channels.map((c) =>
         c.id === get().activeChannel ? { ...c, has_running: true } : c,
       ),
@@ -270,7 +285,7 @@ export const useStore = create<State>((set, get) => ({
       ),
     });
     try {
-      await api.send(sid, input, personaID);
+      await api.send(sid, input, personaID, parentMessageID);
     } catch {
       set({ sending: false });
     }

@@ -36,6 +36,11 @@ export function CenterPane() {
     }
   }, [scope, messageCount]);
 
+  const threadDetail = useStore((s) => s.threadDetail);
+  if (threadDetail) {
+    return <ThreadView />;
+  }
+
   if (!detail) {
     return (
       <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
@@ -425,6 +430,83 @@ function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary 
   );
 }
 
+function ThreadView() {
+  const threadDetail = useStore((s) => s.threadDetail);
+  const channels = useStore((s) => s.channels);
+  const activeChannel = useStore((s) => s.activeChannel);
+  const closeThread = useStore((s) => s.closeThread);
+  const channel = channels.find((c) => c.id === activeChannel);
+
+  if (!threadDetail) return null;
+  if (threadDetail.unsupported) {
+    return (
+      <main className="h-full grid grid-rows-[auto_1fr] bg-panel min-w-0">
+        <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
+          <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+            ← Back
+          </button>
+          <div className="text-[13px] text-text">Thread</div>
+        </div>
+        <div className="overflow-y-auto px-8 py-8 text-text-faint text-[13px]">
+          {threadDetail.unsupported_hint || "Threads are not supported here."}
+        </div>
+      </main>
+    );
+  }
+  if (threadDetail.not_found) {
+    return (
+      <main className="h-full grid grid-rows-[auto_1fr] bg-panel min-w-0">
+        <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
+          <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+            ← Back to {channel ? "#" + channel.name : "channel"}
+          </button>
+          <div className="text-[13px] text-text">Thread</div>
+        </div>
+        <div className="overflow-y-auto px-8 py-8 text-text-faint text-[13px]">
+          Thread not found.
+        </div>
+      </main>
+    );
+  }
+
+  const root = threadDetail.parent;
+  const replies = threadDetail.replies || [];
+  return (
+    <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
+      <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
+        <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+          ← Back to {channel ? "#" + channel.name : "channel"}
+        </button>
+        <div className="text-[13px] text-text font-medium">Thread</div>
+        <div className="text-[12px] text-text-faint">
+          {replies.length === 1 ? "1 reply" : replies.length + " replies"}
+        </div>
+      </div>
+      <div className="overflow-y-auto px-8 pt-4 pb-6">
+        <div className="mx-auto max-w-[800px]">
+          {root && (
+            <div className="border-l-2 border-l-border-soft pl-4 mb-4 pb-3 border-b border-border-soft">
+              <div className="text-[11px] uppercase tracking-wide text-text-faint mb-1">Root message · context only</div>
+              <MessageRow m={root} compact={false} />
+            </div>
+          )}
+          {replies.length === 0 && (
+            <div className="text-[12.5px] text-text-faint py-4">No replies yet. Send the first reply below.</div>
+          )}
+          {replies.map((m, i) => {
+            const prev = i > 0 ? replies[i - 1] : null;
+            const sameAuthor = prev && prev.role === m.role && (prev.author_id || "") === (m.author_id || "");
+            const close = prev && new Date(m.time).getTime() - new Date(prev.time).getTime() < 5 * 60 * 1000;
+            const compact = sameAuthor && close && !(m.events && m.events.length);
+            return <MessageRow key={m.id} m={m} compact={!!compact} />;
+          })}
+        </div>
+      </div>
+      <Composer />
+    </main>
+  );
+}
+
 function Composer() {
   const view = useStore((s) => s.view);
   const channels = useStore((s) => s.channels);
@@ -458,8 +540,11 @@ function Composer() {
     setPersonaTouched(false);
   }, [view, activeAgent, activeChannel, activeThread, inferredPersona]);
 
+  const threadDetail = useStore((s) => s.threadDetail);
   let placeholder = "Message...";
-  if (view === "channel") {
+  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+    placeholder = "Reply to thread...";
+  } else if (view === "channel") {
     const ch = channels.find((c) => c.id === activeChannel);
     placeholder = `Message #${ch?.name || "channel"}...`;
   } else if (view === "thread") {
