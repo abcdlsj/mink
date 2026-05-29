@@ -518,6 +518,7 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 			Content:    m.Content,
 			Reasoning:  m.Reasoning,
 			Time:       m.CreatedAt,
+			ThreadID:   m.ParentMessageID,
 		}
 		out = append(out, view)
 	}
@@ -1103,6 +1104,12 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	mux.HandleFunc("/api/recent", jsonHandler(func() any { return b.ListRecent() }))
 	mux.HandleFunc("/api/run", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetRunDetail(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/threads-for-space", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.ListThreadsForSpace(req.URL.Query().Get("space")))
+	})
+	mux.HandleFunc("/api/thread-detail", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetThreadDetail(req.URL.Query().Get("space"), req.URL.Query().Get("parent")))
 	})
 	mux.HandleFunc("/api/new-direct", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
