@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,7 +15,10 @@ import (
 const shellEventBatch = 128
 
 func Run(ctx context.Context, a *app.App, args []string) error {
-	source := resolveCLISource(a, args)
+	source, warning := resolveCLILaunch(a, args)
+	if warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
 	a.DraftSession(source)
 	ui, err := newShell(ctx, a, source)
 	if err != nil {
@@ -23,13 +28,19 @@ func Run(ctx context.Context, a *app.App, args []string) error {
 }
 
 func resolveCLISource(a *app.App, args []string) string {
+	source, _ := resolveCLILaunch(a, args)
+	return source
+}
+
+func resolveCLILaunch(a *app.App, args []string) (string, string) {
 	if id := flagPersona(args); id != "" {
-		return "cli:agent:" + id
+		return "cli:agent:" + id, ""
 	}
-	if id := defaultPersonaID(a); id != "" {
-		return "cli:agent:" + id
+	id, warning := defaultPersonaSelection(a)
+	if id != "" {
+		return "cli:agent:" + id, warning
 	}
-	return "cli"
+	return "cli", warning
 }
 
 func flagPersona(args []string) string {
@@ -52,19 +63,32 @@ func flagPersona(args []string) string {
 }
 
 func defaultPersonaID(a *app.App) string {
+	id, _ := defaultPersonaSelection(a)
+	return id
+}
+
+func defaultPersonaSelection(a *app.App) (string, string) {
 	if a == nil || a.Personas() == nil {
-		return ""
+		return "", ""
 	}
-	if id := strings.TrimSpace(a.Config().DefaultPersona); id != "" {
-		if p := a.Personas().Get(id); p != nil {
-			return p.ID
+	configured := strings.TrimSpace(a.Config().DefaultPersona)
+	if configured != "" {
+		if p := a.Personas().Get(configured); p != nil {
+			return p.ID, ""
 		}
 	}
 	list := a.Personas().List()
 	if len(list) == 0 {
-		return ""
+		if configured != "" {
+			return "", fmt.Sprintf("warning: default_persona=%q is not registered, no fallback available", configured)
+		}
+		return "", ""
 	}
-	return list[0].ID
+	chosen := list[0].ID
+	if configured != "" {
+		return chosen, fmt.Sprintf("warning: default_persona=%q is not registered, falling back to %q", configured, chosen)
+	}
+	return chosen, ""
 }
 
 type shell struct {
