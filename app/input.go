@@ -78,6 +78,9 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
+	// P1 dual-write: mirror the user's message into the Space store.
+	// Failures are swallowed so the primary session path is unaffected.
+	f.app.dualWriteUserInput(f.source, f.personaID, f.input)
 	sessionSource := f.sessionSource()
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
@@ -98,7 +101,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := f.app.runTurn(ctx, rt, f.source, f.input, f.attachments, s); err != nil {
+	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 		return "", err
 	}
 	return latestAssistant(s), nil

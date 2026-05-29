@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/skill"
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/store"
 	"github.com/abcdlsj/sumi/tool"
 )
@@ -27,6 +28,7 @@ type App struct {
 	store    *store.Store
 	provider llm.Provider
 	sessions *session.Manager
+	spaces   *space.Manager
 	tools    *tool.Registry
 	cmds     *command.Registry
 	router   *command.Router
@@ -48,6 +50,7 @@ func New(cfg config.Config) (*App, error) {
 		bus:      bus.New(),
 		store:    db,
 		sessions: session.NewManager(db),
+		spaces:   space.NewManager(db, "user", "You"),
 		tools:    tool.NewRegistry(cfg.Workspace),
 		cmds:     command.NewRegistry(),
 		runtimes: map[string]agent.RuntimeFactory{},

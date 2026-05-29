@@ -74,10 +74,15 @@ func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, err
 }
 
 func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, attachments []msg.Attachment, s *session.Session) error {
+	return a.runTurnAs(ctx, rt, source, "", input, attachments, s)
+}
+
+func (a *App) runTurnAs(ctx context.Context, rt agent.Runtime, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
 	return turnFlow{
 		app:         a,
 		runtime:     rt,
 		source:      source,
+		personaID:   personaID,
 		input:       input,
 		attachments: attachments,
 		session:     s,

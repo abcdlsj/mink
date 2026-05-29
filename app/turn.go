@@ -13,6 +13,7 @@ type turnFlow struct {
 	app         *App
 	runtime     agent.Runtime
 	source      string
+	personaID   string
 	input       string
 	attachments []msg.Attachment
 	session     *session.Session
@@ -28,6 +29,12 @@ func (f turnFlow) run(ctx context.Context) error {
 		Bus:         f.app.bus,
 	})
 	saveErr := f.app.sessions.Save(f.session)
+	if saveErr == nil {
+		// P1 dual-write: mirror the working agent's last reply into
+		// the Space store. Skipped silently if personaID is empty
+		// (Iris's hard rule — no surrogate authorship).
+		f.app.dualWriteAssistantsFromSession(f.source, f.personaID, f.session)
+	}
 	if runErr != nil {
 		err := turnErr(runErr, saveErr)
 		f.publish(bus.TurnError, err.Error())
