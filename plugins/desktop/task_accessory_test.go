@@ -258,3 +258,52 @@ func TestTaskAccessoryAgentDMSpacesGetNone(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskAccessoryFlipsToCanceledAfterCancel(t *testing.T) {
+	_, a := newThreadBackend(t)
+	sp := mustChannel(t, a)
+	root, err := a.Spaces().AppendUserMessage(sp.ID, "kick", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: root.ID, InitiatorID: "user", WorkerID: "coder", Title: "audit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(tk.ID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := a.Spaces().LoadSpace(sp.ID)
+	views := spaceMessagesToView(loaded, a)
+	var rootView *MessageView
+	for i := range views {
+		if views[i].ID == root.ID {
+			rootView = &views[i]
+		}
+	}
+	if rootView == nil || rootView.TaskAccessory == nil || rootView.TaskAccessory.Status != "running" {
+		t.Fatalf("pre-cancel accessory = %+v, want status=running", rootView)
+	}
+	if err := a.Tasks().Cancel(tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ = a.Spaces().LoadSpace(sp.ID)
+	views = spaceMessagesToView(loaded, a)
+	rootView = nil
+	for i := range views {
+		if views[i].ID == root.ID {
+			rootView = &views[i]
+		}
+	}
+	if rootView == nil || rootView.TaskAccessory == nil {
+		t.Fatal("post-cancel accessory missing")
+	}
+	if rootView.TaskAccessory.Status != "canceled" {
+		t.Fatalf("post-cancel status = %q, want canceled", rootView.TaskAccessory.Status)
+	}
+	if !rootView.TaskAccessory.Terminal {
+		t.Fatal("canceled accessory must be terminal")
+	}
+}

@@ -677,14 +677,15 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       case "agent.delegate.finished":
-      case "agent.delegate.failed": {
+      case "agent.delegate.failed":
+      case "agent.delegate.canceled": {
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveScope(get, set);
         }
         if (!cur.streaming) return;
         const id = ev.tool_call_id || "";
         const prev = cur.streaming.toolCalls.get(id);
-        const failed = ev.type === "agent.delegate.failed";
+        const failed = ev.type === "agent.delegate.failed" || ev.type === "agent.delegate.canceled";
         const block: EventBlock = {
           kind: "delegate",
           status: failed ? "error" : "done",

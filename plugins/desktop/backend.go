@@ -1395,8 +1395,11 @@ func toBusEvent(ev bus.Event) BusEvent {
 	case bus.DelegateFinished:
 		out.Type = "agent.delegate.finished"
 		out.ToolCallID = "delegate-" + ev.TaskID
-	case bus.DelegateFailed, bus.DelegateCanceled:
+	case bus.DelegateFailed:
 		out.Type = "agent.delegate.failed"
+		out.ToolCallID = "delegate-" + ev.TaskID
+	case bus.DelegateCanceled:
+		out.Type = "agent.delegate.canceled"
 		out.ToolCallID = "delegate-" + ev.TaskID
 	case bus.ToolCallStarted, bus.ToolCallFinished, bus.ToolCallFailed:
 		switch ev.Tool {

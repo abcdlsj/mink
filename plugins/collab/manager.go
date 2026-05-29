@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 )
 
@@ -16,7 +17,18 @@ func (m *manager) cancel(id string) error {
 	if tk == nil {
 		return fmt.Errorf("task not found: %s", id)
 	}
-	return m.app.Tasks().Cancel(id)
+	if err := m.app.Tasks().Cancel(id); err != nil {
+		return err
+	}
+	m.app.Bus().Publish(bus.Event{
+		Type:            bus.DelegateCanceled,
+		Source:          tk.Source,
+		TaskID:          tk.ID,
+		SpaceID:         tk.SpaceID,
+		ParentMessageID: tk.TriggerMessageID,
+		AgentID:         tk.WorkerID,
+	})
+	return nil
 }
 
 func (m *manager) wait(id string, timeout time.Duration) (string, error) {
