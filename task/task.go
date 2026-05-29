@@ -5,11 +5,12 @@ import "time"
 type Status string
 
 const (
-	StatusQueued   Status = "queued"
-	StatusRunning  Status = "running"
-	StatusFinished Status = "finished"
-	StatusFailed   Status = "failed"
-	StatusCanceled Status = "canceled"
+	StatusQueued      Status = "queued"
+	StatusRunning     Status = "running"
+	StatusFinished    Status = "finished"
+	StatusFailed      Status = "failed"
+	StatusCanceled    Status = "canceled"
+	StatusEmptyOutput Status = "empty_output"
 )
 
 type KeyStepKind string

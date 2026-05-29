@@ -74,6 +74,12 @@ func (t delegateTool) Run(ctx context.Context, args json.RawMessage) (string, er
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.Target, capabilityHint(in.Capabilities))
+	if id, ok, err := t.m.tryDelegateInSpace(ctx, src, in.Target, rt, in.Task); ok {
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("delegation accepted, task_id=%s", id), nil
+	}
 	id, err := t.m.delegate(src, rt, in.Task, in.ShareContext, in.DirectOutput)
 	if err != nil {
 		return "", err

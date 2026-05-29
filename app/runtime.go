@@ -73,6 +73,10 @@ func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, err
 	return f(a.runtimeEnvFor(p))
 }
 
+func (a *App) NewRuntimeFor(name string, p *persona.Persona) (agent.Runtime, error) {
+	return a.newRuntimeFor(name, p)
+}
+
 func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input string, attachments []msg.Attachment, s *session.Session) error {
 	return a.runTurnAs(ctx, rt, source, "", input, attachments, s)
 }
