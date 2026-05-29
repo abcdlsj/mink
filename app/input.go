@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/space"
 )
 
 func (a *App) HandleInput(ctx context.Context, source, input string) (string, error) {
@@ -92,9 +93,19 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if out, ok, err := f.mention(ctx); ok {
 		return out, err
 	}
-	// P1 dual-write: mirror the user's message into the Space store.
-	// Failures are swallowed so the primary session path is unaffected.
-	f.app.dualWriteUserInput(f.source, f.personaID, f.input)
+	if space.MapSource(f.source).Kind == space.KindAgentDM {
+		personaID, _, err := f.app.resolveAgentDMPersonaID(f.source, f.personaID)
+		if err != nil {
+			return "", err
+		}
+		f.personaID = personaID
+		ctx = command.WithPersona(ctx, personaID)
+		if _, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input); err != nil {
+			return "", err
+		}
+	} else {
+		f.app.dualWriteUserInput(f.source, f.personaID, f.input)
+	}
 	sessionSource := f.sessionSource()
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {

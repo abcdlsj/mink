@@ -169,6 +169,7 @@ func TestChannelInputWithoutMentionDoesNotRunActivePersona(t *testing.T) {
 
 func TestAgentDMStillUsesLegacyActivePersona(t *testing.T) {
 	a, rec := newRoutingTestApp(t)
+	seedPersona(t, a, "tshoot", "Tshoot")
 	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
 		t.Fatalf("DM HandleInput: %v", err)
 	}
