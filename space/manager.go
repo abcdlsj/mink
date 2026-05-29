@@ -66,6 +66,22 @@ func (m *Manager) UserParticipant() Participant {
 	}
 }
 
+// Store exposes the underlying persistence layer to read-only
+// callers (e.g. the desktop plugin in P3). Writes should always go
+// through Manager methods so atomic invariants hold.
+func (m *Manager) Store() Store { return m.store }
+
+// ListSpaces returns every persisted Space. It is a thin pass-through
+// to the underlying store so callers don't need a Store handle.
+func (m *Manager) ListSpaces() ([]*Space, error) {
+	return m.store.ListSpaces()
+}
+
+// LoadSpace fetches one Space by id.
+func (m *Manager) LoadSpace(id string) (*Space, error) {
+	return m.store.LoadSpace(id)
+}
+
 // SourceTarget describes where a legacy `source` string lands in
 // the new model. P1 uses this to route dual-writes; P3 swaps
 // readers over.

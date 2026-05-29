@@ -13,7 +13,9 @@ import (
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 )
 
 const desktopSource = "desktop"
@@ -148,7 +150,33 @@ func (b *Backend) ListChannels() []ChannelItem {
 	if b.app == nil {
 		return mockChannels()
 	}
+	// P3.1: list real Channel-kind Spaces. The default workspace
+	// channel is auto-created by the dual-write/router on first
+	// channel input; if it doesn't exist yet we still surface a
+	// placeholder row so the rail isn't empty on a fresh install.
 	cfg := b.app.Config()
+	spaces, err := b.app.Spaces().Store().ListSpaces()
+	if err == nil {
+		out := make([]ChannelItem, 0, 1)
+		for _, sp := range spaces {
+			if sp.Kind != space.KindChannel {
+				continue
+			}
+			out = append(out, ChannelItem{
+				ID:        sp.ID,
+				Name:      channelDisplayName(sp, cfg.Workspace),
+				Topic:     "",
+				Agents:    spaceAgentIDs(sp),
+				UpdatedAt: sp.UpdatedAt,
+			})
+		}
+		if len(out) > 0 {
+			sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+			return out
+		}
+	}
+	// Empty state: synthesize a placeholder so the rail still shows
+	// a #workspace entry, click-through ensures the Space is created.
 	return []ChannelItem{
 		{
 			ID:        defaultChannelID,
@@ -158,6 +186,36 @@ func (b *Backend) ListChannels() []ChannelItem {
 			UpdatedAt: time.Now(),
 		},
 	}
+}
+
+// channelDisplayName chooses the rail label for a channel Space.
+// Channel Spaces are auto-created with title "default" today; we
+// surface the workspace folder name instead so users see "#sumi"
+// rather than "#default".
+func channelDisplayName(sp *space.Space, workspace string) string {
+	if sp == nil {
+		return ""
+	}
+	if strings.TrimSpace(sp.Title) == "" || sp.Title == "default" {
+		return workspaceName(workspace)
+	}
+	return sp.Title
+}
+
+// spaceAgentIDs returns the persona ids of every agent participant
+// currently in the space, in stable order.
+func spaceAgentIDs(sp *space.Space) []string {
+	if sp == nil {
+		return nil
+	}
+	out := make([]string, 0, len(sp.Participants))
+	for _, p := range sp.Participants {
+		if p.Kind == space.ParticipantAgent {
+			out = append(out, p.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func (b *Backend) ListThreads() []ThreadItem {
@@ -203,16 +261,91 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 	if b.app == nil {
 		return mockChannelDetail(id)
 	}
-	name := workspaceName(b.app.Config().Workspace)
+	cfg := b.app.Config()
+	// P3.1: prefer the real Channel-kind Space. If id refers to a
+	// concrete Space we load it directly; otherwise (legacy
+	// defaultChannelID, fresh install) we fall back to the singleton
+	// channel default and create it if missing.
+	var sp *space.Space
+	if strings.HasPrefix(id, "20") { // Space ids start with the date
+		if loaded, err := b.app.Spaces().LoadSpace(id); err == nil && loaded != nil {
+			sp = loaded
+		}
+	}
+	if sp == nil {
+		ensured, err := b.app.Spaces().EnsureSpace(space.KindChannel, "default", space.PersonaInfo{})
+		if err != nil {
+			return SessionDetail{}
+		}
+		sp = ensured
+	}
 	return SessionDetail{
 		Item: SessionItem{
-			ID:        id,
-			Title:     "#" + name,
-			UpdatedAt: time.Now(),
+			ID:           sp.ID,
+			Title:        "#" + channelDisplayName(sp, cfg.Workspace),
+			UpdatedAt:    sp.UpdatedAt,
+			MessageCount: len(sp.Messages),
 		},
 		Summary:  "",
-		Messages: []MessageView{},
+		Messages: spaceMessagesToView(sp, b.app),
 	}
+}
+
+// spaceMessagesToView projects space.Messages into the UI's
+// MessageView shape. Author is taken straight from the message
+// (no source-derived guessing); display copy is filled from the
+// persona registry when available.
+func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
+	if sp == nil {
+		return nil
+	}
+	out := make([]MessageView, 0, len(sp.Messages))
+	for _, m := range sp.Messages {
+		view := MessageView{
+			ID:         m.ID,
+			Role:       roleForKind(m.AuthorKind),
+			AuthorID:   m.AuthorID,
+			AuthorName: messageAuthorDisplay(m, a),
+			Content:    m.Content,
+			Reasoning:  m.Reasoning,
+			Time:       m.CreatedAt,
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
+// roleForKind maps a Space participant kind to the UI's role string.
+func roleForKind(k space.ParticipantKind) string {
+	switch k {
+	case space.ParticipantUser:
+		return "user"
+	case space.ParticipantAgent:
+		return "agent"
+	}
+	return ""
+}
+
+// messageAuthorDisplay returns the persona display name when the
+// author is a known agent, falling back to the literal id.
+func messageAuthorDisplay(m space.Message, a appAccessor) string {
+	if m.AuthorKind != space.ParticipantAgent {
+		return m.AuthorID
+	}
+	if a == nil {
+		return m.AuthorID
+	}
+	if p := a.Personas().Get(m.AuthorID); p != nil {
+		return p.Display
+	}
+	return m.AuthorID
+}
+
+// appAccessor is the small slice of *app.App the Space-projection
+// helpers need. Pulling it out behind an interface keeps these
+// helpers testable without spinning up a full App.
+type appAccessor interface {
+	Personas() *persona.Registry
 }
 
 func (b *Backend) GetThread(id string) SessionDetail {
