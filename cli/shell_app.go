@@ -8,6 +8,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 )
 
 type shellApp interface {
@@ -23,4 +24,5 @@ type shellApp interface {
 	DraftSession(string) *session.Session
 	SwitchSession(string, string) (*session.Session, error)
 	ListSessionsBySource(string) ([]*session.Session, error)
+	Spaces() *space.Manager
 }

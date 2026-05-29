@@ -14,6 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 )
 
 type fakeShellApp struct{}
@@ -45,6 +46,7 @@ func (fakeShellApp) SwitchSession(string, string) (*session.Session, error) {
 func (fakeShellApp) ListSessionsBySource(string) ([]*session.Session, error) {
 	return []*session.Session{session.New("cli")}, nil
 }
+func (fakeShellApp) Spaces() *space.Manager { return nil }
 
 func TestRenderHeaderMatchesCodexShell(t *testing.T) {
 	m := newShellModel(context.Background(), fakeShellApp{}, "cli")

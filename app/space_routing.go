@@ -43,36 +43,8 @@ func (a *App) channelRouter() *space.Router {
 	return a.spaceRouter
 }
 
-// sourceUsesRouter returns true when a source string lands in a
-// Space whose write path goes through the routing layer (Channel
-// or Direct Chat).
-//
-// Scope (P4):
-//   "desktop"             -> KindChannel       (router)
-//   "desktop:direct:<id>" -> KindDirectChat    (router)
-//   "cli"                 -> KindDirectChat    (router)
-//   "tg:dm:<chat>"        -> KindDirectChat    (router)
-//   "tg:channel:<chat>"   -> KindChannel       (router)
-//
-// Excluded (continue to use legacy active-persona handoff):
-//   desktop:agent:*  / cli:agent:*  -> KindAgentDM
-//   subtask:* / scratch:*           -> not a Space
-//
-// CLI/TUI/TG default sources (cli, tg:dm:*, tg:channel:*) are
-// router-managed in v1: the user gets the same @-routing semantics
-// as the desktop without any adapter-specific behavior.
 func sourceUsesRouter(source string) bool {
-	source = strings.TrimSpace(source)
-	if source == "desktop" || source == "cli" {
-		return true
-	}
-	if strings.HasPrefix(source, "desktop:direct:") {
-		return true
-	}
-	if strings.HasPrefix(source, "tg:dm:") || strings.HasPrefix(source, "tg:channel:") {
-		return true
-	}
-	return false
+	return space.SourceUsesRouter(source)
 }
 
 // sourceIsChannel is kept for backwards-compat with the few call

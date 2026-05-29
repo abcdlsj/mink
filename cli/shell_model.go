@@ -136,6 +136,10 @@ type shellModel struct {
 	threads      map[string][]shellThread
 	itemSeq      int
 
+	spaceID   string
+	spaceMsgs map[string]bool
+	turnInput string
+
 	focus       shellFocus
 	overlay     shellOverlay
 	expanded    int
@@ -559,7 +563,10 @@ func (m *shellModel) startInput(text string, attachments []msg.Attachment) tea.C
 		assistantIndex: -1,
 		started:        time.Now(),
 	}
-	m.addTextItem(itemUser, displayInput(text, attachments), time.Now())
+	m.turnInput = text
+	if !m.sourceTracksSpace() {
+		m.addTextItem(itemUser, displayInput(text, attachments), time.Now())
+	}
 	m.syncLayout()
 	return func() tea.Msg {
 		reply, err := m.app.HandleInputWithAttachments(ctx, m.source, text, attachments)
@@ -662,12 +669,29 @@ func (m *shellModel) handleEvents(evs []bus.Event) tea.Cmd {
 	if len(evs) == 0 {
 		return nil
 	}
+	if m.sourceTracksSpace() {
+		evs = filterSpaceEvents(evs)
+		if len(evs) == 0 {
+			return nil
+		}
+	}
 	m.deferSync = true
 	for _, ev := range evs {
 		m.handleEvent(ev)
 	}
 	m.deferSync = false
 	return m.flushDeferredSync(streamEventsOnly(evs))
+}
+
+func filterSpaceEvents(evs []bus.Event) []bus.Event {
+	out := evs[:0]
+	for _, ev := range evs {
+		switch ev.Type {
+		case bus.TurnStarted, bus.TurnFinished, bus.TurnError, bus.CommandHandled, bus.ServiceNotice, bus.ModelChanged:
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 func streamEventsOnly(evs []bus.Event) bool {
@@ -690,6 +714,14 @@ func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 			m.addTextItem(itemError, err.Error(), time.Now())
 		}
 		m.turn = shellTurn{assistantIndex: -1}
+		m.turnInput = ""
+		return m.startQueued()
+	}
+	if m.sourceTracksSpace() {
+		_, agents := m.appendNewSpaceMessages()
+		m.addNoMentionHintIfNeeded(agents)
+		m.turn = shellTurn{assistantIndex: -1}
+		m.turnInput = ""
 		return m.startQueued()
 	}
 	reply = textutil.Valid(strings.TrimSpace(reply))
@@ -700,6 +732,7 @@ func (m *shellModel) finishTurn(reply string, err error) tea.Cmd {
 		m.reconcileAssistant(reply)
 	}
 	m.turn = shellTurn{assistantIndex: -1}
+	m.turnInput = ""
 	return m.startQueued()
 }
 

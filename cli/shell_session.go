@@ -137,7 +137,10 @@ func (m *shellModel) resetTranscript() {
 	m.selected = -1
 	m.follow = true
 	m.turn = shellTurn{assistantIndex: -1}
+	m.spaceID = ""
+	m.spaceMsgs = nil
 	m.syncViewport()
+	m.loadSpaceTranscript()
 }
 
 func (m *shellModel) loadTranscript(s *session.Session) {
@@ -145,6 +148,14 @@ func (m *shellModel) loadTranscript(s *session.Session) {
 		return
 	}
 	m.resetTranscript()
+	if m.sourceTracksSpace() {
+		if len(m.items) > 0 {
+			m.selected = len(m.items) - 1
+			m.follow = true
+			m.syncViewport()
+		}
+		return
+	}
 	for _, mm := range s.Messages {
 		m.addMessage(mm)
 	}

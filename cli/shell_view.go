@@ -333,7 +333,16 @@ func (m shellModel) renderAssistantItem(item *chatItem, idx int) []string {
 		lines = append(lines, seg...)
 		hasBody = true
 	}
-	if m.showMessageIDs() && item.ID != "" {
+	if author := strings.TrimSpace(item.Author); author != "" {
+		head := shellTheme.Chip.Render(author)
+		if m.showMessageIDs() && item.ID != "" {
+			head = head + shellTheme.Meta.Render("  "+item.ID)
+		}
+		if idx == m.selected {
+			head = m.selectedLine(head)
+		}
+		lines = append(lines, head)
+	} else if m.showMessageIDs() && item.ID != "" {
 		meta := shellTheme.Meta.Render("sumi " + item.ID)
 		if idx == m.selected {
 			meta = m.selectedLine(meta)

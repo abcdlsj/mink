@@ -502,21 +502,18 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 	}
 }
 
-// spaceMessagesToView projects space.Messages into the UI's
-// MessageView shape. Author is taken straight from the message
-// (no source-derived guessing); display copy is filled from the
-// persona registry when available.
 func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	if sp == nil {
 		return nil
 	}
+	resolver := personaResolver(a)
 	out := make([]MessageView, 0, len(sp.Messages))
 	for _, m := range sp.Messages {
 		view := MessageView{
 			ID:         m.ID,
 			Role:       roleForKind(m.AuthorKind),
 			AuthorID:   m.AuthorID,
-			AuthorName: messageAuthorDisplay(m, a),
+			AuthorName: space.MessageAuthorDisplay(sp, m, resolver),
 			Content:    m.Content,
 			Reasoning:  m.Reasoning,
 			Time:       m.CreatedAt,
@@ -537,19 +534,16 @@ func roleForKind(k space.ParticipantKind) string {
 	return ""
 }
 
-// messageAuthorDisplay returns the persona display name when the
-// author is a known agent, falling back to the literal id.
-func messageAuthorDisplay(m space.Message, a appAccessor) string {
-	if m.AuthorKind != space.ParticipantAgent {
-		return m.AuthorID
-	}
+func personaResolver(a appAccessor) space.DisplayResolver {
 	if a == nil {
-		return m.AuthorID
+		return nil
 	}
-	if p := a.Personas().Get(m.AuthorID); p != nil {
-		return p.Display
-	}
-	return m.AuthorID
+	return space.DisplayResolverFunc(func(id string) string {
+		if p := a.Personas().Get(id); p != nil {
+			return p.Display
+		}
+		return ""
+	})
 }
 
 // appAccessor is the small slice of *app.App the Space-projection

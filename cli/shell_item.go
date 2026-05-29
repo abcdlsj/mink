@@ -27,6 +27,7 @@ type chatItem struct {
 	ID       string
 	Kind     int
 	Status   string
+	Author   string
 	Time     time.Time
 	Segments []chatSegment
 }

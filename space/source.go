@@ -1,0 +1,32 @@
+package space
+
+import "strings"
+
+func SourceUsesRouter(source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "desktop" || source == "cli" {
+		return true
+	}
+	if strings.HasPrefix(source, "desktop:direct:") {
+		return true
+	}
+	if strings.HasPrefix(source, "tg:dm:") || strings.HasPrefix(source, "tg:channel:") {
+		return true
+	}
+	return false
+}
+
+func HasLeadingMention(text string) bool {
+	s := strings.TrimSpace(text)
+	if !strings.HasPrefix(s, "@") {
+		return false
+	}
+	rest := s[1:]
+	for i := 0; i < len(rest); i++ {
+		c := rest[i]
+		if c == ' ' || c == '\t' || c == '\n' {
+			return i > 0
+		}
+	}
+	return len(rest) > 0
+}

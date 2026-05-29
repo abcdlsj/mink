@@ -55,6 +55,7 @@ func (s *shell) run() error {
 	defer s.app.SetToolApprover(nil)
 
 	m := newShellModel(s.ctx, s.app, s.source)
+	m.loadSpaceTranscript()
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	s.program = p
 	s.approver.attach(p)

@@ -18,6 +18,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 )
 
 type commandShellApp struct {
@@ -68,6 +69,7 @@ func (commandShellApp) SwitchSession(string, string) (*session.Session, error) {
 func (commandShellApp) ListSessionsBySource(string) ([]*session.Session, error) {
 	return []*session.Session{session.New("cli")}, nil
 }
+func (commandShellApp) Spaces() *space.Manager { return nil }
 
 type attachmentShellApp struct {
 	commandShellApp
