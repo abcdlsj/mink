@@ -28,15 +28,19 @@ const (
 )
 
 type Event struct {
-	Type       string
-	Source     string
-	SessionID  string
-	TaskID     string
-	ToolCallID string
-	Text       string
-	Tool       string
-	Input      string
-	Output     string
-	Err        string
-	Time       time.Time
+	Type            string
+	Source          string
+	SessionID       string
+	TaskID          string
+	ToolCallID      string
+	Text            string
+	Tool            string
+	Input           string
+	Output          string
+	Err             string
+	Time            time.Time
+	SpaceID         string
+	ParentMessageID string
+	AgentID         string
+	StreamID        string
 }

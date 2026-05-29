@@ -183,14 +183,48 @@ func (m *manager) runWorkerAsMention(ctx context.Context, in workerRunInput) (st
 	if err != nil {
 		return "", err
 	}
-	if err := rt.Run(ctx, &agent.Turn{
-		Source:  scratch.Source,
-		Input:   in.Input,
-		Session: scratch,
-		Bus:     m.app.Bus(),
-	}); err != nil {
+	streamID := "stream-" + uuid.NewString()[:8]
+	turn := &agent.Turn{
+		Source:          scratch.Source,
+		Input:           in.Input,
+		Session:         scratch,
+		Bus:             m.app.Bus(),
+		SpaceID:         in.ParentSpaceID,
+		ParentMessageID: in.TriggerMessageID,
+		AgentID:         worker.ID,
+		StreamID:        streamID,
+	}
+	m.app.Bus().Publish(bus.Event{
+		Type:            bus.TurnStarted,
+		Source:          scratch.Source,
+		SessionID:       scratch.ID,
+		SpaceID:         turn.SpaceID,
+		ParentMessageID: turn.ParentMessageID,
+		AgentID:         turn.AgentID,
+		StreamID:        turn.StreamID,
+	})
+	if err := rt.Run(ctx, turn); err != nil {
+		m.app.Bus().Publish(bus.Event{
+			Type:            bus.TurnError,
+			Source:          scratch.Source,
+			SessionID:       scratch.ID,
+			Err:             err.Error(),
+			SpaceID:         turn.SpaceID,
+			ParentMessageID: turn.ParentMessageID,
+			AgentID:         turn.AgentID,
+			StreamID:        turn.StreamID,
+		})
 		return "", err
 	}
+	m.app.Bus().Publish(bus.Event{
+		Type:            bus.TurnFinished,
+		Source:          scratch.Source,
+		SessionID:       scratch.ID,
+		SpaceID:         turn.SpaceID,
+		ParentMessageID: turn.ParentMessageID,
+		AgentID:         turn.AgentID,
+		StreamID:        turn.StreamID,
+	})
 	added := scratch.Messages[baseline:]
 	content, reasoning := assembleAddedAssistantOutput(added)
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {

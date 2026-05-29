@@ -42,11 +42,15 @@ type Persona struct {
 }
 
 type Turn struct {
-	Source      string
-	Input       string
-	Attachments []msg.Attachment
-	Session     *session.Session
-	Bus         *bus.Bus
+	Source          string
+	Input           string
+	Attachments     []msg.Attachment
+	Session         *session.Session
+	Bus             *bus.Bus
+	SpaceID         string
+	ParentMessageID string
+	AgentID         string
+	StreamID        string
 }
 
 type Native struct {

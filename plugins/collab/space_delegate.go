@@ -242,12 +242,52 @@ func (m *manager) runSpaceDelegate(ctx context.Context, tk *taskpkg.Task, in spa
 		_ = m.failTask(tk.ID, r.ID, err)
 		return nil, err
 	}
-	runErr := rt.Run(ctx, &agent.Turn{
-		Source:  scratch.Source,
-		Input:   in.Input,
-		Session: scratch,
-		Bus:     m.app.Bus(),
+	streamID := "stream-" + uuid.NewString()[:8]
+	turn := &agent.Turn{
+		Source:          scratch.Source,
+		Input:           in.Input,
+		Session:         scratch,
+		Bus:             m.app.Bus(),
+		SpaceID:         in.ParentSpaceID,
+		ParentMessageID: in.TriggerMessageID,
+		AgentID:         worker.ID,
+		StreamID:        streamID,
+	}
+	m.app.Bus().Publish(bus.Event{
+		Type:            bus.TurnStarted,
+		Source:          scratch.Source,
+		SessionID:       scratch.ID,
+		TaskID:          tk.ID,
+		SpaceID:         turn.SpaceID,
+		ParentMessageID: turn.ParentMessageID,
+		AgentID:         turn.AgentID,
+		StreamID:        turn.StreamID,
 	})
+	runErr := rt.Run(ctx, turn)
+	if runErr != nil {
+		m.app.Bus().Publish(bus.Event{
+			Type:            bus.TurnError,
+			Source:          scratch.Source,
+			SessionID:       scratch.ID,
+			TaskID:          tk.ID,
+			Err:             runErr.Error(),
+			SpaceID:         turn.SpaceID,
+			ParentMessageID: turn.ParentMessageID,
+			AgentID:         turn.AgentID,
+			StreamID:        turn.StreamID,
+		})
+	} else {
+		m.app.Bus().Publish(bus.Event{
+			Type:            bus.TurnFinished,
+			Source:          scratch.Source,
+			SessionID:       scratch.ID,
+			TaskID:          tk.ID,
+			SpaceID:         turn.SpaceID,
+			ParentMessageID: turn.ParentMessageID,
+			AgentID:         turn.AgentID,
+			StreamID:        turn.StreamID,
+		})
+	}
 	added := scratch.Messages[baseline:]
 	steps := summarizeAddedSteps(added, runErr)
 	if ctx.Err() != nil && runErr != nil {

@@ -4,12 +4,18 @@ import (
 	"context"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 )
+
+func newStreamID() string {
+	return "stream-" + uuid.NewString()[:8]
+}
 
 type turnFlow struct {
 	app         *App
@@ -22,18 +28,27 @@ type turnFlow struct {
 }
 
 func (f turnFlow) run(ctx context.Context) error {
-	f.publish(bus.TurnStarted, "")
 	baseline := 0
 	if f.session != nil {
 		baseline = len(f.session.Messages)
 	}
-	runErr := f.runtime.Run(ctx, &agent.Turn{
+	streamID := newStreamID()
+	turn := &agent.Turn{
 		Source:      f.source,
 		Input:       f.input,
 		Attachments: f.attachments,
 		Session:     f.session,
 		Bus:         f.app.bus,
-	})
+		AgentID:     f.personaID,
+		StreamID:    streamID,
+	}
+	if target := space.MapSource(f.source); target.Kind == space.KindAgentDM {
+		if sp, _ := f.app.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed}); sp != nil {
+			turn.SpaceID = sp.ID
+		}
+	}
+	f.publishStream(bus.TurnStarted, "", turn)
+	runErr := f.runtime.Run(ctx, turn)
 	saveErr := f.app.sessions.Save(f.session)
 	var spaceWriteErr error
 	if saveErr == nil {
@@ -41,9 +56,9 @@ func (f turnFlow) run(ctx context.Context) error {
 	}
 	if runErr != nil {
 		err := turnErr(runErr, saveErr)
-		f.publish(bus.TurnError, err.Error())
+		f.publishStream(bus.TurnError, err.Error(), turn)
 		if saveErr == nil {
-			f.publish(bus.SessionUpdated, "")
+			f.publishStream(bus.SessionUpdated, "", turn)
 		}
 		return err
 	}
@@ -51,13 +66,26 @@ func (f turnFlow) run(ctx context.Context) error {
 		return saveErr
 	}
 	if spaceWriteErr != nil {
-		f.publish(bus.TurnError, spaceWriteErr.Error())
-		f.publish(bus.SessionUpdated, "")
+		f.publishStream(bus.TurnError, spaceWriteErr.Error(), turn)
+		f.publishStream(bus.SessionUpdated, "", turn)
 		return spaceWriteErr
 	}
-	f.publish(bus.SessionUpdated, "")
-	f.publish(bus.TurnFinished, "")
+	f.publishStream(bus.SessionUpdated, "", turn)
+	f.publishStream(bus.TurnFinished, "", turn)
 	return nil
+}
+
+func (f turnFlow) publishStream(typ, errMsg string, turn *agent.Turn) {
+	f.app.bus.Publish(bus.Event{
+		Type:            typ,
+		Source:          f.source,
+		SessionID:       f.session.ID,
+		Err:             errMsg,
+		SpaceID:         turn.SpaceID,
+		ParentMessageID: turn.ParentMessageID,
+		AgentID:         turn.AgentID,
+		StreamID:        turn.StreamID,
+	})
 }
 
 func (a *App) persistAssistantTurn(source, personaID string, s *session.Session, baseline int) error {

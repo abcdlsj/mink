@@ -22,5 +22,17 @@ func (s turnSink) Publish(ev bus.Event) {
 	if ev.SessionID == "" && s.turn.Session != nil {
 		ev.SessionID = s.turn.Session.ID
 	}
+	if ev.SpaceID == "" {
+		ev.SpaceID = s.turn.SpaceID
+	}
+	if ev.ParentMessageID == "" {
+		ev.ParentMessageID = s.turn.ParentMessageID
+	}
+	if ev.AgentID == "" {
+		ev.AgentID = s.turn.AgentID
+	}
+	if ev.StreamID == "" {
+		ev.StreamID = s.turn.StreamID
+	}
 	s.turn.Bus.Publish(ev)
 }

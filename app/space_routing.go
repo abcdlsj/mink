@@ -161,14 +161,54 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if err != nil {
 		return nil
 	}
+	parentMessageID := ""
+	if target.Chain != nil {
+		parentMessageID = target.Chain.ParentMessageID
+	}
+	turn := &agent.Turn{
+		Source:          scratch.Source,
+		Input:           originUserContent,
+		Session:         scratch,
+		Bus:             a.bus,
+		SpaceID:         spaceID,
+		ParentMessageID: parentMessageID,
+		AgentID:         persona.ID,
+		StreamID:        newStreamID(),
+	}
+	a.bus.Publish(bus.Event{
+		Type:            bus.TurnStarted,
+		Source:          scratch.Source,
+		SessionID:       scratch.ID,
+		SpaceID:         turn.SpaceID,
+		ParentMessageID: turn.ParentMessageID,
+		AgentID:         turn.AgentID,
+		StreamID:        turn.StreamID,
+	})
 	// Run directly — bypass turnFlow so sessions.Save is never called
 	// against the scratch session.
-	_ = rt.Run(ctx, &agent.Turn{
-		Source:  scratch.Source,
-		Input:   originUserContent,
-		Session: scratch,
-		Bus:     a.bus,
-	})
+	runErr := rt.Run(ctx, turn)
+	if runErr != nil {
+		a.bus.Publish(bus.Event{
+			Type:            bus.TurnError,
+			Source:          scratch.Source,
+			SessionID:       scratch.ID,
+			Err:             runErr.Error(),
+			SpaceID:         turn.SpaceID,
+			ParentMessageID: turn.ParentMessageID,
+			AgentID:         turn.AgentID,
+			StreamID:        turn.StreamID,
+		})
+	} else {
+		a.bus.Publish(bus.Event{
+			Type:            bus.TurnFinished,
+			Source:          scratch.Source,
+			SessionID:       scratch.ID,
+			SpaceID:         turn.SpaceID,
+			ParentMessageID: turn.ParentMessageID,
+			AgentID:         turn.AgentID,
+			StreamID:        turn.StreamID,
+		})
+	}
 	content, reasoning := assembleAssistantOutput(scratch.Messages[baseline:])
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return nil
