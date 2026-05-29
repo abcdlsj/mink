@@ -105,12 +105,30 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		cancel()
 	}()
 	source := desktopSource
-	if isThreadID(req.SessionID) {
+	// P3.5/P3.8: when session_id refers to a real Space, route to
+	// the right source so the router (or active-persona path)
+	// targets the correct Space:
+	//   KindChannel    -> "desktop"            (router)
+	//   KindDirectChat -> "desktop:direct:<seed>" (router)
+	//   KindAgentDM    -> "desktop:agent:<seed>"  (legacy active persona)
+	if sp, err := b.app.Spaces().LoadSpace(req.SessionID); err == nil && sp != nil {
+		switch sp.Kind {
+		case space.KindChannel:
+			source = desktopSource
+		case space.KindDirectChat:
+			source = "desktop:direct:" + sp.Title
+		case space.KindAgentDM:
+			source = "desktop:agent:" + sp.Title
+		}
+	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
+		// Frontend may still send the synthetic agent source string.
+		source = req.SessionID
+	} else if isThreadID(req.SessionID) {
+		// Pre-P3 desktop session id; preserve the legacy switch path
+		// so behavior doesn't break for old data on disk.
 		if _, err := b.app.SwitchSession(desktopSource, req.SessionID); err != nil {
 			return "", err
 		}
-	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
-		source = req.SessionID
 	}
 	if req.PersonaID != "" {
 		return b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)

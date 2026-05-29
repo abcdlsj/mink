@@ -452,6 +452,14 @@ function Composer() {
   const trimmed = input.trim();
   const canSend = trimmed.length > 0 && !sending;
   const personaLocked = view === "agent" && !personaTouched;
+  // P3.8: when the user is composing in a router-managed Space
+  // (channel or direct chat) and hasn't typed a '@', surface a
+  // gentle hint that no agent will reply unless they mention one.
+  // Agent DM and other views skip the hint — DM has its bound
+  // agent, no routing decision needed.
+  const usesRouting = view === "channel" || view === "thread";
+  const hasMention = /(^|\s)@/.test(input);
+  const showRouteHint = usesRouting && trimmed.length > 0 && !hasMention;
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -470,6 +478,11 @@ function Composer() {
   return (
     <div className="border-t border-border-soft px-8 pb-5 pt-3.5 bg-panel">
       <div className="mx-auto max-w-[800px]">
+        {showRouteHint && (
+          <div className="mb-2 text-[11.5px] text-text-faint">
+            Mention an agent to route this message, or open a Direct Chat / DM.
+          </div>
+        )}
         <textarea
           rows={2}
           placeholder={placeholder}
