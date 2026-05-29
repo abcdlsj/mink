@@ -301,6 +301,16 @@ func TestChannelWakeAgentReplyMentionFansOut(t *testing.T) {
 	if sp.Messages[2].AuthorID != "reviewer" || sp.Messages[2].AuthorKind != space.ParticipantAgent {
 		t.Errorf("third message should be reviewer-authored, got %+v", sp.Messages[2])
 	}
+	// Reviewer must be in participants after fanout, not just the user+coder seed.
+	hasReviewer := false
+	for _, p := range sp.Participants {
+		if p.ID == "reviewer" {
+			hasReviewer = true
+		}
+	}
+	if !hasReviewer {
+		t.Errorf("reviewer must be a participant after agent-fanout, got %+v", sp.Participants)
+	}
 }
 
 func TestChannelWakeAgentSelfMentionDoesNotRecurse(t *testing.T) {

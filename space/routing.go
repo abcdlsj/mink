@@ -89,6 +89,14 @@ func (r *Router) resolverFunc() PersonaResolver {
 	}
 }
 
+// ResolverFunc exposes the router's persona resolver so callers
+// (e.g. runChannelWake) can parse mentions out of agent replies
+// using the same lookup rules.
+func (r *Router) ResolverFunc() PersonaResolver { return r.resolverFunc() }
+
+// MaxMentions reports the per-message mention cap.
+func (r *Router) MaxMentions() int { return r.maxMentions }
+
 // RouteUserChannelMessage is the entry point P2 wires onto a fresh
 // user message in a channel space. It parses mentions, atomically
 // adds the resolved agents to the channel's participants, persists

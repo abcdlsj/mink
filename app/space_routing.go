@@ -157,19 +157,42 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return nil
 	}
-	written, err := a.spaces.AppendAgentMessage(
-		spaceID,
-		space.PersonaInfo{ID: persona.ID, Display: persona.Display, Role: persona.Description},
-		content, reasoning, nil, "",
-	)
+	r := a.channelRouter()
+	if r == nil {
+		return nil
+	}
+	// Resolve mentions in the agent's own reply *before* writing so
+	// the message lands in one atomic write that also adds any new
+	// participant. This is the second leg of Iris's "@ adds to
+	// membership atomically" rule — the first leg fires for user
+	// messages in RouteUserChannelMessage.
+	resolved := space.ParseMentions(content, r.ResolverFunc(), r.MaxMentions())
+	// Self-mentions cannot wake the replying agent and must not
+	// re-add it (it's already a participant); strip before atomic
+	// add so AppendMessageWithRouting's resolveInfo isn't asked for
+	// the speaker.
+	resolved = filterOut(resolved, target.AgentID)
+
+	draft := space.Message{
+		AuthorID:   persona.ID,
+		AuthorKind: space.ParticipantAgent,
+		Content:    content,
+		Reasoning:  reasoning,
+		Mentions:   resolved,
+	}
+	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
+		if p := a.personas.Get(id); p != nil {
+			return space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
+		}
+		return space.PersonaInfo{ID: id}
+	})
 	if err != nil {
 		return nil
 	}
 	// Recurse: any @-mentions in this reply may wake further agents
 	// inside the same chain. RouteAgentReply enforces budget /
 	// duplicate / self-mention rules.
-	r := a.channelRouter()
-	if r == nil || target.Chain == nil {
+	if target.Chain == nil {
 		return nil
 	}
 	chained, notices, err := r.RouteAgentReply(spaceID, target.Chain.RootMessageID, written.ID, content, target.AgentID)
@@ -207,6 +230,23 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 			Time:       n.At,
 		})
 	}
+}
+
+// filterOut returns ids without the given drop value, preserving
+// order. Used to strip a self-mention from a resolved list before
+// the atomic write so the speaker is not asked for participant info
+// it already supplied.
+func filterOut(ids []string, drop string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id != drop {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // assembleAssistantOutput concatenates assistant role messages
