@@ -88,10 +88,18 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 	}
 	replies := sp.Replies(parentID)
 	allInThread := append([]space.Message{*parent}, replies...)
+	accessoryIndex := computeTaskAccessoryIndex(sp, b.app)
 	parentView := singleMessageToView(sp, *parent, b.app)
+	if tk, ok := accessoryIndex[parent.ID]; ok && tk != nil {
+		parentView.TaskAccessory = projectTaskAccessory(tk, b.app)
+	}
 	replyViews := make([]MessageView, 0, len(replies))
 	for _, r := range replies {
-		replyViews = append(replyViews, singleMessageToView(sp, r, b.app))
+		view := singleMessageToView(sp, r, b.app)
+		if tk, ok := accessoryIndex[r.ID]; ok && tk != nil {
+			view.TaskAccessory = projectTaskAccessory(tk, b.app)
+		}
+		replyViews = append(replyViews, view)
 	}
 	detail := ThreadDetail{
 		SpaceID:      sp.ID,

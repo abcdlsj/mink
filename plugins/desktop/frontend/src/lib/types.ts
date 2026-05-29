@@ -105,6 +105,16 @@ export interface MessageView {
   thread_summary?: string;
   thread_info?: ThreadSummary;
   is_thread_reply?: boolean;
+  task_accessory?: TaskAccessoryInfo;
+}
+
+export interface TaskAccessoryInfo {
+  task_id: string;
+  worker_id: string;
+  worker_display?: string;
+  status: string;
+  short_outcome?: string;
+  terminal: boolean;
 }
 
 export interface ThreadSummary {

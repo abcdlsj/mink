@@ -289,6 +289,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
         {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
+        {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
       </div>
     </div>
   );
@@ -428,6 +429,46 @@ function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary 
       <span>{segments.join(" · ")}</span>
     </button>
   );
+}
+
+function TaskAccessoryRow({ info }: { info: import("@/lib/types").TaskAccessoryInfo }) {
+  const label = taskAccessoryLabel(info);
+  const isRunning = info.status === "running" || info.status === "queued";
+  return (
+    <div
+      className={cn(
+        "mt-1.5 inline-flex items-center gap-1.5 text-[11.5px]",
+        info.terminal ? "text-text-faint" : "text-text-muted",
+      )}
+    >
+      {isRunning && <Dot status="running" />}
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function taskAccessoryLabel(info: import("@/lib/types").TaskAccessoryInfo): string {
+  const who = info.worker_display || info.worker_id || "worker";
+  switch (info.status) {
+    case "queued":
+      return who + " · queued";
+    case "running":
+      return who + " · working...";
+    case "finished":
+      return who + " · finished";
+    case "failed":
+      return info.short_outcome
+        ? who + " · failed: " + info.short_outcome
+        : who + " · failed";
+    case "canceled":
+      return info.short_outcome
+        ? who + " · canceled: " + info.short_outcome
+        : who + " · canceled";
+    case "no_output":
+      return who + " · finished with no output";
+    default:
+      return who + " · " + info.status;
+  }
 }
 
 function ThreadView() {
