@@ -53,16 +53,16 @@ func (m *manager) resolveSpaceAnchor(source string) (string, string, bool) {
 }
 
 func (m *manager) tryDelegateInSpace(ctx context.Context, source, workerID, runtime, input string) (string, bool, error) {
-	if strings.TrimSpace(workerID) == "" {
-		return "", false, nil
-	}
-	worker := m.app.Personas().Get(workerID)
-	if worker == nil {
-		return "", false, nil
-	}
 	spaceID, triggerID, ok := m.resolveSpaceAnchor(source)
 	if !ok || triggerID == "" {
 		return "", false, nil
+	}
+	if strings.TrimSpace(workerID) == "" {
+		return "", true, ErrUnknownWorker
+	}
+	worker := m.app.Personas().Get(workerID)
+	if worker == nil {
+		return "", true, ErrUnknownWorker
 	}
 	id, err := m.delegateAsync(ctx, spaceDelegateInput{
 		ParentSpaceID:    spaceID,

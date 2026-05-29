@@ -2,6 +2,7 @@ package collab
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -114,8 +115,28 @@ func TestDelegateInSpaceRejectsUnknownWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newManager(a)
-	if _, ok, _ := m.tryDelegateInSpace(context.Background(), source, "ghost", "stub", "do it"); ok {
-		t.Fatal("expected unknown worker to fall through to legacy path, not space delegate")
+	id, ok, err := m.tryDelegateInSpace(context.Background(), source, "ghost", "stub", "do it")
+	if !ok {
+		t.Fatal("space-anchored delegate must own the result; ok must be true")
+	}
+	if !errors.Is(err, ErrUnknownWorker) {
+		t.Fatalf("err = %v, want ErrUnknownWorker", err)
+	}
+	if id != "" {
+		t.Fatalf("task id = %q, want empty (no task created)", id)
+	}
+	tasks, err := a.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("task store has %d tasks, want 0 (rejection must not create a task)", len(tasks))
+	}
+	m.mu.Lock()
+	legacyCount := len(m.tasks)
+	m.mu.Unlock()
+	if legacyCount != 0 {
+		t.Fatalf("legacy in-memory map has %d entries, want 0 (no fallback)", legacyCount)
 	}
 }
 
