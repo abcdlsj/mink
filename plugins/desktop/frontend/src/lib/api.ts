@@ -9,7 +9,9 @@ import type {
   RecentItem,
   RunDetail,
   SessionDetail,
+  ThreadDetail,
   ThreadItem,
+  ThreadSummary,
   ToolItem,
   WorkspaceState,
 } from "./types";
@@ -38,6 +40,14 @@ export const api = {
     j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
   recent: () => j<RecentItem[]>(fetch("/api/recent")),
   run: (id: string) => j<RunDetail>(fetch("/api/run?id=" + encodeURIComponent(id))),
+  threadsForSpace: (spaceId: string) =>
+    j<ThreadSummary[]>(fetch("/api/threads-for-space?space=" + encodeURIComponent(spaceId))),
+  threadDetail: (spaceId: string, parentId: string) => {
+    const q = new URLSearchParams();
+    q.set("space", spaceId);
+    q.set("parent", parentId);
+    return j<ThreadDetail>(fetch("/api/thread-detail?" + q));
+  },
   participants: (channelID: string, threadID: string) => {
     const q = new URLSearchParams();
     if (channelID) q.set("channel", channelID);
@@ -48,12 +58,17 @@ export const api = {
   tools: () => j<ToolItem[]>(fetch("/api/tools")),
   commands: () => j<CommandItem[]>(fetch("/api/commands")),
   personas: () => j<PersonaItem[]>(fetch("/api/personas")),
-  send: (sessionID: string, input: string, personaID?: string) =>
+  send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string) =>
     j<{ output: string }>(
       fetch("/api/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionID, input, persona_id: personaID }),
+        body: JSON.stringify({
+          session_id: sessionID,
+          input,
+          persona_id: personaID,
+          parent_message_id: parentMessageID,
+        }),
       }),
     ),
   stop: (sessionID: string) =>

@@ -103,6 +103,31 @@ export interface MessageView {
   events?: EventBlock[];
   thread_id?: string;
   thread_summary?: string;
+  thread_info?: ThreadSummary;
+  is_thread_reply?: boolean;
+}
+
+export interface ThreadSummary {
+  parent_id: string;
+  parent_preview: string;
+  reply_count: number;
+  last_reply_time: string;
+  last_reply_author?: string;
+  has_running_worker?: boolean;
+}
+
+export interface ThreadDetail {
+  space_id: string;
+  parent_id: string;
+  parent?: MessageView;
+  replies: MessageView[];
+  participants?: AgentItem[];
+  recent_runs?: AgentRun[];
+  active_worker_id?: string;
+  last_reply_time?: string;
+  not_found?: boolean;
+  unsupported?: boolean;
+  unsupported_hint?: string;
 }
 
 export interface SessionItem {

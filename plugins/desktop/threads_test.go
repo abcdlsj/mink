@@ -246,3 +246,44 @@ func TestThreadHasRunningWorkerWhenTaskRunning(t *testing.T) {
 		t.Fatalf("ActiveWorkerID = %q, want coder", detail.ActiveWorkerID)
 	}
 }
+
+func TestSpaceMessagesToViewAttachesThreadInfoToRootHidesReplies(t *testing.T) {
+	_, a := newThreadBackend(t)
+	sp := mustChannel(t, a)
+	root, err := a.Spaces().AppendUserMessage(sp.ID, "kick", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID,
+		space.PersonaInfo{ID: "coder", Display: "Coder"},
+		"reply", "", nil, root.ID); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := a.Spaces().LoadSpace(sp.ID)
+	views := spaceMessagesToView(loaded, a)
+	if len(views) != 2 {
+		t.Fatalf("views = %d, want 2 (raw)", len(views))
+	}
+	var rootView, replyView *MessageView
+	for i := range views {
+		v := views[i]
+		if v.ID == root.ID {
+			rootView = &v
+		}
+		if v.IsThreadReply {
+			replyView = &v
+		}
+	}
+	if rootView == nil || replyView == nil {
+		t.Fatalf("root/reply not found: %#v", views)
+	}
+	if rootView.ThreadInfo == nil {
+		t.Fatal("root must carry ThreadInfo when it has replies")
+	}
+	if rootView.ThreadInfo.ReplyCount != 1 {
+		t.Fatalf("ReplyCount = %d, want 1", rootView.ThreadInfo.ReplyCount)
+	}
+	if !replyView.IsThreadReply || replyView.ThreadID != root.ID {
+		t.Fatalf("reply view should be marked is_thread_reply with thread_id=root: %+v", replyView)
+	}
+}

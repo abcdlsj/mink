@@ -283,6 +283,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
         {m.thread_id && m.thread_summary && (
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
+        {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
       </div>
     </div>
   );
@@ -318,10 +319,12 @@ function ReasoningPreface({ text }: { text: string }) {
 }
 
 function renderableMessage(m: import("@/lib/types").MessageView): boolean {
+  if (m.is_thread_reply) return false;
   if (m.content && m.content.trim() !== "") return true;
   if (m.reasoning && m.reasoning.trim() !== "") return true;
   if (m.events && m.events.length > 0) return true;
   if (m.thread_id && m.thread_summary) return true;
+  if (m.thread_info) return true;
   return false;
 }
 
@@ -401,6 +404,23 @@ function ThreadLink({ threadId, summary }: { threadId: string; summary: string }
     >
       <Dot status="running" />
       <span>{summary}</span>
+    </button>
+  );
+}
+
+function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary }) {
+  const openThread = useStore((s) => s.openThread);
+  const replyLabel = info.reply_count === 1 ? "1 reply" : info.reply_count + " replies";
+  const last = info.last_reply_author ? "last by " + info.last_reply_author : "";
+  const when = relTime(info.last_reply_time);
+  const segments = [replyLabel, last, when].filter((s) => s !== "");
+  return (
+    <button
+      onClick={() => void openThread(info.parent_id)}
+      className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-text-faint hover:text-text-muted underline-offset-2 hover:underline"
+    >
+      {info.has_running_worker && <Dot status="running" />}
+      <span>{segments.join(" · ")}</span>
     </button>
   );
 }

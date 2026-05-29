@@ -524,6 +524,11 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 		return nil
 	}
 	resolver := personaResolver(a)
+	var threadInfo map[string]ThreadSummary
+	var taskIndex map[string]*taskpkg.Task
+	if threadKindSupported(sp.Kind) {
+		threadInfo, taskIndex = computeThreadInfo(sp, a)
+	}
 	out := make([]MessageView, 0, len(sp.Messages))
 	for _, m := range sp.Messages {
 		view := MessageView{
@@ -536,9 +541,63 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 			Time:       m.CreatedAt,
 			ThreadID:   m.ParentMessageID,
 		}
+		if m.ParentMessageID != "" {
+			view.IsThreadReply = true
+		}
+		if info, ok := threadInfo[m.ID]; ok {
+			summary := info
+			view.ThreadInfo = &summary
+		}
+		_ = taskIndex
 		out = append(out, view)
 	}
 	return out
+}
+
+func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary, map[string]*taskpkg.Task) {
+	groups := groupRepliesByParent(sp)
+	if len(groups) == 0 {
+		return nil, nil
+	}
+	parentIndex := indexMessages(sp.Messages)
+	taskIndex := map[string]*taskpkg.Task{}
+	if a != nil && a.Tasks() != nil {
+		if tasks, err := a.Tasks().ListBySpace(sp.ID); err == nil {
+			for _, tk := range tasks {
+				if tk.Status == taskpkg.StatusRunning || tk.Status == taskpkg.StatusQueued {
+					taskIndex[tk.TriggerMessageID] = tk
+				}
+			}
+		}
+	}
+	out := make(map[string]ThreadSummary, len(groups))
+	for parentID, replies := range groups {
+		root, ok := parentIndex[parentID]
+		if !ok {
+			continue
+		}
+		last := replies[len(replies)-1]
+		hasRunning := false
+		if _, ok := taskIndex[root.ID]; ok {
+			hasRunning = true
+		} else {
+			for _, r := range replies {
+				if _, ok := taskIndex[r.ID]; ok {
+					hasRunning = true
+					break
+				}
+			}
+		}
+		out[parentID] = ThreadSummary{
+			ParentID:         root.ID,
+			ParentPreview:    previewText(root.Content, threadParentPreviewLen),
+			ReplyCount:       len(replies),
+			LastReplyTime:    last.CreatedAt,
+			LastReplyAuthor:  authorDisplayForMessage(sp, last, a),
+			HasRunningWorker: hasRunning,
+		}
+	}
+	return out, taskIndex
 }
 
 // roleForKind maps a Space participant kind to the UI's role string.
@@ -569,6 +628,7 @@ func personaResolver(a appAccessor) space.DisplayResolver {
 // helpers testable without spinning up a full App.
 type appAccessor interface {
 	Personas() *persona.Registry
+	Tasks() *taskpkg.Manager
 }
 
 // GetThread is the legacy thread-detail endpoint. v1 has no real
