@@ -15,6 +15,7 @@ export function LeftPane() {
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
   const openThread = useStore((s) => s.openThread);
+  const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
 
   return (
@@ -25,7 +26,7 @@ export function LeftPane() {
             if (channels[0]) void openChannel(channels[0].id);
           }}
           onDirect={() => {
-            if (channels[0]) void openChannel(channels[0].id);
+            void newDirectChat();
           }}
           onMessageAgent={(id) => void openAgent(id)}
           agents={agents}
@@ -75,13 +76,10 @@ export function LeftPane() {
         ))}
       </ul>
 
-      <GroupLabel>Direct Chats</GroupLabel>
-      <p className="px-2 pb-1 text-[10.5px] text-text-whisper leading-[1.45]">
-        Recent shortcuts. Threads under a channel message are coming.
-      </p>
+      <GroupLabel>Recent</GroupLabel>
       <ul className="flex flex-col gap-px">
         {threads.length === 0 && (
-          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent direct chats.</li>
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent conversations.</li>
         )}
         {threads.map((t) => {
           const ch = channels.find((c) => c.id === t.channel_id);
@@ -155,7 +153,7 @@ function NewMenu({
       {open && (
         <div className="absolute z-30 mt-1 w-[220px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
           <MenuItem
-            label="New direct chat"
+            label="Start direct chat"
             sub="A standalone conversation."
             onClick={() => {
               setOpen(false);
@@ -164,7 +162,7 @@ function NewMenu({
           />
           <MenuItem
             label="Open channel"
-            sub="Group room with all agents."
+            sub="Jump to the workspace channel."
             onClick={() => {
               setOpen(false);
               onChannel();

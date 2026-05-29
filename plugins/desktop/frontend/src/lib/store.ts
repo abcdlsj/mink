@@ -64,6 +64,7 @@ interface State {
   openChannel: (id: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
   openAgent: (id: string) => Promise<void>;
+  newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
   stop: () => Promise<void>;
@@ -174,6 +175,32 @@ export const useStore = create<State>((set, get) => ({
       participants: null,
       streaming: null,
     });
+  },
+
+  async newDirectChat() {
+    let detail: SessionDetail;
+    try {
+      detail = await api.newDirect();
+    } catch {
+      return;
+    }
+    if (!detail.item?.id) return;
+    const channelID = get().channels[0]?.id || null;
+    set({
+      view: "thread",
+      activeThread: detail.item.id,
+      activeChannel: channelID,
+      activeAgent: null,
+      detail,
+      participants: null,
+      streaming: null,
+    });
+    try {
+      const threads = await api.threads();
+      set({ threads });
+    } catch {
+      // ignore refresh failure
+    }
   },
 
   setPalette(open) {

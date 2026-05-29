@@ -126,6 +126,24 @@ func (b *Backend) StopTurn(sessionID string) error {
 	return nil
 }
 
+func (b *Backend) NewDirectChat() (SessionDetail, error) {
+	if b.app == nil {
+		return SessionDetail{}, nil
+	}
+	s, err := b.app.NewSession(desktopSource)
+	if err != nil {
+		return SessionDetail{}, err
+	}
+	return SessionDetail{
+		Item: SessionItem{
+			ID:        s.ID,
+			Title:     fallback(s.Title, "New direct chat"),
+			UpdatedAt: s.UpdatedAt,
+		},
+		Messages: []MessageView{},
+	}, nil
+}
+
 func (b *Backend) ListChannels() []ChannelItem {
 	if b.app == nil {
 		return mockChannels()
@@ -843,6 +861,18 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	})
 	mux.HandleFunc("/api/agent-dm", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetAgentDM(req.URL.Query().Get("agent")))
+	})
+	mux.HandleFunc("/api/new-direct", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		out, err := b.NewDirectChat()
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(rw, out)
 	})
 	mux.HandleFunc("/api/events", b.handleEvents)
 	mux.HandleFunc("/api/send", func(rw http.ResponseWriter, req *http.Request) {
