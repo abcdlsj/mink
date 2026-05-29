@@ -13,12 +13,53 @@ import (
 const shellEventBatch = 128
 
 func Run(ctx context.Context, a *app.App, args []string) error {
-	a.DraftSession("cli")
-	ui, err := newShell(ctx, a, "cli")
+	source := resolveCLISource(a, args)
+	a.DraftSession(source)
+	ui, err := newShell(ctx, a, source)
 	if err != nil {
 		return err
 	}
 	return ui.run()
+}
+
+func resolveCLISource(a *app.App, args []string) string {
+	if id := flagPersona(args); id != "" {
+		return "cli:agent:" + id
+	}
+	if id := defaultPersonaID(a); id != "" {
+		return "cli:agent:" + id
+	}
+	return "cli"
+}
+
+func flagPersona(args []string) string {
+	for i := 0; i < len(args); i++ {
+		v := strings.TrimSpace(args[i])
+		switch {
+		case v == "--persona" || v == "-persona" || v == "-p":
+			if i+1 < len(args) {
+				return strings.TrimSpace(args[i+1])
+			}
+		case strings.HasPrefix(v, "--persona="):
+			return strings.TrimSpace(strings.TrimPrefix(v, "--persona="))
+		case strings.HasPrefix(v, "-persona="):
+			return strings.TrimSpace(strings.TrimPrefix(v, "-persona="))
+		case strings.HasPrefix(v, "-p="):
+			return strings.TrimSpace(strings.TrimPrefix(v, "-p="))
+		}
+	}
+	return ""
+}
+
+func defaultPersonaID(a *app.App) string {
+	if a == nil || a.Personas() == nil {
+		return ""
+	}
+	list := a.Personas().List()
+	if len(list) == 0 {
+		return ""
+	}
+	return list[0].ID
 }
 
 type shell struct {

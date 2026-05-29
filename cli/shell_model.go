@@ -197,7 +197,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 		ctx:       ctx,
 		app:       a,
 		source:    source,
-		base:      source,
+		base:      "cli",
 		channel:   "main",
 		viewport:  vp,
 		input:     in,
