@@ -176,6 +176,12 @@ func (b *Backend) NewDirectChat() (SessionDetail, error) {
 // ListDirectChats returns every persisted KindDirectChat Space.
 // The frontend renders this as the left rail's "Direct Chats"
 // group.
+//
+// Per Iris's polish ruling: at most one empty (zero-message) chat
+// is kept in the result so the rail can act as a draft/start row
+// without piling up. Older empties are dropped silently (the user
+// can always create a new one). Non-empty direct chats are always
+// included.
 func (b *Backend) ListDirectChats() []DirectChatItem {
 	if b.app == nil {
 		return nil
@@ -184,19 +190,38 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 	if err != nil {
 		return nil
 	}
-	out := make([]DirectChatItem, 0)
+	type entry struct {
+		sp    *space.Space
+		empty bool
+	}
+	all := make([]entry, 0)
 	for _, sp := range spaces {
 		if sp.Kind != space.KindDirectChat {
 			continue
 		}
+		all = append(all, entry{sp: sp, empty: len(sp.Messages) == 0})
+	}
+	// Sort newest-first so the kept empty (if any) is the most
+	// recently created one — matches the user's intent after they
+	// just clicked New.
+	sort.Slice(all, func(i, j int) bool { return all[i].sp.UpdatedAt.After(all[j].sp.UpdatedAt) })
+
+	out := make([]DirectChatItem, 0, len(all))
+	keptEmpty := false
+	for _, e := range all {
+		if e.empty {
+			if keptEmpty {
+				continue
+			}
+			keptEmpty = true
+		}
 		out = append(out, DirectChatItem{
-			ID:        sp.ID,
-			Title:     directChatTitle(sp),
-			Agents:    spaceAgentIDs(sp),
-			UpdatedAt: sp.UpdatedAt,
+			ID:        e.sp.ID,
+			Title:     directChatTitle(e.sp),
+			Agents:    spaceAgentIDs(e.sp),
+			UpdatedAt: e.sp.UpdatedAt,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out
 }
 

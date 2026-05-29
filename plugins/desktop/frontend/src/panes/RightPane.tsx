@@ -83,11 +83,15 @@ export function RightPane() {
             <div className="text-[13px] text-text">{ch.topic}</div>
           </Section>
         )}
-        {participantsList.length > 0 && (
-          <Section label="Participants">
+        <Section label="Participants">
+          {participantsList.length > 0 ? (
             <ParticipantsRow agents={participantsList} />
-          </Section>
-        )}
+          ) : (
+            <div className="text-[12px] text-text-faint leading-[1.4]">
+              No collaborators yet. Mention an agent to invite them.
+            </div>
+          )}
+        </Section>
         {runtimeRuns.length > 0 && (
           <Section label="Active Runs">
             {runtimeRuns.map((r) => (
@@ -129,11 +133,15 @@ export function RightPane() {
             ))}
           </Section>
         )}
-        {participantsList.length > 0 && (
-          <Section label="Participants">
+        <Section label="Participants">
+          {participantsList.length > 0 ? (
             <ParticipantsRow agents={participantsList} />
-          </Section>
-        )}
+          ) : (
+            <div className="text-[12px] text-text-faint leading-[1.4]">
+              No collaborators yet. Mention an agent to invite them.
+            </div>
+          )}
+        </Section>
         {recent.length > 0 && (
           <Section label="Background Tasks">
             {recent.slice(0, 4).map((r) => (
