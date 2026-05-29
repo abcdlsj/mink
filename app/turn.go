@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"strings"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 )
 
 type turnFlow struct {
@@ -21,6 +23,10 @@ type turnFlow struct {
 
 func (f turnFlow) run(ctx context.Context) error {
 	f.publish(bus.TurnStarted, "")
+	baseline := 0
+	if f.session != nil {
+		baseline = len(f.session.Messages)
+	}
 	runErr := f.runtime.Run(ctx, &agent.Turn{
 		Source:      f.source,
 		Input:       f.input,
@@ -29,11 +35,9 @@ func (f turnFlow) run(ctx context.Context) error {
 		Bus:         f.app.bus,
 	})
 	saveErr := f.app.sessions.Save(f.session)
+	var spaceWriteErr error
 	if saveErr == nil {
-		// P1 dual-write: mirror the working agent's last reply into
-		// the Space store. Skipped silently if personaID is empty
-		// (Iris's hard rule — no surrogate authorship).
-		f.app.dualWriteAssistantsFromSession(f.source, f.personaID, f.session)
+		spaceWriteErr = f.app.persistAssistantTurn(f.source, f.personaID, f.session, baseline)
 	}
 	if runErr != nil {
 		err := turnErr(runErr, saveErr)
@@ -46,8 +50,30 @@ func (f turnFlow) run(ctx context.Context) error {
 	if saveErr != nil {
 		return saveErr
 	}
+	if spaceWriteErr != nil {
+		f.publish(bus.TurnError, spaceWriteErr.Error())
+		f.publish(bus.SessionUpdated, "")
+		return spaceWriteErr
+	}
 	f.publish(bus.SessionUpdated, "")
 	f.publish(bus.TurnFinished, "")
+	return nil
+}
+
+func (a *App) persistAssistantTurn(source, personaID string, s *session.Session, baseline int) error {
+	if s == nil {
+		return nil
+	}
+	added := s.Messages[baseline:]
+	if space.MapSource(source).Kind == space.KindAgentDM {
+		content, reasoning := assembleAssistantOutput(added)
+		if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
+			return nil
+		}
+		_, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
+		return err
+	}
+	a.dualWriteAssistantsFromSession(source, personaID, s)
 	return nil
 }
 

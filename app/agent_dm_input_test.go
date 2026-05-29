@@ -88,3 +88,60 @@ func TestAgentDMHandleInputCLISeedDrivesRuntimePersona(t *testing.T) {
 		t.Fatalf("persona id = %q, want tshoot", seenPersona.ID)
 	}
 }
+
+func TestAgentDMAssistantMultiMessageAssemblesIntoSingleSpaceMessage(t *testing.T) {
+	a, _ := newRoutingTestApp(t)
+	seedPersona(t, a, "tshoot", "Tshoot")
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "first part."})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "second part."})
+			return nil
+		}), nil
+	})
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	target := space.MapSource("desktop:agent:tshoot")
+	sp, err := a.Spaces().EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed, Display: "Tshoot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentMessages := 0
+	var combined string
+	for _, m := range sp.Messages {
+		if m.AuthorKind == space.ParticipantAgent {
+			agentMessages++
+			combined = m.Content
+		}
+	}
+	if agentMessages != 1 {
+		t.Fatalf("agent message count = %d, want 1 (multi-message turn must assemble)", agentMessages)
+	}
+	if combined != "first part.\nsecond part." {
+		t.Fatalf("combined content = %q, want assembled join", combined)
+	}
+}
+
+func TestAgentDMAssistantToolOnlyTurnDoesNotWriteSpaceMessage(t *testing.T) {
+	a, _ := newRoutingTestApp(t)
+	seedPersona(t, a, "tshoot", "Tshoot")
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			return nil
+		}), nil
+	})
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
+		t.Fatal(err)
+	}
+	target := space.MapSource("desktop:agent:tshoot")
+	sp, err := a.Spaces().EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed, Display: "Tshoot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range sp.Messages {
+		if m.AuthorKind == space.ParticipantAgent {
+			t.Fatalf("tool-only / empty turn must not write agent message, got %+v", m)
+		}
+	}
+}
