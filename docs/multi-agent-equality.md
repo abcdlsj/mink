@@ -93,17 +93,28 @@ behavior is not in this table, it is out of scope.
 | User posts in channel | channel timeline | all channel participants | active facilitator (if any); no agent unless mentioned | normal message row, author=user |
 | User posts in thread under msg M | channel timeline as reply with parent_message_id=M | all channel participants | participants of that thread | reply row inside the thread view |
 | User posts in agent DM | agent_dm timeline | user + that agent only | that agent | normal message row, author=user |
-| User mentions `@Agent` in channel | channel timeline (one message) | all channel participants | the mentioned agent | inline chip on the message text + routing event |
-| Agent replies after being mentioned | same channel timeline | same as channel | none by default | normal message row, author=agent |
-| Agent A mentions Agent B in channel | channel timeline | same as channel | Agent B | inline chip, agent B woken — see routing rules for max-turn |
+| User mentions `@Agent` in channel | channel timeline (one message); routing layer also adds Agent to participants if not already a member | all channel participants | the mentioned agent | inline chip on the message text + routing event; rail's participants list updates on the same tick |
+| Agent replies after being mentioned | same channel timeline, **author_id = the replying agent** (never the originating agent or system) | same as channel | none by default | normal message row, author=agent |
+| Agent A mentions Agent B in channel | channel timeline; routing adds B to participants if missing | same as channel | Agent B | inline chip, agent B woken — see routing rules for max-turn |
 | Agent delegates a task | task object + ack message in originating space | space participants see the task marker | nobody (task runs offline) | inline `delegated to @Agent · status` marker; no sub-conversation |
 | Task emits progress | task state only | space participants see the marker update | nobody | the same marker mutates pending → running → done/error |
-| Task finished / failed | result message in originating space (replying to the marker, threaded under the action message) | space participants | nobody | result block under the marker; full output behind view-result |
+| Task finished / failed | result Message in originating space, threaded under the action message; **author_id = the agent who did the task work** (e.g. Coder), not the agent who issued the delegate, not "system" | space participants | nobody | result block under the marker, attributed to the real working agent; full output behind view-result |
 | Subtask tool calls (read/bash/...) | task private timeline | not in space, accessible via task details | nobody | hidden from main flow; surfaced only inside task details first-level expand |
 | Cross-space delegate result | originating space, never the target agent's DM | originating space participants | nobody | same as above; no leak into agent_dm |
 
 Read carefully:
 
+- **Author of work is author of result.** When `@Coder` runs a
+  delegated task, the result message is authored by Coder. The
+  agent who issued the delegate does not "summarize on Coder's
+  behalf"; the user reads Coder's words attributed to Coder. This
+  is the single most important rule against backsliding into
+  orchestrated-single-agent.
+- **`@` adds membership atomically.** When a message contains
+  `@Agent` and that agent is not yet a participant of the space,
+  the routing layer must insert it into the participant set in the
+  same tick that wakes it. The right-pane participants rail therefore
+  never has to guess; if Agent replied, Agent is a member.
 - Agent replies do not wake other agents. Agent-to-agent loops only
   happen when one explicitly `@`s another and that agent's routing
   policy permits a turn (see §5).
@@ -127,8 +138,27 @@ Read carefully:
   3. the user issues a direct system call (e.g. composer-locked DM,
      or an explicit `/spawn` command).
 - There is no "agent is silently watching" state in v1.
+- A channel message with **no** `@` and no facilitator routes to
+  nobody. The desktop composer surfaces a hint when this happens
+  ("Mention an agent to route this message, or move it to a Direct
+  Chat / Agent DM"). Plain channel chatter is not a routing path
+  in v1.
 
-### 5.2 Turn budget
+### 5.2 `@` is participant-adding
+
+When the routing layer parses a message and finds `@Agent`:
+
+1. If `Agent` is already a Participant of the space, just wake it.
+2. If not, atomically insert it into the space's `participants`
+   set (kind=agent, status=available → responding when the wake
+   fires) **before** dispatching the wake-up event.
+
+This is the only path that adds an agent to a Space's participants
+in v1. The right-pane participants rail can therefore render directly
+from `space.participants` without scanning event history. Available
+personas not yet `@`-ed do not appear in the rail.
+
+### 5.3 Turn budget
 
 Every user-initiated channel turn carries a soft budget of agent
 replies it may produce (proposed default: 3). Each agent reply that
@@ -138,27 +168,29 @@ budget refills only on the next user message (or facilitator action).
 
 This guarantees: agents cannot infinitely answer each other.
 
-### 5.3 Same-agent turn limit
+### 5.4 Same-agent turn limit
 
 A single agent answers a `@`-routed wake-up once per turn. If a
 second `@` to the same agent arrives before the user speaks again,
 it is queued (or dropped, configurable) — never starts a parallel
 duplicate run.
 
-### 5.4 Mention is routing first, tool second
+### 5.5 Mention is routing first, tool second
 
 `@Agent` in a message is parsed by the routing layer as a wake-up
 edge. The collab `mention` tool is kept for backwards compatibility
 but is no longer the preferred pathway; new docs and persona prompts
 should `@` instead.
 
-### 5.5 Delegate stays a tool
+### 5.6 Delegate stays a tool
 
 `delegate` remains a tool for explicit "go do this in the background
 and come back when done". Any agent can call it. It does not
 participate in routing — its result lands as a normal message in
 the originating space (see matrix). Default UI surfaces it as
-`delegated to @Agent · status`.
+`delegated to @Agent · status`. **The result message is authored by
+the agent that did the work**, not by the agent that issued the
+delegate call.
 
 ---
 
@@ -166,9 +198,18 @@ the originating space (see matrix). Default UI surfaces it as
 
 - A channel's timeline is shared among all its participants. Every
   participant agent's runtime gets the same context window.
-- A thread under a channel message inherits the channel's
-  participants by default; explicit add/remove is allowed but not
-  required for v1.
+- A thread under a channel message has **two layers of membership**,
+  per Iris:
+  - **Visibility**: any channel participant can read the thread.
+    Threads do not hide messages from channel members.
+  - **Active participants** (rendered in the right rail when the
+    thread is open): the parent message author + every agent the
+    thread has explicitly `@`-mentioned + every agent that has
+    actually replied in the thread. Channel members who never
+    appeared in the thread do not show up as thread participants.
+  This split keeps Slack-style mental model (channel sees, thread
+  is the focused conversation) without dumping the full channel
+  roster into a small thread's rail.
 - An agent DM's timeline is private to the user and that one agent.
   No other agent reads or writes there.
 - A task's private timeline is visible only to its owner agent's
@@ -229,60 +270,80 @@ Task / Run
 Key invariants:
 
 - Every visible message has a real `author_id` and `author_kind`.
+  No system-block authoring of agent work.
 - A thread is the set of messages with the same `parent_message_id`.
+  Threads have visibility = channel participants and an active
+  rail = parent author + mentioned + replied agents (§6).
 - A Task is referenced by exactly one originating Message; its
   result is also a Message (a reply, with `parent_message_id =
-  origin_message_id`).
+  origin_message_id`) authored by the agent identified by
+  `Task.agent_id` — the agent that actually did the work.
 - An agent's DM with the user is a Space of kind `agent_dm` whose
-  participants are exactly `[user, that-agent]`. No tasks may
-  cross into it from elsewhere.
+  participants are exactly `[user, that-agent]`. Tasks may be
+  initiated inside the DM but their result writes back into the
+  same DM. No tasks may cross into a different Space.
+- A `@Agent` reference in a Message atomically adds Agent to the
+  Space's `participants` set before the wake-up event fires. The
+  participants list is therefore the source of truth for who is
+  in the room; never inferred from past events.
 
 ---
 
 ## 8. Compatibility strategy
 
-The current sumi model has a single `session` keyed by a `source`
-string. The migration strategy must not break CLI / TUI / Telegram.
+This is an MVP. Per lsoooj, breaking changes are acceptable; we
+do not carry old `source` addressing or persisted-data replay
+forward. The goal is a clean Space/Message store, not a
+multi-version translator.
 
-### 8.1 Mapping existing sessions to spaces
+### 8.1 Migration posture
 
-| Current `source` | Target Space |
+- No long-term `source`-string compatibility shim.
+- No multi-release adapter for old persisted sessions.
+- A one-shot best-effort import on first boot is allowed (e.g. map
+  existing `desktop` and `desktop:agent:*` sessions into Spaces
+  for continuity), but a failure or incomplete import is not a
+  blocker. Users may also start fresh.
+- The bus event vocabulary is allowed to break; downstream
+  adapters update at the same time as core.
+
+### 8.2 Source → Space mapping (one-shot import only)
+
+When the migration runs, this is the intended mapping for any
+sessions still on disk. Sessions that don't fit are dropped, not
+preserved with workarounds.
+
+| Old `source` | New Space |
 |---|---|
-| `desktop` | desktop's default channel (one channel for the workspace) |
+| `desktop` | desktop's default channel |
 | `desktop:agent:<id>` (incl. `:persona:<id>` suffix) | agent_dm with that agent |
 | `cli` | direct_chat for CLI |
-| `tg:<chat>` | direct_chat per Telegram chat (or channel if multi-user) |
-| `subtask:<task_id>` | the Task's private timeline (not a Space) |
+| `tg:<chat>` | direct_chat or channel per Telegram chat |
+| `subtask:<task_id>` | folded into the corresponding Task's private timeline |
 
-A migration function reads the existing session by source and writes
-its messages into the new model with derived `author_id` (using the
-`personaFromSource` rule we already use in desktop replay).
-
-### 8.2 CLI / TUI
+### 8.3 CLI / TUI
 
 CLI and TUI keep the simple "one linear conversation" view. The
-underlying space is still a Space — the terminal renderer just
-flattens the timeline into a single chronological list, and treats
-threads as "indented replies" (or hides thread structure entirely
-for v1). `@Agent` still works; the agent's reply lands as the next
-line.
+underlying space is a Space — the terminal renderer just flattens
+the timeline into a single chronological list, and treats threads
+as indented replies (or hides thread structure entirely for v1).
+`@Agent` still works; the agent's reply lands as the next line.
 
-CLI does not need to expose the New menu, channel list, or
-participant rail. It just uses one default Space per source.
+CLI and TUI do not need to expose the New menu, channel list, or
+participant rail. They use one default Space per session.
 
-### 8.3 Telegram
+### 8.4 Telegram
 
-Telegram is naturally chat-bound. Each Telegram chat maps to one
-Space. Group chats become channels (multi-participant). `@Agent`
-syntax works the same way. Tasks still run; their results land as
-normal Telegram replies in the chat.
+Each Telegram chat maps to one Space. Group chats become channels;
+1:1 chats become direct chats. `@Agent` syntax works the same way.
+Tasks still run; their results land as normal Telegram replies in
+the chat.
 
-### 8.4 Replay
+### 8.5 Old data replay
 
-Old sessions on disk continue to render. Desktop already has the
-`attachDelegateOutcomes` / `subtaskSteps` correlator; in the new
-model the same data is stored as Messages + Tasks, so the replay
-layer collapses into "load Space messages" with no special-casing.
+Not a goal. The new desktop UI does not promise to render
+pre-migration sessions correctly. If they look broken, users can
+clear their `~/.sumi/sessions/` and start over.
 
 ---
 
@@ -305,6 +366,17 @@ These are out of scope. Do not "just add" them in a feature commit.
 6. **Renaming current concepts to feel new.** No more "Direct Chats"
    labels over Recent Threads data. Either it's the new model or
    it's labeled honestly.
+7. **System / orchestrator authoring task results.** A delegate
+   result is authored by the agent that did the work, never by
+   the calling agent ("Tshoot summarises Coder") and never by a
+   `system` block.
+8. **Implicit participants.** A space's participants are exactly
+   the membership set; no agent is treated as a participant just
+   because it appears in some past tool event. The right rail
+   reads from membership, not history.
+9. **Plain channel chatter as routing.** A message with no `@`
+   and no facilitator does not implicitly invoke any agent. The
+   composer must hint the user toward `@` or a Direct Chat / DM.
 
 ---
 
@@ -317,18 +389,22 @@ approved.
 | Phase | Scope | Touches |
 |---|---|---|
 | P1 | Space model + Participant table + Message.parent_message_id | sumi core: `session/` → `space/`, store schema |
-| P2 | Routing layer: `@` triggers wake; turn budget enforcement | sumi core: `app/HandleInput`, bus |
-| P3 | Migrate desktop to spaces; New menu maps to space creation; thread UI uses parent_message_id | desktop plugin |
-| P4 | CLI / TUI / Telegram adapters use single-Space-per-source compatibility shim | each adapter plugin |
-| P5 | Task/Run lifecycle moves out of session.Messages into Task store | sumi core: collab, app, store |
-| P6 | Old data migration on first boot | sumi core: store migration |
+| P2 | Routing layer: `@` triggers wake; `@` adds to participants atomically; turn budget enforcement | sumi core: `app/HandleInput`, bus |
+| P3 | Migrate desktop to Spaces; New menu maps to space creation; thread UI uses parent_message_id; participants rail reads `space.participants` directly | desktop plugin |
+| P4 | CLI / TUI / Telegram adapters render single-Space-per-source linear view on the new model | each adapter plugin |
+| P5 | Task/Run lifecycle moves out of session.Messages into Task store; result message authored by working agent | sumi core: collab, app, store |
 
-P1–P3 unlock the user-visible promise. P4 keeps every other
-adapter working. P5 cleans up the temporary task-as-tool-call shape.
-P6 makes existing users not lose history.
+P1–P3 unlock the user-visible promise. P4 keeps every adapter
+working on the new model. P5 cleans up the temporary
+task-as-tool-call shape and locks the result-author rule.
+
+No data migration phase: per lsoooj, this is an MVP and a clean
+Space/Message store is more important than preserving the existing
+session corpus. A best-effort one-shot import may be added during
+P1 implementation, but is not a separate phase or release blocker.
 
 Estimated ordering: P1 → P2 → P3 → P4 in lockstep with the rest;
-P5 and P6 can fold in once P1 lands.
+P5 folds in once P1 lands.
 
 ---
 
@@ -354,23 +430,49 @@ A v1 of multi-agent equality is acceptable when:
 
 ---
 
-## 12. Open questions for sign-off
+## 12. Sign-off slate (Iris's recommended answers)
 
-1. **Facilitator agent role**: should we ship one in v1 (e.g. a
-   `host` persona that routes new user messages to the right
-   specialist) or leave routing fully `@`-driven?
-2. **Default channel composition**: when sumi spins up a new
-   workspace, do we auto-add every configured persona to the
-   default channel, or do we require the user to add them via
-   `@` first?
-3. **Thread participants**: do threads inherit the channel's
-   participants, or start with just the parent message's
-   `[user, mentioned-agents]` and expand on `@`?
-4. **Tasks across DMs**: should a task started in an agent DM be
-   allowed at all, or is it channel-only? (My read: allow, but
-   the result still lands only in that DM.)
-5. **Backwards compat window**: do we need to keep the old `source`
-   string addressing on the bus for one release so external
-   integrations can migrate?
+These are the five product calls. Iris recommended the answers
+below on lsoooj's behalf; we proceed with these unless lsoooj
+explicitly overrides.
 
-These do not block the proposal; they need lsoooj's product call.
+1. **Facilitator agent in v1?** No. v1 is `@`-driven only.
+   Facilitator is a future opt-in channel setting; defaulting it on
+   would re-introduce the "main agent orchestrator" we are trying
+   to leave behind.
+
+2. **Default channel composition.** Do not auto-add every persona
+   as a participant. The channel may show available personas in a
+   roster (so the user knows who they can `@`), but real
+   participants are produced only by user manual add, user `@`, or
+   explicit invite. The participants rail therefore reflects who
+   has actually shown up.
+
+3. **Thread participants.** Visibility inherits the channel
+   (every channel member can read the thread). Active participants
+   in the right rail = parent message author + every agent
+   `@`-mentioned in the thread + every agent that has replied in
+   the thread. Channel members who haven't appeared in the thread
+   do not render as thread participants.
+
+4. **Tasks in agent DMs.** Allowed. The user may delegate a task
+   to the same agent they are DMing. The result writes back to
+   the same DM. It must never leak to a channel or another DM.
+
+5. **Backwards compatibility.** None required. Per lsoooj, this is
+   a personal MVP; breaking changes to the underlying model are
+   acceptable, and old persisted sessions / `source` addressing
+   are not preserved. A one-shot best-effort import on first boot
+   is allowed, but failing or skipping it does not block the
+   release. The contract we hold is "new model semantics correct",
+   not "old data still readable".
+
+Two hard requirements (Iris) that cannot be relaxed by future
+"polish" commits:
+
+- **Task result author is the working agent.** A Coder-run delegate
+  produces a Coder-authored result message. No system blocks, no
+  surrogate authorship.
+- **`@` atomically adds to membership.** Routing a `@Agent` event
+  inserts the agent into `space.participants` in the same tick that
+  wakes it. Rails read membership, not history.
