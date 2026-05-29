@@ -115,15 +115,19 @@ type SendRequest struct {
 }
 
 type BusEvent struct {
-	Type       string    `json:"type"`
-	Source     string    `json:"source,omitempty"`
-	SessionID  string    `json:"session_id,omitempty"`
-	TaskID     string    `json:"task_id,omitempty"`
-	ToolCallID string    `json:"tool_call_id,omitempty"`
-	Tool       string    `json:"tool,omitempty"`
-	Input      string    `json:"input,omitempty"`
-	Output     string    `json:"output,omitempty"`
-	Text       string    `json:"text,omitempty"`
-	Err        string    `json:"err,omitempty"`
-	Time       time.Time `json:"time"`
+	Type            string    `json:"type"`
+	Source          string    `json:"source,omitempty"`
+	SessionID       string    `json:"session_id,omitempty"`
+	TaskID          string    `json:"task_id,omitempty"`
+	ToolCallID      string    `json:"tool_call_id,omitempty"`
+	Tool            string    `json:"tool,omitempty"`
+	Input           string    `json:"input,omitempty"`
+	Output          string    `json:"output,omitempty"`
+	Text            string    `json:"text,omitempty"`
+	Err             string    `json:"err,omitempty"`
+	Time            time.Time `json:"time"`
+	SpaceID         string    `json:"space_id,omitempty"`
+	ParentMessageID string    `json:"parent_message_id,omitempty"`
+	AgentID         string    `json:"agent_id,omitempty"`
+	StreamID        string    `json:"stream_id,omitempty"`
 }

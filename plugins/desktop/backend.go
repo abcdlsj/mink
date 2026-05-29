@@ -1311,17 +1311,21 @@ func (b *Backend) start(ctx context.Context) {
 
 func toBusEvent(ev bus.Event) BusEvent {
 	out := BusEvent{
-		Type:       ev.Type,
-		Source:     ev.Source,
-		SessionID:  ev.SessionID,
-		TaskID:     ev.TaskID,
-		ToolCallID: ev.ToolCallID,
-		Tool:       ev.Tool,
-		Input:      ev.Input,
-		Output:     ev.Output,
-		Text:       ev.Text,
-		Err:        ev.Err,
-		Time:       ev.Time,
+		Type:            ev.Type,
+		Source:          ev.Source,
+		SessionID:       ev.SessionID,
+		TaskID:          ev.TaskID,
+		ToolCallID:      ev.ToolCallID,
+		Tool:            ev.Tool,
+		Input:           ev.Input,
+		Output:          ev.Output,
+		Text:            ev.Text,
+		Err:             ev.Err,
+		Time:            ev.Time,
+		SpaceID:         ev.SpaceID,
+		ParentMessageID: ev.ParentMessageID,
+		AgentID:         ev.AgentID,
+		StreamID:        ev.StreamID,
 	}
 	switch ev.Type {
 	case bus.DelegateQueued:
