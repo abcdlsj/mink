@@ -513,39 +513,43 @@ export const useStore = create<State>((set, get) => ({
       }
       case "tool.call.started": {
         if (!cur.streaming) return;
+        if (ev.stream_id !== cur.streaming.streamID) return;
         const id = ev.tool_call_id || "tc-" + newID();
         const block: EventBlock = {
           kind: "tool_call",
           tool_name: ev.tool,
-          args: ev.input,
           status: "running",
           time: ev.time,
         };
         cur.streaming.toolCalls.set(id, block);
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+            ...m,
+            events: Array.from(cur.streaming!.toolCalls.values()),
+          })),
         });
         return;
       }
       case "tool.call.finished":
       case "tool.call.failed": {
         if (!cur.streaming) return;
+        if (ev.stream_id !== cur.streaming.streamID) return;
         const id = ev.tool_call_id || "";
         const prev = cur.streaming.toolCalls.get(id);
         const failed = ev.type === "tool.call.failed";
         const block: EventBlock = {
           kind: "tool_call",
           tool_name: prev?.tool_name || ev.tool,
-          args: prev?.args || ev.input,
-          output: ev.output,
-          err: ev.err,
           status: failed ? "error" : "done",
           duration_ms: 0,
           time: ev.time,
         };
         cur.streaming.toolCalls.set(id, block);
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+            ...m,
+            events: Array.from(cur.streaming!.toolCalls.values()),
+          })),
         });
         return;
       }

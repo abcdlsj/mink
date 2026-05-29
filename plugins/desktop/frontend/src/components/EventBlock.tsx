@@ -32,7 +32,6 @@ function ServiceLine({ ev }: EventBlockProps) {
 }
 
 function ToolLine({ ev }: EventBlockProps) {
-  const [open, setOpen] = useState(false);
   const [, setTick] = useState(0);
   const startRef = useRef<number | null>(null);
   const status = ev.status || "idle";
@@ -50,12 +49,10 @@ function ToolLine({ ev }: EventBlockProps) {
     ? Date.now() - startRef.current
     : ev.duration_ms;
 
-  const hasDetails = !!(ev.args || ev.output || ev.err);
-
   const headLabel = (() => {
-    if (status === "error") return "Tool failed";
+    if (status === "error") return "Failed";
     if (status === "running") return "Running";
-    return "Used";
+    return "Ran";
   })();
 
   return (
@@ -65,33 +62,15 @@ function ToolLine({ ev }: EventBlockProps) {
         {ev.tool_name && (
           <span className="font-mono text-text">{ev.tool_name}</span>
         )}
-        {ev.err && status === "error" && (
-          <span className="text-error">— {ev.err}</span>
-        )}
         {elapsedMs ? (
           <span className="text-text-faint tabular-nums">
             · {fmtMs(elapsedMs, status)}
           </span>
         ) : null}
-        {hasDetails && (
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="text-[11.5px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
-          >
-            {open ? "hide details" : "view details"}
-          </button>
-        )}
         {status === "running" && (
           <span className="size-1.5 rounded-full bg-running dot-pulse" />
         )}
       </div>
-      {open && hasDetails && (
-        <div className="mt-1 pl-3 border-l border-border-soft text-text font-mono text-[12px] whitespace-pre-wrap break-words">
-          {ev.args && <div className="text-text-muted">{ev.args}</div>}
-          {ev.output && <div className="mt-0.5">{ev.output}</div>}
-          {ev.err && status !== "error" && <div className="mt-0.5 text-error">{ev.err}</div>}
-        </div>
-      )}
     </div>
   );
 }
