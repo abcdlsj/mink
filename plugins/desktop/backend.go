@@ -872,39 +872,37 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if b.app == nil {
 		return SessionDetail{}
 	}
-	prefix := "desktop:agent:" + agentID
-	all, err := b.app.ListSessions()
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return SessionDetail{}
+	}
+	// P3.2: Agent DM reads from the KindAgentDM Space directly
+	// instead of walking session.Source prefixes. Each agent has a
+	// singleton DM Space keyed by its persona id; EnsureSpace creates
+	// it (with the strict user+agent participant seed) on first
+	// access and is idempotent thereafter.
+	display := agentID
+	role := ""
+	if p := b.app.Personas().Get(agentID); p != nil {
+		display = p.Display
+		role = p.Description
+	}
+	sp, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, agentID, space.PersonaInfo{
+		ID:      agentID,
+		Display: display,
+		Role:    role,
+	})
 	if err != nil {
 		return SessionDetail{}
 	}
-	var latest *session.Session
-	for _, s := range all {
-		if !strings.HasPrefix(s.Source, prefix) {
-			continue
-		}
-		if latest == nil || s.UpdatedAt.After(latest.UpdatedAt) {
-			latest = s
-		}
-	}
-	if latest == nil {
-		return SessionDetail{
-			Item: SessionItem{
-				ID:        prefix,
-				Title:     "@" + agentID,
-				UpdatedAt: time.Now(),
-			},
-			Messages: []MessageView{},
-		}
-	}
-	messages := b.attachDelegateOutcomes(convertMessages(latest))
 	return SessionDetail{
 		Item: SessionItem{
-			ID:           prefix,
-			Title:        "@" + agentID,
-			UpdatedAt:    latest.UpdatedAt,
-			MessageCount: len(latest.Messages),
+			ID:           sp.ID,
+			Title:        "@" + display,
+			UpdatedAt:    sp.UpdatedAt,
+			MessageCount: len(sp.Messages),
 		},
-		Messages: messages,
+		Messages: spaceMessagesToView(sp, b.app),
 	}
 }
 
