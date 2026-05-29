@@ -32,6 +32,7 @@ type spaceDelegateInput struct {
 	Input            string
 	Runtime          string
 	Source           string
+	ShareContext     bool
 }
 
 func (m *manager) resolveSpaceAnchor(source string) (string, string, bool) {
@@ -77,6 +78,66 @@ func (m *manager) tryDelegateInSpace(ctx context.Context, source, workerID, runt
 	return id, true, err
 }
 
+func (m *manager) trySpawnInSpace(ctx context.Context, source string, in spawnArgs, runtime string) (string, bool, error) {
+	spaceID, triggerID, ok := m.resolveSpaceAnchor(source)
+	if !ok || triggerID == "" {
+		return "", false, nil
+	}
+	worker, err := m.resolveCollabWorkerPersona(source, in.Runtime)
+	if err != nil {
+		return "", true, err
+	}
+	rt := strings.TrimSpace(worker.Runtime)
+	if rt == "" {
+		rt = runtime
+	}
+	timeout := time.Duration(m.app.Config().Collab.PollTimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	outcome, runErr := m.runWorkerSync(ctx, workerRunInput{
+		Source:           source,
+		ParentSpaceID:    spaceID,
+		TriggerMessageID: triggerID,
+		InitiatorID:      initiatorOrUser(ctx),
+		WorkerID:         worker.ID,
+		Runtime:          rt,
+		Title:            in.Task,
+		Input:            in.Task,
+		ShareContext:     in.ShareContext,
+	}, timeout)
+	if runErr != nil {
+		return "", true, runErr
+	}
+	return formatSpawnReturn(outcome), true, nil
+}
+
+func initiatorOrUser(ctx context.Context) string {
+	if id := strings.TrimSpace(command.PersonaFrom(ctx)); id != "" {
+		return id
+	}
+	return "user"
+}
+
+func formatSpawnReturn(out workerRunOutcome) string {
+	parts := []string{"spawn " + string(out.Status)}
+	if out.ResultMessageID != "" {
+		parts = append(parts, "message="+shortMessageRef(out.ResultMessageID))
+	}
+	if out.Outcome != "" {
+		parts = append(parts, "outcome="+out.Outcome)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func shortMessageRef(id string) string {
+	id = strings.TrimSpace(id)
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 func (m *manager) delegateAsync(ctx context.Context, in spaceDelegateInput) (string, error) {
 	if strings.TrimSpace(in.WorkerID) == "" {
 		return "", ErrUnknownWorker
@@ -112,6 +173,13 @@ func (m *manager) runSpaceDelegate(ctx context.Context, tk *taskpkg.Task, in spa
 		return nil, err
 	}
 	scratch := session.New("subtask:" + uuid.NewString()[:8])
+	if in.ShareContext {
+		if parent, err := m.app.CurrentSession(in.Source); err == nil && parent != nil {
+			for _, pm := range cloneMessages(parent.Messages) {
+				scratch.Add(pm)
+			}
+		}
+	}
 	scratch.Add(msg.Message{Role: "user", Content: in.Input})
 	baseline := len(scratch.Messages)
 	rt, err := m.app.NewRuntimeFor(in.Runtime, worker)

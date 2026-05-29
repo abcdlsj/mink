@@ -101,6 +101,7 @@ func (m *manager) runWorkerAsTask(ctx context.Context, in workerRunInput) (strin
 			Input:            in.Input,
 			Runtime:          in.Runtime,
 			Source:           in.Source,
+			ShareContext:     in.ShareContext,
 		}, worker)
 	}()
 	return tk.ID, nil
@@ -135,6 +136,7 @@ func (m *manager) runWorkerSync(ctx context.Context, in workerRunInput, timeout 
 			Input:            in.Input,
 			Runtime:          in.Runtime,
 			Source:           in.Source,
+			ShareContext:     in.ShareContext,
 		}, worker)
 		done <- out
 	}()

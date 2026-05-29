@@ -37,6 +37,15 @@ func (t spawnTool) Run(ctx context.Context, args json.RawMessage) (string, error
 	}
 	src := command.SourceFrom(ctx)
 	rt := t.m.pickRuntime(src, in.Runtime, in.Runtime)
+	if out, ok, err := t.m.trySpawnInSpace(ctx, src, in, rt); ok {
+		if err != nil {
+			return "", err
+		}
+		if in.DirectOutput && strings.TrimSpace(out) != "" {
+			t.m.app.PublishNotice(src, out)
+		}
+		return out, nil
+	}
 	out, err := t.m.spawn(ctx, src, rt, in.Task, in.ShareContext)
 	if err != nil {
 		return "", err
