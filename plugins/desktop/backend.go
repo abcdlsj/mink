@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
@@ -128,22 +130,114 @@ func (b *Backend) StopTurn(sessionID string) error {
 	return nil
 }
 
+// NewDirectChat creates a fresh KindDirectChat Space. Each call
+// produces a new Space with its own id; participants seed with the
+// user only (no agent binding). Agents join later when the user
+// @-mentions them via the routing layer (P3.5). The Space title
+// starts as "New chat" and may be polished from the first user
+// message in a future commit.
 func (b *Backend) NewDirectChat() (SessionDetail, error) {
 	if b.app == nil {
 		return SessionDetail{}, nil
 	}
-	s, err := b.app.NewSession(desktopSource)
+	seed := newDirectChatSeed()
+	sp, err := b.app.Spaces().EnsureSpace(space.KindDirectChat, seed, space.PersonaInfo{})
 	if err != nil {
 		return SessionDetail{}, err
 	}
 	return SessionDetail{
 		Item: SessionItem{
-			ID:        s.ID,
-			Title:     fallback(s.Title, "New direct chat"),
-			UpdatedAt: s.UpdatedAt,
+			ID:           sp.ID,
+			Title:        directChatTitle(sp),
+			UpdatedAt:    sp.UpdatedAt,
+			MessageCount: len(sp.Messages),
 		},
-		Messages: []MessageView{},
+		Messages: spaceMessagesToView(sp, b.app),
 	}, nil
+}
+
+// ListDirectChats returns every persisted KindDirectChat Space.
+// The frontend renders this as the left rail's "Direct Chats"
+// group.
+func (b *Backend) ListDirectChats() []DirectChatItem {
+	if b.app == nil {
+		return nil
+	}
+	spaces, err := b.app.Spaces().ListSpaces()
+	if err != nil {
+		return nil
+	}
+	out := make([]DirectChatItem, 0)
+	for _, sp := range spaces {
+		if sp.Kind != space.KindDirectChat {
+			continue
+		}
+		out = append(out, DirectChatItem{
+			ID:        sp.ID,
+			Title:     directChatTitle(sp),
+			Agents:    spaceAgentIDs(sp),
+			UpdatedAt: sp.UpdatedAt,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out
+}
+
+// GetDirectChat loads one direct-chat Space by id and projects it
+// for the center pane.
+func (b *Backend) GetDirectChat(id string) SessionDetail {
+	if b.app == nil {
+		return SessionDetail{}
+	}
+	sp, err := b.app.Spaces().LoadSpace(id)
+	if err != nil || sp == nil || sp.Kind != space.KindDirectChat {
+		return SessionDetail{}
+	}
+	return SessionDetail{
+		Item: SessionItem{
+			ID:           sp.ID,
+			Title:        directChatTitle(sp),
+			UpdatedAt:    sp.UpdatedAt,
+			MessageCount: len(sp.Messages),
+		},
+		Messages: spaceMessagesToView(sp, b.app),
+	}
+}
+
+// directChatTitle picks a display title for a KindDirectChat Space.
+// We prefer the first user message preview when the seed has not
+// been promoted to a real title yet.
+func directChatTitle(sp *space.Space) string {
+	if sp == nil {
+		return "New chat"
+	}
+	for _, m := range sp.Messages {
+		if m.AuthorKind == space.ParticipantUser {
+			if t := strings.TrimSpace(m.Content); t != "" {
+				return previewTitle(t)
+			}
+		}
+	}
+	if t := strings.TrimSpace(sp.Title); t != "" && !strings.HasPrefix(t, "dchat-") {
+		return t
+	}
+	return "New chat"
+}
+
+func previewTitle(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len([]rune(s)) <= 48 {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:48]) + "…"
+}
+
+// newDirectChatSeed produces a unique seed for a fresh direct chat.
+// Seeds are namespaced with "dchat-" so they don't visually look
+// like a user-supplied title.
+func newDirectChatSeed() string {
+	return "dchat-" + time.Now().Format("20060102-150405") + "-" + uuid.NewString()[:4]
 }
 
 func (b *Backend) ListChannels() []ChannelItem {
@@ -222,21 +316,33 @@ func (b *Backend) ListThreads() []ThreadItem {
 	if b.app == nil {
 		return mockThreads()
 	}
-	idx, err := b.app.SessionIndex()
+	// P3.4 transitional: surface KindDirectChat spaces under the
+	// existing /api/threads endpoint so the legacy "Recent" rail
+	// continues to show entries (now real Direct Chats). P3.7 will
+	// split this into a dedicated direct-chats group; until then we
+	// keep the same shape so the frontend keeps rendering.
+	spaces, err := b.app.Spaces().ListSpaces()
 	if err != nil {
 		return nil
 	}
-	out := make([]ThreadItem, 0, len(idx))
-	for _, m := range idx {
-		if !strings.HasPrefix(m.Source, desktopSource) {
+	channelID := defaultChannelID
+	for _, sp := range spaces {
+		if sp.Kind == space.KindChannel {
+			channelID = sp.ID
+			break
+		}
+	}
+	out := make([]ThreadItem, 0)
+	for _, sp := range spaces {
+		if sp.Kind != space.KindDirectChat {
 			continue
 		}
 		out = append(out, ThreadItem{
-			ID:         m.ID,
-			ChannelID:  defaultChannelID,
-			Title:      threadTitle(m.Title, m.Summary, m.UpdatedAt),
-			UpdatedAt:  m.UpdatedAt,
-			EventCount: m.Messages,
+			ID:         sp.ID,
+			ChannelID:  channelID,
+			Title:      directChatTitle(sp),
+			UpdatedAt:  sp.UpdatedAt,
+			EventCount: len(sp.Messages),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
@@ -351,6 +457,26 @@ type appAccessor interface {
 func (b *Backend) GetThread(id string) SessionDetail {
 	if b.app == nil {
 		return mockThreadDetail(id)
+	}
+	// P3.4: a frontend "thread" id now maps onto a Space — almost
+	// always a KindDirectChat. Try the Space store first; only fall
+	// back to the legacy session reader if it's not a Space (e.g.
+	// pre-P3 desktop session that hasn't been migrated). The legacy
+	// fallback goes away in P3.6.
+	if sp, err := b.app.Spaces().LoadSpace(id); err == nil && sp != nil {
+		title := directChatTitle(sp)
+		if sp.Kind == space.KindChannel {
+			title = "#" + channelDisplayName(sp, b.app.Config().Workspace)
+		}
+		return SessionDetail{
+			Item: SessionItem{
+				ID:           sp.ID,
+				Title:        title,
+				UpdatedAt:    sp.UpdatedAt,
+				MessageCount: len(sp.Messages),
+			},
+			Messages: spaceMessagesToView(sp, b.app),
+		}
 	}
 	sessions, err := b.app.ListSessions()
 	if err != nil {
@@ -979,6 +1105,10 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	})
 	mux.HandleFunc("/api/agent-dm", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetAgentDM(req.URL.Query().Get("agent")))
+	})
+	mux.HandleFunc("/api/direct-chats", jsonHandler(func() any { return b.ListDirectChats() }))
+	mux.HandleFunc("/api/direct-chat", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetDirectChat(req.URL.Query().Get("id")))
 	})
 	mux.HandleFunc("/api/new-direct", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {

@@ -24,6 +24,20 @@ type ThreadItem struct {
 	HasRunning bool      `json:"has_running"`
 }
 
+// DirectChatItem represents an entry in the left rail's
+// "Direct Chats" group. Each direct chat is its own KindDirectChat
+// Space; the id is the Space id, the title is the Space title (the
+// router will polish the title from the first user message in P3
+// follow-up).
+type DirectChatItem struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Agents      []string  `json:"agents"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	UnreadCount int       `json:"unread_count"`
+	HasRunning  bool      `json:"has_running"`
+}
+
 type AgentItem struct {
 	ID      string `json:"id"`
 	Display string `json:"display"`
