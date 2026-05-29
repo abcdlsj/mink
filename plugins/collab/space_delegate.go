@@ -78,6 +78,34 @@ func (m *manager) tryDelegateInSpace(ctx context.Context, source, workerID, runt
 	return id, true, err
 }
 
+func (m *manager) tryMentionInSpace(ctx context.Context, source string, in mentionArgs) (string, bool, error) {
+	spaceID, triggerID, ok := m.resolveSpaceAnchor(source)
+	if !ok || triggerID == "" {
+		return "", false, nil
+	}
+	worker, err := m.resolveCollabWorkerPersona(source, in.AgentID)
+	if err != nil {
+		return "", true, err
+	}
+	rt := strings.TrimSpace(worker.Runtime)
+	if rt == "" {
+		rt = m.app.Config().Runtime
+	}
+	resultID, err := m.runWorkerAsMention(ctx, workerRunInput{
+		Source:           source,
+		ParentSpaceID:    spaceID,
+		TriggerMessageID: triggerID,
+		InitiatorID:      initiatorOrUser(ctx),
+		WorkerID:         worker.ID,
+		Runtime:          rt,
+		Input:            in.Question,
+	})
+	if err != nil {
+		return "", true, err
+	}
+	return fmt.Sprintf("mentioned %s, message=%s", worker.Display, shortMessageRef(resultID)), true, nil
+}
+
 func (m *manager) trySpawnInSpace(ctx context.Context, source string, in spawnArgs, runtime string) (string, bool, error) {
 	spaceID, triggerID, ok := m.resolveSpaceAnchor(source)
 	if !ok || triggerID == "" {

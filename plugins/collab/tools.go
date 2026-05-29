@@ -213,6 +213,12 @@ func (t mentionTool) Run(ctx context.Context, args json.RawMessage) (string, err
 		return "", fmt.Errorf("agent_id and question are required")
 	}
 	src := command.SourceFrom(ctx)
+	if out, ok, err := t.m.tryMentionInSpace(ctx, src, in); ok {
+		if err != nil {
+			return "", err
+		}
+		return out, nil
+	}
 	rt := t.m.pickRuntime(src, in.AgentID, in.AgentID)
 	id, err := t.m.delegate(src, rt, in.Question, true, true)
 	if err != nil {
