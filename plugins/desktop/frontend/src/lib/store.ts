@@ -31,10 +31,18 @@ interface BusEvent {
   text?: string;
   err?: string;
   time: string;
+  space_id?: string;
+  parent_message_id?: string;
+  agent_id?: string;
+  stream_id?: string;
 }
 
 interface StreamingTurn {
   messageID: string;
+  streamID: string;
+  agentID: string;
+  spaceID: string;
+  parentMessageID: string;
   startedAt: string;
   content: string;
   reasoning: string;
@@ -88,6 +96,66 @@ function activeSessionID(s: State): string {
 
 function newID(): string {
   return Math.random().toString(36).slice(2, 10);
+}
+
+function streamingEventInScope(ev: BusEvent, s: State): boolean {
+  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+    if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
+    return ev.parent_message_id === s.threadDetail.parent_id;
+  }
+  if (s.view === "agent") {
+    if (!s.detail) return false;
+    return ev.space_id === s.detail.item.id;
+  }
+  if (s.view === "channel" || s.view === "thread") {
+    if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
+    return !ev.parent_message_id;
+  }
+  return false;
+}
+
+function streamingViewUpdates(
+  s: State,
+  placeholder: MessageView,
+  forThreadView: boolean,
+): Partial<State> {
+  const detail = s.detail;
+  const updates: Partial<State> = {};
+  if (detail) {
+    updates.detail = {
+      ...detail,
+      item: { ...detail.item, running: true },
+      messages: forThreadView ? detail.messages : [...detail.messages, placeholder],
+    };
+  }
+  if (s.threadDetail) {
+    updates.threadDetail = {
+      ...s.threadDetail,
+      replies: [...s.threadDetail.replies, placeholder],
+    };
+  }
+  return updates;
+}
+
+function streamingMessageUpdates(
+  s: State,
+  messageID: string,
+  patch: (m: MessageView) => MessageView,
+): Partial<State> {
+  const updates: Partial<State> = {};
+  if (s.detail) {
+    updates.detail = {
+      ...s.detail,
+      messages: s.detail.messages.map((m) => (m.id === messageID ? patch(m) : m)),
+    };
+  }
+  if (s.threadDetail) {
+    updates.threadDetail = {
+      ...s.threadDetail,
+      replies: s.threadDetail.replies.map((m) => (m.id === messageID ? patch(m) : m)),
+    };
+  }
+  return updates;
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -347,65 +415,99 @@ export const useStore = create<State>((set, get) => ({
     const detail = cur.detail;
     if (!detail) return;
 
-    // Subtask events (delegated sub-agent runs) must not surface in the
-    // main turn. Only delegate.* lifecycle events from the parent source
-    // reach the message stream; subtask reads/bashes/reasoning are
-    // suppressed entirely.
-    if (ev.source && ev.source.startsWith("subtask:")) return;
+    const isStreamEvent =
+      ev.type === "turn.started" ||
+      ev.type === "turn.chunk" ||
+      ev.type === "turn.reasoning" ||
+      ev.type === "turn.finished" ||
+      ev.type === "turn.error" ||
+      ev.type === "tool.call.started" ||
+      ev.type === "tool.call.finished" ||
+      ev.type === "tool.call.failed";
+
+    if (isStreamEvent) {
+      if (!ev.stream_id) {
+        // Streaming events without a StreamID came from a publisher
+        // that has not been migrated to P9.0 metadata. We cannot
+        // correlate them safely; drop rather than guess.
+        return;
+      }
+      if (!streamingEventInScope(ev, cur)) return;
+    }
+
+    // Legacy subtask source guard (for delegate.* and other event
+    // types that have not been migrated to scope metadata yet).
+    if (!isStreamEvent && ev.source && ev.source.startsWith("subtask:")) return;
 
     switch (ev.type) {
       case "turn.started": {
+        const author = ev.agent_id;
+        if (!author) {
+          // Per Iris: no Sumi-by-default placeholder. If the publisher
+          // didn't say who's typing, don't render a placeholder.
+          return;
+        }
+        const personaInfo =
+          cur.personas.find((p) => p.id === author) ||
+          cur.agents.find((a) => a.id === author);
+        const display =
+          (personaInfo as { display?: string } | undefined)?.display || author;
         const placeholder: MessageView = {
           id: "a-" + newID(),
           role: "agent",
-          author_id: cur.agents[0]?.id,
-          author_name: cur.agents[0]?.display || "Sumi",
+          author_id: author,
+          author_name: display,
           content: "",
           reasoning: "",
           time: ev.time,
           events: [],
+          thread_id: ev.parent_message_id || undefined,
+          is_thread_reply: !!ev.parent_message_id,
         };
+        const inThreadView =
+          !!cur.threadDetail &&
+          !cur.threadDetail.unsupported &&
+          !cur.threadDetail.not_found;
+        const updates = streamingViewUpdates(cur, placeholder, inThreadView);
         set({
           streaming: {
             messageID: placeholder.id,
+            streamID: ev.stream_id || "",
+            agentID: author,
+            spaceID: ev.space_id || "",
+            parentMessageID: ev.parent_message_id || "",
             startedAt: ev.time,
             content: "",
             reasoning: "",
             toolCalls: new Map(),
           },
-          detail: {
-            ...detail,
-            item: { ...detail.item, running: true },
-            messages: [...detail.messages, placeholder],
-          },
+          ...updates,
         });
         return;
       }
       case "turn.chunk": {
         if (!cur.streaming) return;
+        if (ev.stream_id !== cur.streaming.streamID) return;
         const next = cur.streaming.content + (ev.text || "");
         set({
           streaming: { ...cur.streaming, content: next },
-          detail: {
-            ...detail,
-            messages: detail.messages.map((m) =>
-              m.id === cur.streaming!.messageID ? { ...m, content: next } : m,
-            ),
-          },
+          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+            ...m,
+            content: next,
+          })),
         });
         return;
       }
       case "turn.reasoning": {
         if (!cur.streaming) return;
+        if (ev.stream_id !== cur.streaming.streamID) return;
         const next = cur.streaming.reasoning + (ev.text || "");
         set({
           streaming: { ...cur.streaming, reasoning: next },
-          detail: {
-            ...detail,
-            messages: detail.messages.map((m) =>
-              m.id === cur.streaming!.messageID ? { ...m, reasoning: next } : m,
-            ),
-          },
+          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+            ...m,
+            reasoning: next,
+          })),
         });
         return;
       }
