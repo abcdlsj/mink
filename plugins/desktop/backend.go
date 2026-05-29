@@ -526,8 +526,10 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	resolver := personaResolver(a)
 	var threadInfo map[string]ThreadSummary
 	var taskIndex map[string]*taskpkg.Task
+	var accessoryIndex map[string]*taskpkg.Task
 	if threadKindSupported(sp.Kind) {
 		threadInfo, taskIndex = computeThreadInfo(sp, a)
+		accessoryIndex = computeTaskAccessoryIndex(sp, a)
 	}
 	out := make([]MessageView, 0, len(sp.Messages))
 	for _, m := range sp.Messages {
@@ -548,10 +550,64 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 			summary := info
 			view.ThreadInfo = &summary
 		}
+		if tk, ok := accessoryIndex[m.ID]; ok && tk != nil {
+			view.TaskAccessory = projectTaskAccessory(tk, a)
+		}
 		_ = taskIndex
 		out = append(out, view)
 	}
 	return out
+}
+
+func computeTaskAccessoryIndex(sp *space.Space, a appAccessor) map[string]*taskpkg.Task {
+	out := map[string]*taskpkg.Task{}
+	if a == nil || a.Tasks() == nil {
+		return out
+	}
+	tasks, err := a.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		return out
+	}
+	for _, tk := range tasks {
+		if tk == nil || strings.TrimSpace(tk.TriggerMessageID) == "" {
+			continue
+		}
+		prev, ok := out[tk.TriggerMessageID]
+		if !ok || tk.CreatedAt.After(prev.CreatedAt) {
+			out[tk.TriggerMessageID] = tk
+		}
+	}
+	return out
+}
+
+func projectTaskAccessory(tk *taskpkg.Task, a appAccessor) *TaskAccessoryInfo {
+	if tk == nil {
+		return nil
+	}
+	info := &TaskAccessoryInfo{
+		TaskID:        tk.ID,
+		WorkerID:      tk.WorkerID,
+		WorkerDisplay: resolveWorkerDisplay(tk.WorkerID, a),
+		Status:        taskStatusForUI(tk.Status),
+	}
+	switch tk.Status {
+	case taskpkg.StatusFinished, taskpkg.StatusFailed, taskpkg.StatusCanceled, taskpkg.StatusEmptyOutput:
+		info.Terminal = true
+	}
+	switch tk.Status {
+	case taskpkg.StatusFailed, taskpkg.StatusCanceled:
+		info.ShortOutcome = shortAccessoryOutcome(tk.Outcome)
+	}
+	return info
+}
+
+func shortAccessoryOutcome(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	rl := []rune(s)
+	if len(rl) <= 80 {
+		return s
+	}
+	return string(rl[:80]) + "…"
 }
 
 func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary, map[string]*taskpkg.Task) {
