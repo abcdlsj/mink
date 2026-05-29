@@ -99,8 +99,6 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	}
 	src := source(cfg.SessionScope, msg.Chat, msg.ThreadID)
 	if src == "" {
-		// Unknown chat type — refuse to route this message rather
-		// than fall back to a default Space.
 		return nil
 	}
 	if out, ok, err := handleTelegramCommand(a, src, text); ok {
@@ -110,12 +108,17 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 		return c.Send(out)
 	}
 
+	stripped := stripMention(bot.Me.Username, text)
+	before := spaceSnapshotIDs(a, src)
 	done := make(chan struct{})
 	go typingLoop(c, done)
-	out, err := a.HandleInput(ctx, src, stripMention(bot.Me.Username, text))
+	out, err := a.HandleInput(ctx, src, stripped)
 	close(done)
 	if err != nil {
 		return c.Send(userError(err))
+	}
+	if sourceTracksSpace(src) {
+		return sendSpaceReplies(bot, c, a, src, stripped, before)
 	}
 	if strings.TrimSpace(out) == "" {
 		out = "ok"
@@ -144,12 +147,17 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 		return nil
 	}
 
+	stripped := stripMention(bot.Me.Username, text)
+	before := spaceSnapshotIDs(a, src)
 	done := make(chan struct{})
 	go typingLoop(c, done)
-	out, err := a.HandleInputWithAttachments(ctx, src, stripMention(bot.Me.Username, text), []msg.Attachment{att})
+	out, err := a.HandleInputWithAttachments(ctx, src, stripped, []msg.Attachment{att})
 	close(done)
 	if err != nil {
 		return c.Send(userError(err))
+	}
+	if sourceTracksSpace(src) {
+		return sendSpaceReplies(bot, c, a, src, stripped, before)
 	}
 	if strings.TrimSpace(out) == "" {
 		out = "ok"
