@@ -80,6 +80,11 @@ func (m *manager) runDelegation(t *task, runtime, input string, share, direct bo
 }
 
 func (m *manager) cancel(id string) error {
+	if m.app != nil && m.app.Tasks() != nil {
+		if tk, _ := m.app.Tasks().Get(id); tk != nil {
+			return m.app.Tasks().Cancel(id)
+		}
+	}
 	t := m.task(id)
 	if t == nil {
 		return fmt.Errorf("task not found: %s", id)
