@@ -163,3 +163,156 @@ func TestEnsureForSourceRoundTrips(t *testing.T) {
 		t.Error("subtask source should not produce a Space")
 	}
 }
+
+// failingStore wraps memoryStore and rejects the next SaveSpace call.
+type failingStore struct {
+	*memoryStore
+	failNext bool
+	failErr  error
+}
+
+func newFailingStore() *failingStore {
+	return &failingStore{memoryStore: newMemoryStore()}
+}
+
+func (f *failingStore) SaveSpace(sp *Space) error {
+	if f.failNext {
+		f.failNext = false
+		return f.failErr
+	}
+	return f.memoryStore.SaveSpace(sp)
+}
+
+func TestAppendMessageWithRoutingAtomicAdd(t *testing.T) {
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
+
+	draft := Message{
+		AuthorID:   "user",
+		AuthorKind: ParticipantUser,
+		Content:    "@coder look",
+		Mentions:   []string{"coder"},
+	}
+	msg, added, err := mgr.AppendMessageWithRouting(ch.ID, draft, []string{"coder"}, func(id string) PersonaInfo {
+		return PersonaInfo{ID: id, Display: "Coder"}
+	})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if msg.ID == "" {
+		t.Error("written message id should be set")
+	}
+	if !equalSets(added, []string{"coder"}) {
+		t.Errorf("added participants = %v, want [coder]", added)
+	}
+	loaded, _ := store.LoadSpace(ch.ID)
+	if !loaded.HasParticipant("coder") {
+		t.Error("coder should now be a participant")
+	}
+	if len(loaded.Messages) != 1 {
+		t.Errorf("messages = %d, want 1", len(loaded.Messages))
+	}
+}
+
+func TestAppendMessageWithRoutingNoOpForExistingParticipant(t *testing.T) {
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	ch, _ := mgr.EnsureSpace(KindAgentDM, "coder", PersonaInfo{ID: "coder", Display: "Coder"})
+
+	draft := Message{AuthorID: "user", AuthorKind: ParticipantUser, Content: "again @coder"}
+	_, added, err := mgr.AppendMessageWithRouting(ch.ID, draft, []string{"coder"}, nil)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if len(added) != 0 {
+		t.Errorf("already-present coder should not be re-added, got %v", added)
+	}
+	loaded, _ := store.LoadSpace(ch.ID)
+	count := 0
+	for _, p := range loaded.Participants {
+		if p.ID == "coder" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("coder appears %d times in participants, want 1", count)
+	}
+}
+
+func TestAppendMessageWithRoutingDropsUnknownIds(t *testing.T) {
+	// "unknown" here means the routing layer passes an id but the
+	// resolver maps it to an empty/blank id; we still need to make
+	// sure the manager doesn't insert garbage.
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
+
+	draft := Message{AuthorID: "user", AuthorKind: ParticipantUser, Content: "test"}
+	_, added, err := mgr.AppendMessageWithRouting(ch.ID, draft, []string{"   ", ""}, nil)
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if len(added) != 0 {
+		t.Errorf("blank ids should be ignored, got %v", added)
+	}
+	loaded, _ := store.LoadSpace(ch.ID)
+	if len(loaded.Participants) != 1 {
+		t.Errorf("only the user seed should remain, got %d", len(loaded.Participants))
+	}
+}
+
+func TestAppendMessageWithRoutingRejectsBadAuthor(t *testing.T) {
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
+
+	if _, _, err := mgr.AppendMessageWithRouting(ch.ID, Message{AuthorKind: ParticipantUser}, nil, nil); err == nil {
+		t.Error("missing AuthorID should error")
+	}
+	if _, _, err := mgr.AppendMessageWithRouting(ch.ID, Message{AuthorID: "user"}, nil, nil); err == nil {
+		t.Error("missing AuthorKind should error")
+	}
+}
+
+func TestAppendMessageWithRoutingNoHalfWriteOnSaveFail(t *testing.T) {
+	failing := newFailingStore()
+	mgr := NewManager(failing, "user", "You")
+	// Seed the channel through the failing store but with success.
+	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
+
+	failing.failNext = true
+	failing.failErr = errMockNotFound{}
+
+	draft := Message{AuthorID: "user", AuthorKind: ParticipantUser, Content: "@coder hi"}
+	_, _, err := mgr.AppendMessageWithRouting(ch.ID, draft, []string{"coder"}, nil)
+	if err == nil {
+		t.Fatal("expected save failure to propagate")
+	}
+	loaded, _ := failing.LoadSpace(ch.ID)
+	if loaded.HasParticipant("coder") {
+		t.Error("save failure should not have left coder in participants")
+	}
+	if len(loaded.Messages) != 0 {
+		t.Errorf("save failure should not have left a message, got %d", len(loaded.Messages))
+	}
+}
+
+func equalSets(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	ma := map[string]int{}
+	for _, x := range a {
+		ma[x]++
+	}
+	for _, x := range b {
+		ma[x]--
+	}
+	for _, v := range ma {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}

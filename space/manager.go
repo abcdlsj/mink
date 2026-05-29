@@ -161,6 +161,81 @@ func (m *Manager) EnsureSpace(kind Kind, seed string, agent PersonaInfo) (*Space
 	return sp, nil
 }
 
+// AppendMessageWithRouting is the atomic write path used by P2 routing.
+// It performs three steps under a single lock and rolls back any
+// partial mutation if persistence fails:
+//   1. Insert any resolved mentions into space.Participants (no-op
+//      for members already present).
+//   2. Append the message to the space's timeline.
+//   3. Persist the whole space.
+//
+// resolved is a list of canonical persona ids the routing layer has
+// already confirmed exist (the parser drops unknowns so this list
+// only carries valid agents). resolveInfo is the resolver the
+// manager uses to fill display/role for newly added agents; pass
+// nil to insert with id-only metadata.
+//
+// Returns the persisted message and the participant ids that were
+// added by this call (so the caller can wake just the new entries
+// or include them all — that decision belongs to routing, not the
+// manager).
+func (m *Manager) AppendMessageWithRouting(spaceID string, draft Message, resolved []string, resolveInfo func(id string) PersonaInfo) (Message, []string, error) {
+	if strings.TrimSpace(draft.AuthorID) == "" {
+		return Message{}, nil, fmt.Errorf("message missing author_id")
+	}
+	if draft.AuthorKind == "" {
+		return Message{}, nil, fmt.Errorf("message missing author_kind")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		return Message{}, nil, err
+	}
+	// Snapshot for rollback if save fails.
+	snapshot := *sp
+	snapshot.Participants = append([]Participant(nil), sp.Participants...)
+	snapshot.Messages = append([]Message(nil), sp.Messages...)
+
+	added := make([]string, 0, len(resolved))
+	for _, id := range resolved {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if sp.HasParticipant(id) {
+			continue
+		}
+		info := PersonaInfo{ID: id}
+		if resolveInfo != nil {
+			info = resolveInfo(id)
+			if info.ID == "" {
+				info.ID = id
+			}
+		}
+		sp.AddParticipant(Participant{
+			ID:       info.ID,
+			Kind:     ParticipantAgent,
+			Display:  fallbackDisplay(info.Display, info.ID),
+			Role:     info.Role,
+			Status:   StatusAvailable,
+			JoinedAt: time.Now(),
+		})
+		added = append(added, info.ID)
+	}
+
+	written := sp.AddMessage(draft)
+	if err := m.store.SaveSpace(sp); err != nil {
+		// Roll the in-memory state back. We already lost the saved
+		// pointer reference, so swap fields back from the snapshot
+		// for any caller that holds it. (The on-disk file is the
+		// authoritative state; failure here means it never wrote.)
+		*sp = snapshot
+		return Message{}, nil, err
+	}
+	return written, added, nil
+}
+
 // AppendUserMessage writes a user-authored message into the given
 // space and persists. content may be empty for tool-only turns.
 func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) (Message, error) {
