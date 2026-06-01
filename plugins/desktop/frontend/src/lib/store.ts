@@ -75,6 +75,7 @@ interface State {
 
   paletteOpen: boolean;
   quickCreateOpen: boolean;
+  ambiguousAt: number;
   sending: boolean;
   streaming: StreamingTurn | null;
 
@@ -245,6 +246,7 @@ export const useStore = create<State>((set, get) => ({
 
   paletteOpen: false,
   quickCreateOpen: false,
+  ambiguousAt: 0,
   sending: false,
   streaming: null,
 
@@ -550,6 +552,11 @@ export const useStore = create<State>((set, get) => ({
         tasks.push(refetchActiveScope(get, set));
       }
       void Promise.all(tasks);
+      return;
+    }
+
+    if (ev.type === "routing.listening_ambiguous") {
+      set({ ambiguousAt: Date.now() });
       return;
     }
 

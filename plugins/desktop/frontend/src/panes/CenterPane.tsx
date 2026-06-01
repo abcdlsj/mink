@@ -805,6 +805,15 @@ function Composer() {
   const usesRouting = view === "channel" || view === "thread";
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
+  const ambiguousAt = useStore((s) => s.ambiguousAt);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ambiguousAt) return;
+    setNow(Date.now());
+    const t = setTimeout(() => setNow(Date.now()), 4000);
+    return () => clearTimeout(t);
+  }, [ambiguousAt]);
+  const showAmbiguous = ambiguousAt > 0 && now - ambiguousAt < 4000;
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -861,6 +870,11 @@ function Composer() {
   return (
     <div className="border-t border-border-soft px-8 pb-5 pt-3.5 bg-panel">
       <div className="mx-auto max-w-[800px]">
+        {showAmbiguous && (
+          <div className="mb-2 text-[11.5px] text-text-muted">
+            Mention a specific agent.
+          </div>
+        )}
         {showRouteHint && (
           <div className="mb-2 text-[11.5px] text-text-faint">
             Mention an agent, or let listening agents pick it up.
