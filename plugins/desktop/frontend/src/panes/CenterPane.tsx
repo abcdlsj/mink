@@ -172,7 +172,7 @@ function EmptyState() {
                 <button
                   key={t.id}
                   onClick={() => void openThread(t.id)}
-                  className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm hover:bg-panel-2 cursor-pointer"
+                  className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm cursor-pointer text-text-muted hover:text-text"
                 >
                   <span className="flex items-center gap-1.5 text-[12.5px] text-text min-w-0">
                     {t.has_running && <Dot status="running" />}
@@ -396,7 +396,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
       <span>{label}</span>
       <span className="text-text-faint"> · </span>
       <span className="underline underline-offset-2 text-text-faint">view details</span>
-      {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running dot-pulse align-middle" />}
+      {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running align-middle" />}
     </button>
   );
 }
@@ -406,7 +406,7 @@ function ThreadLink({ threadId, summary }: { threadId: string; summary: string }
   return (
     <button
       onClick={() => void openThread(threadId)}
-      className="mt-2.5 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm text-[12px] text-text-muted hover:text-text hover:bg-panel-2"
+      className="mt-2.5 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm text-[12px] text-text-muted hover:text-text"
     >
       <Dot status="running" />
       <span>{summary}</span>
@@ -805,7 +805,7 @@ function Composer() {
               })()}
             </span>
           ) : null}
-          <select className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer">
+          <select className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:text-text outline-none cursor-pointer">
             {models.map((m) => (
               <option key={m.name} value={m.name}>
                 {m.model}
@@ -813,7 +813,15 @@ function Composer() {
             ))}
           </select>
           <span className="flex-1" />
-          <Button variant="primary" disabled={!canSend} onClick={() => void handleSend()}>
+          <Button
+            variant="default"
+            disabled={!canSend}
+            onClick={() => void handleSend()}
+            className={cn(
+              "transition-colors",
+              canSend && "border-border-strong text-text",
+            )}
+          >
             {sending ? "Sending…" : "Send"}
           </Button>
         </div>

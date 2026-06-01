@@ -68,7 +68,7 @@ function ToolLine({ ev }: EventBlockProps) {
           </span>
         ) : null}
         {status === "running" && (
-          <span className="size-1.5 rounded-full bg-running dot-pulse" />
+          <span className="size-1.5 rounded-full bg-running" />
         )}
       </div>
     </div>
@@ -170,7 +170,7 @@ function DelegateLine({ ev }: EventBlockProps) {
           </button>
         )}
         {(status === "running" || status === "pending") && (
-          <span className="size-1.5 rounded-full bg-running dot-pulse self-center" />
+          <span className="size-1.5 rounded-full bg-running self-center" />
         )}
       </div>
       {open && hasDetails && (

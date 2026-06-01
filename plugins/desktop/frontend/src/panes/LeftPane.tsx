@@ -127,8 +127,8 @@ export function LeftPane() {
                 "w-full text-left px-2 py-1.5 rounded-sm border-l-2 border-transparent cursor-pointer transition-colors",
                 ((r.kind === "channel" && activeChannel === r.id) ||
                   (r.kind === "direct_chat" && activeThread === r.id))
-                  ? "bg-accent-bg border-l-accent"
-                  : "hover:bg-panel",
+                  ? "border-l-accent font-medium"
+                  : "text-text-muted hover:text-text",
               )}
               title={r.kind}
             >
@@ -397,7 +397,7 @@ function NavItem({ icon, name, running, badge, active, onClick, tooltip }: NavIt
         title={tooltip}
         className={cn(
           "w-full grid grid-cols-[16px_1fr_auto] items-center gap-2 rounded-sm py-1.5 pl-2.5 pr-2 cursor-pointer border-l-2 border-transparent transition-colors text-text-muted",
-          active ? "bg-accent-bg text-text border-l-accent" : "hover:bg-panel hover:text-text",
+          active ? "text-text border-l-accent font-medium" : "hover:text-text",
         )}
       >
         <span className={cn("inline-flex items-center", active ? "text-text" : "text-text-faint")}>
@@ -424,7 +424,7 @@ export function Dot({ status, className }: { status: "running" | "done" | "error
     <span
       className={cn(
         "inline-block size-[7px] rounded-full shrink-0",
-        status === "running" && "bg-running dot-pulse",
+        status === "running" && "bg-running",
         status === "done" && "bg-done",
         status === "error" && "bg-error",
         status === "idle" && "bg-text-faint",
