@@ -429,6 +429,39 @@ export const useStore = create<State>((set, get) => ({
     });
     try {
       await api.send(sid, input, personaID, parentMessageID);
+      // The user message is now committed. If the runtime produced a
+      // streaming turn, turn.finished / turn.error will reset sending
+      // again — but for plain user messages in router-managed Spaces
+      // (no @mention, no wake), no turn lifecycle event ever fires,
+      // so we must clear sending here or the composer locks forever.
+      // Iris/lsoooj bug report: "create channel 后对话卡住".
+      const after = get();
+      const stillStreaming = after.streaming !== null;
+      set({
+        sending: false,
+        detail:
+          stillStreaming || !after.detail
+            ? after.detail
+            : { ...after.detail, item: { ...after.detail.item, running: false } },
+        channels: stillStreaming
+          ? after.channels
+          : after.channels.map((c) =>
+              c.id === after.activeChannel ? { ...c, has_running: false } : c,
+            ),
+        threads: stillStreaming
+          ? after.threads
+          : after.threads.map((t) =>
+              t.id === after.activeThread ? { ...t, has_running: false } : t,
+            ),
+      });
+      // Reconcile the optimistic user-message placeholder against the
+      // persisted Space message. Without this, message ids in
+      // detail.messages stay client-generated and break thread /
+      // accessory wiring on subsequent actions. Skip if a stream is
+      // mid-flight; turn.finished refetches anyway.
+      if (!stillStreaming) {
+        await refetchActiveScope(get, set);
+      }
     } catch {
       set({ sending: false });
     }
