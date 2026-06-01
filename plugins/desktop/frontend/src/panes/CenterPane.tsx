@@ -115,10 +115,29 @@ export function CenterPane() {
   );
 }
 
+function personaForActiveAgent(
+  agents: import("@/lib/types").AgentItem[],
+  agentDMs: import("@/lib/types").AgentDMItem[],
+  activeAgent: string | null,
+): import("@/lib/types").AgentItem | undefined {
+  if (!activeAgent) return undefined;
+  // Direct hit: activeAgent is a persona id (legacy singleton path)
+  // or a Space id that happens to also exist as a persona id.
+  const direct = agents.find((a) => a.id === activeAgent);
+  if (direct) return direct;
+  // activeAgent is a Space id from the multi-instance path; resolve
+  // through the AgentDMs list to find the persona id, then find that
+  // persona in the agents directory.
+  const dm = agentDMs.find((d) => d.id === activeAgent);
+  if (!dm) return undefined;
+  return agents.find((a) => a.id === dm.persona_id);
+}
+
 function EmptyState() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
   const agents = useStore((s) => s.agents);
+  const agentDMs = useStore((s) => s.agentDMs);
   const activeAgent = useStore((s) => s.activeAgent);
   const activeChannel = useStore((s) => s.activeChannel);
   const threads = useStore((s) => s.threads);
@@ -141,7 +160,7 @@ function EmptyState() {
     );
   }
 
-  const ag = agents.find((a) => a.id === activeAgent);
+  const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
   const recent = threads.slice(0, 3);
 
   return (
@@ -194,11 +213,12 @@ function EmptyState() {
 
 function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; compact: boolean }) {
   const agents = useStore((s) => s.agents);
+  const agentDMs = useStore((s) => s.agentDMs);
   const view = useStore((s) => s.view);
   const activeAgent = useStore((s) => s.activeAgent);
 
   const dmAgent = view === "agent" && m.role !== "user"
-    ? agents.find((a) => a.id === activeAgent)
+    ? personaForActiveAgent(agents, agentDMs, activeAgent)
     : undefined;
 
   const ag = dmAgent || agents.find((a) => a.id === m.author_id);
@@ -648,8 +668,17 @@ function Composer() {
       }
     });
   };
+  const agentDMs = useStore((s) => s.agentDMs);
   const inferredPersona = (() => {
-    if (view === "agent" && activeAgent) return activeAgent;
+    if (view === "agent" && activeAgent) {
+      // activeAgent may be a Space id (multi-instance) or a persona
+      // id (legacy singleton). The composer's send() needs a persona
+      // id; look it up via the agentDMs list when activeAgent looks
+      // like a Space id, fall back to activeAgent itself otherwise.
+      const dm = agentDMs.find((d) => d.id === activeAgent);
+      if (dm?.persona_id) return dm.persona_id;
+      return activeAgent;
+    }
     if (view === "thread" && detail) {
       for (let i = detail.messages.length - 1; i >= 0; i--) {
         const m = detail.messages[i];
@@ -673,7 +702,7 @@ function Composer() {
   } else if (view === "thread") {
     placeholder = "Reply in thread...";
   } else if (view === "agent") {
-    const ag = agents.find((a) => a.id === activeAgent);
+    const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
     placeholder = `Message @${ag?.display || "agent"}...`;
   }
 
@@ -799,7 +828,7 @@ function Composer() {
           {view === "agent" ? (
             <span className="text-[12px] text-text-muted px-1.5 py-1">
               {(() => {
-                const ag = agents.find((a) => a.id === activeAgent);
+                const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
                 return ag ? "@" + ag.display : "";
               })()}
             </span>
