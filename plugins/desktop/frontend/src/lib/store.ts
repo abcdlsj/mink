@@ -306,12 +306,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openAgent(id) {
-    // `id` may be either a persona id (legacy / cli compat — opens
-    // the singleton AgentDM Space for that persona) or a Space id
-    // produced by ListAgentDMs (multi-instance — opens that specific
-    // conversation). The backend GetAgentDM endpoint accepts both.
-    const personaForLookup = get().agentDMs.find((d) => d.id === id)?.persona_id || id;
-    const ag = get().agents.find((a) => a.id === personaForLookup);
+    const dmPersona = get().agentDMs.find((d) => d.id === id)?.persona_id || id;
+    const ag = get().agents.find((a) => a.id === dmPersona);
     let detail: SessionDetail;
     try {
       detail = await api.agentDM(id);
@@ -451,12 +447,6 @@ export const useStore = create<State>((set, get) => ({
     });
     try {
       await api.send(sid, input, personaID, parentMessageID);
-      // The user message is now committed. If the runtime produced a
-      // streaming turn, turn.finished / turn.error will reset sending
-      // again — but for plain user messages in router-managed Spaces
-      // (no @mention, no wake), no turn lifecycle event ever fires,
-      // so we must clear sending here or the composer locks forever.
-      // Iris/lsoooj bug report: "create channel 后对话卡住".
       const after = get();
       const stillStreaming = after.streaming !== null;
       set({
@@ -476,11 +466,6 @@ export const useStore = create<State>((set, get) => ({
               t.id === after.activeThread ? { ...t, has_running: false } : t,
             ),
       });
-      // Reconcile the optimistic user-message placeholder against the
-      // persisted Space message. Without this, message ids in
-      // detail.messages stay client-generated and break thread /
-      // accessory wiring on subsequent actions. Skip if a stream is
-      // mid-flight; turn.finished refetches anyway.
       if (!stillStreaming) {
         await refetchActiveScope(get, set);
       }
@@ -543,12 +528,7 @@ export const useStore = create<State>((set, get) => ({
   applyEvent(ev) {
     const cur = get();
 
-    // space.title.changed must be handled even when no Space detail
-    // is loaded — the left-rail AgentDMs list still needs the new
-    // row label.
     if (ev.type === "space.title.changed") {
-      // Refresh both the AgentDMs list and the active scope detail
-      // in parallel — neither depends on the other.
       const tasks: Promise<unknown>[] = [
         api.agentDMs().then((agentDMs) => set({ agentDMs })).catch(() => undefined),
       ];

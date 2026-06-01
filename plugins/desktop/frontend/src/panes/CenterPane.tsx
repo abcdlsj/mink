@@ -121,16 +121,10 @@ function personaForActiveAgent(
   activeAgent: string | null,
 ): import("@/lib/types").AgentItem | undefined {
   if (!activeAgent) return undefined;
-  // Direct hit: activeAgent is a persona id (legacy singleton path)
-  // or a Space id that happens to also exist as a persona id.
   const direct = agents.find((a) => a.id === activeAgent);
   if (direct) return direct;
-  // activeAgent is a Space id from the multi-instance path; resolve
-  // through the AgentDMs list to find the persona id, then find that
-  // persona in the agents directory.
   const dm = agentDMs.find((d) => d.id === activeAgent);
-  if (!dm) return undefined;
-  return agents.find((a) => a.id === dm.persona_id);
+  return dm && agents.find((a) => a.id === dm.persona_id);
 }
 
 function EmptyState() {
@@ -363,8 +357,6 @@ function shortRole(role: string): string {
 }
 
 function stripCollabLeak(text: string): string {
-  // Collab task ids and scheduling acks belong on the delegate event row,
-  // not in the assistant prose. Strip the most common leak patterns.
   let out = text;
   out = out.replace(/[（(]\s*task_id\s*=\s*[A-Za-z0-9_-]+\s*[）)]/g, "");
   out = out.replace(/[,，]?\s*task_id\s*=\s*[A-Za-z0-9_-]+/g, "");
@@ -671,13 +663,8 @@ function Composer() {
   const agentDMs = useStore((s) => s.agentDMs);
   const inferredPersona = (() => {
     if (view === "agent" && activeAgent) {
-      // activeAgent may be a Space id (multi-instance) or a persona
-      // id (legacy singleton). The composer's send() needs a persona
-      // id; look it up via the agentDMs list when activeAgent looks
-      // like a Space id, fall back to activeAgent itself otherwise.
       const dm = agentDMs.find((d) => d.id === activeAgent);
-      if (dm?.persona_id) return dm.persona_id;
-      return activeAgent;
+      return dm?.persona_id || activeAgent;
     }
     if (view === "thread" && detail) {
       for (let i = detail.messages.length - 1; i >= 0; i--) {
@@ -708,10 +695,6 @@ function Composer() {
 
   const trimmed = input.trim();
   const canSend = trimmed.length > 0 && !sending;
-  // P3.8/polish: surface a route hint only when the user looks
-  // committed to the message — at least 5 typed characters — and
-  // they're in a router-managed view without a '@'. Agent DM is
-  // excluded; DM has its bound agent.
   const usesRouting = view === "channel" || view === "thread";
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
@@ -786,7 +769,6 @@ function Composer() {
             onSelect={handleSelect}
             onKeyDown={handleKey}
             onBlur={() => {
-              // dismiss after a short delay to let click on suggestion register
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
@@ -800,7 +782,6 @@ function Composer() {
                     key={a.id}
                     type="button"
                     onMouseDown={(e) => {
-                      // mouseDown so blur doesn't fire first
                       e.preventDefault();
                       acceptMention(i);
                     }}

@@ -13,9 +13,7 @@ import (
 	"github.com/abcdlsj/sumi/space"
 )
 
-func newStreamID() string {
-	return "stream-" + uuid.NewString()[:8]
-}
+func newStreamID() string { return "stream-" + uuid.NewString()[:8] }
 
 type turnFlow struct {
 	app         *App
@@ -32,7 +30,6 @@ func (f turnFlow) run(ctx context.Context) error {
 	if f.session != nil {
 		baseline = len(f.session.Messages)
 	}
-	streamID := newStreamID()
 	turn := &agent.Turn{
 		Source:      f.source,
 		Input:       f.input,
@@ -40,47 +37,42 @@ func (f turnFlow) run(ctx context.Context) error {
 		Session:     f.session,
 		Bus:         f.app.bus,
 		AgentID:     f.personaID,
-		StreamID:    streamID,
+		StreamID:    newStreamID(),
 	}
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
-		// Resolve the target Space the same way the writer side does.
-		// For multi-instance AgentDM the source seed is a Space id and
-		// EnsureSpace-by-seed would mint a brand-new Space rather than
-		// finding the existing one — that broke streaming scope match
-		// (lsoooj P0: agent 不回复).
 		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {
 			turn.SpaceID = sp.ID
 		}
 	}
-	f.publishStream(bus.TurnStarted, "", turn)
+	f.emit(bus.TurnStarted, "", turn)
 	runErr := f.runtime.Run(ctx, turn)
 	saveErr := f.app.sessions.Save(f.session)
-	var spaceWriteErr error
+	var writeErr error
 	if saveErr == nil {
-		spaceWriteErr = f.app.persistAssistantTurn(f.source, f.personaID, f.session, baseline)
+		writeErr = f.app.persistAssistantTurn(f.source, f.personaID, f.session, baseline)
 	}
 	if runErr != nil {
 		err := turnErr(runErr, saveErr)
-		f.publishStream(bus.TurnError, err.Error(), turn)
+		f.emit(bus.TurnError, err.Error(), turn)
 		if saveErr == nil {
-			f.publishStream(bus.SessionUpdated, "", turn)
+			f.emit(bus.SessionUpdated, "", turn)
 		}
 		return err
 	}
 	if saveErr != nil {
 		return saveErr
 	}
-	if spaceWriteErr != nil {
-		f.publishStream(bus.TurnError, spaceWriteErr.Error(), turn)
-		f.publishStream(bus.SessionUpdated, "", turn)
-		return spaceWriteErr
+	if writeErr != nil {
+		f.emit(bus.TurnError, writeErr.Error(), turn)
+		f.emit(bus.SessionUpdated, "", turn)
+		return writeErr
 	}
-	f.publishStream(bus.SessionUpdated, "", turn)
-	f.publishStream(bus.TurnFinished, "", turn)
+	f.emit(bus.SessionUpdated, "", turn)
+	f.emit(bus.TurnFinished, "", turn)
 	return nil
 }
 
-func (f turnFlow) publishStream(typ, errMsg string, turn *agent.Turn) {
+func (f turnFlow) emit(typ, errMsg string, turn *agent.Turn) {
 	f.app.bus.Publish(bus.Event{
 		Type:            typ,
 		Source:          f.source,
@@ -94,37 +86,19 @@ func (f turnFlow) publishStream(typ, errMsg string, turn *agent.Turn) {
 }
 
 func (a *App) persistAssistantTurn(source, personaID string, s *session.Session, baseline int) error {
-	if s == nil {
+	if s == nil || space.MapSource(source).Kind != space.KindAgentDM {
 		return nil
 	}
-	if space.MapSource(source).Kind != space.KindAgentDM {
-		return nil
-	}
-	added := s.Messages[baseline:]
-	content, reasoning := assembleAssistantOutput(added)
+	content, reasoning := assembleAssistantOutput(s.Messages[baseline:])
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return nil
 	}
-	written, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
+	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
 	if err != nil {
 		return err
 	}
-	// Iris's spec: after the first agent reply lands, kick off auto-
-	// title generation. Async + best-effort: failures must not block
-	// the turn or surface to the user. Once a non-machine title is
-	// stored, MaybeAutoTitleAgentDM is a no-op (lock-on-success).
-	if written != nil && written.SpaceID != "" {
-		spaceID := written.SpaceID
-		go a.MaybeAutoTitleAgentDM(spaceID)
+	if m != nil && m.SpaceID != "" {
+		go a.MaybeAutoTitleAgentDM(m.SpaceID)
 	}
 	return nil
-}
-
-func (f turnFlow) publish(typ, err string) {
-	f.app.bus.Publish(bus.Event{
-		Type:      typ,
-		Source:    f.source,
-		SessionID: f.session.ID,
-		Err:       err,
-	})
 }

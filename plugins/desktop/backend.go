@@ -585,7 +585,7 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	var threadInfo map[string]ThreadSummary
 	var taskIndex map[string]*taskpkg.Task
 	var accessoryIndex map[string]*taskpkg.Task
-	if threadKindSupported(sp.Kind) {
+	if threadKind(sp.Kind) {
 		threadInfo, taskIndex = computeThreadInfo(sp, a)
 		accessoryIndex = computeTaskAccessoryIndex(sp, a)
 	}
@@ -652,14 +652,13 @@ func projectTaskAccessory(tk *taskpkg.Task, a appAccessor) *TaskAccessoryInfo {
 	case taskpkg.StatusFinished, taskpkg.StatusFailed, taskpkg.StatusCanceled, taskpkg.StatusEmptyOutput:
 		info.Terminal = true
 	}
-	switch tk.Status {
-	case taskpkg.StatusFailed, taskpkg.StatusCanceled:
-		info.ShortOutcome = shortAccessoryOutcome(tk.Outcome)
+	if tk.Status == taskpkg.StatusFailed || tk.Status == taskpkg.StatusCanceled {
+		info.ShortOutcome = shortOutcome(tk.Outcome)
 	}
 	return info
 }
 
-func shortAccessoryOutcome(s string) string {
+func shortOutcome(s string) string {
 	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
 	rl := []rune(s)
 	if len(rl) <= 80 {
@@ -669,7 +668,7 @@ func shortAccessoryOutcome(s string) string {
 }
 
 func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary, map[string]*taskpkg.Task) {
-	groups := groupRepliesByParent(sp)
+	groups := groupReplies(sp)
 	if len(groups) == 0 {
 		return nil, nil
 	}
@@ -704,10 +703,10 @@ func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary
 		}
 		out[parentID] = ThreadSummary{
 			ParentID:         root.ID,
-			ParentPreview:    previewText(root.Content, threadParentPreviewLen),
+			ParentPreview:    preview(root.Content, previewLen),
 			ReplyCount:       len(replies),
 			LastReplyTime:    last.CreatedAt,
-			LastReplyAuthor:  authorDisplayForMessage(sp, last, a),
+			LastReplyAuthor:  authorDisplay(sp, last, a),
 			HasRunningWorker: hasRunning,
 		}
 	}
@@ -1170,9 +1169,6 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if agentID == "" {
 		return SessionDetail{}
 	}
-	// Two addressing modes share this endpoint:
-	//   - persona id  -> singleton AgentDM (legacy / cli compat)
-	//   - Space id    -> a specific AgentDM instance (multi-instance UI)
 	var sp *space.Space
 	if isAgentDMSpaceID(agentID) {
 		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
@@ -1207,13 +1203,10 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	}
 	pid := agentParticipantIDForBackend(sp)
 	if pid == "" {
-		pid = personaIDForLegacy(sp, agentID)
+		pid = strings.TrimSpace(agentID)
 	}
 	title := visibleAgentDMTitle(sp, pid)
 	if title == "New chat" {
-		// For visual hierarchy, when there is no real title yet, fall
-		// back to the persona handle so the header still tells the
-		// user who they are messaging.
 		title = "@" + display
 	}
 	return SessionDetail{
@@ -1225,13 +1218,6 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		},
 		Messages: spaceMessagesToView(sp, b.app),
 	}
-}
-
-func personaIDForLegacy(sp *space.Space, fallback string) string {
-	if id := agentParticipantIDForBackend(sp); id != "" {
-		return id
-	}
-	return strings.TrimSpace(fallback)
 }
 
 // CreateAgentDM provisions a fresh AgentDM Space instance for the
@@ -1250,10 +1236,6 @@ func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
 	if p == nil {
 		return AgentDMItem{}, fmt.Errorf("persona not registered: %s", personaID)
 	}
-	// Use a unique seed each call so EnsureSpace's
-	// FindSpaceByKindAndSeed never collides with an earlier
-	// conversation. The seed mixes persona id with a uuid suffix so
-	// the on-disk file name is still informative.
 	seed := p.ID + "-" + uuid.NewString()[:8]
 	info := space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
 	sp, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, seed, info)
@@ -1263,9 +1245,6 @@ func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
 	return agentDMItemFromSpace(sp, b.app), nil
 }
 
-// ListAgentDMs returns every AgentDM Space (multi-instance + legacy
-// singleton) sorted by last update. The frontend renders this as
-// "Agent DMs" in the left rail.
 func (b *Backend) ListAgentDMs() []AgentDMItem {
 	if b.app == nil {
 		return nil
@@ -1316,40 +1295,27 @@ func agentDMItemFromSpace(sp *space.Space, a appAccessor) AgentDMItem {
 	}
 }
 
-// visibleAgentDMTitle returns the user-visible Title for an
-// AgentDM Space. Multi-instance Spaces are seeded with
-// `<personaID>-<uuid8>`, which Space.New stores verbatim as the
-// Title. We treat that machine seed as "no title yet" so the UI
-// shows "New chat" until the auto-title generator (P10.x) writes
-// something better.
 func visibleAgentDMTitle(sp *space.Space, personaID string) string {
 	if sp == nil {
 		return "New chat"
 	}
 	t := strings.TrimSpace(sp.Title)
-	if t == "" {
-		return "New chat"
-	}
-	if isAgentDMMachineSeed(t, personaID) {
+	if t == "" || isAgentDMMachineSeed(t, personaID) {
 		return "New chat"
 	}
 	return t
 }
 
 func isAgentDMMachineSeed(t, personaID string) bool {
-	if personaID == "" {
+	if personaID == "" || !strings.HasPrefix(t, personaID+"-") {
 		return false
 	}
-	prefix := personaID + "-"
-	if !strings.HasPrefix(t, prefix) {
-		return false
-	}
-	tail := t[len(prefix):]
+	tail := t[len(personaID)+1:]
 	if len(tail) != 8 {
 		return false
 	}
 	for _, r := range tail {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
 			return false
 		}
 	}
