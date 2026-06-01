@@ -42,8 +42,13 @@ func (f turnFlow) run(ctx context.Context) error {
 		AgentID:     f.personaID,
 		StreamID:    streamID,
 	}
-	if target := space.MapSource(f.source); target.Kind == space.KindAgentDM {
-		if sp, _ := f.app.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed}); sp != nil {
+	if space.MapSource(f.source).Kind == space.KindAgentDM {
+		// Resolve the target Space the same way the writer side does.
+		// For multi-instance AgentDM the source seed is a Space id and
+		// EnsureSpace-by-seed would mint a brand-new Space rather than
+		// finding the existing one — that broke streaming scope match
+		// (lsoooj P0: agent 不回复).
+		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {
 			turn.SpaceID = sp.ID
 		}
 	}

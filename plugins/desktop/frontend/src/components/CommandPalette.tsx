@@ -24,7 +24,7 @@ export function CommandPalette() {
   const models = useStore((s) => s.models);
   const openChannel = useStore((s) => s.openChannel);
   const openThread = useStore((s) => s.openThread);
-  const openAgent = useStore((s) => s.openAgent);
+  const newAgentChat = useStore((s) => s.newAgentChat);
 
   const [query, setQuery] = useState("");
 
@@ -71,7 +71,7 @@ export function CommandPalette() {
         label: "@" + a.display,
         meta: a.role,
         onRun: () => {
-          void openAgent(a.id);
+          void newAgentChat(a.id);
           setPalette(false);
         },
       }),
@@ -109,7 +109,7 @@ export function CommandPalette() {
     });
 
     return items;
-  }, [channels, threads, agents, commands, models, openChannel, openThread, openAgent, setPalette]);
+  }, [channels, threads, agents, commands, models, openChannel, openThread, newAgentChat, setPalette]);
 
   const filtered = useMemo(() => {
     return allItems.filter((it) => {

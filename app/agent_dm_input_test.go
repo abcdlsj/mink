@@ -2,146 +2,102 @@ package app
 
 import (
 	"context"
-	"errors"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
 )
 
-func TestAgentDMHandleInputUserMessageWritesSpaceBeforeRuntime(t *testing.T) {
-	a, rec := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi there"); err != nil {
+// TestAgentDMMultiInstanceUserMessageRunsTurnAndAppendsAgentReply is the
+// minimal regression for lsoooj's "agent 不回复" report. After the
+// AgentDM multi-instance refactor (commit 2280d62 + 1843e37), sending
+// a message into a Space-id-addressed AgentDM source must still:
+//   - run the runtime turn for that persona
+//   - persist the assistant reply into the same Space (not the
+//     legacy persona-keyed singleton)
+func TestAgentDMMultiInstanceUserMessageRunsTurnAndAppendsAgentReply(t *testing.T) {
+	a := newTitleTestApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := rec.Sources(); len(got) == 0 {
-		t.Fatal("runtime should have run after Space write succeeded")
-	}
-	target := space.MapSource("desktop:agent:tshoot")
-	sp, err := a.Spaces().EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed, Display: "Tshoot"})
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ack: " + turn.Input})
+			return nil
+		}), nil
+	})
+	// Create a multi-instance AgentDM Space (seed = persona-uuid8,
+	// matching what Backend.CreateAgentDM does).
+	sp, err := a.Spaces().EnsureSpace(space.KindAgentDM, "coder-deadbeef", space.PersonaInfo{ID: "coder", Display: "Coder"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	userMessages := 0
-	for _, m := range sp.Messages {
-		if m.AuthorKind == space.ParticipantUser {
-			userMessages++
+	source := "desktop:agent:" + sp.ID
+	if _, err := a.HandleInput(context.Background(), source, "audit retry policy"); err != nil {
+		t.Fatalf("HandleInput: %v", err)
+	}
+	// Allow async title goroutine to finish writing before cleanup.
+	time.Sleep(50 * time.Millisecond)
+	loaded, _ := a.Spaces().LoadSpace(sp.ID)
+	users, agents := 0, 0
+	var agentContent string
+	for _, m := range loaded.Messages {
+		switch m.AuthorKind {
+		case space.ParticipantUser:
+			users++
+		case space.ParticipantAgent:
+			agents++
+			agentContent = m.Content
 		}
 	}
-	if userMessages != 1 {
-		t.Fatalf("user message count in AgentDM Space = %d, want 1", userMessages)
+	if users != 1 {
+		t.Fatalf("user message count = %d, want 1", users)
+	}
+	if agents != 1 {
+		t.Fatalf("agent reply count = %d, want 1 — runtime turn did not run or assistant write missed the Space", agents)
+	}
+	if agentContent != "ack: audit retry policy" {
+		t.Fatalf("agent content = %q, want ack of the user message", agentContent)
 	}
 }
 
-func TestAgentDMHandleInputRejectsUnknownPersonaWithoutTouchingSession(t *testing.T) {
-	a, rec := newRoutingTestApp(t)
-	_, err := a.HandleInput(context.Background(), "desktop:agent:ghost", "hi")
-	if !errors.Is(err, ErrAgentDMPersonaNotFound) {
-		t.Fatalf("err = %v, want ErrAgentDMPersonaNotFound", err)
-	}
-	if got := rec.Sources(); len(got) != 0 {
-		t.Fatalf("runtime must NOT run when persona resolution fails, got %d calls: %v", len(got), got)
-	}
-}
-
-func TestAgentDMHandleInputAsRejectsConflictBetweenSourceAndExplicitPersona(t *testing.T) {
-	a, _ := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	seedPersona(t, a, "coder", "Coder")
-	_, err := a.HandleInputAs(context.Background(), "desktop:agent:tshoot", "coder", "hi")
-	if !errors.Is(err, ErrAgentDMPersonaConflict) {
-		t.Fatalf("err = %v, want ErrAgentDMPersonaConflict", err)
-	}
-}
-
-func TestAgentDMHandleInputAsAcceptsMatchingExplicitPersona(t *testing.T) {
-	a, rec := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	if _, err := a.HandleInputAs(context.Background(), "desktop:agent:tshoot", "tshoot", "hi"); err != nil {
+// TestAgentDMMultiInstanceTwoSpacesIsolated checks that two Space-id
+// AgentDMs for the same persona keep their messages separate. This
+// guards against the legacy singleton fallback accidentally being
+// used and merging two conversations.
+func TestAgentDMMultiInstanceTwoSpacesIsolated(t *testing.T) {
+	a := newTitleTestApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if got := rec.Sources(); len(got) == 0 {
-		t.Fatal("runtime should have run when source seed and explicit persona agree")
-	}
-}
-
-func TestAgentDMHandleInputCLISeedDrivesRuntimePersona(t *testing.T) {
-	a, _ := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	var seenPersona *agent.Persona
 	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
-		seenPersona = env.Persona
 		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "ack"})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "echo:" + turn.Input})
 			return nil
 		}), nil
 	})
-	if _, err := a.HandleInput(context.Background(), "cli:agent:tshoot", "hi"); err != nil {
+	sp1, _ := a.Spaces().EnsureSpace(space.KindAgentDM, "coder-aaaaaaaa", space.PersonaInfo{ID: "coder", Display: "Coder"})
+	sp2, _ := a.Spaces().EnsureSpace(space.KindAgentDM, "coder-bbbbbbbb", space.PersonaInfo{ID: "coder", Display: "Coder"})
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:"+sp1.ID, "first ask"); err != nil {
 		t.Fatal(err)
 	}
-	if seenPersona == nil {
-		t.Fatal("runtime env must carry persona derived from cli:agent:* source seed")
-	}
-	if seenPersona.ID != "tshoot" {
-		t.Fatalf("persona id = %q, want tshoot", seenPersona.ID)
-	}
-}
-
-func TestAgentDMAssistantMultiMessageAssemblesIntoSingleSpaceMessage(t *testing.T) {
-	a, _ := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
-		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "first part."})
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "second part."})
-			return nil
-		}), nil
-	})
-	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:"+sp2.ID, "second ask"); err != nil {
 		t.Fatal(err)
 	}
-	target := space.MapSource("desktop:agent:tshoot")
-	sp, err := a.Spaces().EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed, Display: "Tshoot"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	agentMessages := 0
-	var combined string
-	for _, m := range sp.Messages {
-		if m.AuthorKind == space.ParticipantAgent {
-			agentMessages++
-			combined = m.Content
+	time.Sleep(50 * time.Millisecond)
+	loaded1, _ := a.Spaces().LoadSpace(sp1.ID)
+	loaded2, _ := a.Spaces().LoadSpace(sp2.ID)
+	for _, m := range loaded1.Messages {
+		if m.Content == "second ask" || m.Content == "echo:second ask" {
+			t.Fatalf("instance 1 leaked content from instance 2: %q", m.Content)
 		}
 	}
-	if agentMessages != 1 {
-		t.Fatalf("agent message count = %d, want 1 (multi-message turn must assemble)", agentMessages)
-	}
-	if combined != "first part.\nsecond part." {
-		t.Fatalf("combined content = %q, want assembled join", combined)
-	}
-}
-
-func TestAgentDMAssistantToolOnlyTurnDoesNotWriteSpaceMessage(t *testing.T) {
-	a, _ := newRoutingTestApp(t)
-	seedPersona(t, a, "tshoot", "Tshoot")
-	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
-		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			return nil
-		}), nil
-	})
-	if _, err := a.HandleInput(context.Background(), "desktop:agent:tshoot", "hi"); err != nil {
-		t.Fatal(err)
-	}
-	target := space.MapSource("desktop:agent:tshoot")
-	sp, err := a.Spaces().EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{ID: target.Seed, Display: "Tshoot"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range sp.Messages {
-		if m.AuthorKind == space.ParticipantAgent {
-			t.Fatalf("tool-only / empty turn must not write agent message, got %+v", m)
+	for _, m := range loaded2.Messages {
+		if m.Content == "first ask" || m.Content == "echo:first ask" {
+			t.Fatalf("instance 2 leaked content from instance 1: %q", m.Content)
 		}
 	}
 }

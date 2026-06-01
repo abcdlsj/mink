@@ -120,11 +120,12 @@ export function LeftPane() {
               onClick={() => {
                 if (r.kind === "channel") void openChannel(r.id);
                 else if (r.kind === "agent_dm") {
-                  // Recent gives a Space id but openAgent needs the persona id.
-                  // We pull it from the displayed title which is "@<display>";
-                  // fall back to opening by id if the lookup fails.
-                  const personaID = r.title.startsWith("@") ? r.title.slice(1) : r.title;
-                  void openAgent(personaID);
+                  // Recent gives a Space id; openAgent now accepts
+                  // either a persona id (legacy singleton) or a Space
+                  // id (multi-instance), so we pass the Space id
+                  // directly to keep the user in the same historical
+                  // conversation row.
+                  void openAgent(r.id);
                 } else if (r.kind === "direct_chat") void openDirectChat(r.id);
               }}
               className={cn(
