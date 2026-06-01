@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AgentDMItem,
   AgentItem,
   ChannelItem,
   CommandItem,
@@ -55,6 +56,7 @@ interface State {
   channels: ChannelItem[];
   threads: ThreadItem[];
   directChats: DirectChatItem[];
+  agentDMs: AgentDMItem[];
   recent: RecentItem[];
   agents: AgentItem[];
   personas: PersonaItem[];
@@ -81,6 +83,7 @@ interface State {
   openThread: (id: string) => Promise<void>;
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
+  newAgentChat: (personaID: string) => Promise<void>;
   openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
@@ -220,6 +223,7 @@ export const useStore = create<State>((set, get) => ({
   channels: [],
   threads: [],
   directChats: [],
+  agentDMs: [],
   recent: [],
   agents: [],
   personas: [],
@@ -241,11 +245,12 @@ export const useStore = create<State>((set, get) => ({
   streaming: null,
 
   async loadInitial() {
-    const [state, channels, threads, directChats, recent, agents, personas, models, tools, commands] = await Promise.all([
+    const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands] = await Promise.all([
       api.state(),
       api.channels(),
       api.threads(),
       api.directChats(),
+      api.agentDMs(),
       api.recent(),
       api.agents(),
       api.personas(),
@@ -253,7 +258,7 @@ export const useStore = create<State>((set, get) => ({
       api.tools(),
       api.commands(),
     ]);
-    set({ state, channels, threads, directChats, recent, agents, personas, models, tools, commands, ready: true });
+    set({ state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands, ready: true });
     if (channels.length) {
       await get().openChannel(channels[0].id);
     }
@@ -299,7 +304,12 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openAgent(id) {
-    const ag = get().agents.find((a) => a.id === id);
+    // `id` may be either a persona id (legacy / cli compat — opens
+    // the singleton AgentDM Space for that persona) or a Space id
+    // produced by ListAgentDMs (multi-instance — opens that specific
+    // conversation). The backend GetAgentDM endpoint accepts both.
+    const personaForLookup = get().agentDMs.find((d) => d.id === id)?.persona_id || id;
+    const ag = get().agents.find((a) => a.id === personaForLookup);
     let detail: SessionDetail;
     try {
       detail = await api.agentDM(id);
@@ -318,7 +328,7 @@ export const useStore = create<State>((set, get) => ({
     if (!detail.summary && ag?.role) detail.summary = ag.role;
     set({
       view: "agent",
-      activeAgent: id,
+      activeAgent: detail.item.id || id,
       activeChannel: null,
       activeThread: null,
       detail,
@@ -327,6 +337,13 @@ export const useStore = create<State>((set, get) => ({
       streaming: null,
       expandedTaskID: null,
     });
+  },
+
+  async newAgentChat(personaID) {
+    const item = await api.createAgentDM(personaID);
+    const agentDMs = await api.agentDMs();
+    set({ agentDMs });
+    await get().openAgent(item.id);
   },
 
   async newDirectChat() {

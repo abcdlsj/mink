@@ -37,6 +37,15 @@ export interface DirectChatItem {
   has_running: boolean;
 }
 
+export interface AgentDMItem {
+  id: string;
+  persona_id: string;
+  persona_name?: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+}
+
 export interface RecentItem {
   id: string;
   kind: "channel" | "direct_chat" | "agent_dm";

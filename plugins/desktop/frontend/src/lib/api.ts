@@ -1,4 +1,5 @@
 import type {
+  AgentDMItem,
   AgentItem,
   ChannelItem,
   CommandItem,
@@ -43,6 +44,15 @@ export const api = {
   thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
   agentDM: (agentID: string) =>
     j<SessionDetail>(fetch("/api/agent-dm?agent=" + encodeURIComponent(agentID))),
+  agentDMs: () => j<AgentDMItem[]>(fetch("/api/agent-dms")),
+  createAgentDM: (personaID: string) =>
+    j<AgentDMItem>(
+      fetch("/api/agent-dm/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ persona_id: personaID }),
+      }),
+    ),
   newDirect: () =>
     j<SessionDetail>(
       fetch("/api/new-direct", { method: "POST" }),

@@ -8,6 +8,7 @@ export function LeftPane() {
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
   const directChats = useStore((s) => s.directChats);
+  const agentDMs = useStore((s) => s.agentDMs);
   const recent = useStore((s) => s.recent);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
@@ -16,6 +17,7 @@ export function LeftPane() {
   const openChannel = useStore((s) => s.openChannel);
   const createChannel = useStore((s) => s.createChannel);
   const openAgent = useStore((s) => s.openAgent);
+  const newAgentChat = useStore((s) => s.newAgentChat);
   const openDirectChat = useStore((s) => s.openDirectChat);
   const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
@@ -39,7 +41,7 @@ export function LeftPane() {
           onDirect={() => {
             void newDirectChat();
           }}
-          onMessageAgent={(id) => void openAgent(id)}
+          onMessageAgent={(id) => void newAgentChat(id)}
           agents={agents}
         />
         <Button
@@ -74,15 +76,17 @@ export function LeftPane() {
 
       <GroupLabel>Agent DMs</GroupLabel>
       <ul className="flex flex-col gap-px">
-        {agents.map((a) => (
+        {agentDMs.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
+        )}
+        {agentDMs.map((dm) => (
           <NavItem
-            key={a.id}
+            key={dm.id}
             icon={<AtSign className="size-4" />}
-            name={a.display}
-            running={a.status === "running"}
-            active={view === "agent" && activeAgent === a.id}
-            onClick={() => void openAgent(a.id)}
-            tooltip={a.status === "running" ? `${a.display} · running` : undefined}
+            name={dm.title || "@" + (dm.persona_name || dm.persona_id)}
+            active={view === "agent" && activeAgent === dm.id}
+            onClick={() => void openAgent(dm.id)}
+            tooltip={"@" + (dm.persona_name || dm.persona_id)}
           />
         ))}
       </ul>
