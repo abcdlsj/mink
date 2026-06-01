@@ -116,7 +116,11 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		case space.KindDirectChat:
 			source = "desktop:direct:" + sp.Title
 		case space.KindAgentDM:
-			source = "desktop:agent:" + sp.Title
+			// Multi-instance: address by Space id directly so the
+			// resolver picks the right conversation regardless of
+			// title state. Singleton AgentDM Spaces also resolve here
+			// since their ids share the same prefix shape.
+			source = "desktop:agent:" + sp.ID
 		}
 	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
 		source = req.SessionID
@@ -1166,34 +1170,204 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if agentID == "" {
 		return SessionDetail{}
 	}
-	// P3.2: Agent DM reads from the KindAgentDM Space directly
-	// instead of walking session.Source prefixes. Each agent has a
-	// singleton DM Space keyed by its persona id; EnsureSpace creates
-	// it (with the strict user+agent participant seed) on first
-	// access and is idempotent thereafter.
+	// Two addressing modes share this endpoint:
+	//   - persona id  -> singleton AgentDM (legacy / cli compat)
+	//   - Space id    -> a specific AgentDM instance (multi-instance UI)
+	var sp *space.Space
+	if isAgentDMSpaceID(agentID) {
+		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
+			sp = loaded
+		}
+	}
 	display := agentID
 	role := ""
-	if p := b.app.Personas().Get(agentID); p != nil {
-		display = p.Display
-		role = p.Description
+	if sp != nil {
+		if pid := agentParticipantIDForBackend(sp); pid != "" {
+			if p := b.app.Personas().Get(pid); p != nil {
+				display = p.Display
+				role = p.Description
+			} else {
+				display = pid
+			}
+		}
+	} else {
+		if p := b.app.Personas().Get(agentID); p != nil {
+			display = p.Display
+			role = p.Description
+		}
+		ensured, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, agentID, space.PersonaInfo{
+			ID:      agentID,
+			Display: display,
+			Role:    role,
+		})
+		if err != nil {
+			return SessionDetail{}
+		}
+		sp = ensured
 	}
-	sp, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, agentID, space.PersonaInfo{
-		ID:      agentID,
-		Display: display,
-		Role:    role,
-	})
-	if err != nil {
-		return SessionDetail{}
+	pid := agentParticipantIDForBackend(sp)
+	if pid == "" {
+		pid = personaIDForLegacy(sp, agentID)
+	}
+	title := visibleAgentDMTitle(sp, pid)
+	if title == "New chat" {
+		// For visual hierarchy, when there is no real title yet, fall
+		// back to the persona handle so the header still tells the
+		// user who they are messaging.
+		title = "@" + display
 	}
 	return SessionDetail{
 		Item: SessionItem{
 			ID:           sp.ID,
-			Title:        "@" + display,
+			Title:        title,
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
 		},
 		Messages: spaceMessagesToView(sp, b.app),
 	}
+}
+
+func personaIDForLegacy(sp *space.Space, fallback string) string {
+	if id := agentParticipantIDForBackend(sp); id != "" {
+		return id
+	}
+	return strings.TrimSpace(fallback)
+}
+
+// CreateAgentDM provisions a fresh AgentDM Space instance for the
+// given persona. Each call returns a brand-new conversation; the
+// "New → Message agent" flow uses this so left-rail history rows are
+// addressable conversations, not the singleton history per persona.
+func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
+	if b.app == nil {
+		return AgentDMItem{}, fmt.Errorf("app not initialized")
+	}
+	personaID = strings.TrimSpace(personaID)
+	if personaID == "" {
+		return AgentDMItem{}, fmt.Errorf("persona id required")
+	}
+	p := b.app.Personas().Get(personaID)
+	if p == nil {
+		return AgentDMItem{}, fmt.Errorf("persona not registered: %s", personaID)
+	}
+	// Use a unique seed each call so EnsureSpace's
+	// FindSpaceByKindAndSeed never collides with an earlier
+	// conversation. The seed mixes persona id with a uuid suffix so
+	// the on-disk file name is still informative.
+	seed := p.ID + "-" + uuid.NewString()[:8]
+	info := space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
+	sp, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, seed, info)
+	if err != nil {
+		return AgentDMItem{}, err
+	}
+	return agentDMItemFromSpace(sp, b.app), nil
+}
+
+// ListAgentDMs returns every AgentDM Space (multi-instance + legacy
+// singleton) sorted by last update. The frontend renders this as
+// "Agent DMs" in the left rail.
+func (b *Backend) ListAgentDMs() []AgentDMItem {
+	if b.app == nil {
+		return nil
+	}
+	all, err := b.app.Spaces().Store().ListSpaces()
+	if err != nil {
+		return nil
+	}
+	out := make([]AgentDMItem, 0, len(all))
+	for _, sp := range all {
+		if sp.Kind != space.KindAgentDM {
+			continue
+		}
+		out = append(out, agentDMItemFromSpace(sp, b.app))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return out
+}
+
+func agentParticipantIDForBackend(sp *space.Space) string {
+	if sp == nil {
+		return ""
+	}
+	for _, p := range sp.Participants {
+		if p.Kind == space.ParticipantAgent {
+			return p.ID
+		}
+	}
+	return ""
+}
+
+func agentDMItemFromSpace(sp *space.Space, a appAccessor) AgentDMItem {
+	pid := agentParticipantIDForBackend(sp)
+	display := pid
+	if a != nil {
+		if p := a.Personas().Get(pid); p != nil && strings.TrimSpace(p.Display) != "" {
+			display = p.Display
+		}
+	}
+	title := visibleAgentDMTitle(sp, pid)
+	return AgentDMItem{
+		ID:           sp.ID,
+		PersonaID:    pid,
+		PersonaName:  display,
+		Title:        title,
+		UpdatedAt:    sp.UpdatedAt,
+		MessageCount: len(sp.Messages),
+	}
+}
+
+// visibleAgentDMTitle returns the user-visible Title for an
+// AgentDM Space. Multi-instance Spaces are seeded with
+// `<personaID>-<uuid8>`, which Space.New stores verbatim as the
+// Title. We treat that machine seed as "no title yet" so the UI
+// shows "New chat" until the auto-title generator (P10.x) writes
+// something better.
+func visibleAgentDMTitle(sp *space.Space, personaID string) string {
+	if sp == nil {
+		return "New chat"
+	}
+	t := strings.TrimSpace(sp.Title)
+	if t == "" {
+		return "New chat"
+	}
+	if isAgentDMMachineSeed(t, personaID) {
+		return "New chat"
+	}
+	return t
+}
+
+func isAgentDMMachineSeed(t, personaID string) bool {
+	if personaID == "" {
+		return false
+	}
+	prefix := personaID + "-"
+	if !strings.HasPrefix(t, prefix) {
+		return false
+	}
+	tail := t[len(prefix):]
+	if len(tail) != 8 {
+		return false
+	}
+	for _, r := range tail {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAgentDMSpaceID(s string) bool {
+	s = strings.TrimSpace(s)
+	if len(s) < 9 {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return s[8] == '-'
 }
 
 func (b *Backend) ListPersonas() []PersonaItem {
@@ -1301,6 +1475,26 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 	})
 	mux.HandleFunc("/api/agent-dm", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetAgentDM(req.URL.Query().Get("agent")))
+	})
+	mux.HandleFunc("/api/agent-dms", jsonHandler(func() any { return b.ListAgentDMs() }))
+	mux.HandleFunc("/api/agent-dm/create", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			PersonaID string `json:"persona_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		item, err := b.CreateAgentDM(in.PersonaID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, item)
 	})
 	mux.HandleFunc("/api/direct-chats", jsonHandler(func() any { return b.ListDirectChats() }))
 	mux.HandleFunc("/api/direct-chat", func(rw http.ResponseWriter, req *http.Request) {

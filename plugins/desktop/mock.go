@@ -38,6 +38,19 @@ type DirectChatItem struct {
 	HasRunning  bool      `json:"has_running"`
 }
 
+// AgentDMItem represents one row in the left rail's "Agent DMs"
+// group. Each row is an addressable AgentDM Space (multi-instance);
+// PersonaID identifies which agent the conversation is with, but
+// it does NOT key the row — Space.ID does.
+type AgentDMItem struct {
+	ID           string    `json:"id"`
+	PersonaID    string    `json:"persona_id"`
+	PersonaName  string    `json:"persona_name,omitempty"`
+	Title        string    `json:"title"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	MessageCount int       `json:"message_count"`
+}
+
 // RecentItem is one row in the left rail's "Recent" aggregator.
 // Recent is NOT a Space — it's a derived view across every kind.
 // Each item carries its kind so the frontend can dispatch the
