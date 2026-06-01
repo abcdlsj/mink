@@ -114,6 +114,38 @@ func TestMaybeAutoTitleAgentDMSkipsLowInfoFirstMessage(t *testing.T) {
 	}
 }
 
+func TestMaybeAutoTitleAgentDMUsesLaterSubstantiveTurnAfterLowInfoOpener(t *testing.T) {
+	a := newTitleTestApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindAgentDM, "coder-aaaaaaaa", space.PersonaInfo{ID: "coder", Display: "Coder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// First turn is a low-info greeting. Auto-title must NOT fire.
+	if _, err := a.Spaces().AppendUserMessage(sp.ID, "hi", nil); err != nil {
+		t.Fatal(err)
+	}
+	a.MaybeAutoTitleAgentDM(sp.ID)
+	loaded, _ := a.Spaces().LoadSpace(sp.ID)
+	if loaded.Title != "" && !looksLikeAgentDMMachineSeed(loaded.Title, "coder") {
+		t.Fatalf("Title = %q, want untouched after low-info opener", loaded.Title)
+	}
+
+	// Second turn is substantive. Auto-title must now fire and use
+	// THIS message, not the earlier "hi". Iris's rule: "等下一次有
+	// 信息量回合再生成".
+	if _, err := a.Spaces().AppendUserMessage(sp.ID, "audit retry policy please", nil); err != nil {
+		t.Fatal(err)
+	}
+	a.MaybeAutoTitleAgentDM(sp.ID)
+	loaded2, _ := a.Spaces().LoadSpace(sp.ID)
+	if !strings.Contains(loaded2.Title, "audit") && !strings.Contains(loaded2.Title, "retry") {
+		t.Fatalf("Title = %q, want a title from the second substantive turn", loaded2.Title)
+	}
+}
+
 func TestMaybeAutoTitleAgentDMLocksAfterFirstSuccess(t *testing.T) {
 	a := newTitleTestApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

@@ -265,8 +265,10 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openChannel(id) {
-    const detail = await api.channel(id);
-    const participants = await api.participants(id, "");
+    const [detail, participants] = await Promise.all([
+      api.channel(id),
+      api.participants(id, ""),
+    ]);
     set({
       view: "channel",
       activeChannel: id,
@@ -373,16 +375,19 @@ export const useStore = create<State>((set, get) => ({
 
   async openDirectChat(id) {
     let detail: SessionDetail;
+    let participants: ParticipantsView | null = null;
     try {
-      detail = await api.directChat(id);
+      const [d, p] = await Promise.all([
+        api.directChat(id),
+        api.participants("", id).catch(() => null),
+      ]);
+      detail = d;
+      participants = p;
     } catch {
       return;
     }
     if (!detail.item?.id) return;
-    let participants: ParticipantsView | null = null;
-    try {
-      participants = await api.participants("", id);
-    } catch {
+    if (!participants) {
       participants = { agents: [] };
     }
     set({
@@ -542,10 +547,15 @@ export const useStore = create<State>((set, get) => ({
     // is loaded — the left-rail AgentDMs list still needs the new
     // row label.
     if (ev.type === "space.title.changed") {
-      void api.agentDMs().then((agentDMs) => set({ agentDMs })).catch(() => undefined);
+      // Refresh both the AgentDMs list and the active scope detail
+      // in parallel — neither depends on the other.
+      const tasks: Promise<unknown>[] = [
+        api.agentDMs().then((agentDMs) => set({ agentDMs })).catch(() => undefined),
+      ];
       if (cur.detail && cur.detail.item.id === ev.space_id) {
-        void refetchActiveScope(get, set);
+        tasks.push(refetchActiveScope(get, set));
       }
+      void Promise.all(tasks);
       return;
     }
 

@@ -9,7 +9,6 @@ export function LeftPane() {
   const agents = useStore((s) => s.agents);
   const directChats = useStore((s) => s.directChats);
   const agentDMs = useStore((s) => s.agentDMs);
-  const recent = useStore((s) => s.recent);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
@@ -60,6 +59,9 @@ export function LeftPane() {
 
       <GroupLabel>Channels</GroupLabel>
       <ul className="flex flex-col gap-px">
+        {channels.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No channels yet.</li>
+        )}
         {channels.map((c) => (
           <NavItem
             key={c.id}
@@ -74,27 +76,10 @@ export function LeftPane() {
         ))}
       </ul>
 
-      <GroupLabel>Agent DMs</GroupLabel>
-      <ul className="flex flex-col gap-px">
-        {agentDMs.length === 0 && (
-          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
-        )}
-        {agentDMs.map((dm) => (
-          <NavItem
-            key={dm.id}
-            icon={<AtSign className="size-4" />}
-            name={dm.title || "@" + (dm.persona_name || dm.persona_id)}
-            active={view === "agent" && activeAgent === dm.id}
-            onClick={() => void openAgent(dm.id)}
-            tooltip={"@" + (dm.persona_name || dm.persona_id)}
-          />
-        ))}
-      </ul>
-
-      <GroupLabel>Direct Chats</GroupLabel>
+      <GroupLabel>Direct Messages</GroupLabel>
       <ul className="flex flex-col gap-px">
         {directChats.length === 0 && (
-          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct chats yet.</li>
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct messages yet.</li>
         )}
         {directChats.map((dc) => (
           <NavItem
@@ -109,48 +94,38 @@ export function LeftPane() {
         ))}
       </ul>
 
-      <GroupLabel>Recent</GroupLabel>
+      <GroupLabel>Agent Chats</GroupLabel>
       <ul className="flex flex-col gap-px">
-        {recent.length === 0 && (
-          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No recent activity.</li>
+        {agentDMs.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
         )}
-        {recent.map((r) => (
-          <li key={r.id}>
+        {agentDMs.map((dm) => (
+          <li key={dm.id}>
             <button
-              onClick={() => {
-                if (r.kind === "channel") void openChannel(r.id);
-                else if (r.kind === "agent_dm") {
-                  // Recent gives a Space id; openAgent now accepts
-                  // either a persona id (legacy singleton) or a Space
-                  // id (multi-instance), so we pass the Space id
-                  // directly to keep the user in the same historical
-                  // conversation row.
-                  void openAgent(r.id);
-                } else if (r.kind === "direct_chat") void openDirectChat(r.id);
-              }}
+              onClick={() => void openAgent(dm.id)}
               className={cn(
                 "w-full text-left px-2 py-1.5 rounded-sm border-l-2 border-transparent cursor-pointer transition-colors",
-                ((r.kind === "channel" && activeChannel === r.id) ||
-                  (r.kind === "direct_chat" && activeThread === r.id))
-                  ? "border-l-accent font-medium"
+                view === "agent" && activeAgent === dm.id
+                  ? "border-l-accent font-medium text-text"
                   : "text-text-muted hover:text-text",
               )}
-              title={r.kind}
+              title={"@" + (dm.persona_name || dm.persona_id)}
             >
-              <div className="flex items-center gap-1.5 text-[12.5px] text-text">
-                {r.kind === "channel" && <Hash className="size-3 text-text-faint shrink-0" />}
-                {r.kind === "direct_chat" && <MessageCircle className="size-3 text-text-faint shrink-0" />}
-                {r.kind === "agent_dm" && <AtSign className="size-3 text-text-faint shrink-0" />}
-                <span className="truncate">{r.title}</span>
+              <div className="flex items-center gap-1.5 text-[13px]">
+                <AtSign className="size-3 text-text-faint shrink-0" />
+                <span className="truncate">
+                  {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
+                </span>
               </div>
-              {r.subtitle && (
-                <div className="text-[11px] text-text-faint mt-0.5 truncate">{r.subtitle}</div>
-              )}
-              <div className="text-[10.5px] text-text-faint">{relTime(r.updated_at)}</div>
+              <div className="text-[11px] text-text-faint mt-0.5 truncate">
+                @{dm.persona_name || dm.persona_id}
+                {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
+              </div>
             </button>
           </li>
         ))}
       </ul>
+
       <CreateChannelModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

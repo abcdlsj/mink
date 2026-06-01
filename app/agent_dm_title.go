@@ -44,11 +44,11 @@ func (a *App) MaybeAutoTitleAgentDM(spaceID string) {
 	if !shouldAutoTitleAgentDM(sp) {
 		return
 	}
-	first := firstUserMessageContent(sp)
-	if !looksSubstantive(first) {
+	seed := firstSubstantiveUserMessageContent(sp)
+	if seed == "" {
 		return
 	}
-	title := deriveAgentDMTitle(first)
+	title := deriveAgentDMTitle(seed)
 	if strings.TrimSpace(title) == "" {
 		return
 	}
@@ -113,6 +113,24 @@ func firstUserMessageContent(sp *space.Space) string {
 		if m.AuthorKind == space.ParticipantUser && strings.TrimSpace(m.Content) != "" {
 			return m.Content
 		}
+	}
+	return ""
+}
+
+// firstSubstantiveUserMessageContent walks every user message in
+// sp.Messages and returns the first one that passes looksSubstantive.
+// This guards Iris's "等下一次有信息量回合再生成" rule: if the
+// conversation opened with `hi` / `在吗`, we keep waiting; once the
+// user types something specific later, that becomes the title seed.
+func firstSubstantiveUserMessageContent(sp *space.Space) string {
+	for _, m := range sp.Messages {
+		if m.AuthorKind != space.ParticipantUser {
+			continue
+		}
+		if !looksSubstantive(m.Content) {
+			continue
+		}
+		return m.Content
 	}
 	return ""
 }
