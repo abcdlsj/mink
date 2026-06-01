@@ -332,6 +332,25 @@ func (m *Manager) appendMessage(spaceID string, msg Message) (Message, error) {
 	return written, nil
 }
 
+// UpdateTitle sets sp.Title to title and persists. The change is
+// idempotent: passing the same title twice is a no-op. Empty title
+// reverts to "" (frontend will then fall back to its placeholder).
+func (m *Manager) UpdateTitle(spaceID, title string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		return err
+	}
+	t := strings.TrimSpace(title)
+	if sp.Title == t {
+		return nil
+	}
+	sp.Title = t
+	sp.UpdatedAt = time.Now()
+	return m.store.SaveSpace(sp)
+}
+
 func fallbackDisplay(display, id string) string {
 	if d := strings.TrimSpace(display); d != "" {
 		return d

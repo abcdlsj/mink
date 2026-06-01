@@ -537,6 +537,18 @@ export const useStore = create<State>((set, get) => ({
 
   applyEvent(ev) {
     const cur = get();
+
+    // space.title.changed must be handled even when no Space detail
+    // is loaded — the left-rail AgentDMs list still needs the new
+    // row label.
+    if (ev.type === "space.title.changed") {
+      void api.agentDMs().then((agentDMs) => set({ agentDMs })).catch(() => undefined);
+      if (cur.detail && cur.detail.item.id === ev.space_id) {
+        void refetchActiveScope(get, set);
+      }
+      return;
+    }
+
     const detail = cur.detail;
     if (!detail) return;
 

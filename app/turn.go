@@ -100,8 +100,19 @@ func (a *App) persistAssistantTurn(source, personaID string, s *session.Session,
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return nil
 	}
-	_, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
-	return err
+	written, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
+	if err != nil {
+		return err
+	}
+	// Iris's spec: after the first agent reply lands, kick off auto-
+	// title generation. Async + best-effort: failures must not block
+	// the turn or surface to the user. Once a non-machine title is
+	// stored, MaybeAutoTitleAgentDM is a no-op (lock-on-success).
+	if written != nil && written.SpaceID != "" {
+		spaceID := written.SpaceID
+		go a.MaybeAutoTitleAgentDM(spaceID)
+	}
+	return nil
 }
 
 func (f turnFlow) publish(typ, err string) {
