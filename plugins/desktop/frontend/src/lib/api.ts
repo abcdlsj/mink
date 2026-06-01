@@ -40,6 +40,14 @@ export const api = {
     ),
   threads: () => j<ThreadItem[]>(fetch("/api/threads")),
   agents: () => j<AgentItem[]>(fetch("/api/agents")),
+  setChannelAgentMode: (channelID: string, personaID: string, mode: string) =>
+    j<{ ok: string }>(
+      fetch("/api/channel/agent-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id: channelID, persona_id: personaID, mode }),
+      }),
+    ),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
   thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
   agentDM: (agentID: string) =>

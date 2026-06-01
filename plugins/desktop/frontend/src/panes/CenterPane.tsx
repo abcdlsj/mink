@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
+import { Hash, MessageSquare, AtSign, Square, Settings } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
@@ -13,6 +13,7 @@ export function CenterPane() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
   const channels = useStore((s) => s.channels);
+  const agents = useStore((s) => s.agents);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
@@ -59,10 +60,12 @@ export function CenterPane() {
   let titleText = item.title;
   let metaText = "";
   let TitleIcon = MessageSquare;
+  let listeningHint = "";
   if (view === "channel") {
     TitleIcon = Hash;
     titleText = channel?.name || "channel";
     metaText = item.running ? "agents running" : "";
+    listeningHint = listeningSummary(channel, agents);
   } else if (view === "thread") {
     TitleIcon = MessageSquare;
     metaText = channel ? `in #${channel.name}` : "";
@@ -81,8 +84,17 @@ export function CenterPane() {
           <h2 className="flex items-center gap-1.5 text-[17px] font-display font-semibold text-text">
             <TitleIcon className="size-[18px] text-text-muted" />
             <span>{titleText}</span>
+            {view === "channel" && channel && (
+              <ListeningGear channel={channel} agents={agents} />
+            )}
           </h2>
-          {metaText && <div className="mt-1 text-[12px] text-text-faint">{metaText}</div>}
+          {(metaText || listeningHint) && (
+            <div className="mt-1 text-[12px] text-text-faint">
+              {metaText}
+              {metaText && listeningHint && " · "}
+              {listeningHint}
+            </div>
+          )}
         </div>
         {showStop && (
           <Button variant="danger" size="sm" onClick={() => void useStore.getState().stop()}>
@@ -113,6 +125,90 @@ export function CenterPane() {
 
       <Composer />
     </main>
+  );
+}
+
+function listeningSummary(
+  ch: import("@/lib/types").ChannelItem | undefined,
+  agents: import("@/lib/types").AgentItem[],
+): string {
+  if (!ch || !ch.agent_modes) return "";
+  const ids = Object.entries(ch.agent_modes)
+    .filter(([, m]) => m === "listen")
+    .map(([id]) => id);
+  if (ids.length === 0) return "";
+  const names = ids.map((id) => agents.find((a) => a.id === id)?.display || id);
+  if (names.length === 1) return `${names[0]} listening`;
+  if (names.length === 2) return `${names[0]}, ${names[1]} listening`;
+  return `${names[0]}, ${names[1]} +${names.length - 2} listening`;
+}
+
+function ListeningGear({
+  channel,
+  agents,
+}: {
+  channel: import("@/lib/types").ChannelItem;
+  agents: import("@/lib/types").AgentItem[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const setMode = useStore((s) => s.setChannelAgentMode);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const modeFor = (id: string) => channel.agent_modes?.[id] || "mention_only";
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="ml-1 inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text"
+        title="Channel agent settings"
+      >
+        <Settings className="size-3.5" />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 w-[260px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+          <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
+            Listening
+          </div>
+          {agents.length === 0 && (
+            <div className="px-3 py-2 text-[11.5px] text-text-faint">No agents.</div>
+          )}
+          {agents.map((a) => {
+            const m = modeFor(a.id);
+            const next = m === "listen" ? "mention_only" : "listen";
+            return (
+              <button
+                key={a.id}
+                onClick={() => void setMode(channel.id, a.id, next)}
+                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5 text-text">
+                  <AtSign className="size-3 text-text-faint" />
+                  {a.display}
+                </span>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    m === "listen" ? "text-accent font-medium" : "text-text-faint",
+                  )}
+                >
+                  {m === "listen" ? "Listen" : "Mention only"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -268,6 +364,11 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
+        {m.auto_reply_reason && m.role !== "user" && (
+          <div className="text-[11.5px] text-text-faint mb-1">
+            {(ag?.display || m.author_name || "Agent")} joined from channel listening.
+          </div>
+        )}
         {m.content && (
           m.role === "user" ? (
             <div
@@ -762,7 +863,7 @@ function Composer() {
       <div className="mx-auto max-w-[800px]">
         {showRouteHint && (
           <div className="mb-2 text-[11.5px] text-text-faint">
-            Mention an agent to route this message, or open a Direct Chat / DM.
+            Mention an agent, or let listening agents pick it up.
           </div>
         )}
         <div className="relative">

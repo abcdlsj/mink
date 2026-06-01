@@ -14,6 +14,7 @@ export interface ChannelItem {
   name: string;
   topic?: string;
   agents: string[];
+  agent_modes?: Record<string, string>;
   updated_at: string;
   unread_count: number;
   has_running: boolean;
@@ -115,6 +116,7 @@ export interface MessageView {
   thread_info?: ThreadSummary;
   is_thread_reply?: boolean;
   task_accessory?: TaskAccessoryInfo;
+  auto_reply_reason?: string;
 }
 
 export interface TaskAccessoryInfo {

@@ -6,13 +6,14 @@ import (
 )
 
 type ChannelItem struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Topic       string    `json:"topic,omitempty"`
-	Agents      []string  `json:"agents"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	UnreadCount int       `json:"unread_count"`
-	HasRunning  bool      `json:"has_running"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Topic       string            `json:"topic,omitempty"`
+	Agents      []string          `json:"agents"`
+	AgentModes  map[string]string `json:"agent_modes,omitempty"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	UnreadCount int               `json:"unread_count"`
+	HasRunning  bool              `json:"has_running"`
 }
 
 type ThreadItem struct {

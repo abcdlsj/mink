@@ -23,20 +23,21 @@ type SessionDetail struct {
 }
 
 type MessageView struct {
-	ID            string              `json:"id"`
-	Role          string              `json:"role"`
-	AuthorID      string              `json:"author_id,omitempty"`
-	AuthorName    string              `json:"author_name,omitempty"`
-	Content       string              `json:"content,omitempty"`
-	Reasoning     string              `json:"reasoning,omitempty"`
-	Time          time.Time           `json:"time"`
-	Events        []EventBlock        `json:"events,omitempty"`
-	Usage         *TokenUsage         `json:"usage,omitempty"`
-	ThreadID      string              `json:"thread_id,omitempty"`
-	ThreadSummary string              `json:"thread_summary,omitempty"`
-	ThreadInfo    *ThreadSummary      `json:"thread_info,omitempty"`
-	IsThreadReply bool                `json:"is_thread_reply,omitempty"`
-	TaskAccessory *TaskAccessoryInfo  `json:"task_accessory,omitempty"`
+	ID              string             `json:"id"`
+	Role            string             `json:"role"`
+	AuthorID        string             `json:"author_id,omitempty"`
+	AuthorName      string             `json:"author_name,omitempty"`
+	Content         string             `json:"content,omitempty"`
+	Reasoning       string             `json:"reasoning,omitempty"`
+	Time            time.Time          `json:"time"`
+	Events          []EventBlock       `json:"events,omitempty"`
+	Usage           *TokenUsage        `json:"usage,omitempty"`
+	ThreadID        string             `json:"thread_id,omitempty"`
+	ThreadSummary   string             `json:"thread_summary,omitempty"`
+	ThreadInfo      *ThreadSummary     `json:"thread_info,omitempty"`
+	IsThreadReply   bool               `json:"is_thread_reply,omitempty"`
+	TaskAccessory   *TaskAccessoryInfo `json:"task_accessory,omitempty"`
+	AutoReplyReason string             `json:"auto_reply_reason,omitempty"`
 }
 
 type TaskAccessoryInfo struct {

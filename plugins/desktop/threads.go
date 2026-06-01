@@ -119,14 +119,15 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 
 func singleMessageToView(sp *space.Space, m space.Message, a appAccessor) MessageView {
 	return MessageView{
-		ID:         m.ID,
-		Role:       roleForKind(m.AuthorKind),
-		AuthorID:   m.AuthorID,
-		AuthorName: space.MessageAuthorDisplay(sp, m, personaResolver(a)),
-		Content:    m.Content,
-		Reasoning:  m.Reasoning,
-		Time:       m.CreatedAt,
-		ThreadID:   m.ParentMessageID,
+		ID:              m.ID,
+		Role:            roleForKind(m.AuthorKind),
+		AuthorID:        m.AuthorID,
+		AuthorName:      space.MessageAuthorDisplay(sp, m, personaResolver(a)),
+		Content:         m.Content,
+		Reasoning:       m.Reasoning,
+		Time:            m.CreatedAt,
+		ThreadID:        m.ParentMessageID,
+		AutoReplyReason: m.AutoReplyReason,
 	}
 }
 

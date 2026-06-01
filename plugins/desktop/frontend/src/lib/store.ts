@@ -81,6 +81,7 @@ interface State {
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
   createChannel: (name: string) => Promise<ChannelItem>;
+  setChannelAgentMode: (channelID: string, personaID: string, mode: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
@@ -291,6 +292,12 @@ export const useStore = create<State>((set, get) => ({
     set({ channels });
     await get().openChannel(item.id);
     return item;
+  },
+
+  async setChannelAgentMode(channelID, personaID, mode) {
+    await api.setChannelAgentMode(channelID, personaID, mode);
+    const channels = await api.channels();
+    set({ channels });
   },
 
   async openThread(id) {

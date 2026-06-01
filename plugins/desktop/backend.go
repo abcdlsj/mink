@@ -320,11 +320,12 @@ func (b *Backend) ListChannels() []ChannelItem {
 				continue
 			}
 			out = append(out, ChannelItem{
-				ID:        sp.ID,
-				Name:      channelDisplayName(sp, cfg.Workspace),
-				Topic:     "",
-				Agents:    spaceAgentIDs(sp),
-				UpdatedAt: sp.UpdatedAt,
+				ID:         sp.ID,
+				Name:       channelDisplayName(sp, cfg.Workspace),
+				Topic:      "",
+				Agents:     spaceAgentIDs(sp),
+				AgentModes: sp.AgentModes,
+				UpdatedAt:  sp.UpdatedAt,
 			})
 		}
 		if len(out) > 0 {
@@ -505,12 +506,20 @@ func (b *Backend) CreateChannel(name string) (ChannelItem, error) {
 		return ChannelItem{}, err
 	}
 	return ChannelItem{
-		ID:        sp.ID,
-		Name:      channelDisplayName(sp, b.app.Config().Workspace),
-		Topic:     "",
-		Agents:    spaceAgentIDs(sp),
-		UpdatedAt: sp.UpdatedAt,
+		ID:         sp.ID,
+		Name:       channelDisplayName(sp, b.app.Config().Workspace),
+		Topic:      "",
+		Agents:     spaceAgentIDs(sp),
+		AgentModes: sp.AgentModes,
+		UpdatedAt:  sp.UpdatedAt,
 	}, nil
+}
+
+func (b *Backend) SetChannelAgentMode(channelID, personaID, mode string) error {
+	if b.app == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	return b.app.Spaces().SetAgentMode(channelID, personaID, mode)
 }
 
 func normalizeChannelSeed(s string) string {
@@ -592,14 +601,15 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	out := make([]MessageView, 0, len(sp.Messages))
 	for _, m := range sp.Messages {
 		view := MessageView{
-			ID:         m.ID,
-			Role:       roleForKind(m.AuthorKind),
-			AuthorID:   m.AuthorID,
-			AuthorName: space.MessageAuthorDisplay(sp, m, resolver),
-			Content:    m.Content,
-			Reasoning:  m.Reasoning,
-			Time:       m.CreatedAt,
-			ThreadID:   m.ParentMessageID,
+			ID:              m.ID,
+			Role:            roleForKind(m.AuthorKind),
+			AuthorID:        m.AuthorID,
+			AuthorName:      space.MessageAuthorDisplay(sp, m, resolver),
+			Content:         m.Content,
+			Reasoning:       m.Reasoning,
+			Time:            m.CreatedAt,
+			ThreadID:        m.ParentMessageID,
+			AutoReplyReason: m.AutoReplyReason,
 		}
 		if m.ParentMessageID != "" {
 			view.IsThreadReply = true
@@ -1427,6 +1437,26 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 			return
 		}
 		writeJSON(rw, item)
+	})
+	mux.HandleFunc("/api/channel/agent-mode", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ChannelID string `json:"channel_id"`
+			PersonaID string `json:"persona_id"`
+			Mode      string `json:"mode"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := b.SetChannelAgentMode(in.ChannelID, in.PersonaID, in.Mode); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, map[string]string{"ok": "true"})
 	})
 	mux.HandleFunc("/api/threads", jsonHandler(func() any { return b.ListThreads() }))
 	mux.HandleFunc("/api/agents", jsonHandler(func() any { return b.ListAgents() }))

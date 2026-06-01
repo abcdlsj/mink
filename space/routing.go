@@ -13,6 +13,7 @@ import (
 type RoutingTarget struct {
 	AgentID string
 	Chain   *RoutingChain
+	Reason  string
 }
 
 // RoutingNotice describes a non-wake decision the routing layer
@@ -34,6 +35,7 @@ const (
 	NoticeBudgetExhausted    RoutingNoticeKind = "routing.budget_exhausted"
 	NoticeDuplicateSkipped   RoutingNoticeKind = "routing.duplicate_skipped"
 	NoticeUnknownMentionDrop RoutingNoticeKind = "routing.unknown_mention"
+	NoticeListeningAmbiguous RoutingNoticeKind = "routing.listening_ambiguous"
 )
 
 // PersonaSnapshot is what the routing layer needs to look up an
@@ -141,12 +143,24 @@ func (r *Router) RouteUserChannelMessageInThread(spaceID, content, parentMessage
 		return nil, nil, err
 	}
 	if len(mentions) == 0 {
-		return nil, []RoutingNotice{{
+		sp, _ := r.spaces.LoadSpace(spaceID)
+		listening := ListeningAgents(sp)
+		hits := ListenMatches(content, listening)
+		if len(hits) == 1 {
+			chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
+			chain.ParentMessageID = strings.TrimSpace(parentMessageID)
+			return r.fanOutListening(chain, hits[0], spaceID, written.ID)
+		}
+		notice := RoutingNotice{
 			Kind:      NoticeChannelNoTarget,
 			SpaceID:   spaceID,
 			MessageID: written.ID,
 			At:        time.Now(),
-		}}, nil
+		}
+		if len(hits) > 1 {
+			notice.Kind = NoticeListeningAmbiguous
+		}
+		return nil, []RoutingNotice{notice}, nil
 	}
 	chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
 	chain.ParentMessageID = strings.TrimSpace(parentMessageID)
@@ -215,6 +229,23 @@ func (r *Router) fanOut(chain *RoutingChain, agents []string, spaceID, originMes
 		wakes = append(wakes, RoutingTarget{AgentID: id, Chain: chain})
 	}
 	return wakes, notices, nil
+}
+
+func (r *Router) fanOutListening(chain *RoutingChain, agentID, spaceID, originMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
+	if ok, _ := chain.CanWake(agentID); !ok {
+		return nil, []RoutingNotice{{
+			Kind:      NoticeChannelNoTarget,
+			SpaceID:   spaceID,
+			MessageID: originMessageID,
+			At:        time.Now(),
+		}}, nil
+	}
+	chain.Spend(agentID)
+	return []RoutingTarget{{
+		AgentID: agentID,
+		Chain:   chain,
+		Reason:  "joined from channel listening",
+	}}, nil, nil
 }
 
 func noticeKindFor(reason string) RoutingNoticeKind {

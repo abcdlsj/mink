@@ -22,11 +22,12 @@ const (
 // proposal, threads are NOT spaces — they live as messages whose
 // ParentMessageID points at another message in the same Space.
 type Space struct {
-	ID           string        `json:"id"`
-	Kind         Kind          `json:"kind"`
-	Title        string        `json:"title,omitempty"`
-	Participants []Participant `json:"participants"`
-	Messages     []Message     `json:"messages"`
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	ID           string            `json:"id"`
+	Kind         Kind              `json:"kind"`
+	Title        string            `json:"title,omitempty"`
+	Participants []Participant     `json:"participants"`
+	Messages     []Message         `json:"messages"`
+	AgentModes   map[string]string `json:"agent_modes,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 }

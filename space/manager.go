@@ -348,6 +348,32 @@ func (m *Manager) UpdateTitle(spaceID, title string) error {
 	return m.store.SaveSpace(sp)
 }
 
+func (m *Manager) SetAgentMode(spaceID, personaID, mode string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		return err
+	}
+	personaID = strings.TrimSpace(personaID)
+	if personaID == "" {
+		return fmt.Errorf("persona id required")
+	}
+	if sp.AgentModes == nil {
+		sp.AgentModes = map[string]string{}
+	}
+	switch mode {
+	case "listen":
+		sp.AgentModes[personaID] = "listen"
+	case "mention_only", "":
+		delete(sp.AgentModes, personaID)
+	default:
+		return fmt.Errorf("invalid agent mode: %s", mode)
+	}
+	sp.UpdatedAt = time.Now()
+	return m.store.SaveSpace(sp)
+}
+
 func fallbackDisplay(display, id string) string {
 	if d := strings.TrimSpace(display); d != "" {
 		return d
