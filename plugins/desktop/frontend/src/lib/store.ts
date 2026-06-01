@@ -69,6 +69,7 @@ interface State {
   activeChannel: string | null;
   activeThread: string | null;
   activeAgent: string | null;
+  expandedTaskID: string | null;
 
   paletteOpen: boolean;
   sending: boolean;
@@ -84,6 +85,8 @@ interface State {
   setPalette: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
   stop: () => Promise<void>;
+  expandTaskInRail: (taskID: string) => void;
+  collapseTaskInRail: () => void;
   connectStream: () => () => void;
   applyEvent: (ev: BusEvent) => void;
 }
@@ -230,6 +233,7 @@ export const useStore = create<State>((set, get) => ({
   activeChannel: null,
   activeThread: null,
   activeAgent: null,
+  expandedTaskID: null,
 
   paletteOpen: false,
   sending: false,
@@ -264,6 +268,7 @@ export const useStore = create<State>((set, get) => ({
       activeAgent: null,
       detail,
       threadDetail: null,
+      expandedTaskID: null,
       participants,
       streaming: null,
     });
@@ -281,7 +286,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   closeThread() {
-    set({ activeThread: null, threadDetail: null, streaming: null });
+    set({ activeThread: null, threadDetail: null, streaming: null, expandedTaskID: null });
   },
 
   async openAgent(id) {
@@ -311,6 +316,7 @@ export const useStore = create<State>((set, get) => ({
       threadDetail: null,
       participants: null,
       streaming: null,
+      expandedTaskID: null,
     });
   },
 
@@ -366,6 +372,14 @@ export const useStore = create<State>((set, get) => ({
 
   setPalette(open) {
     set({ paletteOpen: open });
+  },
+
+  expandTaskInRail(taskID) {
+    set({ expandedTaskID: taskID });
+  },
+
+  collapseTaskInRail() {
+    set({ expandedTaskID: null });
   },
 
   async send(input, personaID) {

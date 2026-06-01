@@ -432,19 +432,42 @@ function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary 
 }
 
 function TaskAccessoryRow({ info }: { info: import("@/lib/types").TaskAccessoryInfo }) {
+  const expandTaskInRail = useStore((s) => s.expandTaskInRail);
+  const expandedTaskID = useStore((s) => s.expandedTaskID);
+  const taskInScope = useTaskInActiveRail(info.task_id);
   const label = taskAccessoryLabel(info);
   const isRunning = info.status === "running" || info.status === "queued";
+  const opened = expandedTaskID === info.task_id;
+  const onClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!taskInScope) return;
+    expandTaskInRail(info.task_id);
+  };
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
+      title={taskInScope ? undefined : "Task is outside current view"}
       className={cn(
-        "mt-1.5 inline-flex items-center gap-1.5 text-[11.5px]",
+        "mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] cursor-pointer text-left",
         info.terminal ? "text-text-faint" : "text-text-muted",
+        taskInScope ? "hover:text-text" : "cursor-help",
+        opened && "text-text",
       )}
     >
       {isRunning && <Dot status="running" />}
       <span>{label}</span>
-    </div>
+    </button>
   );
+}
+
+function useTaskInActiveRail(taskID: string): boolean {
+  const participants = useStore((s) => s.participants);
+  const threadDetail = useStore((s) => s.threadDetail);
+  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+    return (threadDetail.recent_runs || []).some((r) => r.id === taskID);
+  }
+  return (participants?.recent_runs || []).some((r) => r.id === taskID);
 }
 
 function taskAccessoryLabel(info: import("@/lib/types").TaskAccessoryInfo): string {

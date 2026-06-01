@@ -291,12 +291,17 @@ function RunCard({ run }: { run: AgentRun }) {
   const agents = useStore((s) => s.agents);
   const streaming = useStore((s) => s.streaming);
   const stop = useStore((s) => s.stop);
+  const expandedTaskID = useStore((s) => s.expandedTaskID);
+  const collapseTaskInRail = useStore((s) => s.collapseTaskInRail);
   const ag = agents.find((a) => a.id === run.agent_id);
   const [tick, setTick] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [detailErr, setDetailErr] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const externallyExpanded = expandedTaskID === run.id;
+  const effectivelyExpanded = expanded || externallyExpanded;
 
   useEffect(() => {
     if (run.status !== "running") return;
@@ -305,7 +310,7 @@ function RunCard({ run }: { run: AgentRun }) {
   }, [run.status]);
 
   useEffect(() => {
-    if (!expanded || run.status === "running") return;
+    if (!effectivelyExpanded || run.status === "running") return;
     let cancelled = false;
     setDetailLoading(true);
     setDetailErr(null);
@@ -329,7 +334,7 @@ function RunCard({ run }: { run: AgentRun }) {
     return () => {
       cancelled = true;
     };
-  }, [expanded, run.id, run.status]);
+  }, [effectivelyExpanded, run.id, run.status]);
 
   const isCurrent = streaming?.messageID === run.id;
   const startedAt = isCurrent && streaming ? streaming.startedAt : run.time;
@@ -358,6 +363,11 @@ function RunCard({ run }: { run: AgentRun }) {
   const canExpand = run.status !== "running";
   const onCardClick = () => {
     if (!canExpand) return;
+    if (externallyExpanded) {
+      collapseTaskInRail();
+      setExpanded(false);
+      return;
+    }
     setExpanded((e) => !e);
   };
 
@@ -390,7 +400,7 @@ function RunCard({ run }: { run: AgentRun }) {
       <div className="text-[11px] text-text-faint mt-0.5 tabular-nums">
         {(ag?.display || run.agent_id) + " · " + (currentStep || statusLabel(run.status)) + " · " + elapsedLabel}
       </div>
-      {expanded && canExpand && (
+      {effectivelyExpanded && canExpand && (
         <RunCardDetail loading={detailLoading} error={detailErr} detail={detail} />
       )}
     </div>
