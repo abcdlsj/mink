@@ -77,6 +77,7 @@ interface State {
 
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
+  createChannel: (name: string) => Promise<ChannelItem>;
   openThread: (id: string) => Promise<void>;
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
@@ -272,6 +273,14 @@ export const useStore = create<State>((set, get) => ({
       participants,
       streaming: null,
     });
+  },
+
+  async createChannel(name) {
+    const item = await api.createChannel(name);
+    const channels = await api.channels();
+    set({ channels });
+    await get().openChannel(item.id);
+    return item;
   },
 
   async openThread(id) {

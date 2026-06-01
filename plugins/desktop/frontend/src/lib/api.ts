@@ -18,13 +18,25 @@ import type {
 
 const j = async <T>(p: Promise<Response>): Promise<T> => {
   const r = await p;
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (!r.ok) {
+    const detail = await r.text().catch(() => "");
+    const trimmed = detail.trim();
+    throw new Error(trimmed !== "" ? trimmed : `${r.status} ${r.statusText}`);
+  }
   return r.json();
 };
 
 export const api = {
   state: () => j<WorkspaceState>(fetch("/api/state")),
   channels: () => j<ChannelItem[]>(fetch("/api/channels")),
+  createChannel: (name: string) =>
+    j<ChannelItem>(
+      fetch("/api/channel/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      }),
+    ),
   threads: () => j<ThreadItem[]>(fetch("/api/threads")),
   agents: () => j<AgentItem[]>(fetch("/api/agents")),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),

@@ -485,6 +485,60 @@ func (b *Backend) ListAgents() []AgentItem {
 	return out
 }
 
+func (b *Backend) CreateChannel(name string) (ChannelItem, error) {
+	if b.app == nil {
+		return ChannelItem{}, fmt.Errorf("app not initialized")
+	}
+	seed := normalizeChannelSeed(name)
+	if seed == "" {
+		return ChannelItem{}, fmt.Errorf("channel name required")
+	}
+	if existing, err := b.app.Spaces().Store().FindSpaceByKindAndSeed(space.KindChannel, seed); err == nil && existing != nil {
+		return ChannelItem{}, fmt.Errorf("channel %q already exists", seed)
+	}
+	sp, err := b.app.Spaces().EnsureSpace(space.KindChannel, seed, space.PersonaInfo{})
+	if err != nil {
+		return ChannelItem{}, err
+	}
+	return ChannelItem{
+		ID:        sp.ID,
+		Name:      channelDisplayName(sp, b.app.Config().Workspace),
+		Topic:     "",
+		Agents:    spaceAgentIDs(sp),
+		UpdatedAt: sp.UpdatedAt,
+	}, nil
+}
+
+func normalizeChannelSeed(s string) string {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	var b strings.Builder
+	prevDash := false
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + 32)
+			prevDash = false
+		case r == '-' || r == '_':
+			if !prevDash && b.Len() > 0 {
+				b.WriteRune('-')
+				prevDash = true
+			}
+		case r == ' ':
+			if !prevDash && b.Len() > 0 {
+				b.WriteRune('-')
+				prevDash = true
+			}
+		}
+		if b.Len() >= 32 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
 func (b *Backend) GetChannel(id string) SessionDetail {
 	if b.app == nil {
 		return mockChannelDetail(id)
@@ -1215,6 +1269,25 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 		writeJSON(rw, out)
 	})
 	mux.HandleFunc("/api/channels", jsonHandler(func() any { return b.ListChannels() }))
+	mux.HandleFunc("/api/channel/create", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		item, err := b.CreateChannel(in.Name)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, item)
+	})
 	mux.HandleFunc("/api/threads", jsonHandler(func() any { return b.ListThreads() }))
 	mux.HandleFunc("/api/agents", jsonHandler(func() any { return b.ListAgents() }))
 	mux.HandleFunc("/api/channel", func(rw http.ResponseWriter, req *http.Request) {

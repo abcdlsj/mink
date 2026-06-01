@@ -14,10 +14,23 @@ export function LeftPane() {
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
   const openChannel = useStore((s) => s.openChannel);
+  const createChannel = useStore((s) => s.createChannel);
   const openAgent = useStore((s) => s.openAgent);
   const openDirectChat = useStore((s) => s.openDirectChat);
   const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
+
+  const handleCreateChannel = async () => {
+    const name = window.prompt("Channel name (letters / numbers / dashes)");
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (trimmed === "") return;
+    try {
+      await createChannel(trimmed);
+    } catch (err) {
+      window.alert("Could not create channel: " + (err instanceof Error ? err.message : String(err)));
+    }
+  };
 
   return (
     <aside className="h-full border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
@@ -25,6 +38,9 @@ export function LeftPane() {
         <NewMenu
           onChannel={() => {
             if (channels[0]) void openChannel(channels[0].id);
+          }}
+          onCreateChannel={() => {
+            void handleCreateChannel();
           }}
           onDirect={() => {
             void newDirectChat();
@@ -142,11 +158,13 @@ export function LeftPane() {
 
 function NewMenu({
   onChannel,
+  onCreateChannel,
   onDirect,
   onMessageAgent,
   agents,
 }: {
   onChannel: () => void;
+  onCreateChannel: () => void;
   onDirect: () => void;
   onMessageAgent: (id: string) => void;
   agents: { id: string; display: string }[];
@@ -185,6 +203,14 @@ function NewMenu({
             onClick={() => {
               setOpen(false);
               onDirect();
+            }}
+          />
+          <MenuItem
+            label="Create channel"
+            sub="A new shared room."
+            onClick={() => {
+              setOpen(false);
+              onCreateChannel();
             }}
           />
           <MenuItem
