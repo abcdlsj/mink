@@ -74,6 +74,7 @@ interface State {
   expandedTaskID: string | null;
 
   paletteOpen: boolean;
+  quickCreateOpen: boolean;
   sending: boolean;
   streaming: StreamingTurn | null;
 
@@ -87,6 +88,7 @@ interface State {
   openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
+  setQuickCreate: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
   stop: () => Promise<void>;
   expandTaskInRail: (taskID: string) => void;
@@ -241,6 +243,7 @@ export const useStore = create<State>((set, get) => ({
   expandedTaskID: null,
 
   paletteOpen: false,
+  quickCreateOpen: false,
   sending: false,
   streaming: null,
 
@@ -399,6 +402,10 @@ export const useStore = create<State>((set, get) => ({
 
   setPalette(open) {
     set({ paletteOpen: open });
+  },
+
+  setQuickCreate(open) {
+    set({ quickCreateOpen: open });
   },
 
   expandTaskInRail(taskID) {

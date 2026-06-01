@@ -1,12 +1,10 @@
-import { Hash, AtSign, MessageCircle, Plus, Search, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Hash, AtSign, MessageCircle, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
 
 export function LeftPane() {
   const channels = useStore((s) => s.channels);
-  const agents = useStore((s) => s.agents);
   const directChats = useStore((s) => s.directChats);
   const agentDMs = useStore((s) => s.agentDMs);
   const view = useStore((s) => s.view);
@@ -14,35 +12,26 @@ export function LeftPane() {
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
   const openChannel = useStore((s) => s.openChannel);
-  const createChannel = useStore((s) => s.createChannel);
   const openAgent = useStore((s) => s.openAgent);
-  const newAgentChat = useStore((s) => s.newAgentChat);
   const openDirectChat = useStore((s) => s.openDirectChat);
-  const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
-
-  const [createOpen, setCreateOpen] = useState(false);
-
-  const submitCreateChannel = async (name: string) => {
-    await createChannel(name);
-  };
+  const setQuickCreate = useStore((s) => s.setQuickCreate);
 
   return (
     <aside className="h-full border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
       <div className="flex flex-col gap-1.5 px-1 pb-1.5">
-        <NewMenu
-          onChannel={() => {
-            if (channels[0]) void openChannel(channels[0].id);
-          }}
-          onCreateChannel={() => {
-            setCreateOpen(true);
-          }}
-          onDirect={() => {
-            void newDirectChat();
-          }}
-          onMessageAgent={(id) => void newAgentChat(id)}
-          agents={agents}
-        />
+        <Button
+          variant="default"
+          size="default"
+          className="justify-start"
+          onClick={() => setQuickCreate(true)}
+        >
+          <Plus className="size-3" />
+          <span>New</span>
+          <span className="ml-auto rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint">
+            ⌘T
+          </span>
+        </Button>
         <Button
           variant="default"
           size="default"
@@ -125,229 +114,7 @@ export function LeftPane() {
           </li>
         ))}
       </ul>
-
-      <CreateChannelModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={submitCreateChannel}
-      />
     </aside>
-  );
-}
-
-function CreateChannelModal({
-  open,
-  onClose,
-  onSubmit,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (name: string) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setName("");
-      setError(null);
-      setBusy(false);
-      const t = setTimeout(() => inputRef.current?.focus(), 30);
-      return () => clearTimeout(t);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  const trimmed = name.trim();
-  const canSubmit = trimmed.length > 0 && !busy;
-
-  const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onSubmit(trimmed);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <form
-        onSubmit={handleSubmit}
-        className="w-[360px] rounded-lg border border-border bg-panel p-5 shadow-[0_24px_48px_-12px_rgba(31,41,51,0.18)]"
-      >
-        <div className="text-[14px] font-display font-semibold text-text">Create channel</div>
-        <div className="mt-1 text-[12px] text-text-faint">
-          Channels are shared rooms in this workspace. Mention an agent to route a message.
-        </div>
-        <div className="mt-3.5">
-          <label className="block text-[11.5px] uppercase tracking-[0.6px] text-text-whisper font-display font-semibold mb-1.5">
-            Name
-          </label>
-          <div className="relative">
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint text-[13px]">
-              #
-            </span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="research"
-              disabled={busy}
-              className="w-full rounded-md border border-border bg-bg pl-6 pr-3 py-2 text-[13.5px] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
-            />
-          </div>
-          <div className="mt-1 text-[11.5px] text-text-faint">
-            Letters, numbers, dashes. Spaces become dashes.
-          </div>
-          {error && <div className="mt-2 text-[12px] text-error">{error}</div>}
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button
-            variant="default"
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="bg-transparent"
-          >
-            Cancel
-          </Button>
-          <Button variant="primary" type="submit" disabled={!canSubmit}>
-            {busy ? "Creating…" : "Create"}
-          </Button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function NewMenu({
-  onChannel,
-  onCreateChannel,
-  onDirect,
-  onMessageAgent,
-  agents,
-}: {
-  onChannel: () => void;
-  onCreateChannel: () => void;
-  onDirect: () => void;
-  onMessageAgent: (id: string) => void;
-  agents: { id: string; display: string }[];
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  return (
-    <div ref={ref} className="relative">
-      <Button
-        variant="default"
-        size="default"
-        className="justify-between w-full"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className="flex items-center gap-2">
-          <Plus className="size-3" />
-          <span>New</span>
-        </span>
-        <ChevronDown className={cn("size-3 text-text-faint transition-transform", open && "rotate-180")} />
-      </Button>
-      {open && (
-        <div className="absolute z-30 mt-1 w-[220px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
-          <MenuItem
-            label="Start direct chat"
-            sub="A standalone conversation."
-            onClick={() => {
-              setOpen(false);
-              onDirect();
-            }}
-          />
-          <MenuItem
-            label="Create channel"
-            sub="A new shared room."
-            onClick={() => {
-              setOpen(false);
-              onCreateChannel();
-            }}
-          />
-          <MenuItem
-            label="Open channel"
-            sub="Jump to the workspace channel."
-            onClick={() => {
-              setOpen(false);
-              onChannel();
-            }}
-          />
-          <div className="my-1 border-t border-border-soft" />
-          <div className="px-3 pb-0.5 pt-1 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
-            Message agent
-          </div>
-          {agents.length === 0 ? (
-            <div className="px-3 py-1.5 text-text-faint text-[12.5px]">No agents configured.</div>
-          ) : (
-            agents.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => {
-                  setOpen(false);
-                  onMessageAgent(a.id);
-                }}
-                className="w-full text-left px-3 py-1.5 hover:bg-panel-2 cursor-pointer flex items-center gap-2"
-              >
-                <AtSign className="size-3 text-text-faint" />
-                <span>{a.display}</span>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MenuItem({ label, sub, onClick }: { label: string; sub: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full text-left px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
-    >
-      <div className="text-text">{label}</div>
-      <div className="text-[11px] text-text-faint">{sub}</div>
-    </button>
   );
 }
 

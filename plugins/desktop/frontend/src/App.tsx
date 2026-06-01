@@ -5,11 +5,13 @@ import { LeftPane } from "@/panes/LeftPane";
 import { CenterPane } from "@/panes/CenterPane";
 import { RightPane } from "@/panes/RightPane";
 import { CommandPalette } from "@/components/CommandPalette";
+import { QuickCreate } from "@/components/QuickCreate";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
   const loadInitial = useStore((s) => s.loadInitial);
   const setPalette = useStore((s) => s.setPalette);
+  const setQuickCreate = useStore((s) => s.setQuickCreate);
   const connectStream = useStore((s) => s.connectStream);
 
   useEffect(() => {
@@ -23,15 +25,31 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === "k") {
         e.preventDefault();
         setPalette(true);
+        return;
       }
-      if (e.key === "Escape") setPalette(false);
+      if (mod && (k === "t" || k === "n") && !e.shiftKey) {
+        e.preventDefault();
+        setQuickCreate(true);
+        return;
+      }
+      if (mod && e.shiftKey && k === "t") {
+        e.preventDefault();
+        setQuickCreate(true);
+        return;
+      }
+      if (e.key === "Escape") {
+        setPalette(false);
+        setQuickCreate(false);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setPalette]);
+  }, [setPalette, setQuickCreate]);
 
   if (!ready) {
     return (
@@ -63,6 +81,7 @@ export default function App() {
         <RightPane />
       </div>
       <CommandPalette />
+      <QuickCreate />
     </div>
   );
 }

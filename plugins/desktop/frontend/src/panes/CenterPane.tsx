@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Hash, MessageSquare, AtSign, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
 import { EventBlock } from "@/components/EventBlock";
 import { Markdown } from "@/components/Markdown";
+import { renderMentions } from "@/components/Mention";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
 
@@ -216,6 +217,10 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
     : undefined;
 
   const ag = dmAgent || agents.find((a) => a.id === m.author_id);
+  const knownMentions = useMemo(
+    () => new Set(agents.map((a) => a.id)),
+    [agents],
+  );
   const seed = m.role === "user"
     ? "user"
     : (dmAgent?.id || m.author_id || m.author_name || "agent");
@@ -271,7 +276,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
                 m.reasoning && "mt-2",
               )}
             >
-              {m.content}
+              {renderMentions(m.content, knownMentions)}
             </div>
           ) : (
             <Markdown
@@ -279,6 +284,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
                 "text-[14px] text-text leading-[1.7] max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
+              mentions={knownMentions}
             >
               {stripCollabLeak(m.content)}
             </Markdown>
