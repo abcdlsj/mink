@@ -586,6 +586,69 @@ function Composer() {
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
+  const [mentionState, setMentionState] = useState<{ start: number; query: string } | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const updateMentionState = (value: string, caret: number) => {
+    const before = value.slice(0, caret);
+    const at = before.lastIndexOf("@");
+    if (at < 0) {
+      setMentionState(null);
+      return;
+    }
+    const prevChar = at === 0 ? "" : before[at - 1];
+    if (prevChar !== "" && !/\s/.test(prevChar)) {
+      setMentionState(null);
+      return;
+    }
+    const query = before.slice(at + 1);
+    if (/\s/.test(query)) {
+      setMentionState(null);
+      return;
+    }
+    setMentionState({ start: at, query });
+    setMentionIndex(0);
+  };
+
+  const closeMention = () => {
+    setMentionState(null);
+    setMentionIndex(0);
+  };
+
+  const mentionCandidates = (() => {
+    if (!mentionState) return [] as { id: string; display: string }[];
+    const q = mentionState.query.toLowerCase();
+    return agents
+      .filter((a) => {
+        if (q === "") return true;
+        return (
+          a.id.toLowerCase().includes(q) || (a.display || "").toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 6);
+  })();
+
+  const acceptMention = (idx: number) => {
+    if (!mentionState) return;
+    const choice = mentionCandidates[idx];
+    if (!choice) return;
+    const before = input.slice(0, mentionState.start);
+    const afterStart = mentionState.start + 1 + mentionState.query.length;
+    const tail = input.slice(afterStart);
+    const inserted = "@" + choice.id + (tail.startsWith(" ") ? "" : " ");
+    const next = before + inserted + tail;
+    const caret = before.length + inserted.length;
+    setInput(next);
+    closeMention();
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(caret, caret);
+      }
+    });
+  };
   const [personaTouched, setPersonaTouched] = useState(false);
 
   const inferredPersona = (() => {
@@ -637,10 +700,48 @@ function Composer() {
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionState && mentionCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "Enter" && !(e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        acceptMention(mentionIndex);
+        return;
+      }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        acceptMention(mentionIndex);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeMention();
+        return;
+      }
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       void handleSend();
     }
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    updateMentionState(value, e.target.selectionStart ?? value.length);
+  };
+
+  const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const ta = e.currentTarget;
+    updateMentionState(ta.value, ta.selectionStart ?? ta.value.length);
   };
 
   return (
@@ -652,14 +753,54 @@ function Composer() {
           </div>
         )}
         <textarea
+          ref={textareaRef}
           rows={2}
           placeholder={placeholder}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={handleChange}
+          onSelect={handleSelect}
           onKeyDown={handleKey}
+          onBlur={() => {
+            // dismiss after a short delay to let click on suggestion register
+            setTimeout(() => closeMention(), 120);
+          }}
           disabled={sending}
           className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.55] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
         />
+        {mentionState && (
+          <div className="relative">
+            {mentionCandidates.length > 0 ? (
+              <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+                {mentionCandidates.map((a, i) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      // mouseDown so blur doesn't fire first
+                      e.preventDefault();
+                      acceptMention(i);
+                    }}
+                    onMouseEnter={() => setMentionIndex(i)}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left",
+                      i === mentionIndex ? "bg-panel-2" : "hover:bg-panel-2",
+                    )}
+                  >
+                    <span className="text-text-faint">@</span>
+                    <span className="text-text">{a.id}</span>
+                    {a.display && a.display !== a.id && (
+                      <span className="ml-auto text-[11.5px] text-text-faint">{a.display}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1.5 px-3 text-[12px] text-text-faint">
+                No agent matches "{mentionState.query}"
+              </div>
+            )}
+          </div>
+        )}
         <div className="mt-2.5 flex items-center gap-2">
           <select
             value={persona}
