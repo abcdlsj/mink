@@ -20,16 +20,10 @@ export function LeftPane() {
   const newDirectChat = useStore((s) => s.newDirectChat);
   const setPalette = useStore((s) => s.setPalette);
 
-  const handleCreateChannel = async () => {
-    const name = window.prompt("Channel name (letters / numbers / dashes)");
-    if (name === null) return;
-    const trimmed = name.trim();
-    if (trimmed === "") return;
-    try {
-      await createChannel(trimmed);
-    } catch (err) {
-      window.alert("Could not create channel: " + (err instanceof Error ? err.message : String(err)));
-    }
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const submitCreateChannel = async (name: string) => {
+    await createChannel(name);
   };
 
   return (
@@ -40,7 +34,7 @@ export function LeftPane() {
             if (channels[0]) void openChannel(channels[0].id);
           }}
           onCreateChannel={() => {
-            void handleCreateChannel();
+            setCreateOpen(true);
           }}
           onDirect={() => {
             void newDirectChat();
@@ -152,7 +146,124 @@ export function LeftPane() {
           </li>
         ))}
       </ul>
+      <CreateChannelModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={submitCreateChannel}
+      />
     </aside>
+  );
+}
+
+function CreateChannelModal({
+  open,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setError(null);
+      setBusy(false);
+      const t = setTimeout(() => inputRef.current?.focus(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const trimmed = name.trim();
+  const canSubmit = trimmed.length > 0 && !busy;
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSubmit(trimmed);
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <form
+        onSubmit={handleSubmit}
+        className="w-[360px] rounded-lg border border-border bg-panel p-5 shadow-[0_24px_48px_-12px_rgba(31,41,51,0.18)]"
+      >
+        <div className="text-[14px] font-display font-semibold text-text">Create channel</div>
+        <div className="mt-1 text-[12px] text-text-faint">
+          Channels are shared rooms in this workspace. Mention an agent to route a message.
+        </div>
+        <div className="mt-3.5">
+          <label className="block text-[11.5px] uppercase tracking-[0.6px] text-text-whisper font-display font-semibold mb-1.5">
+            Name
+          </label>
+          <div className="relative">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-faint text-[13px]">
+              #
+            </span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError(null);
+              }}
+              placeholder="research"
+              disabled={busy}
+              className="w-full rounded-md border border-border bg-bg pl-6 pr-3 py-2 text-[13.5px] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
+            />
+          </div>
+          <div className="mt-1 text-[11.5px] text-text-faint">
+            Letters, numbers, dashes. Spaces become dashes.
+          </div>
+          {error && <div className="mt-2 text-[12px] text-error">{error}</div>}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="default"
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="bg-transparent"
+          >
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={!canSubmit}>
+            {busy ? "Creating…" : "Create"}
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }
 

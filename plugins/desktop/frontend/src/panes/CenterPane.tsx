@@ -578,7 +578,6 @@ function Composer() {
   const activeThread = useStore((s) => s.activeThread);
   const agents = useStore((s) => s.agents);
   const activeAgent = useStore((s) => s.activeAgent);
-  const personas = useStore((s) => s.personas);
   const detail = useStore((s) => s.detail);
   const models = useStore((s) => s.models);
   const sending = useStore((s) => s.sending);
@@ -649,8 +648,6 @@ function Composer() {
       }
     });
   };
-  const [personaTouched, setPersonaTouched] = useState(false);
-
   const inferredPersona = (() => {
     if (view === "agent" && activeAgent) return activeAgent;
     if (view === "thread" && detail) {
@@ -664,7 +661,6 @@ function Composer() {
 
   useEffect(() => {
     setPersona(inferredPersona);
-    setPersonaTouched(false);
   }, [view, activeAgent, activeChannel, activeThread, inferredPersona]);
 
   const threadDetail = useStore((s) => s.threadDetail);
@@ -683,7 +679,6 @@ function Composer() {
 
   const trimmed = input.trim();
   const canSend = trimmed.length > 0 && !sending;
-  const personaLocked = view === "agent" && !personaTouched;
   // P3.8/polish: surface a route hint only when the user looks
   // committed to the message — at least 5 typed characters — and
   // they're in a router-managed view without a '@'. Agent DM is
@@ -802,22 +797,14 @@ function Composer() {
           </div>
         )}
         <div className="mt-2.5 flex items-center gap-2">
-          <select
-            value={persona}
-            onChange={(e) => {
-              setPersona(e.target.value);
-              setPersonaTouched(true);
-            }}
-            disabled={personaLocked}
-            className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-text-muted"
-          >
-            <option value="">Default agent</option>
-            {personas.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.display}
-              </option>
-            ))}
-          </select>
+          {view === "agent" ? (
+            <span className="text-[12px] text-text-muted px-1.5 py-1">
+              {(() => {
+                const ag = agents.find((a) => a.id === activeAgent);
+                return ag ? "@" + ag.display : "";
+              })()}
+            </span>
+          ) : null}
           <select className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:bg-panel-2 hover:text-text outline-none cursor-pointer">
             {models.map((m) => (
               <option key={m.name} value={m.name}>
