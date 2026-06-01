@@ -253,7 +253,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "font-body text-[14.5px] text-text leading-[1.7] whitespace-pre-wrap max-w-[70ch]",
+                "text-[14px] text-text leading-[1.68] whitespace-pre-wrap max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -262,7 +262,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "font-body text-[14.5px] text-text leading-[1.7] max-w-[70ch]",
+                "text-[14px] text-text leading-[1.68] max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
