@@ -36,10 +36,10 @@
     --done: #15803D;
     --reasoning: #7C6AA8;
 
-    --font-ui: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", "Noto Sans SC", -apple-system, system-ui, "PingFang SC", "Hiragino Sans GB", sans-serif;
-    --font-display: "Geist Variable", "Inter Tight Variable", "Noto Sans SC", -apple-system, system-ui, "PingFang SC", sans-serif;
-    --font-body: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", "Noto Sans SC", -apple-system, system-ui, "PingFang SC", sans-serif;
-    --font-mono: "Geist Mono Variable", "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, "Sarasa Mono SC", "Noto Sans SC", monospace;
+    --font-ui: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+    --font-display: "Geist Variable", "Inter Tight Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+    --font-body: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+    --font-mono: "Geist Mono Variable", "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, "Sarasa Mono SC", "PingFang SC", monospace;
   }
 
   html, body, #root {
