@@ -61,9 +61,3 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
   ::-webkit-scrollbar-track { background: transparent; }
 }
-
-@keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-.dot-pulse { animation: pulse-soft 1.6s ease-in-out infinite; }
