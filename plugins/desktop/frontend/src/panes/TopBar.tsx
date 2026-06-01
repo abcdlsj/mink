@@ -17,7 +17,7 @@ export function TopBar() {
     >
       <div className="flex items-center gap-2">
         <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-[4px]" />
-        <div className="text-[14px] font-display font-semibold tracking-[-0.2px] text-text">Sumi</div>
+        <div className="text-[14px] font-display font-semibold text-text">Sumi</div>
       </div>
       <div className="text-[12px] text-text-muted tabular-nums">{label}</div>
     </header>

@@ -11,8 +11,8 @@ interface MarkdownProps {
 
 const fullComponents: Components = {
   p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-[1.68]">{children}</p>,
-  h1: ({ children }) => <h1 className="font-display text-[16px] font-semibold mt-4 mb-1.5 first:mt-0 tracking-[-0.2px]">{children}</h1>,
-  h2: ({ children }) => <h2 className="font-display text-[15px] font-semibold mt-4 mb-1.5 first:mt-0 tracking-[-0.15px]">{children}</h2>,
+  h1: ({ children }) => <h1 className="font-display text-[16px] font-semibold mt-4 mb-1.5 first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="font-display text-[15px] font-semibold mt-4 mb-1.5 first:mt-0">{children}</h2>,
   h3: ({ children }) => <h3 className="font-display text-[14px] font-semibold mt-3 mb-1 first:mt-0">{children}</h3>,
   h4: ({ children }) => <h4 className="font-display text-[13.5px] font-semibold mt-2.5 mb-1 first:mt-0">{children}</h4>,
   h5: ({ children }) => <h5 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0">{children}</h5>,

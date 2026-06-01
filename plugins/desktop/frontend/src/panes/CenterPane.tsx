@@ -77,7 +77,7 @@ export function CenterPane() {
     <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
       <div className="flex items-end justify-between border-b border-border-soft px-8 pt-4 pb-3.5">
         <div>
-          <h2 className="flex items-center gap-1.5 text-[17px] font-display font-semibold text-text tracking-[-0.32px]">
+          <h2 className="flex items-center gap-1.5 text-[17px] font-display font-semibold text-text">
             <TitleIcon className="size-[18px] text-text-muted" />
             <span>{titleText}</span>
           </h2>
@@ -151,7 +151,7 @@ function EmptyState() {
           <Identicon seed={ag?.id || activeAgent || "agent"} kind="agent" />
         </div>
         <div>
-          <div className="font-display text-[17px] font-semibold text-text tracking-[-0.32px]">
+          <div className="font-display text-[17px] font-semibold text-text">
             {detail?.item?.title || "@" + (ag?.display || "")}
           </div>
           {ag?.role && <div className="text-[12.5px] text-text-muted mt-0.5">{ag.role}</div>}
@@ -234,7 +234,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       <div>
         {!compact && (
           <div className="flex items-baseline gap-2 mb-1">
-            <span className="font-display text-[13px] font-semibold text-text tracking-[-0.1px]">
+            <span className="font-display text-[13px] font-semibold text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
@@ -253,7 +253,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "text-[14px] text-text leading-[1.7] tracking-[-0.06px] whitespace-pre-wrap max-w-[70ch]",
+                "text-[14px] text-text leading-[1.7] whitespace-pre-wrap max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -262,7 +262,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "text-[14px] text-text leading-[1.7] tracking-[-0.06px] max-w-[70ch]",
+                "text-[14px] text-text leading-[1.7] max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -301,7 +301,7 @@ function ReasoningPreface({ text }: { text: string }) {
   const isLong = flat.length > 280;
   const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="text-[11.5px] text-text-faint leading-[1.5] mb-1.5 max-w-[68ch] tracking-[-0.05px]">
+    <div className="text-[11.5px] text-text-faint leading-[1.5] mb-1.5 max-w-[68ch]">
       {open ? (
         <Markdown variant="lite" className="whitespace-pre-wrap">
           {text}
@@ -761,7 +761,7 @@ function Composer() {
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
-            className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.6] tracking-[-0.06px] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
+            className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.6] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
           />
           {mentionState &&
             (mentionCandidates.length > 0 ? (
