@@ -33,6 +33,7 @@ export default {
       fontFamily: {
         ui: 'var(--font-ui)',
         display: 'var(--font-display)',
+        body: 'var(--font-body)',
         mono: 'var(--font-mono)',
       },
     },

@@ -253,7 +253,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "text-[14px] text-text leading-[1.68] whitespace-pre-wrap max-w-[70ch]",
+                "font-body text-[14.5px] text-text leading-[1.7] whitespace-pre-wrap max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -262,7 +262,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "text-[14px] text-text leading-[1.68] max-w-[70ch]",
+                "font-body text-[14.5px] text-text leading-[1.7] max-w-[70ch]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -747,25 +747,25 @@ function Composer() {
             Mention an agent to route this message, or open a Direct Chat / DM.
           </div>
         )}
-        <textarea
-          ref={textareaRef}
-          rows={2}
-          placeholder={placeholder}
-          value={input}
-          onChange={handleChange}
-          onSelect={handleSelect}
-          onKeyDown={handleKey}
-          onBlur={() => {
-            // dismiss after a short delay to let click on suggestion register
-            setTimeout(() => closeMention(), 120);
-          }}
-          disabled={sending}
-          className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.55] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
-        />
-        {mentionState && (
-          <div className="relative">
-            {mentionCandidates.length > 0 ? (
-              <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            rows={2}
+            placeholder={placeholder}
+            value={input}
+            onChange={handleChange}
+            onSelect={handleSelect}
+            onKeyDown={handleKey}
+            onBlur={() => {
+              // dismiss after a short delay to let click on suggestion register
+              setTimeout(() => closeMention(), 120);
+            }}
+            disabled={sending}
+            className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.55] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
+          />
+          {mentionState &&
+            (mentionCandidates.length > 0 ? (
+              <div className="absolute left-0 bottom-full mb-1.5 z-30 w-[280px] max-h-[260px] overflow-y-auto rounded-md border border-border bg-panel shadow-[0_-8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
                 {mentionCandidates.map((a, i) => (
                   <button
                     key={a.id}
@@ -790,12 +790,11 @@ function Composer() {
                 ))}
               </div>
             ) : (
-              <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1.5 px-3 text-[12px] text-text-faint">
+              <div className="absolute left-0 bottom-full mb-1.5 z-30 w-[280px] rounded-md border border-border bg-panel shadow-[0_-8px_24px_rgba(31,41,51,0.10)] py-1.5 px-3 text-[12px] text-text-faint">
                 No agent matches "{mentionState.query}"
               </div>
-            )}
-          </div>
-        )}
+            ))}
+        </div>
         <div className="mt-2.5 flex items-center gap-2">
           {view === "agent" ? (
             <span className="text-[12px] text-text-muted px-1.5 py-1">
