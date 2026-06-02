@@ -75,7 +75,7 @@ interface State {
 
   paletteOpen: boolean;
   quickCreateOpen: boolean;
-  ambiguousAt: number;
+  composerHint: { text: string; at: number } | null;
   sending: boolean;
   streaming: StreamingTurn | null;
 
@@ -246,7 +246,7 @@ export const useStore = create<State>((set, get) => ({
 
   paletteOpen: false,
   quickCreateOpen: false,
-  ambiguousAt: 0,
+  composerHint: null,
   sending: false,
   streaming: null,
 
@@ -556,7 +556,15 @@ export const useStore = create<State>((set, get) => ({
     }
 
     if (ev.type === "routing.listening_ambiguous") {
-      set({ ambiguousAt: Date.now() });
+      set({ composerHint: { text: "Mention a specific agent.", at: Date.now() } });
+      return;
+    }
+    if (ev.type === "routing.listening_no_match") {
+      set({ composerHint: { text: "No listening agent matched this. Mention one explicitly.", at: Date.now() } });
+      return;
+    }
+    if (ev.type === "routing.channel.no_target") {
+      set({ composerHint: { text: "No agent picked this up. Mention an agent or enable listening.", at: Date.now() } });
       return;
     }
 

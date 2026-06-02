@@ -36,6 +36,7 @@ const (
 	NoticeDuplicateSkipped   RoutingNoticeKind = "routing.duplicate_skipped"
 	NoticeUnknownMentionDrop RoutingNoticeKind = "routing.unknown_mention"
 	NoticeListeningAmbiguous RoutingNoticeKind = "routing.listening_ambiguous"
+	NoticeListeningNoMatch   RoutingNoticeKind = "routing.listening_no_match"
 )
 
 // PersonaSnapshot is what the routing layer needs to look up an
@@ -157,8 +158,11 @@ func (r *Router) RouteUserChannelMessageInThread(spaceID, content, parentMessage
 			MessageID: written.ID,
 			At:        time.Now(),
 		}
-		if len(hits) > 1 {
+		switch {
+		case len(hits) > 1:
 			notice.Kind = NoticeListeningAmbiguous
+		case len(listening) > 0:
+			notice.Kind = NoticeListeningNoMatch
 		}
 		return nil, []RoutingNotice{notice}, nil
 	}
