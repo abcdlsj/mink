@@ -1398,6 +1398,27 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 		}
 		writeJSON(rw, map[string]string{"ok": "true"})
 	})
+	mux.HandleFunc("/api/thread/agent-mode", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			SpaceID         string `json:"space_id"`
+			ParentMessageID string `json:"parent_message_id"`
+			PersonaID       string `json:"persona_id"`
+			Mode            string `json:"mode"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := b.SetThreadAgentMode(in.SpaceID, in.ParentMessageID, in.PersonaID, in.Mode); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, map[string]string{"ok": "true"})
+	})
 	mux.HandleFunc("/api/threads", jsonHandler(func() any { return b.ListThreads() }))
 	mux.HandleFunc("/api/agents", jsonHandler(func() any { return b.ListAgents() }))
 	mux.HandleFunc("/api/channel", func(rw http.ResponseWriter, req *http.Request) {

@@ -19,17 +19,19 @@ type ThreadSummary struct {
 }
 
 type ThreadDetail struct {
-	SpaceID         string        `json:"space_id"`
-	ParentID        string        `json:"parent_id"`
-	Parent          *MessageView  `json:"parent,omitempty"`
-	Replies         []MessageView `json:"replies"`
-	Participants    []AgentItem   `json:"participants,omitempty"`
-	RecentRuns      []AgentRun    `json:"recent_runs,omitempty"`
-	ActiveWorkerID  string        `json:"active_worker_id,omitempty"`
-	LastReplyTime   time.Time     `json:"last_reply_time,omitempty"`
-	NotFound        bool          `json:"not_found,omitempty"`
-	Unsupported     bool          `json:"unsupported,omitempty"`
-	UnsupportedHint string        `json:"unsupported_hint,omitempty"`
+	SpaceID         string            `json:"space_id"`
+	ParentID        string            `json:"parent_id"`
+	Parent          *MessageView      `json:"parent,omitempty"`
+	Replies         []MessageView     `json:"replies"`
+	Participants    []AgentItem       `json:"participants,omitempty"`
+	ChannelAgents   []string          `json:"channel_agents,omitempty"`
+	AgentModes      map[string]string `json:"agent_modes,omitempty"`
+	RecentRuns      []AgentRun        `json:"recent_runs,omitempty"`
+	ActiveWorkerID  string            `json:"active_worker_id,omitempty"`
+	LastReplyTime   time.Time         `json:"last_reply_time,omitempty"`
+	NotFound        bool              `json:"not_found,omitempty"`
+	Unsupported     bool              `json:"unsupported,omitempty"`
+	UnsupportedHint string            `json:"unsupported_hint,omitempty"`
 }
 
 const previewLen = 120
@@ -98,12 +100,14 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 		views = append(views, v)
 	}
 	d := ThreadDetail{
-		SpaceID:      sp.ID,
-		ParentID:     parent.ID,
-		Parent:       &parentView,
-		Replies:      views,
-		Participants: threadParticipants(sp, all, b.app),
-		RecentRuns:   b.threadRuns(sp.ID, all),
+		SpaceID:       sp.ID,
+		ParentID:      parent.ID,
+		Parent:        &parentView,
+		Replies:       views,
+		Participants:  threadParticipants(sp, all, b.app),
+		ChannelAgents: spaceAgentIDs(sp),
+		AgentModes:    effectiveThreadModes(sp, parent.ID),
+		RecentRuns:    b.threadRuns(sp.ID, all),
 	}
 	for _, r := range d.RecentRuns {
 		if r.Status == "running" || r.Status == "queued" {
@@ -133,6 +137,17 @@ func singleMessageToView(sp *space.Space, m space.Message, a appAccessor) Messag
 
 func threadKind(k space.Kind) bool {
 	return k == space.KindChannel || k == space.KindDirectChat
+}
+
+func effectiveThreadModes(sp *space.Space, parentID string) map[string]string {
+	out := map[string]string{}
+	for id, mode := range sp.AgentModes {
+		out[id] = mode
+	}
+	for id, mode := range sp.ThreadAgentModes[parentID] {
+		out[id] = mode
+	}
+	return out
 }
 
 func groupReplies(sp *space.Space) map[string][]space.Message {

@@ -84,6 +84,7 @@ interface State {
   createChannel: (name: string) => Promise<ChannelItem>;
   setChannelAgentMode: (channelID: string, personaID: string, mode: string) => Promise<void>;
   addAgentToChannel: (channelID: string, personaID: string) => Promise<void>;
+  setThreadAgentMode: (spaceID: string, parentMessageID: string, personaID: string, mode: string) => Promise<void>;
   openThread: (id: string) => Promise<void>;
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
@@ -303,6 +304,15 @@ export const useStore = create<State>((set, get) => ({
     await api.addAgentToChannel(channelID, personaID);
     const channels = await api.channels();
     set({ channels });
+  },
+
+  async setThreadAgentMode(spaceID, parentMessageID, personaID, mode) {
+    await api.setThreadAgentMode(spaceID, parentMessageID, personaID, mode);
+    const s = get();
+    if (s.threadDetail && s.threadDetail.space_id === spaceID && s.threadDetail.parent_id === parentMessageID) {
+      const td = await api.threadDetail(spaceID, parentMessageID);
+      set({ threadDetail: td });
+    }
   },
 
   async openThread(id) {

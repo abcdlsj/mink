@@ -56,6 +56,24 @@ export const api = {
         body: JSON.stringify({ channel_id: channelID, persona_id: personaID }),
       }),
     ),
+  setThreadAgentMode: (
+    spaceID: string,
+    parentMessageID: string,
+    personaID: string,
+    mode: string,
+  ) =>
+    j<{ ok: string }>(
+      fetch("/api/thread/agent-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          space_id: spaceID,
+          parent_message_id: parentMessageID,
+          persona_id: personaID,
+          mode,
+        }),
+      }),
+    ),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
   thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
   agentDM: (agentID: string) =>

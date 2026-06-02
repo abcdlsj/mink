@@ -273,6 +273,79 @@ function ListeningGear({
   );
 }
 
+function ThreadGear({
+  detail,
+  agents,
+}: {
+  detail: import("@/lib/types").ThreadDetail;
+  agents: import("@/lib/types").AgentItem[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const setMode = useStore((s) => s.setThreadAgentMode);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const joinedIDs = new Set(detail.channel_agents || []);
+  const joined = agents.filter((a) => joinedIDs.has(a.id));
+  const modeFor = (id: string) => detail.agent_modes?.[id] || "mention_only";
+
+  if (joined.length === 0) return null;
+
+  return (
+    <div className="relative ml-auto" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text"
+        title="Thread agents"
+      >
+        <Settings className="size-3.5" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+          <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
+            Agents in this thread
+          </div>
+          {joined.map((a) => {
+            const m = modeFor(a.id);
+            const next = m === "listen" ? "mention_only" : "listen";
+            return (
+              <button
+                key={a.id}
+                onClick={() => void setMode(detail.space_id, detail.parent_id, a.id, next)}
+                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5 text-text">
+                  <AtSign className="size-3 text-text-faint" />
+                  {a.display}
+                </span>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    m === "listen" ? "text-accent font-medium" : "text-text-faint",
+                  )}
+                >
+                  {m === "listen" ? "Listen" : "Mention only"}
+                </span>
+              </button>
+            );
+          })}
+          <div className="border-t border-border-soft mt-1 px-3 py-1.5 text-[10.5px] text-text-faint">
+            Inherited from channel.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function personaForActiveAgent(
   agents: import("@/lib/types").AgentItem[],
   agentDMs: import("@/lib/types").AgentDMItem[],
@@ -727,6 +800,7 @@ function ThreadView() {
         <div className="text-[12px] text-text-faint">
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
+        <ThreadGear detail={threadDetail} agents={useStore.getState().agents} />
       </div>
       <div className="overflow-y-auto px-8 pt-4 pb-6">
         <div className="mx-auto max-w-[800px]">

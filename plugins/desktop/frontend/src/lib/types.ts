@@ -143,6 +143,8 @@ export interface ThreadDetail {
   parent?: MessageView;
   replies: MessageView[];
   participants?: AgentItem[];
+  channel_agents?: string[];
+  agent_modes?: Record<string, string>;
   recent_runs?: AgentRun[];
   active_worker_id?: string;
   last_reply_time?: string;
