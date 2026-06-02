@@ -2,6 +2,8 @@
 
 Sumi v3 is a clean rewrite around a small agent core and simple plugins.
 
+The current product spec lives in [`docs/sumi.md`](docs/sumi.md).
+
 ## Shape
 
 - `app/`: composition root

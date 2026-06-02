@@ -2,6 +2,8 @@
 
 An AI Agent assistant implemented in Go.
 
+The current product spec lives in [`docs/sumi.md`](docs/sumi.md).
+
 ## Core Philosophy
 
 - **Aesthetics is Productivity**: Beautiful code is the first priority
