@@ -40,6 +40,10 @@ func (c Config) ResolvedSoulPath() string {
 	return filepath.Join(c.DataRoot(), "SOUL.md")
 }
 
+func (c Config) PreferencesPath() string {
+	return filepath.Join(c.DataRoot(), "self", "preferences.md")
+}
+
 func ConfigPath() string {
 	return filepath.Join(DefaultDataDir(), "config.toml")
 }

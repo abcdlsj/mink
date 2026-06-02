@@ -376,6 +376,9 @@ func TestHandleInputPassesPromptSettingsToRuntimeEnv(t *testing.T) {
 		if env.SoulPath != filepath.Join(dir, "SOUL.md") {
 			t.Fatalf("SoulPath = %q", env.SoulPath)
 		}
+		if env.PreferencesPath != filepath.Join(dir, "sumi-data", "self", "preferences.md") {
+			t.Fatalf("PreferencesPath = %q", env.PreferencesPath)
+		}
 		if env.TelegramMentionMode != "smart" {
 			t.Fatalf("TelegramMentionMode = %q", env.TelegramMentionMode)
 		}

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abcdlsj/sumi/command"
+
 	robcron "github.com/robfig/cron/v3"
 )
 
@@ -68,7 +70,8 @@ func (s *scheduler) load(c *robcron.Cron) error {
 }
 
 func (s *scheduler) run(task Task) {
-	out, err := s.app.HandleInput(context.Background(), cronSource(task), task.Prompt)
+	ctx := command.WithNoticeSource(context.Background(), task.Source)
+	out, err := s.app.HandleInput(ctx, cronSource(task), task.Prompt)
 	if err != nil {
 		s.app.PublishNotice(task.Source, fmt.Sprintf("[cron %s] error: %s", task.ID, err))
 		return

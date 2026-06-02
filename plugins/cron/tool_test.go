@@ -5,12 +5,33 @@ import (
 	"testing"
 )
 
-func TestSchemaDescribesCurrentSource(t *testing.T) {
+func TestSchemaDescribesDeliverySource(t *testing.T) {
 	props := (&toolImpl{}).Schema()["properties"].(map[string]any)
 	source := props["source"].(map[string]any)
 	desc := source["description"].(string)
-	if !strings.Contains(desc, "literal value `current`") {
-		t.Fatalf("source description = %q", desc)
+	for _, want := range []string{
+		"notice delivery source",
+		"literal value `current`",
+		"isolated cron session",
+		"not in this delivery source",
+	} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("source description missing %q: %q", want, desc)
+		}
+	}
+}
+
+func TestCronSourceUsesTaskID(t *testing.T) {
+	got := cronSource(Task{ID: "bazaar"})
+	if got != "cron:bazaar" {
+		t.Fatalf("cron source = %q", got)
+	}
+}
+
+func TestCronSourceFallsBackForMissingTaskID(t *testing.T) {
+	got := cronSource(Task{})
+	if got != "cron" {
+		t.Fatalf("cron source = %q", got)
 	}
 }
 

@@ -65,6 +65,24 @@ func TestBuildSystemPromptSkipsTelegramOutsideTelegramSource(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsPreferences(t *testing.T) {
+	dir := t.TempDir()
+	preferences := dir + "/preferences.md"
+	if err := os.WriteFile(preferences, []byte("Bazaar 异常才 Bark"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := BuildSystemPrompt(&RuntimeEnv{PreferencesPath: preferences}, &Turn{Source: "cron:bazaar"})
+	for _, want := range []string{
+		"User preferences:",
+		"Bazaar 异常才 Bark",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	env := &RuntimeEnv{Prompt: "项目约束"}
 	turn := &Turn{

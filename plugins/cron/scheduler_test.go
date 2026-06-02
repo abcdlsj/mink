@@ -9,6 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 )
@@ -25,8 +26,14 @@ func TestSchedulerRunPublishesOutputNotice(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = a.Close() })
 
+	var gotSource, gotSession string
 	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
 		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotSource = turn.Source
+			gotSession = turn.Session.Source
+			if got := command.NoticeSourceFrom(ctx); got != "telegram:42" {
+				t.Fatalf("notice source = %q", got)
+			}
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "喝水"})
 			return nil
 		}), nil
@@ -47,6 +54,12 @@ func TestSchedulerRunPublishesOutputNotice(t *testing.T) {
 			}
 			if ev.Source != "telegram:42" || ev.Text != "喝水" {
 				t.Fatalf("notice = %+v", ev)
+			}
+			if gotSource != "cron:cron-test" {
+				t.Fatalf("turn source = %q", gotSource)
+			}
+			if gotSession != "cron:cron-test" {
+				t.Fatalf("session source = %q", gotSession)
 			}
 			return
 		case <-deadline:

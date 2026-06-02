@@ -90,6 +90,9 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	if msg == nil || msg.Chat == nil {
 		return nil
 	}
+	if !allowTelegramMessage(cfg, msg) {
+		return nil
+	}
 	text := strings.TrimSpace(c.Text())
 	if text == "" || ap.handleText(c) {
 		return nil
@@ -131,6 +134,9 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 	if tgmsg == nil || tgmsg.Chat == nil {
 		return nil
 	}
+	if !allowTelegramMessage(cfg, tgmsg) {
+		return nil
+	}
 	text := strings.TrimSpace(tgmsg.Caption)
 	if ap.handleText(c) {
 		return nil
@@ -163,6 +169,30 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 		out = "ok"
 	}
 	return sendOutput(bot, c, out)
+}
+
+func allowTelegramMessage(cfg config.TelegramConfig, msg *tele.Message) bool {
+	if msg == nil || msg.Chat == nil {
+		return false
+	}
+	if len(cfg.AllowedUserIDs) > 0 {
+		if msg.Sender == nil || !containsID(cfg.AllowedUserIDs, msg.Sender.ID) {
+			return false
+		}
+	}
+	if len(cfg.AllowedChatIDs) > 0 && !containsID(cfg.AllowedChatIDs, msg.Chat.ID) {
+		return false
+	}
+	return true
+}
+
+func containsID(ids []int64, id int64) bool {
+	for _, v := range ids {
+		if v == id {
+			return true
+		}
+	}
+	return false
 }
 
 func telegramImageAttachment(bot *tele.Bot, m *tele.Message) (msg.Attachment, error) {

@@ -57,9 +57,11 @@ type CompactConfig struct {
 }
 
 type TelegramConfig struct {
-	Token        string `toml:"token"`
-	MentionMode  string `toml:"mention_mode"`
-	SessionScope string `toml:"session_scope"`
+	Token          string  `toml:"token"`
+	MentionMode    string  `toml:"mention_mode"`
+	SessionScope   string  `toml:"session_scope"`
+	AllowedUserIDs []int64 `toml:"allowed_user_ids"`
+	AllowedChatIDs []int64 `toml:"allowed_chat_ids"`
 }
 
 type BraveConfig struct {

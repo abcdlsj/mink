@@ -3,6 +3,7 @@ package command
 import "context"
 
 type sourceKey struct{}
+type noticeSourceKey struct{}
 type personaKey struct{}
 type parentMessageKey struct{}
 
@@ -18,6 +19,20 @@ func SourceFrom(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+func WithNoticeSource(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, noticeSourceKey{}, source)
+}
+
+func NoticeSourceFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(noticeSourceKey{}).(string); ok {
+		return v
+	}
+	return SourceFrom(ctx)
 }
 
 func WithPersona(ctx context.Context, id string) context.Context {

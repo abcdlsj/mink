@@ -37,6 +37,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.base())
 	p.Add(b.persona())
 	p.Add(b.context())
+	p.Add(b.preferences())
 	p.Add(b.soul())
 	p.Add(b.telegram())
 	p.Add(b.custom())
@@ -99,6 +100,16 @@ func (b promptBuilder) soul() string {
 		}
 	}
 	return loadSoulPrompt(b.env.SoulPath)
+}
+
+func (b promptBuilder) preferences() string {
+	if b.env == nil {
+		return ""
+	}
+	if v := loadSoulPrompt(b.env.PreferencesPath); v != "" {
+		return "User preferences:\n" + v
+	}
+	return ""
 }
 
 func (b promptBuilder) telegram() string {

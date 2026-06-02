@@ -35,6 +35,7 @@ func (a *App) runtimeEnv() *agent.RuntimeEnv {
 		Workspace:            a.cfg.Workspace,
 		ProjectContext:       loadProjectContext(a.cfg.Workspace),
 		SoulPath:             a.cfg.ResolvedSoulPath(),
+		PreferencesPath:      a.cfg.PreferencesPath(),
 		Prompt:               a.cfg.Prompt,
 		TelegramMentionMode:  a.cfg.Telegram.MentionMode,
 		TelegramSessionScope: a.cfg.Telegram.SessionScope,
