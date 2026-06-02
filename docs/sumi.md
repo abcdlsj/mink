@@ -54,10 +54,12 @@ Source forms used by the desktop, CLI, and Telegram surfaces:
 | `cli:agent:<personaID>` | AgentDM | persona id |
 | `tg:dm:*` / `tg:channel:*` | DirectChat / Channel | full source |
 
-`MapSource`, `SourceUsesRouter`, and the `Ensure/Load` callers
-(`EnsureForSource`, `resolveRoutedSpace`, `resolveAgentDMTargetSpace`)
-must agree for any new form. Space-id-shaped seeds (`^\d{8}-`) are
-LoadSpace-by-id; everything else is EnsureSpace-by-seed.
+`MapSource`, `SourceUsesRouter`, and `Manager.Resolve` must agree
+for any new source form. `Resolve` is the only entry point that
+turns a source string into a Space — LoadSpace when the seed is
+space-id shaped (`^\d{8}-`), EnsureSpace by seed otherwise. The
+AgentDM writer adds persona-registry validation on top before
+calling `Resolve`; nothing else carries its own resolver.
 
 When the user message has at least one `@` mention, the router
 fans out to those agents under a chained budget (`DefaultRoutingBudget`,
@@ -171,7 +173,7 @@ Desktop:
   `plugins/desktop/frontend/src/lib/store.ts` — store
   `plugins/desktop/frontend/src/lib/api.ts` — REST bindings
   `plugins/desktop/frontend/src/panes/CenterPane.tsx`
-                          — channel/thread views, listening gear,
+                          — channel/thread views, AgentGear,
                             mention rendering
   `plugins/desktop/frontend/src/panes/LeftPane.tsx` — left rail
   `plugins/desktop/frontend/src/components/QuickCreate.tsx`
