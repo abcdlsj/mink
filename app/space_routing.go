@@ -154,25 +154,21 @@ func (a *App) interceptChannelInput(ctx context.Context, source, content string)
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {
-		// resolver should have screened this, but be defensive.
 		return nil
 	}
 	scratch := session.New("scratch:wake:" + uuid.NewString()[:8])
-	// Seed scratch with the user message so the runtime sees what
-	// it's responding to. P2 only carries the originating user line;
-	// full Space timeline goes in once P3's adapter loads it.
-	scratch.Add(msg.Message{
-		Role:    "user",
-		Content: originUserContent,
-	})
+	parentMessageID := ""
+	if target.Chain != nil {
+		parentMessageID = target.Chain.ParentMessageID
+	}
+	a.seedWakeContext(scratch, spaceID, parentMessageID, target.AgentID)
+	if len(scratch.Messages) == 0 {
+		scratch.Add(msg.Message{Role: "user", Content: originUserContent})
+	}
 	baseline := len(scratch.Messages)
 	rt, err := a.newRuntimeFor(persona.Runtime, persona)
 	if err != nil {
 		return nil
-	}
-	parentMessageID := ""
-	if target.Chain != nil {
-		parentMessageID = target.Chain.ParentMessageID
 	}
 	turn := &agent.Turn{
 		Source:          scratch.Source,
@@ -299,10 +295,64 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 	}
 }
 
-// filterOut returns ids without the given drop value, preserving
-// order. Used to strip a self-mention from a resolved list before
-// the atomic write so the speaker is not asked for participant info
-// it already supplied.
+const wakeContextLimit = 30
+
+func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID string) {
+	if a.spaces == nil {
+		return
+	}
+	sp, err := a.spaces.LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return
+	}
+	msgs := contextMessages(sp, parentMessageID)
+	if n := len(msgs) - wakeContextLimit; n > 0 {
+		msgs = msgs[n:]
+	}
+	for _, m := range msgs {
+		s.Add(toRuntimeMessage(m, agentID))
+	}
+}
+
+func contextMessages(sp *space.Space, parentMessageID string) []space.Message {
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	if parentMessageID == "" {
+		out := make([]space.Message, 0, len(sp.Messages))
+		for _, m := range sp.Messages {
+			if strings.TrimSpace(m.ParentMessageID) == "" {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	out := make([]space.Message, 0)
+	for _, m := range sp.Messages {
+		if m.ID == parentMessageID || m.ParentMessageID == parentMessageID {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func toRuntimeMessage(m space.Message, selfID string) msg.Message {
+	role := "user"
+	if m.AuthorKind == space.ParticipantAgent {
+		if m.AuthorID == selfID {
+			role = "assistant"
+		} else {
+			role = "user"
+		}
+	}
+	content := m.Content
+	if m.AuthorKind == space.ParticipantAgent && m.AuthorID != selfID && content != "" {
+		content = "[" + m.AuthorID + "] " + content
+	}
+	if m.AuthorKind == space.ParticipantUser && content != "" {
+		content = "[user] " + content
+	}
+	return msg.Message{Role: role, Content: content, AgentID: m.AuthorID}
+}
+
 func filterOut(ids []string, drop string) []string {
 	if len(ids) == 0 {
 		return ids
