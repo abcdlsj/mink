@@ -7,6 +7,9 @@ func SourceUsesRouter(source string) bool {
 	if source == "desktop" || source == "cli" {
 		return true
 	}
+	if strings.HasPrefix(source, "desktop:channel:") {
+		return true
+	}
 	if strings.HasPrefix(source, "desktop:direct:") {
 		return true
 	}
