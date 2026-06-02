@@ -114,7 +114,7 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		case space.KindChannel:
 			source = "desktop:channel:" + sp.ID
 		case space.KindDirectChat:
-			source = "desktop:direct:" + sp.Title
+			source = "desktop:direct:" + sp.ID
 		case space.KindAgentDM:
 			source = "desktop:agent:" + sp.ID
 		}
