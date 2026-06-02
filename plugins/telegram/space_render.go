@@ -16,7 +16,7 @@ func spaceSnapshotIDs(a *app.App, src string) map[string]bool {
 	if target.Kind == "" {
 		return nil
 	}
-	sp, err := a.Spaces().EnsureForSource(src, space.PersonaInfo{ID: target.Seed})
+	sp, err := a.Spaces().Resolve(src, space.PersonaInfo{ID: target.Seed})
 	if err != nil || sp == nil {
 		return nil
 	}
@@ -35,7 +35,7 @@ func newSpaceAgentReplies(a *app.App, src string, before map[string]bool) []stri
 	if target.Kind == "" {
 		return nil
 	}
-	sp, err := a.Spaces().EnsureForSource(src, space.PersonaInfo{ID: target.Seed})
+	sp, err := a.Spaces().Resolve(src, space.PersonaInfo{ID: target.Seed})
 	if err != nil || sp == nil {
 		return nil
 	}

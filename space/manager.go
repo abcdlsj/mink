@@ -106,7 +106,7 @@ func MapSource(source string) SourceTarget {
 	}
 }
 
-func (m *Manager) EnsureForSource(source string, agent PersonaInfo) (*Space, error) {
+func (m *Manager) Resolve(source string, agent PersonaInfo) (*Space, error) {
 	t := MapSource(source)
 	if t.Kind == "" {
 		return nil, fmt.Errorf("source %q does not map to a space", source)

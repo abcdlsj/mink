@@ -36,14 +36,8 @@ type spaceDelegateInput struct {
 }
 
 func (m *manager) resolveSpaceAnchor(source string) (string, string, bool) {
-	if m.app == nil || m.app.Spaces() == nil {
-		return "", "", false
-	}
 	target := space.MapSource(source)
-	if target.Kind == "" {
-		return "", "", false
-	}
-	sp, err := m.app.Spaces().EnsureForSource(source, space.PersonaInfo{ID: target.Seed})
+	sp, err := m.app.Spaces().Resolve(source, space.PersonaInfo{ID: target.Seed})
 	if err != nil || sp == nil {
 		return "", "", false
 	}

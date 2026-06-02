@@ -42,7 +42,7 @@ func seedAgentMessage(t *testing.T, a *app.App, sp *space.Space, agentID, displa
 
 func TestLoadSpaceTranscriptRendersAuthorPrefix(t *testing.T) {
 	a := newSpaceTestApp(t)
-	sp, err := a.Spaces().EnsureForSource("cli", space.PersonaInfo{ID: "cli"})
+	sp, err := a.Spaces().Resolve("cli", space.PersonaInfo{ID: "cli"})
 	if err != nil {
 		t.Fatal(err)
 	}

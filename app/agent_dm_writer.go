@@ -74,7 +74,7 @@ func (a *App) resolveAgentDMTargetSpace(source, explicit string) (*space.Space, 
 		}
 		return sp, info, nil
 	}
-	sp, err := a.spaces.EnsureSpace(space.KindAgentDM, pid, *info)
+	sp, err := a.spaces.Resolve("desktop:agent:"+pid, *info)
 	if err != nil {
 		return nil, nil, err
 	}

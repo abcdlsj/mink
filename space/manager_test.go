@@ -139,21 +139,21 @@ func TestAppendMessageRejectsMissingAuthor(t *testing.T) {
 	}
 }
 
-func TestEnsureForSourceRoundTrips(t *testing.T) {
+func TestResolveRoundTrips(t *testing.T) {
 	store := newMemoryStore()
 	mgr := NewManager(store, "user", "You")
 
-	sp, err := mgr.EnsureForSource("desktop", PersonaInfo{})
+	sp, err := mgr.Resolve("desktop", PersonaInfo{})
 	if err != nil || sp.Kind != KindChannel {
 		t.Errorf("desktop should map to channel, got %v / %v", sp, err)
 	}
 
-	sp, err = mgr.EnsureForSource("desktop:agent:reviewer", PersonaInfo{ID: "reviewer", Display: "Reviewer"})
+	sp, err = mgr.Resolve("desktop:agent:reviewer", PersonaInfo{ID: "reviewer", Display: "Reviewer"})
 	if err != nil || sp.Kind != KindAgentDM || sp.Title != "reviewer" {
 		t.Errorf("agent source mapping wrong: %+v / %v", sp, err)
 	}
 
-	if _, err := mgr.EnsureForSource("subtask:task-1", PersonaInfo{}); err == nil {
+	if _, err := mgr.Resolve("subtask:task-1", PersonaInfo{}); err == nil {
 		t.Error("subtask source should not produce a Space")
 	}
 }

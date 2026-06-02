@@ -29,7 +29,7 @@ func (m *shellModel) loadSpaceForCurrentSource() *space.Space {
 	if target.Kind == "" {
 		return nil
 	}
-	sp, err := m.app.Spaces().EnsureForSource(m.source, space.PersonaInfo{ID: target.Seed})
+	sp, err := m.app.Spaces().Resolve(m.source, space.PersonaInfo{ID: target.Seed})
 	if err != nil {
 		return nil
 	}

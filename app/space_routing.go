@@ -58,7 +58,7 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 	if target.Kind != space.KindChannel && target.Kind != space.KindDirectChat {
 		return nil, nil
 	}
-	sp, err := a.resolveRoutedSpace(target)
+	sp, err := a.spaces.Resolve(source, space.PersonaInfo{})
 	if err != nil {
 		return nil, err
 	}
@@ -79,15 +79,6 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 		result.notices = append(result.notices, extraNotices...)
 	}
 	return result, nil
-}
-
-func (a *App) resolveRoutedSpace(target space.SourceTarget) (*space.Space, error) {
-	if space.IsSpaceID(target.Seed) {
-		if sp, err := a.spaces.LoadSpace(target.Seed); err == nil && sp != nil && sp.Kind == target.Kind {
-			return sp, nil
-		}
-	}
-	return a.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{})
 }
 
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {

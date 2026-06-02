@@ -50,7 +50,7 @@ func TestNewSpaceAgentRepliesSkipsPreExistingMessages(t *testing.T) {
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	sp, err := a.Spaces().EnsureForSource(src, space.PersonaInfo{ID: "tg:dm:42"})
+	sp, err := a.Spaces().Resolve(src, space.PersonaInfo{ID: "tg:dm:42"})
 	if err != nil {
 		t.Fatal(err)
 	}
