@@ -86,3 +86,28 @@ func (s *Space) Replies(parentID string) []Message {
 	}
 	return out
 }
+
+func IsSpaceID(s string) bool {
+	if len(s) < 9 {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return s[8] == '-'
+}
+
+func AgentParticipantID(sp *Space) string {
+	if sp == nil {
+		return ""
+	}
+	for _, p := range sp.Participants {
+		if p.Kind == ParticipantAgent {
+			return p.ID
+		}
+	}
+	return ""
+}

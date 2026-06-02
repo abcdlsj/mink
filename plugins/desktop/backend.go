@@ -230,7 +230,7 @@ func directChatTitle(sp *space.Space) string {
 	for _, m := range sp.Messages {
 		if m.AuthorKind == space.ParticipantUser {
 			if t := strings.TrimSpace(m.Content); t != "" {
-				return previewTitle(t)
+				return preview(t, 48)
 			}
 		}
 	}
@@ -238,15 +238,6 @@ func directChatTitle(sp *space.Space) string {
 		return t
 	}
 	return "New chat"
-}
-
-func previewTitle(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len([]rune(s)) <= 48 {
-		return s
-	}
-	r := []rune(s)
-	return string(r[:48]) + "…"
 }
 
 func newDirectChatSeed() string {
@@ -494,7 +485,7 @@ func normalizeChannelSeed(s string) string {
 func (b *Backend) GetChannel(id string) SessionDetail {
 	cfg := b.app.Config()
 	var sp *space.Space
-	if isSpaceID(id) {
+	if space.IsSpaceID(id) {
 		if loaded, err := b.app.Spaces().LoadSpace(id); err == nil && loaded != nil && loaded.Kind == space.KindChannel {
 			sp = loaded
 		}
@@ -1067,7 +1058,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		return SessionDetail{}
 	}
 	var sp *space.Space
-	if isSpaceID(agentID) {
+	if space.IsSpaceID(agentID) {
 		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
 			sp = loaded
 		}
@@ -1075,7 +1066,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	display := agentID
 	role := ""
 	if sp != nil {
-		if pid := agentParticipantIDForBackend(sp); pid != "" {
+		if pid := space.AgentParticipantID(sp); pid != "" {
 			if p := b.app.Personas().Get(pid); p != nil {
 				display = p.Display
 				role = p.Description
@@ -1098,7 +1089,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		}
 		sp = ensured
 	}
-	pid := agentParticipantIDForBackend(sp)
+	pid := space.AgentParticipantID(sp)
 	if pid == "" {
 		pid = strings.TrimSpace(agentID)
 	}
@@ -1157,20 +1148,8 @@ func (b *Backend) ListAgentDMs() []AgentDMItem {
 	return out
 }
 
-func agentParticipantIDForBackend(sp *space.Space) string {
-	if sp == nil {
-		return ""
-	}
-	for _, p := range sp.Participants {
-		if p.Kind == space.ParticipantAgent {
-			return p.ID
-		}
-	}
-	return ""
-}
-
 func agentDMItemFromSpace(sp *space.Space, a appAccessor) AgentDMItem {
-	pid := agentParticipantIDForBackend(sp)
+	pid := space.AgentParticipantID(sp)
 	display := pid
 	if a != nil {
 		if p := a.Personas().Get(pid); p != nil && strings.TrimSpace(p.Display) != "" {
@@ -1213,20 +1192,6 @@ func isAgentDMMachineSeed(t, personaID string) bool {
 		}
 	}
 	return true
-}
-
-func isSpaceID(s string) bool {
-	s = strings.TrimSpace(s)
-	if len(s) < 9 {
-		return false
-	}
-	for i := 0; i < 8; i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return s[8] == '-'
 }
 
 func (b *Backend) ListPersonas() []PersonaItem {

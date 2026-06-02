@@ -111,25 +111,12 @@ func (m *Manager) EnsureForSource(source string, agent PersonaInfo) (*Space, err
 	if t.Kind == "" {
 		return nil, fmt.Errorf("source %q does not map to a space", source)
 	}
-	if isSpaceIDSeed(t.Seed) {
+	if IsSpaceID(t.Seed) {
 		if sp, err := m.store.LoadSpace(t.Seed); err == nil && sp != nil && sp.Kind == t.Kind {
 			return sp, nil
 		}
 	}
 	return m.EnsureSpace(t.Kind, t.Seed, agent)
-}
-
-func isSpaceIDSeed(s string) bool {
-	if len(s) < 9 {
-		return false
-	}
-	for i := 0; i < 8; i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			return false
-		}
-	}
-	return s[8] == '-'
 }
 
 func (m *Manager) EnsureSpace(kind Kind, seed string, agent PersonaInfo) (*Space, error) {

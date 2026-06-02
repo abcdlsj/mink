@@ -82,7 +82,7 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 }
 
 func (a *App) resolveRoutedSpace(target space.SourceTarget) (*space.Space, error) {
-	if isSpaceID(target.Seed) {
+	if space.IsSpaceID(target.Seed) {
 		if sp, err := a.spaces.LoadSpace(target.Seed); err == nil && sp != nil && sp.Kind == target.Kind {
 			return sp, nil
 		}

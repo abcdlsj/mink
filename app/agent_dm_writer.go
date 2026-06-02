@@ -3,7 +3,6 @@ package app
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/abcdlsj/sumi/space"
@@ -18,10 +17,6 @@ var (
 	ErrAgentDMSpaceMissingAgent = errors.New("agent_dm: space has no agent participant")
 )
 
-var spaceIDPattern = regexp.MustCompile(`^\d{8}-`)
-
-func isSpaceID(s string) bool { return spaceIDPattern.MatchString(s) }
-
 func (a *App) resolveAgentDMPersonaID(source, explicit string) (string, *space.PersonaInfo, error) {
 	target := space.MapSource(source)
 	if target.Kind != space.KindAgentDM {
@@ -33,12 +28,12 @@ func (a *App) resolveAgentDMPersonaID(source, explicit string) (string, *space.P
 		return "", nil, ErrAgentDMPersonaRequired
 	}
 
-	if seed != "" && isSpaceID(seed) {
+	if seed != "" && space.IsSpaceID(seed) {
 		sp, err := a.spaces.LoadSpace(seed)
 		if err != nil || sp == nil {
 			return "", nil, fmt.Errorf("%w: %s", ErrAgentDMSpaceNotFound, seed)
 		}
-		pid := agentParticipantID(sp)
+		pid := space.AgentParticipantID(sp)
 		if pid == "" {
 			return "", nil, fmt.Errorf("%w: %s", ErrAgentDMSpaceMissingAgent, seed)
 		}
@@ -66,25 +61,13 @@ func (a *App) personaInfo(id string) (string, *space.PersonaInfo, error) {
 	return p.ID, &space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}, nil
 }
 
-func agentParticipantID(sp *space.Space) string {
-	if sp == nil {
-		return ""
-	}
-	for _, p := range sp.Participants {
-		if p.Kind == space.ParticipantAgent {
-			return p.ID
-		}
-	}
-	return ""
-}
-
 func (a *App) resolveAgentDMTargetSpace(source, explicit string) (*space.Space, *space.PersonaInfo, error) {
 	pid, info, err := a.resolveAgentDMPersonaID(source, explicit)
 	if err != nil {
 		return nil, nil, err
 	}
 	seed := strings.TrimSpace(space.MapSource(source).Seed)
-	if isSpaceID(seed) {
+	if space.IsSpaceID(seed) {
 		sp, err := a.spaces.LoadSpace(seed)
 		if err != nil || sp == nil {
 			return nil, nil, fmt.Errorf("%w: %s", ErrAgentDMSpaceNotFound, seed)
