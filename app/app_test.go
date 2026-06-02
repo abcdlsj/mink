@@ -11,6 +11,7 @@ import (
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
@@ -103,6 +104,52 @@ func TestProjectContextIsPassedToRuntime(t *testing.T) {
 	}
 	if got != "Use tiny functions." {
 		t.Fatalf("project context = %q", got)
+	}
+}
+
+func TestHandleInputBuildsRunContext(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	var got command.RunContext
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			var ok bool
+			got, ok = command.RunContextFrom(ctx)
+			if !ok {
+				t.Fatal("missing run context")
+			}
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+
+	ctx := command.WithNoticeSource(context.Background(), "tg:dm:42")
+	if _, err := a.HandleInput(ctx, "cron:bazaar", "ping"); err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "cron:bazaar" || got.Session != "cron:bazaar" || got.Delivery != "tg:dm:42" {
+		t.Fatalf("run context = %+v", got)
+	}
+	if got.Permission != "cron" {
+		t.Fatalf("permission = %q", got.Permission)
+	}
+	if len(got.Memory) != 4 {
+		t.Fatalf("memory scopes = %+v", got.Memory)
+	}
+	if got.Memory[0].Kind != "channel" || got.Memory[0].Key != "cron:bazaar" {
+		t.Fatalf("first memory scope = %+v", got.Memory[0])
+	}
+	if got.Memory[1].Kind != "channel" || got.Memory[1].Key != "tg:dm:42" {
+		t.Fatalf("second memory scope = %+v", got.Memory[1])
 	}
 }
 

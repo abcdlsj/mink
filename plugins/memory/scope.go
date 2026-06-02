@@ -12,6 +12,9 @@ func (s *store) resolveReadScope(ctx context.Context, src, kind, key string) sco
 	if strings.TrimSpace(kind) != "" {
 		return s.scope(ctx, src, kind, key)
 	}
+	if scopes := command.MemoryScopesFrom(ctx); len(scopes) > 0 {
+		return memoryScope(scopes[0])
+	}
 	if p := command.PersonaFrom(ctx); p != "" {
 		return scope{Kind: "persona", Key: p}
 	}
@@ -32,6 +35,13 @@ func (s *store) resolveSearchScopes(ctx context.Context, src, kind, key string) 
 	if strings.TrimSpace(kind) != "" {
 		return []scope{s.scope(ctx, src, kind, key)}
 	}
+	if scopes := command.MemoryScopesFrom(ctx); len(scopes) > 0 {
+		out := make([]scope, 0, len(scopes))
+		for _, sc := range scopes {
+			out = append(out, memoryScope(sc))
+		}
+		return out
+	}
 	var out []scope
 	if p := command.PersonaFrom(ctx); p != "" {
 		out = append(out, scope{Kind: "persona", Key: p})
@@ -44,6 +54,10 @@ func (s *store) resolveSearchScopes(ctx context.Context, src, kind, key string) 
 	}
 	out = append(out, scope{Kind: "global", Key: ""})
 	return out
+}
+
+func memoryScope(sc command.MemoryScope) scope {
+	return normalizeScope(scope{Kind: sc.Kind, Key: sc.Key})
 }
 
 func (s *store) scope(ctx context.Context, src, kind, key string) scope {

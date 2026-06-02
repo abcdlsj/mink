@@ -33,3 +33,35 @@ func TestResolveReadScopeExplicitKindWins(t *testing.T) {
 		t.Fatalf("scope = %+v, want channel:chan-a", sc)
 	}
 }
+
+func TestResolveReadScopeUsesRunContextMemory(t *testing.T) {
+	s := &store{root: "/tmp/irrelevant", workspace: "/ws"}
+	ctx := command.WithRunContext(context.Background(), command.RunContext{
+		Memory: []command.MemoryScope{
+			{Kind: "channel", Key: "cron:bazaar"},
+			{Kind: "channel", Key: "tg:dm:42"},
+		},
+	})
+	sc := s.resolveReadScope(ctx, "tg:dm:42", "", "")
+	if sc.Kind != "channel" || sc.Key != "cron:bazaar" {
+		t.Fatalf("scope = %+v, want channel:cron:bazaar", sc)
+	}
+}
+
+func TestResolveSearchScopesUseRunContextMemory(t *testing.T) {
+	s := &store{root: "/tmp/irrelevant", workspace: "/ws"}
+	ctx := command.WithRunContext(context.Background(), command.RunContext{
+		Memory: []command.MemoryScope{
+			{Kind: "channel", Key: "cron:bazaar"},
+			{Kind: "channel", Key: "tg:dm:42"},
+			{Kind: "global", Key: ""},
+		},
+	})
+	scopes := s.resolveSearchScopes(ctx, "tg:dm:42", "", "")
+	if len(scopes) != 3 {
+		t.Fatalf("scopes = %+v", scopes)
+	}
+	if scopes[0].Key != "cron:bazaar" || scopes[1].Key != "tg:dm:42" || scopes[2].Kind != "global" {
+		t.Fatalf("scopes = %+v", scopes)
+	}
+}

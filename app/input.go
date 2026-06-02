@@ -64,8 +64,10 @@ type inputFlow struct {
 
 func (f inputFlow) run(ctx context.Context) (string, error) {
 	ctx = command.WithSource(ctx, f.source)
+	ctx = f.withRunContext(ctx)
 	if f.personaID != "" {
 		ctx = command.WithPersona(ctx, f.personaID)
+		ctx = f.withRunContext(ctx)
 	}
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
@@ -92,11 +94,12 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		}
 		f.personaID = personaID
 		ctx = command.WithPersona(ctx, personaID)
+		ctx = f.withRunContext(ctx)
 		if _, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input); err != nil {
 			return "", err
 		}
 	}
-	sessionSource := f.sessionSource()
+	sessionSource := command.SessionSourceFrom(ctx)
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
 		return "", err
@@ -122,10 +125,6 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	return latestAssistant(s), nil
 }
 
-func (f inputFlow) sessionSource() string {
-	return personaSessionSource(f.source, f.personaID)
-}
-
 func personaSessionSource(source, personaID string) string {
 	source = strings.TrimSpace(source)
 	personaID = strings.TrimSpace(personaID)
@@ -136,6 +135,54 @@ func personaSessionSource(source, personaID string) string {
 		source = "default"
 	}
 	return source + ":persona:" + personaID
+}
+
+func (f inputFlow) withRunContext(ctx context.Context) context.Context {
+	return command.WithRunContext(ctx, f.runContext(ctx))
+}
+
+func (f inputFlow) runContext(ctx context.Context) command.RunContext {
+	src := strings.TrimSpace(f.source)
+	delivery := command.NoticeSourceFrom(ctx)
+	if strings.TrimSpace(delivery) == "" {
+		delivery = src
+	}
+	return command.RunContext{
+		Source:     src,
+		Session:    personaSessionSource(src, f.personaID),
+		Delivery:   strings.TrimSpace(delivery),
+		Memory:     f.memoryScopes(src, delivery),
+		Permission: permissionProfile(src),
+	}
+}
+
+func (f inputFlow) memoryScopes(source, delivery string) []command.MemoryScope {
+	var out []command.MemoryScope
+	if strings.TrimSpace(f.personaID) != "" {
+		out = append(out, command.MemoryScope{Kind: "persona", Key: strings.TrimSpace(f.personaID)})
+	}
+	if strings.TrimSpace(source) != "" {
+		out = append(out, command.MemoryScope{Kind: "channel", Key: strings.TrimSpace(source)})
+	}
+	if d := strings.TrimSpace(delivery); d != "" && d != strings.TrimSpace(source) {
+		out = append(out, command.MemoryScope{Kind: "channel", Key: d})
+	}
+	if strings.TrimSpace(f.app.cfg.Workspace) != "" {
+		out = append(out, command.MemoryScope{Kind: "workspace", Key: strings.TrimSpace(f.app.cfg.Workspace)})
+	}
+	out = append(out, command.MemoryScope{Kind: "global", Key: ""})
+	return out
+}
+
+func permissionProfile(source string) string {
+	switch {
+	case strings.HasPrefix(source, "cron:"):
+		return "cron"
+	case strings.HasPrefix(source, "tg:"):
+		return "telegram"
+	default:
+		return "default"
+	}
 }
 
 func (f inputFlow) route(ctx context.Context) (string, bool, error) {
