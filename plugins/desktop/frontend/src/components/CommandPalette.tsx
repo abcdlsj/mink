@@ -140,7 +140,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[120px] bg-[rgba(31,41,51,0.08)]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 pt-[120px]"
       onClick={() => setPalette(false)}
     >
       <Command
@@ -148,14 +148,14 @@ export function CommandPalette() {
         shouldFilter={false}
         label="Command palette"
         onClick={(e) => e.stopPropagation()}
-        className="w-[600px] max-w-[92vw] bg-panel border border-border rounded-lg overflow-hidden shadow-[0_24px_56px_rgba(31,41,51,0.12),_0_4px_12px_rgba(31,41,51,0.06)]"
+        className="w-[600px] max-w-[92vw] overflow-hidden border-hard border-border bg-panel shadow-hard"
       >
         <Command.Input
           autoFocus
           value={query}
           onValueChange={setQuery}
           placeholder="Search #channel, thread, @agent, /command, model"
-          className="w-full border-none bg-transparent px-[18px] py-4 text-[14px] outline-none border-b border-border-soft placeholder:text-text-faint"
+          className="w-full border-b-hard border-border bg-bg px-[18px] py-4 text-[14px] outline-none placeholder:text-text-faint"
         />
         <Command.List className="max-h-[420px] overflow-y-auto py-1.5 pb-2.5">
           <Command.Empty className="px-4 py-6 text-center text-[12.5px] text-text-faint">
@@ -168,7 +168,7 @@ export function CommandPalette() {
               <Command.Group
                 key={key}
                 heading={sec.title}
-                className="text-text [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.7px] [&_[cmdk-group-heading]]:text-text-faint [&_[cmdk-group-heading]]:px-[18px] [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-semibold"
+                className="text-text [&_[cmdk-group-heading]]:border-b [&_[cmdk-group-heading]]:border-border [&_[cmdk-group-heading]]:px-[18px] [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-black [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.9px] [&_[cmdk-group-heading]]:text-text"
               >
                 {sec.rows.map((row) => (
                   <Command.Item
@@ -176,8 +176,8 @@ export function CommandPalette() {
                     value={row.label + " " + (row.meta || "")}
                     onSelect={row.onRun}
                     className={cn(
-                      "flex items-center justify-between gap-2 px-[18px] py-1.5 text-[13px] cursor-pointer text-text",
-                      "data-[selected=true]:bg-accent-bg",
+                      "flex cursor-pointer items-center justify-between gap-2 border-y border-transparent px-[18px] py-1.5 text-[13px] text-text",
+                      "data-[selected=true]:border-border data-[selected=true]:bg-accent",
                     )}
                   >
                     <span className="flex items-center gap-2 flex-1 min-w-0">

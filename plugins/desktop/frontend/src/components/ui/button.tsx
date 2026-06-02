@@ -4,15 +4,15 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-sm text-[12.5px] transition-[background,border-color,color,box-shadow] duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent-bg focus-visible:border-accent",
+  "inline-flex items-center justify-center gap-1.5 rounded-sm border-hard text-[12.5px] font-medium transition-[background,color,transform,box-shadow] duration-100 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent-bg focus-visible:border-border",
   {
     variants: {
       variant: {
-        default: "bg-panel-2 border border-border text-text hover:bg-panel-3 hover:border-border-strong",
-        primary: "bg-accent border border-accent text-white hover:brightness-95 disabled:bg-panel-3 disabled:border-border disabled:text-text-faint disabled:opacity-100",
-        outline: "bg-transparent border border-border text-text-muted hover:text-text hover:border-border-strong hover:bg-panel-2",
-        ghost: "bg-transparent border border-transparent text-text-muted hover:text-text hover:bg-panel-2",
-        danger: "bg-transparent border border-border text-text-muted hover:text-error hover:border-error",
+        default: "bg-panel text-text hover:bg-accent hover:shadow-card active:translate-x-px active:translate-y-px active:shadow-none",
+        primary: "bg-action text-text hover:shadow-card disabled:bg-panel-3 disabled:text-text-faint disabled:opacity-100",
+        outline: "bg-transparent text-text-muted hover:bg-accent hover:text-text hover:shadow-card",
+        ghost: "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-panel-2 hover:text-text",
+        danger: "bg-transparent text-text-muted hover:border-error hover:bg-action-bg hover:text-error",
       },
       size: {
         default: "h-7 px-3",

@@ -20,15 +20,24 @@ export default {
         accent: "var(--accent)",
         "accent-bg": "var(--accent-bg)",
         "accent-border": "var(--accent-border)",
+        action: "var(--action)",
+        "action-bg": "var(--action-bg)",
         running: "var(--running)",
         error: "var(--error)",
         done: "var(--done)",
         reasoning: "var(--reasoning)",
       },
       borderRadius: {
-        sm: "4px",
-        md: "6px",
-        lg: "8px",
+        sm: "0px",
+        md: "2px",
+        lg: "4px",
+      },
+      borderWidth: {
+        hard: "2px",
+      },
+      boxShadow: {
+        hard: "3px 3px 0 0 var(--border)",
+        card: "2px 2px 0 0 var(--border)",
       },
       fontFamily: {
         ui: 'var(--font-ui)',

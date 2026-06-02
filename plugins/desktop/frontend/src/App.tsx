@@ -53,7 +53,7 @@ export default function App() {
 
   if (!ready) {
     return (
-      <div className="grid h-screen place-items-center text-text-faint text-[12.5px]">
+      <div className="grid h-screen place-items-center bg-bg text-text-muted text-[12.5px]">
         Loading…
       </div>
     );
@@ -61,10 +61,10 @@ export default function App() {
 
   return (
     <div
-      className="grid h-screen"
+      className="grid h-screen bg-bg text-text"
       style={{
-        gridTemplateColumns: "248px 1fr 320px",
-        gridTemplateRows: "36px 1fr",
+        gridTemplateColumns: "260px 1fr 320px",
+        gridTemplateRows: "40px 1fr",
         gridTemplateAreas: '"topbar topbar topbar" "left center right"',
       }}
     >

@@ -45,9 +45,9 @@ export function CenterPane() {
 
   if (!detail) {
     return (
-      <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
-        <div className="border-b border-border-soft px-8 py-4" />
-        <div className="overflow-y-auto px-8 py-6 text-text-faint text-[12.5px]">
+      <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
+        <div className="border-b-hard border-border px-8 py-4" />
+        <div className="overflow-y-auto px-8 py-6 text-[12.5px] text-text-muted">
           Pick a channel, agent, or thread to start.
         </div>
         <Composer />
@@ -78,18 +78,20 @@ export function CenterPane() {
   const showStop = item.running && view === "thread";
 
   return (
-    <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
-      <div className="flex items-end justify-between border-b border-border-soft px-8 pt-4 pb-3.5">
+    <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
+      <div className="flex items-end justify-between border-b-hard border-border bg-panel px-8 pb-3.5 pt-4">
         <div>
-          <h2 className="flex items-center gap-1.5 text-[17px] font-display font-semibold text-text">
-            <TitleIcon className="size-[18px] text-text-muted" />
+          <h2 className="flex items-center gap-2 font-display text-[18px] font-black text-text">
+            <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
+              <TitleIcon className="size-[17px] text-text" />
+            </span>
             <span>{titleText}</span>
             {view === "channel" && channel && (
               <AgentGear scope={{ kind: "channel", channel }} agents={agents} />
             )}
           </h2>
           {(metaText || listeningHint) && (
-            <div className="mt-1 text-[12px] text-text-faint">
+            <div className="mt-1 font-mono text-[11.5px] text-text-muted">
               {metaText}
               {metaText && listeningHint && " · "}
               {listeningHint}
@@ -104,7 +106,7 @@ export function CenterPane() {
         )}
       </div>
 
-      <div ref={scrollRef} className="overflow-y-auto px-8 pt-5 pb-6">
+      <div ref={scrollRef} className="overflow-y-auto px-8 pb-6 pt-5">
         <div className="mx-auto max-w-[800px]">
           {(() => {
             const visible = detail.messages.filter(renderableMessage);
@@ -208,7 +210,7 @@ function AgentGear({
       <button
         onClick={() => setOpen(!open)}
         className={cn(
-          "inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text",
+          "inline-flex size-6 items-center justify-center border border-transparent text-text-muted hover:border-border hover:bg-accent hover:text-text",
           scope.kind === "channel" && "ml-1",
         )}
         title={scope.kind === "channel" ? "Channel agents" : "Thread agents"}
@@ -218,11 +220,11 @@ function AgentGear({
       {open && (
         <div
           className={cn(
-            "absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]",
+            "absolute z-30 mt-1 w-[280px] border-hard border-border bg-panel py-1 text-[13px] shadow-hard",
             scope.kind === "thread" && "right-0",
           )}
         >
-          <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
+          <div className="border-b border-border px-3 py-1.5 font-display text-[10.5px] font-black uppercase tracking-[0.9px] text-text">
             {heading}
           </div>
           {joined.length === 0 && empty && (
@@ -235,7 +237,7 @@ function AgentGear({
               <button
                 key={a.id}
                 onClick={() => flip(a.id, next)}
-                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+                className="flex w-full cursor-pointer items-center justify-between px-3 py-1.5 hover:bg-accent"
               >
                 <span className="flex items-center gap-1.5 text-text">
                   <AtSign className="size-3 text-text-faint" />
@@ -244,7 +246,7 @@ function AgentGear({
                 <span
                   className={cn(
                     "text-[11px]",
-                    m === "listen" ? "text-accent font-medium" : "text-text-faint",
+                    m === "listen" ? "font-semibold text-text" : "text-text-muted",
                   )}
                 >
                   {m === "listen" ? "Listen" : "Mention only"}
@@ -253,11 +255,11 @@ function AgentGear({
             );
           })}
           {scope.kind === "channel" && (
-            <div className="border-t border-border-soft mt-1 pt-1">
+            <div className="mt-1 border-t border-border pt-1">
               {!picking ? (
                 <button
                   onClick={() => setPicking(true)}
-                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-text-muted hover:bg-panel-2 hover:text-text cursor-pointer"
+                  className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 text-text-muted hover:bg-accent hover:text-text"
                 >
                   <Plus className="size-3" />
                   Add agent…
@@ -269,7 +271,7 @@ function AgentGear({
                     value={pickQuery}
                     onChange={(e) => setPickQuery(e.target.value)}
                     placeholder="Search agents…"
-                    className="w-full px-3 py-1.5 text-[13px] bg-transparent outline-none border-b border-border-soft"
+                    className="w-full border-b border-border bg-bg px-3 py-1.5 text-[13px] outline-none"
                   />
                   <div className="max-h-[200px] overflow-y-auto">
                     {candidates.length === 0 && (
@@ -283,7 +285,7 @@ function AgentGear({
                           setPicking(false);
                           setPickQuery("");
                         }}
-                        className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+                        className="flex w-full cursor-pointer items-center gap-1.5 px-3 py-1.5 hover:bg-accent"
                       >
                         <AtSign className="size-3 text-text-faint" />
                         <span className="text-text">{a.display}</span>
@@ -298,7 +300,7 @@ function AgentGear({
             </div>
           )}
           {scope.kind === "thread" && (
-            <div className="border-t border-border-soft mt-1 px-3 py-1.5 text-[10.5px] text-text-faint">
+            <div className="mt-1 border-t border-border px-3 py-1.5 text-[10.5px] text-text-muted">
               Inherited from channel.
             </div>
           )}
@@ -353,22 +355,22 @@ function EmptyState() {
   return (
     <div className="py-6">
       <div className="flex items-center gap-3 mb-2">
-        <div className="size-10 rounded-md border border-border-soft bg-panel overflow-hidden">
+        <div className="size-10 overflow-hidden border-2 border-border bg-panel">
           <Identicon seed={ag?.id || activeAgent || "agent"} kind="agent" />
         </div>
         <div>
-          <div className="font-display text-[17px] font-semibold text-text">
+          <div className="font-display text-[17px] font-black text-text">
             {detail?.item?.title || "@" + (ag?.display || "")}
           </div>
           {ag?.role && <div className="text-[12.5px] text-text-muted mt-0.5">{ag.role}</div>}
         </div>
       </div>
-      <div className="text-[13px] text-text-faint leading-[1.6] mb-6">
+      <div className="mb-6 text-[13px] leading-[1.6] text-text-muted">
         Message {ag?.display || "this agent"} directly.
       </div>
       {recent.length > 0 && (
         <div>
-          <div className="font-display text-[10px] uppercase tracking-[0.9px] text-text-whisper mb-2 font-semibold">
+          <div className="mb-2 border-b border-border font-display text-[10px] font-black uppercase tracking-[1px] text-text">
             Recently with {ag?.display || "this agent"}
           </div>
           <div className="flex flex-col gap-1">
@@ -378,7 +380,7 @@ function EmptyState() {
                 <button
                   key={t.id}
                   onClick={() => void openThread(t.id)}
-                  className="w-full text-left flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm cursor-pointer text-text-muted hover:text-text"
+                  className="flex w-full cursor-pointer items-center justify-between gap-2 border-2 border-transparent px-2 py-1.5 text-left text-text-muted hover:border-border hover:bg-panel-2 hover:text-text"
                 >
                   <span className="flex items-center gap-1.5 text-[12.5px] text-text min-w-0">
                     {t.has_running && <Dot status="running" />}
@@ -430,13 +432,13 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
   return (
     <div
       className={cn(
-        "grid grid-cols-[30px_1fr] gap-3.5",
-        compact ? "-mt-4 mb-1" : "mb-6",
+        "grid grid-cols-[32px_1fr] gap-3.5",
+        compact ? "-mt-4 mb-1" : "mb-6 border-b border-border-soft pb-5 last:border-b-0",
       )}
     >
       <div
         className={cn(
-          "size-[30px] rounded-md border border-border-soft bg-panel overflow-hidden mt-px shadow-[0_1px_0_rgba(31,41,51,0.02)]",
+          "mt-px size-8 overflow-hidden border-2 border-border bg-panel",
           compact && "invisible",
         )}
       >
@@ -444,24 +446,24 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       </div>
       <div>
         {!compact && (
-          <div className="flex items-baseline gap-2 mb-1">
-            <span className="font-display text-[13px] font-semibold text-text">
+          <div className="mb-1 flex items-baseline gap-2">
+            <span className="font-display text-[13px] font-black text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="font-display text-[10.5px] tracking-[0.3px] text-text-faint font-medium"
+                className="border border-border bg-panel-event px-1 font-display text-[10px] font-semibold uppercase tracking-[0.5px] text-text"
                 title={ag.role}
               >
                 {shortRole(ag.role)}
               </span>
             )}
-            <span className="text-[11px] text-text-whisper tabular-nums">{relTime(m.time)}</span>
+            <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(m.time)}</span>
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {m.auto_reply_reason && m.role !== "user" && (
-          <div className="text-[11.5px] text-text-faint mb-1">
+          <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11.5px] text-text">
             {(ag?.display || m.author_name || "Agent")} joined from channel listening.
           </div>
         )}
@@ -469,7 +471,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "text-[14px] text-text leading-[1.7] whitespace-pre-wrap max-w-[70ch]",
+                "max-w-[70ch] whitespace-pre-wrap text-[14px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
             >
@@ -478,7 +480,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "text-[14px] text-text leading-[1.7] max-w-[70ch]",
+                "max-w-[70ch] text-[14px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
               mentions={knownMentions}
@@ -518,7 +520,7 @@ function ReasoningPreface({ text }: { text: string }) {
   const isLong = flat.length > 280;
   const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="text-[11.5px] text-text-faint leading-[1.5] mb-1.5 max-w-[68ch]">
+    <div className="mb-1.5 max-w-[68ch] border-l-2 border-border bg-panel-2 px-2 py-1 text-[11.5px] leading-[1.5] text-text-muted">
       {open ? (
         <Markdown variant="lite" className="whitespace-pre-wrap">
           {text}
@@ -531,7 +533,7 @@ function ReasoningPreface({ text }: { text: string }) {
           {" "}
           <button
             onClick={() => setOpen((v) => !v)}
-            className="text-[11px] text-text-whisper hover:text-text-faint underline underline-offset-2 cursor-pointer"
+            className="cursor-pointer text-[11px] text-text-muted underline underline-offset-2 hover:text-text"
           >
             {open ? "Show less" : "Show full thinking"}
           </button>
@@ -587,8 +589,8 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
       <div className="flex flex-col gap-1">
         <button
           onClick={() => setOpen(false)}
-          className={cn(
-            "self-start text-[12px] underline underline-offset-2 cursor-pointer",
+      className={cn(
+        "self-start cursor-pointer text-[12px] underline underline-offset-2",
             status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
           )}
         >
@@ -604,7 +606,7 @@ function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
     <button
       onClick={() => setOpen(true)}
       className={cn(
-        "self-start text-[12px] cursor-pointer",
+        "self-start cursor-pointer text-[12px]",
         status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
       )}
     >
@@ -621,7 +623,7 @@ function ThreadLink({ threadId, summary }: { threadId: string; summary: string }
   return (
     <button
       onClick={() => void openThread(threadId)}
-      className="mt-2.5 inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-sm text-[12px] text-text-muted hover:text-text"
+      className="mt-2.5 inline-flex items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
     >
       <Dot status="running" />
       <span>{summary}</span>
@@ -639,7 +641,7 @@ function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary 
   return (
     <button
       onClick={() => void openThread(info.parent_id)}
-      className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-accent hover:opacity-80 underline-offset-2 hover:underline"
+      className="mt-1.5 inline-flex items-center gap-1.5 border border-border bg-accent-bg px-1.5 py-0.5 text-[11.5px] text-text hover:bg-accent underline-offset-2 hover:underline"
     >
       {info.has_running_worker && <Dot status="running" />}
       <span className="font-medium">{continueLabel}</span>
@@ -666,7 +668,7 @@ function TaskAccessoryRow({ info }: { info: import("@/lib/types").TaskAccessoryI
       onClick={onClick}
       title={taskInScope ? undefined : "Task is outside current view"}
       className={cn(
-        "mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] cursor-pointer text-left",
+        "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-left text-[11.5px]",
         info.terminal ? "text-text-faint" : "text-text-muted",
         taskInScope ? "hover:text-text" : "cursor-help",
         opened && "text-text",
@@ -721,14 +723,14 @@ function ThreadView() {
   if (!threadDetail) return null;
   if (threadDetail.unsupported) {
     return (
-      <main className="h-full grid grid-rows-[auto_1fr] bg-panel min-w-0">
-        <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
-          <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+      <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
+        <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+          <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
             ← Back
           </button>
-          <div className="text-[13px] text-text">Thread</div>
+          <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-8 py-8 text-text-faint text-[13px]">
+        <div className="overflow-y-auto px-8 py-8 text-[13px] text-text-muted">
           {threadDetail.unsupported_hint || "Threads are not supported here."}
         </div>
       </main>
@@ -736,14 +738,14 @@ function ThreadView() {
   }
   if (threadDetail.not_found) {
     return (
-      <main className="h-full grid grid-rows-[auto_1fr] bg-panel min-w-0">
-        <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
-          <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+      <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
+        <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+          <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
             ← Back to {channel ? "#" + channel.name : "channel"}
           </button>
-          <div className="text-[13px] text-text">Thread</div>
+          <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-8 py-8 text-text-faint text-[13px]">
+        <div className="overflow-y-auto px-8 py-8 text-[13px] text-text-muted">
           Thread not found.
         </div>
       </main>
@@ -753,13 +755,13 @@ function ThreadView() {
   const root = threadDetail.parent;
   const replies = threadDetail.replies || [];
   return (
-    <main className="h-full grid grid-rows-[auto_1fr_auto] bg-panel min-w-0">
-      <div className="border-b border-border-soft px-8 py-3 flex items-center gap-3">
-        <button onClick={() => closeThread()} className="text-[12px] text-text-muted hover:text-text">
+    <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
+      <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+        <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
           ← Back to {channel ? "#" + channel.name : "channel"}
         </button>
-        <div className="text-[13px] text-text font-medium">Thread</div>
-        <div className="text-[12px] text-text-faint">
+        <div className="text-[13px] font-black uppercase tracking-[0.5px] text-text">Thread</div>
+        <div className="font-mono text-[12px] text-text-muted">
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
@@ -767,13 +769,13 @@ function ThreadView() {
       <div className="overflow-y-auto px-8 pt-4 pb-6">
         <div className="mx-auto max-w-[800px]">
           {root && (
-            <div className="border-l-2 border-l-border-soft pl-4 mb-4 pb-3 border-b border-border-soft">
-              <div className="text-[11px] uppercase tracking-wide text-text-faint mb-1">Root message · context only</div>
+            <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
+              <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11px] uppercase tracking-wide text-text">Root message · context only</div>
               <MessageRow m={root} compact={false} />
             </div>
           )}
           {replies.length === 0 && (
-            <div className="text-[12.5px] text-text-faint py-4">No replies yet. Send the first reply below.</div>
+            <div className="py-4 text-[12.5px] text-text-muted">No replies yet. Send the first reply below.</div>
           )}
           {replies.map((m, i) => {
             const prev = i > 0 ? replies[i - 1] : null;
@@ -969,24 +971,24 @@ function Composer() {
   };
 
   return (
-    <div className="border-t border-border-soft px-8 pb-5 pt-3.5 bg-panel">
+    <div className="border-t-hard border-border bg-panel px-8 pb-5 pt-3.5">
       <div className="mx-auto max-w-[800px]">
         {showRoutingHint && (
-          <div className="mb-2 text-[11.5px] text-text-muted">
+          <div className="mb-2 inline-flex border border-border bg-accent-bg px-2 py-0.5 text-[11.5px] text-text">
             {composerHint?.text}
           </div>
         )}
         {showEmptyAgentsHint && !showRoutingHint && (
-          <div className="mb-2 text-[11.5px] text-text-faint">
+          <div className="mb-2 inline-flex border border-border bg-panel-2 px-2 py-0.5 text-[11.5px] text-text-muted">
             Mention or add an agent to collaborate.
           </div>
         )}
         {showRouteHint && !showEmptyAgentsHint && !showRoutingHint && (
-          <div className="mb-2 text-[11.5px] text-text-faint">
+          <div className="mb-2 inline-flex border border-border bg-panel-2 px-2 py-0.5 text-[11.5px] text-text-muted">
             Mention an agent, or let listening agents pick it up.
           </div>
         )}
-        <div className="relative">
+        <div className="relative border-hard border-border bg-bg shadow-card">
           <textarea
             ref={textareaRef}
             rows={2}
@@ -999,11 +1001,11 @@ function Composer() {
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
-            className="w-full min-h-[76px] resize-none rounded-md border border-border bg-panel px-3.5 py-3 text-[14px] leading-[1.6] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
+            className="min-h-[88px] w-full resize-none bg-transparent px-3.5 py-3 text-[14px] leading-[1.6] text-text outline-none disabled:opacity-70"
           />
           {mentionState &&
             (mentionCandidates.length > 0 ? (
-              <div className="absolute left-0 bottom-full mb-1.5 z-30 w-[280px] max-h-[260px] overflow-y-auto rounded-md border border-border bg-panel shadow-[0_-8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+              <div className="absolute bottom-full left-0 z-30 mb-1.5 max-h-[260px] w-[280px] overflow-y-auto border-hard border-border bg-panel py-1 text-[13px] shadow-hard">
                 {mentionCandidates.map((a, i) => (
                   <button
                     key={a.id}
@@ -1015,7 +1017,7 @@ function Composer() {
                     onMouseEnter={() => setMentionIndex(i)}
                     className={cn(
                       "flex w-full items-center gap-2 px-3 py-1.5 text-left",
-                      i === mentionIndex ? "bg-panel-2" : "hover:bg-panel-2",
+                      i === mentionIndex ? "bg-accent" : "hover:bg-accent",
                     )}
                   >
                     <span className="text-text-faint">@</span>
@@ -1027,21 +1029,21 @@ function Composer() {
                 ))}
               </div>
             ) : (
-              <div className="absolute left-0 bottom-full mb-1.5 z-30 w-[280px] rounded-md border border-border bg-panel shadow-[0_-8px_24px_rgba(31,41,51,0.10)] py-1.5 px-3 text-[12px] text-text-faint">
+              <div className="absolute bottom-full left-0 z-30 mb-1.5 w-[280px] border-hard border-border bg-panel px-3 py-1.5 text-[12px] text-text-muted shadow-hard">
                 No agent matches "{mentionState.query}"
               </div>
             ))}
         </div>
         <div className="mt-2.5 flex items-center gap-2">
           {view === "agent" ? (
-            <span className="text-[12px] text-text-muted px-1.5 py-1">
+            <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">
               {(() => {
                 const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
                 return ag ? "@" + ag.display : "";
               })()}
             </span>
           ) : null}
-          <select className="bg-transparent text-[12px] text-text-muted px-1.5 py-1 rounded-sm hover:text-text outline-none cursor-pointer">
+          <select className="cursor-pointer border border-border bg-bg px-1.5 py-1 font-mono text-[12px] text-text-muted outline-none hover:bg-accent hover:text-text">
             {models.map((m) => (
               <option key={m.name} value={m.name}>
                 {m.model}
@@ -1054,8 +1056,8 @@ function Composer() {
             disabled={!canSend}
             onClick={() => void handleSend()}
             className={cn(
-              "transition-colors",
-              canSend && "border-border-strong text-text",
+              "bg-action px-4 font-black uppercase tracking-[0.5px] text-text",
+              canSend && "shadow-card hover:bg-action",
             )}
           >
             {sending ? "Sending…" : "Send"}

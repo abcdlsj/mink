@@ -21,8 +21,8 @@ function ServiceLine({ ev }: EventBlockProps) {
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 py-0.5 text-[12px]",
-        isError ? "text-error" : "text-text-faint",
+        "inline-flex items-center gap-1.5 border border-border px-1.5 py-0.5 text-[12px]",
+        isError ? "bg-action-bg text-error" : "bg-panel-2 text-text-muted",
       )}
     >
       {isError && <AlertTriangle className="size-3 shrink-0" />}
@@ -56,11 +56,11 @@ function ToolLine({ ev }: EventBlockProps) {
   })();
 
   return (
-    <div className={cn("py-0.5 text-[12px]", status === "error" ? "text-error" : "text-text-muted")}>
+    <div className={cn("inline-flex border border-border px-1.5 py-0.5 text-[12px]", status === "error" ? "bg-action-bg text-error" : "bg-panel-2 text-text-muted")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span>{headLabel}</span>
         {ev.tool_name && (
-          <span className="font-mono text-text">{ev.tool_name}</span>
+          <span className="font-mono font-semibold text-text">{ev.tool_name}</span>
         )}
         {elapsedMs ? (
           <span className="text-text-faint tabular-nums">
@@ -93,9 +93,9 @@ function MentionLine({ ev }: EventBlockProps) {
   return (
     <div className="py-0.5 text-[12px] text-text-muted">
       <div className="flex items-center gap-1.5 flex-wrap">
-        <ArrowRight className="size-3 text-text-faint shrink-0" />
+        <ArrowRight className="size-3 text-text-muted shrink-0" />
         <span className="whitespace-nowrap">called</span>
-        <span className="font-display font-medium text-text inline-flex items-baseline whitespace-nowrap">
+        <span className="inline-flex items-baseline border border-border bg-accent px-1 font-display font-semibold text-text whitespace-nowrap">
           <AtSign className="size-3 self-center" />
           {display}
         </span>
@@ -104,7 +104,7 @@ function MentionLine({ ev }: EventBlockProps) {
         ) : null}
       </div>
       {ev.reply && (
-        <div className="mt-1 ml-4 pl-3 border-l-2 border-border-soft text-[13px] text-text leading-[1.6]">
+        <div className="ml-4 mt-1 border-l-2 border-border bg-panel-2 px-3 py-1 text-[13px] leading-[1.6] text-text">
           <Markdown variant="lite" className="whitespace-pre-wrap">
             {ev.reply}
           </Markdown>
@@ -155,7 +155,7 @@ function DelegateLine({ ev }: EventBlockProps) {
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <ArrowRight className="size-3 text-text-faint shrink-0 self-center" />
         <span className="whitespace-nowrap">delegated to</span>
-        <span className="font-display font-medium text-text inline-flex items-center gap-0.5 whitespace-nowrap">
+        <span className="inline-flex items-center gap-0.5 border border-border bg-accent px-1 font-display font-semibold text-text whitespace-nowrap">
           <AtSign className="size-3" />
           {display}
         </span>
@@ -164,7 +164,7 @@ function DelegateLine({ ev }: EventBlockProps) {
         {hasDetails && (
           <button
             onClick={() => setOpen((v) => !v)}
-            className="text-[11.5px] text-text-faint hover:text-text-muted underline underline-offset-2 cursor-pointer"
+            className="cursor-pointer text-[11.5px] text-text-muted underline underline-offset-2 hover:text-text"
           >
             {open ? "hide details" : detailLabel}
           </button>
@@ -174,7 +174,7 @@ function DelegateLine({ ev }: EventBlockProps) {
         )}
       </div>
       {open && hasDetails && (
-        <div className="mt-1.5 ml-4 pl-3 border-l-2 border-border-soft text-[12.5px] text-text space-y-2.5">
+        <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-border bg-panel-2 px-3 py-2 text-[12.5px] text-text">
           {ev.err && (
             <div>
               <div className="font-display text-[10px] uppercase tracking-[0.7px] text-error mb-1">error</div>
@@ -183,13 +183,13 @@ function DelegateLine({ ev }: EventBlockProps) {
           )}
           {ev.task && (
             <div>
-              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">task</div>
+              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">task</div>
               <div className="text-text-muted whitespace-pre-wrap leading-[1.55]">{ev.task}</div>
             </div>
           )}
           {ev.output && !ev.err && (
             <div>
-              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">result</div>
+              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">result</div>
               <div className="text-text whitespace-pre-wrap leading-[1.6]">
                 <Markdown variant="lite">{ev.output}</Markdown>
               </div>
@@ -197,7 +197,7 @@ function DelegateLine({ ev }: EventBlockProps) {
           )}
           {ev.steps && ev.steps.length > 0 && (
             <div>
-              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-text-whisper mb-1">key steps</div>
+              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">key steps</div>
               <ol className="space-y-0.5">
                 {ev.steps.map((s, i) => (
                   <li key={i} className="flex items-baseline gap-2 text-[12px] leading-[1.55]">

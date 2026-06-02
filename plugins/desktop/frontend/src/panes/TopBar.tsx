@@ -12,14 +12,17 @@ export function TopBar() {
 
   return (
     <header
-      className="flex items-center justify-between border-b border-border bg-bg pr-3.5 h-9 select-none"
+      className="flex h-10 select-none items-center justify-between border-b-hard border-border bg-panel pr-4"
       style={{ paddingLeft: isWails ? 78 : 12 }}
     >
       <div className="flex items-center gap-2">
-        <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-[4px]" />
-        <div className="text-[14px] font-display font-semibold text-text">Sumi</div>
+        <div className="h-5 w-1.5 bg-accent border border-border" />
+        <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-sm border border-border bg-panel" />
+        <div className="text-[14px] font-display font-black uppercase tracking-[0.5px] text-text">Sumi</div>
       </div>
-      <div className="text-[12px] text-text-muted tabular-nums">{label}</div>
+      <div className="border border-border bg-bg px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.6px] text-text tabular-nums">
+        {label}
+      </div>
     </header>
   );
 }

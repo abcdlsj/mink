@@ -49,9 +49,9 @@ export function QuickCreate() {
   });
 
   const menuItems = [
-    { id: "channel" as Mode, icon: <Hash className="size-4 text-text-faint" />, label: "Channel", sub: "A shared room" },
-    { id: "agent" as Mode, icon: <AtSign className="size-4 text-text-faint" />, label: "Agent Chat", sub: "Talk to an agent" },
-    { id: "direct" as Mode, icon: <MessageCircle className="size-4 text-text-faint" />, label: "Direct Message", sub: "A standalone conversation" },
+    { id: "channel" as Mode, icon: <Hash className="size-4 text-text" />, label: "Channel", sub: "A shared room" },
+    { id: "agent" as Mode, icon: <AtSign className="size-4 text-text" />, label: "Agent Chat", sub: "Talk to an agent" },
+    { id: "direct" as Mode, icon: <MessageCircle className="size-4 text-text" />, label: "Direct Message", sub: "A standalone conversation" },
   ];
 
   const submitChannel = async () => {
@@ -123,7 +123,7 @@ export function QuickCreate() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-[18vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 pt-[18vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) close();
       }}
@@ -131,10 +131,10 @@ export function QuickCreate() {
         if (e.key === "Escape") close();
       }}
     >
-      <div className="w-[480px] rounded-lg border border-border bg-panel shadow-[0_24px_48px_-12px_rgba(31,41,51,0.18)] overflow-hidden">
-        <div className="px-4 pt-3.5 pb-2 border-b border-border-soft">
-          <div className="text-[13px] font-display font-semibold text-text">Create</div>
-          <div className="text-[11.5px] text-text-faint mt-0.5">
+      <div className="w-[480px] overflow-hidden border-hard border-border bg-panel shadow-hard">
+        <div className="border-b-hard border-border bg-accent px-4 pb-2 pt-3.5">
+          <div className="font-display text-[13px] font-black uppercase tracking-[0.7px] text-text">Create</div>
+          <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
             {mode === "menu" && "Pick what you want to start."}
             {mode === "channel" && "Letters, numbers, dashes."}
             {mode === "agent" && "Type to filter agents."}
@@ -153,8 +153,8 @@ export function QuickCreate() {
               <li key={it.id}>
                 <button
                   className={cn(
-                    "w-full text-left px-4 py-2 flex items-center gap-3 cursor-pointer",
-                    i === idx ? "bg-panel-2" : "hover:bg-panel-2",
+                    "flex w-full cursor-pointer items-center gap-3 border-y border-transparent px-4 py-2 text-left",
+                    i === idx ? "border-border bg-panel-2" : "hover:border-border hover:bg-panel-2",
                   )}
                   onMouseEnter={() => setIdx(i)}
                   onClick={() => {
@@ -164,7 +164,7 @@ export function QuickCreate() {
                 >
                   {it.icon}
                   <span className="flex-1">
-                    <span className="text-[13px] text-text block">{it.label}</span>
+                    <span className="block text-[13px] font-semibold text-text">{it.label}</span>
                     <span className="text-[11.5px] text-text-faint">{it.sub}</span>
                   </span>
                 </button>
@@ -193,7 +193,7 @@ export function QuickCreate() {
                 placeholder="research"
                 disabled={busy}
                 autoFocus
-                className="w-full rounded-md border border-border bg-bg pl-6 pr-3 py-2 text-[13.5px] text-text outline-none transition-[border,box-shadow] hover:border-border-strong focus:border-accent focus:ring-[3px] focus:ring-accent-bg disabled:opacity-70"
+                className="w-full border-hard border-border bg-bg py-2 pl-6 pr-3 text-[13.5px] text-text outline-none transition-[box-shadow] hover:shadow-card focus:shadow-card disabled:opacity-70"
               />
             </div>
             {err && <div className="mt-2 text-[12px] text-error">{err}</div>}
@@ -216,7 +216,7 @@ export function QuickCreate() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search agents…"
               autoFocus
-              className="w-full px-4 py-2.5 text-[13.5px] text-text outline-none border-b border-border-soft bg-transparent"
+              className="w-full border-b-hard border-border bg-bg px-4 py-2.5 text-[13.5px] text-text outline-none"
             />
             {err && <div className="px-4 py-2 text-[12px] text-error">{err}</div>}
             <ul className="py-1 max-h-[300px] overflow-y-auto">
@@ -227,8 +227,8 @@ export function QuickCreate() {
                   <li key={a.id}>
                     <button
                       className={cn(
-                        "w-full text-left px-4 py-2 flex items-center gap-2 cursor-pointer",
-                        i === idx ? "bg-panel-2" : "hover:bg-panel-2",
+                        "flex w-full cursor-pointer items-center gap-2 border-y border-transparent px-4 py-2 text-left",
+                        i === idx ? "border-border bg-panel-2" : "hover:border-border hover:bg-panel-2",
                       )}
                       onMouseEnter={() => setIdx(i)}
                       onClick={() => void submitAgent(a.id)}
@@ -241,7 +241,7 @@ export function QuickCreate() {
                 ))
               )}
             </ul>
-            <div className="px-4 py-2 border-t border-border-soft flex justify-end gap-2">
+            <div className="flex justify-end gap-2 border-t-hard border-border px-4 py-2">
               <Button variant="default" type="button" onClick={() => setMode("menu")} disabled={busy}>
                 Back
               </Button>

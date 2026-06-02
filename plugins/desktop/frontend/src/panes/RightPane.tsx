@@ -27,7 +27,7 @@ export function RightPane() {
   const threadParticipants = inThread ? threadDetail!.participants : null;
   const threadRecentRuns = inThread ? threadDetail!.recent_runs : null;
 
-  if (!detail && !inThread) return <aside className="h-full border-l border-border bg-panel-3 px-4 py-4" />;
+  if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-4 py-4" />;
 
   const runtimeRuns: AgentRun[] = streaming
     ? [
@@ -62,7 +62,7 @@ export function RightPane() {
         {tools.map((t) => (
           <span
             key={t.name}
-            className="text-[11.5px] text-text-muted bg-panel border border-border rounded-[3px] px-2 py-px font-mono"
+            className="border border-border bg-panel px-2 py-px font-mono text-[11.5px] text-text-muted"
           >
             {t.name}
           </span>
@@ -185,7 +185,7 @@ export function RightPane() {
                 {personaTools(activeAgent, useStore.getState().personas).map((t) => (
                   <span
                     key={t}
-                    className="text-[11px] text-text-muted bg-panel-2 border border-border-soft rounded-[3px] px-1.5 py-px font-mono"
+                    className="border border-border bg-panel-2 px-1.5 py-px font-mono text-[11px] text-text-muted"
                   >
                     {t}
                   </span>
@@ -220,13 +220,13 @@ export function RightPane() {
   }
 
   return (
-    <aside className="h-full border-l border-border bg-panel-3 overflow-y-auto px-4 pt-4 pb-6">
+    <aside className="h-full overflow-y-auto border-l-hard border-border bg-panel-3 px-4 pb-6 pt-4">
       <div>{main}</div>
       {more && (
         <>
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className="mt-1 w-full flex items-center justify-between border-t border-border-soft pt-2 pb-2 text-[11.5px] font-medium text-text-muted hover:text-text"
+            className="mt-1 flex w-full items-center justify-between border-t-2 border-border pb-2 pt-2 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted hover:text-text"
           >
             <span>{moreOpen ? "Hide details" : "More details"}</span>
             <ChevronRight
@@ -243,7 +243,7 @@ export function RightPane() {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-5">
-      <div className="font-display text-[10px] uppercase tracking-[0.9px] text-text-whisper mb-1.5 font-semibold">
+      <div className="mb-1.5 border-b border-border font-display text-[10px] font-black uppercase tracking-[1px] text-text">
         {label}
       </div>
       <div>{children}</div>
@@ -260,19 +260,19 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
           <span
             key={p.id}
             className={cn(
-              "relative size-[22px] rounded-[4px] overflow-hidden border-[1.5px] border-panel-3 bg-panel",
+              "relative size-[22px] overflow-hidden border-2 border-border bg-panel",
               i > 0 && "-ml-1.5",
             )}
             title={p.display + " · " + (p.status === "running" ? "running" : "available")}
           >
             <Identicon seed={p.id || p.display} kind="agent" />
             {p.status === "running" && (
-              <span className="absolute -bottom-0.5 -right-0.5 size-[7px] rounded-full bg-running border-[1.5px] border-panel" />
+              <span className="absolute -bottom-0.5 -right-0.5 size-[7px] rounded-full border border-border bg-running" />
             )}
           </span>
         ))}
         {agents.length > 3 && (
-          <span className="-ml-1.5 size-[22px] rounded-[4px] inline-flex items-center justify-center border-[1.5px] border-panel-3 bg-panel-2 text-[10.5px] text-text-muted">
+          <span className="-ml-1.5 inline-flex size-[22px] items-center justify-center border-2 border-border bg-panel-2 text-[10.5px] text-text-muted">
             +{agents.length - 3}
           </span>
         )}
@@ -374,18 +374,18 @@ function RunCard({ run }: { run: AgentRun }) {
   return (
     <div
       className={cn(
-        "border border-border-soft rounded-md bg-panel px-2.5 py-2 mb-1.5 transition-colors",
-        run.status === "running" && "border-l-2 border-l-running",
-        (run.status === "done" || run.status === "finished") && "border-l-2 border-l-done",
-        (run.status === "error" || run.status === "failed") && "border-l-2 border-l-error",
-        run.status === "no_output" && "border-l-2 border-l-text-faint",
-        canExpand && "cursor-pointer hover:bg-panel-2",
+        "mb-1.5 border-2 border-border bg-panel px-2.5 py-2 transition-colors",
+        run.status === "running" && "border-l-[6px] border-l-running",
+        (run.status === "done" || run.status === "finished") && "border-l-[6px] border-l-done",
+        (run.status === "error" || run.status === "failed") && "border-l-[6px] border-l-error",
+        run.status === "no_output" && "border-l-[6px] border-l-text-faint",
+        canExpand && "cursor-pointer hover:bg-accent",
       )}
       onClick={onCardClick}
     >
       <div className="flex items-start justify-between gap-2">
         <div
-          className="text-[12.5px] text-text leading-[1.45] line-clamp-2 break-words"
+          className="line-clamp-2 break-words text-[12.5px] font-semibold leading-[1.45] text-text"
           title={run.title}
         >
           {run.title}
@@ -397,7 +397,7 @@ function RunCard({ run }: { run: AgentRun }) {
           </Button>
         )}
       </div>
-      <div className="text-[11px] text-text-faint mt-0.5 tabular-nums">
+      <div className="mt-0.5 font-mono text-[11px] text-text-muted tabular-nums">
         {(ag?.display || run.agent_id) + " · " + (currentStep || statusLabel(run.status)) + " · " + elapsedLabel}
       </div>
       {effectivelyExpanded && canExpand && (
@@ -428,7 +428,7 @@ function RunCardDetail({
   const isEmpty = detail.status === "no_output";
   const hasSteps = (detail.key_steps?.length ?? 0) > 0;
   return (
-    <div className="mt-2 pt-2 border-t border-border-soft flex flex-col gap-1.5">
+    <div className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2">
       {detail.outcome && (
         <div className="text-[11.5px] text-text leading-[1.45] break-words">
           {detail.outcome}
@@ -503,7 +503,7 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
   return (
     <button
       onClick={() => void openThread(thread.id)}
-      className="w-full text-left px-2 py-1.5 rounded-sm cursor-pointer transition-colors text-text-muted hover:text-text"
+      className="w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left text-text-muted transition-colors hover:border-border hover:bg-panel hover:text-text"
     >
       <div className="flex items-center gap-1.5 text-[12.5px] text-text">
         {thread.has_running && <Dot status="running" />}

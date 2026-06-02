@@ -18,17 +18,18 @@ export function LeftPane() {
   const setQuickCreate = useStore((s) => s.setQuickCreate);
 
   return (
-    <aside className="h-full border-r border-border bg-panel-2 overflow-y-auto px-2 pb-4 pt-2.5">
-      <div className="flex flex-col gap-1.5 px-1 pb-1.5">
+    <aside className="relative h-full overflow-y-auto border-r-hard border-border bg-panel-2 px-3 pb-5 pt-3">
+      <div className="absolute left-0 top-0 h-full w-2 border-r-hard border-border bg-accent" />
+      <div className="flex flex-col gap-2 pb-2 pl-2">
         <Button
           variant="default"
           size="default"
-          className="justify-start"
+          className="justify-start bg-panel"
           onClick={() => setQuickCreate(true)}
         >
           <Plus className="size-3" />
           <span>New</span>
-          <span className="ml-auto rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint">
+          <span className="ml-auto border border-border bg-bg px-1.5 py-px font-mono text-[11px] text-text-muted">
             ⌘T
           </span>
         </Button>
@@ -40,7 +41,7 @@ export function LeftPane() {
         >
           <Search className="size-3" />
           <span>Search</span>
-          <span className="ml-auto rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint">
+          <span className="ml-auto border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
             ⌘K
           </span>
         </Button>
@@ -93,20 +94,20 @@ export function LeftPane() {
             <button
               onClick={() => void openAgent(dm.id)}
               className={cn(
-                "w-full text-left px-2 py-1.5 rounded-sm border-l-2 border-transparent cursor-pointer transition-colors",
+                "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
                 view === "agent" && activeAgent === dm.id
-                  ? "border-l-accent font-medium text-text"
-                  : "text-text-muted hover:text-text",
+                  ? "border-border bg-accent font-semibold text-text shadow-card"
+                  : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
               )}
               title={"@" + (dm.persona_name || dm.persona_id)}
             >
               <div className="flex items-center gap-1.5 text-[13px]">
-                <AtSign className="size-3 text-text-faint shrink-0" />
+                <AtSign className="size-3 text-text-muted shrink-0" />
                 <span className="truncate">
                   {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
                 </span>
               </div>
-              <div className="text-[11px] text-text-faint mt-0.5 truncate">
+              <div className="mt-0.5 truncate font-mono text-[11px] text-text-muted">
                 @{dm.persona_name || dm.persona_id}
                 {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
               </div>
@@ -120,7 +121,7 @@ export function LeftPane() {
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="font-display text-[10.5px] uppercase tracking-[0.9px] text-text-faint pt-3.5 pb-1 px-2 font-semibold">
+    <div className="border-b-2 border-border px-2 pb-1 pt-4 font-display text-[10.5px] font-black uppercase tracking-[1.2px] text-text">
       {children}
     </div>
   );
@@ -143,20 +144,20 @@ function NavItem({ icon, name, running, badge, active, onClick, tooltip }: NavIt
         onClick={onClick}
         title={tooltip}
         className={cn(
-          "w-full grid grid-cols-[16px_1fr_auto] items-center gap-2 rounded-sm py-1.5 pl-2.5 pr-2 cursor-pointer border-l-2 border-transparent transition-colors text-text-muted",
-          active ? "text-text border-l-accent font-medium" : "hover:text-text",
+          "grid w-full cursor-pointer grid-cols-[18px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
+          active ? "border-border bg-accent font-semibold text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
         )}
       >
-        <span className={cn("inline-flex items-center", active ? "text-text" : "text-text-faint")}>
+        <span className={cn("inline-flex items-center justify-center font-mono", active ? "text-text" : "text-text-muted")}>
           {icon}
         </span>
         <span className="flex items-center gap-1.5 min-w-0">
           {running && <Dot status="running" />}
           <span className="truncate text-[13px] text-left">{name}</span>
         </span>
-        <span className="flex items-center gap-1 text-[11px] text-text-faint tabular-nums">
+        <span className="flex items-center gap-1 text-[11px] text-text-muted tabular-nums">
           {badge ? (
-            <span className="bg-accent-bg text-accent rounded-[10px] h-4 px-1.5 inline-flex items-center text-[10.5px]">
+            <span className="inline-flex h-4 items-center border border-border bg-action px-1.5 text-[10.5px] font-semibold text-text">
               {badge}
             </span>
           ) : null}
@@ -170,7 +171,7 @@ export function Dot({ status, className }: { status: "running" | "done" | "error
   return (
     <span
       className={cn(
-        "inline-block size-[7px] rounded-full shrink-0",
+        "inline-block size-[7px] rounded-full border border-border shrink-0",
         status === "running" && "bg-running",
         status === "done" && "bg-done",
         status === "error" && "bg-error",

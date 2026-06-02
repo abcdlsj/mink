@@ -15,26 +15,28 @@
 @layer base {
   :root {
     color-scheme: light;
-    --bg: #F5F6F8;
-    --panel: #FFFFFF;
-    --panel-2: #F2F4F7;
-    --panel-3: #F7F8FA;
-    --panel-event: #F8FAFC;
-    --border: #E1E5EA;
-    --border-soft: #ECEFF3;
-    --border-event: #E4E8EE;
-    --border-strong: #CBD0D8;
-    --text: #16202B;
-    --text-muted: #4F5B6A;
-    --text-faint: #8C95A2;
-    --text-whisper: #B6BCC5;
-    --accent: #2563EB;
-    --accent-bg: #EFF6FF;
-    --accent-border: #BFDBFE;
-    --running: #B7791F;
-    --error: #DC2626;
-    --done: #15803D;
-    --reasoning: #7C6AA8;
+    --bg: #F5F1E8;
+    --panel: #FFFDF6;
+    --panel-2: #EFE7D7;
+    --panel-3: #E8DFCD;
+    --panel-event: #F8EBCB;
+    --border: #17130E;
+    --border-soft: #B8AE9C;
+    --border-event: #17130E;
+    --border-strong: #17130E;
+    --text: #14110C;
+    --text-muted: #4B4033;
+    --text-faint: #756A5B;
+    --text-whisper: #A79B8B;
+    --accent: #F2B800;
+    --accent-bg: #FFE680;
+    --accent-border: #17130E;
+    --action: #FF6F61;
+    --action-bg: #FFE1DC;
+    --running: #B76E00;
+    --error: #D72638;
+    --done: #16794C;
+    --reasoning: #6F5B1D;
 
     --font-ui: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
     --font-display: "Geist Variable", "Inter Tight Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
@@ -57,7 +59,7 @@
   }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--bg); }
-  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
-  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; border: 3px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--action); }
+  ::-webkit-scrollbar-track { background: var(--panel-2); }
 }
