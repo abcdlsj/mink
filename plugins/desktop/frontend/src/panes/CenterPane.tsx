@@ -85,7 +85,7 @@ export function CenterPane() {
             <TitleIcon className="size-[18px] text-text-muted" />
             <span>{titleText}</span>
             {view === "channel" && channel && (
-              <ListeningGear channel={channel} agents={agents} />
+              <AgentGear scope={{ kind: "channel", channel }} agents={agents} />
             )}
           </h2>
           {(metaText || listeningHint) && (
@@ -147,18 +147,23 @@ function listeningSummary(
   return `${head} · ${tail}`;
 }
 
-function ListeningGear({
-  channel,
+type GearScope =
+  | { kind: "channel"; channel: import("@/lib/types").ChannelItem }
+  | { kind: "thread"; detail: import("@/lib/types").ThreadDetail };
+
+function AgentGear({
+  scope,
   agents,
 }: {
-  channel: import("@/lib/types").ChannelItem;
+  scope: GearScope;
   agents: import("@/lib/types").AgentItem[];
 }) {
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [pickQuery, setPickQuery] = useState("");
   const ref = useRef<HTMLDivElement | null>(null);
-  const setMode = useStore((s) => s.setChannelAgentMode);
+  const setChannelMode = useStore((s) => s.setChannelAgentMode);
+  const setThreadMode = useStore((s) => s.setThreadAgentMode);
   const addAgent = useStore((s) => s.addAgentToChannel);
 
   useEffect(() => {
@@ -174,31 +179,54 @@ function ListeningGear({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  const joinedIDs = new Set(channel.agents || []);
+  const joinedSource =
+    scope.kind === "channel" ? scope.channel.agents : scope.detail.channel_agents;
+  const modeMap =
+    scope.kind === "channel" ? scope.channel.agent_modes : scope.detail.agent_modes;
+  const joinedIDs = new Set(joinedSource || []);
   const joined = agents.filter((a) => joinedIDs.has(a.id));
-  const candidates = agents.filter((a) => !joinedIDs.has(a.id) && (
-    pickQuery === "" ||
-    a.id.toLowerCase().includes(pickQuery.toLowerCase()) ||
-    a.display.toLowerCase().includes(pickQuery.toLowerCase())
-  ));
-  const modeFor = (id: string) => channel.agent_modes?.[id] || "mention_only";
+  const candidates = agents.filter(
+    (a) =>
+      !joinedIDs.has(a.id) &&
+      (pickQuery === "" ||
+        a.id.toLowerCase().includes(pickQuery.toLowerCase()) ||
+        a.display.toLowerCase().includes(pickQuery.toLowerCase())),
+  );
+  const modeFor = (id: string) => modeMap?.[id] || "mention_only";
+  const flip = (id: string, next: string) => {
+    if (scope.kind === "channel") void setChannelMode(scope.channel.id, id, next);
+    else void setThreadMode(scope.detail.space_id, scope.detail.parent_id, id, next);
+  };
+  const heading =
+    scope.kind === "channel" ? "Agents in this channel" : "Agents in this thread";
+  const empty =
+    scope.kind === "channel" ? "No agents joined yet." : null;
+  if (scope.kind === "thread" && joined.length === 0) return null;
 
   return (
-    <div className="relative" ref={ref}>
+    <div className={cn("relative", scope.kind === "thread" && "ml-auto")} ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="ml-1 inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text"
-        title="Channel agents"
+        className={cn(
+          "inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text",
+          scope.kind === "channel" && "ml-1",
+        )}
+        title={scope.kind === "channel" ? "Channel agents" : "Thread agents"}
       >
         <Settings className="size-3.5" />
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+        <div
+          className={cn(
+            "absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]",
+            scope.kind === "thread" && "right-0",
+          )}
+        >
           <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
-            Agents in this channel
+            {heading}
           </div>
-          {joined.length === 0 && (
-            <div className="px-3 py-2 text-[11.5px] text-text-faint">No agents joined yet.</div>
+          {joined.length === 0 && empty && (
+            <div className="px-3 py-2 text-[11.5px] text-text-faint">{empty}</div>
           )}
           {joined.map((a) => {
             const m = modeFor(a.id);
@@ -206,7 +234,7 @@ function ListeningGear({
             return (
               <button
                 key={a.id}
-                onClick={() => void setMode(channel.id, a.id, next)}
+                onClick={() => flip(a.id, next)}
                 className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
               >
                 <span className="flex items-center gap-1.5 text-text">
@@ -224,122 +252,56 @@ function ListeningGear({
               </button>
             );
           })}
-          <div className="border-t border-border-soft mt-1 pt-1">
-            {!picking ? (
-              <button
-                onClick={() => setPicking(true)}
-                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-text-muted hover:bg-panel-2 hover:text-text cursor-pointer"
-              >
-                <Plus className="size-3" />
-                Add agent…
-              </button>
-            ) : (
-              <div>
-                <input
-                  autoFocus
-                  value={pickQuery}
-                  onChange={(e) => setPickQuery(e.target.value)}
-                  placeholder="Search agents…"
-                  className="w-full px-3 py-1.5 text-[13px] bg-transparent outline-none border-b border-border-soft"
-                />
-                <div className="max-h-[200px] overflow-y-auto">
-                  {candidates.length === 0 && (
-                    <div className="px-3 py-2 text-[11.5px] text-text-faint">No matching agent.</div>
-                  )}
-                  {candidates.map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={async () => {
-                        await addAgent(channel.id, a.id);
-                        setPicking(false);
-                        setPickQuery("");
-                      }}
-                      className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
-                    >
-                      <AtSign className="size-3 text-text-faint" />
-                      <span className="text-text">{a.display}</span>
-                      {a.role && (
-                        <span className="ml-auto text-[11px] text-text-faint truncate max-w-[55%]">{a.role}</span>
-                      )}
-                    </button>
-                  ))}
+          {scope.kind === "channel" && (
+            <div className="border-t border-border-soft mt-1 pt-1">
+              {!picking ? (
+                <button
+                  onClick={() => setPicking(true)}
+                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-text-muted hover:bg-panel-2 hover:text-text cursor-pointer"
+                >
+                  <Plus className="size-3" />
+                  Add agent…
+                </button>
+              ) : (
+                <div>
+                  <input
+                    autoFocus
+                    value={pickQuery}
+                    onChange={(e) => setPickQuery(e.target.value)}
+                    placeholder="Search agents…"
+                    className="w-full px-3 py-1.5 text-[13px] bg-transparent outline-none border-b border-border-soft"
+                  />
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {candidates.length === 0 && (
+                      <div className="px-3 py-2 text-[11.5px] text-text-faint">No matching agent.</div>
+                    )}
+                    {candidates.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={async () => {
+                          await addAgent(scope.channel.id, a.id);
+                          setPicking(false);
+                          setPickQuery("");
+                        }}
+                        className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+                      >
+                        <AtSign className="size-3 text-text-faint" />
+                        <span className="text-text">{a.display}</span>
+                        {a.role && (
+                          <span className="ml-auto text-[11px] text-text-faint truncate max-w-[55%]">{a.role}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ThreadGear({
-  detail,
-  agents,
-}: {
-  detail: import("@/lib/types").ThreadDetail;
-  agents: import("@/lib/types").AgentItem[];
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  const setMode = useStore((s) => s.setThreadAgentMode);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
-
-  const joinedIDs = new Set(detail.channel_agents || []);
-  const joined = agents.filter((a) => joinedIDs.has(a.id));
-  const modeFor = (id: string) => detail.agent_modes?.[id] || "mention_only";
-
-  if (joined.length === 0) return null;
-
-  return (
-    <div className="relative ml-auto" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text"
-        title="Thread agents"
-      >
-        <Settings className="size-3.5" />
-      </button>
-      {open && (
-        <div className="absolute right-0 z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
-          <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
-            Agents in this thread
-          </div>
-          {joined.map((a) => {
-            const m = modeFor(a.id);
-            const next = m === "listen" ? "mention_only" : "listen";
-            return (
-              <button
-                key={a.id}
-                onClick={() => void setMode(detail.space_id, detail.parent_id, a.id, next)}
-                className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
-              >
-                <span className="flex items-center gap-1.5 text-text">
-                  <AtSign className="size-3 text-text-faint" />
-                  {a.display}
-                </span>
-                <span
-                  className={cn(
-                    "text-[11px]",
-                    m === "listen" ? "text-accent font-medium" : "text-text-faint",
-                  )}
-                >
-                  {m === "listen" ? "Listen" : "Mention only"}
-                </span>
-              </button>
-            );
-          })}
-          <div className="border-t border-border-soft mt-1 px-3 py-1.5 text-[10.5px] text-text-faint">
-            Inherited from channel.
-          </div>
+              )}
+            </div>
+          )}
+          {scope.kind === "thread" && (
+            <div className="border-t border-border-soft mt-1 px-3 py-1.5 text-[10.5px] text-text-faint">
+              Inherited from channel.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -800,7 +762,7 @@ function ThreadView() {
         <div className="text-[12px] text-text-faint">
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
-        <ThreadGear detail={threadDetail} agents={useStore.getState().agents} />
+        <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
       </div>
       <div className="overflow-y-auto px-8 pt-4 pb-6">
         <div className="mx-auto max-w-[800px]">
