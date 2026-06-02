@@ -118,6 +118,12 @@ func MapSource(source string) SourceTarget {
 	switch {
 	case source == "" || source == "desktop":
 		return SourceTarget{Kind: KindChannel, Seed: "default"}
+	case strings.HasPrefix(source, "desktop:channel:"):
+		rest := strings.TrimPrefix(source, "desktop:channel:")
+		if i := strings.IndexByte(rest, ':'); i >= 0 {
+			rest = rest[:i]
+		}
+		return SourceTarget{Kind: KindChannel, Seed: rest}
 	case strings.HasPrefix(source, "desktop:agent:"):
 		rest := strings.TrimPrefix(source, "desktop:agent:")
 		if i := strings.IndexByte(rest, ':'); i >= 0 {

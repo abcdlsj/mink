@@ -112,14 +112,10 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		sp = loaded
 		switch sp.Kind {
 		case space.KindChannel:
-			source = desktopSource
+			source = "desktop:channel:" + sp.ID
 		case space.KindDirectChat:
 			source = "desktop:direct:" + sp.Title
 		case space.KindAgentDM:
-			// Multi-instance: address by Space id directly so the
-			// resolver picks the right conversation regardless of
-			// title state. Singleton AgentDM Spaces also resolve here
-			// since their ids share the same prefix shape.
 			source = "desktop:agent:" + sp.ID
 		}
 	} else if strings.HasPrefix(req.SessionID, "desktop:agent:") {
