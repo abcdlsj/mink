@@ -1226,7 +1226,7 @@ func (b *Backend) ListModels() []ModelItem {
 }
 
 func (b *Backend) ListTools() []ToolItem {
-	return nil
+	return []ToolItem{}
 }
 
 func (b *Backend) ListCommands() []CommandItem {
