@@ -46,34 +46,18 @@ func ListenMatches(content string, listening []string) []string {
 	return hits
 }
 
-func ListeningAgents(sp *Space) []string {
+func ListeningAgents(sp *Space, parentMessageID string) []string {
 	if sp == nil {
 		return nil
 	}
-	out := make([]string, 0, len(sp.AgentModes))
-	for id, mode := range sp.AgentModes {
-		if mode == "listen" {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
-func ListeningAgentsForThread(sp *Space, parentMessageID string) []string {
-	if sp == nil {
-		return nil
-	}
-	parentMessageID = strings.TrimSpace(parentMessageID)
-	if parentMessageID == "" {
-		return ListeningAgents(sp)
-	}
-	overrides := sp.ThreadAgentModes[parentMessageID]
 	merged := map[string]string{}
 	for id, mode := range sp.AgentModes {
 		merged[id] = mode
 	}
-	for id, mode := range overrides {
-		merged[id] = mode
+	if parentMessageID = strings.TrimSpace(parentMessageID); parentMessageID != "" {
+		for id, mode := range sp.ThreadAgentModes[parentMessageID] {
+			merged[id] = mode
+		}
 	}
 	out := make([]string, 0, len(merged))
 	for id, mode := range merged {

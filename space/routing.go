@@ -99,7 +99,7 @@ func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID strin
 	}
 	if len(mentions) == 0 {
 		sp, _ := r.spaces.LoadSpace(spaceID)
-		listening := ListeningAgentsForThread(sp, parentMessageID)
+		listening := ListeningAgents(sp, parentMessageID)
 		hits := ListenMatches(content, listening)
 		if len(hits) == 1 {
 			chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
