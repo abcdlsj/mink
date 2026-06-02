@@ -32,7 +32,7 @@ func (w *WailsBridge) Assets() fs.FS {
 }
 
 func (w *WailsBridge) Handler() http.Handler {
-	return w.Backend.APIHandler(false)
+	return w.Backend.APIHandler()
 }
 
 func (w *WailsBridge) Start(ctx context.Context) {

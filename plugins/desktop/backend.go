@@ -37,9 +37,6 @@ func newBackend(a *app.App) *Backend {
 }
 
 func (b *Backend) WorkspaceInfo() WorkspaceState {
-	if b.app == nil {
-		return mockState()
-	}
 	cfg := b.app.Config()
 	current := b.app.CurrentModel()
 	provider, model := splitModel(current)
@@ -54,20 +51,6 @@ func (b *Backend) WorkspaceInfo() WorkspaceState {
 }
 
 func (b *Backend) ListSessions() ([]SessionItem, error) {
-	if b.app == nil {
-		out := []SessionItem{}
-		for _, c := range mockChannels() {
-			out = append(out, SessionItem{
-				ID:        c.ID,
-				Title:     "#" + c.Name,
-				Runtime:   "local",
-				Model:     "claude-sonnet-4",
-				UpdatedAt: c.UpdatedAt,
-				Running:   c.HasRunning,
-			})
-		}
-		return out, nil
-	}
 	idx, err := b.app.SessionIndex()
 	if err != nil {
 		return nil, err
@@ -86,9 +69,6 @@ func (b *Backend) ListSessions() ([]SessionItem, error) {
 }
 
 func (b *Backend) GetSession(id string) (SessionDetail, error) {
-	if b.app == nil {
-		return mockChannelDetail(id), nil
-	}
 	return b.GetThread(id), nil
 }
 
@@ -274,9 +254,6 @@ func newDirectChatSeed() string {
 }
 
 func (b *Backend) ListChannels() []ChannelItem {
-	if b.app == nil {
-		return mockChannels()
-	}
 	cfg := b.app.Config()
 	spaces, err := b.app.Spaces().Store().ListSpaces()
 	if err == nil {
@@ -415,16 +392,10 @@ func spaceAgentIDs(sp *space.Space) []string {
 }
 
 func (b *Backend) ListThreads() []ThreadItem {
-	if b.app == nil {
-		return mockThreads()
-	}
 	return []ThreadItem{}
 }
 
 func (b *Backend) ListAgents() []AgentItem {
-	if b.app == nil {
-		return mockAgents()
-	}
 	out := make([]AgentItem, 0)
 	for _, p := range b.app.Personas().List() {
 		out = append(out, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
@@ -521,9 +492,6 @@ func normalizeChannelSeed(s string) string {
 }
 
 func (b *Backend) GetChannel(id string) SessionDetail {
-	if b.app == nil {
-		return mockChannelDetail(id)
-	}
 	cfg := b.app.Config()
 	var sp *space.Space
 	if isSpaceID(id) {
@@ -715,9 +683,6 @@ type appAccessor interface {
 }
 
 func (b *Backend) GetThread(id string) SessionDetail {
-	if b.app == nil {
-		return mockThreadDetail(id)
-	}
 	return SessionDetail{}
 }
 
@@ -913,9 +878,6 @@ func questionFromArgs(rawArgs string) string {
 }
 
 func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
-	if b.app == nil {
-		return mockParticipants(channelID, threadID)
-	}
 	spaceID := strings.TrimSpace(threadID)
 	if spaceID == "" {
 		spaceID = strings.TrimSpace(channelID)
@@ -1268,9 +1230,6 @@ func isSpaceID(s string) bool {
 }
 
 func (b *Backend) ListPersonas() []PersonaItem {
-	if b.app == nil {
-		return mockPersonas()
-	}
 	out := make([]PersonaItem, 0)
 	for _, p := range b.app.Personas().List() {
 		out = append(out, PersonaItem{
@@ -1285,9 +1244,6 @@ func (b *Backend) ListPersonas() []PersonaItem {
 }
 
 func (b *Backend) ListModels() []ModelItem {
-	if b.app == nil {
-		return mockModels()
-	}
 	cfg := b.app.Config()
 	out := make([]ModelItem, 0, len(cfg.Models))
 	for name, m := range cfg.Models {
@@ -1305,13 +1261,10 @@ func (b *Backend) ListModels() []ModelItem {
 }
 
 func (b *Backend) ListTools() []ToolItem {
-	return mockTools()
+	return nil
 }
 
 func (b *Backend) ListCommands() []CommandItem {
-	if b.app == nil {
-		return mockCommands()
-	}
 	cmds := b.app.Commands()
 	out := make([]CommandItem, 0, len(cmds))
 	for _, c := range cmds {
@@ -1324,11 +1277,7 @@ func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 	return b.subs.subscribe(256)
 }
 
-func (b *Backend) MockStream(req SendRequest) {
-	go runMockStream(b.subs, req)
-}
-
-func (b *Backend) APIHandler(mock bool) http.Handler {
+func (b *Backend) APIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", jsonHandler(func() any { return b.WorkspaceInfo() }))
 	mux.HandleFunc("/api/sessions", jsonHandler(func() any {
@@ -1488,11 +1437,6 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 		var in SendRequest
 		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if mock {
-			b.MockStream(in)
-			writeJSON(rw, map[string]string{"reply": ""})
 			return
 		}
 		out, err := b.SendMessage(in)

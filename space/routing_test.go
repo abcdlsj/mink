@@ -41,7 +41,7 @@ func newRouterTestEnv(t *testing.T) (*Router, *Manager, *Space) {
 
 func TestRouterUserMessageWithMentionWakesOnce(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "@coder look")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "@coder look", "")
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestRouterUserMessageWithMentionWakesOnce(t *testing.T) {
 
 func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 
 func TestRouterUnknownMentionDropsSilently(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, _ := router.RouteUserChannelMessage(ch.ID, "@nobody hi")
+	wakes, notices, _ := router.RouteUserChannelMessage(ch.ID, "@nobody hi", "")
 	if len(wakes) != 0 {
 		t.Errorf("unknown mention must not wake, got %+v", wakes)
 	}
@@ -105,7 +105,7 @@ func TestRouterUnknownMentionDropsSilently(t *testing.T) {
 
 func TestRouterMultipleMentionsWakeAll(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder and @reviewer please")
+	wakes, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder and @reviewer please", "")
 	got := make([]string, 0, len(wakes))
 	for _, w := range wakes {
 		got = append(got, w.AgentID)
@@ -123,7 +123,7 @@ func TestRouterMultipleMentionsWakeAll(t *testing.T) {
 
 func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder look")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder look", "")
 	if len(wakes1) != 1 {
 		t.Fatalf("expected coder wake, got %+v", wakes1)
 	}
@@ -165,7 +165,7 @@ func TestRouterAgentReplyWithoutChain(t *testing.T) {
 
 func TestRouterAgentCannotWakeItself(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder do it")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder do it", "")
 	chain := wakes1[0].Chain
 
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "reply-1", "hmm @coder", "coder")
@@ -176,7 +176,7 @@ func TestRouterAgentCannotWakeItself(t *testing.T) {
 
 func TestRouterFanOutBudgetCapsAcrossReplies(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder", "")
 	chain := wakes1[0].Chain
 	chain.Spend("coder")
 

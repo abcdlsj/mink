@@ -25,35 +25,27 @@ func Plugin() app.Plugin {
 
 func run(ctx context.Context, a *app.App, args []string) error {
 	addr := "127.0.0.1:7799"
-	mock := false
 	fs := flag.NewFlagSet("desktop", flag.ContinueOnError)
 	fs.StringVar(&addr, "addr", addr, "desktop bind address")
-	fs.BoolVar(&mock, "mock", false, "serve mock data only (skip backend wiring)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	var backend *Backend
-	if mock {
-		backend = newBackend(nil)
-	} else {
-		backend = newBackend(a)
-		backend.start(ctx)
-	}
-	srv := newServer(addr, backend, mock)
+	backend := newBackend(a)
+	backend.start(ctx)
+	srv := newServer(addr, backend)
 	return srv.run(ctx)
 }
 
 type server struct {
 	addr    string
 	backend *Backend
-	mock    bool
 }
 
-func newServer(addr string, b *Backend, mock bool) *server {
+func newServer(addr string, b *Backend) *server {
 	if strings.TrimSpace(addr) == "" {
 		addr = "127.0.0.1:7799"
 	}
-	return &server{addr: addr, backend: b, mock: mock}
+	return &server{addr: addr, backend: b}
 }
 
 func (s *server) run(ctx context.Context) error {
@@ -63,8 +55,7 @@ func (s *server) run(ctx context.Context) error {
 		return err
 	}
 	mux.Handle("/", http.FileServer(http.FS(sub)))
-	api := s.backend.APIHandler(s.mock)
-	mux.Handle("/api/", api)
+	mux.Handle("/api/", s.backend.APIHandler())
 
 	httpSrv := &http.Server{
 		Addr:              s.addr,
@@ -77,11 +68,7 @@ func (s *server) run(ctx context.Context) error {
 		defer cancel()
 		_ = httpSrv.Shutdown(shutdown)
 	}()
-	mode := "live"
-	if s.mock {
-		mode = "mock"
-	}
-	fmt.Printf("desktop %s listening on http://%s\n", mode, s.addr)
+	fmt.Printf("desktop listening on http://%s\n", s.addr)
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
 	}

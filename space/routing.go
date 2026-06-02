@@ -72,11 +72,7 @@ func (r *Router) ResolverFunc() PersonaResolver { return r.resolverFunc() }
 
 func (r *Router) MaxMentions() int { return r.maxMentions }
 
-func (r *Router) RouteUserChannelMessage(spaceID, content string) ([]RoutingTarget, []RoutingNotice, error) {
-	return r.RouteUserChannelMessageInThread(spaceID, content, "")
-}
-
-func (r *Router) RouteUserChannelMessageInThread(spaceID, content, parentMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
+func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
 	if r == nil || r.spaces == nil {
 		return nil, nil, fmt.Errorf("router not configured")
 	}

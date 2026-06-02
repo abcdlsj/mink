@@ -6,41 +6,6 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 )
 
-func TestBackendNilAppFallsBackToMock(t *testing.T) {
-	b := newBackend(nil)
-	if got := b.WorkspaceInfo().Workspace; got == "" {
-		t.Errorf("WorkspaceInfo empty: %#v", b.WorkspaceInfo())
-	}
-	if got := b.ListChannels(); len(got) == 0 {
-		t.Error("ListChannels empty in mock mode")
-	}
-	if got := b.ListThreads(); len(got) == 0 {
-		t.Error("ListThreads empty in mock mode")
-	}
-	if got := b.ListAgents(); len(got) == 0 {
-		t.Error("ListAgents empty in mock mode")
-	}
-	if got := b.ListPersonas(); len(got) == 0 {
-		t.Error("ListPersonas empty in mock mode")
-	}
-	if got := b.ListModels(); len(got) == 0 {
-		t.Error("ListModels empty in mock mode")
-	}
-	if got := b.ListTools(); len(got) == 0 {
-		t.Error("ListTools empty in mock mode")
-	}
-	if got := b.ListCommands(); len(got) == 0 {
-		t.Error("ListCommands empty in mock mode")
-	}
-}
-
-func TestBackendStopWithoutSendIsSafe(t *testing.T) {
-	b := newBackend(nil)
-	if err := b.StopTurn("missing"); err != nil {
-		t.Errorf("StopTurn returned: %v", err)
-	}
-}
-
 func TestSplitModel(t *testing.T) {
 	cases := []struct {
 		in       string
@@ -70,10 +35,6 @@ func TestFallback(t *testing.T) {
 	if got := fallback("real", "default"); got != "real" {
 		t.Errorf("fallback non-empty: %q", got)
 	}
-}
-
-func TestConvertMessages_Removed(t *testing.T) {
-	t.Skip("convertMessages removed in P3.6 — see backend.go header")
 }
 
 func TestIsThreadIDDistinguishesChannel(t *testing.T) {

@@ -43,15 +43,6 @@ func sourceUsesRouter(source string) bool {
 	return space.SourceUsesRouter(source)
 }
 
-func sourceIsChannel(source string) bool {
-	source = strings.TrimSpace(source)
-	if strings.HasPrefix(source, "subtask:") || strings.HasPrefix(source, "scratch:") {
-		return false
-	}
-	target := space.MapSource(source)
-	return target.Kind == space.KindChannel
-}
-
 type channelInterceptResult struct {
 	spaceID string
 	wakes   []space.RoutingTarget
@@ -72,7 +63,7 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 		return nil, err
 	}
 	parentMessageID := command.ParentMessageFrom(ctx)
-	wakes, notices, err := r.RouteUserChannelMessageInThread(sp.ID, content, parentMessageID)
+	wakes, notices, err := r.RouteUserChannelMessage(sp.ID, content, parentMessageID)
 	if err != nil {
 		return nil, err
 	}
@@ -97,10 +88,6 @@ func (a *App) resolveRoutedSpace(target space.SourceTarget) (*space.Space, error
 		}
 	}
 	return a.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{})
-}
-
-func (a *App) interceptChannelInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
-	return a.interceptRoutedInput(ctx, source, content)
 }
 
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {

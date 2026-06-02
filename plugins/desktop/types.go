@@ -142,3 +142,73 @@ type BusEvent struct {
 	AgentID         string    `json:"agent_id,omitempty"`
 	StreamID        string    `json:"stream_id,omitempty"`
 }
+
+type ChannelItem struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Topic       string            `json:"topic,omitempty"`
+	Agents      []string          `json:"agents"`
+	AgentModes  map[string]string `json:"agent_modes,omitempty"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+	UnreadCount int               `json:"unread_count"`
+	HasRunning  bool              `json:"has_running"`
+}
+
+type ThreadItem struct {
+	ID         string    `json:"id"`
+	ChannelID  string    `json:"channel_id"`
+	Title      string    `json:"title"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	EventCount int       `json:"event_count"`
+	HasRunning bool      `json:"has_running"`
+}
+
+type DirectChatItem struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Agents      []string  `json:"agents"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	UnreadCount int       `json:"unread_count"`
+	HasRunning  bool      `json:"has_running"`
+}
+
+type AgentDMItem struct {
+	ID           string    `json:"id"`
+	PersonaID    string    `json:"persona_id"`
+	PersonaName  string    `json:"persona_name,omitempty"`
+	Title        string    `json:"title"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	MessageCount int       `json:"message_count"`
+}
+
+type RecentItem struct {
+	ID        string    `json:"id"`
+	Kind      string    `json:"kind"`
+	Title     string    `json:"title"`
+	Subtitle  string    `json:"subtitle,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type AgentItem struct {
+	ID      string `json:"id"`
+	Display string `json:"display"`
+	Role    string `json:"role,omitempty"`
+	Status  string `json:"status"`
+}
+
+type ParticipantsView struct {
+	Agents       []AgentItem `json:"agents"`
+	RunningAgent string      `json:"running_agent,omitempty"`
+	ActiveRuns   []AgentRun  `json:"active_runs,omitempty"`
+	RecentRuns   []AgentRun  `json:"recent_runs,omitempty"`
+}
+
+type AgentRun struct {
+	ID         string    `json:"id"`
+	AgentID    string    `json:"agent_id"`
+	Title      string    `json:"title"`
+	Status     string    `json:"status"`
+	ThreadID   string    `json:"thread_id,omitempty"`
+	Time       time.Time `json:"time"`
+	DurationMs int64     `json:"duration_ms,omitempty"`
+}
