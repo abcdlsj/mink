@@ -553,13 +553,9 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 		return mockChannelDetail(id)
 	}
 	cfg := b.app.Config()
-	// P3.1: prefer the real Channel-kind Space. If id refers to a
-	// concrete Space we load it directly; otherwise (legacy
-	// defaultChannelID, fresh install) we fall back to the singleton
-	// channel default and create it if missing.
 	var sp *space.Space
-	if strings.HasPrefix(id, "20") { // Space ids start with the date
-		if loaded, err := b.app.Spaces().LoadSpace(id); err == nil && loaded != nil {
+	if isSpaceID(id) {
+		if loaded, err := b.app.Spaces().LoadSpace(id); err == nil && loaded != nil && loaded.Kind == space.KindChannel {
 			sp = loaded
 		}
 	}
@@ -1176,7 +1172,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		return SessionDetail{}
 	}
 	var sp *space.Space
-	if isAgentDMSpaceID(agentID) {
+	if isSpaceID(agentID) {
 		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
 			sp = loaded
 		}
@@ -1328,7 +1324,7 @@ func isAgentDMMachineSeed(t, personaID string) bool {
 	return true
 }
 
-func isAgentDMSpaceID(s string) bool {
+func isSpaceID(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) < 9 {
 		return false
