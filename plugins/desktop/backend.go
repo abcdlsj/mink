@@ -165,12 +165,9 @@ func (b *Backend) NewDirectChat() (SessionDetail, error) {
 }
 
 func (b *Backend) ListDirectChats() []DirectChatItem {
-	if b.app == nil {
-		return nil
-	}
 	spaces, err := b.app.Spaces().ListSpaces()
 	if err != nil {
-		return nil
+		return []DirectChatItem{}
 	}
 	type entry struct {
 		sp    *space.Space
@@ -279,12 +276,9 @@ func (b *Backend) ListChannels() []ChannelItem {
 }
 
 func (b *Backend) ListRecent() []RecentItem {
-	if b.app == nil {
-		return nil
-	}
 	spaces, err := b.app.Spaces().ListSpaces()
 	if err != nil {
-		return nil
+		return []RecentItem{}
 	}
 	cfg := b.app.Config()
 	out := make([]RecentItem, 0, len(spaces))
@@ -1130,12 +1124,9 @@ func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
 }
 
 func (b *Backend) ListAgentDMs() []AgentDMItem {
-	if b.app == nil {
-		return nil
-	}
 	all, err := b.app.Spaces().Store().ListSpaces()
 	if err != nil {
-		return nil
+		return []AgentDMItem{}
 	}
 	out := make([]AgentDMItem, 0, len(all))
 	for _, sp := range all {
