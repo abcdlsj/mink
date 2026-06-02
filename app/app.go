@@ -25,23 +25,23 @@ type Entrypoint func(context.Context, *App, []string) error
 type Service func(context.Context, *App) error
 
 type App struct {
-	cfg        config.Config
-	bus        *bus.Bus
-	store      *store.Store
-	provider   llm.Provider
-	sessions   *session.Manager
-	spaces     *space.Manager
-	tasks      *task.Manager
+	cfg             config.Config
+	bus             *bus.Bus
+	store           *store.Store
+	provider        llm.Provider
+	sessions        *session.Manager
+	spaces          *space.Manager
+	tasks           *task.Manager
 	spaceRouter     *space.Router
 	spaceRouterOnce sync.Once
-	tools      *tool.Registry
-	cmds       *command.Registry
-	router     *command.Router
-	skills     *skill.Loader
-	personas   *persona.Registry
-	runtimes   map[string]agent.RuntimeFactory
-	entries    map[string]Entrypoint
-	services   map[string]Service
+	tools           *tool.Registry
+	cmds            *command.Registry
+	router          *command.Router
+	skills          *skill.Loader
+	personas        *persona.Registry
+	runtimes        map[string]agent.RuntimeFactory
+	entries         map[string]Entrypoint
+	services        map[string]Service
 }
 
 func New(cfg config.Config) (*App, error) {

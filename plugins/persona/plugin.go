@@ -24,8 +24,8 @@ func Plugin() app.Plugin {
 
 type listTool struct{ a *app.App }
 
-func (t listTool) Name() string         { return "list_personas" }
-func (t listTool) Desc() string         { return "List available personas and their runtimes" }
+func (t listTool) Name() string           { return "list_personas" }
+func (t listTool) Desc() string           { return "List available personas and their runtimes" }
 func (t listTool) Schema() map[string]any { return tool.ObjectSchema() }
 
 func (t listTool) Run(ctx context.Context, _ json.RawMessage) (string, error) {

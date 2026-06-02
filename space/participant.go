@@ -2,8 +2,6 @@ package space
 
 import "time"
 
-// ParticipantKind discriminates who is in the space. Only "user"
-// and "agent" exist in v1.
 type ParticipantKind string
 
 const (
@@ -11,10 +9,6 @@ const (
 	ParticipantAgent ParticipantKind = "agent"
 )
 
-// ParticipantStatus mirrors the routing layer's view of an agent's
-// availability. Per the proposal, the default is "available";
-// "responding" flips while a wake-up is being handled; "offline"
-// is reserved for adapters that can disconnect.
 type ParticipantStatus string
 
 const (
@@ -23,9 +17,6 @@ const (
 	StatusOffline    ParticipantStatus = "offline"
 )
 
-// Participant is a member of a Space. The set is the source of
-// truth for the right-rail roster; nothing else infers membership
-// from event history.
 type Participant struct {
 	ID       string            `json:"id"`
 	Kind     ParticipantKind   `json:"kind"`

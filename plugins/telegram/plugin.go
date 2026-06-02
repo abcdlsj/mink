@@ -285,18 +285,6 @@ func split(text string, n int) []string {
 	return out
 }
 
-// source builds the routed source string for a Telegram message
-// per P4 v3:
-//
-//   private chat                 -> "tg:dm:<chat>"
-//   group / supergroup / channel -> "tg:channel:<chat>"
-//
-// scope == "thread" appends ":<threadID>" for forum-style topics.
-//
-// Per Iris: unknown chat types are NOT silently treated as DM. We
-// emit a tg:dm:<chat> with a leading underscore namespace so the
-// Space mapping rejects it (MapSource keeps the strict prefixes).
-// Callers should treat an empty return as "do not route".
 func source(scope string, chat *tele.Chat, threadID int) string {
 	if chat == nil {
 		return ""
@@ -312,8 +300,6 @@ func source(scope string, chat *tele.Chat, threadID int) string {
 	case tele.ChatGroup, tele.ChatSuperGroup, tele.ChatChannel:
 		return fmt.Sprintf("tg:channel:%d%s", id, suffix)
 	}
-	// Unknown chat type — refuse to map. The caller will skip this
-	// message rather than fall into a default DM bucket.
 	return ""
 }
 

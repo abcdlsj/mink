@@ -25,11 +25,6 @@ type ThreadItem struct {
 	HasRunning bool      `json:"has_running"`
 }
 
-// DirectChatItem represents an entry in the left rail's
-// "Direct Chats" group. Each direct chat is its own KindDirectChat
-// Space; the id is the Space id, the title is the Space title (the
-// router will polish the title from the first user message in P3
-// follow-up).
 type DirectChatItem struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
@@ -48,17 +43,11 @@ type AgentDMItem struct {
 	MessageCount int       `json:"message_count"`
 }
 
-// RecentItem is one row in the left rail's "Recent" aggregator.
-// Recent is NOT a Space — it's a derived view across every kind.
-// Each item carries its kind so the frontend can dispatch the
-// click correctly: kind="channel" navigates via openChannel,
-// "direct_chat" via the direct-chat detail, "agent_dm" via
-// openAgent.
 type RecentItem struct {
 	ID        string    `json:"id"`
-	Kind      string    `json:"kind"` // "channel" | "direct_chat" | "agent_dm"
+	Kind      string    `json:"kind"`
 	Title     string    `json:"title"`
-	Subtitle  string    `json:"subtitle,omitempty"` // optional last-message preview
+	Subtitle  string    `json:"subtitle,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -149,9 +138,9 @@ func mockChannelDetail(id string) SessionDetail {
 			{ID: "c1", Role: "user", Content: "Anyone found a clean way to do provider fallback?", Time: now.Add(-15 * time.Minute)},
 			{ID: "c2", Role: "agent", AuthorID: "researcher", AuthorName: "Researcher", Content: "Looked at Anthropic and OpenAI SDK retry patterns. They both use header-based fallback hints.", Time: now.Add(-13 * time.Minute)},
 			{ID: "c3", Role: "agent", AuthorID: "coder", AuthorName: "Coder", Content: "I'll prototype it. Going into a thread to keep this channel clean.",
-				Time:           now.Add(-5 * time.Minute),
-				ThreadID:       "th-fallback",
-				ThreadSummary:  "Provider fallback path · 12 events · running"},
+				Time:          now.Add(-5 * time.Minute),
+				ThreadID:      "th-fallback",
+				ThreadSummary: "Provider fallback path · 12 events · running"},
 			{ID: "c4", Role: "user", Content: "@reviewer can you scan recent commits while they work?", Time: now.Add(-3 * time.Minute)},
 			{ID: "c5", Role: "agent", AuthorID: "reviewer", AuthorName: "Reviewer", Content: "On it.", Time: now.Add(-2 * time.Minute)},
 		},
@@ -298,13 +287,13 @@ func runMockStream(f *fanout, req SendRequest) {
 
 	time.Sleep(200 * time.Millisecond)
 	emit(BusEvent{
-		Type: "tool.call.started",
+		Type:       "tool.call.started",
 		ToolCallID: "tc-1", Tool: "list_files",
 		Input: `{"path":"."}`,
 	})
 	time.Sleep(300 * time.Millisecond)
 	emit(BusEvent{
-		Type: "tool.call.finished",
+		Type:       "tool.call.finished",
 		ToolCallID: "tc-1", Tool: "list_files",
 		Output: "agent/, app/, bus/, cli/, cmd/, plugins/",
 	})
@@ -368,7 +357,7 @@ func runMockDelegate(emit func(BusEvent)) {
 	time.Sleep(900 * time.Millisecond)
 	emit(BusEvent{
 		Type: "agent.delegate.finished", ToolCallID: "dg-1",
-		Tool: "reviewer",
+		Tool:   "reviewer",
 		Output: "Reviewed 3 commits. Suggest splitting retry policy into its own type and unit-testing the 429 path.",
 	})
 	time.Sleep(150 * time.Millisecond)
@@ -390,7 +379,7 @@ func runMockFailDelegate(emit func(BusEvent)) {
 	emit(BusEvent{
 		Type: "agent.delegate.failed", ToolCallID: "dg-2",
 		Tool: "reviewer",
-		Err: "reviewer is offline (last heartbeat 4m ago)",
+		Err:  "reviewer is offline (last heartbeat 4m ago)",
 	})
 	time.Sleep(120 * time.Millisecond)
 	emit(BusEvent{Type: "turn.chunk", Text: "\n\nCouldn't reach Reviewer. I'll continue here."})

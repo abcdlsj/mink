@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// fixed resolver used by all parser cases.
 func testResolver() PersonaResolver {
 	return ResolverFromPersonas([]PersonaInfo{
 		{ID: "coder", Display: "Coder"},
@@ -20,50 +19,42 @@ func TestParseMentions(t *testing.T) {
 		in   string
 		want []string
 	}{
-		// English
 		{"english bare", "@coder look", []string{"coder"}},
 		{"display lowercase ok", "@Coder look", []string{"coder"}},
 		{"display mixedcase ok", "@CODER look", []string{"coder"}},
 		{"comma-prefixed", "ok, @reviewer take a pass", []string{"reviewer"}},
 
-		// Chinese context
 		{"cn space-prefixed", "请 @coder 看下这段", []string{"coder"}},
 		{"cn paren-prefixed", "（@coder）看下", []string{"coder"}},
 		{"cn comma-prefixed", "好，@reviewer 继续", []string{"reviewer"}},
 		{"cn period-prefixed", "完事。@coder 接力", []string{"coder"}},
 
-		// Multiple + dedup
 		{"multiple distinct", "@coder and @reviewer please", []string{"coder", "reviewer"}},
 		{"dedup repeats", "@coder @coder @coder", []string{"coder"}},
 		{"multiple keeps order", "@reviewer first then @coder", []string{"reviewer", "coder"}},
 
-		// Unknown agent → drop
 		{"unknown drop", "@nobody hi", nil},
 		{"mixed known unknown", "@nobody and @coder", []string{"coder"}},
 
-		// Boundaries / glued
 		{"email-like glued", "ping me at andy@coder.dev", nil},
 		{"glued letter prefix", "abc@coder", nil},
 		{"start of line", "@coder hello", []string{"coder"}},
 		{"newline-prefixed", "line1\n@coder line2", []string{"coder"}},
 		{"tab-prefixed", "go\t@coder", []string{"coder"}},
 
-		// Trailing punctuation should not eat the token
 		{"trailing comma", "@coder, please", []string{"coder"}},
 		{"trailing chinese punct", "@coder。请看", []string{"coder"}},
 		{"trailing slash", "@coder/今天", []string{"coder"}},
 
-		// Code-block escapes
 		{"inline code escape", "use `@coder` syntax", nil},
 		{"inline code mixed", "use `@coder` and ping @reviewer", []string{"reviewer"}},
 		{"fenced code block", "```\n@coder do it\n```", nil},
 		{"fenced then live", "```\n@coder\n```\nactually @reviewer please", []string{"reviewer"}},
 
-		// Empty / pathological
 		{"empty", "", nil},
 		{"@-only", "@", nil},
 		{"@ space", "@ coder", nil},
-		{"@@", "@@coder", nil}, // first @ glued before second; first @ has @ before it (not start), second is preceded by @ which isn't a mention starter
+		{"@@", "@@coder", nil},
 	}
 	resolver := testResolver()
 	for _, c := range cases {

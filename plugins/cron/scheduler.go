@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	robcron "github.com/robfig/cron/v3"
@@ -67,12 +68,20 @@ func (s *scheduler) load(c *robcron.Cron) error {
 }
 
 func (s *scheduler) run(task Task) {
-	out, err := s.app.HandleInput(context.Background(), task.Source, task.Prompt)
+	out, err := s.app.HandleInput(context.Background(), cronSource(task), task.Prompt)
 	if err != nil {
 		s.app.PublishNotice(task.Source, fmt.Sprintf("[cron %s] error: %s", task.ID, err))
 		return
 	}
 	s.app.PublishNotice(task.Source, out)
+}
+
+func cronSource(task Task) string {
+	id := strings.TrimSpace(task.ID)
+	if id == "" {
+		return "cron"
+	}
+	return "cron:" + id
 }
 
 func validSchedule(v string) error {

@@ -9,9 +9,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// NewID derives a deterministic-ish space identifier from kind, a
-// stable seed (e.g. workspace name or agent id), and a wall-clock
-// stamp. The shape mirrors session.newID for visual consistency.
 func NewID(kind Kind, seed string, now time.Time) string {
 	tag := strings.TrimSpace(strings.ToLower(string(kind)))
 	if tag == "" {
@@ -27,10 +24,6 @@ func NewID(kind Kind, seed string, now time.Time) string {
 	return now.Format("20060102") + "-" + tag + "-" + hex.EncodeToString(sum[:4])
 }
 
-// New creates a Space populated with the supplied participants.
-// Per Iris's amendment, each kind has a minimum participant
-// contract that the manager enforces; this constructor is a thin
-// helper that does not validate.
 func New(kind Kind, title string, participants []Participant) *Space {
 	now := time.Now()
 	return &Space{
@@ -44,8 +37,6 @@ func New(kind Kind, title string, participants []Participant) *Space {
 	}
 }
 
-// HasParticipant reports whether the space already has a member
-// with the given id.
 func (s *Space) HasParticipant(id string) bool {
 	for _, p := range s.Participants {
 		if p.ID == id {
@@ -55,8 +46,6 @@ func (s *Space) HasParticipant(id string) bool {
 	return false
 }
 
-// AddParticipant inserts p when not already present and returns
-// true if the membership set changed.
 func (s *Space) AddParticipant(p Participant) bool {
 	if s.HasParticipant(p.ID) {
 		return false
@@ -72,9 +61,6 @@ func (s *Space) AddParticipant(p Participant) bool {
 	return true
 }
 
-// AddMessage appends m to the timeline and updates the space's
-// UpdatedAt. It does not validate parent_message_id; the manager
-// is responsible for enforcing space-local references.
 func (s *Space) AddMessage(m Message) Message {
 	if m.ID == "" {
 		m.ID = uuid.New().String()[:8]
@@ -88,8 +74,6 @@ func (s *Space) AddMessage(m Message) Message {
 	return m
 }
 
-// Replies returns the messages whose ParentMessageID points at
-// parentID, in timeline order.
 func (s *Space) Replies(parentID string) []Message {
 	if parentID == "" {
 		return nil

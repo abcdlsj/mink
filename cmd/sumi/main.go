@@ -83,14 +83,6 @@ func runVersion() {
 	fmt.Printf("  built:  %s\n", BuildTime)
 }
 
-// runSpacesDump prints the new Space store contents as JSON for the
-// P1 dual-write verification path Iris asked for. It opens the
-// store directly without spinning up the full app — that way we can
-// inspect the data even when something else in app init breaks.
-//
-// Usage:
-//   sumi spaces           list every space
-//   sumi spaces <id>      print one space (full timeline)
 func runSpacesDump(args []string) {
 	cfg := config.Load()
 	st, err := store.Open(cfg.DataRoot())

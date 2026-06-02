@@ -201,9 +201,6 @@ func dirExists(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// filepathWalk visits every entry under root with a small adapter
-// over filepath.WalkDir so callers do not have to pull fs.DirEntry
-// each time. Errors from fn abort the walk.
 func filepathWalk(root string, fn func(path string, isDir bool) error) error {
 	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

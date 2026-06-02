@@ -42,7 +42,6 @@ func (w *WailsBridge) Start(ctx context.Context) {
 }
 
 func (w *WailsBridge) Close() {
-	// Backend lifetime is owned by the app; nothing to do.
 }
 
 func (w *WailsBridge) pump() {

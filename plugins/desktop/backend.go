@@ -164,12 +164,6 @@ func (b *Backend) StopTurn(sessionID string) error {
 	return nil
 }
 
-// NewDirectChat creates a fresh KindDirectChat Space. Each call
-// produces a new Space with its own id; participants seed with the
-// user only (no agent binding). Agents join later when the user
-// @-mentions them via the routing layer (P3.5). The Space title
-// starts as "New chat" and may be polished from the first user
-// message in a future commit.
 func (b *Backend) NewDirectChat() (SessionDetail, error) {
 	if b.app == nil {
 		return SessionDetail{}, nil
@@ -190,15 +184,6 @@ func (b *Backend) NewDirectChat() (SessionDetail, error) {
 	}, nil
 }
 
-// ListDirectChats returns every persisted KindDirectChat Space.
-// The frontend renders this as the left rail's "Direct Chats"
-// group.
-//
-// Per Iris's polish ruling: at most one empty (zero-message) chat
-// is kept in the result so the rail can act as a draft/start row
-// without piling up. Older empties are dropped silently (the user
-// can always create a new one). Non-empty direct chats are always
-// included.
 func (b *Backend) ListDirectChats() []DirectChatItem {
 	if b.app == nil {
 		return nil
@@ -218,9 +203,6 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 		}
 		all = append(all, entry{sp: sp, empty: len(sp.Messages) == 0})
 	}
-	// Sort newest-first so the kept empty (if any) is the most
-	// recently created one — matches the user's intent after they
-	// just clicked New.
 	sort.Slice(all, func(i, j int) bool { return all[i].sp.UpdatedAt.After(all[j].sp.UpdatedAt) })
 
 	out := make([]DirectChatItem, 0, len(all))
@@ -242,8 +224,6 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 	return out
 }
 
-// GetDirectChat loads one direct-chat Space by id and projects it
-// for the center pane.
 func (b *Backend) GetDirectChat(id string) SessionDetail {
 	if b.app == nil {
 		return SessionDetail{}
@@ -263,9 +243,6 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 	}
 }
 
-// directChatTitle picks a display title for a KindDirectChat Space.
-// We prefer the first user message preview when the seed has not
-// been promoted to a real title yet.
 func directChatTitle(sp *space.Space) string {
 	if sp == nil {
 		return "New chat"
@@ -292,9 +269,6 @@ func previewTitle(s string) string {
 	return string(r[:48]) + "…"
 }
 
-// newDirectChatSeed produces a unique seed for a fresh direct chat.
-// Seeds are namespaced with "dchat-" so they don't visually look
-// like a user-supplied title.
 func newDirectChatSeed() string {
 	return "dchat-" + time.Now().Format("20060102-150405") + "-" + uuid.NewString()[:4]
 }
@@ -303,10 +277,6 @@ func (b *Backend) ListChannels() []ChannelItem {
 	if b.app == nil {
 		return mockChannels()
 	}
-	// P3.1: list real Channel-kind Spaces. The default workspace
-	// channel is auto-created by the dual-write/router on first
-	// channel input; if it doesn't exist yet we still surface a
-	// placeholder row so the rail isn't empty on a fresh install.
 	cfg := b.app.Config()
 	spaces, err := b.app.Spaces().Store().ListSpaces()
 	if err == nil {
@@ -329,8 +299,6 @@ func (b *Backend) ListChannels() []ChannelItem {
 			return out
 		}
 	}
-	// Empty state: synthesize a placeholder so the rail still shows
-	// a #workspace entry, click-through ensures the Space is created.
 	return []ChannelItem{
 		{
 			ID:        defaultChannelID,
@@ -342,11 +310,6 @@ func (b *Backend) ListChannels() []ChannelItem {
 	}
 }
 
-// ListRecent returns the recent-activity aggregator for the left
-// rail. It walks every persisted Space, surfaces a kind-tagged row
-// per entry, and sorts by updated_at descending. Recent is a
-// derived view: clicking an item should dispatch by kind back to
-// the kind-specific detail endpoint, not to /api/thread.
 func (b *Backend) ListRecent() []RecentItem {
 	if b.app == nil {
 		return nil
@@ -391,9 +354,6 @@ func (b *Backend) ListRecent() []RecentItem {
 		default:
 			continue
 		}
-		// Skip spaces with no activity (channel default, brand-new
-		// agent DMs that have never been used). Recent should only
-		// surface things the user has actually touched.
 		if len(sp.Messages) == 0 {
 			continue
 		}
@@ -406,8 +366,6 @@ func (b *Backend) ListRecent() []RecentItem {
 	return out
 }
 
-// recentSubtitle picks a one-line preview from the last message in
-// a Space. Empty when the space has no messages.
 func recentSubtitle(sp *space.Space) string {
 	if sp == nil || len(sp.Messages) == 0 {
 		return ""
@@ -432,9 +390,6 @@ func recentSubtitle(sp *space.Space) string {
 	}
 	return prefix + c
 }
-// Channel Spaces are auto-created with title "default" today; we
-// surface the workspace folder name instead so users see "#sumi"
-// rather than "#default".
 func channelDisplayName(sp *space.Space, workspace string) string {
 	if sp == nil {
 		return ""
@@ -445,8 +400,6 @@ func channelDisplayName(sp *space.Space, workspace string) string {
 	return sp.Title
 }
 
-// spaceAgentIDs returns the persona ids of every agent participant
-// currently in the space, in stable order.
 func spaceAgentIDs(sp *space.Space) []string {
 	if sp == nil {
 		return nil
@@ -461,13 +414,6 @@ func spaceAgentIDs(sp *space.Space) []string {
 	return out
 }
 
-// ListThreads previously walked desktop sessions to fake threads,
-// then briefly returned KindDirectChat spaces under the old shape.
-// Per Iris's P3.4 review, endpoint semantics must not blur Spaces
-// into the Thread concept — threads are parent_message replies,
-// which v1 doesn't have yet. Until /api/threads is removed in P3.6
-// it returns an empty list so the frontend cannot accidentally
-// depend on it carrying Direct Chats.
 func (b *Backend) ListThreads() []ThreadItem {
 	if b.app == nil {
 		return mockThreads()
@@ -535,6 +481,13 @@ func (b *Backend) AddAgentToChannel(channelID, personaID string) error {
 		Display: p.Display,
 		Role:    p.Description,
 	})
+}
+
+func (b *Backend) SetThreadAgentMode(spaceID, parentMessageID, personaID, mode string) error {
+	if b.app == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	return b.app.Spaces().SetThreadAgentMode(spaceID, parentMessageID, personaID, mode)
 }
 
 func normalizeChannelSeed(s string) string {
@@ -734,7 +687,6 @@ func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary
 	return out, taskIndex
 }
 
-// roleForKind maps a Space participant kind to the UI's role string.
 func roleForKind(k space.ParticipantKind) string {
 	switch k {
 	case space.ParticipantUser:
@@ -757,37 +709,17 @@ func personaResolver(a appAccessor) space.DisplayResolver {
 	})
 }
 
-// appAccessor is the small slice of *app.App the Space-projection
-// helpers need. Pulling it out behind an interface keeps these
-// helpers testable without spinning up a full App.
 type appAccessor interface {
 	Personas() *persona.Registry
 	Tasks() *taskpkg.Manager
 }
 
-// GetThread is the legacy thread-detail endpoint. v1 has no real
-// parent_message threads yet, so the only reason a frontend would
-// hit this endpoint is to load a Space detail through the wrong
-// route. Per Iris's P3.5 review we don't want a "/api/thread can
-// load any Space" loophole — the proper endpoints are
-// /api/channel, /api/direct-chat, /api/agent-dm. This handler
-// returns an empty SessionDetail to make stale links 404 cleanly.
-//
-// The endpoint stays as a stub for one release so existing app
-// builds don't break on missing routes; P4 removes the route.
 func (b *Backend) GetThread(id string) SessionDetail {
 	if b.app == nil {
 		return mockThreadDetail(id)
 	}
 	return SessionDetail{}
 }
-
-// attachDelegateOutcomes / replayDelegateTask / subtaskSteps /
-// taskAsRun were P2.6 helpers that synthesized delegate task
-// playback by walking the legacy session store. P3.6 removed every
-// caller; the helpers themselves go away with the upcoming Task
-// store migration in P5. The git history for this file holds the
-// reference if needed.
 
 func timeInWindow(t, lo, hi time.Time) bool {
 	if lo.IsZero() && hi.IsZero() {
@@ -813,8 +745,6 @@ func dropExploratoryErrors(steps []DelegateStep) []DelegateStep {
 	return out
 }
 
-// humanizeStep turns a tool call into a one-line action summary the
-// reader can scan without reading raw output.
 func humanizeStep(tool, rawArgs, workspace string) string {
 	verb := stepVerb(tool)
 	target := stepTarget(tool, rawArgs, workspace)
@@ -884,9 +814,6 @@ func stepTarget(tool, rawArgs, workspace string) string {
 	return ""
 }
 
-// projectRel rewrites an absolute path under the workspace into a
-// relative-from-workspace form. Paths outside the workspace fall back
-// to the basename so the rail never shows a full machine-local path.
 func projectRel(p, workspace string) string {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -913,9 +840,6 @@ func basenameOf(p string) string {
 	return p
 }
 
-// shortCmd reduces a shell command to something readable: strips a
-// leading absolute workspace path and clips to ~60 chars while
-// preserving the command head so the verb is visible.
 func shortCmd(c, workspace string) string {
 	c = strings.TrimSpace(c)
 	if workspace != "" {
@@ -992,10 +916,6 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	if b.app == nil {
 		return mockParticipants(channelID, threadID)
 	}
-	// P3.3: read participants directly off the Space. The
-	// `threadID` query parameter is the active Space id (the
-	// frontend just kept the legacy name); we resolve it through
-	// space.Manager rather than synthesizing from session history.
 	spaceID := strings.TrimSpace(threadID)
 	if spaceID == "" {
 		spaceID = strings.TrimSpace(channelID)
@@ -1013,10 +933,6 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	}
 }
 
-// spaceParticipantsAsAgents projects every Participant in a Space
-// onto the rail's AgentItem shape. The user participant is dropped
-// (the rail is for collaborators); persona display + role are
-// resolved through the registry when present.
 func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 	if sp == nil {
 		return nil
@@ -1175,8 +1091,6 @@ func (b *Backend) allAgents() []AgentItem {
 }
 
 func (b *Backend) taskAsRun(taskID, agentID string) *AgentRun {
-	// Removed in P3.6 — see comment near subtaskSteps. Returns nil
-	// so any leftover transitive caller behaves as "no replay".
 	_ = taskID
 	_ = agentID
 	return nil
@@ -1241,10 +1155,6 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	}
 }
 
-// CreateAgentDM provisions a fresh AgentDM Space instance for the
-// given persona. Each call returns a brand-new conversation; the
-// "New → Message agent" flow uses this so left-rail history rows are
-// addressable conversations, not the singleton history per persona.
 func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
 	if b.app == nil {
 		return AgentDMItem{}, fmt.Errorf("app not initialized")
@@ -1741,13 +1651,6 @@ func mentionTarget(ev bus.Event) string {
 	}
 	return ev.Tool
 }
-
-// convertMessages, collectEvents, collectEventsWithResults, and
-// personaFromSource were the desktop session reader. P3.1–P3.5
-// migrated every API to read from space.Manager directly, so these
-// helpers no longer have a caller. They have been deleted in P3.6
-// per Iris's review: "P3 的 delete list 聚焦 desktop session
-// reader". The git history holds the previous shape.
 
 func roleFor(m msg.Message) string {
 	switch m.Role {

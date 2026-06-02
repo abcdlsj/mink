@@ -17,7 +17,7 @@ var listenSkip = map[string]bool{
 	"hi": true, "hey": true, "hello": true, "yo": true,
 	"ok": true, "okay": true, "thanks": true, "thank you": true,
 	"lgtm": true,
-	"在吗": true, "你好": true, "您好": true, "嗨": true, "收到": true, "好的": true,
+	"在吗":   true, "你好": true, "您好": true, "嗨": true, "收到": true, "好的": true,
 	"看看": true, "看一下": true, "看下": true, "帮我看看": true,
 }
 
@@ -47,11 +47,36 @@ func ListenMatches(content string, listening []string) []string {
 }
 
 func ListeningAgents(sp *Space) []string {
-	if sp == nil || len(sp.AgentModes) == 0 {
+	if sp == nil {
 		return nil
 	}
 	out := make([]string, 0, len(sp.AgentModes))
 	for id, mode := range sp.AgentModes {
+		if mode == "listen" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func ListeningAgentsForThread(sp *Space, parentMessageID string) []string {
+	if sp == nil {
+		return nil
+	}
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	if parentMessageID == "" {
+		return ListeningAgents(sp)
+	}
+	overrides := sp.ThreadAgentModes[parentMessageID]
+	merged := map[string]string{}
+	for id, mode := range sp.AgentModes {
+		merged[id] = mode
+	}
+	for id, mode := range overrides {
+		merged[id] = mode
+	}
+	out := make([]string, 0, len(merged))
+	for id, mode := range merged {
 		if mode == "listen" {
 			out = append(out, id)
 		}

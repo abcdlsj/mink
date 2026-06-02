@@ -87,11 +87,11 @@ func TestRenderAssistantItemPrefixesAuthor(t *testing.T) {
 
 func TestNoMentionHintFiresOnlyForRoutedSourcesWithoutAt(t *testing.T) {
 	cases := []struct {
-		name      string
-		source    string
-		input     string
-		agents    int
-		wantHint  bool
+		name     string
+		source   string
+		input    string
+		agents   int
+		wantHint bool
 	}{
 		{"cli no @ no agent", "cli", "hello", 0, true},
 		{"cli with @ no agent", "cli", "@coder hi", 0, false},

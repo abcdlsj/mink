@@ -73,11 +73,6 @@ func TestFallback(t *testing.T) {
 }
 
 func TestConvertMessages_Removed(t *testing.T) {
-	// convertMessages / personaFromSource / collectEvents were removed
-	// in P3.6 once every desktop API switched to space.Manager. The
-	// previous tests asserted behaviors that the new helpers
-	// (spaceMessagesToView in particular) cover indirectly through
-	// the live API tests in this package and in app/.
 	t.Skip("convertMessages removed in P3.6 — see backend.go header")
 }
 
@@ -126,10 +121,6 @@ func TestMentionTargetReadsArgs(t *testing.T) {
 		t.Errorf("mentionTarget empty fallback = %q", got)
 	}
 }
-
-// Tests for the removed legacy reader (personaFromSource,
-// convertMessages, collectEvents) were dropped together with the
-// helpers themselves in P3.6 — see backend.go header comment.
 
 func TestParseTaskID(t *testing.T) {
 	cases := []struct {

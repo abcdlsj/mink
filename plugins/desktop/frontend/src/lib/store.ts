@@ -132,8 +132,7 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
     if (ev.space_id !== s.activeChannel) return false;
     if (!ev.parent_message_id) return false;
     if (ev.parent_message_id === s.threadDetail.parent_id) return true;
-    // Trigger may be a reply inside this thread.
-    return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id);
+        return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id);
   }
   if (s.view === "agent") {
     if (!s.detail) return false;
@@ -216,10 +215,7 @@ async function refetchActiveScope(
       set({ detail });
       return;
     }
-  } catch {
-    // ignore: stale refetch is not fatal; the streaming convergence
-    // will heal the next time the user touches the scope.
-  }
+  } catch {}
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -384,8 +380,7 @@ export const useStore = create<State>((set, get) => ({
       const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
       set({ directChats, recent });
     } catch {
-      // ignore refresh failure
-    }
+          }
   },
 
   async openDirectChat(id) {
@@ -503,8 +498,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.stop(sid);
     } catch {
-      // noop
-    }
+          }
     const detail = get().detail;
     set({
       sending: false,
@@ -538,8 +532,7 @@ export const useStore = create<State>((set, get) => ({
         const ev = JSON.parse(e.data) as BusEvent;
         get().applyEvent(ev);
       } catch {
-        // skip
-      }
+              }
     };
     src.addEventListener("bus", onMessage);
     return () => {
@@ -590,17 +583,12 @@ export const useStore = create<State>((set, get) => ({
 
     if (isStreamEvent) {
       if (!ev.stream_id) {
-        // Streaming events without a StreamID came from a publisher
-        // that has not been migrated to P9.0 metadata. We cannot
-        // correlate them safely; drop rather than guess.
-        return;
+                                return;
       }
       if (!streamingEventInScope(ev, cur)) return;
     }
 
-    // Legacy subtask source guard (for delegate.* and other event
-    // types that have not been migrated to scope metadata yet).
-    if (!isStreamEvent && ev.source && ev.source.startsWith("subtask:")) return;
+            if (!isStreamEvent && ev.source && ev.source.startsWith("subtask:")) return;
 
     switch (ev.type) {
       case "turn.started": {
@@ -609,9 +597,7 @@ export const useStore = create<State>((set, get) => ({
         }
         const author = ev.agent_id;
         if (!author) {
-          // Per Iris: no Sumi-by-default placeholder. If the publisher
-          // didn't say who's typing, don't render a placeholder.
-          return;
+                              return;
         }
         const personaInfo =
           cur.personas.find((p) => p.id === author) ||

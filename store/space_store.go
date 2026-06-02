@@ -9,9 +9,6 @@ import (
 	"github.com/abcdlsj/sumi/space"
 )
 
-// SaveSpace serializes the Space to ~/.sumi/spaces/<kind>/<id>.json.
-// It is safe to call concurrently with SaveSession; the two paths
-// never share files.
 func (s *Store) SaveSpace(sp *space.Space) error {
 	if sp == nil {
 		return fmt.Errorf("space is nil")
@@ -29,7 +26,6 @@ func (s *Store) SaveSpace(sp *space.Space) error {
 	return writeFile(path, append(data, '\n'))
 }
 
-// LoadSpace reads back a Space written by SaveSpace.
 func (s *Store) LoadSpace(id string) (*space.Space, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -44,9 +40,6 @@ func (s *Store) LoadSpace(id string) (*space.Space, error) {
 	return readSpaceFile(path)
 }
 
-// ListSpaces walks the spaces directory and returns every readable
-// Space. It does not validate kind partitioning beyond directory
-// layout.
 func (s *Store) ListSpaces() ([]*space.Space, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -55,7 +48,7 @@ func (s *Store) ListSpaces() ([]*space.Space, error) {
 	err := walkDirJSON(root, func(path string) error {
 		sp, err := readSpaceFile(path)
 		if err != nil {
-			return nil // tolerate per-file corruption; logs go to caller
+			return nil
 		}
 		out = append(out, sp)
 		return nil
@@ -66,10 +59,6 @@ func (s *Store) ListSpaces() ([]*space.Space, error) {
 	return out, nil
 }
 
-// FindSpaceByKindAndSeed looks for an existing Space whose kind +
-// title-derived seed matches. It is used by the manager (P1.3) to
-// pick the singleton channel / agent_dm rather than minting a new
-// one each turn.
 func (s *Store) FindSpaceByKindAndSeed(kind space.Kind, seed string) (*space.Space, error) {
 	all, err := s.ListSpaces()
 	if err != nil {
@@ -115,8 +104,6 @@ func readSpaceFile(path string) (*space.Space, error) {
 	return &sp, nil
 }
 
-// walkDirJSON visits every *.json regular file under root. Missing
-// roots are treated as empty.
 func walkDirJSON(root string, fn func(path string) error) error {
 	if !dirExists(root) {
 		return nil

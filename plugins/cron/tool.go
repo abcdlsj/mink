@@ -33,7 +33,7 @@ func (t *toolImpl) Schema() map[string]any {
 			"prompt": map[string]any{"type": "string"},
 			"source": map[string]any{
 				"type":        "string",
-				"description": "Optional delivery source. Omit or pass the literal value `current` for the current conversation. Only pass an explicit source when targeting a known destination, e.g. `telegram:<chat_id>` or `telegram:<chat_id>:<thread_id>`.",
+				"description": "Optional notice delivery source. Omit or pass the literal value `current` to deliver notices to the current conversation. Scheduled prompts run in an isolated cron session, not in this delivery source.",
 			},
 		},
 		"required": []string{"action"},

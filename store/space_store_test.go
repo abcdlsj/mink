@@ -42,7 +42,6 @@ func TestSaveAndLoadSpaceRoundTrip(t *testing.T) {
 		t.Errorf("messages round-trip = %+v", got.Messages)
 	}
 
-	// File path is deterministic by kind directory
 	wantDir := filepath.Join(root, "spaces", "agent_dm")
 	if !dirExists(wantDir) {
 		t.Errorf("expected kind directory %q to exist", wantDir)
@@ -79,6 +78,5 @@ func TestFindSpaceByKindAndSeed(t *testing.T) {
 	if err != nil || miss != nil {
 		t.Errorf("expected nil miss, got %v / %v", miss, err)
 	}
-	// Touch time to silence import linter; not used by assertions.
 	_ = time.Now()
 }

@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// snapshotFromList returns a PersonaSnapshot that matches by id
-// or lowercased display.
 func snapshotFromList(personas []PersonaInfo) PersonaSnapshot {
 	byID := map[string]PersonaInfo{}
 	byDisplay := map[string]PersonaInfo{}
@@ -131,7 +129,6 @@ func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 	}
 	chain := wakes1[0].Chain
 
-	// Coder replies, mentions reviewer. Should wake reviewer once.
 	wakes2, notices2, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "msg-coder-reply", "looking, ping @reviewer for a second pair", "coder")
 	if len(wakes2) != 1 || wakes2[0].AgentID != "reviewer" {
 		t.Errorf("coder->reviewer wake failed: %+v", wakes2)
@@ -140,20 +137,12 @@ func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 		t.Errorf("expected no notices, got %+v", notices2)
 	}
 
-	// Reviewer replies, mentions tshoot — but tshoot isn't a known
-	// persona in this test, so it gets dropped silently. No wake,
-	// no notice (parser drop is silent).
 	wakes3, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "msg-reviewer-reply", "thanks @tshoot", "reviewer")
 	if len(wakes3) != 0 {
 		t.Errorf("unknown @ in reply must not wake, got %+v", wakes3)
 	}
 
-	// Now reviewer mentions coder again. coder already replied in
-	// this chain (from the wake1 itself? No — wake1 returned a
-	// target but the test never simulated coder running). So coder
-	// is still allowed once; we mark coder as having replied to
-	// simulate the real flow.
-	chain.Spend("coder") // simulate coder finishing its reply
+	chain.Spend("coder")
 	wakes4, notices4, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "msg-reviewer-reply-2", "hey @coder one more", "reviewer")
 	if len(wakes4) != 0 {
 		t.Errorf("coder already replied; second @coder must be skipped, got %+v", wakes4)
@@ -165,7 +154,6 @@ func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 
 func TestRouterAgentReplyWithoutChain(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	// No prior user message → no chain registered.
 	wakes, notices, _ := router.RouteAgentReply(ch.ID, "missing-root", "reply-1", "hi @coder", "reviewer")
 	if len(wakes) != 0 {
 		t.Errorf("missing chain must not wake, got %+v", wakes)
@@ -180,8 +168,6 @@ func TestRouterAgentCannotWakeItself(t *testing.T) {
 	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder do it")
 	chain := wakes1[0].Chain
 
-	// Coder mentions itself in its own reply — must not start a
-	// recursive turn.
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "reply-1", "hmm @coder", "coder")
 	if len(wakes2) != 0 {
 		t.Errorf("self-mention must not wake; got %+v", wakes2)
@@ -190,26 +176,16 @@ func TestRouterAgentCannotWakeItself(t *testing.T) {
 
 func TestRouterFanOutBudgetCapsAcrossReplies(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	// budget=3 by default. Burn through it: user @coder, coder
-	// replies @reviewer, reviewer replies @tshoot. Last wake should
-	// hit the cap if tshoot existed... but tshoot doesn't, so this
-	// just verifies the chain accounting matches reality.
 	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder")
 	chain := wakes1[0].Chain
-	chain.Spend("coder") // simulate coder reply
+	chain.Spend("coder")
 
-	// reviewer is registered; have coder mention reviewer.
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r1", "@reviewer", "coder")
 	if len(wakes2) != 1 {
 		t.Fatalf("coder->reviewer should wake, got %+v", wakes2)
 	}
-	chain.Spend("reviewer") // simulate reviewer reply
+	chain.Spend("reviewer")
 
-	// Adding a third unique agent would exhaust budget; we don't
-	// have a third registered so just verify we cannot re-wake the
-	// already-replied set. Note: reviewer mentioning reviewer in
-	// its own reply is silently dropped (self-mention filter), so
-	// we only see one duplicate_skipped notice for coder.
 	wakes3, notices, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r2", "@coder @reviewer", "reviewer")
 	if len(wakes3) != 0 {
 		t.Errorf("both agents already replied, should be empty; got %+v", wakes3)

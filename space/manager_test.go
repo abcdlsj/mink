@@ -4,7 +4,6 @@ import (
 	"testing"
 )
 
-// memoryStore implements space.Store for tests.
 type memoryStore struct {
 	byID map[string]*Space
 }
@@ -89,7 +88,6 @@ func TestEnsureSpaceSeedsParticipantsCorrectly(t *testing.T) {
 	store := newMemoryStore()
 	mgr := NewManager(store, "user", "You")
 
-	// Channel: user only
 	ch, err := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
 	if err != nil {
 		t.Fatalf("ensure channel: %v", err)
@@ -98,7 +96,6 @@ func TestEnsureSpaceSeedsParticipantsCorrectly(t *testing.T) {
 		t.Errorf("channel seed should be user-only, got %+v", ch.Participants)
 	}
 
-	// Agent DM: user + that agent (rejects empty agent id)
 	if _, err := mgr.EnsureSpace(KindAgentDM, "coder", PersonaInfo{}); err == nil {
 		t.Error("agent_dm with empty agent should error")
 	}
@@ -113,7 +110,6 @@ func TestEnsureSpaceSeedsParticipantsCorrectly(t *testing.T) {
 		t.Errorf("agent_dm seed wrong: %+v", dm.Participants)
 	}
 
-	// EnsureSpace is idempotent
 	again, _ := mgr.EnsureSpace(KindAgentDM, "coder", PersonaInfo{ID: "coder"})
 	if again.ID != dm.ID {
 		t.Error("EnsureSpace should return the existing space, not create a new one")
@@ -125,17 +121,14 @@ func TestAppendMessageRejectsMissingAuthor(t *testing.T) {
 	mgr := NewManager(store, "user", "You")
 	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
 
-	// User message with non-empty user id always works.
 	if _, err := mgr.AppendUserMessage(ch.ID, "hi", nil); err != nil {
 		t.Errorf("AppendUserMessage failed: %v", err)
 	}
 
-	// Agent message with empty id is rejected (Iris's hard rule).
 	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: ""}, "...", "", nil, ""); err == nil {
 		t.Error("agent message with empty id should be rejected")
 	}
 
-	// Agent message with valid persona accepted.
 	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: "coder", Display: "Coder"}, "ok", "", nil, ""); err != nil {
 		t.Errorf("agent message with valid persona failed: %v", err)
 	}
@@ -150,25 +143,21 @@ func TestEnsureForSourceRoundTrips(t *testing.T) {
 	store := newMemoryStore()
 	mgr := NewManager(store, "user", "You")
 
-	// desktop -> default channel
 	sp, err := mgr.EnsureForSource("desktop", PersonaInfo{})
 	if err != nil || sp.Kind != KindChannel {
 		t.Errorf("desktop should map to channel, got %v / %v", sp, err)
 	}
 
-	// desktop:agent:reviewer -> agent_dm reviewer
 	sp, err = mgr.EnsureForSource("desktop:agent:reviewer", PersonaInfo{ID: "reviewer", Display: "Reviewer"})
 	if err != nil || sp.Kind != KindAgentDM || sp.Title != "reviewer" {
 		t.Errorf("agent source mapping wrong: %+v / %v", sp, err)
 	}
 
-	// subtask:* must error rather than silently land in a Space.
 	if _, err := mgr.EnsureForSource("subtask:task-1", PersonaInfo{}); err == nil {
 		t.Error("subtask source should not produce a Space")
 	}
 }
 
-// failingStore wraps memoryStore and rejects the next SaveSpace call.
 type failingStore struct {
 	*memoryStore
 	failNext bool
@@ -245,9 +234,6 @@ func TestAppendMessageWithRoutingNoOpForExistingParticipant(t *testing.T) {
 }
 
 func TestAppendMessageWithRoutingDropsUnknownIds(t *testing.T) {
-	// "unknown" here means the routing layer passes an id but the
-	// resolver maps it to an empty/blank id; we still need to make
-	// sure the manager doesn't insert garbage.
 	store := newMemoryStore()
 	mgr := NewManager(store, "user", "You")
 	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
@@ -282,7 +268,6 @@ func TestAppendMessageWithRoutingRejectsBadAuthor(t *testing.T) {
 func TestAppendMessageWithRoutingNoHalfWriteOnSaveFail(t *testing.T) {
 	failing := newFailingStore()
 	mgr := NewManager(failing, "user", "You")
-	// Seed the channel through the failing store but with success.
 	ch, _ := mgr.EnsureSpace(KindChannel, "default", PersonaInfo{})
 
 	failing.failNext = true

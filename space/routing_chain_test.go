@@ -26,11 +26,9 @@ func TestRoutingChainCanWakeAndSpend(t *testing.T) {
 		}
 		c.Spend(ag)
 	}
-	// Budget should be exhausted now.
 	if ok, why := c.CanWake("any"); ok || why != "budget_exhausted" {
 		t.Errorf("after 3 spends: ok=%v why=%q (want false / budget_exhausted)", ok, why)
 	}
-	// Spend on exhausted chain is a no-op.
 	c.Spend("another")
 	if c.Budget != 0 {
 		t.Errorf("Spend after exhaustion should be no-op, budget=%d", c.Budget)
@@ -43,7 +41,6 @@ func TestRoutingChainSingleReplyPerAgent(t *testing.T) {
 	if ok, why := c.CanWake("coder"); ok || why != "duplicate_skipped" {
 		t.Errorf("second wake of same agent: ok=%v why=%q", ok, why)
 	}
-	// Repeat Spend on duplicate is also a no-op.
 	c.Spend("coder")
 	if c.Budget != 4 {
 		t.Errorf("budget should remain 4 after duplicate spend, got %d", c.Budget)
@@ -55,7 +52,7 @@ func TestRoutingChainNilSafe(t *testing.T) {
 	if ok, why := c.CanWake("x"); ok || why != "no_chain" {
 		t.Errorf("nil chain: ok=%v why=%q (want false / no_chain)", ok, why)
 	}
-	c.Spend("x") // must not panic
+	c.Spend("x")
 	if c.AlreadyReplied("x") {
 		t.Error("nil chain AlreadyReplied should be false")
 	}
@@ -64,7 +61,7 @@ func TestRoutingChainNilSafe(t *testing.T) {
 func TestChainTrackerIdempotent(t *testing.T) {
 	tk := NewChainTracker()
 	a := tk.Start("root", "space", 3)
-	b := tk.Start("root", "space", 999) // same root, must return same instance
+	b := tk.Start("root", "space", 999)
 	if a != b {
 		t.Error("Start with existing root should return the same chain")
 	}
@@ -78,7 +75,7 @@ func TestChainTrackerSeparateChainsDoNotInterfere(t *testing.T) {
 	a := tk.Start("root-A", "space-1", 3)
 	b := tk.Start("root-B", "space-1", 3)
 	a.Spend("coder")
-	a.Spend("coder") // dup, no-op
+	a.Spend("coder")
 	if okA, _ := a.CanWake("coder"); okA {
 		t.Error("chain A should disallow second coder reply")
 	}
@@ -86,7 +83,6 @@ func TestChainTrackerSeparateChainsDoNotInterfere(t *testing.T) {
 		t.Error("chain B is independent and should allow coder reply")
 	}
 	if a.Budget == b.Budget {
-		// a spent once for coder, b spent zero
 		t.Errorf("budgets should differ: a=%d b=%d", a.Budget, b.Budget)
 	}
 }

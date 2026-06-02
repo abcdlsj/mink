@@ -76,14 +76,6 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
-	// P2.5a/b/P3.5: when the input lands in a router-managed Space
-	// (Channel or DirectChat), route via the new Space router
-	// instead of running the active persona. This must run BEFORE
-	// the legacy `f.mention` shortcut so that `@coder` does not
-	// fall back to handleInputAs(active-persona).
-	// Agent DM, direct chat, and subtask sources continue through
-	// the legacy active-persona handoff below if they are not
-	// router-managed.
 	if f.personaID == "" && sourceUsesRouter(f.source) {
 		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
 			return "", err

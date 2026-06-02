@@ -14,25 +14,25 @@ type Config struct {
 	Models      map[string]ModelConfig `toml:"models"`
 	APIKeys     map[string]string      `toml:"api_keys"`
 
-	Provider    string            `toml:"provider"`
-	Model       string            `toml:"model"`
-	APIKey      string            `toml:"api_key"`
-	BaseURL     string            `toml:"base_url"`
-	Runtime     string            `toml:"runtime"`
-	DataDir     string            `toml:"data_dir"`
-	Workspace   string            `toml:"workspace"`
-	SoulPath    string            `toml:"soul_path"`
-	Prompt      string            `toml:"prompt"`
-	MaxTokens   int               `toml:"max_tokens"`
-	Headers     map[string]string `toml:"headers"`
-	Reasoning   bool              `toml:"reasoning"`
-	WebAddr     string            `toml:"web_addr"`
-	Compact     CompactConfig     `toml:"compact"`
-	Telegram    TelegramConfig    `toml:"telegram"`
-	BraveSearch BraveConfig       `toml:"brave_search"`
-	Collab      CollabConfig      `toml:"collab"`
-	StatusLine  string            `toml:"status_line"`
-	DefaultPersona string         `toml:"default_persona"`
+	Provider       string            `toml:"provider"`
+	Model          string            `toml:"model"`
+	APIKey         string            `toml:"api_key"`
+	BaseURL        string            `toml:"base_url"`
+	Runtime        string            `toml:"runtime"`
+	DataDir        string            `toml:"data_dir"`
+	Workspace      string            `toml:"workspace"`
+	SoulPath       string            `toml:"soul_path"`
+	Prompt         string            `toml:"prompt"`
+	MaxTokens      int               `toml:"max_tokens"`
+	Headers        map[string]string `toml:"headers"`
+	Reasoning      bool              `toml:"reasoning"`
+	WebAddr        string            `toml:"web_addr"`
+	Compact        CompactConfig     `toml:"compact"`
+	Telegram       TelegramConfig    `toml:"telegram"`
+	BraveSearch    BraveConfig       `toml:"brave_search"`
+	Collab         CollabConfig      `toml:"collab"`
+	StatusLine     string            `toml:"status_line"`
+	DefaultPersona string            `toml:"default_persona"`
 
 	Active ModelConfig `toml:"-"`
 }

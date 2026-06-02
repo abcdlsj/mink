@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	ErrCollabAliasUnknown        = errors.New("collab: alias not bound in this source")
-	ErrCollabAliasNotPersona     = errors.New("collab: alias resolves to a runtime, not a registered persona")
-	ErrCollabPersonaNotFound     = errors.New("collab: persona not registered")
-	ErrCollabAliasMissing        = errors.New("collab: alias is required to identify the worker")
-	ErrCollabSpawnTimeoutCancel  = errors.New("collab: spawn timed out and was canceled")
-	ErrCollabWorkerWroteNothing  = errors.New("collab: worker produced no visible reply")
+	ErrCollabAliasUnknown       = errors.New("collab: alias not bound in this source")
+	ErrCollabAliasNotPersona    = errors.New("collab: alias resolves to a runtime, not a registered persona")
+	ErrCollabPersonaNotFound    = errors.New("collab: persona not registered")
+	ErrCollabAliasMissing       = errors.New("collab: alias is required to identify the worker")
+	ErrCollabSpawnTimeoutCancel = errors.New("collab: spawn timed out and was canceled")
+	ErrCollabWorkerWroteNothing = errors.New("collab: worker produced no visible reply")
 )
 
 func (m *manager) resolveCollabWorkerPersona(source, alias string) (*persona.Persona, error) {

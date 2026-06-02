@@ -14,10 +14,6 @@ import (
 	"github.com/abcdlsj/sumi/space"
 )
 
-// channelRouter is the lazily-built Router used by inputFlow when
-// a source maps to a channel space. It is constructed once per App
-// and survives reloads of the persona registry — the snapshot
-// closure asks the registry on every lookup.
 func (a *App) channelRouter() *space.Router {
 	if a == nil || a.spaces == nil {
 		return nil
@@ -31,7 +27,6 @@ func (a *App) channelRouter() *space.Router {
 			if p := a.personas.Get(id); p != nil {
 				return space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}, true
 			}
-			// Try lower-case fallback (display match path used by parser).
 			lower := strings.ToLower(id)
 			for _, p := range a.personas.List() {
 				if strings.ToLower(p.Display) == lower || strings.ToLower(p.ID) == lower {
@@ -48,9 +43,6 @@ func sourceUsesRouter(source string) bool {
 	return space.SourceUsesRouter(source)
 }
 
-// sourceIsChannel is kept for backwards-compat with the few call
-// sites that strictly mean "channel kind" (not direct chat). New
-// callers should use sourceUsesRouter.
 func sourceIsChannel(source string) bool {
 	source = strings.TrimSpace(source)
 	if strings.HasPrefix(source, "subtask:") || strings.HasPrefix(source, "scratch:") {
@@ -60,37 +52,12 @@ func sourceIsChannel(source string) bool {
 	return target.Kind == space.KindChannel
 }
 
-// channelInterceptResult captures everything the input flow needs
-// to know after deferring channel handling to the router. wakes
-// is the list of routing decisions; notices is the list of
-// non-wake outcomes for the bus to surface (P2.5c will publish).
-//
-// In P2.5a wakes is computed but never executed; runtime invocation
-// arrives in P2.5b.
 type channelInterceptResult struct {
 	spaceID string
 	wakes   []space.RoutingTarget
 	notices []space.RoutingNotice
 }
 
-// interceptRoutedInput is the P2.5a/b/P3.5 entry point. It writes
-// the user message to the Space via the router (which also handles
-// atomic participant insertion) and runs every wake target the
-// router decided on. Each wake produces one ephemeral runtime turn
-// whose assistant output is mirrored back into the same Space as
-// an agent-authored message; the agent's reply is then re-routed
-// so further @-mentions wake more agents within the same chain
-// and budget.
-//
-// In P3.5 this entry handles both Channel and DirectChat kinds
-// (anything that satisfies sourceUsesRouter). The earlier name
-// "interceptChannelInput" was misleading once Direct Chats joined.
-//
-// Errors propagate: if the user-message Space write fails, the
-// caller sees the failure rather than a half-applied turn.
-// Per-wake runtime errors are recorded but do NOT fail the user
-// message — Iris's amendment 5: "budget/duplicate notice 不要变成
-// error，也不要让用户消息失败".
 func (a *App) interceptRoutedInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
 	r := a.channelRouter()
 	if r == nil {
@@ -132,25 +99,10 @@ func (a *App) resolveRoutedSpace(target space.SourceTarget) (*space.Space, error
 	return a.spaces.EnsureSpace(target.Kind, target.Seed, space.PersonaInfo{})
 }
 
-// interceptChannelInput is preserved as a thin alias so any legacy
-// caller / test names still compile. New code should call
-// interceptRoutedInput directly.
 func (a *App) interceptChannelInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
 	return a.interceptRoutedInput(ctx, source, content)
 }
 
-// runChannelWake fires one agent's turn against the channel Space.
-// It uses a brand-new in-memory session.Session that is never given
-// to the manager, never saved to disk, never returned by ListSessions
-// — Iris's hard rule for ephemeral runtime scratch.
-//
-// After the runtime returns, the assistant output (content +
-// reasoning, concatenated across multi-message streams) is written
-// to the Space via space.Manager.AppendAgentMessage. Empty replies
-// and tool-only turns produce no Space message. Any further
-// @-mentions in the reply are then dispatched through
-// router.RouteAgentReply within the same chain so subsequent agent
-// fanout reuses the same budget.
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {
@@ -189,8 +141,6 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		AgentID:         turn.AgentID,
 		StreamID:        turn.StreamID,
 	})
-	// Run directly — bypass turnFlow so sessions.Save is never called
-	// against the scratch session.
 	runErr := rt.Run(ctx, turn)
 	if runErr != nil {
 		a.bus.Publish(bus.Event{
@@ -222,16 +172,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if r == nil {
 		return nil
 	}
-	// Resolve mentions in the agent's own reply *before* writing so
-	// the message lands in one atomic write that also adds any new
-	// participant. This is the second leg of Iris's "@ adds to
-	// membership atomically" rule — the first leg fires for user
-	// messages in RouteUserChannelMessage.
 	resolved := space.ParseMentions(content, r.ResolverFunc(), r.MaxMentions())
-	// Self-mentions cannot wake the replying agent and must not
-	// re-add it (it's already a participant); strip before atomic
-	// add so AppendMessageWithRouting's resolveInfo isn't asked for
-	// the speaker.
 	resolved = filterOut(resolved, target.AgentID)
 
 	draft := space.Message{
@@ -252,9 +193,6 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if err != nil {
 		return nil
 	}
-	// Recurse: any @-mentions in this reply may wake further agents
-	// inside the same chain. RouteAgentReply enforces budget /
-	// duplicate / self-mention rules.
 	if target.Chain == nil {
 		return nil
 	}
@@ -269,16 +207,6 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	return notices
 }
 
-// publishRoutingNotices forwards every space.RoutingNotice onto the
-// app bus as a bus.Event the desktop / CLI / TG adapters can listen
-// for. Per Iris (P2.5c review):
-//   - notices are hints, never errors;
-//   - channel.no_target / budget_exhausted / duplicate_skipped use
-//     event types directly named after the notice kind so subscribers
-//     can match on Type;
-//   - unknown_mention is intentionally not produced today (the
-//     parser drops unknowns silently); when we add it later it will
-//     ride the same channel as a quiet/debug-level signal.
 func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice) {
 	if a == nil || a.bus == nil || len(notices) == 0 {
 		return
@@ -289,7 +217,7 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 			Source:     source,
 			SessionID:  n.SpaceID,
 			ToolCallID: n.MessageID,
-			Tool:       n.AgentID, // reuse Tool slot for the per-agent subject
+			Tool:       n.AgentID,
 			Time:       n.At,
 		})
 	}
@@ -366,12 +294,6 @@ func filterOut(ids []string, drop string) []string {
 	return out
 }
 
-// assembleAssistantOutput concatenates assistant role messages
-// produced during a single scratch run. Per Iris's red-line:
-//   - only assistant role; tool / system / user messages are dropped
-//   - empty content/reasoning segments are skipped (no blank lines)
-//   - segments are joined with a single newline; no author markers
-//     in the body.
 func assembleAssistantOutput(addedMessages []msg.Message) (string, string) {
 	var (
 		contentParts   []string
