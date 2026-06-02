@@ -48,6 +48,14 @@ export const api = {
         body: JSON.stringify({ channel_id: channelID, persona_id: personaID, mode }),
       }),
     ),
+  addAgentToChannel: (channelID: string, personaID: string) =>
+    j<{ ok: string }>(
+      fetch("/api/channel/add-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel_id: channelID, persona_id: personaID }),
+      }),
+    ),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
   thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
   agentDM: (agentID: string) =>

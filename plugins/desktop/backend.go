@@ -518,6 +518,25 @@ func (b *Backend) SetChannelAgentMode(channelID, personaID, mode string) error {
 	return b.app.Spaces().SetAgentMode(channelID, personaID, mode)
 }
 
+func (b *Backend) AddAgentToChannel(channelID, personaID string) error {
+	if b.app == nil {
+		return fmt.Errorf("app not initialized")
+	}
+	personaID = strings.TrimSpace(personaID)
+	if personaID == "" {
+		return fmt.Errorf("persona id required")
+	}
+	p := b.app.Personas().Get(personaID)
+	if p == nil {
+		return fmt.Errorf("persona not registered: %s", personaID)
+	}
+	return b.app.Spaces().AddAgentParticipant(channelID, space.PersonaInfo{
+		ID:      p.ID,
+		Display: p.Display,
+		Role:    p.Description,
+	})
+}
+
 func normalizeChannelSeed(s string) string {
 	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
 	var b strings.Builder
@@ -1445,6 +1464,25 @@ func (b *Backend) APIHandler(mock bool) http.Handler {
 			return
 		}
 		if err := b.SetChannelAgentMode(in.ChannelID, in.PersonaID, in.Mode); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, map[string]string{"ok": "true"})
+	})
+	mux.HandleFunc("/api/channel/add-agent", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ChannelID string `json:"channel_id"`
+			PersonaID string `json:"persona_id"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := b.AddAgentToChannel(in.ChannelID, in.PersonaID); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}

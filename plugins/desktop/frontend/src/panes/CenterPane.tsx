@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Hash, MessageSquare, AtSign, Square, Settings } from "lucide-react";
+import { Hash, MessageSquare, AtSign, Square, Settings, Plus } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
@@ -132,15 +132,19 @@ function listeningSummary(
   ch: import("@/lib/types").ChannelItem | undefined,
   agents: import("@/lib/types").AgentItem[],
 ): string {
-  if (!ch || !ch.agent_modes) return "";
-  const ids = Object.entries(ch.agent_modes)
-    .filter(([, m]) => m === "listen")
-    .map(([id]) => id);
-  if (ids.length === 0) return "";
-  const names = ids.map((id) => agents.find((a) => a.id === id)?.display || id);
-  if (names.length === 1) return `${names[0]} listening`;
-  if (names.length === 2) return `${names[0]}, ${names[1]} listening`;
-  return `${names[0]}, ${names[1]} +${names.length - 2} listening`;
+  if (!ch) return "";
+  const joined = ch.agents || [];
+  if (joined.length === 0) return "";
+  const head = joined.length + " agent" + (joined.length === 1 ? "" : "s");
+  const modes = ch.agent_modes || {};
+  const visible = joined.slice(0, 2).map((id) => {
+    const display = agents.find((a) => a.id === id)?.display || id;
+    const mode = modes[id] === "listen" ? "listening" : "mention only";
+    return `${display} ${mode}`;
+  });
+  let tail = visible.join(" · ");
+  if (joined.length > 2) tail += ` · +${joined.length - 2}`;
+  return `${head} · ${tail}`;
 }
 
 function ListeningGear({
@@ -151,18 +155,32 @@ function ListeningGear({
   agents: import("@/lib/types").AgentItem[];
 }) {
   const [open, setOpen] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const [pickQuery, setPickQuery] = useState("");
   const ref = useRef<HTMLDivElement | null>(null);
   const setMode = useStore((s) => s.setChannelAgentMode);
+  const addAgent = useStore((s) => s.addAgentToChannel);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      if (!ref.current?.contains(e.target as Node)) {
+        setOpen(false);
+        setPicking(false);
+        setPickQuery("");
+      }
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
+  const joinedIDs = new Set(channel.agents || []);
+  const joined = agents.filter((a) => joinedIDs.has(a.id));
+  const candidates = agents.filter((a) => !joinedIDs.has(a.id) && (
+    pickQuery === "" ||
+    a.id.toLowerCase().includes(pickQuery.toLowerCase()) ||
+    a.display.toLowerCase().includes(pickQuery.toLowerCase())
+  ));
   const modeFor = (id: string) => channel.agent_modes?.[id] || "mention_only";
 
   return (
@@ -170,19 +188,19 @@ function ListeningGear({
       <button
         onClick={() => setOpen(!open)}
         className="ml-1 inline-flex items-center justify-center size-5 rounded-sm text-text-faint hover:text-text"
-        title="Channel agent settings"
+        title="Channel agents"
       >
         <Settings className="size-3.5" />
       </button>
       {open && (
-        <div className="absolute z-30 mt-1 w-[260px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
+        <div className="absolute z-30 mt-1 w-[280px] rounded-md border border-border bg-panel shadow-[0_8px_24px_rgba(31,41,51,0.10)] py-1 text-[13px]">
           <div className="px-3 py-1.5 text-[10.5px] uppercase tracking-[0.7px] text-text-whisper font-display font-semibold">
-            Listening
+            Agents in this channel
           </div>
-          {agents.length === 0 && (
-            <div className="px-3 py-2 text-[11.5px] text-text-faint">No agents.</div>
+          {joined.length === 0 && (
+            <div className="px-3 py-2 text-[11.5px] text-text-faint">No agents joined yet.</div>
           )}
-          {agents.map((a) => {
+          {joined.map((a) => {
             const m = modeFor(a.id);
             const next = m === "listen" ? "mention_only" : "listen";
             return (
@@ -206,6 +224,49 @@ function ListeningGear({
               </button>
             );
           })}
+          <div className="border-t border-border-soft mt-1 pt-1">
+            {!picking ? (
+              <button
+                onClick={() => setPicking(true)}
+                className="w-full flex items-center gap-1.5 px-3 py-1.5 text-text-muted hover:bg-panel-2 hover:text-text cursor-pointer"
+              >
+                <Plus className="size-3" />
+                Add agent…
+              </button>
+            ) : (
+              <div>
+                <input
+                  autoFocus
+                  value={pickQuery}
+                  onChange={(e) => setPickQuery(e.target.value)}
+                  placeholder="Search agents…"
+                  className="w-full px-3 py-1.5 text-[13px] bg-transparent outline-none border-b border-border-soft"
+                />
+                <div className="max-h-[200px] overflow-y-auto">
+                  {candidates.length === 0 && (
+                    <div className="px-3 py-2 text-[11.5px] text-text-faint">No matching agent.</div>
+                  )}
+                  {candidates.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={async () => {
+                        await addAgent(channel.id, a.id);
+                        setPicking(false);
+                        setPickQuery("");
+                      }}
+                      className="w-full flex items-center gap-1.5 px-3 py-1.5 hover:bg-panel-2 cursor-pointer"
+                    >
+                      <AtSign className="size-3 text-text-faint" />
+                      <span className="text-text">{a.display}</span>
+                      {a.role && (
+                        <span className="ml-auto text-[11px] text-text-faint truncate max-w-[55%]">{a.role}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -805,6 +866,8 @@ function Composer() {
   const usesRouting = view === "channel" || view === "thread";
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
+  const channelForHint = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
+  const showEmptyAgentsHint = view === "channel" && channelForHint && (channelForHint.agents || []).length === 0;
   const composerHint = useStore((s) => s.composerHint);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -875,7 +938,12 @@ function Composer() {
             {composerHint?.text}
           </div>
         )}
-        {showRouteHint && (
+        {showEmptyAgentsHint && !showRoutingHint && (
+          <div className="mb-2 text-[11.5px] text-text-faint">
+            Mention or add an agent to collaborate.
+          </div>
+        )}
+        {showRouteHint && !showEmptyAgentsHint && !showRoutingHint && (
           <div className="mb-2 text-[11.5px] text-text-faint">
             Mention an agent, or let listening agents pick it up.
           </div>

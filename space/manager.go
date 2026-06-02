@@ -398,6 +398,28 @@ func (m *Manager) SetAgentMode(spaceID, personaID, mode string) error {
 	return m.store.SaveSpace(sp)
 }
 
+func (m *Manager) AddAgentParticipant(spaceID string, info PersonaInfo) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(info.ID) == "" {
+		return fmt.Errorf("persona id required")
+	}
+	if !sp.AddParticipant(Participant{
+		ID:      info.ID,
+		Kind:    ParticipantAgent,
+		Display: fallbackDisplay(info.Display, info.ID),
+		Role:    info.Role,
+		Status:  StatusAvailable,
+	}) {
+		return nil
+	}
+	return m.store.SaveSpace(sp)
+}
+
 func fallbackDisplay(display, id string) string {
 	if d := strings.TrimSpace(display); d != "" {
 		return d
