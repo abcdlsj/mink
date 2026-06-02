@@ -596,6 +596,7 @@ function ThreadLink({ threadId, summary }: { threadId: string; summary: string }
 
 function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary }) {
   const openThread = useStore((s) => s.openThread);
+  const continueLabel = info.reply_count >= 2 ? "Continue in thread →" : "Open thread →";
   const replyLabel = info.reply_count === 1 ? "1 reply" : info.reply_count + " replies";
   const last = info.last_reply_author ? "last by " + info.last_reply_author : "";
   const when = relTime(info.last_reply_time);
@@ -603,10 +604,11 @@ function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary 
   return (
     <button
       onClick={() => void openThread(info.parent_id)}
-      className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-text-faint hover:text-text-muted underline-offset-2 hover:underline"
+      className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] text-accent hover:opacity-80 underline-offset-2 hover:underline"
     >
       {info.has_running_worker && <Dot status="running" />}
-      <span>{segments.join(" · ")}</span>
+      <span className="font-medium">{continueLabel}</span>
+      <span className="text-text-faint font-normal">{segments.join(" · ")}</span>
     </button>
   );
 }
