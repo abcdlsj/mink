@@ -163,7 +163,7 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 	}
 	turn.Session.Add(msg.Message{Role: "user", Content: "old"})
 
-	out := r.buildPrompt(turn)
+	out := r.buildPrompt(turn, true)
 	for _, want := range []string{
 		"<system_prompt>",
 		"项目约束",
@@ -175,6 +175,30 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestRuntimeBuildPromptCanOmitHistoryForResume(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{
+			FormatHistory: func(messages []msg.Message) string {
+				return "<conversation_history>\n[user]: old\n</conversation_history>"
+			},
+		},
+	}
+	turn := &agent.Turn{
+		Source:  "cli",
+		Input:   "继续",
+		Session: session.New("cli"),
+	}
+	turn.Session.Add(msg.Message{Role: "user", Content: "old"})
+
+	out := r.buildPrompt(turn, false)
+	if strings.Contains(out, "<conversation_history>") || strings.Contains(out, "[user]: old") {
+		t.Fatalf("resume prompt should omit injected history:\n%s", out)
+	}
+	if !strings.Contains(out, "<user_message>") || !strings.Contains(out, "继续") {
+		t.Fatalf("prompt missing current input:\n%s", out)
 	}
 }
 

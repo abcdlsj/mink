@@ -71,16 +71,17 @@ type Runtime struct {
 }
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
-	prompt := textutil.Valid(r.buildPrompt(turn))
+	sessionID, resume := r.getOrCreateSessionID(turn.Session)
+	prompt := textutil.Valid(r.buildPrompt(turn, !resume))
+	fallbackPrompt := textutil.Valid(r.buildPrompt(turn, true))
 	addUser(turn.Session, turn.Input)
 
-	sessionID, resume := r.getOrCreateSessionID(turn.Session)
 	st := newRunState()
 	runErr := r.runCommand(ctx, turn, st, prompt, sessionID, resume)
 	if runErr != nil && resume && missingExternalSession(runErr) {
 		sessionID = r.resetSessionID(turn.Session)
 		st = newRunState()
-		runErr = r.runCommand(ctx, turn, st, prompt, sessionID, false)
+		runErr = r.runCommand(ctx, turn, st, fallbackPrompt, sessionID, false)
 	}
 	st.flush(turn.Session)
 	return runErr
@@ -161,9 +162,9 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 	return runErr
 }
 
-func (r *Runtime) buildPrompt(turn *agent.Turn) string {
+func (r *Runtime) buildPrompt(turn *agent.Turn, includeHistory bool) string {
 	var hist string
-	if turn != nil && turn.Session != nil {
+	if includeHistory && turn != nil && turn.Session != nil {
 		if r.driver.FormatHistory != nil {
 			hist = r.driver.FormatHistory(turn.Session.Messages)
 		} else {
