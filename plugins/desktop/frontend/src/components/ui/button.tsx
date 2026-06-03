@@ -9,7 +9,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: "bg-panel text-text hover:bg-accent hover:shadow-card active:translate-x-px active:translate-y-px active:shadow-none",
-        primary: "bg-action text-text hover:shadow-card disabled:bg-panel-3 disabled:text-text-faint disabled:opacity-100",
+        primary: "bg-action text-panel hover:shadow-card disabled:bg-panel-3 disabled:text-text-faint disabled:opacity-100",
         outline: "bg-transparent text-text-muted hover:bg-accent hover:text-text hover:shadow-card",
         ghost: "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-panel-2 hover:text-text",
         danger: "bg-transparent text-text-muted hover:border-error hover:bg-action-bg hover:text-error",

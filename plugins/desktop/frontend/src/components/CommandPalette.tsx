@@ -176,8 +176,8 @@ export function CommandPalette() {
                     value={row.label + " " + (row.meta || "")}
                     onSelect={row.onRun}
                     className={cn(
-                      "flex cursor-pointer items-center justify-between gap-2 border-y border-transparent px-[18px] py-1.5 text-[13px] text-text",
-                      "data-[selected=true]:border-border data-[selected=true]:bg-accent",
+                      "flex cursor-pointer items-center justify-between gap-2 border-y border-l-[6px] border-y-transparent border-l-transparent px-[18px] py-1.5 text-[13px] text-text",
+                      "data-[selected=true]:border-y-border data-[selected=true]:border-l-accent data-[selected=true]:bg-panel-2",
                     )}
                   >
                     <span className="flex items-center gap-2 flex-1 min-w-0">

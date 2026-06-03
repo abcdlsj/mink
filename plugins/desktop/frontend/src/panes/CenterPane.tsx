@@ -1056,7 +1056,7 @@ function Composer() {
             disabled={!canSend}
             onClick={() => void handleSend()}
             className={cn(
-              "bg-action px-4 font-black uppercase tracking-[0.5px] text-text",
+              "bg-action px-4 font-black uppercase tracking-[0.5px] text-panel",
               canSend && "shadow-card hover:bg-action",
             )}
           >
