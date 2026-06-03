@@ -86,6 +86,46 @@ func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	}
 }
 
+func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
+	router, mgr, ch := newRouterTestEnv(t)
+	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
+		t.Fatalf("SetAgentMode: %v", err)
+	}
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
+		t.Fatalf("expected listening coder wake, got %+v", wakes)
+	}
+	if wakes[0].Reason != "joined from channel listening" {
+		t.Errorf("wake reason = %q", wakes[0].Reason)
+	}
+	if len(notices) != 0 {
+		t.Errorf("expected no notices, got %+v", notices)
+	}
+}
+
+func TestRouterMultipleListeningAgentsAreAmbiguous(t *testing.T) {
+	router, mgr, ch := newRouterTestEnv(t)
+	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
+		t.Fatalf("SetAgentMode coder: %v", err)
+	}
+	if err := mgr.SetAgentMode(ch.ID, "reviewer", "listen"); err != nil {
+		t.Fatalf("SetAgentMode reviewer: %v", err)
+	}
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(wakes) != 0 {
+		t.Fatalf("ambiguous listening must not wake, got %+v", wakes)
+	}
+	if len(notices) != 1 || notices[0].Kind != NoticeListeningAmbiguous {
+		t.Fatalf("expected listening ambiguous notice, got %+v", notices)
+	}
+}
+
 func TestRouterUnknownMentionDropsSilently(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	wakes, notices, _ := router.RouteUserChannelMessage(ch.ID, "@nobody hi", "")

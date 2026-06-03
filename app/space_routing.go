@@ -160,7 +160,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		Reasoning:       reasoning,
 		Mentions:        resolved,
 		AutoReplyReason: target.Reason,
-		ParentMessageID: target.Chain.ParentMessageID,
+		ParentMessageID: parentMessageID,
 	}
 	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
 		if p := a.personas.Get(id); p != nil {

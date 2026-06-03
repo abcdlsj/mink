@@ -63,14 +63,12 @@ calling `Resolve`; nothing else carries its own resolver.
 
 When the user message has at least one `@` mention, the router
 fans out to those agents under a chained budget (`DefaultRoutingBudget`,
-3 wakes). When there is no mention, a rule-based listening gate
-runs: low-info filter rejects `ok / hi / 在吗`, then per-persona
-keyword buckets pick zero, one, or many candidates. One match wakes
-the agent. Many matches publish `routing.listening_ambiguous` and
-the composer hint nudges the user to mention explicitly. Zero
-matches with listening agents present publish
-`routing.listening_no_match`; with none, `routing.channel.no_target`.
-Each maps to a transient composer hint, never a timeline message.
+3 wakes). When there is no mention, explicit `listen` modes on the
+channel/thread pick candidates directly. One listening agent wakes.
+Many listening agents publish `routing.listening_ambiguous` and the
+composer hint nudges the user to mention explicitly. Zero listeners
+publish `routing.channel.no_target`. Each maps to a transient
+composer hint, never a timeline message.
 
 ## Wake context
 
@@ -143,7 +141,7 @@ frontend build must be clean. Sumi binary listens on
 
 ## Out of scope
 
-- LLM-graded listening (rule gate is final for this product surface).
+- LLM-graded listening.
 - LLM-rewritten AgentDM titles.
 - Presence-probe / `Ping agents` action.
 - A self-coordinating multi-agent meeting object. Agent-to-agent
@@ -162,7 +160,7 @@ App layer:
 
 Space layer:
   `space/space.go` — Space + AgentModes + ThreadAgentModes
-  `space/listen.go` — listening keyword gate
+  `space/listen.go` — explicit listening mode selection
   `space/manager.go` — MapSource, EnsureSpace, AgentMode setters
   `space/source.go` — SourceUsesRouter
   `space/routing.go` — Router + RoutingTarget + RoutingNotice
