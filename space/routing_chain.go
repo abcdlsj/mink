@@ -14,8 +14,6 @@ type RoutingChain struct {
 	SpaceID         string
 	Budget          int
 	StartedAt       time.Time
-
-	repliedAgents map[string]bool
 }
 
 func NewRoutingChain(rootMessageID, spaceID string, budget int) *RoutingChain {
@@ -27,7 +25,6 @@ func NewRoutingChain(rootMessageID, spaceID string, budget int) *RoutingChain {
 		SpaceID:       spaceID,
 		Budget:        budget,
 		StartedAt:     time.Now(),
-		repliedAgents: map[string]bool{},
 	}
 }
 
@@ -51,16 +48,12 @@ func (c *RoutingChain) TrySpend(agentID string) (bool, string) {
 		return false, reason
 	}
 	c.Budget--
-	c.repliedAgents[agentID] = true
 	return true, ""
 }
 
 func (c *RoutingChain) canWakeLocked(agentID string) (bool, string) {
 	if c.Budget <= 0 {
 		return false, "budget_exhausted"
-	}
-	if c.repliedAgents[agentID] {
-		return false, "duplicate_skipped"
 	}
 	return true, ""
 }
@@ -74,20 +67,7 @@ func (c *RoutingChain) Spend(agentID string) {
 	if c.Budget <= 0 {
 		return
 	}
-	if c.repliedAgents[agentID] {
-		return
-	}
 	c.Budget--
-	c.repliedAgents[agentID] = true
-}
-
-func (c *RoutingChain) AlreadyReplied(agentID string) bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.repliedAgents[agentID]
 }
 
 type ChainTracker struct {

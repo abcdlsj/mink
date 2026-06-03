@@ -182,13 +182,12 @@ func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 		t.Errorf("unknown @ in reply must not wake, got %+v", wakes3)
 	}
 
-	chain.Spend("coder")
 	wakes4, notices4, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "msg-reviewer-reply-2", "hey @coder one more", "reviewer")
-	if len(wakes4) != 0 {
-		t.Errorf("coder already replied; second @coder must be skipped, got %+v", wakes4)
+	if len(wakes4) != 1 || wakes4[0].AgentID != "coder" {
+		t.Errorf("coder should be wakable again while budget remains, got %+v", wakes4)
 	}
-	if len(notices4) != 1 || notices4[0].Kind != NoticeDuplicateSkipped || notices4[0].AgentID != "coder" {
-		t.Errorf("expected duplicate_skipped notice for coder, got %+v", notices4)
+	if len(notices4) != 0 {
+		t.Errorf("expected no duplicate notice, got %+v", notices4)
 	}
 }
 
@@ -218,19 +217,25 @@ func TestRouterFanOutBudgetCapsAcrossReplies(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
 	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder", "")
 	chain := wakes1[0].Chain
-	chain.Spend("coder")
 
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r1", "@reviewer", "coder")
 	if len(wakes2) != 1 {
 		t.Fatalf("coder->reviewer should wake, got %+v", wakes2)
 	}
-	chain.Spend("reviewer")
 
-	wakes3, notices, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r2", "@coder @reviewer", "reviewer")
-	if len(wakes3) != 0 {
-		t.Errorf("both agents already replied, should be empty; got %+v", wakes3)
+	wakes3, notices, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r2", "@coder", "reviewer")
+	if len(wakes3) != 1 || wakes3[0].AgentID != "coder" {
+		t.Errorf("budget should allow coder to re-enter once, got %+v", wakes3)
 	}
-	if len(notices) != 1 || notices[0].AgentID != "coder" || notices[0].Kind != NoticeDuplicateSkipped {
-		t.Errorf("expected single duplicate_skipped notice for coder, got %+v", notices)
+	if len(notices) != 0 {
+		t.Errorf("expected no notice before budget exhaustion, got %+v", notices)
+	}
+
+	wakes4, notices4, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r3", "@reviewer", "coder")
+	if len(wakes4) != 0 {
+		t.Errorf("budget exhausted should not wake reviewer, got %+v", wakes4)
+	}
+	if len(notices4) != 1 || notices4[0].AgentID != "reviewer" || notices4[0].Kind != NoticeBudgetExhausted {
+		t.Errorf("expected budget_exhausted notice for reviewer, got %+v", notices4)
 	}
 }

@@ -37,19 +37,19 @@ func TestRoutingChainCanWakeAndSpend(t *testing.T) {
 	}
 }
 
-func TestRoutingChainSingleReplyPerAgent(t *testing.T) {
-	c := NewRoutingChain("root", "space", 5)
+func TestRoutingChainAllowsRepeatAgentsUntilBudgetExhaustion(t *testing.T) {
+	c := NewRoutingChain("root", "space", 2)
 	c.Spend("coder")
-	if ok, why := c.CanWake("coder"); ok || why != "duplicate_skipped" {
-		t.Errorf("second wake of same agent: ok=%v why=%q", ok, why)
+	if ok, why := c.CanWake("coder"); !ok || why != "" {
+		t.Errorf("same agent should be wakable while budget remains: ok=%v why=%q", ok, why)
 	}
 	c.Spend("coder")
-	if c.Budget != 4 {
-		t.Errorf("budget should remain 4 after duplicate spend, got %d", c.Budget)
+	if ok, why := c.CanWake("coder"); ok || why != "budget_exhausted" {
+		t.Errorf("after budget exhaustion: ok=%v why=%q (want false / budget_exhausted)", ok, why)
 	}
 }
 
-func TestRoutingChainTrySpendIsAtomicPerAgent(t *testing.T) {
+func TestRoutingChainTrySpendIsAtomicForBudget(t *testing.T) {
 	c := NewRoutingChain("root", "space", 10)
 	var wg sync.WaitGroup
 	var okCount int32
@@ -63,11 +63,11 @@ func TestRoutingChainTrySpendIsAtomicPerAgent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	if okCount != 1 {
-		t.Fatalf("TrySpend should allow one coder wake, got %d", okCount)
+	if okCount != 10 {
+		t.Fatalf("TrySpend should allow exactly budget wakes, got %d", okCount)
 	}
-	if c.Budget != 9 {
-		t.Fatalf("budget = %d, want 9", c.Budget)
+	if c.Budget != 0 {
+		t.Fatalf("budget = %d, want 0", c.Budget)
 	}
 }
 
@@ -77,9 +77,6 @@ func TestRoutingChainNilSafe(t *testing.T) {
 		t.Errorf("nil chain: ok=%v why=%q (want false / no_chain)", ok, why)
 	}
 	c.Spend("x")
-	if c.AlreadyReplied("x") {
-		t.Error("nil chain AlreadyReplied should be false")
-	}
 }
 
 func TestChainTrackerIdempotent(t *testing.T) {
@@ -100,8 +97,8 @@ func TestChainTrackerSeparateChainsDoNotInterfere(t *testing.T) {
 	b := tk.Start("root-B", "space-1", 3)
 	a.Spend("coder")
 	a.Spend("coder")
-	if okA, _ := a.CanWake("coder"); okA {
-		t.Error("chain A should disallow second coder reply")
+	if okA, _ := a.CanWake("coder"); !okA {
+		t.Error("chain A should allow repeat agent while budget remains")
 	}
 	if okB, _ := b.CanWake("coder"); !okB {
 		t.Error("chain B is independent and should allow coder reply")

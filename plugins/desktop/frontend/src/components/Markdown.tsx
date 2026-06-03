@@ -66,15 +66,22 @@ const fullComponents: Components = {
   ),
   hr: () => <hr className="my-3.5 border-border-soft" />,
   table: ({ children }) => (
-    <div className="my-2.5 overflow-x-auto">
-      <table className="text-[13px] border-collapse w-max max-w-full">{children}</table>
+    <div className="my-3 max-w-full overflow-x-auto border border-border bg-panel shadow-card">
+      <table className="min-w-full border-collapse text-[12.5px] leading-[1.5]">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="text-left font-display text-[11.5px] uppercase tracking-[0.5px] text-text-faint">{children}</thead>,
+  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11px] uppercase tracking-[0.55px] text-text-muted">{children}</thead>,
   th: ({ children }) => (
-    <th className="border-b border-border px-2.5 py-1 font-semibold align-bottom whitespace-nowrap">{children}</th>
+    <th className="whitespace-nowrap border-b border-r border-border px-3 py-1.5 font-semibold align-bottom last:border-r-0">
+      <MentionAware>{children}</MentionAware>
+    </th>
   ),
-  td: ({ children }) => <td className="border-b border-border-soft px-2.5 py-1 align-top"><MentionAware>{children}</MentionAware></td>,
+  tbody: ({ children }) => <tbody className="[&_tr:last-child_td]:border-b-0 [&_tr:nth-child(even)]:bg-panel-3">{children}</tbody>,
+  td: ({ children }) => (
+    <td className="border-b border-r border-border-soft px-3 py-1.5 align-top last:border-r-0">
+      <MentionAware>{children}</MentionAware>
+    </td>
+  ),
   input: ({ checked, type, ...rest }) => {
     if (type === "checkbox") {
       return (
