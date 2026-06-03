@@ -162,7 +162,15 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 }
 
 func (r *Runtime) buildPrompt(turn *agent.Turn) string {
-	return agent.BuildExternalPrompt(r.env, turn, "")
+	var hist string
+	if turn != nil && turn.Session != nil {
+		if r.driver.FormatHistory != nil {
+			hist = r.driver.FormatHistory(turn.Session.Messages)
+		} else {
+			hist = FormatHistory(turn.Session.Messages)
+		}
+	}
+	return agent.BuildExternalPrompt(r.env, turn, hist)
 }
 
 func (r *Runtime) getOrCreateSessionID(s *session.Session) (string, bool) {

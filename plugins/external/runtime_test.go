@@ -167,6 +167,8 @@ func TestRuntimeBuildPromptUsesSharedSystemPrompt(t *testing.T) {
 	for _, want := range []string{
 		"<system_prompt>",
 		"项目约束",
+		"<conversation_history>",
+		"[user]: old",
 		"<user_message>",
 		"继续",
 	} {
