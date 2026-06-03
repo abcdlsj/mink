@@ -991,7 +991,7 @@ function Composer() {
         <div className="relative border-hard border-border bg-bg shadow-card">
           <textarea
             ref={textareaRef}
-            rows={1}
+            rows={2}
             placeholder={placeholder}
             value={input}
             onChange={handleChange}
@@ -1001,7 +1001,7 @@ function Composer() {
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
-            className="min-h-[64px] w-full resize-none bg-transparent px-3.5 py-2.5 text-[14px] leading-[1.55] text-text outline-none disabled:opacity-70"
+            className="min-h-[88px] w-full resize-none bg-transparent px-3.5 py-3 text-[14px] leading-[1.6] text-text outline-none disabled:opacity-70"
           />
           {mentionState &&
             (mentionCandidates.length > 0 ? (

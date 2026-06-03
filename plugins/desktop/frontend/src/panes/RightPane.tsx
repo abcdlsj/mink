@@ -44,37 +44,35 @@ export function RightPane() {
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
 
-  const runtimeSec = (
-    <Section label="Runtime">
-      <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[12px] leading-[1.45]">
-        <span className="text-text-faint">Model</span>
-        <span className="truncate font-mono text-text">{state?.model || "—"}</span>
-        <span className="text-text-faint">Execution</span>
-        <span className="text-text">Local</span>
-      </div>
+  const modelSec = (
+    <Section label="Current Model">
+      <div className="text-[13px] text-text">{state?.model || "—"}</div>
+      <div className="text-[11px] text-text-faint mt-0.5">Used by all new agent runs</div>
+    </Section>
+  );
+  const execSec = (
+    <Section label="Execution">
+      <div className="text-[13px] text-text">Local</div>
+      <div className="text-[11px] text-text-faint mt-0.5">Configured in settings</div>
     </Section>
   );
   const toolsSec = (
     <Section label="Tools">
-      {tools.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {tools.map((t) => (
-            <span
-              key={t.name}
-              className="border border-border bg-panel px-2 py-px font-mono text-[11.5px] text-text-muted"
-            >
-              {t.name}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div className="text-[12px] leading-[1.45] text-text-faint">No tools enabled in this channel</div>
-      )}
+      <div className="flex flex-wrap gap-1.5">
+        {tools.map((t) => (
+          <span
+            key={t.name}
+            className="border border-border bg-panel px-2 py-px font-mono text-[11.5px] text-text-muted"
+          >
+            {t.name}
+          </span>
+        ))}
+      </div>
     </Section>
   );
   const runlogSec = (
     <Section label="Runlog">
-      <a className="inline-flex border border-border bg-panel-2 px-2 py-1 text-[12px] text-accent hover:bg-accent hover:text-text" href="#">
+      <a className="text-[12px] text-accent hover:underline" href="#">
         Open timeline
       </a>
     </Section>
@@ -118,7 +116,8 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
+        {modelSec}
+        {execSec}
         {toolsSec}
         {runlogSec}
       </>
@@ -164,7 +163,8 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
+        {modelSec}
+        {execSec}
         {toolsSec}
         {runlogSec}
       </>
@@ -212,7 +212,8 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
+        {modelSec}
+        {execSec}
         {toolsSec}
       </>
     );
@@ -220,33 +221,33 @@ export function RightPane() {
 
   return (
     <aside className="h-full overflow-y-auto border-l-hard border-border bg-panel-3 px-3 pb-6 pt-3">
-      <div className="border-hard border-border bg-panel shadow-card">
-        {main}
-        {more && (
+      <div>{main}</div>
+      {more && (
+        <>
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className="flex w-full items-center justify-between border-t border-border bg-panel-2 px-3 py-2 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted hover:bg-accent hover:text-text"
+            className="mt-1 flex w-full items-center justify-between border-2 border-border bg-panel px-3 py-2 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted shadow-card hover:bg-accent hover:text-text"
           >
             <span>{moreOpen ? "Hide details" : "More details"}</span>
             <ChevronRight
               className={cn("size-3 text-text-faint transition-transform", moreOpen && "rotate-90")}
             />
           </button>
-        )}
-        {more && moreOpen && <div className="border-t border-border">{more}</div>}
-      </div>
+          {moreOpen && <div className="pt-3">{more}</div>}
+        </>
+      )}
     </aside>
   );
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <section className="border-b border-border px-3 py-2.5 last:border-b-0">
-      <div className="mb-1.5 font-display text-[10px] font-black uppercase tracking-[1px] text-text-muted">
+    <div className="mb-3 border-2 border-border bg-panel px-3 py-2 shadow-card">
+      <div className="-mx-3 -mt-2 mb-2 border-b-2 border-border bg-panel-2 px-3 py-1.5 font-display text-[10px] font-black uppercase tracking-[1px] text-text">
         {label}
       </div>
       <div>{children}</div>
-    </section>
+    </div>
   );
 }
 

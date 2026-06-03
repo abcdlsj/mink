@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { AtSign, ChevronRight, Hash, MessageCircle, Plus, Search } from "lucide-react";
+import { Hash, AtSign, MessageCircle, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
@@ -17,19 +16,11 @@ export function LeftPane() {
   const openDirectChat = useStore((s) => s.openDirectChat);
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
-  const [openSections, setOpenSections] = useState({
-    channels: true,
-    direct: true,
-    agents: true,
-  });
-  const toggleSection = (key: keyof typeof openSections) => {
-    setOpenSections((s) => ({ ...s, [key]: !s[key] }));
-  };
 
   return (
-    <aside className="relative flex h-full flex-col overflow-hidden border-r-hard border-border bg-panel-2 px-3 pb-3 pt-3">
+    <aside className="relative h-full overflow-y-auto border-r-hard border-border bg-panel-2 px-3 pb-5 pt-3">
       <div className="absolute left-0 top-0 h-full w-2 border-r-hard border-border bg-border" />
-      <div className="flex shrink-0 flex-col gap-2 pb-2 pl-2">
+      <div className="flex flex-col gap-2 pb-2 pl-2">
         <Button
           variant="default"
           size="default"
@@ -56,122 +47,83 @@ export function LeftPane() {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 pl-2 pt-1">
-        <NavSection
-          label="Channels"
-          count={channels.length}
-          open={openSections.channels}
-          onToggle={() => toggleSection("channels")}
-          className="min-h-[120px] flex-[1_1_0]"
-        >
-          {channels.length === 0 && (
-            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No channels yet.</li>
-          )}
-          {channels.map((c) => (
-            <NavItem
-              key={c.id}
-              icon={<Hash className="size-4" />}
-              name={c.name}
-              running={c.has_running}
-              badge={c.unread_count}
-              active={view === "channel" && activeChannel === c.id}
-              onClick={() => void openChannel(c.id)}
-              tooltip={c.has_running ? `${c.name} · agent running` : undefined}
-            />
-          ))}
-        </NavSection>
+      <GroupLabel>Channels</GroupLabel>
+      <ul className="flex flex-col gap-px">
+        {channels.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No channels yet.</li>
+        )}
+        {channels.map((c) => (
+          <NavItem
+            key={c.id}
+            icon={<Hash className="size-4" />}
+            name={c.name}
+            running={c.has_running}
+            badge={c.unread_count}
+            active={view === "channel" && activeChannel === c.id}
+            onClick={() => void openChannel(c.id)}
+            tooltip={c.has_running ? `${c.name} · agent running` : undefined}
+          />
+        ))}
+      </ul>
 
-        <NavSection
-          label="Direct Messages"
-          count={directChats.length}
-          open={openSections.direct}
-          onToggle={() => toggleSection("direct")}
-          className="max-h-[178px] min-h-[86px] flex-[0_1_178px]"
-        >
-          {directChats.length === 0 && (
-            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct messages yet.</li>
-          )}
-          {directChats.map((dc) => (
-            <NavItem
-              key={dc.id}
-              icon={<MessageCircle className="size-4" />}
-              name={dc.title}
-              running={dc.has_running}
-              active={view === "thread" && activeThread === dc.id}
-              onClick={() => void openDirectChat(dc.id)}
-              tooltip={dc.has_running ? `${dc.title} · running` : undefined}
-            />
-          ))}
-        </NavSection>
+      <GroupLabel>Direct Messages</GroupLabel>
+      <ul className="flex flex-col gap-px">
+        {directChats.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct messages yet.</li>
+        )}
+        {directChats.map((dc) => (
+          <NavItem
+            key={dc.id}
+            icon={<MessageCircle className="size-4" />}
+            name={dc.title}
+            running={dc.has_running}
+            active={view === "thread" && activeThread === dc.id}
+            onClick={() => void openDirectChat(dc.id)}
+            tooltip={dc.has_running ? `${dc.title} · running` : undefined}
+          />
+        ))}
+      </ul>
 
-        <NavSection
-          label="Agent Chats"
-          count={agentDMs.length}
-          open={openSections.agents}
-          onToggle={() => toggleSection("agents")}
-          className="max-h-[198px] min-h-[92px] flex-[0_1_198px]"
-        >
-          {agentDMs.length === 0 && (
-            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
-          )}
-          {agentDMs.map((dm) => (
-            <li key={dm.id}>
-              <button
-                onClick={() => void openAgent(dm.id)}
-                className={cn(
-                  "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
-                  view === "agent" && activeAgent === dm.id
-                    ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
-                    : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
-                )}
-                title={"@" + (dm.persona_name || dm.persona_id)}
-              >
-                <div className="flex items-center gap-1.5 text-[13px]">
-                  <AtSign className="size-3 text-text-muted shrink-0" />
-                  <span className="truncate">
-                    {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
-                  </span>
-                </div>
-                <div className="mt-0.5 truncate font-mono text-[11px] text-text-muted">
-                  @{dm.persona_name || dm.persona_id}
-                  {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
-                </div>
-              </button>
-            </li>
-          ))}
-        </NavSection>
-      </div>
+      <GroupLabel>Agent Chats</GroupLabel>
+      <ul className="flex flex-col gap-px">
+        {agentDMs.length === 0 && (
+          <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
+        )}
+        {agentDMs.map((dm) => (
+          <li key={dm.id}>
+            <button
+              onClick={() => void openAgent(dm.id)}
+              className={cn(
+                "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
+                view === "agent" && activeAgent === dm.id
+                  ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
+                  : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
+              )}
+              title={"@" + (dm.persona_name || dm.persona_id)}
+            >
+              <div className="flex items-center gap-1.5 text-[13px]">
+                <AtSign className="size-3 text-text-muted shrink-0" />
+                <span className="truncate">
+                  {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate font-mono text-[11px] text-text-muted">
+                @{dm.persona_name || dm.persona_id}
+                {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
     </aside>
   );
 }
 
-function NavSection({
-  label,
-  count,
-  open,
-  onToggle,
-  className,
-  children,
-}: {
-  label: string;
-  count: number;
-  open: boolean;
-  onToggle: () => void;
-  className?: string;
-  children: React.ReactNode;
-}) {
+function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <section className={cn("flex min-h-0 flex-col border-2 border-border bg-panel shadow-card", !open && "flex-none", className)}>
-      <button
-        onClick={onToggle}
-        className="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-panel-2 px-2 text-left font-display text-[10.5px] font-black uppercase tracking-[1.2px] text-text hover:bg-accent"
-      >
-        <ChevronRight className={cn("size-3 text-text-faint transition-transform", open && "rotate-90")} />
-        <span>{label}</span>
-        <span className="ml-auto font-mono text-[10.5px] font-medium text-text-faint">{count}</span>
-      </button>
-      {open && <ul className="min-h-0 flex-1 overflow-y-auto py-1">{children}</ul>}
-    </section>
+    <div className="border-b-2 border-border px-2 pb-1 pt-4 font-display text-[10.5px] font-black uppercase tracking-[1.2px] text-text">
+      {children}
+    </div>
   );
 }
 
