@@ -96,7 +96,7 @@ export function LeftPane() {
               className={cn(
                 "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
                 view === "agent" && activeAgent === dm.id
-                  ? "border-border border-l-[8px] border-l-accent bg-panel font-semibold text-text shadow-card"
+                  ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
                   : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
               )}
               title={"@" + (dm.persona_name || dm.persona_id)}
@@ -145,10 +145,15 @@ function NavItem({ icon, name, running, badge, active, onClick, tooltip }: NavIt
         title={tooltip}
         className={cn(
           "grid w-full cursor-pointer grid-cols-[18px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
-          active ? "border-border border-l-[8px] border-l-accent bg-panel font-semibold text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
+          active ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
         )}
       >
-        <span className={cn("inline-flex items-center justify-center font-mono", active ? "text-text" : "text-text-muted")}>
+        <span
+          className={cn(
+            "inline-flex size-6 items-center justify-center border border-transparent font-mono",
+            active ? "border-border bg-accent text-text" : "text-text-muted",
+          )}
+        >
           {icon}
         </span>
         <span className="flex items-center gap-1.5 min-w-0">

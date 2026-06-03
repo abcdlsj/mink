@@ -27,7 +27,7 @@ export function RightPane() {
   const threadParticipants = inThread ? threadDetail!.participants : null;
   const threadRecentRuns = inThread ? threadDetail!.recent_runs : null;
 
-  if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-4 py-4" />;
+  if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-3 py-4" />;
 
   const runtimeRuns: AgentRun[] = streaming
     ? [
@@ -220,13 +220,13 @@ export function RightPane() {
   }
 
   return (
-    <aside className="h-full overflow-y-auto border-l-hard border-border bg-panel-3 px-4 pb-6 pt-4">
+    <aside className="h-full overflow-y-auto border-l-hard border-border bg-panel-3 px-3 pb-6 pt-3">
       <div>{main}</div>
       {more && (
         <>
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className="mt-1 flex w-full items-center justify-between border-t-2 border-border pb-2 pt-2 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted hover:text-text"
+            className="mt-1 flex w-full items-center justify-between border-2 border-border bg-panel px-3 py-2 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted shadow-card hover:bg-accent hover:text-text"
           >
             <span>{moreOpen ? "Hide details" : "More details"}</span>
             <ChevronRight
@@ -242,8 +242,8 @@ export function RightPane() {
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="mb-5">
-      <div className="mb-1.5 border-b border-border font-display text-[10px] font-black uppercase tracking-[1px] text-text">
+    <div className="mb-3 border-2 border-border bg-panel px-3 py-2 shadow-card">
+      <div className="-mx-3 -mt-2 mb-2 border-b-2 border-border bg-panel-2 px-3 py-1.5 font-display text-[10px] font-black uppercase tracking-[1px] text-text">
         {label}
       </div>
       <div>{children}</div>

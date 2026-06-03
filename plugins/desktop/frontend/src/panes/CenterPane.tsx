@@ -446,8 +446,8 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       </div>
       <div>
         {!compact && (
-          <div className="mb-1 flex items-baseline gap-2">
-            <span className="font-display text-[13px] font-black text-text">
+          <div className="mb-1.5 flex items-baseline gap-2">
+            <span className="font-display text-[13.5px] font-black text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
@@ -471,7 +471,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "max-w-[70ch] whitespace-pre-wrap text-[14px] leading-[1.7] text-text",
+                "max-w-[70ch] whitespace-pre-wrap text-[14.5px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
             >
@@ -480,7 +480,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "max-w-[70ch] text-[14px] leading-[1.7] text-text",
+                "max-w-[70ch] text-[14.5px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
               mentions={knownMentions}
@@ -520,7 +520,7 @@ function ReasoningPreface({ text }: { text: string }) {
   const isLong = flat.length > 280;
   const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="mb-1.5 max-w-[68ch] border-l-2 border-border bg-panel-2 px-2 py-1 text-[11.5px] leading-[1.5] text-text-muted">
+    <div className="mb-2 max-w-[66ch] border-l-2 border-border-soft bg-transparent px-2 py-1 text-[11.5px] leading-[1.5] text-text-faint">
       {open ? (
         <Markdown variant="lite" className="whitespace-pre-wrap">
           {text}
@@ -1043,21 +1043,27 @@ function Composer() {
               })()}
             </span>
           ) : null}
-          <select className="cursor-pointer border border-border bg-bg px-1.5 py-1 font-mono text-[12px] text-text-muted outline-none hover:bg-accent hover:text-text">
-            {models.map((m) => (
-              <option key={m.name} value={m.name}>
-                {m.model}
-              </option>
-            ))}
-          </select>
+          <div className="inline-flex h-8 items-center border-hard border-border bg-panel shadow-card">
+            <span className="border-r border-border bg-panel-2 px-2 font-display text-[10px] font-black uppercase tracking-[0.8px] text-text">
+              model
+            </span>
+            <select className="h-full cursor-pointer appearance-none bg-transparent px-2 pr-6 font-mono text-[12px] text-text outline-none">
+              {models.map((m) => (
+                <option key={m.name} value={m.name}>
+                  {m.model}
+                </option>
+              ))}
+            </select>
+            <span className="pointer-events-none -ml-5 pr-2 font-mono text-[10px] text-text-muted">⌄</span>
+          </div>
           <span className="flex-1" />
           <Button
             variant="default"
             disabled={!canSend}
             onClick={() => void handleSend()}
             className={cn(
-              "bg-action px-4 font-black uppercase tracking-[0.5px] text-panel",
-              canSend && "shadow-card hover:bg-action",
+              "border-hard border-border bg-action px-4 font-black uppercase tracking-[0.5px] text-panel shadow-card disabled:bg-action disabled:text-panel disabled:opacity-100",
+              canSend && "hover:bg-action",
             )}
           >
             {sending ? "Sending…" : "Send"}
