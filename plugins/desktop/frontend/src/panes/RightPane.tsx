@@ -21,7 +21,7 @@ export function RightPane() {
   const state = useStore((s) => s.state);
   const tools = useStore((s) => s.tools);
   const streaming = useStore((s) => s.streaming);
-  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(true);
 
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
   const threadParticipants = inThread ? threadDetail!.participants : null;
