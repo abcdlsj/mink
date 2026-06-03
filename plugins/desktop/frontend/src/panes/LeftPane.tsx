@@ -28,7 +28,6 @@ export function LeftPane() {
 
   return (
     <aside className="relative h-full overflow-y-auto border-r-hard border-border bg-panel-2 px-3 pb-5 pt-3">
-      <div className="absolute left-0 top-0 h-full w-2 border-r-hard border-border bg-border" />
       <div className="flex flex-col gap-2 pb-2 pl-2">
         <Button
           variant="default"
