@@ -16,7 +16,6 @@ export function TopBar() {
       style={{ paddingLeft: isWails ? 78 : 12 }}
     >
       <div className="flex items-center gap-2">
-        <div className="h-5 w-1.5 bg-accent border border-border" />
         <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-sm border border-border bg-panel" />
         <div className="text-[14px] font-display font-black uppercase tracking-[0.5px] text-text">Sumi</div>
       </div>

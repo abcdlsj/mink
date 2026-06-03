@@ -46,8 +46,8 @@ export function CenterPane() {
   if (!detail) {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
-        <div className="border-b-hard border-border px-8 py-4" />
-        <div className="overflow-y-auto px-8 py-6 text-[12.5px] text-text-muted">
+        <div className="border-b-hard border-border px-5 py-4" />
+        <div className="overflow-y-auto px-5 py-6 text-[12.5px] text-text-muted">
           Pick a channel, agent, or thread to start.
         </div>
         <Composer />
@@ -79,7 +79,7 @@ export function CenterPane() {
 
   return (
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
-      <div className="flex items-end justify-between border-b-hard border-border bg-panel px-8 pb-3.5 pt-4">
+      <div className="flex items-end justify-between border-b-hard border-border bg-panel px-5 pb-3.5 pt-4">
         <div>
           <h2 className="flex items-center gap-2 font-display text-[18px] font-black text-text">
             <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
@@ -106,8 +106,8 @@ export function CenterPane() {
         )}
       </div>
 
-      <div ref={scrollRef} className="overflow-y-auto px-8 pb-6 pt-5">
-        <div className="mx-auto max-w-[800px]">
+      <div ref={scrollRef} className="overflow-y-auto px-5 pb-5 pt-5">
+        <div className="mx-auto max-w-[880px]">
           {(() => {
             const visible = detail.messages.filter(renderableMessage);
             if (visible.length === 0) return <EmptyState />;
@@ -724,13 +724,13 @@ function ThreadView() {
   if (threadDetail.unsupported) {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
-        <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+        <div className="flex items-center gap-3 border-b-hard border-border px-5 py-3">
           <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
             ← Back
           </button>
           <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-8 py-8 text-[13px] text-text-muted">
+        <div className="overflow-y-auto px-5 py-8 text-[13px] text-text-muted">
           {threadDetail.unsupported_hint || "Threads are not supported here."}
         </div>
       </main>
@@ -739,13 +739,13 @@ function ThreadView() {
   if (threadDetail.not_found) {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
-        <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+        <div className="flex items-center gap-3 border-b-hard border-border px-5 py-3">
           <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
             ← Back to {channel ? "#" + channel.name : "channel"}
           </button>
           <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-8 py-8 text-[13px] text-text-muted">
+        <div className="overflow-y-auto px-5 py-8 text-[13px] text-text-muted">
           Thread not found.
         </div>
       </main>
@@ -756,7 +756,7 @@ function ThreadView() {
   const replies = threadDetail.replies || [];
   return (
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
-      <div className="flex items-center gap-3 border-b-hard border-border px-8 py-3">
+      <div className="flex items-center gap-3 border-b-hard border-border px-5 py-3">
         <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
           ← Back to {channel ? "#" + channel.name : "channel"}
         </button>
@@ -766,8 +766,8 @@ function ThreadView() {
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
       </div>
-      <div className="overflow-y-auto px-8 pt-4 pb-6">
-        <div className="mx-auto max-w-[800px]">
+      <div className="overflow-y-auto px-5 pt-4 pb-5">
+        <div className="mx-auto max-w-[880px]">
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
               <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11px] uppercase tracking-wide text-text">Root message · context only</div>
@@ -971,8 +971,8 @@ function Composer() {
   };
 
   return (
-    <div className="border-t-hard border-border bg-panel px-8 pb-5 pt-3.5">
-      <div className="mx-auto max-w-[800px]">
+    <div className="border-t-hard border-border bg-panel px-5 pb-3.5 pt-3">
+      <div className="mx-auto max-w-[1040px]">
         {showRoutingHint && (
           <div className="mb-2 inline-flex border border-border bg-accent-bg px-2 py-0.5 text-[11.5px] text-text">
             {composerHint?.text}
@@ -1001,7 +1001,7 @@ function Composer() {
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
-            className="min-h-[88px] w-full resize-none bg-transparent px-3.5 py-3 text-[14px] leading-[1.6] text-text outline-none disabled:opacity-70"
+            className="min-h-[68px] w-full resize-none bg-transparent px-3.5 py-2.5 text-[14px] leading-[1.55] text-text outline-none disabled:opacity-70"
           />
           {mentionState &&
             (mentionCandidates.length > 0 ? (
@@ -1034,7 +1034,7 @@ function Composer() {
               </div>
             ))}
         </div>
-        <div className="mt-2.5 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           {view === "agent" ? (
             <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">
               {(() => {
