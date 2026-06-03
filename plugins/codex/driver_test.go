@@ -38,3 +38,13 @@ func TestDriverFormatsSessionHistory(t *testing.T) {
 		}
 	}
 }
+
+func TestDriverBuildArgsNeverAskForInteractiveApproval(t *testing.T) {
+	args := driver().BuildArgs("hello", "/tmp/demo", "", false)
+	for _, arg := range args {
+		if arg == "--dangerously-bypass-approvals-and-sandbox" {
+			return
+		}
+	}
+	t.Fatalf("approval/sandbox bypass not found in args: %v", args)
+}

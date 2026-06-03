@@ -17,6 +17,8 @@ func driver() external.Driver {
 				"--print",
 				"--output-format", "stream-json",
 				"--verbose",
+				"--permission-mode", "bypassPermissions",
+				"--dangerously-skip-permissions",
 			}
 			if sessionID != "" {
 				if resume {

@@ -14,7 +14,11 @@ func driver() external.Driver {
 		Command:     "codex",
 		StdinPrompt: true,
 		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
-			args := []string{"exec", "--json", "--full-auto"}
+			args := []string{
+				"exec",
+				"--json",
+				"--dangerously-bypass-approvals-and-sandbox",
+			}
 			if workDir != "" && workDir != "." {
 				args = append(args, "-C", workDir)
 			}

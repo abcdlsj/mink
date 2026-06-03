@@ -50,6 +50,23 @@ func TestDriverBuildArgsDoesNotRequestPartialMessages(t *testing.T) {
 	}
 }
 
+func TestDriverBuildArgsBypassesInteractivePermissions(t *testing.T) {
+	args := driver().BuildArgs("hello", "/tmp/demo", "", false)
+	foundDanger := false
+	foundMode := false
+	for i, arg := range args {
+		if arg == "--permission-mode" && i+1 < len(args) && args[i+1] == "bypassPermissions" {
+			foundMode = true
+		}
+		if arg == "--dangerously-skip-permissions" {
+			foundDanger = true
+		}
+	}
+	if !foundMode || !foundDanger {
+		t.Fatalf("permission bypass args not found: %v", args)
+	}
+}
+
 func TestDriverBuildArgsWithSessionID(t *testing.T) {
 	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123", false)
 	found := false
