@@ -10,6 +10,7 @@ import type { AgentItem, AgentRun, RunDetail, ThreadItem } from "@/lib/types";
 
 export function RightPane() {
   const view = useStore((s) => s.view);
+  const state = useStore((s) => s.state);
   const detail = useStore((s) => s.detail);
   const threadDetail = useStore((s) => s.threadDetail);
   const channels = useStore((s) => s.channels);
@@ -61,11 +62,14 @@ export function RightPane() {
       )}
     </Section>
   );
-  const runlogSec = (
-    <Section label="Runlog">
-      <a className="text-[12.5px] text-text-muted hover:text-text hover:underline" href="#">
-        Open timeline
-      </a>
+  const runtimeSec = (
+    <Section label="Runtime">
+      <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px] leading-[1.55]">
+        <span className="text-text-faint">Model</span>
+        <span className="truncate font-mono text-text">{state?.model || "—"}</span>
+        <span className="text-text-faint">Execution</span>
+        <span className="text-text">Local</span>
+      </div>
     </Section>
   );
 
@@ -107,8 +111,8 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeSec}
         {toolsSec}
-        {runlogSec}
       </>
     );
   } else if (view === "thread" || inThread) {
@@ -152,8 +156,8 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeSec}
         {toolsSec}
-        {runlogSec}
       </>
     );
   } else if (view === "agent") {
@@ -199,6 +203,7 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeSec}
         {toolsSec}
       </>
     );
