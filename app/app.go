@@ -34,6 +34,8 @@ type App struct {
 	tasks           *task.Manager
 	spaceRouter     *space.Router
 	spaceRouterOnce sync.Once
+	wakeMu          sync.Mutex
+	wakeQueues      map[string]chan channelWakeJob
 	tools           *tool.Registry
 	cmds            *command.Registry
 	router          *command.Router
@@ -51,17 +53,18 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{
-		cfg:      cfg,
-		bus:      bus.New(),
-		store:    db,
-		sessions: session.NewManager(db),
-		spaces:   space.NewManager(db, "user", "You"),
-		tasks:    task.NewManager(db),
-		tools:    tool.NewRegistry(cfg.Workspace),
-		cmds:     command.NewRegistry(),
-		runtimes: map[string]agent.RuntimeFactory{},
-		entries:  map[string]Entrypoint{},
-		services: map[string]Service{},
+		cfg:        cfg,
+		bus:        bus.New(),
+		store:      db,
+		sessions:   session.NewManager(db),
+		spaces:     space.NewManager(db, "user", "You"),
+		tasks:      task.NewManager(db),
+		wakeQueues: map[string]chan channelWakeJob{},
+		tools:      tool.NewRegistry(cfg.Workspace),
+		cmds:       command.NewRegistry(),
+		runtimes:   map[string]agent.RuntimeFactory{},
+		entries:    map[string]Entrypoint{},
+		services:   map[string]Service{},
 	}
 	a.tools.SetGuard(tool.NewPolicyGuard(cfg.Workspace, cfg.PermissionsPath()))
 	a.bus.OnPublish(func(ev bus.Event) {

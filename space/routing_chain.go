@@ -8,6 +8,7 @@ import (
 const DefaultRoutingBudget = 3
 
 type RoutingChain struct {
+	mu              sync.Mutex
 	RootMessageID   string
 	ParentMessageID string
 	SpaceID         string
@@ -34,6 +35,27 @@ func (c *RoutingChain) CanWake(agentID string) (bool, string) {
 	if c == nil {
 		return false, "no_chain"
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.canWakeLocked(agentID)
+}
+
+func (c *RoutingChain) TrySpend(agentID string) (bool, string) {
+	if c == nil {
+		return false, "no_chain"
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ok, reason := c.canWakeLocked(agentID)
+	if !ok {
+		return false, reason
+	}
+	c.Budget--
+	c.repliedAgents[agentID] = true
+	return true, ""
+}
+
+func (c *RoutingChain) canWakeLocked(agentID string) (bool, string) {
 	if c.Budget <= 0 {
 		return false, "budget_exhausted"
 	}
@@ -47,6 +69,8 @@ func (c *RoutingChain) Spend(agentID string) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.Budget <= 0 {
 		return
 	}
@@ -61,6 +85,8 @@ func (c *RoutingChain) AlreadyReplied(agentID string) bool {
 	if c == nil {
 		return false
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.repliedAgents[agentID]
 }
 

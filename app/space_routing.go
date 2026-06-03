@@ -12,6 +12,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
+	taskpkg "github.com/abcdlsj/sumi/task"
 )
 
 func (a *App) channelRouter() *space.Router {
@@ -74,17 +75,147 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 		notices: notices,
 	}
 	for _, w := range wakes {
-		extraNotices := a.runChannelWake(ctx, source, sp.ID, w, content)
+		extraNotices := a.enqueueChannelWake(source, sp.ID, w, content)
 		a.publishRoutingNotices(source, extraNotices)
 		result.notices = append(result.notices, extraNotices...)
 	}
 	return result, nil
 }
 
-func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {
+type channelWakeJob struct {
+	originSource      string
+	spaceID           string
+	target            space.RoutingTarget
+	originUserContent string
+	taskID            string
+}
+
+type channelWakeResult struct {
+	notices         []space.RoutingNotice
+	resultMessageID string
+	outcome         string
+	err             error
+	emptyOutput     bool
+}
+
+func (a *App) enqueueChannelWake(originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {
+	if a == nil {
+		return nil
+	}
+	triggerID := strings.TrimSpace(target.OriginMessageID)
+	if triggerID == "" && target.Chain != nil {
+		triggerID = target.Chain.RootMessageID
+	}
+	taskID := ""
+	if a.tasks != nil {
+		tk, err := a.tasks.Create(taskpkg.CreateTaskInput{
+			SpaceID:          spaceID,
+			TriggerMessageID: triggerID,
+			InitiatorID:      a.spaces.UserParticipant().ID,
+			WorkerID:         target.AgentID,
+			Title:            wakeTaskTitle(originUserContent),
+			Source:           originSource,
+		})
+		if err == nil && tk != nil {
+			taskID = tk.ID
+		}
+	}
+	parentMessageID := ""
+	if target.Chain != nil {
+		parentMessageID = target.Chain.ParentMessageID
+	}
+	a.bus.Publish(bus.Event{
+		Type:            bus.TurnQueued,
+		Source:          originSource,
+		SessionID:       spaceID,
+		TaskID:          taskID,
+		SpaceID:         spaceID,
+		ParentMessageID: parentMessageID,
+		AgentID:         target.AgentID,
+	})
+	a.channelWakeQueue(wakeQueueKey(spaceID, parentMessageID, target.AgentID)) <- channelWakeJob{
+		originSource:      originSource,
+		spaceID:           spaceID,
+		target:            target,
+		originUserContent: originUserContent,
+		taskID:            taskID,
+	}
+	return nil
+}
+
+func (a *App) channelWakeQueue(key string) chan channelWakeJob {
+	a.wakeMu.Lock()
+	defer a.wakeMu.Unlock()
+	if a.wakeQueues == nil {
+		a.wakeQueues = map[string]chan channelWakeJob{}
+	}
+	if q, ok := a.wakeQueues[key]; ok {
+		return q
+	}
+	q := make(chan channelWakeJob, 128)
+	a.wakeQueues[key] = q
+	go func() {
+		for job := range q {
+			a.runQueuedChannelWake(job)
+		}
+	}()
+	return q
+}
+
+func wakeQueueKey(spaceID, parentMessageID, agentID string) string {
+	return spaceID + "\x00" + parentMessageID + "\x00" + agentID
+}
+
+func wakeTaskTitle(content string) string {
+	content = strings.ReplaceAll(strings.TrimSpace(content), "\n", " ")
+	rs := []rune(content)
+	if len(rs) > 76 {
+		content = string(rs[:76]) + "..."
+	}
+	if content == "" {
+		return "Agent wake"
+	}
+	return content
+}
+
+func (a *App) runQueuedChannelWake(job channelWakeJob) {
+	var runID string
+	if job.taskID != "" && a.tasks != nil {
+		if _, err := a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err == nil {
+			if run, err := a.tasks.StartRun(job.taskID); err == nil && run != nil {
+				runID = run.ID
+			}
+		}
+	}
+	result := a.runChannelWake(context.Background(), job.originSource, job.spaceID, job.target, job.originUserContent)
+	if len(result.notices) > 0 {
+		a.publishRoutingNotices(job.originSource, result.notices)
+	}
+	if job.taskID == "" || a.tasks == nil {
+		return
+	}
+	status := taskpkg.StatusFinished
+	outcome := result.outcome
+	if result.err != nil {
+		status = taskpkg.StatusFailed
+		outcome = result.err.Error()
+	} else if result.emptyOutput {
+		status = taskpkg.StatusEmptyOutput
+	}
+	_, _ = a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{
+		Status:          status,
+		Outcome:         outcome,
+		ResultMessageID: result.resultMessageID,
+	})
+	if runID != "" {
+		_, _ = a.tasks.FinishRun(runID, taskpkg.FinishRunInput{Status: status})
+	}
+}
+
+func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) channelWakeResult {
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {
-		return nil
+		return channelWakeResult{emptyOutput: true}
 	}
 	scratch := session.New("scratch:wake:" + uuid.NewString()[:8])
 	parentMessageID := ""
@@ -98,7 +229,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	baseline := len(scratch.Messages)
 	rt, err := a.newRuntimeFor(persona.Runtime, persona)
 	if err != nil {
-		return nil
+		return channelWakeResult{err: err}
 	}
 	turn := &agent.Turn{
 		Source:          scratch.Source,
@@ -131,6 +262,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 			AgentID:         turn.AgentID,
 			StreamID:        turn.StreamID,
 		})
+		return channelWakeResult{err: runErr}
 	} else {
 		a.bus.Publish(bus.Event{
 			Type:            bus.TurnFinished,
@@ -144,11 +276,11 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	}
 	content, reasoning := assembleAssistantOutput(scratch.Messages[baseline:])
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
-		return nil
+		return channelWakeResult{emptyOutput: true}
 	}
 	r := a.channelRouter()
 	if r == nil {
-		return nil
+		return channelWakeResult{emptyOutput: true}
 	}
 	resolved := space.ParseMentions(content, r.ResolverFunc(), r.MaxMentions())
 	resolved = filterOut(resolved, target.AgentID)
@@ -169,20 +301,36 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		return space.PersonaInfo{ID: id}
 	})
 	if err != nil {
-		return nil
+		return channelWakeResult{err: err}
+	}
+	result := channelWakeResult{
+		resultMessageID: written.ID,
+		outcome:         shortOutcomeForTask(content),
 	}
 	if target.Chain == nil {
-		return nil
+		return result
 	}
 	chained, notices, err := r.RouteAgentReply(spaceID, target.Chain.RootMessageID, written.ID, content, target.AgentID)
 	if err != nil {
-		return notices
+		result.notices = notices
+		result.err = err
+		return result
 	}
+	result.notices = append(result.notices, notices...)
 	for _, w := range chained {
-		extra := a.runChannelWake(ctx, originSource, spaceID, w, content)
-		notices = append(notices, extra...)
+		extra := a.enqueueChannelWake(originSource, spaceID, w, content)
+		result.notices = append(result.notices, extra...)
 	}
-	return notices
+	return result
+}
+
+func shortOutcomeForTask(content string) string {
+	content = strings.ReplaceAll(strings.TrimSpace(content), "\n", " ")
+	rs := []rune(content)
+	if len(rs) > 180 {
+		return string(rs[:180]) + "..."
+	}
+	return content
 }
 
 func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice) {

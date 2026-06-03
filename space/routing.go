@@ -7,9 +7,10 @@ import (
 )
 
 type RoutingTarget struct {
-	AgentID string
-	Chain   *RoutingChain
-	Reason  string
+	AgentID         string
+	OriginMessageID string
+	Chain           *RoutingChain
+	Reason          string
 }
 
 type RoutingNotice struct {
@@ -158,7 +159,7 @@ func (r *Router) fanOut(chain *RoutingChain, agents []string, spaceID, originMes
 	wakes := make([]RoutingTarget, 0, len(agents))
 	notices := make([]RoutingNotice, 0)
 	for _, id := range agents {
-		ok, why := chain.CanWake(id)
+		ok, why := chain.TrySpend(id)
 		if !ok {
 			notices = append(notices, RoutingNotice{
 				Kind:      noticeKindFor(why),
@@ -169,14 +170,13 @@ func (r *Router) fanOut(chain *RoutingChain, agents []string, spaceID, originMes
 			})
 			continue
 		}
-		chain.Spend(id)
-		wakes = append(wakes, RoutingTarget{AgentID: id, Chain: chain})
+		wakes = append(wakes, RoutingTarget{AgentID: id, OriginMessageID: originMessageID, Chain: chain})
 	}
 	return wakes, notices, nil
 }
 
 func (r *Router) fanOutListening(chain *RoutingChain, agentID, spaceID, originMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
-	if ok, _ := chain.CanWake(agentID); !ok {
+	if ok, _ := chain.TrySpend(agentID); !ok {
 		return nil, []RoutingNotice{{
 			Kind:      NoticeChannelNoTarget,
 			SpaceID:   spaceID,
@@ -184,11 +184,11 @@ func (r *Router) fanOutListening(chain *RoutingChain, agentID, spaceID, originMe
 			At:        time.Now(),
 		}}, nil
 	}
-	chain.Spend(agentID)
 	return []RoutingTarget{{
-		AgentID: agentID,
-		Chain:   chain,
-		Reason:  "joined from channel listening",
+		AgentID:         agentID,
+		OriginMessageID: originMessageID,
+		Chain:           chain,
+		Reason:          "joined from channel listening",
 	}}, nil, nil
 }
 

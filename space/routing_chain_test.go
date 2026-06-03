@@ -1,6 +1,8 @@
 package space
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -44,6 +46,28 @@ func TestRoutingChainSingleReplyPerAgent(t *testing.T) {
 	c.Spend("coder")
 	if c.Budget != 4 {
 		t.Errorf("budget should remain 4 after duplicate spend, got %d", c.Budget)
+	}
+}
+
+func TestRoutingChainTrySpendIsAtomicPerAgent(t *testing.T) {
+	c := NewRoutingChain("root", "space", 10)
+	var wg sync.WaitGroup
+	var okCount int32
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := c.TrySpend("coder"); ok {
+				atomic.AddInt32(&okCount, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if okCount != 1 {
+		t.Fatalf("TrySpend should allow one coder wake, got %d", okCount)
+	}
+	if c.Budget != 9 {
+		t.Fatalf("budget = %d, want 9", c.Budget)
 	}
 }
 

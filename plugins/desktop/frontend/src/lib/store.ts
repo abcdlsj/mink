@@ -78,6 +78,7 @@ interface State {
   composerHint: { text: string; at: number } | null;
   sending: boolean;
   streaming: StreamingTurn | null;
+  streamingByID: Record<string, StreamingTurn>;
 
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
@@ -190,6 +191,26 @@ function streamingMessageUpdates(
   return updates;
 }
 
+function currentStreaming(streamingByID: Record<string, StreamingTurn>): StreamingTurn | null {
+  return Object.values(streamingByID)[0] || null;
+}
+
+function streamForEvent(s: State, ev: BusEvent): StreamingTurn | null {
+  if (ev.stream_id && s.streamingByID[ev.stream_id]) return s.streamingByID[ev.stream_id];
+  return s.streaming;
+}
+
+function updateStream(s: State, stream: StreamingTurn): Pick<State, "streaming" | "streamingByID"> {
+  const streamingByID = { ...s.streamingByID, [stream.streamID]: stream };
+  return { streaming: stream, streamingByID };
+}
+
+function removeStream(s: State, streamID: string): Pick<State, "streaming" | "streamingByID"> {
+  const streamingByID = { ...s.streamingByID };
+  delete streamingByID[streamID];
+  return { streaming: currentStreaming(streamingByID), streamingByID };
+}
+
 async function refetchActiveScope(
   get: () => State,
   set: (partial: Partial<State>) => void,
@@ -266,6 +287,7 @@ export const useStore = create<State>((set, get) => ({
   composerHint: null,
   sending: false,
   streaming: null,
+  streamingByID: {},
 
   async loadInitial() {
     const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands] = await Promise.all([
@@ -302,6 +324,7 @@ export const useStore = create<State>((set, get) => ({
       expandedTaskID: null,
       participants,
       streaming: null,
+      streamingByID: {},
     });
   },
 
@@ -350,11 +373,12 @@ export const useStore = create<State>((set, get) => ({
       activeThread: id,
       threadDetail: detail,
       streaming: null,
+      streamingByID: {},
     });
   },
 
   closeThread() {
-    set({ activeThread: null, threadDetail: null, streaming: null, expandedTaskID: null });
+    set({ activeThread: null, threadDetail: null, streaming: null, streamingByID: {}, expandedTaskID: null });
   },
 
   async openAgent(id) {
@@ -385,6 +409,7 @@ export const useStore = create<State>((set, get) => ({
       threadDetail: null,
       participants: null,
       streaming: null,
+      streamingByID: {},
       expandedTaskID: null,
     });
   },
@@ -412,6 +437,7 @@ export const useStore = create<State>((set, get) => ({
       detail,
       participants: { agents: [] },
       streaming: null,
+      streamingByID: {},
     });
     try {
       const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
@@ -445,6 +471,7 @@ export const useStore = create<State>((set, get) => ({
       detail,
       participants,
       streaming: null,
+      streamingByID: {},
     });
   },
 
@@ -503,7 +530,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await api.send(sid, input, personaID, parentMessageID);
       const after = get();
-      const stillStreaming = after.streaming !== null;
+      const stillStreaming = Object.keys(after.streamingByID).length > 0;
       set({
         sending: false,
         detail:
@@ -542,6 +569,7 @@ export const useStore = create<State>((set, get) => ({
     set({
       sending: false,
       streaming: null,
+      streamingByID: {},
       detail: detail ? { ...detail, item: { ...detail.item, running: false } } : detail,
       channels: get().channels.map((c) =>
         c.id === get().activeChannel ? { ...c, has_running: false } : c,
@@ -630,12 +658,21 @@ export const useStore = create<State>((set, get) => ({
             if (!isStreamEvent && ev.source && ev.source.startsWith("subtask:")) return;
 
     switch (ev.type) {
+      case "turn.queued": {
+        if (lifecycleEventInScope(ev, cur)) {
+          void refetchActiveScope(get, set);
+        }
+        return;
+      }
       case "turn.started": {
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveChannelMeta(get, set);
         }
         const author = ev.agent_id;
         if (!author) {
+                              return;
+        }
+        if (!ev.stream_id) {
                               return;
         }
         const personaInfo =
@@ -660,29 +697,31 @@ export const useStore = create<State>((set, get) => ({
           !cur.threadDetail.unsupported &&
           !cur.threadDetail.not_found;
         const updates = streamingViewUpdates(cur, placeholder, inThreadView);
+        const stream: StreamingTurn = {
+          messageID: placeholder.id,
+          streamID: ev.stream_id,
+          agentID: author,
+          spaceID: ev.space_id || "",
+          parentMessageID: ev.parent_message_id || "",
+          startedAt: ev.time,
+          content: "",
+          reasoning: "",
+          toolCalls: new Map(),
+        };
         set({
-          streaming: {
-            messageID: placeholder.id,
-            streamID: ev.stream_id || "",
-            agentID: author,
-            spaceID: ev.space_id || "",
-            parentMessageID: ev.parent_message_id || "",
-            startedAt: ev.time,
-            content: "",
-            reasoning: "",
-            toolCalls: new Map(),
-          },
+          ...updateStream(cur, stream),
           ...updates,
         });
         return;
       }
       case "turn.chunk": {
-        if (!cur.streaming) return;
-        if (ev.stream_id !== cur.streaming.streamID) return;
-        const next = cur.streaming.content + (ev.text || "");
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
+        const next = stream.content + (ev.text || "");
+        const updated = { ...stream, content: next };
         set({
-          streaming: { ...cur.streaming, content: next },
-          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+          ...updateStream(cur, updated),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
             ...m,
             content: next,
           })),
@@ -690,12 +729,13 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       case "turn.reasoning": {
-        if (!cur.streaming) return;
-        if (ev.stream_id !== cur.streaming.streamID) return;
-        const next = cur.streaming.reasoning + (ev.text || "");
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
+        const next = stream.reasoning + (ev.text || "");
+        const updated = { ...stream, reasoning: next };
         set({
-          streaming: { ...cur.streaming, reasoning: next },
-          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+          ...updateStream(cur, updated),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
             ...m,
             reasoning: next,
           })),
@@ -703,8 +743,8 @@ export const useStore = create<State>((set, get) => ({
         return;
       }
       case "tool.call.started": {
-        if (!cur.streaming) return;
-        if (ev.stream_id !== cur.streaming.streamID) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "tc-" + newID();
         const block: EventBlock = {
           kind: "tool_call",
@@ -712,21 +752,24 @@ export const useStore = create<State>((set, get) => ({
           status: "running",
           time: ev.time,
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+          ...updateStream(cur, updated),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
             ...m,
-            events: Array.from(cur.streaming!.toolCalls.values()),
+            events: Array.from(toolCalls.values()),
           })),
         });
         return;
       }
       case "tool.call.finished":
       case "tool.call.failed": {
-        if (!cur.streaming) return;
-        if (ev.stream_id !== cur.streaming.streamID) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "";
-        const prev = cur.streaming.toolCalls.get(id);
+        const prev = stream.toolCalls.get(id);
         const failed = ev.type === "tool.call.failed";
         const block: EventBlock = {
           kind: "tool_call",
@@ -735,17 +778,21 @@ export const useStore = create<State>((set, get) => ({
           duration_ms: 0,
           time: ev.time,
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          ...streamingMessageUpdates(cur, cur.streaming.messageID, (m) => ({
+          ...updateStream(cur, updated),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
             ...m,
-            events: Array.from(cur.streaming!.toolCalls.values()),
+            events: Array.from(toolCalls.values()),
           })),
         });
         return;
       }
       case "agent.mention": {
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "mn-" + newID();
         const block: EventBlock = {
           kind: "mention",
@@ -754,16 +801,20 @@ export const useStore = create<State>((set, get) => ({
           agent_id: ev.tool,
           agent_display: prettyAgentName(ev.tool, cur.agents),
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
       case "agent.mention.reply": {
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "";
-        const prev = cur.streaming.toolCalls.get(id);
+        const prev = stream.toolCalls.get(id);
         const block: EventBlock = {
           kind: "mention",
           status: "done",
@@ -772,14 +823,18 @@ export const useStore = create<State>((set, get) => ({
           agent_display: prev?.agent_display || prettyAgentName(ev.tool, cur.agents),
           reply: ev.output,
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
       case "agent.delegate.started": {
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "dg-" + newID();
         const block: EventBlock = {
           kind: "delegate",
@@ -790,25 +845,32 @@ export const useStore = create<State>((set, get) => ({
           task: ev.input,
           task_id: ev.task_id,
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
       case "agent.delegate.progress": {
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "";
-        const prev = cur.streaming.toolCalls.get(id);
+        const prev = stream.toolCalls.get(id);
         if (!prev) return;
-        cur.streaming.toolCalls.set(id, {
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, {
           ...prev,
           status: "running",
           time: ev.time,
           task_id: ev.task_id || prev.task_id,
         });
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
@@ -818,9 +880,10 @@ export const useStore = create<State>((set, get) => ({
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveScope(get, set);
         }
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = ev.tool_call_id || "";
-        const prev = cur.streaming.toolCalls.get(id);
+        const prev = stream.toolCalls.get(id);
         const failed = ev.type === "agent.delegate.failed" || ev.type === "agent.delegate.canceled";
         const block: EventBlock = {
           kind: "delegate",
@@ -833,23 +896,30 @@ export const useStore = create<State>((set, get) => ({
           output: ev.output,
           err: ev.err,
         };
-        cur.streaming.toolCalls.set(id, block);
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, block);
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
       case "service.notice": {
-        if (!cur.streaming) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream) return;
         const id = "n-" + newID();
-        cur.streaming.toolCalls.set(id, {
+        const toolCalls = new Map(stream.toolCalls);
+        toolCalls.set(id, {
           kind: "service_notice",
           output: ev.text,
           status: "done",
           time: ev.time,
         });
+        const updated = { ...stream, toolCalls };
         set({
-          detail: updateStreamEvents(detail, cur.streaming.messageID, cur.streaming.toolCalls),
+          ...updateStream(cur, updated),
+          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
         return;
       }
@@ -857,17 +927,20 @@ export const useStore = create<State>((set, get) => ({
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveScope(get, set);
         }
-        if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream || (ev.stream_id && ev.stream_id !== stream.streamID)) return;
         const detailNow = get().detail;
-        const placeholderID = cur.streaming.messageID;
+        const placeholderID = stream.messageID;
+        const streamState = removeStream(cur, stream.streamID);
+        const stillRunning = Object.keys(streamState.streamingByID).length > 0;
         const updates: Partial<State> = {
           sending: false,
-          streaming: null,
+          ...streamState,
         };
         if (detailNow) {
           updates.detail = {
             ...detailNow,
-            item: { ...detailNow.item, running: false },
+            item: { ...detailNow.item, running: stillRunning },
             messages: detailNow.messages.filter((m) => m.id !== placeholderID),
           };
         }
@@ -878,12 +951,14 @@ export const useStore = create<State>((set, get) => ({
             replies: td.replies.filter((m) => m.id !== placeholderID),
           };
         }
-        updates.channels = get().channels.map((c) =>
-          c.id === get().activeChannel ? { ...c, has_running: false } : c,
-        );
-        updates.threads = get().threads.map((t) =>
-          t.id === get().activeThread ? { ...t, has_running: false } : t,
-        );
+        if (!stillRunning) {
+          updates.channels = get().channels.map((c) =>
+            c.id === get().activeChannel ? { ...c, has_running: false } : c,
+          );
+          updates.threads = get().threads.map((t) =>
+            t.id === get().activeThread ? { ...t, has_running: false } : t,
+          );
+        }
         updates.agents = get().agents.map((a) =>
           a.id === get().activeAgent ? { ...a, status: "idle" } : a,
         );
@@ -894,9 +969,10 @@ export const useStore = create<State>((set, get) => ({
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveScope(get, set);
         }
-        if (!cur.streaming || ev.stream_id !== cur.streaming.streamID) return;
+        const stream = streamForEvent(cur, ev);
+        if (!stream || (ev.stream_id && ev.stream_id !== stream.streamID)) return;
         const errMsg = ev.err || "Turn failed";
-        const placeholderID = cur.streaming.messageID;
+        const placeholderID = stream.messageID;
         const errorPatch = (m: MessageView): MessageView => ({
           ...m,
           content: m.content || "",
@@ -910,15 +986,17 @@ export const useStore = create<State>((set, get) => ({
             },
           ],
         });
+        const streamState = removeStream(cur, stream.streamID);
+        const stillRunning = Object.keys(streamState.streamingByID).length > 0;
         const updates: Partial<State> = {
           sending: false,
-          streaming: null,
+          ...streamState,
         };
         const detailNow = get().detail;
         if (detailNow) {
           updates.detail = {
             ...detailNow,
-            item: { ...detailNow.item, running: false },
+            item: { ...detailNow.item, running: stillRunning },
             messages: detailNow.messages.map((m) =>
               m.id === placeholderID ? errorPatch(m) : m,
             ),
@@ -931,12 +1009,14 @@ export const useStore = create<State>((set, get) => ({
             replies: td.replies.map((m) => (m.id === placeholderID ? errorPatch(m) : m)),
           };
         }
-        updates.channels = get().channels.map((c) =>
-          c.id === get().activeChannel ? { ...c, has_running: false } : c,
-        );
-        updates.threads = get().threads.map((t) =>
-          t.id === get().activeThread ? { ...t, has_running: false } : t,
-        );
+        if (!stillRunning) {
+          updates.channels = get().channels.map((c) =>
+            c.id === get().activeChannel ? { ...c, has_running: false } : c,
+          );
+          updates.threads = get().threads.map((t) =>
+            t.id === get().activeThread ? { ...t, has_running: false } : t,
+          );
+        }
         updates.agents = get().agents.map((a) =>
           a.id === get().activeAgent ? { ...a, status: "idle" } : a,
         );

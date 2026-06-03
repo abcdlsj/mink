@@ -21,6 +21,7 @@ export function RightPane() {
   const participants = useStore((s) => s.participants);
   const tools = useStore((s) => s.tools);
   const streaming = useStore((s) => s.streaming);
+  const streamingByID = useStore((s) => s.streamingByID);
   const [moreOpen, setMoreOpen] = useState(true);
 
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
@@ -29,17 +30,14 @@ export function RightPane() {
 
   if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-3 py-4" />;
 
-  const runtimeRuns: AgentRun[] = streaming
-    ? [
-        {
-          id: streaming.messageID,
-          agent_id: agents[0]?.id || "agent",
-          title: "Current turn",
-          status: "running",
-          time: streaming.startedAt,
-        },
-      ]
-    : participants?.active_runs || [];
+  const liveRuns: AgentRun[] = Object.values(streamingByID).map((s) => ({
+    id: s.messageID,
+    agent_id: s.agentID || "agent",
+    title: "Current turn",
+    status: "running",
+    time: s.startedAt,
+  }));
+  const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -280,6 +278,7 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
 function RunCard({ run }: { run: AgentRun }) {
   const agents = useStore((s) => s.agents);
   const streaming = useStore((s) => s.streaming);
+  const streamingByID = useStore((s) => s.streamingByID);
   const stop = useStore((s) => s.stop);
   const expandedTaskID = useStore((s) => s.expandedTaskID);
   const collapseTaskInRail = useStore((s) => s.collapseTaskInRail);
@@ -326,8 +325,9 @@ function RunCard({ run }: { run: AgentRun }) {
     };
   }, [effectivelyExpanded, run.id, run.status]);
 
-  const isCurrent = streaming?.messageID === run.id;
-  const startedAt = isCurrent && streaming ? streaming.startedAt : run.time;
+  const liveStream = Object.values(streamingByID).find((s) => s.messageID === run.id) ||
+    (streaming?.messageID === run.id ? streaming : null);
+  const startedAt = liveStream ? liveStream.startedAt : run.time;
   const liveElapsed = run.status === "running" ? Date.now() - new Date(startedAt).getTime() : 0;
   const finishedDuration = run.status !== "running" && run.duration_ms ? run.duration_ms : 0;
   const elapsedMs = liveElapsed || finishedDuration;
@@ -335,12 +335,12 @@ function RunCard({ run }: { run: AgentRun }) {
     elapsedMs > 0 ? fmtDur(elapsedMs) : relTime(run.time);
 
   let currentStep = "";
-  if (isCurrent && streaming) {
-    const calls = Array.from(streaming.toolCalls.values());
+  if (liveStream) {
+    const calls = Array.from(liveStream.toolCalls.values());
     const lastRunning = [...calls].reverse().find((c) => c.status === "running");
     if (lastRunning) currentStep = lastRunning.tool_name || "running";
-    else if (streaming.content) currentStep = "writing reply";
-    else if (streaming.reasoning) currentStep = "reasoning";
+    else if (liveStream.content) currentStep = "writing reply";
+    else if (liveStream.reasoning) currentStep = "reasoning";
     else currentStep = "starting";
   }
 
