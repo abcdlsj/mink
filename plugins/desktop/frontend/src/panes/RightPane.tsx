@@ -58,16 +58,20 @@ export function RightPane() {
   );
   const toolsSec = (
     <Section label="Tools">
-      <div className="flex flex-wrap gap-1.5">
-        {tools.map((t) => (
-          <span
-            key={t.name}
-            className="border border-border bg-panel px-2 py-px font-mono text-[11.5px] text-text-muted"
-          >
-            {t.name}
-          </span>
-        ))}
-      </div>
+      {tools.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {tools.map((t) => (
+            <span
+              key={t.name}
+              className="border border-border bg-panel px-2 py-px font-mono text-[11.5px] text-text-muted"
+            >
+              {t.name}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-[12px] leading-[1.45] text-text-faint">No tools enabled in this channel</div>
+      )}
     </Section>
   );
   const runlogSec = (
