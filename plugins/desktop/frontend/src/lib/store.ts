@@ -202,8 +202,12 @@ async function refetchActiveScope(
       return;
     }
     if (s.view === "channel" && s.activeChannel) {
-      const detail = await api.channel(s.activeChannel);
-      set({ detail });
+      const [detail, participants, channels] = await Promise.all([
+        api.channel(s.activeChannel),
+        api.participants(s.activeChannel, ""),
+        api.channels(),
+      ]);
+      set({ detail, participants, channels });
       return;
     }
     if (s.view === "thread" && s.activeThread) {
@@ -216,6 +220,21 @@ async function refetchActiveScope(
       set({ detail });
       return;
     }
+  } catch {}
+}
+
+async function refetchActiveChannelMeta(
+  get: () => State,
+  set: (partial: Partial<State>) => void,
+): Promise<void> {
+  const s = get();
+  if (!s.activeChannel) return;
+  try {
+    const [channels, participants] = await Promise.all([
+      api.channels(),
+      api.participants(s.activeChannel, ""),
+    ]);
+    set({ channels, participants });
   } catch {}
 }
 
@@ -296,12 +315,20 @@ export const useStore = create<State>((set, get) => ({
 
   async setChannelAgentMode(channelID, personaID, mode) {
     await api.setChannelAgentMode(channelID, personaID, mode);
+    if (get().activeChannel === channelID) {
+      await refetchActiveChannelMeta(get, set);
+      return;
+    }
     const channels = await api.channels();
     set({ channels });
   },
 
   async addAgentToChannel(channelID, personaID) {
     await api.addAgentToChannel(channelID, personaID);
+    if (get().activeChannel === channelID) {
+      await refetchActiveChannelMeta(get, set);
+      return;
+    }
     const channels = await api.channels();
     set({ channels });
   },
@@ -496,6 +523,8 @@ export const useStore = create<State>((set, get) => ({
       });
       if (!stillStreaming) {
         await refetchActiveScope(get, set);
+      } else {
+        await refetchActiveChannelMeta(get, set);
       }
     } catch {
       set({ sending: false });
@@ -603,7 +632,7 @@ export const useStore = create<State>((set, get) => ({
     switch (ev.type) {
       case "turn.started": {
         if (lifecycleEventInScope(ev, cur)) {
-          void refetchActiveScope(get, set);
+          void refetchActiveChannelMeta(get, set);
         }
         const author = ev.agent_id;
         if (!author) {
