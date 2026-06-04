@@ -78,7 +78,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
-	if f.personaID == "" && sourceUsesRouter(f.source) {
+	if f.personaID == "" && space.SourceUsesRouter(f.source) {
 		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
 			return "", err
 		}

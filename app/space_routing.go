@@ -39,10 +39,6 @@ func (a *App) channelRouter() *space.Router {
 	return a.spaceRouter
 }
 
-func sourceUsesRouter(source string) bool {
-	return space.SourceUsesRouter(source)
-}
-
 type channelInterceptResult struct {
 	spaceID string
 	wakes   []space.RoutingTarget
