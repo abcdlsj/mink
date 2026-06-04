@@ -26,18 +26,6 @@ func enforceRunContextPermission(ctx context.Context, t Tool, args json.RawMessa
 
 func enforceTelegramTool(t Tool, args json.RawMessage) error {
 	switch RiskOf(t) {
-	case RiskShell, RiskNetwork:
-		name := t.Name()
-		return permissionDenied(name, "telegram context cannot run shell or generic network tools; use notify_bark for notifications")
-	default:
-		return nil
-	}
-}
-
-func enforceCronTool(t Tool, args json.RawMessage) error {
-	switch RiskOf(t) {
-	case RiskNetwork:
-		return permissionDenied(t.Name(), "cron context cannot use generic network/webhook tools; use notify_bark for notifications")
 	case RiskShell:
 		name := t.Name()
 		cmd, ok := shellCommandForTool(name, args)
@@ -45,7 +33,28 @@ func enforceCronTool(t Tool, args json.RawMessage) error {
 			return nil
 		}
 		if IsWebhookCommand(cmd) {
-			return permissionDenied(name, "cron context cannot use shell webhook/notification commands; use notify_bark for notifications")
+			return permissionDenied(name, "telegram context cannot use raw webhook/notification commands; use configured skills for notifications")
+		}
+	case RiskNotification:
+		return permissionDenied(t.Name(), "telegram context cannot use built-in notification tools; use configured skills for notifications")
+	default:
+		return nil
+	}
+	return nil
+}
+
+func enforceCronTool(t Tool, args json.RawMessage) error {
+	switch RiskOf(t) {
+	case RiskNotification:
+		return permissionDenied(t.Name(), "cron context cannot use built-in notification tools; use configured skills for notifications")
+	case RiskShell:
+		name := t.Name()
+		cmd, ok := shellCommandForTool(name, args)
+		if !ok {
+			return nil
+		}
+		if IsWebhookCommand(cmd) {
+			return permissionDenied(name, "cron context cannot use raw webhook/notification commands; use configured skills for notifications")
 		}
 	}
 	return nil

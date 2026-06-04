@@ -30,6 +30,7 @@ type Config struct {
 	Compact        CompactConfig     `toml:"compact"`
 	Telegram       TelegramConfig    `toml:"telegram"`
 	Notify         NotifyConfig      `toml:"notify"`
+	Skills         SkillsConfig      `toml:"skills"`
 	BraveSearch    BraveConfig       `toml:"brave_search"`
 	Collab         CollabConfig      `toml:"collab"`
 	StatusLine     string            `toml:"status_line"`
@@ -67,6 +68,10 @@ type TelegramConfig struct {
 
 type NotifyConfig struct {
 	BarkURL string `toml:"bark_url"`
+}
+
+type SkillsConfig struct {
+	Env map[string]string `toml:"env"`
 }
 
 type BraveConfig struct {
@@ -145,6 +150,9 @@ func (c *Config) normalizeCollections() {
 	}
 	if c.APIKeys == nil {
 		c.APIKeys = map[string]string{}
+	}
+	if c.Skills.Env == nil {
+		c.Skills.Env = map[string]string{}
 	}
 }
 

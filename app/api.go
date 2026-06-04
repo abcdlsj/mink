@@ -36,6 +36,13 @@ func (a *App) BarkURL() string {
 	return a.cfg.Notify.BarkURL
 }
 
+func (a *App) ChildEnv() []string {
+	if a == nil {
+		return nil
+	}
+	return a.cfg.ChildEnv()
+}
+
 func (a *App) Commands() []command.Command {
 	if a == nil || a.cmds == nil {
 		return nil

@@ -97,14 +97,26 @@ func TestPolicyGuardDeniesWithoutApprover(t *testing.T) {
 	}
 }
 
-func TestRunContextTelegramBlocksShellTools(t *testing.T) {
+func TestRunContextTelegramAllowsShellCommands(t *testing.T) {
 	r := NewRegistry(t.TempDir())
 	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "telegram"})
 	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"printf hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "hi" {
+		t.Fatalf("output = %q, want hi", out)
+	}
+}
+
+func TestRunContextTelegramBlocksShellWebhookCommands(t *testing.T) {
+	r := NewRegistry(t.TempDir())
+	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "telegram"})
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"curl https://api.day.app/key/title/body"}`))
 	if err == nil {
 		t.Fatalf("expected permission error, output=%q", out)
 	}
-	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "notify_bark") {
+	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "configured skills") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -116,7 +128,7 @@ func TestRunContextCronBlocksShellNetworkCommands(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected permission error, output=%q", out)
 	}
-	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "notify_bark") {
+	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "configured skills") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

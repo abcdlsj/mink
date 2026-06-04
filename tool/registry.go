@@ -41,14 +41,18 @@ type Guard interface {
 
 type Registry struct {
 	workspace string
+	childEnv  []string
 	tools     map[string]Tool
 	guard     Guard
 }
 
-func NewRegistry(workspace string) *Registry {
+func NewRegistry(workspace string, childEnv ...[]string) *Registry {
 	r := &Registry{
 		workspace: workspace,
 		tools:     map[string]Tool{},
+	}
+	if len(childEnv) > 0 {
+		r.childEnv = append([]string(nil), childEnv[0]...)
 	}
 	r.registerBuiltins()
 	return r
@@ -58,7 +62,7 @@ func (r *Registry) registerBuiltins() {
 	r.Register(&Read{workspace: r.workspace})
 	r.Register(&Write{workspace: r.workspace})
 	r.Register(&Edit{workspace: r.workspace})
-	r.Register(&Bash{workspace: r.workspace})
+	r.Register(&Bash{workspace: r.workspace, childEnv: r.childEnv})
 }
 
 func (r *Registry) Register(t Tool) {

@@ -60,7 +60,7 @@ func New(cfg config.Config) (*App, error) {
 		spaces:     space.NewManager(db, "user", "You"),
 		tasks:      task.NewManager(db),
 		wakeQueues: map[string]chan channelWakeJob{},
-		tools:      tool.NewRegistry(cfg.Workspace),
+		tools:      tool.NewRegistry(cfg.Workspace, cfg.ChildEnv()),
 		cmds:       command.NewRegistry(),
 		runtimes:   map[string]agent.RuntimeFactory{},
 		entries:    map[string]Entrypoint{},

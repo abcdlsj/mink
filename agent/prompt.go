@@ -119,16 +119,16 @@ func (b promptBuilder) permissions() string {
 	case strings.HasPrefix(source, "telegram:"):
 		return strings.Join([]string{
 			"Tool permissions:",
-			"- Telegram context blocks shell and generic network tools.",
-			"- Do not use bash/curl/webhook commands for notifications.",
-			"- Use notify_bark for Bark notifications when needed.",
+			"- Telegram context may run configured scripts when needed.",
+			"- Do not use raw curl/webhook commands for notifications.",
+			"- Use configured skills for notifications when needed.",
 		}, "\n")
 	case strings.HasPrefix(source, "cron:"):
 		return strings.Join([]string{
 			"Tool permissions:",
-			"- Cron context may run local monitoring commands.",
-			"- Cron context blocks shell-based webhook/notification commands such as curl to Bark.",
-			"- Use notify_bark for Bark notifications when needed.",
+			"- Cron context may run configured monitoring scripts when needed.",
+			"- Do not use raw curl/webhook commands for notifications.",
+			"- Use configured skills for notifications when needed.",
 		}, "\n")
 	default:
 		return ""

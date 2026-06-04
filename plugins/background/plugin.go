@@ -17,6 +17,7 @@ import (
 type runner struct {
 	app       *app.App
 	workspace string
+	childEnv  []string
 	timeout   time.Duration
 }
 
@@ -25,6 +26,7 @@ func Plugin() app.Plugin {
 		a.RegisterTool(&runner{
 			app:       a,
 			workspace: a.Workspace(),
+			childEnv:  a.ChildEnv(),
 			timeout:   30 * time.Minute,
 		})
 		return nil
@@ -71,6 +73,9 @@ func (r *runner) run(id, source, cwd, commandText string) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-lc", commandText)
+	if len(r.childEnv) > 0 {
+		cmd.Env = r.childEnv
+	}
 	if strings.TrimSpace(cwd) != "" {
 		cmd.Dir = cwd
 	} else if r.workspace != "" {

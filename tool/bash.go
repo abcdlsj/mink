@@ -10,6 +10,7 @@ import (
 
 type Bash struct {
 	workspace string
+	childEnv  []string
 }
 
 func (t *Bash) Name() string       { return "bash" }
@@ -33,6 +34,9 @@ func (t *Bash) Run(ctx context.Context, args json.RawMessage) (string, error) {
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, "bash", "-lc", in.Cmd)
+	if len(t.childEnv) > 0 {
+		cmd.Env = t.childEnv
+	}
 	if t.workspace != "" {
 		cmd.Dir = t.workspace
 	}

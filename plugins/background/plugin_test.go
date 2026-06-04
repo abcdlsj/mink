@@ -55,3 +55,46 @@ func TestBackgroundUsesNoticeSource(t *testing.T) {
 		}
 	}
 }
+
+func TestBackgroundReceivesChildEnv(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		DataDir:   filepath.Join(dir, "data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	events, cancel := a.Bus().Subscribe(16)
+	defer cancel()
+
+	r := &runner{
+		app:       a,
+		workspace: dir,
+		childEnv:  []string{"SUMI_BACKGROUND_ENV=ok"},
+		timeout:   time.Second,
+	}
+	ctx := command.WithNoticeSource(context.Background(), "tg:dm:42")
+	args, _ := json.Marshal(map[string]string{"cmd": "printf \"$SUMI_BACKGROUND_ENV\""})
+	if _, err := r.Run(ctx, args); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type != bus.ServiceNotice {
+				continue
+			}
+			if !strings.Contains(ev.Text, "ok") {
+				t.Fatalf("notice text = %q", ev.Text)
+			}
+			return
+		case <-deadline:
+			t.Fatal("missing service notice")
+		}
+	}
+}
