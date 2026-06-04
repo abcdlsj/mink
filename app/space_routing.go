@@ -2,9 +2,8 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
@@ -217,34 +216,36 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if persona == nil {
 		return channelWakeResult{emptyOutput: true}
 	}
-	scratch := session.New("scratch:wake:" + uuid.NewString()[:8])
 	parentMessageID := ""
 	if target.Chain != nil {
 		parentMessageID = target.Chain.ParentMessageID
 	}
-	a.seedWakeContext(scratch, spaceID, parentMessageID, target.AgentID)
-	if len(scratch.Messages) == 0 {
-		scratch.Add(msg.Message{Role: "user", Content: originUserContent})
+	sessionSource := wakeSessionSource(originSource, parentMessageID, target.AgentID)
+	s, err := a.sessions.Current(sessionSource)
+	if err != nil {
+		return channelWakeResult{err: err}
 	}
-	baseline := len(scratch.Messages)
+	a.syncWakeContext(s, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
+	baseline := len(s.Messages)
 	rt, err := a.newRuntimeFor(persona.Runtime, persona)
 	if err != nil {
 		return channelWakeResult{err: err}
 	}
 	turn := &agent.Turn{
-		Source:          scratch.Source,
+		Source:          s.Source,
 		Input:           originUserContent,
-		Session:         scratch,
+		Session:         s,
 		Bus:             a.bus,
 		SpaceID:         spaceID,
 		ParentMessageID: parentMessageID,
 		AgentID:         persona.ID,
 		StreamID:        newStreamID(),
+		IncludeHistory:  true,
 	}
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnStarted,
-		Source:          scratch.Source,
-		SessionID:       scratch.ID,
+		Source:          s.Source,
+		SessionID:       s.ID,
 		SpaceID:         turn.SpaceID,
 		ParentMessageID: turn.ParentMessageID,
 		AgentID:         turn.AgentID,
@@ -252,10 +253,14 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	})
 	runErr := rt.Run(ctx, turn)
 	if runErr != nil {
+		saveErr := a.sessions.Save(s)
+		if saveErr != nil {
+			runErr = fmt.Errorf("%w; save session: %v", runErr, saveErr)
+		}
 		a.bus.Publish(bus.Event{
 			Type:            bus.TurnError,
-			Source:          scratch.Source,
-			SessionID:       scratch.ID,
+			Source:          s.Source,
+			SessionID:       s.ID,
 			Err:             runErr.Error(),
 			SpaceID:         turn.SpaceID,
 			ParentMessageID: turn.ParentMessageID,
@@ -264,17 +269,30 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		})
 		return channelWakeResult{err: runErr}
 	} else {
+		if err := a.sessions.Save(s); err != nil {
+			a.bus.Publish(bus.Event{
+				Type:            bus.TurnError,
+				Source:          s.Source,
+				SessionID:       s.ID,
+				Err:             err.Error(),
+				SpaceID:         turn.SpaceID,
+				ParentMessageID: turn.ParentMessageID,
+				AgentID:         turn.AgentID,
+				StreamID:        turn.StreamID,
+			})
+			return channelWakeResult{err: err}
+		}
 		a.bus.Publish(bus.Event{
 			Type:            bus.TurnFinished,
-			Source:          scratch.Source,
-			SessionID:       scratch.ID,
+			Source:          s.Source,
+			SessionID:       s.ID,
 			SpaceID:         turn.SpaceID,
 			ParentMessageID: turn.ParentMessageID,
 			AgentID:         turn.AgentID,
 			StreamID:        turn.StreamID,
 		})
 	}
-	content, reasoning := assembleAssistantOutput(scratch.Messages[baseline:])
+	content, reasoning := assembleAssistantOutput(s.Messages[baseline:])
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return channelWakeResult{emptyOutput: true}
 	}
@@ -351,7 +369,25 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 
 const wakeContextLimit = 30
 
-func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID string) {
+func wakeSessionSource(originSource, parentMessageID, agentID string) string {
+	originSource = strings.TrimSpace(originSource)
+	if originSource == "" {
+		originSource = "desktop"
+	}
+	if p := strings.TrimSpace(parentMessageID); p != "" {
+		originSource += ":thread:" + p
+	}
+	return personaSessionSource(originSource, agentID)
+}
+
+func (a *App) syncWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
+	if s != nil {
+		s.Messages = nil
+	}
+	a.seedWakeContext(s, spaceID, parentMessageID, agentID, excludeMessageID)
+}
+
+func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
 	if a.spaces == nil {
 		return
 	}
@@ -363,7 +399,11 @@ func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agen
 	if n := len(msgs) - wakeContextLimit; n > 0 {
 		msgs = msgs[n:]
 	}
+	excludeMessageID = strings.TrimSpace(excludeMessageID)
 	for _, m := range msgs {
+		if excludeMessageID != "" && m.ID == excludeMessageID {
+			continue
+		}
 		s.Add(toRuntimeMessage(m, agentID))
 	}
 }

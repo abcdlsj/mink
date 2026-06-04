@@ -72,7 +72,7 @@ type Runtime struct {
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	sessionID, resume := r.getOrCreateSessionID(turn.Session)
-	prompt := textutil.Valid(r.buildPrompt(turn, !resume))
+	prompt := textutil.Valid(r.buildPrompt(turn, !resume || turn.IncludeHistory))
 	fallbackPrompt := textutil.Valid(r.buildPrompt(turn, true))
 	addUser(turn.Session, turn.Input)
 

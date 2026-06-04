@@ -13,6 +13,8 @@ export default function App() {
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
   const connectStream = useStore((s) => s.connectStream);
+  const connectionStatus = useStore((s) => s.connectionStatus);
+  const connectionMessage = useStore((s) => s.connectionMessage);
 
   useEffect(() => {
     void loadInitial();
@@ -71,6 +73,11 @@ export default function App() {
       <div style={{ gridArea: "topbar" }}>
         <TopBar />
       </div>
+      {connectionStatus !== "online" && (
+        <div className="fixed left-1/2 top-12 z-50 -translate-x-1/2 border-hard border-border bg-panel px-3 py-1.5 font-mono text-[11.5px] text-text shadow-hard">
+          {connectionStatus === "connecting" ? "Connecting to desktop backend..." : connectionMessage || "Desktop backend offline."}
+        </div>
+      )}
       <div style={{ gridArea: "left" }} className="min-h-0">
         <LeftPane />
       </div>

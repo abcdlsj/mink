@@ -52,6 +52,7 @@ type Turn struct {
 	ParentMessageID string
 	AgentID         string
 	StreamID        string
+	IncludeHistory  bool
 }
 
 type Native struct {

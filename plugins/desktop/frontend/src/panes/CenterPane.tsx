@@ -444,7 +444,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
       >
         <Identicon seed={seed} kind={kind} />
       </div>
-      <div>
+      <div className="min-w-0">
         {!compact && (
           <div className="mb-1.5 flex items-baseline gap-2">
             <span className="font-display text-[13.5px] font-black text-text">
@@ -471,7 +471,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           m.role === "user" ? (
             <div
               className={cn(
-                "max-w-[70ch] whitespace-pre-wrap text-[14.5px] leading-[1.7] text-text",
+                "max-w-full whitespace-pre-wrap break-words text-[14.5px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
             >
@@ -480,7 +480,7 @@ function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; comp
           ) : (
             <Markdown
               className={cn(
-                "max-w-[70ch] text-[14.5px] leading-[1.7] text-text",
+                "max-w-full text-[14.5px] leading-[1.7] text-text",
                 m.reasoning && "mt-2",
               )}
               mentions={knownMentions}
@@ -799,9 +799,11 @@ function Composer() {
   const agents = useStore((s) => s.agents);
   const activeAgent = useStore((s) => s.activeAgent);
   const detail = useStore((s) => s.detail);
-  const models = useStore((s) => s.models);
+  const personas = useStore((s) => s.personas);
+  const state = useStore((s) => s.state);
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
+  const threadDetail = useStore((s) => s.threadDetail);
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
@@ -887,7 +889,6 @@ function Composer() {
     setPersona(inferredPersona);
   }, [view, activeAgent, activeChannel, activeThread, inferredPersona]);
 
-  const threadDetail = useStore((s) => s.threadDetail);
   let placeholder = "Message...";
   if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
     placeholder = "Reply to thread...";
@@ -917,6 +918,21 @@ function Composer() {
     return () => clearTimeout(t);
   }, [composerHint]);
   const showRoutingHint = composerHint && now - composerHint.at < 4000;
+  const activePersonaID =
+    view === "agent" && activeAgent
+      ? agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent
+      : "";
+  const activePersona = activePersonaID ? personas.find((p) => p.id === activePersonaID) : undefined;
+  const runtimeHint = (() => {
+    if (view === "channel" || (threadDetail && !threadDetail.unsupported && !threadDetail.not_found)) {
+      return "runtime per agent";
+    }
+    if (view === "agent") {
+      return activePersona ? `${activePersona.runtime || "default"} · @${activePersona.display || activePersona.id}` : "agent runtime";
+    }
+    if (state?.provider && state?.model) return `${state.provider} / ${state.model}`;
+    return state?.runtime || "runtime";
+  })();
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -1045,16 +1061,9 @@ function Composer() {
           ) : null}
           <div className="inline-flex h-8 items-center border-hard border-border bg-panel shadow-card">
             <span className="border-r border-border bg-panel-2 px-2 font-display text-[10px] font-black uppercase tracking-[0.8px] text-text">
-              model
+              runtime
             </span>
-            <select className="h-full cursor-pointer appearance-none bg-transparent px-2 pr-6 font-mono text-[12px] text-text outline-none">
-              {models.map((m) => (
-                <option key={m.name} value={m.name}>
-                  {m.model}
-                </option>
-              ))}
-            </select>
-            <span className="pointer-events-none -ml-5 pr-2 font-mono text-[10px] text-text-muted">⌄</span>
+            <span className="px-2 font-mono text-[12px] text-text-muted">{runtimeHint}</span>
           </div>
           <span className="flex-1" />
           <Button

@@ -52,6 +52,8 @@ interface StreamingTurn {
 
 interface State {
   ready: boolean;
+  connectionStatus: "connecting" | "online" | "offline";
+  connectionMessage: string;
   state: WorkspaceState | null;
   channels: ChannelItem[];
   threads: ThreadItem[];
@@ -261,6 +263,8 @@ async function refetchActiveChannelMeta(
 
 export const useStore = create<State>((set, get) => ({
   ready: false,
+  connectionStatus: "connecting",
+  connectionMessage: "",
   state: null,
   channels: [],
   threads: [],
@@ -290,22 +294,45 @@ export const useStore = create<State>((set, get) => ({
   streamingByID: {},
 
   async loadInitial() {
-    const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands] = await Promise.all([
-      api.state(),
-      api.channels(),
-      api.threads(),
-      api.directChats(),
-      api.agentDMs(),
-      api.recent(),
-      api.agents(),
-      api.personas(),
-      api.models(),
-      api.tools(),
-      api.commands(),
-    ]);
-    set({ state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands, ready: true });
-    if (channels.length) {
-      await get().openChannel(channels[0].id);
+    try {
+      const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands] = await Promise.all([
+        api.state(),
+        api.channels(),
+        api.threads(),
+        api.directChats(),
+        api.agentDMs(),
+        api.recent(),
+        api.agents(),
+        api.personas(),
+        api.models(),
+        api.tools(),
+        api.commands(),
+      ]);
+      set({
+        state,
+        channels,
+        threads,
+        directChats,
+        agentDMs,
+        recent,
+        agents,
+        personas,
+        models,
+        tools,
+        commands,
+        ready: true,
+        connectionStatus: "online",
+        connectionMessage: "",
+      });
+      if (channels.length) {
+        await get().openChannel(channels[0].id);
+      }
+    } catch (err) {
+      set({
+        ready: true,
+        connectionStatus: "offline",
+        connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
+      });
     }
   },
 
@@ -553,8 +580,12 @@ export const useStore = create<State>((set, get) => ({
       } else {
         await refetchActiveChannelMeta(get, set);
       }
-    } catch {
-      set({ sending: false });
+    } catch (err) {
+      set({
+        sending: false,
+        connectionStatus: "offline",
+        connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
+      });
     }
   },
 
@@ -586,6 +617,7 @@ export const useStore = create<State>((set, get) => ({
   connectStream() {
     const wails = (window as any).runtime;
     if (wails && typeof wails.EventsOn === "function") {
+      set({ connectionStatus: "online", connectionMessage: "" });
       const off = wails.EventsOn("bus", (ev: BusEvent) => {
         get().applyEvent(ev);
       });
@@ -593,7 +625,17 @@ export const useStore = create<State>((set, get) => ({
         if (typeof off === "function") off();
       };
     }
+    set({ connectionStatus: "connecting", connectionMessage: "Connecting to desktop backend..." });
     const src = new EventSource("/api/events");
+    src.onopen = () => {
+      set({ connectionStatus: "online", connectionMessage: "" });
+    };
+    src.onerror = () => {
+      set({
+        connectionStatus: "offline",
+        connectionMessage: "Desktop backend disconnected. Agent replies will not run until it reconnects.",
+      });
+    };
     const onMessage = (e: MessageEvent) => {
       try {
         const ev = JSON.parse(e.data) as BusEvent;
