@@ -83,18 +83,22 @@ explicit `scratch.Add` is only a fallback when Space load fails.
 
 ## AgentDM lifecycle
 
-`Backend.CreateAgentDM(personaID)` mints a fresh AgentDM Space with
-seed `<personaID>-<uuid8>`. `Backend.ListAgentDMs` returns every
-AgentDM Space sorted by UpdatedAt. `Backend.GetAgentDM(idOrSpaceID)`
-accepts either a persona id (singleton legacy lookup) or a Space id
-(multi-instance instance lookup).
+`Backend.GetAgentDM(personaID)` opens or creates the default
+one-per-agent DM using stable seed `<personaID>`. Default agent DMs
+are listed under Direct Messages and use the agent display name as
+their UI title.
 
-After the first agent reply lands, `MaybeAutoTitleAgentDM` runs
-asynchronously, derives a title from the first substantive user
-message, writes it to `Space.Title`, and publishes
-`bus.SpaceTitleChanged`. Low-info user openers leave the title
-blank ("New chat" in the UI). Once a non-machine title is set, the
-generator no-ops.
+`Backend.CreateAgentDM(personaID, title)` mints a named AgentDM Space
+with seed `<personaID>-<uuid8>`. `Backend.ListAgentDMs` returns only
+named Agent Chat instances sorted by UpdatedAt. `Backend.GetAgentDM`
+also accepts a Space id to open a named instance.
+
+For named chats without a manual title, after the first agent reply
+lands, `MaybeAutoTitleAgentDM` runs asynchronously, derives a title
+from the first substantive user message, writes it to `Space.Title`,
+and publishes `bus.SpaceTitleChanged`. Low-info user openers leave
+the title blank ("New chat" in the UI). Default DMs and manually
+titled chats do not auto-title.
 
 ## UI primitives
 
@@ -130,7 +134,7 @@ generator no-ops.
    transcript context.
 5. `SetThreadAgentMode(rootID, coder, listen)` makes Coder listen
    inside the thread even when the channel default is mention-only.
-6. Two `CreateAgentDM("coder")` calls return distinct Space ids;
+6. Two `CreateAgentDM("coder", "")` calls return distinct Space ids;
    messages in one do not appear in the other.
 7. DirectChat send round-trips through `resolveRoutedSpace` LoadSpace
    without depending on `sp.Title`.

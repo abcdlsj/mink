@@ -73,7 +73,7 @@ export function QuickCreate() {
     setBusy(true);
     setErr(null);
     try {
-      await newAgentChat(id);
+      await newAgentChat(id, name.trim());
       close();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -137,7 +137,7 @@ export function QuickCreate() {
           <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
             {mode === "menu" && "Pick what you want to start."}
             {mode === "channel" && "Letters, numbers, dashes."}
-            {mode === "agent" && "Type to filter agents."}
+            {mode === "agent" && "Pick an agent; title is optional."}
           </div>
         </div>
 
@@ -217,6 +217,12 @@ export function QuickCreate() {
               placeholder="Search agents…"
               autoFocus
               className="w-full border-b-hard border-border bg-bg px-4 py-2.5 text-[13.5px] text-text outline-none"
+            />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Chat title (optional)"
+              className="w-full border-b-hard border-border bg-panel px-4 py-2 text-[13px] text-text outline-none"
             />
             {err && <div className="px-4 py-2 text-[12px] text-error">{err}</div>}
             <ul className="py-1 max-h-[300px] overflow-y-auto">

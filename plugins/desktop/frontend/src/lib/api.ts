@@ -79,12 +79,12 @@ export const api = {
   agentDM: (agentID: string) =>
     j<SessionDetail>(fetch("/api/agent-dm?agent=" + encodeURIComponent(agentID))),
   agentDMs: () => j<AgentDMItem[]>(fetch("/api/agent-dms")),
-  createAgentDM: (personaID: string) =>
+  createAgentDM: (personaID: string, title?: string) =>
     j<AgentDMItem>(
       fetch("/api/agent-dm/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona_id: personaID }),
+        body: JSON.stringify({ persona_id: personaID, title }),
       }),
     ),
   newDirect: () =>

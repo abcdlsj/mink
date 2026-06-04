@@ -31,15 +31,20 @@ export function LeftPane() {
   const sidebarPersonas = personas.filter((p) => p.show_in_sidebar !== false);
   const activePersonaID =
     view === "agent" && activeAgent
-      ? agentDMs.find((dm) => dm.id === activeAgent)?.persona_id || activeAgent
+      ? agentDMs.find((dm) => dm.id === activeAgent)?.persona_id ||
+        directChats.find((dm) => dm.kind === "agent_dm" && dm.id === activeAgent)?.persona_id ||
+        activeAgent
       : "";
-  const openLatestAgentChat = async (personaID: string) => {
-    const existing = agentDMs.find((dm) => dm.persona_id === personaID);
-    if (existing) {
-      await openAgent(existing.id);
-      return;
-    }
-    await newAgentChat(personaID);
+  const agentDefaultDM = (personaID: string) =>
+    directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
+  const openDefaultAgentDM = async (personaID: string) => {
+    const existing = agentDefaultDM(personaID);
+    await openAgent(existing?.id || personaID);
+  };
+  const createNamedAgentChat = async (personaID: string, display: string) => {
+    const title = window.prompt(`Name this chat with @${display}`, "");
+    if (title === null) return;
+    await newAgentChat(personaID, title.trim());
   };
 
   return (
@@ -105,10 +110,14 @@ export function LeftPane() {
           {directChats.map((dc) => (
             <NavItem
               key={dc.id}
-              icon={<MessageCircle className="size-4" />}
+              icon={dc.kind === "agent_dm" ? <AtSign className="size-4" /> : <MessageCircle className="size-4" />}
               name={dc.title}
               running={dc.has_running}
-              active={view === "thread" && activeThread === dc.id}
+              active={
+                dc.kind === "agent_dm"
+                  ? view === "agent" && ((activeAgent === dc.id) || (activePersonaID === dc.persona_id))
+                  : view === "thread" && activeThread === dc.id
+              }
               onClick={() => void openDirectChat(dc.id)}
               tooltip={dc.has_running ? `${dc.title} · running` : undefined}
             />
@@ -125,8 +134,9 @@ export function LeftPane() {
             <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No sidebar agents configured.</li>
           )}
           {sidebarPersonas.map((agent) => {
-            const latest = agentDMs.find((dm) => dm.persona_id === agent.id);
+            const defaultDM = agentDefaultDM(agent.id);
             const active = view === "agent" && activePersonaID === agent.id;
+            const display = agent.display || agent.id;
             return (
               <li key={agent.id}>
                 <div
@@ -140,7 +150,7 @@ export function LeftPane() {
                 >
                   <button
                     type="button"
-                    onClick={() => void openLatestAgentChat(agent.id)}
+                    onClick={() => void openDefaultAgentDM(agent.id)}
                     className={cn(
                       "inline-flex size-6 items-center justify-center border border-transparent font-mono",
                       active ? "border-border bg-accent text-text" : "text-text-muted",
@@ -151,22 +161,22 @@ export function LeftPane() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void openLatestAgentChat(agent.id)}
+                    onClick={() => void openDefaultAgentDM(agent.id)}
                     className="min-w-0 text-left"
                   >
-                    <span className="block truncate text-[13px]">{agent.display || agent.id}</span>
+                    <span className="block truncate text-[13px]">{display}</span>
                     <span className="block truncate font-mono text-[10.5px] text-text-faint">
-                      {latest ? "latest " + relTime(latest.updated_at) : "start chat"}
+                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "open dm"}
                     </span>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void newAgentChat(agent.id);
+                      void createNamedAgentChat(agent.id, display);
                     }}
                     className="inline-flex size-6 items-center justify-center border border-border bg-panel text-text-muted hover:bg-accent hover:text-text"
-                    title={"New chat with @" + (agent.display || agent.id)}
+                    title={"New named chat with @" + display}
                   >
                     <Plus className="size-3" />
                   </button>

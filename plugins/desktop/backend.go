@@ -193,10 +193,50 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 		}
 		out = append(out, DirectChatItem{
 			ID:        e.sp.ID,
+			Kind:      "direct_chat",
 			Title:     directChatTitle(e.sp),
 			Agents:    spaceAgentIDs(e.sp),
 			UpdatedAt: e.sp.UpdatedAt,
 		})
+	}
+	out = append(out, b.defaultAgentDMItems(spaces)...)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt.IsZero() != out[j].UpdatedAt.IsZero() {
+			return !out[i].UpdatedAt.IsZero()
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	return out
+}
+
+func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
+	byPersona := map[string]*space.Space{}
+	for _, sp := range spaces {
+		if sp.Kind != space.KindAgentDM || !isDefaultAgentDM(sp) {
+			continue
+		}
+		if pid := space.AgentParticipantID(sp); pid != "" {
+			byPersona[pid] = sp
+		}
+	}
+	out := make([]DirectChatItem, 0)
+	for _, p := range b.app.Personas().List() {
+		if !p.ShowInSidebar {
+			continue
+		}
+		item := DirectChatItem{
+			ID:          p.ID,
+			Kind:        "agent_dm",
+			PersonaID:   p.ID,
+			PersonaName: p.Display,
+			Title:       "@" + fallback(p.Display, p.ID),
+			Agents:      []string{p.ID},
+		}
+		if sp := byPersona[p.ID]; sp != nil {
+			item.ID = sp.ID
+			item.UpdatedAt = sp.UpdatedAt
+		}
+		out = append(out, item)
 	}
 	return out
 }
@@ -302,14 +342,19 @@ func (b *Backend) ListRecent() []RecentItem {
 				UpdatedAt: sp.UpdatedAt,
 			}
 		case space.KindAgentDM:
-			display := sp.Title
-			if p := b.app.Personas().Get(sp.Title); p != nil {
+			pid := space.AgentParticipantID(sp)
+			display := pid
+			if p := b.app.Personas().Get(pid); p != nil {
 				display = p.Display
+			}
+			title := visibleAgentDMTitle(sp, pid)
+			if title == "New chat" || isDefaultAgentDM(sp) {
+				title = "@" + fallback(display, pid)
 			}
 			item = RecentItem{
 				ID:        sp.ID,
 				Kind:      "agent_dm",
-				Title:     "@" + display,
+				Title:     title,
 				Subtitle:  recentSubtitle(sp),
 				UpdatedAt: sp.UpdatedAt,
 			}
@@ -1140,7 +1185,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	}
 }
 
-func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
+func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
 	if b.app == nil {
 		return AgentDMItem{}, fmt.Errorf("app not initialized")
 	}
@@ -1158,6 +1203,14 @@ func (b *Backend) CreateAgentDM(personaID string) (AgentDMItem, error) {
 	if err != nil {
 		return AgentDMItem{}, err
 	}
+	if title = strings.TrimSpace(title); title != "" {
+		if err := b.app.Spaces().UpdateTitle(sp.ID, title); err != nil {
+			return AgentDMItem{}, err
+		}
+		if updated, err := b.app.Spaces().LoadSpace(sp.ID); err == nil && updated != nil {
+			sp = updated
+		}
+	}
 	return agentDMItemFromSpace(sp, b.app), nil
 }
 
@@ -1169,6 +1222,9 @@ func (b *Backend) ListAgentDMs() []AgentDMItem {
 	out := make([]AgentDMItem, 0, len(all))
 	for _, sp := range all {
 		if sp.Kind != space.KindAgentDM {
+			continue
+		}
+		if isDefaultAgentDM(sp) {
 			continue
 		}
 		out = append(out, agentDMItemFromSpace(sp, b.app))
@@ -1201,10 +1257,21 @@ func visibleAgentDMTitle(sp *space.Space, personaID string) string {
 		return "New chat"
 	}
 	t := strings.TrimSpace(sp.Title)
+	if t == strings.TrimSpace(personaID) {
+		return "New chat"
+	}
 	if t == "" || isAgentDMMachineSeed(t, personaID) {
 		return "New chat"
 	}
 	return t
+}
+
+func isDefaultAgentDM(sp *space.Space) bool {
+	if sp == nil || sp.Kind != space.KindAgentDM {
+		return false
+	}
+	pid := space.AgentParticipantID(sp)
+	return pid != "" && strings.TrimSpace(sp.Title) == pid
 }
 
 func isAgentDMMachineSeed(t, personaID string) bool {
@@ -1386,12 +1453,13 @@ func (b *Backend) APIHandler() http.Handler {
 		}
 		var in struct {
 			PersonaID string `json:"persona_id"`
+			Title     string `json:"title"`
 		}
 		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		item, err := b.CreateAgentDM(in.PersonaID)
+		item, err := b.CreateAgentDM(in.PersonaID, in.Title)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return

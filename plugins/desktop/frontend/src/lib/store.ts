@@ -91,7 +91,7 @@ interface State {
   openThread: (id: string) => Promise<void>;
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
-  newAgentChat: (personaID: string) => Promise<void>;
+  newAgentChat: (personaID: string, title?: string) => Promise<void>;
   openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
@@ -427,7 +427,10 @@ export const useStore = create<State>((set, get) => ({
     }
     if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
     if (!detail.summary && ag?.role) detail.summary = ag.role;
-    const agentDMs = await api.agentDMs().catch(() => get().agentDMs);
+    const [agentDMs, directChats] = await Promise.all([
+      api.agentDMs().catch(() => get().agentDMs),
+      api.directChats().catch(() => get().directChats),
+    ]);
     set({
       view: "agent",
       activeAgent: detail.item.id || id,
@@ -437,16 +440,17 @@ export const useStore = create<State>((set, get) => ({
       threadDetail: null,
       participants: null,
       agentDMs,
+      directChats,
       streaming: null,
       streamingByID: {},
       expandedTaskID: null,
     });
   },
 
-  async newAgentChat(personaID) {
-    const item = await api.createAgentDM(personaID);
-    const agentDMs = await api.agentDMs();
-    set({ agentDMs });
+  async newAgentChat(personaID, title) {
+    const item = await api.createAgentDM(personaID, title);
+    const [agentDMs, directChats] = await Promise.all([api.agentDMs(), api.directChats()]);
+    set({ agentDMs, directChats });
     await get().openAgent(item.id);
   },
 
@@ -476,6 +480,11 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openDirectChat(id) {
+    const direct = get().directChats.find((d) => d.id === id);
+    if (direct?.kind === "agent_dm") {
+      await get().openAgent(direct.id || direct.persona_id || id);
+      return;
+    }
     let detail: SessionDetail;
     let participants: ParticipantsView | null = null;
     try {

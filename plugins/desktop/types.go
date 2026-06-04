@@ -167,6 +167,9 @@ type ThreadItem struct {
 
 type DirectChatItem struct {
 	ID          string    `json:"id"`
+	Kind        string    `json:"kind,omitempty"`
+	PersonaID   string    `json:"persona_id,omitempty"`
+	PersonaName string    `json:"persona_name,omitempty"`
 	Title       string    `json:"title"`
 	Agents      []string  `json:"agents"`
 	UpdatedAt   time.Time `json:"updated_at"`

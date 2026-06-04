@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/persona"
 )
 
 func TestSplitModel(t *testing.T) {
@@ -80,6 +81,41 @@ func TestMentionTargetReadsArgs(t *testing.T) {
 	got = mentionTarget(bus.Event{Tool: "mention", Input: ""})
 	if got != "mention" {
 		t.Errorf("mentionTarget empty fallback = %q", got)
+	}
+}
+
+func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	defaultDetail := b.GetAgentDM("coder")
+	if defaultDetail.Item.ID == "" {
+		t.Fatal("default agent dm was not created")
+	}
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %d, want 1: %#v", len(direct), direct)
+	}
+	if direct[0].Kind != "agent_dm" || direct[0].PersonaID != "coder" || direct[0].Title != "@Coder" {
+		t.Fatalf("direct item = %#v", direct[0])
+	}
+	if got := b.ListAgentDMs(); len(got) != 0 {
+		t.Fatalf("default dm leaked into agent chats: %#v", got)
+	}
+
+	named, err := b.CreateAgentDM("coder", "UI overhaul")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if named.Title != "UI overhaul" {
+		t.Fatalf("named title = %q", named.Title)
+	}
+	chats := b.ListAgentDMs()
+	if len(chats) != 1 || chats[0].ID != named.ID {
+		t.Fatalf("agent chats = %#v, want named chat %s", chats, named.ID)
 	}
 }
 

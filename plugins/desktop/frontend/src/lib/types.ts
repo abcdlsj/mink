@@ -31,6 +31,9 @@ export interface ThreadItem {
 
 export interface DirectChatItem {
   id: string;
+  kind?: "direct_chat" | "agent_dm";
+  persona_id?: string;
+  persona_name?: string;
   title: string;
   agents: string[];
   updated_at: string;
