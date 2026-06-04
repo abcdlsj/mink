@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 )
 
@@ -113,5 +115,53 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	}
 	if turns[1].seen[1].Role != "assistant" || turns[1].seen[1].Content != "reply to @bob first" {
 		t.Fatalf("second context message = %+v", turns[1].seen[1])
+	}
+}
+
+func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+		Compact: config.CompactConfig{
+			TriggerTokens: 20,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		if _, err := a.Spaces().AppendUserMessage(ch.ID, "old detail abcdefghijklmnop "+string(rune('a'+i)), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := a.Spaces().AppendUserMessage(ch.ID, "@bob current trigger should be excluded", []string{"bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := session.New("desktop:channel:" + ch.ID + ":persona:bob")
+	a.syncWakeContext(s, ch.ID, "", "bob", current.ID)
+
+	if strings.TrimSpace(s.Summary) == "" {
+		t.Fatal("expected compact summary for dropped old context")
+	}
+	if got := estimateMessages(s.Messages); got > 20 {
+		t.Fatalf("context tokens = %d, want <= 20; messages=%+v", got, s.Messages)
+	}
+	for _, m := range s.Messages {
+		if strings.Contains(m.Content, "current trigger") {
+			t.Fatalf("current trigger leaked into wake context: %+v", m)
+		}
+	}
+	if len(s.Messages) >= 8 {
+		t.Fatalf("expected token budget to drop old messages, kept %d", len(s.Messages))
 	}
 }

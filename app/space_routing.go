@@ -368,7 +368,10 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 	}
 }
 
-const wakeContextLimit = 80
+const (
+	wakeContextTokenFallback = 20000
+	wakeContextSummaryBudget = 1200
+)
 
 func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 	originSource = strings.TrimSpace(originSource)
@@ -384,11 +387,19 @@ func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 func (a *App) syncWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
 	if s != nil {
 		s.Messages = nil
+		s.Summary = ""
 	}
-	a.seedWakeContext(s, spaceID, parentMessageID, agentID, excludeMessageID)
+	a.seedWakeContext(s, spaceID, parentMessageID, agentID, excludeMessageID, a.wakeContextTokenLimit())
 }
 
-func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
+func (a *App) wakeContextTokenLimit() int {
+	if limit := a.compactTokenLimit(); limit > 0 {
+		return limit
+	}
+	return wakeContextTokenFallback
+}
+
+func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string, tokenLimit int) {
 	if a.spaces == nil {
 		return
 	}
@@ -396,17 +407,69 @@ func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agen
 	if err != nil || sp == nil {
 		return
 	}
-	msgs := contextMessages(sp, parentMessageID)
-	if n := len(msgs) - wakeContextLimit; n > 0 {
-		msgs = msgs[n:]
-	}
-	excludeMessageID = strings.TrimSpace(excludeMessageID)
+	candidates := filterContextMessages(contextMessages(sp, parentMessageID), excludeMessageID)
+	msgs := boundedContextMessages(candidates, agentID, tokenLimit)
 	for _, m := range msgs {
-		if excludeMessageID != "" && m.ID == excludeMessageID {
-			continue
-		}
 		s.Add(toRuntimeMessage(m, agentID))
 	}
+	if dropped := len(candidates) - len(msgs); dropped > 0 {
+		s.Summary = wakeContextSummary(candidates[:dropped], agentID)
+	}
+}
+
+func filterContextMessages(msgs []space.Message, excludeMessageID string) []space.Message {
+	excludeMessageID = strings.TrimSpace(excludeMessageID)
+	if excludeMessageID == "" {
+		return msgs
+	}
+	out := make([]space.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.ID != excludeMessageID {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func boundedContextMessages(msgs []space.Message, agentID string, tokenLimit int) []space.Message {
+	if tokenLimit <= 0 {
+		tokenLimit = wakeContextTokenFallback
+	}
+	out := make([]space.Message, 0, len(msgs))
+	total := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		rm := toRuntimeMessage(m, agentID)
+		cost := estimateMessage(rm)
+		if cost > tokenLimit && len(out) == 0 {
+			out = append(out, m)
+			break
+		}
+		if total+cost > tokenLimit {
+			break
+		}
+		total += cost
+		out = append(out, m)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+func wakeContextSummary(msgs []space.Message, agentID string) string {
+	runtimeMsgs := make([]msg.Message, 0, len(msgs))
+	for _, m := range msgs {
+		runtimeMsgs = append(runtimeMsgs, toRuntimeMessage(m, agentID))
+	}
+	if len(runtimeMsgs) == 0 {
+		return ""
+	}
+	summary := heuristicSummary(runtimeMsgs)
+	if estimateMessage(msg.Message{Role: "system", Content: summary}) <= wakeContextSummaryBudget {
+		return summary
+	}
+	return trimText(summary, wakeContextSummaryBudget*4)
 }
 
 func contextMessages(sp *space.Space, parentMessageID string) []space.Message {
