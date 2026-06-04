@@ -3,9 +3,9 @@ import { Hash, MessageSquare, AtSign, Square, Settings, Plus } from "lucide-reac
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Identicon } from "@/components/Identicon";
-import { EventBlock } from "@/components/EventBlock";
-import { Markdown } from "@/components/Markdown";
-import { renderMentions } from "@/components/Mention";
+import { MessageRow } from "./Message/MessageRow";
+import { MessageStream } from "./Message/MessageStream";
+import { personaForActiveAgent } from "./Message/message-helpers";
 import { Dot } from "./LeftPane";
 import { cn, relTime } from "@/lib/utils";
 
@@ -190,20 +190,7 @@ export function CenterPane() {
 
       <div ref={scrollRef} className="overflow-y-auto px-5 pb-5 pt-5">
         <div className="mx-auto max-w-[880px]">
-          {(() => {
-            const visible = detail.messages.filter(renderableMessage);
-            if (visible.length === 0) return <EmptyState />;
-            return visible.map((m, i) => {
-              const prev = visible[i - 1];
-              const sameAuthor =
-                prev && prev.role === m.role && (prev.author_id || "") === (m.author_id || "");
-              const close =
-                prev && new Date(m.time).getTime() - new Date(prev.time).getTime() < 5 * 60 * 1000;
-              const compact =
-                sameAuthor && close && !m.thread_id && !(m.events && m.events.length);
-              return <MessageRow key={m.id} m={m} compact={!!compact} />;
-            });
-          })()}
+          <MessageStream messages={detail.messages} empty={<EmptyState />} />
         </div>
       </div>
 
@@ -392,18 +379,6 @@ function AgentGear({
   );
 }
 
-function personaForActiveAgent(
-  agents: import("@/lib/types").AgentItem[],
-  agentDMs: import("@/lib/types").AgentDMItem[],
-  activeAgent: string | null,
-): import("@/lib/types").AgentItem | undefined {
-  if (!activeAgent) return undefined;
-  const direct = agents.find((a) => a.id === activeAgent);
-  if (direct) return direct;
-  const dm = agentDMs.find((d) => d.id === activeAgent);
-  return dm && agents.find((a) => a.id === dm.persona_id);
-}
-
 function EmptyState() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
@@ -482,319 +457,6 @@ function EmptyState() {
   );
 }
 
-function MessageRow({ m, compact }: { m: import("@/lib/types").MessageView; compact: boolean }) {
-  const agents = useStore((s) => s.agents);
-  const agentDMs = useStore((s) => s.agentDMs);
-  const view = useStore((s) => s.view);
-  const activeAgent = useStore((s) => s.activeAgent);
-
-  const dmAgent = view === "agent" && m.role !== "user"
-    ? personaForActiveAgent(agents, agentDMs, activeAgent)
-    : undefined;
-
-  const ag = dmAgent || agents.find((a) => a.id === m.author_id);
-  const knownMentions = useMemo(
-    () => new Set(agents.map((a) => a.id)),
-    [agents],
-  );
-  const seed = m.role === "user"
-    ? "user"
-    : (dmAgent?.id || m.author_id || m.author_name || "agent");
-  const kind = m.role === "user" ? "user" : "agent";
-  const displayName = m.role === "user"
-    ? "You"
-    : (dmAgent?.display || m.author_name || ag?.display || "Sumi");
-
-  const events = m.events || [];
-  const collabEvents = events.filter((e) => e.kind === "mention" || e.kind === "delegate");
-  const toolEvents = events.filter((e) => e.kind === "tool_call");
-  const noticeEvents = events.filter((e) => e.kind === "service_notice");
-  const shouldFoldTools = toolEvents.length > 1;
-
-  return (
-    <div
-      className={cn(
-        "grid grid-cols-[32px_1fr] gap-3.5",
-        compact ? "-mt-4 mb-1" : "mb-6 border-b border-border-soft pb-5 last:border-b-0",
-      )}
-    >
-      <div
-        className={cn(
-          "mt-px size-8 overflow-hidden border-2 border-border bg-panel",
-          compact && "invisible",
-        )}
-      >
-        <Identicon seed={seed} kind={kind} />
-      </div>
-      <div className="min-w-0">
-        {!compact && (
-          <div className="mb-1.5 flex items-baseline gap-2">
-            <span className="font-display text-[13.5px] font-black text-text">
-              {displayName}
-            </span>
-            {m.role !== "user" && ag?.role && (
-              <span
-                className="border border-border bg-panel-event px-1 font-display text-[10px] font-semibold uppercase tracking-[0.5px] text-text"
-                title={ag.role}
-              >
-                {shortRole(ag.role)}
-              </span>
-            )}
-            <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(m.time)}</span>
-          </div>
-        )}
-        {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
-        {m.auto_reply_reason && m.role !== "user" && (
-          <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11.5px] text-text">
-            {(ag?.display || m.author_name || "Agent")} joined from channel listening.
-          </div>
-        )}
-        {m.content && (
-          m.role === "user" ? (
-            <div
-              className={cn(
-                "max-w-full whitespace-pre-wrap break-words text-[14.5px] leading-[1.7] text-text",
-                m.reasoning && "mt-2",
-              )}
-            >
-              {renderMentions(m.content, knownMentions)}
-            </div>
-          ) : (
-            <Markdown
-              className={cn(
-                "max-w-full text-[14.5px] leading-[1.7] text-text",
-                m.reasoning && "mt-2",
-              )}
-              mentions={knownMentions}
-            >
-              {stripCollabLeak(m.content)}
-            </Markdown>
-          )
-        )}
-        {events.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1">
-            {collabEvents.map((ev, i) => (
-              <EventBlock key={"c" + i} ev={ev} />
-            ))}
-            {shouldFoldTools ? (
-              <ToolFold events={toolEvents} />
-            ) : (
-              toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)
-            )}
-            {noticeEvents.map((ev, i) => (
-              <EventBlock key={"n" + i} ev={ev} />
-            ))}
-          </div>
-        )}
-        {m.thread_id && m.thread_summary && (
-          <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
-        )}
-        {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
-        {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
-      </div>
-    </div>
-  );
-}
-
-function ReasoningPreface({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  const flat = text.replace(/\s+/g, " ").trim();
-  const isLong = flat.length > 280;
-  const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
-  return (
-    <div className="mb-2 max-w-[66ch] border-l-2 border-border-soft bg-transparent px-2 py-1 text-[11.5px] leading-[1.5] text-text-faint">
-      {open ? (
-        <Markdown variant="lite" className="whitespace-pre-wrap">
-          {text}
-        </Markdown>
-      ) : (
-        <span className="whitespace-pre-wrap">{collapsed}</span>
-      )}
-      {isLong && (
-        <>
-          {" "}
-          <button
-            onClick={() => setOpen((v) => !v)}
-            className="cursor-pointer text-[11px] text-text-muted underline underline-offset-2 hover:text-text"
-          >
-            {open ? "Show less" : "Show full thinking"}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function renderableMessage(m: import("@/lib/types").MessageView): boolean {
-  if (m.is_thread_reply) return false;
-  if (m.content && m.content.trim() !== "") return true;
-  if (m.reasoning && m.reasoning.trim() !== "") return true;
-  if (m.events && m.events.length > 0) return true;
-  if (m.thread_id && m.thread_summary) return true;
-  if (m.thread_info) return true;
-  return false;
-}
-
-function shortRole(role: string): string {
-  const trimmed = role.trim().replace(/[.。!?！？]$/, "");
-  if (!trimmed) return "";
-  const firstWord = trimmed.split(/[\s—·,、/]+/)[0] || trimmed;
-  const word = firstWord.length <= 14 ? firstWord : firstWord.slice(0, 14) + "…";
-  return titleCase(word);
-}
-
-function stripCollabLeak(text: string): string {
-  let out = text;
-  out = out.replace(/[（(]\s*task_id\s*=\s*[A-Za-z0-9_-]+\s*[）)]/g, "");
-  out = out.replace(/[,，]?\s*task_id\s*=\s*[A-Za-z0-9_-]+/g, "");
-  out = out.replace(/\bscheduled\s+next\s+team\s+turn\s+for\s+\S+.*$/gim, "");
-  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-}
-
-function titleCase(s: string): string {
-  if (!/[a-zA-Z]/.test(s)) return s;
-  return s
-    .toLowerCase()
-    .replace(/(?:^|[\s-])(\p{L})/gu, (m) => m.toUpperCase());
-}
-
-function ToolFold({ events }: { events: import("@/lib/types").EventBlock[] }) {
-  const [open, setOpen] = useState(false);
-  const totalMs = events.reduce((sum, e) => sum + (e.duration_ms || 0), 0);
-  const anyRunning = events.some((e) => e.status === "running");
-  const anyError = events.some((e) => e.status === "error");
-  const status = anyRunning ? "running" : anyError ? "error" : "done";
-  const label =
-    "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
-  if (open) {
-    return (
-      <div className="flex flex-col gap-1">
-        <button
-          onClick={() => setOpen(false)}
-      className={cn(
-        "self-start cursor-pointer text-[12px] underline underline-offset-2",
-            status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
-          )}
-        >
-          Hide {events.length} tool details
-        </button>
-        {events.map((ev, i) => (
-          <EventBlock key={i} ev={ev} />
-        ))}
-      </div>
-    );
-  }
-  return (
-    <button
-      onClick={() => setOpen(true)}
-      className={cn(
-        "self-start cursor-pointer text-[12px]",
-        status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
-      )}
-    >
-      <span>{label}</span>
-      <span className="text-text-faint"> · </span>
-      <span className="underline underline-offset-2 text-text-faint">view details</span>
-      {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running align-middle" />}
-    </button>
-  );
-}
-
-function ThreadLink({ threadId, summary }: { threadId: string; summary: string }) {
-  const openThread = useStore((s) => s.openThread);
-  return (
-    <button
-      onClick={() => void openThread(threadId)}
-      className="mt-2.5 inline-flex items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
-    >
-      <Dot status="running" />
-      <span>{summary}</span>
-    </button>
-  );
-}
-
-function ThreadSummaryRow({ info }: { info: import("@/lib/types").ThreadSummary }) {
-  const openThread = useStore((s) => s.openThread);
-  const continueLabel = info.reply_count >= 2 ? "Continue in thread →" : "Open thread →";
-  const replyLabel = info.reply_count === 1 ? "1 reply" : info.reply_count + " replies";
-  const last = info.last_reply_author ? "last by " + info.last_reply_author : "";
-  const when = relTime(info.last_reply_time);
-  const segments = [replyLabel, last, when].filter((s) => s !== "");
-  return (
-    <button
-      onClick={() => void openThread(info.parent_id)}
-      className="mt-1.5 inline-flex items-center gap-1.5 border border-border bg-accent-bg px-1.5 py-0.5 text-[11.5px] text-text hover:bg-accent underline-offset-2 hover:underline"
-    >
-      {info.has_running_worker && <Dot status="running" />}
-      <span className="font-medium">{continueLabel}</span>
-      <span className="text-text-faint font-normal">{segments.join(" · ")}</span>
-    </button>
-  );
-}
-
-function TaskAccessoryRow({ info }: { info: import("@/lib/types").TaskAccessoryInfo }) {
-  const expandTaskInRail = useStore((s) => s.expandTaskInRail);
-  const expandedTaskID = useStore((s) => s.expandedTaskID);
-  const taskInScope = useTaskInActiveRail(info.task_id);
-  const label = taskAccessoryLabel(info);
-  const isRunning = info.status === "running" || info.status === "queued";
-  const opened = expandedTaskID === info.task_id;
-  const onClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!taskInScope) return;
-    expandTaskInRail(info.task_id);
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={taskInScope ? undefined : "Task is outside current view"}
-      className={cn(
-        "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-left text-[11.5px]",
-        info.terminal ? "text-text-faint" : "text-text-muted",
-        taskInScope ? "hover:text-text" : "cursor-help",
-        opened && "text-text",
-      )}
-    >
-      {isRunning && <Dot status="running" />}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function useTaskInActiveRail(taskID: string): boolean {
-  const participants = useStore((s) => s.participants);
-  const threadDetail = useStore((s) => s.threadDetail);
-  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
-    return (threadDetail.recent_runs || []).some((r) => r.id === taskID);
-  }
-  return (participants?.recent_runs || []).some((r) => r.id === taskID);
-}
-
-function taskAccessoryLabel(info: import("@/lib/types").TaskAccessoryInfo): string {
-  const who = info.worker_display || info.worker_id || "worker";
-  switch (info.status) {
-    case "queued":
-      return who + " · queued";
-    case "running":
-      return who + " · working...";
-    case "finished":
-      return who + " · finished";
-    case "failed":
-      return info.short_outcome
-        ? who + " · failed: " + info.short_outcome
-        : who + " · failed";
-    case "canceled":
-      return info.short_outcome
-        ? who + " · canceled: " + info.short_outcome
-        : who + " · canceled";
-    case "no_output":
-      return who + " · finished with no output";
-    default:
-      return who + " · " + info.status;
-  }
-}
-
 function ThreadView() {
   const threadDetail = useStore((s) => s.threadDetail);
   const channels = useStore((s) => s.channels);
@@ -859,13 +521,12 @@ function ThreadView() {
           {replies.length === 0 && (
             <div className="py-4 text-[12.5px] text-text-muted">No replies yet. Send the first reply below.</div>
           )}
-          {replies.map((m, i) => {
-            const prev = i > 0 ? replies[i - 1] : null;
-            const sameAuthor = prev && prev.role === m.role && (prev.author_id || "") === (m.author_id || "");
-            const close = prev && new Date(m.time).getTime() - new Date(prev.time).getTime() < 5 * 60 * 1000;
-            const compact = sameAuthor && close && !(m.events && m.events.length);
-            return <MessageRow key={m.id} m={m} compact={!!compact} />;
-          })}
+          <MessageStream
+            messages={replies}
+            empty={null}
+            filterRenderable={false}
+            compactAcrossThreadLinks
+          />
         </div>
       </div>
       <Composer />
