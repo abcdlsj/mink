@@ -24,7 +24,7 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 		TelegramSessionScope: "thread",
 	}
 	turn := &Turn{
-		Source:  "telegram:1:9",
+		Source:  "tg:dm:42:9",
 		Session: &session.Session{Summary: "历史摘要"},
 	}
 
@@ -36,10 +36,11 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 		"Conversation summary:\n历史摘要",
 		"保持锋利",
 		"项目约束",
-		"Input is forwarded Telegram chat text after mention filtering.",
+		"Allowed chat messages are forwarded directly to you.",
 		"Telegram context may run configured scripts when needed.",
 		"Use configured skills for notifications when needed.",
-		"Group delivery mode: selective prefiltering is enabled.",
+		"allowed group messages use the same default direct conversation path",
+		"Treat @names in Telegram text as normal user content",
 		"Session scope: per-thread context when thread_id exists.",
 		"NO_REPLY",
 		"[[reply_to_current]]",

@@ -78,6 +78,9 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
+	if f.personaID == "" && isTelegramSource(f.source) {
+		return f.telegramDirect(ctx)
+	}
 	if f.personaID == "" && space.SourceUsesRouter(f.source) {
 		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
 			return "", err
@@ -129,6 +132,79 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	return latestAssistant(s), nil
 }
 
+func isTelegramSource(source string) bool {
+	source = strings.TrimSpace(source)
+	return strings.HasPrefix(source, "tg:dm:") || strings.HasPrefix(source, "tg:channel:")
+}
+
+func (f inputFlow) telegramDirect(ctx context.Context) (string, error) {
+	persona := f.app.defaultPersona()
+	agentInfo := space.PersonaInfo{ID: "assistant", Display: "Sumi"}
+	if persona != nil {
+		f.personaID = persona.ID
+		if strings.TrimSpace(persona.Runtime) != "" {
+			f.runtime = persona.Runtime
+		}
+		agentInfo = space.PersonaInfo{ID: persona.ID, Display: persona.Display, Role: persona.Description}
+		ctx = command.WithPersona(ctx, persona.ID)
+	}
+	ctx = command.WithRunContext(ctx, f.runContextWithSession(ctx, strings.TrimSpace(f.source)))
+
+	var sp *space.Space
+	if f.app.spaces != nil {
+		var err error
+		sp, err = f.app.spaces.Resolve(f.source, agentInfo)
+		if err != nil {
+			return "", err
+		}
+		if _, err := f.app.spaces.AppendUserMessage(sp.ID, f.input, nil); err != nil {
+			return "", err
+		}
+	}
+
+	sessionSource := command.SessionSourceFrom(ctx)
+	s, err := f.app.sessions.Current(sessionSource)
+	if err != nil {
+		return "", err
+	}
+	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
+		f.app.bus.Publish(bus.Event{
+			Type:      bus.TurnQueued,
+			Source:    f.source,
+			SessionID: s.ID,
+		})
+	})
+	defer release()
+	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s); err != nil {
+		return "", err
+	}
+	baseline := len(s.Messages)
+	rt, err := f.app.newRuntimeFor(runtimeName, persona)
+	if err != nil {
+		return "", err
+	}
+	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+		return "", err
+	}
+	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
+	if sp != nil && (strings.TrimSpace(content) != "" || strings.TrimSpace(reasoning) != "") {
+		draft := space.Message{
+			AuthorID:   agentInfo.ID,
+			AuthorKind: space.ParticipantAgent,
+			Content:    content,
+			Reasoning:  reasoning,
+		}
+		_, _, err := f.app.spaces.AppendMessageWithRouting(sp.ID, draft, []string{agentInfo.ID}, func(id string) space.PersonaInfo {
+			return agentInfo
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	return content, nil
+}
+
 func runtimeForPermission(runtime, permission string) string {
 	runtime = strings.TrimSpace(runtime)
 	switch strings.TrimSpace(strings.ToLower(permission)) {
@@ -159,13 +235,18 @@ func (f inputFlow) withRunContext(ctx context.Context) context.Context {
 
 func (f inputFlow) runContext(ctx context.Context) command.RunContext {
 	src := strings.TrimSpace(f.source)
+	return f.runContextWithSession(ctx, personaSessionSource(src, f.personaID))
+}
+
+func (f inputFlow) runContextWithSession(ctx context.Context, session string) command.RunContext {
+	src := strings.TrimSpace(f.source)
 	delivery := command.NoticeSourceFrom(ctx)
 	if strings.TrimSpace(delivery) == "" {
 		delivery = src
 	}
 	return command.RunContext{
 		Source:     src,
-		Session:    personaSessionSource(src, f.personaID),
+		Session:    strings.TrimSpace(session),
 		Delivery:   strings.TrimSpace(delivery),
 		Memory:     f.memoryScopes(src, delivery),
 		Permission: permissionProfile(src),

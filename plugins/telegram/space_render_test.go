@@ -87,10 +87,11 @@ func TestNoMentionHintForSourceMatchesRouterRules(t *testing.T) {
 		agents int
 		want   bool
 	}{
-		{"tg dm no @ no agent", "tg:dm:42", "hi", 0, true},
+		{"tg dm no @ no hint", "tg:dm:42", "hi", 0, false},
 		{"tg dm with @", "tg:dm:42", "@coder hi", 0, false},
 		{"tg dm with agent", "tg:dm:42", "hi", 1, false},
-		{"tg channel hint", "tg:channel:42", "hi", 0, true},
+		{"tg channel no hint", "tg:channel:42", "hi", 0, false},
+		{"desktop channel hint", "desktop:channel:main", "hi", 0, true},
 		{"agent dm no hint", "desktop:agent:tshoot", "hi", 0, false},
 		{"unrouted no hint", "subtask:1", "hi", 0, false},
 	}

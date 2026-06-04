@@ -97,9 +97,6 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	if text == "" || ap.handleText(c) {
 		return nil
 	}
-	if !shouldHandle(cfg.MentionMode, bot.Me.Username, msg, text) && !mentionsPersona(a, text) {
-		return nil
-	}
 	src := source(cfg.SessionScope, msg.Chat, msg.ThreadID)
 	if src == "" {
 		return nil
@@ -139,9 +136,6 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 	}
 	text := strings.TrimSpace(tgmsg.Caption)
 	if ap.handleText(c) {
-		return nil
-	}
-	if !shouldHandle(cfg.MentionMode, bot.Me.Username, tgmsg, text) && !mentionsPersona(a, text) {
 		return nil
 	}
 	att, err := telegramImageAttachment(bot, tgmsg)
@@ -333,55 +327,10 @@ func source(scope string, chat *tele.Chat, threadID int) string {
 	return ""
 }
 
-func shouldHandle(mode, username string, msg *tele.Message, text string) bool {
-	if msg == nil || msg.Chat == nil {
-		return false
-	}
-	if msg.Chat.Type == tele.ChatPrivate {
-		return true
-	}
-	mode = strings.TrimSpace(mode)
-	if mode == "always" {
-		return true
-	}
-	tag := "@" + strings.ToLower(strings.TrimSpace(username))
-	has := tag != "@" && strings.Contains(strings.ToLower(text), tag)
-	switch mode {
-	case "mention_only":
-		return has
-	case "smart":
-		return has || msg.ReplyTo != nil
-	default:
-		return true
-	}
-}
-
 func stripMention(username, text string) string {
 	tag := strings.TrimSpace(username)
 	if tag == "" {
 		return text
 	}
 	return strings.TrimSpace(strings.ReplaceAll(text, "@"+tag, ""))
-}
-
-func mentionsPersona(a *app.App, text string) bool {
-	if a == nil || a.Personas() == nil {
-		return false
-	}
-	id := leadingMentionID(text)
-	return id != "" && a.Personas().Get(id) != nil
-}
-
-func leadingMentionID(text string) string {
-	s := strings.TrimSpace(text)
-	if !strings.HasPrefix(s, "@") {
-		return ""
-	}
-	s = s[1:]
-	for i, r := range s {
-		if r == ' ' || r == '\t' || r == '\n' || r == '\r' {
-			return s[:i]
-		}
-	}
-	return s
 }

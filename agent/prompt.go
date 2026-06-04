@@ -116,7 +116,7 @@ func (b promptBuilder) preferences() string {
 func (b promptBuilder) permissions() string {
 	source := b.source()
 	switch {
-	case strings.HasPrefix(source, "telegram:"):
+	case isTelegramPromptSource(source):
 		return strings.Join([]string{
 			"Tool permissions:",
 			"- Telegram context may run configured scripts when needed.",
@@ -136,27 +136,20 @@ func (b promptBuilder) permissions() string {
 }
 
 func (b promptBuilder) telegram() string {
-	if !strings.HasPrefix(b.source(), "telegram:") {
+	if !isTelegramPromptSource(b.source()) {
 		return ""
 	}
-	mention := normalizeTelegramMention(b.env)
 	scope := normalizeTelegramScope(b.env)
 	scopeLine := "- Session scope: chat-wide context."
 	if scope == "thread" {
 		scopeLine = "- Session scope: per-thread context when thread_id exists."
 	}
-	mentionLine := "- Group delivery mode: all group messages may be forwarded."
-	switch mention {
-	case "mention_only":
-		mentionLine = "- Group delivery mode: you'll mainly receive @mentioned/reply messages."
-	case "smart":
-		mentionLine = "- Group delivery mode: selective prefiltering is enabled."
-	}
 	return strings.Join([]string{
-		"You operate inside Telegram chats. Input is forwarded Telegram chat text after mention filtering.",
+		"You operate inside Telegram chats. Allowed chat messages are forwarded directly to you.",
 		"",
 		"Behavior:",
-		mentionLine,
+		"- Group delivery mode: allowed group messages use the same default direct conversation path as private chats.",
+		"- Treat @names in Telegram text as normal user content unless they are Telegram-specific reply instructions.",
 		scopeLine,
 		"- If no reply is needed, respond with exactly: NO_REPLY",
 		"- Default to short, chat-friendly replies. Save long output for when asked.",
@@ -166,6 +159,11 @@ func (b promptBuilder) telegram() string {
 		"- [[react:👍]]",
 		"- [[photo:<url_or_path_or_file_id>]]",
 	}, "\n")
+}
+
+func isTelegramPromptSource(source string) bool {
+	source = strings.TrimSpace(source)
+	return strings.HasPrefix(source, "tg:") || strings.HasPrefix(source, "telegram:")
 }
 
 func (b promptBuilder) custom() string {
@@ -187,22 +185,6 @@ func (b promptBuilder) source() string {
 		return ""
 	}
 	return strings.TrimSpace(b.turn.Source)
-}
-
-func normalizeTelegramMention(env *RuntimeEnv) string {
-	if env == nil {
-		return "always"
-	}
-	switch strings.TrimSpace(strings.ToLower(env.TelegramMentionMode)) {
-	case "", "always":
-		return "always"
-	case "smart":
-		return "smart"
-	case "mention_only":
-		return "mention_only"
-	default:
-		return "always"
-	}
 }
 
 func normalizeTelegramScope(env *RuntimeEnv) string {

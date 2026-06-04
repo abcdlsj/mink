@@ -754,3 +754,83 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 		t.Fatalf("agent dm messages = %d, want user + assistant", len(sp.Messages))
 	}
 }
+
+func TestTelegramDirectUsesDefaultPersonaWithoutMentionRouting(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:        "fallback",
+		DataDir:        filepath.Join(dir, "sumi-data"),
+		Workspace:      dir,
+		DefaultPersona: "andy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("andy", persona.Meta{Display: "Andy", Runtime: "andy-rt"}, "default tg agent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Personas().Create("bob", persona.Meta{Display: "Bob", Runtime: "bob-rt"}, "should not be mention-routed"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotInput, gotSource string
+	var gotPersona *agent.Persona
+	a.RegisterRuntime("andy-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		gotPersona = e.Persona
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			gotSource = turn.Session.Source
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "andy ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("bob-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("telegram @bob text should not route to Bob")
+		return nil, nil
+	})
+	a.RegisterRuntime("fallback", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("fallback runtime should not handle configured default persona")
+		return nil, nil
+	})
+
+	out, err := a.HandleInput(context.Background(), "tg:dm:42", "@bob hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "andy ok" {
+		t.Fatalf("out = %q, want andy ok", out)
+	}
+	if gotInput != "@bob hello" {
+		t.Fatalf("input = %q, want @bob hello", gotInput)
+	}
+	if gotSource != "tg:dm:42" {
+		t.Fatalf("session source = %q, want tg:dm:42", gotSource)
+	}
+	if gotPersona == nil || gotPersona.ID != "andy" {
+		t.Fatalf("persona = %#v, want Andy", gotPersona)
+	}
+	all, err := a.ListSessions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range all {
+		if strings.Contains(s.Source, ":persona:") {
+			t.Fatalf("telegram direct session should not be persona-suffixed: %q", s.Source)
+		}
+	}
+	sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "tg:dm:42")
+	if err != nil || sp == nil {
+		t.Fatalf("telegram space not found: %v", err)
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("telegram space messages = %d, want user + assistant", len(sp.Messages))
+	}
+	if sp.Messages[0].Content != "@bob hello" {
+		t.Fatalf("space user content = %q", sp.Messages[0].Content)
+	}
+	if sp.Messages[1].AuthorID != "andy" || sp.Messages[1].Content != "andy ok" {
+		t.Fatalf("space assistant message = %#v", sp.Messages[1])
+	}
+}

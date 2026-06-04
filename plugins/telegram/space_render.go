@@ -84,6 +84,9 @@ func sourceTracksSpace(src string) bool {
 }
 
 func noMentionHintForSource(src, input string, agents int) string {
+	if strings.HasPrefix(strings.TrimSpace(src), "tg:") {
+		return ""
+	}
 	if !space.SourceUsesRouter(src) {
 		return ""
 	}

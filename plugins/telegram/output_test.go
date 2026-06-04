@@ -5,13 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/abcdlsj/sumi/app"
-	"github.com/abcdlsj/sumi/config"
-	"github.com/abcdlsj/sumi/persona"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -379,28 +375,5 @@ func TestParseModeError(t *testing.T) {
 	}
 	if parseModeError(errors.New("network timeout")) {
 		t.Fatal("unexpected parse error")
-	}
-}
-
-func TestMentionsPersona(t *testing.T) {
-	dir := t.TempDir()
-	a, err := app.New(config.Config{
-		Runtime:   "stub",
-		DataDir:   filepath.Join(dir, "sumi-data"),
-		Workspace: dir,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = a.Close() })
-
-	if _, err := a.Personas().Create("debug", persona.Meta{}, ""); err != nil {
-		t.Fatal(err)
-	}
-	if !mentionsPersona(a, "@debug check this") {
-		t.Fatal("expected persona mention")
-	}
-	if mentionsPersona(a, "@ghost check this") {
-		t.Fatal("unexpected persona mention")
 	}
 }
