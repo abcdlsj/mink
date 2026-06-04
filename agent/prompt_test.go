@@ -37,6 +37,8 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 		"保持锋利",
 		"项目约束",
 		"Input is forwarded Telegram chat text after mention filtering.",
+		"Telegram context blocks shell and generic network tools.",
+		"Use notify_bark for Bark notifications when needed.",
 		"Group delivery mode: selective prefiltering is enabled.",
 		"Session scope: per-thread context when thread_id exists.",
 		"NO_REPLY",
@@ -76,6 +78,7 @@ func TestBuildSystemPromptAddsPreferences(t *testing.T) {
 	for _, want := range []string{
 		"User preferences:",
 		"Bazaar 异常才 Bark",
+		"Cron context blocks shell-based network/webhook commands such as curl/wget.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)

@@ -12,8 +12,9 @@ type Bash struct {
 	workspace string
 }
 
-func (t *Bash) Name() string { return "bash" }
-func (t *Bash) Desc() string { return "Run a shell command in the workspace" }
+func (t *Bash) Name() string       { return "bash" }
+func (t *Bash) Desc() string       { return "Run a shell command in the workspace" }
+func (t *Bash) Risk() RiskCategory { return RiskShell }
 func (t *Bash) Schema() map[string]any {
 	return objectSchema(
 		prop("cmd", "string", "Shell command to run"),

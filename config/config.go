@@ -29,6 +29,7 @@ type Config struct {
 	WebAddr        string            `toml:"web_addr"`
 	Compact        CompactConfig     `toml:"compact"`
 	Telegram       TelegramConfig    `toml:"telegram"`
+	Notify         NotifyConfig      `toml:"notify"`
 	BraveSearch    BraveConfig       `toml:"brave_search"`
 	Collab         CollabConfig      `toml:"collab"`
 	StatusLine     string            `toml:"status_line"`
@@ -62,6 +63,10 @@ type TelegramConfig struct {
 	SessionScope   string  `toml:"session_scope"`
 	AllowedUserIDs []int64 `toml:"allowed_user_ids"`
 	AllowedChatIDs []int64 `toml:"allowed_chat_ids"`
+}
+
+type NotifyConfig struct {
+	BarkURL string `toml:"bark_url"`
 }
 
 type BraveConfig struct {

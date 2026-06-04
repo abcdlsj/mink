@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/abcdlsj/sumi/command"
 )
 
 func TestRegistryGuardCanCancelToolRun(t *testing.T) {
@@ -94,6 +97,58 @@ func TestPolicyGuardDeniesWithoutApprover(t *testing.T) {
 	}
 }
 
+func TestRunContextTelegramBlocksShellTools(t *testing.T) {
+	r := NewRegistry(t.TempDir())
+	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "telegram"})
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"printf hi"}`))
+	if err == nil {
+		t.Fatalf("expected permission error, output=%q", out)
+	}
+	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "notify_bark") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunContextCronBlocksShellNetworkCommands(t *testing.T) {
+	r := NewRegistry(t.TempDir())
+	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "cron"})
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"curl https://example.com/webhook"}`))
+	if err == nil {
+		t.Fatalf("expected permission error, output=%q", out)
+	}
+	if got := err.Error(); got == "" || !containsAll(got, "permission denied", "notify_bark") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunContextCronAllowsLocalShellCommands(t *testing.T) {
+	r := NewRegistry(t.TempDir())
+	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "cron"})
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"printf ok"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "ok" {
+		t.Fatalf("output = %q, want ok", out)
+	}
+}
+
+func TestIsNetworkCommand(t *testing.T) {
+	for _, cmd := range []string{
+		"curl https://example.com",
+		"wget http://example.com",
+		"bash -lc 'curl https://example.com'",
+		"python3 -c 'import requests; requests.post(\"https://example.com\")'",
+	} {
+		if !IsNetworkCommand(cmd) {
+			t.Fatalf("IsNetworkCommand(%q) = false, want true", cmd)
+		}
+	}
+	if IsNetworkCommand("printf ok") {
+		t.Fatal("printf should not be network command")
+	}
+}
+
 type guardFunc func(context.Context, Call) (bool, error)
 
 func (f guardFunc) Allow(ctx context.Context, call Call) (bool, error) {
@@ -104,4 +159,13 @@ type approverFunc func(context.Context, Request) (Approval, error)
 
 func (f approverFunc) Approve(ctx context.Context, req Request) (Approval, error) {
 	return f(ctx, req)
+}
+
+func containsAll(s string, needles ...string) bool {
+	for _, n := range needles {
+		if !strings.Contains(s, n) {
+			return false
+		}
+	}
+	return true
 }

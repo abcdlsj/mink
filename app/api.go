@@ -29,6 +29,13 @@ func (a *App) CurrentModel() string {
 	return a.currentModel()
 }
 
+func (a *App) BarkURL() string {
+	if a == nil {
+		return ""
+	}
+	return a.cfg.Notify.BarkURL
+}
+
 func (a *App) Commands() []command.Command {
 	if a == nil || a.cmds == nil {
 		return nil

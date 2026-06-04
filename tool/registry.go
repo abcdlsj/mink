@@ -16,6 +16,19 @@ type Tool interface {
 	Run(context.Context, json.RawMessage) (string, error)
 }
 
+type RiskCategory string
+
+const (
+	RiskSafe         RiskCategory = "safe"
+	RiskShell        RiskCategory = "shell"
+	RiskNetwork      RiskCategory = "network"
+	RiskNotification RiskCategory = "notification"
+)
+
+type RiskDescriber interface {
+	Risk() RiskCategory
+}
+
 type Call struct {
 	Tool   string
 	Action string
@@ -100,6 +113,9 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) (
 	if t == nil {
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+	if err := enforceRunContextPermission(ctx, t, args); err != nil {
+		return "", err
+	}
 	ok, err := r.allow(ctx, name, args)
 	if err != nil {
 		return "", err
@@ -108,6 +124,16 @@ func (r *Registry) Run(ctx context.Context, name string, args json.RawMessage) (
 		return "cancelled", nil
 	}
 	return t.Run(ctx, args)
+}
+
+func RiskOf(t Tool) RiskCategory {
+	if t == nil {
+		return RiskSafe
+	}
+	if d, ok := t.(RiskDescriber); ok {
+		return d.Risk()
+	}
+	return RiskSafe
 }
 
 func (r *Registry) allow(ctx context.Context, name string, args json.RawMessage) (bool, error) {

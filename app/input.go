@@ -112,10 +112,11 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		})
 	})
 	defer release()
-	if err := f.app.autoCompact(ctx, f.source, f.runtime, s); err != nil {
+	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s); err != nil {
 		return "", err
 	}
-	rt, err := f.app.newRuntimeFor(f.runtime, f.app.personas.Get(f.personaID))
+	rt, err := f.app.newRuntimeFor(runtimeName, f.app.personas.Get(f.personaID))
 	if err != nil {
 		return "", err
 	}
@@ -123,6 +124,18 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return latestAssistant(s), nil
+}
+
+func runtimeForPermission(runtime, permission string) string {
+	runtime = strings.TrimSpace(runtime)
+	switch strings.TrimSpace(strings.ToLower(permission)) {
+	case "telegram", "cron":
+		switch strings.ToLower(runtime) {
+		case "claude", "codex":
+			return "native"
+		}
+	}
+	return runtime
 }
 
 func personaSessionSource(source, personaID string) string {

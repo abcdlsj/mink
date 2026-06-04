@@ -15,6 +15,7 @@ func TestRunContextDrivesSourceSessionNoticeAndMemory(t *testing.T) {
 			{Kind: "channel", Key: "cron:bazaar"},
 			{Kind: "channel", Key: "tg:dm:42"},
 		},
+		Permission: "cron",
 	})
 	if got := SourceFrom(ctx); got != "cron:bazaar" {
 		t.Fatalf("source = %q", got)
@@ -28,6 +29,9 @@ func TestRunContextDrivesSourceSessionNoticeAndMemory(t *testing.T) {
 	if got := MemoryScopesFrom(ctx); len(got) != 2 || got[1].Key != "tg:dm:42" {
 		t.Fatalf("memory scopes = %+v", got)
 	}
+	if got := PermissionFrom(ctx); got != "cron" {
+		t.Fatalf("permission = %q", got)
+	}
 }
 
 func TestRunContextFallbacks(t *testing.T) {
@@ -40,5 +44,8 @@ func TestRunContextFallbacks(t *testing.T) {
 	}
 	if got := MemoryScopesFrom(ctx); got != nil {
 		t.Fatalf("memory fallback = %+v", got)
+	}
+	if got := PermissionFrom(ctx); got != "default" {
+		t.Fatalf("permission fallback = %q", got)
 	}
 }

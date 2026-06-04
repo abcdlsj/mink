@@ -38,6 +38,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.persona())
 	p.Add(b.context())
 	p.Add(b.preferences())
+	p.Add(b.permissions())
 	p.Add(b.soul())
 	p.Add(b.telegram())
 	p.Add(b.custom())
@@ -110,6 +111,28 @@ func (b promptBuilder) preferences() string {
 		return "User preferences:\n" + v
 	}
 	return ""
+}
+
+func (b promptBuilder) permissions() string {
+	source := b.source()
+	switch {
+	case strings.HasPrefix(source, "telegram:"):
+		return strings.Join([]string{
+			"Tool permissions:",
+			"- Telegram context blocks shell and generic network tools.",
+			"- Do not use bash/curl/webhook commands for notifications.",
+			"- Use notify_bark for Bark notifications when needed.",
+		}, "\n")
+	case strings.HasPrefix(source, "cron:"):
+		return strings.Join([]string{
+			"Tool permissions:",
+			"- Cron context may run local monitoring commands.",
+			"- Cron context blocks shell-based network/webhook commands such as curl/wget.",
+			"- Use notify_bark for Bark notifications when needed.",
+		}, "\n")
+	default:
+		return ""
+	}
 }
 
 func (b promptBuilder) telegram() string {

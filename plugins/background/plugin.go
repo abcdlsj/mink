@@ -11,6 +11,7 @@ import (
 
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/tool"
 )
 
 type runner struct {
@@ -30,7 +31,8 @@ func Plugin() app.Plugin {
 	}
 }
 
-func (r *runner) Name() string { return "background" }
+func (r *runner) Name() string            { return "background" }
+func (r *runner) Risk() tool.RiskCategory { return tool.RiskShell }
 
 func (r *runner) Desc() string {
 	return "Run a shell command in the background and send the result back later"

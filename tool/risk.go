@@ -62,6 +62,26 @@ func IsDangerous(raw string) bool {
 	return false
 }
 
+func IsNetworkCommand(raw string) bool {
+	cmd := strings.TrimSpace(strings.ToLower(raw))
+	if cmd == "" {
+		return false
+	}
+	if strings.Contains(cmd, "http://") || strings.Contains(cmd, "https://") {
+		for _, token := range []string{"curl", "wget", "requests", "urllib", "fetch(", "webhook"} {
+			if strings.Contains(cmd, token) {
+				return true
+			}
+		}
+	}
+	for _, seg := range splitShellSegments(cmd) {
+		if isNetworkSegment(seg) {
+			return true
+		}
+	}
+	return false
+}
+
 func isSensitiveReadPath(p string) bool {
 	norm := strings.ToLower(filepath.ToSlash(p))
 	if norm == "" {
@@ -154,28 +174,10 @@ func splitShellSegments(cmd string) []string {
 }
 
 func isDangerousSegment(seg string) bool {
-	fields := strings.Fields(seg)
-	if len(fields) == 0 {
+	cmd, rest := commandAndArgs(seg)
+	if cmd == "" {
 		return false
 	}
-	i := 0
-	for i < len(fields) {
-		f := fields[i]
-		if _, ok := shellWrappers[f]; ok {
-			i++
-			continue
-		}
-		if strings.Contains(f, "=") && !strings.HasPrefix(f, "=") && !strings.HasSuffix(f, "=") {
-			i++
-			continue
-		}
-		break
-	}
-	if i >= len(fields) {
-		return false
-	}
-	cmd := fields[i]
-	rest := fields[i+1:]
 	switch cmd {
 	case "rm", "mv", "cp", "dd", "mkfs", "chmod", "chown":
 		return true
@@ -210,4 +212,58 @@ func isDangerousSegment(seg string) bool {
 		return sub == "apply" || sub == "delete"
 	}
 	return false
+}
+
+func isNetworkSegment(seg string) bool {
+	cmd, rest := commandAndArgs(seg)
+	switch cmd {
+	case "curl", "wget", "http", "https":
+		return true
+	case "nc", "ncat", "netcat", "telnet", "ssh", "scp", "rsync":
+		return true
+	case "bash", "sh", "zsh", "fish":
+		joined := strings.Join(rest, " ")
+		for _, token := range []string{"curl ", "wget ", "http://", "https://", "webhook"} {
+			if strings.Contains(joined, token) {
+				return true
+			}
+		}
+	case "python", "python3", "node", "deno", "ruby", "perl", "php":
+		joined := strings.Join(rest, " ")
+		for _, token := range []string{"http://", "https://", "requests.", "urllib", "fetch(", "net/http"} {
+			if strings.Contains(joined, token) {
+				return true
+			}
+		}
+	}
+	for _, f := range rest {
+		if strings.HasPrefix(f, "http://") || strings.HasPrefix(f, "https://") {
+			return true
+		}
+	}
+	return false
+}
+
+func commandAndArgs(seg string) (string, []string) {
+	fields := strings.Fields(seg)
+	if len(fields) == 0 {
+		return "", nil
+	}
+	i := 0
+	for i < len(fields) {
+		f := fields[i]
+		if _, ok := shellWrappers[f]; ok {
+			i++
+			continue
+		}
+		if strings.Contains(f, "=") && !strings.HasPrefix(f, "=") && !strings.HasSuffix(f, "=") {
+			i++
+			continue
+		}
+		break
+	}
+	if i >= len(fields) {
+		return "", nil
+	}
+	return fields[i], fields[i+1:]
 }

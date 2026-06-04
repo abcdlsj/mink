@@ -81,6 +81,13 @@ func MemoryScopesFrom(ctx context.Context) []MemoryScope {
 	return nil
 }
 
+func PermissionFrom(ctx context.Context) string {
+	if rc, ok := RunContextFrom(ctx); ok && rc.Permission != "" {
+		return rc.Permission
+	}
+	return "default"
+}
+
 func WithPersona(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, personaKey{}, id)
 }
