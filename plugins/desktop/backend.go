@@ -50,28 +50,6 @@ func (b *Backend) WorkspaceInfo() WorkspaceState {
 	}
 }
 
-func (b *Backend) ListSessions() ([]SessionItem, error) {
-	idx, err := b.app.SessionIndex()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SessionItem, 0, len(idx))
-	for _, m := range idx {
-		out = append(out, SessionItem{
-			ID:           m.ID,
-			Title:        fallback(m.Title, "(untitled)"),
-			UpdatedAt:    m.UpdatedAt,
-			MessageCount: m.Messages,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
-	return out, nil
-}
-
-func (b *Backend) GetSession(id string) (SessionDetail, error) {
-	return b.GetThread(id), nil
-}
-
 func (b *Backend) SendMessage(req SendRequest) (string, error) {
 	if b.app == nil {
 		return "", nil
@@ -1368,14 +1346,6 @@ func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 func (b *Backend) APIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", jsonHandler(func() any { return b.WorkspaceInfo() }))
-	mux.HandleFunc("/api/sessions", jsonHandler(func() any {
-		out, _ := b.ListSessions()
-		return out
-	}))
-	mux.HandleFunc("/api/session", func(rw http.ResponseWriter, req *http.Request) {
-		out, _ := b.GetSession(req.URL.Query().Get("id"))
-		writeJSON(rw, out)
-	})
 	mux.HandleFunc("/api/channels", jsonHandler(func() any { return b.ListChannels() }))
 	mux.HandleFunc("/api/channel/create", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {
