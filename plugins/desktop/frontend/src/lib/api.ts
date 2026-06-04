@@ -75,7 +75,6 @@ export const api = {
       }),
     ),
   channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
-  thread: (id: string) => j<SessionDetail>(fetch("/api/thread?id=" + encodeURIComponent(id))),
   agentDM: (agentID: string) =>
     j<SessionDetail>(fetch("/api/agent-dm?agent=" + encodeURIComponent(agentID))),
   agentDMs: () => j<AgentDMItem[]>(fetch("/api/agent-dms")),

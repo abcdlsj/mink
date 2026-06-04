@@ -686,10 +686,6 @@ type appAccessor interface {
 	Tasks() *taskpkg.Manager
 }
 
-func (b *Backend) GetThread(id string) SessionDetail {
-	return SessionDetail{}
-}
-
 func timeInWindow(t, lo, hi time.Time) bool {
 	if lo.IsZero() && hi.IsZero() {
 		return true
@@ -1092,12 +1088,6 @@ func (b *Backend) allAgents() []AgentItem {
 	return out
 }
 
-func (b *Backend) taskAsRun(taskID, agentID string) *AgentRun {
-	_ = taskID
-	_ = agentID
-	return nil
-}
-
 func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if b.app == nil {
 		return SessionDetail{}
@@ -1430,9 +1420,6 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/agents", jsonHandler(func() any { return b.ListAgents() }))
 	mux.HandleFunc("/api/channel", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetChannel(req.URL.Query().Get("id")))
-	})
-	mux.HandleFunc("/api/thread", func(rw http.ResponseWriter, req *http.Request) {
-		writeJSON(rw, b.GetThread(req.URL.Query().Get("id")))
 	})
 	mux.HandleFunc("/api/participants", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetParticipants(req.URL.Query().Get("channel"), req.URL.Query().Get("thread")))
