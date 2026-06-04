@@ -85,8 +85,9 @@ explicit `scratch.Add` is only a fallback when Space load fails.
 
 `Backend.GetAgentDM(personaID)` opens or creates the default
 one-per-agent DM using stable seed `<personaID>`. Default agent DMs
-are listed under Direct Messages and use the agent display name as
-their UI title.
+are listed under Direct Messages only after the user explicitly
+creates or opens that DM, and use the agent display name as their UI
+title.
 
 `Backend.CreateAgentDM(personaID, title)` mints a named AgentDM Space
 with seed `<personaID>-<uuid8>`. `Backend.ListAgentDMs` returns only

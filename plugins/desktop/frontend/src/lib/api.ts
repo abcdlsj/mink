@@ -87,6 +87,14 @@ export const api = {
         body: JSON.stringify({ persona_id: personaID, title }),
       }),
     ),
+  updateAgentDMTitle: (id: string, title: string) =>
+    j<AgentDMItem>(
+      fetch("/api/agent-dm/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, title }),
+      }),
+    ),
   newDirect: () =>
     j<SessionDetail>(
       fetch("/api/new-direct", { method: "POST" }),

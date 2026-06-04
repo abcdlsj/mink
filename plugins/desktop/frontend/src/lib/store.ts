@@ -92,6 +92,7 @@ interface State {
   closeThread: () => void;
   openAgent: (id: string) => Promise<void>;
   newAgentChat: (personaID: string, title?: string) => Promise<void>;
+  updateAgentChatTitle: (id: string, title: string) => Promise<void>;
   openDirectChat: (id: string) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
@@ -452,6 +453,17 @@ export const useStore = create<State>((set, get) => ({
     const [agentDMs, directChats] = await Promise.all([api.agentDMs(), api.directChats()]);
     set({ agentDMs, directChats });
     await get().openAgent(item.id);
+  },
+
+  async updateAgentChatTitle(id, title) {
+    const item = await api.updateAgentDMTitle(id, title);
+    const [agentDMs, directChats] = await Promise.all([api.agentDMs(), api.directChats()]);
+    const detail = get().detail;
+    set({
+      agentDMs,
+      directChats,
+      detail: detail && detail.item.id === id ? { ...detail, item: { ...detail.item, title: item.title } } : detail,
+    });
   },
 
   async newDirectChat() {

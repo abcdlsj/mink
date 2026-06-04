@@ -89,6 +89,9 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
+	if direct := b.ListDirectChats(); len(direct) != 0 {
+		t.Fatalf("virtual agent dm leaked before creation: %#v", direct)
+	}
 
 	defaultDetail := b.GetAgentDM("coder")
 	if defaultDetail.Item.ID == "" {

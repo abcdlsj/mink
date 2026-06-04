@@ -210,31 +210,27 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 }
 
 func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
-	byPersona := map[string]*space.Space{}
+	out := make([]DirectChatItem, 0)
 	for _, sp := range spaces {
 		if sp.Kind != space.KindAgentDM || !isDefaultAgentDM(sp) {
 			continue
 		}
-		if pid := space.AgentParticipantID(sp); pid != "" {
-			byPersona[pid] = sp
-		}
-	}
-	out := make([]DirectChatItem, 0)
-	for _, p := range b.app.Personas().List() {
-		if !p.ShowInSidebar {
+		pid := space.AgentParticipantID(sp)
+		if pid == "" {
 			continue
 		}
-		item := DirectChatItem{
-			ID:          p.ID,
-			Kind:        "agent_dm",
-			PersonaID:   p.ID,
-			PersonaName: p.Display,
-			Title:       "@" + fallback(p.Display, p.ID),
-			Agents:      []string{p.ID},
+		display := pid
+		if p := b.app.Personas().Get(pid); p != nil {
+			display = p.Display
 		}
-		if sp := byPersona[p.ID]; sp != nil {
-			item.ID = sp.ID
-			item.UpdatedAt = sp.UpdatedAt
+		item := DirectChatItem{
+			ID:          sp.ID,
+			Kind:        "agent_dm",
+			PersonaID:   pid,
+			PersonaName: display,
+			Title:       "@" + fallback(display, pid),
+			Agents:      []string{pid},
+			UpdatedAt:   sp.UpdatedAt,
 		}
 		out = append(out, item)
 	}
@@ -1214,6 +1210,35 @@ func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
 	return agentDMItemFromSpace(sp, b.app), nil
 }
 
+func (b *Backend) UpdateAgentDMTitle(spaceID, title string) (AgentDMItem, error) {
+	if b.app == nil {
+		return AgentDMItem{}, fmt.Errorf("app not initialized")
+	}
+	spaceID = strings.TrimSpace(spaceID)
+	title = strings.TrimSpace(title)
+	if spaceID == "" || title == "" {
+		return AgentDMItem{}, fmt.Errorf("space id and title required")
+	}
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil {
+		return AgentDMItem{}, err
+	}
+	if sp == nil || sp.Kind != space.KindAgentDM {
+		return AgentDMItem{}, fmt.Errorf("agent chat not found: %s", spaceID)
+	}
+	if isDefaultAgentDM(sp) {
+		return AgentDMItem{}, fmt.Errorf("default agent dm title is fixed")
+	}
+	if err := b.app.Spaces().UpdateTitle(sp.ID, title); err != nil {
+		return AgentDMItem{}, err
+	}
+	updated, err := b.app.Spaces().LoadSpace(sp.ID)
+	if err != nil {
+		return AgentDMItem{}, err
+	}
+	return agentDMItemFromSpace(updated, b.app), nil
+}
+
 func (b *Backend) ListAgentDMs() []AgentDMItem {
 	all, err := b.app.Spaces().Store().ListSpaces()
 	if err != nil {
@@ -1460,6 +1485,26 @@ func (b *Backend) APIHandler() http.Handler {
 			return
 		}
 		item, err := b.CreateAgentDM(in.PersonaID, in.Title)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, item)
+	})
+	mux.HandleFunc("/api/agent-dm/title", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		item, err := b.UpdateAgentDMTitle(in.ID, in.Title)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return

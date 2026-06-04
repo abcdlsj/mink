@@ -14,12 +14,18 @@ export function CenterPane() {
   const detail = useStore((s) => s.detail);
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
+  const agentDMs = useStore((s) => s.agentDMs);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
+  const updateAgentChatTitle = useStore((s) => s.updateAgentChatTitle);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastScopeRef = useRef<string>("");
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const [titleBusy, setTitleBusy] = useState(false);
+  const [titleErr, setTitleErr] = useState<string | null>(null);
 
   const messageCount = detail?.messages.length ?? 0;
   const scope = `${view}:${activeChannel || ""}:${activeThread || ""}:${activeAgent || ""}`;
@@ -37,6 +43,13 @@ export function CenterPane() {
       el.scrollTop = el.scrollHeight;
     }
   }, [scope, messageCount]);
+
+  useEffect(() => {
+    setEditingTitle(false);
+    setTitleDraft("");
+    setTitleBusy(false);
+    setTitleErr(null);
+  }, [scope]);
 
   const threadDetail = useStore((s) => s.threadDetail);
   if (threadDetail) {
@@ -75,6 +88,40 @@ export function CenterPane() {
     metaText = detail.summary || "";
   }
 
+  const editableAgentChat = view === "agent" && !!activeAgent && agentDMs.some((dm) => dm.id === activeAgent);
+  const beginTitleEdit = () => {
+    if (!editableAgentChat) return;
+    setTitleDraft(titleText === "New chat" ? "" : titleText);
+    setTitleErr(null);
+    setEditingTitle(true);
+  };
+  const submitTitleEdit = async () => {
+    if (!editableAgentChat || !activeAgent || titleBusy) return;
+    const next = titleDraft.trim();
+    if (!next) {
+      setTitleErr("Title is required.");
+      return;
+    }
+    if (next === titleText) {
+      setEditingTitle(false);
+      return;
+    }
+    setTitleBusy(true);
+    setTitleErr(null);
+    try {
+      await updateAgentChatTitle(activeAgent, next);
+      setEditingTitle(false);
+    } catch (e) {
+      setTitleErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTitleBusy(false);
+    }
+  };
+  const cancelTitleEdit = () => {
+    setEditingTitle(false);
+    setTitleDraft("");
+    setTitleErr(null);
+  };
   const showStop = item.running && view === "thread";
 
   return (
@@ -85,7 +132,42 @@ export function CenterPane() {
             <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
               <TitleIcon className="size-[17px] text-text" />
             </span>
-            <span>{titleText}</span>
+            {editableAgentChat && editingTitle ? (
+              <span className="inline-flex min-w-[220px] flex-col gap-1">
+                <input
+                  value={titleDraft}
+                  onChange={(e) => {
+                    setTitleDraft(e.target.value);
+                    if (titleErr) setTitleErr(null);
+                  }}
+                  onBlur={() => void submitTitleEdit()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void submitTitleEdit();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      cancelTitleEdit();
+                    }
+                  }}
+                  disabled={titleBusy}
+                  autoFocus
+                  className="h-8 border-hard border-border bg-bg px-2 font-display text-[18px] font-black text-text outline-none shadow-card disabled:opacity-70"
+                />
+                {titleErr && <span className="font-mono text-[10.5px] font-medium text-error">{titleErr}</span>}
+              </span>
+            ) : editableAgentChat ? (
+              <button
+                type="button"
+                onClick={beginTitleEdit}
+                className="min-w-0 truncate border border-transparent px-1 text-left hover:border-border hover:bg-bg"
+                title="Click to rename"
+              >
+                {titleText}
+              </button>
+            ) : (
+              <span>{titleText}</span>
+            )}
             {view === "channel" && channel && (
               <AgentGear scope={{ kind: "channel", channel }} agents={agents} />
             )}

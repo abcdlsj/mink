@@ -25,6 +25,14 @@ export function LeftPane() {
     personaAgents: true,
     agents: true,
   });
+  const [agentCreate, setAgentCreate] = useState<{
+    personaID: string;
+    display: string;
+    hasDefaultDM: boolean;
+  } | null>(null);
+  const [chatTitle, setChatTitle] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   };
@@ -37,14 +45,55 @@ export function LeftPane() {
       : "";
   const agentDefaultDM = (personaID: string) =>
     directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
-  const openDefaultAgentDM = async (personaID: string) => {
+  const openAgentRow = async (personaID: string, display: string) => {
     const existing = agentDefaultDM(personaID);
-    await openAgent(existing?.id || personaID);
+    if (existing) {
+      await openAgent(existing.id);
+      return;
+    }
+    openAgentCreate(personaID, display);
   };
-  const createNamedAgentChat = async (personaID: string, display: string) => {
-    const title = window.prompt(`Name this chat with @${display}`, "");
-    if (title === null) return;
-    await newAgentChat(personaID, title.trim());
+  const openAgentCreate = (personaID: string, display: string) => {
+    setAgentCreate({ personaID, display, hasDefaultDM: !!agentDefaultDM(personaID) });
+    setChatTitle("");
+    setCreating(false);
+    setCreateErr(null);
+  };
+  const closeAgentCreate = () => {
+    if (creating) return;
+    setAgentCreate(null);
+    setChatTitle("");
+    setCreateErr(null);
+  };
+  const resetAgentCreate = () => {
+    setAgentCreate(null);
+    setChatTitle("");
+    setCreating(false);
+    setCreateErr(null);
+  };
+  const createDefaultDM = async () => {
+    if (!agentCreate || creating) return;
+    setCreating(true);
+    setCreateErr(null);
+    try {
+      await openAgent(agentCreate.personaID);
+      resetAgentCreate();
+    } catch (e) {
+      setCreateErr(e instanceof Error ? e.message : String(e));
+      setCreating(false);
+    }
+  };
+  const createNamedAgentChat = async () => {
+    if (!agentCreate || creating) return;
+    setCreating(true);
+    setCreateErr(null);
+    try {
+      await newAgentChat(agentCreate.personaID, chatTitle.trim());
+      resetAgentCreate();
+    } catch (e) {
+      setCreateErr(e instanceof Error ? e.message : String(e));
+      setCreating(false);
+    }
   };
 
   return (
@@ -150,7 +199,7 @@ export function LeftPane() {
                 >
                   <button
                     type="button"
-                    onClick={() => void openDefaultAgentDM(agent.id)}
+                    onClick={() => void openAgentRow(agent.id, display)}
                     className={cn(
                       "inline-flex size-6 items-center justify-center border border-transparent font-mono",
                       active ? "border-border bg-accent text-text" : "text-text-muted",
@@ -161,22 +210,22 @@ export function LeftPane() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void openDefaultAgentDM(agent.id)}
+                    onClick={() => void openAgentRow(agent.id, display)}
                     className="min-w-0 text-left"
                   >
                     <span className="block truncate text-[13px]">{display}</span>
                     <span className="block truncate font-mono text-[10.5px] text-text-faint">
-                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "open dm"}
+                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "start chat"}
                     </span>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
-                      void createNamedAgentChat(agent.id, display);
+                      openAgentCreate(agent.id, display);
                     }}
                     className="inline-flex size-6 items-center justify-center border border-border bg-panel text-text-muted hover:bg-accent hover:text-text"
-                    title={"New named chat with @" + display}
+                    title={"Start with @" + display}
                   >
                     <Plus className="size-3" />
                   </button>
@@ -221,6 +270,57 @@ export function LeftPane() {
             </li>
           ))}
         </ul>
+      )}
+      {agentCreate && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 pt-[18vh]"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeAgentCreate();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") closeAgentCreate();
+          }}
+        >
+          <div className="w-[460px] overflow-hidden border-hard border-border bg-panel shadow-hard">
+            <div className="border-b-hard border-border bg-accent px-4 pb-2 pt-3.5">
+              <div className="font-display text-[13px] font-black uppercase tracking-[0.7px] text-text">
+                Start with @{agentCreate.display}
+              </div>
+              <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
+                {agentCreate.hasDefaultDM
+                  ? "Create a named agent chat."
+                  : "Create the default DM, or create a named agent chat."}
+              </div>
+            </div>
+            <div className="px-4 py-3.5">
+              <label className="block font-mono text-[11px] uppercase tracking-[0.8px] text-text-faint">
+                Chat title
+              </label>
+              <input
+                value={chatTitle}
+                onChange={(e) => setChatTitle(e.target.value)}
+                placeholder="Optional for Agent Chat; DM title is fixed"
+                disabled={creating}
+                autoFocus
+                className="mt-1.5 w-full border-hard border-border bg-bg px-3 py-2 text-[13.5px] text-text outline-none transition-[box-shadow] hover:shadow-card focus:shadow-card disabled:opacity-70"
+              />
+              {createErr && <div className="mt-2 text-[12px] text-error">{createErr}</div>}
+              <div className="mt-4 flex justify-end gap-2">
+                <Button variant="default" type="button" onClick={closeAgentCreate} disabled={creating}>
+                  Cancel
+                </Button>
+                {!agentCreate.hasDefaultDM && (
+                  <Button variant="default" type="button" onClick={() => void createDefaultDM()} disabled={creating}>
+                    Create DM
+                  </Button>
+                )}
+                <Button variant="primary" type="button" onClick={() => void createNamedAgentChat()} disabled={creating}>
+                  {creating ? "Creating…" : "Create Agent Chat"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </aside>
   );
