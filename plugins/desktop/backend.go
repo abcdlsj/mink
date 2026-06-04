@@ -383,7 +383,7 @@ func channelDisplayName(sp *space.Space, workspace string) string {
 
 func spaceAgentIDs(sp *space.Space) []string {
 	if sp == nil {
-		return nil
+		return []string{}
 	}
 	out := make([]string, 0, len(sp.Participants))
 	for _, p := range sp.Participants {
@@ -524,7 +524,7 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 
 func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	if sp == nil {
-		return nil
+		return []MessageView{}
 	}
 	resolver := personaResolver(a)
 	var threadInfo map[string]ThreadSummary
@@ -887,7 +887,7 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	}
 	sp, err := b.app.Spaces().LoadSpace(spaceID)
 	if err != nil || sp == nil {
-		return ParticipantsView{}
+		return ParticipantsView{Agents: []AgentItem{}}
 	}
 	return ParticipantsView{
 		Agents:     spaceParticipantsAsAgents(sp, b.app),
@@ -897,7 +897,7 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 
 func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 	if sp == nil {
-		return nil
+		return []AgentItem{}
 	}
 	out := make([]AgentItem, 0, len(sp.Participants))
 	for _, p := range sp.Participants {
