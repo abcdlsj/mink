@@ -127,7 +127,7 @@ func (b promptBuilder) permissions() string {
 		return strings.Join([]string{
 			"Tool permissions:",
 			"- Cron context may run local monitoring commands.",
-			"- Cron context blocks shell-based network/webhook commands such as curl/wget.",
+			"- Cron context blocks shell-based webhook/notification commands such as curl to Bark.",
 			"- Use notify_bark for Bark notifications when needed.",
 		}, "\n")
 	default:

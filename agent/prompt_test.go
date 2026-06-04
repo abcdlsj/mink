@@ -78,7 +78,7 @@ func TestBuildSystemPromptAddsPreferences(t *testing.T) {
 	for _, want := range []string{
 		"User preferences:",
 		"Bazaar 异常才 Bark",
-		"Cron context blocks shell-based network/webhook commands such as curl/wget.",
+		"Cron context blocks shell-based webhook/notification commands such as curl to Bark.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)

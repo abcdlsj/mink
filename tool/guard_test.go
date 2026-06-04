@@ -112,7 +112,7 @@ func TestRunContextTelegramBlocksShellTools(t *testing.T) {
 func TestRunContextCronBlocksShellNetworkCommands(t *testing.T) {
 	r := NewRegistry(t.TempDir())
 	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "cron"})
-	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"curl https://example.com/webhook"}`))
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"curl https://api.day.app/key/title/body"}`))
 	if err == nil {
 		t.Fatalf("expected permission error, output=%q", out)
 	}
@@ -133,6 +133,18 @@ func TestRunContextCronAllowsLocalShellCommands(t *testing.T) {
 	}
 }
 
+func TestRunContextCronAllowsNonWebhookShellCommands(t *testing.T) {
+	r := NewRegistry(t.TempDir())
+	ctx := command.WithRunContext(context.Background(), command.RunContext{Permission: "cron"})
+	out, err := r.Run(ctx, "bash", json.RawMessage(`{"cmd":"printf '{\"ok\":true}'"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `{"ok":true}` {
+		t.Fatalf("output = %q", out)
+	}
+}
+
 func TestIsNetworkCommand(t *testing.T) {
 	for _, cmd := range []string{
 		"curl https://example.com",
@@ -146,6 +158,21 @@ func TestIsNetworkCommand(t *testing.T) {
 	}
 	if IsNetworkCommand("printf ok") {
 		t.Fatal("printf should not be network command")
+	}
+}
+
+func TestIsWebhookCommand(t *testing.T) {
+	for _, cmd := range []string{
+		"curl https://api.day.app/key/title/body",
+		"curl -X POST https://example.com/notify",
+		"bash -lc 'curl https://example.com/webhook'",
+	} {
+		if !IsWebhookCommand(cmd) {
+			t.Fatalf("IsWebhookCommand(%q) = false, want true", cmd)
+		}
+	}
+	if IsWebhookCommand("curl https://example.com/state.json") {
+		t.Fatal("read-only state fetch should not be treated as webhook")
 	}
 }
 

@@ -44,8 +44,8 @@ func enforceCronTool(t Tool, args json.RawMessage) error {
 		if !ok {
 			return nil
 		}
-		if IsNetworkCommand(cmd) {
-			return permissionDenied(name, "cron context cannot use shell network/webhook commands; use notify_bark for notifications")
+		if IsWebhookCommand(cmd) {
+			return permissionDenied(name, "cron context cannot use shell webhook/notification commands; use notify_bark for notifications")
 		}
 	}
 	return nil

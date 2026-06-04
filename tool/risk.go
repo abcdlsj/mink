@@ -82,6 +82,32 @@ func IsNetworkCommand(raw string) bool {
 	return false
 }
 
+func IsWebhookCommand(raw string) bool {
+	cmd := strings.TrimSpace(strings.ToLower(raw))
+	if cmd == "" {
+		return false
+	}
+	for _, token := range []string{
+		"api.day.app",
+		"bark",
+		"webhook",
+		"hooks.slack.com",
+		"discord.com/api/webhooks",
+	} {
+		if strings.Contains(cmd, token) {
+			return true
+		}
+	}
+	if strings.Contains(cmd, "curl") {
+		for _, token := range []string{" -x post", " -d ", " --data", " --form "} {
+			if strings.Contains(cmd, token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func isSensitiveReadPath(p string) bool {
 	norm := strings.ToLower(filepath.ToSlash(p))
 	if norm == "" {
