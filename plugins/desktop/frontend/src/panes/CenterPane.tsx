@@ -799,11 +799,11 @@ function Composer() {
   const agents = useStore((s) => s.agents);
   const activeAgent = useStore((s) => s.activeAgent);
   const detail = useStore((s) => s.detail);
-  const personas = useStore((s) => s.personas);
-  const state = useStore((s) => s.state);
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
   const threadDetail = useStore((s) => s.threadDetail);
+  const participants = useStore((s) => s.participants);
+  const streamingByID = useStore((s) => s.streamingByID);
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
@@ -918,21 +918,21 @@ function Composer() {
     return () => clearTimeout(t);
   }, [composerHint]);
   const showRoutingHint = composerHint && now - composerHint.at < 4000;
-  const activePersonaID =
-    view === "agent" && activeAgent
-      ? agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent
-      : "";
-  const activePersona = activePersonaID ? personas.find((p) => p.id === activePersonaID) : undefined;
-  const runtimeHint = (() => {
-    if (view === "channel" || (threadDetail && !threadDetail.unsupported && !threadDetail.not_found)) {
-      return "runtime per agent";
+  const workingAgents = useMemo(() => {
+    const byID = new Map<string, string>();
+    const labelFor = (id: string) => agents.find((a) => a.id === id)?.display || id;
+    Object.values(streamingByID).forEach((turn) => {
+      if (turn.agentID) byID.set(turn.agentID, labelFor(turn.agentID));
+    });
+    if (byID.size === 0) {
+      (participants?.active_runs || []).forEach((run) => {
+        if (run.status === "running" && run.agent_id) {
+          byID.set(run.agent_id, labelFor(run.agent_id));
+        }
+      });
     }
-    if (view === "agent") {
-      return activePersona ? `${activePersona.runtime || "default"} · @${activePersona.display || activePersona.id}` : "agent runtime";
-    }
-    if (state?.provider && state?.model) return `${state.provider} / ${state.model}`;
-    return state?.runtime || "runtime";
-  })();
+    return Array.from(byID, ([id, display]) => ({ id, display }));
+  }, [agents, participants?.active_runs, streamingByID]);
 
   const handleSend = async () => {
     if (!canSend) return;
@@ -1059,12 +1059,7 @@ function Composer() {
               })()}
             </span>
           ) : null}
-          <div className="inline-flex h-8 items-center border-hard border-border bg-panel shadow-card">
-            <span className="border-r border-border bg-panel-2 px-2 font-display text-[10px] font-black uppercase tracking-[0.8px] text-text">
-              runtime
-            </span>
-            <span className="px-2 font-mono text-[12px] text-text-muted">{runtimeHint}</span>
-          </div>
+          <WorkingAgents agents={workingAgents} />
           <span className="flex-1" />
           <Button
             variant="default"
@@ -1079,6 +1074,26 @@ function Composer() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function WorkingAgents({ agents }: { agents: { id: string; display: string }[] }) {
+  if (agents.length === 0) return null;
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      {agents.map((agent) => (
+        <span
+          key={agent.id}
+          className="inline-flex h-7 max-w-[180px] items-center gap-1.5 border border-border bg-panel-event px-2 text-[11.5px] text-text-muted"
+          title={agent.display + " working"}
+        >
+          <Dot status="running" />
+          <span className="truncate">
+            <span className="text-text">{agent.display}</span> working
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

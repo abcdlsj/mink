@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ChevronRight, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Identicon } from "@/components/Identicon";
@@ -16,6 +16,8 @@ export function RightPane() {
   const channels = useStore((s) => s.channels);
   const threads = useStore((s) => s.threads);
   const agents = useStore((s) => s.agents);
+  const personas = useStore((s) => s.personas);
+  const agentDMs = useStore((s) => s.agentDMs);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const participants = useStore((s) => s.participants);
@@ -38,6 +40,7 @@ export function RightPane() {
     time: s.startedAt,
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
+  const activePersona = personaForRuntime(activeAgent, personas, agentDMs);
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -62,12 +65,15 @@ export function RightPane() {
   );
   const runtimeSec = (
     <Section label="Runtime">
-      <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px] leading-[1.55]">
-        <span className="text-text-faint">Model</span>
-        <span className="truncate font-mono text-text">{state?.model || "—"}</span>
-        <span className="text-text-faint">Execution</span>
-        <span className="text-text">Local</span>
-      </div>
+      <RuntimeDetail
+        view={view}
+        stateRuntime={state?.runtime}
+        activePersona={activePersona}
+        runs={runtimeRuns}
+        personas={personas}
+        agentDMs={agentDMs}
+        agents={agents}
+      />
     </Section>
   );
 
@@ -237,6 +243,92 @@ function Section({ label, children }: { label: string; children: React.ReactNode
       <div>{children}</div>
     </section>
   );
+}
+
+function RuntimeDetail({
+  view,
+  stateRuntime,
+  activePersona,
+  runs,
+  personas,
+  agentDMs,
+  agents,
+}: {
+  view: string;
+  stateRuntime?: string;
+  activePersona?: import("@/lib/types").PersonaItem;
+  runs: AgentRun[];
+  personas: import("@/lib/types").PersonaItem[];
+  agentDMs: import("@/lib/types").AgentDMItem[];
+  agents: AgentItem[];
+}) {
+  if (view === "agent" && activePersona) {
+    return (
+      <RuntimeRows
+        rows={[
+          ["Agent", "@" + (activePersona.display || activePersona.id)],
+          ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
+        ]}
+      />
+    );
+  }
+
+  const running = new Map<string, string>();
+  runs.forEach((run) => {
+    if (run.status !== "running" || !run.agent_id) return;
+    const persona = personaForRuntime(run.agent_id, personas, agentDMs);
+    const display = persona?.display || agents.find((a) => a.id === run.agent_id)?.display || run.agent_id;
+    running.set(display, runtimeLabel(persona?.runtime, stateRuntime));
+  });
+  if (running.size > 0) {
+    return (
+      <div className="flex flex-col gap-1.5 text-[12.5px] leading-[1.45]">
+        {Array.from(running, ([display, runtime]) => (
+          <div key={display} className="flex min-w-0 items-center justify-between gap-2">
+            <span className="truncate text-text">@{display}</span>
+            <span className="shrink-0 font-mono text-text-muted">{runtime}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <RuntimeRows
+      rows={[
+        ["Mode", view === "channel" ? "Per channel agent" : "Per participant"],
+        ["Runtime", "Selected per agent"],
+      ]}
+    />
+  );
+}
+
+function RuntimeRows({ rows }: { rows: [string, string][] }) {
+  return (
+    <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px] leading-[1.55]">
+      {rows.map(([label, value]) => (
+        <Fragment key={label}>
+          <span className="text-text-faint">{label}</span>
+          <span className="truncate font-mono text-text">{value}</span>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function personaForRuntime(
+  id: string | null,
+  personas: import("@/lib/types").PersonaItem[],
+  agentDMs: import("@/lib/types").AgentDMItem[],
+): import("@/lib/types").PersonaItem | undefined {
+  if (!id) return undefined;
+  const dm = agentDMs.find((d) => d.id === id);
+  const personaID = dm?.persona_id || id;
+  return personas.find((p) => p.id === personaID);
+}
+
+function runtimeLabel(runtime: string | undefined, fallback: string | undefined): string {
+  return runtime || fallback || "default";
 }
 
 function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
