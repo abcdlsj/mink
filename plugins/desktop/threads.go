@@ -39,11 +39,11 @@ const previewLen = 120
 func (b *Backend) ListThreadsForSpace(id string) []ThreadSummary {
 	sp, err := b.app.Spaces().LoadSpace(strings.TrimSpace(id))
 	if err != nil || sp == nil || !threadKind(sp.Kind) {
-		return nil
+		return []ThreadSummary{}
 	}
 	groups := groupReplies(sp)
 	if len(groups) == 0 {
-		return nil
+		return []ThreadSummary{}
 	}
 	parents := indexMessages(sp.Messages)
 	tasks := b.runningTasks(sp.ID)
@@ -263,11 +263,11 @@ func threadAgentItem(sp *space.Space, m space.Message, a appAccessor) AgentItem 
 
 func (b *Backend) threadRuns(spaceID string, msgs []space.Message) []AgentRun {
 	if b.app.Tasks() == nil {
-		return nil
+		return []AgentRun{}
 	}
 	all, err := b.app.Tasks().ListBySpace(spaceID)
 	if err != nil {
-		return nil
+		return []AgentRun{}
 	}
 	allowed := map[string]bool{}
 	for _, m := range msgs {
