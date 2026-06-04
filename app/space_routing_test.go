@@ -33,6 +33,7 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 		sessionID      string
 		seen           []msg.Message
 		includeHistory bool
+		disableResume  bool
 	}
 	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
 		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
@@ -41,11 +42,13 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 				sessionID      string
 				seen           []msg.Message
 				includeHistory bool
+				disableResume  bool
 			}{
 				source:         turn.Source,
 				sessionID:      turn.Session.ID,
 				seen:           append([]msg.Message(nil), turn.Session.Messages...),
 				includeHistory: turn.IncludeHistory,
+				disableResume:  turn.DisableExternalResume,
 			})
 			turn.Session.Add(msg.Message{Role: "user", Content: turn.Input})
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "reply to " + turn.Input})
@@ -95,6 +98,9 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	}
 	if !turns[0].includeHistory || !turns[1].includeHistory {
 		t.Fatalf("IncludeHistory flags = %v / %v, want true", turns[0].includeHistory, turns[1].includeHistory)
+	}
+	if !turns[0].disableResume || !turns[1].disableResume {
+		t.Fatalf("DisableExternalResume flags = %v / %v, want true", turns[0].disableResume, turns[1].disableResume)
 	}
 	if len(turns[0].seen) != 0 {
 		t.Fatalf("first turn context = %d, want 0", len(turns[0].seen))

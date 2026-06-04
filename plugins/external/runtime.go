@@ -71,7 +71,7 @@ type Runtime struct {
 }
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
-	sessionID, resume := r.getOrCreateSessionID(turn.Session)
+	sessionID, resume := r.externalSession(turn)
 	prompt := textutil.Valid(r.buildPrompt(turn, !resume || turn.IncludeHistory))
 	fallbackPrompt := textutil.Valid(r.buildPrompt(turn, true))
 	addUser(turn.Session, turn.Input)
@@ -85,6 +85,16 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	}
 	st.flush(turn.Session)
 	return runErr
+}
+
+func (r *Runtime) externalSession(turn *agent.Turn) (string, bool) {
+	if turn != nil && turn.DisableExternalResume {
+		return "", false
+	}
+	if turn == nil {
+		return "", false
+	}
+	return r.getOrCreateSessionID(turn.Session)
 }
 
 func newRunState() *runState {

@@ -232,15 +232,16 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		return channelWakeResult{err: err}
 	}
 	turn := &agent.Turn{
-		Source:          s.Source,
-		Input:           originUserContent,
-		Session:         s,
-		Bus:             a.bus,
-		SpaceID:         spaceID,
-		ParentMessageID: parentMessageID,
-		AgentID:         persona.ID,
-		StreamID:        newStreamID(),
-		IncludeHistory:  true,
+		Source:                s.Source,
+		Input:                 originUserContent,
+		Session:               s,
+		Bus:                   a.bus,
+		SpaceID:               spaceID,
+		ParentMessageID:       parentMessageID,
+		AgentID:               persona.ID,
+		StreamID:              newStreamID(),
+		IncludeHistory:        true,
+		DisableExternalResume: true,
 	}
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnStarted,
@@ -367,7 +368,7 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 	}
 }
 
-const wakeContextLimit = 30
+const wakeContextLimit = 80
 
 func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 	originSource = strings.TrimSpace(originSource)

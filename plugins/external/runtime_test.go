@@ -216,6 +216,23 @@ func TestRuntimeSessionIDResumeFlag(t *testing.T) {
 	}
 }
 
+func TestRuntimeExternalSessionCanDisableResume(t *testing.T) {
+	r := &Runtime{driver: Driver{Name: "claude"}}
+	s := session.New("test")
+	s.ExternalSession["claude"] = "existing"
+
+	id, resume := r.externalSession(&agent.Turn{
+		Session:               s,
+		DisableExternalResume: true,
+	})
+	if id != "" || resume {
+		t.Fatalf("externalSession = %q %v, want empty false", id, resume)
+	}
+	if got := s.ExternalSession["claude"]; got != "existing" {
+		t.Fatalf("stored session changed to %q", got)
+	}
+}
+
 func TestRuntimeSessionIDIsScopedByWorkspace(t *testing.T) {
 	s := session.New("test")
 	sumi := &Runtime{driver: Driver{Name: "claude"}, workspace: "/tmp/sumi"}
