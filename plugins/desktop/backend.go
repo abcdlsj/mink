@@ -383,7 +383,7 @@ func (b *Backend) ListThreads() []ThreadItem {
 func (b *Backend) ListAgents() []AgentItem {
 	out := make([]AgentItem, 0)
 	for _, p := range b.app.Personas().List() {
-		out = append(out, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
+		out = append(out, personaAgentItem(p, "idle"))
 	}
 	return out
 }
@@ -908,6 +908,8 @@ func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 			ID:      p.ID,
 			Display: display,
 			Role:    role,
+			Runtime: personaRuntime(p.ID, a),
+			Model:   personaModel(p.ID, a),
 			Status:  "idle",
 		})
 	}
@@ -1029,10 +1031,44 @@ func resolveWorkerDisplay(workerID string, a appAccessor) string {
 	return workerID
 }
 
+func personaAgentItem(p *persona.Persona, status string) AgentItem {
+	if p == nil {
+		return AgentItem{Status: status}
+	}
+	return AgentItem{
+		ID:      p.ID,
+		Display: p.Display,
+		Role:    p.Description,
+		Runtime: p.Runtime,
+		Model:   p.Model,
+		Status:  status,
+	}
+}
+
+func personaRuntime(id string, a appAccessor) string {
+	if a == nil || strings.TrimSpace(id) == "" {
+		return ""
+	}
+	if p := a.Personas().Get(id); p != nil {
+		return p.Runtime
+	}
+	return ""
+}
+
+func personaModel(id string, a appAccessor) string {
+	if a == nil || strings.TrimSpace(id) == "" {
+		return ""
+	}
+	if p := a.Personas().Get(id); p != nil {
+		return p.Model
+	}
+	return ""
+}
+
 func (b *Backend) allAgents() []AgentItem {
 	out := make([]AgentItem, 0)
 	for _, p := range b.app.Personas().List() {
-		out = append(out, AgentItem{ID: p.ID, Display: p.Display, Role: p.Description, Status: "idle"})
+		out = append(out, personaAgentItem(p, "idle"))
 	}
 	return out
 }
@@ -1095,6 +1131,8 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		Item: SessionItem{
 			ID:           sp.ID,
 			Title:        title,
+			PersonaID:    pid,
+			PersonaName:  display,
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
 		},
@@ -1189,11 +1227,13 @@ func (b *Backend) ListPersonas() []PersonaItem {
 	out := make([]PersonaItem, 0)
 	for _, p := range b.app.Personas().List() {
 		out = append(out, PersonaItem{
-			ID:          p.ID,
-			Display:     p.Display,
-			Runtime:     p.Runtime,
-			Description: p.Description,
-			Tools:       p.Tools,
+			ID:            p.ID,
+			Display:       p.Display,
+			Runtime:       p.Runtime,
+			Model:         p.Model,
+			Description:   p.Description,
+			Tools:         p.Tools,
+			ShowInSidebar: p.ShowInSidebar,
 		})
 	}
 	return out

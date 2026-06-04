@@ -12,20 +12,24 @@ import (
 )
 
 type Persona struct {
-	ID          string
-	Display     string
-	Runtime     string
-	Description string
-	Tools       []string
-	SoulPath    string
-	Root        string
+	ID            string
+	Display       string
+	Runtime       string
+	Model         string
+	Description   string
+	Tools         []string
+	ShowInSidebar bool
+	SoulPath      string
+	Root          string
 }
 
 type Meta struct {
-	Display     string   `toml:"display"`
-	Runtime     string   `toml:"runtime"`
-	Description string   `toml:"description"`
-	Tools       []string `toml:"tools"`
+	Display       string   `toml:"display"`
+	Runtime       string   `toml:"runtime"`
+	Model         string   `toml:"model"`
+	Description   string   `toml:"description"`
+	Tools         []string `toml:"tools"`
+	ShowInSidebar *bool    `toml:"show_in_sidebar"`
 }
 
 type Registry struct {
@@ -136,12 +140,17 @@ func loadDir(root, id string) (*Persona, error) {
 		return nil, err
 	}
 	p := &Persona{
-		ID:          sanitizeID(id),
-		Display:     blank(m.Display, id),
-		Runtime:     strings.TrimSpace(m.Runtime),
-		Description: strings.TrimSpace(m.Description),
-		Tools:       cloneStrings(m.Tools),
-		Root:        dir,
+		ID:            sanitizeID(id),
+		Display:       blank(m.Display, id),
+		Runtime:       strings.TrimSpace(m.Runtime),
+		Model:         strings.TrimSpace(m.Model),
+		Description:   strings.TrimSpace(m.Description),
+		Tools:         cloneStrings(m.Tools),
+		ShowInSidebar: true,
+		Root:          dir,
+	}
+	if m.ShowInSidebar != nil {
+		p.ShowInSidebar = *m.ShowInSidebar
 	}
 	if p.ID == "" {
 		return nil, fmt.Errorf("invalid persona dir name: %q", id)

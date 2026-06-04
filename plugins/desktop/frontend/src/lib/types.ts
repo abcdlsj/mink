@@ -59,6 +59,8 @@ export interface AgentItem {
   id: string;
   display: string;
   role?: string;
+  runtime?: string;
+  model?: string;
   status: string;
 }
 
@@ -156,6 +158,8 @@ export interface ThreadDetail {
 export interface SessionItem {
   id: string;
   title: string;
+  persona_id?: string;
+  persona_name?: string;
   runtime?: string;
   model?: string;
   updated_at: string;
@@ -213,8 +217,10 @@ export interface PersonaItem {
   id: string;
   display: string;
   runtime: string;
+  model?: string;
   description?: string;
   tools?: string[];
+  show_in_sidebar: boolean;
 }
 
 export interface ModelItem {

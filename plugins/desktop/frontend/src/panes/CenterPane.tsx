@@ -873,6 +873,7 @@ function Composer() {
   const agentDMs = useStore((s) => s.agentDMs);
   const inferredPersona = (() => {
     if (view === "agent" && activeAgent) {
+      if (detail?.item.persona_id) return detail.item.persona_id;
       const dm = agentDMs.find((d) => d.id === activeAgent);
       return dm?.persona_id || activeAgent;
     }
@@ -899,7 +900,7 @@ function Composer() {
     placeholder = "Reply in thread...";
   } else if (view === "agent") {
     const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
-    placeholder = `Message @${ag?.display || "agent"}...`;
+    placeholder = `Message @${detail?.item.persona_name || ag?.display || "agent"}...`;
   }
 
   const trimmed = input.trim();

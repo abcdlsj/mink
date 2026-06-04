@@ -16,7 +16,8 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 		t.Fatalf("expected empty, got %d", len(got))
 	}
 
-	p, err := r.Create("Debug", Meta{Display: "Debug", Runtime: "claude", Description: "bug hunter"}, "# Debug\nkeep calm")
+	show := false
+	p, err := r.Create("Debug", Meta{Display: "Debug", Runtime: "claude", Model: "sonnet", Description: "bug hunter", ShowInSidebar: &show}, "# Debug\nkeep calm")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -25,6 +26,12 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	}
 	if p.Runtime != "claude" {
 		t.Fatalf("runtime = %q", p.Runtime)
+	}
+	if p.Model != "sonnet" {
+		t.Fatalf("model = %q", p.Model)
+	}
+	if p.ShowInSidebar {
+		t.Fatal("show_in_sidebar should be false")
 	}
 	if p.SoulPath == "" {
 		t.Fatal("soul path should be set")
@@ -47,6 +54,9 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	}
 	if got.Description != "bug hunter" {
 		t.Fatalf("description = %q", got.Description)
+	}
+	if got.Model != "sonnet" || got.ShowInSidebar {
+		t.Fatalf("meta not preserved: model=%q show=%v", got.Model, got.ShowInSidebar)
 	}
 }
 

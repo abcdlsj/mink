@@ -68,6 +68,7 @@ export function RightPane() {
       <RuntimeDetail
         view={view}
         stateRuntime={state?.runtime}
+        stateModel={state?.model}
         activePersona={activePersona}
         runs={runtimeRuns}
         personas={personas}
@@ -248,6 +249,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 function RuntimeDetail({
   view,
   stateRuntime,
+  stateModel,
   activePersona,
   runs,
   personas,
@@ -256,6 +258,7 @@ function RuntimeDetail({
 }: {
   view: string;
   stateRuntime?: string;
+  stateModel?: string;
   activePersona?: import("@/lib/types").PersonaItem;
   runs: AgentRun[];
   personas: import("@/lib/types").PersonaItem[];
@@ -268,6 +271,7 @@ function RuntimeDetail({
         rows={[
           ["Agent", "@" + (activePersona.display || activePersona.id)],
           ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
+          ["Model", modelLabel(activePersona.model, stateModel, activePersona.runtime)],
         ]}
       />
     );
@@ -278,13 +282,20 @@ function RuntimeDetail({
     if (run.status !== "running" || !run.agent_id) return;
     const persona = personaForRuntime(run.agent_id, personas, agentDMs);
     const display = persona?.display || agents.find((a) => a.id === run.agent_id)?.display || run.agent_id;
-    running.set(display, runtimeLabel(persona?.runtime, stateRuntime));
+    running.set(display, [
+      runtimeLabel(persona?.runtime, stateRuntime),
+      modelLabel(persona?.model, stateModel, persona?.runtime),
+    ].join(" / "));
   });
   if (running.size > 0) {
     return (
       <div className="flex flex-col gap-1.5 text-[12.5px] leading-[1.45]">
         {Array.from(running, ([display, runtime]) => (
-          <div key={display} className="flex min-w-0 items-center justify-between gap-2">
+          <div
+            key={display}
+            className="flex min-w-0 items-center justify-between gap-2"
+            title={`@${display}\n${runtime}`}
+          >
             <span className="truncate text-text">@{display}</span>
             <span className="shrink-0 font-mono text-text-muted">{runtime}</span>
           </div>
@@ -331,6 +342,12 @@ function runtimeLabel(runtime: string | undefined, fallback: string | undefined)
   return runtime || fallback || "default";
 }
 
+function modelLabel(model: string | undefined, fallback: string | undefined, runtime: string | undefined): string {
+  if (model) return model;
+  if (runtime && runtime !== "native") return runtime + " default";
+  return fallback || "default";
+}
+
 function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
   const runningCount = agents.filter((a) => a.status === "running").length;
   return (
@@ -343,7 +360,7 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
               "relative size-[22px] overflow-hidden border-2 border-border bg-panel",
               i > 0 && "-ml-1.5",
             )}
-            title={p.display + " · " + (p.status === "running" ? "running" : "available")}
+            title={agentTooltip(p)}
           >
             <Identicon seed={p.id || p.display} kind="agent" />
             {p.status === "running" && (
@@ -365,6 +382,16 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
       </span>
     </div>
   );
+}
+
+function agentTooltip(agent: AgentItem) {
+  const status = agent.status === "running" ? "running" : "available";
+  return [
+    "@" + agent.display,
+    "status: " + status,
+    "runtime: " + (agent.runtime || "default"),
+    "model: " + (agent.model || (agent.runtime && agent.runtime !== "native" ? agent.runtime + " default" : "default")),
+  ].join("\n");
 }
 
 function RunCard({ run }: { run: AgentRun }) {

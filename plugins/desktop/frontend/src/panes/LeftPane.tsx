@@ -8,6 +8,7 @@ export function LeftPane() {
   const channels = useStore((s) => s.channels);
   const directChats = useStore((s) => s.directChats);
   const agentDMs = useStore((s) => s.agentDMs);
+  const personas = useStore((s) => s.personas);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
@@ -15,15 +16,30 @@ export function LeftPane() {
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
   const openDirectChat = useStore((s) => s.openDirectChat);
+  const newAgentChat = useStore((s) => s.newAgentChat);
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
   const [openSections, setOpenSections] = useState({
     channels: true,
     direct: true,
+    personaAgents: true,
     agents: true,
   });
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
+  };
+  const sidebarPersonas = personas.filter((p) => p.show_in_sidebar !== false);
+  const activePersonaID =
+    view === "agent" && activeAgent
+      ? agentDMs.find((dm) => dm.id === activeAgent)?.persona_id || activeAgent
+      : "";
+  const openLatestAgentChat = async (personaID: string) => {
+    const existing = agentDMs.find((dm) => dm.persona_id === personaID);
+    if (existing) {
+      await openAgent(existing.id);
+      return;
+    }
+    await newAgentChat(personaID);
   };
 
   return (
@@ -100,6 +116,67 @@ export function LeftPane() {
         </ul>
       )}
 
+      <GroupLabel open={openSections.personaAgents} count={sidebarPersonas.length} onToggle={() => toggleSection("personaAgents")}>
+        Agents
+      </GroupLabel>
+      {openSections.personaAgents && (
+        <ul className="flex flex-col gap-px">
+          {sidebarPersonas.length === 0 && (
+            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No sidebar agents configured.</li>
+          )}
+          {sidebarPersonas.map((agent) => {
+            const latest = agentDMs.find((dm) => dm.persona_id === agent.id);
+            const active = view === "agent" && activePersonaID === agent.id;
+            return (
+              <li key={agent.id}>
+                <div
+                  className={cn(
+                    "grid w-full cursor-pointer grid-cols-[18px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
+                    active
+                      ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
+                      : "hover:border-border hover:bg-panel hover:text-text",
+                  )}
+                  title={personaTooltip(agent)}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void openLatestAgentChat(agent.id)}
+                    className={cn(
+                      "inline-flex size-6 items-center justify-center border border-transparent font-mono",
+                      active ? "border-border bg-accent text-text" : "text-text-muted",
+                    )}
+                    tabIndex={-1}
+                  >
+                    <AtSign className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openLatestAgentChat(agent.id)}
+                    className="min-w-0 text-left"
+                  >
+                    <span className="block truncate text-[13px]">{agent.display || agent.id}</span>
+                    <span className="block truncate font-mono text-[10.5px] text-text-faint">
+                      {latest ? "latest " + relTime(latest.updated_at) : "start chat"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void newAgentChat(agent.id);
+                    }}
+                    className="inline-flex size-6 items-center justify-center border border-border bg-panel text-text-muted hover:bg-accent hover:text-text"
+                    title={"New chat with @" + (agent.display || agent.id)}
+                  >
+                    <Plus className="size-3" />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
       <GroupLabel open={openSections.agents} count={agentDMs.length} onToggle={() => toggleSection("agents")}>
         Agent Chats
       </GroupLabel>
@@ -137,6 +214,14 @@ export function LeftPane() {
       )}
     </aside>
   );
+}
+
+function personaTooltip(agent: import("@/lib/types").PersonaItem) {
+  return [
+    "@" + (agent.display || agent.id),
+    "runtime: " + (agent.runtime || "default"),
+    "model: " + (agent.model || (agent.runtime && agent.runtime !== "native" ? agent.runtime + " default" : "default")),
+  ].join("\n");
 }
 
 function GroupLabel({

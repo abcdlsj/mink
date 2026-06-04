@@ -271,6 +271,8 @@ func threadAgentItem(sp *space.Space, m space.Message, a appAccessor) AgentItem 
 		ID:      m.AuthorID,
 		Display: authorDisplay(sp, m, a),
 		Role:    role,
+		Runtime: personaRuntime(m.AuthorID, a),
+		Model:   personaModel(m.AuthorID, a),
 		Status:  "idle",
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/space"
 )
 
 func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
@@ -698,5 +699,58 @@ func TestPersonaEnvWiresSoulAndRuntime(t *testing.T) {
 	}
 	if env.Persona.SoulPath == "" {
 		t.Fatal("persona SoulPath empty")
+	}
+}
+
+func TestAgentDMDoesNotRequireMention(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "fallback",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("helper", persona.Meta{Runtime: "stub"}, "help directly"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotInput string
+	var gotPersona *agent.Persona
+	a.RegisterRuntime("stub", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		gotPersona = e.Persona
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "direct ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("fallback", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("fallback runtime should not handle agent dm")
+		return nil, nil
+	})
+
+	out, err := a.HandleInput(context.Background(), "desktop:agent:helper", "hello without mention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "direct ok" {
+		t.Fatalf("out = %q, want direct ok", out)
+	}
+	if gotInput != "hello without mention" {
+		t.Fatalf("input = %q, want original text", gotInput)
+	}
+	if gotPersona == nil || gotPersona.ID != "helper" {
+		t.Fatalf("persona = %#v, want helper", gotPersona)
+	}
+	sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "helper")
+	if err != nil || sp == nil {
+		t.Fatalf("agent dm space not found: %v", err)
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("agent dm messages = %d, want user + assistant", len(sp.Messages))
 	}
 }

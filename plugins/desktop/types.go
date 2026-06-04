@@ -81,11 +81,13 @@ type TokenUsage struct {
 }
 
 type PersonaItem struct {
-	ID          string   `json:"id"`
-	Display     string   `json:"display"`
-	Runtime     string   `json:"runtime"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools,omitempty"`
+	ID            string   `json:"id"`
+	Display       string   `json:"display"`
+	Runtime       string   `json:"runtime"`
+	Model         string   `json:"model,omitempty"`
+	Description   string   `json:"description"`
+	Tools         []string `json:"tools,omitempty"`
+	ShowInSidebar bool     `json:"show_in_sidebar"`
 }
 
 type ModelItem struct {
@@ -193,6 +195,8 @@ type AgentItem struct {
 	ID      string `json:"id"`
 	Display string `json:"display"`
 	Role    string `json:"role,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+	Model   string `json:"model,omitempty"`
 	Status  string `json:"status"`
 }
 

@@ -427,6 +427,7 @@ export const useStore = create<State>((set, get) => ({
     }
     if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
     if (!detail.summary && ag?.role) detail.summary = ag.role;
+    const agentDMs = await api.agentDMs().catch(() => get().agentDMs);
     set({
       view: "agent",
       activeAgent: detail.item.id || id,
@@ -435,6 +436,7 @@ export const useStore = create<State>((set, get) => ({
       detail,
       threadDetail: null,
       participants: null,
+      agentDMs,
       streaming: null,
       streamingByID: {},
       expandedTaskID: null,

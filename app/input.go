@@ -93,6 +93,9 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 			return "", err
 		}
 		f.personaID = personaID
+		if p := f.app.personas.Get(personaID); p != nil && strings.TrimSpace(p.Runtime) != "" {
+			f.runtime = p.Runtime
+		}
 		ctx = command.WithPersona(ctx, personaID)
 		ctx = f.withRunContext(ctx)
 		if _, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input); err != nil {
