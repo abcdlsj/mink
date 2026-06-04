@@ -51,7 +51,7 @@ func TestBarkToolSendsNarrowNotification(t *testing.T) {
 func TestBarkToolRequiresConfiguredURL(t *testing.T) {
 	tl := &barkTool{}
 	_, err := tl.Run(context.Background(), json.RawMessage(`{"title":"t","body":"b"}`))
-	if err == nil || !strings.Contains(err.Error(), "SUMI_BARK_URL") {
+	if err == nil || !strings.Contains(err.Error(), "SUMI_NOTIFY_BARK_URL") {
 		t.Fatalf("err = %v", err)
 	}
 }

@@ -22,7 +22,7 @@ type barkTool struct {
 func Plugin() app.Plugin {
 	return func(a *app.App) error {
 		a.RegisterTool(&barkTool{
-			url: strings.TrimSpace(a.BarkURL()),
+			url: strings.TrimSpace(barkURLFromEnv(a.ChildEnv())),
 			client: &http.Client{
 				Timeout: 10 * time.Second,
 			},
@@ -91,7 +91,7 @@ func (t *barkTool) Run(ctx context.Context, args json.RawMessage) (string, error
 func barkEndpoint(base, title, body, level, source string) (string, error) {
 	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	if base == "" {
-		return "", fmt.Errorf("notify_bark: configure [notify].bark_url or SUMI_BARK_URL")
+		return "", fmt.Errorf("notify_bark: configure [notify].bark_url or SUMI_NOTIFY_BARK_URL")
 	}
 	u, err := url.Parse(base + "/" + url.PathEscape(title) + "/" + url.PathEscape(body))
 	if err != nil {
@@ -106,6 +106,22 @@ func barkEndpoint(base, title, body, level, source string) (string, error) {
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
+}
+
+func barkURLFromEnv(env []string) string {
+	values := map[string]string{}
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	for _, key := range []string{"SUMI_NOTIFY_BARK_URL", "SUMI_BARK_URL", "BARK_URL"} {
+		if v := strings.TrimSpace(values[key]); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func normalizeLevel(v string) string {

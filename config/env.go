@@ -14,7 +14,6 @@ func (c *Config) applyEnv() {
 	applyEnv(&c.Telegram.Token, "TELEGRAM_TOKEN", "SUMI_TELEGRAM_TOKEN")
 	applyEnv(&c.Telegram.MentionMode, "SUMI_TELEGRAM_MENTION_MODE")
 	applyEnv(&c.Telegram.SessionScope, "SUMI_TELEGRAM_SESSION_SCOPE")
-	applyEnv(&c.Notify.BarkURL, "SUMI_BARK_URL", "BARK_URL")
 	applyEnv(&c.BraveSearch.APIKey, "BRAVE_SEARCH_API_KEY", "SUMI_BRAVE_SEARCH_API_KEY")
 }
 

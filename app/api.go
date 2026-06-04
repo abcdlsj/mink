@@ -29,13 +29,6 @@ func (a *App) CurrentModel() string {
 	return a.currentModel()
 }
 
-func (a *App) BarkURL() string {
-	if a == nil {
-		return ""
-	}
-	return a.cfg.Notify.BarkURL
-}
-
 func (a *App) ChildEnv() []string {
 	if a == nil {
 		return nil
