@@ -289,7 +289,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 			StreamID:        turn.StreamID,
 		})
 	}
-	content, reasoning := assembleAssistantOutput(s.Messages[baseline:])
+	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return channelWakeResult{emptyOutput: true}
 	}
@@ -518,23 +518,4 @@ func filterOut(ids []string, drop string) []string {
 		}
 	}
 	return out
-}
-
-func assembleAssistantOutput(addedMessages []msg.Message) (string, string) {
-	var (
-		contentParts   []string
-		reasoningParts []string
-	)
-	for _, m := range addedMessages {
-		if m.Role != "assistant" {
-			continue
-		}
-		if c := strings.TrimSpace(m.Content); c != "" {
-			contentParts = append(contentParts, c)
-		}
-		if r := strings.TrimSpace(m.Reasoning); r != "" {
-			reasoningParts = append(reasoningParts, r)
-		}
-	}
-	return strings.Join(contentParts, "\n"), strings.Join(reasoningParts, "\n")
 }

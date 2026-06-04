@@ -226,7 +226,7 @@ func (m *manager) runWorkerAsMention(ctx context.Context, in workerRunInput) (st
 		StreamID:        turn.StreamID,
 	})
 	added := scratch.Messages[baseline:]
-	content, reasoning := assembleAddedAssistantOutput(added)
+	content, reasoning := msg.AssistantOutput(added)
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return "", ErrCollabWorkerWroteNothing
 	}

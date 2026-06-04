@@ -292,7 +292,7 @@ func (m *manager) runSpaceDelegate(ctx context.Context, tk *taskpkg.Task, in spa
 		_ = m.finishRunFinal(tk.ID, r.ID, taskpkg.StatusFailed, steps, runErr.Error())
 		return &spaceDelegateOutcome{Task: tk, Run: r, Status: taskpkg.StatusFailed, Err: runErr}, nil
 	}
-	content, reasoning := assembleAddedAssistantOutput(added)
+	content, reasoning := msg.AssistantOutput(added)
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		_ = m.finishRunFinal(tk.ID, r.ID, taskpkg.StatusEmptyOutput, steps, "no output")
 		return &spaceDelegateOutcome{Task: tk, Run: r, Status: taskpkg.StatusEmptyOutput}, nil
@@ -440,22 +440,6 @@ func collapseWhitespace(s string) string {
 		s = strings.ReplaceAll(s, "  ", " ")
 	}
 	return strings.TrimSpace(s)
-}
-
-func assembleAddedAssistantOutput(added []msg.Message) (string, string) {
-	var contentParts, reasoningParts []string
-	for _, m := range added {
-		if m.Role != "assistant" {
-			continue
-		}
-		if c := strings.TrimSpace(m.Content); c != "" {
-			contentParts = append(contentParts, c)
-		}
-		if r := strings.TrimSpace(m.Reasoning); r != "" {
-			reasoningParts = append(reasoningParts, r)
-		}
-	}
-	return strings.Join(contentParts, "\n"), strings.Join(reasoningParts, "\n")
 }
 
 func summarizeAddedSteps(added []msg.Message, runErr error) []taskpkg.KeyStep {
