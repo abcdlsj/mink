@@ -515,17 +515,7 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 	}
 	out := make([]MessageView, 0, len(sp.Messages))
 	for _, m := range sp.Messages {
-		view := MessageView{
-			ID:              m.ID,
-			Role:            roleForKind(m.AuthorKind),
-			AuthorID:        m.AuthorID,
-			AuthorName:      space.MessageAuthorDisplay(sp, m, resolver),
-			Content:         m.Content,
-			Reasoning:       m.Reasoning,
-			Time:            m.CreatedAt,
-			ThreadID:        m.ParentMessageID,
-			AutoReplyReason: m.AutoReplyReason,
-		}
+		view := baseMessageView(sp, m, resolver)
 		if m.ParentMessageID != "" {
 			view.IsThreadReply = true
 		}
@@ -540,6 +530,20 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 		out = append(out, view)
 	}
 	return out
+}
+
+func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayResolver) MessageView {
+	return MessageView{
+		ID:              m.ID,
+		Role:            roleForKind(m.AuthorKind),
+		AuthorID:        m.AuthorID,
+		AuthorName:      space.MessageAuthorDisplay(sp, m, resolver),
+		Content:         m.Content,
+		Reasoning:       m.Reasoning,
+		Time:            m.CreatedAt,
+		ThreadID:        m.ParentMessageID,
+		AutoReplyReason: m.AutoReplyReason,
+	}
 }
 
 func computeTaskAccessoryIndex(sp *space.Space, a appAccessor) map[string]*taskpkg.Task {
