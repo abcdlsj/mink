@@ -51,9 +51,6 @@ func (b *Backend) WorkspaceInfo() WorkspaceState {
 }
 
 func (b *Backend) SendMessage(req SendRequest) (string, error) {
-	if b.app == nil {
-		return "", nil
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	b.mu.Lock()
 	b.cancel[req.SessionID] = cancel
@@ -123,9 +120,6 @@ func (b *Backend) StopTurn(sessionID string) error {
 }
 
 func (b *Backend) NewDirectChat() (SessionDetail, error) {
-	if b.app == nil {
-		return SessionDetail{}, nil
-	}
 	seed := newDirectChatSeed()
 	sp, err := b.app.Spaces().EnsureSpace(space.KindDirectChat, seed, space.PersonaInfo{})
 	if err != nil {
@@ -216,9 +210,6 @@ func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
 }
 
 func (b *Backend) GetDirectChat(id string) SessionDetail {
-	if b.app == nil {
-		return SessionDetail{}
-	}
 	sp, err := b.app.Spaces().LoadSpace(id)
 	if err != nil || sp == nil || sp.Kind != space.KindDirectChat {
 		return SessionDetail{}
@@ -408,9 +399,6 @@ func (b *Backend) ListAgents() []AgentItem {
 }
 
 func (b *Backend) CreateChannel(name string) (ChannelItem, error) {
-	if b.app == nil {
-		return ChannelItem{}, fmt.Errorf("app not initialized")
-	}
 	seed := normalizeChannelSeed(name)
 	if seed == "" {
 		return ChannelItem{}, fmt.Errorf("channel name required")
@@ -433,16 +421,10 @@ func (b *Backend) CreateChannel(name string) (ChannelItem, error) {
 }
 
 func (b *Backend) SetChannelAgentMode(channelID, personaID, mode string) error {
-	if b.app == nil {
-		return fmt.Errorf("app not initialized")
-	}
 	return b.app.Spaces().SetAgentMode(channelID, personaID, mode)
 }
 
 func (b *Backend) AddAgentToChannel(channelID, personaID string) error {
-	if b.app == nil {
-		return fmt.Errorf("app not initialized")
-	}
 	personaID = strings.TrimSpace(personaID)
 	if personaID == "" {
 		return fmt.Errorf("persona id required")
@@ -459,9 +441,6 @@ func (b *Backend) AddAgentToChannel(channelID, personaID string) error {
 }
 
 func (b *Backend) SetThreadAgentMode(spaceID, parentMessageID, personaID, mode string) error {
-	if b.app == nil {
-		return fmt.Errorf("app not initialized")
-	}
 	return b.app.Spaces().SetThreadAgentMode(spaceID, parentMessageID, personaID, mode)
 }
 
@@ -933,7 +912,7 @@ func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 }
 
 func (b *Backend) spaceRecentRuns(sp *space.Space) []AgentRun {
-	if sp == nil || b.app == nil || b.app.Tasks() == nil {
+	if sp == nil || b.app.Tasks() == nil {
 		return nil
 	}
 	tasks, err := b.app.Tasks().ListBySpace(sp.ID)
@@ -990,7 +969,7 @@ type RunDetail struct {
 }
 
 func (b *Backend) GetRunDetail(taskID string) RunDetail {
-	if b.app == nil || b.app.Tasks() == nil {
+	if b.app.Tasks() == nil {
 		return RunDetail{}
 	}
 	tk, err := b.app.Tasks().Get(strings.TrimSpace(taskID))
@@ -1089,9 +1068,6 @@ func (b *Backend) allAgents() []AgentItem {
 }
 
 func (b *Backend) GetAgentDM(agentID string) SessionDetail {
-	if b.app == nil {
-		return SessionDetail{}
-	}
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return SessionDetail{}
@@ -1150,9 +1126,6 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 }
 
 func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
-	if b.app == nil {
-		return AgentDMItem{}, fmt.Errorf("app not initialized")
-	}
 	personaID = strings.TrimSpace(personaID)
 	if personaID == "" {
 		return AgentDMItem{}, fmt.Errorf("persona id required")
@@ -1179,9 +1152,6 @@ func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
 }
 
 func (b *Backend) UpdateAgentDMTitle(spaceID, title string) (AgentDMItem, error) {
-	if b.app == nil {
-		return AgentDMItem{}, fmt.Errorf("app not initialized")
-	}
 	spaceID = strings.TrimSpace(spaceID)
 	title = strings.TrimSpace(title)
 	if spaceID == "" || title == "" {
@@ -1579,9 +1549,6 @@ func writeJSON(rw http.ResponseWriter, v any) {
 }
 
 func (b *Backend) start(ctx context.Context) {
-	if b.app == nil {
-		return
-	}
 	events, cancel := b.app.Bus().Subscribe(2048)
 	go func() {
 		defer cancel()

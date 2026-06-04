@@ -37,9 +37,6 @@ type ThreadDetail struct {
 const previewLen = 120
 
 func (b *Backend) ListThreadsForSpace(id string) []ThreadSummary {
-	if b.app == nil {
-		return nil
-	}
 	sp, err := b.app.Spaces().LoadSpace(strings.TrimSpace(id))
 	if err != nil || sp == nil || !threadKind(sp.Kind) {
 		return nil
@@ -65,9 +62,6 @@ func (b *Backend) ListThreadsForSpace(id string) []ThreadSummary {
 func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 	parentID = strings.TrimSpace(parentID)
 	spaceID = strings.TrimSpace(spaceID)
-	if b.app == nil {
-		return ThreadDetail{SpaceID: spaceID, ParentID: parentID, NotFound: true}
-	}
 	sp, err := b.app.Spaces().LoadSpace(spaceID)
 	if err != nil || sp == nil {
 		return ThreadDetail{SpaceID: spaceID, ParentID: parentID, NotFound: true}
@@ -225,7 +219,7 @@ func authorDisplay(sp *space.Space, m space.Message, a appAccessor) string {
 
 func (b *Backend) runningTasks(spaceID string) map[string]*taskpkg.Task {
 	out := map[string]*taskpkg.Task{}
-	if b.app == nil || b.app.Tasks() == nil {
+	if b.app.Tasks() == nil {
 		return out
 	}
 	tasks, err := b.app.Tasks().ListBySpace(spaceID)
@@ -278,7 +272,7 @@ func threadAgentItem(sp *space.Space, m space.Message, a appAccessor) AgentItem 
 }
 
 func (b *Backend) threadRuns(spaceID string, msgs []space.Message) []AgentRun {
-	if b.app == nil || b.app.Tasks() == nil {
+	if b.app.Tasks() == nil {
 		return nil
 	}
 	all, err := b.app.Tasks().ListBySpace(spaceID)
