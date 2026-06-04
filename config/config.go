@@ -30,13 +30,13 @@ type Config struct {
 	Compact        CompactConfig     `toml:"compact"`
 	Telegram       TelegramConfig    `toml:"telegram"`
 	Notify         NotifyConfig      `toml:"notify"`
-	Skills         SkillsConfig      `toml:"skills"`
 	BraveSearch    BraveConfig       `toml:"brave_search"`
 	Collab         CollabConfig      `toml:"collab"`
 	StatusLine     string            `toml:"status_line"`
 	DefaultPersona string            `toml:"default_persona"`
 
-	Active ModelConfig `toml:"-"`
+	Active    ModelConfig       `toml:"-"`
+	ScopedEnv map[string]string `toml:"-"`
 }
 
 type ModelConfig struct {
@@ -70,10 +70,6 @@ type NotifyConfig struct {
 	BarkURL string `toml:"bark_url"`
 }
 
-type SkillsConfig struct {
-	Env map[string]string `toml:"env"`
-}
-
 type BraveConfig struct {
 	APIKey string `toml:"api_key"`
 }
@@ -88,6 +84,7 @@ func Load() Config {
 	c := defaultConfig()
 	if path := ConfigPath(); path != "" {
 		_, _ = toml.DecodeFile(path, &c)
+		c.ScopedEnv = loadScopedEnv(path)
 	}
 	c.applyEnv()
 	c.Normalize()
@@ -151,8 +148,8 @@ func (c *Config) normalizeCollections() {
 	if c.APIKeys == nil {
 		c.APIKeys = map[string]string{}
 	}
-	if c.Skills.Env == nil {
-		c.Skills.Env = map[string]string{}
+	if c.ScopedEnv == nil {
+		c.ScopedEnv = map[string]string{}
 	}
 }
 

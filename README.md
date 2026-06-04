@@ -113,10 +113,10 @@ session_scope = "chat"
 [notify]
 bark_url = "https://api.day.app/your-key"
 
-[skills.env]
-EMBY_SERVER = "https://emby.example"
-EMBY_USERNAME = "..."
-EMBY_PASSWORD = "..."
+[emby]
+server = "https://emby.example"
+username = "..."
+password = "..."
 
 [brave_search]
 api_key = "..."

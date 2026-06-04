@@ -34,9 +34,9 @@ context_window = 128000
 # Telegram tool approvals are persisted under data_dir/state/permissions.json.
 # [notify]
 # bark_url = "https://api.day.app/your-key"
-# [skills.env]
-# EMBY_SERVER = "https://emby.example"
-# EMBY_USERNAME = "..."
-# EMBY_PASSWORD = "..."
+# [emby]
+# server = "https://emby.example"
+# username = "..."
+# password = "..."
 # [brave_search]
 # api_key = "..."

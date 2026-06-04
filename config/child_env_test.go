@@ -1,69 +1,67 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
-
-	"github.com/BurntSushi/toml"
 )
 
-func TestChildEnvMapsNotifyBarkURL(t *testing.T) {
-	t.Setenv("SUMI_BARK_URL", "from-env")
-
-	cfg := Config{Notify: NotifyConfig{BarkURL: "from-config"}}
+func TestChildEnvIncludesScopedEnv(t *testing.T) {
+	cfg := Config{ScopedEnv: map[string]string{
+		"SUMI_EMBY_SERVER": "https://emby.example",
+		"bad=key":          "ignored",
+	}}
 	env := envMap(cfg.ChildEnv())
 
-	if got := env["SUMI_BARK_URL"]; got != "from-config" {
-		t.Fatalf("SUMI_BARK_URL = %q", got)
-	}
-}
-
-func TestChildEnvIncludesSkillsEnv(t *testing.T) {
-	cfg := Config{Skills: SkillsConfig{Env: map[string]string{
-		"EMBY_SERVER":   "https://emby.example",
-		"EMBY_USERNAME": "alice",
-		"bad=key":       "ignored",
-	}}}
-	env := envMap(cfg.ChildEnv())
-
-	if got := env["EMBY_SERVER"]; got != "https://emby.example" {
-		t.Fatalf("EMBY_SERVER = %q", got)
-	}
-	if got := env["EMBY_USERNAME"]; got != "alice" {
-		t.Fatalf("EMBY_USERNAME = %q", got)
+	if got := env["SUMI_EMBY_SERVER"]; got != "https://emby.example" {
+		t.Fatalf("SUMI_EMBY_SERVER = %q", got)
 	}
 	if _, ok := env["bad=key"]; ok {
 		t.Fatal("invalid env key was included")
 	}
 }
 
-func TestSkillsEnvOverridesNotifyAlias(t *testing.T) {
-	cfg := Config{
-		Notify: NotifyConfig{BarkURL: "from-notify"},
-		Skills: SkillsConfig{Env: map[string]string{
-			"SUMI_BARK_URL": "from-skills",
-		}},
-	}
-	env := envMap(cfg.ChildEnv())
+func TestLoadScopedEnvFlattensCapabilitySections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`
+active_model = "main"
 
-	if got := env["SUMI_BARK_URL"]; got != "from-skills" {
-		t.Fatalf("SUMI_BARK_URL = %q", got)
-	}
-}
+[api_keys]
+OPENAI_API_KEY = "secret"
 
-func TestSkillsEnvDecodesFromTOML(t *testing.T) {
-	var cfg Config
-	if _, err := toml.Decode(`
-[skills.env]
-EMBY_SERVER = "https://emby.example"
-EMBY_USERNAME = "alice"
-`, &cfg); err != nil {
+[emby]
+server = "https://emby.example"
+username = "alice"
+
+[notify]
+bark_url = "https://api.day.app/key"
+
+[notify.extra]
+enabled = true
+`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := cfg.Skills.Env["EMBY_SERVER"]; got != "https://emby.example" {
-		t.Fatalf("EMBY_SERVER = %q", got)
+	env := loadScopedEnv(path)
+	if got := env["SUMI_EMBY_SERVER"]; got != "https://emby.example" {
+		t.Fatalf("SUMI_EMBY_SERVER = %q", got)
 	}
-	if got := cfg.Skills.Env["EMBY_USERNAME"]; got != "alice" {
-		t.Fatalf("EMBY_USERNAME = %q", got)
+	if got := env["SUMI_EMBY_USERNAME"]; got != "alice" {
+		t.Fatalf("SUMI_EMBY_USERNAME = %q", got)
+	}
+	if got := env["SUMI_NOTIFY_BARK_URL"]; got != "https://api.day.app/key" {
+		t.Fatalf("SUMI_NOTIFY_BARK_URL = %q", got)
+	}
+	if got := env["SUMI_NOTIFY_EXTRA_ENABLED"]; got != "true" {
+		t.Fatalf("SUMI_NOTIFY_EXTRA_ENABLED = %q", got)
+	}
+	if _, ok := env["SUMI_API_KEYS_OPENAI_API_KEY"]; ok {
+		t.Fatal("core api_keys section was injected")
+	}
+}
+
+func TestEnvNameNormalizesParts(t *testing.T) {
+	if got := envName([]string{"emby-server", "api.key"}); got != "SUMI_EMBY_SERVER_API_KEY" {
+		t.Fatalf("envName = %q", got)
 	}
 }
