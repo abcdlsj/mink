@@ -76,7 +76,7 @@ func New(cfg config.Config) (*App, error) {
 	if err := a.personas.Load(); err != nil {
 		return nil, err
 	}
-	skill.RegisterTools(a.tools, a.skills)
+	skill.RegisterTools(a.tools, a.skills, a.auditSkill)
 	a.provider, err = newProvider(cfg)
 	if err != nil {
 		return nil, err
@@ -84,6 +84,20 @@ func New(cfg config.Config) (*App, error) {
 	a.RegisterRuntime("native", agent.NewNative)
 	a.registerBuiltinCommands()
 	return a, nil
+}
+
+func (a *App) auditSkill(action, name string) {
+	if a == nil || a.bus == nil {
+		return
+	}
+	typ := bus.SkillUsed
+	switch action {
+	case "listed":
+		typ = bus.SkillListed
+	case "described":
+		typ = bus.SkillDescribed
+	}
+	a.bus.Publish(bus.Event{Type: typ, Tool: "skill", Text: name})
 }
 
 func (a *App) Close() error {

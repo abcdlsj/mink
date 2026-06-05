@@ -27,6 +27,9 @@ const (
 	DelegateQueued    = "delegate.queued"
 	SpaceTitleChanged = "space.title.changed"
 	RuntimeInfo       = "runtime.info"
+	SkillListed       = "skill.listed"
+	SkillDescribed    = "skill.described"
+	SkillUsed         = "skill.used"
 )
 
 type Event struct {

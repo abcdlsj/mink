@@ -29,6 +29,7 @@ type RuntimeEnv struct {
 	ProjectContext       string
 	SoulPath             string
 	PreferencesPath      string
+	SkillCards           []string
 	Prompt               string
 	TelegramMentionMode  string
 	TelegramSessionScope string

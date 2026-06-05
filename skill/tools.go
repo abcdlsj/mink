@@ -9,13 +9,20 @@ import (
 	"github.com/abcdlsj/sumi/tool"
 )
 
-func RegisterTools(reg *tool.Registry, loader *Loader) {
-	reg.Register(&listTool{loader: loader})
-	reg.Register(&describeTool{loader: loader})
+type Audit func(action, name string)
+
+func RegisterTools(reg *tool.Registry, loader *Loader, audit ...Audit) {
+	var fn Audit
+	if len(audit) > 0 {
+		fn = audit[0]
+	}
+	reg.Register(&listTool{loader: loader, audit: fn})
+	reg.Register(&describeTool{loader: loader, audit: fn})
 }
 
 type listTool struct {
 	loader *Loader
+	audit  Audit
 }
 
 func (t *listTool) Name() string { return "skills_list" }
@@ -31,13 +38,17 @@ func (t *listTool) Run(ctx context.Context, args json.RawMessage) (string, error
 
 	var b strings.Builder
 	for _, s := range skills {
-		fmt.Fprintf(&b, "%s: %s\n", s.Name, s.Desc)
+		if t.audit != nil {
+			t.audit("listed", s.Name)
+		}
+		fmt.Fprintln(&b, s.Card())
 	}
 	return b.String(), nil
 }
 
 type describeTool struct {
 	loader *Loader
+	audit  Audit
 }
 
 func (t *describeTool) Name() string { return "skills_describe" }
@@ -63,6 +74,10 @@ func (t *describeTool) Run(ctx context.Context, args json.RawMessage) (string, e
 	skill := t.loader.Load(params.Name)
 	if skill == nil {
 		return "", fmt.Errorf("skill not found: %s", params.Name)
+	}
+	if t.audit != nil {
+		t.audit("described", skill.Name)
+		t.audit("used", skill.Name)
 	}
 
 	return skill.Body, nil

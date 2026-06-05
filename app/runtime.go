@@ -36,10 +36,18 @@ func (a *App) runtimeEnv() *agent.RuntimeEnv {
 		ProjectContext:       loadProjectContext(a.cfg.Workspace),
 		SoulPath:             a.cfg.ResolvedSoulPath(),
 		PreferencesPath:      a.cfg.PreferencesPath(),
+		SkillCards:           a.skillCards(),
 		Prompt:               a.cfg.Prompt,
 		TelegramMentionMode:  a.cfg.Telegram.MentionMode,
 		TelegramSessionScope: a.cfg.Telegram.SessionScope,
 	}
+}
+
+func (a *App) skillCards() []string {
+	if a == nil || a.skills == nil {
+		return nil
+	}
+	return a.skills.Cards()
 }
 
 func (a *App) runtimeEnvFor(p *persona.Persona) *agent.RuntimeEnv {

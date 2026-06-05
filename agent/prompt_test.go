@@ -87,6 +87,24 @@ func TestBuildSystemPromptAddsPreferences(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsSkillCards(t *testing.T) {
+	env := &RuntimeEnv{SkillCards: []string{
+		"- emby: Check Emby\n  when: user asks media status\n  risk: network",
+	}}
+
+	out := BuildSystemPrompt(env, &Turn{Source: "cli", Session: session.New("cli")})
+	for _, want := range []string{
+		"Available skills:",
+		"- emby: Check Emby",
+		"when: user asks media status",
+		"risk: network",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	env := &RuntimeEnv{Prompt: "项目约束"}
 	turn := &Turn{

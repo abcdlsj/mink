@@ -3,16 +3,22 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
 const skillFile = "SKILL.md"
 
 type Skill struct {
-	Name string
-	Desc string
-	Body string
-	Path string
+	Name        string
+	Desc        string
+	When        string
+	Risk        string
+	Env         []string
+	Entrypoints []string
+	Examples    []string
+	Body        string
+	Path        string
 }
 
 type Loader struct {
@@ -40,9 +46,15 @@ func (l *Loader) Discover() []*Skill {
 		}
 	}
 
-	r := make([]*Skill, 0, len(byName))
-	for _, s := range byName {
-		r = append(r, s)
+	names := make([]string, 0, len(byName))
+	for name := range byName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	r := make([]*Skill, 0, len(names))
+	for _, name := range names {
+		r = append(r, byName[name])
 	}
 	return r
 }
@@ -83,16 +95,15 @@ func (l *Loader) parseSkill(path string) *Skill {
 		return nil
 	}
 
-	name, desc := l.parseFrontmatter(string(data))
+	card := l.parseFrontmatter(string(data))
+	name := card.Name
 	if name == "" {
 		name = filepath.Base(filepath.Dir(path))
 	}
+	card.Name = name
+	card.Path = path
 
-	return &Skill{
-		Name: name,
-		Desc: desc,
-		Path: path,
-	}
+	return &card
 }
 
 func (l *Loader) loadBody(s *Skill) *Skill {
@@ -104,14 +115,50 @@ func (l *Loader) loadBody(s *Skill) *Skill {
 	return s
 }
 
-func (l *Loader) parseFrontmatter(content string) (name, desc string) {
+func (l *Loader) Cards() []string {
+	skills := l.Discover()
+	out := make([]string, 0, len(skills))
+	for _, s := range skills {
+		if card := s.Card(); card != "" {
+			out = append(out, card)
+		}
+	}
+	return out
+}
+
+func (s *Skill) Card() string {
+	if s == nil {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "- "+s.Name+": "+s.Desc)
+	if s.When != "" {
+		lines = append(lines, "  when: "+s.When)
+	}
+	if s.Risk != "" {
+		lines = append(lines, "  risk: "+s.Risk)
+	}
+	if len(s.Env) > 0 {
+		lines = append(lines, "  env: "+strings.Join(s.Env, ", "))
+	}
+	if len(s.Entrypoints) > 0 {
+		lines = append(lines, "  entrypoints: "+strings.Join(s.Entrypoints, ", "))
+	}
+	if len(s.Examples) > 0 {
+		lines = append(lines, "  examples: "+strings.Join(s.Examples, " | "))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func (l *Loader) parseFrontmatter(content string) Skill {
+	var s Skill
 	if !strings.HasPrefix(content, "---") {
-		return
+		return s
 	}
 
 	end := strings.Index(content[3:], "\n---")
 	if end == -1 {
-		return
+		return s
 	}
 
 	lines := strings.Split(content[3:end+3], "\n")
@@ -131,12 +178,38 @@ func (l *Loader) parseFrontmatter(content string) (name, desc string) {
 
 		switch key {
 		case "name":
-			name = val
+			s.Name = val
 		case "description":
-			desc = val
+			s.Desc = val
+		case "when_to_use", "when":
+			s.When = val
+		case "risk":
+			s.Risk = val
+		case "env":
+			s.Env = splitVals(val)
+		case "entrypoints", "entrypoint":
+			s.Entrypoints = splitVals(val)
+		case "examples", "example":
+			s.Examples = splitVals(val)
 		}
 	}
-	return
+	return s
+}
+
+func splitVals(s string) []string {
+	s = strings.TrimSpace(strings.Trim(s, "[]"))
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.Trim(strings.TrimSpace(part), `"'`)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func (l *Loader) projectPath() string {

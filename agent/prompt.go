@@ -37,6 +37,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.base())
 	p.Add(b.persona())
 	p.Add(b.context())
+	p.Add(b.skills())
 	p.Add(b.preferences())
 	p.Add(b.permissions())
 	p.Add(b.soul())
@@ -89,6 +90,13 @@ func (b promptBuilder) context() string {
 		lines = append(lines, "Conversation summary:\n"+strings.TrimSpace(s.Summary))
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func (b promptBuilder) skills() string {
+	if b.env == nil || len(b.env.SkillCards) == 0 {
+		return ""
+	}
+	return "Available skills:\n" + strings.Join(b.env.SkillCards, "\n")
 }
 
 func (b promptBuilder) soul() string {
