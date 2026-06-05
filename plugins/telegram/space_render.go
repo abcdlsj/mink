@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/space"
 	tele "gopkg.in/telebot.v4"
 )
@@ -87,7 +88,7 @@ func noMentionHintForSource(src, input string, agents int) string {
 	if strings.HasPrefix(strings.TrimSpace(src), "tg:") {
 		return ""
 	}
-	if !space.SourceUsesRouter(src) {
+	if command.EntrypointPolicy(src).Mode != command.ModeRouted {
 		return ""
 	}
 	if space.HasLeadingMention(input) {

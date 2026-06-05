@@ -62,8 +62,12 @@ func (r *runner) Run(ctx context.Context, args json.RawMessage) (string, error) 
 	if strings.TrimSpace(in.Cmd) == "" {
 		return "", fmt.Errorf("cmd is required")
 	}
-	src := command.NoticeSourceFrom(ctx)
 	id := taskID()
+	policy := command.EntrypointPolicy("background:" + id)
+	src := command.SourceFrom(ctx)
+	if policy.Delivery == command.DeliveryNotice {
+		src = command.NoticeSourceFrom(ctx)
+	}
 	go r.run(id, src, strings.TrimSpace(in.Cwd), in.Cmd)
 	return fmt.Sprintf("background task started: %s", id), nil
 }

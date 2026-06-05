@@ -63,6 +63,7 @@ type inputFlow struct {
 }
 
 func (f inputFlow) run(ctx context.Context) (string, error) {
+	policy := command.EntrypointPolicy(f.source)
 	ctx = command.WithSource(ctx, f.source)
 	ctx = f.withRunContext(ctx)
 	if f.personaID != "" {
@@ -78,17 +79,19 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	}
 	f.input = input
 	f.attachments = attachments
-	if f.personaID == "" && isTelegramSource(f.source) {
+	if f.personaID == "" && policy.Mode == command.ModeDirect && policy.Mention == command.MentionText {
 		return f.telegramDirect(ctx)
 	}
-	if f.personaID == "" && space.SourceUsesRouter(f.source) {
+	if f.personaID == "" && policy.Mode == command.ModeRouted {
 		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
 			return "", err
 		}
 		return "", nil
 	}
-	if out, ok, err := f.mention(ctx); ok {
-		return out, err
+	if policy.Mention == command.MentionLeading {
+		if out, ok, err := f.mention(ctx); ok {
+			return out, err
+		}
 	}
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
 		personaID, _, err := f.app.resolveAgentDMPersonaID(f.source, f.personaID)
@@ -130,11 +133,6 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return latestAssistant(s), nil
-}
-
-func isTelegramSource(source string) bool {
-	source = strings.TrimSpace(source)
-	return strings.HasPrefix(source, "tg:dm:") || strings.HasPrefix(source, "tg:channel:")
 }
 
 func (f inputFlow) telegramDirect(ctx context.Context) (string, error) {
@@ -218,15 +216,7 @@ func runtimeForPermission(runtime, permission string) string {
 }
 
 func personaSessionSource(source, personaID string) string {
-	source = strings.TrimSpace(source)
-	personaID = strings.TrimSpace(personaID)
-	if personaID == "" {
-		return source
-	}
-	if source == "" {
-		source = "default"
-	}
-	return source + ":persona:" + personaID
+	return command.PersonaSessionSource(source, personaID)
 }
 
 func (f inputFlow) withRunContext(ctx context.Context) context.Context {
@@ -235,7 +225,8 @@ func (f inputFlow) withRunContext(ctx context.Context) context.Context {
 
 func (f inputFlow) runContext(ctx context.Context) command.RunContext {
 	src := strings.TrimSpace(f.source)
-	return f.runContextWithSession(ctx, personaSessionSource(src, f.personaID))
+	policy := command.EntrypointPolicy(src)
+	return f.runContextWithSession(ctx, policy.SessionSource(src, f.personaID))
 }
 
 func (f inputFlow) runContextWithSession(ctx context.Context, session string) command.RunContext {
@@ -249,7 +240,7 @@ func (f inputFlow) runContextWithSession(ctx context.Context, session string) co
 		Session:    strings.TrimSpace(session),
 		Delivery:   strings.TrimSpace(delivery),
 		Memory:     f.memoryScopes(src, delivery),
-		Permission: permissionProfile(src),
+		Permission: command.EntrypointPolicy(src).Permission,
 	}
 }
 
@@ -269,17 +260,6 @@ func (f inputFlow) memoryScopes(source, delivery string) []command.MemoryScope {
 	}
 	out = append(out, command.MemoryScope{Kind: "global", Key: ""})
 	return out
-}
-
-func permissionProfile(source string) string {
-	switch {
-	case strings.HasPrefix(source, "cron:"):
-		return "cron"
-	case strings.HasPrefix(source, "tg:"):
-		return "telegram"
-	default:
-		return "default"
-	}
 }
 
 func (f inputFlow) route(ctx context.Context) (string, bool, error) {

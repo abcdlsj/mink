@@ -755,6 +755,59 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 	}
 }
 
+func TestAgentDMTreatsMentionsAsText(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "fallback",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("helper", persona.Meta{Runtime: "helper-rt"}, "help directly"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Personas().Create("bob", persona.Meta{Runtime: "bob-rt"}, "should not be routed"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotInput string
+	var gotPersona *agent.Persona
+	a.RegisterRuntime("helper-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		gotPersona = e.Persona
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "helper ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("bob-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("agent dm mention should not route to bob")
+		return nil, nil
+	})
+	a.RegisterRuntime("fallback", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("fallback runtime should not handle agent dm")
+		return nil, nil
+	})
+
+	out, err := a.HandleInput(context.Background(), "desktop:agent:helper", "@bob hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "helper ok" {
+		t.Fatalf("out = %q, want helper ok", out)
+	}
+	if gotInput != "@bob hello" {
+		t.Fatalf("input = %q, want @bob hello", gotInput)
+	}
+	if gotPersona == nil || gotPersona.ID != "helper" {
+		t.Fatalf("persona = %#v, want helper", gotPersona)
+	}
+}
+
 func TestTelegramDirectUsesDefaultPersonaWithoutMentionRouting(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
