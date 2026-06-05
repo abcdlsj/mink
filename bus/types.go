@@ -26,6 +26,7 @@ const (
 	DelegateCanceled  = "delegate.canceled"
 	DelegateQueued    = "delegate.queued"
 	SpaceTitleChanged = "space.title.changed"
+	RuntimeInfo       = "runtime.info"
 )
 
 type Event struct {

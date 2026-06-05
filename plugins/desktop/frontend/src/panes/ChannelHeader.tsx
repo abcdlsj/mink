@@ -14,6 +14,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const updateAgentChatTitle = useStore((s) => s.updateAgentChatTitle);
+  const runtimeMeta = useStore((s) => s.runtimeMeta);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleBusy, setTitleBusy] = useState(false);
@@ -49,6 +50,13 @@ export function ChannelHeader({ scope }: { scope: string }) {
   }
 
   const editableAgentChat = view === "agent" && !!activeAgent && agentDMs.some((dm) => dm.id === activeAgent);
+  const personaForMeta = (() => {
+    if (view !== "agent" || !activeAgent) return "";
+    if (detail?.item.persona_id) return detail.item.persona_id;
+    const dm = agentDMs.find((d) => d.id === activeAgent);
+    return dm?.persona_id || activeAgent;
+  })();
+  const meta = personaForMeta ? runtimeMeta[personaForMeta] : undefined;
   const beginTitleEdit = () => {
     if (!editableAgentChat) return;
     setTitleDraft(titleText === "New chat" ? "" : titleText);
@@ -138,6 +146,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
             {listeningHint}
           </div>
         )}
+        {meta && <RuntimeMetaChip meta={meta} />}
       </div>
       {showStop && (
         <Button variant="danger" size="sm" onClick={() => void useStore.getState().stop()}>
@@ -145,6 +154,25 @@ export function ChannelHeader({ scope }: { scope: string }) {
           <span>Stop run</span>
         </Button>
       )}
+    </div>
+  );
+}
+
+function RuntimeMetaChip({ meta }: { meta: Record<string, string> }) {
+  const parts: string[] = [];
+  const runtime = meta.runtime;
+  const version = meta.version;
+  if (runtime) parts.push(version ? `${runtime} ${version}` : runtime);
+  if (meta.model) parts.push(meta.model);
+  if (meta.tools_count) parts.push(`${meta.tools_count} tools`);
+  if (meta.mcp_servers_count) parts.push(`${meta.mcp_servers_count} mcp`);
+  if (meta.permission_mode && meta.permission_mode !== "default") parts.push(meta.permission_mode);
+  if (parts.length === 0) return null;
+  return (
+    <div className="mt-1.5 inline-flex max-w-full flex-wrap items-center gap-1 border border-border bg-panel-2 px-1.5 py-0.5 font-mono text-[10.5px] text-text-muted">
+      {parts.map((p, i) => (
+        <span key={i} className={i > 0 ? "before:mr-1 before:content-['·']" : ""}>{p}</span>
+      ))}
     </div>
   );
 }

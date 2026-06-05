@@ -51,6 +51,20 @@ func TestDriverBuildArgsNeverAskForInteractiveApproval(t *testing.T) {
 	t.Fatalf("approval/sandbox bypass not found in args: %v", args)
 }
 
+func TestParseOutputThreadStartedEmitsRuntimeMeta(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type":      "thread.started",
+		"thread_id": "019e95b8-ecdc-7c53-b991-4ccb2f8cae48",
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgRuntimeMeta {
+		t.Fatalf("got %#v", m)
+	}
+	if m.Meta["runtime"] != "codex" || m.Meta["thread_id"] != "019e95b8-ecdc-7c53-b991-4ccb2f8cae48" {
+		t.Fatalf("meta = %#v", m.Meta)
+	}
+}
+
 func TestParseOutputAgentMessageEmitsAssistantText(t *testing.T) {
 	line := mustJSON(t, map[string]any{
 		"type": "item.completed",

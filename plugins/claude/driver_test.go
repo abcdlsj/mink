@@ -197,6 +197,31 @@ func mustJSON(t *testing.T, v any) string {
 	return string(data)
 }
 
+func TestParseOutputSystemInitEmitsRuntimeMeta(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type":                "system",
+		"subtype":             "init",
+		"model":               "claude-opus-4-7",
+		"claude_code_version": "2.1.117",
+		"permissionMode":      "bypassPermissions",
+		"tools":               []string{"Bash", "Read", "Write"},
+		"mcp_servers": []map[string]any{
+			{"name": "context7", "status": "connected"},
+			{"name": "superset", "status": "connected"},
+		},
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgRuntimeMeta {
+		t.Fatalf("got %#v", m)
+	}
+	if m.Meta["runtime"] != "claude" || m.Meta["model"] != "claude-opus-4-7" || m.Meta["version"] != "2.1.117" {
+		t.Fatalf("meta = %#v", m.Meta)
+	}
+	if m.Meta["tools_count"] != "3" || m.Meta["mcp_servers_count"] != "2" {
+		t.Fatalf("counts = %#v", m.Meta)
+	}
+}
+
 func TestParseOutputCapturesToolResult(t *testing.T) {
 	line := mustJSON(t, map[string]any{
 		"type": "user",

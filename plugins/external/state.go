@@ -158,6 +158,17 @@ func reasonNotice(reason string) bool {
 	return true
 }
 
+func (s *runState) onRuntimeMeta(turn *agent.Turn, m *Message) {
+	if turn == nil || len(m.Meta) == 0 {
+		return
+	}
+	data, err := json.Marshal(m.Meta)
+	if err != nil {
+		return
+	}
+	agent.Publish(turn, bus.Event{Type: bus.RuntimeInfo, Text: string(data)})
+}
+
 func mergeUsage(prev, next *msg.TokenUsage) *msg.TokenUsage {
 	if prev == nil {
 		out := *next

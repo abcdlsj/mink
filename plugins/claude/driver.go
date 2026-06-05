@@ -2,11 +2,14 @@ package claude
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/plugins/external"
 )
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 func driver() external.Driver {
 	return external.Driver{
@@ -102,13 +105,22 @@ func parseOutput(line string) *external.Message {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
-		IsError        bool                        `json:"is_error"`
-		DurationMs     int                         `json:"duration_ms"`
-		TotalCostUSD   float64                     `json:"total_cost_usd"`
-		Usage          *claudeUsage                `json:"usage"`
-		ModelUsage     map[string]claudeModelUsage `json:"modelUsage"`
-		TerminalReason string                      `json:"terminal_reason"`
-		ToolUseResult  *claudeToolUseResult        `json:"tool_use_result"`
+		IsError            bool                        `json:"is_error"`
+		DurationMs         int                         `json:"duration_ms"`
+		TotalCostUSD       float64                     `json:"total_cost_usd"`
+		Usage              *claudeUsage                `json:"usage"`
+		ModelUsage         map[string]claudeModelUsage `json:"modelUsage"`
+		TerminalReason     string                      `json:"terminal_reason"`
+		ToolUseResult      *claudeToolUseResult        `json:"tool_use_result"`
+		Cwd                string                      `json:"cwd"`
+		ClaudeCodeVersion  string                      `json:"claude_code_version"`
+		Model              string                      `json:"model"`
+		PermissionMode     string                      `json:"permissionMode"`
+		Tools              []string                    `json:"tools"`
+		MCPServers         []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"mcp_servers"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
@@ -116,6 +128,27 @@ func parseOutput(line string) *external.Message {
 	}
 
 	switch env.Type {
+	case "system":
+		if env.Subtype != "init" {
+			return nil
+		}
+		meta := map[string]string{"runtime": "claude"}
+		if env.Model != "" {
+			meta["model"] = env.Model
+		}
+		if env.ClaudeCodeVersion != "" {
+			meta["version"] = env.ClaudeCodeVersion
+		}
+		if env.PermissionMode != "" {
+			meta["permission_mode"] = env.PermissionMode
+		}
+		if n := len(env.Tools); n > 0 {
+			meta["tools_count"] = itoa(n)
+		}
+		if n := len(env.MCPServers); n > 0 {
+			meta["mcp_servers_count"] = itoa(n)
+		}
+		return &external.Message{Type: external.MsgRuntimeMeta, Meta: meta}
 	case "stream_event":
 		switch env.Event.Type {
 		case "content_block_delta":

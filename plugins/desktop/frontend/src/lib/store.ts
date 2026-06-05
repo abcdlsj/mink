@@ -81,6 +81,7 @@ interface State {
   sending: boolean;
   streaming: StreamingTurn | null;
   streamingByID: Record<string, StreamingTurn>;
+  runtimeMeta: Record<string, Record<string, string>>;
 
   loadInitial: () => Promise<void>;
   openChannel: (id: string) => Promise<void>;
@@ -293,6 +294,7 @@ export const useStore = create<State>((set, get) => ({
   sending: false,
   streaming: null,
   streamingByID: {},
+  runtimeMeta: {},
 
   async loadInitial() {
     try {
@@ -968,6 +970,16 @@ export const useStore = create<State>((set, get) => ({
           ...updateStream(cur, updated),
           detail: updateStreamEvents(detail, stream.messageID, toolCalls),
         });
+        return;
+      }
+      case "runtime.info": {
+        if (!ev.agent_id || !ev.text) return;
+        try {
+          const meta = JSON.parse(ev.text) as Record<string, string>;
+          if (meta && typeof meta === "object") {
+            set({ runtimeMeta: { ...cur.runtimeMeta, [ev.agent_id]: meta } });
+          }
+        } catch {}
         return;
       }
       case "service.notice": {

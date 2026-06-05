@@ -48,8 +48,9 @@ func parseOutput(line string) *external.Message {
 	}
 
 	var ev struct {
-		Type string `json:"type"`
-		Item struct {
+		Type     string `json:"type"`
+		ThreadID string `json:"thread_id"`
+		Item     struct {
 			ID               string `json:"id"`
 			Type             string `json:"type"`
 			Text             string `json:"text"`
@@ -66,6 +67,12 @@ func parseOutput(line string) *external.Message {
 	}
 
 	switch ev.Type {
+	case "thread.started":
+		meta := map[string]string{"runtime": "codex"}
+		if ev.ThreadID != "" {
+			meta["thread_id"] = ev.ThreadID
+		}
+		return &external.Message{Type: external.MsgRuntimeMeta, Meta: meta}
 	case "item.started":
 		if ev.Item.Type == "command_execution" {
 			return &external.Message{

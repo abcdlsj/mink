@@ -36,6 +36,7 @@ const (
 	MsgToolCall
 	MsgToolResult
 	MsgTurnDone
+	MsgRuntimeMeta
 	MsgError
 )
 
@@ -53,6 +54,7 @@ type Message struct {
 	Model    string
 	CostUSD  float64
 	Reason   string
+	Meta     map[string]string
 	Error    error
 }
 
@@ -254,6 +256,8 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 		st.onToolResult(turn, m)
 	case MsgTurnDone:
 		st.onTurnDone(turn, m)
+	case MsgRuntimeMeta:
+		st.onRuntimeMeta(turn, m)
 	case MsgError:
 		return wrapMessageError(name, m)
 	}
