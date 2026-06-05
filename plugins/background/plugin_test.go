@@ -49,6 +49,16 @@ func TestBackgroundUsesNoticeSource(t *testing.T) {
 			if !strings.Contains(ev.Text, "hello") {
 				t.Fatalf("notice text = %q", ev.Text)
 			}
+			tasks, err := a.Tasks().ListBySpace("background")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tasks) != 1 {
+				t.Fatalf("tasks = %+v", tasks)
+			}
+			if tasks[0].Status != "finished" || tasks[0].State.Checkpoint != "done" {
+				t.Fatalf("task = %+v", tasks[0])
+			}
 			return
 		case <-deadline:
 			t.Fatal("missing service notice")

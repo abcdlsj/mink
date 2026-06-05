@@ -122,14 +122,20 @@ func TestCreateRejectsOversizedTitle(t *testing.T) {
 
 func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	m := NewManager(newMemStore())
-	tk, err := m.Create(validInput())
+	in := validInput()
+	in.State = TaskState{Goal: "ship it", Todo: []string{" inspect ", ""}, RelatedIDs: []string{" msg-1 "}}
+	tk, err := m.Create(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tk.Status != StatusQueued {
 		t.Fatalf("status = %v", tk.Status)
 	}
-	if _, err := m.Update(tk.ID, UpdateTaskInput{Status: StatusRunning}); err != nil {
+	if tk.State.Goal != "ship it" || len(tk.State.Todo) != 1 || tk.State.RelatedIDs[0] != "msg-1" {
+		t.Fatalf("state = %+v", tk.State)
+	}
+	next := TaskState{Checkpoint: "running"}
+	if _, err := m.Update(tk.ID, UpdateTaskInput{Status: StatusRunning, State: &next}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Update(tk.ID, UpdateTaskInput{Status: StatusFinished, Outcome: "ok", ResultMessageID: "msg-99"}); err != nil {
@@ -141,6 +147,9 @@ func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	}
 	if got.Status != StatusFinished || got.Outcome != "ok" || got.ResultMessageID != "msg-99" {
 		t.Fatalf("got = %+v", got)
+	}
+	if got.State.Checkpoint != "running" {
+		t.Fatalf("state = %+v", got.State)
 	}
 }
 
@@ -162,7 +171,7 @@ func TestRunLifecycleAndKeyStepWhitelist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := m.StartRun(tk.ID)
+	r, err := m.StartRun(tk.ID, TaskState{Goal: "run tests", Checkpoint: "running"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +180,8 @@ func TestRunLifecycleAndKeyStepWhitelist(t *testing.T) {
 		{Kind: KindRun, Title: "Ran tests", OK: true},
 		{Kind: KindError, Title: "Failed: timeout"},
 	}
-	if _, err := m.FinishRun(r.ID, FinishRunInput{Status: StatusFailed, KeySteps: steps}); err != nil {
+	done := TaskState{Checkpoint: "failed", Blockers: []string{"timeout"}}
+	if _, err := m.FinishRun(r.ID, FinishRunInput{Status: StatusFailed, KeySteps: steps, State: &done}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := m.GetRun(r.ID)
@@ -180,6 +190,9 @@ func TestRunLifecycleAndKeyStepWhitelist(t *testing.T) {
 	}
 	if got.Status != StatusFailed || len(got.KeySteps) != 3 {
 		t.Fatalf("run = %+v", got)
+	}
+	if got.State.Checkpoint != "failed" || got.State.Blockers[0] != "timeout" {
+		t.Fatalf("run state = %+v", got.State)
 	}
 }
 

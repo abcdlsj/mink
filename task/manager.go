@@ -35,6 +35,7 @@ type CreateTaskInput struct {
 	WorkerID         string
 	Title            string
 	Source           string
+	State            TaskState
 }
 
 func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
@@ -47,6 +48,7 @@ func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
 		WorkerID:         in.WorkerID,
 		Title:            strings.TrimSpace(in.Title),
 		Source:           in.Source,
+		State:            cleanState(in.State),
 		Status:           StatusQueued,
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -66,6 +68,7 @@ type UpdateTaskInput struct {
 	Status          Status
 	Outcome         string
 	ResultMessageID string
+	State           *TaskState
 }
 
 func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
@@ -89,6 +92,9 @@ func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	}
 	if in.ResultMessageID != "" {
 		t.ResultMessageID = in.ResultMessageID
+	}
+	if in.State != nil {
+		t.State = cleanState(*in.State)
 	}
 	t.UpdatedAt = time.Now()
 	if err := m.store.SaveTask(t); err != nil {
@@ -124,7 +130,7 @@ func (m *Manager) ListBySpace(spaceID string) ([]*Task, error) {
 	return m.store.ListTasksBySpace(spaceID)
 }
 
-func (m *Manager) StartRun(taskID string) (*Run, error) {
+func (m *Manager) StartRun(taskID string, state ...TaskState) (*Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, err := m.store.LoadTask(taskID); err != nil {
@@ -136,6 +142,9 @@ func (m *Manager) StartRun(taskID string) (*Run, error) {
 		StartedAt: time.Now(),
 		Status:    StatusRunning,
 	}
+	if len(state) > 0 {
+		r.State = cleanState(state[0])
+	}
 	if err := m.store.SaveRun(r); err != nil {
 		return nil, err
 	}
@@ -145,6 +154,7 @@ func (m *Manager) StartRun(taskID string) (*Run, error) {
 type FinishRunInput struct {
 	Status   Status
 	KeySteps []KeyStep
+	State    *TaskState
 }
 
 func (m *Manager) FinishRun(id string, in FinishRunInput) (*Run, error) {
@@ -163,10 +173,34 @@ func (m *Manager) FinishRun(id string, in FinishRunInput) (*Run, error) {
 	r.Status = in.Status
 	r.EndedAt = time.Now()
 	r.KeySteps = append([]KeyStep(nil), in.KeySteps...)
+	if in.State != nil {
+		r.State = cleanState(*in.State)
+	}
 	if err := m.store.SaveRun(r); err != nil {
 		return nil, err
 	}
 	return r, nil
+}
+
+func cleanState(s TaskState) TaskState {
+	s.Goal = strings.TrimSpace(s.Goal)
+	s.Checkpoint = strings.TrimSpace(s.Checkpoint)
+	s.Todo = cleanList(s.Todo)
+	s.Artifacts = cleanList(s.Artifacts)
+	s.Blockers = cleanList(s.Blockers)
+	s.RelatedIDs = cleanList(s.RelatedIDs)
+	return s
+}
+
+func cleanList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func (m *Manager) GetRun(id string) (*Run, error) {

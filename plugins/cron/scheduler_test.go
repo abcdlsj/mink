@@ -61,6 +61,16 @@ func TestSchedulerRunPublishesOutputNotice(t *testing.T) {
 			if gotSession != "cron:cron-test" {
 				t.Fatalf("session source = %q", gotSession)
 			}
+			tasks, err := a.Tasks().ListBySpace("cron:cron-test")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tasks) != 1 {
+				t.Fatalf("tasks = %+v", tasks)
+			}
+			if tasks[0].Status != "finished" || tasks[0].State.Checkpoint != "done" {
+				t.Fatalf("task = %+v", tasks[0])
+			}
 			return
 		case <-deadline:
 			t.Fatal("missing service notice")

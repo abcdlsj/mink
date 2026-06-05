@@ -43,6 +43,7 @@ type Task struct {
 	ResultMessageID  string    `json:"result_message_id,omitempty"`
 	Outcome          string    `json:"outcome,omitempty"`
 	Source           string    `json:"source,omitempty"`
+	State            TaskState `json:"state,omitempty"`
 }
 
 type Run struct {
@@ -52,6 +53,7 @@ type Run struct {
 	EndedAt   time.Time `json:"ended_at,omitempty"`
 	Status    Status    `json:"status"`
 	KeySteps  []KeyStep `json:"key_steps,omitempty"`
+	State     TaskState `json:"state,omitempty"`
 }
 
 type KeyStep struct {
@@ -59,4 +61,13 @@ type KeyStep struct {
 	Title string      `json:"title"`
 	At    time.Time   `json:"at"`
 	OK    bool        `json:"ok"`
+}
+
+type TaskState struct {
+	Goal       string   `json:"goal,omitempty"`
+	Todo       []string `json:"todo,omitempty"`
+	Checkpoint string   `json:"checkpoint,omitempty"`
+	Artifacts  []string `json:"artifacts,omitempty"`
+	Blockers   []string `json:"blockers,omitempty"`
+	RelatedIDs []string `json:"related_ids,omitempty"`
 }
