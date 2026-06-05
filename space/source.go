@@ -4,16 +4,13 @@ import "strings"
 
 func SourceUsesRouter(source string) bool {
 	source = strings.TrimSpace(source)
-	if source == "desktop" || source == "cli" {
+	if source == "desktop" {
 		return true
 	}
 	if strings.HasPrefix(source, "desktop:channel:") {
 		return true
 	}
 	if strings.HasPrefix(source, "desktop:direct:") {
-		return true
-	}
-	if strings.HasPrefix(source, "tg:dm:") || strings.HasPrefix(source, "tg:channel:") {
 		return true
 	}
 	return false

@@ -7,7 +7,7 @@ import (
 	"github.com/abcdlsj/sumi/space"
 )
 
-const noMentionHint = "No agent mentioned. Use @<persona> to wake one, or run sumi with --persona <id> to start a direct DM."
+const noMentionHint = "No agent mentioned. Use @<persona> to wake one."
 
 func (m *shellModel) personaResolver() space.DisplayResolver {
 	if m == nil || m.app == nil || m.app.Personas() == nil {

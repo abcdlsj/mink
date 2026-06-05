@@ -81,7 +81,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	f.input = input
 	f.attachments = attachments
 	if f.personaID == "" && policy.Mode == command.ModeDirect && policy.Mention == command.MentionText {
-		return f.telegramDirect(ctx)
+		return f.directConversation(ctx)
 	}
 	if f.personaID == "" && policy.Mode == command.ModeRouted {
 		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
@@ -143,7 +143,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	return latestAssistant(s), nil
 }
 
-func (f inputFlow) telegramDirect(ctx context.Context) (string, error) {
+func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	persona := f.app.defaultPersona()
 	agentInfo := space.PersonaInfo{ID: "assistant", Display: "Sumi"}
 	if persona != nil {
