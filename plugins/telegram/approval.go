@@ -164,7 +164,7 @@ func (a *approver) send(chatID int64, threadID int, reqID string, req tool.Reque
 	if a.bot == nil {
 		return 0
 	}
-	text := fmt.Sprintf("approval %s\n%s\n%s", reqID, req.Action, approvalReplyHelp)
+	text := fmt.Sprintf("approval %s\n%s\n%s", reqID, approvalText(req), approvalReplyHelp)
 	opts := &tele.SendOptions{ReplyMarkup: approvalMarkup(reqID)}
 	if threadID > 0 {
 		opts.ThreadID = threadID
@@ -174,6 +174,30 @@ func (a *approver) send(chatID int64, threadID int, reqID string, req tool.Reque
 		return 0
 	}
 	return msg.ID
+}
+
+func approvalText(req tool.Request) string {
+	p := req.Proposal
+	var lines []string
+	if p.Intent != "" {
+		lines = append(lines, "intent: "+p.Intent)
+	}
+	if p.Target != "" {
+		lines = append(lines, "target: "+p.Target)
+	}
+	if p.Risk != "" {
+		lines = append(lines, "risk: "+p.Risk)
+	}
+	if p.Preview != "" {
+		lines = append(lines, "preview: "+p.Preview)
+	}
+	if p.Rollback != "" {
+		lines = append(lines, "rollback: "+p.Rollback)
+	}
+	if len(lines) == 0 {
+		return req.Action
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *approver) notice(chatID int64, threadID int, text string) {

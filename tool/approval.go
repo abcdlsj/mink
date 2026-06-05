@@ -19,19 +19,23 @@ const (
 )
 
 type Request struct {
-	Tool    string
-	Action  string
-	Pattern string
+	Tool     string
+	Action   string
+	Pattern  string
+	Proposal ActionProposal
 }
 
 type Approver interface {
 	Approve(context.Context, Request) (Approval, error)
 }
 
+type Audit func(context.Context, Request, Approval)
+
 type PolicyGuard struct {
 	workspace string
 	perms     *Permissions
 	approver  Approver
+	audit     Audit
 }
 
 type permFile struct {
@@ -58,6 +62,10 @@ func (g *PolicyGuard) SetApprover(a Approver) {
 	g.approver = a
 }
 
+func (g *PolicyGuard) SetAudit(a Audit) {
+	g.audit = a
+}
+
 func (g *PolicyGuard) Allow(ctx context.Context, call Call) (bool, error) {
 	if !needsApproval(g.workspace, call) {
 		return true, nil
@@ -69,13 +77,17 @@ func (g *PolicyGuard) Allow(ctx context.Context, call Call) (bool, error) {
 		return false, nil
 	}
 	req := Request{
-		Tool:    call.Tool,
-		Action:  call.Action,
-		Pattern: PatternFor(call.Action),
+		Tool:     call.Tool,
+		Action:   call.Action,
+		Pattern:  PatternFor(call.Action),
+		Proposal: ProposalFor(call),
 	}
 	approval, err := g.approver.Approve(ctx, req)
 	if err != nil {
 		return false, err
+	}
+	if g.audit != nil {
+		g.audit(ctx, req, approval)
 	}
 	switch approval {
 	case AllowAlways:

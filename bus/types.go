@@ -30,6 +30,7 @@ const (
 	SkillListed       = "skill.listed"
 	SkillDescribed    = "skill.described"
 	SkillUsed         = "skill.used"
+	ActionProposal    = "action.proposal"
 )
 
 type Event struct {

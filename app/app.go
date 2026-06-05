@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -66,7 +67,9 @@ func New(cfg config.Config) (*App, error) {
 		entries:    map[string]Entrypoint{},
 		services:   map[string]Service{},
 	}
-	a.tools.SetGuard(tool.NewPolicyGuard(cfg.Workspace, cfg.PermissionsPath()))
+	guard := tool.NewPolicyGuard(cfg.Workspace, cfg.PermissionsPath())
+	guard.SetAudit(a.auditAction)
+	a.tools.SetGuard(guard)
 	a.bus.OnPublish(func(ev bus.Event) {
 		_ = db.AppendEvent(ev)
 	})
@@ -98,6 +101,31 @@ func (a *App) auditSkill(action, name string) {
 		typ = bus.SkillDescribed
 	}
 	a.bus.Publish(bus.Event{Type: typ, Tool: "skill", Text: name})
+}
+
+func (a *App) auditAction(ctx context.Context, req tool.Request, approval tool.Approval) {
+	if a == nil || a.bus == nil {
+		return
+	}
+	data, _ := json.Marshal(req.Proposal)
+	a.bus.Publish(bus.Event{
+		Type:   bus.ActionProposal,
+		Source: command.SourceFrom(ctx),
+		Tool:   req.Tool,
+		Input:  string(data),
+		Output: approvalLabel(approval),
+	})
+}
+
+func approvalLabel(v tool.Approval) string {
+	switch v {
+	case tool.AllowOnce:
+		return "allow_once"
+	case tool.AllowAlways:
+		return "allow_always"
+	default:
+		return "denied"
+	}
 }
 
 func (a *App) Close() error {

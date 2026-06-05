@@ -86,6 +86,32 @@ func TestPolicyGuardAllowAlwaysPersists(t *testing.T) {
 	}
 }
 
+func TestPolicyGuardBuildsActionProposalAndAudit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "permissions.json")
+	g := NewPolicyGuard("", path)
+	var req Request
+	var audited Approval
+	g.SetApprover(approverFunc(func(ctx context.Context, r Request) (Approval, error) {
+		req = r
+		return AllowOnce, nil
+	}))
+	g.SetAudit(func(ctx context.Context, r Request, a Approval) {
+		req = r
+		audited = a
+	})
+
+	ok, err := g.Allow(context.Background(), Call{Tool: "bash", Action: "bash git push origin main"})
+	if err != nil || !ok {
+		t.Fatalf("allow = %v, err = %v", ok, err)
+	}
+	if req.Proposal.Intent != "Run shell command" || req.Proposal.Risk != "shell" || req.Proposal.Target != "git" {
+		t.Fatalf("proposal = %+v", req.Proposal)
+	}
+	if audited != AllowOnce {
+		t.Fatalf("audited = %v", audited)
+	}
+}
+
 func TestPolicyGuardDeniesWithoutApprover(t *testing.T) {
 	g := NewPolicyGuard("", filepath.Join(t.TempDir(), "permissions.json"))
 	ok, err := g.Allow(context.Background(), Call{Tool: "bash", Action: "bash git push origin main"})
