@@ -382,10 +382,6 @@ func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 }
 
 func (a *App) syncWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
-	if s != nil {
-		s.Messages = nil
-		s.Summary = ""
-	}
 	a.seedWakeContext(s, spaceID, parentMessageID, agentID, excludeMessageID, a.wakeContextTokenLimit())
 }
 
@@ -397,21 +393,13 @@ func (a *App) wakeContextTokenLimit() int {
 }
 
 func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string, tokenLimit int) {
-	if a.spaces == nil {
-		return
-	}
-	sp, err := a.spaces.LoadSpace(spaceID)
-	if err != nil || sp == nil {
-		return
-	}
-	candidates := filterContextMessages(contextMessages(sp, parentMessageID), excludeMessageID)
-	msgs := boundedContextMessages(candidates, agentID, tokenLimit)
-	for _, m := range msgs {
-		s.Add(toRuntimeMessage(m, agentID))
-	}
-	if dropped := len(candidates) - len(msgs); dropped > 0 {
-		s.Summary = wakeContextSummary(candidates[:dropped], agentID)
-	}
+	a.BuildContextView(ContextViewInput{
+		SpaceID:          spaceID,
+		ParentMessageID:  parentMessageID,
+		AgentID:          agentID,
+		ExcludeMessageID: excludeMessageID,
+		TokenLimit:       tokenLimit,
+	}).Apply(s)
 }
 
 func filterContextMessages(msgs []space.Message, excludeMessageID string) []space.Message {

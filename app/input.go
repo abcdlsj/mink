@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 )
 
@@ -93,6 +94,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 			return out, err
 		}
 	}
+	var contextSpaceID, excludeMessageID string
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
 		personaID, _, err := f.app.resolveAgentDMPersonaID(f.source, f.personaID)
 		if err != nil {
@@ -104,8 +106,13 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		}
 		ctx = command.WithPersona(ctx, personaID)
 		ctx = f.withRunContext(ctx)
-		if _, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input); err != nil {
+		m, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input)
+		if err != nil {
 			return "", err
+		}
+		if m != nil {
+			contextSpaceID = m.SpaceID
+			excludeMessageID = m.ID
 		}
 	}
 	sessionSource := command.SessionSourceFrom(ctx)
@@ -113,6 +120,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	f.seedDirectContext(s, contextSpaceID, f.personaID, excludeMessageID)
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
 			Type:      bus.TurnQueued,
@@ -149,21 +157,27 @@ func (f inputFlow) telegramDirect(ctx context.Context) (string, error) {
 	ctx = command.WithRunContext(ctx, f.runContextWithSession(ctx, strings.TrimSpace(f.source)))
 
 	var sp *space.Space
+	var excludeMessageID string
 	if f.app.spaces != nil {
 		var err error
 		sp, err = f.app.spaces.Resolve(f.source, agentInfo)
 		if err != nil {
 			return "", err
 		}
-		if _, err := f.app.spaces.AppendUserMessage(sp.ID, f.input, nil); err != nil {
+		m, err := f.app.spaces.AppendUserMessage(sp.ID, f.input, nil)
+		if err != nil {
 			return "", err
 		}
+		excludeMessageID = m.ID
 	}
 
 	sessionSource := command.SessionSourceFrom(ctx)
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
 		return "", err
+	}
+	if sp != nil {
+		f.seedDirectContext(s, sp.ID, agentInfo.ID, excludeMessageID)
 	}
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
@@ -201,6 +215,17 @@ func (f inputFlow) telegramDirect(ctx context.Context) (string, error) {
 		}
 	}
 	return content, nil
+}
+
+func (f inputFlow) seedDirectContext(s *session.Session, spaceID, agentID, excludeMessageID string) {
+	if strings.TrimSpace(spaceID) == "" || strings.TrimSpace(agentID) == "" {
+		return
+	}
+	f.app.BuildContextView(ContextViewInput{
+		SpaceID:          spaceID,
+		AgentID:          agentID,
+		ExcludeMessageID: excludeMessageID,
+	}).Apply(s)
 }
 
 func runtimeForPermission(runtime, permission string) string {

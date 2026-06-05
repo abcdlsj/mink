@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -808,6 +809,56 @@ func TestAgentDMTreatsMentionsAsText(t *testing.T) {
 	}
 }
 
+func TestAgentDMSeedsContextViewFromSpace(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "fallback",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("helper", persona.Meta{Runtime: "helper-rt"}, "help directly"); err != nil {
+		t.Fatal(err)
+	}
+
+	turns := 0
+	a.RegisterRuntime("helper-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turns++
+			if turns == 2 {
+				var got []string
+				for _, m := range turn.Session.Messages {
+					got = append(got, m.Content)
+				}
+				joined := strings.Join(got, "\n")
+				if !strings.Contains(joined, "[user] first") || !strings.Contains(joined, "agent reply 1") {
+					t.Fatalf("context view = %+v", got)
+				}
+				if strings.Contains(joined, "second") {
+					t.Fatalf("current input leaked into context view: %+v", got)
+				}
+			}
+			turn.Session.Add(msg.Message{Role: "assistant", Content: fmt.Sprintf("agent reply %d", turns)})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("fallback", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("fallback runtime should not handle agent dm")
+		return nil, nil
+	})
+
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:helper", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.HandleInput(context.Background(), "desktop:agent:helper", "second"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTelegramDirectUsesDefaultPersonaWithoutMentionRouting(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
@@ -885,5 +936,51 @@ func TestTelegramDirectUsesDefaultPersonaWithoutMentionRouting(t *testing.T) {
 	}
 	if sp.Messages[1].AuthorID != "andy" || sp.Messages[1].Content != "andy ok" {
 		t.Fatalf("space assistant message = %#v", sp.Messages[1])
+	}
+}
+
+func TestTelegramDirectSeedsContextViewFromSpace(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:        "stub",
+		DataDir:        filepath.Join(dir, "sumi-data"),
+		Workspace:      dir,
+		DefaultPersona: "andy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("andy", persona.Meta{Display: "Andy", Runtime: "stub"}, "default tg agent"); err != nil {
+		t.Fatal(err)
+	}
+	turns := 0
+	a.RegisterRuntime("stub", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turns++
+			if turns == 2 {
+				var got []string
+				for _, m := range turn.Session.Messages {
+					got = append(got, m.Content)
+				}
+				joined := strings.Join(got, "\n")
+				if !strings.Contains(joined, "[user] first") || !strings.Contains(joined, "reply 1") {
+					t.Fatalf("context view = %+v", got)
+				}
+				if strings.Contains(joined, "second") {
+					t.Fatalf("current input leaked into context view: %+v", got)
+				}
+			}
+			turn.Session.Add(msg.Message{Role: "assistant", Content: fmt.Sprintf("reply %d", turns)})
+			return nil
+		}), nil
+	})
+
+	if _, err := a.HandleInput(context.Background(), "tg:dm:42", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.HandleInput(context.Background(), "tg:dm:42", "second"); err != nil {
+		t.Fatal(err)
 	}
 }
