@@ -216,14 +216,16 @@ export function Composer() {
           )}
         </div>
         <div className="mt-2 flex items-center gap-2">
-          {view === "agent" ? (
-            <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">
-              {(() => {
-                const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
-                return ag ? "@" + ag.display : "";
-              })()}
-            </span>
-          ) : null}
+          {(() => {
+            if (view !== "agent") return null;
+            const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
+            if (!ag) return null;
+            return (
+              <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">
+                @{ag.display}
+              </span>
+            );
+          })()}
           <WorkingAgents agents={workingAgents} />
           <span className="flex-1" />
           <Button
