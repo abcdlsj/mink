@@ -81,7 +81,7 @@ func TestHandleMessageMergesAssistantSnapshots(t *testing.T) {
 	}
 }
 
-func TestFlushFillsMissingToolResults(t *testing.T) {
+func TestFlushKeepsMissingToolResultsEmpty(t *testing.T) {
 	turn := &agent.Turn{Source: "test", Session: session.New("test")}
 	st := &runState{calls: map[string]toolCallState{}}
 
@@ -112,8 +112,8 @@ func TestFlushFillsMissingToolResults(t *testing.T) {
 	if ids["a"] != "ok" {
 		t.Fatalf("a content = %q", ids["a"])
 	}
-	if ids["b"] == "" || ids["b"] == "ok" {
-		t.Fatalf("b filler missing or wrong: %q", ids["b"])
+	if ids["b"] != "" {
+		t.Fatalf("b content = %q, want empty (no synthetic filler)", ids["b"])
 	}
 }
 

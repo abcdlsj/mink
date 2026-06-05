@@ -1,10 +1,12 @@
 package codex
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/abcdlsj/sumi/msg"
+	"github.com/abcdlsj/sumi/plugins/external"
 )
 
 func TestDriverFormatsSessionHistory(t *testing.T) {
@@ -47,4 +49,69 @@ func TestDriverBuildArgsNeverAskForInteractiveApproval(t *testing.T) {
 		}
 	}
 	t.Fatalf("approval/sandbox bypass not found in args: %v", args)
+}
+
+func TestParseOutputAgentMessageEmitsAssistantText(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type": "item.completed",
+		"item": map[string]any{
+			"id":   "item_1",
+			"type": "agent_message",
+			"text": "hello",
+		},
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgAssistantText || m.Text != "hello" || m.Snapshot {
+		t.Fatalf("got %#v", m)
+	}
+}
+
+func TestParseOutputCommandExecutionCarriesExitCode(t *testing.T) {
+	exitCode := 1
+	line := mustJSON(t, map[string]any{
+		"type": "item.completed",
+		"item": map[string]any{
+			"id":                "item_0",
+			"type":              "command_execution",
+			"command":           "false",
+			"aggregated_output": "",
+			"exit_code":         exitCode,
+			"status":            "completed",
+		},
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgToolResult || m.ToolID != "item_0" {
+		t.Fatalf("got %#v", m)
+	}
+	if !m.IsError || m.ExitCode != 1 {
+		t.Fatalf("error flag = %v exit = %d", m.IsError, m.ExitCode)
+	}
+}
+
+func TestParseOutputTurnCompletedCarriesUsage(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type": "turn.completed",
+		"usage": map[string]any{
+			"input_tokens":          100,
+			"cached_input_tokens":   50,
+			"output_tokens":         20,
+			"reasoning_output_tokens": 5,
+		},
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgTurnDone {
+		t.Fatalf("got %#v", m)
+	}
+	if m.Usage == nil || m.Usage.Input != 150 || m.Usage.Output != 25 || m.Usage.Total != 175 {
+		t.Fatalf("usage = %#v", m.Usage)
+	}
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

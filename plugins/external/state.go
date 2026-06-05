@@ -17,8 +17,11 @@ import (
 )
 
 type toolCallState struct {
-	call msg.ToolCall
-	out  string
+	call     msg.ToolCall
+	out      string
+	stderr   string
+	exitCode int
+	isError  bool
 }
 
 type runState struct {
@@ -27,6 +30,10 @@ type runState struct {
 	order     []string
 	calls     map[string]toolCallState
 	streamed  bool
+	usage     *msg.TokenUsage
+	model     string
+	cost      float64
+	reason    string
 }
 
 func (s *runState) onStream(turn *agent.Turn, text string) {
@@ -104,14 +111,78 @@ func (s *runState) onToolCall(turn *agent.Turn, m *Message) {
 func (s *runState) onToolResult(turn *agent.Turn, m *Message) {
 	tc := s.calls[m.ToolID]
 	tc.out = m.Text
+	tc.stderr = m.Stderr
+	tc.exitCode = m.ExitCode
+	tc.isError = m.IsError
 	s.calls[m.ToolID] = tc
-	agent.Publish(turn, bus.Event{
+	ev := bus.Event{
 		Type:       bus.ToolCallFinished,
 		ToolCallID: m.ToolID,
 		Tool:       tc.call.Name,
 		Input:      string(tc.call.Args),
 		Output:     m.Text,
-	})
+	}
+	if m.IsError {
+		ev.Type = bus.ToolCallFailed
+		ev.Err = m.Stderr
+	}
+	agent.Publish(turn, ev)
+}
+
+func (s *runState) onTurnDone(turn *agent.Turn, m *Message) {
+	if m.Text != "" {
+		s.mergeAssistant(turn, m.Text)
+	}
+	if m.Usage != nil {
+		s.usage = mergeUsage(s.usage, m.Usage)
+	}
+	if m.Model != "" {
+		s.model = m.Model
+	}
+	if m.CostUSD > 0 {
+		s.cost = m.CostUSD
+	}
+	if m.Reason != "" {
+		s.reason = m.Reason
+		if reasonNotice(m.Reason) {
+			agent.Publish(turn, bus.Event{Type: bus.ServiceNotice, Text: "runtime ended: " + m.Reason})
+		}
+	}
+}
+
+func reasonNotice(reason string) bool {
+	switch reason {
+	case "", "completed", "success":
+		return false
+	}
+	return true
+}
+
+func mergeUsage(prev, next *msg.TokenUsage) *msg.TokenUsage {
+	if prev == nil {
+		out := *next
+		return &out
+	}
+	out := *prev
+	if next.Input > out.Input {
+		out.Input = next.Input
+	}
+	if next.Output > out.Output {
+		out.Output = next.Output
+	}
+	if next.Total > out.Total {
+		out.Total = next.Total
+	}
+	if next.Source != "" {
+		out.Source = next.Source
+	}
+	if next.ContextWindow > out.ContextWindow {
+		out.ContextWindow = next.ContextWindow
+	}
+	if next.MaxTokens > out.MaxTokens {
+		out.MaxTokens = next.MaxTokens
+	}
+	return &out
 }
 
 func (s *runState) flush(sess *session.Session) {
@@ -123,12 +194,25 @@ func (s *runState) addAssistant(sess *session.Session) {
 	if sess == nil || (strings.TrimSpace(s.assistant.String()) == "" && strings.TrimSpace(s.reasoning.String()) == "" && len(s.calls) == 0) {
 		return
 	}
+	usage := s.usage
+	if s.cost > 0 || s.model != "" {
+		if usage == nil {
+			usage = &msg.TokenUsage{}
+		}
+		if s.cost > 0 {
+			usage.CostUSD = s.cost
+		}
+		if s.model != "" {
+			usage.Model = s.model
+		}
+	}
 	sess.Add(msg.Message{
 		ID:        uuid.New().String()[:8],
 		Role:      "assistant",
 		Content:   s.assistant.String(),
 		Reasoning: s.reasoning.String(),
 		ToolCalls: s.toolCalls(),
+		Usage:     usage,
 		Timestamp: time.Now(),
 	})
 }
@@ -167,14 +251,17 @@ func (s *runState) toolResults() []msg.ToolResult {
 	out := make([]msg.ToolResult, 0, len(s.calls))
 	for _, id := range s.stableIDs() {
 		call := s.calls[id]
-		content := call.out
-		if content == "" {
-			content = "(no result captured; run ended before the tool reported back)"
-		}
-		out = append(out, msg.ToolResult{
+		r := msg.ToolResult{
 			ToolCallID: id,
-			Content:    content,
-		})
+			Content:    call.out,
+		}
+		if call.isError {
+			r.Error = call.stderr
+			if r.Error == "" {
+				r.Error = call.out
+			}
+		}
+		out = append(out, r)
 	}
 	return out
 }

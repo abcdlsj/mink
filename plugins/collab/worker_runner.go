@@ -238,6 +238,7 @@ func (m *manager) runWorkerAsMention(ctx context.Context, in workerRunInput) (st
 		reasoning,
 		resolved,
 		in.TriggerMessageID,
+		msg.AssistantUsage(added),
 	)
 	if err != nil {
 		return "", err

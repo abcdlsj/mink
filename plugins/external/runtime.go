@@ -40,15 +40,20 @@ const (
 )
 
 type Message struct {
-	Type         MessageType
-	Text         string
-	Snapshot     bool
-	ToolName     string
-	ToolArgs     string
-	ToolID       string
-	InputTokens  int
-	OutputTokens int
-	Error        error
+	Type     MessageType
+	Text     string
+	Snapshot bool
+	ToolName string
+	ToolArgs string
+	ToolID   string
+	Stderr   string
+	ExitCode int
+	IsError  bool
+	Usage    *msg.TokenUsage
+	Model    string
+	CostUSD  float64
+	Reason   string
+	Error    error
 }
 
 func NewRuntime(driver Driver) agent.RuntimeFactory {
@@ -247,6 +252,8 @@ func handleMessage(name string, turn *agent.Turn, st *runState, m *Message) erro
 		st.onToolCall(turn, m)
 	case MsgToolResult:
 		st.onToolResult(turn, m)
+	case MsgTurnDone:
+		st.onTurnDone(turn, m)
 	case MsgError:
 		return wrapMessageError(name, m)
 	}

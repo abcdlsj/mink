@@ -42,6 +42,32 @@ func formatHistory(messages []msg.Message) string {
 	return external.FormatHistory(messages)
 }
 
+type claudeUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+type claudeModelUsage struct {
+	CostUSD          float64 `json:"costUSD"`
+	ContextWindow    int     `json:"contextWindow"`
+	MaxOutputTokens  int     `json:"maxOutputTokens"`
+}
+
+type claudeToolResultBlock struct {
+	ToolUseID string `json:"tool_use_id"`
+	Type      string `json:"type"`
+	Content   any    `json:"content"`
+	IsError   bool   `json:"is_error"`
+}
+
+type claudeToolUseResult struct {
+	Stdout      string `json:"stdout"`
+	Stderr      string `json:"stderr"`
+	Interrupted bool   `json:"interrupted"`
+}
+
 func parseOutput(line string) *external.Message {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -52,14 +78,10 @@ func parseOutput(line string) *external.Message {
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
 		Message struct {
-			Content []struct {
-				Type     string `json:"type"`
-				Text     string `json:"text"`
-				Thinking string `json:"thinking"`
-				Name     string `json:"name"`
-				ID       string `json:"id"`
-				Input    any    `json:"input"`
-			} `json:"content"`
+			Model   string                  `json:"model"`
+			Role    string                  `json:"role"`
+			Usage   *claudeUsage            `json:"usage"`
+			Content []json.RawMessage       `json:"content"`
 		} `json:"message"`
 		Event struct {
 			Type         string `json:"type"`
@@ -75,12 +97,18 @@ func parseOutput(line string) *external.Message {
 				Thinking string `json:"thinking"`
 			} `json:"delta"`
 		} `json:"event"`
-		Result string `json:"result"`
-		Error  struct {
+		Result         string                      `json:"result"`
+		Error          struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
-		IsError bool `json:"is_error"`
+		IsError        bool                        `json:"is_error"`
+		DurationMs     int                         `json:"duration_ms"`
+		TotalCostUSD   float64                     `json:"total_cost_usd"`
+		Usage          *claudeUsage                `json:"usage"`
+		ModelUsage     map[string]claudeModelUsage `json:"modelUsage"`
+		TerminalReason string                      `json:"terminal_reason"`
+		ToolUseResult  *claudeToolUseResult        `json:"tool_use_result"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
@@ -115,20 +143,31 @@ func parseOutput(line string) *external.Message {
 		if env.Subtype == "message" || env.Subtype == "" {
 			var text strings.Builder
 			var thinking strings.Builder
-			for _, c := range env.Message.Content {
-				switch c.Type {
+			for _, raw := range env.Message.Content {
+				var block struct {
+					Type     string `json:"type"`
+					Text     string `json:"text"`
+					Thinking string `json:"thinking"`
+					Name     string `json:"name"`
+					ID       string `json:"id"`
+					Input    any    `json:"input"`
+				}
+				if err := json.Unmarshal(raw, &block); err != nil {
+					continue
+				}
+				switch block.Type {
 				case "text":
-					text.WriteString(c.Text)
+					text.WriteString(block.Text)
 				case "thinking":
-					if c.Thinking != "" {
-						thinking.WriteString(c.Thinking)
+					if block.Thinking != "" {
+						thinking.WriteString(block.Thinking)
 					}
 				case "tool_use":
 					return &external.Message{
 						Type:     external.MsgToolCall,
-						ToolName: c.Name,
-						ToolID:   c.ID,
-						ToolArgs: marshalInput(c.Input),
+						ToolName: block.Name,
+						ToolID:   block.ID,
+						ToolArgs: marshalInput(block.Input),
 					}
 				}
 			}
@@ -140,23 +179,98 @@ func parseOutput(line string) *external.Message {
 					Type:     external.MsgAssistantText,
 					Text:     text.String(),
 					Snapshot: true,
+					Model:    env.Message.Model,
 				}
 			}
+		}
+	case "user":
+		for _, raw := range env.Message.Content {
+			var block claudeToolResultBlock
+			if err := json.Unmarshal(raw, &block); err != nil {
+				continue
+			}
+			if block.Type != "tool_result" {
+				continue
+			}
+			text := flattenToolResultContent(block.Content)
+			out := &external.Message{
+				Type:    external.MsgToolResult,
+				ToolID:  block.ToolUseID,
+				Text:    text,
+				IsError: block.IsError,
+			}
+			if env.ToolUseResult != nil {
+				out.Stderr = env.ToolUseResult.Stderr
+			}
+			return out
 		}
 	case "result":
 		if env.IsError {
 			return &external.Message{Type: external.MsgError, Text: resultError(env.Result, env.Subtype, env.Error.Type, env.Error.Message)}
 		}
-		if env.Result != "" {
-			return &external.Message{
-				Type:     external.MsgAssistantText,
-				Text:     env.Result,
-				Snapshot: true,
+		done := &external.Message{
+			Type:    external.MsgTurnDone,
+			Text:    env.Result,
+			Reason:  env.TerminalReason,
+			CostUSD: env.TotalCostUSD,
+			Usage:   tokenUsage(env.Usage),
+		}
+		for model, mu := range env.ModelUsage {
+			if mu.CostUSD > done.CostUSD {
+				done.CostUSD = mu.CostUSD
+			}
+			if done.Model == "" {
+				done.Model = model
+			}
+			if done.Usage != nil {
+				if mu.ContextWindow > done.Usage.ContextWindow {
+					done.Usage.ContextWindow = mu.ContextWindow
+				}
+				if mu.MaxOutputTokens > done.Usage.MaxTokens {
+					done.Usage.MaxTokens = mu.MaxOutputTokens
+				}
 			}
 		}
+		return done
 	}
 
 	return nil
+}
+
+func flattenToolResultContent(v any) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case []any:
+		var b strings.Builder
+		for _, item := range t {
+			if m, ok := item.(map[string]any); ok {
+				if s, ok := m["text"].(string); ok {
+					b.WriteString(s)
+					continue
+				}
+			}
+			data, _ := json.Marshal(item)
+			b.Write(data)
+		}
+		return b.String()
+	default:
+		data, _ := json.Marshal(v)
+		return string(data)
+	}
+}
+
+func tokenUsage(u *claudeUsage) *msg.TokenUsage {
+	if u == nil {
+		return nil
+	}
+	out := &msg.TokenUsage{
+		Input:  u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens,
+		Output: u.OutputTokens,
+		Source: "claude",
+	}
+	out.Total = out.Input + out.Output
+	return out
 }
 
 func resultError(result, subtype, typ, message string) string {

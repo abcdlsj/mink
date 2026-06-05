@@ -57,7 +57,7 @@ func TestNewSpaceAgentRepliesSkipsPreExistingMessages(t *testing.T) {
 	if _, err := a.Spaces().AppendUserMessage(sp.ID, "old", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "coder", Display: "Coder"}, "old reply", "", nil, ""); err != nil {
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "coder", Display: "Coder"}, "old reply", "", nil, "", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,7 +66,7 @@ func TestNewSpaceAgentRepliesSkipsPreExistingMessages(t *testing.T) {
 	if _, err := a.Spaces().AppendUserMessage(sp.ID, "new q", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "coder", Display: "Coder"}, "fresh reply", "", nil, ""); err != nil {
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "coder", Display: "Coder"}, "fresh reply", "", nil, "", nil); err != nil {
 		t.Fatal(err)
 	}
 

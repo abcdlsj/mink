@@ -1,6 +1,10 @@
 package space
 
-import "time"
+import (
+	"time"
+
+	"github.com/abcdlsj/sumi/msg"
+)
 
 type Message struct {
 	ID              string          `json:"id"`
@@ -12,5 +16,6 @@ type Message struct {
 	Reasoning       string          `json:"reasoning,omitempty"`
 	Mentions        []string        `json:"mentions,omitempty"`
 	AutoReplyReason string          `json:"auto_reply_reason,omitempty"`
+	Usage           *msg.TokenUsage `json:"usage,omitempty"`
 	CreatedAt       time.Time       `json:"created_at"`
 }

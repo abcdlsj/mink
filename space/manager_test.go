@@ -125,11 +125,11 @@ func TestAppendMessageRejectsMissingAuthor(t *testing.T) {
 		t.Errorf("AppendUserMessage failed: %v", err)
 	}
 
-	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: ""}, "...", "", nil, ""); err == nil {
+	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: ""}, "...", "", nil, "", nil); err == nil {
 		t.Error("agent message with empty id should be rejected")
 	}
 
-	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: "coder", Display: "Coder"}, "ok", "", nil, ""); err != nil {
+	if _, err := mgr.AppendAgentMessage(ch.ID, PersonaInfo{ID: "coder", Display: "Coder"}, "ok", "", nil, "", nil); err != nil {
 		t.Errorf("agent message with valid persona failed: %v", err)
 	}
 

@@ -122,6 +122,16 @@ export interface MessageView {
   is_thread_reply?: boolean;
   task_accessory?: TaskAccessoryInfo;
   auto_reply_reason?: string;
+  usage?: TokenUsage;
+}
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  total: number;
+  cost_usd?: number;
+  model?: string;
+  source?: string;
 }
 
 export interface TaskAccessoryInfo {

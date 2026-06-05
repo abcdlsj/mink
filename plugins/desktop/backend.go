@@ -533,7 +533,7 @@ func spaceMessagesToView(sp *space.Space, a appAccessor) []MessageView {
 }
 
 func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayResolver) MessageView {
-	return MessageView{
+	view := MessageView{
 		ID:              m.ID,
 		Role:            roleForKind(m.AuthorKind),
 		AuthorID:        m.AuthorID,
@@ -544,6 +544,17 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		ThreadID:        m.ParentMessageID,
 		AutoReplyReason: m.AutoReplyReason,
 	}
+	if m.Usage != nil {
+		view.Usage = &TokenUsage{
+			Input:   m.Usage.Input,
+			Output:  m.Usage.Output,
+			Total:   m.Usage.Total,
+			CostUSD: m.Usage.CostUSD,
+			Model:   m.Usage.Model,
+			Source:  m.Usage.Source,
+		}
+	}
+	return view
 }
 
 func computeTaskAccessoryIndex(sp *space.Space, a appAccessor) map[string]*taskpkg.Task {

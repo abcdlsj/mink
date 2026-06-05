@@ -305,6 +305,7 @@ func (m *manager) runSpaceDelegate(ctx context.Context, tk *taskpkg.Task, in spa
 		reasoning,
 		resolved,
 		in.TriggerMessageID,
+		msg.AssistantUsage(added),
 	)
 	if err != nil {
 		_ = m.finishRunFinal(tk.ID, r.ID, taskpkg.StatusFailed, steps, err.Error())

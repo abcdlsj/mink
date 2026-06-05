@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abcdlsj/sumi/msg"
 )
 
 type Store interface {
@@ -215,7 +217,7 @@ func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) 
 	})
 }
 
-func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string) (Message, error) {
+func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string, usage *msg.TokenUsage) (Message, error) {
 	if strings.TrimSpace(agent.ID) == "" {
 		return Message{}, fmt.Errorf("agent message rejected: empty author_id")
 	}
@@ -226,23 +228,24 @@ func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content,
 		Reasoning:       reasoning,
 		Mentions:        mentions,
 		ParentMessageID: parentMessageID,
+		Usage:           usage,
 	})
 }
 
-func (m *Manager) appendMessage(spaceID string, msg Message) (Message, error) {
+func (m *Manager) appendMessage(spaceID string, message Message) (Message, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sp, err := m.store.LoadSpace(spaceID)
 	if err != nil {
 		return Message{}, err
 	}
-	if msg.AuthorID == "" {
+	if message.AuthorID == "" {
 		return Message{}, fmt.Errorf("message missing author_id (space=%s)", spaceID)
 	}
-	if msg.AuthorKind == "" {
-		return Message{}, fmt.Errorf("message missing author_kind (space=%s, author=%s)", spaceID, msg.AuthorID)
+	if message.AuthorKind == "" {
+		return Message{}, fmt.Errorf("message missing author_kind (space=%s, author=%s)", spaceID, message.AuthorID)
 	}
-	written := sp.AddMessage(msg)
+	written := sp.AddMessage(message)
 	if err := m.store.SaveSpace(sp); err != nil {
 		return Message{}, err
 	}

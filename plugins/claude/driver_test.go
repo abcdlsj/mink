@@ -91,32 +91,35 @@ func TestDriverBuildArgsResumesExistingSession(t *testing.T) {
 	t.Fatalf("--resume not found in args: %v", args)
 }
 
-func TestParseOutputMarksAssistantSnapshots(t *testing.T) {
-	tests := []string{
-		mustJSON(t, map[string]any{
-			"type":    "assistant",
-			"subtype": "message",
-			"message": map[string]any{
-				"content": []map[string]any{{
-					"type": "text",
-					"text": "hello",
-				}},
-			},
-		}),
-		mustJSON(t, map[string]any{
-			"type":   "result",
-			"result": "hello",
-		}),
+func TestParseOutputMarksAssistantSnapshot(t *testing.T) {
+	m := parseOutput(mustJSON(t, map[string]any{
+		"type":    "assistant",
+		"subtype": "message",
+		"message": map[string]any{
+			"content": []map[string]any{{
+				"type": "text",
+				"text": "hello",
+			}},
+		},
+	}))
+	if m == nil {
+		t.Fatalf("parseOutput = nil")
 	}
+	if m.Type != external.MsgAssistantText || !m.Snapshot || m.Text != "hello" {
+		t.Fatalf("assistant got %#v", m)
+	}
+}
 
-	for _, line := range tests {
-		m := parseOutput(line)
-		if m == nil {
-			t.Fatalf("parseOutput(%s) = nil", line)
-		}
-		if m.Type != external.MsgAssistantText || !m.Snapshot || m.Text != "hello" {
-			t.Fatalf("got %#v", m)
-		}
+func TestParseOutputResultEmitsTurnDoneSnapshot(t *testing.T) {
+	m := parseOutput(mustJSON(t, map[string]any{
+		"type":   "result",
+		"result": "hello",
+	}))
+	if m == nil {
+		t.Fatalf("parseOutput = nil")
+	}
+	if m.Type != external.MsgTurnDone || m.Text != "hello" {
+		t.Fatalf("result got %#v", m)
 	}
 }
 
@@ -192,4 +195,64 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestParseOutputCapturesToolResult(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"content": []map[string]any{{
+				"type":        "tool_result",
+				"tool_use_id": "tooluse_xyz",
+				"content":     "63 files",
+				"is_error":    false,
+			}},
+		},
+		"tool_use_result": map[string]any{
+			"stdout": "63 files",
+			"stderr": "",
+		},
+	})
+	m := parseOutput(line)
+	if m == nil {
+		t.Fatal("parseOutput = nil")
+	}
+	if m.Type != external.MsgToolResult || m.ToolID != "tooluse_xyz" || m.Text != "63 files" || m.IsError {
+		t.Fatalf("got %#v", m)
+	}
+}
+
+func TestParseOutputResultEmitsTurnDoneWithUsage(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type":           "result",
+		"result":         "done",
+		"total_cost_usd": 0.42,
+		"usage": map[string]any{
+			"input_tokens":                100,
+			"output_tokens":               20,
+			"cache_creation_input_tokens": 5,
+			"cache_read_input_tokens":     0,
+		},
+		"modelUsage": map[string]any{
+			"claude-opus-4-7": map[string]any{
+				"costUSD":         0.42,
+				"contextWindow":   200000,
+				"maxOutputTokens": 32000,
+			},
+		},
+		"terminal_reason": "completed",
+	})
+	m := parseOutput(line)
+	if m == nil {
+		t.Fatal("parseOutput = nil")
+	}
+	if m.Type != external.MsgTurnDone {
+		t.Fatalf("type = %v, want MsgTurnDone", m.Type)
+	}
+	if m.CostUSD != 0.42 || m.Reason != "completed" || m.Model != "claude-opus-4-7" {
+		t.Fatalf("meta = %#v", m)
+	}
+	if m.Usage == nil || m.Usage.Input != 105 || m.Usage.Output != 20 || m.Usage.ContextWindow != 200000 {
+		t.Fatalf("usage = %#v", m.Usage)
+	}
 }

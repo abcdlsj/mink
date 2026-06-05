@@ -46,6 +46,8 @@ type TokenUsage struct {
 	ContextWindow  int
 	MaxTokens      int
 	Reserve        int
+	CostUSD        float64
+	Model          string
 	Source         string
 }
 

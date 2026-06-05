@@ -34,6 +34,13 @@ func formatHistory(messages []msg.Message) string {
 	return external.FormatHistory(messages)
 }
 
+type codexUsage struct {
+	InputTokens         int `json:"input_tokens"`
+	CachedInputTokens   int `json:"cached_input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	ReasoningOutputTokens int `json:"reasoning_output_tokens"`
+}
+
 func parseOutput(line string) *external.Message {
 	line = strings.TrimSpace(line)
 	if line == "" {
@@ -48,7 +55,10 @@ func parseOutput(line string) *external.Message {
 			Text             string `json:"text"`
 			Command          string `json:"command"`
 			AggregatedOutput string `json:"aggregated_output"`
+			ExitCode         *int   `json:"exit_code"`
+			Status           string `json:"status"`
 		} `json:"item"`
+		Usage *codexUsage `json:"usage"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &ev); err != nil {
@@ -68,18 +78,34 @@ func parseOutput(line string) *external.Message {
 	case "item.completed":
 		switch ev.Item.Type {
 		case "agent_message":
-			text := ev.Item.Text
-			if text != "" && !strings.HasSuffix(text, "\n") {
-				text += "\n"
-			}
-			return &external.Message{Type: external.MsgStreamChunk, Text: text}
-		case "command_execution":
 			return &external.Message{
+				Type:     external.MsgAssistantText,
+				Text:     ev.Item.Text,
+				Snapshot: false,
+			}
+		case "command_execution":
+			out := &external.Message{
 				Type:   external.MsgToolResult,
 				ToolID: ev.Item.ID,
 				Text:   ev.Item.AggregatedOutput,
 			}
+			if ev.Item.ExitCode != nil {
+				out.ExitCode = *ev.Item.ExitCode
+				out.IsError = *ev.Item.ExitCode != 0
+			}
+			return out
 		}
+	case "turn.completed":
+		done := &external.Message{Type: external.MsgTurnDone}
+		if ev.Usage != nil {
+			done.Usage = &msg.TokenUsage{
+				Input:  ev.Usage.InputTokens + ev.Usage.CachedInputTokens,
+				Output: ev.Usage.OutputTokens + ev.Usage.ReasoningOutputTokens,
+				Total:  ev.Usage.InputTokens + ev.Usage.CachedInputTokens + ev.Usage.OutputTokens + ev.Usage.ReasoningOutputTokens,
+				Source: "codex",
+			}
+		}
+		return done
 	}
 
 	return nil

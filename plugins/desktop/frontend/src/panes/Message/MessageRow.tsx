@@ -120,6 +120,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         )}
         {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
         {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
+        {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
       </div>
     </div>
   );
@@ -165,4 +166,26 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
       {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running align-middle" />}
     </button>
   );
+}
+
+function UsageFooter({ usage }: { usage: NonNullable<MessageView["usage"]> }) {
+  const parts: string[] = [];
+  if (usage.model) parts.push(usage.model);
+  if (usage.input || usage.output) {
+    parts.push(formatTokens(usage.input) + " in / " + formatTokens(usage.output) + " out");
+  } else if (usage.total) {
+    parts.push(formatTokens(usage.total) + " tokens");
+  }
+  if (usage.cost_usd && usage.cost_usd > 0) {
+    parts.push("$" + usage.cost_usd.toFixed(4));
+  }
+  if (parts.length === 0) return null;
+  return (
+    <div className="mt-1.5 text-[11px] font-mono text-text-faint">{parts.join(" · ")}</div>
+  );
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1000) return (Math.round(n / 100) / 10) + "k";
+  return String(n);
 }

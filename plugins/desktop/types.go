@@ -75,9 +75,12 @@ type DelegateStep struct {
 }
 
 type TokenUsage struct {
-	Input  int `json:"input"`
-	Output int `json:"output"`
-	Total  int `json:"total"`
+	Input    int     `json:"input"`
+	Output   int     `json:"output"`
+	Total    int     `json:"total"`
+	CostUSD  float64 `json:"cost_usd,omitempty"`
+	Model    string  `json:"model,omitempty"`
+	Source   string  `json:"source,omitempty"`
 }
 
 type PersonaItem struct {

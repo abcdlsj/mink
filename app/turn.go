@@ -89,11 +89,13 @@ func (a *App) persistAssistantTurn(source, personaID string, s *session.Session,
 	if s == nil || space.MapSource(source).Kind != space.KindAgentDM {
 		return nil
 	}
-	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
+	added := s.Messages[baseline:]
+	content, reasoning := msg.AssistantOutput(added)
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return nil
 	}
-	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "")
+	usage := msg.AssistantUsage(added)
+	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "", usage)
 	if err != nil {
 		return err
 	}
