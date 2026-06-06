@@ -99,6 +99,7 @@ func TestNoMentionHintFiresOnlyForRoutedSourcesWithoutAt(t *testing.T) {
 		{"agent dm no @ no agent", "cli:agent:tshoot", "hello", 0, false},
 		{"tg dm no @ no agent", "tg:dm:42", "hello", 0, false},
 		{"tg channel @", "tg:channel:42", "@coder", 0, false},
+		{"cli channel no @", "cli:channel:bugfix", "hello", 0, true},
 		{"desktop channel no @", "desktop:channel:abc", "hello", 0, true},
 	}
 	for _, tc := range cases {

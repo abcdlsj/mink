@@ -18,6 +18,7 @@ func TestEntrypointPolicyMatrix(t *testing.T) {
 		{"desktop:agent:bob", ModeDirect, SessionPersona, DeliverySource, MentionNone, "default"},
 		{"cli:agent:bob", ModeDirect, SessionPersona, DeliverySource, MentionNone, "default"},
 		{"cli", ModeDirect, SessionSource, DeliverySource, MentionText, "default"},
+		{"cli:channel:bugfix", ModeRouted, SessionPersona, DeliverySource, MentionRouted, "default"},
 		{"tg:dm:42", ModeDirect, SessionSource, DeliverySource, MentionText, "telegram"},
 		{"tg:channel:42", ModeDirect, SessionSource, DeliverySource, MentionText, "telegram"},
 		{"cron:bazaar", ModeCron, SessionSource, DeliveryNotice, MentionText, "cron"},

@@ -63,6 +63,8 @@ func TestMapSource(t *testing.T) {
 		{"desktop:agent:coder:persona:coder", KindAgentDM, "coder", false},
 		{"desktop:direct:dchat-abc", KindDirectChat, "dchat-abc", false},
 		{"cli", KindDirectChat, "cli", false},
+		{"cli:channel:bugfix", KindChannel, "bugfix", false},
+		{"cli:channel:bugfix:thread:root", KindChannel, "bugfix", false},
 		{"cli:agent:coder", KindAgentDM, "coder", false},
 		{"tg:dm:42", KindDirectChat, "tg:dm:42", false},
 		{"tg:channel:42", KindChannel, "tg:channel:42", false},
