@@ -22,7 +22,6 @@ export function LeftPane() {
   const [openSections, setOpenSections] = useState({
     channels: true,
     direct: true,
-    personaAgents: true,
     agents: true,
   });
   const [agentCreate, setAgentCreate] = useState<{
@@ -37,6 +36,13 @@ export function LeftPane() {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   };
   const sidebarPersonas = personas.filter((p) => p.show_in_sidebar !== false);
+  const sidebarPersonaIDs = new Set(sidebarPersonas.map((p) => p.id));
+  const humanDirectChats = directChats.filter((dm) => dm.kind !== "agent_dm");
+  const agentDirectChats = directChats.filter((dm) => dm.kind === "agent_dm");
+  const extraAgentDirectChats = agentDirectChats.filter(
+    (dm) => dm.persona_id && !sidebarPersonaIDs.has(dm.persona_id),
+  );
+  const directCount = humanDirectChats.length + sidebarPersonas.length + extraAgentDirectChats.length;
   const activePersonaID =
     view === "agent" && activeAgent
       ? agentDMs.find((dm) => dm.id === activeAgent)?.persona_id ||
@@ -148,40 +154,25 @@ export function LeftPane() {
         </ul>
       )}
 
-      <GroupLabel open={openSections.direct} count={directChats.length} onToggle={() => toggleSection("direct")}>
+      <GroupLabel open={openSections.direct} count={directCount} onToggle={() => toggleSection("direct")}>
         Direct Messages
       </GroupLabel>
       {openSections.direct && (
         <ul className="flex flex-col gap-px">
-          {directChats.length === 0 && (
+          {directCount === 0 && (
             <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No direct messages yet.</li>
           )}
-          {directChats.map((dc) => (
+          {humanDirectChats.map((dc) => (
             <NavItem
               key={dc.id}
-              icon={dc.kind === "agent_dm" ? <AtSign className="size-4" /> : <MessageCircle className="size-4" />}
+              icon={<MessageCircle className="size-4" />}
               name={dc.title}
               running={dc.has_running}
-              active={
-                dc.kind === "agent_dm"
-                  ? view === "agent" && ((activeAgent === dc.id) || (activePersonaID === dc.persona_id))
-                  : view === "thread" && activeThread === dc.id
-              }
+              active={view === "thread" && activeThread === dc.id}
               onClick={() => void openDirectChat(dc.id)}
               tooltip={dc.has_running ? `${dc.title} · running` : undefined}
             />
           ))}
-        </ul>
-      )}
-
-      <GroupLabel open={openSections.personaAgents} count={sidebarPersonas.length} onToggle={() => toggleSection("personaAgents")}>
-        Agents
-      </GroupLabel>
-      {openSections.personaAgents && (
-        <ul className="flex flex-col gap-px">
-          {sidebarPersonas.length === 0 && (
-            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No sidebar agents configured.</li>
-          )}
           {sidebarPersonas.map((agent) => {
             const defaultDM = agentDefaultDM(agent.id);
             const active = view === "agent" && activePersonaID === agent.id;
@@ -233,6 +224,20 @@ export function LeftPane() {
               </li>
             );
           })}
+          {extraAgentDirectChats.map((dc) => (
+            <NavItem
+              key={dc.id}
+              icon={<AtSign className="size-4" />}
+              name={dc.title}
+              running={dc.has_running}
+              active={view === "agent" && ((activeAgent === dc.id) || (activePersonaID === dc.persona_id))}
+              onClick={() => void openDirectChat(dc.id)}
+              tooltip={dc.has_running ? `${dc.title} · running` : personaTooltip({
+                id: dc.persona_id || dc.id,
+                display: dc.persona_name || dc.title,
+              } as import("@/lib/types").PersonaItem)}
+            />
+          ))}
         </ul>
       )}
 

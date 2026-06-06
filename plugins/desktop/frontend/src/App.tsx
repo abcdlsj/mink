@@ -237,8 +237,11 @@ function MobileDetailsContent() {
   const state = useStore((s) => s.state);
   const participants = useStore((s) => s.participants);
   const tools = useStore((s) => s.tools);
+  const personas = useStore((s) => s.personas);
+  const agents = useStore((s) => s.agents);
+  const agentDMs = useStore((s) => s.agentDMs);
   const [capabilities, setCapabilities] = useState<CapabilityView | null>(null);
-  const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | null>(null);
+  const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | "agents" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,6 +274,28 @@ function MobileDetailsContent() {
           {(participants?.agents.length || 0)} participants
           {(participants?.active_runs?.length || 0) > 0 && ` · ${participants?.active_runs?.length} running`}
         </div>
+      </MobileDetailSection>
+      <MobileDetailSection title="Agent Directory">
+        <MobileCapabilityRow
+          label="Defined agents"
+          count={personas.length}
+          active={open === "agents"}
+          onClick={() => setOpen(open === "agents" ? null : "agents")}
+        />
+        {open === "agents" && (
+          <MobileCapabilityList
+            items={personas.slice(0, 8).map((p) => {
+              const status = agents.find((a) => a.id === p.id)?.status || "idle";
+              const hasDM = agentDMs.some((d) => d.persona_id === p.id);
+              const runtime = p.runtime || state?.runtime || "default";
+              const model = p.model || state?.model || (p.runtime && p.runtime !== "native" ? p.runtime + " default" : "default");
+              return [
+                "@" + (p.display || p.id),
+                `${status}${hasDM ? " · dm" : " · ready"} · ${runtime} / ${model}`,
+              ];
+            })}
+          />
+        )}
       </MobileDetailSection>
       <MobileDetailSection title="Capabilities">
         <div className="flex flex-col gap-2">

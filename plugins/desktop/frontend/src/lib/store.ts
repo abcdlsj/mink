@@ -116,6 +116,26 @@ function newID(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+function sendErrorMessage(text: string, parentMessageID?: string): MessageView {
+  return {
+    id: "err-" + newID(),
+    role: "system",
+    author_name: "Sumi",
+    content: "",
+    time: new Date().toISOString(),
+    thread_id: parentMessageID,
+    is_thread_reply: !!parentMessageID,
+    events: [
+      {
+        kind: "service_notice",
+        status: "error",
+        output: text,
+        time: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
 function streamingEventInScope(ev: BusEvent, s: State): boolean {
   if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
     if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
@@ -550,6 +570,9 @@ export const useStore = create<State>((set, get) => ({
     if (!detail) return;
     const threadDetail = get().threadDetail;
     const parentMessageID = threadDetail?.parent_id;
+    const targetChannel = get().activeChannel;
+    const targetThread = get().activeThread;
+    const targetAgent = get().activeAgent;
     const userMsg: MessageView = {
       id: "u-" + newID(),
       role: "user",
@@ -558,7 +581,6 @@ export const useStore = create<State>((set, get) => ({
       thread_id: parentMessageID,
       is_thread_reply: !!parentMessageID,
     };
-    const activeAg = get().activeAgent;
     set({
       sending: true,
       detail: {
@@ -570,47 +592,81 @@ export const useStore = create<State>((set, get) => ({
         ? { ...threadDetail, replies: [...threadDetail.replies, userMsg] }
         : null,
       channels: get().channels.map((c) =>
-        c.id === get().activeChannel ? { ...c, has_running: true } : c,
+        c.id === targetChannel ? { ...c, has_running: true } : c,
       ),
       threads: get().threads.map((t) =>
-        t.id === get().activeThread ? { ...t, has_running: true } : t,
+        t.id === targetThread ? { ...t, has_running: true } : t,
       ),
       agents: get().agents.map((a) =>
-        a.id === activeAg ? { ...a, status: "running" } : a,
+        a.id === targetAgent ? { ...a, status: "running" } : a,
       ),
     });
+    const request = api.send(sid, input, personaID, parentMessageID);
+    set({ sending: false });
     try {
-      await api.send(sid, input, personaID, parentMessageID);
+      await request;
       const after = get();
       const stillStreaming = Object.keys(after.streamingByID).length > 0;
-      set({
-        sending: false,
-        detail:
+      const sameScope = activeSessionID(after) === sid;
+      const updates: Partial<State> = { sending: false };
+      if (sameScope) {
+        updates.detail =
           stillStreaming || !after.detail
             ? after.detail
-            : { ...after.detail, item: { ...after.detail.item, running: false } },
-        channels: stillStreaming
-          ? after.channels
-          : after.channels.map((c) =>
-              c.id === after.activeChannel ? { ...c, has_running: false } : c,
-            ),
-        threads: stillStreaming
-          ? after.threads
-          : after.threads.map((t) =>
-              t.id === after.activeThread ? { ...t, has_running: false } : t,
-            ),
-      });
+            : { ...after.detail, item: { ...after.detail.item, running: false } };
+      }
       if (!stillStreaming) {
+        updates.channels = after.channels.map((c) =>
+          c.id === targetChannel ? { ...c, has_running: false } : c,
+        );
+        updates.threads = after.threads.map((t) =>
+          t.id === targetThread ? { ...t, has_running: false } : t,
+        );
+        updates.agents = after.agents.map((a) =>
+          a.id === targetAgent ? { ...a, status: "idle" } : a,
+        );
+      }
+      set(updates);
+      if (sameScope && !stillStreaming) {
         await refetchActiveScope(get, set);
-      } else {
+      } else if (sameScope) {
         await refetchActiveChannelMeta(get, set);
       }
     } catch (err) {
-      set({
+      const after = get();
+      const errMsg = err instanceof Error ? err.message : "Desktop backend is offline.";
+      const visibleErr = sendErrorMessage("Send failed: " + errMsg, parentMessageID);
+      const stillStreaming = Object.keys(after.streamingByID).length > 0;
+      const sameScope = activeSessionID(after) === sid;
+      const updates: Partial<State> = {
         sending: false,
-        connectionStatus: "offline",
-        connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
-      });
+        composerHint: { text: "Send failed: " + errMsg, at: Date.now() },
+      };
+      if (sameScope && after.detail) {
+        updates.detail = {
+          ...after.detail,
+          item: { ...after.detail.item, running: stillStreaming },
+          messages: [...after.detail.messages, visibleErr],
+        };
+      }
+      if (sameScope && after.threadDetail) {
+        updates.threadDetail = {
+          ...after.threadDetail,
+          replies: [...after.threadDetail.replies, visibleErr],
+        };
+      }
+      if (!stillStreaming) {
+        updates.channels = after.channels.map((c) =>
+          c.id === targetChannel ? { ...c, has_running: false } : c,
+        );
+        updates.threads = after.threads.map((t) =>
+          t.id === targetThread ? { ...t, has_running: false } : t,
+        );
+        updates.agents = after.agents.map((a) =>
+          a.id === targetAgent ? { ...a, status: "idle" } : a,
+        );
+      }
+      set(updates);
     }
   },
 

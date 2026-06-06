@@ -103,6 +103,15 @@ export function RightPane() {
       />
     </Section>
   );
+  const agentDirectorySec = (
+    <AgentDirectory
+      personas={personas}
+      agents={agents}
+      agentDMs={agentDMs}
+      stateRuntime={state?.runtime}
+      stateModel={state?.model}
+    />
+  );
 
   if (view === "channel" && !inThread) {
     const ch = channels.find((c) => c.id === activeChannel);
@@ -144,6 +153,7 @@ export function RightPane() {
       <>
         {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
+        {agentDirectorySec}
         {toolsSec}
       </>
     );
@@ -190,6 +200,7 @@ export function RightPane() {
       <>
         {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
+        {agentDirectorySec}
         {toolsSec}
       </>
     );
@@ -238,6 +249,7 @@ export function RightPane() {
       <>
         {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
+        {agentDirectorySec}
         {toolsSec}
       </>
     );
@@ -353,6 +365,84 @@ function RuntimeRows({ rows }: { rows: [string, string][] }) {
         </Fragment>
       ))}
     </div>
+  );
+}
+
+function AgentDirectory({
+  personas,
+  agents,
+  agentDMs,
+  stateRuntime,
+  stateModel,
+}: {
+  personas: import("@/lib/types").PersonaItem[];
+  agents: AgentItem[];
+  agentDMs: import("@/lib/types").AgentDMItem[];
+  stateRuntime?: string;
+  stateModel?: string;
+}) {
+  const openAgent = useStore((s) => s.openAgent);
+  const newAgentChat = useStore((s) => s.newAgentChat);
+  if (personas.length === 0) return null;
+  const statusFor = (id: string) => agents.find((a) => a.id === id)?.status || "idle";
+  const hasDM = (id: string) => agentDMs.some((d) => d.persona_id === id);
+  return (
+    <Section label="Agent Directory">
+      <div className="flex flex-col gap-2">
+        {personas.map((p) => {
+          const display = p.display || p.id;
+          const runtime = runtimeLabel(p.runtime, stateRuntime);
+          const model = modelLabel(p.model, stateModel, p.runtime);
+          const visible = p.show_in_sidebar !== false;
+          return (
+            <div
+              key={p.id}
+              className="border border-border bg-panel px-2.5 py-2"
+              title={[
+                "@" + display,
+                "runtime: " + runtime,
+                "model: " + model,
+                "dm shortcut: " + (visible ? "shown" : "hidden"),
+              ].join("\n")}
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <Dot status={statusFor(p.id) === "running" ? "running" : "idle"} />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">
+                  @{display}
+                </span>
+                <span className="shrink-0 font-mono text-[10.5px] uppercase text-text-faint">
+                  {hasDM(p.id) ? "dm" : "ready"}
+                </span>
+              </div>
+              <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
+                {runtime} / {model}
+              </div>
+              <div className="mt-2 flex gap-1.5">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => void openAgent(p.id)}
+                >
+                  DM
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => void newAgentChat(p.id)}
+                >
+                  Chat
+                </Button>
+                {!visible && (
+                  <span className="ml-auto self-center font-mono text-[10px] text-text-faint">hidden</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 
