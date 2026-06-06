@@ -332,11 +332,12 @@ export function LeftPane() {
 }
 
 function personaTooltip(agent: import("@/lib/types").PersonaItem) {
-  return [
+  const lines = [
     "@" + (agent.display || agent.id),
     "runtime: " + (agent.runtime || "default"),
-    "model: " + (agent.model || (agent.runtime && agent.runtime !== "native" ? agent.runtime + " default" : "default")),
-  ].join("\n");
+  ];
+  if (agent.model) lines.push("model: " + agent.model);
+  return lines.join("\n");
 }
 
 function GroupLabel({

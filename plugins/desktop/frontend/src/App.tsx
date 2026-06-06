@@ -288,10 +288,10 @@ function MobileDetailsContent() {
               const status = agents.find((a) => a.id === p.id)?.status || "idle";
               const hasDM = agentDMs.some((d) => d.persona_id === p.id);
               const runtime = p.runtime || state?.runtime || "default";
-              const model = p.model || state?.model || (p.runtime && p.runtime !== "native" ? p.runtime + " default" : "default");
+              const model = p.model;
               return [
                 "@" + (p.display || p.id),
-                `${status}${hasDM ? " · dm" : " · ready"} · ${runtime} / ${model}`,
+                `${status}${hasDM ? " · dm" : " · ready"} · ${runtime}${model ? " / " + model : ""}`,
               ];
             })}
           />

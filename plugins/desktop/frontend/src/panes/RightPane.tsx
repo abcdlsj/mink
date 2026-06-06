@@ -94,7 +94,6 @@ export function RightPane() {
       <RuntimeDetail
         view={view}
         stateRuntime={state?.runtime}
-        stateModel={state?.model}
         activePersona={activePersona}
         runs={runtimeRuns}
         personas={personas}
@@ -109,7 +108,6 @@ export function RightPane() {
       agents={agents}
       agentDMs={agentDMs}
       stateRuntime={state?.runtime}
-      stateModel={state?.model}
     />
   );
 
@@ -290,7 +288,6 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 function RuntimeDetail({
   view,
   stateRuntime,
-  stateModel,
   activePersona,
   runs,
   personas,
@@ -299,7 +296,6 @@ function RuntimeDetail({
 }: {
   view: string;
   stateRuntime?: string;
-  stateModel?: string;
   activePersona?: import("@/lib/types").PersonaItem;
   runs: AgentRun[];
   personas: import("@/lib/types").PersonaItem[];
@@ -307,14 +303,13 @@ function RuntimeDetail({
   agents: AgentItem[];
 }) {
   if (view === "agent" && activePersona) {
+    const rows: [string, string][] = [
+      ["Agent", "@" + (activePersona.display || activePersona.id)],
+      ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
+    ];
+    if (activePersona.model) rows.push(["Model", activePersona.model]);
     return (
-      <RuntimeRows
-        rows={[
-          ["Agent", "@" + (activePersona.display || activePersona.id)],
-          ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
-          ["Model", modelLabel(activePersona.model, stateModel, activePersona.runtime)],
-        ]}
-      />
+      <RuntimeRows rows={rows} />
     );
   }
 
@@ -323,10 +318,7 @@ function RuntimeDetail({
     if (run.status !== "running" || !run.agent_id) return;
     const persona = personaForRuntime(run.agent_id, personas, agentDMs);
     const display = persona?.display || agents.find((a) => a.id === run.agent_id)?.display || run.agent_id;
-    running.set(display, [
-      runtimeLabel(persona?.runtime, stateRuntime),
-      modelLabel(persona?.model, stateModel, persona?.runtime),
-    ].join(" / "));
+    running.set(display, agentRuntimeSummary(persona?.runtime, persona?.model, stateRuntime));
   });
   if (running.size > 0) {
     return (
@@ -373,13 +365,11 @@ function AgentDirectory({
   agents,
   agentDMs,
   stateRuntime,
-  stateModel,
 }: {
   personas: import("@/lib/types").PersonaItem[];
   agents: AgentItem[];
   agentDMs: import("@/lib/types").AgentDMItem[];
   stateRuntime?: string;
-  stateModel?: string;
 }) {
   const openAgent = useStore((s) => s.openAgent);
   const newAgentChat = useStore((s) => s.newAgentChat);
@@ -392,18 +382,18 @@ function AgentDirectory({
         {personas.map((p) => {
           const display = p.display || p.id;
           const runtime = runtimeLabel(p.runtime, stateRuntime);
-          const model = modelLabel(p.model, stateModel, p.runtime);
           const visible = p.show_in_sidebar !== false;
+          const title = [
+            "@" + display,
+            "runtime: " + runtime,
+          ];
+          if (p.model) title.push("model: " + p.model);
+          title.push("dm shortcut: " + (visible ? "shown" : "hidden"));
           return (
             <div
               key={p.id}
               className="border border-border bg-panel px-2.5 py-2"
-              title={[
-                "@" + display,
-                "runtime: " + runtime,
-                "model: " + model,
-                "dm shortcut: " + (visible ? "shown" : "hidden"),
-              ].join("\n")}
+              title={title.join("\n")}
             >
               <div className="flex min-w-0 items-center gap-2">
                 <Dot status={statusFor(p.id) === "running" ? "running" : "idle"} />
@@ -415,7 +405,7 @@ function AgentDirectory({
                 </span>
               </div>
               <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
-                {runtime} / {model}
+                {runtime}{p.model ? " / " + p.model : ""}
               </div>
               <div className="mt-2 flex gap-1.5">
                 <Button
@@ -461,10 +451,9 @@ function runtimeLabel(runtime: string | undefined, fallback: string | undefined)
   return runtime || fallback || "default";
 }
 
-function modelLabel(model: string | undefined, fallback: string | undefined, runtime: string | undefined): string {
-  if (model) return model;
-  if (runtime && runtime !== "native") return runtime + " default";
-  return fallback || "default";
+function agentRuntimeSummary(runtime: string | undefined, model: string | undefined, fallbackRuntime: string | undefined): string {
+  const label = runtimeLabel(runtime, fallbackRuntime);
+  return model ? `${label} / ${model}` : label;
 }
 
 function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
@@ -505,12 +494,13 @@ function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
 
 function agentTooltip(agent: AgentItem) {
   const status = agent.status === "running" ? "running" : "available";
-  return [
+  const lines = [
     "@" + agent.display,
     "status: " + status,
     "runtime: " + (agent.runtime || "default"),
-    "model: " + (agent.model || (agent.runtime && agent.runtime !== "native" ? agent.runtime + " default" : "default")),
-  ].join("\n");
+  ];
+  if (agent.model) lines.push("model: " + agent.model);
+  return lines.join("\n");
 }
 
 function RunCard({ run }: { run: AgentRun }) {
