@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useStore } from "@/lib/store";
 import { TopBar } from "@/panes/TopBar";
@@ -7,9 +7,11 @@ import { CenterPane } from "@/panes/CenterPane";
 import { RightPane } from "@/panes/RightPane";
 import { CommandPalette } from "@/components/CommandPalette";
 import { QuickCreate } from "@/components/QuickCreate";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import type { CapabilityView } from "@/lib/types";
 
-type MobilePane = "left" | "center" | "right";
+type MobileLayer = "spaces" | "details" | null;
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -22,7 +24,8 @@ export default function App() {
   const detail = useStore((s) => s.detail);
   const threadDetail = useStore((s) => s.threadDetail);
   const view = useStore((s) => s.view);
-  const [mobilePane, setMobilePane] = useState<MobilePane>("center");
+  const [mobileLayer, setMobileLayer] = useState<MobileLayer>(null);
+  const openedScopeRef = useRef("");
 
   useEffect(() => {
     void loadInitial();
@@ -33,11 +36,13 @@ export default function App() {
     return connectStream();
   }, [ready, connectStream]);
 
+  const mobileScope = `${detail?.item?.id || ""}:${threadDetail?.parent_id || ""}`;
+
   useEffect(() => {
-    if (mobilePane === "left" && (detail || threadDetail)) {
-      setMobilePane("center");
+    if (mobileLayer === "spaces" && openedScopeRef.current && openedScopeRef.current !== mobileScope) {
+      setMobileLayer(null);
     }
-  }, [detail?.item?.id, threadDetail?.parent_id, mobilePane]);
+  }, [mobileScope, mobileLayer]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -108,26 +113,33 @@ export default function App() {
         <QuickCreate />
       </div>
 
-      <div className="grid h-[100dvh] grid-rows-[40px_auto_1fr] bg-bg text-text md:hidden">
+      <div className="relative grid h-[100dvh] grid-rows-[40px_auto_1fr] overflow-hidden bg-bg text-text md:hidden">
         <TopBar />
         {offlineBanner}
-        <MobileBreadcrumbs
-          active={mobilePane}
+        <MobileNav
           title={mobileTitle(view, detail?.item?.title, threadDetail?.parent?.content)}
           detailsEnabled={!!detail || !!threadDetail}
-          onChange={setMobilePane}
+          onOpenSpaces={() => {
+            openedScopeRef.current = mobileScope;
+            setMobileLayer("spaces");
+          }}
+          onOpenDetails={() => setMobileLayer("details")}
         />
         <div className="min-h-0 overflow-hidden">
-          <div className={cn("h-full", mobilePane !== "left" && "hidden")}>
-            <LeftPane />
-          </div>
-          <div className={cn("h-full", mobilePane !== "center" && "hidden")}>
-            <CenterPane />
-          </div>
-          <div className={cn("h-full", mobilePane !== "right" && "hidden")}>
-            <RightPane />
-          </div>
+          <CenterPane />
         </div>
+        {mobileLayer === "spaces" && (
+          <MobileOverlay onClose={() => setMobileLayer(null)}>
+            <div className="h-full w-[86vw] max-w-[340px] border-r-hard border-border bg-panel-2 shadow-hard">
+              <LeftPane />
+            </div>
+          </MobileOverlay>
+        )}
+        {mobileLayer === "details" && (
+          <MobileSheet onClose={() => setMobileLayer(null)}>
+            <MobileDetailsContent />
+          </MobileSheet>
+        )}
         <CommandPalette />
         <QuickCreate />
       </div>
@@ -135,27 +147,29 @@ export default function App() {
   );
 }
 
-function MobileBreadcrumbs({
-  active,
+function MobileNav({
   title,
   detailsEnabled,
-  onChange,
+  onOpenSpaces,
+  onOpenDetails,
 }: {
-  active: MobilePane;
   title: string;
   detailsEnabled: boolean;
-  onChange: (pane: MobilePane) => void;
+  onOpenSpaces: () => void;
+  onOpenDetails: () => void;
 }) {
   return (
-    <nav className="flex items-center gap-1 border-b-hard border-border bg-panel-2 px-2 py-2">
-      <Crumb active={active === "left"} onClick={() => onChange("left")}>Spaces</Crumb>
-      <span className="font-mono text-[11px] text-text-faint">/</span>
-      <Crumb active={active === "center"} onClick={() => onChange("center")} grow>{title}</Crumb>
-      <span className="font-mono text-[11px] text-text-faint">/</span>
+    <nav className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-b-hard border-border bg-panel-2 px-2 py-2">
+      <Crumb onClick={onOpenSpaces}>Spaces</Crumb>
+      <div className="min-w-0 border-2 border-border bg-panel px-2 py-1 shadow-card">
+        <div className="flex min-w-0 items-center gap-1 font-semibold text-[12px] text-text">
+          <span className="shrink-0 font-mono text-[11px] text-text-faint">/</span>
+          <span className="truncate">{title}</span>
+        </div>
+      </div>
       <Crumb
-        active={active === "right"}
         disabled={!detailsEnabled}
-        onClick={() => onChange("right")}
+        onClick={onOpenDetails}
       >
         Details
       </Crumb>
@@ -164,15 +178,11 @@ function MobileBreadcrumbs({
 }
 
 function Crumb({
-  active,
   disabled,
-  grow,
   onClick,
   children,
 }: {
-  active: boolean;
   disabled?: boolean;
-  grow?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -182,15 +192,182 @@ function Crumb({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "min-w-0 border-2 px-2 py-1 text-left text-[12px] font-semibold transition-colors",
-        grow && "flex-1",
-        active ? "border-border bg-panel text-text shadow-card" : "border-transparent text-text-muted",
+        "min-w-0 border-2 border-border bg-panel px-2 py-1 text-left text-[12px] font-semibold text-text-muted shadow-card transition-colors",
         !disabled && "hover:border-border hover:bg-panel hover:text-text",
         disabled && "cursor-not-allowed text-text-whisper",
       )}
     >
       <span className="block truncate">{children}</span>
     </button>
+  );
+}
+
+function MobileOverlay({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 top-10 z-40 flex bg-border/35" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}>{children}</div>
+    </div>
+  );
+}
+
+function MobileSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end bg-border/35" onClick={onClose}>
+      <div
+        className="max-h-[78dvh] w-full overflow-hidden border-t-hard border-border bg-panel-3 shadow-hard"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border bg-panel px-3 py-2">
+          <div className="font-display text-[12px] font-black uppercase tracking-[0.6px] text-text">Details</div>
+          <button
+            type="button"
+            className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="h-[calc(78dvh-39px)] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function MobileDetailsContent() {
+  const state = useStore((s) => s.state);
+  const participants = useStore((s) => s.participants);
+  const tools = useStore((s) => s.tools);
+  const [capabilities, setCapabilities] = useState<CapabilityView | null>(null);
+  const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.capabilities().then((data) => {
+      if (!cancelled) setCapabilities(data);
+    }).catch(() => {
+      if (!cancelled) setCapabilities({ skills: [], tasks: [], action_proposals: [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const skills = capabilities?.skills || [];
+  const tasks = capabilities?.tasks || [];
+  const approvals = capabilities?.action_proposals || [];
+
+  return (
+    <div className="flex flex-col gap-5 px-4 py-4">
+      <MobileDetailSection title="Runtime">
+        <div className="grid grid-cols-[72px_1fr] gap-y-1 font-mono text-[12px]">
+          <span className="text-text-faint">Runtime</span>
+          <span className="truncate text-text">{state?.runtime || "default"}</span>
+          <span className="text-text-faint">Model</span>
+          <span className="truncate text-text">{state?.model || "default"}</span>
+        </div>
+      </MobileDetailSection>
+      <MobileDetailSection title="People">
+        <div className="text-[12.5px] text-text-muted">
+          {(participants?.agents.length || 0)} participants
+          {(participants?.active_runs?.length || 0) > 0 && ` · ${participants?.active_runs?.length} running`}
+        </div>
+      </MobileDetailSection>
+      <MobileDetailSection title="Capabilities">
+        <div className="flex flex-col gap-2">
+          <MobileCapabilityRow
+            label="Skills"
+            count={skills.length}
+            active={open === "skills"}
+            onClick={() => setOpen(open === "skills" ? null : "skills")}
+          />
+          {open === "skills" && (
+            <MobileCapabilityList items={skills.slice(0, 6).map((s) => [s.name, s.risk || s.when || s.description || "skill"])} />
+          )}
+          <MobileCapabilityRow
+            label="Tasks"
+            count={tasks.length}
+            active={open === "tasks"}
+            onClick={() => setOpen(open === "tasks" ? null : "tasks")}
+          />
+          {open === "tasks" && (
+            <MobileCapabilityList items={tasks.slice(0, 6).map((t) => [t.title, t.state?.checkpoint || t.status])} />
+          )}
+          <MobileCapabilityRow
+            label="Approvals"
+            count={approvals.length}
+            active={open === "approvals"}
+            onClick={() => setOpen(open === "approvals" ? null : "approvals")}
+          />
+          {open === "approvals" && (
+            <MobileCapabilityList items={approvals.slice(0, 6).map((a) => [a.tool || "action", a.intent || a.risk || a.result || "proposal"])} />
+          )}
+        </div>
+      </MobileDetailSection>
+      <MobileDetailSection title="Tools">
+        <div className="flex flex-wrap gap-1.5">
+          {tools.length > 0 ? tools.slice(0, 12).map((t) => (
+            <span key={t.name} className="border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
+              {t.name}
+            </span>
+          )) : (
+            <span className="text-[12px] text-text-faint">No tools enabled.</span>
+          )}
+        </div>
+      </MobileDetailSection>
+    </div>
+  );
+}
+
+function MobileDetailSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-2 font-display text-[10px] font-black uppercase tracking-[1px] text-text-muted">
+        {title}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function MobileCapabilityRow({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center justify-between border-2 border-border bg-panel px-2.5 py-2 text-left text-[12.5px] shadow-card",
+        active && "bg-accent-bg",
+      )}
+    >
+      <span className="font-semibold text-text">{label}</span>
+      <span className="font-mono text-text-muted">{count}</span>
+    </button>
+  );
+}
+
+function MobileCapabilityList({ items }: { items: [string, string][] }) {
+  if (items.length === 0) {
+    return <div className="px-2 text-[12px] text-text-faint">No records.</div>;
+  }
+  return (
+    <div className="flex flex-col gap-1 border-x border-b border-border bg-panel px-2 py-2">
+      {items.map(([title, meta], i) => (
+        <div key={`${title}-${i}`} className="min-w-0 text-[12px] leading-[1.45]">
+          <div className="truncate font-semibold text-text">{title}</div>
+          <div className="line-clamp-2 text-text-muted">{meta}</div>
+        </div>
+      ))}
+    </div>
   );
 }
 

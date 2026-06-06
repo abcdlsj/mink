@@ -43,13 +43,13 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   return (
     <div
       className={cn(
-        "grid grid-cols-[32px_1fr] gap-3.5",
+        "grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
         compact ? "-mt-4 mb-1" : "mb-6 border-b border-border-soft pb-5 last:border-b-0",
       )}
     >
       <div
         className={cn(
-          "mt-px size-8 overflow-hidden border-2 border-border bg-panel",
+          "mt-px size-7 overflow-hidden border-2 border-border bg-panel md:size-8",
           compact && "invisible",
         )}
       >
@@ -82,7 +82,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           m.role === "user" ? (
             <div
               className={cn(
-                "max-w-full whitespace-pre-wrap break-words text-[14.5px] leading-[1.7] text-text",
+                "max-w-full whitespace-pre-wrap break-words text-[14px] leading-[1.65] text-text md:text-[14.5px] md:leading-[1.7]",
                 m.reasoning && "mt-2",
               )}
             >
@@ -91,7 +91,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           ) : (
             <Markdown
               className={cn(
-                "max-w-full text-[14.5px] leading-[1.7] text-text",
+                "max-w-full text-[14px] leading-[1.65] text-text md:text-[14.5px] md:leading-[1.7]",
                 m.reasoning && "mt-2",
               )}
               mentions={knownMentions}

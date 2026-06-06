@@ -21,7 +21,7 @@ export function ThreadView() {
           </button>
           <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-5 py-8 text-[13px] text-text-muted">
+        <div className="overflow-y-auto px-3 py-6 text-[13px] text-text-muted md:px-5 md:py-8">
           {threadDetail.unsupported_hint || "Threads are not supported here."}
         </div>
       </main>
@@ -36,7 +36,7 @@ export function ThreadView() {
           </button>
           <div className="text-[13px] font-semibold text-text">Thread</div>
         </div>
-        <div className="overflow-y-auto px-5 py-8 text-[13px] text-text-muted">
+        <div className="overflow-y-auto px-3 py-6 text-[13px] text-text-muted md:px-5 md:py-8">
           Thread not found.
         </div>
       </main>
@@ -57,7 +57,7 @@ export function ThreadView() {
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
       </div>
-      <div className="overflow-y-auto px-5 pt-4 pb-5">
+      <div className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">
         <div className="mx-auto max-w-[880px]">
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">

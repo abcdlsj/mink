@@ -42,7 +42,7 @@ export function CenterPane() {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
         <ChannelHeader scope={scope} />
-        <div className="overflow-y-auto px-5 py-6 text-[12.5px] text-text-muted">
+        <div className="overflow-y-auto px-3 py-5 text-[12.5px] text-text-muted md:px-5 md:py-6">
           Pick a channel, agent, or thread to start.
         </div>
         <Composer />
@@ -54,7 +54,7 @@ export function CenterPane() {
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
       <ChannelHeader scope={scope} />
 
-      <div ref={scrollRef} className="overflow-y-auto px-5 pb-5 pt-5">
+      <div ref={scrollRef} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5 md:pt-5">
         <div className="mx-auto max-w-[880px]">
           <MessageStream messages={detail.messages} empty={<EmptyState />} />
         </div>

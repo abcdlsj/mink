@@ -60,14 +60,14 @@ const fullComponents: Components = {
   ),
   code: codeRenderer,
   pre: ({ children }) => (
-    <pre className="my-2.5 max-w-full overflow-hidden rounded-md bg-panel-event px-3.5 py-2.5 text-[12.5px] leading-[1.6]">
+    <pre className="my-2.5 max-w-full overflow-x-auto rounded-md bg-panel-event px-3.5 py-2.5 text-[12.5px] leading-[1.6]">
       {children}
     </pre>
   ),
   hr: () => <hr className="my-3.5 border-border-soft" />,
   table: ({ children }) => (
-    <div className="my-3 max-w-full overflow-hidden border border-border bg-panel shadow-card">
-      <table className="w-full table-auto border-collapse text-[12.5px] leading-[1.5]">{children}</table>
+    <div className="my-3 max-w-full overflow-x-auto border border-border bg-panel shadow-card">
+      <table className="min-w-full table-auto border-collapse text-[12.5px] leading-[1.5]">{children}</table>
     </div>
   ),
   thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11px] uppercase tracking-[0.55px] text-text-muted">{children}</thead>,

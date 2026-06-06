@@ -173,7 +173,7 @@ export function Composer() {
   };
 
   return (
-    <div className="border-t-hard border-border bg-panel px-5 pb-3.5 pt-3">
+    <div className="border-t-hard border-border bg-panel px-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-2.5 md:px-5 md:pb-3.5 md:pt-3">
       <div className="mx-auto max-w-[1040px]">
         {showRoutingHint && (
           <div className="mb-2 inline-flex border border-border bg-accent-bg px-2 py-0.5 text-[11.5px] text-text">
@@ -203,7 +203,7 @@ export function Composer() {
               setTimeout(() => closeMention(), 120);
             }}
             disabled={sending}
-            className="min-h-[68px] w-full resize-none bg-transparent px-3.5 py-2.5 text-[14px] leading-[1.55] text-text outline-none disabled:opacity-70"
+            className="min-h-[54px] w-full resize-none bg-transparent px-3 py-2 text-[16px] leading-[1.5] text-text outline-none disabled:opacity-70 md:min-h-[68px] md:px-3.5 md:py-2.5 md:text-[14px] md:leading-[1.55]"
           />
           {mentionState && (
             <MentionAutocomplete
@@ -215,7 +215,7 @@ export function Composer() {
             />
           )}
         </div>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           {(() => {
             if (view !== "agent") return null;
             const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
@@ -227,13 +227,13 @@ export function Composer() {
             );
           })()}
           <WorkingAgents agents={workingAgents} />
-          <span className="flex-1" />
+          <span className="min-w-4 flex-1" />
           <Button
             variant="default"
             disabled={!canSend}
             onClick={() => void handleSend()}
             className={cn(
-              "border-hard border-border bg-action px-4 font-black uppercase tracking-[0.5px] text-panel shadow-card disabled:bg-action disabled:text-panel disabled:opacity-100",
+              "border-hard border-border bg-action px-4 font-black uppercase tracking-[0.5px] text-panel shadow-card disabled:bg-action disabled:text-panel disabled:opacity-100 md:px-4",
               canSend && "hover:bg-action",
             )}
           >
