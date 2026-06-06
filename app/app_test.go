@@ -756,6 +756,61 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 	}
 }
 
+func TestDesktopDefaultSumiDoesNotBindDefaultPersona(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:        "stub",
+		DataDir:        filepath.Join(dir, "sumi-data"),
+		Workspace:      dir,
+		DefaultPersona: "andy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("andy", persona.Meta{Display: "Andy", Runtime: "andy-rt"}, "default persona"); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotPersona *agent.Persona
+	var gotAgentID string
+	a.RegisterRuntime("stub", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		gotPersona = e.Persona
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			gotAgentID = turn.AgentID
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("andy-rt", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("default persona runtime should not handle default Sumi conversation")
+		return nil, nil
+	})
+
+	out, err := a.HandleInput(context.Background(), "desktop", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "sumi ok" {
+		t.Fatalf("out = %q, want sumi ok", out)
+	}
+	if gotPersona != nil {
+		t.Fatalf("runtime persona = %#v, want nil", gotPersona)
+	}
+	if gotAgentID != "assistant" {
+		t.Fatalf("turn agent id = %q, want assistant", gotAgentID)
+	}
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil || sp == nil {
+		t.Fatalf("default Sumi space not found: %v", err)
+	} else if len(sp.Messages) != 2 || sp.Messages[1].AuthorID != "assistant" {
+		t.Fatalf("default Sumi messages = %#v", sp.Messages)
+	}
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "andy"); err != nil || sp != nil {
+		t.Fatalf("default persona agent dm should not be created, got space=%#v err=%v", sp, err)
+	}
+}
+
 func TestAgentDMTreatsMentionsAsText(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{

@@ -57,8 +57,8 @@ func TestMapSource(t *testing.T) {
 		wantSeed  string
 		wantEmpty bool
 	}{
-		{"desktop", KindChannel, "default", false},
-		{"", KindChannel, "default", false},
+		{"desktop", KindDirectChat, "Sumi", false},
+		{"", KindDirectChat, "Sumi", false},
 		{"desktop:agent:coder", KindAgentDM, "coder", false},
 		{"desktop:agent:coder:persona:coder", KindAgentDM, "coder", false},
 		{"desktop:direct:dchat-abc", KindDirectChat, "dchat-abc", false},
@@ -82,6 +82,25 @@ func TestMapSource(t *testing.T) {
 		}
 		if got.Kind != c.wantKind || got.Seed != c.wantSeed {
 			t.Errorf("MapSource(%q) = %+v, want kind=%s seed=%s", c.in, got, c.wantKind, c.wantSeed)
+		}
+	}
+}
+
+func TestSourceUsesRouter(t *testing.T) {
+	cases := []struct {
+		source string
+		want   bool
+	}{
+		{"desktop", false},
+		{"desktop:channel:default", true},
+		{"desktop:direct:dchat-abc", true},
+		{"desktop:agent:coder", false},
+		{"cli:channel:bugfix", true},
+		{"cli", false},
+	}
+	for _, c := range cases {
+		if got := SourceUsesRouter(c.source); got != c.want {
+			t.Errorf("SourceUsesRouter(%q) = %v, want %v", c.source, got, c.want)
 		}
 	}
 }
@@ -146,8 +165,8 @@ func TestResolveRoundTrips(t *testing.T) {
 	mgr := NewManager(store, "user", "You")
 
 	sp, err := mgr.Resolve("desktop", PersonaInfo{})
-	if err != nil || sp.Kind != KindChannel {
-		t.Errorf("desktop should map to channel, got %v / %v", sp, err)
+	if err != nil || sp.Kind != KindDirectChat || sp.Title != "Sumi" {
+		t.Errorf("desktop should map to default Sumi direct chat, got %v / %v", sp, err)
 	}
 
 	sp, err = mgr.Resolve("desktop:agent:reviewer", PersonaInfo{ID: "reviewer", Display: "Reviewer"})

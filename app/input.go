@@ -146,7 +146,8 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	persona := f.app.defaultPersona()
 	agentInfo := space.PersonaInfo{ID: "assistant", Display: "Sumi"}
-	if persona != nil {
+	useDefaultSumi := isDefaultSumiSource(f.source)
+	if persona != nil && !useDefaultSumi {
 		f.personaID = persona.ID
 		if strings.TrimSpace(persona.Runtime) != "" {
 			f.runtime = persona.Runtime
@@ -192,11 +193,19 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		return "", err
 	}
 	baseline := len(s.Messages)
-	rt, err := f.app.newRuntimeFor(runtimeName, persona)
+	runtimePersona := persona
+	if useDefaultSumi {
+		runtimePersona = nil
+	}
+	rt, err := f.app.newRuntimeFor(runtimeName, runtimePersona)
 	if err != nil {
 		return "", err
 	}
-	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+	runAgentID := f.personaID
+	if useDefaultSumi && strings.TrimSpace(runAgentID) == "" {
+		runAgentID = agentInfo.ID
+	}
+	if err := f.app.runTurnAs(ctx, rt, f.source, runAgentID, f.input, f.attachments, s); err != nil {
 		return "", err
 	}
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
@@ -215,6 +224,10 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		}
 	}
 	return content, nil
+}
+
+func isDefaultSumiSource(source string) bool {
+	return strings.TrimSpace(source) == "desktop"
 }
 
 func (f inputFlow) seedDirectContext(s *session.Session, spaceID, agentID, excludeMessageID string) {

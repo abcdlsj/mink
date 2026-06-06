@@ -5,6 +5,7 @@ import (
 
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/space"
 )
 
 func TestSplitModel(t *testing.T) {
@@ -89,8 +90,8 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if direct := b.ListDirectChats(); len(direct) != 0 {
-		t.Fatalf("virtual agent dm leaked before creation: %#v", direct)
+	if direct := b.ListDirectChats(); len(direct) != 1 || direct[0].Kind != "direct_chat" || direct[0].Title != "Sumi" {
+		t.Fatalf("initial direct chats should only contain Sumi: %#v", direct)
 	}
 
 	defaultDetail := b.GetAgentDM("coder")
@@ -99,11 +100,17 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	}
 
 	direct := b.ListDirectChats()
-	if len(direct) != 1 {
-		t.Fatalf("direct chats = %d, want 1: %#v", len(direct), direct)
+	if len(direct) != 2 {
+		t.Fatalf("direct chats = %d, want Sumi + default agent dm: %#v", len(direct), direct)
 	}
-	if direct[0].Kind != "agent_dm" || direct[0].PersonaID != "coder" || direct[0].Title != "@Coder" {
-		t.Fatalf("direct item = %#v", direct[0])
+	var gotAgentDM bool
+	for _, item := range direct {
+		if item.Kind == "agent_dm" && item.PersonaID == "coder" && item.Title == "@Coder" {
+			gotAgentDM = true
+		}
+	}
+	if !gotAgentDM {
+		t.Fatalf("default agent dm missing from direct chats: %#v", direct)
 	}
 	if got := b.ListAgentDMs(); len(got) != 0 {
 		t.Fatalf("default dm leaked into agent chats: %#v", got)
@@ -119,6 +126,28 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	chats := b.ListAgentDMs()
 	if len(chats) != 1 || chats[0].ID != named.ID {
 		t.Fatalf("agent chats = %#v, want named chat %s", chats, named.ID)
+	}
+}
+
+func TestDirectChatsIncludeDefaultSumiConversation(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %d, want default Sumi only: %#v", len(direct), direct)
+	}
+	if direct[0].Kind != "direct_chat" || direct[0].Title != "Sumi" || direct[0].PersonaID != "" {
+		t.Fatalf("default direct item = %#v", direct[0])
+	}
+
+	if _, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
+		t.Fatalf("default Sumi space missing: %v", err)
+	}
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "coder"); err != nil || sp != nil {
+		t.Fatalf("default Sumi listing should not create agent dm, got space=%#v err=%v", sp, err)
 	}
 }
 

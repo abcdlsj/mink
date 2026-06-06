@@ -24,6 +24,7 @@ import (
 const desktopSource = "desktop"
 
 const defaultChannelID = "desktop:default"
+const defaultSumiDirectTitle = "Sumi"
 
 type Backend struct {
 	app    *app.App
@@ -69,7 +70,11 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		case space.KindChannel:
 			source = "desktop:channel:" + sp.ID
 		case space.KindDirectChat:
-			source = "desktop:direct:" + sp.ID
+			if isDefaultSumiDirect(sp) {
+				source = desktopSource
+			} else {
+				source = "desktop:direct:" + sp.ID
+			}
 		case space.KindAgentDM:
 			source = "desktop:agent:" + sp.ID
 		}
@@ -137,6 +142,9 @@ func (b *Backend) NewDirectChat() (SessionDetail, error) {
 }
 
 func (b *Backend) ListDirectChats() []DirectChatItem {
+	if _, err := b.ensureDefaultSumiDirect(); err != nil {
+		return []DirectChatItem{}
+	}
 	spaces, err := b.app.Spaces().ListSpaces()
 	if err != nil {
 		return []DirectChatItem{}
@@ -157,7 +165,7 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 	out := make([]DirectChatItem, 0, len(all))
 	keptEmpty := false
 	for _, e := range all {
-		if e.empty {
+		if e.empty && !isDefaultSumiDirect(e.sp) {
 			if keptEmpty {
 				continue
 			}
@@ -173,12 +181,37 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 	}
 	out = append(out, b.defaultAgentDMItems(spaces)...)
 	sort.Slice(out, func(i, j int) bool {
+		if isDefaultSumiDirectItem(out[i]) != isDefaultSumiDirectItem(out[j]) {
+			return isDefaultSumiDirectItem(out[i])
+		}
 		if out[i].UpdatedAt.IsZero() != out[j].UpdatedAt.IsZero() {
 			return !out[i].UpdatedAt.IsZero()
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out
+}
+
+func (b *Backend) ensureDefaultSumiDirect() (*space.Space, error) {
+	spaces, err := b.app.Spaces().ListSpaces()
+	if err == nil {
+		for _, sp := range spaces {
+			if isDefaultSumiDirect(sp) {
+				return sp, nil
+			}
+		}
+	}
+	return b.app.Spaces().EnsureSpace(space.KindDirectChat, defaultSumiDirectTitle, space.PersonaInfo{})
+}
+
+func isDefaultSumiDirect(sp *space.Space) bool {
+	return sp != nil &&
+		sp.Kind == space.KindDirectChat &&
+		strings.EqualFold(strings.TrimSpace(sp.Title), defaultSumiDirectTitle)
+}
+
+func isDefaultSumiDirectItem(item DirectChatItem) bool {
+	return item.Kind == "direct_chat" && strings.EqualFold(strings.TrimSpace(item.Title), defaultSumiDirectTitle)
 }
 
 func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
@@ -228,6 +261,9 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 func directChatTitle(sp *space.Space) string {
 	if sp == nil {
 		return "New chat"
+	}
+	if isDefaultSumiDirect(sp) {
+		return defaultSumiDirectTitle
 	}
 	for _, m := range sp.Messages {
 		if m.AuthorKind == space.ParticipantUser {

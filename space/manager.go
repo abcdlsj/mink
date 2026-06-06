@@ -68,7 +68,7 @@ func MapSource(source string) SourceTarget {
 	source = strings.TrimSpace(source)
 	switch {
 	case source == "" || source == "desktop":
-		return SourceTarget{Kind: KindChannel, Seed: "default"}
+		return SourceTarget{Kind: KindDirectChat, Seed: "Sumi"}
 	case strings.HasPrefix(source, "desktop:channel:"):
 		rest := strings.TrimPrefix(source, "desktop:channel:")
 		if i := strings.IndexByte(rest, ':'); i >= 0 {

@@ -11,7 +11,7 @@ func TestEntrypointPolicyMatrix(t *testing.T) {
 		mention    MentionBehavior
 		permission string
 	}{
-		{"desktop", ModeRouted, SessionPersona, DeliverySource, MentionRouted, "default"},
+		{"desktop", ModeDirect, SessionSource, DeliverySource, MentionText, "default"},
 		{"desktop:channel:abc", ModeRouted, SessionPersona, DeliverySource, MentionRouted, "default"},
 		{"desktop:channel:abc:thread:root", ModeRouted, SessionPersona, DeliverySource, MentionRouted, "default"},
 		{"desktop:direct:team", ModeRouted, SessionPersona, DeliverySource, MentionRouted, "default"},

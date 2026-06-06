@@ -347,7 +347,10 @@ export const useStore = create<State>((set, get) => ({
         connectionStatus: "online",
         connectionMessage: "",
       });
-      if (channels.length) {
+      const sumiDirect = directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi");
+      if (sumiDirect) {
+        await get().openDirectChat(sumiDirect.id);
+      } else if (channels.length) {
         await get().openChannel(channels[0].id);
       }
     } catch (err) {
