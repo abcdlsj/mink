@@ -117,7 +117,7 @@ func handleText(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, cf
 	if err != nil {
 		return c.Send(userError(err))
 	}
-	if sourceTracksSpace(src) {
+	if sourceRendersSpaceReplies(src) {
 		return sendSpaceReplies(bot, c, a, src, stripped, before)
 	}
 	if strings.TrimSpace(out) == "" {
@@ -156,7 +156,7 @@ func handleImage(ctx context.Context, a *app.App, bot *tele.Bot, ap *approver, c
 	if err != nil {
 		return c.Send(userError(err))
 	}
-	if sourceTracksSpace(src) {
+	if sourceRendersSpaceReplies(src) {
 		return sendSpaceReplies(bot, c, a, src, stripped, before)
 	}
 	if strings.TrimSpace(out) == "" {

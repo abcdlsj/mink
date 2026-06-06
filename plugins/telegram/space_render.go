@@ -84,6 +84,11 @@ func sourceTracksSpace(src string) bool {
 	return space.MapSource(src).Kind != ""
 }
 
+func sourceRendersSpaceReplies(src string) bool {
+	src = strings.TrimSpace(src)
+	return sourceTracksSpace(src) && !strings.HasPrefix(src, "tg:")
+}
+
 func noMentionHintForSource(src, input string, agents int) string {
 	if strings.HasPrefix(strings.TrimSpace(src), "tg:") {
 		return ""

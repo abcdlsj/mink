@@ -104,3 +104,15 @@ func TestNoMentionHintForSourceMatchesRouterRules(t *testing.T) {
 		})
 	}
 }
+
+func TestTelegramDirectDoesNotRenderSpaceReplies(t *testing.T) {
+	if sourceRendersSpaceReplies("tg:dm:42") {
+		t.Fatal("telegram dm should send direct output, not space transcript replies")
+	}
+	if sourceRendersSpaceReplies("tg:channel:42") {
+		t.Fatal("telegram channel should send direct output, not space transcript replies")
+	}
+	if !sourceRendersSpaceReplies("desktop:channel:main") {
+		t.Fatal("desktop channel should still render routed space replies")
+	}
+}
