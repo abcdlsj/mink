@@ -1,6 +1,7 @@
 import type {
   AgentDMItem,
   AgentItem,
+  CapabilityView,
   ChannelItem,
   CommandItem,
   DirectChatItem,
@@ -120,6 +121,7 @@ export const api = {
   models: () => j<ModelItem[]>(fetch("/api/models")),
   tools: () => j<ToolItem[]>(fetch("/api/tools")),
   commands: () => j<CommandItem[]>(fetch("/api/commands")),
+  capabilities: () => j<CapabilityView>(fetch("/api/capabilities")),
   personas: () => j<PersonaItem[]>(fetch("/api/personas")),
   send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string) =>
     j<{ output: string }>(

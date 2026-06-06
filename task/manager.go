@@ -130,6 +130,12 @@ func (m *Manager) ListBySpace(spaceID string) ([]*Task, error) {
 	return m.store.ListTasksBySpace(spaceID)
 }
 
+func (m *Manager) ListAll() ([]*Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.store.ListTasksBySpace("")
+}
+
 func (m *Manager) StartRun(taskID string, state ...TaskState) (*Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

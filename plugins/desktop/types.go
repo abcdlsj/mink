@@ -75,12 +75,12 @@ type DelegateStep struct {
 }
 
 type TokenUsage struct {
-	Input    int     `json:"input"`
-	Output   int     `json:"output"`
-	Total    int     `json:"total"`
-	CostUSD  float64 `json:"cost_usd,omitempty"`
-	Model    string  `json:"model,omitempty"`
-	Source   string  `json:"source,omitempty"`
+	Input   int     `json:"input"`
+	Output  int     `json:"output"`
+	Total   int     `json:"total"`
+	CostUSD float64 `json:"cost_usd,omitempty"`
+	Model   string  `json:"model,omitempty"`
+	Source  string  `json:"source,omitempty"`
 }
 
 type PersonaItem struct {
@@ -221,4 +221,58 @@ type AgentRun struct {
 	ThreadID   string    `json:"thread_id,omitempty"`
 	Time       time.Time `json:"time"`
 	DurationMs int64     `json:"duration_ms,omitempty"`
+}
+
+type TaskStateView struct {
+	Goal       string   `json:"goal,omitempty"`
+	Todo       []string `json:"todo,omitempty"`
+	Checkpoint string   `json:"checkpoint,omitempty"`
+	Artifacts  []string `json:"artifacts,omitempty"`
+	Blockers   []string `json:"blockers,omitempty"`
+	RelatedIDs []string `json:"related_ids,omitempty"`
+}
+
+type CapabilityView struct {
+	Skills          []SkillView          `json:"skills"`
+	Tasks           []TaskStateCard      `json:"tasks"`
+	ActionProposals []ActionProposalCard `json:"action_proposals"`
+}
+
+type SkillView struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	When        string   `json:"when,omitempty"`
+	Risk        string   `json:"risk,omitempty"`
+	Env         []string `json:"env,omitempty"`
+	Entrypoints []string `json:"entrypoints,omitempty"`
+	Examples    []string `json:"examples,omitempty"`
+	Path        string   `json:"path,omitempty"`
+}
+
+type TaskStateCard struct {
+	ID         string        `json:"id"`
+	Title      string        `json:"title"`
+	Status     string        `json:"status"`
+	WorkerID   string        `json:"worker_id,omitempty"`
+	SpaceID    string        `json:"space_id,omitempty"`
+	Source     string        `json:"source,omitempty"`
+	UpdatedAt  time.Time     `json:"updated_at"`
+	Outcome    string        `json:"outcome,omitempty"`
+	State      TaskStateView `json:"state,omitempty"`
+	LatestRun  string        `json:"latest_run,omitempty"`
+	RunStatus  string        `json:"run_status,omitempty"`
+	RunStarted time.Time     `json:"run_started,omitempty"`
+}
+
+type ActionProposalCard struct {
+	Time      time.Time `json:"time"`
+	Source    string    `json:"source,omitempty"`
+	Tool      string    `json:"tool,omitempty"`
+	Result    string    `json:"result,omitempty"`
+	Intent    string    `json:"intent,omitempty"`
+	Target    string    `json:"target,omitempty"`
+	Risk      string    `json:"risk,omitempty"`
+	Preview   string    `json:"preview,omitempty"`
+	Rollback  string    `json:"rollback,omitempty"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }

@@ -24,6 +24,56 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
+	a.RegisterCommand(command.NewFuncCmd("skills", "list skill cards", func(ctx context.Context, args []string) (string, error) {
+		skills := a.SkillSummaries()
+		if len(skills) == 0 {
+			return "no skills", nil
+		}
+		return listItems("Skills", skills, func(s SkillSummary) string {
+			meta := compactJoin([]string{s.Risk, s.When}, " / ")
+			if meta == "" {
+				meta = s.Description
+			}
+			if meta == "" {
+				return s.Name
+			}
+			return s.Name + " - " + trimLine(meta, 100)
+		}), nil
+	}))
+
+	a.RegisterCommand(command.NewFuncCmd("tasks", "list recent task states", func(ctx context.Context, args []string) (string, error) {
+		tasks := a.RecentTaskStates(8)
+		if len(tasks) == 0 {
+			return "no task state recorded", nil
+		}
+		return listItems("Task states", tasks, func(t TaskStateSummary) string {
+			label := shortID(t.ID) + " [" + t.Status + "] " + t.Title
+			state := compactJoin([]string{t.State.Checkpoint, blockersLabel(t.State.Blockers)}, " / ")
+			if state == "" {
+				return trimLine(label, 120)
+			}
+			return trimLine(label, 80) + " - " + trimLine(state, 80)
+		}), nil
+	}))
+
+	a.RegisterCommand(command.NewFuncCmd("approvals", "list recent action proposals", func(ctx context.Context, args []string) (string, error) {
+		proposals := a.RecentActionProposals(8)
+		if len(proposals) == 0 {
+			return "no action proposals recorded", nil
+		}
+		return listItems("Action proposals", proposals, func(p ActionProposalSummary) string {
+			head := compactJoin([]string{p.Result, p.Tool}, " / ")
+			body := compactJoin([]string{p.Proposal.Intent, p.Proposal.Target, p.Proposal.Risk}, " / ")
+			if body == "" {
+				body = p.Source
+			}
+			if head == "" {
+				return trimLine(body, 120)
+			}
+			return trimLine(head, 56) + " - " + trimLine(body, 100)
+		}), nil
+	}))
+
 	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: /model [provider model]", func(ctx context.Context, args []string) (string, error) {
 		if len(args) == 0 {
 			return a.currentModel(), nil
@@ -132,4 +182,44 @@ func listItems[T any](title string, items []T, fn func(T) string) string {
 		b.WriteString("  " + fn(item) + "\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func compactJoin(parts []string, sep string) string {
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+func trimLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	runes := []rune(s)
+	if n <= 0 || len(runes) <= n {
+		return s
+	}
+	if n <= 3 {
+		return "..."
+	}
+	return string(runes[:n-3]) + "..."
+}
+
+func shortID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
+}
+
+func blockersLabel(blockers []string) string {
+	if len(blockers) == 0 {
+		return ""
+	}
+	if len(blockers) == 1 {
+		return "1 blocker"
+	}
+	return fmt.Sprintf("%d blockers", len(blockers))
 }

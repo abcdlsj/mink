@@ -969,18 +969,19 @@ type RunStep struct {
 }
 
 type RunDetail struct {
-	TaskID           string    `json:"task_id"`
-	SpaceID          string    `json:"space_id"`
-	WorkerID         string    `json:"worker_id"`
-	WorkerName       string    `json:"worker_name,omitempty"`
-	Title            string    `json:"title"`
-	Status           string    `json:"status"`
-	Outcome          string    `json:"outcome,omitempty"`
-	ResultMessageID  string    `json:"result_message_id,omitempty"`
-	TriggerMessageID string    `json:"trigger_message_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	KeySteps         []RunStep `json:"key_steps,omitempty"`
+	TaskID           string        `json:"task_id"`
+	SpaceID          string        `json:"space_id"`
+	WorkerID         string        `json:"worker_id"`
+	WorkerName       string        `json:"worker_name,omitempty"`
+	Title            string        `json:"title"`
+	Status           string        `json:"status"`
+	Outcome          string        `json:"outcome,omitempty"`
+	ResultMessageID  string        `json:"result_message_id,omitempty"`
+	TriggerMessageID string        `json:"trigger_message_id,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	KeySteps         []RunStep     `json:"key_steps,omitempty"`
+	State            TaskStateView `json:"state,omitempty"`
 }
 
 func (b *Backend) GetRunDetail(taskID string) RunDetail {
@@ -1003,6 +1004,7 @@ func (b *Backend) GetRunDetail(taskID string) RunDetail {
 		TriggerMessageID: tk.TriggerMessageID,
 		CreatedAt:        tk.CreatedAt,
 		UpdatedAt:        tk.UpdatedAt,
+		State:            taskStateView(tk.State),
 	}
 	runs, err := b.app.Tasks().ListRuns(tk.ID)
 	if err != nil {
@@ -1027,6 +1029,9 @@ func (b *Backend) GetRunDetail(taskID string) RunDetail {
 		})
 	}
 	detail.KeySteps = steps
+	if detail.State.Goal == "" && detail.State.Checkpoint == "" && len(detail.State.Todo) == 0 {
+		detail.State = taskStateView(latest.State)
+	}
 	return detail
 }
 
@@ -1314,6 +1319,82 @@ func (b *Backend) ListCommands() []CommandItem {
 	return out
 }
 
+func (b *Backend) Capabilities() CapabilityView {
+	return CapabilityView{
+		Skills:          skillViews(b.app.SkillSummaries()),
+		Tasks:           taskStateCards(b.app.RecentTaskStates(6)),
+		ActionProposals: actionProposalCards(b.app.RecentActionProposals(6)),
+	}
+}
+
+func skillViews(in []app.SkillSummary) []SkillView {
+	out := make([]SkillView, 0, len(in))
+	for _, s := range in {
+		out = append(out, SkillView{
+			Name:        s.Name,
+			Description: s.Description,
+			When:        s.When,
+			Risk:        s.Risk,
+			Env:         s.Env,
+			Entrypoints: s.Entrypoints,
+			Examples:    s.Examples,
+			Path:        s.Path,
+		})
+	}
+	return out
+}
+
+func taskStateCards(in []app.TaskStateSummary) []TaskStateCard {
+	out := make([]TaskStateCard, 0, len(in))
+	for _, t := range in {
+		out = append(out, TaskStateCard{
+			ID:         t.ID,
+			Title:      t.Title,
+			Status:     t.Status,
+			WorkerID:   t.WorkerID,
+			SpaceID:    t.SpaceID,
+			Source:     t.Source,
+			UpdatedAt:  t.UpdatedAt,
+			Outcome:    t.Outcome,
+			State:      taskStateView(t.State),
+			LatestRun:  t.LatestRun,
+			RunStatus:  t.RunStatus,
+			RunStarted: t.RunStarted,
+		})
+	}
+	return out
+}
+
+func actionProposalCards(in []app.ActionProposalSummary) []ActionProposalCard {
+	out := make([]ActionProposalCard, 0, len(in))
+	for _, p := range in {
+		out = append(out, ActionProposalCard{
+			Time:      p.Time,
+			Source:    p.Source,
+			Tool:      p.Tool,
+			Result:    p.Result,
+			Intent:    p.Proposal.Intent,
+			Target:    p.Proposal.Target,
+			Risk:      p.Proposal.Risk,
+			Preview:   p.Proposal.Preview,
+			Rollback:  p.Proposal.Rollback,
+			ExpiresAt: p.Proposal.ExpiresAt,
+		})
+	}
+	return out
+}
+
+func taskStateView(s taskpkg.TaskState) TaskStateView {
+	return TaskStateView{
+		Goal:       s.Goal,
+		Todo:       s.Todo,
+		Checkpoint: s.Checkpoint,
+		Artifacts:  s.Artifacts,
+		Blockers:   s.Blockers,
+		RelatedIDs: s.RelatedIDs,
+	}
+}
+
 func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 	return b.subs.subscribe(256)
 }
@@ -1512,6 +1593,7 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/models", jsonHandler(func() any { return b.ListModels() }))
 	mux.HandleFunc("/api/tools", jsonHandler(func() any { return b.ListTools() }))
 	mux.HandleFunc("/api/commands", jsonHandler(func() any { return b.ListCommands() }))
+	mux.HandleFunc("/api/capabilities", jsonHandler(func() any { return b.Capabilities() }))
 	return mux
 }
 

@@ -6,7 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
 import { api } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
-import type { AgentItem, AgentRun, RunDetail, ThreadItem } from "@/lib/types";
+import type {
+  ActionProposalCard,
+  AgentItem,
+  AgentRun,
+  CapabilityView,
+  RunDetail,
+  TaskStateCard,
+  ThreadItem,
+} from "@/lib/types";
 
 export function RightPane() {
   const view = useStore((s) => s.view);
@@ -25,6 +33,24 @@ export function RightPane() {
   const streaming = useStore((s) => s.streaming);
   const streamingByID = useStore((s) => s.streamingByID);
   const [moreOpen, setMoreOpen] = useState(true);
+  const [capabilities, setCapabilities] = useState<CapabilityView | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      api.capabilities().then((data) => {
+        if (!cancelled) setCapabilities(data);
+      }).catch(() => {
+        if (!cancelled) setCapabilities({ skills: [], tasks: [], action_proposals: [] });
+      });
+    };
+    load();
+    const id = window.setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
   const threadParticipants = inThread ? threadDetail!.participants : null;
@@ -117,6 +143,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeSec}
+        <CapabilitiesSection capabilities={capabilities} />
         {toolsSec}
       </>
     );
@@ -162,6 +189,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeSec}
+        <CapabilitiesSection capabilities={capabilities} />
         {toolsSec}
       </>
     );
@@ -209,6 +237,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeSec}
+        <CapabilitiesSection capabilities={capabilities} />
         {toolsSec}
       </>
     );
@@ -623,6 +652,115 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
       </div>
     </button>
   );
+}
+
+function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | null }) {
+  if (!capabilities) {
+    return (
+      <Section label="Capabilities">
+        <div className="text-[12px] text-text-faint">Loading capability state...</div>
+      </Section>
+    );
+  }
+  const skills = capabilities.skills.slice(0, 4);
+  const tasks = capabilities.tasks.slice(0, 3);
+  const proposals = capabilities.action_proposals.slice(0, 3);
+  const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0;
+  return (
+    <Section label="Capabilities">
+      {empty ? (
+        <div className="text-[12px] text-text-faint">No capability state recorded.</div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {skills.length > 0 && (
+            <CapabilityGroup label="Skills">
+              {skills.map((s) => (
+                <CapabilityCard key={s.name}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-semibold text-text">{s.name}</span>
+                    <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10.5px] text-text-muted">
+                      {s.risk || "skill"}
+                    </span>
+                  </div>
+                  {(s.when || s.description) && (
+                    <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
+                      {s.when || s.description}
+                    </div>
+                  )}
+                </CapabilityCard>
+              ))}
+            </CapabilityGroup>
+          )}
+          {tasks.length > 0 && (
+            <CapabilityGroup label="Task State">
+              {tasks.map((t) => (
+                <CapabilityCard key={t.id}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="line-clamp-1 font-semibold text-text">{t.title}</span>
+                    <span className="shrink-0 font-mono text-[10.5px] text-text-muted">{t.run_status || t.status}</span>
+                  </div>
+                  <div className="mt-1 text-[11.5px] leading-[1.4] text-text-muted">
+                    {taskStateLine(t)}
+                  </div>
+                </CapabilityCard>
+              ))}
+            </CapabilityGroup>
+          )}
+          {proposals.length > 0 && (
+            <CapabilityGroup label="Action Proposals">
+              {proposals.map((p, i) => (
+                <CapabilityCard key={`${p.time}-${i}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-semibold text-text">{p.tool || "action"}</span>
+                    <span className="shrink-0 font-mono text-[10.5px] text-text-muted">{p.result || relTime(p.time)}</span>
+                  </div>
+                  <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
+                    {proposalLine(p)}
+                  </div>
+                </CapabilityCard>
+              ))}
+            </CapabilityGroup>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+function CapabilityGroup({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.6px] text-text-faint">
+        {label}
+      </div>
+      <div className="flex flex-col gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function CapabilityCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border border-border bg-panel px-2.5 py-2 text-[12px]">
+      {children}
+    </div>
+  );
+}
+
+function taskStateLine(t: TaskStateCard): string {
+  const checkpoint = t.state?.checkpoint || t.outcome || "No checkpoint";
+  const blockers = t.state?.blockers?.length || 0;
+  if (blockers > 0) {
+    return `${checkpoint} · ${blockers} blocker${blockers === 1 ? "" : "s"}`;
+  }
+  return checkpoint;
+}
+
+function proposalLine(p: ActionProposalCard): string {
+  const parts = [p.intent, p.target, p.risk].filter((v): v is string => !!v && v.trim() !== "");
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+  return p.source || "No proposal detail";
 }
 
 function firstSentence(s: string): string {

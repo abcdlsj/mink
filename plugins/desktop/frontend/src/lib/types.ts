@@ -217,6 +217,7 @@ export interface RunDetail {
   created_at: string;
   updated_at: string;
   key_steps?: RunStep[];
+  state?: TaskStateView;
 }
 
 export interface ParticipantsView {
@@ -255,4 +256,58 @@ export interface CommandItem {
   name: string;
   summary?: string;
   usage?: string;
+}
+
+export interface TaskStateView {
+  goal?: string;
+  todo?: string[];
+  checkpoint?: string;
+  artifacts?: string[];
+  blockers?: string[];
+  related_ids?: string[];
+}
+
+export interface CapabilityView {
+  skills: SkillView[];
+  tasks: TaskStateCard[];
+  action_proposals: ActionProposalCard[];
+}
+
+export interface SkillView {
+  name: string;
+  description?: string;
+  when?: string;
+  risk?: string;
+  env?: string[];
+  entrypoints?: string[];
+  examples?: string[];
+  path?: string;
+}
+
+export interface TaskStateCard {
+  id: string;
+  title: string;
+  status: string;
+  worker_id?: string;
+  space_id?: string;
+  source?: string;
+  updated_at: string;
+  outcome?: string;
+  state?: TaskStateView;
+  latest_run?: string;
+  run_status?: string;
+  run_started?: string;
+}
+
+export interface ActionProposalCard {
+  time: string;
+  source?: string;
+  tool?: string;
+  result?: string;
+  intent?: string;
+  target?: string;
+  risk?: string;
+  preview?: string;
+  rollback?: string;
+  expires_at?: string;
 }

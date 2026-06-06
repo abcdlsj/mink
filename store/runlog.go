@@ -66,6 +66,15 @@ func (s *Store) ReplayTask(id string, limit int) ([]bus.Event, error) {
 	return nil, nil
 }
 
+func (s *Store) ReplayGlobal(limit int) ([]bus.Event, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !fileExists(s.globalRunlog) {
+		return nil, nil
+	}
+	return s.replayPathLocked(s.globalRunlog, limit, nil)
+}
+
 func (s *Store) replayPathLocked(path string, limit int, keep func(bus.Event) bool) ([]bus.Event, error) {
 	var out []bus.Event
 	err := scanJSONLines(path, func(ev bus.Event) error {
