@@ -116,6 +116,9 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 		}
 	}
 	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)...)
+	if r.env != nil && len(r.env.ChildEnv) > 0 {
+		cmd.Env = r.env.ChildEnv
+	}
 	if r.workspace != "" {
 		cmd.Dir = r.workspace
 	}

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -25,6 +28,8 @@ import (
 )
 
 func main() {
+	prepareDesktopEnv()
+
 	cfg := config.Load()
 	a, err := app.New(cfg)
 	if err != nil {
@@ -83,4 +88,53 @@ func plugins() []app.Plugin {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "error:", err)
 	os.Exit(1)
+}
+
+func prepareDesktopEnv() {
+	path := mergePath(os.Getenv("PATH"), loginShellPath())
+	if path != "" {
+		_ = os.Setenv("PATH", path)
+	}
+}
+
+func loginShellPath() string {
+	shell := strings.TrimSpace(os.Getenv("SHELL"))
+	if shell == "" {
+		shell = "/bin/zsh"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	const mark = "__SUMI_PATH__"
+	out, err := exec.CommandContext(ctx, shell, "-ilc", "printf '"+mark+"%s"+mark+"' \"$PATH\"").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	text := string(out)
+	start := strings.Index(text, mark)
+	if start < 0 {
+		return ""
+	}
+	start += len(mark)
+	end := strings.Index(text[start:], mark)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
+}
+
+func mergePath(paths ...string) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, path := range paths {
+		for _, part := range strings.Split(path, string(os.PathListSeparator)) {
+			part = strings.TrimSpace(part)
+			if part == "" || seen[part] {
+				continue
+			}
+			seen[part] = true
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, string(os.PathListSeparator))
 }

@@ -2,6 +2,7 @@ package external
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -170,6 +171,34 @@ func TestDriverRuntimeMetaPublishesBeforeCommand(t *testing.T) {
 		}
 	default:
 		t.Fatal("missing runtime.info event")
+	}
+}
+
+func TestRunCommandUsesRuntimeChildEnv(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{
+			Name:    "test",
+			Command: "/bin/sh",
+			BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
+				return []string{"-c", "printf '%s\n' \"$SUMI_CHILD_ENV_TEST\""}
+			},
+			ParseOutput: func(line string) *Message {
+				return &Message{Type: MsgAssistantText, Text: strings.TrimSpace(line)}
+			},
+		},
+		env: &agent.RuntimeEnv{
+			ChildEnv: []string{"PATH=" + os.Getenv("PATH"), "SUMI_CHILD_ENV_TEST=ok"},
+		},
+	}
+	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: bus.New()}
+	st := newRunState()
+
+	if err := r.runCommand(context.Background(), turn, st, "hi", "", false); err != nil {
+		t.Fatal(err)
+	}
+	st.flush(turn.Session)
+	if got := turn.Session.Messages[len(turn.Session.Messages)-1].Content; got != "ok" {
+		t.Fatalf("assistant = %q, want ok", got)
 	}
 }
 
