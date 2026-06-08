@@ -670,6 +670,9 @@ export const useStore = create<State>((set, get) => ({
         );
       }
       set(updates);
+      if (sameScope) {
+        await refetchActiveScope(get, set);
+      }
     }
   },
 

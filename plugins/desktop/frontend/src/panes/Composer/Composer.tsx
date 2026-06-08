@@ -62,12 +62,6 @@ export function Composer() {
       const dm = agentDMs.find((d) => d.id === activeAgent);
       return dm?.persona_id || activeAgent;
     }
-    if (view === "thread" && detail) {
-      for (let i = detail.messages.length - 1; i >= 0; i--) {
-        const m = detail.messages[i];
-        if (m.role !== "user" && m.author_id) return m.author_id;
-      }
-    }
     return "";
   })();
 

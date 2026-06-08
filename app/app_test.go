@@ -798,13 +798,19 @@ func TestDesktopDefaultSumiDoesNotBindDefaultPersona(t *testing.T) {
 	if gotPersona != nil {
 		t.Fatalf("runtime persona = %#v, want nil", gotPersona)
 	}
-	if gotAgentID != "assistant" {
-		t.Fatalf("turn agent id = %q, want assistant", gotAgentID)
+	if gotAgentID != "" {
+		t.Fatalf("turn agent id = %q, want empty default Sumi agent id", gotAgentID)
 	}
 	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil || sp == nil {
 		t.Fatalf("default Sumi space not found: %v", err)
 	} else if len(sp.Messages) != 2 || sp.Messages[1].AuthorID != "assistant" {
 		t.Fatalf("default Sumi messages = %#v", sp.Messages)
+	} else {
+		for _, p := range sp.Participants {
+			if p.Kind == space.ParticipantAgent {
+				t.Fatalf("default Sumi participants = %#v, want no agent participant", sp.Participants)
+			}
+		}
 	}
 	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "andy"); err != nil || sp != nil {
 		t.Fatalf("default persona agent dm should not be created, got space=%#v err=%v", sp, err)

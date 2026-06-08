@@ -201,11 +201,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	runAgentID := f.personaID
-	if useDefaultSumi && strings.TrimSpace(runAgentID) == "" {
-		runAgentID = agentInfo.ID
-	}
-	if err := f.app.runTurnAs(ctx, rt, f.source, runAgentID, f.input, f.attachments, s); err != nil {
+	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 		return "", err
 	}
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
@@ -216,9 +212,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 			Content:    content,
 			Reasoning:  reasoning,
 		}
-		_, _, err := f.app.spaces.AppendMessageWithRouting(sp.ID, draft, []string{agentInfo.ID}, func(id string) space.PersonaInfo {
-			return agentInfo
-		})
+		_, _, err := f.app.spaces.AppendMessageWithRouting(sp.ID, draft, nil, nil)
 		if err != nil {
 			return "", err
 		}

@@ -64,8 +64,11 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 	}()
 	source := desktopSource
 	var sp *space.Space
+	var parentMessageID string
+	messageCountBefore := -1
 	if loaded, err := b.app.Spaces().LoadSpace(req.SessionID); err == nil && loaded != nil {
 		sp = loaded
+		messageCountBefore = len(sp.Messages)
 		switch sp.Kind {
 		case space.KindChannel:
 			source = "desktop:channel:" + sp.ID
@@ -94,12 +97,43 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("thread parent message %q not found in this Space", parentID)
 		}
+		parentMessageID = normalized
 		ctx = command.WithParentMessage(ctx, normalized)
 	}
+	var out string
+	var err error
 	if req.PersonaID != "" {
-		return b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
+		out, err = b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
+	} else {
+		out, err = b.app.HandleInput(ctx, source, req.Input)
 	}
-	return b.app.HandleInput(ctx, source, req.Input)
+	if err != nil {
+		b.persistSendFailure(sp, parentMessageID, req.Input, messageCountBefore, err)
+		return "", err
+	}
+	return out, nil
+}
+
+func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input string, messageCountBefore int, sendErr error) {
+	if sp == nil || sendErr == nil {
+		return
+	}
+	if messageCountBefore >= 0 {
+		if latest, err := b.app.Spaces().LoadSpace(sp.ID); err == nil && latest != nil && len(latest.Messages) <= messageCountBefore {
+			_, _, _ = b.app.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+				AuthorID:        b.app.Spaces().UserParticipant().ID,
+				AuthorKind:      space.ParticipantUser,
+				Content:         input,
+				ParentMessageID: strings.TrimSpace(parentMessageID),
+			}, nil, nil)
+		}
+	}
+	_, _, _ = b.app.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+		AuthorID:        "sumi",
+		AuthorKind:      space.ParticipantSystem,
+		Content:         "Send failed: " + sendErr.Error(),
+		ParentMessageID: strings.TrimSpace(parentMessageID),
+	}, nil, nil)
 }
 
 func (b *Backend) normalizeThreadParentID(sp *space.Space, parentID string) (string, bool) {
@@ -175,7 +209,7 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 			ID:        e.sp.ID,
 			Kind:      "direct_chat",
 			Title:     directChatTitle(e.sp),
-			Agents:    spaceAgentIDs(e.sp),
+			Agents:    directChatAgentIDs(e.sp),
 			UpdatedAt: e.sp.UpdatedAt,
 		})
 	}
@@ -212,6 +246,13 @@ func isDefaultSumiDirect(sp *space.Space) bool {
 
 func isDefaultSumiDirectItem(item DirectChatItem) bool {
 	return item.Kind == "direct_chat" && strings.EqualFold(strings.TrimSpace(item.Title), defaultSumiDirectTitle)
+}
+
+func directChatAgentIDs(sp *space.Space) []string {
+	if isDefaultSumiDirect(sp) {
+		return []string{}
+	}
+	return spaceAgentIDs(sp)
 }
 
 func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
@@ -695,6 +736,8 @@ func roleForKind(k space.ParticipantKind) string {
 		return "user"
 	case space.ParticipantAgent:
 		return "agent"
+	case space.ParticipantSystem:
+		return "system"
 	}
 	return ""
 }

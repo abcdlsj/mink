@@ -5,8 +5,9 @@ import "time"
 type ParticipantKind string
 
 const (
-	ParticipantUser  ParticipantKind = "user"
-	ParticipantAgent ParticipantKind = "agent"
+	ParticipantUser   ParticipantKind = "user"
+	ParticipantAgent  ParticipantKind = "agent"
+	ParticipantSystem ParticipantKind = "system"
 )
 
 type ParticipantStatus string

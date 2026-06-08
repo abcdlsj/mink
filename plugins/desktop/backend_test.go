@@ -1,8 +1,11 @@
 package desktop
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
@@ -151,6 +154,61 @@ func TestDirectChatsIncludeDefaultSumiConversation(t *testing.T) {
 	}
 }
 
+func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(context.Context, *agent.Turn) error {
+			return errors.New("boom")
+		}), nil
+	})
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "hello"}); err == nil || err.Error() != "boom" {
+		t.Fatalf("err = %v, want boom", err)
+	}
+
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + persisted failure notice", detail.Messages)
+	}
+	if detail.Messages[0].Role != "user" || detail.Messages[0].Content != "hello" {
+		t.Fatalf("user message = %#v", detail.Messages[0])
+	}
+	if detail.Messages[1].Role != "system" || detail.Messages[1].Content != "Send failed: boom" {
+		t.Fatalf("failure notice = %#v", detail.Messages[1])
+	}
+	if direct = b.ListDirectChats(); len(direct) != 1 || len(direct[0].Agents) != 0 {
+		t.Fatalf("default Sumi direct agents = %#v, want none", direct)
+	}
+}
+
+func TestDefaultSumiPersonaSendFailurePersistsInputAndNotice(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	_, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, PersonaID: "assistant", Input: "still there?"})
+	if err == nil || err.Error() != "persona not found: assistant" {
+		t.Fatalf("err = %v, want persona not found", err)
+	}
+
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + persisted failure notice", detail.Messages)
+	}
+	if detail.Messages[0].Role != "user" || detail.Messages[0].Content != "still there?" {
+		t.Fatalf("user message = %#v", detail.Messages[0])
+	}
+	if detail.Messages[1].Role != "system" || detail.Messages[1].Content != "Send failed: persona not found: assistant" {
+		t.Fatalf("failure notice = %#v", detail.Messages[1])
+	}
+}
+
 func TestParseTaskID(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -167,6 +225,12 @@ func TestParseTaskID(t *testing.T) {
 			t.Errorf("parseTaskID(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+}
+
+type desktopRuntimeFunc func(context.Context, *agent.Turn) error
+
+func (f desktopRuntimeFunc) Run(ctx context.Context, turn *agent.Turn) error {
+	return f(ctx, turn)
 }
 
 func TestHumanizeStep(t *testing.T) {
