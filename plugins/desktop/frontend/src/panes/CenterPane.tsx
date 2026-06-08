@@ -12,6 +12,7 @@ export function CenterPane() {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgent = useStore((s) => s.activeAgent);
   const activeThread = useStore((s) => s.activeThread);
+  const activeAnchor = useStore((s) => s.activeAnchor);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const lastScopeRef = useRef<string>("");
@@ -32,6 +33,16 @@ export function CenterPane() {
       el.scrollTop = el.scrollHeight;
     }
   }, [scope, messageCount]);
+
+  useEffect(() => {
+    if (!activeAnchor?.startsWith("message:")) return;
+    const id = activeAnchor.slice("message:".length);
+    window.requestAnimationFrame(() => {
+      document.getElementById("message-" + id)?.scrollIntoView({
+        block: "center",
+      });
+    });
+  }, [activeAnchor, messageCount]);
 
   const threadDetail = useStore((s) => s.threadDetail);
   if (threadDetail) {

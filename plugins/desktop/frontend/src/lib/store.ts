@@ -19,6 +19,7 @@ import type {
   WorkspaceState,
 } from "./types";
 import { api } from "./api";
+import { parseWebRoute, writeRouteAnchor, writeWebRoute, type RouteWriteOptions } from "./deeplink";
 
 interface BusEvent {
   type: string;
@@ -73,6 +74,7 @@ interface State {
   activeChannel: string | null;
   activeThread: string | null;
   activeAgent: string | null;
+  activeAnchor: string | null;
   expandedTaskID: string | null;
 
   paletteOpen: boolean;
@@ -84,17 +86,17 @@ interface State {
   runtimeMeta: Record<string, Record<string, string>>;
 
   loadInitial: () => Promise<void>;
-  openChannel: (id: string) => Promise<void>;
+  openChannel: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   createChannel: (name: string) => Promise<ChannelItem>;
   setChannelAgentMode: (channelID: string, personaID: string, mode: string) => Promise<void>;
   addAgentToChannel: (channelID: string, personaID: string) => Promise<void>;
   setThreadAgentMode: (spaceID: string, parentMessageID: string, personaID: string, mode: string) => Promise<void>;
-  openThread: (id: string) => Promise<void>;
-  closeThread: () => void;
-  openAgent: (id: string) => Promise<void>;
+  openThread: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
+  closeThread: (routeOpts?: RouteWriteOptions) => void;
+  openAgent: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newAgentChat: (personaID: string, title?: string) => Promise<void>;
   updateAgentChatTitle: (id: string, title: string) => Promise<void>;
-  openDirectChat: (id: string) => Promise<void>;
+  openDirectChat: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
   setQuickCreate: (open: boolean) => void;
@@ -104,6 +106,7 @@ interface State {
   collapseTaskInRail: () => void;
   connectStream: () => () => void;
   applyEvent: (ev: BusEvent) => void;
+  openCurrentRoute: () => Promise<void>;
 }
 
 function activeSessionID(s: State): string {
@@ -219,6 +222,17 @@ function currentStreaming(streamingByID: Record<string, StreamingTurn>): Streami
   return Object.values(streamingByID)[0] || null;
 }
 
+function applyRouteAnchor(anchor: string | undefined): Pick<State, "activeAnchor" | "expandedTaskID"> {
+  const taskID =
+    anchor?.startsWith("task:") || anchor?.startsWith("run:")
+      ? anchor.slice(anchor.indexOf(":") + 1)
+      : null;
+  return {
+    activeAnchor: anchor || null,
+    expandedTaskID: taskID || null,
+  };
+}
+
 function streamForEvent(s: State, ev: BusEvent): StreamingTurn | null {
   if (ev.stream_id && s.streamingByID[ev.stream_id]) return s.streamingByID[ev.stream_id];
   return s.streaming;
@@ -306,6 +320,7 @@ export const useStore = create<State>((set, get) => ({
   activeChannel: null,
   activeThread: null,
   activeAgent: null,
+  activeAnchor: null,
   expandedTaskID: null,
 
   paletteOpen: false,
@@ -347,11 +362,37 @@ export const useStore = create<State>((set, get) => ({
         connectionStatus: "online",
         connectionMessage: "",
       });
+      const initialRoute = parseWebRoute();
+      if (initialRoute) {
+        try {
+          if (initialRoute.view === "channel") {
+            await get().openChannel(initialRoute.id, { replace: true });
+            if (initialRoute.thread) await get().openThread(initialRoute.thread, { replace: true });
+            set(applyRouteAnchor(initialRoute.anchor));
+            if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
+            return;
+          }
+          if (initialRoute.view === "direct") {
+            await get().openDirectChat(initialRoute.id, { replace: true });
+            set(applyRouteAnchor(initialRoute.anchor));
+            if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
+            return;
+          }
+          if (initialRoute.view === "agent") {
+            await get().openAgent(initialRoute.id, { replace: true });
+            set(applyRouteAnchor(initialRoute.anchor));
+            if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
+            return;
+          }
+        } catch {
+          // Bad or stale deep links should not block the desktop from opening.
+        }
+      }
       const sumiDirect = directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi");
       if (sumiDirect) {
-        await get().openDirectChat(sumiDirect.id);
+        await get().openDirectChat(sumiDirect.id, { replace: true });
       } else if (channels.length) {
-        await get().openChannel(channels[0].id);
+        await get().openChannel(channels[0].id, { replace: true });
       }
     } catch (err) {
       set({
@@ -362,7 +403,7 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async openChannel(id) {
+  async openChannel(id, routeOpts?: RouteWriteOptions) {
     const [detail, participants] = await Promise.all([
       api.channel(id),
       api.participants(id, ""),
@@ -372,6 +413,7 @@ export const useStore = create<State>((set, get) => ({
       activeChannel: id,
       activeThread: null,
       activeAgent: null,
+      activeAnchor: null,
       detail,
       threadDetail: null,
       expandedTaskID: null,
@@ -379,6 +421,7 @@ export const useStore = create<State>((set, get) => ({
       streaming: null,
       streamingByID: {},
     });
+    writeWebRoute({ view: "channel", id }, routeOpts);
   },
 
   async createChannel(name) {
@@ -418,23 +461,27 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async openThread(id) {
+  async openThread(id, routeOpts?: RouteWriteOptions) {
     const spaceId = get().activeChannel;
     if (!spaceId) return;
     const detail = await api.threadDetail(spaceId, id);
     set({
       activeThread: id,
+      activeAnchor: null,
       threadDetail: detail,
       streaming: null,
       streamingByID: {},
     });
+    writeWebRoute({ view: "channel", id: spaceId, thread: id }, routeOpts);
   },
 
-  closeThread() {
-    set({ activeThread: null, threadDetail: null, streaming: null, streamingByID: {}, expandedTaskID: null });
+  closeThread(routeOpts?: RouteWriteOptions) {
+    const spaceId = get().activeChannel;
+    set({ activeThread: null, activeAnchor: null, threadDetail: null, streaming: null, streamingByID: {}, expandedTaskID: null });
+    if (spaceId) writeWebRoute({ view: "channel", id: spaceId }, routeOpts);
   },
 
-  async openAgent(id) {
+  async openAgent(id, routeOpts?: RouteWriteOptions) {
     const dmPersona = get().agentDMs.find((d) => d.id === id)?.persona_id || id;
     const ag = get().agents.find((a) => a.id === dmPersona);
     let detail: SessionDetail;
@@ -462,6 +509,7 @@ export const useStore = create<State>((set, get) => ({
       activeAgent: detail.item.id || id,
       activeChannel: null,
       activeThread: null,
+      activeAnchor: null,
       detail,
       threadDetail: null,
       participants: null,
@@ -471,6 +519,7 @@ export const useStore = create<State>((set, get) => ({
       streamingByID: {},
       expandedTaskID: null,
     });
+    writeWebRoute({ view: "agent", id: detail.item.id || id }, routeOpts);
   },
 
   async newAgentChat(personaID, title) {
@@ -504,11 +553,13 @@ export const useStore = create<State>((set, get) => ({
       activeThread: detail.item.id,
       activeChannel: null,
       activeAgent: null,
+      activeAnchor: null,
       detail,
       participants: { agents: [] },
       streaming: null,
       streamingByID: {},
     });
+    writeWebRoute({ view: "direct", id: detail.item.id });
     try {
       const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
       set({ directChats, recent });
@@ -516,10 +567,10 @@ export const useStore = create<State>((set, get) => ({
           }
   },
 
-  async openDirectChat(id) {
+  async openDirectChat(id, routeOpts?: RouteWriteOptions) {
     const direct = get().directChats.find((d) => d.id === id);
     if (direct?.kind === "agent_dm") {
-      await get().openAgent(direct.id || direct.persona_id || id);
+      await get().openAgent(direct.id || direct.persona_id || id, routeOpts);
       return;
     }
     let detail: SessionDetail;
@@ -543,11 +594,36 @@ export const useStore = create<State>((set, get) => ({
       activeThread: id,
       activeChannel: null,
       activeAgent: null,
+      activeAnchor: null,
       detail,
       participants,
       streaming: null,
       streamingByID: {},
     });
+    writeWebRoute({ view: "direct", id }, routeOpts);
+  },
+
+  async openCurrentRoute() {
+    const route = parseWebRoute();
+    if (!route) return;
+    if (route.view === "channel") {
+      await get().openChannel(route.id, { replace: true });
+      if (route.thread) await get().openThread(route.thread, { replace: true });
+      set(applyRouteAnchor(route.anchor));
+      if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
+      return;
+    }
+    if (route.view === "direct") {
+      await get().openDirectChat(route.id, { replace: true });
+      set(applyRouteAnchor(route.anchor));
+      if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
+      return;
+    }
+    if (route.view === "agent") {
+      await get().openAgent(route.id, { replace: true });
+      set(applyRouteAnchor(route.anchor));
+      if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
+    }
   },
 
   setPalette(open) {
@@ -559,11 +635,13 @@ export const useStore = create<State>((set, get) => ({
   },
 
   expandTaskInRail(taskID) {
-    set({ expandedTaskID: taskID });
+    set({ expandedTaskID: taskID, activeAnchor: "task:" + taskID });
+    writeRouteAnchor("task:" + taskID);
   },
 
   collapseTaskInRail() {
-    set({ expandedTaskID: null });
+    set({ expandedTaskID: null, activeAnchor: null });
+    writeRouteAnchor(null);
   },
 
   async send(input, personaID) {

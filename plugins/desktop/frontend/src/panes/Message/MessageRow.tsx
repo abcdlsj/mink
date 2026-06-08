@@ -42,6 +42,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
 
   return (
     <div
+      id={"message-" + m.id}
       className={cn(
         "grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
         compact ? "-mt-4 mb-1" : "mb-6 border-b border-border-soft pb-5 last:border-b-0",

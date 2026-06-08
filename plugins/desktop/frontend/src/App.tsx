@@ -19,6 +19,7 @@ export default function App() {
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
   const connectStream = useStore((s) => s.connectStream);
+  const openCurrentRoute = useStore((s) => s.openCurrentRoute);
   const connectionStatus = useStore((s) => s.connectionStatus);
   const connectionMessage = useStore((s) => s.connectionMessage);
   const detail = useStore((s) => s.detail);
@@ -35,6 +36,15 @@ export default function App() {
     if (!ready) return;
     return connectStream();
   }, [ready, connectStream]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      void openCurrentRoute().catch(() => undefined);
+      setMobileLayer(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [openCurrentRoute]);
 
   const mobileScope = `${detail?.item?.id || ""}:${threadDetail?.parent_id || ""}`;
 
