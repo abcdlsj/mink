@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
@@ -254,6 +255,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		if saveErr != nil {
 			runErr = fmt.Errorf("%w; save session: %v", runErr, saveErr)
 		}
+		_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, runErr)
 		a.bus.Publish(bus.Event{
 			Type:            bus.TurnError,
 			Source:          s.Source,
@@ -267,6 +269,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		return channelWakeResult{err: runErr}
 	} else {
 		if err := a.sessions.Save(s); err != nil {
+			_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, err)
 			a.bus.Publish(bus.Event{
 				Type:            bus.TurnError,
 				Source:          s.Source,
@@ -354,15 +357,100 @@ func (a *App) publishRoutingNotices(source string, notices []space.RoutingNotice
 		return
 	}
 	for _, n := range notices {
+		parentMessageID := a.routingNoticeParent(n.SpaceID, n.MessageID)
+		_ = a.persistRoutingNotice(n, parentMessageID)
 		a.bus.Publish(bus.Event{
-			Type:       string(n.Kind),
-			Source:     source,
-			SessionID:  n.SpaceID,
-			ToolCallID: n.MessageID,
-			Tool:       n.AgentID,
-			Time:       n.At,
+			Type:            string(n.Kind),
+			Source:          source,
+			SessionID:       n.SpaceID,
+			SpaceID:         n.SpaceID,
+			ParentMessageID: parentMessageID,
+			ToolCallID:      n.MessageID,
+			Tool:            n.AgentID,
+			Time:            n.At,
 		})
 	}
+}
+
+func (a *App) persistRoutingNotice(n space.RoutingNotice, parentID string) error {
+	if a == nil || a.spaces == nil {
+		return nil
+	}
+	text := routingNoticeText(n.Kind, n.AgentID)
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return a.appendSystemSpaceMessage(n.SpaceID, parentID, text)
+}
+
+func routingNoticeText(kind space.RoutingNoticeKind, agentID string) string {
+	switch kind {
+	case space.NoticeChannelNoTarget:
+		return "No agent picked this up. Mention an agent or enable listening."
+	case space.NoticeListeningAmbiguous:
+		return "Mention a specific agent."
+	case space.NoticeListeningNoMatch:
+		return "No listening agent matched this. Mention one explicitly."
+	case space.NoticeBudgetExhausted:
+		return routingAgentText(agentID, "routing budget exhausted")
+	case space.NoticeDuplicateSkipped:
+		return routingAgentText(agentID, "duplicate route skipped")
+	case space.NoticeUnknownMentionDrop:
+		return routingAgentText(agentID, "unknown mention ignored")
+	default:
+		return ""
+	}
+}
+
+func routingAgentText(agentID, suffix string) string {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return suffix + "."
+	}
+	return "@" + agentID + ": " + suffix + "."
+}
+
+func (a *App) routingNoticeParent(spaceID, messageID string) string {
+	if a == nil || a.spaces == nil || strings.TrimSpace(messageID) == "" {
+		return ""
+	}
+	sp, err := a.spaces.LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return ""
+	}
+	for _, m := range sp.Messages {
+		if m.ID == messageID {
+			return strings.TrimSpace(m.ParentMessageID)
+		}
+	}
+	return ""
+}
+
+func (a *App) persistChannelWakeFailure(spaceID, parentMessageID, agentID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	prefix := "Agent failed"
+	if agentID != "" {
+		prefix = "@" + agentID + " failed"
+	}
+	return a.appendSystemSpaceMessage(spaceID, parentMessageID, prefix+": "+err.Error())
+}
+
+func (a *App) appendSystemSpaceMessage(spaceID, parentMessageID, content string) error {
+	if a == nil || a.spaces == nil || strings.TrimSpace(spaceID) == "" || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	at := time.Now()
+	_, _, err := a.spaces.AppendMessageWithRouting(spaceID, space.Message{
+		AuthorID:        "sumi",
+		AuthorKind:      space.ParticipantSystem,
+		Content:         strings.TrimSpace(content),
+		ParentMessageID: strings.TrimSpace(parentMessageID),
+		CreatedAt:       at,
+	}, nil, nil)
+	return err
 }
 
 const (

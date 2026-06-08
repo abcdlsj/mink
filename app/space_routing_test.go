@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/abcdlsj/sumi/agent"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
@@ -115,6 +117,130 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	}
 	if turns[1].seen[1].Role != "assistant" || turns[1].seen[1].Content != "reply to @bob first" {
 		t.Fatalf("second context message = %+v", turns[1].seen[1])
+	}
+}
+
+func TestRoutedNoTargetNoticePersistsToSpace(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.interceptRoutedInput(context.Background(), "desktop:channel:"+ch.ID, "plain note"); err != nil {
+		t.Fatal(err)
+	}
+
+	sp, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + routing notice", sp.Messages)
+	}
+	if sp.Messages[0].AuthorKind != space.ParticipantUser || sp.Messages[0].Content != "plain note" {
+		t.Fatalf("user message = %#v", sp.Messages[0])
+	}
+	if sp.Messages[1].AuthorKind != space.ParticipantSystem ||
+		sp.Messages[1].Content != "No agent picked this up. Mention an agent or enable listening." {
+		t.Fatalf("notice message = %#v", sp.Messages[1])
+	}
+}
+
+func TestRoutedNoTargetThreadNoticePersistsAsReply(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := a.Spaces().AppendUserMessage(ch.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := command.WithParentMessage(context.Background(), root.ID)
+	if _, err := a.interceptRoutedInput(ctx, "desktop:channel:"+ch.ID, "thread note"); err != nil {
+		t.Fatal(err)
+	}
+
+	sp, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sp.Messages) != 3 {
+		t.Fatalf("messages = %#v, want root + user reply + routing notice reply", sp.Messages)
+	}
+	if sp.Messages[1].ParentMessageID != root.ID || sp.Messages[2].ParentMessageID != root.ID {
+		t.Fatalf("thread messages = %#v, want notice under root", sp.Messages)
+	}
+	if sp.Messages[2].AuthorKind != space.ParticipantSystem {
+		t.Fatalf("notice message = %#v", sp.Messages[2])
+	}
+}
+
+func TestChannelWakeFailurePersistsToSpace(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if _, err := a.Personas().Create("bob", persona.Meta{Runtime: "stub"}, "# Bob"); err != nil {
+		t.Fatal(err)
+	}
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			return errors.New("boom")
+		}), nil
+	})
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin, err := a.Spaces().AppendUserMessage(ch.ID, "@bob do it", []string{"bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := a.runChannelWake(context.Background(), "desktop:channel:"+ch.ID, ch.ID, space.RoutingTarget{
+		AgentID:         "bob",
+		OriginMessageID: origin.ID,
+	}, "@bob do it")
+	if res.err == nil || !strings.Contains(res.err.Error(), "boom") {
+		t.Fatalf("err = %v, want boom", res.err)
+	}
+
+	sp, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + failure notice", sp.Messages)
+	}
+	if sp.Messages[1].AuthorKind != space.ParticipantSystem || sp.Messages[1].Content != "@bob failed: boom" {
+		t.Fatalf("failure notice = %#v", sp.Messages[1])
 	}
 }
 

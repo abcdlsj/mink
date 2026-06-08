@@ -753,14 +753,25 @@ export const useStore = create<State>((set, get) => ({
 
     if (ev.type === "routing.listening_ambiguous") {
       set({ composerHint: { text: "Mention a specific agent.", at: Date.now() } });
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
       return;
     }
     if (ev.type === "routing.listening_no_match") {
       set({ composerHint: { text: "No listening agent matched this. Mention one explicitly.", at: Date.now() } });
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
       return;
     }
     if (ev.type === "routing.channel.no_target") {
       set({ composerHint: { text: "No agent picked this up. Mention an agent or enable listening.", at: Date.now() } });
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
+      return;
+    }
+    if (
+      ev.type === "routing.budget_exhausted" ||
+      ev.type === "routing.duplicate_skipped" ||
+      ev.type === "routing.unknown_mention"
+    ) {
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
       return;
     }
 
