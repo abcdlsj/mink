@@ -73,6 +73,8 @@ func New(cfg config.Config) (*App, error) {
 	a.bus.OnPublish(func(ev bus.Event) {
 		_ = db.AppendEvent(ev)
 	})
+	a.spaces.SetEventSink(a.bus.Publish)
+	a.tasks.SetEventSink(a.bus.Publish)
 	a.router = command.NewRouter(a.cmds)
 	a.skills = skill.NewLoader(cfg.Workspace)
 	a.personas = persona.NewRegistry(cfg.PersonasDir())

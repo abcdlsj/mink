@@ -32,15 +32,11 @@ func (f *fanout) subscribe(size int) (<-chan BusEvent, func()) {
 
 func (f *fanout) publish(ev BusEvent) {
 	f.mu.Lock()
-	subs := make([]chan BusEvent, 0, len(f.subs))
 	for _, ch := range f.subs {
-		subs = append(subs, ch)
-	}
-	f.mu.Unlock()
-	for _, ch := range subs {
 		select {
 		case ch <- ev:
 		default:
 		}
 	}
+	f.mu.Unlock()
 }

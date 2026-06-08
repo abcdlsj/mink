@@ -7,9 +7,7 @@ import { CenterPane } from "@/panes/CenterPane";
 import { RightPane } from "@/panes/RightPane";
 import { CommandPalette } from "@/components/CommandPalette";
 import { QuickCreate } from "@/components/QuickCreate";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import type { CapabilityView } from "@/lib/types";
 
 type MobileLayer = "spaces" | "details" | null;
 
@@ -250,20 +248,8 @@ function MobileDetailsContent() {
   const personas = useStore((s) => s.personas);
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
-  const [capabilities, setCapabilities] = useState<CapabilityView | null>(null);
+  const capabilities = useStore((s) => s.capabilities);
   const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | "agents" | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.capabilities().then((data) => {
-      if (!cancelled) setCapabilities(data);
-    }).catch(() => {
-      if (!cancelled) setCapabilities({ skills: [], tasks: [], action_proposals: [] });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const skills = capabilities?.skills || [];
   const tasks = capabilities?.tasks || [];

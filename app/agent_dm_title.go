@@ -5,7 +5,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/space"
 )
 
@@ -43,7 +42,6 @@ func (a *App) MaybeAutoTitleAgentDM(spaceID string) {
 	if err := a.spaces.UpdateTitle(sp.ID, title); err != nil {
 		return
 	}
-	a.bus.Publish(bus.Event{Type: bus.SpaceTitleChanged, SpaceID: sp.ID, Text: title})
 }
 
 func needsAutoTitle(sp *space.Space) bool {

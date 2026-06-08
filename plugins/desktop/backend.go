@@ -1768,6 +1768,8 @@ func toBusEvent(ev bus.Event) BusEvent {
 		Source:          ev.Source,
 		SessionID:       ev.SessionID,
 		TaskID:          ev.TaskID,
+		RunID:           ev.RunID,
+		MessageID:       ev.MessageID,
 		ToolCallID:      ev.ToolCallID,
 		Tool:            ev.Tool,
 		Input:           ev.Input,

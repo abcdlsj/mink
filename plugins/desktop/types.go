@@ -136,6 +136,8 @@ type BusEvent struct {
 	Source          string    `json:"source,omitempty"`
 	SessionID       string    `json:"session_id,omitempty"`
 	TaskID          string    `json:"task_id,omitempty"`
+	RunID           string    `json:"run_id,omitempty"`
+	MessageID       string    `json:"message_id,omitempty"`
 	ToolCallID      string    `json:"tool_call_id,omitempty"`
 	Tool            string    `json:"tool,omitempty"`
 	Input           string    `json:"input,omitempty"`

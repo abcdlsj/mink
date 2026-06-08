@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   AgentDMItem,
   AgentItem,
+  CapabilityView,
   ChannelItem,
   CommandItem,
   DirectChatItem,
@@ -26,6 +27,8 @@ interface BusEvent {
   source?: string;
   session_id?: string;
   task_id?: string;
+  run_id?: string;
+  message_id?: string;
   tool_call_id?: string;
   tool?: string;
   input?: string;
@@ -66,6 +69,7 @@ interface State {
   models: ModelItem[];
   tools: ToolItem[];
   commands: CommandItem[];
+  capabilities: CapabilityView | null;
   detail: SessionDetail | null;
   threadDetail: ThreadDetail | null;
   participants: ParticipantsView | null;
@@ -86,6 +90,7 @@ interface State {
   runtimeMeta: Record<string, Record<string, string>>;
 
   loadInitial: () => Promise<void>;
+  refreshCapabilities: () => Promise<void>;
   openChannel: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   createChannel: (name: string) => Promise<ChannelItem>;
   setChannelAgentMode: (channelID: string, personaID: string, mode: string) => Promise<void>;
@@ -159,9 +164,9 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
   if (!ev.space_id) return false;
   if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
     if (ev.space_id !== s.activeChannel) return false;
-    if (!ev.parent_message_id) return false;
     if (ev.parent_message_id === s.threadDetail.parent_id) return true;
-        return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id);
+    if (ev.message_id === s.threadDetail.parent_id) return true;
+    return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id || r.id === ev.message_id);
   }
   if (s.view === "agent") {
     if (!s.detail) return false;
@@ -297,6 +302,21 @@ async function refetchActiveChannelMeta(
   } catch {}
 }
 
+async function refetchNavigation(
+  set: (partial: Partial<State>) => void,
+): Promise<void> {
+  try {
+    const [channels, threads, directChats, agentDMs, recent] = await Promise.all([
+      api.channels(),
+      api.threads(),
+      api.directChats(),
+      api.agentDMs(),
+      api.recent(),
+    ]);
+    set({ channels, threads, directChats, agentDMs, recent });
+  } catch {}
+}
+
 export const useStore = create<State>((set, get) => ({
   ready: false,
   connectionStatus: "connecting",
@@ -312,6 +332,7 @@ export const useStore = create<State>((set, get) => ({
   models: [],
   tools: [],
   commands: [],
+  capabilities: null,
   detail: null,
   threadDetail: null,
   participants: null,
@@ -333,7 +354,7 @@ export const useStore = create<State>((set, get) => ({
 
   async loadInitial() {
     try {
-      const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands] = await Promise.all([
+      const [state, channels, threads, directChats, agentDMs, recent, agents, personas, models, tools, commands, capabilities] = await Promise.all([
         api.state(),
         api.channels(),
         api.threads(),
@@ -345,6 +366,7 @@ export const useStore = create<State>((set, get) => ({
         api.models(),
         api.tools(),
         api.commands(),
+        api.capabilities().catch(() => ({ skills: [], tasks: [], action_proposals: [] })),
       ]);
       set({
         state,
@@ -358,6 +380,7 @@ export const useStore = create<State>((set, get) => ({
         models,
         tools,
         commands,
+        capabilities,
         ready: true,
         connectionStatus: "online",
         connectionMessage: "",
@@ -400,6 +423,15 @@ export const useStore = create<State>((set, get) => ({
         connectionStatus: "offline",
         connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
       });
+    }
+  },
+
+  async refreshCapabilities() {
+    try {
+      const capabilities = await api.capabilities();
+      set({ capabilities });
+    } catch {
+      set({ capabilities: { skills: [], tasks: [], action_proposals: [] } });
     }
   },
 
@@ -821,11 +853,43 @@ export const useStore = create<State>((set, get) => ({
     if (ev.type === "space.title.changed") {
       const tasks: Promise<unknown>[] = [
         api.agentDMs().then((agentDMs) => set({ agentDMs })).catch(() => undefined),
+        refetchNavigation(set),
       ];
       if (cur.detail && cur.detail.item.id === ev.space_id) {
         tasks.push(refetchActiveScope(get, set));
       }
       void Promise.all(tasks);
+      return;
+    }
+
+    if (
+      ev.type === "space.created" ||
+      ev.type === "space.updated" ||
+      ev.type === "space.message.appended"
+    ) {
+      void refetchNavigation(set);
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
+      return;
+    }
+
+    if (
+      ev.type === "task.created" ||
+      ev.type === "task.updated" ||
+      ev.type === "run.started" ||
+      ev.type === "run.finished"
+    ) {
+      void get().refreshCapabilities();
+      if (lifecycleEventInScope(ev, cur)) void refetchActiveScope(get, set);
+      return;
+    }
+
+    if (
+      ev.type === "action.proposal" ||
+      ev.type === "skill.listed" ||
+      ev.type === "skill.described" ||
+      ev.type === "skill.used"
+    ) {
+      void get().refreshCapabilities();
       return;
     }
 

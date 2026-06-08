@@ -26,6 +26,13 @@ const (
 	DelegateCanceled  = "delegate.canceled"
 	DelegateQueued    = "delegate.queued"
 	SpaceTitleChanged = "space.title.changed"
+	SpaceCreated      = "space.created"
+	SpaceUpdated      = "space.updated"
+	SpaceMessageAdded = "space.message.appended"
+	TaskCreated       = "task.created"
+	TaskUpdated       = "task.updated"
+	RunStarted        = "run.started"
+	RunFinished       = "run.finished"
 	RuntimeInfo       = "runtime.info"
 	SkillListed       = "skill.listed"
 	SkillDescribed    = "skill.described"
@@ -38,6 +45,8 @@ type Event struct {
 	Source          string
 	SessionID       string
 	TaskID          string
+	RunID           string
+	MessageID       string
 	ToolCallID      string
 	Text            string
 	Tool            string

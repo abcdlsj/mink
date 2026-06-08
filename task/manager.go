@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/abcdlsj/sumi/bus"
 )
 
 var ErrTaskNotFound = errors.New("task: not found")
@@ -20,12 +22,26 @@ type Store interface {
 }
 
 type Manager struct {
-	store Store
-	mu    sync.Mutex
+	store  Store
+	mu     sync.Mutex
+	events func(bus.Event)
 }
 
 func NewManager(store Store) *Manager {
 	return &Manager{store: store}
+}
+
+func (m *Manager) SetEventSink(fn func(bus.Event)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = fn
+}
+
+func (m *Manager) publish(ev bus.Event) {
+	if m == nil || m.events == nil {
+		return
+	}
+	m.events(ev)
 }
 
 type CreateTaskInput struct {
@@ -57,10 +73,20 @@ func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
 		return nil, err
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if err := m.store.SaveTask(t); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
+	m.mu.Unlock()
+	m.publish(bus.Event{
+		Type:      bus.TaskCreated,
+		TaskID:    t.ID,
+		SpaceID:   t.SpaceID,
+		MessageID: t.TriggerMessageID,
+		AgentID:   t.WorkerID,
+		Source:    t.Source,
+		Text:      string(t.Status),
+	})
 	return t, nil
 }
 
@@ -73,12 +99,13 @@ type UpdateTaskInput struct {
 
 func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	t, err := m.store.LoadTask(id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	if t == nil {
+		m.mu.Unlock()
 		return nil, ErrTaskNotFound
 	}
 	if in.Status != "" {
@@ -86,6 +113,7 @@ func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	}
 	if in.Outcome != "" {
 		if runeLen(in.Outcome) > MaxOutcomeLen {
+			m.mu.Unlock()
 			return nil, ErrOutcomeTooLong
 		}
 		t.Outcome = in.Outcome
@@ -98,8 +126,20 @@ func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	}
 	t.UpdatedAt = time.Now()
 	if err := m.store.SaveTask(t); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
+	m.mu.Unlock()
+	m.publish(bus.Event{
+		Type:      bus.TaskUpdated,
+		TaskID:    t.ID,
+		SpaceID:   t.SpaceID,
+		MessageID: t.TriggerMessageID,
+		AgentID:   t.WorkerID,
+		Source:    t.Source,
+		Text:      string(t.Status),
+		Output:    t.Outcome,
+	})
 	return t, nil
 }
 
@@ -138,9 +178,14 @@ func (m *Manager) ListAll() ([]*Task, error) {
 
 func (m *Manager) StartRun(taskID string, state ...TaskState) (*Run, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, err := m.store.LoadTask(taskID); err != nil {
+	tk, err := m.store.LoadTask(taskID)
+	if err != nil {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("task not found: %s", taskID)
+	}
+	if tk == nil {
+		m.mu.Unlock()
+		return nil, ErrTaskNotFound
 	}
 	r := &Run{
 		ID:        NewRunID(),
@@ -152,8 +197,20 @@ func (m *Manager) StartRun(taskID string, state ...TaskState) (*Run, error) {
 		r.State = cleanState(state[0])
 	}
 	if err := m.store.SaveRun(r); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
+	m.mu.Unlock()
+	m.publish(bus.Event{
+		Type:      bus.RunStarted,
+		TaskID:    taskID,
+		RunID:     r.ID,
+		SpaceID:   tk.SpaceID,
+		MessageID: tk.TriggerMessageID,
+		AgentID:   tk.WorkerID,
+		Source:    tk.Source,
+		Text:      string(r.Status),
+	})
 	return r, nil
 }
 
@@ -165,15 +222,26 @@ type FinishRunInput struct {
 
 func (m *Manager) FinishRun(id string, in FinishRunInput) (*Run, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	r, err := m.store.LoadRun(id)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	if r == nil {
+		m.mu.Unlock()
+		return nil, ErrTaskNotFound
+	}
+	tk, err := m.store.LoadTask(r.TaskID)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	if tk == nil {
+		m.mu.Unlock()
 		return nil, ErrTaskNotFound
 	}
 	if err := ValidateKeySteps(in.KeySteps); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 	r.Status = in.Status
@@ -183,8 +251,20 @@ func (m *Manager) FinishRun(id string, in FinishRunInput) (*Run, error) {
 		r.State = cleanState(*in.State)
 	}
 	if err := m.store.SaveRun(r); err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
+	m.mu.Unlock()
+	m.publish(bus.Event{
+		Type:      bus.RunFinished,
+		TaskID:    r.TaskID,
+		RunID:     r.ID,
+		SpaceID:   tk.SpaceID,
+		MessageID: tk.TriggerMessageID,
+		AgentID:   tk.WorkerID,
+		Source:    tk.Source,
+		Text:      string(r.Status),
+	})
 	return r, nil
 }
 

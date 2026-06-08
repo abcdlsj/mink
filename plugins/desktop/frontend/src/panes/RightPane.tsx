@@ -32,25 +32,8 @@ export function RightPane() {
   const tools = useStore((s) => s.tools);
   const streaming = useStore((s) => s.streaming);
   const streamingByID = useStore((s) => s.streamingByID);
+  const capabilities = useStore((s) => s.capabilities);
   const [moreOpen, setMoreOpen] = useState(true);
-  const [capabilities, setCapabilities] = useState<CapabilityView | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = () => {
-      api.capabilities().then((data) => {
-        if (!cancelled) setCapabilities(data);
-      }).catch(() => {
-        if (!cancelled) setCapabilities({ skills: [], tasks: [], action_proposals: [] });
-      });
-    };
-    load();
-    const id = window.setInterval(load, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
 
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
   const threadParticipants = inThread ? threadDetail!.participants : null;
