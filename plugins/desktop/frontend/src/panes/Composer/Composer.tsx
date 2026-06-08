@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { personaForActiveAgent } from "../Message/message-helpers";
 import { MentionAutocomplete } from "./MentionAutocomplete";
-import { WorkingAgents } from "./WorkingAgents";
 import { applyMention, mentionCandidates, nextMentionState, type MentionState } from "./composer-helpers";
 
 export function Composer() {
@@ -18,8 +17,6 @@ export function Composer() {
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
   const threadDetail = useStore((s) => s.threadDetail);
-  const participants = useStore((s) => s.participants);
-  const streamingByID = useStore((s) => s.streamingByID);
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
@@ -100,22 +97,6 @@ export function Composer() {
     return () => clearTimeout(t);
   }, [composerHint]);
   const showRoutingHint = composerHint && now - composerHint.at < 4000;
-  const workingAgents = useMemo(() => {
-    const byID = new Map<string, string>();
-    const labelFor = (id: string) => agents.find((a) => a.id === id)?.display || id;
-    Object.values(streamingByID).forEach((turn) => {
-      if (turn.agentID) byID.set(turn.agentID, labelFor(turn.agentID));
-    });
-    if (byID.size === 0) {
-      (participants?.active_runs || []).forEach((run) => {
-        if (run.status === "running" && run.agent_id) {
-          byID.set(run.agent_id, labelFor(run.agent_id));
-        }
-      });
-    }
-    return Array.from(byID, ([id, display]) => ({ id, display }));
-  }, [agents, participants?.active_runs, streamingByID]);
-
   const handleSend = async () => {
     if (!canSend) return;
     const text = trimmed;
@@ -222,7 +203,6 @@ export function Composer() {
               </span>
             );
           })()}
-          <WorkingAgents agents={workingAgents} />
           <span className="min-w-4 flex-1" />
           <Button
             variant="default"

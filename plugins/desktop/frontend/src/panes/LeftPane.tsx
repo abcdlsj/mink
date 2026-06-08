@@ -334,9 +334,8 @@ export function LeftPane() {
 function personaTooltip(agent: import("@/lib/types").PersonaItem) {
   const lines = [
     "@" + (agent.display || agent.id),
-    "runtime: " + (agent.runtime || "default"),
   ];
-  if (agent.model) lines.push("model: " + agent.model);
+  if (agent.description) lines.push(agent.description);
   return lines.join("\n");
 }
 

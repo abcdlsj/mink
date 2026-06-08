@@ -87,7 +87,6 @@ interface State {
   sending: boolean;
   streaming: StreamingTurn | null;
   streamingByID: Record<string, StreamingTurn>;
-  runtimeMeta: Record<string, Record<string, string>>;
 
   loadInitial: () => Promise<void>;
   refreshCapabilities: () => Promise<void>;
@@ -122,26 +121,6 @@ function activeSessionID(s: State): string {
 
 function newID(): string {
   return Math.random().toString(36).slice(2, 10);
-}
-
-function sendErrorMessage(text: string, parentMessageID?: string): MessageView {
-  return {
-    id: "err-" + newID(),
-    role: "system",
-    author_name: "Sumi",
-    content: "",
-    time: new Date().toISOString(),
-    thread_id: parentMessageID,
-    is_thread_reply: !!parentMessageID,
-    events: [
-      {
-        kind: "service_notice",
-        status: "error",
-        output: text,
-        time: new Date().toISOString(),
-      },
-    ],
-  };
 }
 
 function streamingEventInScope(ev: BusEvent, s: State): boolean {
@@ -189,7 +168,6 @@ function streamingViewUpdates(
   if (detail) {
     updates.detail = {
       ...detail,
-      item: { ...detail.item, running: true },
       messages: forThreadView ? detail.messages : [...detail.messages, placeholder],
     };
   }
@@ -350,7 +328,6 @@ export const useStore = create<State>((set, get) => ({
   sending: false,
   streaming: null,
   streamingByID: {},
-  runtimeMeta: {},
 
   async loadInitial() {
     try {
@@ -679,108 +656,22 @@ export const useStore = create<State>((set, get) => ({
   async send(input, personaID) {
     const sid = activeSessionID(get());
     if (!sid || !input.trim() || get().sending) return;
-    const detail = get().detail;
-    if (!detail) return;
-    const threadDetail = get().threadDetail;
-    const parentMessageID = threadDetail?.parent_id;
-    const targetChannel = get().activeChannel;
-    const targetThread = get().activeThread;
-    const targetAgent = get().activeAgent;
-    const userMsg: MessageView = {
-      id: "u-" + newID(),
-      role: "user",
-      content: input,
-      time: new Date().toISOString(),
-      thread_id: parentMessageID,
-      is_thread_reply: !!parentMessageID,
-    };
-    set({
-      sending: true,
-      detail: {
-        ...detail,
-        item: { ...detail.item, running: true },
-        messages: [...detail.messages, userMsg],
-      },
-      threadDetail: threadDetail
-        ? { ...threadDetail, replies: [...threadDetail.replies, userMsg] }
-        : null,
-      channels: get().channels.map((c) =>
-        c.id === targetChannel ? { ...c, has_running: true } : c,
-      ),
-      threads: get().threads.map((t) =>
-        t.id === targetThread ? { ...t, has_running: true } : t,
-      ),
-      agents: get().agents.map((a) =>
-        a.id === targetAgent ? { ...a, status: "running" } : a,
-      ),
-    });
-    const request = api.send(sid, input, personaID, parentMessageID);
-    set({ sending: false });
+    const parentMessageID = get().threadDetail?.parent_id;
+    set({ sending: true });
     try {
-      await request;
-      const after = get();
-      const stillStreaming = Object.keys(after.streamingByID).length > 0;
-      const sameScope = activeSessionID(after) === sid;
-      const updates: Partial<State> = { sending: false };
-      if (sameScope) {
-        updates.detail =
-          stillStreaming || !after.detail
-            ? after.detail
-            : { ...after.detail, item: { ...after.detail.item, running: false } };
-      }
-      if (!stillStreaming) {
-        updates.channels = after.channels.map((c) =>
-          c.id === targetChannel ? { ...c, has_running: false } : c,
-        );
-        updates.threads = after.threads.map((t) =>
-          t.id === targetThread ? { ...t, has_running: false } : t,
-        );
-        updates.agents = after.agents.map((a) =>
-          a.id === targetAgent ? { ...a, status: "idle" } : a,
-        );
-      }
-      set(updates);
-      if (sameScope && !stillStreaming) {
+      await api.send(sid, input, personaID, parentMessageID);
+      set({ sending: false });
+      if (activeSessionID(get()) === sid) {
         await refetchActiveScope(get, set);
-      } else if (sameScope) {
-        await refetchActiveChannelMeta(get, set);
       }
+      void refetchNavigation(set);
     } catch (err) {
-      const after = get();
       const errMsg = err instanceof Error ? err.message : "Desktop backend is offline.";
-      const visibleErr = sendErrorMessage("Send failed: " + errMsg, parentMessageID);
-      const stillStreaming = Object.keys(after.streamingByID).length > 0;
-      const sameScope = activeSessionID(after) === sid;
-      const updates: Partial<State> = {
+      set({
         sending: false,
         composerHint: { text: "Send failed: " + errMsg, at: Date.now() },
-      };
-      if (sameScope && after.detail) {
-        updates.detail = {
-          ...after.detail,
-          item: { ...after.detail.item, running: stillStreaming },
-          messages: [...after.detail.messages, visibleErr],
-        };
-      }
-      if (sameScope && after.threadDetail) {
-        updates.threadDetail = {
-          ...after.threadDetail,
-          replies: [...after.threadDetail.replies, visibleErr],
-        };
-      }
-      if (!stillStreaming) {
-        updates.channels = after.channels.map((c) =>
-          c.id === targetChannel ? { ...c, has_running: false } : c,
-        );
-        updates.threads = after.threads.map((t) =>
-          t.id === targetThread ? { ...t, has_running: false } : t,
-        );
-        updates.agents = after.agents.map((a) =>
-          a.id === targetAgent ? { ...a, status: "idle" } : a,
-        );
-      }
-      set(updates);
-      if (sameScope) {
+      });
+      if (activeSessionID(get()) === sid) {
         await refetchActiveScope(get, set);
       }
     }
@@ -798,17 +689,10 @@ export const useStore = create<State>((set, get) => ({
       sending: false,
       streaming: null,
       streamingByID: {},
-      detail: detail ? { ...detail, item: { ...detail.item, running: false } } : detail,
-      channels: get().channels.map((c) =>
-        c.id === get().activeChannel ? { ...c, has_running: false } : c,
-      ),
-      threads: get().threads.map((t) =>
-        t.id === get().activeThread ? { ...t, has_running: false } : t,
-      ),
-      agents: get().agents.map((a) =>
-        a.id === get().activeAgent ? { ...a, status: "idle" } : a,
-      ),
+      detail,
     });
+    await refetchActiveScope(get, set);
+    void refetchNavigation(set);
   },
 
   connectStream() {
@@ -1088,7 +972,10 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
         return;
       }
@@ -1110,7 +997,10 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
         return;
       }
@@ -1132,7 +1022,10 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
         return;
       }
@@ -1152,7 +1045,10 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
         return;
       }
@@ -1183,18 +1079,11 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
-        return;
-      }
-      case "runtime.info": {
-        if (!ev.agent_id || !ev.text) return;
-        try {
-          const meta = JSON.parse(ev.text) as Record<string, string>;
-          if (meta && typeof meta === "object") {
-            set({ runtimeMeta: { ...cur.runtimeMeta, [ev.agent_id]: meta } });
-          }
-        } catch {}
         return;
       }
       case "service.notice": {
@@ -1211,7 +1100,10 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          detail: updateStreamEvents(detail, stream.messageID, toolCalls),
+          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+            ...m,
+            events: Array.from(toolCalls.values()),
+          })),
         });
         return;
       }
@@ -1224,7 +1116,6 @@ export const useStore = create<State>((set, get) => ({
         const detailNow = get().detail;
         const placeholderID = stream.messageID;
         const streamState = removeStream(cur, stream.streamID);
-        const stillRunning = Object.keys(streamState.streamingByID).length > 0;
         const updates: Partial<State> = {
           sending: false,
           ...streamState,
@@ -1232,7 +1123,6 @@ export const useStore = create<State>((set, get) => ({
         if (detailNow) {
           updates.detail = {
             ...detailNow,
-            item: { ...detailNow.item, running: stillRunning },
             messages: detailNow.messages.filter((m) => m.id !== placeholderID),
           };
         }
@@ -1243,18 +1133,8 @@ export const useStore = create<State>((set, get) => ({
             replies: td.replies.filter((m) => m.id !== placeholderID),
           };
         }
-        if (!stillRunning) {
-          updates.channels = get().channels.map((c) =>
-            c.id === get().activeChannel ? { ...c, has_running: false } : c,
-          );
-          updates.threads = get().threads.map((t) =>
-            t.id === get().activeThread ? { ...t, has_running: false } : t,
-          );
-        }
-        updates.agents = get().agents.map((a) =>
-          a.id === get().activeAgent ? { ...a, status: "idle" } : a,
-        );
         set(updates);
+        void refetchNavigation(set);
         return;
       }
       case "turn.error": {
@@ -1279,7 +1159,6 @@ export const useStore = create<State>((set, get) => ({
           ],
         });
         const streamState = removeStream(cur, stream.streamID);
-        const stillRunning = Object.keys(streamState.streamingByID).length > 0;
         const updates: Partial<State> = {
           sending: false,
           ...streamState,
@@ -1288,7 +1167,6 @@ export const useStore = create<State>((set, get) => ({
         if (detailNow) {
           updates.detail = {
             ...detailNow,
-            item: { ...detailNow.item, running: stillRunning },
             messages: detailNow.messages.map((m) =>
               m.id === placeholderID ? errorPatch(m) : m,
             ),
@@ -1301,37 +1179,13 @@ export const useStore = create<State>((set, get) => ({
             replies: td.replies.map((m) => (m.id === placeholderID ? errorPatch(m) : m)),
           };
         }
-        if (!stillRunning) {
-          updates.channels = get().channels.map((c) =>
-            c.id === get().activeChannel ? { ...c, has_running: false } : c,
-          );
-          updates.threads = get().threads.map((t) =>
-            t.id === get().activeThread ? { ...t, has_running: false } : t,
-          );
-        }
-        updates.agents = get().agents.map((a) =>
-          a.id === get().activeAgent ? { ...a, status: "idle" } : a,
-        );
         set(updates);
+        void refetchNavigation(set);
         return;
       }
     }
   },
 }));
-
-function updateStreamEvents(
-  detail: SessionDetail,
-  messageID: string,
-  toolCalls: Map<string, EventBlock>,
-): SessionDetail {
-  const events = Array.from(toolCalls.values());
-  return {
-    ...detail,
-    messages: detail.messages.map((m) =>
-      m.id === messageID ? { ...m, events } : m,
-    ),
-  };
-}
 
 function prettyAgentName(id: string | undefined, agents: AgentItem[]): string {
   if (!id || !id.trim()) return "Unknown agent";

@@ -30,7 +30,6 @@ export function RightPane() {
   const activeAgent = useStore((s) => s.activeAgent);
   const participants = useStore((s) => s.participants);
   const tools = useStore((s) => s.tools);
-  const streaming = useStore((s) => s.streaming);
   const streamingByID = useStore((s) => s.streamingByID);
   const capabilities = useStore((s) => s.capabilities);
   const [moreOpen, setMoreOpen] = useState(true);
@@ -105,6 +104,7 @@ export function RightPane() {
             <div className="text-[13px] text-text">{ch.topic}</div>
           </Section>
         )}
+        {runtimeSec}
         <Section label="Participants">
           {participantsList.length > 0 ? (
             <ParticipantsRow agents={participantsList} />
@@ -114,13 +114,6 @@ export function RightPane() {
             </div>
           )}
         </Section>
-        {runtimeRuns.length > 0 && (
-          <Section label="Active Runs">
-            {runtimeRuns.map((r) => (
-              <RunCard key={r.id} run={r} />
-            ))}
-          </Section>
-        )}
         {channelThreads.length > 0 && (
           <Section label="Recent Threads">
             {channelThreads.map((t) => (
@@ -132,33 +125,21 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
         {agentDirectorySec}
         {toolsSec}
       </>
     );
   } else if (view === "thread" || inThread) {
-    const item = detail?.item;
     const participantsList = inThread
       ? (threadParticipants || [])
       : (participants?.agents || []);
     const recent = inThread
       ? (threadRecentRuns || [])
       : (participants?.recent_runs || []);
-    const status = item?.running ? "running" : (inThread ? "thread open" : "open");
     main = (
       <>
-        <Section label="Status">
-          <div className="text-[13px] text-text">{status}</div>
-        </Section>
-        {runtimeRuns.length > 0 && (
-          <Section label="Active Run">
-            {runtimeRuns.map((r) => (
-              <RunCard key={r.id} run={r} />
-            ))}
-          </Section>
-        )}
+        {runtimeSec}
         <Section label="Participants">
           {participantsList.length > 0 ? (
             <ParticipantsRow agents={participantsList} />
@@ -179,7 +160,6 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
         {agentDirectorySec}
         {toolsSec}
@@ -187,12 +167,9 @@ export function RightPane() {
     );
   } else if (view === "agent") {
     const ag = agents.find((a) => a.id === activeAgent);
-    const agentRunning = !!streaming || (detail?.item.running ?? false) || ag?.status === "running";
     main = (
       <>
-        <Section label="Status">
-          <div className="text-[13px] text-text">{agentRunning ? "running" : "idle"}</div>
-        </Section>
+        {runtimeSec}
         {ag?.role && (
           <Section label="Role">
             <div className="text-[12.5px] text-text leading-[1.55]">{firstSentence(ag.role)}</div>
@@ -210,13 +187,6 @@ export function RightPane() {
             )}
           </Section>
         )}
-        {runtimeRuns.length > 0 && (
-          <Section label="Active Run">
-            {runtimeRuns.map((r) => (
-              <RunCard key={r.id} run={r} />
-            ))}
-          </Section>
-        )}
         {threads.length > 0 && (
           <Section label="Recent Threads">
             {threads.slice(0, 3).map((t) => (
@@ -228,7 +198,6 @@ export function RightPane() {
     );
     more = (
       <>
-        {runtimeSec}
         <CapabilitiesSection capabilities={capabilities} />
         {agentDirectorySec}
         {toolsSec}
@@ -285,17 +254,7 @@ function RuntimeDetail({
   agentDMs: import("@/lib/types").AgentDMItem[];
   agents: AgentItem[];
 }) {
-  if (view === "agent" && activePersona) {
-    const rows: [string, string][] = [
-      ["Agent", "@" + (activePersona.display || activePersona.id)],
-      ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
-    ];
-    if (activePersona.model) rows.push(["Model", activePersona.model]);
-    return (
-      <RuntimeRows rows={rows} />
-    );
-  }
-
+  const stop = useStore((s) => s.stop);
   const running = new Map<string, string>();
   runs.forEach((run) => {
     if (run.status !== "running" || !run.agent_id) return;
@@ -313,10 +272,25 @@ function RuntimeDetail({
             title={`@${display}\n${runtime}`}
           >
             <span className="truncate text-text">@{display}</span>
-            <span className="shrink-0 font-mono text-text-muted">{runtime}</span>
+            <span className="ml-auto shrink-0 font-mono text-text-muted">{runtime}</span>
+            <Button variant="danger" size="xs" onClick={() => void stop()}>
+              <Square className="size-2.5" />
+              <span>Stop</span>
+            </Button>
           </div>
         ))}
       </div>
+    );
+  }
+
+  if (view === "agent" && activePersona) {
+    const rows: [string, string][] = [
+      ["Agent", "@" + (activePersona.display || activePersona.id)],
+      ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
+    ];
+    if (activePersona.model) rows.push(["Model", activePersona.model]);
+    return (
+      <RuntimeRows rows={rows} />
     );
   }
 
