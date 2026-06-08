@@ -312,6 +312,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		AutoReplyReason: target.Reason,
 		ParentMessageID: parentMessageID,
 		Usage:           msg.AssistantUsage(s.Messages[baseline:]),
+		RuntimeMeta:     msg.AssistantRuntimeMeta(s.Messages[baseline:]),
 	}
 	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
 		if p := a.personas.Get(id); p != nil {

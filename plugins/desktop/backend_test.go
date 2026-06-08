@@ -51,6 +51,25 @@ func TestIsThreadIDDistinguishesChannel(t *testing.T) {
 	}
 }
 
+func TestBaseMessageViewCarriesRuntimeMeta(t *testing.T) {
+	sp := space.New(space.KindAgentDM, "coder", []space.Participant{
+		{ID: "coder", Kind: space.ParticipantAgent, Display: "Coder"},
+	})
+	msg := space.Message{
+		ID:          "m1",
+		AuthorID:    "coder",
+		AuthorKind:  space.ParticipantAgent,
+		Content:     "ok",
+		RuntimeMeta: map[string]string{"runtime": "claude", "cli_version": "claude 2.0"},
+	}
+
+	view := baseMessageView(sp, msg, nil)
+
+	if view.RuntimeMeta["runtime"] != "claude" || view.RuntimeMeta["cli_version"] != "claude 2.0" {
+		t.Fatalf("runtime meta = %#v", view.RuntimeMeta)
+	}
+}
+
 func TestToBusEventMapsCollab(t *testing.T) {
 	cases := []struct {
 		name string

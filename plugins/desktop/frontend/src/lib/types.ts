@@ -123,6 +123,7 @@ export interface MessageView {
   task_accessory?: TaskAccessoryInfo;
   auto_reply_reason?: string;
   usage?: TokenUsage;
+  runtime_meta?: Record<string, string>;
 }
 
 export interface TokenUsage {

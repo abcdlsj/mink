@@ -1,6 +1,7 @@
 package external
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -114,6 +115,61 @@ func TestFlushKeepsMissingToolResultsEmpty(t *testing.T) {
 	}
 	if ids["b"] != "" {
 		t.Fatalf("b content = %q, want empty (no synthetic filler)", ids["b"])
+	}
+}
+
+func TestRuntimeMetaPersistsOnAssistantMessage(t *testing.T) {
+	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: bus.New(), AgentID: "coder"}
+	st := &runState{calls: map[string]toolCallState{}}
+
+	handleMessage("test", turn, st, &Message{Type: MsgRuntimeMeta, Meta: map[string]string{
+		"runtime":     "codex",
+		"cli_version": "codex 1.2.3",
+	}})
+	handleMessage("test", turn, st, &Message{Type: MsgRuntimeMeta, Meta: map[string]string{
+		"thread_id": "abc",
+	}})
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "ok"})
+	st.flush(turn.Session)
+
+	if len(turn.Session.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(turn.Session.Messages))
+	}
+	meta := turn.Session.Messages[0].RuntimeMeta
+	if meta["runtime"] != "codex" || meta["cli_version"] != "codex 1.2.3" || meta["thread_id"] != "abc" {
+		t.Fatalf("runtime meta = %#v", meta)
+	}
+}
+
+func TestDriverRuntimeMetaPublishesBeforeCommand(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{
+			Name:    "test",
+			Command: "missing-sumi-runtime-command",
+			BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
+				return nil
+			},
+			ParseOutput: func(line string) *Message { return nil },
+			RuntimeMeta: func(context.Context) map[string]string {
+				return map[string]string{"runtime": "test", "cli_version": "test 1.0"}
+			},
+		},
+		env: &agent.RuntimeEnv{},
+	}
+	b := bus.New()
+	evs, cancel := b.Subscribe(4)
+	defer cancel()
+	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: b}
+
+	_ = r.runCommand(context.Background(), turn, newRunState(), "hi", "", false)
+
+	select {
+	case ev := <-evs:
+		if ev.Type != bus.RuntimeInfo || !strings.Contains(ev.Text, "test 1.0") {
+			t.Fatalf("event = %#v", ev)
+		}
+	default:
+		t.Fatal("missing runtime.info event")
 	}
 }
 

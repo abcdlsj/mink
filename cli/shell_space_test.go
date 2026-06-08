@@ -35,7 +35,7 @@ func seedAgentMessage(t *testing.T, a *app.App, sp *space.Space, agentID, displa
 	if _, err := a.Spaces().AppendUserMessage(sp.ID, "ping", nil); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}
-	if _, err := a.Spaces().AppendAgentMessage(sp.ID, info, content, "", nil, "", nil); err != nil {
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID, info, content, "", nil, "", nil, nil); err != nil {
 		t.Fatalf("seed agent: %v", err)
 	}
 }
@@ -128,7 +128,7 @@ func TestPersonaDMRendersAuthorPrefixFromAgentSpace(t *testing.T) {
 	if _, err := a.Spaces().AppendUserMessage(sp.ID, "hi", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "tshoot", Display: "Tshoot"}, "checking", "", nil, "", nil); err != nil {
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "tshoot", Display: "Tshoot"}, "checking", "", nil, "", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

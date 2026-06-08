@@ -56,7 +56,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     const dm = agentDMs.find((d) => d.id === activeAgent);
     return dm?.persona_id || activeAgent;
   })();
-  const meta = personaForMeta ? runtimeMeta[personaForMeta] : undefined;
+  const meta = personaForMeta ? runtimeMeta[personaForMeta] || latestRuntimeMeta(detail.messages, personaForMeta) : undefined;
   const beginTitleEdit = () => {
     if (!editableAgentChat) return;
     setTitleDraft(titleText === "New chat" ? "" : titleText);
@@ -161,8 +161,8 @@ export function ChannelHeader({ scope }: { scope: string }) {
 function RuntimeMetaChip({ meta }: { meta: Record<string, string> }) {
   const parts: string[] = [];
   const runtime = meta.runtime;
-  const version = meta.version;
-  if (runtime) parts.push(version ? `${runtime} ${version}` : runtime);
+  const version = meta.version || meta.cli_version;
+  if (runtime) parts.push(runtimeVersion(runtime, version));
   if (meta.model) parts.push(meta.model);
   if (meta.tools_count) parts.push(`${meta.tools_count} tools`);
   if (meta.mcp_servers_count) parts.push(`${meta.mcp_servers_count} mcp`);
@@ -175,6 +175,28 @@ function RuntimeMetaChip({ meta }: { meta: Record<string, string> }) {
       ))}
     </div>
   );
+}
+
+function runtimeVersion(runtime: string, version?: string) {
+  if (!version) return runtime;
+  const lowerVersion = version.toLowerCase();
+  const lowerRuntime = runtime.toLowerCase();
+  if (lowerVersion === lowerRuntime || lowerVersion.startsWith(lowerRuntime + " ")) return version;
+  if (lowerVersion.startsWith(lowerRuntime + "-")) return version;
+  return `${runtime} ${version}`;
+}
+
+function latestRuntimeMeta(
+  messages: { role: string; author_id?: string; runtime_meta?: Record<string, string> }[],
+  personaID: string,
+) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== "agent" && m.role !== "assistant") continue;
+    if (m.author_id && m.author_id !== personaID) continue;
+    if (m.runtime_meta && Object.keys(m.runtime_meta).length > 0) return m.runtime_meta;
+  }
+  return undefined;
 }
 
 function listeningSummary(ch: ChannelItem | undefined, agents: AgentItem[]): string {

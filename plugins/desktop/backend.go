@@ -620,6 +620,7 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		Time:            m.CreatedAt,
 		ThreadID:        m.ParentMessageID,
 		AutoReplyReason: m.AutoReplyReason,
+		RuntimeMeta:     copyStringMap(m.RuntimeMeta),
 	}
 	if m.Usage != nil {
 		view.Usage = &TokenUsage{
@@ -632,6 +633,25 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		}
 	}
 	return view
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func computeTaskAccessoryIndex(sp *space.Space, a appAccessor) map[string]*taskpkg.Task {

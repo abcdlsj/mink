@@ -1,8 +1,10 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/plugins/external"
@@ -27,7 +29,24 @@ func driver() external.Driver {
 		},
 		ParseOutput:   parseOutput,
 		FormatHistory: formatHistory,
+		RuntimeMeta:   runtimeMeta,
 	}
+}
+
+var (
+	versionOnce sync.Once
+	versionText string
+)
+
+func runtimeMeta(ctx context.Context) map[string]string {
+	meta := map[string]string{"runtime": "codex"}
+	versionOnce.Do(func() {
+		versionText = external.CommandVersion(ctx, "codex")
+	})
+	if versionText != "" {
+		meta["cli_version"] = versionText
+	}
+	return meta
 }
 
 func formatHistory(messages []msg.Message) string {
@@ -35,9 +54,9 @@ func formatHistory(messages []msg.Message) string {
 }
 
 type codexUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	CachedInputTokens   int `json:"cached_input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
+	InputTokens           int `json:"input_tokens"`
+	CachedInputTokens     int `json:"cached_input_tokens"`
+	OutputTokens          int `json:"output_tokens"`
 	ReasoningOutputTokens int `json:"reasoning_output_tokens"`
 }
 

@@ -223,7 +223,7 @@ func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) 
 	})
 }
 
-func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string, usage *msg.TokenUsage) (Message, error) {
+func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string, usage *msg.TokenUsage, runtimeMeta map[string]string) (Message, error) {
 	if strings.TrimSpace(agent.ID) == "" {
 		return Message{}, fmt.Errorf("agent message rejected: empty author_id")
 	}
@@ -235,6 +235,7 @@ func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content,
 		Mentions:        mentions,
 		ParentMessageID: parentMessageID,
 		Usage:           usage,
+		RuntimeMeta:     runtimeMeta,
 	})
 }
 

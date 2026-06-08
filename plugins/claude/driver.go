@@ -1,9 +1,11 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/plugins/external"
@@ -38,7 +40,24 @@ func driver() external.Driver {
 		},
 		ParseOutput:   parseOutput,
 		FormatHistory: formatHistory,
+		RuntimeMeta:   runtimeMeta,
 	}
+}
+
+var (
+	versionOnce sync.Once
+	versionText string
+)
+
+func runtimeMeta(ctx context.Context) map[string]string {
+	meta := map[string]string{"runtime": "claude"}
+	versionOnce.Do(func() {
+		versionText = external.CommandVersion(ctx, "claude")
+	})
+	if versionText != "" {
+		meta["cli_version"] = versionText
+	}
+	return meta
 }
 
 func formatHistory(messages []msg.Message) string {
@@ -53,9 +72,9 @@ type claudeUsage struct {
 }
 
 type claudeModelUsage struct {
-	CostUSD          float64 `json:"costUSD"`
-	ContextWindow    int     `json:"contextWindow"`
-	MaxOutputTokens  int     `json:"maxOutputTokens"`
+	CostUSD         float64 `json:"costUSD"`
+	ContextWindow   int     `json:"contextWindow"`
+	MaxOutputTokens int     `json:"maxOutputTokens"`
 }
 
 type claudeToolResultBlock struct {
@@ -81,10 +100,10 @@ func parseOutput(line string) *external.Message {
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
 		Message struct {
-			Model   string                  `json:"model"`
-			Role    string                  `json:"role"`
-			Usage   *claudeUsage            `json:"usage"`
-			Content []json.RawMessage       `json:"content"`
+			Model   string            `json:"model"`
+			Role    string            `json:"role"`
+			Usage   *claudeUsage      `json:"usage"`
+			Content []json.RawMessage `json:"content"`
 		} `json:"message"`
 		Event struct {
 			Type         string `json:"type"`
@@ -100,24 +119,24 @@ func parseOutput(line string) *external.Message {
 				Thinking string `json:"thinking"`
 			} `json:"delta"`
 		} `json:"event"`
-		Result         string                      `json:"result"`
-		Error          struct {
+		Result string `json:"result"`
+		Error  struct {
 			Type    string `json:"type"`
 			Message string `json:"message"`
 		} `json:"error"`
-		IsError            bool                        `json:"is_error"`
-		DurationMs         int                         `json:"duration_ms"`
-		TotalCostUSD       float64                     `json:"total_cost_usd"`
-		Usage              *claudeUsage                `json:"usage"`
-		ModelUsage         map[string]claudeModelUsage `json:"modelUsage"`
-		TerminalReason     string                      `json:"terminal_reason"`
-		ToolUseResult      *claudeToolUseResult        `json:"tool_use_result"`
-		Cwd                string                      `json:"cwd"`
-		ClaudeCodeVersion  string                      `json:"claude_code_version"`
-		Model              string                      `json:"model"`
-		PermissionMode     string                      `json:"permissionMode"`
-		Tools              []string                    `json:"tools"`
-		MCPServers         []struct {
+		IsError           bool                        `json:"is_error"`
+		DurationMs        int                         `json:"duration_ms"`
+		TotalCostUSD      float64                     `json:"total_cost_usd"`
+		Usage             *claudeUsage                `json:"usage"`
+		ModelUsage        map[string]claudeModelUsage `json:"modelUsage"`
+		TerminalReason    string                      `json:"terminal_reason"`
+		ToolUseResult     *claudeToolUseResult        `json:"tool_use_result"`
+		Cwd               string                      `json:"cwd"`
+		ClaudeCodeVersion string                      `json:"claude_code_version"`
+		Model             string                      `json:"model"`
+		PermissionMode    string                      `json:"permissionMode"`
+		Tools             []string                    `json:"tools"`
+		MCPServers        []struct {
 			Name   string `json:"name"`
 			Status string `json:"status"`
 		} `json:"mcp_servers"`

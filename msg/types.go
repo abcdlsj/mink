@@ -62,15 +62,16 @@ type Attachment struct {
 }
 
 type Message struct {
-	ID                 string       `json:"id,omitempty"`
-	Role               string       `json:"role"`
-	AgentID            string       `json:"agent_id,omitempty"`
-	Content            string       `json:"content,omitempty"`
-	Attachments        []Attachment `json:"attachments,omitempty"`
-	Reasoning          string       `json:"reasoning,omitempty"`
-	ReasoningSignature string       `json:"reasoning_signature,omitempty"`
-	ToolCalls          []ToolCall   `json:"tool_calls,omitempty"`
-	ToolResults        []ToolResult `json:"tool_results,omitempty"`
-	Usage              *TokenUsage  `json:"usage,omitempty"`
-	Timestamp          time.Time    `json:"timestamp,omitempty"`
+	ID                 string            `json:"id,omitempty"`
+	Role               string            `json:"role"`
+	AgentID            string            `json:"agent_id,omitempty"`
+	Content            string            `json:"content,omitempty"`
+	Attachments        []Attachment      `json:"attachments,omitempty"`
+	Reasoning          string            `json:"reasoning,omitempty"`
+	ReasoningSignature string            `json:"reasoning_signature,omitempty"`
+	ToolCalls          []ToolCall        `json:"tool_calls,omitempty"`
+	ToolResults        []ToolResult      `json:"tool_results,omitempty"`
+	Usage              *TokenUsage       `json:"usage,omitempty"`
+	RuntimeMeta        map[string]string `json:"runtime_meta,omitempty"`
+	Timestamp          time.Time         `json:"timestamp,omitempty"`
 }

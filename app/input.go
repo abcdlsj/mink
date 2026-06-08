@@ -207,10 +207,12 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
 	if sp != nil && (strings.TrimSpace(content) != "" || strings.TrimSpace(reasoning) != "") {
 		draft := space.Message{
-			AuthorID:   agentInfo.ID,
-			AuthorKind: space.ParticipantAgent,
-			Content:    content,
-			Reasoning:  reasoning,
+			AuthorID:    agentInfo.ID,
+			AuthorKind:  space.ParticipantAgent,
+			Content:     content,
+			Reasoning:   reasoning,
+			Usage:       msg.AssistantUsage(s.Messages[baseline:]),
+			RuntimeMeta: msg.AssistantRuntimeMeta(s.Messages[baseline:]),
 		}
 		_, _, err := f.app.spaces.AppendMessageWithRouting(sp.ID, draft, nil, nil)
 		if err != nil {

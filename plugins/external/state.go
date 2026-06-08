@@ -25,15 +25,16 @@ type toolCallState struct {
 }
 
 type runState struct {
-	assistant strings.Builder
-	reasoning strings.Builder
-	order     []string
-	calls     map[string]toolCallState
-	streamed  bool
-	usage     *msg.TokenUsage
-	model     string
-	cost      float64
-	reason    string
+	assistant   strings.Builder
+	reasoning   strings.Builder
+	order       []string
+	calls       map[string]toolCallState
+	streamed    bool
+	usage       *msg.TokenUsage
+	model       string
+	cost        float64
+	reason      string
+	runtimeMeta map[string]string
 }
 
 func (s *runState) onStream(turn *agent.Turn, text string) {
@@ -162,7 +163,21 @@ func (s *runState) onRuntimeMeta(turn *agent.Turn, m *Message) {
 	if turn == nil || len(m.Meta) == 0 {
 		return
 	}
-	data, err := json.Marshal(m.Meta)
+	if s.runtimeMeta == nil {
+		s.runtimeMeta = map[string]string{}
+	}
+	for k, v := range m.Meta {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		s.runtimeMeta[k] = v
+	}
+	if len(s.runtimeMeta) == 0 {
+		return
+	}
+	data, err := json.Marshal(s.runtimeMeta)
 	if err != nil {
 		return
 	}
@@ -218,14 +233,34 @@ func (s *runState) addAssistant(sess *session.Session) {
 		}
 	}
 	sess.Add(msg.Message{
-		ID:        uuid.New().String()[:8],
-		Role:      "assistant",
-		Content:   s.assistant.String(),
-		Reasoning: s.reasoning.String(),
-		ToolCalls: s.toolCalls(),
-		Usage:     usage,
-		Timestamp: time.Now(),
+		ID:          uuid.New().String()[:8],
+		Role:        "assistant",
+		Content:     s.assistant.String(),
+		Reasoning:   s.reasoning.String(),
+		ToolCalls:   s.toolCalls(),
+		Usage:       usage,
+		RuntimeMeta: copyRuntimeMeta(s.runtimeMeta),
+		Timestamp:   time.Now(),
 	})
+}
+
+func copyRuntimeMeta(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (s *runState) addToolResults(sess *session.Session) {

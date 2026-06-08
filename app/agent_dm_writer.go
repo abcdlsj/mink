@@ -94,12 +94,12 @@ func (a *App) appendAgentDMUserToSpace(source, explicit, content string) (*space
 	return &m, nil
 }
 
-func (a *App) appendAgentDMAssistantToSpace(source, explicit, content, reasoning string, mentions []string, parentID string, usage *msg.TokenUsage) (*space.Message, error) {
+func (a *App) appendAgentDMAssistantToSpace(source, explicit, content, reasoning string, mentions []string, parentID string, usage *msg.TokenUsage, runtimeMeta map[string]string) (*space.Message, error) {
 	sp, info, err := a.resolveAgentDMTargetSpace(source, explicit)
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.spaces.AppendAgentMessage(sp.ID, *info, content, reasoning, mentions, parentID, usage)
+	m, err := a.spaces.AppendAgentMessage(sp.ID, *info, content, reasoning, mentions, parentID, usage, runtimeMeta)
 	if err != nil {
 		return nil, err
 	}

@@ -25,6 +25,7 @@ type Driver struct {
 	BuildArgs     func(prompt, workDir, sessionID string, resume bool) []string
 	ParseOutput   func(line string) *Message
 	FormatHistory func(messages []msg.Message) string
+	RuntimeMeta   func(context.Context) map[string]string
 }
 
 type MessageType int
@@ -109,6 +110,11 @@ func newRunState() *runState {
 }
 
 func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState, prompt, sessionID string, resume bool) error {
+	if r.driver.RuntimeMeta != nil {
+		if meta := r.driver.RuntimeMeta(ctx); len(meta) > 0 {
+			st.onRuntimeMeta(turn, &Message{Type: MsgRuntimeMeta, Meta: meta})
+		}
+	}
 	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)...)
 	if r.workspace != "" {
 		cmd.Dir = r.workspace

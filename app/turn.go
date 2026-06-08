@@ -95,7 +95,8 @@ func (a *App) persistAssistantTurn(source, personaID string, s *session.Session,
 		return nil
 	}
 	usage := msg.AssistantUsage(added)
-	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "", usage)
+	runtimeMeta := msg.AssistantRuntimeMeta(added)
+	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "", usage, runtimeMeta)
 	if err != nil {
 		return err
 	}

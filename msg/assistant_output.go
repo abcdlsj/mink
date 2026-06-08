@@ -31,3 +31,27 @@ func AssistantUsage(added []Message) *TokenUsage {
 	}
 	return latest
 }
+
+func AssistantRuntimeMeta(added []Message) map[string]string {
+	var latest map[string]string
+	for _, m := range added {
+		if m.Role != "assistant" || len(m.RuntimeMeta) == 0 {
+			continue
+		}
+		latest = m.RuntimeMeta
+	}
+	if len(latest) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(latest))
+	for k, v := range latest {
+		if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
