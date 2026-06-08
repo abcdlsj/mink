@@ -84,7 +84,9 @@ export function Composer() {
 
   const trimmed = input.trim();
   const canSend = trimmed.length > 0 && !sending;
-  const usesRouting = view === "channel" || view === "thread";
+  const usesRouting =
+    (view === "channel" && !!activeChannel) ||
+    (view === "thread" && !!activeChannel);
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
   const channelForHint = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;

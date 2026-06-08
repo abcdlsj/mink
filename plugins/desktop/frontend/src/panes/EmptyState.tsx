@@ -1,4 +1,3 @@
-import { Identicon } from "@/components/Identicon";
 import { useStore } from "@/lib/store";
 import { relTime } from "@/lib/utils";
 import { Dot } from "./LeftPane";
@@ -36,19 +35,8 @@ export function EmptyState() {
 
   return (
     <div className="py-6">
-      <div className="flex items-center gap-3 mb-2">
-        <div className="size-10 overflow-hidden border-2 border-border bg-panel">
-          <Identicon seed={ag?.id || activeAgent || "agent"} kind="agent" />
-        </div>
-        <div>
-          <div className="font-display text-[17px] font-black text-text">
-            {detail?.item?.title || "@" + (ag?.display || "")}
-          </div>
-          {ag?.role && <div className="text-[12.5px] text-text-muted mt-0.5">{ag.role}</div>}
-        </div>
-      </div>
-      <div className="mb-6 text-[13px] leading-[1.6] text-text-muted">
-        Message {ag?.display || "this agent"} directly.
+      <div className="mb-6 border-l-2 border-border-soft px-3 text-[13px] leading-[1.6] text-text-muted">
+        No messages yet. Message {ag?.display || detail?.item?.persona_name || "this agent"} directly.
       </div>
       {recent.length > 0 && (
         <div>
