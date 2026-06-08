@@ -142,7 +142,7 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 		}()
 	}
 	if err := cmd.Start(); err != nil {
-		return err
+		return r.startError(err)
 	}
 
 	errCh := make(chan string, 1)
@@ -175,17 +175,58 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 	}
 	waitErr := cmd.Wait()
 	stderrText := <-errCh
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return r.contextError(ctxErr)
+	}
 	if runErr != nil && stderrText != "" {
 		runErr = fmt.Errorf("%w: %s", runErr, stderrText)
 	}
 	if runErr == nil && waitErr != nil {
 		if stderrText != "" {
-			runErr = errors.New(stderrText)
+			runErr = r.exitError(errors.New(stderrText))
 		} else {
-			runErr = waitErr
+			runErr = r.exitError(waitErr)
 		}
 	}
 	return runErr
+}
+
+func (r *Runtime) runtimeLabel() string {
+	name := strings.TrimSpace(r.driver.Name)
+	if name == "" {
+		name = strings.TrimSpace(r.driver.Command)
+	}
+	if name == "" {
+		return "external runtime"
+	}
+	return name
+}
+
+func (r *Runtime) startError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s unavailable: %w", r.runtimeLabel(), err)
+}
+
+func (r *Runtime) contextError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s timed out: %w", r.runtimeLabel(), err)
+	}
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("%s canceled: %w", r.runtimeLabel(), err)
+	}
+	return fmt.Errorf("%s stopped: %w", r.runtimeLabel(), err)
+}
+
+func (r *Runtime) exitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s exited: %w", r.runtimeLabel(), err)
 }
 
 func (r *Runtime) buildPrompt(turn *agent.Turn, includeHistory bool) string {

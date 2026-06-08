@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
@@ -387,5 +388,65 @@ func TestHandleMessageReturnsMsgErrorWithoutPublishingTurnError(t *testing.T) {
 	case ev := <-evs:
 		t.Fatalf("unexpected event: %#v", ev)
 	default:
+	}
+}
+
+func TestRuntimeStartErrorIncludesRuntimeName(t *testing.T) {
+	r := &Runtime{driver: Driver{
+		Name:        "missing",
+		Command:     "__sumi_missing_runtime_binary__",
+		BuildArgs:   func(prompt, workDir, sessionID string, resume bool) []string { return nil },
+		ParseOutput: func(line string) *Message { return nil },
+	}}
+	err := r.Run(context.Background(), &agent.Turn{
+		Source:  "test",
+		Input:   "hello",
+		Session: session.New("test"),
+		Bus:     bus.New(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing unavailable:") {
+		t.Fatalf("err = %v, want labeled start failure", err)
+	}
+}
+
+func TestRuntimeExitErrorIncludesRuntimeName(t *testing.T) {
+	r := &Runtime{driver: Driver{
+		Name:    "shell",
+		Command: "/bin/sh",
+		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
+			return []string{"-c", "exit 7"}
+		},
+		ParseOutput: func(line string) *Message { return nil },
+	}}
+	err := r.Run(context.Background(), &agent.Turn{
+		Source:  "test",
+		Input:   "hello",
+		Session: session.New("test"),
+		Bus:     bus.New(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "shell exited:") || !strings.Contains(err.Error(), "exit status 7") {
+		t.Fatalf("err = %v, want labeled exit failure", err)
+	}
+}
+
+func TestRuntimeContextDeadlineIncludesRuntimeName(t *testing.T) {
+	r := &Runtime{driver: Driver{
+		Name:    "shell",
+		Command: "/bin/sh",
+		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
+			return []string{"-c", "sleep 2"}
+		},
+		ParseOutput: func(line string) *Message { return nil },
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err := r.Run(ctx, &agent.Turn{
+		Source:  "test",
+		Input:   "hello",
+		Session: session.New("test"),
+		Bus:     bus.New(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "shell timed out:") {
+		t.Fatalf("err = %v, want labeled timeout failure", err)
 	}
 }
