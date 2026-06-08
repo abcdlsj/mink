@@ -103,6 +103,20 @@ func (a *App) runTurnAs(ctx context.Context, rt agent.Runtime, source, personaID
 	}.run(ctx)
 }
 
+func (a *App) runTurnAsWithSpaceHistory(ctx context.Context, rt agent.Runtime, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
+	return turnFlow{
+		app:                   a,
+		runtime:               rt,
+		source:                source,
+		personaID:             personaID,
+		input:                 input,
+		attachments:           attachments,
+		session:               s,
+		includeHistory:        true,
+		disableExternalResume: true,
+	}.run(ctx)
+}
+
 func turnErr(runErr, saveErr error) error {
 	if runErr == nil {
 		return saveErr

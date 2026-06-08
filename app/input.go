@@ -137,8 +137,14 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
-		return "", err
+	if contextSpaceID != "" {
+		if err := f.app.runTurnAsWithSpaceHistory(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+			return "", err
+		}
+	} else {
+		if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+			return "", err
+		}
 	}
 	return latestAssistant(s), nil
 }
@@ -201,8 +207,14 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
-		return "", err
+	if sp != nil {
+		if err := f.app.runTurnAsWithSpaceHistory(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+			return "", err
+		}
+	} else {
+		if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+			return "", err
+		}
 	}
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
 	if sp != nil && (strings.TrimSpace(content) != "" || strings.TrimSpace(reasoning) != "") {

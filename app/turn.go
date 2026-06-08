@@ -16,13 +16,15 @@ import (
 func newStreamID() string { return "stream-" + uuid.NewString()[:8] }
 
 type turnFlow struct {
-	app         *App
-	runtime     agent.Runtime
-	source      string
-	personaID   string
-	input       string
-	attachments []msg.Attachment
-	session     *session.Session
+	app                   *App
+	runtime               agent.Runtime
+	source                string
+	personaID             string
+	input                 string
+	attachments           []msg.Attachment
+	session               *session.Session
+	includeHistory        bool
+	disableExternalResume bool
 }
 
 func (f turnFlow) run(ctx context.Context) error {
@@ -31,13 +33,15 @@ func (f turnFlow) run(ctx context.Context) error {
 		baseline = len(f.session.Messages)
 	}
 	turn := &agent.Turn{
-		Source:      f.source,
-		Input:       f.input,
-		Attachments: f.attachments,
-		Session:     f.session,
-		Bus:         f.app.bus,
-		AgentID:     f.personaID,
-		StreamID:    newStreamID(),
+		Source:                f.source,
+		Input:                 f.input,
+		Attachments:           f.attachments,
+		Session:               f.session,
+		Bus:                   f.app.bus,
+		AgentID:               f.personaID,
+		StreamID:              newStreamID(),
+		IncludeHistory:        f.includeHistory,
+		DisableExternalResume: f.disableExternalResume,
 	}
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
 		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {

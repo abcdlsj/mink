@@ -721,11 +721,28 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 
 	var gotInput string
 	var gotPersona *agent.Persona
+	var turns []struct {
+		input          string
+		seen           []msg.Message
+		includeHistory bool
+		disableResume  bool
+	}
 	a.RegisterRuntime("stub", func(e *agent.RuntimeEnv) (agent.Runtime, error) {
 		gotPersona = e.Persona
 		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
 			gotInput = turn.Input
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "direct ok"})
+			turns = append(turns, struct {
+				input          string
+				seen           []msg.Message
+				includeHistory bool
+				disableResume  bool
+			}{
+				input:          turn.Input,
+				seen:           append([]msg.Message(nil), turn.Session.Messages...),
+				includeHistory: turn.IncludeHistory,
+				disableResume:  turn.DisableExternalResume,
+			})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "direct ok: " + turn.Input})
 			return nil
 		}), nil
 	})
@@ -738,7 +755,7 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "direct ok" {
+	if out != "direct ok: hello without mention" {
 		t.Fatalf("out = %q, want direct ok", out)
 	}
 	if gotInput != "hello without mention" {
@@ -753,6 +770,34 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 	}
 	if len(sp.Messages) != 2 {
 		t.Fatalf("agent dm messages = %d, want user + assistant", len(sp.Messages))
+	}
+	out, err = a.HandleInput(context.Background(), "desktop:agent:helper", "second question")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "direct ok: second question" {
+		t.Fatalf("second out = %q, want direct ok", out)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("turns = %d, want 2", len(turns))
+	}
+	if !turns[0].includeHistory || !turns[1].includeHistory {
+		t.Fatalf("IncludeHistory = %v / %v, want true", turns[0].includeHistory, turns[1].includeHistory)
+	}
+	if !turns[0].disableResume || !turns[1].disableResume {
+		t.Fatalf("DisableExternalResume = %v / %v, want true", turns[0].disableResume, turns[1].disableResume)
+	}
+	if len(turns[0].seen) != 0 {
+		t.Fatalf("first seeded context = %d, want empty", len(turns[0].seen))
+	}
+	if len(turns[1].seen) < 2 {
+		t.Fatalf("second seeded context too small: %+v", turns[1].seen)
+	}
+	if turns[1].seen[0].Role != "user" || turns[1].seen[0].Content != "[user] hello without mention" {
+		t.Fatalf("second first context = %+v", turns[1].seen[0])
+	}
+	if turns[1].seen[1].Role != "assistant" || turns[1].seen[1].Content != "direct ok: hello without mention" {
+		t.Fatalf("second assistant context = %+v", turns[1].seen[1])
 	}
 }
 
