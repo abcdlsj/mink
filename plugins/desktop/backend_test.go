@@ -42,6 +42,23 @@ func TestFallback(t *testing.T) {
 	}
 }
 
+func TestListToolsReturnsRegistryTools(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+	tools := b.ListTools()
+	if len(tools) == 0 {
+		t.Fatal("tools should expose registry tools")
+	}
+	var gotBash bool
+	for _, tool := range tools {
+		if tool.Name == "bash" && tool.Enabled {
+			gotBash = true
+		}
+	}
+	if !gotBash {
+		t.Fatalf("tools = %#v, want enabled bash tool", tools)
+	}
+}
+
 func TestIsThreadIDDistinguishesChannel(t *testing.T) {
 	if isThreadID(defaultChannelID) {
 		t.Error("default channel id must not look like a thread id")

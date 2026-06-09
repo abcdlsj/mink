@@ -43,6 +43,13 @@ func (a *App) Commands() []command.Command {
 	return a.cmds.All()
 }
 
+func (a *App) Tools() []tool.Tool {
+	if a == nil || a.tools == nil {
+		return nil
+	}
+	return a.tools.All()
+}
+
 func (a *App) CurrentSession(source string) (*session.Session, error) {
 	return a.sessions.Current(source)
 }

@@ -1,7 +1,6 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronRight, Square } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { Identicon } from "@/components/Identicon";
 import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
 import { api } from "@/lib/api";
@@ -54,49 +53,24 @@ export function RightPane() {
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
 
-  const toolsSec = (
-    <Section label="Tools">
-      {tools.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {tools.map((t) => (
-            <span
-              key={t.name}
-              className="border border-border bg-panel px-2 py-1 font-mono text-[11.5px] text-text-muted"
-            >
-              {t.name}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div className="text-[12.5px] leading-[1.6] text-text-muted">No tools enabled in this channel.</div>
-      )}
-    </Section>
-  );
-  const runtimeSec = (
-    <Section label="Runtime">
-      <RuntimeDetail
-        view={view}
-        stateRuntime={state?.runtime}
-        activePersona={activePersona}
-        runs={runtimeRuns}
-        personas={personas}
-        agentDMs={agentDMs}
-        agents={agents}
-      />
-    </Section>
-  );
-  const agentDirectorySec = (
-    <AgentDirectory
-      personas={personas}
-      agents={agents}
-      agentDMs={agentDMs}
+  const workbenchSec = (
+    <AgentWorkbenchPanel
+      view={view}
       stateRuntime={state?.runtime}
+      activePersona={activePersona}
+      runs={runtimeRuns}
+      participants={inThread ? (threadParticipants || []) : (participants?.agents || [])}
+      personas={personas}
+      agentDMs={agentDMs}
+      agents={agents}
+      tools={tools}
+      capabilities={capabilities}
+      recentRuns={inThread ? (threadRecentRuns || []) : (participants?.recent_runs || [])}
     />
   );
 
   if (view === "channel" && !inThread) {
     const ch = channels.find((c) => c.id === activeChannel);
-    const participantsList = participants?.agents || [];
     const channelThreads = threads.filter((t) => t.channel_id === activeChannel).slice(0, 3);
     main = (
       <>
@@ -105,16 +79,7 @@ export function RightPane() {
             <div className="text-[13px] text-text">{ch.topic}</div>
           </Section>
         )}
-        {runtimeSec}
-        <Section label="Participants">
-          {participantsList.length > 0 ? (
-            <ParticipantsRow agents={participantsList} />
-          ) : (
-            <div className="text-[12px] text-text-faint leading-[1.4]">
-              No collaborators yet. Mention an agent to invite them.
-            </div>
-          )}
-        </Section>
+        {workbenchSec}
         {channelThreads.length > 0 && (
           <Section label="Recent Threads">
             {channelThreads.map((t) => (
@@ -127,29 +92,15 @@ export function RightPane() {
     more = (
       <>
         <CapabilitiesSection capabilities={capabilities} />
-        {agentDirectorySec}
-        {toolsSec}
       </>
     );
   } else if (view === "thread" || inThread) {
-    const participantsList = inThread
-      ? (threadParticipants || [])
-      : (participants?.agents || []);
     const recent = inThread
       ? (threadRecentRuns || [])
       : (participants?.recent_runs || []);
     main = (
       <>
-        {runtimeSec}
-        <Section label="Participants">
-          {participantsList.length > 0 ? (
-            <ParticipantsRow agents={participantsList} />
-          ) : (
-            <div className="text-[12px] text-text-faint leading-[1.4]">
-              No collaborators yet. Mention an agent to invite them.
-            </div>
-          )}
-        </Section>
+        {workbenchSec}
         {recent.length > 0 && (
           <Section label="Background Tasks">
             {recent.slice(0, 4).map((r) => (
@@ -162,32 +113,12 @@ export function RightPane() {
     more = (
       <>
         <CapabilitiesSection capabilities={capabilities} />
-        {agentDirectorySec}
-        {toolsSec}
       </>
     );
   } else if (view === "agent") {
-    const ag = agents.find((a) => a.id === activeAgent);
     main = (
       <>
-        {runtimeSec}
-        {ag?.role && (
-          <Section label="Role">
-            <div className="text-[12.5px] text-text leading-[1.55]">{firstSentence(ag.role)}</div>
-            {personaTools(activeAgent, useStore.getState().personas).length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {personaTools(activeAgent, useStore.getState().personas).map((t) => (
-                  <span
-                    key={t}
-                    className="border border-border bg-panel-2 px-1.5 py-px font-mono text-[11px] text-text-muted"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
-          </Section>
-        )}
+        {workbenchSec}
         {threads.length > 0 && (
           <Section label="Recent Threads">
             {threads.slice(0, 3).map((t) => (
@@ -200,8 +131,13 @@ export function RightPane() {
     more = (
       <>
         <CapabilitiesSection capabilities={capabilities} />
-        {agentDirectorySec}
-        {toolsSec}
+      </>
+    );
+  } else {
+    main = <>{workbenchSec}</>;
+    more = (
+      <>
+        <CapabilitiesSection capabilities={capabilities} />
       </>
     );
   }
@@ -238,158 +174,126 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function RuntimeDetail({
+function AgentWorkbenchPanel({
   view,
   stateRuntime,
   activePersona,
   runs,
+  participants,
   personas,
   agentDMs,
   agents,
+  tools,
+  capabilities,
+  recentRuns,
 }: {
   view: string;
   stateRuntime?: string;
   activePersona?: import("@/lib/types").PersonaItem;
   runs: AgentRun[];
+  participants: AgentItem[];
   personas: import("@/lib/types").PersonaItem[];
   agentDMs: import("@/lib/types").AgentDMItem[];
   agents: AgentItem[];
+  tools: import("@/lib/types").ToolItem[];
+  capabilities: CapabilityView | null;
+  recentRuns: AgentRun[];
 }) {
   const stop = useStore((s) => s.stop);
-  const running = new Map<string, string>();
-  runs.forEach((run) => {
-    if (run.status !== "running" || !run.agent_id) return;
-    const persona = personaForRuntime(run.agent_id, personas, agentDMs);
-    const display = persona?.display || agents.find((a) => a.id === run.agent_id)?.display || run.agent_id;
-    running.set(display, agentRuntimeSummary(persona?.runtime, persona?.model, stateRuntime));
-  });
-  if (running.size > 0) {
-    return (
-      <div className="flex flex-col gap-1.5 text-[12.5px] leading-[1.45]">
-        {Array.from(running, ([display, runtime]) => (
-          <div
-            key={display}
-            className="flex min-w-0 items-center justify-between gap-2"
-            title={`@${display}\n${runtime}`}
-          >
-            <span className="truncate text-text">@{display}</span>
-            <span className="ml-auto shrink-0 font-mono text-text-muted">{runtime}</span>
-            <Button variant="danger" size="xs" onClick={() => void stop()}>
-              <Square className="size-2.5" />
-              <span>Stop</span>
-            </Button>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (view === "agent" && activePersona) {
-    const rows: [string, string][] = [
-      ["Agent", "@" + (activePersona.display || activePersona.id)],
-      ["Runtime", runtimeLabel(activePersona.runtime, stateRuntime)],
-    ];
-    if (activePersona.model) rows.push(["Model", activePersona.model]);
-    return (
-      <RuntimeRows rows={rows} />
-    );
-  }
-
-  return (
-    <RuntimeRows
-      rows={[
-        ["Mode", view === "channel" ? "Per channel agent" : "Per participant"],
-        ["Runtime", "Selected per agent"],
-      ]}
-    />
-  );
-}
-
-function RuntimeRows({ rows }: { rows: [string, string][] }) {
-  return (
-    <div className="grid grid-cols-[64px_1fr] gap-y-1 text-[12.5px] leading-[1.55]">
-      {rows.map(([label, value]) => (
-        <Fragment key={label}>
-          <span className="text-text-faint">{label}</span>
-          <span className="truncate font-mono text-text">{value}</span>
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-function AgentDirectory({
-  personas,
-  agents,
-  agentDMs,
-  stateRuntime,
-}: {
-  personas: import("@/lib/types").PersonaItem[];
-  agents: AgentItem[];
-  agentDMs: import("@/lib/types").AgentDMItem[];
-  stateRuntime?: string;
-}) {
   const openAgent = useStore((s) => s.openAgent);
   const newAgentChat = useStore((s) => s.newAgentChat);
-  if (personas.length === 0) return null;
-  const statusFor = (id: string) => agents.find((a) => a.id === id)?.status || "idle";
-  const hasDM = (id: string) => agentDMs.some((d) => d.persona_id === id);
+  const panelAgents = workbenchAgents(view, activePersona, participants, personas, agents);
+  const runningIDs = new Set(runs.filter((r) => r.status === "running").map((r) => r.agent_id));
+  const summary = capabilitySummary(capabilities);
+  const failures = recentFailures(recentRuns, capabilities);
+  const globalTools = tools.map((t) => t.name);
+  const permission = permissionSummary(view);
   return (
-    <Section label="Agent Directory">
+    <Section label="Agent Workbench">
+      <div className="mb-2 grid grid-cols-3 border border-border bg-panel text-[11px]">
+        <div className="border-r border-border px-2 py-1.5">
+          <div className="font-mono uppercase text-text-faint">Mode</div>
+          <div className="truncate text-text">{permission.label}</div>
+        </div>
+        <div className="border-r border-border px-2 py-1.5">
+          <div className="font-mono uppercase text-text-faint">Skills</div>
+          <div className={summary.missing > 0 ? "text-error" : "text-text"}>
+            {summary.ready}/{summary.total} ready
+          </div>
+        </div>
+        <div className="px-2 py-1.5">
+          <div className="font-mono uppercase text-text-faint">Failures</div>
+          <div className={failures.length > 0 ? "text-error" : "text-text"}>{failures.length || "none"}</div>
+        </div>
+      </div>
       <div className="flex flex-col gap-2">
-        {personas.map((p) => {
+        {panelAgents.map((p) => {
           const display = p.display || p.id;
-          const runtime = runtimeLabel(p.runtime, stateRuntime);
-          const visible = p.show_in_sidebar !== false;
-          const title = [
-            "@" + display,
-            "runtime: " + runtime,
-          ];
-          if (p.model) title.push("model: " + p.model);
-          title.push("dm shortcut: " + (visible ? "shown" : "hidden"));
+          const runtime = agentRuntimeSummary(p.runtime, p.model, stateRuntime);
+          const isRunning = runningIDs.has(p.id) || p.status === "running";
+          const hasDM = agentDMs.some((d) => d.persona_id === p.id);
+          const agentTools = p.tools && p.tools.length > 0 ? p.tools : globalTools;
           return (
-            <div
-              key={p.id}
-              className="border border-border bg-panel px-2.5 py-2"
-              title={title.join("\n")}
-            >
+            <div key={p.id} className="border border-border bg-panel px-2.5 py-2">
               <div className="flex min-w-0 items-center gap-2">
-                <Dot status={statusFor(p.id) === "running" ? "running" : "idle"} />
+                <Dot status={isRunning ? "running" : "idle"} />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">
                   @{display}
                 </span>
                 <span className="shrink-0 font-mono text-[10.5px] uppercase text-text-faint">
-                  {hasDM(p.id) ? "dm" : "ready"}
+                  {isRunning ? "working" : hasDM ? "dm" : "ready"}
                 </span>
               </div>
               <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
-                {runtime}{p.model ? " / " + p.model : ""}
+                {runtime || runtimeLabel(undefined, stateRuntime)}
               </div>
+              {p.description && (
+                <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
+                  {p.description}
+                </div>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1">
+                <CapabilityPill label={permission.short} />
+                <CapabilityPill label={agentTools.length > 0 ? `${agentTools.length} tools` : "no tools"} />
+                <CapabilityPill label={summary.missing > 0 ? `${summary.missing} skill config missing` : `${summary.ready} skills ready`} error={summary.missing > 0} />
+              </div>
+              {agentTools.length > 0 && (
+                <div className="mt-1.5 line-clamp-1 font-mono text-[10.5px] text-text-faint">
+                  {agentTools.slice(0, 5).join(" · ")}
+                </div>
+              )}
+              {failures.length > 0 && (
+                <div className="mt-1.5 line-clamp-2 text-[11px] leading-[1.35] text-error">
+                  Recent failure: {failures[0]}
+                </div>
+              )}
               <div className="mt-2 flex gap-1.5">
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => void openAgent(p.id)}
-                >
-                  DM
-                </Button>
-                <Button
-                  variant="default"
-                  size="sm"
-                  className="h-6 px-2 text-[11px]"
-                  onClick={() => void newAgentChat(p.id)}
-                >
-                  Chat
-                </Button>
-                {!visible && (
-                  <span className="ml-auto self-center font-mono text-[10px] text-text-faint">hidden</span>
+                {p.id !== "sumi" && (
+                  <>
+                    <Button variant="default" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void openAgent(p.id)}>
+                      DM
+                    </Button>
+                    <Button variant="default" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void newAgentChat(p.id)}>
+                      Chat
+                    </Button>
+                  </>
+                )}
+                {isRunning && (
+                  <Button variant="danger" size="sm" className="ml-auto h-6 px-2 text-[11px]" onClick={() => void stop()}>
+                    <Square className="size-2.5" />
+                    <span>Stop</span>
+                  </Button>
                 )}
               </div>
             </div>
           );
         })}
       </div>
+      {panelAgents.length === 0 && (
+        <div className="border border-border bg-panel px-2.5 py-2 text-[12px] text-text-muted">
+          No agent is attached to this scope. Mention an agent or open an Agent DM to start.
+        </div>
+      )}
     </Section>
   );
 }
@@ -405,6 +309,108 @@ function personaForRuntime(
   return personas.find((p) => p.id === personaID);
 }
 
+type WorkbenchAgent = {
+  id: string;
+  display: string;
+  runtime?: string;
+  model?: string;
+  status: string;
+  description?: string;
+  tools?: string[];
+};
+
+function workbenchAgents(
+  view: string,
+  activePersona: import("@/lib/types").PersonaItem | undefined,
+  participants: AgentItem[],
+  personas: import("@/lib/types").PersonaItem[],
+  agents: AgentItem[],
+): WorkbenchAgent[] {
+  if (view === "agent" && activePersona) {
+    return [personaWorkbenchAgent(activePersona, agents.find((a) => a.id === activePersona.id)?.status || "idle")];
+  }
+  if (participants.length > 0) {
+    return participants.map((agent) => {
+      const p = personas.find((item) => item.id === agent.id);
+      return {
+        id: agent.id,
+        display: agent.display || p?.display || agent.id,
+        runtime: p?.runtime || agent.runtime,
+        model: p?.model || agent.model,
+        status: agent.status,
+        description: p?.description || agent.role,
+        tools: p?.tools,
+      };
+    });
+  }
+  if (view === "thread" || view === "channel") {
+    return [];
+  }
+  return [{
+    id: "sumi",
+    display: "Sumi",
+    status: "idle",
+    description: "Default assistant for direct conversation.",
+  }];
+}
+
+function personaWorkbenchAgent(p: import("@/lib/types").PersonaItem, status: string): WorkbenchAgent {
+  return {
+    id: p.id,
+    display: p.display || p.id,
+    runtime: p.runtime,
+    model: p.model,
+    status,
+    description: p.description,
+    tools: p.tools,
+  };
+}
+
+function permissionSummary(view: string): { label: string; short: string } {
+  if (view === "channel") {
+    return { label: "Routed channel", short: "routed" };
+  }
+  if (view === "thread") {
+    return { label: "Routed thread", short: "thread" };
+  }
+  if (view === "agent") {
+    return { label: "Direct agent", short: "direct" };
+  }
+  return { label: "Direct chat", short: "direct" };
+}
+
+function capabilitySummary(capabilities: CapabilityView | null): { total: number; ready: number; missing: number } {
+  const skills = capabilities?.skills || [];
+  const missing = skills.filter((s) => !s.configured).length;
+  return { total: skills.length, ready: skills.length - missing, missing };
+}
+
+function recentFailures(runs: AgentRun[], capabilities: CapabilityView | null): string[] {
+  const failedRuns = runs
+    .filter((r) => failureStatus(r.status))
+    .map((r) => `${r.title || r.agent_id} · ${r.status}`);
+  const failedTasks = (capabilities?.tasks || [])
+    .filter((t) => failureStatus(t.run_status || t.status))
+    .map((t) => `${t.title} · ${t.run_status || t.status}`);
+  return [...failedRuns, ...failedTasks].slice(0, 3);
+}
+
+function failureStatus(status: string | undefined): boolean {
+  const s = (status || "").toLowerCase();
+  return s === "failed" || s === "error" || s === "canceled" || s === "rollback_failed" || s === "no_output";
+}
+
+function CapabilityPill({ label, error }: { label: string; error?: boolean }) {
+  return (
+    <span className={cn(
+      "border px-1.5 py-px font-mono text-[10.5px]",
+      error ? "border-error/50 text-error" : "border-border text-text-faint",
+    )}>
+      {label}
+    </span>
+  );
+}
+
 function runtimeLabel(runtime: string | undefined, fallback: string | undefined): string {
   return runtime || fallback || "default";
 }
@@ -412,53 +418,6 @@ function runtimeLabel(runtime: string | undefined, fallback: string | undefined)
 function agentRuntimeSummary(runtime: string | undefined, model: string | undefined, fallbackRuntime: string | undefined): string {
   const label = runtimeLabel(runtime, fallbackRuntime);
   return model ? `${label} / ${model}` : label;
-}
-
-function ParticipantsRow({ agents }: { agents: AgentItem[] }) {
-  const runningCount = agents.filter((a) => a.status === "running").length;
-  return (
-    <div className="flex items-center gap-2.5">
-      <div className="inline-flex">
-        {agents.slice(0, 3).map((p, i) => (
-          <span
-            key={p.id}
-            className={cn(
-              "relative size-[22px] overflow-hidden border-2 border-border bg-panel",
-              i > 0 && "-ml-1.5",
-            )}
-            title={agentTooltip(p)}
-          >
-            <Identicon seed={p.id || p.display} kind="agent" />
-            {p.status === "running" && (
-              <span className="absolute -bottom-0.5 -right-0.5 size-[7px] rounded-full border border-border bg-running" />
-            )}
-          </span>
-        ))}
-        {agents.length > 3 && (
-          <span className="-ml-1.5 inline-flex size-[22px] items-center justify-center border-2 border-border bg-panel-2 text-[10.5px] text-text-muted">
-            +{agents.length - 3}
-          </span>
-        )}
-      </div>
-      <span className="text-[12px] text-text-muted">
-        {agents.length} participant{agents.length === 1 ? "" : "s"}
-        {runningCount > 0 && (
-          <span className="text-text"> · {runningCount} running</span>
-        )}
-      </span>
-    </div>
-  );
-}
-
-function agentTooltip(agent: AgentItem) {
-  const status = agent.status === "running" ? "running" : "available";
-  const lines = [
-    "@" + agent.display,
-    "status: " + status,
-    "runtime: " + (agent.runtime || "default"),
-  ];
-  if (agent.model) lines.push("model: " + agent.model);
-  return lines.join("\n");
 }
 
 function RunCard({ run }: { run: AgentRun }) {
@@ -932,10 +891,4 @@ function fmtDur(ms: number): string {
   const h = Math.floor(m / 60);
   const mm = m % 60;
   return mm ? h + "h " + mm + "m" : h + "h";
-}
-
-function personaTools(id: string | null, personas: import("@/lib/types").PersonaItem[]): string[] {
-  if (!id) return [];
-  const p = personas.find((p) => p.id === id);
-  return p?.tools || [];
 }

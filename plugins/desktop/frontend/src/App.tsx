@@ -243,35 +243,65 @@ function MobileSheet({ onClose, children }: { onClose: () => void; children: Rea
 
 function MobileDetailsContent() {
   const state = useStore((s) => s.state);
+  const view = useStore((s) => s.view);
   const participants = useStore((s) => s.participants);
-  const tools = useStore((s) => s.tools);
   const personas = useStore((s) => s.personas);
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
+  const activeAgent = useStore((s) => s.activeAgent);
   const capabilities = useStore((s) => s.capabilities);
   const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | "agents" | null>(null);
 
   const skills = capabilities?.skills || [];
   const tasks = capabilities?.tasks || [];
   const approvals = capabilities?.action_proposals || [];
+  const missingSkills = skills.filter((s) => !s.configured).length;
+  const failures = mobileFailureCount(tasks);
+  const activeRuns = participants?.active_runs || [];
+  const activePersonaID = agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent || "";
+  const activePersona = view === "agent" ? personas.find((p) => p.id === activePersonaID) : undefined;
+  const visibleAgents = activePersona
+    ? [{
+        id: activePersona.id,
+        display: activePersona.display || activePersona.id,
+        role: activePersona.description,
+        runtime: activePersona.runtime,
+        model: activePersona.model,
+        status: agents.find((a) => a.id === activePersona.id)?.status || "idle",
+      }]
+    : (participants?.agents || []).slice(0, 6);
 
   return (
     <div className="flex flex-col gap-5 px-4 py-4">
-      <MobileDetailSection title="Runtime">
-        <div className="grid grid-cols-[72px_1fr] gap-y-1 font-mono text-[12px]">
-          <span className="text-text-faint">Runtime</span>
-          <span className="truncate text-text">{state?.runtime || "default"}</span>
-          <span className="text-text-faint">Model</span>
-          <span className="truncate text-text">{state?.model || "default"}</span>
+      <MobileDetailSection title="Agent Workbench">
+        <div className="grid grid-cols-2 gap-2 text-[12px]">
+          <MobileMetric label="Working" value={activeRuns.length ? String(activeRuns.length) : "none"} active={activeRuns.length > 0} />
+          <MobileMetric label="Mode" value={mobileMode(view)} />
+          <MobileMetric label="Skills" value={`${skills.length - missingSkills}/${skills.length} ready`} active={missingSkills === 0 && skills.length > 0} error={missingSkills > 0} />
+          <MobileMetric label="Failures" value={failures ? String(failures) : "none"} error={failures > 0} />
+        </div>
+        <div className="mt-3 flex flex-col gap-1.5">
+          {visibleAgents.length > 0 ? visibleAgents.map((a) => {
+            const persona = personas.find((p) => p.id === a.id);
+            const status = activeRuns.some((r) => r.agent_id === a.id) ? "working" : a.status || "idle";
+            const runtime = persona?.runtime || a.runtime || state?.runtime || "default";
+            const model = persona?.model || a.model;
+            return (
+              <div key={a.id} className="flex items-center justify-between gap-2 border border-border bg-panel px-2 py-1.5">
+                <span className="truncate text-[12.5px] text-text">@{a.display}</span>
+                <span className="shrink-0 font-mono text-[10.5px] text-text-faint">
+                  {status} · {runtime}{model ? " / " + model : ""}
+                </span>
+              </div>
+            );
+          }) : (
+            <div className="border border-border bg-panel px-2 py-1.5 text-[12px] text-text-faint">
+              Default Sumi direct · {state?.runtime || "default"}{state?.model ? " / " + state.model : ""}
+            </div>
+          )}
         </div>
       </MobileDetailSection>
-      <MobileDetailSection title="People">
-        <div className="text-[12.5px] text-text-muted">
-          {(participants?.agents.length || 0)} participants
-          {(participants?.active_runs?.length || 0) > 0 && ` · ${participants?.active_runs?.length} running`}
-        </div>
-      </MobileDetailSection>
-      <MobileDetailSection title="Agent Directory">
+      <MobileDetailSection title="Capability Entries">
         <MobileCapabilityRow
           label="Defined agents"
           count={personas.length}
@@ -292,9 +322,6 @@ function MobileDetailsContent() {
             })}
           />
         )}
-      </MobileDetailSection>
-      <MobileDetailSection title="Capabilities">
-        <div className="flex flex-col gap-2">
           <MobileCapabilityRow
             label="Skills"
             count={skills.length}
@@ -302,7 +329,7 @@ function MobileDetailsContent() {
             onClick={() => setOpen(open === "skills" ? null : "skills")}
           />
           {open === "skills" && (
-            <MobileCapabilityList items={skills.slice(0, 6).map((s) => [s.name, s.risk || s.when || s.description || "skill"])} />
+            <MobileCapabilityList items={skills.slice(0, 6).map((s) => [s.name, mobileSkillLine(s)])} />
           )}
           <MobileCapabilityRow
             label="Tasks"
@@ -322,21 +349,37 @@ function MobileDetailsContent() {
           {open === "approvals" && (
             <MobileCapabilityList items={approvals.slice(0, 6).map((a) => [a.tool || "action", a.intent || a.risk || a.result || "proposal"])} />
           )}
-        </div>
-      </MobileDetailSection>
-      <MobileDetailSection title="Tools">
-        <div className="flex flex-wrap gap-1.5">
-          {tools.length > 0 ? tools.slice(0, 12).map((t) => (
-            <span key={t.name} className="border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
-              {t.name}
-            </span>
-          )) : (
-            <span className="text-[12px] text-text-faint">No tools enabled.</span>
-          )}
-        </div>
       </MobileDetailSection>
     </div>
   );
+}
+
+function MobileMetric({ label, value, active, error }: { label: string; value: string; active?: boolean; error?: boolean }) {
+  return (
+    <div className="border border-border bg-panel px-2 py-1.5">
+      <div className="font-mono text-[10px] uppercase text-text-faint">{label}</div>
+      <div className={cn("truncate text-[12px]", error ? "text-error" : active ? "text-running" : "text-text")}>{value}</div>
+    </div>
+  );
+}
+
+function mobileMode(view: string): string {
+  if (view === "channel") return "routed";
+  if (view === "thread") return "thread";
+  if (view === "agent") return "direct agent";
+  return "direct";
+}
+
+function mobileSkillLine(s: { configured: boolean; risk?: string; when?: string; description?: string; missing_env?: string[] }) {
+  if (!s.configured) return `missing ${s.missing_env?.length || 1}`;
+  return s.risk || s.when || s.description || "ready";
+}
+
+function mobileFailureCount(tasks: { status: string; run_status?: string }[]): number {
+  return tasks.filter((t) => {
+    const s = (t.run_status || t.status || "").toLowerCase();
+    return s === "failed" || s === "error" || s === "canceled" || s === "no_output";
+  }).length;
 }
 
 function MobileDetailSection({ title, children }: { title: string; children: ReactNode }) {

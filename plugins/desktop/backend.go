@@ -1406,7 +1406,16 @@ func (b *Backend) ListModels() []ModelItem {
 }
 
 func (b *Backend) ListTools() []ToolItem {
-	return []ToolItem{}
+	tools := b.app.Tools()
+	out := make([]ToolItem, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, ToolItem{
+			Name:        t.Name(),
+			Description: t.Desc(),
+			Enabled:     true,
+		})
+	}
+	return out
 }
 
 func (b *Backend) ListCommands() []CommandItem {
