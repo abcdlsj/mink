@@ -243,6 +243,7 @@ function MobileSheet({ onClose, children }: { onClose: () => void; children: Rea
 
 function MobileDetailsContent() {
   const state = useStore((s) => s.state);
+  const detail = useStore((s) => s.detail);
   const view = useStore((s) => s.view);
   const participants = useStore((s) => s.participants);
   const personas = useStore((s) => s.personas);
@@ -258,7 +259,7 @@ function MobileDetailsContent() {
   const missingSkills = skills.filter((s) => !s.configured).length;
   const failures = mobileFailureCount(tasks);
   const activeRuns = participants?.active_runs || [];
-  const activePersonaID = agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent || "";
+  const activePersonaID = detail?.item?.persona_id || agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent || "";
   const activePersona = view === "agent" ? personas.find((p) => p.id === activePersonaID) : undefined;
   const visibleAgents = activePersona
     ? [{

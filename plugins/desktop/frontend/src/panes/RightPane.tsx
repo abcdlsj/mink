@@ -48,7 +48,7 @@ export function RightPane() {
     time: s.startedAt,
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
-  const activePersona = personaForRuntime(activeAgent, personas, agentDMs);
+  const activePersona = personaForRuntime(activeAgent, detail?.item?.persona_id, personas, agentDMs);
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -300,12 +300,12 @@ function AgentWorkbenchPanel({
 
 function personaForRuntime(
   id: string | null,
+  detailPersonaID: string | undefined,
   personas: import("@/lib/types").PersonaItem[],
   agentDMs: import("@/lib/types").AgentDMItem[],
 ): import("@/lib/types").PersonaItem | undefined {
-  if (!id) return undefined;
-  const dm = agentDMs.find((d) => d.id === id);
-  const personaID = dm?.persona_id || id;
+  const dm = id ? agentDMs.find((d) => d.id === id) : undefined;
+  const personaID = detailPersonaID || dm?.persona_id || id || "";
   return personas.find((p) => p.id === personaID);
 }
 
