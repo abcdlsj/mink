@@ -25,20 +25,24 @@ func (a *App) registerBuiltinCommands() {
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("skills", "list skill cards", func(ctx context.Context, args []string) (string, error) {
-		skills := a.SkillSummaries()
+		skills := a.SkillDirectory()
 		if len(skills) == 0 {
 			return "no skills", nil
 		}
-		return listItems("Skills", skills, func(s SkillSummary) string {
-			meta := compactJoin([]string{s.Risk, s.When}, " / ")
-			if meta == "" {
-				meta = s.Description
-			}
-			if meta == "" {
-				return s.Name
-			}
-			return s.Name + " - " + trimLine(meta, 100)
+		return listItems("Skills", skills, func(s SkillDirectoryItem) string {
+			return skillListLine(s)
 		}), nil
+	}))
+
+	a.RegisterCommand(command.NewFuncCmd("skill", "show skill detail: /skill <name>", func(ctx context.Context, args []string) (string, error) {
+		if len(args) == 0 {
+			return "usage: /skill <name>", nil
+		}
+		s, ok := a.SkillDetail(strings.Join(args, " "))
+		if !ok {
+			return "skill not found: " + strings.Join(args, " "), nil
+		}
+		return skillDetailText(s), nil
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("tasks", "list recent task states", func(ctx context.Context, args []string) (string, error) {
@@ -102,6 +106,64 @@ func (a *App) registerBuiltinCommands() {
 	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
 	a.RegisterCommand(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
 	a.RegisterCommand(command.NewFuncCmd("usage", "show recorded API token usage", a.runUsageCommand))
+}
+
+func skillListLine(s SkillDirectoryItem) string {
+	status := "ready"
+	if !s.Configured {
+		status = "missing " + strings.Join(s.MissingEnv, ",")
+	}
+	if s.LastAction != "" {
+		status += " / " + s.LastAction
+	}
+	meta := compactJoin([]string{s.Risk, s.When}, " / ")
+	if meta == "" {
+		meta = s.Description
+	}
+	if meta == "" {
+		return s.Name + " [" + status + "]"
+	}
+	return s.Name + " [" + status + "] - " + trimLine(meta, 100)
+}
+
+func skillDetailText(s SkillDirectoryItem) string {
+	var lines []string
+	lines = append(lines, s.Name)
+	if s.Description != "" {
+		lines = append(lines, "Description: "+s.Description)
+	}
+	if s.When != "" {
+		lines = append(lines, "When: "+s.When)
+	}
+	if s.Risk != "" {
+		lines = append(lines, "Risk: "+s.Risk)
+	}
+	if len(s.EnvNeeds) > 0 {
+		for _, need := range s.EnvNeeds {
+			state := "missing"
+			if need.Configured {
+				state = "configured"
+			}
+			line := "Env: " + need.Name + " [" + state + "]"
+			if need.Hint != "" && !need.Configured {
+				line += " - " + need.Hint
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(s.Entrypoints) > 0 {
+		lines = append(lines, "Entrypoints: "+strings.Join(s.Entrypoints, ", "))
+	}
+	if len(s.Examples) > 0 {
+		lines = append(lines, "Examples: "+strings.Join(s.Examples, " | "))
+	}
+	if s.LastAction != "" {
+		lines = append(lines, "Recent: "+s.LastAction)
+	}
+	if s.Body != "" {
+		lines = append(lines, "", strings.TrimSpace(s.Body))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func (a *App) runSessionCommand(ctx context.Context, args []string) (string, error) {

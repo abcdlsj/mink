@@ -22,6 +22,31 @@ type SkillSummary struct {
 	Path        string   `json:"path,omitempty"`
 }
 
+type SkillEnvNeed struct {
+	Name       string `json:"name"`
+	Configured bool   `json:"configured"`
+	Hint       string `json:"hint,omitempty"`
+}
+
+type SkillDirectoryItem struct {
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"`
+	When          string         `json:"when,omitempty"`
+	Risk          string         `json:"risk,omitempty"`
+	Env           []string       `json:"env,omitempty"`
+	EnvNeeds      []SkillEnvNeed `json:"env_needs,omitempty"`
+	Entrypoints   []string       `json:"entrypoints,omitempty"`
+	Examples      []string       `json:"examples,omitempty"`
+	Path          string         `json:"path,omitempty"`
+	Configured    bool           `json:"configured"`
+	MissingEnv    []string       `json:"missing_env,omitempty"`
+	LastAction    string         `json:"last_action,omitempty"`
+	LastListed    *time.Time     `json:"last_listed,omitempty"`
+	LastDescribed *time.Time     `json:"last_described,omitempty"`
+	LastUsed      *time.Time     `json:"last_used,omitempty"`
+	Body          string         `json:"body,omitempty"`
+}
+
 type TaskStateSummary struct {
 	ID         string         `json:"id"`
 	Title      string         `json:"title"`
@@ -67,6 +92,60 @@ func (a *App) SkillSummaries() []SkillSummary {
 		})
 	}
 	return out
+}
+
+func (a *App) SkillDirectory() []SkillDirectoryItem {
+	if a == nil || a.skills == nil {
+		return nil
+	}
+	status := a.skillAuditStates()
+	env := childEnvMap(a.cfg.ChildEnv())
+	skills := a.skills.Discover()
+	out := make([]SkillDirectoryItem, 0, len(skills))
+	for _, s := range skills {
+		if s == nil {
+			continue
+		}
+		item := SkillDirectoryItem{
+			Name:        s.Name,
+			Description: s.Desc,
+			When:        s.When,
+			Risk:        s.Risk,
+			Env:         append([]string(nil), s.Env...),
+			Entrypoints: append([]string(nil), s.Entrypoints...),
+			Examples:    append([]string(nil), s.Examples...),
+			Path:        s.Path,
+			Configured:  true,
+		}
+		item.EnvNeeds, item.MissingEnv = skillEnvNeeds(s.Env, env)
+		if len(item.MissingEnv) > 0 {
+			item.Configured = false
+		}
+		if st, ok := status[strings.ToLower(s.Name)]; ok {
+			item.LastListed = timePtr(st.listed)
+			item.LastDescribed = timePtr(st.described)
+			item.LastUsed = timePtr(st.used)
+			item.LastAction = st.lastAction
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (a *App) SkillDetail(name string) (SkillDirectoryItem, bool) {
+	name = strings.TrimSpace(name)
+	if a == nil || a.skills == nil || name == "" {
+		return SkillDirectoryItem{}, false
+	}
+	for _, item := range a.SkillDirectory() {
+		if strings.EqualFold(item.Name, name) {
+			if s := a.skills.Load(item.Name); s != nil {
+				item.Body = s.Body
+			}
+			return item, true
+		}
+	}
+	return SkillDirectoryItem{}, false
 }
 
 func (a *App) RecentTaskStates(limit int) []TaskStateSummary {
@@ -121,6 +200,140 @@ func (a *App) RecentTaskStates(limit int) []TaskStateSummary {
 		}
 	}
 	return out
+}
+
+type skillAuditState struct {
+	listed     time.Time
+	described  time.Time
+	used       time.Time
+	lastAt     time.Time
+	lastAction string
+}
+
+func (a *App) skillAuditStates() map[string]skillAuditState {
+	out := map[string]skillAuditState{}
+	if a == nil || a.store == nil {
+		return out
+	}
+	events, err := a.store.ReplayGlobal(500)
+	if err != nil {
+		return out
+	}
+	for _, ev := range events {
+		if ev.Text == "" {
+			continue
+		}
+		var action string
+		key := strings.ToLower(ev.Text)
+		st := out[key]
+		switch ev.Type {
+		case bus.SkillListed:
+			action = "listed"
+			if ev.Time.After(st.listed) {
+				st.listed = ev.Time
+			}
+		case bus.SkillDescribed:
+			action = "described"
+			if ev.Time.After(st.described) {
+				st.described = ev.Time
+			}
+		case bus.SkillUsed:
+			action = "used"
+			if ev.Time.After(st.used) {
+				st.used = ev.Time
+			}
+		default:
+			continue
+		}
+		if ev.Time.After(st.lastAt) {
+			st.lastAt = ev.Time
+			st.lastAction = action
+		}
+		out[key] = st
+	}
+	return out
+}
+
+func childEnvMap(env []string) map[string]bool {
+	out := make(map[string]bool, len(env))
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && strings.TrimSpace(value) != "" {
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func skillEnvNeeds(env []string, configured map[string]bool) ([]SkillEnvNeed, []string) {
+	needs := make([]SkillEnvNeed, 0, len(env))
+	var missing []string
+	for _, raw := range env {
+		name := skillEnvName(raw)
+		if name == "" {
+			continue
+		}
+		need := SkillEnvNeed{
+			Name:       name,
+			Configured: configured[name],
+			Hint:       skillEnvHint(name),
+		}
+		if !need.Configured {
+			missing = append(missing, name)
+		}
+		needs = append(needs, need)
+	}
+	return needs, missing
+}
+
+func skillEnvName(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "SUMI_") {
+		return raw
+	}
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r - 'a' + 'A')
+			lastUnderscore = false
+		case r >= 'A' && r <= 'Z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastUnderscore = false
+		default:
+			if !lastUnderscore && b.Len() > 0 {
+				b.WriteByte('_')
+				lastUnderscore = true
+			}
+		}
+	}
+	name := strings.Trim(b.String(), "_")
+	if name == "" {
+		return ""
+	}
+	return "SUMI_" + name
+}
+
+func skillEnvHint(name string) string {
+	rest := strings.TrimPrefix(name, "SUMI_")
+	parts := strings.Split(rest, "_")
+	if len(parts) < 2 {
+		return "Set " + name + " in the environment"
+	}
+	section := strings.ToLower(parts[0])
+	key := strings.ToLower(strings.Join(parts[1:], "_"))
+	return "Set [" + section + "]." + key + " in config.toml or export " + name
+}
+
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 func (a *App) RecentActionProposals(limit int) []ActionProposalSummary {

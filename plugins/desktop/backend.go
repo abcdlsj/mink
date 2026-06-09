@@ -1420,24 +1420,60 @@ func (b *Backend) ListCommands() []CommandItem {
 
 func (b *Backend) Capabilities() CapabilityView {
 	return CapabilityView{
-		Skills:          skillViews(b.app.SkillSummaries()),
+		Skills:          skillViews(b.app.SkillDirectory()),
 		Tasks:           taskStateCards(b.app.RecentTaskStates(6)),
 		ActionProposals: actionProposalCards(b.app.RecentActionProposals(6)),
 	}
 }
 
-func skillViews(in []app.SkillSummary) []SkillView {
+func (b *Backend) ListSkills() []SkillView {
+	return skillViews(b.app.SkillDirectory())
+}
+
+func (b *Backend) GetSkill(name string) SkillView {
+	item, ok := b.app.SkillDetail(name)
+	if !ok {
+		return SkillView{}
+	}
+	return skillView(item)
+}
+
+func skillViews(in []app.SkillDirectoryItem) []SkillView {
 	out := make([]SkillView, 0, len(in))
 	for _, s := range in {
-		out = append(out, SkillView{
-			Name:        s.Name,
-			Description: s.Description,
-			When:        s.When,
-			Risk:        s.Risk,
-			Env:         s.Env,
-			Entrypoints: s.Entrypoints,
-			Examples:    s.Examples,
-			Path:        s.Path,
+		out = append(out, skillView(s))
+	}
+	return out
+}
+
+func skillView(s app.SkillDirectoryItem) SkillView {
+	return SkillView{
+		Name:          s.Name,
+		Description:   s.Description,
+		When:          s.When,
+		Risk:          s.Risk,
+		Env:           s.Env,
+		EnvNeeds:      skillEnvNeedViews(s.EnvNeeds),
+		Entrypoints:   s.Entrypoints,
+		Examples:      s.Examples,
+		Path:          s.Path,
+		Configured:    s.Configured,
+		MissingEnv:    s.MissingEnv,
+		LastAction:    s.LastAction,
+		LastListed:    s.LastListed,
+		LastDescribed: s.LastDescribed,
+		LastUsed:      s.LastUsed,
+		Body:          s.Body,
+	}
+}
+
+func skillEnvNeedViews(in []app.SkillEnvNeed) []SkillEnvNeed {
+	out := make([]SkillEnvNeed, 0, len(in))
+	for _, need := range in {
+		out = append(out, SkillEnvNeed{
+			Name:       need.Name,
+			Configured: need.Configured,
+			Hint:       need.Hint,
 		})
 	}
 	return out
@@ -1693,6 +1729,10 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/tools", jsonHandler(func() any { return b.ListTools() }))
 	mux.HandleFunc("/api/commands", jsonHandler(func() any { return b.ListCommands() }))
 	mux.HandleFunc("/api/capabilities", jsonHandler(func() any { return b.Capabilities() }))
+	mux.HandleFunc("/api/skills", jsonHandler(func() any { return b.ListSkills() }))
+	mux.HandleFunc("/api/skill", func(rw http.ResponseWriter, req *http.Request) {
+		writeJSON(rw, b.GetSkill(req.URL.Query().Get("name")))
+	})
 	return mux
 }
 

@@ -12,6 +12,7 @@ import type {
   AgentRun,
   CapabilityView,
   RunDetail,
+  SkillView,
   TaskStateCard,
   ThreadItem,
 } from "@/lib/types";
@@ -692,6 +693,41 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
 }
 
 function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | null }) {
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [skillDetail, setSkillDetail] = useState<SkillView | null>(null);
+  const [skillError, setSkillError] = useState<string>("");
+
+  useEffect(() => {
+    if (!capabilities || capabilities.skills.length === 0) {
+      setSelectedSkill(null);
+      setSkillDetail(null);
+      return;
+    }
+    setSelectedSkill((current) => {
+      if (current && capabilities.skills.some((s) => s.name === current)) return current;
+      return capabilities.skills[0]?.name || null;
+    });
+  }, [capabilities]);
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setSkillDetail(null);
+      return;
+    }
+    let alive = true;
+    setSkillError("");
+    api.skill(selectedSkill)
+      .then((detail) => {
+        if (alive) setSkillDetail(detail?.name ? detail : null);
+      })
+      .catch((err) => {
+        if (alive) setSkillError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedSkill]);
+
   if (!capabilities) {
     return (
       <Section label="Capabilities">
@@ -699,10 +735,11 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
       </Section>
     );
   }
-  const skills = capabilities.skills.slice(0, 4);
+  const skills = capabilities.skills;
   const tasks = capabilities.tasks.slice(0, 3);
   const proposals = capabilities.action_proposals.slice(0, 3);
   const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0;
+  const selected = skillDetail?.name === selectedSkill ? skillDetail : skills.find((s) => s.name === selectedSkill) || null;
   return (
     <Section label="Capabilities">
       {empty ? (
@@ -710,22 +747,79 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
       ) : (
         <div className="flex flex-col gap-3">
           {skills.length > 0 && (
-            <CapabilityGroup label="Skills">
-              {skills.map((s) => (
-                <CapabilityCard key={s.name}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-semibold text-text">{s.name}</span>
-                    <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10.5px] text-text-muted">
-                      {s.risk || "skill"}
-                    </span>
-                  </div>
-                  {(s.when || s.description) && (
+            <CapabilityGroup label={`Skills · ${skills.length}`}>
+              <div className="flex flex-col gap-1.5">
+                {skills.map((s) => (
+                  <button
+                    key={s.name}
+                    type="button"
+                    onClick={() => setSelectedSkill(s.name)}
+                    className={cn(
+                      "border border-border bg-panel px-2.5 py-2 text-left text-[12px] transition-colors hover:border-text-faint",
+                      selectedSkill === s.name && "border-text-muted bg-panel-2",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-semibold text-text">{s.name}</span>
+                      <span className={cn(
+                        "shrink-0 border px-1.5 py-px font-mono text-[10.5px]",
+                        s.configured ? "border-border text-text-muted" : "border-error/50 text-error",
+                      )}>
+                        {skillStatus(s)}
+                      </span>
+                    </div>
                     <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
-                      {s.when || s.description}
+                      {s.when || s.description || s.risk || "Skill card"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {selected && (
+                <CapabilityCard>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10.5px] uppercase tracking-[0.6px] text-text-faint">Skill detail</span>
+                    {selected.last_action && <span className="text-[11px] text-text-faint">last {selected.last_action}</span>}
+                  </div>
+                  <div className="mt-1.5 font-semibold text-text">{selected.name}</div>
+                  {(selected.when || selected.description) && (
+                    <div className="mt-1 text-[11.5px] leading-[1.45] text-text-muted">
+                      {selected.when || selected.description}
                     </div>
                   )}
+                  {selected.risk && (
+                    <div className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.5px] text-text-faint">
+                      Risk · {selected.risk}
+                    </div>
+                  )}
+                  {selected.env_needs && selected.env_needs.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1">
+                      {selected.env_needs.map((need) => (
+                        <div key={need.name} className="text-[11.5px] leading-[1.35] text-text-muted">
+                          <span className={need.configured ? "text-text-faint" : "text-error"}>
+                            {need.configured ? "Configured" : "Missing"}
+                          </span>
+                          {" · "}
+                          <span className="font-mono">{need.name}</span>
+                          {!need.configured && need.hint && (
+                            <div className="mt-0.5 text-text-faint">{need.hint}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selected.examples && selected.examples.length > 0 && (
+                    <div className="mt-2 text-[11.5px] leading-[1.4] text-text-muted">
+                      {selected.examples.slice(0, 2).join(" · ")}
+                    </div>
+                  )}
+                  {selected.body && (
+                    <div className="mt-2 max-h-32 overflow-auto border border-border bg-bg px-2 py-1.5 font-mono text-[10.5px] leading-[1.45] text-text-faint">
+                      {skillBodyPreview(selected.body)}
+                    </div>
+                  )}
+                  {skillError && <div className="mt-2 text-[11.5px] text-error">{skillError}</div>}
                 </CapabilityCard>
-              ))}
+              )}
             </CapabilityGroup>
           )}
           {tasks.length > 0 && (
@@ -798,6 +892,26 @@ function proposalLine(p: ActionProposalCard): string {
     return parts.join(" · ");
   }
   return p.source || "No proposal detail";
+}
+
+function skillStatus(s: SkillView): string {
+  if (!s.configured) {
+    const count = s.missing_env?.length || 0;
+    return count > 1 ? `missing ${count}` : "missing";
+  }
+  return s.risk || "ready";
+}
+
+function skillBodyPreview(body: string): string {
+  let text = body.trim();
+  if (text.startsWith("---")) {
+    const end = text.indexOf("\n---", 3);
+    if (end >= 0) {
+      text = text.slice(end + 4).trim();
+    }
+  }
+  text = text.replace(/^#\s+/gm, "").trim();
+  return firstSentence(text);
 }
 
 function firstSentence(s: string): string {

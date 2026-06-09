@@ -280,9 +280,23 @@ export interface SkillView {
   when?: string;
   risk?: string;
   env?: string[];
+  env_needs?: SkillEnvNeed[];
   entrypoints?: string[];
   examples?: string[];
   path?: string;
+  configured: boolean;
+  missing_env?: string[];
+  last_action?: string;
+  last_listed?: string;
+  last_described?: string;
+  last_used?: string;
+  body?: string;
+}
+
+export interface SkillEnvNeed {
+  name: string;
+  configured: boolean;
+  hint?: string;
 }
 
 export interface TaskStateCard {

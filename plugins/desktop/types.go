@@ -242,14 +242,28 @@ type CapabilityView struct {
 }
 
 type SkillView struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	When        string   `json:"when,omitempty"`
-	Risk        string   `json:"risk,omitempty"`
-	Env         []string `json:"env,omitempty"`
-	Entrypoints []string `json:"entrypoints,omitempty"`
-	Examples    []string `json:"examples,omitempty"`
-	Path        string   `json:"path,omitempty"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description,omitempty"`
+	When          string         `json:"when,omitempty"`
+	Risk          string         `json:"risk,omitempty"`
+	Env           []string       `json:"env,omitempty"`
+	EnvNeeds      []SkillEnvNeed `json:"env_needs,omitempty"`
+	Entrypoints   []string       `json:"entrypoints,omitempty"`
+	Examples      []string       `json:"examples,omitempty"`
+	Path          string         `json:"path,omitempty"`
+	Configured    bool           `json:"configured"`
+	MissingEnv    []string       `json:"missing_env,omitempty"`
+	LastAction    string         `json:"last_action,omitempty"`
+	LastListed    *time.Time     `json:"last_listed,omitempty"`
+	LastDescribed *time.Time     `json:"last_described,omitempty"`
+	LastUsed      *time.Time     `json:"last_used,omitempty"`
+	Body          string         `json:"body,omitempty"`
+}
+
+type SkillEnvNeed struct {
+	Name       string `json:"name"`
+	Configured bool   `json:"configured"`
+	Hint       string `json:"hint,omitempty"`
 }
 
 type TaskStateCard struct {

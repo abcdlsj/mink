@@ -11,6 +11,7 @@ import type {
   RecentItem,
   RunDetail,
   SessionDetail,
+  SkillView,
   ThreadDetail,
   ThreadItem,
   ThreadSummary,
@@ -122,6 +123,8 @@ export const api = {
   tools: () => j<ToolItem[]>(fetch("/api/tools")),
   commands: () => j<CommandItem[]>(fetch("/api/commands")),
   capabilities: () => j<CapabilityView>(fetch("/api/capabilities")),
+  skills: () => j<SkillView[]>(fetch("/api/skills")),
+  skill: (name: string) => j<SkillView>(fetch("/api/skill?name=" + encodeURIComponent(name))),
   personas: () => j<PersonaItem[]>(fetch("/api/personas")),
   send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string) =>
     j<{ output: string }>(
