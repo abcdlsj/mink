@@ -411,11 +411,12 @@ export function Dot({ status, className }: { status: "running" | "done" | "error
   return (
     <span
       className={cn(
-        "inline-block size-[7px] rounded-full border border-border shrink-0",
+        "status-dot relative inline-block size-[7px] rounded-full border border-border shrink-0",
         status === "running" && "bg-running",
         status === "done" && "bg-done",
         status === "error" && "bg-error",
         status === "idle" && "bg-text-faint",
+        status === "running" && "status-dot-running",
         className,
       )}
     />

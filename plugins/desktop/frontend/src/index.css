@@ -63,3 +63,34 @@
   ::-webkit-scrollbar-thumb:hover { background: var(--action); }
   ::-webkit-scrollbar-track { background: var(--panel-2); }
 }
+
+@layer components {
+  .status-dot-running::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 1px solid var(--running);
+    border-radius: 9999px;
+    opacity: 0.35;
+    transform: scale(0.72);
+    animation: sumi-status-breathe 1.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+}
+
+@keyframes sumi-status-breathe {
+  0%, 100% {
+    opacity: 0.18;
+    transform: scale(0.72);
+  }
+  50% {
+    opacity: 0.48;
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot-running::after {
+    display: none;
+  }
+}
