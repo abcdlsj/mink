@@ -223,6 +223,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		return channelWakeResult{err: err}
 	}
 	a.syncWakeContext(s, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
+	collaborationBrief := a.routedCollaborationBrief(spaceID, parentMessageID, target)
 	baseline := len(s.Messages)
 	rt, err := a.newRuntimeFor(persona.Runtime, persona)
 	if err != nil {
@@ -237,6 +238,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		ParentMessageID:       parentMessageID,
 		AgentID:               persona.ID,
 		StreamID:              newStreamID(),
+		CollaborationBrief:    collaborationBrief,
 		IncludeHistory:        true,
 		DisableExternalResume: true,
 	}
@@ -468,6 +470,93 @@ func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 		originSource += ":thread:" + p
 	}
 	return personaSessionSource(originSource, agentID)
+}
+
+func (a *App) routedCollaborationBrief(spaceID, parentMessageID string, target space.RoutingTarget) string {
+	if a == nil || a.spaces == nil {
+		return ""
+	}
+	sp, err := a.spaces.LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return ""
+	}
+	lines := []string{
+		"- scope: " + collaborationScope(parentMessageID),
+		"- trigger: " + collaborationTrigger(target),
+		"- target agent: " + strings.TrimSpace(target.AgentID),
+	}
+	if target.OriginMessageID != "" {
+		lines = append(lines, "- trigger message: "+collaborationMessagePreview(sp, target.OriginMessageID))
+	}
+	if target.Chain != nil {
+		lines = append(lines, fmt.Sprintf("- chain budget remaining: %d", target.Chain.Budget))
+	} else {
+		lines = append(lines, "- chain budget remaining: unknown")
+	}
+	if recent := recentAgentConclusions(sp, parentMessageID, target.AgentID, 3); len(recent) > 0 {
+		lines = append(lines, "- recent agent conclusions:")
+		for _, line := range recent {
+			lines = append(lines, "  - "+line)
+		}
+	}
+	lines = append(lines, "- instruction: answer as part of this shared discussion; add the missing piece or next action.")
+	return strings.Join(lines, "\n")
+}
+
+func collaborationScope(parentMessageID string) string {
+	if strings.TrimSpace(parentMessageID) != "" {
+		return "thread"
+	}
+	return "channel"
+}
+
+func collaborationTrigger(target space.RoutingTarget) string {
+	if strings.TrimSpace(target.Reason) != "" {
+		return strings.TrimSpace(target.Reason)
+	}
+	if target.Chain != nil && target.Chain.RootMessageID != target.OriginMessageID {
+		return "agent mention"
+	}
+	return "explicit mention"
+}
+
+func collaborationMessagePreview(sp *space.Space, messageID string) string {
+	for _, m := range sp.Messages {
+		if m.ID == messageID {
+			author := strings.TrimSpace(m.AuthorID)
+			if author == "" {
+				author = string(m.AuthorKind)
+			}
+			return author + ": " + trimText(strings.TrimSpace(m.Content), 240)
+		}
+	}
+	return strings.TrimSpace(messageID)
+}
+
+func recentAgentConclusions(sp *space.Space, parentMessageID, selfID string, limit int) []string {
+	if sp == nil || limit <= 0 {
+		return nil
+	}
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	selfID = strings.TrimSpace(selfID)
+	out := make([]string, 0, limit)
+	for i := len(sp.Messages) - 1; i >= 0 && len(out) < limit; i-- {
+		m := sp.Messages[i]
+		if m.AuthorKind != space.ParticipantAgent || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		if strings.TrimSpace(m.AuthorID) == selfID {
+			continue
+		}
+		if strings.TrimSpace(m.ParentMessageID) != parentMessageID {
+			continue
+		}
+		out = append(out, strings.TrimSpace(m.AuthorID)+": "+trimText(strings.TrimSpace(m.Content), 200))
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
 }
 
 func (a *App) syncWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {

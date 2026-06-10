@@ -54,6 +54,7 @@ type Turn struct {
 	ParentMessageID       string
 	AgentID               string
 	StreamID              string
+	CollaborationBrief    string
 	IncludeHistory        bool
 	DisableExternalResume bool
 }

@@ -105,6 +105,32 @@ func TestBuildSystemPromptAddsSkillCards(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsCollaborationBriefOnlyWhenProvided(t *testing.T) {
+	env := &RuntimeEnv{}
+	plain := BuildSystemPrompt(env, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	if strings.Contains(plain, "Collaboration protocol:") {
+		t.Fatalf("unexpected collaboration protocol without brief:\n%s", plain)
+	}
+
+	out := BuildSystemPrompt(env, &Turn{
+		Source:             "desktop:channel:work:persona:bob",
+		Session:            session.New("desktop:channel:work:persona:bob"),
+		CollaborationBrief: "- scope: channel\n- trigger: explicit mention",
+	})
+	for _, want := range []string{
+		"Collaboration protocol:",
+		"If directly mentioned, respond.",
+		"Do not repeat another agent's answer",
+		"Collaboration brief:",
+		"- scope: channel",
+		"- trigger: explicit mention",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	env := &RuntimeEnv{Prompt: "项目约束"}
 	turn := &Turn{

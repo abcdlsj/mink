@@ -36,6 +36,7 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 		source         string
 		sessionID      string
 		seen           []msg.Message
+		brief          string
 		includeHistory bool
 		disableResume  bool
 	}
@@ -45,12 +46,14 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 				source         string
 				sessionID      string
 				seen           []msg.Message
+				brief          string
 				includeHistory bool
 				disableResume  bool
 			}{
 				source:         turn.Source,
 				sessionID:      turn.Session.ID,
 				seen:           append([]msg.Message(nil), turn.Session.Messages...),
+				brief:          turn.CollaborationBrief,
 				includeHistory: turn.IncludeHistory,
 				disableResume:  turn.DisableExternalResume,
 			})
@@ -109,6 +112,17 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	if len(turns[0].seen) != 0 {
 		t.Fatalf("first turn context = %d, want 0", len(turns[0].seen))
 	}
+	for _, want := range []string{
+		"scope: channel",
+		"trigger: explicit mention",
+		"target agent: bob",
+		"trigger message: user: @bob first",
+		"chain budget remaining",
+	} {
+		if !strings.Contains(turns[0].brief, want) {
+			t.Fatalf("first turn brief missing %q:\n%s", want, turns[0].brief)
+		}
+	}
 	if len(turns[1].seen) < 2 {
 		t.Fatalf("second turn context too small: %+v", turns[1].seen)
 	}
@@ -117,6 +131,79 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	}
 	if turns[1].seen[1].Role != "assistant" || turns[1].seen[1].Content != "reply to @bob first" {
 		t.Fatalf("second context message = %+v", turns[1].seen[1])
+	}
+}
+
+func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	for _, id := range []string{"bob", "iris"} {
+		if _, err := a.Personas().Create(id, persona.Meta{Runtime: "stub"}, "# "+id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var brief string
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			brief = turn.CollaborationBrief
+			turn.Session.Add(msg.Message{Role: "user", Content: turn.Input})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := a.Spaces().AppendUserMessage(ch.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Spaces().AppendMessageWithRouting(ch.ID, space.Message{
+		AuthorID:        "iris",
+		AuthorKind:      space.ParticipantAgent,
+		Content:         "I think the UI state is unclear.",
+		ParentMessageID: root.ID,
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := a.Spaces().AppendUserMessage(ch.ID, "@bob please implement this", []string{"bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := space.NewRoutingChain(root.ID, ch.ID, 2)
+	chain.ParentMessageID = root.ID
+	res := a.runChannelWake(context.Background(), "desktop:channel:"+ch.ID, ch.ID, space.RoutingTarget{
+		AgentID:         "bob",
+		OriginMessageID: trigger.ID,
+		Chain:           chain,
+	}, "@bob please implement this")
+	if res.err != nil {
+		t.Fatal(res.err)
+	}
+	for _, want := range []string{
+		"scope: thread",
+		"trigger: agent mention",
+		"target agent: bob",
+		"trigger message: user: @bob please implement this",
+		"chain budget remaining: 2",
+		"recent agent conclusions:",
+		"iris: I think the UI state is unclear.",
+		"answer as part of this shared discussion",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("brief missing %q:\n%s", want, brief)
+		}
 	}
 }
 

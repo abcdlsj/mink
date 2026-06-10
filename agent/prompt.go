@@ -36,6 +36,7 @@ func (b promptBuilder) system() string {
 	var p promptSections
 	p.Add(b.base())
 	p.Add(b.persona())
+	p.Add(b.collaboration())
 	p.Add(b.context())
 	p.Add(b.skills())
 	p.Add(b.preferences())
@@ -69,6 +70,24 @@ func (b promptBuilder) persona() string {
 		"In Telegram group chats, output exactly NO_REPLY only for unrelated forwarded chatter.",
 	)
 	return strings.Join(lines, "\n")
+}
+
+func (b promptBuilder) collaboration() string {
+	if b.turn == nil || strings.TrimSpace(b.turn.CollaborationBrief) == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		"Collaboration protocol:",
+		"- If directly mentioned, respond.",
+		"- If joined through listening, respond only when you add value.",
+		"- Do not repeat another agent's answer; build on it or correct it.",
+		"- If another agent is better suited, mention them and state why.",
+		"- Converge toward a decision, answer, or next action.",
+		"- Keep cross-agent discussion concise; no greetings or status filler.",
+		"",
+		"Collaboration brief:",
+		strings.TrimSpace(b.turn.CollaborationBrief),
+	}, "\n")
 }
 
 func blankString(s, fallback string) string {
