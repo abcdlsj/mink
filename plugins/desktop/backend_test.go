@@ -219,6 +219,42 @@ func TestDefaultAgentDMSendUsesExistingSpaceID(t *testing.T) {
 	}
 }
 
+func TestNamedAgentChatSendUsesExistingSpaceID(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "named ok: " + turn.Input})
+			return nil
+		}), nil
+	})
+
+	named, err := b.CreateAgentDM("coder", "UI overhaul")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: named.ID,
+		PersonaID: named.PersonaID,
+		Input:     "hello named",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetAgentDM(named.ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + assistant in existing named chat", detail.Messages)
+	}
+	if detail.Messages[1].Role != "agent" || detail.Messages[1].AuthorID != "coder" || detail.Messages[1].Content != "named ok: hello named" {
+		t.Fatalf("assistant message = %#v", detail.Messages[1])
+	}
+	if chats := b.ListAgentDMs(); len(chats) != 1 || chats[0].ID != named.ID {
+		t.Fatalf("agent chats = %#v, want only named chat %s", chats, named.ID)
+	}
+}
+
 func TestDirectChatsIncludeDefaultSumiConversation(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
@@ -238,6 +274,38 @@ func TestDirectChatsIncludeDefaultSumiConversation(t *testing.T) {
 	}
 	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "coder"); err != nil || sp != nil {
 		t.Fatalf("default Sumi listing should not create agent dm, got space=%#v err=%v", sp, err)
+	}
+}
+
+func TestDefaultSumiDirectSendUsesExistingSpaceID(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok: " + turn.Input})
+			return nil
+		}), nil
+	})
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi only", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "hello sumi"}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + assistant in existing Sumi direct", detail.Messages)
+	}
+	if detail.Messages[0].Role != "user" || detail.Messages[0].Content != "hello sumi" {
+		t.Fatalf("user message = %#v", detail.Messages[0])
+	}
+	if detail.Messages[1].Role != "agent" || detail.Messages[1].AuthorID != "assistant" || detail.Messages[1].Content != "sumi ok: hello sumi" {
+		t.Fatalf("assistant message = %#v", detail.Messages[1])
+	}
+	if direct = b.ListDirectChats(); len(direct) != 1 || direct[0].ID != detail.Item.ID {
+		t.Fatalf("direct chats = %#v, want existing Sumi direct only", direct)
 	}
 }
 

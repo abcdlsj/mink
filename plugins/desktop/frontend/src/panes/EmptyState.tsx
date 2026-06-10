@@ -25,12 +25,12 @@ export function EmptyState() {
   if (view === "thread") {
     return (
       <div className="text-text-faint text-[13px] py-12 text-center">
-        Reply in this thread.
+        {activeChannel ? "Reply in this thread." : "Start this conversation."}
       </div>
     );
   }
 
-  const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
+  const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
   const recent = threads.slice(0, 3);
 
   return (

@@ -132,8 +132,12 @@ function streamingEventInScope(ev: BusEvent, s: State): boolean {
     if (!s.detail) return false;
     return ev.space_id === s.detail.item.id;
   }
-  if (s.view === "channel" || s.view === "thread") {
+  if (s.view === "channel") {
     if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
+    return !ev.parent_message_id;
+  }
+  if (s.view === "thread") {
+    if (!ev.space_id || ev.space_id !== s.activeThread) return false;
     return !ev.parent_message_id;
   }
   return false;
@@ -151,8 +155,12 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
     if (!s.detail) return false;
     return ev.space_id === s.detail.item.id;
   }
-  if (s.view === "channel" || s.view === "thread") {
+  if (s.view === "channel") {
     if (ev.space_id !== s.activeChannel) return false;
+    return !ev.parent_message_id;
+  }
+  if (s.view === "thread") {
+    if (ev.space_id !== s.activeThread) return false;
     return !ev.parent_message_id;
   }
   return false;

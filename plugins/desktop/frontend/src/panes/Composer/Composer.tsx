@@ -73,9 +73,9 @@ export function Composer() {
     const ch = channels.find((c) => c.id === activeChannel);
     placeholder = `Message #${ch?.name || "channel"}...`;
   } else if (view === "thread") {
-    placeholder = "Reply in thread...";
+    placeholder = activeChannel ? "Reply in thread..." : "Message this conversation...";
   } else if (view === "agent") {
-    const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
+    const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
     placeholder = `Message @${detail?.item.persona_name || ag?.display || "agent"}...`;
   }
 
@@ -195,7 +195,7 @@ export function Composer() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {(() => {
             if (view !== "agent") return null;
-            const ag = personaForActiveAgent(agents, agentDMs, activeAgent);
+            const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
             if (!ag) return null;
             return (
               <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">

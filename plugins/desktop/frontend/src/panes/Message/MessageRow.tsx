@@ -16,9 +16,10 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const agentDMs = useStore((s) => s.agentDMs);
   const view = useStore((s) => s.view);
   const activeAgent = useStore((s) => s.activeAgent);
+  const detail = useStore((s) => s.detail);
 
   const dmAgent = view === "agent" && m.role !== "user"
-    ? personaForActiveAgent(agents, agentDMs, activeAgent)
+    ? personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id)
     : undefined;
 
   const ag = dmAgent || agents.find((a) => a.id === m.author_id);

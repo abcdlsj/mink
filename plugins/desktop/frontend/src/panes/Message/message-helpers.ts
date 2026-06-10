@@ -4,7 +4,12 @@ export function personaForActiveAgent(
   agents: AgentItem[],
   agentDMs: AgentDMItem[],
   activeAgent: string | null,
+  detailPersonaID?: string,
 ): AgentItem | undefined {
+  if (detailPersonaID) {
+    const fromDetail = agents.find((a) => a.id === detailPersonaID);
+    if (fromDetail) return fromDetail;
+  }
   if (!activeAgent) return undefined;
   const direct = agents.find((a) => a.id === activeAgent);
   if (direct) return direct;
