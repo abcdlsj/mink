@@ -51,6 +51,15 @@ export function RightPane() {
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
   const activePersona = personaForRuntime(activeAgentSpace, detail?.item?.persona_id, personas, agentDMs);
   const activeChannelItem = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
+  const scopeRecentRuns = inThread
+    ? (threadRecentRuns || [])
+    : (participants?.recent_runs || []);
+  const activeScopeRuns = activeRuns([...runtimeRuns, ...scopeRecentRuns]);
+  const archivedScopeRuns = archivedCount(scopeRecentRuns);
+  const scopeSpaceID = inThread ? threadDetail?.space_id : detail?.item.id;
+  const scopeAgentIDs = activePersona
+    ? [activePersona.id]
+    : (inThread ? (threadParticipants || []) : (participants?.agents || [])).map((a) => a.id);
   const agentModes = inThread
     ? threadDetail?.agent_modes
     : view === "channel"
@@ -72,9 +81,13 @@ export function RightPane() {
       agents={agents}
       tools={tools}
       capabilities={capabilities}
-      recentRuns={inThread ? (threadRecentRuns || []) : (participants?.recent_runs || [])}
+      recentRuns={scopeRecentRuns}
       agentModes={agentModes}
     />
+  );
+
+  const activeTasksSec = (
+    <ActiveTasksSection runs={activeScopeRuns} archived={archivedScopeRuns} />
   );
 
   if (view === "channel" && !inThread) {
@@ -88,6 +101,7 @@ export function RightPane() {
           </Section>
         )}
         {workbenchSec}
+        {activeTasksSec}
         {channelThreads.length > 0 && (
           <Section label="Recent Threads">
             {channelThreads.map((t) => (
@@ -99,34 +113,26 @@ export function RightPane() {
     );
     more = (
       <>
-        <CapabilitiesSection capabilities={capabilities} />
+        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else if (view === "direct" || inThread) {
-    const recent = inThread
-      ? (threadRecentRuns || [])
-      : (participants?.recent_runs || []);
     main = (
       <>
         {workbenchSec}
-        {recent.length > 0 && (
-          <Section label="Background Tasks">
-            {recent.slice(0, 4).map((r) => (
-              <RunCard key={r.id} run={r} />
-            ))}
-          </Section>
-        )}
+        {activeTasksSec}
       </>
     );
     more = (
       <>
-        <CapabilitiesSection capabilities={capabilities} />
+        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else if (view === "agent") {
     main = (
       <>
         {workbenchSec}
+        {activeTasksSec}
         {threads.length > 0 && (
           <Section label="Recent Threads">
             {threads.slice(0, 3).map((t) => (
@@ -138,14 +144,14 @@ export function RightPane() {
     );
     more = (
       <>
-        <CapabilitiesSection capabilities={capabilities} />
+        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else {
-    main = <>{workbenchSec}</>;
+    main = <>{workbenchSec}{activeTasksSec}</>;
     more = (
       <>
-        <CapabilitiesSection capabilities={capabilities} />
+        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   }
@@ -168,6 +174,31 @@ export function RightPane() {
         </>
       )}
     </aside>
+  );
+}
+
+function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: number }) {
+  if (runs.length === 0) {
+    if (archived === 0) return null;
+    return (
+      <Section label="Active Tasks">
+        <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[12px] text-text-faint">
+          No active tasks here. {archived} archived hidden.
+        </div>
+      </Section>
+    );
+  }
+  return (
+    <Section label="Active Tasks">
+      {runs.slice(0, 4).map((r) => (
+        <RunCard key={r.id} run={r} />
+      ))}
+      {archived > 0 && (
+        <div className="mt-1 text-[11px] text-text-faint">
+          {archived} archived hidden
+        </div>
+      )}
+    </Section>
   );
 }
 
@@ -404,10 +435,10 @@ function capabilitySummary(capabilities: CapabilityView | null): { total: number
 
 function recentFailures(runs: AgentRun[], capabilities: CapabilityView | null): string[] {
   const failedRuns = runs
-    .filter((r) => failureStatus(r.status))
+    .filter((r) => activeStatus(r.status) && failureStatus(r.status))
     .map((r) => `${r.title || r.agent_id} · ${r.status}`);
   const failedTasks = (capabilities?.tasks || [])
-    .filter((t) => failureStatus(t.run_status || t.status))
+    .filter((t) => activeTask(t) && failureStatus(t.run_status || t.status))
     .map((t) => `${t.title} · ${t.run_status || t.status}`);
   return [...failedRuns, ...failedTasks].slice(0, 3);
 }
@@ -423,6 +454,45 @@ function agentRunState(agentID: string, runs: AgentRun[], recentRuns: AgentRun[]
     running: all.some((r) => r.status === "running"),
     queued: recentRuns.filter((r) => r.agent_id === agentID && r.status === "queued").length,
   };
+}
+
+function activeRuns(runs: AgentRun[]): AgentRun[] {
+  const seen = new Set<string>();
+  const out: AgentRun[] = [];
+  for (const run of runs) {
+    if (!activeStatus(run.status) || seen.has(run.id)) continue;
+    seen.add(run.id);
+    out.push(run);
+  }
+  return out;
+}
+
+function activeStatus(status: string | undefined): boolean {
+  const s = (status || "").toLowerCase();
+  return s === "queued" || s === "running" || s === "in_progress" || s === "in-review" || s === "in_review";
+}
+
+function archivedStatus(status: string | undefined): boolean {
+  const s = (status || "").toLowerCase();
+  return s === "done" || s === "closed" || s === "finished" || s === "empty_output" || s === "no_output" || s === "failed" || s === "error" || s === "canceled" || s === "cancelled";
+}
+
+function archivedCount(runs: AgentRun[]): number {
+  return runs.filter((r) => archivedStatus(r.status)).length;
+}
+
+function activeTask(t: TaskStateCard): boolean {
+  return activeStatus(t.run_status || t.status);
+}
+
+function archivedTask(t: TaskStateCard): boolean {
+  return archivedStatus(t.run_status || t.status);
+}
+
+function taskInScope(t: TaskStateCard, spaceID: string | undefined, agentIDs: string[]): boolean {
+  if (spaceID && t.space_id === spaceID) return true;
+  if (t.worker_id && agentIDs.includes(t.worker_id)) return true;
+  return false;
 }
 
 function agentStatusLabel(running: boolean, queued: number, hasDM: boolean): string {
@@ -688,7 +758,15 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
   );
 }
 
-function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | null }) {
+function CapabilitiesSection({
+  capabilities,
+  scopeSpaceID,
+  scopeAgentIDs,
+}: {
+  capabilities: CapabilityView | null;
+  scopeSpaceID?: string;
+  scopeAgentIDs: string[];
+}) {
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [skillDetail, setSkillDetail] = useState<SkillView | null>(null);
   const [skillError, setSkillError] = useState<string>("");
@@ -732,9 +810,11 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
     );
   }
   const skills = capabilities.skills;
-  const tasks = capabilities.tasks.slice(0, 3);
+  const scopedTasks = capabilities.tasks.filter((t) => taskInScope(t, scopeSpaceID, scopeAgentIDs));
+  const tasks = scopedTasks.filter(activeTask).slice(0, 3);
+  const archivedTasks = scopedTasks.filter(archivedTask).length;
   const proposals = capabilities.action_proposals.slice(0, 3);
-  const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0;
+  const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0 && archivedTasks === 0;
   const selected = skillDetail?.name === selectedSkill ? skillDetail : skills.find((s) => s.name === selectedSkill) || null;
   return (
     <Section label="Capabilities">
@@ -833,7 +913,7 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
             </CapabilityGroup>
           )}
           {tasks.length > 0 && (
-            <CapabilityGroup label="Task State">
+            <CapabilityGroup label="Active Task State">
               {tasks.map((t) => (
                 <CapabilityCard key={t.id}>
                   <div className="flex items-center justify-between gap-2">
@@ -846,6 +926,11 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
                 </CapabilityCard>
               ))}
             </CapabilityGroup>
+          )}
+          {archivedTasks > 0 && (
+            <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[11.5px] text-text-faint">
+              {archivedTasks} archived tasks hidden
+            </div>
           )}
           {proposals.length > 0 && (
             <CapabilityGroup label="Action Proposals">
