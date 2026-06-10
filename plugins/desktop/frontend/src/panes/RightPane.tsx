@@ -668,7 +668,7 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
     }
     setSelectedSkill((current) => {
       if (current && capabilities.skills.some((s) => s.name === current)) return current;
-      return capabilities.skills[0]?.name || null;
+      return null;
     });
   }, [capabilities]);
 
@@ -716,7 +716,7 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
                   <button
                     key={s.name}
                     type="button"
-                    onClick={() => setSelectedSkill(s.name)}
+                    onClick={() => setSelectedSkill((current) => (current === s.name ? null : s.name))}
                     className={cn(
                       "border border-border bg-panel px-2.5 py-2 text-left text-[12px] transition-colors hover:border-text-faint",
                       selectedSkill === s.name && "border-text-muted bg-panel-2",
@@ -737,11 +737,25 @@ function CapabilitiesSection({ capabilities }: { capabilities: CapabilityView | 
                   </button>
                 ))}
               </div>
+              {!selected && (
+                <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[11.5px] text-text-faint">
+                  Select a skill to inspect its detail.
+                </div>
+              )}
               {selected && (
                 <CapabilityCard>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10.5px] uppercase tracking-[0.6px] text-text-faint">Skill detail</span>
-                    {selected.last_action && <span className="text-[11px] text-text-faint">last {selected.last_action}</span>}
+                    <span className="flex items-center gap-2">
+                      {selected.last_action && <span className="text-[11px] text-text-faint">last {selected.last_action}</span>}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSkill(null)}
+                        className="border border-border bg-panel-2 px-1.5 py-px text-[10.5px] text-text-muted hover:text-text"
+                      >
+                        Close
+                      </button>
+                    </span>
                   </div>
                   <div className="mt-1.5 font-semibold text-text">{selected.name}</div>
                   {(selected.when || selected.description) && (
