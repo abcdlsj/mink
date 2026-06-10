@@ -147,6 +147,43 @@ func TestCapabilitiesDefaultTaskStatesAreActiveOnly(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskStatusMapsKanbanActions(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "please audit", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: msg.ID, InitiatorID: "user", WorkerID: "coder", Title: "audit",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	review, err := b.UpdateTaskStatus(tk.ID, "review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Status != "in_review" || review.Lifecycle != "active" {
+		t.Fatalf("review run = %#v", review)
+	}
+	if review.ParentMessageID != msg.ID || review.TriggerMessageID != msg.ID {
+		t.Fatalf("message anchors = parent %q trigger %q, want %q", review.ParentMessageID, review.TriggerMessageID, msg.ID)
+	}
+
+	done, err := b.UpdateTaskStatus(tk.ID, "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "finished" || done.Lifecycle != "archived" {
+		t.Fatalf("done run = %#v", done)
+	}
+}
+
 func TestGetRunDetailReturnsKeyStepsButNotResultBody(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

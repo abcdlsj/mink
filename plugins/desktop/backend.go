@@ -1071,7 +1071,7 @@ func (b *Backend) spaceRecentRuns(sp *space.Space) ([]AgentRun, int) {
 	archived := 0
 	for _, tk := range tasks {
 		if tk.Status.Active() {
-			out = append(out, agentRunFromTask(tk))
+			out = append(out, agentRunFromTask(tk, sp))
 		} else {
 			archived++
 		}
@@ -1080,15 +1080,37 @@ func (b *Backend) spaceRecentRuns(sp *space.Space) ([]AgentRun, int) {
 	return out, archived
 }
 
-func agentRunFromTask(tk *taskpkg.Task) AgentRun {
+func agentRunFromTask(tk *taskpkg.Task, sp *space.Space) AgentRun {
+	parentID := taskParentMessageID(tk, sp)
 	return AgentRun{
-		ID:        tk.ID,
-		AgentID:   tk.WorkerID,
-		Title:     tk.Title,
-		Status:    taskStatusForUI(tk.Status),
-		Lifecycle: string(tk.Status.Lifecycle()),
-		Time:      tk.UpdatedAt,
+		ID:               tk.ID,
+		AgentID:          tk.WorkerID,
+		Title:            tk.Title,
+		Status:           taskStatusForUI(tk.Status),
+		Lifecycle:        string(tk.Status.Lifecycle()),
+		SpaceID:          tk.SpaceID,
+		TriggerMessageID: tk.TriggerMessageID,
+		ParentMessageID:  parentID,
+		Time:             tk.UpdatedAt,
 	}
+}
+
+func taskParentMessageID(tk *taskpkg.Task, sp *space.Space) string {
+	if tk == nil || sp == nil || strings.TrimSpace(tk.TriggerMessageID) == "" {
+		return ""
+	}
+	for _, m := range sp.Messages {
+		if m.ID == tk.TriggerMessageID {
+			if strings.TrimSpace(m.ParentMessageID) != "" {
+				return m.ParentMessageID
+			}
+			if sp.Kind == space.KindChannel || sp.Kind == space.KindDirectChat {
+				return m.ID
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func taskStatusForUI(s taskpkg.Status) string {
@@ -1472,6 +1494,42 @@ func (b *Backend) ListCommands() []CommandItem {
 	return out
 }
 
+func (b *Backend) UpdateTaskStatus(taskID, status string) (AgentRun, error) {
+	if b.app.Tasks() == nil {
+		return AgentRun{}, fmt.Errorf("tasks not available")
+	}
+	next, err := kanbanTaskStatus(status)
+	if err != nil {
+		return AgentRun{}, err
+	}
+	tk, err := b.app.Tasks().Update(strings.TrimSpace(taskID), taskpkg.UpdateTaskInput{Status: next})
+	if err != nil {
+		return AgentRun{}, err
+	}
+	var sp *space.Space
+	if b.app.Spaces() != nil {
+		sp, _ = b.app.Spaces().LoadSpace(tk.SpaceID)
+	}
+	return agentRunFromTask(tk, sp), nil
+}
+
+func kanbanTaskStatus(status string) (taskpkg.Status, error) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "todo", "queued":
+		return taskpkg.StatusQueued, nil
+	case "doing", "running", "in_progress":
+		return taskpkg.StatusRunning, nil
+	case "review", "in_review", "in-review":
+		return taskpkg.Status("in_review"), nil
+	case "done", "finished":
+		return taskpkg.StatusFinished, nil
+	case "closed", "close", "canceled", "cancelled":
+		return taskpkg.StatusCanceled, nil
+	default:
+		return "", fmt.Errorf("unsupported task status: %s", status)
+	}
+}
+
 func (b *Backend) Capabilities() CapabilityView {
 	return CapabilityView{
 		Skills:                 skillViews(b.app.SkillDirectory()),
@@ -1732,6 +1790,26 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/recent", jsonHandler(func() any { return b.ListRecent() }))
 	mux.HandleFunc("/api/run", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetRunDetail(req.URL.Query().Get("id")))
+	})
+	mux.HandleFunc("/api/task/status", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			TaskID string `json:"task_id"`
+			Status string `json:"status"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.UpdateTaskStatus(in.TaskID, in.Status)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
 	})
 	mux.HandleFunc("/api/threads-for-space", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.ListThreadsForSpace(req.URL.Query().Get("space")))

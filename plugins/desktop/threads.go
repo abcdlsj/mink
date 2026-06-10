@@ -94,7 +94,7 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 		}
 		views = append(views, v)
 	}
-	recentRuns, archivedRuns := b.threadRuns(sp.ID, all)
+	recentRuns, archivedRuns := b.threadRuns(sp, all)
 	d := ThreadDetail{
 		SpaceID:           sp.ID,
 		ParentID:          parent.ID,
@@ -264,11 +264,14 @@ func threadAgentItem(sp *space.Space, m space.Message, a appAccessor) AgentItem 
 	}
 }
 
-func (b *Backend) threadRuns(spaceID string, msgs []space.Message) ([]AgentRun, int) {
+func (b *Backend) threadRuns(sp *space.Space, msgs []space.Message) ([]AgentRun, int) {
 	if b.app.Tasks() == nil {
 		return []AgentRun{}, 0
 	}
-	all, err := b.app.Tasks().ListBySpace(spaceID)
+	if sp == nil {
+		return []AgentRun{}, 0
+	}
+	all, err := b.app.Tasks().ListBySpace(sp.ID)
 	if err != nil {
 		return []AgentRun{}, 0
 	}
@@ -281,7 +284,7 @@ func (b *Backend) threadRuns(spaceID string, msgs []space.Message) ([]AgentRun, 
 	for _, tk := range all {
 		if allowed[tk.TriggerMessageID] {
 			if tk.Status.Active() {
-				out = append(out, agentRunFromTask(tk))
+				out = append(out, agentRunFromTask(tk, sp))
 			} else {
 				archived++
 			}

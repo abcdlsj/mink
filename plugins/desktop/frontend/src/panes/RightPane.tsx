@@ -10,7 +10,6 @@ import type {
   AgentItem,
   AgentRun,
   CapabilityView,
-  RunDetail,
   SkillView,
   TaskStateCard,
   ThreadItem,
@@ -55,7 +54,7 @@ export function RightPane() {
   const scopeRecentRuns = inThread
     ? (threadRecentRuns || [])
     : (participants?.recent_runs || []);
-  const activeScopeRuns = activeRuns([...runtimeRuns, ...scopeRecentRuns]);
+  const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : runtimeRuns);
   const archivedScopeRuns = inThread
     ? (threadDetail?.archived_runs_count || 0)
     : (participants?.archived_runs_count || 0);
@@ -181,10 +180,11 @@ export function RightPane() {
 }
 
 function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: number }) {
+  const columns = taskBoardColumns(runs);
   if (runs.length === 0) {
     if (archived === 0) return null;
     return (
-      <Section label="Active Tasks">
+      <Section label="Task Board">
         <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[12px] text-text-faint">
           No active tasks here. {archived} archived hidden.
         </div>
@@ -192,10 +192,24 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
     );
   }
   return (
-    <Section label="Active Tasks">
-      {runs.slice(0, 4).map((r) => (
-        <RunCard key={r.id} run={r} />
-      ))}
+    <Section label="Task Board">
+      <div className="grid grid-cols-3 gap-1.5">
+        {columns.map((col) => (
+          <div key={col.key} className="min-w-0 border border-border bg-panel-2">
+            <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
+              <span className="font-mono text-[10.5px] uppercase text-text-faint">{col.label}</span>
+              <span className="font-mono text-[10.5px] text-text-muted">{col.runs.length}</span>
+            </div>
+            <div className="flex min-h-20 flex-col gap-1.5 p-1.5">
+              {col.runs.length > 0 ? col.runs.slice(0, 4).map((r) => (
+                <TaskBoardCard key={r.id} run={r} column={col.key} />
+              )) : (
+                <div className="px-1 py-3 text-center text-[11px] text-text-faint">Empty</div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
       {archived > 0 && (
         <div className="mt-1 text-[11px] text-text-faint">
           {archived} archived hidden
@@ -203,6 +217,144 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
       )}
     </Section>
   );
+}
+
+function taskBoardColumns(runs: AgentRun[]): { key: TaskColumn; label: string; runs: AgentRun[] }[] {
+  return [
+    { key: "todo", label: "Todo", runs: runs.filter((r) => taskColumn(r.status) === "todo") },
+    { key: "doing", label: "Doing", runs: runs.filter((r) => taskColumn(r.status) === "doing") },
+    { key: "review", label: "Review", runs: runs.filter((r) => taskColumn(r.status) === "review") },
+  ];
+}
+
+type TaskColumn = "todo" | "doing" | "review";
+
+function taskColumn(status: string): TaskColumn {
+  const s = status.toLowerCase();
+  if (s === "queued" || s === "todo") return "todo";
+  if (s === "in_review" || s === "in-review" || s === "review") return "review";
+  return "doing";
+}
+
+function TaskBoardCard({ run, column }: { run: AgentRun; column: TaskColumn }) {
+  const agents = useStore((s) => s.agents);
+  const channels = useStore((s) => s.channels);
+  const directChats = useStore((s) => s.directChats);
+  const agentDMs = useStore((s) => s.agentDMs);
+  const openChannel = useStore((s) => s.openChannel);
+  const openThread = useStore((s) => s.openThread);
+  const openDirectChat = useStore((s) => s.openDirectChat);
+  const openAgent = useStore((s) => s.openAgent);
+  const expandTaskInRail = useStore((s) => s.expandTaskInRail);
+  const refreshCapabilities = useStore((s) => s.refreshCapabilities);
+  const openCurrentRoute = useStore((s) => s.openCurrentRoute);
+  const [updating, setUpdating] = useState("");
+  const ag = agents.find((a) => a.id === run.agent_id);
+  const assignee = ag?.display || run.agent_id || "agent";
+  const source = taskSourceLabel(run, channels, directChats, agentDMs);
+  const canMutate = run.id.startsWith("task-");
+
+  const openOrigin = async () => {
+    if (run.space_id && channels.some((c) => c.id === run.space_id)) {
+      await openChannel(run.space_id);
+      if (run.parent_message_id) await openThread(run.parent_message_id);
+    } else if (run.space_id && directChats.some((d) => d.id === run.space_id)) {
+      await openDirectChat(run.space_id);
+    } else if (run.space_id && agentDMs.some((d) => d.id === run.space_id)) {
+      await openAgent(run.space_id);
+    }
+    expandTaskInRail(run.id);
+  };
+
+  const updateStatus = async (status: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setUpdating(status);
+    try {
+      await api.updateTaskStatus(run.id, status);
+      await Promise.all([refreshCapabilities(), openCurrentRoute()]);
+    } finally {
+      setUpdating("");
+    }
+  };
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => void openOrigin()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") void openOrigin();
+      }}
+      className={cn(
+        "group cursor-pointer border border-border bg-panel px-2 py-2 text-left transition-colors hover:border-text-faint hover:bg-accent",
+        column === "doing" && "border-l-[4px] border-l-running",
+        column === "review" && "border-l-[4px] border-l-accent",
+      )}
+    >
+      <div className="line-clamp-2 break-words text-[12px] font-semibold leading-[1.35] text-text">
+        {run.title || "Untitled task"}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-1 text-[10.5px] text-text-faint">
+        <span className="truncate">@{assignee}</span>
+        <span className="shrink-0 font-mono">{relTime(run.time)}</span>
+      </div>
+      <div className="mt-0.5 truncate text-[10.5px] text-text-muted">{source}</div>
+      {canMutate && (
+        <div className="mt-1.5 flex flex-wrap gap-1 opacity-80 transition-opacity group-hover:opacity-100">
+          {column === "todo" && (
+            <TaskAction label="Start" busy={updating === "doing"} onClick={(e) => void updateStatus("doing", e)} />
+          )}
+          {column === "doing" && (
+            <TaskAction label="Ready" busy={updating === "review"} onClick={(e) => void updateStatus("review", e)} />
+          )}
+          {column === "review" && (
+            <>
+              <TaskAction label="Done" busy={updating === "done"} onClick={(e) => void updateStatus("done", e)} />
+              <TaskAction label="Close" busy={updating === "closed"} onClick={(e) => void updateStatus("closed", e)} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskAction({
+  label,
+  busy,
+  onClick,
+}: {
+  label: string;
+  busy: boolean;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] text-text-muted hover:text-text",
+        busy && "pointer-events-none opacity-50",
+      )}
+    >
+      {busy ? "..." : label}
+    </button>
+  );
+}
+
+function taskSourceLabel(
+  run: AgentRun,
+  channels: import("@/lib/types").ChannelItem[],
+  directChats: import("@/lib/types").DirectChatItem[],
+  agentDMs: import("@/lib/types").AgentDMItem[],
+): string {
+  const channel = channels.find((c) => c.id === run.space_id);
+  if (channel) return run.parent_message_id ? `#${channel.name} · thread` : `#${channel.name}`;
+  const direct = directChats.find((d) => d.id === run.space_id);
+  if (direct) return `direct · ${direct.title}`;
+  const agent = agentDMs.find((d) => d.id === run.space_id);
+  if (agent) return `agent · ${agent.title}`;
+  return run.space_id || "workspace";
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
@@ -517,217 +669,6 @@ function agentRuntimeSummary(runtime: string | undefined, model: string | undefi
   return model ? `${label} / ${model}` : label;
 }
 
-function RunCard({ run }: { run: AgentRun }) {
-  const agents = useStore((s) => s.agents);
-  const streaming = useStore((s) => s.streaming);
-  const streamingByID = useStore((s) => s.streamingByID);
-  const stop = useStore((s) => s.stop);
-  const expandedTaskID = useStore((s) => s.expandedTaskID);
-  const collapseTaskInRail = useStore((s) => s.collapseTaskInRail);
-  const ag = agents.find((a) => a.id === run.agent_id);
-  const [tick, setTick] = useState(0);
-  const [expanded, setExpanded] = useState(false);
-  const [detail, setDetail] = useState<RunDetail | null>(null);
-  const [detailErr, setDetailErr] = useState<string | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  const externallyExpanded = expandedTaskID === run.id;
-  const effectivelyExpanded = expanded || externallyExpanded;
-
-  useEffect(() => {
-    if (run.status !== "running") return;
-    const id = setInterval(() => setTick((n) => n + 1), 250);
-    return () => clearInterval(id);
-  }, [run.status]);
-
-  useEffect(() => {
-    if (!effectivelyExpanded || run.status === "running") return;
-    let cancelled = false;
-    setDetailLoading(true);
-    setDetailErr(null);
-    api
-      .run(run.id)
-      .then((d) => {
-        if (cancelled) return;
-        if (!d.task_id) {
-          setDetail(null);
-          setDetailErr("Task not found");
-        } else {
-          setDetail(d);
-        }
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setDetailErr(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [effectivelyExpanded, run.id, run.status]);
-
-  const liveStream = Object.values(streamingByID).find((s) => s.messageID === run.id) ||
-    (streaming?.messageID === run.id ? streaming : null);
-  const startedAt = liveStream ? liveStream.startedAt : run.time;
-  const liveElapsed = run.status === "running" ? Date.now() - new Date(startedAt).getTime() : 0;
-  const finishedDuration = run.status !== "running" && run.duration_ms ? run.duration_ms : 0;
-  const elapsedMs = liveElapsed || finishedDuration;
-  const elapsedLabel =
-    elapsedMs > 0 ? fmtDur(elapsedMs) : relTime(run.time);
-
-  let currentStep = "";
-  if (liveStream) {
-    const calls = Array.from(liveStream.toolCalls.values());
-    const lastRunning = [...calls].reverse().find((c) => c.status === "running");
-    if (lastRunning) currentStep = lastRunning.tool_name || "running";
-    else if (liveStream.content) currentStep = "writing reply";
-    else if (liveStream.reasoning) currentStep = "reasoning";
-    else currentStep = "starting";
-  }
-
-  const onStop = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    void stop();
-  };
-
-  void tick;
-  const canExpand = run.status !== "running";
-  const onCardClick = () => {
-    if (!canExpand) return;
-    if (externallyExpanded) {
-      collapseTaskInRail();
-      setExpanded(false);
-      return;
-    }
-    setExpanded((e) => !e);
-  };
-
-  return (
-    <div
-      className={cn(
-        "mb-1.5 border-2 border-border bg-panel px-2.5 py-2 transition-colors",
-        run.status === "running" && "border-l-[6px] border-l-running",
-        (run.status === "done" || run.status === "finished") && "border-l-[6px] border-l-done",
-        (run.status === "error" || run.status === "failed") && "border-l-[6px] border-l-error",
-        run.status === "no_output" && "border-l-[6px] border-l-text-faint",
-        canExpand && "cursor-pointer hover:bg-accent",
-      )}
-      onClick={onCardClick}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div
-          className="line-clamp-2 break-words text-[12.5px] font-semibold leading-[1.45] text-text"
-          title={run.title}
-        >
-          {run.title}
-        </div>
-        {run.status === "running" && (
-          <Button variant="danger" size="xs" onClick={onStop}>
-            <Square className="size-2.5" />
-            <span>Stop</span>
-          </Button>
-        )}
-      </div>
-      <div className="mt-0.5 font-mono text-[11px] text-text-muted tabular-nums">
-        {(ag?.display || run.agent_id) + " · " + (currentStep || statusLabel(run.status)) + " · " + elapsedLabel}
-      </div>
-      {effectivelyExpanded && canExpand && (
-        <RunCardDetail loading={detailLoading} error={detailErr} detail={detail} />
-      )}
-    </div>
-  );
-}
-
-function RunCardDetail({
-  loading,
-  error,
-  detail,
-}: {
-  loading: boolean;
-  error: string | null;
-  detail: RunDetail | null;
-}) {
-  if (loading) {
-    return <div className="mt-2 text-[11.5px] text-text-faint">Loading…</div>;
-  }
-  if (error) {
-    return <div className="mt-2 text-[11.5px] text-error">{error}</div>;
-  }
-  if (!detail) {
-    return <div className="mt-2 text-[11.5px] text-text-faint">No detail.</div>;
-  }
-  const isEmpty = detail.status === "no_output";
-  const hasSteps = (detail.key_steps?.length ?? 0) > 0;
-  return (
-    <div className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2">
-      {detail.outcome && (
-        <div className="text-[11.5px] text-text leading-[1.45] break-words">
-          {detail.outcome}
-        </div>
-      )}
-      {!isEmpty && detail.result_message_id && (
-        <div className="text-[11px] text-text-faint">
-          Reply: <span className="font-mono">{detail.result_message_id.slice(0, 8)}</span>
-        </div>
-      )}
-      {hasSteps ? (
-        <ul className="flex flex-col gap-1 mt-0.5">
-          {detail.key_steps!.map((s, i) => (
-            <li
-              key={i}
-              className="text-[11.5px] text-text-muted leading-[1.4] flex gap-1.5"
-            >
-              <span className="text-text-faint shrink-0">{stepKindLabel(s.kind)}</span>
-              <span className="break-words">{s.title}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="text-[11px] text-text-faint">No recorded steps.</div>
-      )}
-    </div>
-  );
-}
-
-function stepKindLabel(kind: string): string {
-  switch (kind) {
-    case "read":
-      return "·";
-    case "write":
-      return "·";
-    case "run":
-      return "·";
-    case "subtask":
-      return "·";
-    case "summary":
-      return "·";
-    case "error":
-      return "!";
-    default:
-      return "·";
-  }
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "no_output":
-      return "Finished with no output";
-    case "finished":
-      return "Finished";
-    case "failed":
-      return "Failed";
-    case "canceled":
-      return "Canceled";
-    case "queued":
-      return "Queued";
-    case "running":
-      return "Running";
-    default:
-      return status;
-  }
-}
-
 function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChannel: boolean }) {
   const channels = useStore((s) => s.channels);
   const openThread = useStore((s) => s.openThread);
@@ -1005,16 +946,4 @@ function firstSentence(s: string): string {
   if (m) return m[1];
   if (trimmed.length <= 140) return trimmed;
   return trimmed.slice(0, 140) + "…";
-}
-
-function fmtDur(ms: number): string {
-  if (ms < 1000) return ms + "ms";
-  const totalSec = Math.round(ms / 1000);
-  if (totalSec < 60) return Math.round(ms / 100) / 10 + "s";
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  if (m < 60) return s ? m + "m " + s + "s" : m + "m";
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  return mm ? h + "h " + mm + "m" : h + "h";
 }

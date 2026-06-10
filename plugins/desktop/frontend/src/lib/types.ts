@@ -196,7 +196,10 @@ export interface AgentRun {
   title: string;
   status: string;
   lifecycle?: "active" | "archived";
+  space_id?: string;
   thread_id?: string;
+  trigger_message_id?: string;
+  parent_message_id?: string;
   time: string;
   duration_ms?: number;
 }

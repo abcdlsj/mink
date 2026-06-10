@@ -1,6 +1,7 @@
 import type {
   AgentDMItem,
   AgentItem,
+  AgentRun,
   CapabilityView,
   ChannelItem,
   CommandItem,
@@ -105,6 +106,14 @@ export const api = {
     j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
   recent: () => j<RecentItem[]>(fetch("/api/recent")),
   run: (id: string) => j<RunDetail>(fetch("/api/run?id=" + encodeURIComponent(id))),
+  updateTaskStatus: (taskID: string, status: string) =>
+    j<AgentRun>(
+      fetch("/api/task/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: taskID, status }),
+      }),
+    ),
   threadsForSpace: (spaceId: string) =>
     j<ThreadSummary[]>(fetch("/api/threads-for-space?space=" + encodeURIComponent(spaceId))),
   threadDetail: (spaceId: string, parentId: string) => {

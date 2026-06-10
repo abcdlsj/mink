@@ -219,14 +219,17 @@ type ParticipantsView struct {
 }
 
 type AgentRun struct {
-	ID         string    `json:"id"`
-	AgentID    string    `json:"agent_id"`
-	Title      string    `json:"title"`
-	Status     string    `json:"status"`
-	Lifecycle  string    `json:"lifecycle"`
-	ThreadID   string    `json:"thread_id,omitempty"`
-	Time       time.Time `json:"time"`
-	DurationMs int64     `json:"duration_ms,omitempty"`
+	ID               string    `json:"id"`
+	AgentID          string    `json:"agent_id"`
+	Title            string    `json:"title"`
+	Status           string    `json:"status"`
+	Lifecycle        string    `json:"lifecycle"`
+	SpaceID          string    `json:"space_id,omitempty"`
+	ThreadID         string    `json:"thread_id,omitempty"`
+	TriggerMessageID string    `json:"trigger_message_id,omitempty"`
+	ParentMessageID  string    `json:"parent_message_id,omitempty"`
+	Time             time.Time `json:"time"`
+	DurationMs       int64     `json:"duration_ms,omitempty"`
 }
 
 type TaskStateView struct {
