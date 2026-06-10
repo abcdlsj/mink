@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/task"
 	"github.com/abcdlsj/sumi/tool"
 )
@@ -48,19 +49,21 @@ type SkillDirectoryItem struct {
 }
 
 type TaskStateSummary struct {
-	ID         string         `json:"id"`
-	Title      string         `json:"title"`
-	Status     string         `json:"status"`
-	Lifecycle  string         `json:"lifecycle"`
-	WorkerID   string         `json:"worker_id,omitempty"`
-	SpaceID    string         `json:"space_id,omitempty"`
-	Source     string         `json:"source,omitempty"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	Outcome    string         `json:"outcome,omitempty"`
-	State      task.TaskState `json:"state,omitempty"`
-	LatestRun  string         `json:"latest_run,omitempty"`
-	RunStatus  string         `json:"run_status,omitempty"`
-	RunStarted time.Time      `json:"run_started,omitempty"`
+	ID               string         `json:"id"`
+	Title            string         `json:"title"`
+	Status           string         `json:"status"`
+	Lifecycle        string         `json:"lifecycle"`
+	WorkerID         string         `json:"worker_id,omitempty"`
+	SpaceID          string         `json:"space_id,omitempty"`
+	Source           string         `json:"source,omitempty"`
+	TriggerMessageID string         `json:"trigger_message_id,omitempty"`
+	ParentMessageID  string         `json:"parent_message_id,omitempty"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Outcome          string         `json:"outcome,omitempty"`
+	State            task.TaskState `json:"state,omitempty"`
+	LatestRun        string         `json:"latest_run,omitempty"`
+	RunStatus        string         `json:"run_status,omitempty"`
+	RunStarted       time.Time      `json:"run_started,omitempty"`
 }
 
 type ActionProposalSummary struct {
@@ -161,6 +164,29 @@ func (a *App) ArchivedTaskStateCount() int {
 	return len(a.RecentArchivedTaskStates(0))
 }
 
+func (a *App) taskParentMessageID(tk *task.Task) string {
+	if a == nil || a.spaces == nil || tk == nil || strings.TrimSpace(tk.TriggerMessageID) == "" {
+		return ""
+	}
+	sp, err := a.spaces.LoadSpace(tk.SpaceID)
+	if err != nil || sp == nil {
+		return ""
+	}
+	for _, m := range sp.Messages {
+		if m.ID != tk.TriggerMessageID {
+			continue
+		}
+		if strings.TrimSpace(m.ParentMessageID) != "" {
+			return m.ParentMessageID
+		}
+		if sp.Kind == space.KindChannel || sp.Kind == space.KindDirectChat {
+			return m.ID
+		}
+		return ""
+	}
+	return ""
+}
+
 func (a *App) RecentTaskStatesByLifecycle(limit int, lifecycle task.Lifecycle) []TaskStateSummary {
 	if a == nil || a.tasks == nil {
 		return nil
@@ -195,16 +221,18 @@ func (a *App) RecentTaskStatesByLifecycle(limit int, lifecycle task.Lifecycle) [
 			continue
 		}
 		item := TaskStateSummary{
-			ID:        tk.ID,
-			Title:     tk.Title,
-			Status:    string(tk.Status),
-			Lifecycle: string(tk.Status.Lifecycle()),
-			WorkerID:  tk.WorkerID,
-			SpaceID:   tk.SpaceID,
-			Source:    tk.Source,
-			UpdatedAt: tk.UpdatedAt,
-			Outcome:   tk.Outcome,
-			State:     state,
+			ID:               tk.ID,
+			Title:            tk.Title,
+			Status:           string(tk.Status),
+			Lifecycle:        string(tk.Status.Lifecycle()),
+			WorkerID:         tk.WorkerID,
+			SpaceID:          tk.SpaceID,
+			Source:           tk.Source,
+			TriggerMessageID: tk.TriggerMessageID,
+			ParentMessageID:  a.taskParentMessageID(tk),
+			UpdatedAt:        tk.UpdatedAt,
+			Outcome:          tk.Outcome,
+			State:            state,
 		}
 		if latest != nil {
 			item.LatestRun = latest.ID

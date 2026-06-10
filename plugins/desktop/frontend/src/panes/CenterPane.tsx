@@ -4,6 +4,7 @@ import { ChannelHeader } from "./ChannelHeader";
 import { Composer } from "./Composer/Composer";
 import { EmptyState } from "./EmptyState";
 import { MessageStream } from "./Message/MessageStream";
+import { TaskBoard } from "./TaskBoard";
 import { ThreadView } from "./ThreadView";
 import { useMessageAutoScroll } from "./useMessageAutoScroll";
 
@@ -31,6 +32,10 @@ export function CenterPane() {
   }, [activeAnchor, messageCount]);
 
   const threadDetail = useStore((s) => s.threadDetail);
+  if (view === "tasks") {
+    return <TaskBoard />;
+  }
+
   if (threadDetail) {
     return <ThreadView />;
   }

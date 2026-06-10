@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AtSign, ChevronRight, Hash, MessageCircle, Plus, Search } from "lucide-react";
+import { AtSign, ChevronRight, ClipboardList, Hash, MessageCircle, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
@@ -16,6 +16,7 @@ export function LeftPane() {
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
   const openDirectChat = useStore((s) => s.openDirectChat);
+  const openTaskBoard = useStore((s) => s.openTaskBoard);
   const newAgentChat = useStore((s) => s.newAgentChat);
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
@@ -128,6 +129,18 @@ export function LeftPane() {
           <span className="ml-auto border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
             ⌘K
           </span>
+        </Button>
+        <Button
+          variant="default"
+          size="default"
+          className={cn(
+            "justify-start bg-bg text-text-muted hover:text-text",
+            view === "tasks" && "bg-accent text-text",
+          )}
+          onClick={() => openTaskBoard()}
+        >
+          <ClipboardList className="size-3" />
+          <span>Task Board</span>
         </Button>
       </div>
 

@@ -274,19 +274,21 @@ type SkillEnvNeed struct {
 }
 
 type TaskStateCard struct {
-	ID         string        `json:"id"`
-	Title      string        `json:"title"`
-	Status     string        `json:"status"`
-	Lifecycle  string        `json:"lifecycle"`
-	WorkerID   string        `json:"worker_id,omitempty"`
-	SpaceID    string        `json:"space_id,omitempty"`
-	Source     string        `json:"source,omitempty"`
-	UpdatedAt  time.Time     `json:"updated_at"`
-	Outcome    string        `json:"outcome,omitempty"`
-	State      TaskStateView `json:"state,omitempty"`
-	LatestRun  string        `json:"latest_run,omitempty"`
-	RunStatus  string        `json:"run_status,omitempty"`
-	RunStarted time.Time     `json:"run_started,omitempty"`
+	ID               string        `json:"id"`
+	Title            string        `json:"title"`
+	Status           string        `json:"status"`
+	Lifecycle        string        `json:"lifecycle"`
+	WorkerID         string        `json:"worker_id,omitempty"`
+	SpaceID          string        `json:"space_id,omitempty"`
+	Source           string        `json:"source,omitempty"`
+	TriggerMessageID string        `json:"trigger_message_id,omitempty"`
+	ParentMessageID  string        `json:"parent_message_id,omitempty"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	Outcome          string        `json:"outcome,omitempty"`
+	State            TaskStateView `json:"state,omitempty"`
+	LatestRun        string        `json:"latest_run,omitempty"`
+	RunStatus        string        `json:"run_status,omitempty"`
+	RunStarted       time.Time     `json:"run_started,omitempty"`
 }
 
 type ActionProposalCard struct {

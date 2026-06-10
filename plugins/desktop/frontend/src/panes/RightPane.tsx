@@ -180,11 +180,10 @@ export function RightPane() {
 }
 
 function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: number }) {
-  const columns = taskBoardColumns(runs);
   if (runs.length === 0) {
     if (archived === 0) return null;
     return (
-      <Section label="Task Board">
+      <Section label="Active Tasks">
         <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[12px] text-text-faint">
           No active tasks here. {archived} archived hidden.
         </div>
@@ -192,22 +191,10 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
     );
   }
   return (
-    <Section label="Task Board">
-      <div className="grid grid-cols-3 gap-1.5">
-        {columns.map((col) => (
-          <div key={col.key} className="min-w-0 border border-border bg-panel-2">
-            <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
-              <span className="font-mono text-[10.5px] uppercase text-text-faint">{col.label}</span>
-              <span className="font-mono text-[10.5px] text-text-muted">{col.runs.length}</span>
-            </div>
-            <div className="flex min-h-20 flex-col gap-1.5 p-1.5">
-              {col.runs.length > 0 ? col.runs.slice(0, 4).map((r) => (
-                <TaskBoardCard key={r.id} run={r} column={col.key} />
-              )) : (
-                <div className="px-1 py-3 text-center text-[11px] text-text-faint">Empty</div>
-              )}
-            </div>
-          </div>
+    <Section label="Active Tasks">
+      <div className="flex flex-col gap-1.5">
+        {runs.slice(0, 4).map((r) => (
+          <ActiveTaskMiniCard key={r.id} run={r} />
         ))}
       </div>
       {archived > 0 && (
@@ -219,142 +206,33 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
   );
 }
 
-function taskBoardColumns(runs: AgentRun[]): { key: TaskColumn; label: string; runs: AgentRun[] }[] {
-  return [
-    { key: "todo", label: "Todo", runs: runs.filter((r) => taskColumn(r.status) === "todo") },
-    { key: "doing", label: "Doing", runs: runs.filter((r) => taskColumn(r.status) === "doing") },
-    { key: "review", label: "Review", runs: runs.filter((r) => taskColumn(r.status) === "review") },
-  ];
-}
-
-type TaskColumn = "todo" | "doing" | "review";
-
-function taskColumn(status: string): TaskColumn {
-  const s = status.toLowerCase();
-  if (s === "queued" || s === "todo") return "todo";
-  if (s === "in_review" || s === "in-review" || s === "review") return "review";
-  return "doing";
-}
-
-function TaskBoardCard({ run, column }: { run: AgentRun; column: TaskColumn }) {
+function ActiveTaskMiniCard({ run }: { run: AgentRun }) {
   const agents = useStore((s) => s.agents);
-  const channels = useStore((s) => s.channels);
-  const directChats = useStore((s) => s.directChats);
-  const agentDMs = useStore((s) => s.agentDMs);
-  const openChannel = useStore((s) => s.openChannel);
-  const openThread = useStore((s) => s.openThread);
-  const openDirectChat = useStore((s) => s.openDirectChat);
-  const openAgent = useStore((s) => s.openAgent);
-  const expandTaskInRail = useStore((s) => s.expandTaskInRail);
-  const refreshCapabilities = useStore((s) => s.refreshCapabilities);
-  const openCurrentRoute = useStore((s) => s.openCurrentRoute);
-  const [updating, setUpdating] = useState("");
   const ag = agents.find((a) => a.id === run.agent_id);
-  const assignee = ag?.display || run.agent_id || "agent";
-  const source = taskSourceLabel(run, channels, directChats, agentDMs);
-  const canMutate = run.id.startsWith("task-");
-
-  const openOrigin = async () => {
-    if (run.space_id && channels.some((c) => c.id === run.space_id)) {
-      await openChannel(run.space_id);
-      if (run.parent_message_id) await openThread(run.parent_message_id);
-    } else if (run.space_id && directChats.some((d) => d.id === run.space_id)) {
-      await openDirectChat(run.space_id);
-    } else if (run.space_id && agentDMs.some((d) => d.id === run.space_id)) {
-      await openAgent(run.space_id);
-    }
-    expandTaskInRail(run.id);
-  };
-
-  const updateStatus = async (status: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setUpdating(status);
-    try {
-      await api.updateTaskStatus(run.id, status);
-      await Promise.all([refreshCapabilities(), openCurrentRoute()]);
-    } finally {
-      setUpdating("");
-    }
-  };
-
+  const status = taskStatusLabel(run.status);
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => void openOrigin()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") void openOrigin();
-      }}
-      className={cn(
-        "group cursor-pointer border border-border bg-panel px-2 py-2 text-left transition-colors hover:border-text-faint hover:bg-accent",
-        column === "doing" && "border-l-[4px] border-l-running",
-        column === "review" && "border-l-[4px] border-l-accent",
-      )}
-    >
-      <div className="line-clamp-2 break-words text-[12px] font-semibold leading-[1.35] text-text">
-        {run.title || "Untitled task"}
+    <div className="border border-border bg-panel px-2.5 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="line-clamp-2 break-words text-[12.5px] font-semibold leading-[1.35] text-text">
+          {run.title || "Untitled task"}
+        </div>
+        <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] text-text-muted">
+          {status}
+        </span>
       </div>
       <div className="mt-1 flex items-center justify-between gap-1 text-[10.5px] text-text-faint">
-        <span className="truncate">@{assignee}</span>
+        <span className="truncate">@{ag?.display || run.agent_id || "agent"}</span>
         <span className="shrink-0 font-mono">{relTime(run.time)}</span>
       </div>
-      <div className="mt-0.5 truncate text-[10.5px] text-text-muted">{source}</div>
-      {canMutate && (
-        <div className="mt-1.5 flex flex-wrap gap-1 opacity-80 transition-opacity group-hover:opacity-100">
-          {column === "todo" && (
-            <TaskAction label="Start" busy={updating === "doing"} onClick={(e) => void updateStatus("doing", e)} />
-          )}
-          {column === "doing" && (
-            <TaskAction label="Ready" busy={updating === "review"} onClick={(e) => void updateStatus("review", e)} />
-          )}
-          {column === "review" && (
-            <>
-              <TaskAction label="Done" busy={updating === "done"} onClick={(e) => void updateStatus("done", e)} />
-              <TaskAction label="Close" busy={updating === "closed"} onClick={(e) => void updateStatus("closed", e)} />
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
-function TaskAction({
-  label,
-  busy,
-  onClick,
-}: {
-  label: string;
-  busy: boolean;
-  onClick: (e: React.MouseEvent) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] text-text-muted hover:text-text",
-        busy && "pointer-events-none opacity-50",
-      )}
-    >
-      {busy ? "..." : label}
-    </button>
-  );
-}
-
-function taskSourceLabel(
-  run: AgentRun,
-  channels: import("@/lib/types").ChannelItem[],
-  directChats: import("@/lib/types").DirectChatItem[],
-  agentDMs: import("@/lib/types").AgentDMItem[],
-): string {
-  const channel = channels.find((c) => c.id === run.space_id);
-  if (channel) return run.parent_message_id ? `#${channel.name} · thread` : `#${channel.name}`;
-  const direct = directChats.find((d) => d.id === run.space_id);
-  if (direct) return `direct · ${direct.title}`;
-  const agent = agentDMs.find((d) => d.id === run.space_id);
-  if (agent) return `agent · ${agent.title}`;
-  return run.space_id || "workspace";
+function taskStatusLabel(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "queued" || s === "todo") return "Todo";
+  if (s === "in_review" || s === "in-review" || s === "review") return "Review";
+  return "Doing";
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {

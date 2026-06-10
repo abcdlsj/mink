@@ -101,6 +101,7 @@ interface State {
   openAgent: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newAgentChat: (personaID: string, title?: string) => Promise<void>;
   updateAgentChatTitle: (id: string, title: string) => Promise<void>;
+  openTaskBoard: (routeOpts?: RouteWriteOptions) => void;
   openDirectChat: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newDirectChat: () => Promise<void>;
   setPalette: (open: boolean) => void;
@@ -394,6 +395,12 @@ export const useStore = create<State>((set, get) => ({
             if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
             return;
           }
+          if (initialRoute.view === "tasks") {
+            get().openTaskBoard({ replace: true });
+            set(applyRouteAnchor(initialRoute.anchor));
+            if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
+            return;
+          }
         } catch {
           // Bad or stale deep links should not block the desktop from opening.
         }
@@ -561,6 +568,23 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
+  openTaskBoard(routeOpts?: RouteWriteOptions) {
+    set({
+      view: "tasks",
+      activeDirect: null,
+      activeThread: null,
+      activeAgentSpace: null,
+      activeAnchor: null,
+      detail: null,
+      threadDetail: null,
+      participants: null,
+      streaming: null,
+      streamingByID: {},
+      expandedTaskID: null,
+    });
+    writeWebRoute({ view: "tasks" }, routeOpts);
+  },
+
   async newDirectChat() {
     let detail: SessionDetail;
     try {
@@ -644,6 +668,12 @@ export const useStore = create<State>((set, get) => ({
     }
     if (route.view === "agent") {
       await get().openAgent(route.id, { replace: true });
+      set(applyRouteAnchor(route.anchor));
+      if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
+      return;
+    }
+    if (route.view === "tasks") {
+      get().openTaskBoard({ replace: true });
       set(applyRouteAnchor(route.anchor));
       if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
     }

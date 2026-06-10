@@ -1533,7 +1533,7 @@ func kanbanTaskStatus(status string) (taskpkg.Status, error) {
 func (b *Backend) Capabilities() CapabilityView {
 	return CapabilityView{
 		Skills:                 skillViews(b.app.SkillDirectory()),
-		Tasks:                  taskStateCards(b.app.RecentTaskStates(6)),
+		Tasks:                  taskStateCards(b.app.RecentTaskStates(50)),
 		ArchivedTaskStateCount: b.app.ArchivedTaskStateCount(),
 		ActionProposals:        actionProposalCards(b.app.RecentActionProposals(6)),
 	}
@@ -1596,19 +1596,21 @@ func taskStateCards(in []app.TaskStateSummary) []TaskStateCard {
 	out := make([]TaskStateCard, 0, len(in))
 	for _, t := range in {
 		out = append(out, TaskStateCard{
-			ID:         t.ID,
-			Title:      t.Title,
-			Status:     t.Status,
-			Lifecycle:  t.Lifecycle,
-			WorkerID:   t.WorkerID,
-			SpaceID:    t.SpaceID,
-			Source:     t.Source,
-			UpdatedAt:  t.UpdatedAt,
-			Outcome:    t.Outcome,
-			State:      taskStateView(t.State),
-			LatestRun:  t.LatestRun,
-			RunStatus:  t.RunStatus,
-			RunStarted: t.RunStarted,
+			ID:               t.ID,
+			Title:            t.Title,
+			Status:           t.Status,
+			Lifecycle:        t.Lifecycle,
+			WorkerID:         t.WorkerID,
+			SpaceID:          t.SpaceID,
+			Source:           t.Source,
+			TriggerMessageID: t.TriggerMessageID,
+			ParentMessageID:  t.ParentMessageID,
+			UpdatedAt:        t.UpdatedAt,
+			Outcome:          t.Outcome,
+			State:            taskStateView(t.State),
+			LatestRun:        t.LatestRun,
+			RunStatus:        t.RunStatus,
+			RunStarted:       t.RunStarted,
 		})
 	}
 	return out

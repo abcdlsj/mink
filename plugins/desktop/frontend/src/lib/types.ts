@@ -1,4 +1,4 @@
-export type ViewMode = "channel" | "direct" | "agent" | "home";
+export type ViewMode = "channel" | "direct" | "agent" | "home" | "tasks";
 
 export interface WorkspaceState {
   workspace: string;
@@ -315,6 +315,8 @@ export interface TaskStateCard {
   worker_id?: string;
   space_id?: string;
   source?: string;
+  trigger_message_id?: string;
+  parent_message_id?: string;
   updated_at: string;
   outcome?: string;
   state?: TaskStateView;

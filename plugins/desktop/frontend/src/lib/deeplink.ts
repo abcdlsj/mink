@@ -1,7 +1,8 @@
 export type WebRoute =
   | { view: "channel"; id: string; thread?: string; anchor?: string }
   | { view: "direct"; id: string; anchor?: string }
-  | { view: "agent"; id: string; anchor?: string };
+  | { view: "agent"; id: string; anchor?: string }
+  | { view: "tasks"; id?: string; anchor?: string };
 
 export interface RouteWriteOptions {
   replace?: boolean;
@@ -19,6 +20,7 @@ export function parseWebRoute(): WebRoute | null {
   const view = q.get("view") || "";
   const id = q.get("id") || "";
   const anchor = q.get("anchor") || undefined;
+  if (view === "tasks") return { view, id: id || undefined, anchor };
   if (!id) return null;
   if (view === "channel") {
     const thread = q.get("thread") || undefined;
@@ -38,7 +40,7 @@ export function writeWebRoute(route: WebRoute, opts: RouteWriteOptions = {}) {
   if (typeof window === "undefined") return;
   const q = new URLSearchParams();
   q.set("view", route.view);
-  q.set("id", route.id);
+  if (route.id) q.set("id", route.id);
   if (route.view === "channel" && route.thread) q.set("thread", route.thread);
   if (route.anchor) q.set("anchor", route.anchor);
   const next = window.location.pathname + "?" + q.toString();
