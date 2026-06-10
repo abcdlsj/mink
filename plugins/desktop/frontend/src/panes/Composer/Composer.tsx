@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { Ear } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import type { AgentItem, ChannelItem, ThreadDetail } from "@/lib/types";
 import { personaForActiveAgent } from "../Message/message-helpers";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import { applyMention, mentionCandidates, nextMentionState, type MentionState } from "./composer-helpers";
@@ -18,6 +20,7 @@ export function Composer() {
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
   const threadDetail = useStore((s) => s.threadDetail);
+  const participants = useStore((s) => s.participants);
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
@@ -37,6 +40,13 @@ export function Composer() {
   };
 
   const mentionOptions = mentionCandidates(agents, mentionState);
+  const quickAgents = quickMentionAgents({
+    view,
+    agents,
+    channel: view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined,
+    threadDetail,
+    participants: participants?.agents || [],
+  });
 
   const acceptMention = (idx: number) => {
     if (!mentionState) return;
@@ -51,6 +61,24 @@ export function Composer() {
         ta.focus();
         ta.setSelectionRange(applied.caret, applied.caret);
       }
+    });
+  };
+  const insertMention = (agentID: string) => {
+    const mention = "@" + agentID + " ";
+    const ta = textareaRef.current;
+    const start = ta?.selectionStart ?? input.length;
+    const end = ta?.selectionEnd ?? start;
+    const needsLead = start > 0 && !/\s/.test(input[start - 1] || "");
+    const prefix = needsLead ? " " : "";
+    const next = input.slice(0, start) + prefix + mention + input.slice(end);
+    const caret = start + prefix.length + mention.length;
+    setInput(next);
+    closeMention();
+    requestAnimationFrame(() => {
+      const current = textareaRef.current;
+      if (!current) return;
+      current.focus();
+      current.setSelectionRange(caret, caret);
     });
   };
   const agentDMs = useStore((s) => s.agentDMs);
@@ -168,6 +196,26 @@ export function Composer() {
             Mention an agent, or let listening agents pick it up.
           </div>
         )}
+        {quickAgents.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {quickAgents.map((ag) => (
+              <button
+                key={ag.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => insertMention(ag.id)}
+                title={ag.listening ? `@${ag.display} is listening` : `Mention @${ag.display}`}
+                className={cn(
+                  "inline-flex items-center gap-1 border border-border bg-panel px-1.5 py-0.5 text-[11.5px] font-medium text-text-muted hover:bg-accent hover:text-text",
+                  ag.listening && "bg-accent-bg text-text",
+                )}
+              >
+                {ag.listening && <Ear className="size-3 text-running" />}
+                <span>@{ag.display}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative border-hard border-border bg-bg shadow-card">
           <textarea
             ref={textareaRef}
@@ -220,4 +268,44 @@ export function Composer() {
       </div>
     </div>
   );
+}
+
+function quickMentionAgents({
+  view,
+  agents,
+  channel,
+  threadDetail,
+  participants,
+}: {
+  view: string;
+  agents: AgentItem[];
+  channel?: ChannelItem;
+  threadDetail: ThreadDetail | null;
+  participants: AgentItem[];
+}): { id: string; display: string; listening: boolean }[] {
+  const ids = new Set<string>();
+  let modes: Record<string, string> | undefined;
+  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+    (threadDetail.channel_agents || []).forEach((id) => ids.add(id));
+    (threadDetail.participants || []).forEach((agent) => ids.add(agent.id));
+    modes = threadDetail.agent_modes;
+  } else if (view === "channel" && channel) {
+    (channel.agents || []).forEach((id) => ids.add(id));
+    modes = channel.agent_modes;
+  } else {
+    return [];
+  }
+  participants.forEach((agent) => ids.add(agent.id));
+  return Array.from(ids)
+    .map((id) => {
+      const agent = agents.find((item) => item.id === id) || participants.find((item) => item.id === id);
+      if (!agent) return null;
+      return {
+        id,
+        display: agent.display || id,
+        listening: modes?.[id] === "listen",
+      };
+    })
+    .filter((item): item is { id: string; display: string; listening: boolean } => !!item)
+    .slice(0, 6);
 }
