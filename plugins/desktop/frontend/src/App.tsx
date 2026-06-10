@@ -249,7 +249,7 @@ function MobileDetailsContent() {
   const personas = useStore((s) => s.personas);
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const capabilities = useStore((s) => s.capabilities);
   const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | "agents" | null>(null);
 
@@ -259,7 +259,7 @@ function MobileDetailsContent() {
   const missingSkills = skills.filter((s) => !s.configured).length;
   const failures = mobileFailureCount(tasks);
   const activeRuns = participants?.active_runs || [];
-  const activePersonaID = detail?.item?.persona_id || agentDMs.find((d) => d.id === activeAgent)?.persona_id || activeAgent || "";
+  const activePersonaID = detail?.item?.persona_id || agentDMs.find((d) => d.id === activeAgentSpace)?.persona_id || activeAgentSpace || "";
   const activePersona = view === "agent" ? personas.find((p) => p.id === activePersonaID) : undefined;
   const visibleAgents = activePersona
     ? [{
@@ -366,7 +366,7 @@ function MobileMetric({ label, value, active, error }: { label: string; value: s
 
 function mobileMode(view: string): string {
   if (view === "channel") return "routed";
-  if (view === "thread") return "thread";
+  if (view === "direct") return "direct";
   if (view === "agent") return "direct agent";
   return "direct";
 }

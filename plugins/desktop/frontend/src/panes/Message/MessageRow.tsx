@@ -15,11 +15,11 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
   const view = useStore((s) => s.view);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const detail = useStore((s) => s.detail);
 
   const dmAgent = view === "agent" && m.role !== "user"
-    ? personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id)
+    ? personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id)
     : undefined;
 
   const ag = dmAgent || agents.find((a) => a.id === m.author_id);

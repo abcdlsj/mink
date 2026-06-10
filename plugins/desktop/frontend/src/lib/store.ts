@@ -76,8 +76,9 @@ interface State {
 
   view: ViewMode;
   activeChannel: string | null;
+  activeDirect: string | null;
   activeThread: string | null;
-  activeAgent: string | null;
+  activeAgentSpace: string | null;
   activeAnchor: string | null;
   expandedTaskID: string | null;
 
@@ -114,8 +115,8 @@ interface State {
 }
 
 function activeSessionID(s: State): string {
-  if (s.view === "thread" && s.activeThread) return s.activeThread;
-  if (s.view === "agent" && s.activeAgent) return s.detail?.item.id || s.activeAgent;
+  if (s.view === "direct" && s.activeDirect) return s.activeDirect;
+  if (s.view === "agent" && s.activeAgentSpace) return s.detail?.item.id || s.activeAgentSpace;
   return s.activeChannel || "";
 }
 
@@ -136,8 +137,8 @@ function streamingEventInScope(ev: BusEvent, s: State): boolean {
     if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
     return !ev.parent_message_id;
   }
-  if (s.view === "thread") {
-    if (!ev.space_id || ev.space_id !== s.activeThread) return false;
+  if (s.view === "direct") {
+    if (!ev.space_id || ev.space_id !== s.activeDirect) return false;
     return !ev.parent_message_id;
   }
   return false;
@@ -159,8 +160,8 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
     if (ev.space_id !== s.activeChannel) return false;
     return !ev.parent_message_id;
   }
-  if (s.view === "thread") {
-    if (ev.space_id !== s.activeThread) return false;
+  if (s.view === "direct") {
+    if (ev.space_id !== s.activeDirect) return false;
     return !ev.parent_message_id;
   }
   return false;
@@ -260,13 +261,13 @@ async function refetchActiveScope(
       set({ detail, participants, channels });
       return;
     }
-    if (s.view === "thread" && s.activeThread) {
-      const detail = await api.directChat(s.activeThread);
+    if (s.view === "direct" && s.activeDirect) {
+      const detail = await api.directChat(s.activeDirect);
       set({ detail });
       return;
     }
-    if (s.view === "agent" && s.activeAgent) {
-      const detail = await api.agentDM(s.activeAgent);
+    if (s.view === "agent" && s.activeAgentSpace) {
+      const detail = await api.agentDM(s.activeAgentSpace);
       set({ detail });
       return;
     }
@@ -325,8 +326,9 @@ export const useStore = create<State>((set, get) => ({
 
   view: "channel",
   activeChannel: null,
+  activeDirect: null,
   activeThread: null,
-  activeAgent: null,
+  activeAgentSpace: null,
   activeAnchor: null,
   expandedTaskID: null,
 
@@ -428,8 +430,9 @@ export const useStore = create<State>((set, get) => ({
     set({
       view: "channel",
       activeChannel: id,
+      activeDirect: null,
       activeThread: null,
-      activeAgent: null,
+      activeAgentSpace: null,
       activeAnchor: null,
       detail,
       threadDetail: null,
@@ -523,8 +526,9 @@ export const useStore = create<State>((set, get) => ({
     ]);
     set({
       view: "agent",
-      activeAgent: detail.item.id || id,
+      activeAgentSpace: detail.item.id || id,
       activeChannel: null,
+      activeDirect: null,
       activeThread: null,
       activeAnchor: null,
       detail,
@@ -566,10 +570,11 @@ export const useStore = create<State>((set, get) => ({
     }
     if (!detail.item?.id) return;
     set({
-      view: "thread",
-      activeThread: detail.item.id,
+      view: "direct",
+      activeDirect: detail.item.id,
+      activeThread: null,
       activeChannel: null,
-      activeAgent: null,
+      activeAgentSpace: null,
       activeAnchor: null,
       detail,
       participants: { agents: [] },
@@ -607,10 +612,11 @@ export const useStore = create<State>((set, get) => ({
       participants = { agents: [] };
     }
     set({
-      view: "thread",
-      activeThread: id,
+      view: "direct",
+      activeDirect: id,
+      activeThread: null,
       activeChannel: null,
-      activeAgent: null,
+      activeAgentSpace: null,
       activeAnchor: null,
       detail,
       participants,

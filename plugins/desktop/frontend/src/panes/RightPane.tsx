@@ -27,7 +27,7 @@ export function RightPane() {
   const personas = useStore((s) => s.personas);
   const agentDMs = useStore((s) => s.agentDMs);
   const activeChannel = useStore((s) => s.activeChannel);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const participants = useStore((s) => s.participants);
   const tools = useStore((s) => s.tools);
   const streamingByID = useStore((s) => s.streamingByID);
@@ -37,6 +37,7 @@ export function RightPane() {
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
   const threadParticipants = inThread ? threadDetail!.participants : null;
   const threadRecentRuns = inThread ? threadDetail!.recent_runs : null;
+  const workbenchView = inThread ? "thread" : view;
 
   if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-3 py-4" />;
 
@@ -48,14 +49,14 @@ export function RightPane() {
     time: s.startedAt,
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
-  const activePersona = personaForRuntime(activeAgent, detail?.item?.persona_id, personas, agentDMs);
+  const activePersona = personaForRuntime(activeAgentSpace, detail?.item?.persona_id, personas, agentDMs);
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
 
   const workbenchSec = (
     <AgentWorkbenchPanel
-      view={view}
+      view={workbenchView}
       stateRuntime={state?.runtime}
       activePersona={activePersona}
       runs={runtimeRuns}
@@ -94,7 +95,7 @@ export function RightPane() {
         <CapabilitiesSection capabilities={capabilities} />
       </>
     );
-  } else if (view === "thread" || inThread) {
+  } else if (view === "direct" || inThread) {
     const recent = inThread
       ? (threadRecentRuns || [])
       : (participants?.recent_runs || []);
@@ -343,7 +344,7 @@ function workbenchAgents(
       };
     });
   }
-  if (view === "thread" || view === "channel") {
+  if (view === "direct" || view === "channel" || view === "thread") {
     return [];
   }
   return [{
@@ -372,6 +373,9 @@ function permissionSummary(view: string): { label: string; short: string } {
   }
   if (view === "thread") {
     return { label: "Routed thread", short: "thread" };
+  }
+  if (view === "direct") {
+    return { label: "Direct chat", short: "direct" };
   }
   if (view === "agent") {
     return { label: "Direct agent", short: "direct" };

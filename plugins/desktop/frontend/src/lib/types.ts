@@ -1,4 +1,4 @@
-export type ViewMode = "channel" | "thread" | "agent" | "home";
+export type ViewMode = "channel" | "direct" | "agent" | "home";
 
 export interface WorkspaceState {
   workspace: string;

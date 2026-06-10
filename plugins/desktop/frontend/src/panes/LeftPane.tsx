@@ -11,8 +11,8 @@ export function LeftPane() {
   const personas = useStore((s) => s.personas);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
-  const activeAgent = useStore((s) => s.activeAgent);
-  const activeThread = useStore((s) => s.activeThread);
+  const activeDirect = useStore((s) => s.activeDirect);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
   const openDirectChat = useStore((s) => s.openDirectChat);
@@ -44,10 +44,10 @@ export function LeftPane() {
   );
   const directCount = humanDirectChats.length + sidebarPersonas.length + extraAgentDirectChats.length;
   const activePersonaID =
-    view === "agent" && activeAgent
-      ? agentDMs.find((dm) => dm.id === activeAgent)?.persona_id ||
-        directChats.find((dm) => dm.kind === "agent_dm" && dm.id === activeAgent)?.persona_id ||
-        activeAgent
+    view === "agent" && activeAgentSpace
+      ? agentDMs.find((dm) => dm.id === activeAgentSpace)?.persona_id ||
+        directChats.find((dm) => dm.kind === "agent_dm" && dm.id === activeAgentSpace)?.persona_id ||
+        activeAgentSpace
       : "";
   const agentDefaultDM = (personaID: string) =>
     directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
@@ -168,7 +168,7 @@ export function LeftPane() {
               icon={<MessageCircle className="size-4" />}
               name={dc.title}
               running={dc.has_running}
-              active={view === "thread" && activeThread === dc.id}
+              active={view === "direct" && activeDirect === dc.id}
               onClick={() => void openDirectChat(dc.id)}
               tooltip={dc.has_running ? `${dc.title} · running` : undefined}
             />
@@ -230,7 +230,7 @@ export function LeftPane() {
               icon={<AtSign className="size-4" />}
               name={dc.title}
               running={dc.has_running}
-              active={view === "agent" && ((activeAgent === dc.id) || (activePersonaID === dc.persona_id))}
+              active={view === "agent" && ((activeAgentSpace === dc.id) || (activePersonaID === dc.persona_id))}
               onClick={() => void openDirectChat(dc.id)}
               tooltip={dc.has_running ? `${dc.title} · running` : personaTooltip({
                 id: dc.persona_id || dc.id,
@@ -255,7 +255,7 @@ export function LeftPane() {
                 onClick={() => void openAgent(dm.id)}
                 className={cn(
                   "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
-                  view === "agent" && activeAgent === dm.id
+                  view === "agent" && activeAgentSpace === dm.id
                     ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
                     : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
                 )}

@@ -11,7 +11,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
   const activeChannel = useStore((s) => s.activeChannel);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const updateAgentChatTitle = useStore((s) => s.updateAgentChatTitle);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -37,7 +37,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     TitleIcon = Hash;
     titleText = channel?.name || "channel";
     listeningHint = listeningSummary(channel, agents);
-  } else if (view === "thread") {
+  } else if (view === "direct") {
     TitleIcon = MessageSquare;
     metaText = channel ? `in #${channel.name}` : "";
   } else if (view === "agent") {
@@ -46,7 +46,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     metaText = detail.summary || "";
   }
 
-  const editableAgentChat = view === "agent" && !!activeAgent && agentDMs.some((dm) => dm.id === activeAgent);
+  const editableAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
   const beginTitleEdit = () => {
     if (!editableAgentChat) return;
     setTitleDraft(titleText === "New chat" ? "" : titleText);
@@ -54,7 +54,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     setEditingTitle(true);
   };
   const submitTitleEdit = async () => {
-    if (!editableAgentChat || !activeAgent || titleBusy) return;
+    if (!editableAgentChat || !activeAgentSpace || titleBusy) return;
     const next = titleDraft.trim();
     if (!next) {
       setTitleErr("Title is required.");
@@ -67,7 +67,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     setTitleBusy(true);
     setTitleErr(null);
     try {
-      await updateAgentChatTitle(activeAgent, next);
+      await updateAgentChatTitle(activeAgentSpace, next);
       setEditingTitle(false);
     } catch (e) {
       setTitleErr(e instanceof Error ? e.message : String(e));

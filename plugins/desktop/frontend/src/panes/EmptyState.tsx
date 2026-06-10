@@ -8,7 +8,7 @@ export function EmptyState() {
   const detail = useStore((s) => s.detail);
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const activeChannel = useStore((s) => s.activeChannel);
   const threads = useStore((s) => s.threads);
   const channels = useStore((s) => s.channels);
@@ -22,15 +22,15 @@ export function EmptyState() {
       </div>
     );
   }
-  if (view === "thread") {
+  if (view === "direct") {
     return (
       <div className="text-text-faint text-[13px] py-12 text-center">
-        {activeChannel ? "Reply in this thread." : "Start this conversation."}
+        Start this conversation.
       </div>
     );
   }
 
-  const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
+  const ag = personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id);
   const recent = threads.slice(0, 3);
 
   return (

@@ -11,12 +11,13 @@ export function CenterPane() {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
   const activeChannel = useStore((s) => s.activeChannel);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeDirect = useStore((s) => s.activeDirect);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const activeThread = useStore((s) => s.activeThread);
   const activeAnchor = useStore((s) => s.activeAnchor);
 
   const messageCount = detail?.messages.length ?? 0;
-  const scope = `${view}:${activeChannel || ""}:${activeThread || ""}:${activeAgent || ""}`;
+  const scope = `${view}:${activeChannel || ""}:${activeDirect || ""}:${activeThread || ""}:${activeAgentSpace || ""}`;
   const { scrollRef, onScroll } = useMessageAutoScroll(detail?.messages || [], scope);
 
   useEffect(() => {

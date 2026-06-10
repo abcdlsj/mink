@@ -10,9 +10,10 @@ export function Composer() {
   const view = useStore((s) => s.view);
   const channels = useStore((s) => s.channels);
   const activeChannel = useStore((s) => s.activeChannel);
+  const activeDirect = useStore((s) => s.activeDirect);
   const activeThread = useStore((s) => s.activeThread);
   const agents = useStore((s) => s.agents);
-  const activeAgent = useStore((s) => s.activeAgent);
+  const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const detail = useStore((s) => s.detail);
   const sending = useStore((s) => s.sending);
   const send = useStore((s) => s.send);
@@ -54,17 +55,17 @@ export function Composer() {
   };
   const agentDMs = useStore((s) => s.agentDMs);
   const inferredPersona = (() => {
-    if (view === "agent" && activeAgent) {
+    if (view === "agent" && activeAgentSpace) {
       if (detail?.item.persona_id) return detail.item.persona_id;
-      const dm = agentDMs.find((d) => d.id === activeAgent);
-      return dm?.persona_id || activeAgent;
+      const dm = agentDMs.find((d) => d.id === activeAgentSpace);
+      return dm?.persona_id || activeAgentSpace;
     }
     return "";
   })();
 
   useEffect(() => {
     setPersona(inferredPersona);
-  }, [view, activeAgent, activeChannel, activeThread, inferredPersona]);
+  }, [view, activeAgentSpace, activeChannel, activeDirect, activeThread, inferredPersona]);
 
   let placeholder = "Message...";
   if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
@@ -72,10 +73,10 @@ export function Composer() {
   } else if (view === "channel") {
     const ch = channels.find((c) => c.id === activeChannel);
     placeholder = `Message #${ch?.name || "channel"}...`;
-  } else if (view === "thread") {
-    placeholder = activeChannel ? "Reply in thread..." : "Message this conversation...";
+  } else if (view === "direct") {
+    placeholder = "Message this conversation...";
   } else if (view === "agent") {
-    const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
+    const ag = personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id);
     placeholder = `Message @${detail?.item.persona_name || ag?.display || "agent"}...`;
   }
 
@@ -83,7 +84,7 @@ export function Composer() {
   const canSend = trimmed.length > 0 && !sending;
   const usesRouting =
     (view === "channel" && !!activeChannel) ||
-    (view === "thread" && !!activeChannel);
+    !!threadDetail;
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
   const channelForHint = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
@@ -195,7 +196,7 @@ export function Composer() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {(() => {
             if (view !== "agent") return null;
-            const ag = personaForActiveAgent(agents, agentDMs, activeAgent, detail?.item.persona_id);
+            const ag = personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id);
             if (!ag) return null;
             return (
               <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">

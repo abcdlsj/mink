@@ -3,17 +3,17 @@ import type { AgentDMItem, AgentItem, MessageView } from "@/lib/types";
 export function personaForActiveAgent(
   agents: AgentItem[],
   agentDMs: AgentDMItem[],
-  activeAgent: string | null,
+  activeAgentSpace: string | null,
   detailPersonaID?: string,
 ): AgentItem | undefined {
   if (detailPersonaID) {
     const fromDetail = agents.find((a) => a.id === detailPersonaID);
     if (fromDetail) return fromDetail;
   }
-  if (!activeAgent) return undefined;
-  const direct = agents.find((a) => a.id === activeAgent);
+  if (!activeAgentSpace) return undefined;
+  const direct = agents.find((a) => a.id === activeAgentSpace);
   if (direct) return direct;
-  const dm = agentDMs.find((d) => d.id === activeAgent);
+  const dm = agentDMs.find((d) => d.id === activeAgentSpace);
   return dm && agents.find((a) => a.id === dm.persona_id);
 }
 
