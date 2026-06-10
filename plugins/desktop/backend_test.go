@@ -7,6 +7,7 @@ import (
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
 )
@@ -165,6 +166,56 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	chats := b.ListAgentDMs()
 	if len(chats) != 1 || chats[0].ID != named.ID {
 		t.Fatalf("agent chats = %#v, want named chat %s", chats, named.ID)
+	}
+}
+
+func TestDefaultAgentDMSendUsesExistingSpaceID(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok: " + turn.Input})
+			return nil
+		}), nil
+	})
+
+	defaultDetail := b.GetAgentDM("coder")
+	if defaultDetail.Item.ID == "" || defaultDetail.Item.PersonaID != "coder" {
+		t.Fatalf("default detail = %#v, want coder agent dm", defaultDetail.Item)
+	}
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: defaultDetail.Item.ID,
+		PersonaID: defaultDetail.Item.PersonaID,
+		Input:     "hello",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetAgentDM(defaultDetail.Item.ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + assistant in existing default dm", detail.Messages)
+	}
+	if detail.Messages[0].Role != "user" || detail.Messages[0].Content != "hello" {
+		t.Fatalf("user message = %#v", detail.Messages[0])
+	}
+	if detail.Messages[1].Role != "agent" || detail.Messages[1].AuthorID != "coder" || detail.Messages[1].Content != "ok: hello" {
+		t.Fatalf("assistant message = %#v", detail.Messages[1])
+	}
+
+	spaces, err := a.Spaces().ListSpaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var agentDMs int
+	for _, sp := range spaces {
+		if sp.Kind == space.KindAgentDM {
+			agentDMs++
+		}
+	}
+	if agentDMs != 1 {
+		t.Fatalf("agent dm spaces = %d, want one existing default dm", agentDMs)
 	}
 }
 

@@ -115,7 +115,7 @@ interface State {
 
 function activeSessionID(s: State): string {
   if (s.view === "thread" && s.activeThread) return s.activeThread;
-  if (s.view === "agent" && s.activeAgent) return "desktop:agent:" + s.activeAgent;
+  if (s.view === "agent" && s.activeAgent) return s.detail?.item.id || s.activeAgent;
   return s.activeChannel || "";
 }
 
@@ -833,6 +833,7 @@ export const useStore = create<State>((set, get) => ({
       case "turn.started": {
         if (lifecycleEventInScope(ev, cur)) {
           void refetchActiveChannelMeta(get, set);
+          void refetchNavigation(set);
         }
         const author = ev.agent_id;
         if (!author) {

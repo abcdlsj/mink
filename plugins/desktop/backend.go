@@ -37,6 +37,20 @@ func newBackend(a *app.App) *Backend {
 	return &Backend{app: a, subs: newFanout(), cancel: map[string]context.CancelFunc{}}
 }
 
+func (b *Backend) hasActiveTurn(ids ...string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, id := range ids {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if b.cancel[id] != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (b *Backend) WorkspaceInfo() WorkspaceState {
 	cfg := b.app.Config()
 	current := b.app.CurrentModel()
@@ -206,11 +220,12 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 			keptEmpty = true
 		}
 		out = append(out, DirectChatItem{
-			ID:        e.sp.ID,
-			Kind:      "direct_chat",
-			Title:     directChatTitle(e.sp),
-			Agents:    directChatAgentIDs(e.sp),
-			UpdatedAt: e.sp.UpdatedAt,
+			ID:         e.sp.ID,
+			Kind:       "direct_chat",
+			Title:      directChatTitle(e.sp),
+			Agents:     directChatAgentIDs(e.sp),
+			UpdatedAt:  e.sp.UpdatedAt,
+			HasRunning: b.directChatHasActiveTurn(e.sp),
 		})
 	}
 	out = append(out, b.defaultAgentDMItems(spaces)...)
@@ -277,10 +292,25 @@ func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
 			Title:       "@" + fallback(display, pid),
 			Agents:      []string{pid},
 			UpdatedAt:   sp.UpdatedAt,
+			HasRunning: b.hasActiveTurn(
+				sp.ID,
+				"desktop:agent:"+sp.ID,
+				"desktop:agent:"+pid,
+			),
 		}
 		out = append(out, item)
 	}
 	return out
+}
+
+func (b *Backend) directChatHasActiveTurn(sp *space.Space) bool {
+	if sp == nil {
+		return false
+	}
+	if b.hasActiveTurn(sp.ID, "desktop:direct:"+sp.ID) {
+		return true
+	}
+	return isDefaultSumiDirect(sp) && b.hasActiveTurn(desktopSource)
 }
 
 func (b *Backend) GetDirectChat(id string) SessionDetail {
@@ -294,6 +324,7 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 			Title:        directChatTitle(sp),
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
+			Running:      b.directChatHasActiveTurn(sp),
 		},
 		Messages: spaceMessagesToView(sp, b.app),
 	}
@@ -1239,6 +1270,11 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 			PersonaName:  display,
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
+			Running: b.hasActiveTurn(
+				sp.ID,
+				"desktop:agent:"+sp.ID,
+				"desktop:agent:"+pid,
+			),
 		},
 		Messages: spaceMessagesToView(sp, b.app),
 	}
