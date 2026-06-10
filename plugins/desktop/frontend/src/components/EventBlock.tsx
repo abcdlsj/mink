@@ -177,19 +177,19 @@ function DelegateLine({ ev }: EventBlockProps) {
         <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-border bg-panel-2 px-3 py-2 text-[12.5px] text-text">
           {ev.err && (
             <div>
-              <div className="font-display text-[10px] uppercase tracking-[0.7px] text-error mb-1">error</div>
+              <div className="font-display text-[10.5px] font-semibold uppercase text-error mb-1">error</div>
               <div className="text-error whitespace-pre-wrap leading-[1.55]">{ev.err}</div>
             </div>
           )}
           {ev.task && (
             <div>
-              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">task</div>
+              <div className="mb-1 font-display text-[10.5px] font-semibold uppercase text-text-muted">task</div>
               <div className="text-text-muted whitespace-pre-wrap leading-[1.55]">{ev.task}</div>
             </div>
           )}
           {ev.output && !ev.err && (
             <div>
-              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">result</div>
+              <div className="mb-1 font-display text-[10.5px] font-semibold uppercase text-text-muted">result</div>
               <div className="text-text whitespace-pre-wrap leading-[1.6]">
                 <Markdown variant="lite">{ev.output}</Markdown>
               </div>
@@ -197,7 +197,7 @@ function DelegateLine({ ev }: EventBlockProps) {
           )}
           {ev.steps && ev.steps.length > 0 && (
             <div>
-              <div className="mb-1 font-display text-[10px] uppercase tracking-[0.7px] text-text-muted">key steps</div>
+              <div className="mb-1 font-display text-[10.5px] font-semibold uppercase text-text-muted">key steps</div>
               <ol className="space-y-0.5">
                 {ev.steps.map((s, i) => (
                   <li key={i} className="flex items-baseline gap-2 text-[12px] leading-[1.55]">

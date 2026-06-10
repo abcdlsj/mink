@@ -22,9 +22,9 @@ export function TopBar() {
     >
       <div className="flex items-center gap-2">
         <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-sm border border-border bg-panel" />
-        <div className="text-[14px] font-display font-black uppercase tracking-[0.5px] text-text">Sumi</div>
+        <div className="text-[14px] font-display font-extrabold uppercase text-text">Sumi</div>
       </div>
-      <div className="border border-border bg-bg px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.6px] text-text tabular-nums">
+      <div className="border border-border bg-bg px-2 py-0.5 font-mono text-[11px] uppercase text-text tabular-nums">
         {label}
       </div>
     </header>

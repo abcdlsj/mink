@@ -226,7 +226,7 @@ function MobileSheet({ onClose, children }: { onClose: () => void; children: Rea
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-border bg-panel px-3 py-2">
-          <div className="font-display text-[12px] font-black uppercase tracking-[0.6px] text-text">Details</div>
+          <div className="font-display text-[12px] font-extrabold uppercase text-text">Details</div>
           <button
             type="button"
             className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted"
@@ -386,7 +386,7 @@ function mobileFailureCount(tasks: { status: string; run_status?: string }[]): n
 function MobileDetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <div className="mb-2 font-display text-[10px] font-black uppercase tracking-[1px] text-text-muted">
+      <div className="mb-2 font-display text-[11px] font-extrabold uppercase text-text-muted">
         {title}
       </div>
       {children}

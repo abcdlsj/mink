@@ -63,12 +63,12 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
       <div className="min-w-0">
         {!compact && (
           <div className="mb-1.5 flex items-baseline gap-2">
-            <span className="font-display text-[13.5px] font-black text-text">
+            <span className="font-display text-[14px] font-extrabold leading-tight text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="border border-border bg-panel-event px-1 font-display text-[10px] font-semibold uppercase tracking-[0.5px] text-text"
+                className="border border-border bg-panel-event px-1 font-display text-[10px] font-semibold uppercase text-text"
                 title={ag.role}
               >
                 {shortRole(ag.role)}

@@ -55,7 +55,7 @@ export function ThreadView() {
         <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
           ← Back to {channel ? "#" + channel.name : "channel"}
         </button>
-        <div className="text-[13px] font-black uppercase tracking-[0.5px] text-text">Thread</div>
+        <div className="font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
         <div className="font-mono text-[12px] text-text-muted">
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
@@ -65,7 +65,7 @@ export function ThreadView() {
         <div className="mx-auto max-w-[880px]">
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
-              <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11px] uppercase tracking-wide text-text">Root message · context only</div>
+              <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11px] font-medium uppercase text-text">Root message · context only</div>
               <MessageRow m={root} compact={false} />
             </div>
           )}

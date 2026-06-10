@@ -70,7 +70,7 @@ const fullComponents: Components = {
       <table className="min-w-full table-auto border-collapse text-[12.5px] leading-[1.5]">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11px] uppercase tracking-[0.55px] text-text-muted">{children}</thead>,
+  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11px] font-semibold uppercase text-text-muted">{children}</thead>,
   th: ({ children }) => (
     <th className="break-words border-b border-r border-border px-3 py-1.5 font-semibold align-bottom last:border-r-0">
       <MentionAware>{children}</MentionAware>

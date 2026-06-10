@@ -83,7 +83,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   return (
     <div className="flex items-end justify-between border-b-hard border-border bg-panel px-5 pb-3.5 pt-4">
       <div>
-        <h2 className="flex items-center gap-2 font-display text-[18px] font-black text-text">
+        <h2 className="flex items-center gap-2 font-display text-[19px] font-extrabold leading-tight text-text">
           <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
             <TitleIcon className="size-[17px] text-text" />
           </span>
@@ -107,7 +107,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
                 }}
                 disabled={titleBusy}
                 autoFocus
-                className="h-8 border-hard border-border bg-bg px-2 font-display text-[18px] font-black text-text outline-none shadow-card disabled:opacity-70"
+                className="h-8 border-hard border-border bg-bg px-2 font-display text-[19px] font-extrabold text-text outline-none shadow-card disabled:opacity-70"
               />
               {titleErr && <span className="font-mono text-[10.5px] font-medium text-error">{titleErr}</span>}
             </span>
@@ -128,7 +128,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
           )}
         </h2>
         {(metaText || listeningHint) && (
-          <div className="mt-1 font-mono text-[11.5px] text-text-muted">
+          <div className="mt-1 font-mono text-[11px] text-text-muted">
             {metaText}
             {metaText && listeningHint && " · "}
             {listeningHint}

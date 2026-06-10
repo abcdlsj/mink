@@ -210,7 +210,7 @@ export function Composer() {
             disabled={!canSend}
             onClick={() => void handleSend()}
             className={cn(
-              "border-hard border-border bg-action px-4 font-black uppercase tracking-[0.5px] text-panel shadow-card disabled:bg-action disabled:text-panel disabled:opacity-100 md:px-4",
+              "border-hard border-border bg-action px-4 font-extrabold uppercase text-panel shadow-card disabled:bg-action disabled:text-panel disabled:opacity-100 md:px-4",
               canSend && "hover:bg-action",
             )}
           >

@@ -133,7 +133,7 @@ export function QuickCreate() {
     >
       <div className="w-[480px] overflow-hidden border-hard border-border bg-panel shadow-hard">
         <div className="border-b-hard border-border bg-accent px-4 pb-2 pt-3.5">
-          <div className="font-display text-[13px] font-black uppercase tracking-[0.7px] text-text">Create</div>
+          <div className="font-display text-[13px] font-extrabold uppercase text-text">Create</div>
           <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
             {mode === "menu" && "Pick what you want to start."}
             {mode === "channel" && "Letters, numbers, dashes."}

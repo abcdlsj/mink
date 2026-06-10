@@ -4,6 +4,7 @@
 @import "@fontsource-variable/inter-tight/index.css";
 @import "@fontsource-variable/ibm-plex-sans/index.css";
 @import "@fontsource-variable/jetbrains-mono/index.css";
+@import "@fontsource-variable/space-grotesk/index.css";
 @import "@fontsource/noto-sans-sc/400.css";
 @import "@fontsource/noto-sans-sc/500.css";
 @import "@fontsource/noto-sans-sc/600.css";
@@ -38,9 +39,9 @@
     --done: #16794C;
     --reasoning: #1B6B73;
 
-    --font-ui: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
-    --font-display: "Geist Variable", "Inter Tight Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
-    --font-body: "Geist Variable", "IBM Plex Sans Variable", "Inter Variable", -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", system-ui, sans-serif;
+    --font-ui: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+    --font-display: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+    --font-body: "Space Grotesk Variable", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", -apple-system, system-ui, sans-serif;
     --font-mono: "Geist Mono Variable", "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, "Sarasa Mono SC", "PingFang SC", monospace;
   }
 
@@ -55,7 +56,9 @@
     font-family: var(--font-ui);
     font-size: 13px;
     line-height: 1.55;
+    letter-spacing: 0;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }

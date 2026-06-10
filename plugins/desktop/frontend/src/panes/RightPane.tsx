@@ -163,7 +163,7 @@ export function RightPane() {
         <>
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className="mt-2 flex w-full items-center justify-between border-y border-border py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.4px] text-text-muted hover:text-text"
+            className="mt-2 flex w-full items-center justify-between border-y border-border py-2.5 text-[11.5px] font-semibold uppercase text-text-muted hover:text-text"
           >
             <span>{moreOpen ? "Hide details" : "More details"}</span>
             <ChevronRight
@@ -205,7 +205,7 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="mb-6">
-      <div className="mb-2 font-display text-[10px] font-black uppercase tracking-[1px] text-text-muted">
+      <div className="mb-2 font-display text-[11px] font-extrabold uppercase text-text-muted">
         {label}
       </div>
       <div>{children}</div>
@@ -253,17 +253,17 @@ function AgentWorkbenchPanel({
     <Section label="Agent Workbench">
       <div className="mb-2 grid grid-cols-3 border border-border bg-panel text-[11px]">
         <div className="border-r border-border px-2 py-1.5">
-          <div className="font-mono uppercase text-text-faint">Mode</div>
+          <div className="font-mono text-[10.5px] uppercase text-text-faint">Mode</div>
           <div className="truncate text-text">{permission.label}</div>
         </div>
         <div className="border-r border-border px-2 py-1.5">
-          <div className="font-mono uppercase text-text-faint">Skills</div>
+          <div className="font-mono text-[10.5px] uppercase text-text-faint">Skills</div>
           <div className={summary.missing > 0 ? "text-error" : "text-text"}>
             {summary.ready}/{summary.total} ready
           </div>
         </div>
         <div className="px-2 py-1.5">
-          <div className="font-mono uppercase text-text-faint">Failures</div>
+          <div className="font-mono text-[10.5px] uppercase text-text-faint">Failures</div>
           <div className={failures.length > 0 ? "text-error" : "text-text"}>{failures.length || "none"}</div>
         </div>
       </div>
@@ -858,7 +858,7 @@ function CapabilitiesSection({
               {selected && (
                 <CapabilityCard>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10.5px] uppercase tracking-[0.6px] text-text-faint">Skill detail</span>
+                    <span className="font-mono text-[10.5px] uppercase text-text-faint">Skill detail</span>
                     <span className="flex items-center gap-2">
                       {selected.last_action && <span className="text-[11px] text-text-faint">last {selected.last_action}</span>}
                       <button
@@ -877,7 +877,7 @@ function CapabilitiesSection({
                     </div>
                   )}
                   {selected.risk && (
-                    <div className="mt-1 font-mono text-[10.5px] uppercase tracking-[0.5px] text-text-faint">
+                    <div className="mt-1 font-mono text-[10.5px] uppercase text-text-faint">
                       Risk · {selected.risk}
                     </div>
                   )}
@@ -956,7 +956,7 @@ function CapabilitiesSection({
 function CapabilityGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.6px] text-text-faint">
+      <div className="mb-1.5 font-mono text-[10.5px] uppercase text-text-faint">
         {label}
       </div>
       <div className="flex flex-col gap-1.5">{children}</div>

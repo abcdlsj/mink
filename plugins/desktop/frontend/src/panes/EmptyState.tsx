@@ -40,7 +40,7 @@ export function EmptyState() {
       </div>
       {recent.length > 0 && (
         <div>
-          <div className="mb-2 border-b border-border font-display text-[10px] font-black uppercase tracking-[1px] text-text">
+          <div className="mb-2 border-b border-border font-display text-[11px] font-extrabold uppercase text-text">
             Recently with {ag?.display || "this agent"}
           </div>
           <div className="flex flex-col gap-1">

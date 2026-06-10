@@ -288,7 +288,7 @@ export function LeftPane() {
         >
           <div className="w-[460px] overflow-hidden border-hard border-border bg-panel shadow-hard">
             <div className="border-b-hard border-border bg-accent px-4 pb-2 pt-3.5">
-              <div className="font-display text-[13px] font-black uppercase tracking-[0.7px] text-text">
+              <div className="font-display text-[13px] font-extrabold uppercase text-text">
                 Start with @{agentCreate.display}
               </div>
               <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
@@ -298,7 +298,7 @@ export function LeftPane() {
               </div>
             </div>
             <div className="px-4 py-3.5">
-              <label className="block font-mono text-[11px] uppercase tracking-[0.8px] text-text-faint">
+              <label className="block font-mono text-[11px] uppercase text-text-faint">
                 Chat title
               </label>
               <input
@@ -353,7 +353,7 @@ function GroupLabel({
   return (
     <button
       onClick={onToggle}
-      className="flex w-full items-center gap-1 border-b-2 border-border px-2 pb-1 pt-4 text-left font-display text-[10.5px] font-black uppercase tracking-[1.2px] text-text hover:text-text-muted"
+      className="flex w-full items-center gap-1 border-b-2 border-border px-2 pb-1 pt-4 text-left font-display text-[11px] font-extrabold uppercase text-text hover:text-text-muted"
     >
       <ChevronRight className={cn("size-3 text-text-faint transition-transform", open && "rotate-90")} />
       <span>{children}</span>

@@ -168,7 +168,7 @@ export function CommandPalette() {
               <Command.Group
                 key={key}
                 heading={sec.title}
-                className="text-text [&_[cmdk-group-heading]]:border-b [&_[cmdk-group-heading]]:border-border [&_[cmdk-group-heading]]:px-[18px] [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-black [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[0.9px] [&_[cmdk-group-heading]]:text-text"
+                className="text-text [&_[cmdk-group-heading]]:border-b [&_[cmdk-group-heading]]:border-border [&_[cmdk-group-heading]]:px-[18px] [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[10.5px] [&_[cmdk-group-heading]]:font-extrabold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:text-text"
               >
                 {sec.rows.map((row) => (
                   <Command.Item

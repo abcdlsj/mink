@@ -79,7 +79,7 @@ export function AgentGear({
             scope.kind === "thread" && "right-0",
           )}
         >
-          <div className="border-b border-border px-3 py-1.5 font-display text-[10.5px] font-black uppercase tracking-[0.9px] text-text">
+          <div className="border-b border-border px-3 py-1.5 font-display text-[11px] font-extrabold uppercase text-text">
             {heading}
           </div>
           {joined.length === 0 && empty && (
