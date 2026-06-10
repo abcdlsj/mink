@@ -38,6 +38,7 @@ type MessageView struct {
 	IsThreadReply   bool               `json:"is_thread_reply,omitempty"`
 	TaskAccessory   *TaskAccessoryInfo `json:"task_accessory,omitempty"`
 	AutoReplyReason string             `json:"auto_reply_reason,omitempty"`
+	Mentions        []string           `json:"mentions,omitempty"`
 	RuntimeMeta     map[string]string  `json:"runtime_meta,omitempty"`
 }
 

@@ -77,7 +77,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {m.auto_reply_reason && m.role !== "user" && (
           <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11.5px] text-text">
-            {routedReplyLabel(m.auto_reply_reason, ag?.display || m.author_name || "Agent")}
+            {routedReplyLabel(m.auto_reply_reason, ag?.display || m.author_name || "Agent", m.mentions)}
           </div>
         )}
         {m.content && (
@@ -192,11 +192,16 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-function routedReplyLabel(reason: string, agentName: string): string {
+function routedReplyLabel(reason: string, agentName: string, mentions?: string[]): string {
   const raw = reason.trim();
   const lower = raw.toLowerCase();
   if (lower.includes("listening")) return `${agentName} joined from listening.`;
-  if (lower.startsWith("called by @")) return `${agentName} was called by ${raw.slice("called by ".length)}.`;
+  if (lower.startsWith("called by @")) {
+    const caller = raw.slice("called by ".length);
+    const next = (mentions || []).filter(Boolean);
+    if (next.length > 0) return `${agentName} was called by ${caller} and called ${next.map((id) => "@" + id).join(", ")}.`;
+    return `${agentName} was called by ${caller}; no further agent was called.`;
+  }
   if (lower === "called by mention" || lower === "explicit mention") return `${agentName} was called by mention.`;
   if (lower === "agent mention" || lower === "called by another agent") return `${agentName} was called by another agent.`;
   return `${agentName}: ${raw}.`;

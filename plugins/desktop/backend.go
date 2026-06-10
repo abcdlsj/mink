@@ -651,6 +651,7 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		Time:            m.CreatedAt,
 		ThreadID:        m.ParentMessageID,
 		AutoReplyReason: m.AutoReplyReason,
+		Mentions:        append([]string(nil), m.Mentions...),
 		RuntimeMeta:     copyStringMap(m.RuntimeMeta),
 	}
 	if m.Usage != nil {

@@ -122,6 +122,7 @@ export interface MessageView {
   is_thread_reply?: boolean;
   task_accessory?: TaskAccessoryInfo;
   auto_reply_reason?: string;
+  mentions?: string[];
   usage?: TokenUsage;
   runtime_meta?: Record<string, string>;
 }
