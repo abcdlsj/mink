@@ -13,6 +13,37 @@ const (
 	StatusEmptyOutput Status = "empty_output"
 )
 
+type Lifecycle string
+
+const (
+	LifecycleActive   Lifecycle = "active"
+	LifecycleArchived Lifecycle = "archived"
+)
+
+func (s Status) Lifecycle() Lifecycle {
+	switch s {
+	case StatusQueued, StatusRunning, Status("todo"), Status("in_progress"), Status("in-review"), Status("in_review"):
+		return LifecycleActive
+	case StatusFinished, StatusFailed, StatusCanceled, StatusEmptyOutput,
+		Status("done"), Status("closed"), Status("cancelled"), Status("no_output"), Status("error"):
+		return LifecycleArchived
+	default:
+		return LifecycleArchived
+	}
+}
+
+func (s Status) Active() bool {
+	return s.Lifecycle() == LifecycleActive
+}
+
+func (s Status) Archived() bool {
+	return s.Lifecycle() == LifecycleArchived
+}
+
+func (s Status) Terminal() bool {
+	return s.Archived()
+}
+
 type KeyStepKind string
 
 const (

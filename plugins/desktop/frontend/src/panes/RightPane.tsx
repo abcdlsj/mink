@@ -46,6 +46,7 @@ export function RightPane() {
     agent_id: s.agentID || "agent",
     title: "Current turn",
     status: "running",
+    lifecycle: "active",
     time: s.startedAt,
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
@@ -55,7 +56,9 @@ export function RightPane() {
     ? (threadRecentRuns || [])
     : (participants?.recent_runs || []);
   const activeScopeRuns = activeRuns([...runtimeRuns, ...scopeRecentRuns]);
-  const archivedScopeRuns = archivedCount(scopeRecentRuns);
+  const archivedScopeRuns = inThread
+    ? (threadDetail?.archived_runs_count || 0)
+    : (participants?.archived_runs_count || 0);
   const scopeSpaceID = inThread ? threadDetail?.space_id : detail?.item.id;
   const scopeAgentIDs = activePersona
     ? [activePersona.id]
@@ -460,7 +463,7 @@ function activeRuns(runs: AgentRun[]): AgentRun[] {
   const seen = new Set<string>();
   const out: AgentRun[] = [];
   for (const run of runs) {
-    if (!activeStatus(run.status) || seen.has(run.id)) continue;
+    if ((run.lifecycle || "active") !== "active" || seen.has(run.id)) continue;
     seen.add(run.id);
     out.push(run);
   }
@@ -472,21 +475,8 @@ function activeStatus(status: string | undefined): boolean {
   return s === "queued" || s === "running" || s === "in_progress" || s === "in-review" || s === "in_review";
 }
 
-function archivedStatus(status: string | undefined): boolean {
-  const s = (status || "").toLowerCase();
-  return s === "done" || s === "closed" || s === "finished" || s === "empty_output" || s === "no_output" || s === "failed" || s === "error" || s === "canceled" || s === "cancelled";
-}
-
-function archivedCount(runs: AgentRun[]): number {
-  return runs.filter((r) => archivedStatus(r.status)).length;
-}
-
 function activeTask(t: TaskStateCard): boolean {
-  return activeStatus(t.run_status || t.status);
-}
-
-function archivedTask(t: TaskStateCard): boolean {
-  return archivedStatus(t.run_status || t.status);
+  return (t.lifecycle || "active") === "active";
 }
 
 function taskInScope(t: TaskStateCard, spaceID: string | undefined, agentIDs: string[]): boolean {
@@ -812,7 +802,7 @@ function CapabilitiesSection({
   const skills = capabilities.skills;
   const scopedTasks = capabilities.tasks.filter((t) => taskInScope(t, scopeSpaceID, scopeAgentIDs));
   const tasks = scopedTasks.filter(activeTask).slice(0, 3);
-  const archivedTasks = scopedTasks.filter(archivedTask).length;
+  const archivedTasks = capabilities.archived_task_state_count || 0;
   const proposals = capabilities.action_proposals.slice(0, 3);
   const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0 && archivedTasks === 0;
   const selected = skillDetail?.name === selectedSkill ? skillDetail : skills.find((s) => s.name === selectedSkill) || null;

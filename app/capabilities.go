@@ -51,6 +51,7 @@ type TaskStateSummary struct {
 	ID         string         `json:"id"`
 	Title      string         `json:"title"`
 	Status     string         `json:"status"`
+	Lifecycle  string         `json:"lifecycle"`
 	WorkerID   string         `json:"worker_id,omitempty"`
 	SpaceID    string         `json:"space_id,omitempty"`
 	Source     string         `json:"source,omitempty"`
@@ -149,6 +150,18 @@ func (a *App) SkillDetail(name string) (SkillDirectoryItem, bool) {
 }
 
 func (a *App) RecentTaskStates(limit int) []TaskStateSummary {
+	return a.RecentTaskStatesByLifecycle(limit, task.LifecycleActive)
+}
+
+func (a *App) RecentArchivedTaskStates(limit int) []TaskStateSummary {
+	return a.RecentTaskStatesByLifecycle(limit, task.LifecycleArchived)
+}
+
+func (a *App) ArchivedTaskStateCount() int {
+	return len(a.RecentArchivedTaskStates(0))
+}
+
+func (a *App) RecentTaskStatesByLifecycle(limit int, lifecycle task.Lifecycle) []TaskStateSummary {
 	if a == nil || a.tasks == nil {
 		return nil
 	}
@@ -160,6 +173,9 @@ func (a *App) RecentTaskStates(limit int) []TaskStateSummary {
 	out := make([]TaskStateSummary, 0, len(tasks))
 	for _, tk := range tasks {
 		if tk == nil {
+			continue
+		}
+		if tk.Status.Lifecycle() != lifecycle {
 			continue
 		}
 		var latest *task.Run
@@ -182,6 +198,7 @@ func (a *App) RecentTaskStates(limit int) []TaskStateSummary {
 			ID:        tk.ID,
 			Title:     tk.Title,
 			Status:    string(tk.Status),
+			Lifecycle: string(tk.Status.Lifecycle()),
 			WorkerID:  tk.WorkerID,
 			SpaceID:   tk.SpaceID,
 			Source:    tk.Source,

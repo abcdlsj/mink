@@ -211,10 +211,11 @@ type AgentItem struct {
 }
 
 type ParticipantsView struct {
-	Agents       []AgentItem `json:"agents"`
-	RunningAgent string      `json:"running_agent,omitempty"`
-	ActiveRuns   []AgentRun  `json:"active_runs,omitempty"`
-	RecentRuns   []AgentRun  `json:"recent_runs,omitempty"`
+	Agents            []AgentItem `json:"agents"`
+	RunningAgent      string      `json:"running_agent,omitempty"`
+	ActiveRuns        []AgentRun  `json:"active_runs,omitempty"`
+	RecentRuns        []AgentRun  `json:"recent_runs,omitempty"`
+	ArchivedRunsCount int         `json:"archived_runs_count,omitempty"`
 }
 
 type AgentRun struct {
@@ -222,6 +223,7 @@ type AgentRun struct {
 	AgentID    string    `json:"agent_id"`
 	Title      string    `json:"title"`
 	Status     string    `json:"status"`
+	Lifecycle  string    `json:"lifecycle"`
 	ThreadID   string    `json:"thread_id,omitempty"`
 	Time       time.Time `json:"time"`
 	DurationMs int64     `json:"duration_ms,omitempty"`
@@ -237,9 +239,10 @@ type TaskStateView struct {
 }
 
 type CapabilityView struct {
-	Skills          []SkillView          `json:"skills"`
-	Tasks           []TaskStateCard      `json:"tasks"`
-	ActionProposals []ActionProposalCard `json:"action_proposals"`
+	Skills                 []SkillView          `json:"skills"`
+	Tasks                  []TaskStateCard      `json:"tasks"`
+	ArchivedTaskStateCount int                  `json:"archived_task_state_count,omitempty"`
+	ActionProposals        []ActionProposalCard `json:"action_proposals"`
 }
 
 type SkillView struct {
@@ -271,6 +274,7 @@ type TaskStateCard struct {
 	ID         string        `json:"id"`
 	Title      string        `json:"title"`
 	Status     string        `json:"status"`
+	Lifecycle  string        `json:"lifecycle"`
 	WorkerID   string        `json:"worker_id,omitempty"`
 	SpaceID    string        `json:"space_id,omitempty"`
 	Source     string        `json:"source,omitempty"`

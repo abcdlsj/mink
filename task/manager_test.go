@@ -153,6 +153,33 @@ func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestStatusLifecycleClassification(t *testing.T) {
+	cases := []struct {
+		status Status
+		active bool
+	}{
+		{StatusQueued, true},
+		{StatusRunning, true},
+		{Status("todo"), true},
+		{Status("in_progress"), true},
+		{Status("in_review"), true},
+		{StatusFinished, false},
+		{StatusFailed, false},
+		{StatusCanceled, false},
+		{StatusEmptyOutput, false},
+		{Status("done"), false},
+		{Status("closed"), false},
+	}
+	for _, tc := range cases {
+		if got := tc.status.Active(); got != tc.active {
+			t.Fatalf("%s Active() = %v, want %v", tc.status, got, tc.active)
+		}
+		if got := tc.status.Archived(); got == tc.active {
+			t.Fatalf("%s Archived() = %v, want %v", tc.status, got, !tc.active)
+		}
+	}
+}
+
 func TestUpdateRejectsOversizedOutcome(t *testing.T) {
 	m := NewManager(newMemStore())
 	tk, err := m.Create(validInput())

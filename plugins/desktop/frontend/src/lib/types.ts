@@ -163,6 +163,7 @@ export interface ThreadDetail {
   channel_agents?: string[];
   agent_modes?: Record<string, string>;
   recent_runs?: AgentRun[];
+  archived_runs_count?: number;
   active_worker_id?: string;
   last_reply_time?: string;
   not_found?: boolean;
@@ -194,6 +195,7 @@ export interface AgentRun {
   agent_id: string;
   title: string;
   status: string;
+  lifecycle?: "active" | "archived";
   thread_id?: string;
   time: string;
   duration_ms?: number;
@@ -227,6 +229,7 @@ export interface ParticipantsView {
   running_agent?: string;
   active_runs?: AgentRun[];
   recent_runs?: AgentRun[];
+  archived_runs_count?: number;
 }
 
 export interface PersonaItem {
@@ -272,6 +275,7 @@ export interface TaskStateView {
 export interface CapabilityView {
   skills: SkillView[];
   tasks: TaskStateCard[];
+  archived_task_state_count?: number;
   action_proposals: ActionProposalCard[];
 }
 
@@ -304,6 +308,7 @@ export interface TaskStateCard {
   id: string;
   title: string;
   status: string;
+  lifecycle?: "active" | "archived";
   worker_id?: string;
   space_id?: string;
   source?: string;

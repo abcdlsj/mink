@@ -746,7 +746,7 @@ func computeThreadInfo(sp *space.Space, a appAccessor) (map[string]ThreadSummary
 	if a != nil && a.Tasks() != nil {
 		if tasks, err := a.Tasks().ListBySpace(sp.ID); err == nil {
 			for _, tk := range tasks {
-				if tk.Status == taskpkg.StatusRunning || tk.Status == taskpkg.StatusQueued {
+				if tk.Status.Active() {
 					taskIndex[tk.TriggerMessageID] = tk
 				}
 			}
@@ -1014,9 +1014,11 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	if err != nil || sp == nil {
 		return ParticipantsView{Agents: []AgentItem{}}
 	}
+	recentRuns, archivedRuns := b.spaceRecentRuns(sp)
 	return ParticipantsView{
-		Agents:     spaceParticipantsAsAgents(sp, b.app),
-		RecentRuns: b.spaceRecentRuns(sp),
+		Agents:            spaceParticipantsAsAgents(sp, b.app),
+		RecentRuns:        recentRuns,
+		ArchivedRunsCount: archivedRuns,
 	}
 }
 
@@ -1057,29 +1059,35 @@ func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
 	return out
 }
 
-func (b *Backend) spaceRecentRuns(sp *space.Space) []AgentRun {
+func (b *Backend) spaceRecentRuns(sp *space.Space) ([]AgentRun, int) {
 	if sp == nil || b.app.Tasks() == nil {
-		return nil
+		return nil, 0
 	}
 	tasks, err := b.app.Tasks().ListBySpace(sp.ID)
 	if err != nil {
-		return nil
+		return nil, 0
 	}
 	out := make([]AgentRun, 0, len(tasks))
+	archived := 0
 	for _, tk := range tasks {
-		out = append(out, agentRunFromTask(tk))
+		if tk.Status.Active() {
+			out = append(out, agentRunFromTask(tk))
+		} else {
+			archived++
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
-	return out
+	return out, archived
 }
 
 func agentRunFromTask(tk *taskpkg.Task) AgentRun {
 	return AgentRun{
-		ID:      tk.ID,
-		AgentID: tk.WorkerID,
-		Title:   tk.Title,
-		Status:  taskStatusForUI(tk.Status),
-		Time:    tk.UpdatedAt,
+		ID:        tk.ID,
+		AgentID:   tk.WorkerID,
+		Title:     tk.Title,
+		Status:    taskStatusForUI(tk.Status),
+		Lifecycle: string(tk.Status.Lifecycle()),
+		Time:      tk.UpdatedAt,
 	}
 }
 
@@ -1466,9 +1474,10 @@ func (b *Backend) ListCommands() []CommandItem {
 
 func (b *Backend) Capabilities() CapabilityView {
 	return CapabilityView{
-		Skills:          skillViews(b.app.SkillDirectory()),
-		Tasks:           taskStateCards(b.app.RecentTaskStates(6)),
-		ActionProposals: actionProposalCards(b.app.RecentActionProposals(6)),
+		Skills:                 skillViews(b.app.SkillDirectory()),
+		Tasks:                  taskStateCards(b.app.RecentTaskStates(6)),
+		ArchivedTaskStateCount: b.app.ArchivedTaskStateCount(),
+		ActionProposals:        actionProposalCards(b.app.RecentActionProposals(6)),
 	}
 }
 
@@ -1532,6 +1541,7 @@ func taskStateCards(in []app.TaskStateSummary) []TaskStateCard {
 			ID:         t.ID,
 			Title:      t.Title,
 			Status:     t.Status,
+			Lifecycle:  t.Lifecycle,
 			WorkerID:   t.WorkerID,
 			SpaceID:    t.SpaceID,
 			Source:     t.Source,

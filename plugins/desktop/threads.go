@@ -19,19 +19,20 @@ type ThreadSummary struct {
 }
 
 type ThreadDetail struct {
-	SpaceID         string            `json:"space_id"`
-	ParentID        string            `json:"parent_id"`
-	Parent          *MessageView      `json:"parent,omitempty"`
-	Replies         []MessageView     `json:"replies"`
-	Participants    []AgentItem       `json:"participants,omitempty"`
-	ChannelAgents   []string          `json:"channel_agents,omitempty"`
-	AgentModes      map[string]string `json:"agent_modes,omitempty"`
-	RecentRuns      []AgentRun        `json:"recent_runs,omitempty"`
-	ActiveWorkerID  string            `json:"active_worker_id,omitempty"`
-	LastReplyTime   time.Time         `json:"last_reply_time,omitempty"`
-	NotFound        bool              `json:"not_found,omitempty"`
-	Unsupported     bool              `json:"unsupported,omitempty"`
-	UnsupportedHint string            `json:"unsupported_hint,omitempty"`
+	SpaceID           string            `json:"space_id"`
+	ParentID          string            `json:"parent_id"`
+	Parent            *MessageView      `json:"parent,omitempty"`
+	Replies           []MessageView     `json:"replies"`
+	Participants      []AgentItem       `json:"participants,omitempty"`
+	ChannelAgents     []string          `json:"channel_agents,omitempty"`
+	AgentModes        map[string]string `json:"agent_modes,omitempty"`
+	RecentRuns        []AgentRun        `json:"recent_runs,omitempty"`
+	ArchivedRunsCount int               `json:"archived_runs_count,omitempty"`
+	ActiveWorkerID    string            `json:"active_worker_id,omitempty"`
+	LastReplyTime     time.Time         `json:"last_reply_time,omitempty"`
+	NotFound          bool              `json:"not_found,omitempty"`
+	Unsupported       bool              `json:"unsupported,omitempty"`
+	UnsupportedHint   string            `json:"unsupported_hint,omitempty"`
 }
 
 const previewLen = 120
@@ -93,15 +94,17 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 		}
 		views = append(views, v)
 	}
+	recentRuns, archivedRuns := b.threadRuns(sp.ID, all)
 	d := ThreadDetail{
-		SpaceID:       sp.ID,
-		ParentID:      parent.ID,
-		Parent:        &parentView,
-		Replies:       views,
-		Participants:  threadParticipants(sp, all, b.app),
-		ChannelAgents: spaceAgentIDs(sp),
-		AgentModes:    effectiveThreadModes(sp, parent.ID),
-		RecentRuns:    b.threadRuns(sp.ID, all),
+		SpaceID:           sp.ID,
+		ParentID:          parent.ID,
+		Parent:            &parentView,
+		Replies:           views,
+		Participants:      threadParticipants(sp, all, b.app),
+		ChannelAgents:     spaceAgentIDs(sp),
+		AgentModes:        effectiveThreadModes(sp, parent.ID),
+		RecentRuns:        recentRuns,
+		ArchivedRunsCount: archivedRuns,
 	}
 	for _, r := range d.RecentRuns {
 		if r.Status == "running" || r.Status == "queued" {
@@ -217,7 +220,7 @@ func (b *Backend) runningTasks(spaceID string) map[string]*taskpkg.Task {
 		return out
 	}
 	for _, tk := range tasks {
-		if tk.Status == taskpkg.StatusRunning || tk.Status == taskpkg.StatusQueued {
+		if tk.Status.Active() {
 			out[tk.TriggerMessageID] = tk
 		}
 	}
@@ -261,24 +264,29 @@ func threadAgentItem(sp *space.Space, m space.Message, a appAccessor) AgentItem 
 	}
 }
 
-func (b *Backend) threadRuns(spaceID string, msgs []space.Message) []AgentRun {
+func (b *Backend) threadRuns(spaceID string, msgs []space.Message) ([]AgentRun, int) {
 	if b.app.Tasks() == nil {
-		return []AgentRun{}
+		return []AgentRun{}, 0
 	}
 	all, err := b.app.Tasks().ListBySpace(spaceID)
 	if err != nil {
-		return []AgentRun{}
+		return []AgentRun{}, 0
 	}
 	allowed := map[string]bool{}
 	for _, m := range msgs {
 		allowed[m.ID] = true
 	}
 	out := make([]AgentRun, 0)
+	archived := 0
 	for _, tk := range all {
 		if allowed[tk.TriggerMessageID] {
-			out = append(out, agentRunFromTask(tk))
+			if tk.Status.Active() {
+				out = append(out, agentRunFromTask(tk))
+			} else {
+				archived++
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
-	return out
+	return out, archived
 }

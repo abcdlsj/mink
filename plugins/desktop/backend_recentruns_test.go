@@ -50,7 +50,10 @@ func TestSpaceRecentRunsReadsTaskStoreBySpaceID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := b.spaceRecentRuns(sp)
+	got, archived := b.spaceRecentRuns(sp)
+	if archived != 0 {
+		t.Fatalf("archived = %d, want 0", archived)
+	}
 	if len(got) != 1 {
 		t.Fatalf("got %d runs for space alpha, want 1: %#v", len(got), got)
 	}
@@ -59,6 +62,88 @@ func TestSpaceRecentRunsReadsTaskStoreBySpaceID(t *testing.T) {
 	}
 	if got[0].AgentID != "coder" {
 		t.Fatalf("AgentID = %q, want coder", got[0].AgentID)
+	}
+	if got[0].Lifecycle != "active" {
+		t.Fatalf("Lifecycle = %q, want active", got[0].Lifecycle)
+	}
+}
+
+func TestSpaceRecentRunsReturnsActiveRunsAndArchivedCount(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-1", InitiatorID: "user", WorkerID: "coder", Title: "active task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-2", InitiatorID: "user", WorkerID: "coder", Title: "archived task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(active.ID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(archived.ID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusFinished}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, archivedCount := b.spaceRecentRuns(sp)
+	if len(got) != 1 {
+		t.Fatalf("got %d active runs, want 1: %#v", len(got), got)
+	}
+	if got[0].Title != "active task" {
+		t.Fatalf("active title = %q", got[0].Title)
+	}
+	if archivedCount != 1 {
+		t.Fatalf("archived = %d, want 1", archivedCount)
+	}
+}
+
+func TestCapabilitiesDefaultTaskStatesAreActiveOnly(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-1", InitiatorID: "user", WorkerID: "coder", Title: "active task",
+		State: taskpkg.TaskState{Checkpoint: "queued"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID: sp.ID, TriggerMessageID: "msg-2", InitiatorID: "user", WorkerID: "coder", Title: "archived task",
+		State: taskpkg.TaskState{Checkpoint: "done"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(active.ID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Update(archived.ID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusFinished}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.Capabilities()
+	if len(got.Tasks) != 1 {
+		t.Fatalf("capability tasks = %d, want 1: %#v", len(got.Tasks), got.Tasks)
+	}
+	if got.Tasks[0].Title != "active task" || got.Tasks[0].Lifecycle != "active" {
+		t.Fatalf("task card = %#v", got.Tasks[0])
+	}
+	if got.ArchivedTaskStateCount != 1 {
+		t.Fatalf("ArchivedTaskStateCount = %d, want 1", got.ArchivedTaskStateCount)
 	}
 }
 
