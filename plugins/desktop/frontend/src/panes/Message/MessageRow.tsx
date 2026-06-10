@@ -23,6 +23,9 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
     : undefined;
 
   const ag = dmAgent || agents.find((a) => a.id === m.author_id);
+  const routedReply = m.auto_reply_reason && m.role !== "user"
+    ? routedReplySignal(m.auto_reply_reason, ag?.id || m.author_id || "", ag?.display || m.author_name || "Agent", m.mentions)
+    : null;
   const knownMentions = useMemo(
     () => new Set(agents.map((a) => a.id)),
     [agents],
@@ -75,9 +78,20 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
-        {m.auto_reply_reason && m.role !== "user" && (
-          <div className="mb-1 inline-flex border border-border bg-accent-bg px-1.5 py-px text-[11.5px] text-text">
-            {routedReplyLabel(m.auto_reply_reason, ag?.display || m.author_name || "Agent", m.mentions)}
+        {routedReply && (
+          <div
+            className="mb-1 flex flex-wrap gap-1"
+            title={routedReply.detail}
+            aria-label={routedReply.detail}
+          >
+            {routedReply.labels.map((label, i) => (
+              <span
+                key={label + i}
+                className="inline-flex border border-border bg-accent-bg px-1.5 py-px font-mono text-[11px] text-text"
+              >
+                {label}
+              </span>
+            ))}
           </div>
         )}
         {m.content && (
@@ -192,17 +206,50 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-function routedReplyLabel(reason: string, agentName: string, mentions?: string[]): string {
+function routedReplySignal(reason: string, agentID: string, agentName: string, mentions?: string[]): { labels: string[]; detail: string } {
   const raw = reason.trim();
   const lower = raw.toLowerCase();
-  if (lower.includes("listening")) return `${agentName} joined from listening.`;
+  const agentHandle = handle(agentID || agentName);
+  if (lower.includes("listening")) {
+    return {
+      labels: ["listening"],
+      detail: `${agentName} joined from listening.`,
+    };
+  }
   if (lower.startsWith("called by @")) {
     const caller = raw.slice("called by ".length);
     const next = (mentions || []).filter(Boolean);
-    if (next.length > 0) return `${agentName} was called by ${caller} and called ${next.map((id) => "@" + id).join(", ")}.`;
-    return `${agentName} was called by ${caller}; no further agent was called.`;
+    if (next.length > 0) {
+      return {
+        labels: [`${caller} → ${agentHandle}`, ...next.map((id) => `${agentHandle} → ${handle(id)}`)],
+        detail: `${agentName} was called by ${caller} and called ${next.map(handle).join(", ")}.`,
+      };
+    }
+    return {
+      labels: [`${caller} → ${agentHandle}`, "ended"],
+      detail: `${agentName} was called by ${caller}; no further agent was called.`,
+    };
   }
-  if (lower === "called by mention" || lower === "explicit mention") return `${agentName} was called by mention.`;
-  if (lower === "agent mention" || lower === "called by another agent") return `${agentName} was called by another agent.`;
-  return `${agentName}: ${raw}.`;
+  if (lower === "called by mention" || lower === "explicit mention") {
+    return {
+      labels: [`mention → ${agentHandle}`],
+      detail: `${agentName} was called by mention.`,
+    };
+  }
+  if (lower === "agent mention" || lower === "called by another agent") {
+    return {
+      labels: [`agent → ${agentHandle}`],
+      detail: `${agentName} was called by another agent.`,
+    };
+  }
+  return {
+    labels: [raw],
+    detail: `${agentName}: ${raw}.`,
+  };
+}
+
+function handle(id: string): string {
+  const value = id.trim();
+  if (!value) return "@agent";
+  return value.startsWith("@") ? value : "@" + value;
 }
