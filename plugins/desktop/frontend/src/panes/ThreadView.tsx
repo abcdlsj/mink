@@ -3,6 +3,7 @@ import { Composer } from "./Composer/Composer";
 import { MessageRow } from "./Message/MessageRow";
 import { MessageStream } from "./Message/MessageStream";
 import { useStore } from "@/lib/store";
+import { useMessageAutoScroll } from "./useMessageAutoScroll";
 
 export function ThreadView() {
   const threadDetail = useStore((s) => s.threadDetail);
@@ -10,8 +11,13 @@ export function ThreadView() {
   const activeChannel = useStore((s) => s.activeChannel);
   const closeThread = useStore((s) => s.closeThread);
   const channel = channels.find((c) => c.id === activeChannel);
+  const replies = threadDetail?.replies || [];
+  const scope = threadDetail ? `thread:${threadDetail.space_id}:${threadDetail.parent_id}` : "thread:none";
+  const { scrollRef, onScroll } = useMessageAutoScroll(replies, scope);
 
   if (!threadDetail) return null;
+  const root = threadDetail.parent;
+
   if (threadDetail.unsupported) {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
@@ -43,8 +49,6 @@ export function ThreadView() {
     );
   }
 
-  const root = threadDetail.parent;
-  const replies = threadDetail.replies || [];
   return (
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
       <div className="flex items-center gap-3 border-b-hard border-border px-5 py-3">
@@ -57,7 +61,7 @@ export function ThreadView() {
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
       </div>
-      <div className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">
+      <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">
         <div className="mx-auto max-w-[880px]">
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
