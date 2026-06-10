@@ -311,7 +311,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		Content:         content,
 		Reasoning:       reasoning,
 		Mentions:        resolved,
-		AutoReplyReason: target.Reason,
+		AutoReplyReason: a.routedReplyReason(spaceID, target),
 		ParentMessageID: parentMessageID,
 		Usage:           msg.AssistantUsage(s.Messages[baseline:]),
 		RuntimeMeta:     msg.AssistantRuntimeMeta(s.Messages[baseline:]),
@@ -501,6 +501,35 @@ func (a *App) routedCollaborationBrief(spaceID, parentMessageID string, target s
 	}
 	lines = append(lines, "- instruction: answer as part of this shared discussion; add the missing piece or next action.")
 	return strings.Join(lines, "\n")
+}
+
+func (a *App) routedReplyReason(spaceID string, target space.RoutingTarget) string {
+	if reason := strings.TrimSpace(target.Reason); reason != "" {
+		return reason
+	}
+	if target.Chain != nil && target.Chain.RootMessageID != target.OriginMessageID {
+		if author := a.routingOriginAgent(spaceID, target.OriginMessageID); author != "" {
+			return "called by @" + author
+		}
+		return "called by another agent"
+	}
+	return "called by mention"
+}
+
+func (a *App) routingOriginAgent(spaceID, messageID string) string {
+	if a == nil || a.spaces == nil || strings.TrimSpace(messageID) == "" {
+		return ""
+	}
+	sp, err := a.spaces.LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return ""
+	}
+	for _, m := range sp.Messages {
+		if m.ID == messageID && m.AuthorKind == space.ParticipantAgent {
+			return strings.TrimSpace(m.AuthorID)
+		}
+	}
+	return ""
 }
 
 func collaborationScope(parentMessageID string) string {

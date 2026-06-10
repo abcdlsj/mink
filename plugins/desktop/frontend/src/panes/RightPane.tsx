@@ -50,6 +50,12 @@ export function RightPane() {
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
   const activePersona = personaForRuntime(activeAgentSpace, detail?.item?.persona_id, personas, agentDMs);
+  const activeChannelItem = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
+  const agentModes = inThread
+    ? threadDetail?.agent_modes
+    : view === "channel"
+      ? activeChannelItem?.agent_modes
+      : undefined;
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -67,11 +73,12 @@ export function RightPane() {
       tools={tools}
       capabilities={capabilities}
       recentRuns={inThread ? (threadRecentRuns || []) : (participants?.recent_runs || [])}
+      agentModes={agentModes}
     />
   );
 
   if (view === "channel" && !inThread) {
-    const ch = channels.find((c) => c.id === activeChannel);
+    const ch = activeChannelItem;
     const channelThreads = threads.filter((t) => t.channel_id === activeChannel).slice(0, 3);
     main = (
       <>
@@ -187,6 +194,7 @@ function AgentWorkbenchPanel({
   tools,
   capabilities,
   recentRuns,
+  agentModes,
 }: {
   view: string;
   stateRuntime?: string;
@@ -199,6 +207,7 @@ function AgentWorkbenchPanel({
   tools: import("@/lib/types").ToolItem[];
   capabilities: CapabilityView | null;
   recentRuns: AgentRun[];
+  agentModes?: Record<string, string>;
 }) {
   const stop = useStore((s) => s.stop);
   const openAgent = useStore((s) => s.openAgent);
@@ -231,9 +240,11 @@ function AgentWorkbenchPanel({
         {panelAgents.map((p) => {
           const display = p.display || p.id;
           const runtime = agentRuntimeSummary(p.runtime, p.model, stateRuntime);
-          const isRunning = runningIDs.has(p.id) || p.status === "running";
+          const runState = agentRunState(p.id, runs, recentRuns);
+          const isRunning = runningIDs.has(p.id) || p.status === "running" || runState.running;
           const hasDM = agentDMs.some((d) => d.persona_id === p.id);
           const agentTools = p.tools && p.tools.length > 0 ? p.tools : globalTools;
+          const routeMode = routeModeLabel(view, agentModes?.[p.id]);
           return (
             <div key={p.id} className="border border-border bg-panel px-2.5 py-2">
               <div className="flex min-w-0 items-center gap-2">
@@ -242,7 +253,7 @@ function AgentWorkbenchPanel({
                   @{display}
                 </span>
                 <span className="shrink-0 font-mono text-[10.5px] uppercase text-text-faint">
-                  {isRunning ? "working" : hasDM ? "dm" : "ready"}
+                  {agentStatusLabel(isRunning, runState.queued, hasDM)}
                 </span>
               </div>
               <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
@@ -255,6 +266,8 @@ function AgentWorkbenchPanel({
               )}
               <div className="mt-2 flex flex-wrap gap-1">
                 <CapabilityPill label={permission.short} />
+                {routeMode && <CapabilityPill label={routeMode} />}
+                {runState.queued > 0 && <CapabilityPill label={`queued ${runState.queued}`} />}
                 <CapabilityPill label={agentTools.length > 0 ? `${agentTools.length} tools` : "no tools"} />
                 <CapabilityPill label={summary.missing > 0 ? `${summary.missing} skill config missing` : `${summary.ready} skills ready`} error={summary.missing > 0} />
               </div>
@@ -402,6 +415,26 @@ function recentFailures(runs: AgentRun[], capabilities: CapabilityView | null): 
 function failureStatus(status: string | undefined): boolean {
   const s = (status || "").toLowerCase();
   return s === "failed" || s === "error" || s === "canceled" || s === "rollback_failed" || s === "no_output";
+}
+
+function agentRunState(agentID: string, runs: AgentRun[], recentRuns: AgentRun[]): { running: boolean; queued: number } {
+  const all = [...runs, ...recentRuns].filter((r) => r.agent_id === agentID);
+  return {
+    running: all.some((r) => r.status === "running"),
+    queued: recentRuns.filter((r) => r.agent_id === agentID && r.status === "queued").length,
+  };
+}
+
+function agentStatusLabel(running: boolean, queued: number, hasDM: boolean): string {
+  if (running && queued > 0) return `working · q${queued}`;
+  if (running) return "working";
+  if (queued > 0) return `queued ${queued}`;
+  return hasDM ? "dm" : "ready";
+}
+
+function routeModeLabel(view: string, mode: string | undefined): string {
+  if (view !== "channel" && view !== "thread") return "";
+  return mode === "listen" ? "listening" : "mention-only";
 }
 
 function CapabilityPill({ label, error }: { label: string; error?: boolean }) {

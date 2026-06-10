@@ -132,6 +132,13 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	if turns[1].seen[1].Role != "assistant" || turns[1].seen[1].Content != "reply to @bob first" {
 		t.Fatalf("second context message = %+v", turns[1].seen[1])
 	}
+	updated, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAgentMessageReason(updated, "bob"); got != "called by mention" {
+		t.Fatalf("auto reply reason = %q, want called by mention", got)
+	}
 }
 
 func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
@@ -177,7 +184,13 @@ func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
 	}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	trigger, err := a.Spaces().AppendUserMessage(ch.ID, "@bob please implement this", []string{"bob"})
+	trigger, _, err := a.Spaces().AppendMessageWithRouting(ch.ID, space.Message{
+		AuthorID:        "iris",
+		AuthorKind:      space.ParticipantAgent,
+		Content:         "@bob please implement this",
+		ParentMessageID: root.ID,
+		Mentions:        []string{"bob"},
+	}, []string{"bob"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +208,7 @@ func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
 		"scope: thread",
 		"trigger: agent mention",
 		"target agent: bob",
-		"trigger message: user: @bob please implement this",
+		"trigger message: iris: @bob please implement this",
 		"chain budget remaining: 2",
 		"recent agent conclusions:",
 		"iris: I think the UI state is unclear.",
@@ -205,6 +218,23 @@ func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
 			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
 	}
+	updated, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lastAgentMessageReason(updated, "bob"); got != "called by @iris" {
+		t.Fatalf("auto reply reason = %q, want called by @iris", got)
+	}
+}
+
+func lastAgentMessageReason(sp *space.Space, agentID string) string {
+	for i := len(sp.Messages) - 1; i >= 0; i-- {
+		m := sp.Messages[i]
+		if m.AuthorKind == space.ParticipantAgent && m.AuthorID == agentID {
+			return m.AutoReplyReason
+		}
+	}
+	return ""
 }
 
 func TestRoutedNoTargetNoticePersistsToSpace(t *testing.T) {
