@@ -84,6 +84,48 @@ func TestHandleMessageMergesAssistantSnapshots(t *testing.T) {
 	}
 }
 
+func TestHandleMessageDedupsTrailingSnapshotAfterAppend(t *testing.T) {
+	b := bus.New()
+	evs, cancel := b.Subscribe(8)
+	defer cancel()
+
+	turn := &agent.Turn{
+		Source:  "test",
+		Session: session.New("test"),
+		Bus:     b,
+	}
+	st := &runState{}
+
+	// First snapshot: prelude.
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "intro 喵", Snapshot: true})
+	// Second snapshot: a fresh report (driver appends because neither prefix matches).
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "## report\nbody", Snapshot: true})
+	// Third arrival is the same report (eg a result.result mirror); must not append again.
+	handleMessage("test", turn, st, &Message{Type: MsgTurnDone, Text: "## report\nbody"})
+	st.flush(turn.Session)
+
+	var chunks []string
+	for {
+		select {
+		case ev := <-evs:
+			if ev.Type == bus.TurnChunk {
+				chunks = append(chunks, ev.Text)
+			}
+		default:
+			joined := strings.Join(chunks, "")
+			want := "intro 喵## report\nbody"
+			if joined != want {
+				t.Fatalf("chunks = %q, want %q", joined, want)
+			}
+			final := turn.Session.Messages[len(turn.Session.Messages)-1].Content
+			if final != want {
+				t.Fatalf("assistant = %q, want %q", final, want)
+			}
+			return
+		}
+	}
+}
+
 func TestFlushKeepsMissingToolResultsEmpty(t *testing.T) {
 	turn := &agent.Turn{Source: "test", Session: session.New("test")}
 	st := &runState{calls: map[string]toolCallState{}}

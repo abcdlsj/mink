@@ -73,7 +73,7 @@ func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 		if !s.streamed {
 			agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 		}
-	case text == cur, strings.HasPrefix(cur, text):
+	case text == cur, strings.HasPrefix(cur, text), strings.HasSuffix(cur, text):
 		return
 	case strings.HasPrefix(text, cur):
 		extra := text[len(cur):]

@@ -150,7 +150,8 @@ export function Markdown({ children, className, variant = "full", mentions }: Ma
 }
 
 function repairTables(src: string): string {
-  const lines = src.split("\n");
+  let out = repairInlineHeadings(src);
+  const lines = out.split("\n");
   for (let i = 0; i + 1 < lines.length; i++) {
     const header = lines[i];
     const sep = lines[i + 1];
@@ -162,6 +163,23 @@ function repairTables(src: string): string {
     }
   }
   return lines.join("\n");
+}
+
+function repairInlineHeadings(src: string): string {
+  return src
+    .split("\n")
+    .flatMap((line) => splitInlineHeading(line))
+    .join("\n");
+}
+
+function splitInlineHeading(line: string): string[] {
+  if (line.length < 2) return [line];
+  const m = line.match(/^(.*?[^#\s])(\s*)(#{1,6}[ \t][^\n]*)$/);
+  if (!m) return [line];
+  const prefix = m[1].trimEnd();
+  const heading = m[3];
+  if (!prefix) return [line];
+  return [prefix, "", heading];
 }
 
 function isTableRow(line: string): boolean {
