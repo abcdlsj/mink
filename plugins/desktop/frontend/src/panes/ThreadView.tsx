@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { AgentGear } from "./AgentGear";
 import { Composer } from "./Composer/Composer";
 import { MessageRow } from "./Message/MessageRow";
@@ -9,11 +10,22 @@ export function ThreadView() {
   const threadDetail = useStore((s) => s.threadDetail);
   const channels = useStore((s) => s.channels);
   const activeChannel = useStore((s) => s.activeChannel);
+  const activeAnchor = useStore((s) => s.activeAnchor);
   const closeThread = useStore((s) => s.closeThread);
   const channel = channels.find((c) => c.id === activeChannel);
   const replies = threadDetail?.replies || [];
   const scope = threadDetail ? `thread:${threadDetail.space_id}:${threadDetail.parent_id}` : "thread:none";
   const { scrollRef, onScroll } = useMessageAutoScroll(replies, scope);
+
+  useEffect(() => {
+    if (!activeAnchor?.startsWith("message:")) return;
+    const id = activeAnchor.slice("message:".length);
+    window.requestAnimationFrame(() => {
+      document.getElementById("message-" + id)?.scrollIntoView({
+        block: "center",
+      });
+    });
+  }, [activeAnchor, threadDetail?.parent?.id, replies.length]);
 
   if (!threadDetail) return null;
   const root = threadDetail.parent;

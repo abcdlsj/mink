@@ -136,7 +136,7 @@ function TaskBoardCard({
   const openThread = useStore((s) => s.openThread);
   const openDirectChat = useStore((s) => s.openDirectChat);
   const openAgent = useStore((s) => s.openAgent);
-  const expandTaskInRail = useStore((s) => s.expandTaskInRail);
+  const focusTaskOrigin = useStore((s) => s.focusTaskOrigin);
   const openCurrentRoute = useStore((s) => s.openCurrentRoute);
   const [updating, setUpdating] = useState("");
   const [assigning, setAssigning] = useState(false);
@@ -146,15 +146,17 @@ function TaskBoardCard({
   const source = taskSourceLabel(task, channels, directChats, agentDMs);
 
   const openOrigin = async () => {
+    const sourceMessageID = task.source_message || task.trigger_message_id || task.parent_message_id || "";
+    const sourceThreadID = task.source_thread_id || task.parent_message_id || "";
     if (task.space_id && channels.some((c) => c.id === task.space_id)) {
       await openChannel(task.space_id);
-      if (task.parent_message_id) await openThread(task.parent_message_id);
+      if (sourceThreadID) await openThread(sourceThreadID);
     } else if (task.space_id && directChats.some((d) => d.id === task.space_id)) {
       await openDirectChat(task.space_id);
     } else if (task.space_id && agentDMs.some((d) => d.id === task.space_id)) {
       await openAgent(task.space_id);
     }
-    expandTaskInRail(task.id);
+    focusTaskOrigin(task.id, sourceMessageID);
   };
 
   const updateStatus = async (status: string, e: React.MouseEvent) => {

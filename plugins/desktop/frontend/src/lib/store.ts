@@ -109,6 +109,7 @@ interface State {
   send: (input: string, personaID?: string) => Promise<void>;
   stop: () => Promise<void>;
   expandTaskInRail: (taskID: string) => void;
+  focusTaskOrigin: (taskID: string, messageID?: string) => void;
   collapseTaskInRail: () => void;
   connectStream: () => () => void;
   applyEvent: (ev: BusEvent) => void;
@@ -690,6 +691,12 @@ export const useStore = create<State>((set, get) => ({
   expandTaskInRail(taskID) {
     set({ expandedTaskID: taskID, activeAnchor: "task:" + taskID });
     writeRouteAnchor("task:" + taskID);
+  },
+
+  focusTaskOrigin(taskID, messageID) {
+    const anchor = messageID ? "message:" + messageID : "task:" + taskID;
+    set({ expandedTaskID: taskID, activeAnchor: anchor });
+    writeRouteAnchor(anchor);
   },
 
   collapseTaskInRail() {
