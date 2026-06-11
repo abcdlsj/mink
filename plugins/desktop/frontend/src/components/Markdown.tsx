@@ -137,13 +137,54 @@ function codeRenderer({ children, className }: any) {
 
 export function Markdown({ children, className, variant = "full", mentions }: MarkdownProps) {
   const components = variant === "lite" ? liteComponents : fullComponents;
+  const source = variant === "lite" ? children : repairTables(children);
   return (
     <div className={cn(className)}>
       <MentionsCtx.Provider value={mentions ?? null}>
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {children}
+          {source}
         </ReactMarkdown>
       </MentionsCtx.Provider>
     </div>
   );
+}
+
+function repairTables(src: string): string {
+  const lines = src.split("\n");
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const header = lines[i];
+    const sep = lines[i + 1];
+    if (!isTableRow(header) || !isSeparatorRow(sep)) continue;
+    const headerCols = countTableCols(header);
+    const sepCols = countTableCols(sep);
+    if (headerCols > sepCols) {
+      lines[i + 1] = padSeparator(sep, headerCols);
+    }
+  }
+  return lines.join("\n");
+}
+
+function isTableRow(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith("|") && t.endsWith("|") && t.length > 1;
+}
+
+function isSeparatorRow(line: string): boolean {
+  const t = line.trim();
+  if (!isTableRow(t)) return false;
+  const cells = t.slice(1, -1).split("|");
+  return cells.every((c) => /^\s*:?-+:?\s*$/.test(c));
+}
+
+function countTableCols(line: string): number {
+  const t = line.trim().slice(1, -1);
+  return t.split("|").length;
+}
+
+function padSeparator(sep: string, target: number): string {
+  const leading = sep.match(/^\s*/)?.[0] ?? "";
+  const t = sep.trim().slice(1, -1);
+  const cells = t.split("|");
+  while (cells.length < target) cells.push("---");
+  return leading + "|" + cells.join("|") + "|";
 }
