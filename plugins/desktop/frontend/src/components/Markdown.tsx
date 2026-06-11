@@ -35,16 +35,16 @@ function walk(children: ReactNode, set: Set<string>): ReactNode {
 }
 
 const fullComponents: Components = {
-  p: ({ children }) => <p className="mb-2.5 last:mb-0 leading-[1.68]"><MentionAware>{children}</MentionAware></p>,
-  h1: ({ children }) => <h1 className="font-display text-[16px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h1>,
-  h2: ({ children }) => <h2 className="font-display text-[15px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h2>,
-  h3: ({ children }) => <h3 className="font-display text-[14px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h3>,
-  h4: ({ children }) => <h4 className="font-display text-[13.5px] font-semibold mt-2.5 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h4>,
-  h5: ({ children }) => <h5 className="text-[13px] font-semibold mt-2 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h5>,
-  h6: ({ children }) => <h6 className="text-[12.5px] font-semibold text-text-muted mt-2 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
-  ul: ({ children }) => <ul className="my-1.5 pl-5 list-disc marker:text-text-faint">{children}</ul>,
-  ol: ({ children }) => <ol className="my-1.5 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
-  li: ({ children }) => <li className="my-1 leading-[1.68] pl-0.5"><MentionAware>{children}</MentionAware></li>,
+  p: ({ children }) => <p className="mb-3 last:mb-0 leading-[1.7]"><MentionAware>{children}</MentionAware></p>,
+  h1: ({ children }) => <h1 className="font-display text-[20px] font-bold tracking-tight mt-5 mb-2.5 first:mt-0"><MentionAware>{children}</MentionAware></h1>,
+  h2: ({ children }) => <h2 className="font-display text-[17.5px] font-bold tracking-tight mt-5 mb-2 first:mt-0"><MentionAware>{children}</MentionAware></h2>,
+  h3: ({ children }) => <h3 className="font-display text-[15.5px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h3>,
+  h4: ({ children }) => <h4 className="font-display text-[14.5px] font-semibold mt-3.5 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h4>,
+  h5: ({ children }) => <h5 className="font-display text-[13.5px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h5>,
+  h6: ({ children }) => <h6 className="font-display text-[12px] font-semibold uppercase tracking-[0.6px] text-text-muted mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
+  ul: ({ children }) => <ul className="my-2.5 pl-5 list-disc marker:text-text-faint">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2.5 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
+  li: ({ children }) => <li className="my-1.5 leading-[1.7] pl-1"><MentionAware>{children}</MentionAware></li>,
   a: ({ href, children }) => (
     <a
       href={href}
@@ -56,29 +56,29 @@ const fullComponents: Components = {
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-border-strong pl-3.5 my-2.5 text-text-muted italic"><MentionAware>{children}</MentionAware></blockquote>
+    <blockquote className="border-l-2 border-border-strong pl-4 my-3 text-text-muted italic"><MentionAware>{children}</MentionAware></blockquote>
   ),
   code: codeRenderer,
   pre: ({ children }) => (
-    <pre className="my-2.5 max-w-full overflow-x-auto rounded-md bg-panel-event px-3.5 py-2.5 text-[12.5px] leading-[1.6]">
+    <pre className="my-3 max-w-full overflow-x-auto rounded-md bg-panel-event px-3.5 py-3 text-[12.5px] leading-[1.6]">
       {children}
     </pre>
   ),
-  hr: () => <hr className="my-3.5 border-border-soft" />,
+  hr: () => <hr className="my-4 border-border-soft" />,
   table: ({ children }) => (
-    <div className="my-3 max-w-full overflow-x-auto border border-border bg-panel shadow-card">
-      <table className="min-w-full table-auto border-collapse text-[12.5px] leading-[1.5]">{children}</table>
+    <div className="my-3.5 max-w-full overflow-x-auto border border-border bg-panel shadow-card">
+      <table className="min-w-full table-auto border-collapse text-[13px] leading-[1.6]">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11px] font-semibold uppercase text-text-muted">{children}</thead>,
+  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11.5px] font-semibold uppercase tracking-[0.6px] text-text-muted">{children}</thead>,
   th: ({ children }) => (
-    <th className="break-words border-b border-r border-border px-3 py-1.5 font-semibold align-bottom last:border-r-0">
+    <th className="break-words border-b border-r border-border px-3.5 py-2.5 font-semibold align-bottom last:border-r-0">
       <MentionAware>{children}</MentionAware>
     </th>
   ),
   tbody: ({ children }) => <tbody className="[&_tr:last-child_td]:border-b-0 [&_tr:nth-child(even)]:bg-panel-3">{children}</tbody>,
   td: ({ children }) => (
-    <td className="break-words border-b border-r border-border-soft px-3 py-1.5 align-top last:border-r-0">
+    <td className="break-words border-b border-r border-border-soft px-3.5 py-2 align-top last:border-r-0">
       <MentionAware>{children}</MentionAware>
     </td>
   ),
