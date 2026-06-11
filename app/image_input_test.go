@@ -68,6 +68,30 @@ func TestPrepareImageInputURL(t *testing.T) {
 	}
 }
 
+func TestPrepareImageInputPlainWebURL(t *testing.T) {
+	input := "https://bazaar.mrmao.life/\n这个是网页，你可以去网页自己抓接口自己查往届的数据"
+	text, attachments, err := prepareImageInput(input, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != input {
+		t.Fatalf("text = %q", text)
+	}
+	if len(attachments) != 0 {
+		t.Fatalf("attachments = %#v", attachments)
+	}
+}
+
+func TestPrepareImageInputRejectsWebPageImageURL(t *testing.T) {
+	_, _, err := prepareImageInput("[[image:https://bazaar.mrmao.life/]]", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if err.Error() != "unsupported image type: https://bazaar.mrmao.life/" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestPrepareImageInputLabelsMultipleImages(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.png")

@@ -110,7 +110,7 @@ func pastedImageRef(line string) string {
 	if ref == "" {
 		return ""
 	}
-	if imageURL(ref) {
+	if imageHTTPURL(ref) {
 		return ref
 	}
 	path := localImagePath(ref)
@@ -130,10 +130,19 @@ func imageAttachment(ref string) (msg.Attachment, error) {
 		return msg.Attachment{}, fmt.Errorf("empty image ref")
 	}
 	if imageURL(ref) {
+		u, _ := url.Parse(ref)
+		mt := mimeByExt(u.Path)
+		if mt == "" {
+			return msg.Attachment{}, fmt.Errorf("unsupported image type: %s", ref)
+		}
+		name := filepath.Base(u.Path)
+		if name == "." || name == "/" || name == "" {
+			name = "image"
+		}
 		return msg.Attachment{
 			Kind: "image",
-			Name: filepath.Base(ref),
-			MIME: mimeByExt(ref),
+			Name: name,
+			MIME: mt,
 			URL:  ref,
 		}, nil
 	}
@@ -199,6 +208,17 @@ func imageURL(ref string) bool {
 		return false
 	}
 	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+func imageHTTPURL(ref string) bool {
+	if !imageURL(ref) {
+		return false
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		return false
+	}
+	return mimeByExt(u.Path) != ""
 }
 
 func imageMIME(path string, data []byte) string {
