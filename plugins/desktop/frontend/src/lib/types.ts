@@ -250,6 +250,7 @@ export interface PersonaItem {
   model?: string;
   description?: string;
   tools?: string[];
+  capabilities?: string[];
   show_in_sidebar: boolean;
 }
 

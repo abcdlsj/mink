@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ClipboardList } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AgentDMItem, ChannelItem, DirectChatItem, TaskStateCard } from "@/lib/types";
+import type { AgentDMItem, ChannelItem, DirectChatItem, PersonaItem, TaskStateCard } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { cn, relTime } from "@/lib/utils";
 
@@ -131,6 +131,7 @@ function TaskBoardCard({
   onChanged: () => Promise<void>;
 }) {
   const agents = useStore((s) => s.agents);
+  const personas = useStore((s) => s.personas);
   const openChannel = useStore((s) => s.openChannel);
   const openThread = useStore((s) => s.openThread);
   const openDirectChat = useStore((s) => s.openDirectChat);
@@ -138,7 +139,10 @@ function TaskBoardCard({
   const expandTaskInRail = useStore((s) => s.expandTaskInRail);
   const openCurrentRoute = useStore((s) => s.openCurrentRoute);
   const [updating, setUpdating] = useState("");
+  const [assigning, setAssigning] = useState(false);
   const assignee = agents.find((a) => a.id === task.worker_id)?.display || task.worker_id || "agent";
+  const assignedBy = agents.find((a) => a.id === task.assigned_by)?.display || task.assigned_by || task.created_by || "user";
+  const executors = personas.filter(canExecuteTask);
   const source = taskSourceLabel(task, channels, directChats, agentDMs);
 
   const openOrigin = async () => {
@@ -164,6 +168,23 @@ function TaskBoardCard({
     }
   };
 
+  const assignTo = async (personaID: string) => {
+    if (!personaID || personaID === (task.assignee_id || task.worker_id)) return;
+    setAssigning(true);
+    try {
+      await api.assignTask({
+        task_id: task.id,
+        assignee_id: personaID,
+        assigned_by: "user",
+        expected_outcome: task.expected_outcome,
+        acceptance_criteria: task.acceptance_criteria,
+      });
+      await Promise.all([onChanged(), openCurrentRoute()]);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
   return (
     <article
       role="button"
@@ -182,10 +203,36 @@ function TaskBoardCard({
         {task.title || "Untitled task"}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-text-faint">
-        <span className="truncate">@{assignee}</span>
+        <span className="truncate">to @{assignee}</span>
         <span className="shrink-0 font-mono">{relTime(task.updated_at)}</span>
       </div>
+      <div className="mt-1 truncate text-[11px] text-text-muted">by @{assignedBy}</div>
       <div className="mt-1 truncate text-[11px] text-text-muted">{source}</div>
+      {task.acceptance_criteria && (
+        <div className="mt-2 line-clamp-2 border-l-2 border-border pl-2 text-[11.5px] leading-snug text-text-muted">
+          {task.acceptance_criteria}
+        </div>
+      )}
+      {executors.length > 0 && (
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <select
+            value={task.assignee_id || task.worker_id || ""}
+            disabled={assigning}
+            onChange={(e) => void assignTo(e.target.value)}
+            className={cn(
+              "w-full border border-border bg-panel-2 px-2 py-1 font-mono text-[11px] text-text-muted outline-none hover:text-text focus:border-text-faint",
+              assigning && "opacity-50",
+            )}
+          >
+            <option value="">Assign to agent...</option>
+            {executors.map((p) => (
+              <option key={p.id} value={p.id}>
+                @{p.display || p.id}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div className="mt-2 flex flex-wrap gap-1.5">
         {column === "todo" && (
           <TaskAction label="Start" busy={updating === "doing"} onClick={(e) => void updateStatus("doing", e)} />
@@ -202,6 +249,17 @@ function TaskBoardCard({
       </div>
     </article>
   );
+}
+
+function canExecuteTask(p: PersonaItem): boolean {
+  return (p.capabilities || []).some((cap) => normalizeCapability(cap) === "task.execute");
+}
+
+function normalizeCapability(cap: string): string {
+  const c = cap.trim().toLowerCase().replaceAll("_", ".").replaceAll(":", ".");
+  if (c === "execute" || c === "exec") return "task.execute";
+  if (c === "assign") return "task.assign";
+  return c;
 }
 
 function TaskAction({
