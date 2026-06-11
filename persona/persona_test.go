@@ -17,7 +17,14 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	}
 
 	show := false
-	p, err := r.Create("Debug", Meta{Display: "Debug", Runtime: "claude", Model: "sonnet", Description: "bug hunter", ShowInSidebar: &show}, "# Debug\nkeep calm")
+	p, err := r.Create("Debug", Meta{
+		Display:       "Debug",
+		Runtime:       "claude",
+		Model:         "sonnet",
+		Description:   "bug hunter",
+		Capabilities:  []string{"assign", "task.execute", "task_assign", "TASK.REVIEW", "task.execute"},
+		ShowInSidebar: &show,
+	}, "# Debug\nkeep calm")
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -32,6 +39,15 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	}
 	if p.ShowInSidebar {
 		t.Fatal("show_in_sidebar should be false")
+	}
+	if got, want := p.Capabilities, []string{"task.assign", "task.execute", "task.review"}; len(got) != len(want) {
+		t.Fatalf("capabilities = %#v, want %#v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("capabilities = %#v, want %#v", got, want)
+			}
+		}
 	}
 	if p.SoulPath == "" {
 		t.Fatal("soul path should be set")
@@ -55,8 +71,8 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	if got.Description != "bug hunter" {
 		t.Fatalf("description = %q", got.Description)
 	}
-	if got.Model != "sonnet" || got.ShowInSidebar {
-		t.Fatalf("meta not preserved: model=%q show=%v", got.Model, got.ShowInSidebar)
+	if got.Model != "sonnet" || got.ShowInSidebar || !got.HasCapability("execute") || !got.HasCapability("task.review") {
+		t.Fatalf("meta not preserved: model=%q show=%v caps=%#v", got.Model, got.ShowInSidebar, got.Capabilities)
 	}
 }
 

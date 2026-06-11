@@ -40,18 +40,23 @@ func (t listTool) Run(ctx context.Context, _ json.RawMessage) (string, error) {
 		if rt == "" {
 			rt = "(default)"
 		}
-		fmt.Fprintf(&b, "- %s [%s] %s\n", p.ID, rt, p.Description)
+		caps := strings.Join(p.Capabilities, ",")
+		if caps == "" {
+			caps = "-"
+		}
+		fmt.Fprintf(&b, "- %s [%s] caps=%s %s\n", p.ID, rt, caps, p.Description)
 	}
 	return strings.TrimRight(b.String(), "\n"), nil
 }
 
 type createArgs struct {
-	ID          string   `json:"id"`
-	Display     string   `json:"display"`
-	Runtime     string   `json:"runtime"`
-	Description string   `json:"description"`
-	Tools       []string `json:"tools"`
-	Soul        string   `json:"soul"`
+	ID           string   `json:"id"`
+	Display      string   `json:"display"`
+	Runtime      string   `json:"runtime"`
+	Description  string   `json:"description"`
+	Tools        []string `json:"tools"`
+	Capabilities []string `json:"capabilities"`
+	Soul         string   `json:"soul"`
 }
 
 type createTool struct{ a *app.App }
@@ -67,6 +72,7 @@ func (t createTool) Schema() map[string]any {
 		tool.Prop("runtime", "string", "Runtime name (claude/codex/native/...)"),
 		tool.Prop("description", "string", "Role description"),
 		tool.StringArrayProp("tools", "Optional tool allowlist"),
+		tool.StringArrayProp("capabilities", "Optional capability list, e.g. task.assign or task.execute"),
 		tool.Prop("soul", "string", "SOUL.md content (persona prompt)"),
 		tool.Required("id"),
 	)
@@ -81,10 +87,11 @@ func (t createTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 		return "", fmt.Errorf("id is required")
 	}
 	p, err := t.a.Personas().Create(in.ID, corepersona.Meta{
-		Display:     in.Display,
-		Runtime:     in.Runtime,
-		Description: in.Description,
-		Tools:       in.Tools,
+		Display:      in.Display,
+		Runtime:      in.Runtime,
+		Description:  in.Description,
+		Tools:        in.Tools,
+		Capabilities: in.Capabilities,
 	}, in.Soul)
 	if err != nil {
 		return "", err

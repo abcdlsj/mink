@@ -37,6 +37,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.base())
 	p.Add(b.persona())
 	p.Add(b.collaboration())
+	p.Add(b.taskDelegation())
 	p.Add(b.context())
 	p.Add(b.skills())
 	p.Add(b.preferences())
@@ -88,6 +89,69 @@ func (b promptBuilder) collaboration() string {
 		"Collaboration brief:",
 		strings.TrimSpace(b.turn.CollaborationBrief),
 	}, "\n")
+}
+
+func (b promptBuilder) taskDelegation() string {
+	if b.env == nil || b.env.Persona == nil {
+		return ""
+	}
+	caps := taskCapabilities(b.env.Persona.Capabilities)
+	if len(caps) == 0 {
+		return strings.Join([]string{
+			"Task delegation protocol:",
+			"- This persona has no task.* capabilities.",
+			"- Do not create, assign, execute, or review Task Board items.",
+			"- If work should become a task, propose the task shape and ask a capable agent or human to create it.",
+		}, "\n")
+	}
+	return strings.Join([]string{
+		"Task delegation protocol:",
+		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
+		"- task.plan may break work into explicit candidate tasks, but discussion or brainstorming is not a task by itself.",
+		"- task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
+		"- If outcome, assignee, acceptance criteria, or source is missing, ask a focused question or propose a candidate instead of creating a task.",
+		"- task.execute agents may accept assigned work and move it to in_progress, then in_review when ready.",
+		"- task.review agents may mark reviewed work done or closed; executors should not self-done their own work.",
+		"- If you lack a required task capability, only suggest the action or mention an agent that has it.",
+	}, "\n")
+}
+
+func taskCapabilities(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = normalizeTaskCapability(v)
+		switch v {
+		case "task.plan", "task.create", "task.assign", "task.execute", "task.review":
+		default:
+			continue
+		}
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func normalizeTaskCapability(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "_", ".")
+	s = strings.ReplaceAll(s, ":", ".")
+	switch s {
+	case "plan":
+		return "task.plan"
+	case "create":
+		return "task.create"
+	case "assign":
+		return "task.assign"
+	case "execute", "exec":
+		return "task.execute"
+	case "review":
+		return "task.review"
+	default:
+		return s
+	}
 }
 
 func blankString(s, fallback string) string {

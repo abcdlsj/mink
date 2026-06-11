@@ -243,6 +243,16 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		IncludeHistory:        true,
 		DisableExternalResume: true,
 	}
+	ctx = command.WithSource(ctx, originSource)
+	ctx = command.WithPersona(ctx, persona.ID)
+	if parentMessageID != "" {
+		ctx = command.WithParentMessage(ctx, parentMessageID)
+	}
+	ctx = command.WithRunContext(ctx, inputFlow{
+		app:       a,
+		source:    originSource,
+		personaID: persona.ID,
+	}.runContextWithSession(ctx, sessionSource))
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnStarted,
 		Source:          s.Source,

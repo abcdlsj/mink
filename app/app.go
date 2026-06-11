@@ -82,6 +82,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	skill.RegisterTools(a.tools, a.skills, a.auditSkill)
+	a.registerTaskTools()
 	a.provider, err = newProvider(cfg)
 	if err != nil {
 		return nil, err

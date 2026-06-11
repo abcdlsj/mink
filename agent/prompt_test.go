@@ -131,6 +131,40 @@ func TestBuildSystemPromptAddsCollaborationBriefOnlyWhenProvided(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
+	out := BuildSystemPrompt(&RuntimeEnv{
+		Persona: &Persona{
+			ID:           "planner",
+			Display:      "Planner",
+			Capabilities: []string{"task.assign", "task.execute"},
+		},
+	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	for _, want := range []string{
+		"Task delegation protocol:",
+		"Current task capabilities: task.assign, task.execute.",
+		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
+		"If outcome, assignee, acceptance criteria, or source is missing",
+		"executors should not self-done their own work",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+
+	noCaps := BuildSystemPrompt(&RuntimeEnv{
+		Persona: &Persona{ID: "viewer", Display: "Viewer"},
+	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	for _, want := range []string{
+		"This persona has no task.* capabilities.",
+		"Do not create, assign, execute, or review Task Board items.",
+		"propose the task shape",
+	} {
+		if !strings.Contains(noCaps, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, noCaps)
+		}
+	}
+}
+
 func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	env := &RuntimeEnv{Prompt: "项目约束"}
 	turn := &Turn{

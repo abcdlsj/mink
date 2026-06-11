@@ -55,10 +55,11 @@ func (a *App) runtimeEnvFor(p *persona.Persona) *agent.RuntimeEnv {
 	env := a.runtimeEnv()
 	if p != nil {
 		env.Persona = &agent.Persona{
-			ID:          p.ID,
-			Display:     p.Display,
-			Description: p.Description,
-			SoulPath:    p.SoulPath,
+			ID:           p.ID,
+			Display:      p.Display,
+			Description:  p.Description,
+			Capabilities: append([]string(nil), p.Capabilities...),
+			SoulPath:     p.SoulPath,
 		}
 	}
 	return env

@@ -1462,6 +1462,7 @@ func (b *Backend) ListPersonas() []PersonaItem {
 			Model:         p.Model,
 			Description:   p.Description,
 			Tools:         p.Tools,
+			Capabilities:  p.Capabilities,
 			ShowInSidebar: p.ShowInSidebar,
 		})
 	}

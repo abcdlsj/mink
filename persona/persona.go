@@ -18,6 +18,7 @@ type Persona struct {
 	Model         string
 	Description   string
 	Tools         []string
+	Capabilities  []string
 	ShowInSidebar bool
 	SoulPath      string
 	Root          string
@@ -29,6 +30,7 @@ type Meta struct {
 	Model         string   `toml:"model"`
 	Description   string   `toml:"description"`
 	Tools         []string `toml:"tools"`
+	Capabilities  []string `toml:"capabilities"`
 	ShowInSidebar *bool    `toml:"show_in_sidebar"`
 }
 
@@ -146,6 +148,7 @@ func loadDir(root, id string) (*Persona, error) {
 		Model:         strings.TrimSpace(m.Model),
 		Description:   strings.TrimSpace(m.Description),
 		Tools:         cloneStrings(m.Tools),
+		Capabilities:  NormalizeCapabilities(m.Capabilities),
 		ShowInSidebar: true,
 		Root:          dir,
 	}
@@ -193,6 +196,53 @@ func cloneStrings(in []string) []string {
 	out := make([]string, len(in))
 	copy(out, in)
 	return out
+}
+
+func NormalizeCapabilities(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = NormalizeCapability(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
+func NormalizeCapability(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "_", ".")
+	s = strings.ReplaceAll(s, ":", ".")
+	switch s {
+	case "plan":
+		return "task.plan"
+	case "create":
+		return "task.create"
+	case "assign":
+		return "task.assign"
+	case "execute", "exec":
+		return "task.execute"
+	case "review":
+		return "task.review"
+	default:
+		return s
+	}
+}
+
+func (p *Persona) HasCapability(cap string) bool {
+	want := NormalizeCapability(cap)
+	if p == nil || want == "" {
+		return false
+	}
+	for _, got := range p.Capabilities {
+		if NormalizeCapability(got) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func blank(s, fallback string) string {

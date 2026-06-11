@@ -38,10 +38,11 @@ type RuntimeEnv struct {
 }
 
 type Persona struct {
-	ID          string
-	Display     string
-	Description string
-	SoulPath    string
+	ID           string
+	Display      string
+	Description  string
+	Capabilities []string
+	SoulPath     string
 }
 
 type Turn struct {
