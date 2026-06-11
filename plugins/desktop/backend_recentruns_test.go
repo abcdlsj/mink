@@ -147,6 +147,39 @@ func TestCapabilitiesDefaultTaskStatesAreActiveOnly(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesIncludesAssignedTaskWithoutRuntimeState(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID:            sp.ID,
+		TriggerMessageID:   "msg-1",
+		InitiatorID:        "user",
+		CreatedBy:          "pmo",
+		WorkerID:           "dev",
+		AssignedBy:         "cto",
+		Title:              "assigned task",
+		ExpectedOutcome:    "patch",
+		AcceptanceCriteria: "tests pass",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.Capabilities()
+	if len(got.Tasks) != 1 || got.Tasks[0].ID != tk.ID {
+		t.Fatalf("capability tasks = %#v, want assigned task", got.Tasks)
+	}
+	if got.Tasks[0].CreatedBy != "pmo" || got.Tasks[0].Assignee != "dev" || got.Tasks[0].AssignedBy != "cto" {
+		t.Fatalf("task delegation = %#v", got.Tasks[0])
+	}
+	if got.Tasks[0].ExpectedOutcome != "patch" || got.Tasks[0].AcceptanceCriteria != "tests pass" {
+		t.Fatalf("task quality = %#v", got.Tasks[0])
+	}
+}
+
 func TestUpdateTaskStatusMapsKanbanActions(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
@@ -181,6 +214,60 @@ func TestUpdateTaskStatusMapsKanbanActions(t *testing.T) {
 	}
 	if done.Status != "finished" || done.Lifecycle != "archived" {
 		t.Fatalf("done run = %#v", done)
+	}
+}
+
+func TestCreateAndAssignTaskExposeDelegationMetadata(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "ship this", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := b.CreateTask(CreateTaskRequest{
+		SpaceID:            sp.ID,
+		SourceMessageID:    msg.ID,
+		SourceThreadID:     msg.ID,
+		CreatedBy:          "cto",
+		Assignee:           "dev",
+		AssignedBy:         "pmo",
+		Title:              "implement delegation",
+		Outcome:            "DEV ships the patch",
+		AcceptanceCriteria: "green tests and visible assignee",
+		Source:             "desktop:test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.CreatedBy != "cto" || created.Assignee != "dev" || created.AssigneeID != "dev" || created.AssignedBy != "pmo" {
+		t.Fatalf("created delegation = %#v", created)
+	}
+	if created.ExpectedOutcome != "DEV ships the patch" || created.AcceptanceCriteria != "green tests and visible assignee" {
+		t.Fatalf("created quality = %#v", created)
+	}
+	if created.TriggerMessageID != msg.ID || created.SourceThreadID != msg.ID || created.ParentMessageID != msg.ID {
+		t.Fatalf("created source = %#v", created)
+	}
+
+	assigned, err := b.AssignTask(AssignTaskRequest{
+		TaskID:             created.ID,
+		AssigneeID:         "reviewer",
+		AssignedBy:         "cto",
+		ExpectedOutcome:    "review the implementation",
+		AcceptanceCriteria: "review complete",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assigned.Assignee != "reviewer" || assigned.WorkerID != "reviewer" || assigned.AssignedBy != "cto" {
+		t.Fatalf("assigned delegation = %#v", assigned)
+	}
+	if assigned.ExpectedOutcome != "review the implementation" || assigned.AcceptanceCriteria != "review complete" {
+		t.Fatalf("assigned quality = %#v", assigned)
 	}
 }
 

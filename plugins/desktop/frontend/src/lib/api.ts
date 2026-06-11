@@ -16,6 +16,7 @@ import type {
   ThreadDetail,
   ThreadItem,
   ThreadSummary,
+  TaskStateCard,
   ToolItem,
   WorkspaceState,
 } from "./types";
@@ -112,6 +113,45 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_id: taskID, status }),
+      }),
+    ),
+  createTask: (input: {
+    space_id: string;
+    source_message?: string;
+    source_message_id?: string;
+    source_thread?: string;
+    source_thread_id?: string;
+    created_by?: string;
+    assignee_id?: string;
+    assignee?: string;
+    assigned_by?: string;
+    title: string;
+    outcome?: string;
+    expected_outcome?: string;
+    acceptance_criteria?: string;
+    source?: string;
+  }) =>
+    j<TaskStateCard>(
+      fetch("/api/task/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    ),
+  assignTask: (input: {
+    task_id: string;
+    assignee_id?: string;
+    assignee?: string;
+    assigned_by?: string;
+    outcome?: string;
+    expected_outcome?: string;
+    acceptance_criteria?: string;
+  }) =>
+    j<TaskStateCard>(
+      fetch("/api/task/assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       }),
     ),
   threadsForSpace: (spaceId: string) =>

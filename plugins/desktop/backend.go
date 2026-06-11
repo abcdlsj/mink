@@ -1083,15 +1083,20 @@ func (b *Backend) spaceRecentRuns(sp *space.Space) ([]AgentRun, int) {
 func agentRunFromTask(tk *taskpkg.Task, sp *space.Space) AgentRun {
 	parentID := taskParentMessageID(tk, sp)
 	return AgentRun{
-		ID:               tk.ID,
-		AgentID:          tk.WorkerID,
-		Title:            tk.Title,
-		Status:           taskStatusForUI(tk.Status),
-		Lifecycle:        string(tk.Status.Lifecycle()),
-		SpaceID:          tk.SpaceID,
-		TriggerMessageID: tk.TriggerMessageID,
-		ParentMessageID:  parentID,
-		Time:             tk.UpdatedAt,
+		ID:                 tk.ID,
+		AgentID:            tk.WorkerID,
+		Title:              tk.Title,
+		Status:             taskStatusForUI(tk.Status),
+		Lifecycle:          string(tk.Status.Lifecycle()),
+		CreatedBy:          taskCreatedBy(tk),
+		AssignedBy:         tk.AssignedBy,
+		SpaceID:            tk.SpaceID,
+		ThreadID:           tk.SourceThreadID,
+		TriggerMessageID:   tk.TriggerMessageID,
+		ParentMessageID:    parentID,
+		ExpectedOutcome:    tk.ExpectedOutcome,
+		AcceptanceCriteria: tk.AcceptanceCriteria,
+		Time:               tk.UpdatedAt,
 	}
 }
 
@@ -1130,19 +1135,23 @@ type RunStep struct {
 }
 
 type RunDetail struct {
-	TaskID           string        `json:"task_id"`
-	SpaceID          string        `json:"space_id"`
-	WorkerID         string        `json:"worker_id"`
-	WorkerName       string        `json:"worker_name,omitempty"`
-	Title            string        `json:"title"`
-	Status           string        `json:"status"`
-	Outcome          string        `json:"outcome,omitempty"`
-	ResultMessageID  string        `json:"result_message_id,omitempty"`
-	TriggerMessageID string        `json:"trigger_message_id,omitempty"`
-	CreatedAt        time.Time     `json:"created_at"`
-	UpdatedAt        time.Time     `json:"updated_at"`
-	KeySteps         []RunStep     `json:"key_steps,omitempty"`
-	State            TaskStateView `json:"state,omitempty"`
+	TaskID             string        `json:"task_id"`
+	SpaceID            string        `json:"space_id"`
+	WorkerID           string        `json:"worker_id"`
+	WorkerName         string        `json:"worker_name,omitempty"`
+	CreatedBy          string        `json:"created_by,omitempty"`
+	AssignedBy         string        `json:"assigned_by,omitempty"`
+	Title              string        `json:"title"`
+	Status             string        `json:"status"`
+	ExpectedOutcome    string        `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string        `json:"acceptance_criteria,omitempty"`
+	Outcome            string        `json:"outcome,omitempty"`
+	ResultMessageID    string        `json:"result_message_id,omitempty"`
+	TriggerMessageID   string        `json:"trigger_message_id,omitempty"`
+	CreatedAt          time.Time     `json:"created_at"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+	KeySteps           []RunStep     `json:"key_steps,omitempty"`
+	State              TaskStateView `json:"state,omitempty"`
 }
 
 func (b *Backend) GetRunDetail(taskID string) RunDetail {
@@ -1154,18 +1163,22 @@ func (b *Backend) GetRunDetail(taskID string) RunDetail {
 		return RunDetail{}
 	}
 	detail := RunDetail{
-		TaskID:           tk.ID,
-		SpaceID:          tk.SpaceID,
-		WorkerID:         tk.WorkerID,
-		WorkerName:       resolveWorkerDisplay(tk.WorkerID, b.app),
-		Title:            tk.Title,
-		Status:           taskStatusForUI(tk.Status),
-		Outcome:          tk.Outcome,
-		ResultMessageID:  tk.ResultMessageID,
-		TriggerMessageID: tk.TriggerMessageID,
-		CreatedAt:        tk.CreatedAt,
-		UpdatedAt:        tk.UpdatedAt,
-		State:            taskStateView(tk.State),
+		TaskID:             tk.ID,
+		SpaceID:            tk.SpaceID,
+		WorkerID:           tk.WorkerID,
+		WorkerName:         resolveWorkerDisplay(tk.WorkerID, b.app),
+		CreatedBy:          taskCreatedBy(tk),
+		AssignedBy:         tk.AssignedBy,
+		Title:              tk.Title,
+		Status:             taskStatusForUI(tk.Status),
+		ExpectedOutcome:    tk.ExpectedOutcome,
+		AcceptanceCriteria: tk.AcceptanceCriteria,
+		Outcome:            tk.Outcome,
+		ResultMessageID:    tk.ResultMessageID,
+		TriggerMessageID:   tk.TriggerMessageID,
+		CreatedAt:          tk.CreatedAt,
+		UpdatedAt:          tk.UpdatedAt,
+		State:              taskStateView(tk.State),
 	}
 	runs, err := b.app.Tasks().ListRuns(tk.ID)
 	if err != nil {
@@ -1513,6 +1526,125 @@ func (b *Backend) UpdateTaskStatus(taskID, status string) (AgentRun, error) {
 	return agentRunFromTask(tk, sp), nil
 }
 
+type CreateTaskRequest struct {
+	SpaceID            string `json:"space_id"`
+	SourceMessage      string `json:"source_message"`
+	SourceMessageID    string `json:"source_message_id"`
+	SourceThread       string `json:"source_thread"`
+	SourceThreadID     string `json:"source_thread_id"`
+	CreatedBy          string `json:"created_by"`
+	AssigneeID         string `json:"assignee_id"`
+	Assignee           string `json:"assignee"`
+	AssignedBy         string `json:"assigned_by"`
+	Title              string `json:"title"`
+	Outcome            string `json:"outcome"`
+	ExpectedOutcome    string `json:"expected_outcome"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
+	Source             string `json:"source"`
+}
+
+type AssignTaskRequest struct {
+	TaskID             string `json:"task_id"`
+	AssigneeID         string `json:"assignee_id"`
+	Assignee           string `json:"assignee"`
+	AssignedBy         string `json:"assigned_by"`
+	Outcome            string `json:"outcome"`
+	ExpectedOutcome    string `json:"expected_outcome"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
+}
+
+func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
+	if b.app.Tasks() == nil {
+		return TaskStateCard{}, fmt.Errorf("tasks not available")
+	}
+	assignee := firstNonEmpty(in.AssigneeID, in.Assignee)
+	createdBy := firstNonEmpty(in.CreatedBy, b.defaultActorID())
+	assignedBy := firstNonEmpty(in.AssignedBy, createdBy)
+	expected := firstNonEmpty(in.ExpectedOutcome, in.Outcome)
+	sourceMessageID := firstNonEmpty(in.SourceMessageID, in.SourceMessage)
+	sourceThreadID := firstNonEmpty(in.SourceThreadID, in.SourceThread)
+	tk, err := b.app.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID:            in.SpaceID,
+		TriggerMessageID:   sourceMessageID,
+		SourceThreadID:     sourceThreadID,
+		InitiatorID:        createdBy,
+		CreatedBy:          createdBy,
+		WorkerID:           assignee,
+		AssignedBy:         assignedBy,
+		Title:              in.Title,
+		ExpectedOutcome:    expected,
+		AcceptanceCriteria: in.AcceptanceCriteria,
+		Source:             firstNonEmpty(in.Source, desktopSource),
+	})
+	if err != nil {
+		return TaskStateCard{}, err
+	}
+	return b.taskCardFromTask(tk), nil
+}
+
+func (b *Backend) AssignTask(in AssignTaskRequest) (TaskStateCard, error) {
+	if b.app.Tasks() == nil {
+		return TaskStateCard{}, fmt.Errorf("tasks not available")
+	}
+	assignee := firstNonEmpty(in.AssigneeID, in.Assignee)
+	assignedBy := firstNonEmpty(in.AssignedBy, b.defaultActorID())
+	expected := firstNonEmpty(in.ExpectedOutcome, in.Outcome)
+	tk, err := b.app.Tasks().Update(strings.TrimSpace(in.TaskID), taskpkg.UpdateTaskInput{
+		WorkerID:           assignee,
+		AssignedBy:         assignedBy,
+		ExpectedOutcome:    expected,
+		AcceptanceCriteria: in.AcceptanceCriteria,
+	})
+	if err != nil {
+		return TaskStateCard{}, err
+	}
+	return b.taskCardFromTask(tk), nil
+}
+
+func (b *Backend) taskCardFromTask(tk *taskpkg.Task) TaskStateCard {
+	if tk == nil {
+		return TaskStateCard{}
+	}
+	parentID := ""
+	if b.app.Spaces() != nil && tk != nil {
+		if sp, err := b.app.Spaces().LoadSpace(tk.SpaceID); err == nil {
+			parentID = taskParentMessageID(tk, sp)
+		}
+	}
+	return taskStateCard(app.TaskStateSummary{
+		ID:                 tk.ID,
+		Title:              tk.Title,
+		Status:             string(tk.Status),
+		Lifecycle:          string(tk.Status.Lifecycle()),
+		CreatedBy:          taskCreatedBy(tk),
+		WorkerID:           tk.WorkerID,
+		AssigneeID:         tk.WorkerID,
+		Assignee:           tk.WorkerID,
+		AssignedBy:         tk.AssignedBy,
+		SpaceID:            tk.SpaceID,
+		Source:             tk.Source,
+		SourceMessageID:    tk.TriggerMessageID,
+		SourceThreadID:     tk.SourceThreadID,
+		SourceThread:       tk.SourceThreadID,
+		TriggerMessageID:   tk.TriggerMessageID,
+		ParentMessageID:    parentID,
+		UpdatedAt:          tk.UpdatedAt,
+		ExpectedOutcome:    tk.ExpectedOutcome,
+		AcceptanceCriteria: tk.AcceptanceCriteria,
+		Outcome:            tk.Outcome,
+		State:              tk.State,
+	})
+}
+
+func (b *Backend) defaultActorID() string {
+	if b.app != nil && b.app.Spaces() != nil {
+		if id := strings.TrimSpace(b.app.Spaces().UserParticipant().ID); id != "" {
+			return id
+		}
+	}
+	return "user"
+}
+
 func kanbanTaskStatus(status string) (taskpkg.Status, error) {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "todo", "queued":
@@ -1595,25 +1727,38 @@ func skillEnvNeedViews(in []app.SkillEnvNeed) []SkillEnvNeed {
 func taskStateCards(in []app.TaskStateSummary) []TaskStateCard {
 	out := make([]TaskStateCard, 0, len(in))
 	for _, t := range in {
-		out = append(out, TaskStateCard{
-			ID:               t.ID,
-			Title:            t.Title,
-			Status:           t.Status,
-			Lifecycle:        t.Lifecycle,
-			WorkerID:         t.WorkerID,
-			SpaceID:          t.SpaceID,
-			Source:           t.Source,
-			TriggerMessageID: t.TriggerMessageID,
-			ParentMessageID:  t.ParentMessageID,
-			UpdatedAt:        t.UpdatedAt,
-			Outcome:          t.Outcome,
-			State:            taskStateView(t.State),
-			LatestRun:        t.LatestRun,
-			RunStatus:        t.RunStatus,
-			RunStarted:       t.RunStarted,
-		})
+		out = append(out, taskStateCard(t))
 	}
 	return out
+}
+
+func taskStateCard(t app.TaskStateSummary) TaskStateCard {
+	return TaskStateCard{
+		ID:                 t.ID,
+		Title:              t.Title,
+		Status:             t.Status,
+		Lifecycle:          t.Lifecycle,
+		CreatedBy:          t.CreatedBy,
+		WorkerID:           t.WorkerID,
+		AssigneeID:         firstNonEmpty(t.AssigneeID, t.WorkerID),
+		Assignee:           firstNonEmpty(t.Assignee, t.AssigneeID, t.WorkerID),
+		AssignedBy:         t.AssignedBy,
+		SpaceID:            t.SpaceID,
+		Source:             t.Source,
+		SourceMessageID:    t.SourceMessageID,
+		SourceThreadID:     t.SourceThreadID,
+		SourceThread:       t.SourceThread,
+		TriggerMessageID:   t.TriggerMessageID,
+		ParentMessageID:    t.ParentMessageID,
+		UpdatedAt:          t.UpdatedAt,
+		ExpectedOutcome:    t.ExpectedOutcome,
+		AcceptanceCriteria: t.AcceptanceCriteria,
+		Outcome:            t.Outcome,
+		State:              taskStateView(t.State),
+		LatestRun:          t.LatestRun,
+		RunStatus:          t.RunStatus,
+		RunStarted:         t.RunStarted,
+	}
 }
 
 func actionProposalCards(in []app.ActionProposalSummary) []ActionProposalCard {
@@ -1807,6 +1952,40 @@ func (b *Backend) APIHandler() http.Handler {
 			return
 		}
 		out, err := b.UpdateTaskStatus(in.TaskID, in.Status)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/task/create", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in CreateTaskRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.CreateTask(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/task/assign", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in AssignTaskRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.AssignTask(in)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
@@ -2151,4 +2330,20 @@ func fallback(s, def string) string {
 		return def
 	}
 	return s
+}
+
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+func taskCreatedBy(tk *taskpkg.Task) string {
+	if tk == nil {
+		return ""
+	}
+	return firstNonEmpty(tk.CreatedBy, tk.InitiatorID)
 }

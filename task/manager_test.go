@@ -124,6 +124,11 @@ func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	m := NewManager(newMemStore())
 	in := validInput()
 	in.State = TaskState{Goal: "ship it", Todo: []string{" inspect ", ""}, RelatedIDs: []string{" msg-1 "}}
+	in.CreatedBy = "pmo"
+	in.AssignedBy = "cto"
+	in.SourceThreadID = "thread-1"
+	in.ExpectedOutcome = "patch ready for review"
+	in.AcceptanceCriteria = "tests pass and task board shows assignee"
 	tk, err := m.Create(in)
 	if err != nil {
 		t.Fatal(err)
@@ -134,8 +139,21 @@ func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	if tk.State.Goal != "ship it" || len(tk.State.Todo) != 1 || tk.State.RelatedIDs[0] != "msg-1" {
 		t.Fatalf("state = %+v", tk.State)
 	}
+	if tk.CreatedBy != "pmo" || tk.AssignedBy != "cto" || tk.SourceThreadID != "thread-1" {
+		t.Fatalf("delegation fields = %+v", tk)
+	}
+	if tk.ExpectedOutcome != "patch ready for review" || tk.AcceptanceCriteria == "" {
+		t.Fatalf("quality fields = %+v", tk)
+	}
 	next := TaskState{Checkpoint: "running"}
-	if _, err := m.Update(tk.ID, UpdateTaskInput{Status: StatusRunning, State: &next}); err != nil {
+	if _, err := m.Update(tk.ID, UpdateTaskInput{
+		Status:             StatusRunning,
+		WorkerID:           "dev",
+		AssignedBy:         "pmo",
+		ExpectedOutcome:    "merged patch",
+		AcceptanceCriteria: "green tests",
+		State:              &next,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := m.Update(tk.ID, UpdateTaskInput{Status: StatusFinished, Outcome: "ok", ResultMessageID: "msg-99"}); err != nil {
@@ -148,8 +166,25 @@ func TestCreateThenUpdateRoundTrip(t *testing.T) {
 	if got.Status != StatusFinished || got.Outcome != "ok" || got.ResultMessageID != "msg-99" {
 		t.Fatalf("got = %+v", got)
 	}
+	if got.WorkerID != "dev" || got.AssignedBy != "pmo" {
+		t.Fatalf("assignment = %+v", got)
+	}
+	if got.ExpectedOutcome != "merged patch" || got.AcceptanceCriteria != "green tests" {
+		t.Fatalf("quality fields = %+v", got)
+	}
 	if got.State.Checkpoint != "running" {
 		t.Fatalf("state = %+v", got.State)
+	}
+}
+
+func TestCreateDefaultsDelegationActors(t *testing.T) {
+	m := NewManager(newMemStore())
+	tk, err := m.Create(validInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tk.CreatedBy != tk.InitiatorID || tk.AssignedBy != tk.InitiatorID {
+		t.Fatalf("defaults = created_by %q assigned_by %q initiator %q", tk.CreatedBy, tk.AssignedBy, tk.InitiatorID)
 	}
 }
 
@@ -189,6 +224,23 @@ func TestUpdateRejectsOversizedOutcome(t *testing.T) {
 	long := strings.Repeat("x", MaxOutcomeLen+1)
 	if _, err := m.Update(tk.ID, UpdateTaskInput{Outcome: long}); err != ErrOutcomeTooLong {
 		t.Fatalf("err = %v, want ErrOutcomeTooLong", err)
+	}
+}
+
+func TestRejectsOversizedExpectedOutcomeAndCriteria(t *testing.T) {
+	m := NewManager(newMemStore())
+	in := validInput()
+	in.ExpectedOutcome = strings.Repeat("x", MaxExpectedOutcomeLen+1)
+	if _, err := m.Create(in); err != ErrExpectedTooLong {
+		t.Fatalf("create expected err = %v, want ErrExpectedTooLong", err)
+	}
+	tk, err := m.Create(validInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	criteria := strings.Repeat("x", MaxAcceptanceCriteriaLen+1)
+	if _, err := m.Update(tk.ID, UpdateTaskInput{AcceptanceCriteria: criteria}); err != ErrCriteriaTooLong {
+		t.Fatalf("update criteria err = %v, want ErrCriteriaTooLong", err)
 	}
 }
 

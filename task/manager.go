@@ -45,29 +45,47 @@ func (m *Manager) publish(ev bus.Event) {
 }
 
 type CreateTaskInput struct {
-	SpaceID          string
-	TriggerMessageID string
-	InitiatorID      string
-	WorkerID         string
-	Title            string
-	Source           string
-	State            TaskState
+	SpaceID            string
+	TriggerMessageID   string
+	SourceThreadID     string
+	InitiatorID        string
+	CreatedBy          string
+	WorkerID           string
+	AssignedBy         string
+	Title              string
+	ExpectedOutcome    string
+	AcceptanceCriteria string
+	Source             string
+	State              TaskState
 }
 
 func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
 	now := time.Now()
+	createdBy := strings.TrimSpace(in.CreatedBy)
+	if createdBy == "" {
+		createdBy = strings.TrimSpace(in.InitiatorID)
+	}
+	assignedBy := strings.TrimSpace(in.AssignedBy)
+	if assignedBy == "" {
+		assignedBy = createdBy
+	}
 	t := &Task{
-		ID:               NewID(),
-		SpaceID:          in.SpaceID,
-		TriggerMessageID: in.TriggerMessageID,
-		InitiatorID:      in.InitiatorID,
-		WorkerID:         in.WorkerID,
-		Title:            strings.TrimSpace(in.Title),
-		Source:           in.Source,
-		State:            cleanState(in.State),
-		Status:           StatusQueued,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                 NewID(),
+		SpaceID:            strings.TrimSpace(in.SpaceID),
+		TriggerMessageID:   strings.TrimSpace(in.TriggerMessageID),
+		SourceThreadID:     strings.TrimSpace(in.SourceThreadID),
+		InitiatorID:        strings.TrimSpace(in.InitiatorID),
+		CreatedBy:          createdBy,
+		WorkerID:           strings.TrimSpace(in.WorkerID),
+		AssignedBy:         assignedBy,
+		Title:              strings.TrimSpace(in.Title),
+		ExpectedOutcome:    strings.TrimSpace(in.ExpectedOutcome),
+		AcceptanceCriteria: strings.TrimSpace(in.AcceptanceCriteria),
+		Source:             strings.TrimSpace(in.Source),
+		State:              cleanState(in.State),
+		Status:             StatusQueued,
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 	if err := ValidateTask(*t); err != nil {
 		return nil, err
@@ -91,10 +109,14 @@ func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
 }
 
 type UpdateTaskInput struct {
-	Status          Status
-	Outcome         string
-	ResultMessageID string
-	State           *TaskState
+	Status             Status
+	WorkerID           string
+	AssignedBy         string
+	ExpectedOutcome    string
+	AcceptanceCriteria string
+	Outcome            string
+	ResultMessageID    string
+	State              *TaskState
 }
 
 func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
@@ -111,6 +133,26 @@ func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	if in.Status != "" {
 		t.Status = in.Status
 	}
+	if strings.TrimSpace(in.WorkerID) != "" {
+		t.WorkerID = strings.TrimSpace(in.WorkerID)
+	}
+	if strings.TrimSpace(in.AssignedBy) != "" {
+		t.AssignedBy = strings.TrimSpace(in.AssignedBy)
+	}
+	if strings.TrimSpace(in.ExpectedOutcome) != "" {
+		if runeLen(in.ExpectedOutcome) > MaxExpectedOutcomeLen {
+			m.mu.Unlock()
+			return nil, ErrExpectedTooLong
+		}
+		t.ExpectedOutcome = strings.TrimSpace(in.ExpectedOutcome)
+	}
+	if strings.TrimSpace(in.AcceptanceCriteria) != "" {
+		if runeLen(in.AcceptanceCriteria) > MaxAcceptanceCriteriaLen {
+			m.mu.Unlock()
+			return nil, ErrCriteriaTooLong
+		}
+		t.AcceptanceCriteria = strings.TrimSpace(in.AcceptanceCriteria)
+	}
 	if in.Outcome != "" {
 		if runeLen(in.Outcome) > MaxOutcomeLen {
 			m.mu.Unlock()
@@ -123,6 +165,16 @@ func (m *Manager) Update(id string, in UpdateTaskInput) (*Task, error) {
 	}
 	if in.State != nil {
 		t.State = cleanState(*in.State)
+	}
+	if strings.TrimSpace(t.CreatedBy) == "" {
+		t.CreatedBy = strings.TrimSpace(t.InitiatorID)
+	}
+	if strings.TrimSpace(t.AssignedBy) == "" {
+		t.AssignedBy = strings.TrimSpace(t.CreatedBy)
+	}
+	if err := ValidateTask(*t); err != nil {
+		m.mu.Unlock()
+		return nil, err
 	}
 	t.UpdatedAt = time.Now()
 	if err := m.store.SaveTask(t); err != nil {

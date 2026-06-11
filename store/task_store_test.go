@@ -20,13 +20,18 @@ func newStoreFor(t *testing.T) *Store {
 func TestTaskStoreSaveLoadRoundTrip(t *testing.T) {
 	s := newStoreFor(t)
 	tk := &task.Task{
-		ID:               "task-abc",
-		SpaceID:          "space-1",
-		TriggerMessageID: "msg-1",
-		InitiatorID:      "user",
-		WorkerID:         "coder",
-		Title:            "audit retry policy",
-		Status:           task.StatusQueued,
+		ID:                 "task-abc",
+		SpaceID:            "space-1",
+		TriggerMessageID:   "msg-1",
+		SourceThreadID:     "thread-1",
+		InitiatorID:        "user",
+		CreatedBy:          "pmo",
+		WorkerID:           "coder",
+		AssignedBy:         "cto",
+		Title:              "audit retry policy",
+		ExpectedOutcome:    "patch",
+		AcceptanceCriteria: "tests pass",
+		Status:             task.StatusQueued,
 	}
 	if err := s.SaveTask(tk); err != nil {
 		t.Fatal(err)
@@ -37,6 +42,12 @@ func TestTaskStoreSaveLoadRoundTrip(t *testing.T) {
 	}
 	if got == nil || got.ID != "task-abc" || got.WorkerID != "coder" {
 		t.Fatalf("loaded = %+v", got)
+	}
+	if got.CreatedBy != "pmo" || got.AssignedBy != "cto" || got.SourceThreadID != "thread-1" {
+		t.Fatalf("delegation fields = %+v", got)
+	}
+	if got.ExpectedOutcome != "patch" || got.AcceptanceCriteria != "tests pass" {
+		t.Fatalf("quality fields = %+v", got)
 	}
 }
 

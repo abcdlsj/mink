@@ -102,11 +102,16 @@ func (a *App) enqueueChannelWake(originSource, spaceID string, target space.Rout
 	if triggerID == "" && target.Chain != nil {
 		triggerID = target.Chain.RootMessageID
 	}
+	parentMessageID := ""
+	if target.Chain != nil {
+		parentMessageID = target.Chain.ParentMessageID
+	}
 	taskID := ""
 	if a.tasks != nil {
 		tk, err := a.tasks.Create(taskpkg.CreateTaskInput{
 			SpaceID:          spaceID,
 			TriggerMessageID: triggerID,
+			SourceThreadID:   parentMessageID,
 			InitiatorID:      a.spaces.UserParticipant().ID,
 			WorkerID:         target.AgentID,
 			Title:            wakeTaskTitle(originUserContent),
@@ -115,10 +120,6 @@ func (a *App) enqueueChannelWake(originSource, spaceID string, target space.Rout
 		if err == nil && tk != nil {
 			taskID = tk.ID
 		}
-	}
-	parentMessageID := ""
-	if target.Chain != nil {
-		parentMessageID = target.Chain.ParentMessageID
 	}
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnQueued,

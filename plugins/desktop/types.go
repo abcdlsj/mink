@@ -219,17 +219,21 @@ type ParticipantsView struct {
 }
 
 type AgentRun struct {
-	ID               string    `json:"id"`
-	AgentID          string    `json:"agent_id"`
-	Title            string    `json:"title"`
-	Status           string    `json:"status"`
-	Lifecycle        string    `json:"lifecycle"`
-	SpaceID          string    `json:"space_id,omitempty"`
-	ThreadID         string    `json:"thread_id,omitempty"`
-	TriggerMessageID string    `json:"trigger_message_id,omitempty"`
-	ParentMessageID  string    `json:"parent_message_id,omitempty"`
-	Time             time.Time `json:"time"`
-	DurationMs       int64     `json:"duration_ms,omitempty"`
+	ID                 string    `json:"id"`
+	AgentID            string    `json:"agent_id"`
+	Title              string    `json:"title"`
+	Status             string    `json:"status"`
+	Lifecycle          string    `json:"lifecycle"`
+	CreatedBy          string    `json:"created_by,omitempty"`
+	AssignedBy         string    `json:"assigned_by,omitempty"`
+	SpaceID            string    `json:"space_id,omitempty"`
+	ThreadID           string    `json:"thread_id,omitempty"`
+	TriggerMessageID   string    `json:"trigger_message_id,omitempty"`
+	ParentMessageID    string    `json:"parent_message_id,omitempty"`
+	ExpectedOutcome    string    `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string    `json:"acceptance_criteria,omitempty"`
+	Time               time.Time `json:"time"`
+	DurationMs         int64     `json:"duration_ms,omitempty"`
 }
 
 type TaskStateView struct {
@@ -274,21 +278,30 @@ type SkillEnvNeed struct {
 }
 
 type TaskStateCard struct {
-	ID               string        `json:"id"`
-	Title            string        `json:"title"`
-	Status           string        `json:"status"`
-	Lifecycle        string        `json:"lifecycle"`
-	WorkerID         string        `json:"worker_id,omitempty"`
-	SpaceID          string        `json:"space_id,omitempty"`
-	Source           string        `json:"source,omitempty"`
-	TriggerMessageID string        `json:"trigger_message_id,omitempty"`
-	ParentMessageID  string        `json:"parent_message_id,omitempty"`
-	UpdatedAt        time.Time     `json:"updated_at"`
-	Outcome          string        `json:"outcome,omitempty"`
-	State            TaskStateView `json:"state,omitempty"`
-	LatestRun        string        `json:"latest_run,omitempty"`
-	RunStatus        string        `json:"run_status,omitempty"`
-	RunStarted       time.Time     `json:"run_started,omitempty"`
+	ID                 string        `json:"id"`
+	Title              string        `json:"title"`
+	Status             string        `json:"status"`
+	Lifecycle          string        `json:"lifecycle"`
+	CreatedBy          string        `json:"created_by,omitempty"`
+	WorkerID           string        `json:"worker_id,omitempty"`
+	AssigneeID         string        `json:"assignee_id,omitempty"`
+	Assignee           string        `json:"assignee,omitempty"`
+	AssignedBy         string        `json:"assigned_by,omitempty"`
+	SpaceID            string        `json:"space_id,omitempty"`
+	Source             string        `json:"source,omitempty"`
+	SourceMessageID    string        `json:"source_message,omitempty"`
+	SourceThreadID     string        `json:"source_thread_id,omitempty"`
+	SourceThread       string        `json:"source_thread,omitempty"`
+	TriggerMessageID   string        `json:"trigger_message_id,omitempty"`
+	ParentMessageID    string        `json:"parent_message_id,omitempty"`
+	UpdatedAt          time.Time     `json:"updated_at"`
+	ExpectedOutcome    string        `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string        `json:"acceptance_criteria,omitempty"`
+	Outcome            string        `json:"outcome,omitempty"`
+	State              TaskStateView `json:"state,omitempty"`
+	LatestRun          string        `json:"latest_run,omitempty"`
+	RunStatus          string        `json:"run_status,omitempty"`
+	RunStarted         time.Time     `json:"run_started,omitempty"`
 }
 
 type ActionProposalCard struct {

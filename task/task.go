@@ -56,25 +56,32 @@ const (
 )
 
 const (
-	MaxTitleLen   = 80
-	MaxOutcomeLen = 200
-	MaxKeySteps   = 8
+	MaxTitleLen              = 80
+	MaxOutcomeLen            = 200
+	MaxExpectedOutcomeLen    = 500
+	MaxAcceptanceCriteriaLen = 1200
+	MaxKeySteps              = 8
 )
 
 type Task struct {
-	ID               string    `json:"id"`
-	SpaceID          string    `json:"space_id"`
-	TriggerMessageID string    `json:"trigger_message_id"`
-	InitiatorID      string    `json:"initiator_id"`
-	WorkerID         string    `json:"worker_id"`
-	Title            string    `json:"title"`
-	Status           Status    `json:"status"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	ResultMessageID  string    `json:"result_message_id,omitempty"`
-	Outcome          string    `json:"outcome,omitempty"`
-	Source           string    `json:"source,omitempty"`
-	State            TaskState `json:"state,omitempty"`
+	ID                 string    `json:"id"`
+	SpaceID            string    `json:"space_id"`
+	TriggerMessageID   string    `json:"trigger_message_id"`
+	SourceThreadID     string    `json:"source_thread_id,omitempty"`
+	InitiatorID        string    `json:"initiator_id"`
+	CreatedBy          string    `json:"created_by,omitempty"`
+	WorkerID           string    `json:"worker_id"`
+	AssignedBy         string    `json:"assigned_by,omitempty"`
+	Title              string    `json:"title"`
+	ExpectedOutcome    string    `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string    `json:"acceptance_criteria,omitempty"`
+	Status             Status    `json:"status"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	ResultMessageID    string    `json:"result_message_id,omitempty"`
+	Outcome            string    `json:"outcome,omitempty"`
+	Source             string    `json:"source,omitempty"`
+	State              TaskState `json:"state,omitempty"`
 }
 
 type Run struct {

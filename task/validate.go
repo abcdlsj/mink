@@ -14,6 +14,8 @@ var (
 	ErrTitleRequired     = errors.New("task: title required")
 	ErrTitleTooLong      = errors.New("task: title exceeds limit")
 	ErrOutcomeTooLong    = errors.New("task: outcome exceeds limit")
+	ErrExpectedTooLong   = errors.New("task: expected_outcome exceeds limit")
+	ErrCriteriaTooLong   = errors.New("task: acceptance_criteria exceeds limit")
 	ErrKeyStepKind       = errors.New("task: key_step kind not allowed")
 	ErrKeyStepTitle      = errors.New("task: key_step title invalid")
 	ErrKeyStepOverflow   = errors.New("task: too many key_steps")
@@ -46,6 +48,12 @@ func ValidateTask(t Task) error {
 	}
 	if runeLen(strings.TrimSpace(t.Outcome)) > MaxOutcomeLen {
 		return ErrOutcomeTooLong
+	}
+	if runeLen(strings.TrimSpace(t.ExpectedOutcome)) > MaxExpectedOutcomeLen {
+		return ErrExpectedTooLong
+	}
+	if runeLen(strings.TrimSpace(t.AcceptanceCriteria)) > MaxAcceptanceCriteriaLen {
+		return ErrCriteriaTooLong
 	}
 	return nil
 }

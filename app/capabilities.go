@@ -49,21 +49,30 @@ type SkillDirectoryItem struct {
 }
 
 type TaskStateSummary struct {
-	ID               string         `json:"id"`
-	Title            string         `json:"title"`
-	Status           string         `json:"status"`
-	Lifecycle        string         `json:"lifecycle"`
-	WorkerID         string         `json:"worker_id,omitempty"`
-	SpaceID          string         `json:"space_id,omitempty"`
-	Source           string         `json:"source,omitempty"`
-	TriggerMessageID string         `json:"trigger_message_id,omitempty"`
-	ParentMessageID  string         `json:"parent_message_id,omitempty"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-	Outcome          string         `json:"outcome,omitempty"`
-	State            task.TaskState `json:"state,omitempty"`
-	LatestRun        string         `json:"latest_run,omitempty"`
-	RunStatus        string         `json:"run_status,omitempty"`
-	RunStarted       time.Time      `json:"run_started,omitempty"`
+	ID                 string         `json:"id"`
+	Title              string         `json:"title"`
+	Status             string         `json:"status"`
+	Lifecycle          string         `json:"lifecycle"`
+	CreatedBy          string         `json:"created_by,omitempty"`
+	WorkerID           string         `json:"worker_id,omitempty"`
+	AssigneeID         string         `json:"assignee_id,omitempty"`
+	Assignee           string         `json:"assignee,omitempty"`
+	AssignedBy         string         `json:"assigned_by,omitempty"`
+	SpaceID            string         `json:"space_id,omitempty"`
+	Source             string         `json:"source,omitempty"`
+	SourceMessageID    string         `json:"source_message,omitempty"`
+	SourceThreadID     string         `json:"source_thread_id,omitempty"`
+	SourceThread       string         `json:"source_thread,omitempty"`
+	TriggerMessageID   string         `json:"trigger_message_id,omitempty"`
+	ParentMessageID    string         `json:"parent_message_id,omitempty"`
+	UpdatedAt          time.Time      `json:"updated_at"`
+	ExpectedOutcome    string         `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string         `json:"acceptance_criteria,omitempty"`
+	Outcome            string         `json:"outcome,omitempty"`
+	State              task.TaskState `json:"state,omitempty"`
+	LatestRun          string         `json:"latest_run,omitempty"`
+	RunStatus          string         `json:"run_status,omitempty"`
+	RunStarted         time.Time      `json:"run_started,omitempty"`
 }
 
 type ActionProposalSummary struct {
@@ -217,22 +226,28 @@ func (a *App) RecentTaskStatesByLifecycle(limit int, lifecycle task.Lifecycle) [
 		if emptyTaskState(state) && latest != nil {
 			state = latest.State
 		}
-		if emptyTaskState(state) {
-			continue
-		}
 		item := TaskStateSummary{
-			ID:               tk.ID,
-			Title:            tk.Title,
-			Status:           string(tk.Status),
-			Lifecycle:        string(tk.Status.Lifecycle()),
-			WorkerID:         tk.WorkerID,
-			SpaceID:          tk.SpaceID,
-			Source:           tk.Source,
-			TriggerMessageID: tk.TriggerMessageID,
-			ParentMessageID:  a.taskParentMessageID(tk),
-			UpdatedAt:        tk.UpdatedAt,
-			Outcome:          tk.Outcome,
-			State:            state,
+			ID:                 tk.ID,
+			Title:              tk.Title,
+			Status:             string(tk.Status),
+			Lifecycle:          string(tk.Status.Lifecycle()),
+			CreatedBy:          taskCreatedBy(tk),
+			WorkerID:           tk.WorkerID,
+			AssigneeID:         tk.WorkerID,
+			Assignee:           tk.WorkerID,
+			AssignedBy:         tk.AssignedBy,
+			SpaceID:            tk.SpaceID,
+			Source:             tk.Source,
+			SourceMessageID:    tk.TriggerMessageID,
+			SourceThreadID:     tk.SourceThreadID,
+			SourceThread:       tk.SourceThreadID,
+			TriggerMessageID:   tk.TriggerMessageID,
+			ParentMessageID:    a.taskParentMessageID(tk),
+			UpdatedAt:          tk.UpdatedAt,
+			ExpectedOutcome:    tk.ExpectedOutcome,
+			AcceptanceCriteria: tk.AcceptanceCriteria,
+			Outcome:            tk.Outcome,
+			State:              state,
 		}
 		if latest != nil {
 			item.LatestRun = latest.ID
@@ -245,6 +260,16 @@ func (a *App) RecentTaskStatesByLifecycle(limit int, lifecycle task.Lifecycle) [
 		}
 	}
 	return out
+}
+
+func taskCreatedBy(tk *task.Task) string {
+	if tk == nil {
+		return ""
+	}
+	if strings.TrimSpace(tk.CreatedBy) != "" {
+		return strings.TrimSpace(tk.CreatedBy)
+	}
+	return strings.TrimSpace(tk.InitiatorID)
 }
 
 type skillAuditState struct {
