@@ -42,6 +42,9 @@ func (s *store) prepareDoc(sc scope, d doc) doc {
 	if strings.TrimSpace(d.Summary) == "" {
 		d.Summary = summarize(d.Body, 140)
 	}
+	if strings.TrimSpace(d.Confidence) == "" {
+		d.Confidence = "medium"
+	}
 	d.Path = filepath.Join(scopeDir(s.root, sc), slug(d.Title, d.ID)+".md")
 	return d
 }
@@ -173,15 +176,32 @@ func fillDocDefaults(d *doc) {
 	if d.Summary == "" {
 		d.Summary = summarize(d.Body, 160)
 	}
+	if d.Confidence == "" {
+		d.Confidence = "medium"
+	}
 }
 
 func renderDoc(d doc) string {
 	var b strings.Builder
 	b.WriteString("---\n")
+	fmt.Fprintf(&b, "scope_kind: %s\n", quote(d.ScopeKind))
+	fmt.Fprintf(&b, "scope_key: %s\n", quote(d.ScopeKey))
 	fmt.Fprintf(&b, "title: %s\n", quote(d.Title))
 	fmt.Fprintf(&b, "kind: %s\n", quote(d.Kind))
 	if d.Source != "" {
 		fmt.Fprintf(&b, "source: %s\n", quote(d.Source))
+	}
+	if d.SourceSpaceID != "" {
+		fmt.Fprintf(&b, "source_space_id: %s\n", quote(d.SourceSpaceID))
+	}
+	if d.SourceMessageID != "" {
+		fmt.Fprintf(&b, "source_message_id: %s\n", quote(d.SourceMessageID))
+	}
+	if d.CreatedBy != "" {
+		fmt.Fprintf(&b, "created_by: %s\n", quote(d.CreatedBy))
+	}
+	if d.Confidence != "" {
+		fmt.Fprintf(&b, "confidence: %s\n", quote(d.Confidence))
 	}
 	if d.Summary != "" {
 		fmt.Fprintf(&b, "summary: %s\n", quote(d.Summary))
@@ -192,7 +212,13 @@ func renderDoc(d doc) string {
 			fmt.Fprintf(&b, "  - %s\n", quote(tag))
 		}
 	}
+	if !d.CreatedAt.IsZero() {
+		fmt.Fprintf(&b, "created_at: %s\n", d.CreatedAt.Format(time.RFC3339Nano))
+	}
 	fmt.Fprintf(&b, "updated_at: %s\n", d.UpdatedAt.Format(time.RFC3339Nano))
+	if !d.ExpiresAt.IsZero() {
+		fmt.Fprintf(&b, "expires_at: %s\n", d.ExpiresAt.Format(time.RFC3339Nano))
+	}
 	b.WriteString("---\n\n")
 	b.WriteString("# ")
 	b.WriteString(strings.TrimSpace(d.Title))
@@ -235,17 +261,37 @@ func parseFrontmatter(d *doc, head string) {
 
 func (d *doc) applyMeta(key, val string) {
 	switch key {
+	case "scope_kind":
+		d.ScopeKind = val
+	case "scope_key":
+		d.ScopeKey = val
 	case "title":
 		d.Title = val
 	case "kind":
 		d.Kind = val
 	case "source":
 		d.Source = val
+	case "source_space_id":
+		d.SourceSpaceID = val
+	case "source_message_id":
+		d.SourceMessageID = val
+	case "created_by":
+		d.CreatedBy = val
+	case "confidence":
+		d.Confidence = val
 	case "summary":
 		d.Summary = val
+	case "created_at":
+		if ts, err := time.Parse(time.RFC3339Nano, val); err == nil {
+			d.CreatedAt = ts
+		}
 	case "updated_at":
 		if ts, err := time.Parse(time.RFC3339Nano, val); err == nil {
 			d.UpdatedAt = ts
+		}
+	case "expires_at":
+		if ts, err := time.Parse(time.RFC3339Nano, val); err == nil {
+			d.ExpiresAt = ts
 		}
 	}
 }

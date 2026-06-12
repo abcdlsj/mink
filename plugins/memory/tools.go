@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/tool"
@@ -79,6 +80,11 @@ func (t *writeTool) Schema() map[string]any {
 		tool.Prop("body", "string", "Body"),
 		tool.Prop("summary", "string", "Summary"),
 		tool.Prop("kind", "string", "Memory kind"),
+		tool.Prop("source_space_id", "string", "Source Space id"),
+		tool.Prop("source_message_id", "string", "Source message id"),
+		tool.Prop("created_by", "string", "Actor that committed the memory"),
+		tool.Prop("confidence", "string", "Confidence: low, medium, or high"),
+		tool.Prop("expires_at", "string", "Optional expiry timestamp in RFC3339"),
 		tool.StringArrayProp("tags", "Tags"),
 		tool.Required("title", "body"),
 	)
@@ -93,16 +99,55 @@ func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 		return "", fmt.Errorf("title and body are required")
 	}
 	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
-	d, err := t.s.put(ctx, sc, doc{
-		Title:   strings.TrimSpace(in.Title),
-		Body:    strings.TrimSpace(in.Body),
-		Summary: blank(in.Summary, summarize(in.Body, 140)),
-		Kind:    blank(in.Kind, "note"),
-		Tags:    in.Tags,
-		Source:  command.SourceFrom(ctx),
-	})
+	d, err := t.s.put(ctx, sc, memoryDocFromWrite(ctx, in))
 	if err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("saved memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
+}
+
+func memoryDocFromWrite(ctx context.Context, in writeArgs) doc {
+	return doc{
+		Title:           strings.TrimSpace(in.Title),
+		Body:            strings.TrimSpace(in.Body),
+		Summary:         blank(in.Summary, summarize(in.Body, 140)),
+		Kind:            blank(in.Kind, "note"),
+		Tags:            in.Tags,
+		Source:          command.SourceFrom(ctx),
+		SourceSpaceID:   strings.TrimSpace(in.SourceSpaceID),
+		SourceMessageID: blank(in.SourceMessageID, command.ParentMessageFrom(ctx)),
+		CreatedBy:       memoryCreatedBy(ctx, in.CreatedBy),
+		Confidence:      normalizeConfidence(in.Confidence),
+		ExpiresAt:       parseExpiresAt(in.ExpiresAt),
+	}
+}
+
+func memoryCreatedBy(ctx context.Context, explicit string) string {
+	if v := strings.TrimSpace(explicit); v != "" {
+		return v
+	}
+	if v := command.PersonaFrom(ctx); v != "" {
+		return v
+	}
+	return "user"
+}
+
+func normalizeConfidence(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "low", "medium", "high":
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return "medium"
+	}
+}
+
+func parseExpiresAt(s string) time.Time {
+	if strings.TrimSpace(s) == "" {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(s))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

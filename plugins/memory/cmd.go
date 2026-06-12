@@ -73,13 +73,12 @@ func (c *cmd) runSave(ctx context.Context, args []string) (string, error) {
 	if title == "" || body == "" {
 		return saveUsageText, nil
 	}
-	d, err := c.s.put(ctx, sc, doc{
+	d, err := c.s.put(ctx, sc, memoryDocFromWrite(ctx, writeArgs{
 		Title:   title,
 		Body:    body,
 		Summary: summarize(body, 140),
 		Kind:    "note",
-		Source:  src,
-	})
+	}))
 	if err != nil {
 		return "", err
 	}

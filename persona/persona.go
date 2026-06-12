@@ -109,7 +109,7 @@ func (r *Registry) Create(id string, meta Meta, soul string) (*Persona, error) {
 	if _, err := os.Stat(dir); err == nil {
 		return nil, fmt.Errorf("persona %s exists", id)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
 	metaBytes, err := marshalMeta(meta)

@@ -12,18 +12,23 @@ type scope struct {
 }
 
 type doc struct {
-	ID        string
-	ScopeKind string
-	ScopeKey  string
-	Title     string
-	Body      string
-	Summary   string
-	Kind      string
-	Tags      []string
-	Source    string
-	Path      string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string
+	ScopeKind       string
+	ScopeKey        string
+	Title           string
+	Body            string
+	Summary         string
+	Kind            string
+	Tags            []string
+	Source          string
+	SourceSpaceID   string
+	SourceMessageID string
+	CreatedBy       string
+	Confidence      string
+	ExpiresAt       time.Time
+	Path            string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type store struct {
@@ -46,13 +51,18 @@ type searchArgs struct {
 }
 
 type writeArgs struct {
-	ScopeKind string   `json:"scope_kind"`
-	ScopeKey  string   `json:"scope_key"`
-	Title     string   `json:"title"`
-	Body      string   `json:"body"`
-	Summary   string   `json:"summary"`
-	Kind      string   `json:"kind"`
-	Tags      []string `json:"tags"`
+	ScopeKind       string   `json:"scope_kind"`
+	ScopeKey        string   `json:"scope_key"`
+	Title           string   `json:"title"`
+	Body            string   `json:"body"`
+	Summary         string   `json:"summary"`
+	Kind            string   `json:"kind"`
+	Tags            []string `json:"tags"`
+	SourceSpaceID   string   `json:"source_space_id"`
+	SourceMessageID string   `json:"source_message_id"`
+	CreatedBy       string   `json:"created_by"`
+	Confidence      string   `json:"confidence"`
+	ExpiresAt       string   `json:"expires_at"`
 }
 
 const usageText = "usage: !memory [recent [scope] [limit] | search [scope] <query> | save [scope] <title> :: <body>]"

@@ -104,7 +104,7 @@ func TestCreateRejectsDuplicate(t *testing.T) {
 	if _, err := r.Create("x", Meta{}, ""); err == nil {
 		t.Fatal("expected duplicate error")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "x", "memory")); err != nil {
-		t.Fatalf("memory dir missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "x", "memory")); !os.IsNotExist(err) {
+		t.Fatalf("persona-local memory dir should not be created, err=%v", err)
 	}
 }
