@@ -43,6 +43,7 @@ type Persona struct {
 	Description  string
 	Capabilities []string
 	TaskPolicy   string
+	MemoryPolicy string
 	SoulPath     string
 }
 

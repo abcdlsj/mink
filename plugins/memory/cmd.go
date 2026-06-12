@@ -25,6 +25,14 @@ func (c *cmd) Run(ctx context.Context, args []string) (string, error) {
 		return c.runSearch(ctx, args[1:])
 	case "save", "write":
 		return c.runSave(ctx, args[1:])
+	case "proposals", "pending":
+		return c.runProposals(ctx, args[1:])
+	case "confirm":
+		return c.runConfirm(ctx, args[1:])
+	case "reject", "dismiss":
+		return c.runReject(ctx, args[1:])
+	case "delete", "remove":
+		return c.runDelete(ctx, args[1:])
 	default:
 		return usageText, nil
 	}
@@ -83,6 +91,48 @@ func (c *cmd) runSave(ctx context.Context, args []string) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("saved memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
+}
+
+func (c *cmd) runProposals(ctx context.Context, args []string) (string, error) {
+	items, err := c.s.listProposals()
+	if err != nil {
+		return "", err
+	}
+	return renderProposals(items), nil
+}
+
+func (c *cmd) runConfirm(ctx context.Context, args []string) (string, error) {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		return confirmUsageText, nil
+	}
+	d, err := c.s.confirmProposal(ctx, args[0])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("confirmed memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
+}
+
+func (c *cmd) runReject(ctx context.Context, args []string) (string, error) {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		return rejectUsageText, nil
+	}
+	if err := c.s.rejectProposal(args[0]); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("rejected memory proposal %s", strings.TrimSpace(args[0])), nil
+}
+
+func (c *cmd) runDelete(ctx context.Context, args []string) (string, error) {
+	src := command.SourceFrom(ctx)
+	sc, rest := c.consumeScope(ctx, src, args)
+	if len(rest) == 0 || strings.TrimSpace(rest[0]) == "" {
+		return deleteUsageText, nil
+	}
+	d, err := c.s.delete(ctx, sc, rest[0])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("deleted memory %s from %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
 }
 
 func (c *cmd) consumeScope(ctx context.Context, src string, args []string) (scope, []string) {

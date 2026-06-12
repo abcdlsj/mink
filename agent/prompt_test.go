@@ -187,6 +187,37 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsMemoryProposalProtocol(t *testing.T) {
+	out := BuildSystemPrompt(&RuntimeEnv{
+		Persona: &Persona{ID: "helper", Display: "Helper"},
+	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	for _, want := range []string{
+		"Memory protocol:",
+		"Current memory policy: proposal-only.",
+		"call propose_memory",
+		"Do not call write_memory or delete_memory",
+		"!memory confirm <id>",
+		"credentials, tokens, keys, cookies, or webhook URLs",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("memory prompt missing %q:\n%s", want, out)
+		}
+	}
+
+	auto := BuildSystemPrompt(&RuntimeEnv{
+		Persona: &Persona{ID: "helper", Display: "Helper", MemoryPolicy: "auto_commit"},
+	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	for _, want := range []string{
+		"Current memory policy: auto-commit.",
+		"Only write durable memory for stable preferences",
+		"Do not remember one-off lookups",
+	} {
+		if !strings.Contains(auto, want) {
+			t.Fatalf("auto memory prompt missing %q:\n%s", want, auto)
+		}
+	}
+}
+
 func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	env := &RuntimeEnv{Prompt: "项目约束"}
 	turn := &Turn{

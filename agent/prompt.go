@@ -37,6 +37,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.base())
 	p.Add(b.persona())
 	p.Add(b.collaboration())
+	p.Add(b.memoryPolicy())
 	p.Add(b.taskDelegation())
 	p.Add(b.context())
 	p.Add(b.skills())
@@ -88,6 +89,33 @@ func (b promptBuilder) collaboration() string {
 		"",
 		"Collaboration brief:",
 		strings.TrimSpace(b.turn.CollaborationBrief),
+	}, "\n")
+}
+
+func (b promptBuilder) memoryPolicy() string {
+	if b.env == nil || b.env.Persona == nil {
+		return strings.Join([]string{
+			"Memory protocol:",
+			"- Long-term memory writes require human confirmation.",
+			"- If the user says something should be remembered, propose a memory candidate instead of claiming it is already saved.",
+			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+		}, "\n")
+	}
+	if b.env.Persona.MemoryPolicy == "auto_commit" {
+		return strings.Join([]string{
+			"Memory protocol:",
+			"- Current memory policy: auto-commit.",
+			"- Only write durable memory for stable preferences, identity facts, project conventions, or confirmed long-lived decisions.",
+			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+		}, "\n")
+	}
+	return strings.Join([]string{
+		"Memory protocol:",
+		"- Current memory policy: proposal-only.",
+		"- When the user says to remember something or a stable preference/fact is worth keeping, call propose_memory with scope, kind, content, reason, and confidence.",
+		"- Do not call write_memory or delete_memory; real long-term memory changes require human confirmation.",
+		"- After proposing, tell the user the proposal id and that they can confirm it with !memory confirm <id> or reject it with !memory reject <id>.",
+		"- Do not propose memory for one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
 	}, "\n")
 }
 

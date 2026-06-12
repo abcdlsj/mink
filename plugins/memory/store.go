@@ -45,8 +45,20 @@ func (s *store) prepareDoc(sc scope, d doc) doc {
 	if strings.TrimSpace(d.Confidence) == "" {
 		d.Confidence = "medium"
 	}
-	d.Path = filepath.Join(scopeDir(s.root, sc), slug(d.Title, d.ID)+".md")
+	d.ID = docFileID(d.Title, d.ID)
+	d.Path = filepath.Join(scopeDir(s.root, sc), d.ID+".md")
 	return d
+}
+
+func docFileID(title, id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = fmt.Sprintf("mem-%d", time.Now().UnixNano())
+	}
+	if titleSlug := slug(title, ""); titleSlug != "" && !strings.Contains(titleSlug, id) {
+		return titleSlug + "-" + id
+	}
+	return slug(id, id)
 }
 
 func (s *store) recent(ctx context.Context, sc scope, limit int) ([]doc, error) {
@@ -88,6 +100,28 @@ func (s *store) search(ctx context.Context, scopes []scope, q string, limit int)
 	return out, nil
 }
 
+func (s *store) delete(ctx context.Context, sc scope, id string) (doc, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return doc{}, fmt.Errorf("memory id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	docs, err := s.loadScopeLocked(sc)
+	if err != nil {
+		return doc{}, err
+	}
+	for _, d := range docs {
+		if d.ID == id || strings.TrimSuffix(filepath.Base(d.Path), filepath.Ext(d.Path)) == id {
+			if err := os.Remove(d.Path); err != nil {
+				return doc{}, err
+			}
+			return d, nil
+		}
+	}
+	return doc{}, fmt.Errorf("memory %s not found in %s", id, scopeText(sc))
+}
+
 func matchesQuery(d doc, q string) bool {
 	text := strings.ToLower(strings.Join([]string{d.Title, d.Summary, d.Body}, "\n"))
 	return strings.Contains(text, q)
@@ -102,6 +136,10 @@ func sortDocs(docs []doc) {
 func (s *store) loadScope(sc scope) ([]doc, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.loadScopeLocked(sc)
+}
+
+func (s *store) loadScopeLocked(sc scope) ([]doc, error) {
 	root := scopeDir(s.root, sc)
 	if _, err := os.Stat(root); err != nil {
 		if os.IsNotExist(err) {

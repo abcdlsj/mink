@@ -32,6 +32,7 @@ func (f turnFlow) run(ctx context.Context) error {
 	if f.session != nil {
 		baseline = len(f.session.Messages)
 	}
+	persona := f.app.personas.Get(f.personaID)
 	turn := &agent.Turn{
 		Source:                f.source,
 		Input:                 f.input,
@@ -42,7 +43,7 @@ func (f turnFlow) run(ctx context.Context) error {
 		StreamID:              newStreamID(),
 		IncludeHistory:        f.includeHistory,
 		DisableExternalResume: f.disableExternalResume,
-		BlockedTools:          taskToolBlocks(f.app.personas.Get(f.personaID)),
+		BlockedTools:          mergeToolBlocks(taskToolBlocks(persona), memoryToolBlocks(persona)),
 	}
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
 		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {

@@ -60,6 +60,7 @@ func (a *App) runtimeEnvFor(p *persona.Persona) *agent.RuntimeEnv {
 			Description:  p.Description,
 			Capabilities: append([]string(nil), p.Capabilities...),
 			TaskPolicy:   p.TaskPolicy,
+			MemoryPolicy: p.MemoryPolicy,
 			SoulPath:     p.SoulPath,
 		}
 	}

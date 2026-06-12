@@ -24,6 +24,7 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 		Description:   "bug hunter",
 		Capabilities:  []string{"assign", "task.execute", "task_assign", "TASK.REVIEW", "task.execute"},
 		TaskPolicy:    "auto-commit",
+		MemoryPolicy:  "auto-commit",
 		ShowInSidebar: &show,
 	}, "# Debug\nkeep calm")
 	if err != nil {
@@ -43,6 +44,9 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	}
 	if p.TaskPolicy != "auto_commit" {
 		t.Fatalf("task_policy = %q, want auto_commit", p.TaskPolicy)
+	}
+	if p.MemoryPolicy != "auto_commit" {
+		t.Fatalf("memory_policy = %q, want auto_commit", p.MemoryPolicy)
 	}
 	if got, want := p.Capabilities, []string{"task.assign", "task.execute", "task.review"}; len(got) != len(want) {
 		t.Fatalf("capabilities = %#v, want %#v", got, want)
@@ -75,8 +79,8 @@ func TestRegistryLoadAndCreate(t *testing.T) {
 	if got.Description != "bug hunter" {
 		t.Fatalf("description = %q", got.Description)
 	}
-	if got.Model != "sonnet" || got.ShowInSidebar || got.TaskPolicy != "auto_commit" || !got.HasCapability("execute") || !got.HasCapability("task.review") {
-		t.Fatalf("meta not preserved: model=%q show=%v task_policy=%q caps=%#v", got.Model, got.ShowInSidebar, got.TaskPolicy, got.Capabilities)
+	if got.Model != "sonnet" || got.ShowInSidebar || got.TaskPolicy != "auto_commit" || got.MemoryPolicy != "auto_commit" || !got.HasCapability("execute") || !got.HasCapability("task.review") {
+		t.Fatalf("meta not preserved: model=%q show=%v task_policy=%q memory_policy=%q caps=%#v", got.Model, got.ShowInSidebar, got.TaskPolicy, got.MemoryPolicy, got.Capabilities)
 	}
 }
 

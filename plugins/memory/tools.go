@@ -106,6 +106,67 @@ func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	return fmt.Sprintf("saved memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
 }
 
+type proposeTool struct{ s *store }
+
+func (t *proposeTool) Name() string { return "propose_memory" }
+func (t *proposeTool) Desc() string {
+	return "Create a pending memory proposal for human confirmation; does not write long-term memory"
+}
+func (t *proposeTool) Schema() map[string]any {
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("title", "string", "Short candidate title"),
+		tool.Prop("content", "string", "Candidate memory content"),
+		tool.Prop("kind", "string", "Memory kind such as preference, fact, convention, decision, or note"),
+		tool.Prop("reason", "string", "Why this should become long-term memory"),
+		tool.Prop("confidence", "string", "Confidence: low, medium, or high"),
+		tool.Prop("source_space_id", "string", "Source Space id"),
+		tool.Prop("source_message_id", "string", "Source message id"),
+		tool.StringArrayProp("tags", "Tags"),
+		tool.Required("content", "reason"),
+	)
+}
+
+func (t *proposeTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
+	var in proposeArgs
+	if err := decode("propose_memory", args, &in); err != nil {
+		return "", err
+	}
+	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	p, err := t.s.propose(ctx, sc, in)
+	if err != nil {
+		return "", err
+	}
+	return renderProposalCreated(p), nil
+}
+
+type deleteTool struct{ s *store }
+
+func (t *deleteTool) Name() string { return "delete_memory" }
+func (t *deleteTool) Desc() string { return "Delete a committed memory doc by id" }
+func (t *deleteTool) Schema() map[string]any {
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("id", "string", "Memory id"),
+		tool.Required("id"),
+	)
+}
+
+func (t *deleteTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
+	var in deleteArgs
+	if err := decode("delete_memory", args, &in); err != nil {
+		return "", err
+	}
+	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	d, err := t.s.delete(ctx, sc, in.ID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("deleted memory %s from %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
+}
+
 func memoryDocFromWrite(ctx context.Context, in writeArgs) doc {
 	return doc{
 		Title:           strings.TrimSpace(in.Title),

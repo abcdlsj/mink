@@ -20,6 +20,7 @@ type Persona struct {
 	Tools         []string
 	Capabilities  []string
 	TaskPolicy    string
+	MemoryPolicy  string
 	ShowInSidebar bool
 	SoulPath      string
 	Root          string
@@ -33,6 +34,7 @@ type Meta struct {
 	Tools         []string `toml:"tools"`
 	Capabilities  []string `toml:"capabilities"`
 	TaskPolicy    string   `toml:"task_policy"`
+	MemoryPolicy  string   `toml:"memory_policy"`
 	ShowInSidebar *bool    `toml:"show_in_sidebar"`
 }
 
@@ -152,6 +154,7 @@ func loadDir(root, id string) (*Persona, error) {
 		Tools:         cloneStrings(m.Tools),
 		Capabilities:  NormalizeCapabilities(m.Capabilities),
 		TaskPolicy:    normalizeTaskPolicy(m.TaskPolicy),
+		MemoryPolicy:  normalizeMemoryPolicy(m.MemoryPolicy),
 		ShowInSidebar: true,
 		Root:          dir,
 	}
@@ -174,6 +177,15 @@ func normalizeTaskPolicy(s string) string {
 		return "auto_commit"
 	default:
 		return "propose_only"
+	}
+}
+
+func normalizeMemoryPolicy(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "auto_commit", "auto-commit", "autocommit":
+		return "auto_commit"
+	default:
+		return "proposal_only"
 	}
 }
 
