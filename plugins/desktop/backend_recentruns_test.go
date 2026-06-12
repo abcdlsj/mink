@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/abcdlsj/sumi/app"
@@ -268,6 +269,33 @@ func TestCreateAndAssignTaskExposeDelegationMetadata(t *testing.T) {
 	}
 	if assigned.ExpectedOutcome != "review the implementation" || assigned.AcceptanceCriteria != "review complete" {
 		t.Fatalf("assigned quality = %#v", assigned)
+	}
+}
+
+func TestCreateTaskRejectsVagueConversationCandidate(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "查一下这个链接", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = b.CreateTask(CreateTaskRequest{
+		SpaceID:            sp.ID,
+		SourceMessageID:    msg.ID,
+		CreatedBy:          "user",
+		Assignee:           "dev",
+		AssignedBy:         "user",
+		Title:              "查一下链接",
+		ExpectedOutcome:    "完成",
+		AcceptanceCriteria: "看一下就行",
+		Source:             "desktop:test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "concrete deliverable") {
+		t.Fatalf("expected vague candidate rejection, got %v", err)
 	}
 }
 

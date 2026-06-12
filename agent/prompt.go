@@ -107,9 +107,12 @@ func (b promptBuilder) taskDelegation() string {
 	return strings.Join([]string{
 		"Task delegation protocol:",
 		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
+		"- A task is a commitment with owner, expected outcome, acceptance criteria, and review/status flow.",
+		"- Do not create tasks for simple Q&A, quick lookups, link checks, concept explanations, or ordinary conversation.",
 		"- task.plan may break work into explicit candidate tasks, but discussion or brainstorming is not a task by itself.",
 		"- task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
 		"- If outcome, assignee, acceptance criteria, or source is missing, ask a focused question or propose a candidate instead of creating a task.",
+		"- If the user only asks to check or explain something once, answer directly without task_create.",
 		"- task.execute agents may accept assigned work and move it to in_progress, then in_review when ready.",
 		"- task.review agents may mark reviewed work done or closed; executors should not self-done their own work.",
 		"- If you lack a required task capability, only suggest the action or mention an agent that has it.",

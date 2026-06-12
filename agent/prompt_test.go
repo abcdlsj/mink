@@ -142,8 +142,11 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 	for _, want := range []string{
 		"Task delegation protocol:",
 		"Current task capabilities: task.assign, task.execute.",
+		"A task is a commitment with owner, expected outcome, acceptance criteria",
+		"Do not create tasks for simple Q&A, quick lookups",
 		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
 		"If outcome, assignee, acceptance criteria, or source is missing",
+		"answer directly without task_create",
 		"executors should not self-done their own work",
 	} {
 		if !strings.Contains(out, want) {

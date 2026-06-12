@@ -61,6 +61,24 @@ func TestTaskCreateToolRequiresCapabilityAndExecutableAssignee(t *testing.T) {
 	}
 }
 
+func TestTaskCreateToolRejectsVagueConversationTasks(t *testing.T) {
+	a := newTaskToolTestApp(t)
+	sp, msg := newTaskToolSpace(t, a)
+	ctx := taskToolCtx("desktop:channel:"+sp.ID, "planner", msg.ID)
+
+	_, err := a.tools.Run(ctx, "task_create", mustJSON(t, map[string]string{
+		"title":               "查一下链接",
+		"assignee_id":         "dev",
+		"expected_outcome":    "完成",
+		"acceptance_criteria": "看一下就行",
+		"space_id":            sp.ID,
+		"source_message_id":   msg.ID,
+	}))
+	if err == nil || !strings.Contains(err.Error(), "simple Q&A") {
+		t.Fatalf("expected vague task rejection, got %v", err)
+	}
+}
+
 func TestTaskAssignAndStatusToolsAreCapabilityGated(t *testing.T) {
 	a := newTaskToolTestApp(t)
 	sp, msg := newTaskToolSpace(t, a)

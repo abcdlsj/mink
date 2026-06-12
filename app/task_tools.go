@@ -79,6 +79,9 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	if title == "" || expected == "" || criteria == "" {
 		return "", fmt.Errorf("task_create requires title, expected_outcome, and acceptance_criteria")
 	}
+	if err := validateTaskCommitment(title, expected, criteria); err != nil {
+		return "", err
+	}
 	sourceMessageID := firstNonEmpty(in.SourceMessageID, in.SourceMessage)
 	sourceThreadID := firstNonEmpty(in.SourceThreadID, in.SourceThread, command.ParentMessageFrom(ctx))
 	if sourceMessageID == "" {
@@ -101,6 +104,41 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 		return "", err
 	}
 	return fmt.Sprintf("task created: %s assigned_to=%s status=%s", tk.ID, tk.WorkerID, tk.Status), nil
+}
+
+func validateTaskCommitment(title, expected, criteria string) error {
+	title = strings.TrimSpace(title)
+	expected = strings.TrimSpace(expected)
+	criteria = strings.TrimSpace(criteria)
+	if title == "" || expected == "" || criteria == "" {
+		return fmt.Errorf("task_create requires title, expected_outcome, and acceptance_criteria")
+	}
+	if vagueTaskField(title) || vagueTaskField(expected) || vagueTaskField(criteria) {
+		return fmt.Errorf("task_create requires a deliverable with concrete expected_outcome and acceptance_criteria; simple Q&A, one-off lookup, or vague TODO should stay as conversation")
+	}
+	if runeLen(expected) < 12 || runeLen(criteria) < 12 {
+		return fmt.Errorf("task_create requires concrete expected_outcome and acceptance_criteria, not a short note")
+	}
+	return nil
+}
+
+func vagueTaskField(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return true
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	switch s {
+	case "done", "finish", "finished", "complete", "completed", "ok", "fixed", "reviewed",
+		"处理", "处理完", "完成", "搞定", "看一下", "查一下", "解释一下", "看看":
+		return true
+	default:
+		return false
+	}
+}
+
+func runeLen(s string) int {
+	return len([]rune(s))
 }
 
 type taskAssignTool struct{ a *App }

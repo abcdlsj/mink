@@ -25,7 +25,7 @@ export function TaskCandidate({ message }: { message: MessageView }) {
   const [error, setError] = useState("");
   const [created, setCreated] = useState("");
 
-  if (!source || executors.length === 0 || !message.content?.trim()) return null;
+  if (!source || executors.length === 0 || !message.content?.trim() || !looksLikeTaskRequest(message.content)) return null;
 
   const missing = [
     !title.trim() && "title",
@@ -189,3 +189,41 @@ function defaultTitle(content: string): string {
   if (!text) return "";
   return text.length > 72 ? text.slice(0, 69) + "..." : text;
 }
+
+function looksLikeTaskRequest(content: string): boolean {
+  const text = content.replace(/\s+/g, " ").trim().toLowerCase();
+  if (!text) return false;
+  if (isCasualLookup(text)) return false;
+  return taskIntentPatterns.some((re) => re.test(text));
+}
+
+function isCasualLookup(text: string): boolean {
+  return casualLookupPatterns.some((re) => re.test(text)) && !strongDeliveryPatterns.some((re) => re.test(text));
+}
+
+const strongDeliveryPatterns = [
+  /验收/,
+  /上线|部署|发布|回滚/,
+  /修复|修一个|修下|fix\b|bug\b/,
+  /实现|开发|做一版|做一个|加一个|新增/,
+  /提交|commit|push|merge/,
+  /review\b|评审/,
+];
+
+const taskIntentPatterns = [
+  /修复|修一个|修下|fix\b|bug\b/,
+  /实现|开发|做一版|做一个|加一个|新增/,
+  /部署|上线|发布|回滚/,
+  /提交|commit|push|merge/,
+  /review\b|评审|验收/,
+  /排查.*(并|然后|修|解决|提交|验证)/,
+  /设计.*(方案|计划).*(验收|落地|实现)/,
+];
+
+const casualLookupPatterns = [
+  /^(为什么|为啥|怎么|如何|是否|是不是|能否|可以吗|怎么样)/,
+  /解释一下|讲一下|说明一下/,
+  /看下|看看|查一下|查下|查几个|找一下/,
+  /这个链接|这个网页|这个是什么/,
+  /what|why|how|explain|look up|check (this|a few|some)/,
+];

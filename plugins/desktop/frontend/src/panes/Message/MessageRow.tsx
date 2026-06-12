@@ -135,7 +135,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         {m.thread_id && m.thread_summary && (
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
-        {!m.task_accessory && (m.role === "user" || m.role === "agent" || m.role === "assistant") && <TaskCandidate message={m} />}
+        {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} />}
         {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
         {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
         {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}

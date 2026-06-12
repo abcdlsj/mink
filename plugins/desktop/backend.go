@@ -1562,6 +1562,9 @@ func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
 	createdBy := firstNonEmpty(in.CreatedBy, b.defaultActorID())
 	assignedBy := firstNonEmpty(in.AssignedBy, createdBy)
 	expected := firstNonEmpty(in.ExpectedOutcome, in.Outcome)
+	if err := validateTaskCommitment(in.Title, expected, in.AcceptanceCriteria); err != nil {
+		return TaskStateCard{}, err
+	}
 	sourceMessageID := firstNonEmpty(in.SourceMessageID, in.SourceMessage)
 	sourceThreadID := firstNonEmpty(in.SourceThreadID, in.SourceThread)
 	tk, err := b.app.Tasks().Create(taskpkg.CreateTaskInput{
@@ -1581,6 +1584,37 @@ func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
 		return TaskStateCard{}, err
 	}
 	return b.taskCardFromTask(tk), nil
+}
+
+func validateTaskCommitment(title, expected, criteria string) error {
+	title = strings.TrimSpace(title)
+	expected = strings.TrimSpace(expected)
+	criteria = strings.TrimSpace(criteria)
+	if title == "" || expected == "" || criteria == "" {
+		return fmt.Errorf("task requires title, expected_outcome, and acceptance_criteria")
+	}
+	if vagueTaskField(title) || vagueTaskField(expected) || vagueTaskField(criteria) {
+		return fmt.Errorf("task requires a concrete deliverable with reviewable acceptance criteria")
+	}
+	if len([]rune(expected)) < 12 || len([]rune(criteria)) < 12 {
+		return fmt.Errorf("task expected_outcome and acceptance_criteria must describe a reviewable deliverable")
+	}
+	return nil
+}
+
+func vagueTaskField(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return true
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	switch s {
+	case "done", "finish", "finished", "complete", "completed", "ok", "fixed", "reviewed",
+		"处理", "处理完", "完成", "搞定", "看一下", "查一下", "解释一下", "看看":
+		return true
+	default:
+		return false
+	}
 }
 
 func (b *Backend) AssignTask(in AssignTaskRequest) (TaskStateCard, error) {
