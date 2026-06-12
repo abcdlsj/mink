@@ -20,10 +20,12 @@ export default function App() {
   const openCurrentRoute = useStore((s) => s.openCurrentRoute);
   const connectionStatus = useStore((s) => s.connectionStatus);
   const connectionMessage = useStore((s) => s.connectionMessage);
+  const routeNotice = useStore((s) => s.routeNotice);
   const detail = useStore((s) => s.detail);
   const threadDetail = useStore((s) => s.threadDetail);
   const view = useStore((s) => s.view);
   const [mobileLayer, setMobileLayer] = useState<MobileLayer>(null);
+  const [noticeNow, setNoticeNow] = useState(() => Date.now());
   const openedScopeRef = useRef("");
 
   useEffect(() => {
@@ -80,6 +82,13 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [setPalette, setQuickCreate]);
 
+  useEffect(() => {
+    if (!routeNotice) return;
+    setNoticeNow(Date.now());
+    const t = setTimeout(() => setNoticeNow(Date.now()), 8000);
+    return () => clearTimeout(t);
+  }, [routeNotice]);
+
   if (!ready) {
     return (
       <div className="grid h-screen place-items-center bg-bg text-text-muted text-[12.5px]">
@@ -93,6 +102,12 @@ export default function App() {
       {connectionStatus === "connecting" ? "Connecting to desktop backend..." : connectionMessage || "Desktop backend offline."}
     </div>
   );
+  const routeNoticeBanner = routeNotice && noticeNow - routeNotice.at < 8000 && (
+    <div className="fixed left-1/2 top-12 z-50 max-w-[calc(100vw-24px)] -translate-x-1/2 border-hard border-border bg-accent-bg px-3 py-1.5 font-mono text-[11.5px] text-text shadow-hard">
+      {routeNotice.text}
+    </div>
+  );
+  const statusBanner = offlineBanner || routeNoticeBanner;
 
   return (
     <>
@@ -107,7 +122,7 @@ export default function App() {
         <div style={{ gridArea: "topbar" }}>
           <TopBar />
         </div>
-        {offlineBanner}
+        {statusBanner}
         <div style={{ gridArea: "left" }} className="min-h-0">
           <LeftPane />
         </div>
@@ -123,7 +138,7 @@ export default function App() {
 
       <div className="relative grid h-[100dvh] grid-rows-[40px_auto_1fr] overflow-hidden bg-bg text-text md:hidden">
         <TopBar />
-        {offlineBanner}
+        {statusBanner}
         <MobileNav
           title={mobileTitle(view, detail?.item?.title, threadDetail?.parent?.content)}
           detailsEnabled={!!detail || !!threadDetail}

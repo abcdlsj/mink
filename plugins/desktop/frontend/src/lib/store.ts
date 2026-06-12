@@ -85,6 +85,7 @@ interface State {
   paletteOpen: boolean;
   quickCreateOpen: boolean;
   composerHint: { text: string; at: number } | null;
+  routeNotice: { text: string; at: number } | null;
   sending: boolean;
   streaming: StreamingTurn | null;
   streamingByID: Record<string, StreamingTurn>;
@@ -349,6 +350,7 @@ export const useStore = create<State>((set, get) => ({
   paletteOpen: false,
   quickCreateOpen: false,
   composerHint: null,
+  routeNotice: null,
   sending: false,
   streaming: null,
   streamingByID: {},
@@ -560,23 +562,23 @@ export const useStore = create<State>((set, get) => ({
         streaming: null,
         streamingByID: {},
         expandedTaskID: null,
-        composerHint: { text: hint, at: Date.now() },
+        routeNotice: { text: hint, at: Date.now() },
       });
       const nextDirect =
         nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
         nav.directChats.find((d) => d.kind === "direct_chat");
       if (nextDirect) {
         await get().openDirectChat(nextDirect.id, routeOpts);
-        set({ composerHint: { text: hint, at: Date.now() } });
+        set({ routeNotice: { text: hint, at: Date.now() } });
         return;
       }
       if (nav.channels[0]) {
         await get().openChannel(nav.channels[0].id, routeOpts);
-        set({ composerHint: { text: hint, at: Date.now() } });
+        set({ routeNotice: { text: hint, at: Date.now() } });
         return;
       }
       get().openTaskBoard(routeOpts);
-      set({ composerHint: { text: hint, at: Date.now() } });
+      set({ routeNotice: { text: hint, at: Date.now() } });
       return;
     }
     if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
