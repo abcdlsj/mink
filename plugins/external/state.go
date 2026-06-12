@@ -63,6 +63,7 @@ func (s *runState) onThinking(turn *agent.Turn, text string) {
 }
 
 func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
+	text = msg.NormalizeMarkdown(text)
 	if text == "" {
 		return
 	}
@@ -73,7 +74,7 @@ func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 		if !s.streamed {
 			agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
 		}
-	case text == cur, strings.HasPrefix(cur, text), strings.HasSuffix(cur, text):
+	case text == cur, strings.HasPrefix(cur, text), strings.HasSuffix(cur, text), alreadyHasAssistantText(cur, text):
 		return
 	case strings.HasPrefix(text, cur):
 		extra := text[len(cur):]
@@ -82,9 +83,52 @@ func (s *runState) mergeAssistant(turn *agent.Turn, text string) {
 			agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: extra})
 		}
 	case !s.streamed:
-		s.assistant.WriteString(text)
-		agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: text})
+		if overlap := assistantOverlap(cur, text); overlap > 0 {
+			text = text[overlap:]
+		}
+		added := assistantBoundary(cur, text) + text
+		s.assistant.WriteString(added)
+		agent.Publish(turn, bus.Event{Type: bus.TurnChunk, Text: added})
 	}
+}
+
+func alreadyHasAssistantText(cur, text string) bool {
+	text = strings.TrimSpace(text)
+	if len([]rune(text)) < 80 {
+		return false
+	}
+	return strings.Contains(cur, text)
+}
+
+func assistantOverlap(cur, text string) int {
+	max := len(cur)
+	if len(text) < max {
+		max = len(text)
+	}
+	for n := max; n >= 16; n-- {
+		if strings.HasSuffix(cur, text[:n]) {
+			return n
+		}
+	}
+	return 0
+}
+
+func assistantBoundary(cur, text string) string {
+	if cur == "" || text == "" || strings.HasSuffix(cur, "\n") || strings.HasPrefix(text, "\n") {
+		return ""
+	}
+	if startsMarkdownBlock(text) {
+		return "\n\n"
+	}
+	return ""
+}
+
+func startsMarkdownBlock(text string) bool {
+	t := strings.TrimLeft(text, " \t")
+	if strings.HasPrefix(t, "#") || strings.HasPrefix(t, "|") || strings.HasPrefix(t, "```") {
+		return true
+	}
+	return strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ") || strings.HasPrefix(t, "1. ")
 }
 
 func (s *runState) onToolCall(turn *agent.Turn, m *Message) {
@@ -235,7 +279,7 @@ func (s *runState) addAssistant(sess *session.Session) {
 	sess.Add(msg.Message{
 		ID:          uuid.New().String()[:8],
 		Role:        "assistant",
-		Content:     s.assistant.String(),
+		Content:     msg.NormalizeMarkdown(s.assistant.String()),
 		Reasoning:   s.reasoning.String(),
 		ToolCalls:   s.toolCalls(),
 		Usage:       usage,

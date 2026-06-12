@@ -151,6 +151,7 @@ export function Markdown({ children, className, variant = "full", mentions }: Ma
 
 function repairTables(src: string): string {
   let out = repairInlineHeadings(src);
+  out = dedupeAdjacentHeadingSections(out);
   const lines = out.split("\n");
   for (let i = 0; i + 1 < lines.length; i++) {
     const header = lines[i];
@@ -163,6 +164,26 @@ function repairTables(src: string): string {
     }
   }
   return lines.join("\n");
+}
+
+function dedupeAdjacentHeadingSections(src: string): string {
+  const lines = src.split("\n");
+  for (let first = 0; first < lines.length; first++) {
+    if (!isHeadingLine(lines[first])) continue;
+    for (let second = first + 1; second < lines.length; second++) {
+      if (lines[second].trim() !== lines[first].trim()) continue;
+      const a = lines.slice(first, second).join("\n").trim();
+      const b = lines.slice(second).join("\n").trim();
+      if (a.length >= 200 && a === b) {
+        return lines.slice(0, second).join("\n");
+      }
+    }
+  }
+  return src;
+}
+
+function isHeadingLine(line: string): boolean {
+  return /^#{1,6}[ \t]/.test(line.trim());
 }
 
 function repairInlineHeadings(src: string): string {

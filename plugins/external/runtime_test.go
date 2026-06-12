@@ -113,7 +113,7 @@ func TestHandleMessageDedupsTrailingSnapshotAfterAppend(t *testing.T) {
 			}
 		default:
 			joined := strings.Join(chunks, "")
-			want := "intro 喵## report\nbody"
+			want := "intro 喵\n\n## report\nbody"
 			if joined != want {
 				t.Fatalf("chunks = %q, want %q", joined, want)
 			}
@@ -123,6 +123,28 @@ func TestHandleMessageDedupsTrailingSnapshotAfterAppend(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestHandleMessageDedupsOverlappingFinalResult(t *testing.T) {
+	turn := &agent.Turn{
+		Source:  "test",
+		Session: session.New("test"),
+		Bus:     bus.New(),
+	}
+	st := &runState{}
+	report := "## 日志查询结果\n\n### 查询条件\n- 服务：`main.app-svr.app-opus`\n\n### 错误分组\n\n| 类型 | 数量 | 关键信息 |\n|---|---|---|\n| `dynBrief not found` | 5 | 同一 traceId |\n\n### 结论\n\n10 分钟窗口看下来没有异常。"
+
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "找到了。## 日志查询结果\n\n### 查询条件\n- 服务：`main.app-svr.app-opus`\n\n### 错误分组\n\n| 类型 | 数量 | 关键信息 |\n|---|---|---|\n| `dynBrief not found` | 5 | 同一 traceId |\n\n### 结论\n\n10 分钟窗口看下来没有异常。\n\n工作目录说明。", Snapshot: true})
+	handleMessage("test", turn, st, &Message{Type: MsgTurnDone, Text: report + "\n\n工作目录说明。"})
+	st.flush(turn.Session)
+
+	final := turn.Session.Messages[len(turn.Session.Messages)-1].Content
+	if strings.Count(final, "## 日志查询结果") != 1 {
+		t.Fatalf("final duplicated report heading:\n%s", final)
+	}
+	if !strings.Contains(final, "找到了。\n\n## 日志查询结果") {
+		t.Fatalf("final did not repair heading boundary:\n%s", final)
 	}
 }
 

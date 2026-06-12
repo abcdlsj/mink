@@ -18,7 +18,7 @@ func AssistantOutput(added []Message) (string, string) {
 			reasoningParts = append(reasoningParts, r)
 		}
 	}
-	return strings.Join(contentParts, "\n"), strings.Join(reasoningParts, "\n")
+	return NormalizeMarkdown(strings.Join(contentParts, "\n")), strings.Join(reasoningParts, "\n")
 }
 
 func AssistantUsage(added []Message) *TokenUsage {
