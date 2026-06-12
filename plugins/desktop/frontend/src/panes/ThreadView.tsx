@@ -1,5 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AgentGear } from "./AgentGear";
 import { Composer } from "./Composer/Composer";
 import { MessageRow } from "./Message/MessageRow";
@@ -18,6 +19,9 @@ export function ThreadView() {
   const replies = threadDetail?.replies || [];
   const scope = threadDetail ? `thread:${threadDetail.space_id}:${threadDetail.parent_id}` : "thread:none";
   const { scrollRef, onScroll } = useMessageAutoScroll(replies, scope);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeAnchor?.startsWith("message:")) return;
@@ -29,8 +33,32 @@ export function ThreadView() {
     });
   }, [activeAnchor, threadDetail?.parent?.id, replies.length]);
 
+  useEffect(() => {
+    setDeleteOpen(false);
+    setDeleteBusy(false);
+    setDeleteErr(null);
+  }, [scope]);
+
   if (!threadDetail) return null;
   const root = threadDetail.parent;
+
+  const submitDelete = async () => {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteErr(null);
+    try {
+      await deleteConversation({
+        kind: "thread",
+        id: threadDetail.space_id,
+        parentMessageID: threadDetail.parent_id,
+      });
+      setDeleteOpen(false);
+    } catch (e) {
+      setDeleteErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   if (threadDetail.unsupported) {
     return (
@@ -77,14 +105,10 @@ export function ThreadView() {
         <button
           type="button"
           onClick={() => {
-            const ok = window.confirm("Delete this thread?\n\nThis removes thread replies and thread-scoped model context.");
-            if (!ok) return;
-            void deleteConversation({
-              kind: "thread",
-              id: threadDetail.space_id,
-              parentMessageID: threadDetail.parent_id,
-            }).catch((e) => window.alert(e instanceof Error ? e.message : String(e)));
+            setDeleteErr(null);
+            setDeleteOpen(true);
           }}
+          disabled={deleteBusy}
           className="ml-auto inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2 py-1 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg"
           title="Delete thread replies and runtime context"
         >
@@ -112,6 +136,21 @@ export function ThreadView() {
         </div>
       </div>
       <Composer />
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete this thread?"
+        body="This removes thread replies and thread-scoped model context."
+        confirmLabel="Delete thread"
+        danger
+        busy={deleteBusy}
+        error={deleteErr}
+        onConfirm={() => void submitDelete()}
+        onCancel={() => {
+          if (deleteBusy) return;
+          setDeleteOpen(false);
+          setDeleteErr(null);
+        }}
+      />
     </main>
   );
 }

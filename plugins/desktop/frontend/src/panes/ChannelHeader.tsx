@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AtSign, Hash, MessageSquare, Trash2 } from "lucide-react";
 import type { AgentItem, ChannelItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AgentGear } from "./AgentGear";
 
 export function ChannelHeader({ scope }: { scope: string }) {
@@ -19,12 +20,17 @@ export function ChannelHeader({ scope }: { scope: string }) {
   const [titleBusy, setTitleBusy] = useState(false);
   const [titleErr, setTitleErr] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
 
   useEffect(() => {
     setEditingTitle(false);
     setTitleDraft("");
     setTitleBusy(false);
     setTitleErr(null);
+    setDeleteOpen(false);
+    setDeleteErr(null);
+    setDeleteBusy(false);
   }, [scope]);
 
   if (!detail) return <div className="border-b-hard border-border px-5 py-4" />;
@@ -59,13 +65,13 @@ export function ChannelHeader({ scope }: { scope: string }) {
           : null;
   const submitDelete = async () => {
     if (!deleteTarget || deleteBusy) return;
-    const ok = window.confirm(`Delete "${deleteTarget.label}"?\n\nThis removes local chat history and model context for this conversation.`);
-    if (!ok) return;
     setDeleteBusy(true);
+    setDeleteErr(null);
     try {
       await deleteConversation(deleteTarget);
+      setDeleteOpen(false);
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : String(e));
+      setDeleteErr(e instanceof Error ? e.message : String(e));
     } finally {
       setDeleteBusy(false);
     }
@@ -104,6 +110,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     setTitleErr(null);
   };
   return (
+    <>
     <div className="flex items-end justify-between border-b-hard border-border bg-panel px-5 pb-3.5 pt-4">
       <div>
         <h2 className="flex items-center gap-2 font-display text-[19px] font-extrabold leading-tight text-text">
@@ -161,7 +168,10 @@ export function ChannelHeader({ scope }: { scope: string }) {
       {deleteTarget && (
         <button
           type="button"
-          onClick={() => void submitDelete()}
+          onClick={() => {
+            setDeleteErr(null);
+            setDeleteOpen(true);
+          }}
           disabled={deleteBusy}
           className="inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
           title="Delete local conversation history and runtime context"
@@ -171,6 +181,24 @@ export function ChannelHeader({ scope }: { scope: string }) {
         </button>
       )}
     </div>
+    {deleteTarget && (
+      <ConfirmDialog
+        open={deleteOpen}
+        title={`Delete ${deleteTarget.label}?`}
+        body="This removes local chat history and model context for this conversation."
+        confirmLabel="Delete"
+        danger
+        busy={deleteBusy}
+        error={deleteErr}
+        onConfirm={() => void submitDelete()}
+        onCancel={() => {
+          if (deleteBusy) return;
+          setDeleteOpen(false);
+          setDeleteErr(null);
+        }}
+      />
+    )}
+    </>
   );
 }
 

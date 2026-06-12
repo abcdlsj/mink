@@ -185,6 +185,9 @@ func (b *Backend) DeleteConversation(req DeleteConversationRequest) (DeleteConve
 	}
 	sp, err := b.app.Spaces().LoadSpace(id)
 	if err != nil || sp == nil {
+		if space.IsSpaceID(id) {
+			return DeleteConversationResult{OK: true}, nil
+		}
 		return DeleteConversationResult{}, fmt.Errorf("conversation not found: %s", id)
 	}
 	if !deleteKindMatchesSpace(kind, sp.Kind) {
@@ -222,6 +225,9 @@ func (b *Backend) deleteThreadConversation(spaceID, parentID string) (DeleteConv
 	}
 	sp, err := b.app.Spaces().LoadSpace(spaceID)
 	if err != nil || sp == nil {
+		if space.IsSpaceID(spaceID) {
+			return DeleteConversationResult{OK: true}, nil
+		}
 		return DeleteConversationResult{}, fmt.Errorf("conversation not found: %s", spaceID)
 	}
 	if sp.Kind == space.KindAgentDM {
@@ -1440,6 +1446,9 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	if space.IsSpaceID(agentID) {
 		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
 			sp = loaded
+		}
+		if sp == nil {
+			return SessionDetail{}
 		}
 	}
 	display := agentID

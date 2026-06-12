@@ -420,6 +420,47 @@ func TestDeleteAgentChatRemovesSpaceSessionsAndTasks(t *testing.T) {
 	}
 }
 
+func TestGetAgentDMStaleSpaceIDDoesNotCreateBogusDM(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	staleID := "20260612-agent-10ff4668"
+
+	detail := b.GetAgentDM(staleID)
+	if detail.Item.ID != "" {
+		t.Fatalf("detail = %#v, want empty for stale space id", detail.Item)
+	}
+	spaces, err := a.Spaces().ListSpaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sp := range spaces {
+		if sp.Kind == space.KindAgentDM {
+			t.Fatalf("stale space id created bogus agent dm: %#v", sp)
+		}
+	}
+}
+
+func TestDeleteMissingSpaceIDIsIdempotent(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	staleID := "20260612-agent-10ff4668"
+
+	res, err := b.DeleteConversation(DeleteConversationRequest{Kind: "agent_dm", ID: staleID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.DeletedSpace || res.DeletedSessions != 0 || res.DeletedTasks != 0 {
+		t.Fatalf("delete result = %+v, want idempotent ok with no deletions", res)
+	}
+	spaces, err := a.Spaces().ListSpaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sp := range spaces {
+		if sp.ID == staleID || sp.Kind == space.KindAgentDM {
+			t.Fatalf("idempotent delete should not create spaces, got %#v", sp)
+		}
+	}
+}
+
 func TestDeleteThreadRemovesRepliesThreadSessionsAndTasks(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
