@@ -538,6 +538,47 @@ export const useStore = create<State>((set, get) => ({
         messages: [],
       };
     }
+    if (!detail.item?.id) {
+      const hint = "That conversation was deleted. Opened Sumi Home instead.";
+      const nav = await fetchNavigationSnapshot().catch(() => ({
+        channels: get().channels,
+        threads: get().threads,
+        directChats: get().directChats,
+        agentDMs: get().agentDMs,
+        recent: get().recent,
+      }));
+      set({
+        ...nav,
+        detail: null,
+        threadDetail: null,
+        participants: null,
+        activeChannel: null,
+        activeDirect: null,
+        activeThread: null,
+        activeAgentSpace: null,
+        activeAnchor: null,
+        streaming: null,
+        streamingByID: {},
+        expandedTaskID: null,
+        composerHint: { text: hint, at: Date.now() },
+      });
+      const nextDirect =
+        nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
+        nav.directChats.find((d) => d.kind === "direct_chat");
+      if (nextDirect) {
+        await get().openDirectChat(nextDirect.id, routeOpts);
+        set({ composerHint: { text: hint, at: Date.now() } });
+        return;
+      }
+      if (nav.channels[0]) {
+        await get().openChannel(nav.channels[0].id, routeOpts);
+        set({ composerHint: { text: hint, at: Date.now() } });
+        return;
+      }
+      get().openTaskBoard(routeOpts);
+      set({ composerHint: { text: hint, at: Date.now() } });
+      return;
+    }
     if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
     if (!detail.summary && ag?.role) detail.summary = ag.role;
     const [agentDMs, directChats] = await Promise.all([
