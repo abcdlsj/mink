@@ -9,7 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/session"
 )
 
-func TestSystemPromptPrefersPersonaSoul(t *testing.T) {
+func TestSystemPromptLayersRootAndPersonaSoul(t *testing.T) {
 	dir := t.TempDir()
 	globalSoul := filepath.Join(dir, "SOUL.md")
 	personaSoul := filepath.Join(dir, "persona-SOUL.md")
@@ -33,8 +33,14 @@ func TestSystemPromptPrefersPersonaSoul(t *testing.T) {
 	if !strings.Contains(s, "PERSONA SOUL") {
 		t.Fatalf("prompt missing persona SOUL:\n%s", s)
 	}
-	if strings.Contains(s, "GLOBAL SOUL") {
-		t.Fatalf("global SOUL leaked:\n%s", s)
+	if !strings.Contains(s, "GLOBAL SOUL") {
+		t.Fatalf("prompt missing root SOUL:\n%s", s)
+	}
+	if !strings.Contains(s, "Sumi base identity (root SOUL.md):") {
+		t.Fatalf("prompt missing root SOUL section:\n%s", s)
+	}
+	if !strings.Contains(s, "Persona soul overlay (persona SOUL.md):") {
+		t.Fatalf("prompt missing persona SOUL section:\n%s", s)
 	}
 	if !strings.Contains(s, "Persona: Debug (id=debug)") {
 		t.Fatalf("prompt missing persona header:\n%s", s)
@@ -64,5 +70,11 @@ func TestSystemPromptFallsBackToGlobalSoulWhenPersonaHasNone(t *testing.T) {
 	s := BuildSystemPrompt(env, &Turn{Session: &session.Session{}})
 	if !strings.Contains(s, "GLOBAL SOUL") {
 		t.Fatalf("expected fallback to global SOUL:\n%s", s)
+	}
+	if !strings.Contains(s, "Sumi base identity (root SOUL.md):") {
+		t.Fatalf("prompt missing root SOUL section:\n%s", s)
+	}
+	if strings.Contains(s, "Persona soul overlay") {
+		t.Fatalf("unexpected persona SOUL section:\n%s", s)
 	}
 }

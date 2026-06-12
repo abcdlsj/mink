@@ -34,6 +34,7 @@ func TestBuildSystemPromptAddsSoulAndTelegramSections(t *testing.T) {
 		"Workspace: /tmp/work",
 		"Project context:\nUse tiny functions.",
 		"Conversation summary:\n历史摘要",
+		"Sumi base identity (root SOUL.md):",
 		"保持锋利",
 		"项目约束",
 		"Allowed chat messages are forwarded directly to you.",

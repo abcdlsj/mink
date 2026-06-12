@@ -200,12 +200,16 @@ func (b promptBuilder) soul() string {
 	if b.env == nil {
 		return ""
 	}
+	var sections []string
+	if v := loadSoulPrompt(b.env.SoulPath); v != "" {
+		sections = append(sections, "Sumi base identity (root SOUL.md):\n"+v)
+	}
 	if b.env.Persona != nil {
 		if v := loadSoulPrompt(b.env.Persona.SoulPath); v != "" {
-			return v
+			sections = append(sections, "Persona soul overlay (persona SOUL.md):\n"+v)
 		}
 	}
-	return loadSoulPrompt(b.env.SoulPath)
+	return strings.TrimSpace(strings.Join(sections, "\n\n"))
 }
 
 func (b promptBuilder) preferences() string {
