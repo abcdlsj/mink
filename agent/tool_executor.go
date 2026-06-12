@@ -42,7 +42,7 @@ func (x toolExecutor) runParallel(ctx context.Context, t *Turn, calls []msg.Tool
 		wg.Add(1)
 		go func(i int, call msg.ToolCall) {
 			defer wg.Done()
-			out, err := x.tools.Run(ctx, call.Name, call.Args)
+			out, err := x.runTool(ctx, t, call)
 			result := msg.ToolResult{ToolCallID: call.ID, Content: out}
 			if err != nil {
 				result.Error = err.Error()
@@ -84,7 +84,7 @@ func (x toolExecutor) runOne(ctx context.Context, t *Turn, call msg.ToolCall) {
 		Input:      string(call.Args),
 	})
 
-	out, err := x.tools.Run(ctx, call.Name, call.Args)
+	out, err := x.runTool(ctx, t, call)
 	result := msg.ToolResult{ToolCallID: call.ID, Content: out}
 	if err != nil {
 		result.Error = err.Error()
@@ -99,6 +99,25 @@ func (x toolExecutor) runOne(ctx context.Context, t *Turn, call msg.ToolCall) {
 		Output:     out,
 		Err:        result.Error,
 	})
+}
+
+func (x toolExecutor) runTool(ctx context.Context, t *Turn, call msg.ToolCall) (string, error) {
+	if reason, blocked := t.toolBlocked(call.Name); blocked {
+		return "", toolBlockedError{name: call.Name, reason: reason}
+	}
+	return x.tools.Run(ctx, call.Name, call.Args)
+}
+
+type toolBlockedError struct {
+	name   string
+	reason string
+}
+
+func (e toolBlockedError) Error() string {
+	if e.reason != "" {
+		return e.name + " is not available in this turn: " + e.reason
+	}
+	return e.name + " is not available in this turn"
 }
 
 func toolResultType(result msg.ToolResult) string {

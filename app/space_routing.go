@@ -242,6 +242,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		CollaborationBrief:    collaborationBrief,
 		IncludeHistory:        true,
 		DisableExternalResume: true,
+		BlockedTools:          taskToolBlocks(persona),
 	}
 	ctx = command.WithSource(ctx, originSource)
 	ctx = command.WithPersona(ctx, persona.ID)

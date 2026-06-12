@@ -142,15 +142,33 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 	for _, want := range []string{
 		"Task delegation protocol:",
 		"Current task capabilities: task.assign, task.execute.",
-		"A task is a commitment with owner, expected outcome, acceptance criteria",
-		"Do not create tasks for simple Q&A, quick lookups",
-		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
-		"If outcome, assignee, acceptance criteria, or source is missing",
-		"answer directly without task_create",
-		"executors should not self-done their own work",
+		"Current task policy: propose-only.",
+		"You may suggest a Task Board candidate",
+		"Do not create, assign, or update real Task Board items yourself.",
+		"real task commit requires human confirmation",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
+		}
+	}
+
+	auto := BuildSystemPrompt(&RuntimeEnv{
+		Persona: &Persona{
+			ID:           "planner",
+			Display:      "Planner",
+			Capabilities: []string{"task.assign", "task.execute"},
+			TaskPolicy:   "auto_commit",
+		},
+	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
+	for _, want := range []string{
+		"Current task policy: auto-commit is enabled.",
+		"A task is a commitment with owner, expected outcome, acceptance criteria",
+		"Do not create tasks for simple Q&A, quick lookups",
+		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
+		"executors should not self-done their own work",
+	} {
+		if !strings.Contains(auto, want) {
+			t.Fatalf("auto prompt missing %q:\n%s", want, auto)
 		}
 	}
 

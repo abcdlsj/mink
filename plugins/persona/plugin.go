@@ -56,6 +56,7 @@ type createArgs struct {
 	Description  string   `json:"description"`
 	Tools        []string `json:"tools"`
 	Capabilities []string `json:"capabilities"`
+	TaskPolicy   string   `json:"task_policy"`
 	Soul         string   `json:"soul"`
 }
 
@@ -73,6 +74,7 @@ func (t createTool) Schema() map[string]any {
 		tool.Prop("description", "string", "Role description"),
 		tool.StringArrayProp("tools", "Optional tool allowlist"),
 		tool.StringArrayProp("capabilities", "Optional capability list, e.g. task.assign or task.execute"),
+		tool.Prop("task_policy", "string", "Task commit policy: propose_only (default) or auto_commit"),
 		tool.Prop("soul", "string", "SOUL.md content (persona prompt)"),
 		tool.Required("id"),
 	)
@@ -92,6 +94,7 @@ func (t createTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 		Description:  in.Description,
 		Tools:        in.Tools,
 		Capabilities: in.Capabilities,
+		TaskPolicy:   in.TaskPolicy,
 	}, in.Soul)
 	if err != nil {
 		return "", err

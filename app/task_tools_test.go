@@ -79,6 +79,19 @@ func TestTaskCreateToolRejectsVagueConversationTasks(t *testing.T) {
 	}
 }
 
+func TestTaskToolBlocksDefaultToProposeOnly(t *testing.T) {
+	blocks := taskToolBlocks(&persona.Persona{ID: "planner", Capabilities: []string{"task.assign"}})
+	for _, name := range []string{"task_create", "task_assign", "task_update_status"} {
+		if _, ok := blocks[name]; !ok {
+			t.Fatalf("propose-only should block %s: %#v", name, blocks)
+		}
+	}
+
+	if blocks := taskToolBlocks(&persona.Persona{ID: "planner", TaskPolicy: "auto_commit"}); blocks != nil {
+		t.Fatalf("auto_commit should expose task tools, got %#v", blocks)
+	}
+}
+
 func TestTaskAssignAndStatusToolsAreCapabilityGated(t *testing.T) {
 	a := newTaskToolTestApp(t)
 	sp, msg := newTaskToolSpace(t, a)

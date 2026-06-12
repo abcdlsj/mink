@@ -258,6 +258,7 @@ export interface PersonaItem {
   description?: string;
   tools?: string[];
   capabilities?: string[];
+  task_policy?: string;
   show_in_sidebar: boolean;
 }
 

@@ -42,6 +42,7 @@ type Persona struct {
 	Display      string
 	Description  string
 	Capabilities []string
+	TaskPolicy   string
 	SoulPath     string
 }
 
@@ -58,6 +59,15 @@ type Turn struct {
 	CollaborationBrief    string
 	IncludeHistory        bool
 	DisableExternalResume bool
+	BlockedTools          map[string]string
+}
+
+func (t *Turn) toolBlocked(name string) (string, bool) {
+	if t == nil || len(t.BlockedTools) == 0 {
+		return "", false
+	}
+	reason, ok := t.BlockedTools[name]
+	return reason, ok
 }
 
 type Native struct {

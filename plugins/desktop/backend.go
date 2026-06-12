@@ -1642,6 +1642,7 @@ func (b *Backend) ListPersonas() []PersonaItem {
 			Description:   p.Description,
 			Tools:         p.Tools,
 			Capabilities:  p.Capabilities,
+			TaskPolicy:    p.TaskPolicy,
 			ShowInSidebar: p.ShowInSidebar,
 		})
 	}

@@ -98,11 +98,33 @@ func (e *engine) step(ctx context.Context, t *Turn) (*llm.Response, error) {
 }
 
 func (e *engine) stream(ctx context.Context, t *Turn) (*llm.Response, error) {
-	ch, err := e.env.Provider.ChatStream(ctx, e.messages(t), e.env.Tools.Definitions())
+	ch, err := e.env.Provider.ChatStream(ctx, e.messages(t), e.toolDefinitions(t))
 	if err != nil {
 		return nil, err
 	}
 	return collect(ctx, turnSink{turn: t}, ch)
+}
+
+func (e *engine) toolDefinitions(t *Turn) []llm.Tool {
+	if e == nil || e.env == nil || e.env.Tools == nil {
+		return nil
+	}
+	tools := e.env.Tools.Definitions()
+	if t == nil || len(t.BlockedTools) == 0 {
+		return tools
+	}
+	out := tools[:0]
+	for _, tool := range tools {
+		name := ""
+		if tool.Function != nil {
+			name = tool.Function.Name
+		}
+		if _, blocked := t.toolBlocked(name); blocked {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
 }
 
 func (e *engine) messages(t *Turn) []msg.Message {

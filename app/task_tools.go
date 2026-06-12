@@ -26,6 +26,18 @@ func (a *App) registerTaskTools() {
 	a.RegisterTool(taskStatusTool{a: a})
 }
 
+func taskToolBlocks(p *persona.Persona) map[string]string {
+	if p != nil && p.TaskPolicy == "auto_commit" {
+		return nil
+	}
+	reason := "current task policy is propose-only; real Task Board changes require human confirmation"
+	return map[string]string{
+		"task_create":        reason,
+		"task_assign":        reason,
+		"task_update_status": reason,
+	}
+}
+
 type taskCreateTool struct{ a *App }
 
 func (t taskCreateTool) Name() string { return "task_create" }

@@ -93,6 +93,7 @@ type PersonaItem struct {
 	Description   string   `json:"description"`
 	Tools         []string `json:"tools,omitempty"`
 	Capabilities  []string `json:"capabilities,omitempty"`
+	TaskPolicy    string   `json:"task_policy,omitempty"`
 	ShowInSidebar bool     `json:"show_in_sidebar"`
 }
 

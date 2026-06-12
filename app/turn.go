@@ -42,6 +42,7 @@ func (f turnFlow) run(ctx context.Context) error {
 		StreamID:              newStreamID(),
 		IncludeHistory:        f.includeHistory,
 		DisableExternalResume: f.disableExternalResume,
+		BlockedTools:          taskToolBlocks(f.app.personas.Get(f.personaID)),
 	}
 	if space.MapSource(f.source).Kind == space.KindAgentDM {
 		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {

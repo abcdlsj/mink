@@ -104,9 +104,20 @@ func (b promptBuilder) taskDelegation() string {
 			"- If work should become a task, propose the task shape and ask a capable agent or human to create it.",
 		}, "\n")
 	}
+	if b.env.Persona.TaskPolicy != "auto_commit" {
+		return strings.Join([]string{
+			"Task delegation protocol:",
+			"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
+			"- Current task policy: propose-only.",
+			"- You may suggest a Task Board candidate with title, owner, expected outcome, and acceptance criteria.",
+			"- Do not create, assign, or update real Task Board items yourself.",
+			"- A real task commit requires human confirmation through the UI or an explicit auto-commit task policy.",
+		}, "\n")
+	}
 	return strings.Join([]string{
 		"Task delegation protocol:",
 		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
+		"- Current task policy: auto-commit is enabled.",
 		"- A task is a commitment with owner, expected outcome, acceptance criteria, and review/status flow.",
 		"- Do not create tasks for simple Q&A, quick lookups, link checks, concept explanations, or ordinary conversation.",
 		"- task.plan may break work into explicit candidate tasks, but discussion or brainstorming is not a task by itself.",
