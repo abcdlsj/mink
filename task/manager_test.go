@@ -48,6 +48,44 @@ func (s *memStore) ListTasksBySpace(spaceID string) ([]*Task, error) {
 	return out, nil
 }
 
+func (s *memStore) DeleteTasksBySpace(spaceID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := 0
+	for id, t := range s.tasks {
+		if t.SpaceID != spaceID {
+			continue
+		}
+		delete(s.tasks, id)
+		s.deleteRunsByTaskLocked(id)
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (s *memStore) DeleteTasksByThread(spaceID, sourceThreadID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := 0
+	for id, t := range s.tasks {
+		if t.SpaceID != spaceID || t.SourceThreadID != sourceThreadID {
+			continue
+		}
+		delete(s.tasks, id)
+		s.deleteRunsByTaskLocked(id)
+		deleted++
+	}
+	return deleted, nil
+}
+
+func (s *memStore) deleteRunsByTaskLocked(taskID string) {
+	for id, r := range s.runs {
+		if r.TaskID == taskID {
+			delete(s.runs, id)
+		}
+	}
+}
+
 func (s *memStore) SaveRun(r *Run) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

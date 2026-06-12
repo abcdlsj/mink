@@ -15,6 +15,7 @@ type Store interface {
 	LoadSpace(id string) (*Space, error)
 	ListSpaces() ([]*Space, error)
 	FindSpaceByKindAndSeed(kind Kind, seed string) (*Space, error)
+	DeleteSpace(id string) error
 }
 
 type PersonaInfo struct {
@@ -72,6 +73,21 @@ func (m *Manager) ListSpaces() ([]*Space, error) {
 
 func (m *Manager) LoadSpace(id string) (*Space, error) {
 	return m.store.LoadSpace(id)
+}
+
+func (m *Manager) DeleteSpace(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	m.mu.Lock()
+	err := m.store.DeleteSpace(id)
+	m.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	m.publish(bus.Event{Type: bus.SpaceUpdated, SpaceID: id})
+	return nil
 }
 
 type SourceTarget struct {
@@ -432,6 +448,39 @@ func (m *Manager) SetThreadAgentMode(spaceID, parentMessageID, personaID, mode s
 	}
 	m.mu.Unlock()
 	m.publish(bus.Event{Type: bus.SpaceUpdated, SpaceID: spaceID, ParentMessageID: parentMessageID, AgentID: personaID})
+	return nil
+}
+
+func (m *Manager) DeleteThread(spaceID, parentMessageID string) error {
+	spaceID = strings.TrimSpace(spaceID)
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	if spaceID == "" || parentMessageID == "" {
+		return fmt.Errorf("space id and parent message id required")
+	}
+	m.mu.Lock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	next := sp.Messages[:0]
+	for _, message := range sp.Messages {
+		if strings.TrimSpace(message.ParentMessageID) == parentMessageID {
+			continue
+		}
+		next = append(next, message)
+	}
+	sp.Messages = next
+	if sp.ThreadAgentModes != nil {
+		delete(sp.ThreadAgentModes, parentMessageID)
+	}
+	sp.UpdatedAt = time.Now()
+	if err := m.store.SaveSpace(sp); err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	m.mu.Unlock()
+	m.publish(bus.Event{Type: bus.SpaceUpdated, SpaceID: spaceID, ParentMessageID: parentMessageID})
 	return nil
 }
 

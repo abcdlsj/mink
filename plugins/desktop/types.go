@@ -133,6 +133,19 @@ type SendRequest struct {
 	ParentMessageID string `json:"parent_message_id,omitempty"`
 }
 
+type DeleteConversationRequest struct {
+	Kind            string `json:"kind"`
+	ID              string `json:"id"`
+	ParentMessageID string `json:"parent_message_id,omitempty"`
+}
+
+type DeleteConversationResult struct {
+	OK              bool `json:"ok"`
+	DeletedSpace    bool `json:"deleted_space,omitempty"`
+	DeletedSessions int  `json:"deleted_sessions,omitempty"`
+	DeletedTasks    int  `json:"deleted_tasks,omitempty"`
+}
+
 type BusEvent struct {
 	Type            string    `json:"type"`
 	Source          string    `json:"source,omitempty"`

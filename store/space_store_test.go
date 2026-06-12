@@ -80,3 +80,21 @@ func TestFindSpaceByKindAndSeed(t *testing.T) {
 	}
 	_ = time.Now()
 }
+
+func TestDeleteSpaceRemovesSpaceFile(t *testing.T) {
+	root := t.TempDir()
+	s, err := Open(root)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	sp := space.New(space.KindDirectChat, "chat", nil)
+	if err := s.SaveSpace(sp); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteSpace(sp.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LoadSpace(sp.ID); err == nil {
+		t.Fatalf("LoadSpace(%s) succeeded after delete", sp.ID)
+	}
+}

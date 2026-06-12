@@ -190,6 +190,13 @@ export interface SessionDetail {
   messages: MessageView[];
 }
 
+export interface DeleteConversationResult {
+  ok: boolean;
+  deleted_space?: boolean;
+  deleted_sessions?: number;
+  deleted_tasks?: number;
+}
+
 export interface AgentRun {
   id: string;
   agent_id: string;

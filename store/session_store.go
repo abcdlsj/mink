@@ -75,19 +75,67 @@ func (s *Store) ListSessions() ([]*session.Session, error) {
 	return out, nil
 }
 
+func (s *Store) DeleteSession(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, err := s.loadIndexLocked()
+	if err != nil {
+		return err
+	}
+	var paths []string
+	if meta, ok := idx[id]; ok {
+		paths = append(paths, meta.Path, meta.RunlogPath)
+		delete(idx, id)
+	}
+	if path, ok, err := s.findSessionPathLocked(id); err != nil {
+		return err
+	} else if ok {
+		paths = append(paths, path)
+		if d, err := loadSessionFile(path); err == nil {
+			paths = append(paths, s.runlogPath(d.ID, d.Source, d.CreatedAt))
+		}
+	}
+	for _, path := range uniqueNonEmpty(paths) {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return s.saveIndexLocked(idx)
+}
+
 func (s *Store) CurrentSessionID(source string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id, err := s.currentFromRunlogLocked(source); err != nil {
 		return "", err
 	} else if id != "" {
-		return id, nil
+		if _, err := s.loadSessionLocked(id); err == nil {
+			return id, nil
+		}
 	}
 	idx, err := s.loadIndexLocked()
 	if err != nil {
 		return "", err
 	}
 	return latestBySource(idx, source), nil
+}
+
+func uniqueNonEmpty(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 func (s *Store) SetCurrentSession(source, id string) error {

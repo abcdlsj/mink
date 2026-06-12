@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -73,6 +74,65 @@ func (s *Store) ListTasksBySpace(spaceID string) ([]*task.Task, error) {
 	return out, nil
 }
 
+func (s *Store) DeleteTasksBySpace(spaceID string) (int, error) {
+	spaceID = strings.TrimSpace(spaceID)
+	if spaceID == "" {
+		return 0, nil
+	}
+	return s.deleteTasksMatching(func(t task.Task) bool {
+		return t.SpaceID == spaceID
+	})
+}
+
+func (s *Store) DeleteTasksByThread(spaceID, sourceThreadID string) (int, error) {
+	spaceID = strings.TrimSpace(spaceID)
+	sourceThreadID = strings.TrimSpace(sourceThreadID)
+	if spaceID == "" || sourceThreadID == "" {
+		return 0, nil
+	}
+	return s.deleteTasksMatching(func(t task.Task) bool {
+		return t.SpaceID == spaceID && t.SourceThreadID == sourceThreadID
+	})
+}
+
+func (s *Store) deleteTasksMatching(match func(task.Task) bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	type hit struct {
+		taskID string
+		path   string
+	}
+	var hits []hit
+	if err := walkDirJSON(s.tasksDir, func(path string) error {
+		data, err := readFile(path)
+		if err != nil {
+			return nil
+		}
+		var t task.Task
+		if err := json.Unmarshal(data, &t); err != nil {
+			return nil
+		}
+		if match(t) {
+			hits = append(hits, hit{taskID: t.ID, path: path})
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
+	for _, h := range hits {
+		if err := s.deleteRunsByTaskLocked(h.taskID); err != nil {
+			return 0, err
+		}
+		if err := os.Remove(h.path); err != nil && !os.IsNotExist(err) {
+			return 0, err
+		}
+		if err := os.Remove(s.taskRunlogPath(h.taskID)); err != nil && !os.IsNotExist(err) {
+			return 0, err
+		}
+	}
+	return len(hits), nil
+}
+
 func (s *Store) SaveRun(r *task.Run) error {
 	if r == nil {
 		return fmt.Errorf("run is nil")
@@ -138,6 +198,30 @@ func (s *Store) ListRunsByTask(taskID string) ([]*task.Run, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func (s *Store) deleteRunsByTaskLocked(taskID string) error {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil
+	}
+	return walkDirJSON(s.runsDir, func(path string) error {
+		data, err := readFile(path)
+		if err != nil {
+			return nil
+		}
+		var r task.Run
+		if err := json.Unmarshal(data, &r); err != nil {
+			return nil
+		}
+		if r.TaskID != taskID {
+			return nil
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *Store) taskPath(id string) string {

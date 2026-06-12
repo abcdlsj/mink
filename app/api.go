@@ -78,6 +78,13 @@ func (a *App) ListSessionsBySource(source string) ([]*session.Session, error) {
 	return a.sessions.ListBySource(source)
 }
 
+func (a *App) DeleteSessionsMatching(match func(*session.Session) bool) (int, error) {
+	if a == nil || a.sessions == nil {
+		return 0, nil
+	}
+	return a.sessions.DeleteMatching(match)
+}
+
 func (a *App) SessionIndex() ([]store.SessionMeta, error) {
 	if a == nil || a.store == nil {
 		return nil, nil

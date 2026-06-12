@@ -10,6 +10,7 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
 	"github.com/abcdlsj/sumi/space"
+	taskpkg "github.com/abcdlsj/sumi/task"
 )
 
 func TestSplitModel(t *testing.T) {
@@ -361,6 +362,129 @@ func TestDefaultSumiPersonaSendFailurePersistsInputAndNotice(t *testing.T) {
 	}
 	if detail.Messages[1].Role != "system" || detail.Messages[1].Content != "Send failed: persona not found: assistant" {
 		t.Fatalf("failure notice = %#v", detail.Messages[1])
+	}
+}
+
+func TestDeleteAgentChatRemovesSpaceSessionsAndTasks(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	named, err := b.CreateAgentDM("coder", "cleanup target")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, err := a.CurrentSession("desktop:agent:" + named.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Add(msg.Message{Role: "user", Content: "remember me"})
+	if err := a.SaveSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID:          named.ID,
+		TriggerMessageID: "msg-1",
+		InitiatorID:      "user",
+		WorkerID:         "coder",
+		Title:            "delete me",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := b.DeleteConversation(DeleteConversationRequest{Kind: "agent_dm", ID: named.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || !res.DeletedSpace || res.DeletedSessions != 1 || res.DeletedTasks != 1 {
+		t.Fatalf("delete result = %+v", res)
+	}
+	if _, err := a.Spaces().LoadSpace(named.ID); err == nil {
+		t.Fatalf("agent chat space still loads after delete")
+	}
+	if got := a.Personas().Get("coder"); got == nil {
+		t.Fatalf("persona should be preserved")
+	}
+	if chats := b.ListAgentDMs(); len(chats) != 0 {
+		t.Fatalf("agent chats after delete = %#v, want empty", chats)
+	}
+	if sessions, err := a.ListSessions(); err != nil {
+		t.Fatal(err)
+	} else if len(sessions) != 0 {
+		t.Fatalf("sessions after delete = %#v, want empty", sessions)
+	}
+	if tasks, err := a.Tasks().ListBySpace(named.ID); err != nil {
+		t.Fatal(err)
+	} else if len(tasks) != 0 {
+		t.Fatalf("tasks after delete = %#v, want empty", tasks)
+	}
+}
+
+func TestDeleteThreadRemovesRepliesThreadSessionsAndTasks(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := a.Spaces().AppendUserMessage(sp.ID, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().AppendAgentMessage(sp.ID, space.PersonaInfo{ID: "coder", Display: "Coder"}, "reply", "", nil, root.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Spaces().SetThreadAgentMode(sp.ID, root.ID, "coder", "listen"); err != nil {
+		t.Fatal(err)
+	}
+	source := "desktop:channel:" + sp.ID + ":thread:" + root.ID + ":persona:coder"
+	sess, err := a.CurrentSession(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Add(msg.Message{Role: "user", Content: "thread memory"})
+	if err := a.SaveSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Tasks().Create(taskpkg.CreateTaskInput{
+		SpaceID:          sp.ID,
+		TriggerMessageID: "reply-1",
+		SourceThreadID:   root.ID,
+		InitiatorID:      "user",
+		WorkerID:         "coder",
+		Title:            "thread task",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := b.DeleteConversation(DeleteConversationRequest{Kind: "thread", ID: sp.ID, ParentMessageID: root.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.DeletedSpace || res.DeletedSessions != 1 || res.DeletedTasks != 1 {
+		t.Fatalf("delete thread result = %+v", res)
+	}
+	updated, err := a.Spaces().LoadSpace(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Messages) != 1 || updated.Messages[0].ID != root.ID {
+		t.Fatalf("messages after thread delete = %#v, want only root", updated.Messages)
+	}
+	if _, ok := updated.ThreadAgentModes[root.ID]; ok {
+		t.Fatalf("thread agent modes still contain deleted thread: %#v", updated.ThreadAgentModes)
+	}
+	if sessions, err := a.ListSessions(); err != nil {
+		t.Fatal(err)
+	} else if len(sessions) != 0 {
+		t.Fatalf("sessions after thread delete = %#v, want empty", sessions)
+	}
+	if tasks, err := a.Tasks().ListBySpace(sp.ID); err != nil {
+		t.Fatal(err)
+	} else if len(tasks) != 0 {
+		t.Fatalf("tasks after thread delete = %#v, want empty", tasks)
 	}
 }
 

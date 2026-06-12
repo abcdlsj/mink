@@ -17,6 +17,7 @@ import (
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 	taskpkg "github.com/abcdlsj/sumi/task"
 )
@@ -170,6 +171,175 @@ func (b *Backend) StopTurn(sessionID string) error {
 		cancel()
 	}
 	return nil
+}
+
+func (b *Backend) DeleteConversation(req DeleteConversationRequest) (DeleteConversationResult, error) {
+	kind := strings.TrimSpace(req.Kind)
+	id := strings.TrimSpace(req.ID)
+	parentID := strings.TrimSpace(req.ParentMessageID)
+	if id == "" {
+		return DeleteConversationResult{}, fmt.Errorf("conversation id required")
+	}
+	if kind == "thread" {
+		return b.deleteThreadConversation(id, parentID)
+	}
+	sp, err := b.app.Spaces().LoadSpace(id)
+	if err != nil || sp == nil {
+		return DeleteConversationResult{}, fmt.Errorf("conversation not found: %s", id)
+	}
+	if !deleteKindMatchesSpace(kind, sp.Kind) {
+		return DeleteConversationResult{}, fmt.Errorf("conversation kind %q does not match %q", kind, sp.Kind)
+	}
+	sources := conversationSessionSources(sp)
+	b.stopConversationTurns(append([]string{sp.ID}, sources...)...)
+	deletedSessions, err := b.app.DeleteSessionsMatching(func(s *session.Session) bool {
+		return sessionSourceMatches(s.Source, sources)
+	})
+	if err != nil {
+		return DeleteConversationResult{}, err
+	}
+	deletedTasks := 0
+	if b.app.Tasks() != nil {
+		deletedTasks, err = b.app.Tasks().DeleteBySpace(sp.ID)
+		if err != nil {
+			return DeleteConversationResult{}, err
+		}
+	}
+	if err := b.app.Spaces().DeleteSpace(sp.ID); err != nil {
+		return DeleteConversationResult{}, err
+	}
+	return DeleteConversationResult{
+		OK:              true,
+		DeletedSpace:    true,
+		DeletedSessions: deletedSessions,
+		DeletedTasks:    deletedTasks,
+	}, nil
+}
+
+func (b *Backend) deleteThreadConversation(spaceID, parentID string) (DeleteConversationResult, error) {
+	if parentID == "" {
+		return DeleteConversationResult{}, fmt.Errorf("parent message id required")
+	}
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return DeleteConversationResult{}, fmt.Errorf("conversation not found: %s", spaceID)
+	}
+	if sp.Kind == space.KindAgentDM {
+		return DeleteConversationResult{}, fmt.Errorf("threads are not supported in this Space kind")
+	}
+	if _, ok := findMessage(sp.Messages, parentID); !ok {
+		return DeleteConversationResult{}, fmt.Errorf("thread parent message %q not found", parentID)
+	}
+	sources := threadSessionSources(sp, parentID)
+	b.stopConversationTurns(sources...)
+	deletedSessions, err := b.app.DeleteSessionsMatching(func(s *session.Session) bool {
+		return sessionSourceMatches(s.Source, sources)
+	})
+	if err != nil {
+		return DeleteConversationResult{}, err
+	}
+	deletedTasks := 0
+	if b.app.Tasks() != nil {
+		deletedTasks, err = b.app.Tasks().DeleteByThread(sp.ID, parentID)
+		if err != nil {
+			return DeleteConversationResult{}, err
+		}
+	}
+	if err := b.app.Spaces().DeleteThread(sp.ID, parentID); err != nil {
+		return DeleteConversationResult{}, err
+	}
+	return DeleteConversationResult{
+		OK:              true,
+		DeletedSessions: deletedSessions,
+		DeletedTasks:    deletedTasks,
+	}, nil
+}
+
+func (b *Backend) stopConversationTurns(ids ...string) {
+	for _, id := range ids {
+		_ = b.StopTurn(id)
+	}
+}
+
+func deleteKindMatchesSpace(kind string, spaceKind space.Kind) bool {
+	switch strings.TrimSpace(kind) {
+	case "", string(spaceKind):
+		return true
+	case "direct":
+		return spaceKind == space.KindDirectChat
+	case "agent":
+		return spaceKind == space.KindAgentDM
+	case "channel":
+		return spaceKind == space.KindChannel
+	}
+	return false
+}
+
+func conversationSessionSources(sp *space.Space) []string {
+	if sp == nil {
+		return nil
+	}
+	switch sp.Kind {
+	case space.KindChannel:
+		return []string{
+			"desktop:channel:" + sp.ID,
+			"cli:channel:" + sp.ID,
+		}
+	case space.KindDirectChat:
+		if isDefaultSumiDirect(sp) {
+			return []string{
+				desktopSource,
+				"desktop:direct:" + sp.ID,
+			}
+		}
+		return []string{"desktop:direct:" + sp.ID}
+	case space.KindAgentDM:
+		out := []string{"desktop:agent:" + sp.ID}
+		if isDefaultAgentDM(sp) {
+			if pid := space.AgentParticipantID(sp); pid != "" {
+				out = append(out, "desktop:agent:"+pid, "cli:agent:"+pid)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func threadSessionSources(sp *space.Space, parentID string) []string {
+	parentID = strings.TrimSpace(parentID)
+	if sp == nil || parentID == "" {
+		return nil
+	}
+	bases := conversationSessionSources(sp)
+	out := make([]string, 0, len(bases))
+	for _, base := range bases {
+		if strings.TrimSpace(base) == "" {
+			continue
+		}
+		out = append(out, base+":thread:"+parentID)
+	}
+	return out
+}
+
+func sessionSourceMatches(source string, candidates []string) bool {
+	source = strings.TrimSpace(source)
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if candidate == desktopSource {
+			if source == desktopSource || strings.HasPrefix(source, desktopSource+":persona:") {
+				return true
+			}
+			continue
+		}
+		if source == candidate || strings.HasPrefix(source, candidate+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Backend) NewDirectChat() (SessionDetail, error) {
@@ -1833,6 +2003,23 @@ func (b *Backend) Subscribe() (<-chan BusEvent, func()) {
 func (b *Backend) APIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/state", jsonHandler(func() any { return b.WorkspaceInfo() }))
+	mux.HandleFunc("/api/conversation/delete", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in DeleteConversationRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.DeleteConversation(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
 	mux.HandleFunc("/api/channels", jsonHandler(func() any { return b.ListChannels() }))
 	mux.HandleFunc("/api/channel/create", func(rw http.ResponseWriter, req *http.Request) {
 		if req.Method != http.MethodPost {

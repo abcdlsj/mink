@@ -44,6 +44,11 @@ func (m *memoryStore) FindSpaceByKindAndSeed(kind Kind, seed string) (*Space, er
 	return nil, nil
 }
 
+func (m *memoryStore) DeleteSpace(id string) error {
+	delete(m.byID, id)
+	return nil
+}
+
 var errSpaceNotFound = errMockNotFound{}
 
 type errMockNotFound struct{}

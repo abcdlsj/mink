@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AtSign, Hash, MessageSquare } from "lucide-react";
+import { AtSign, Hash, MessageSquare, Trash2 } from "lucide-react";
 import type { AgentItem, ChannelItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { AgentGear } from "./AgentGear";
@@ -13,10 +13,12 @@ export function ChannelHeader({ scope }: { scope: string }) {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const updateAgentChatTitle = useStore((s) => s.updateAgentChatTitle);
+  const deleteConversation = useStore((s) => s.deleteConversation);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [titleBusy, setTitleBusy] = useState(false);
   const [titleErr, setTitleErr] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     setEditingTitle(false);
@@ -47,6 +49,27 @@ export function ChannelHeader({ scope }: { scope: string }) {
   }
 
   const editableAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
+  const deleteTarget =
+    view === "channel" && detail.item.id
+      ? { kind: "channel" as const, id: detail.item.id, label: "#" + (channel?.name || item.title || "channel") }
+      : view === "direct" && detail.item.id
+        ? { kind: "direct_chat" as const, id: detail.item.id, label: item.title || "direct chat" }
+        : view === "agent" && detail.item.id
+          ? { kind: "agent_dm" as const, id: detail.item.id, label: titleText || "agent chat" }
+          : null;
+  const submitDelete = async () => {
+    if (!deleteTarget || deleteBusy) return;
+    const ok = window.confirm(`Delete "${deleteTarget.label}"?\n\nThis removes local chat history and model context for this conversation.`);
+    if (!ok) return;
+    setDeleteBusy(true);
+    try {
+      await deleteConversation(deleteTarget);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
   const beginTitleEdit = () => {
     if (!editableAgentChat) return;
     setTitleDraft(titleText === "New chat" ? "" : titleText);
@@ -135,6 +158,18 @@ export function ChannelHeader({ scope }: { scope: string }) {
           </div>
         )}
       </div>
+      {deleteTarget && (
+        <button
+          type="button"
+          onClick={() => void submitDelete()}
+          disabled={deleteBusy}
+          className="inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
+          title="Delete local conversation history and runtime context"
+        >
+          <Trash2 className="size-3.5" />
+          {deleteBusy ? "Deleting" : "Delete"}
+        </button>
+      )}
     </div>
   );
 }

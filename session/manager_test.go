@@ -42,6 +42,16 @@ func (s *memStore) ListSessions() ([]*Session, error) {
 	return out, nil
 }
 
+func (s *memStore) DeleteSession(id string) error {
+	delete(s.sessions, id)
+	for source, current := range s.current {
+		if current == id {
+			delete(s.current, source)
+		}
+	}
+	return nil
+}
+
 func (s *memStore) CurrentSessionID(source string) (string, error) {
 	return s.current[source], nil
 }

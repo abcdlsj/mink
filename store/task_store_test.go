@@ -108,6 +108,30 @@ func TestListRunsByTaskFilters(t *testing.T) {
 	}
 }
 
+func TestDeleteTasksBySpaceRemovesRuns(t *testing.T) {
+	s := newStoreFor(t)
+	tk := &task.Task{ID: "task-delete", SpaceID: "sp-a", InitiatorID: "u", WorkerID: "w", Title: "A", Status: task.StatusQueued}
+	if err := s.SaveTask(tk); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveRun(&task.Run{ID: "run-delete", TaskID: tk.ID, Status: task.StatusRunning}); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := s.DeleteTasksBySpace("sp-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted != 1 {
+		t.Fatalf("deleted = %d, want 1", deleted)
+	}
+	if got, err := s.LoadTask(tk.ID); err != nil || got != nil {
+		t.Fatalf("LoadTask after delete = %#v / %v, want nil", got, err)
+	}
+	if runs, err := s.ListRunsByTask(tk.ID); err != nil || len(runs) != 0 {
+		t.Fatalf("runs after delete = %#v / %v, want empty", runs, err)
+	}
+}
+
 var seed int64
 
 func randomTag() string {

@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -70,6 +71,23 @@ func (s *Store) FindSpaceByKindAndSeed(kind space.Kind, seed string) (*space.Spa
 		}
 	}
 	return nil, nil
+}
+
+func (s *Store) DeleteSpace(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path, ok := s.findSpacePathLocked(id)
+	if !ok {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) spacePath(sp *space.Space) string {

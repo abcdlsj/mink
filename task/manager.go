@@ -16,6 +16,8 @@ type Store interface {
 	SaveTask(*Task) error
 	LoadTask(id string) (*Task, error)
 	ListTasksBySpace(spaceID string) ([]*Task, error)
+	DeleteTasksBySpace(spaceID string) (int, error)
+	DeleteTasksByThread(spaceID, sourceThreadID string) (int, error)
 	SaveRun(*Run) error
 	LoadRun(id string) (*Run, error)
 	ListRunsByTask(taskID string) ([]*Run, error)
@@ -226,6 +228,24 @@ func (m *Manager) ListAll() ([]*Task, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.store.ListTasksBySpace("")
+}
+
+func (m *Manager) DeleteBySpace(spaceID string) (int, error) {
+	if strings.TrimSpace(spaceID) == "" {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.store.DeleteTasksBySpace(spaceID)
+}
+
+func (m *Manager) DeleteByThread(spaceID, sourceThreadID string) (int, error) {
+	if strings.TrimSpace(spaceID) == "" || strings.TrimSpace(sourceThreadID) == "" {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.store.DeleteTasksByThread(spaceID, sourceThreadID)
 }
 
 func (m *Manager) StartRun(taskID string, state ...TaskState) (*Run, error) {

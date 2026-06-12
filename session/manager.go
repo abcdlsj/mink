@@ -11,6 +11,7 @@ type Store interface {
 	SaveSession(*Session) error
 	LoadSession(string) (*Session, error)
 	ListSessions() ([]*Session, error)
+	DeleteSession(string) error
 	CurrentSessionID(string) (string, error)
 	SetCurrentSession(string, string) error
 }
@@ -230,6 +231,47 @@ func (m *Manager) ListBySource(source string) ([]*Session, error) {
 		}
 	}
 	return out, nil
+}
+
+func (m *Manager) Delete(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if err := m.store.DeleteSession(id); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	delete(m.sessions, id)
+	delete(m.drafts, id)
+	for source, current := range m.currents {
+		if current == id {
+			delete(m.currents, source)
+		}
+	}
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) DeleteMatching(match func(*Session) bool) (int, error) {
+	if match == nil {
+		return 0, nil
+	}
+	sessions, err := m.store.ListSessions()
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, s := range sessions {
+		if s == nil || !match(s) {
+			continue
+		}
+		if err := m.Delete(s.ID); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
 }
 
 func normalizeSource(source string) string {

@@ -6,6 +6,7 @@ import type {
   ChannelItem,
   CommandItem,
   DirectChatItem,
+  DeleteConversationResult,
   ModelItem,
   ParticipantsView,
   PersonaItem,
@@ -194,6 +195,14 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionID }),
+      }),
+    ),
+  deleteConversation: (input: { kind: string; id: string; parent_message_id?: string }) =>
+    j<DeleteConversationResult>(
+      fetch("/api/conversation/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
       }),
     ),
 };

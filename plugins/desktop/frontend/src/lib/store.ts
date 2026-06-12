@@ -104,6 +104,7 @@ interface State {
   openTaskBoard: (routeOpts?: RouteWriteOptions) => void;
   openDirectChat: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newDirectChat: () => Promise<void>;
+  deleteConversation: (input: { kind: "channel" | "direct_chat" | "agent_dm" | "thread"; id: string; parentMessageID?: string }) => Promise<void>;
   setPalette: (open: boolean) => void;
   setQuickCreate: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
@@ -304,6 +305,17 @@ async function refetchNavigation(
     ]);
     set({ channels, threads, directChats, agentDMs, recent });
   } catch {}
+}
+
+async function fetchNavigationSnapshot(): Promise<Pick<State, "channels" | "threads" | "directChats" | "agentDMs" | "recent">> {
+  const [channels, threads, directChats, agentDMs, recent] = await Promise.all([
+    api.channels(),
+    api.threads(),
+    api.directChats(),
+    api.agentDMs(),
+    api.recent(),
+  ]);
+  return { channels, threads, directChats, agentDMs, recent };
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -649,6 +661,74 @@ export const useStore = create<State>((set, get) => ({
       streamingByID: {},
     });
     writeWebRoute({ view: "direct", id }, routeOpts);
+  },
+
+  async deleteConversation(input) {
+    const kind = input.kind;
+    const id = input.id;
+    const parentMessageID = input.parentMessageID;
+    if (!id) return;
+    await api.deleteConversation({
+      kind,
+      id,
+      parent_message_id: parentMessageID,
+    });
+    const [nav, capabilities] = await Promise.all([
+      fetchNavigationSnapshot(),
+      api.capabilities().catch(() => get().capabilities || { skills: [], tasks: [], action_proposals: [] }),
+    ]);
+    set({
+      ...nav,
+      capabilities,
+      sending: false,
+      streaming: null,
+      streamingByID: {},
+    });
+    if (kind === "thread") {
+      if (get().threadDetail?.space_id === id && get().threadDetail?.parent_id === parentMessageID) {
+        get().closeThread({ replace: true });
+      }
+      if (get().view === "channel" && get().activeChannel === id) {
+        await refetchActiveScope(get, set);
+      }
+      return;
+    }
+    const s = get();
+    const activeDeleted =
+      (kind === "channel" && s.view === "channel" && (s.activeChannel === id || s.detail?.item.id === id)) ||
+      (kind === "direct_chat" && s.view === "direct" && (s.activeDirect === id || s.detail?.item.id === id)) ||
+      (kind === "agent_dm" && s.view === "agent" && (s.activeAgentSpace === id || s.detail?.item.id === id));
+    if (!activeDeleted) return;
+    set({
+      detail: null,
+      threadDetail: null,
+      participants: null,
+      activeChannel: null,
+      activeDirect: null,
+      activeThread: null,
+      activeAgentSpace: null,
+      activeAnchor: null,
+      expandedTaskID: null,
+    });
+    if (kind === "channel") {
+      const next = nav.channels.find((c) => c.id !== id) || nav.channels[0];
+      if (next) {
+        await get().openChannel(next.id, { replace: true });
+        return;
+      }
+    }
+    const nextDirect =
+      nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
+      nav.directChats.find((d) => d.kind === "direct_chat");
+    if (nextDirect) {
+      await get().openDirectChat(nextDirect.id, { replace: true });
+      return;
+    }
+    if (nav.channels[0]) {
+      await get().openChannel(nav.channels[0].id, { replace: true });
+      return;
+    }
+    get().openTaskBoard({ replace: true });
   },
 
   async openCurrentRoute() {

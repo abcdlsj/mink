@@ -106,3 +106,40 @@ func TestSessionIndexAndRunLogFacts(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteSessionRemovesIndexFileAndCurrentFallback(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sumi-data")
+	db, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	s := session.New("desktop:agent:coder")
+	s.Add(msg.Message{Role: "user", Content: "hello"})
+	if err := db.SaveSession(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetCurrentSession(s.Source, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteSession(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.LoadSession(s.ID); err == nil {
+		t.Fatalf("LoadSession(%s) succeeded after delete", s.ID)
+	}
+	if got, err := db.CurrentSessionID(s.Source); err != nil || got != "" {
+		t.Fatalf("current after delete = %q / %v, want empty", got, err)
+	}
+	idx, err := db.SessionIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx) != 0 {
+		t.Fatalf("index = %#v, want empty", idx)
+	}
+	if evs, err := db.ReplaySession(s.ID, 10); err != nil || len(evs) != 0 {
+		t.Fatalf("replay after delete = %#v / %v, want empty", evs, err)
+	}
+}

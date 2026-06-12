@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Trash2 } from "lucide-react";
 import { AgentGear } from "./AgentGear";
 import { Composer } from "./Composer/Composer";
 import { MessageRow } from "./Message/MessageRow";
@@ -12,6 +13,7 @@ export function ThreadView() {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAnchor = useStore((s) => s.activeAnchor);
   const closeThread = useStore((s) => s.closeThread);
+  const deleteConversation = useStore((s) => s.deleteConversation);
   const channel = channels.find((c) => c.id === activeChannel);
   const replies = threadDetail?.replies || [];
   const scope = threadDetail ? `thread:${threadDetail.space_id}:${threadDetail.parent_id}` : "thread:none";
@@ -72,6 +74,23 @@ export function ThreadView() {
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
+        <button
+          type="button"
+          onClick={() => {
+            const ok = window.confirm("Delete this thread?\n\nThis removes thread replies and thread-scoped model context.");
+            if (!ok) return;
+            void deleteConversation({
+              kind: "thread",
+              id: threadDetail.space_id,
+              parentMessageID: threadDetail.parent_id,
+            }).catch((e) => window.alert(e instanceof Error ? e.message : String(e)));
+          }}
+          className="ml-auto inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2 py-1 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg"
+          title="Delete thread replies and runtime context"
+        >
+          <Trash2 className="size-3.5" />
+          Delete thread
+        </button>
       </div>
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">
         <div className="mx-auto max-w-[880px]">
