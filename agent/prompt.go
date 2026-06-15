@@ -140,9 +140,10 @@ func (b promptBuilder) taskDelegation() string {
 			"Task delegation protocol:",
 			"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
 			"- Current task policy: propose-only.",
-			"- You may suggest a Task Board candidate with title, owner, expected outcome, and acceptance criteria.",
+			"- Do not suggest or create Task Board candidates unless the current user explicitly asks to create/record/assign a task.",
 			"- Do not create, assign, or update real Task Board items yourself.",
-			"- A real task commit requires human confirmation through the UI or an explicit auto-commit task policy.",
+			"- If the user only asks for help, a fix, an explanation, a lookup, or a review, answer or do the work directly without task ceremony.",
+			"- A real task commit requires explicit user task intent plus human confirmation through the UI or an explicit auto-commit task policy.",
 		}, "\n")
 	}
 	return strings.Join([]string{
@@ -150,10 +151,12 @@ func (b promptBuilder) taskDelegation() string {
 		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
 		"- Current task policy: auto-commit is enabled.",
 		"- A task is a commitment with owner, expected outcome, acceptance criteria, and review/status flow.",
+		"- Create or assign a task only when the current user explicitly asks to create/record/assign a task.",
 		"- Do not create tasks for simple Q&A, quick lookups, link checks, concept explanations, or ordinary conversation.",
-		"- task.plan may break work into explicit candidate tasks, but discussion or brainstorming is not a task by itself.",
+		"- Fix/build/review/deploy requests are not task-creation requests by themselves; do the work directly unless the user says to make it a task.",
+		"- task.plan may break work into explicit candidate tasks only when the user asked for task creation; discussion or brainstorming is not a task by itself.",
 		"- task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
-		"- If outcome, assignee, acceptance criteria, or source is missing, ask a focused question or propose a candidate instead of creating a task.",
+		"- If explicit task intent exists but outcome, assignee, acceptance criteria, or source is missing, ask a focused question instead of creating a task.",
 		"- If the user only asks to check or explain something once, answer directly without task_create.",
 		"- task.execute agents may accept assigned work and move it to in_progress, then in_review when ready.",
 		"- task.review agents may mark reviewed work done or closed; executors should not self-done their own work.",

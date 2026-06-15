@@ -144,9 +144,9 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 		"Task delegation protocol:",
 		"Current task capabilities: task.assign, task.execute.",
 		"Current task policy: propose-only.",
-		"You may suggest a Task Board candidate",
+		"Do not suggest or create Task Board candidates unless the current user explicitly asks",
 		"Do not create, assign, or update real Task Board items yourself.",
-		"real task commit requires human confirmation",
+		"real task commit requires explicit user task intent",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
@@ -164,7 +164,9 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 	for _, want := range []string{
 		"Current task policy: auto-commit is enabled.",
 		"A task is a commitment with owner, expected outcome, acceptance criteria",
+		"Create or assign a task only when the current user explicitly asks",
 		"Do not create tasks for simple Q&A, quick lookups",
+		"Fix/build/review/deploy requests are not task-creation requests by themselves",
 		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
 		"executors should not self-done their own work",
 	} {

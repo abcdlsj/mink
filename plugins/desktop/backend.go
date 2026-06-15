@@ -1886,6 +1886,7 @@ type CreateTaskRequest struct {
 	ExpectedOutcome    string `json:"expected_outcome"`
 	AcceptanceCriteria string `json:"acceptance_criteria"`
 	Source             string `json:"source"`
+	ExplicitTaskIntent bool   `json:"explicit_task_intent"`
 }
 
 type AssignTaskRequest struct {
@@ -1906,6 +1907,9 @@ func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
 	createdBy := firstNonEmpty(in.CreatedBy, b.defaultActorID())
 	assignedBy := firstNonEmpty(in.AssignedBy, createdBy)
 	expected := firstNonEmpty(in.ExpectedOutcome, in.Outcome)
+	if !in.ExplicitTaskIntent {
+		return TaskStateCard{}, fmt.Errorf("task creation requires explicit user task intent")
+	}
 	if err := validateTaskCommitment(in.Title, expected, in.AcceptanceCriteria); err != nil {
 		return TaskStateCard{}, err
 	}

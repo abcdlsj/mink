@@ -133,6 +133,7 @@ export const api = {
     expected_outcome?: string;
     acceptance_criteria?: string;
     source?: string;
+    explicit_task_intent?: boolean;
   }) =>
     j<TaskStateCard>(
       fetch("/api/task/create", {

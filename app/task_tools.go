@@ -53,7 +53,8 @@ func (t taskCreateTool) Schema() map[string]any {
 		tool.Prop("space_id", "string", "Source Space id; defaults to current channel/direct space when available"),
 		tool.Prop("source_message_id", "string", "Source message id"),
 		tool.Prop("source_thread_id", "string", "Source thread root message id"),
-		tool.Required("title", "assignee_id", "expected_outcome", "acceptance_criteria"),
+		tool.Prop("authorization_text", "string", "Exact current user text that explicitly asks to create, record, or assign a task"),
+		tool.Required("title", "assignee_id", "expected_outcome", "acceptance_criteria", "authorization_text"),
 	)
 }
 func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
@@ -69,6 +70,7 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 		SourceMessage      string `json:"source_message"`
 		SourceThreadID     string `json:"source_thread_id"`
 		SourceThread       string `json:"source_thread"`
+		AuthorizationText  string `json:"authorization_text"`
 	}
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", fmt.Errorf("task_create: %w", err)
@@ -94,6 +96,9 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	if err := validateTaskCommitment(title, expected, criteria); err != nil {
 		return "", err
 	}
+	if err := validateExplicitTaskAuthorization(ctx, in.AuthorizationText); err != nil {
+		return "", err
+	}
 	sourceMessageID := firstNonEmpty(in.SourceMessageID, in.SourceMessage)
 	sourceThreadID := firstNonEmpty(in.SourceThreadID, in.SourceThread, command.ParentMessageFrom(ctx))
 	if sourceMessageID == "" {
@@ -116,6 +121,41 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 		return "", err
 	}
 	return fmt.Sprintf("task created: %s assigned_to=%s status=%s", tk.ID, tk.WorkerID, tk.Status), nil
+}
+
+func validateExplicitTaskAuthorization(ctx context.Context, authorizationText string) error {
+	auth := strings.TrimSpace(authorizationText)
+	current := strings.TrimSpace(command.InputFrom(ctx))
+	if auth == "" {
+		return fmt.Errorf("task_create requires authorization_text copied from the current user message")
+	}
+	if current != "" && !strings.Contains(current, auth) {
+		return fmt.Errorf("authorization_text must be copied from the current user message")
+	}
+	if !explicitTaskAuthorization(auth) {
+		return fmt.Errorf("task_create requires the current user to explicitly ask to create, record, or assign a task")
+	}
+	return nil
+}
+
+func explicitTaskAuthorization(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return false
+	}
+	compact := strings.Join(strings.Fields(s), " ")
+	patterns := []string{
+		"创建任务", "创建一个任务", "创建个任务", "新建任务", "新建一个任务", "新建个任务",
+		"建个任务", "建一个任务", "加个任务", "加一个任务",
+		"记为任务", "记录成任务", "转成任务", "创建 task", "新建 task", "create task",
+		"make a task", "add a task", "assign task", "assign this", "作为任务",
+	}
+	for _, p := range patterns {
+		if strings.Contains(compact, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateTaskCommitment(title, expected, criteria string) error {

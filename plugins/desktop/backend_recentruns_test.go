@@ -240,6 +240,7 @@ func TestCreateAndAssignTaskExposeDelegationMetadata(t *testing.T) {
 		Outcome:            "DEV ships the patch",
 		AcceptanceCriteria: "green tests and visible assignee",
 		Source:             "desktop:test",
+		ExplicitTaskIntent: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -293,9 +294,37 @@ func TestCreateTaskRejectsVagueConversationCandidate(t *testing.T) {
 		ExpectedOutcome:    "完成",
 		AcceptanceCriteria: "看一下就行",
 		Source:             "desktop:test",
+		ExplicitTaskIntent: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "concrete deliverable") {
 		t.Fatalf("expected vague candidate rejection, got %v", err)
+	}
+}
+
+func TestCreateTaskRequiresExplicitTaskIntent(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "修复这个 bug", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = b.CreateTask(CreateTaskRequest{
+		SpaceID:            sp.ID,
+		SourceMessageID:    msg.ID,
+		CreatedBy:          "user",
+		Assignee:           "dev",
+		AssignedBy:         "user",
+		Title:              "fix bug",
+		ExpectedOutcome:    "bug is fixed and verified",
+		AcceptanceCriteria: "test covers the fixed behavior",
+		Source:             "desktop:test",
+	})
+	if err == nil || !strings.Contains(err.Error(), "explicit user task intent") {
+		t.Fatalf("expected explicit task intent error, got %v", err)
 	}
 }
 

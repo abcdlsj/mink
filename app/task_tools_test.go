@@ -17,7 +17,7 @@ import (
 func TestTaskCreateToolRequiresCapabilityAndExecutableAssignee(t *testing.T) {
 	a := newTaskToolTestApp(t)
 	sp, msg := newTaskToolSpace(t, a)
-	ctx := taskToolCtx("desktop:channel:"+sp.ID, "planner", msg.ID)
+	ctx := taskToolCtxWithInput("desktop:channel:"+sp.ID, "planner", msg.ID, "请创建任务给 dev")
 
 	args := map[string]string{
 		"title":               "wire task tools",
@@ -26,6 +26,7 @@ func TestTaskCreateToolRequiresCapabilityAndExecutableAssignee(t *testing.T) {
 		"acceptance_criteria": "tests cover capability guard",
 		"space_id":            sp.ID,
 		"source_message_id":   msg.ID,
+		"authorization_text":  "请创建任务给 dev",
 	}
 	out, err := a.tools.Run(ctx, "task_create", mustJSON(t, args))
 	if err != nil {
@@ -64,7 +65,7 @@ func TestTaskCreateToolRequiresCapabilityAndExecutableAssignee(t *testing.T) {
 func TestTaskCreateToolRejectsVagueConversationTasks(t *testing.T) {
 	a := newTaskToolTestApp(t)
 	sp, msg := newTaskToolSpace(t, a)
-	ctx := taskToolCtx("desktop:channel:"+sp.ID, "planner", msg.ID)
+	ctx := taskToolCtxWithInput("desktop:channel:"+sp.ID, "planner", msg.ID, "请创建任务给 dev")
 
 	_, err := a.tools.Run(ctx, "task_create", mustJSON(t, map[string]string{
 		"title":               "查一下链接",
@@ -73,9 +74,34 @@ func TestTaskCreateToolRejectsVagueConversationTasks(t *testing.T) {
 		"acceptance_criteria": "看一下就行",
 		"space_id":            sp.ID,
 		"source_message_id":   msg.ID,
+		"authorization_text":  "请创建任务给 dev",
 	}))
 	if err == nil || !strings.Contains(err.Error(), "simple Q&A") {
 		t.Fatalf("expected vague task rejection, got %v", err)
+	}
+}
+
+func TestTaskCreateToolRequiresExplicitCurrentUserTaskIntent(t *testing.T) {
+	a := newTaskToolTestApp(t)
+	sp, msg := newTaskToolSpace(t, a)
+	args := map[string]string{
+		"title":               "fix login regression",
+		"assignee_id":         "dev",
+		"expected_outcome":    "login regression is fixed and verified",
+		"acceptance_criteria": "regression test covers the login path",
+		"space_id":            sp.ID,
+		"source_message_id":   msg.ID,
+		"authorization_text":  "修复这个登录 bug",
+	}
+	_, err := a.tools.Run(taskToolCtxWithInput("desktop:channel:"+sp.ID, "planner", msg.ID, "修复这个登录 bug"), "task_create", mustJSON(t, args))
+	if err == nil || !strings.Contains(err.Error(), "explicitly ask") {
+		t.Fatalf("expected explicit task intent error, got %v", err)
+	}
+
+	args["authorization_text"] = "请创建任务给 dev"
+	_, err = a.tools.Run(taskToolCtxWithInput("desktop:channel:"+sp.ID, "planner", msg.ID, "请创建任务给 dev"), "task_create", mustJSON(t, args))
+	if err != nil {
+		t.Fatalf("explicit task intent should allow task_create: %v", err)
 	}
 }
 
@@ -210,6 +236,16 @@ func newTaskToolSpace(t *testing.T, a *App) (*space.Space, space.Message) {
 
 func taskToolCtx(source, personaID, parentMessageID string) context.Context {
 	ctx := command.WithSource(context.Background(), source)
+	ctx = command.WithPersona(ctx, personaID)
+	ctx = command.WithParentMessage(ctx, parentMessageID)
+	return ctx
+}
+
+func taskToolCtxWithInput(source, personaID, parentMessageID, input string) context.Context {
+	ctx := command.WithRunContext(context.Background(), command.RunContext{
+		Source: source,
+		Input:  input,
+	})
 	ctx = command.WithPersona(ctx, personaID)
 	ctx = command.WithParentMessage(ctx, parentMessageID)
 	return ctx
