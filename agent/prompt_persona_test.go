@@ -87,13 +87,13 @@ func TestSystemPromptFiltersRootPrivateSoulForPersona(t *testing.T) {
 	globalSoul := filepath.Join(dir, "SOUL.md")
 	personaSoul := filepath.Join(dir, "persona-SOUL.md")
 	root := strings.Join([]string{
-		"# Identity",
+		"# Inheritable Identity",
 		"GLOBAL IDENTITY",
 		"",
 		"# Runtime paths",
 		"Use memory path /root/.sumi/memory and workspace /root/project.",
 		"",
-		"# Safety",
+		"# Universal Boundaries",
 		"GLOBAL SAFETY",
 		"Read MEMORY.md from ~/.sumi before each run.",
 		"Persona file is {{persona_soul_path}}.",
@@ -123,9 +123,8 @@ func TestSystemPromptFiltersRootPrivateSoulForPersona(t *testing.T) {
 		"GLOBAL IDENTITY",
 		"GLOBAL SAFETY",
 		"PERSONA OVERLAY",
-		"Persona file is " + personaSoul,
-		"memory_root: /current/memory",
 		"workspace: /current/workspace",
+		"memory_scopes: persona:debug, channel:desktop:channel:alpha, workspace:/current/workspace, global",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, s)
@@ -139,6 +138,9 @@ func TestSystemPromptFiltersRootPrivateSoulForPersona(t *testing.T) {
 		"~/.sumi",
 		"Memory Policy",
 		"WRITE IMMEDIATELY",
+		personaSoul,
+		"memory_root:",
+		"persona_soul_path:",
 	} {
 		if strings.Contains(s, bad) {
 			t.Fatalf("root-private content %q leaked:\n%s", bad, s)

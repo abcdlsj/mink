@@ -235,7 +235,7 @@ func (b promptBuilder) soul() string {
 	if raw := loadSoulPrompt(b.env.SoulPath); raw != "" {
 		if b.env.Persona == nil {
 			sections = append(sections, "Sumi base identity (root SOUL.md):\n"+renderSoulTemplate(raw, b.soulTemplateData()))
-		} else if v := inheritableRootSoul(raw, b.soulTemplateData()); v != "" {
+		} else if v := inheritableRootSoul(raw); v != "" {
 			sections = append(sections, "Sumi base identity (inherited root SOUL.md):\n"+v)
 		}
 	}
@@ -260,12 +260,6 @@ func (b promptBuilder) personaRuntimeContext() string {
 	if workspace := strings.TrimSpace(b.env.Workspace); workspace != "" {
 		lines = append(lines, "- workspace: "+workspace)
 	}
-	if root := strings.TrimSpace(b.env.MemoryRoot); root != "" {
-		lines = append(lines, "- memory_root: "+root)
-	}
-	if path := strings.TrimSpace(b.env.Persona.SoulPath); path != "" {
-		lines = append(lines, "- persona_soul_path: "+path)
-	}
 	scopes := []string{"persona:" + b.env.Persona.ID}
 	if source := b.source(); source != "" {
 		scopes = append(scopes, "channel:"+source)
@@ -275,7 +269,6 @@ func (b promptBuilder) personaRuntimeContext() string {
 	}
 	scopes = append(scopes, "global")
 	lines = append(lines, "- memory_scopes: "+strings.Join(scopes, ", "))
-	lines = append(lines, "- Use memory tools with these scopes; do not reuse root-private memory/path rules from root SOUL.")
 	return strings.Join(lines, "\n")
 }
 
@@ -415,32 +408,37 @@ func (b promptBuilder) soulTemplateData() soulTemplateData {
 	return d
 }
 
-func inheritableRootSoul(raw string, data soulTemplateData) string {
+func inheritableRootSoul(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
 	var out []string
-	dropSection := false
+	seenHeading := false
+	keepSection := true
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if isMarkdownHeading(trimmed) {
-			dropSection = rootPrivateSoulLine(trimmed)
-			if dropSection {
+			seenHeading = true
+			keepSection = inheritableRootSoulHeading(trimmed)
+			if !keepSection {
 				continue
 			}
 			out = append(out, line)
 			continue
 		}
-		if dropSection {
+		if seenHeading && !keepSection {
 			continue
 		}
-		if rootPrivateSoulLine(trimmed) && !templatedSoulLine(trimmed) {
+		if rootPrivateInheritedSoulLine(trimmed) {
+			continue
+		}
+		if strings.Contains(trimmed, "{{") && strings.Contains(trimmed, "}}") {
 			continue
 		}
 		out = append(out, line)
 	}
-	return renderSoulTemplate(strings.TrimSpace(cleanBlankLines(out)), data)
+	return strings.TrimSpace(cleanBlankLines(out))
 }
 
 func renderSoulTemplate(raw string, data soulTemplateData) string {
@@ -466,56 +464,61 @@ func isMarkdownHeading(line string) bool {
 	return len(line) == 1 || line[1] == ' ' || line[1] == '#'
 }
 
-func templatedSoulLine(line string) bool {
-	return strings.Contains(line, "{{") && strings.Contains(line, "}}")
+func inheritableRootSoulHeading(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	title := strings.TrimSpace(strings.TrimLeft(lower, "#"))
+	title = strings.TrimSpace(strings.TrimSuffix(title, ":"))
+	if title == "" {
+		return true
+	}
+	allowed := map[string]bool{
+		"soul.md - who you are":        true,
+		"soul.md - sumi base identity": true,
+		"core truths":                  true,
+		"inheritable identity":         true,
+		"boundaries":                   true,
+		"universal boundaries":         true,
+		"working style":                true,
+		"universal working style":      true,
+	}
+	return allowed[title]
 }
 
-func rootPrivateSoulLine(line string) bool {
+func rootPrivateInheritedSoulLine(line string) bool {
 	lower := strings.ToLower(strings.TrimSpace(line))
 	if lower == "" {
 		return false
 	}
 	markers := []string{
-		"continuity",
-		"memory policy",
+		"memory.md",
 		"memory path",
 		"memory root",
-		"memory file",
 		"memory directory",
 		"memory dir",
-		"memory.md",
 		"memory/",
 		"runtime path",
 		"workspace path",
 		"workspace root",
 		"working directory",
-		"cwd",
 		"relative path",
 		"root-private",
-		"private path",
-		"private directory",
 		"self-maintenance",
 		"self maintenance",
 		"self directory",
-		"updating soul.md",
-		"soul.md itself",
-		"记忆策略",
-		"连续性",
-		"自维护",
-		"工作目录",
-		"记忆路径",
-		"记忆目录",
-		"长期记忆路径",
-		"相对路径",
+		"ledger.md",
+		"daily memory",
+		"~/.sumi",
 		"$home",
-		"~/",
-		".sumi",
 		"self/",
 		"personas/",
 		"session/",
 		"sessions/",
 		"runlog/",
 		"state/",
+		"记忆路径",
+		"记忆目录",
+		"工作目录",
+		"相对路径",
 	}
 	for _, marker := range markers {
 		if strings.Contains(lower, marker) {
