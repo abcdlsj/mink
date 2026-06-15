@@ -13,6 +13,9 @@ func TestMemoryToolBlocksDefaultToProposalOnly(t *testing.T) {
 			t.Fatalf("proposal-only should block %s: %#v", name, blocks)
 		}
 	}
+	if _, ok := blocks["remember_memory"]; ok {
+		t.Fatalf("explicit remember tool should remain available in proposal-only mode: %#v", blocks)
+	}
 
 	if blocks := memoryToolBlocks(&persona.Persona{ID: "helper", MemoryPolicy: "auto_commit"}); blocks != nil {
 		t.Fatalf("auto_commit should expose memory tools, got %#v", blocks)

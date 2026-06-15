@@ -106,6 +106,48 @@ func (t *writeTool) Run(ctx context.Context, args json.RawMessage) (string, erro
 	return fmt.Sprintf("saved memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
 }
 
+type rememberTool struct{ s *store }
+
+func (t *rememberTool) Name() string { return "remember_memory" }
+func (t *rememberTool) Desc() string {
+	return "Write a memory doc only when the current user explicitly asked to remember it"
+}
+func (t *rememberTool) Schema() map[string]any {
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("title", "string", "Title"),
+		tool.Prop("body", "string", "Memory body"),
+		tool.Prop("summary", "string", "Summary"),
+		tool.Prop("kind", "string", "Memory kind such as preference, fact, convention, decision, or note"),
+		tool.Prop("authorization_text", "string", "Exact current user text that explicitly authorizes remembering this"),
+		tool.Prop("source_space_id", "string", "Source Space id"),
+		tool.Prop("source_message_id", "string", "Source message id"),
+		tool.Prop("confidence", "string", "Confidence: low, medium, or high"),
+		tool.StringArrayProp("tags", "Tags"),
+		tool.Required("title", "body", "authorization_text"),
+	)
+}
+
+func (t *rememberTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
+	var in rememberArgs
+	if err := decode("remember_memory", args, &in); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Body) == "" {
+		return "", fmt.Errorf("title and body are required")
+	}
+	if err := validateHumanAuthorizedMemory(ctx, in); err != nil {
+		return "", err
+	}
+	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	d, err := t.s.put(ctx, sc, memoryDocFromRemember(ctx, in))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Remembered memory %s in %s:%s. To undo: !memory delete %s:%s %s", d.ID, d.ScopeKind, d.ScopeKey, d.ScopeKind, d.ScopeKey, d.ID), nil
+}
+
 type proposeTool struct{ s *store }
 
 func (t *proposeTool) Name() string { return "propose_memory" }
@@ -181,6 +223,99 @@ func memoryDocFromWrite(ctx context.Context, in writeArgs) doc {
 		Confidence:      normalizeConfidence(in.Confidence),
 		ExpiresAt:       parseExpiresAt(in.ExpiresAt),
 	}
+}
+
+func memoryDocFromRemember(ctx context.Context, in rememberArgs) doc {
+	return memoryDocFromWrite(ctx, writeArgs{
+		ScopeKind:       in.ScopeKind,
+		ScopeKey:        in.ScopeKey,
+		Title:           in.Title,
+		Body:            in.Body,
+		Summary:         in.Summary,
+		Kind:            in.Kind,
+		Tags:            in.Tags,
+		SourceSpaceID:   in.SourceSpaceID,
+		SourceMessageID: in.SourceMessageID,
+		CreatedBy:       "user",
+		Confidence:      blank(in.Confidence, "high"),
+	})
+}
+
+func validateHumanAuthorizedMemory(ctx context.Context, in rememberArgs) error {
+	auth := strings.TrimSpace(in.AuthorizationText)
+	if auth == "" {
+		return fmt.Errorf("authorization_text is required")
+	}
+	current := strings.TrimSpace(command.InputFrom(ctx))
+	if current == "" {
+		return fmt.Errorf("remember_memory requires current user input for authorization")
+	}
+	if !containsNormalized(current, auth) {
+		return fmt.Errorf("authorization_text must be copied from the current user message")
+	}
+	if !explicitRememberAuthorization(auth) {
+		return fmt.Errorf("authorization_text does not explicitly ask to remember a long-term preference or fact")
+	}
+	if reason := sensitiveMemoryReason(in.Title + "\n" + in.Body + "\n" + auth); reason != "" {
+		return fmt.Errorf("refusing to remember sensitive memory: %s", reason)
+	}
+	return nil
+}
+
+func containsNormalized(haystack, needle string) bool {
+	h := strings.ToLower(strings.Join(strings.Fields(haystack), " "))
+	n := strings.ToLower(strings.Join(strings.Fields(needle), " "))
+	return n != "" && strings.Contains(h, n)
+}
+
+func explicitRememberAuthorization(s string) bool {
+	lower := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
+	phrases := []string{
+		"记住",
+		"记得",
+		"以后都",
+		"以后请",
+		"以后要",
+		"长期偏好",
+		"作为长期",
+		"you should remember",
+		"please remember",
+		"remember that",
+		"remember i",
+		"from now on",
+	}
+	for _, phrase := range phrases {
+		if strings.Contains(lower, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func sensitiveMemoryReason(s string) string {
+	lower := strings.ToLower(s)
+	credentialMarkers := []string{
+		"sk_agent_",
+		"sk_machine_",
+		"bearer ",
+		"password=",
+		"passwd=",
+		"cookie:",
+		"set-cookie:",
+		"webhook",
+	}
+	for _, marker := range credentialMarkers {
+		if strings.Contains(lower, marker) {
+			return marker
+		}
+	}
+	tokenLike := []string{"token", "secret", "api_key", "apikey", "access_key"}
+	for _, marker := range tokenLike {
+		if strings.Contains(lower, marker+"=") || strings.Contains(lower, marker+":") {
+			return marker
+		}
+	}
+	return ""
 }
 
 func memoryCreatedBy(ctx context.Context, explicit string) string {

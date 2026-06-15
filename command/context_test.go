@@ -16,6 +16,7 @@ func TestRunContextDrivesSourceSessionNoticeAndMemory(t *testing.T) {
 			{Kind: "channel", Key: "tg:dm:42"},
 		},
 		Permission: "cron",
+		Input:      "ping",
 	})
 	if got := SourceFrom(ctx); got != "cron:bazaar" {
 		t.Fatalf("source = %q", got)
@@ -32,6 +33,9 @@ func TestRunContextDrivesSourceSessionNoticeAndMemory(t *testing.T) {
 	if got := PermissionFrom(ctx); got != "cron" {
 		t.Fatalf("permission = %q", got)
 	}
+	if got := InputFrom(ctx); got != "ping" {
+		t.Fatalf("input = %q", got)
+	}
 }
 
 func TestRunContextFallbacks(t *testing.T) {
@@ -47,5 +51,8 @@ func TestRunContextFallbacks(t *testing.T) {
 	}
 	if got := PermissionFrom(ctx); got != "default" {
 		t.Fatalf("permission fallback = %q", got)
+	}
+	if got := InputFrom(ctx); got != "" {
+		t.Fatalf("input fallback = %q", got)
 	}
 }

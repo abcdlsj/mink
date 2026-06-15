@@ -194,6 +194,8 @@ func TestBuildSystemPromptAddsMemoryProposalProtocol(t *testing.T) {
 	for _, want := range []string{
 		"Memory protocol:",
 		"Current memory policy: proposal-only.",
+		"call remember_memory",
+		"authorization_text",
 		"call propose_memory",
 		"Do not call write_memory or delete_memory",
 		"!memory confirm <id>",

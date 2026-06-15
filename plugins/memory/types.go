@@ -82,6 +82,20 @@ type writeArgs struct {
 	ExpiresAt       string   `json:"expires_at"`
 }
 
+type rememberArgs struct {
+	ScopeKind         string   `json:"scope_kind"`
+	ScopeKey          string   `json:"scope_key"`
+	Title             string   `json:"title"`
+	Body              string   `json:"body"`
+	Summary           string   `json:"summary"`
+	Kind              string   `json:"kind"`
+	Tags              []string `json:"tags"`
+	SourceSpaceID     string   `json:"source_space_id"`
+	SourceMessageID   string   `json:"source_message_id"`
+	AuthorizationText string   `json:"authorization_text"`
+	Confidence        string   `json:"confidence"`
+}
+
 type proposeArgs struct {
 	ScopeKind       string   `json:"scope_kind"`
 	ScopeKey        string   `json:"scope_key"`

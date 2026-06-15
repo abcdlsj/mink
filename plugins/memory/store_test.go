@@ -129,6 +129,79 @@ func TestMemoryProposalRequiresConfirmBeforeSearch(t *testing.T) {
 	}
 }
 
+func TestRememberMemoryRequiresExplicitCurrentUserAuthorization(t *testing.T) {
+	s, err := open(t.TempDir(), "/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := command.WithSource(context.Background(), "desktop:channel:alpha")
+	ctx = command.WithPersona(ctx, "bob")
+	ctx = command.WithRunContext(ctx, command.RunContext{
+		Source: "desktop:channel:alpha",
+		Input:  "记住我喜欢中文简洁回答",
+	})
+
+	out, err := (&rememberTool{s: s}).Run(ctx, mustMemoryJSON(t, rememberArgs{
+		Title:             "Reply preference",
+		Body:              "The user prefers concise Chinese replies.",
+		Kind:              "preference",
+		AuthorizationText: "记住我喜欢中文简洁回答",
+		Confidence:        "high",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Remembered memory") || !strings.Contains(out, "!memory delete") {
+		t.Fatalf("remember output = %q", out)
+	}
+
+	docs, err := s.search(ctx, []scope{{Kind: "persona", Key: "bob"}}, "concise Chinese", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("remembered docs = %d, want 1", len(docs))
+	}
+	if docs[0].CreatedBy != "user" || docs[0].Confidence != "high" {
+		t.Fatalf("remembered metadata = %#v", docs[0])
+	}
+}
+
+func TestRememberMemoryRejectsInferredOrSensitiveMemory(t *testing.T) {
+	s, err := open(t.TempDir(), "/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := command.WithRunContext(context.Background(), command.RunContext{
+		Source: "desktop:channel:alpha",
+		Input:  "我们聊一下代码风格",
+	})
+	ctx = command.WithPersona(ctx, "bob")
+
+	_, err = (&rememberTool{s: s}).Run(ctx, mustMemoryJSON(t, rememberArgs{
+		Title:             "Inferred preference",
+		Body:              "The user may prefer concise replies.",
+		AuthorizationText: "我们聊一下代码风格",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "explicitly ask to remember") {
+		t.Fatalf("inferred memory err = %v", err)
+	}
+
+	ctx = command.WithRunContext(context.Background(), command.RunContext{
+		Source: "desktop:channel:alpha",
+		Input:  "记住我的 token=sk_agent_secret",
+	})
+	ctx = command.WithPersona(ctx, "bob")
+	_, err = (&rememberTool{s: s}).Run(ctx, mustMemoryJSON(t, rememberArgs{
+		Title:             "Secret",
+		Body:              "token=sk_agent_secret",
+		AuthorizationText: "记住我的 token=sk_agent_secret",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "sensitive") {
+		t.Fatalf("sensitive memory err = %v", err)
+	}
+}
+
 func TestRejectProposalAndDeleteMemory(t *testing.T) {
 	s, err := open(t.TempDir(), "/workspace")
 	if err != nil {

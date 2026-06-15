@@ -96,8 +96,8 @@ func (b promptBuilder) memoryPolicy() string {
 	if b.env == nil || b.env.Persona == nil {
 		return strings.Join([]string{
 			"Memory protocol:",
-			"- Long-term memory writes require human confirmation.",
-			"- If the user says something should be remembered, propose a memory candidate instead of claiming it is already saved.",
+			"- If the current user explicitly says to remember a stable preference or fact, call remember_memory and then reply with a brief Remembered note.",
+			"- If you infer a possible long-term memory yourself, call propose_memory instead; do not claim it is saved.",
 			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
 		}, "\n")
 	}
@@ -112,8 +112,9 @@ func (b promptBuilder) memoryPolicy() string {
 	return strings.Join([]string{
 		"Memory protocol:",
 		"- Current memory policy: proposal-only.",
-		"- When the user says to remember something or a stable preference/fact is worth keeping, call propose_memory with scope, kind, content, reason, and confidence.",
-		"- Do not call write_memory or delete_memory; real long-term memory changes require human confirmation.",
+		"- If the current user explicitly says to remember a stable preference, fact, project convention, or long-lived decision, call remember_memory with authorization_text copied from that user message; then reply briefly with Remembered and the undo path.",
+		"- If you infer a possible long-term memory from ordinary chat, call propose_memory with scope, kind, content, reason, and confidence; do not claim it is saved.",
+		"- Do not call write_memory or delete_memory in proposal-only mode.",
 		"- After proposing, tell the user the proposal id and that they can confirm it with !memory confirm <id> or reject it with !memory reject <id>.",
 		"- Do not propose memory for one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
 	}, "\n")

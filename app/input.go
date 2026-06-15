@@ -289,6 +289,7 @@ func (f inputFlow) runContextWithSession(ctx context.Context, session string) co
 		Delivery:   strings.TrimSpace(delivery),
 		Memory:     f.memoryScopes(src, delivery),
 		Permission: command.EntrypointPolicy(src).Permission,
+		Input:      f.input,
 	}
 }
 

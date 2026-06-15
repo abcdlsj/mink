@@ -19,6 +19,7 @@ type RunContext struct {
 	Delivery   string
 	Memory     []MemoryScope
 	Permission string
+	Input      string
 }
 
 func WithRunContext(ctx context.Context, rc RunContext) context.Context {
@@ -86,6 +87,13 @@ func PermissionFrom(ctx context.Context) string {
 		return rc.Permission
 	}
 	return "default"
+}
+
+func InputFrom(ctx context.Context) string {
+	if rc, ok := RunContextFrom(ctx); ok {
+		return rc.Input
+	}
+	return ""
 }
 
 func WithPersona(ctx context.Context, id string) context.Context {

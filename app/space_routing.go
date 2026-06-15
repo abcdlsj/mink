@@ -253,6 +253,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		app:       a,
 		source:    originSource,
 		personaID: persona.ID,
+		input:     originUserContent,
 	}.runContextWithSession(ctx, sessionSource))
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnStarted,
