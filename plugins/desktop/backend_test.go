@@ -310,6 +310,36 @@ func TestDefaultSumiDirectSendUsesExistingSpaceID(t *testing.T) {
 	}
 }
 
+func TestDefaultSumiDirectTreatsMentionsAsText(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("bob", persona.Meta{Display: "Bob", Runtime: "bob-rt"}, "bob"); err != nil {
+		t.Fatal(err)
+	}
+	var gotInput string
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok"})
+			return nil
+		}), nil
+	})
+	a.RegisterRuntime("bob-rt", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		t.Fatal("default Sumi direct mention should not route to Bob")
+		return nil, nil
+	})
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi only", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, PersonaID: "bob", Input: "@bob hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotInput != "@bob hello" {
+		t.Fatalf("input = %q, want @bob hello", gotInput)
+	}
+}
+
 func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
@@ -341,27 +371,37 @@ func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
 	}
 }
 
-func TestDefaultSumiPersonaSendFailurePersistsInputAndNotice(t *testing.T) {
-	b, _ := newBackendWithApp(t)
+func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	var gotInput string
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			gotInput = turn.Input
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok"})
+			return nil
+		}), nil
+	})
 
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi", direct)
 	}
-	_, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, PersonaID: "assistant", Input: "still there?"})
-	if err == nil || err.Error() != "persona not found: assistant" {
-		t.Fatalf("err = %v, want persona not found", err)
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, PersonaID: "assistant", Input: "still there?"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotInput != "still there?" {
+		t.Fatalf("input = %q, want still there?", gotInput)
 	}
 
 	detail := b.GetDirectChat(direct[0].ID)
 	if len(detail.Messages) != 2 {
-		t.Fatalf("messages = %#v, want user + persisted failure notice", detail.Messages)
+		t.Fatalf("messages = %#v, want user + assistant", detail.Messages)
 	}
 	if detail.Messages[0].Role != "user" || detail.Messages[0].Content != "still there?" {
 		t.Fatalf("user message = %#v", detail.Messages[0])
 	}
-	if detail.Messages[1].Role != "system" || detail.Messages[1].Content != "Send failed: persona not found: assistant" {
-		t.Fatalf("failure notice = %#v", detail.Messages[1])
+	if detail.Messages[1].Role != "agent" || detail.Messages[1].AuthorID != "assistant" || detail.Messages[1].Content != "sumi ok" {
+		t.Fatalf("assistant message = %#v", detail.Messages[1])
 	}
 }
 

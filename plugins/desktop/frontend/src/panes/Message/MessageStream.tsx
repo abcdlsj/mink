@@ -26,7 +26,12 @@ export function MessageStream({
       sameAuthor &&
       close &&
       (compactAcrossThreadLinks || !m.thread_id) &&
-      !(m.events && m.events.length);
+      !hasHardBreakEvents(m);
     return <MessageRow key={m.id} m={m} compact={!!compact} />;
   });
+}
+
+function hasHardBreakEvents(m: MessageView): boolean {
+  const events = m.events || [];
+  return events.some((ev) => ev.kind !== "mention" && ev.kind !== "delegate");
 }

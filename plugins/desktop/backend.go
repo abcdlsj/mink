@@ -117,8 +117,12 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 	}
 	var out string
 	var err error
-	if req.PersonaID != "" {
-		out, err = b.app.HandleInputAs(ctx, source, req.PersonaID, req.Input)
+	personaID := strings.TrimSpace(req.PersonaID)
+	if sp != nil && isDefaultSumiDirect(sp) {
+		personaID = ""
+	}
+	if personaID != "" {
+		out, err = b.app.HandleInputAs(ctx, source, personaID, req.Input)
 	} else {
 		out, err = b.app.HandleInput(ctx, source, req.Input)
 	}
