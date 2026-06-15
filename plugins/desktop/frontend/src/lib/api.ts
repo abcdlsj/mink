@@ -5,6 +5,8 @@ import type {
   CapabilityView,
   ChannelItem,
   CommandItem,
+  ContextInspectView,
+  ContextResetResult,
   DirectChatItem,
   DeleteConversationResult,
   ModelItem,
@@ -200,6 +202,38 @@ export const api = {
   deleteConversation: (input: { kind: string; id: string; parent_message_id?: string }) =>
     j<DeleteConversationResult>(
       fetch("/api/conversation/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    ),
+  contextInspect: (input: {
+    space_id?: string;
+    source?: string;
+    session_source?: string;
+    parent_message_id?: string;
+    agent_id?: string;
+    profile?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (input.space_id) q.set("space_id", input.space_id);
+    if (input.source) q.set("source", input.source);
+    if (input.session_source) q.set("session_source", input.session_source);
+    if (input.parent_message_id) q.set("parent_message_id", input.parent_message_id);
+    if (input.agent_id) q.set("agent_id", input.agent_id);
+    if (input.profile) q.set("profile", input.profile);
+    return j<ContextInspectView>(fetch("/api/context/inspect?" + q));
+  },
+  contextReset: (input: {
+    action: "runtime_session" | "summary";
+    space_id?: string;
+    source?: string;
+    session_source?: string;
+    parent_message_id?: string;
+    agent_id?: string;
+  }) =>
+    j<ContextResetResult>(
+      fetch("/api/context/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),

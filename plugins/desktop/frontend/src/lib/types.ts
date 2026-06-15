@@ -197,6 +197,52 @@ export interface DeleteConversationResult {
   deleted_tasks?: number;
 }
 
+export interface ContextInspectMessage {
+  id: string;
+  role: string;
+  author_id?: string;
+  content?: string;
+  tokens?: number;
+  created_at?: string;
+}
+
+export interface ContextFilteredCount {
+  reason: string;
+  count: number;
+}
+
+export interface ContextInspectView {
+  profile: string;
+  source?: string;
+  session_source?: string;
+  session_id?: string;
+  space_id?: string;
+  parent_message_id?: string;
+  agent_id?: string;
+  token_limit?: number;
+  raw_message_count: number;
+  eligible_count: number;
+  selected_count: number;
+  summarized_count: number;
+  filtered_counts?: ContextFilteredCount[];
+  summary?: string;
+  session_summary?: string;
+  messages: ContextInspectMessage[];
+  notes?: string[];
+}
+
+export interface ContextResetResult {
+  ok: boolean;
+  action: string;
+  source?: string;
+  session_source?: string;
+  previous_session_id?: string;
+  session_id?: string;
+  cleared_summary?: boolean;
+  removed_summary_messages?: number;
+  note?: string;
+}
+
 export interface AgentRun {
   id: string;
   agent_id: string;

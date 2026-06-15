@@ -629,7 +629,7 @@ func filterContextMessages(msgs []space.Message, excludeMessageID string, profil
 		if excludeMessageID != "" && m.ID == excludeMessageID {
 			continue
 		}
-		if !eligibleContextMessage(m, profile) {
+		if contextRejectReason(m, profile) != "" {
 			continue
 		}
 		out = append(out, m)
@@ -638,20 +638,24 @@ func filterContextMessages(msgs []space.Message, excludeMessageID string, profil
 }
 
 func eligibleContextMessage(m space.Message, profile ContextProfile) bool {
+	return contextRejectReason(m, profile) == ""
+}
+
+func contextRejectReason(m space.Message, profile ContextProfile) string {
 	content := strings.TrimSpace(m.Content)
 	if content == "" && strings.TrimSpace(m.Reasoning) == "" {
-		return false
+		return "empty"
 	}
 	if m.AuthorKind == space.ParticipantSystem {
-		return false
+		return "system"
 	}
 	if content == "NO_REPLY" || strings.HasPrefix(content, "NO_REPLY ") {
-		return false
+		return "no_reply"
 	}
 	if noisyRuntimeContent(content) {
-		return false
+		return "runtime_noise"
 	}
-	return true
+	return ""
 }
 
 func noisyRuntimeContent(content string) bool {

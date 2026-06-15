@@ -10,6 +10,7 @@ import type {
   AgentItem,
   AgentRun,
   CapabilityView,
+  ContextInspectView,
   SkillView,
   TaskStateCard,
   ThreadItem,
@@ -62,11 +63,19 @@ export function RightPane() {
   const scopeAgentIDs = activePersona
     ? [activePersona.id]
     : (inThread ? (threadParticipants || []) : (participants?.agents || [])).map((a) => a.id);
+  const contextAgentID = activePersona?.id || scopeAgentIDs[0] || "";
   const agentModes = inThread
     ? threadDetail?.agent_modes
     : view === "channel"
       ? activeChannelItem?.agent_modes
       : undefined;
+  const runtimeContextSec = (
+    <RuntimeContextSection
+      spaceID={scopeSpaceID}
+      parentMessageID={inThread ? threadDetail?.parent_id : undefined}
+      agentID={contextAgentID}
+    />
+  );
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -115,6 +124,7 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeContextSec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -127,6 +137,7 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeContextSec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -146,6 +157,7 @@ export function RightPane() {
     );
     more = (
       <>
+        {runtimeContextSec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -153,6 +165,7 @@ export function RightPane() {
     main = <>{workbenchSec}{activeTasksSec}</>;
     more = (
       <>
+        {runtimeContextSec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -204,6 +217,150 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
       )}
     </Section>
   );
+}
+
+function RuntimeContextSection({
+  spaceID,
+  parentMessageID,
+  agentID,
+}: {
+  spaceID?: string;
+  parentMessageID?: string;
+  agentID?: string;
+}) {
+  const [inspect, setInspect] = useState<ContextInspectView | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [lastReset, setLastReset] = useState("");
+
+  const load = async () => {
+    if (!spaceID) {
+      setInspect(null);
+      return;
+    }
+    try {
+      const next = await api.contextInspect({
+        space_id: spaceID,
+        parent_message_id: parentMessageID,
+        agent_id: agentID,
+      });
+      setInspect(next);
+      setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [spaceID, parentMessageID, agentID]);
+
+  const reset = async (action: "runtime_session" | "summary") => {
+    if (!spaceID) return;
+    setBusy(action);
+    try {
+      const res = await api.contextReset({
+        action,
+        space_id: spaceID,
+        parent_message_id: parentMessageID,
+        agent_id: agentID,
+      });
+      setLastReset(res.note || (action === "runtime_session" ? "Runtime session reset." : "Summary reset."));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (!spaceID) return null;
+  return (
+    <Section label="Runtime Context">
+      <div className="border border-border bg-panel px-2.5 py-2">
+        <div className="grid grid-cols-3 gap-px border border-border bg-border text-[10.5px]">
+          <ContextMetric label="Profile" value={inspect?.profile || "-"} />
+          <ContextMetric label="Selected" value={String(inspect?.selected_count ?? "-")} />
+          <ContextMetric label="Filtered" value={String(totalFiltered(inspect) || 0)} />
+        </div>
+        <div className="mt-2 space-y-1 font-mono text-[10.5px] text-text-faint">
+          <div className="truncate">session {inspect?.session_id || "-"}</div>
+          <div className="truncate">source {inspect?.session_source || inspect?.source || "-"}</div>
+          {inspect?.token_limit ? <div>budget {inspect.token_limit} tokens</div> : null}
+        </div>
+        {inspect?.filtered_counts && inspect.filtered_counts.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {inspect.filtered_counts.map((c) => (
+              <CapabilityPill key={c.reason} label={`${c.reason} ${c.count}`} />
+            ))}
+          </div>
+        )}
+        {(inspect?.summary || inspect?.session_summary) && (
+          <div className="mt-2 border-l-2 border-border pl-2 text-[11px] leading-[1.35] text-text-muted">
+            <div className="mb-1 font-mono text-[10px] uppercase text-text-faint">
+              {inspect.summary ? "Context summary" : "Session summary"}
+            </div>
+            <div className="line-clamp-4 whitespace-pre-wrap break-words">
+              {inspect.summary || inspect.session_summary}
+            </div>
+          </div>
+        )}
+        {inspect?.messages && inspect.messages.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {inspect.messages.slice(-3).map((m) => (
+              <div key={m.id} className="truncate text-[11px] text-text-muted">
+                <span className="font-mono text-text-faint">{m.role}</span> {m.content || "(empty)"}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-2 text-[11px] leading-[1.35] text-text-faint">
+          Reset session clears model cache only. Reset summary clears compressed runtime memory. Neither deletes chat history.
+        </div>
+        {lastReset && <div className="mt-2 text-[11px] text-text-muted">{lastReset}</div>}
+        {error && <div className="mt-2 text-[11px] text-error">{error}</div>}
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={!!busy}
+            onClick={() => void load()}
+          >
+            Refresh
+          </Button>
+          <Button
+            variant="danger"
+            size="xs"
+            disabled={!!busy}
+            onClick={() => void reset("runtime_session")}
+          >
+            {busy === "runtime_session" ? "Resetting..." : "Reset session"}
+          </Button>
+          <Button
+            variant="danger"
+            size="xs"
+            disabled={!!busy}
+            onClick={() => void reset("summary")}
+          >
+            {busy === "summary" ? "Resetting..." : "Reset summary"}
+          </Button>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function ContextMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-panel-2 px-2 py-1.5">
+      <div className="font-mono uppercase text-text-faint">{label}</div>
+      <div className="truncate text-[11.5px] text-text">{value}</div>
+    </div>
+  );
+}
+
+function totalFiltered(inspect: ContextInspectView | null): number {
+  return (inspect?.filtered_counts || []).reduce((sum, item) => sum + item.count, 0);
 }
 
 function ActiveTaskMiniCard({ run }: { run: AgentRun }) {

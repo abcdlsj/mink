@@ -147,6 +147,70 @@ type DeleteConversationResult struct {
 	DeletedTasks    int  `json:"deleted_tasks,omitempty"`
 }
 
+type ContextInspectRequest struct {
+	SpaceID         string `json:"space_id,omitempty"`
+	Source          string `json:"source,omitempty"`
+	SessionSource   string `json:"session_source,omitempty"`
+	ParentMessageID string `json:"parent_message_id,omitempty"`
+	AgentID         string `json:"agent_id,omitempty"`
+	Profile         string `json:"profile,omitempty"`
+}
+
+type ContextInspectView struct {
+	Profile         string                  `json:"profile"`
+	Source          string                  `json:"source,omitempty"`
+	SessionSource   string                  `json:"session_source,omitempty"`
+	SessionID       string                  `json:"session_id,omitempty"`
+	SpaceID         string                  `json:"space_id,omitempty"`
+	ParentMessageID string                  `json:"parent_message_id,omitempty"`
+	AgentID         string                  `json:"agent_id,omitempty"`
+	TokenLimit      int                     `json:"token_limit,omitempty"`
+	RawMessageCount int                     `json:"raw_message_count"`
+	EligibleCount   int                     `json:"eligible_count"`
+	SelectedCount   int                     `json:"selected_count"`
+	SummarizedCount int                     `json:"summarized_count"`
+	FilteredCounts  []ContextFilteredCount  `json:"filtered_counts,omitempty"`
+	Summary         string                  `json:"summary,omitempty"`
+	SessionSummary  string                  `json:"session_summary,omitempty"`
+	Messages        []ContextInspectMessage `json:"messages"`
+	Notes           []string                `json:"notes,omitempty"`
+}
+
+type ContextInspectMessage struct {
+	ID        string    `json:"id"`
+	Role      string    `json:"role"`
+	AuthorID  string    `json:"author_id,omitempty"`
+	Content   string    `json:"content,omitempty"`
+	Tokens    int       `json:"tokens,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type ContextFilteredCount struct {
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
+}
+
+type ContextResetRequest struct {
+	SpaceID         string `json:"space_id,omitempty"`
+	Source          string `json:"source,omitempty"`
+	SessionSource   string `json:"session_source,omitempty"`
+	ParentMessageID string `json:"parent_message_id,omitempty"`
+	AgentID         string `json:"agent_id,omitempty"`
+	Action          string `json:"action"`
+}
+
+type ContextResetResult struct {
+	OK                     bool   `json:"ok"`
+	Action                 string `json:"action"`
+	Source                 string `json:"source,omitempty"`
+	SessionSource          string `json:"session_source,omitempty"`
+	PreviousSessionID      string `json:"previous_session_id,omitempty"`
+	SessionID              string `json:"session_id,omitempty"`
+	ClearedSummary         bool   `json:"cleared_summary,omitempty"`
+	RemovedSummaryMessages int    `json:"removed_summary_messages,omitempty"`
+	Note                   string `json:"note,omitempty"`
+}
+
 type BusEvent struct {
 	Type            string    `json:"type"`
 	Source          string    `json:"source,omitempty"`

@@ -261,6 +261,166 @@ func (b *Backend) deleteThreadConversation(spaceID, parentID string) (DeleteConv
 	}, nil
 }
 
+func (b *Backend) InspectContext(req ContextInspectRequest) (ContextInspectView, error) {
+	normalized, err := b.normalizeContextRequest(req)
+	if err != nil {
+		return ContextInspectView{}, err
+	}
+	view, err := b.app.InspectContext(app.ContextInspectInput{
+		SpaceID:         normalized.SpaceID,
+		Source:          normalized.Source,
+		SessionSource:   normalized.SessionSource,
+		ParentMessageID: normalized.ParentMessageID,
+		AgentID:         normalized.AgentID,
+		Profile:         app.ContextProfile(normalized.Profile),
+	})
+	if err != nil {
+		return ContextInspectView{}, err
+	}
+	return desktopContextInspectView(view), nil
+}
+
+func (b *Backend) ResetContext(req ContextResetRequest) (ContextResetResult, error) {
+	normalized, err := b.normalizeContextRequest(ContextInspectRequest{
+		SpaceID:         req.SpaceID,
+		Source:          req.Source,
+		SessionSource:   req.SessionSource,
+		ParentMessageID: req.ParentMessageID,
+		AgentID:         req.AgentID,
+	})
+	if err != nil {
+		return ContextResetResult{}, err
+	}
+	res, err := b.app.ResetContext(app.ContextResetInput{
+		Source:        normalized.Source,
+		SessionSource: normalized.SessionSource,
+		Action:        req.Action,
+	})
+	if err != nil {
+		return ContextResetResult{}, err
+	}
+	return ContextResetResult{
+		OK:                     res.OK,
+		Action:                 res.Action,
+		Source:                 res.Source,
+		SessionSource:          res.SessionSource,
+		PreviousSessionID:      res.PreviousSessionID,
+		SessionID:              res.SessionID,
+		ClearedSummary:         res.ClearedSummary,
+		RemovedSummaryMessages: res.RemovedSummaryMessages,
+		Note:                   res.Note,
+	}, nil
+}
+
+func (b *Backend) normalizeContextRequest(req ContextInspectRequest) (ContextInspectRequest, error) {
+	req.SpaceID = strings.TrimSpace(req.SpaceID)
+	req.Source = strings.TrimSpace(req.Source)
+	req.SessionSource = strings.TrimSpace(req.SessionSource)
+	req.ParentMessageID = strings.TrimSpace(req.ParentMessageID)
+	req.AgentID = strings.TrimSpace(req.AgentID)
+	req.Profile = strings.TrimSpace(req.Profile)
+	if req.SpaceID == "" {
+		if req.Source == "" {
+			req.Source = desktopSource
+		}
+		if req.SessionSource == "" {
+			req.SessionSource = req.Source
+		}
+		return req, nil
+	}
+	sp, err := b.app.Spaces().LoadSpace(req.SpaceID)
+	if err != nil || sp == nil {
+		return ContextInspectRequest{}, fmt.Errorf("space not found: %s", req.SpaceID)
+	}
+	if req.Source == "" {
+		req.Source = contextSourceForSpace(sp)
+	}
+	if req.SessionSource == "" {
+		req.SessionSource = req.Source
+	}
+	if req.AgentID == "" && sp.Kind == space.KindAgentDM {
+		req.AgentID = space.AgentParticipantID(sp)
+	}
+	if req.Profile == "" {
+		req.Profile = string(contextProfileForSpace(sp, req.ParentMessageID, req.Source))
+	}
+	return req, nil
+}
+
+func contextSourceForSpace(sp *space.Space) string {
+	if sp == nil {
+		return desktopSource
+	}
+	switch sp.Kind {
+	case space.KindChannel:
+		return "desktop:channel:" + sp.ID
+	case space.KindAgentDM:
+		return "desktop:agent:" + sp.ID
+	case space.KindDirectChat:
+		if isDefaultSumiDirect(sp) {
+			return desktopSource
+		}
+		return "desktop:direct:" + sp.ID
+	default:
+		return desktopSource
+	}
+}
+
+func contextProfileForSpace(sp *space.Space, parentMessageID, source string) app.ContextProfile {
+	if strings.TrimSpace(parentMessageID) != "" {
+		return app.ContextProfileThread
+	}
+	if strings.HasPrefix(strings.TrimSpace(source), "tg:") {
+		return app.ContextProfileTelegram
+	}
+	if sp == nil {
+		return app.ContextProfileDirect
+	}
+	switch sp.Kind {
+	case space.KindAgentDM:
+		return app.ContextProfileAgentDM
+	case space.KindChannel:
+		return app.ContextProfileChannel
+	default:
+		return app.ContextProfileDirect
+	}
+}
+
+func desktopContextInspectView(v app.ContextInspectView) ContextInspectView {
+	out := ContextInspectView{
+		Profile:         string(v.Profile),
+		Source:          v.Source,
+		SessionSource:   v.SessionSource,
+		SessionID:       v.SessionID,
+		SpaceID:         v.SpaceID,
+		ParentMessageID: v.ParentMessageID,
+		AgentID:         v.AgentID,
+		TokenLimit:      v.TokenLimit,
+		RawMessageCount: v.RawMessageCount,
+		EligibleCount:   v.EligibleCount,
+		SelectedCount:   v.SelectedCount,
+		SummarizedCount: v.SummarizedCount,
+		Summary:         v.Summary,
+		SessionSummary:  v.SessionSummary,
+		Notes:           append([]string(nil), v.Notes...),
+		Messages:        make([]ContextInspectMessage, 0, len(v.Messages)),
+	}
+	for _, c := range v.FilteredCounts {
+		out.FilteredCounts = append(out.FilteredCounts, ContextFilteredCount{Reason: c.Reason, Count: c.Count})
+	}
+	for _, m := range v.Messages {
+		out.Messages = append(out.Messages, ContextInspectMessage{
+			ID:        m.ID,
+			Role:      m.Role,
+			AuthorID:  m.AuthorID,
+			Content:   m.Content,
+			Tokens:    m.Tokens,
+			CreatedAt: m.CreatedAt,
+		})
+	}
+	return out
+}
+
 func (b *Backend) stopConversationTurns(ids ...string) {
 	for _, id := range ids {
 		_ = b.StopTurn(id)
@@ -2024,6 +2184,39 @@ func (b *Backend) APIHandler() http.Handler {
 			return
 		}
 		out, err := b.DeleteConversation(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/context/inspect", func(rw http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		out, err := b.InspectContext(ContextInspectRequest{
+			SpaceID:         q.Get("space_id"),
+			Source:          q.Get("source"),
+			SessionSource:   q.Get("session_source"),
+			ParentMessageID: q.Get("parent_message_id"),
+			AgentID:         q.Get("agent_id"),
+			Profile:         q.Get("profile"),
+		})
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/context/reset", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in ContextResetRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.ResetContext(in)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return

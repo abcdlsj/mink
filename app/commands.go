@@ -102,6 +102,7 @@ func (a *App) registerBuiltinCommands() {
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("session", "manage sessions", a.runSessionCommand))
+	a.RegisterCommand(command.NewFuncCmd("context", "inspect or reset runtime context: /context [inspect|reset-session|reset-summary]", a.runContextCommand))
 	a.RegisterCommand(command.NewFuncCmd("compact", "summarize and compact current session", a.runCompactCommand))
 	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
 	a.RegisterCommand(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
