@@ -33,6 +33,7 @@ func (a *App) runtimeEnv() *agent.RuntimeEnv {
 		Provider:             a.provider,
 		Tools:                a.tools,
 		Workspace:            a.cfg.Workspace,
+		MemoryRoot:           a.cfg.MemoryDir(),
 		ProjectContext:       loadProjectContext(a.cfg.Workspace),
 		SoulPath:             a.cfg.ResolvedSoulPath(),
 		PreferencesPath:      a.cfg.PreferencesPath(),

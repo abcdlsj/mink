@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/abcdlsj/sumi/session"
@@ -40,6 +41,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.memoryPolicy())
 	p.Add(b.taskDelegation())
 	p.Add(b.context())
+	p.Add(b.personaRuntimeContext())
 	p.Add(b.skills())
 	p.Add(b.preferences())
 	p.Add(b.permissions())
@@ -230,15 +232,51 @@ func (b promptBuilder) soul() string {
 		return ""
 	}
 	var sections []string
-	if v := loadSoulPrompt(b.env.SoulPath); v != "" {
-		sections = append(sections, "Sumi base identity (root SOUL.md):\n"+v)
+	if raw := loadSoulPrompt(b.env.SoulPath); raw != "" {
+		if b.env.Persona == nil {
+			sections = append(sections, "Sumi base identity (root SOUL.md):\n"+renderSoulTemplate(raw, b.soulTemplateData()))
+		} else if v := inheritableRootSoul(raw, b.soulTemplateData()); v != "" {
+			sections = append(sections, "Sumi base identity (inherited root SOUL.md):\n"+v)
+		}
 	}
 	if b.env.Persona != nil {
-		if v := loadSoulPrompt(b.env.Persona.SoulPath); v != "" {
-			sections = append(sections, "Persona soul overlay (persona SOUL.md):\n"+v)
+		if raw := loadSoulPrompt(b.env.Persona.SoulPath); raw != "" {
+			sections = append(sections, "Persona soul overlay (persona SOUL.md):\n"+renderSoulTemplate(raw, b.soulTemplateData()))
 		}
 	}
 	return strings.TrimSpace(strings.Join(sections, "\n\n"))
+}
+
+func (b promptBuilder) personaRuntimeContext() string {
+	if b.env == nil || b.env.Persona == nil {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "Persona runtime context:")
+	lines = append(lines, "- persona_id: "+b.env.Persona.ID)
+	if source := b.source(); source != "" {
+		lines = append(lines, "- source: "+source)
+	}
+	if workspace := strings.TrimSpace(b.env.Workspace); workspace != "" {
+		lines = append(lines, "- workspace: "+workspace)
+	}
+	if root := strings.TrimSpace(b.env.MemoryRoot); root != "" {
+		lines = append(lines, "- memory_root: "+root)
+	}
+	if path := strings.TrimSpace(b.env.Persona.SoulPath); path != "" {
+		lines = append(lines, "- persona_soul_path: "+path)
+	}
+	scopes := []string{"persona:" + b.env.Persona.ID}
+	if source := b.source(); source != "" {
+		scopes = append(scopes, "channel:"+source)
+	}
+	if workspace := strings.TrimSpace(b.env.Workspace); workspace != "" {
+		scopes = append(scopes, "workspace:"+workspace)
+	}
+	scopes = append(scopes, "global")
+	lines = append(lines, "- memory_scopes: "+strings.Join(scopes, ", "))
+	lines = append(lines, "- Use memory tools with these scopes; do not reuse root-private memory/path rules from root SOUL.")
+	return strings.Join(lines, "\n")
 }
 
 func (b promptBuilder) preferences() string {
@@ -349,4 +387,158 @@ func loadSoulPrompt(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+type soulTemplateData struct {
+	Workspace       string
+	MemoryRoot      string
+	Source          string
+	PersonaID       string
+	PersonaSoulPath string
+	PersonaRoot     string
+}
+
+func (b promptBuilder) soulTemplateData() soulTemplateData {
+	var d soulTemplateData
+	if b.env != nil {
+		d.Workspace = strings.TrimSpace(b.env.Workspace)
+		d.MemoryRoot = strings.TrimSpace(b.env.MemoryRoot)
+		d.Source = b.source()
+		if b.env.Persona != nil {
+			d.PersonaID = strings.TrimSpace(b.env.Persona.ID)
+			d.PersonaSoulPath = strings.TrimSpace(b.env.Persona.SoulPath)
+			if d.PersonaSoulPath != "" {
+				d.PersonaRoot = filepath.Dir(d.PersonaSoulPath)
+			}
+		}
+	}
+	return d
+}
+
+func inheritableRootSoul(raw string, data soulTemplateData) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var out []string
+	dropSection := false
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if isMarkdownHeading(trimmed) {
+			dropSection = rootPrivateSoulLine(trimmed)
+			if dropSection {
+				continue
+			}
+			out = append(out, line)
+			continue
+		}
+		if dropSection {
+			continue
+		}
+		if rootPrivateSoulLine(trimmed) && !templatedSoulLine(trimmed) {
+			continue
+		}
+		out = append(out, line)
+	}
+	return renderSoulTemplate(strings.TrimSpace(cleanBlankLines(out)), data)
+}
+
+func renderSoulTemplate(raw string, data soulTemplateData) string {
+	replacements := map[string]string{
+		"{{workspace}}":         data.Workspace,
+		"{{memory_root}}":       data.MemoryRoot,
+		"{{source}}":            data.Source,
+		"{{persona_id}}":        data.PersonaID,
+		"{{persona_soul_path}}": data.PersonaSoulPath,
+		"{{persona_root}}":      data.PersonaRoot,
+	}
+	out := raw
+	for from, to := range replacements {
+		out = strings.ReplaceAll(out, from, to)
+	}
+	return strings.TrimSpace(out)
+}
+
+func isMarkdownHeading(line string) bool {
+	if !strings.HasPrefix(line, "#") {
+		return false
+	}
+	return len(line) == 1 || line[1] == ' ' || line[1] == '#'
+}
+
+func templatedSoulLine(line string) bool {
+	return strings.Contains(line, "{{") && strings.Contains(line, "}}")
+}
+
+func rootPrivateSoulLine(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return false
+	}
+	markers := []string{
+		"continuity",
+		"memory policy",
+		"memory path",
+		"memory root",
+		"memory file",
+		"memory directory",
+		"memory dir",
+		"memory.md",
+		"memory/",
+		"runtime path",
+		"workspace path",
+		"workspace root",
+		"working directory",
+		"cwd",
+		"relative path",
+		"root-private",
+		"private path",
+		"private directory",
+		"self-maintenance",
+		"self maintenance",
+		"self directory",
+		"updating soul.md",
+		"soul.md itself",
+		"记忆策略",
+		"连续性",
+		"自维护",
+		"工作目录",
+		"记忆路径",
+		"记忆目录",
+		"长期记忆路径",
+		"相对路径",
+		"$home",
+		"~/",
+		".sumi",
+		"self/",
+		"personas/",
+		"session/",
+		"sessions/",
+		"runlog/",
+		"state/",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanBlankLines(lines []string) string {
+	var out []string
+	blank := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			if blank {
+				continue
+			}
+			blank = true
+			out = append(out, "")
+			continue
+		}
+		blank = false
+		out = append(out, line)
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }

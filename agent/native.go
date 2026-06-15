@@ -26,6 +26,7 @@ type RuntimeEnv struct {
 	Provider             llm.Provider
 	Tools                ToolRunner
 	Workspace            string
+	MemoryRoot           string
 	ProjectContext       string
 	SoulPath             string
 	PreferencesPath      string
