@@ -212,7 +212,7 @@ func (b promptBuilder) context() string {
 		lines = append(lines, "Project context:\n"+strings.TrimSpace(b.env.ProjectContext))
 	}
 	if s := b.session(); s != nil && strings.TrimSpace(s.Summary) != "" {
-		lines = append(lines, "Conversation summary:\n"+strings.TrimSpace(s.Summary))
+		lines = append(lines, "Historical conversation summary (weak context; prefer current user message and recent transcript for facts):\n"+strings.TrimSpace(s.Summary))
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

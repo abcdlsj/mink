@@ -23,6 +23,10 @@ func (a *App) compactSessionKeep(ctx context.Context, s *session.Session, keep i
 	if err != nil {
 		return "", err
 	}
+	summary = summaryWithProvenance(summary, summaryProvenance{
+		Profile:      ContextProfileDirect,
+		MessageCount: len(s.Messages),
+	}, time.Time{}, time.Now())
 	s.Compact(summary, keep)
 	return s.Summary, nil
 }
@@ -33,6 +37,9 @@ func (a *App) buildCompactSummary(ctx context.Context, s *session.Session) (stri
 	}
 	var b strings.Builder
 	for _, m := range s.Messages {
+		if !eligibleSessionSummaryMessage(m) {
+			continue
+		}
 		switch m.Role {
 		case "user", "assistant":
 			b.WriteString(m.Role + ": " + m.Content + "\n")
@@ -41,6 +48,9 @@ func (a *App) buildCompactSummary(ctx context.Context, s *session.Session) (stri
 				b.WriteString("tool: " + tr.Content + "\n")
 			}
 		}
+	}
+	if strings.TrimSpace(b.String()) == "" {
+		return "No eligible prior messages after runtime noise filtering.", nil
 	}
 	if a.provider != nil {
 		resp, err := a.provider.Chat(ctx, []msg.Message{
@@ -52,6 +62,27 @@ func (a *App) buildCompactSummary(ctx context.Context, s *session.Session) (stri
 		}
 	}
 	return heuristicSummary(s.Messages), nil
+}
+
+func eligibleSessionSummaryMessage(m msg.Message) bool {
+	if m.Role == "tool" {
+		for _, tr := range m.ToolResults {
+			if strings.TrimSpace(tr.Error) != "" {
+				return false
+			}
+		}
+	}
+	content := strings.TrimSpace(primaryText(m))
+	if content == "" {
+		return false
+	}
+	if content == "NO_REPLY" || strings.HasPrefix(content, "NO_REPLY ") {
+		return false
+	}
+	if noisyRuntimeContent(content) {
+		return false
+	}
+	return true
 }
 
 func (a *App) autoCompact(ctx context.Context, source, runtime string, s *session.Session) error {

@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/textutil"
@@ -555,6 +556,9 @@ func (m *shellModel) commandInput() bool {
 
 func (m *shellModel) startInput(text string, attachments []msg.Attachment) tea.Cmd {
 	ctx, cancel := context.WithCancel(m.ctx)
+	if m.thread != nil && strings.TrimSpace(m.thread.ID) != "" {
+		ctx = command.WithParentMessage(ctx, strings.TrimSpace(m.thread.ID))
+	}
 	attachments = labelDisplayAttachments(attachments)
 	m.busy = true
 	m.turnCancel = cancel

@@ -120,7 +120,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f.seedDirectContext(s, contextSpaceID, f.personaID, excludeMessageID)
+	f.seedDirectContext(ctx, s, contextSpaceID, f.personaID, excludeMessageID)
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
 			Type:      bus.TurnQueued,
@@ -171,7 +171,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		m, err := f.app.spaces.AppendUserMessage(sp.ID, f.input, nil)
+		m, err := f.app.spaces.AppendUserMessageInThread(sp.ID, command.ParentMessageFrom(ctx), f.input, nil)
 		if err != nil {
 			return "", err
 		}
@@ -184,7 +184,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if sp != nil {
-		f.seedDirectContext(s, sp.ID, agentInfo.ID, excludeMessageID)
+		f.seedDirectContext(ctx, s, sp.ID, agentInfo.ID, excludeMessageID)
 	}
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
@@ -238,12 +238,14 @@ func isDefaultSumiSource(source string) bool {
 	return strings.TrimSpace(source) == "desktop"
 }
 
-func (f inputFlow) seedDirectContext(s *session.Session, spaceID, agentID, excludeMessageID string) {
+func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, spaceID, agentID, excludeMessageID string) {
 	if strings.TrimSpace(spaceID) == "" || strings.TrimSpace(agentID) == "" {
 		return
 	}
 	f.app.BuildContextView(ContextViewInput{
 		SpaceID:          spaceID,
+		Source:           f.source,
+		ParentMessageID:  command.ParentMessageFrom(ctx),
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
 	}).Apply(s)

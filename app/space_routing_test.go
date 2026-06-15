@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/command"
@@ -391,7 +392,7 @@ func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
 	}
 
 	s := session.New("desktop:channel:" + ch.ID + ":persona:bob")
-	a.syncWakeContext(s, ch.ID, "", "bob", current.ID)
+	a.syncWakeContext(s, "desktop:channel:"+ch.ID, ch.ID, "", "bob", current.ID)
 
 	if strings.TrimSpace(s.Summary) == "" {
 		t.Fatal("expected compact summary for dropped old context")
@@ -406,5 +407,85 @@ func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
 	}
 	if len(s.Messages) >= 8 {
 		t.Fatalf("expected token budget to drop old messages, kept %d", len(s.Messages))
+	}
+}
+
+func TestContextViewFiltersNoisyRuntimeHistory(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+		Compact: config.CompactConfig{
+			TriggerTokens: 10,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 6, 15, 1, 2, 3, 0, time.UTC)
+	add := func(m space.Message) {
+		t.Helper()
+		if m.AuthorID == "" {
+			m.AuthorID = "user"
+		}
+		if m.AuthorKind == "" {
+			m.AuthorKind = space.ParticipantUser
+		}
+		m.CreatedAt = base.Add(time.Duration(len(ch.Messages)) * time.Minute)
+		written, _, err := a.Spaces().AppendMessageWithRouting(ch.ID, m, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ch.Messages = append(ch.Messages, written)
+	}
+	add(space.Message{Content: "stable old context alpha beta gamma delta epsilon zeta eta theta"})
+	add(space.Message{AuthorID: "system", AuthorKind: space.ParticipantSystem, Content: "Send failed: provider 400"})
+	add(space.Message{AuthorID: "bob", AuthorKind: space.ParticipantAgent, Content: "NO_REPLY"})
+	add(space.Message{AuthorID: "bob", AuthorKind: space.ParticipantAgent, Content: "Failed to deserialize the JSON body: unknown variant `image_url`, expected `text`"})
+	add(space.Message{Content: "recent useful fact should stay"})
+	current, err := a.Spaces().AppendUserMessage(ch.ID, "@bob current trigger should be excluded", []string{"bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view := a.BuildContextView(ContextViewInput{
+		SpaceID:          ch.ID,
+		Source:           "desktop:channel:" + ch.ID,
+		AgentID:          "bob",
+		ExcludeMessageID: current.ID,
+		TokenLimit:       10,
+	})
+	var joined []string
+	for _, m := range view.Messages {
+		joined = append(joined, m.Content)
+	}
+	body := strings.Join(joined, "\n") + "\n" + view.Summary
+	for _, bad := range []string{"Send failed", "NO_REPLY", "image_url", "current trigger"} {
+		if strings.Contains(body, bad) {
+			t.Fatalf("noisy context %q leaked into runtime evidence:\nmessages=%+v\nsummary=%s", bad, view.Messages, view.Summary)
+		}
+	}
+	if !strings.Contains(strings.Join(joined, "\n"), "recent useful fact") {
+		t.Fatalf("recent useful context missing: %+v", view.Messages)
+	}
+	for _, want := range []string{
+		"Historical summary (weak context",
+		"profile=channel",
+		"source=desktop:channel:" + ch.ID,
+		"space_id=" + ch.ID,
+		"message_count=1",
+		"time_range=",
+		"stable old context",
+	} {
+		if !strings.Contains(view.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, view.Summary)
+		}
 	}
 }

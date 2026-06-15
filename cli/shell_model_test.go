@@ -885,6 +885,41 @@ func TestThreadCommandCanOpenByMessageID(t *testing.T) {
 	}
 }
 
+type parentCaptureShellApp struct {
+	commandShellApp
+	parent string
+	source string
+}
+
+func (a *parentCaptureShellApp) HandleInputWithAttachments(ctx context.Context, source, input string, attachments []msg.Attachment) (string, error) {
+	a.parent = command.ParentMessageFrom(ctx)
+	a.source = source
+	return "ok", nil
+}
+
+func TestThreadInputPassesParentMessageContext(t *testing.T) {
+	app := &parentCaptureShellApp{}
+	m := newShellModel(context.Background(), app, "cli")
+	th := m.createThread("panic", "m0a")
+	m.enterThread(th)
+	m.input.SetValue("reply in thread")
+
+	next, cmd := m.submit()
+	if cmd == nil {
+		t.Fatal("thread input should start command")
+	}
+	_ = next
+	if got := cmd(); got == nil {
+		t.Fatal("command should return turn result")
+	}
+	if app.parent != "m0a" {
+		t.Fatalf("parent = %q, want m0a", app.parent)
+	}
+	if app.source != "cli:thread:m0a" {
+		t.Fatalf("source = %q", app.source)
+	}
+}
+
 func TestThreadLeaveReturnsToChannel(t *testing.T) {
 	m := newShellModel(context.Background(), commandShellApp{}, "cli")
 	th := m.createThread("panic", "m0a")

@@ -223,7 +223,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	if err != nil {
 		return channelWakeResult{err: err}
 	}
-	a.syncWakeContext(s, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
+	a.syncWakeContext(s, originSource, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
 	collaborationBrief := a.routedCollaborationBrief(spaceID, parentMessageID, target)
 	baseline := len(s.Messages)
 	rt, err := a.newRuntimeFor(persona.Runtime, persona)
@@ -242,7 +242,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		CollaborationBrief:    collaborationBrief,
 		IncludeHistory:        true,
 		DisableExternalResume: true,
-		BlockedTools:          taskToolBlocks(persona),
+		BlockedTools:          mergeToolBlocks(taskToolBlocks(persona), memoryToolBlocks(persona)),
 	}
 	ctx = command.WithSource(ctx, originSource)
 	ctx = command.WithPersona(ctx, persona.ID)
@@ -600,8 +600,8 @@ func recentAgentConclusions(sp *space.Space, parentMessageID, selfID string, lim
 	return out
 }
 
-func (a *App) syncWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string) {
-	a.seedWakeContext(s, spaceID, parentMessageID, agentID, excludeMessageID, a.wakeContextTokenLimit())
+func (a *App) syncWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) {
+	a.seedWakeContext(s, source, spaceID, parentMessageID, agentID, excludeMessageID, a.wakeContextTokenLimit())
 }
 
 func (a *App) wakeContextTokenLimit() int {
@@ -611,9 +611,10 @@ func (a *App) wakeContextTokenLimit() int {
 	return wakeContextTokenFallback
 }
 
-func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agentID, excludeMessageID string, tokenLimit int) {
+func (a *App) seedWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string, tokenLimit int) {
 	a.BuildContextView(ContextViewInput{
 		SpaceID:          spaceID,
+		Source:           source,
 		ParentMessageID:  parentMessageID,
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
@@ -621,18 +622,73 @@ func (a *App) seedWakeContext(s *session.Session, spaceID, parentMessageID, agen
 	}).Apply(s)
 }
 
-func filterContextMessages(msgs []space.Message, excludeMessageID string) []space.Message {
+func filterContextMessages(msgs []space.Message, excludeMessageID string, profile ContextProfile) []space.Message {
 	excludeMessageID = strings.TrimSpace(excludeMessageID)
-	if excludeMessageID == "" {
-		return msgs
-	}
 	out := make([]space.Message, 0, len(msgs))
 	for _, m := range msgs {
-		if m.ID != excludeMessageID {
-			out = append(out, m)
+		if excludeMessageID != "" && m.ID == excludeMessageID {
+			continue
 		}
+		if !eligibleContextMessage(m, profile) {
+			continue
+		}
+		out = append(out, m)
 	}
 	return out
+}
+
+func eligibleContextMessage(m space.Message, profile ContextProfile) bool {
+	content := strings.TrimSpace(m.Content)
+	if content == "" && strings.TrimSpace(m.Reasoning) == "" {
+		return false
+	}
+	if m.AuthorKind == space.ParticipantSystem {
+		return false
+	}
+	if content == "NO_REPLY" || strings.HasPrefix(content, "NO_REPLY ") {
+		return false
+	}
+	if noisyRuntimeContent(content) {
+		return false
+	}
+	return true
+}
+
+func noisyRuntimeContent(content string) bool {
+	c := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(content)), " "))
+	if c == "" {
+		return false
+	}
+	prefixes := []string{
+		"send failed:",
+		"agent failed:",
+		"no agent picked this up",
+		"no listening agent matched",
+		"mention a specific agent",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(c, p) {
+			return true
+		}
+	}
+	contains := []string{
+		" failed: ",
+		"unsupported image type",
+		"unsupported telegram image type",
+		"unknown variant `image_url`",
+		"unknown variant image_url",
+		"expected `text`",
+		"expected text",
+		"image failed to send",
+		"failed to deserialize the json body",
+		"http 400",
+	}
+	for _, needle := range contains {
+		if strings.Contains(c, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func boundedContextMessages(msgs []space.Message, agentID string, tokenLimit int) []space.Message {
@@ -661,15 +717,25 @@ func boundedContextMessages(msgs []space.Message, agentID string, tokenLimit int
 	return out
 }
 
-func wakeContextSummary(msgs []space.Message, agentID string) string {
+func wakeContextSummary(msgs []space.Message, agentID string, provenance summaryProvenance) string {
 	runtimeMsgs := make([]msg.Message, 0, len(msgs))
+	var start, end time.Time
 	for _, m := range msgs {
 		runtimeMsgs = append(runtimeMsgs, toRuntimeMessage(m, agentID))
+		if !m.CreatedAt.IsZero() {
+			if start.IsZero() || m.CreatedAt.Before(start) {
+				start = m.CreatedAt
+			}
+			if end.IsZero() || m.CreatedAt.After(end) {
+				end = m.CreatedAt
+			}
+		}
 	}
 	if len(runtimeMsgs) == 0 {
 		return ""
 	}
 	summary := heuristicSummary(runtimeMsgs)
+	summary = summaryWithProvenance(summary, provenance, start, end)
 	if estimateMessage(msg.Message{Role: "system", Content: summary}) <= wakeContextSummaryBudget {
 		return summary
 	}

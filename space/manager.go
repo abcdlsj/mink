@@ -264,11 +264,16 @@ func (m *Manager) AppendMessageWithRouting(spaceID string, draft Message, resolv
 }
 
 func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) (Message, error) {
+	return m.AppendUserMessageInThread(spaceID, "", content, mentions)
+}
+
+func (m *Manager) AppendUserMessageInThread(spaceID, parentMessageID, content string, mentions []string) (Message, error) {
 	return m.appendMessage(spaceID, Message{
-		AuthorID:   m.userID,
-		AuthorKind: ParticipantUser,
-		Content:    content,
-		Mentions:   mentions,
+		AuthorID:        m.userID,
+		AuthorKind:      ParticipantUser,
+		Content:         content,
+		Mentions:        mentions,
+		ParentMessageID: strings.TrimSpace(parentMessageID),
 	})
 }
 
