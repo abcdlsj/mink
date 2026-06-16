@@ -35,7 +35,7 @@ function walk(children: ReactNode, set: Set<string>): ReactNode {
 }
 
 const fullComponents: Components = {
-  p: ({ children }) => <p className="mb-3 last:mb-0 leading-[1.7]"><MentionAware>{children}</MentionAware></p>,
+  p: ({ children }) => <p className="mb-3 last:mb-0 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></p>,
   h1: ({ children }) => <h1 className="font-display text-[20px] font-bold tracking-tight mt-5 mb-2.5 first:mt-0"><MentionAware>{children}</MentionAware></h1>,
   h2: ({ children }) => <h2 className="font-display text-[17.5px] font-bold tracking-tight mt-5 mb-2 first:mt-0"><MentionAware>{children}</MentionAware></h2>,
   h3: ({ children }) => <h3 className="font-display text-[15.5px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h3>,
@@ -44,13 +44,13 @@ const fullComponents: Components = {
   h6: ({ children }) => <h6 className="font-display text-[12px] font-semibold uppercase tracking-[0.6px] text-text-muted mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
   ul: ({ children }) => <ul className="my-2.5 pl-5 list-disc marker:text-text-faint">{children}</ul>,
   ol: ({ children }) => <ol className="my-2.5 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
-  li: ({ children }) => <li className="my-1.5 leading-[1.7] pl-1"><MentionAware>{children}</MentionAware></li>,
+  li: ({ children }) => <li className="my-1.5 pl-1 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></li>,
   a: ({ href, children }) => (
     <a
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-accent hover:underline underline-offset-2 break-words"
+      className="break-words text-[color:#176C7A] underline-offset-2 hover:text-[color:#0F4F5A] hover:underline"
     >
       {children}
     </a>
@@ -108,7 +108,7 @@ const liteComponents: Components = {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="text-accent hover:underline underline-offset-2 break-words"
+      className="break-words text-[color:#176C7A] underline-offset-2 hover:text-[color:#0F4F5A] hover:underline"
     >
       {children}
     </a>

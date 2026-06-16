@@ -251,16 +251,6 @@ export function Composer() {
           )}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          {(() => {
-            if (view !== "agent") return null;
-            const ag = personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id);
-            if (!ag) return null;
-            return (
-              <span className="border border-border bg-panel-2 px-1.5 py-1 text-[12px] text-text-muted">
-                @{ag.display}
-              </span>
-            );
-          })()}
           <span className="min-w-4 flex-1" />
           <Button
             variant="default"

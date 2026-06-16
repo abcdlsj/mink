@@ -64,7 +64,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
       <div className="min-w-0">
         {!compact && (
           <div className="mb-1.5 flex items-baseline gap-2">
-            <span className="font-display text-[14px] font-extrabold leading-tight text-text">
+            <span className="font-display text-[13px] font-extrabold leading-tight text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
@@ -99,7 +99,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           m.role === "user" ? (
             <div
               className={cn(
-                "max-w-full whitespace-pre-wrap break-words text-[14px] leading-[1.65] text-text md:text-[14.5px] md:leading-[1.7]",
+                "max-w-full whitespace-pre-wrap break-words text-[14px] leading-[22px] text-text",
                 m.reasoning && "mt-2",
               )}
             >
@@ -108,7 +108,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           ) : (
             <Markdown
               className={cn(
-                "max-w-full text-[14px] leading-[1.65] text-text md:text-[14.5px] md:leading-[1.7]",
+                "max-w-full text-[14px] leading-[22px] text-text",
                 m.reasoning && "mt-2",
               )}
               mentions={knownMentions}

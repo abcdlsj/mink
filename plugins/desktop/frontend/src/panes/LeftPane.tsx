@@ -155,7 +155,7 @@ export function LeftPane() {
           {channels.map((c) => (
             <NavItem
               key={c.id}
-              icon={<Hash className="size-4" />}
+              icon={<Hash className="size-3" />}
               name={c.name}
               running={c.has_running}
               badge={c.unread_count}
@@ -194,7 +194,7 @@ export function LeftPane() {
               <li key={agent.id}>
                 <div
                   className={cn(
-                    "grid w-full cursor-pointer grid-cols-[18px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
+                    "grid w-full cursor-pointer grid-cols-[16px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
                     active
                       ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
                       : "hover:border-border hover:bg-panel hover:text-text",
@@ -205,12 +205,12 @@ export function LeftPane() {
                     type="button"
                     onClick={() => void openAgentRow(agent.id, display)}
                     className={cn(
-                      "inline-flex size-6 items-center justify-center border border-transparent font-mono",
+                      "inline-flex size-5 items-center justify-center border border-transparent font-mono",
                       active ? "border-border bg-accent text-text" : "text-text-muted",
                     )}
                     tabIndex={-1}
                   >
-                    <AtSign className="size-4" />
+                    <AtSign className="size-3" />
                   </button>
                   <button
                     type="button"
@@ -240,7 +240,7 @@ export function LeftPane() {
           {extraAgentDirectChats.map((dc) => (
             <NavItem
               key={dc.id}
-              icon={<AtSign className="size-4" />}
+              icon={<AtSign className="size-3" />}
               name={dc.title}
               running={dc.has_running}
               active={view === "agent" && ((activeAgentSpace === dc.id) || (activePersonaID === dc.persona_id))}
@@ -275,7 +275,7 @@ export function LeftPane() {
                 title={"@" + (dm.persona_name || dm.persona_id)}
               >
                 <div className="flex items-center gap-1.5 text-[13px]">
-                  <AtSign className="size-3 text-text-muted shrink-0" />
+                  <AtSign className="size-[11px] text-text-muted shrink-0" />
                   <span className="truncate">
                     {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
                   </span>
@@ -392,13 +392,13 @@ function NavItem({ icon, name, running, badge, active, onClick, tooltip }: NavIt
         onClick={onClick}
         title={tooltip}
         className={cn(
-          "grid w-full cursor-pointer grid-cols-[18px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
+          "grid w-full cursor-pointer grid-cols-[16px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
           active ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
         )}
       >
         <span
           className={cn(
-            "inline-flex size-6 items-center justify-center border border-transparent font-mono",
+            "inline-flex size-5 items-center justify-center border border-transparent font-mono",
             active ? "border-border bg-accent text-text" : "text-text-muted",
           )}
         >

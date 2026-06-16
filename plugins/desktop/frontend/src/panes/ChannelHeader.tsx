@@ -51,7 +51,13 @@ export function ChannelHeader({ scope }: { scope: string }) {
   } else if (view === "agent") {
     TitleIcon = AtSign;
     titleText = titleText.replace(/^@/, "");
-    metaText = detail.summary || "";
+    const personaDisplay =
+      detail.item.persona_name ||
+      agents.find((a) => a.id === detail.item.persona_id)?.display ||
+      titleText;
+    const isNamedAgentChat = !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
+    metaText = `${isNamedAgentChat ? "Agent chat" : "DM"} · @${personaDisplay}`;
+    if (detail.summary) metaText += ` · ${detail.summary}`;
   }
 
   const editableAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
@@ -115,7 +121,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
       <div>
         <h2 className="flex items-center gap-2 font-display text-[19px] font-extrabold leading-tight text-text">
           <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
-            <TitleIcon className="size-[17px] text-text" />
+            <TitleIcon className="size-[14px] text-text" />
           </span>
           {editableAgentChat && editingTitle ? (
             <span className="inline-flex min-w-[220px] flex-col gap-1">
