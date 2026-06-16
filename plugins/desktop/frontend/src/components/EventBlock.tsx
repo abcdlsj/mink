@@ -54,6 +54,7 @@ function ToolLine({ ev }: EventBlockProps) {
     if (status === "running") return "Running";
     return "Ran";
   })();
+  const summary = toolSummary(ev);
 
   return (
     <div className={cn("inline-flex border border-border px-1.5 py-0.5 text-[12px]", status === "error" ? "bg-action-bg text-error" : "bg-panel-2 text-text-muted")}>
@@ -61,6 +62,11 @@ function ToolLine({ ev }: EventBlockProps) {
         <span>{headLabel}</span>
         {ev.tool_name && (
           <span className="font-mono font-semibold text-text">{ev.tool_name}</span>
+        )}
+        {summary && (
+          <span className={cn("max-w-[34rem] truncate", status === "error" ? "text-error" : "text-text-muted")}>
+            · {summary}
+          </span>
         )}
         {elapsedMs ? (
           <span className="text-text-faint tabular-nums">
@@ -73,6 +79,71 @@ function ToolLine({ ev }: EventBlockProps) {
       </div>
     </div>
   );
+}
+
+function toolSummary(ev: EventBlockData): string {
+  if (ev.err) return shorten(cleanText(ev.err), 120);
+  const fromArgs = summarizeArgs(ev.tool_name || "", ev.args || "");
+  if (fromArgs) return fromArgs;
+  if (ev.output) return shorten(cleanText(ev.output), 120);
+  return "";
+}
+
+function summarizeArgs(toolName: string, raw: string): string {
+  const text = cleanText(raw);
+  if (!text) return "";
+  const parsed = parseJSON(text);
+  const lower = toolName.toLowerCase();
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const command = stringValue(obj.command) || stringValue(obj.cmd) || stringValue(obj.shell_command);
+    const query = stringValue(obj.query) || stringValue(obj.q) || stringValue(obj.search_query) || stringValue(obj.pattern);
+    const path = stringValue(obj.path) || stringValue(obj.file) || stringValue(obj.filename) || stringValue(obj.uri);
+    const target = stringValue(obj.target) || stringValue(obj.channel) || stringValue(obj.url);
+    const title = stringValue(obj.title) || stringValue(obj.name);
+    if (command) return shorten(commandLabel(lower) + " " + command, 120);
+    if (query) return shorten("search " + query, 120);
+    if (path) return shorten(pathAction(lower) + " " + path, 120);
+    if (target) return shorten("target " + target, 120);
+    if (title) return shorten(title, 120);
+  }
+  return shorten(text.replace(/^["']|["']$/g, ""), 120);
+}
+
+function parseJSON(raw: string): unknown | null {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function stringValue(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(stringValue).filter(Boolean).join(", ");
+  return "";
+}
+
+function commandLabel(toolName: string): string {
+  if (toolName.includes("bash") || toolName.includes("shell") || toolName.includes("exec")) return "run";
+  return "command";
+}
+
+function pathAction(toolName: string): string {
+  if (toolName.includes("write") || toolName.includes("edit") || toolName.includes("patch")) return "edit";
+  if (toolName.includes("list")) return "list";
+  if (toolName.includes("read") || toolName.includes("open")) return "read";
+  return "path";
+}
+
+function cleanText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function shorten(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, Math.max(0, max - 1)).trimEnd() + "…";
 }
 
 function fmtMs(ms: number, status: EventStatus): string {

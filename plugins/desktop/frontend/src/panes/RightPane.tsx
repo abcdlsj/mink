@@ -44,18 +44,19 @@ export function RightPane() {
   const liveRuns: AgentRun[] = Object.values(streamingByID).map((s) => ({
     id: s.messageID,
     agent_id: s.agentID || "agent",
-    title: "Current turn",
+    title: "Working now",
     status: "running",
     lifecycle: "active",
     time: s.startedAt,
   }));
   const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
+  const taskRuns: AgentRun[] = participants?.active_runs || [];
   const activePersona = personaForRuntime(activeAgentSpace, detail?.item?.persona_id, personas, agentDMs);
   const activeChannelItem = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
   const scopeRecentRuns = inThread
     ? (threadRecentRuns || [])
     : (participants?.recent_runs || []);
-  const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : runtimeRuns);
+  const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : taskRuns);
   const archivedScopeRuns = inThread
     ? (threadDetail?.archived_runs_count || 0)
     : (participants?.archived_runs_count || 0);

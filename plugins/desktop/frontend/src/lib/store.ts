@@ -87,6 +87,7 @@ interface State {
   composerHint: { text: string; at: number } | null;
   routeNotice: { text: string; at: number } | null;
   sending: boolean;
+  sendingByScope: Record<string, boolean>;
   streaming: StreamingTurn | null;
   streamingByID: Record<string, StreamingTurn>;
 
@@ -124,28 +125,20 @@ function activeSessionID(s: State): string {
   return s.activeChannel || "";
 }
 
-function newID(): string {
-  return Math.random().toString(36).slice(2, 10);
+function scopeKey(spaceID: string, parentMessageID?: string): string {
+  return parentMessageID ? spaceID + "::thread:" + parentMessageID : spaceID;
 }
 
-function streamingEventInScope(ev: BusEvent, s: State): boolean {
+function activeScopeKey(s: State): string {
   if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
-    if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
-    return ev.parent_message_id === s.threadDetail.parent_id;
+    return scopeKey(s.threadDetail.space_id, s.threadDetail.parent_id);
   }
-  if (s.view === "agent") {
-    if (!s.detail) return false;
-    return ev.space_id === s.detail.item.id;
-  }
-  if (s.view === "channel") {
-    if (!ev.space_id || ev.space_id !== s.activeChannel) return false;
-    return !ev.parent_message_id;
-  }
-  if (s.view === "direct") {
-    if (!ev.space_id || ev.space_id !== s.activeDirect) return false;
-    return !ev.parent_message_id;
-  }
-  return false;
+  const sid = activeSessionID(s);
+  return sid ? scopeKey(sid) : "";
+}
+
+function newID(): string {
+  return Math.random().toString(36).slice(2, 10);
 }
 
 function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
@@ -173,18 +166,19 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
 
 function streamingViewUpdates(
   s: State,
+  stream: StreamingTurn,
   placeholder: MessageView,
   forThreadView: boolean,
 ): Partial<State> {
   const detail = s.detail;
   const updates: Partial<State> = {};
-  if (detail) {
+  if (detail && streamMatchesMainScope(s, stream)) {
     updates.detail = {
       ...detail,
       messages: forThreadView ? detail.messages : [...detail.messages, placeholder],
     };
   }
-  if (s.threadDetail) {
+  if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
     updates.threadDetail = {
       ...s.threadDetail,
       replies: [...s.threadDetail.replies, placeholder],
@@ -195,23 +189,36 @@ function streamingViewUpdates(
 
 function streamingMessageUpdates(
   s: State,
-  messageID: string,
+  stream: StreamingTurn,
   patch: (m: MessageView) => MessageView,
 ): Partial<State> {
   const updates: Partial<State> = {};
-  if (s.detail) {
+  if (s.detail && streamMatchesMainScope(s, stream)) {
     updates.detail = {
       ...s.detail,
-      messages: s.detail.messages.map((m) => (m.id === messageID ? patch(m) : m)),
+      messages: s.detail.messages.map((m) => (m.id === stream.messageID ? patch(m) : m)),
     };
   }
-  if (s.threadDetail) {
+  if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
     updates.threadDetail = {
       ...s.threadDetail,
-      replies: s.threadDetail.replies.map((m) => (m.id === messageID ? patch(m) : m)),
+      replies: s.threadDetail.replies.map((m) => (m.id === stream.messageID ? patch(m) : m)),
     };
   }
   return updates;
+}
+
+function streamMatchesMainScope(s: State, stream: StreamingTurn): boolean {
+  if (stream.parentMessageID) return false;
+  if (s.view === "agent") return !!s.detail && s.detail.item.id === stream.spaceID;
+  if (s.view === "direct") return s.activeDirect === stream.spaceID;
+  if (s.view === "channel" && !s.threadDetail) return s.activeChannel === stream.spaceID;
+  return false;
+}
+
+function streamMatchesThreadScope(s: State, stream: StreamingTurn): boolean {
+  if (!s.threadDetail || s.threadDetail.unsupported || s.threadDetail.not_found) return false;
+  return s.threadDetail.space_id === stream.spaceID && s.threadDetail.parent_id === stream.parentMessageID;
 }
 
 function currentStreaming(streamingByID: Record<string, StreamingTurn>): StreamingTurn | null {
@@ -230,7 +237,7 @@ function applyRouteAnchor(anchor: string | undefined): Pick<State, "activeAnchor
 }
 
 function streamForEvent(s: State, ev: BusEvent): StreamingTurn | null {
-  if (ev.stream_id && s.streamingByID[ev.stream_id]) return s.streamingByID[ev.stream_id];
+  if (ev.stream_id) return s.streamingByID[ev.stream_id] || null;
   return s.streaming;
 }
 
@@ -352,6 +359,7 @@ export const useStore = create<State>((set, get) => ({
   composerHint: null,
   routeNotice: null,
   sending: false,
+  sendingByScope: {},
   streaming: null,
   streamingByID: {},
 
@@ -460,8 +468,6 @@ export const useStore = create<State>((set, get) => ({
       threadDetail: null,
       expandedTaskID: null,
       participants,
-      streaming: null,
-      streamingByID: {},
     });
     writeWebRoute({ view: "channel", id }, routeOpts);
   },
@@ -511,15 +517,13 @@ export const useStore = create<State>((set, get) => ({
       activeThread: id,
       activeAnchor: null,
       threadDetail: detail,
-      streaming: null,
-      streamingByID: {},
     });
     writeWebRoute({ view: "channel", id: spaceId, thread: id }, routeOpts);
   },
 
   closeThread(routeOpts?: RouteWriteOptions) {
     const spaceId = get().activeChannel;
-    set({ activeThread: null, activeAnchor: null, threadDetail: null, streaming: null, streamingByID: {}, expandedTaskID: null });
+    set({ activeThread: null, activeAnchor: null, threadDetail: null, expandedTaskID: null });
     if (spaceId) writeWebRoute({ view: "channel", id: spaceId }, routeOpts);
   },
 
@@ -559,8 +563,6 @@ export const useStore = create<State>((set, get) => ({
         activeThread: null,
         activeAgentSpace: null,
         activeAnchor: null,
-        streaming: null,
-        streamingByID: {},
         expandedTaskID: null,
         routeNotice: { text: hint, at: Date.now() },
       });
@@ -599,8 +601,6 @@ export const useStore = create<State>((set, get) => ({
       participants: null,
       agentDMs,
       directChats,
-      streaming: null,
-      streamingByID: {},
       expandedTaskID: null,
     });
     writeWebRoute({ view: "agent", id: detail.item.id || id }, routeOpts);
@@ -634,8 +634,6 @@ export const useStore = create<State>((set, get) => ({
       detail: null,
       threadDetail: null,
       participants: null,
-      streaming: null,
-      streamingByID: {},
       expandedTaskID: null,
     });
     writeWebRoute({ view: "tasks" }, routeOpts);
@@ -658,8 +656,6 @@ export const useStore = create<State>((set, get) => ({
       activeAnchor: null,
       detail,
       participants: { agents: [] },
-      streaming: null,
-      streamingByID: {},
     });
     writeWebRoute({ view: "direct", id: detail.item.id });
     try {
@@ -700,8 +696,6 @@ export const useStore = create<State>((set, get) => ({
       activeAnchor: null,
       detail,
       participants,
-      streaming: null,
-      streamingByID: {},
     });
     writeWebRoute({ view: "direct", id }, routeOpts);
   },
@@ -724,12 +718,39 @@ export const useStore = create<State>((set, get) => ({
       ...nav,
       capabilities,
       sending: false,
+      sendingByScope: {},
       streaming: null,
       streamingByID: {},
     });
+    const openHome = async () => {
+      set({
+        detail: null,
+        threadDetail: null,
+        participants: null,
+        activeChannel: null,
+        activeDirect: null,
+        activeThread: null,
+        activeAgentSpace: null,
+        activeAnchor: null,
+        expandedTaskID: null,
+      });
+      const nextDirect =
+        nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
+        nav.directChats.find((d) => d.kind === "direct_chat");
+      if (nextDirect) {
+        await get().openDirectChat(nextDirect.id, { replace: true });
+        return;
+      }
+      if (nav.channels[0]) {
+        await get().openChannel(nav.channels[0].id, { replace: true });
+        return;
+      }
+      get().openTaskBoard({ replace: true });
+    };
     if (kind === "thread") {
       if (get().threadDetail?.space_id === id && get().threadDetail?.parent_id === parentMessageID) {
-        get().closeThread({ replace: true });
+        await openHome();
+        return;
       }
       if (get().view === "channel" && get().activeChannel === id) {
         await refetchActiveScope(get, set);
@@ -742,36 +763,7 @@ export const useStore = create<State>((set, get) => ({
       (kind === "direct_chat" && s.view === "direct" && (s.activeDirect === id || s.detail?.item.id === id)) ||
       (kind === "agent_dm" && s.view === "agent" && (s.activeAgentSpace === id || s.detail?.item.id === id));
     if (!activeDeleted) return;
-    set({
-      detail: null,
-      threadDetail: null,
-      participants: null,
-      activeChannel: null,
-      activeDirect: null,
-      activeThread: null,
-      activeAgentSpace: null,
-      activeAnchor: null,
-      expandedTaskID: null,
-    });
-    if (kind === "channel") {
-      const next = nav.channels.find((c) => c.id !== id) || nav.channels[0];
-      if (next) {
-        await get().openChannel(next.id, { replace: true });
-        return;
-      }
-    }
-    const nextDirect =
-      nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
-      nav.directChats.find((d) => d.kind === "direct_chat");
-    if (nextDirect) {
-      await get().openDirectChat(nextDirect.id, { replace: true });
-      return;
-    }
-    if (nav.channels[0]) {
-      await get().openChannel(nav.channels[0].id, { replace: true });
-      return;
-    }
-    get().openTaskBoard({ replace: true });
+    await openHome();
   },
 
   async openCurrentRoute() {
@@ -828,21 +820,32 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async send(input, personaID) {
-    const sid = activeSessionID(get());
-    if (!sid || !input.trim() || get().sending) return;
-    const parentMessageID = get().threadDetail?.parent_id;
-    set({ sending: true });
+    const before = get();
+    const sid = activeSessionID(before);
+    const sendScope = activeScopeKey(before);
+    if (!sid || !sendScope || !input.trim() || before.sendingByScope[sendScope]) return;
+    const parentMessageID = before.threadDetail?.parent_id;
+    set({
+      sending: true,
+      sendingByScope: { ...before.sendingByScope, [sendScope]: true },
+    });
+    const clearSending = () => {
+      const current = get().sendingByScope;
+      const next = { ...current };
+      delete next[sendScope];
+      set({ sendingByScope: next, sending: Object.keys(next).length > 0 });
+    };
     try {
       await api.send(sid, input, personaID, parentMessageID);
-      set({ sending: false });
+      clearSending();
       if (activeSessionID(get()) === sid) {
         await refetchActiveScope(get, set);
       }
       void refetchNavigation(set);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : "Desktop backend is offline.";
+      clearSending();
       set({
-        sending: false,
         composerHint: { text: "Send failed: " + errMsg, at: Date.now() },
       });
       if (activeSessionID(get()) === sid) {
@@ -861,6 +864,7 @@ export const useStore = create<State>((set, get) => ({
     const detail = get().detail;
     set({
       sending: false,
+      sendingByScope: {},
       streaming: null,
       streamingByID: {},
       detail,
@@ -975,9 +979,6 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
 
-    const detail = cur.detail;
-    if (!detail) return;
-
     const isStreamEvent =
       ev.type === "turn.started" ||
       ev.type === "turn.chunk" ||
@@ -992,10 +993,10 @@ export const useStore = create<State>((set, get) => ({
       if (!ev.stream_id) {
                                 return;
       }
-      if (!streamingEventInScope(ev, cur)) return;
     }
 
             if (!isStreamEvent && ev.source && ev.source.startsWith("subtask:")) return;
+    if (!isStreamEvent && !cur.detail) return;
 
     switch (ev.type) {
       case "turn.queued": {
@@ -1033,11 +1034,6 @@ export const useStore = create<State>((set, get) => ({
           thread_id: ev.parent_message_id || undefined,
           is_thread_reply: !!ev.parent_message_id,
         };
-        const inThreadView =
-          !!cur.threadDetail &&
-          !cur.threadDetail.unsupported &&
-          !cur.threadDetail.not_found;
-        const updates = streamingViewUpdates(cur, placeholder, inThreadView);
         const stream: StreamingTurn = {
           messageID: placeholder.id,
           streamID: ev.stream_id,
@@ -1049,6 +1045,11 @@ export const useStore = create<State>((set, get) => ({
           reasoning: "",
           toolCalls: new Map(),
         };
+        const inThreadView =
+          !!cur.threadDetail &&
+          !cur.threadDetail.unsupported &&
+          !cur.threadDetail.not_found;
+        const updates = streamingViewUpdates(cur, stream, placeholder, inThreadView);
         set({
           ...updateStream(cur, stream),
           ...updates,
@@ -1062,7 +1063,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, content: next };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             content: next,
           })),
@@ -1076,7 +1077,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, reasoning: next };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             reasoning: next,
           })),
@@ -1090,6 +1091,7 @@ export const useStore = create<State>((set, get) => ({
         const block: EventBlock = {
           kind: "tool_call",
           tool_name: ev.tool,
+          args: ev.input,
           status: "running",
           time: ev.time,
         };
@@ -1098,7 +1100,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1115,6 +1117,9 @@ export const useStore = create<State>((set, get) => ({
         const block: EventBlock = {
           kind: "tool_call",
           tool_name: prev?.tool_name || ev.tool,
+          args: prev?.args || ev.input,
+          output: ev.output,
+          err: ev.err,
           status: failed ? "error" : "done",
           duration_ms: 0,
           time: ev.time,
@@ -1124,7 +1129,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1147,7 +1152,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1172,7 +1177,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1197,7 +1202,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1220,7 +1225,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1254,7 +1259,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1275,7 +1280,7 @@ export const useStore = create<State>((set, get) => ({
         const updated = { ...stream, toolCalls };
         set({
           ...updateStream(cur, updated),
-          ...streamingMessageUpdates(cur, stream.messageID, (m) => ({
+          ...streamingMessageUpdates(cur, updated, (m) => ({
             ...m,
             events: Array.from(toolCalls.values()),
           })),
@@ -1288,24 +1293,21 @@ export const useStore = create<State>((set, get) => ({
         }
         const stream = streamForEvent(cur, ev);
         if (!stream || (ev.stream_id && ev.stream_id !== stream.streamID)) return;
-        const detailNow = get().detail;
         const placeholderID = stream.messageID;
         const streamState = removeStream(cur, stream.streamID);
         const updates: Partial<State> = {
-          sending: false,
           ...streamState,
         };
-        if (detailNow) {
+        if (cur.detail && streamMatchesMainScope(cur, stream)) {
           updates.detail = {
-            ...detailNow,
-            messages: detailNow.messages.filter((m) => m.id !== placeholderID),
+            ...cur.detail,
+            messages: cur.detail.messages.filter((m) => m.id !== placeholderID),
           };
         }
-        const td = get().threadDetail;
-        if (td) {
+        if (cur.threadDetail && streamMatchesThreadScope(cur, stream)) {
           updates.threadDetail = {
-            ...td,
-            replies: td.replies.filter((m) => m.id !== placeholderID),
+            ...cur.threadDetail,
+            replies: cur.threadDetail.replies.filter((m) => m.id !== placeholderID),
           };
         }
         set(updates);
@@ -1319,7 +1321,6 @@ export const useStore = create<State>((set, get) => ({
         const stream = streamForEvent(cur, ev);
         if (!stream || (ev.stream_id && ev.stream_id !== stream.streamID)) return;
         const errMsg = ev.err || "Turn failed";
-        const placeholderID = stream.messageID;
         const errorPatch = (m: MessageView): MessageView => ({
           ...m,
           content: m.content || "",
@@ -1335,25 +1336,9 @@ export const useStore = create<State>((set, get) => ({
         });
         const streamState = removeStream(cur, stream.streamID);
         const updates: Partial<State> = {
-          sending: false,
           ...streamState,
         };
-        const detailNow = get().detail;
-        if (detailNow) {
-          updates.detail = {
-            ...detailNow,
-            messages: detailNow.messages.map((m) =>
-              m.id === placeholderID ? errorPatch(m) : m,
-            ),
-          };
-        }
-        const td = get().threadDetail;
-        if (td) {
-          updates.threadDetail = {
-            ...td,
-            replies: td.replies.map((m) => (m.id === placeholderID ? errorPatch(m) : m)),
-          };
-        }
+        Object.assign(updates, streamingMessageUpdates(cur, stream, errorPatch));
         set(updates);
         void refetchNavigation(set);
         return;

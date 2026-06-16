@@ -17,7 +17,7 @@ export function Composer() {
   const agents = useStore((s) => s.agents);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const detail = useStore((s) => s.detail);
-  const sending = useStore((s) => s.sending);
+  const sendingByScope = useStore((s) => s.sendingByScope);
   const send = useStore((s) => s.send);
   const threadDetail = useStore((s) => s.threadDetail);
   const participants = useStore((s) => s.participants);
@@ -109,6 +109,16 @@ export function Composer() {
   }
 
   const trimmed = input.trim();
+  const currentScopeKey = (() => {
+    if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+      return threadDetail.space_id + "::thread:" + threadDetail.parent_id;
+    }
+    if (view === "agent") return detail?.item.id || activeAgentSpace || "";
+    if (view === "direct") return activeDirect || "";
+    if (view === "channel") return activeChannel || "";
+    return "";
+  })();
+  const sending = currentScopeKey ? !!sendingByScope[currentScopeKey] : false;
   const canSend = trimmed.length > 0 && !sending;
   const usesRouting =
     (view === "channel" && !!activeChannel) ||
@@ -228,8 +238,7 @@ export function Composer() {
             onBlur={() => {
               setTimeout(() => closeMention(), 120);
             }}
-            disabled={sending}
-            className="min-h-[54px] w-full resize-none bg-transparent px-3 py-2 text-[16px] leading-[1.5] text-text outline-none disabled:opacity-70 md:min-h-[68px] md:px-3.5 md:py-2.5 md:text-[14px] md:leading-[1.55]"
+            className="min-h-[54px] w-full resize-none bg-transparent px-3 py-2 text-[16px] leading-[1.5] text-text outline-none md:min-h-[68px] md:px-3.5 md:py-2.5 md:text-[14px] md:leading-[1.55]"
           />
           {mentionState && (
             <MentionAutocomplete
