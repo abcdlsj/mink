@@ -79,6 +79,7 @@ interface State {
   activeDirect: string | null;
   activeThread: string | null;
   activeAgentSpace: string | null;
+  activeAgentID: string | null;
   activeAnchor: string | null;
   expandedTaskID: string | null;
 
@@ -100,6 +101,7 @@ interface State {
   setThreadAgentMode: (spaceID: string, parentMessageID: string, personaID: string, mode: string) => Promise<void>;
   openThread: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   closeThread: (routeOpts?: RouteWriteOptions) => void;
+  openAgentDetail: (id: string, routeOpts?: RouteWriteOptions) => void;
   openAgent: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newAgentChat: (personaID: string, title?: string) => Promise<void>;
   updateAgentChatTitle: (id: string, title: string) => Promise<void>;
@@ -110,6 +112,7 @@ interface State {
   setPalette: (open: boolean) => void;
   setQuickCreate: (open: boolean) => void;
   send: (input: string, personaID?: string) => Promise<void>;
+  retryMessage: (spaceID: string, messageID: string) => Promise<void>;
   stop: () => Promise<void>;
   expandTaskInRail: (taskID: string) => void;
   focusTaskOrigin: (taskID: string, messageID?: string) => void;
@@ -173,15 +176,17 @@ function streamingViewUpdates(
   const detail = s.detail;
   const updates: Partial<State> = {};
   if (detail && streamMatchesMainScope(s, stream)) {
+    const exists = detail.messages.some((m) => m.id === placeholder.id);
     updates.detail = {
       ...detail,
-      messages: forThreadView ? detail.messages : [...detail.messages, placeholder],
+      messages: forThreadView || exists ? detail.messages : [...detail.messages, placeholder],
     };
   }
   if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
+    const exists = s.threadDetail.replies.some((m) => m.id === placeholder.id);
     updates.threadDetail = {
       ...s.threadDetail,
-      replies: [...s.threadDetail.replies, placeholder],
+      replies: exists ? s.threadDetail.replies : [...s.threadDetail.replies, placeholder],
     };
   }
   return updates;
@@ -351,6 +356,7 @@ export const useStore = create<State>((set, get) => ({
   activeDirect: null,
   activeThread: null,
   activeAgentSpace: null,
+  activeAgentID: null,
   activeAnchor: null,
   expandedTaskID: null,
 
@@ -463,6 +469,7 @@ export const useStore = create<State>((set, get) => ({
       activeDirect: null,
       activeThread: null,
       activeAgentSpace: null,
+      activeAgentID: null,
       activeAnchor: null,
       detail,
       threadDetail: null,
@@ -527,6 +534,25 @@ export const useStore = create<State>((set, get) => ({
     if (spaceId) writeWebRoute({ view: "channel", id: spaceId }, routeOpts);
   },
 
+  openAgentDetail(id, routeOpts?: RouteWriteOptions) {
+    const agentID = id.trim();
+    if (!agentID || !get().agents.some((a) => a.id === agentID)) return;
+    set({
+      view: "agent_detail",
+      activeAgentID: agentID,
+      activeAgentSpace: null,
+      activeChannel: null,
+      activeDirect: null,
+      activeThread: null,
+      activeAnchor: null,
+      detail: null,
+      threadDetail: null,
+      participants: null,
+      expandedTaskID: null,
+    });
+    writeWebRoute({ view: "agent", id: "detail:" + agentID }, routeOpts);
+  },
+
   async openAgent(id, routeOpts?: RouteWriteOptions) {
     const dmPersona = get().agentDMs.find((d) => d.id === id)?.persona_id || id;
     const ag = get().agents.find((a) => a.id === dmPersona);
@@ -562,6 +588,7 @@ export const useStore = create<State>((set, get) => ({
         activeDirect: null,
         activeThread: null,
         activeAgentSpace: null,
+        activeAgentID: null,
         activeAnchor: null,
         expandedTaskID: null,
         routeNotice: { text: hint, at: Date.now() },
@@ -592,6 +619,7 @@ export const useStore = create<State>((set, get) => ({
     set({
       view: "agent",
       activeAgentSpace: detail.item.id || id,
+      activeAgentID: null,
       activeChannel: null,
       activeDirect: null,
       activeThread: null,
@@ -630,6 +658,7 @@ export const useStore = create<State>((set, get) => ({
       activeDirect: null,
       activeThread: null,
       activeAgentSpace: null,
+      activeAgentID: null,
       activeAnchor: null,
       detail: null,
       threadDetail: null,
@@ -653,6 +682,7 @@ export const useStore = create<State>((set, get) => ({
       activeThread: null,
       activeChannel: null,
       activeAgentSpace: null,
+      activeAgentID: null,
       activeAnchor: null,
       detail,
       participants: { agents: [] },
@@ -693,6 +723,7 @@ export const useStore = create<State>((set, get) => ({
       activeThread: null,
       activeChannel: null,
       activeAgentSpace: null,
+      activeAgentID: null,
       activeAnchor: null,
       detail,
       participants,
@@ -731,6 +762,7 @@ export const useStore = create<State>((set, get) => ({
         activeDirect: null,
         activeThread: null,
         activeAgentSpace: null,
+        activeAgentID: null,
         activeAnchor: null,
         expandedTaskID: null,
       });
@@ -783,6 +815,10 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
     if (route.view === "agent") {
+      if (route.id.startsWith("detail:")) {
+        get().openAgentDetail(route.id.slice("detail:".length), { replace: true });
+        return;
+      }
       await get().openAgent(route.id, { replace: true });
       set(applyRouteAnchor(route.anchor));
       if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
@@ -851,6 +887,37 @@ export const useStore = create<State>((set, get) => ({
       if (activeSessionID(get()) === sid) {
         await refetchActiveScope(get, set);
       }
+    }
+  },
+
+  async retryMessage(spaceID, messageID) {
+    const before = get();
+    const parentMessageID =
+      before.threadDetail?.replies.find((m) => m.id === messageID)?.thread_id ||
+      before.detail?.messages.find((m) => m.id === messageID)?.thread_id ||
+      "";
+    const retryScope = scopeKey(spaceID, parentMessageID);
+    if (!spaceID || !messageID || before.sendingByScope[retryScope]) return;
+    set({
+      sending: true,
+      sendingByScope: { ...before.sendingByScope, [retryScope]: true },
+    });
+    const clearSending = () => {
+      const current = get().sendingByScope;
+      const next = { ...current };
+      delete next[retryScope];
+      set({ sendingByScope: next, sending: Object.keys(next).length > 0 });
+    };
+    try {
+      await api.retryMessage(spaceID, messageID);
+      clearSending();
+      await refetchActiveScope(get, set);
+      void refetchNavigation(set);
+    } catch (err) {
+      clearSending();
+      const errMsg = err instanceof Error ? err.message : "Retry failed.";
+      set({ composerHint: { text: "Retry failed: " + errMsg, at: Date.now() } });
+      await refetchActiveScope(get, set);
     }
   },
 
@@ -1023,12 +1090,13 @@ export const useStore = create<State>((set, get) => ({
         const display =
           (personaInfo as { display?: string } | undefined)?.display || author;
         const placeholder: MessageView = {
-          id: "a-" + newID(),
+          id: ev.message_id || "a-" + newID(),
           role: "agent",
           author_id: author,
           author_name: display,
           content: "",
           reasoning: "",
+          status: "pending",
           time: ev.time,
           events: [],
           thread_id: ev.parent_message_id || undefined,

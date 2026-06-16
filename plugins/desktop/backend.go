@@ -28,14 +28,29 @@ const defaultChannelID = "desktop:default"
 const defaultSumiDirectTitle = "Sumi"
 
 type Backend struct {
-	app    *app.App
-	subs   *fanout
-	mu     sync.Mutex
-	cancel map[string]context.CancelFunc
+	app          *app.App
+	subs         *fanout
+	mu           sync.Mutex
+	cancel       map[string]context.CancelFunc
+	pending      map[string]pendingTurn
+	reusePending map[string]string
 }
 
 func newBackend(a *app.App) *Backend {
-	return &Backend{app: a, subs: newFanout(), cancel: map[string]context.CancelFunc{}}
+	return &Backend{
+		app:          a,
+		subs:         newFanout(),
+		cancel:       map[string]context.CancelFunc{},
+		pending:      map[string]pendingTurn{},
+		reusePending: map[string]string{},
+	}
+}
+
+type pendingTurn struct {
+	SpaceID         string
+	MessageID       string
+	ParentMessageID string
+	AgentID         string
 }
 
 func (b *Backend) hasActiveTurn(ids ...string) bool {
@@ -133,8 +148,93 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 	return out, nil
 }
 
+func (b *Backend) RetryMessage(req RetryMessageRequest) (string, error) {
+	spaceID := strings.TrimSpace(req.SpaceID)
+	messageID := strings.TrimSpace(req.MessageID)
+	if spaceID == "" || messageID == "" {
+		return "", fmt.Errorf("space_id and message_id required")
+	}
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return "", fmt.Errorf("conversation not found: %s", spaceID)
+	}
+	idx := -1
+	var failed space.Message
+	for i, m := range sp.Messages {
+		if m.ID == messageID {
+			idx = i
+			failed = m
+			break
+		}
+	}
+	if idx < 0 {
+		return "", fmt.Errorf("message not found: %s", messageID)
+	}
+	if failed.AuthorKind == space.ParticipantUser {
+		return "", fmt.Errorf("user messages cannot be retried")
+	}
+	if failed.Status != "failed" && failed.Status != "pending" {
+		return "", fmt.Errorf("message is not retryable")
+	}
+	prev, ok := previousUserMessage(sp.Messages[:idx], failed.ParentMessageID)
+	if !ok {
+		return "", fmt.Errorf("no user message found to retry")
+	}
+	source := contextSourceForSpace(sp)
+	personaID := ""
+	if sp.Kind == space.KindAgentDM {
+		personaID = space.AgentParticipantID(sp)
+	} else if failed.AuthorKind == space.ParticipantAgent && failed.AuthorID != "assistant" && b.app.Personas().Get(failed.AuthorID) != nil {
+		personaID = failed.AuthorID
+	}
+	key := pendingKey(sp.ID, failed.ParentMessageID, fallback(personaID, failed.AuthorID))
+	b.mu.Lock()
+	b.reusePending[key] = failed.ID
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		delete(b.reusePending, key)
+		delete(b.cancel, sp.ID)
+		b.mu.Unlock()
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	b.mu.Lock()
+	b.cancel[sp.ID] = cancel
+	b.mu.Unlock()
+	defer cancel()
+	if failed.ParentMessageID != "" {
+		ctx = command.WithParentMessage(ctx, failed.ParentMessageID)
+	}
+	out, err := b.app.HandleExistingUserInput(ctx, source, personaID, prev.Content, prev.ID)
+	if err != nil {
+		_, _ = b.app.Spaces().UpdateMessage(sp.ID, failed.ID, func(m *space.Message) {
+			m.Status = "failed"
+			m.Error = err.Error()
+		})
+		return "", err
+	}
+	return out, nil
+}
+
+func previousUserMessage(messages []space.Message, parentMessageID string) (space.Message, bool) {
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if strings.TrimSpace(m.ParentMessageID) != parentMessageID {
+			continue
+		}
+		if m.AuthorKind == space.ParticipantUser && strings.TrimSpace(m.Content) != "" {
+			return m, true
+		}
+	}
+	return space.Message{}, false
+}
+
 func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input string, messageCountBefore int, sendErr error) {
 	if sp == nil || sendErr == nil {
+		return
+	}
+	if b.hasFailedPendingMessage(sp.ID, parentMessageID) {
 		return
 	}
 	if messageCountBefore >= 0 {
@@ -153,6 +253,179 @@ func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input str
 		Content:         "Send failed: " + sendErr.Error(),
 		ParentMessageID: strings.TrimSpace(parentMessageID),
 	}, nil, nil)
+}
+
+func (b *Backend) hasFailedPendingMessage(spaceID, parentMessageID string) bool {
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return false
+	}
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	for i := len(sp.Messages) - 1; i >= 0; i-- {
+		m := sp.Messages[i]
+		if strings.TrimSpace(m.ParentMessageID) != parentMessageID {
+			continue
+		}
+		if m.AuthorKind == space.ParticipantUser {
+			return false
+		}
+		return m.Status == "failed"
+	}
+	return false
+}
+
+func pendingKey(spaceID, parentMessageID, agentID string) string {
+	return strings.TrimSpace(spaceID) + "\x00" + strings.TrimSpace(parentMessageID) + "\x00" + strings.TrimSpace(agentID)
+}
+
+func (b *Backend) trackTurnEvent(ev bus.Event) bus.Event {
+	if b == nil || b.app == nil || b.app.Spaces() == nil || strings.TrimSpace(ev.SpaceID) == "" || strings.TrimSpace(ev.StreamID) == "" {
+		return ev
+	}
+	switch ev.Type {
+	case bus.TurnStarted:
+		return b.trackTurnStarted(ev)
+	case bus.TurnChunk, bus.TurnReasoning:
+		b.updatePendingFromChunk(ev)
+	case bus.TurnError:
+		b.failPendingTurn(ev)
+	case bus.TurnFinished:
+		b.finishPendingTurn(ev)
+	}
+	return ev
+}
+
+func (b *Backend) trackTurnStarted(ev bus.Event) bus.Event {
+	agentID := strings.TrimSpace(ev.AgentID)
+	if agentID == "" {
+		agentID = "assistant"
+	}
+	key := pendingKey(ev.SpaceID, ev.ParentMessageID, agentID)
+	b.mu.Lock()
+	reuseID := b.reusePending[key]
+	delete(b.reusePending, key)
+	b.mu.Unlock()
+	var written space.Message
+	var err error
+	if reuseID != "" {
+		written, err = b.app.Spaces().UpdateMessage(ev.SpaceID, reuseID, func(m *space.Message) {
+			m.AuthorID = agentID
+			m.AuthorKind = space.ParticipantAgent
+			m.Content = ""
+			m.Reasoning = ""
+			m.Status = "pending"
+			m.Error = ""
+			m.ParentMessageID = strings.TrimSpace(ev.ParentMessageID)
+			m.RuntimeMeta = nil
+			m.Usage = nil
+		})
+	} else {
+		written, _, err = b.app.Spaces().AppendMessageWithRouting(ev.SpaceID, space.Message{
+			AuthorID:        agentID,
+			AuthorKind:      space.ParticipantAgent,
+			Status:          "pending",
+			ParentMessageID: strings.TrimSpace(ev.ParentMessageID),
+		}, nil, nil)
+	}
+	if err != nil || written.ID == "" {
+		return ev
+	}
+	b.mu.Lock()
+	b.pending[ev.StreamID] = pendingTurn{
+		SpaceID:         ev.SpaceID,
+		MessageID:       written.ID,
+		ParentMessageID: strings.TrimSpace(ev.ParentMessageID),
+		AgentID:         agentID,
+	}
+	b.mu.Unlock()
+	ev.MessageID = written.ID
+	return ev
+}
+
+func (b *Backend) updatePendingFromChunk(ev bus.Event) {
+	b.mu.Lock()
+	p := b.pending[ev.StreamID]
+	b.mu.Unlock()
+	if p.MessageID == "" {
+		return
+	}
+	text := ev.Text
+	if text == "" {
+		return
+	}
+	_, _ = b.app.Spaces().UpdateMessage(p.SpaceID, p.MessageID, func(m *space.Message) {
+		if ev.Type == bus.TurnReasoning {
+			m.Reasoning += text
+		} else {
+			m.Content += text
+		}
+		m.Status = "pending"
+	})
+}
+
+func (b *Backend) failPendingTurn(ev bus.Event) {
+	b.mu.Lock()
+	p := b.pending[ev.StreamID]
+	delete(b.pending, ev.StreamID)
+	b.mu.Unlock()
+	if p.MessageID == "" {
+		return
+	}
+	errText := strings.TrimSpace(ev.Err)
+	if errText == "" {
+		errText = "Agent reply interrupted."
+	}
+	_, _ = b.app.Spaces().UpdateMessage(p.SpaceID, p.MessageID, func(m *space.Message) {
+		m.Status = "failed"
+		m.Error = errText
+	})
+}
+
+func (b *Backend) finishPendingTurn(ev bus.Event) {
+	b.mu.Lock()
+	p := b.pending[ev.StreamID]
+	delete(b.pending, ev.StreamID)
+	b.mu.Unlock()
+	if p.MessageID == "" {
+		return
+	}
+	_ = b.app.Spaces().DeleteMessage(p.SpaceID, p.MessageID)
+}
+
+func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
+	if sp == nil {
+		return sp
+	}
+	changed := false
+	for i := range sp.Messages {
+		if sp.Messages[i].Status != "pending" {
+			continue
+		}
+		if b.messageStillRunning(sp, sp.Messages[i]) {
+			continue
+		}
+		sp.Messages[i].Status = "failed"
+		sp.Messages[i].Error = "Agent reply was interrupted. Retry to run this message again."
+		changed = true
+	}
+	if !changed {
+		return sp
+	}
+	if err := b.app.Spaces().Store().SaveSpace(sp); err != nil {
+		return sp
+	}
+	return sp
+}
+
+func (b *Backend) messageStillRunning(sp *space.Space, m space.Message) bool {
+	if sp == nil {
+		return false
+	}
+	keys := []string{sp.ID, contextSourceForSpace(sp)}
+	if m.AuthorID != "" {
+		keys = append(keys, "desktop:agent:"+sp.ID, "desktop:agent:"+m.AuthorID)
+	}
+	return b.hasActiveTurn(keys...)
 }
 
 func (b *Backend) normalizeThreadParentID(sp *space.Space, parentID string) (string, bool) {
@@ -620,6 +893,9 @@ func (b *Backend) defaultAgentDMItems(spaces []*space.Space) []DirectChatItem {
 		if pid == "" {
 			continue
 		}
+		if b.app.Personas().Get(pid) == nil {
+			continue
+		}
 		display := pid
 		if p := b.app.Personas().Get(pid); p != nil {
 			display = p.Display
@@ -658,6 +934,7 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 	if err != nil || sp == nil || sp.Kind != space.KindDirectChat {
 		return SessionDetail{}
 	}
+	sp = b.recoverPendingMessages(sp)
 	return SessionDetail{
 		Item: SessionItem{
 			ID:           sp.ID,
@@ -937,6 +1214,7 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 		}
 		sp = ensured
 	}
+	sp = b.recoverPendingMessages(sp)
 	return SessionDetail{
 		Item: SessionItem{
 			ID:           sp.ID,
@@ -988,6 +1266,8 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		AuthorName:      space.MessageAuthorDisplay(sp, m, resolver),
 		Content:         m.Content,
 		Reasoning:       m.Reasoning,
+		Status:          m.Status,
+		Error:           m.Error,
 		Time:            m.CreatedAt,
 		ThreadID:        m.ParentMessageID,
 		AutoReplyReason: m.AutoReplyReason,
@@ -1627,10 +1907,12 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 			}
 		}
 	} else {
-		if p := b.app.Personas().Get(agentID); p != nil {
-			display = p.Display
-			role = p.Description
+		p := b.app.Personas().Get(agentID)
+		if p == nil {
+			return SessionDetail{}
 		}
+		display = p.Display
+		role = p.Description
 		ensured, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, agentID, space.PersonaInfo{
 			ID:      agentID,
 			Display: display,
@@ -1641,6 +1923,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 		}
 		sp = ensured
 	}
+	sp = b.recoverPendingMessages(sp)
 	pid := space.AgentParticipantID(sp)
 	if pid == "" {
 		pid = strings.TrimSpace(agentID)
@@ -1730,6 +2013,9 @@ func (b *Backend) ListAgentDMs() []AgentDMItem {
 			continue
 		}
 		if isDefaultAgentDM(sp) {
+			continue
+		}
+		if b.app.Personas().Get(space.AgentParticipantID(sp)) == nil {
 			continue
 		}
 		out = append(out, agentDMItemFromSpace(sp, b.app))
@@ -2461,6 +2747,23 @@ func (b *Backend) APIHandler() http.Handler {
 		}
 		writeJSON(rw, map[string]string{"reply": out})
 	})
+	mux.HandleFunc("/api/message/retry", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in RetryMessageRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.RetryMessage(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(rw, map[string]string{"reply": out})
+	})
 	mux.HandleFunc("/api/stop", func(rw http.ResponseWriter, req *http.Request) {
 		var in struct {
 			SessionID string `json:"session_id"`
@@ -2544,6 +2847,7 @@ func (b *Backend) start(ctx context.Context) {
 				if !ok {
 					return
 				}
+				ev = b.trackTurnEvent(ev)
 				b.subs.publish(toBusEvent(ev))
 			}
 		}

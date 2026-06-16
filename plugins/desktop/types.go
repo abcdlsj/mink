@@ -29,6 +29,8 @@ type MessageView struct {
 	AuthorName      string             `json:"author_name,omitempty"`
 	Content         string             `json:"content,omitempty"`
 	Reasoning       string             `json:"reasoning,omitempty"`
+	Status          string             `json:"status,omitempty"`
+	Error           string             `json:"error,omitempty"`
 	Time            time.Time          `json:"time"`
 	Events          []EventBlock       `json:"events,omitempty"`
 	Usage           *TokenUsage        `json:"usage,omitempty"`
@@ -132,6 +134,11 @@ type SendRequest struct {
 	PersonaID       string `json:"persona_id,omitempty"`
 	Input           string `json:"input"`
 	ParentMessageID string `json:"parent_message_id,omitempty"`
+}
+
+type RetryMessageRequest struct {
+	SpaceID   string `json:"space_id"`
+	MessageID string `json:"message_id"`
 }
 
 type DeleteConversationRequest struct {

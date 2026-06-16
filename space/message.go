@@ -14,6 +14,8 @@ type Message struct {
 	AuthorKind      ParticipantKind   `json:"author_kind"`
 	Content         string            `json:"content,omitempty"`
 	Reasoning       string            `json:"reasoning,omitempty"`
+	Status          string            `json:"status,omitempty"`
+	Error           string            `json:"error,omitempty"`
 	Mentions        []string          `json:"mentions,omitempty"`
 	AutoReplyReason string            `json:"auto_reply_reason,omitempty"`
 	Usage           *msg.TokenUsage   `json:"usage,omitempty"`

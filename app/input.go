@@ -31,6 +31,28 @@ func (a *App) HandleInputAs(ctx context.Context, source, personaID, input string
 	return a.handleInputAs(ctx, source, personaID, input, nil)
 }
 
+func (a *App) HandleExistingUserInput(ctx context.Context, source, personaID, input, existingUserMessageID string) (string, error) {
+	runtime := a.cfg.Runtime
+	if personaID != "" {
+		p := a.personas.Get(personaID)
+		if p == nil {
+			return "", fmt.Errorf("persona not found: %s", personaID)
+		}
+		runtime = p.Runtime
+		if runtime == "" {
+			runtime = a.cfg.Runtime
+		}
+	}
+	return inputFlow{
+		app:                   a,
+		source:                source,
+		personaID:             personaID,
+		runtime:               runtime,
+		input:                 input,
+		existingUserMessageID: strings.TrimSpace(existingUserMessageID),
+	}.run(ctx)
+}
+
 func (a *App) handleInputAs(ctx context.Context, source, personaID, input string, attachments []msg.Attachment) (string, error) {
 	p := a.personas.Get(personaID)
 	if p == nil {
@@ -55,12 +77,13 @@ func (a *App) handleInput(ctx context.Context, source, personaID, runtime, input
 }
 
 type inputFlow struct {
-	app         *App
-	source      string
-	personaID   string
-	runtime     string
-	input       string
-	attachments []msg.Attachment
+	app                   *App
+	source                string
+	personaID             string
+	runtime               string
+	input                 string
+	attachments           []msg.Attachment
+	existingUserMessageID string
 }
 
 func (f inputFlow) run(ctx context.Context) (string, error) {
@@ -106,13 +129,22 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		}
 		ctx = command.WithPersona(ctx, personaID)
 		ctx = f.withRunContext(ctx)
-		m, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input)
-		if err != nil {
-			return "", err
-		}
-		if m != nil {
-			contextSpaceID = m.SpaceID
-			excludeMessageID = m.ID
+		if f.existingUserMessageID != "" {
+			sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, personaID)
+			if err != nil {
+				return "", err
+			}
+			contextSpaceID = sp.ID
+			excludeMessageID = f.existingUserMessageID
+		} else {
+			m, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input)
+			if err != nil {
+				return "", err
+			}
+			if m != nil {
+				contextSpaceID = m.SpaceID
+				excludeMessageID = m.ID
+			}
 		}
 	}
 	sessionSource := command.SessionSourceFrom(ctx)
@@ -171,11 +203,15 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		m, err := f.app.spaces.AppendUserMessageInThread(sp.ID, command.ParentMessageFrom(ctx), f.input, nil)
-		if err != nil {
-			return "", err
+		if f.existingUserMessageID != "" {
+			excludeMessageID = f.existingUserMessageID
+		} else {
+			m, err := f.app.spaces.AppendUserMessageInThread(sp.ID, command.ParentMessageFrom(ctx), f.input, nil)
+			if err != nil {
+				return "", err
+			}
+			excludeMessageID = m.ID
 		}
-		excludeMessageID = m.ID
 	}
 
 	sessionSource := command.SessionSourceFrom(ctx)

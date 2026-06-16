@@ -293,6 +293,83 @@ func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content,
 	})
 }
 
+func (m *Manager) UpdateMessage(spaceID, messageID string, update func(*Message)) (Message, error) {
+	spaceID = strings.TrimSpace(spaceID)
+	messageID = strings.TrimSpace(messageID)
+	if spaceID == "" || messageID == "" {
+		return Message{}, fmt.Errorf("space id and message id required")
+	}
+	m.mu.Lock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return Message{}, err
+	}
+	for i := range sp.Messages {
+		if sp.Messages[i].ID != messageID {
+			continue
+		}
+		if update != nil {
+			update(&sp.Messages[i])
+		}
+		sp.UpdatedAt = time.Now()
+		written := sp.Messages[i]
+		if err := m.store.SaveSpace(sp); err != nil {
+			m.mu.Unlock()
+			return Message{}, err
+		}
+		m.mu.Unlock()
+		m.publish(bus.Event{
+			Type:            bus.SpaceUpdated,
+			SpaceID:         spaceID,
+			MessageID:       written.ID,
+			ParentMessageID: written.ParentMessageID,
+			AgentID:         written.AuthorID,
+		})
+		return written, nil
+	}
+	m.mu.Unlock()
+	return Message{}, fmt.Errorf("message not found: %s", messageID)
+}
+
+func (m *Manager) DeleteMessage(spaceID, messageID string) error {
+	spaceID = strings.TrimSpace(spaceID)
+	messageID = strings.TrimSpace(messageID)
+	if spaceID == "" || messageID == "" {
+		return nil
+	}
+	m.mu.Lock()
+	sp, err := m.store.LoadSpace(spaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return err
+	}
+	for i := range sp.Messages {
+		if sp.Messages[i].ID != messageID {
+			continue
+		}
+		parentID := sp.Messages[i].ParentMessageID
+		agentID := sp.Messages[i].AuthorID
+		sp.Messages = append(sp.Messages[:i], sp.Messages[i+1:]...)
+		sp.UpdatedAt = time.Now()
+		if err := m.store.SaveSpace(sp); err != nil {
+			m.mu.Unlock()
+			return err
+		}
+		m.mu.Unlock()
+		m.publish(bus.Event{
+			Type:            bus.SpaceUpdated,
+			SpaceID:         spaceID,
+			MessageID:       messageID,
+			ParentMessageID: parentID,
+			AgentID:         agentID,
+		})
+		return nil
+	}
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *Manager) appendMessage(spaceID string, message Message) (Message, error) {
 	m.mu.Lock()
 	sp, err := m.store.LoadSpace(spaceID)

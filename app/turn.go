@@ -8,6 +8,7 @@ import (
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
@@ -49,7 +50,19 @@ func (f turnFlow) run(ctx context.Context) error {
 		if sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, f.personaID); err == nil && sp != nil {
 			turn.SpaceID = sp.ID
 		}
+	} else if f.app != nil && f.app.spaces != nil {
+		target := space.MapSource(f.source)
+		if target.Kind != "" && target.Seed != "" {
+			if space.IsSpaceID(target.Seed) {
+				if sp, err := f.app.spaces.LoadSpace(target.Seed); err == nil && sp != nil && sp.Kind == target.Kind {
+					turn.SpaceID = sp.ID
+				}
+			} else if sp, err := f.app.spaces.Store().FindSpaceByKindAndSeed(target.Kind, target.Seed); err == nil && sp != nil {
+				turn.SpaceID = sp.ID
+			}
+		}
 	}
+	turn.ParentMessageID = command.ParentMessageFrom(ctx)
 	f.emit(bus.TurnStarted, "", turn)
 	runErr := f.runtime.Run(ctx, turn)
 	saveErr := f.app.sessions.Save(f.session)

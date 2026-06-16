@@ -67,6 +67,7 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 	if err != nil || sp == nil {
 		return ThreadDetail{SpaceID: spaceID, ParentID: parentID, NotFound: true}
 	}
+	sp = b.recoverPendingMessages(sp)
 	if !threadKind(sp.Kind) {
 		return ThreadDetail{
 			SpaceID:         spaceID,

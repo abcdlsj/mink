@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { ChannelHeader } from "./ChannelHeader";
 import { Composer } from "./Composer/Composer";
+import { AgentDetailPane } from "./AgentDetailPane";
 import { EmptyState } from "./EmptyState";
 import { MessageStream } from "./Message/MessageStream";
 import { TaskBoard } from "./TaskBoard";
@@ -34,6 +35,10 @@ export function CenterPane() {
   const threadDetail = useStore((s) => s.threadDetail);
   if (view === "tasks") {
     return <TaskBoard />;
+  }
+
+  if (view === "agent_detail") {
+    return <AgentDetailPane />;
   }
 
   if (threadDetail) {

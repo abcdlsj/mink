@@ -13,8 +13,10 @@ export function LeftPane() {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeDirect = useStore((s) => s.activeDirect);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
+  const activeAgentID = useStore((s) => s.activeAgentID);
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
+  const openAgentDetail = useStore((s) => s.openAgentDetail);
   const openDirectChat = useStore((s) => s.openDirectChat);
   const openTaskBoard = useStore((s) => s.openTaskBoard);
   const newAgentChat = useStore((s) => s.newAgentChat);
@@ -52,14 +54,7 @@ export function LeftPane() {
       : "";
   const agentDefaultDM = (personaID: string) =>
     directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
-  const openAgentRow = async (personaID: string, display: string) => {
-    const existing = agentDefaultDM(personaID);
-    if (existing) {
-      await openAgent(existing.id);
-      return;
-    }
-    openAgentCreate(personaID, display);
-  };
+  const openAgentRow = (personaID: string) => openAgentDetail(personaID);
   const openAgentCreate = (personaID: string, display: string) => {
     setAgentCreate({ personaID, display, hasDefaultDM: !!agentDefaultDM(personaID) });
     setChatTitle("");
@@ -188,7 +183,7 @@ export function LeftPane() {
           ))}
           {sidebarPersonas.map((agent) => {
             const defaultDM = agentDefaultDM(agent.id);
-            const active = view === "agent" && activePersonaID === agent.id;
+            const active = (view === "agent" && activePersonaID === agent.id) || (view === "agent_detail" && activeAgentID === agent.id);
             const display = agent.display || agent.id;
             return (
               <li key={agent.id}>
@@ -203,7 +198,7 @@ export function LeftPane() {
                 >
                   <button
                     type="button"
-                    onClick={() => void openAgentRow(agent.id, display)}
+                    onClick={() => openAgentRow(agent.id)}
                     className={cn(
                       "inline-flex size-5 items-center justify-center border border-transparent font-mono",
                       active ? "border-border bg-accent text-text" : "text-text-muted",
@@ -214,12 +209,12 @@ export function LeftPane() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void openAgentRow(agent.id, display)}
+                    onClick={() => openAgentRow(agent.id)}
                     className="min-w-0 text-left"
                   >
                     <span className="block truncate text-[13px]">{display}</span>
                     <span className="block truncate font-mono text-[10.5px] text-text-faint">
-                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "start chat"}
+                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "view details"}
                     </span>
                   </button>
                   <button

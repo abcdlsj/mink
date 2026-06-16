@@ -18,6 +18,8 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const view = useStore((s) => s.view);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const detail = useStore((s) => s.detail);
+  const retryMessage = useStore((s) => s.retryMessage);
+  const threadDetail = useStore((s) => s.threadDetail);
 
   const dmAgent = view === "agent" && m.role !== "user"
     ? personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id)
@@ -44,6 +46,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const toolEvents = events.filter((e) => e.kind === "tool_call");
   const noticeEvents = events.filter((e) => e.kind === "service_notice");
   const shouldFoldTools = toolEvents.length > 1;
+  const spaceID = threadDetail?.space_id || detail?.item.id || "";
 
   return (
     <div
@@ -130,6 +133,26 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
             {noticeEvents.map((ev, i) => (
               <EventBlock key={"n" + i} ev={ev} />
             ))}
+          </div>
+        )}
+        {m.status === "pending" && (
+          <div className="mt-2 inline-flex items-center gap-2 border border-border bg-panel-event px-2 py-1 text-[11.5px] text-text-muted">
+            <span className="inline-block size-1.5 rounded-full bg-running" />
+            <span>Agent reply is still running.</span>
+          </div>
+        )}
+        {m.status === "failed" && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 border border-error/40 bg-panel-event px-2 py-1.5 text-[11.5px] text-error">
+            <span>{m.error || "Agent reply was interrupted."}</span>
+            {spaceID && (
+              <button
+                type="button"
+                onClick={() => void retryMessage(spaceID, m.id)}
+                className="border border-error/50 bg-bg px-1.5 py-px font-mono text-[10.5px] text-error hover:bg-panel"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
         {m.thread_id && m.thread_summary && (

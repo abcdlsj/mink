@@ -192,6 +192,14 @@ export const api = {
         }),
       }),
     ),
+  retryMessage: (spaceID: string, messageID: string) =>
+    j<{ output: string }>(
+      fetch("/api/message/retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ space_id: spaceID, message_id: messageID }),
+      }),
+    ),
   stop: (sessionID: string) =>
     j<{ ok: boolean }>(
       fetch("/api/stop", {

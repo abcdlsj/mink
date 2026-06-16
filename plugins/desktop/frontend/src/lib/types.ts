@@ -1,4 +1,4 @@
-export type ViewMode = "channel" | "direct" | "agent" | "home" | "tasks";
+export type ViewMode = "channel" | "direct" | "agent" | "agent_detail" | "home" | "tasks";
 
 export interface WorkspaceState {
   workspace: string;
@@ -114,6 +114,8 @@ export interface MessageView {
   author_name?: string;
   content?: string;
   reasoning?: string;
+  status?: "pending" | "failed" | string;
+  error?: string;
   time: string;
   events?: EventBlock[];
   thread_id?: string;
