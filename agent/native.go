@@ -59,6 +59,8 @@ type Turn struct {
 	AgentID               string
 	StreamID              string
 	CollaborationBrief    string
+	MemoryBrief           string
+	MemoryNotice          string
 	IncludeHistory        bool
 	DisableExternalResume bool
 	BlockedTools          map[string]string

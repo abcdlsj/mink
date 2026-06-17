@@ -170,11 +170,11 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if contextSpaceID != "" {
-		if err := f.app.runTurnAsWithSpaceHistory(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+		if err := f.app.runTurnAsWithSpaceHistoryNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
 		}
 	} else {
-		if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+		if err := f.app.runTurnAsNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
 		}
 	}
@@ -244,11 +244,11 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if sp != nil {
-		if err := f.app.runTurnAsWithSpaceHistory(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+		if err := f.app.runTurnAsWithSpaceHistoryNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
 		}
 	} else {
-		if err := f.app.runTurnAs(ctx, rt, f.source, f.personaID, f.input, f.attachments, s); err != nil {
+		if err := f.app.runTurnAsNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
 		}
 	}

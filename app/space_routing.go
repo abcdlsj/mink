@@ -255,6 +255,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		personaID: persona.ID,
 		input:     originUserContent,
 	}.runContextWithSession(ctx, sessionSource))
+	a.prepareMemoryForTurn(ctx, turn, externalRuntimeName(persona.Runtime))
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnStarted,
 		Source:          s.Source,

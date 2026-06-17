@@ -96,9 +96,14 @@ func (a *App) runTurn(ctx context.Context, rt agent.Runtime, source, input strin
 }
 
 func (a *App) runTurnAs(ctx context.Context, rt agent.Runtime, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
+	return a.runTurnAsNamed(ctx, rt, "", source, personaID, input, attachments, s)
+}
+
+func (a *App) runTurnAsNamed(ctx context.Context, rt agent.Runtime, runtimeName, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
 	return turnFlow{
 		app:         a,
 		runtime:     rt,
+		runtimeName: runtimeName,
 		source:      source,
 		personaID:   personaID,
 		input:       input,
@@ -108,9 +113,14 @@ func (a *App) runTurnAs(ctx context.Context, rt agent.Runtime, source, personaID
 }
 
 func (a *App) runTurnAsWithSpaceHistory(ctx context.Context, rt agent.Runtime, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
+	return a.runTurnAsWithSpaceHistoryNamed(ctx, rt, "", source, personaID, input, attachments, s)
+}
+
+func (a *App) runTurnAsWithSpaceHistoryNamed(ctx context.Context, rt agent.Runtime, runtimeName, source, personaID, input string, attachments []msg.Attachment, s *session.Session) error {
 	return turnFlow{
 		app:                   a,
 		runtime:               rt,
+		runtimeName:           runtimeName,
 		source:                source,
 		personaID:             personaID,
 		input:                 input,

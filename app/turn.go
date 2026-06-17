@@ -19,6 +19,7 @@ func newStreamID() string { return "stream-" + uuid.NewString()[:8] }
 type turnFlow struct {
 	app                   *App
 	runtime               agent.Runtime
+	runtimeName           string
 	source                string
 	personaID             string
 	input                 string
@@ -63,6 +64,7 @@ func (f turnFlow) run(ctx context.Context) error {
 		}
 	}
 	turn.ParentMessageID = command.ParentMessageFrom(ctx)
+	f.app.prepareMemoryForTurn(ctx, turn, externalRuntimeName(f.runtimeName) && f.personaID != "")
 	f.emit(bus.TurnStarted, "", turn)
 	runErr := f.runtime.Run(ctx, turn)
 	saveErr := f.app.sessions.Save(f.session)

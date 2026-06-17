@@ -38,6 +38,7 @@ func (b promptBuilder) system() string {
 	p.Add(b.base())
 	p.Add(b.persona())
 	p.Add(b.collaboration())
+	p.Add(b.memoryBrief())
 	p.Add(b.memoryPolicy())
 	p.Add(b.taskDelegation())
 	p.Add(b.context())
@@ -98,6 +99,7 @@ func (b promptBuilder) memoryPolicy() string {
 	if b.env == nil || b.env.Persona == nil {
 		return strings.Join([]string{
 			"Memory protocol:",
+			"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
 			"- If the current user explicitly says to remember a stable preference or fact, call remember_memory and then reply with a brief Remembered note.",
 			"- If you infer a possible long-term memory yourself, call propose_memory instead; do not claim it is saved.",
 			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
@@ -107,6 +109,7 @@ func (b promptBuilder) memoryPolicy() string {
 		return strings.Join([]string{
 			"Memory protocol:",
 			"- Current memory policy: auto-commit.",
+			"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
 			"- Only write durable memory for stable preferences, identity facts, project conventions, or confirmed long-lived decisions.",
 			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
 		}, "\n")
@@ -114,12 +117,28 @@ func (b promptBuilder) memoryPolicy() string {
 	return strings.Join([]string{
 		"Memory protocol:",
 		"- Current memory policy: proposal-only.",
+		"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
+		"- If asked where memory is stored, answer at the product level: Sumi manages scoped persona/workspace memory. Do not reveal host filesystem paths.",
 		"- If the current user explicitly says to remember a stable preference, fact, project convention, or long-lived decision, call remember_memory with authorization_text copied from that user message; then reply briefly with Remembered and the undo path.",
 		"- If you infer a possible long-term memory from ordinary chat, call propose_memory with scope, kind, content, reason, and confidence; do not claim it is saved.",
 		"- Do not call write_memory or delete_memory in proposal-only mode.",
 		"- After proposing, tell the user the proposal id and that they can confirm it with !memory confirm <id> or reject it with !memory reject <id>.",
 		"- Do not propose memory for one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
 	}, "\n")
+}
+
+func (b promptBuilder) memoryBrief() string {
+	if b.turn == nil {
+		return ""
+	}
+	var lines []string
+	if notice := strings.TrimSpace(b.turn.MemoryNotice); notice != "" {
+		lines = append(lines, "Sumi memory action:\n"+notice)
+	}
+	if brief := strings.TrimSpace(b.turn.MemoryBrief); brief != "" {
+		lines = append(lines, "Sumi committed memory available for this turn:\n"+brief)
+	}
+	return strings.Join(lines, "\n\n")
 }
 
 func (b promptBuilder) taskDelegation() string {
