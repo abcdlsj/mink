@@ -198,8 +198,8 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
     if (archived === 0) return null;
     return (
       <Section label="Active Tasks">
-        <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[12px] text-text-faint">
-          No active tasks here. {archived} archived hidden.
+        <div className="border border-dashed border-border-soft bg-panel px-2.5 py-2 text-[12px] text-text-faint">
+          No active tasks. {archived} archived hidden.
         </div>
       </Section>
     );
@@ -396,7 +396,7 @@ function taskStatusLabel(status: string): string {
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="mb-6">
-      <div className="mb-2 font-display text-[11px] font-extrabold uppercase text-text-muted">
+      <div className="mb-2 border-b border-border-soft pb-1 font-display text-[11px] font-extrabold uppercase tracking-[0.3px] text-text-muted">
         {label}
       </div>
       <div>{children}</div>
@@ -442,12 +442,12 @@ function AgentWorkbenchPanel({
   const permission = permissionSummary(view);
   return (
     <Section label="Agent Workbench">
-      <div className="mb-2 grid grid-cols-3 border border-border bg-panel text-[11px]">
-        <div className="border-r border-border px-2 py-1.5">
+      <div className="mb-2 grid grid-cols-3 border border-border-soft bg-panel text-[11px]">
+        <div className="border-r border-border-soft px-2 py-1.5">
           <div className="font-mono text-[10.5px] uppercase text-text-faint">Mode</div>
           <div className="truncate text-text">{permission.label}</div>
         </div>
-        <div className="border-r border-border px-2 py-1.5">
+        <div className="border-r border-border-soft px-2 py-1.5">
           <div className="font-mono text-[10.5px] uppercase text-text-faint">Skills</div>
           <div className={summary.missing > 0 ? "text-error" : "text-text"}>
             {summary.ready}/{summary.total} ready
@@ -468,7 +468,10 @@ function AgentWorkbenchPanel({
           const agentTools = p.tools && p.tools.length > 0 ? p.tools : globalTools;
           const routeMode = routeModeLabel(view, agentModes?.[p.id]);
           return (
-            <div key={p.id} className="border border-border bg-panel px-2.5 py-2">
+            <div key={p.id} className={cn(
+              "border bg-panel px-2.5 py-2",
+              isRunning ? "border-border border-l-4 border-l-running" : "border-border-soft",
+            )}>
               <div className="flex min-w-0 items-center gap-2">
                 <Dot status={isRunning ? "running" : "idle"} />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">
@@ -481,7 +484,7 @@ function AgentWorkbenchPanel({
               <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
                 {runtime || runtimeLabel(undefined, stateRuntime)}
               </div>
-              {p.description && (
+              {p.description && !isRunning && (
                 <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
                   {p.description}
                 </div>
@@ -526,8 +529,8 @@ function AgentWorkbenchPanel({
         })}
       </div>
       {panelAgents.length === 0 && (
-        <div className="border border-border bg-panel px-2.5 py-2 text-[12px] text-text-muted">
-          No agent is attached to this scope. Mention an agent or open an Agent DM to start.
+        <div className="border border-dashed border-border-soft bg-panel px-2.5 py-2 text-[12px] text-text-muted">
+          No agent attached here.
         </div>
       )}
     </Section>
@@ -689,7 +692,7 @@ function CapabilityPill({ label, error }: { label: string; error?: boolean }) {
   return (
     <span className={cn(
       "border px-1.5 py-px font-mono text-[10.5px]",
-      error ? "border-error/50 text-error" : "border-border text-text-faint",
+      error ? "border-error/50 text-error" : "border-border-soft text-text-faint",
     )}>
       {label}
     </span>

@@ -12,6 +12,9 @@ import { TaskCandidate } from "./TaskCandidate";
 import { ThreadLink, ThreadSummaryRow } from "./ThreadAccessory";
 import { personaForActiveAgent, shortRole, stripCollabLeak } from "./message-helpers";
 
+const LONG_CONTENT_CHARS = 2600;
+const LONG_CONTENT_LINES = 48;
+
 export function MessageRow({ m, compact }: { m: MessageView; compact: boolean }) {
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
@@ -53,7 +56,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
       id={"message-" + m.id}
       className={cn(
         "grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
-        compact ? "-mt-4 mb-1" : "mb-6 border-b border-border-soft pb-5 last:border-b-0",
+        compact ? "-mt-2.5 mb-2" : "mb-5 border-b border-border-soft pb-4 last:border-b-0",
       )}
     >
       <div
@@ -84,14 +87,14 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
         {routedReply && (
           <div
-            className="mb-1 flex flex-wrap gap-1"
+            className="mb-1.5 flex flex-wrap gap-1"
             title={routedReply.detail}
             aria-label={routedReply.detail}
           >
             {routedReply.labels.map((label, i) => (
               <span
                 key={label + i}
-                className="inline-flex border border-border bg-accent-bg px-1.5 py-px font-mono text-[11px] text-text"
+                className="inline-flex border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] text-text-muted"
               >
                 {label}
               </span>
@@ -99,29 +102,15 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           </div>
         )}
         {m.content && (
-          m.role === "user" ? (
-            <div
-              className={cn(
-                "max-w-full whitespace-pre-wrap break-words text-[14px] leading-[22px] text-text",
-                m.reasoning && "mt-2",
-              )}
-            >
-              {renderMentions(m.content, knownMentions)}
-            </div>
-          ) : (
-            <Markdown
-              className={cn(
-                "max-w-full text-[14px] leading-[22px] text-text",
-                m.reasoning && "mt-2",
-              )}
-              mentions={knownMentions}
-            >
-              {stripCollabLeak(m.content)}
-            </Markdown>
-          )
+          <LongContent
+            content={m.role === "user" ? m.content : stripCollabLeak(m.content)}
+            isUser={m.role === "user"}
+            className={cn(m.reasoning && "mt-2")}
+            mentions={knownMentions}
+          />
         )}
         {events.length > 0 && (
-          <div className="mt-2 flex flex-col gap-1">
+          <div className="mt-2.5 flex flex-col gap-1.5">
             {collabEvents.map((ev, i) => (
               <EventBlock key={"c" + i} ev={ev} />
             ))}
@@ -136,19 +125,19 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           </div>
         )}
         {m.status === "pending" && (
-          <div className="mt-2 inline-flex items-center gap-2 border border-border bg-panel-event px-2 py-1 text-[11.5px] text-text-muted">
+          <div className="mt-2.5 inline-flex items-center gap-2 border border-border-soft bg-panel-2 px-2 py-1 text-[11.5px] text-text-muted">
             <span className="inline-block size-1.5 rounded-full bg-running" />
-            <span>Agent reply is still running.</span>
+            <span>Reply in progress.</span>
           </div>
         )}
         {m.status === "failed" && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 border border-error/40 bg-panel-event px-2 py-1.5 text-[11.5px] text-error">
-            <span>{m.error || "Agent reply was interrupted."}</span>
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 border border-error border-l-4 bg-panel px-2.5 py-2 text-[12px] text-error">
+            <span className="leading-[18px]">{m.error || "Reply stopped before it finished."}</span>
             {spaceID && (
               <button
                 type="button"
                 onClick={() => void retryMessage(spaceID, m.id)}
-                className="border border-error/50 bg-bg px-1.5 py-px font-mono text-[10.5px] text-error hover:bg-panel"
+                className="border border-error bg-bg px-2 py-0.5 font-mono text-[10.5px] font-semibold text-error hover:bg-panel-2"
               >
                 Retry
               </button>
@@ -167,6 +156,78 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   );
 }
 
+function LongContent({
+  content,
+  isUser,
+  className,
+  mentions,
+}: {
+  content: string;
+  isUser: boolean;
+  className?: string;
+  mentions: Set<string>;
+}) {
+  const [open, setOpen] = useState(false);
+  const long = isLongContent(content);
+  const visible = long && !open ? collapsedContent(content) : content;
+  const hiddenChars = content.length - visible.length;
+  return (
+    <div className={cn("relative", className)}>
+      {isUser ? (
+        <div className="message-prose max-w-full whitespace-pre-wrap break-words text-[14px] leading-[22px] text-text">
+          {renderMentions(visible, mentions)}
+        </div>
+      ) : (
+        <Markdown
+          className="message-prose max-w-full text-[14px] leading-[22px] text-text"
+          mentions={mentions}
+        >
+          {visible}
+        </Markdown>
+      )}
+      {long && (
+        <div className={cn(
+          "mt-2 flex items-center gap-2 border-t border-border-soft pt-2",
+          !open && "relative",
+        )}>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="border border-border-soft bg-panel-2 px-2 py-1 font-mono text-[11px] font-semibold text-text-muted hover:border-border hover:text-text"
+          >
+            {open ? "Collapse" : "Show full message"}
+          </button>
+          {!open && hiddenChars > 0 && (
+            <span className="font-mono text-[10.5px] text-text-faint">
+              {formatHiddenChars(hiddenChars)} hidden
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isLongContent(content: string): boolean {
+  if (content.length > LONG_CONTENT_CHARS) return true;
+  return content.split("\n").length > LONG_CONTENT_LINES;
+}
+
+function collapsedContent(content: string): string {
+  if (!isLongContent(content)) return content;
+  const lines = content.split("\n");
+  const byLines = lines.length > LONG_CONTENT_LINES
+    ? lines.slice(0, LONG_CONTENT_LINES).join("\n")
+    : content;
+  if (byLines.length <= LONG_CONTENT_CHARS) return byLines.trimEnd();
+  return byLines.slice(0, LONG_CONTENT_CHARS).trimEnd();
+}
+
+function formatHiddenChars(n: number): string {
+  if (n >= 1000) return (Math.round(n / 100) / 10) + "k chars";
+  return n + " chars";
+}
+
 function ToolFold({ events }: { events: EventBlockData[] }) {
   const [open, setOpen] = useState(false);
   const totalMs = events.reduce((sum, e) => sum + (e.duration_ms || 0), 0);
@@ -180,8 +241,8 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
       <div className="flex flex-col gap-1">
         <button
           onClick={() => setOpen(false)}
-      className={cn(
-        "self-start cursor-pointer text-[12px] underline underline-offset-2",
+          className={cn(
+            "self-start cursor-pointer font-mono text-[11.5px] underline underline-offset-2",
             status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
           )}
         >
@@ -197,7 +258,7 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
     <button
       onClick={() => setOpen(true)}
       className={cn(
-        "self-start cursor-pointer text-[12px]",
+        "self-start cursor-pointer font-mono text-[11.5px]",
         status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
       )}
     >

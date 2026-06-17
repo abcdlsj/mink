@@ -35,16 +35,16 @@ function walk(children: ReactNode, set: Set<string>): ReactNode {
 }
 
 const fullComponents: Components = {
-  p: ({ children }) => <p className="mb-3 last:mb-0 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></p>,
-  h1: ({ children }) => <h1 className="font-display text-[20px] font-bold tracking-tight mt-5 mb-2.5 first:mt-0"><MentionAware>{children}</MentionAware></h1>,
-  h2: ({ children }) => <h2 className="font-display text-[17.5px] font-bold tracking-tight mt-5 mb-2 first:mt-0"><MentionAware>{children}</MentionAware></h2>,
+  p: ({ children }) => <p className="mb-2.5 last:mb-0 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></p>,
+  h1: ({ children }) => <h1 className="font-display text-[20px] font-bold tracking-tight mt-5 mb-2 first:mt-0"><MentionAware>{children}</MentionAware></h1>,
+  h2: ({ children }) => <h2 className="font-display text-[17px] font-bold tracking-tight mt-[18px] mb-2 first:mt-0"><MentionAware>{children}</MentionAware></h2>,
   h3: ({ children }) => <h3 className="font-display text-[15.5px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h3>,
-  h4: ({ children }) => <h4 className="font-display text-[14.5px] font-semibold mt-3.5 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h4>,
+  h4: ({ children }) => <h4 className="font-display text-[14.5px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h4>,
   h5: ({ children }) => <h5 className="font-display text-[13.5px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h5>,
   h6: ({ children }) => <h6 className="font-display text-[12px] font-semibold uppercase tracking-[0.6px] text-text-muted mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
-  ul: ({ children }) => <ul className="my-2.5 pl-5 list-disc marker:text-text-faint">{children}</ul>,
-  ol: ({ children }) => <ol className="my-2.5 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
-  li: ({ children }) => <li className="my-1.5 pl-1 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></li>,
+  ul: ({ children }) => <ul className="my-2 pl-5 list-disc marker:text-text-faint">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
+  li: ({ children }) => <li className="my-1 pl-1 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></li>,
   a: ({ href, children }) => (
     <a
       href={href}
@@ -56,11 +56,11 @@ const fullComponents: Components = {
     </a>
   ),
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-border-strong pl-4 my-3 text-text-muted italic"><MentionAware>{children}</MentionAware></blockquote>
+    <blockquote className="my-3 border-l-4 border-border-soft bg-panel-2 py-1.5 pl-3 pr-2 text-text-muted"><MentionAware>{children}</MentionAware></blockquote>
   ),
   code: codeRenderer,
   pre: ({ children }) => (
-    <pre className="my-3 max-w-full overflow-x-auto rounded-md bg-panel-event px-3.5 py-3 text-[12.5px] leading-[1.6]">
+    <pre className="my-3 max-w-full overflow-x-auto border border-border-soft bg-panel-2 px-3.5 py-3 text-[12.5px] leading-[1.65]">
       {children}
     </pre>
   ),
@@ -129,7 +129,7 @@ function codeRenderer({ children, className }: any) {
     return <code className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.55]">{children}</code>;
   }
   return (
-    <code className="font-mono text-[12.5px] rounded-[3px] border border-border-soft bg-panel-event px-1 py-px">
+    <code className="rounded-[3px] border border-border-soft bg-panel-2 px-1 py-px font-mono text-[12.5px] text-text-muted">
       {children}
     </code>
   );

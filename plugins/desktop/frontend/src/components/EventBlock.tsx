@@ -21,8 +21,8 @@ function ServiceLine({ ev }: EventBlockProps) {
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 border border-border px-1.5 py-0.5 text-[12px]",
-        isError ? "bg-action-bg text-error" : "bg-panel-2 text-text-muted",
+        "inline-flex max-w-full items-center gap-1.5 border px-2 py-1 text-[11.5px] leading-[17px]",
+        isError ? "border-error bg-panel text-error" : "border-border-soft bg-panel-2 text-text-muted",
       )}
     >
       {isError && <AlertTriangle className="size-3 shrink-0" />}
@@ -57,14 +57,14 @@ function ToolLine({ ev }: EventBlockProps) {
   const summary = toolSummary(ev);
 
   return (
-    <div className={cn("inline-flex border border-border px-1.5 py-0.5 text-[12px]", status === "error" ? "bg-action-bg text-error" : "bg-panel-2 text-text-muted")}>
+    <div className={cn("inline-flex max-w-full border px-2 py-1 text-[11.5px] leading-[17px]", status === "error" ? "border-error bg-panel text-error" : "border-border-soft bg-panel-2 text-text-muted")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span>{headLabel}</span>
         {ev.tool_name && (
-          <span className="font-mono font-semibold text-text">{ev.tool_name}</span>
+          <span className="font-mono font-semibold text-text-muted">{ev.tool_name}</span>
         )}
         {summary && (
-          <span className={cn("max-w-[34rem] truncate", status === "error" ? "text-error" : "text-text-muted")}>
+          <span className={cn("max-w-[34rem] truncate", status === "error" ? "text-error" : "text-text-faint")}>
             · {summary}
           </span>
         )}
@@ -162,11 +162,11 @@ function fmtMs(ms: number, status: EventStatus): string {
 function MentionLine({ ev }: EventBlockProps) {
   const display = ev.agent_display || ev.agent_id || "agent";
   return (
-    <div className="py-0.5 text-[12px] text-text-muted">
+    <div className="py-0.5 text-[11.5px] text-text-muted">
       <div className="flex items-center gap-1.5 flex-wrap">
         <ArrowRight className="size-3 text-text-muted shrink-0" />
         <span className="whitespace-nowrap">called</span>
-        <span className="inline-flex items-baseline border border-border bg-accent px-1 font-display font-semibold text-text whitespace-nowrap">
+        <span className="inline-flex items-baseline border border-border-soft bg-panel-2 px-1 font-display font-semibold text-text-muted whitespace-nowrap">
           <AtSign className="size-3 self-center" />
           {display}
         </span>
@@ -175,7 +175,7 @@ function MentionLine({ ev }: EventBlockProps) {
         ) : null}
       </div>
       {ev.reply && (
-        <div className="ml-4 mt-1 border-l-2 border-border bg-panel-2 px-3 py-1 text-[13px] leading-[1.6] text-text">
+        <div className="ml-4 mt-1 border-l-2 border-border-soft bg-panel-2 px-3 py-1.5 text-[12.5px] leading-[1.55] text-text-muted">
           <Markdown variant="lite" className="whitespace-pre-wrap">
             {ev.reply}
           </Markdown>
@@ -222,11 +222,11 @@ function DelegateLine({ ev }: EventBlockProps) {
   const detailLabel = status === "done" ? "view result" : status === "error" ? "view details" : "view details";
 
   return (
-    <div className={cn("py-0.5 text-[12px]", status === "error" ? "text-error" : "text-text-muted")}>
+    <div className={cn("py-0.5 text-[11.5px]", status === "error" ? "text-error" : "text-text-muted")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <ArrowRight className="size-3 text-text-faint shrink-0 self-center" />
         <span className="whitespace-nowrap">delegated to</span>
-        <span className="inline-flex items-center gap-0.5 border border-border bg-accent px-1 font-display font-semibold text-text whitespace-nowrap">
+        <span className="inline-flex items-center gap-0.5 border border-border-soft bg-panel-2 px-1 font-display font-semibold text-text-muted whitespace-nowrap">
           <AtSign className="size-3" />
           {display}
         </span>
@@ -245,7 +245,7 @@ function DelegateLine({ ev }: EventBlockProps) {
         )}
       </div>
       {open && hasDetails && (
-        <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-border bg-panel-2 px-3 py-2 text-[12.5px] text-text">
+        <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-border-soft bg-panel-2 px-3 py-2 text-[12.5px] text-text">
           {ev.err && (
             <div>
               <div className="font-display text-[10.5px] font-semibold uppercase text-error mb-1">error</div>

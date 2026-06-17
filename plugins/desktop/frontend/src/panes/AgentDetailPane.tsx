@@ -14,8 +14,9 @@ export function AgentDetailPane() {
   const persona = personas.find((p) => p.id === agentID);
   if (!agentID || (!agent && !persona)) {
     return (
-      <main className="h-full min-w-0 bg-panel px-6 py-6 text-[13px] text-text-muted">
-        Agent not found.
+      <main className="h-full min-w-0 bg-panel px-6 py-6 text-[13px] leading-[20px] text-text-muted">
+        <div className="font-semibold text-text">Agent not found.</div>
+        <div>Pick another agent from Direct Messages.</div>
       </main>
     );
   }
@@ -77,7 +78,9 @@ export function AgentDetailPane() {
 
         <InfoCard title="Recent Agent Chats">
           {namedChats.length === 0 && !defaultDM ? (
-            <div className="text-[12.5px] text-text-faint">No chats with this agent yet.</div>
+            <div className="text-[12.5px] leading-[19px] text-text-faint">
+              No chats yet. Use Message for the default DM, or New chat for a topic.
+            </div>
           ) : (
             <div className="flex flex-col gap-1.5">
               {defaultDM && (

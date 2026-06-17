@@ -17,15 +17,17 @@ export function EmptyState() {
   if (view === "channel") {
     const ch = channels.find((c) => c.id === activeChannel);
     return (
-      <div className="text-text-faint text-[13px] py-12 text-center">
-        Start in #{ch?.name || "channel"}.
+      <div className="mx-auto max-w-sm py-12 text-center text-[13px] leading-[20px] text-text-faint">
+        <div className="font-semibold text-text-muted">No messages yet.</div>
+        <div>Send a message to start #{ch?.name || "this channel"}.</div>
       </div>
     );
   }
   if (view === "direct") {
     return (
-      <div className="text-text-faint text-[13px] py-12 text-center">
-        Start this conversation.
+      <div className="mx-auto max-w-sm py-12 text-center text-[13px] leading-[20px] text-text-faint">
+        <div className="font-semibold text-text-muted">No messages yet.</div>
+        <div>Write below to start this DM.</div>
       </div>
     );
   }
@@ -35,8 +37,9 @@ export function EmptyState() {
 
   return (
     <div className="py-6">
-      <div className="mb-6 border-l-2 border-border-soft px-3 text-[13px] leading-[1.6] text-text-muted">
-        No messages yet. Message {ag?.display || detail?.item?.persona_name || "this agent"} directly.
+      <div className="mb-6 border-l-4 border-border-soft bg-panel-2 px-3 py-2 text-[13px] leading-[20px] text-text-muted">
+        <div className="font-semibold text-text">No messages yet.</div>
+        <div>Message {ag?.display || detail?.item?.persona_name || "this agent"} directly.</div>
       </div>
       {recent.length > 0 && (
         <div>

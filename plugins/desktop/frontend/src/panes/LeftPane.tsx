@@ -152,6 +152,8 @@ export function LeftPane() {
               key={c.id}
               icon={<Hash className="size-3" />}
               name={c.name}
+              subtitle={c.topic || (c.agents.length ? `${c.agents.length} agents` : "channel")}
+              time={relTime(c.updated_at)}
               running={c.has_running}
               badge={c.unread_count}
               active={view === "channel" && activeChannel === c.id}
@@ -175,6 +177,8 @@ export function LeftPane() {
               key={dc.id}
               icon={<MessageCircle className="size-4" />}
               name={dc.title}
+              subtitle={dc.kind === "agent_dm" ? `@${dc.persona_name || dc.persona_id || "agent"}` : "direct"}
+              time={relTime(dc.updated_at)}
               running={dc.has_running}
               active={view === "direct" && activeDirect === dc.id}
               onClick={() => void openDirectChat(dc.id)}
@@ -189,9 +193,9 @@ export function LeftPane() {
               <li key={agent.id}>
                 <div
                   className={cn(
-                    "grid w-full cursor-pointer grid-cols-[16px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
+                    "grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 border-2 border-transparent py-2 pl-2 pr-2 text-text-muted transition-colors",
                     active
-                      ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
+                      ? "border-border border-l-[10px] border-l-accent bg-panel text-text shadow-card"
                       : "hover:border-border hover:bg-panel hover:text-text",
                   )}
                   title={personaTooltip(agent)}
@@ -212,7 +216,7 @@ export function LeftPane() {
                     onClick={() => openAgentRow(agent.id)}
                     className="min-w-0 text-left"
                   >
-                    <span className="block truncate text-[13px]">{display}</span>
+                    <span className="block truncate text-[13px] font-semibold">{display}</span>
                     <span className="block truncate font-mono text-[10.5px] text-text-faint">
                       {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "view details"}
                     </span>
@@ -237,6 +241,8 @@ export function LeftPane() {
               key={dc.id}
               icon={<AtSign className="size-3" />}
               name={dc.title}
+              subtitle={`@${dc.persona_name || dc.persona_id || "agent"}`}
+              time={relTime(dc.updated_at)}
               running={dc.has_running}
               active={view === "agent" && ((activeAgentSpace === dc.id) || (activePersonaID === dc.persona_id))}
               onClick={() => void openDirectChat(dc.id)}
@@ -262,20 +268,20 @@ export function LeftPane() {
               <button
                 onClick={() => void openAgent(dm.id)}
                 className={cn(
-                  "w-full cursor-pointer border-2 border-transparent px-2 py-1.5 text-left transition-colors",
+                  "w-full cursor-pointer border-2 border-transparent px-2 py-2 text-left transition-colors",
                   view === "agent" && activeAgentSpace === dm.id
-                    ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card"
+                    ? "border-border border-l-[10px] border-l-accent bg-panel text-text shadow-card"
                     : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
                 )}
                 title={"@" + (dm.persona_name || dm.persona_id)}
               >
-                <div className="flex items-center gap-1.5 text-[13px]">
+                <div className="flex items-center gap-1.5 text-[13px] font-semibold">
                   <AtSign className="size-[11px] text-text-muted shrink-0" />
                   <span className="truncate">
                     {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
                   </span>
                 </div>
-                <div className="mt-0.5 truncate font-mono text-[11px] text-text-muted">
+                <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-faint">
                   @{dm.persona_name || dm.persona_id}
                   {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
                 </div>
@@ -373,6 +379,8 @@ function GroupLabel({
 interface NavItemProps {
   icon: React.ReactNode;
   name: string;
+  subtitle?: string;
+  time?: string;
   running?: boolean;
   badge?: number;
   active?: boolean;
@@ -380,30 +388,39 @@ interface NavItemProps {
   tooltip?: string;
 }
 
-function NavItem({ icon, name, running, badge, active, onClick, tooltip }: NavItemProps) {
+function NavItem({ icon, name, subtitle, time, running, badge, active, onClick, tooltip }: NavItemProps) {
   return (
     <li>
       <button
         onClick={onClick}
         title={tooltip}
         className={cn(
-          "grid w-full cursor-pointer grid-cols-[16px_1fr_auto] items-center gap-2 border-2 border-transparent py-1.5 pl-2 pr-2 text-text-muted transition-colors",
-          active ? "border-border border-l-[10px] border-l-accent bg-panel font-semibold text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
+          "grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 border-2 border-transparent py-2 pl-2 pr-2 text-text-muted transition-colors",
+          active ? "border-border border-l-[10px] border-l-accent bg-panel text-text shadow-card" : "hover:border-border hover:bg-panel hover:text-text",
         )}
       >
         <span
           className={cn(
-            "inline-flex size-5 items-center justify-center border border-transparent font-mono",
+            "mt-0.5 inline-flex size-5 items-center justify-center border border-transparent font-mono",
             active ? "border-border bg-accent text-text" : "text-text-muted",
           )}
         >
           {icon}
         </span>
-        <span className="flex items-center gap-1.5 min-w-0">
-          {running && <Dot status="running" />}
-          <span className="truncate text-[13px] text-left">{name}</span>
+        <span className="min-w-0 text-left">
+          <span className="flex min-w-0 items-center gap-1.5">
+            {running && <Dot status="running" />}
+            <span className="truncate text-[13px] font-semibold leading-[17px]">{name}</span>
+          </span>
+          {(subtitle || time) && (
+            <span className="mt-0.5 flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] leading-[14px] text-text-faint">
+              {subtitle && <span className="truncate">{subtitle}</span>}
+              {subtitle && time && <span className="shrink-0 text-text-whisper">·</span>}
+              {time && <span className="shrink-0 tabular-nums">{time}</span>}
+            </span>
+          )}
         </span>
-        <span className="flex items-center gap-1 text-[11px] text-text-muted tabular-nums">
+        <span className="mt-0.5 flex items-center gap-1 text-[11px] text-text-muted tabular-nums">
           {badge ? (
             <span className="inline-flex h-4 items-center border border-border bg-action px-1.5 text-[10.5px] font-semibold text-text">
               {badge}
