@@ -568,6 +568,96 @@ func TestRetryFailedAgentMessageReusesUserMessage(t *testing.T) {
 	}
 }
 
+func TestGetAgentDMDropsSupersededFailedRetryPlaceholder(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "explain next steps", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Status:     "failed",
+		Error:      "stale retry placeholder",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Content:    "real successful answer",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.GetAgentDM(detail.Item.ID)
+	var failedMessages, successfulMessages int
+	for _, m := range got.Messages {
+		if m.Status == "failed" || m.Status == "pending" {
+			failedMessages++
+		}
+		if m.Role == "agent" && m.Content == "real successful answer" {
+			successfulMessages++
+		}
+	}
+	if failedMessages != 0 {
+		t.Fatalf("failed/pending messages = %d, want stale retry placeholder dropped; messages=%#v", failedMessages, got.Messages)
+	}
+	if successfulMessages != 1 {
+		t.Fatalf("successful messages = %d, want 1; messages=%#v", successfulMessages, got.Messages)
+	}
+}
+
+func TestRetrySupersededFailedMessageDoesNotDuplicateReply(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "explain next steps", nil); err != nil {
+		t.Fatal(err)
+	}
+	failed, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Status:     "failed",
+		Error:      "stale retry placeholder",
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Content:    "real successful answer",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := b.RetryMessage(RetryMessageRequest{SpaceID: detail.Item.ID, MessageID: failed.ID}); err == nil {
+		t.Fatal("retry should reject stale failed placeholder after a successful reply")
+	}
+	got := b.GetAgentDM(detail.Item.ID)
+	var users, successfulMessages, failedMessages int
+	for _, m := range got.Messages {
+		if m.Role == "user" {
+			users++
+		}
+		if m.Role == "agent" && m.Content == "real successful answer" {
+			successfulMessages++
+		}
+		if m.Status == "failed" || m.Status == "pending" {
+			failedMessages++
+		}
+	}
+	if users != 1 || successfulMessages != 1 || failedMessages != 0 {
+		t.Fatalf("messages after stale retry = users:%d success:%d failed:%d messages=%#v", users, successfulMessages, failedMessages, got.Messages)
+	}
+}
+
 func TestDeleteMissingSpaceIDIsIdempotent(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	staleID := "20260612-agent-10ff4668"

@@ -176,6 +176,10 @@ func (b *Backend) RetryMessage(req RetryMessageRequest) (string, error) {
 	if failed.Status != "failed" && failed.Status != "pending" {
 		return "", fmt.Errorf("message is not retryable")
 	}
+	if retryPlaceholderSuperseded(sp.Messages, idx, failed) {
+		_ = b.app.Spaces().DeleteMessage(sp.ID, failed.ID)
+		return "", fmt.Errorf("message already has a successful reply")
+	}
 	prev, ok := previousUserMessage(sp.Messages[:idx], failed.ParentMessageID)
 	if !ok {
 		return "", fmt.Errorf("no user message found to retry")
@@ -408,6 +412,9 @@ func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
 		sp.Messages[i].Error = "Agent reply was interrupted. Retry to run this message again."
 		changed = true
 	}
+	if dropSupersededRetryPlaceholders(sp) {
+		changed = true
+	}
 	if !changed {
 		return sp
 	}
@@ -415,6 +422,59 @@ func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
 		return sp
 	}
 	return sp
+}
+
+func dropSupersededRetryPlaceholders(sp *space.Space) bool {
+	if sp == nil || len(sp.Messages) == 0 {
+		return false
+	}
+	next := sp.Messages[:0]
+	changed := false
+	for i, m := range sp.Messages {
+		if retryPlaceholderSuperseded(sp.Messages, i, m) {
+			changed = true
+			continue
+		}
+		next = append(next, m)
+	}
+	if !changed {
+		return false
+	}
+	sp.Messages = next
+	return true
+}
+
+func retryPlaceholderSuperseded(messages []space.Message, idx int, m space.Message) bool {
+	if idx < 0 || idx >= len(messages) || m.AuthorKind != space.ParticipantAgent {
+		return false
+	}
+	if m.Status != "failed" && m.Status != "pending" {
+		return false
+	}
+	parentID := strings.TrimSpace(m.ParentMessageID)
+	authorID := strings.TrimSpace(m.AuthorID)
+	for i := idx + 1; i < len(messages); i++ {
+		next := messages[i]
+		if strings.TrimSpace(next.ParentMessageID) != parentID {
+			continue
+		}
+		if next.AuthorKind == space.ParticipantUser {
+			return false
+		}
+		if next.AuthorKind != space.ParticipantAgent {
+			continue
+		}
+		if strings.TrimSpace(next.AuthorID) != authorID {
+			continue
+		}
+		if next.Status == "failed" || next.Status == "pending" {
+			continue
+		}
+		if strings.TrimSpace(next.Content) != "" || strings.TrimSpace(next.Reasoning) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Backend) messageStillRunning(sp *space.Space, m space.Message) bool {
