@@ -26,6 +26,15 @@ const desktopSource = "desktop"
 
 const defaultChannelID = "desktop:default"
 const defaultSumiDirectTitle = "Sumi"
+const pendingRecoveryGrace = 30 * time.Minute
+
+const (
+	pendingMetaStreamID  = "pending_stream_id"
+	pendingMetaSessionID = "pending_session_id"
+	pendingMetaSource    = "pending_source"
+	pendingMetaStartedAt = "pending_started_at"
+	pendingMetaUpdatedAt = "pending_updated_at"
+)
 
 type Backend struct {
 	app          *app.App
@@ -320,7 +329,7 @@ func (b *Backend) trackTurnStarted(ev bus.Event) bus.Event {
 			m.Status = "pending"
 			m.Error = ""
 			m.ParentMessageID = strings.TrimSpace(ev.ParentMessageID)
-			m.RuntimeMeta = nil
+			m.RuntimeMeta = pendingRuntimeMeta(ev, time.Now())
 			m.Usage = nil
 		})
 	} else {
@@ -329,6 +338,7 @@ func (b *Backend) trackTurnStarted(ev bus.Event) bus.Event {
 			AuthorKind:      space.ParticipantAgent,
 			Status:          "pending",
 			ParentMessageID: strings.TrimSpace(ev.ParentMessageID),
+			RuntimeMeta:     pendingRuntimeMeta(ev, time.Now()),
 		}, nil, nil)
 	}
 	if err != nil || written.ID == "" {
@@ -364,6 +374,10 @@ func (b *Backend) updatePendingFromChunk(ev bus.Event) {
 			m.Content += text
 		}
 		m.Status = "pending"
+		if m.RuntimeMeta == nil {
+			m.RuntimeMeta = map[string]string{}
+		}
+		m.RuntimeMeta[pendingMetaUpdatedAt] = time.Now().UTC().Format(time.RFC3339Nano)
 	})
 }
 
@@ -401,11 +415,15 @@ func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
 		return sp
 	}
 	changed := false
+	now := time.Now()
 	for i := range sp.Messages {
 		if sp.Messages[i].Status != "pending" {
 			continue
 		}
 		if b.messageStillRunning(sp, sp.Messages[i]) {
+			continue
+		}
+		if pendingRecentlyTouched(sp.Messages[i], now) {
 			continue
 		}
 		sp.Messages[i].Status = "failed"
@@ -486,6 +504,48 @@ func (b *Backend) messageStillRunning(sp *space.Space, m space.Message) bool {
 		keys = append(keys, "desktop:agent:"+sp.ID, "desktop:agent:"+m.AuthorID)
 	}
 	return b.hasActiveTurn(keys...)
+}
+
+func pendingRuntimeMeta(ev bus.Event, now time.Time) map[string]string {
+	meta := map[string]string{
+		pendingMetaStartedAt: now.UTC().Format(time.RFC3339Nano),
+	}
+	if streamID := strings.TrimSpace(ev.StreamID); streamID != "" {
+		meta[pendingMetaStreamID] = streamID
+	}
+	if sessionID := strings.TrimSpace(ev.SessionID); sessionID != "" {
+		meta[pendingMetaSessionID] = sessionID
+	}
+	if source := strings.TrimSpace(ev.Source); source != "" {
+		meta[pendingMetaSource] = source
+	}
+	return meta
+}
+
+func pendingRecentlyTouched(m space.Message, now time.Time) bool {
+	touched := m.CreatedAt
+	for _, key := range []string{pendingMetaStartedAt, pendingMetaUpdatedAt} {
+		ts, ok := parsePendingMetaTime(m.RuntimeMeta[key])
+		if ok && (touched.IsZero() || ts.After(touched)) {
+			touched = ts
+		}
+	}
+	if touched.IsZero() {
+		return false
+	}
+	return now.Sub(touched) < pendingRecoveryGrace
+}
+
+func parsePendingMetaTime(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 func (b *Backend) normalizeThreadParentID(sp *space.Space, parentID string) (string, bool) {

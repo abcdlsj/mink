@@ -611,6 +611,90 @@ func TestGetAgentDMDropsSupersededFailedRetryPlaceholder(t *testing.T) {
 	}
 }
 
+func TestGetAgentDMKeepsRecentCrossProcessPendingMessage(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "long running request", nil); err != nil {
+		t.Fatal(err)
+	}
+	pending, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:    "coder",
+		AuthorKind:  space.ParticipantAgent,
+		Content:     "working",
+		Status:      "pending",
+		RuntimeMeta: map[string]string{pendingMetaStreamID: "stream-other-process"},
+		CreatedAt:   time.Now().Add(-pendingRecoveryGrace / 2),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.GetAgentDM(detail.Item.ID)
+	var found bool
+	for _, m := range got.Messages {
+		if m.ID != pending.ID {
+			continue
+		}
+		found = true
+		if m.Status != "pending" || m.Error != "" {
+			t.Fatalf("recent cross-process pending = %#v, want pending without error", m)
+		}
+	}
+	if !found {
+		t.Fatalf("pending message %s missing: %#v", pending.ID, got.Messages)
+	}
+}
+
+func TestGetAgentDMFailsExpiredPendingMessage(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "abandoned request", nil); err != nil {
+		t.Fatal(err)
+	}
+	pending, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:    "coder",
+		AuthorKind:  space.ParticipantAgent,
+		Content:     "stale work",
+		Status:      "pending",
+		RuntimeMeta: map[string]string{pendingMetaStreamID: "stream-dead-process"},
+		CreatedAt:   time.Now().Add(-pendingRecoveryGrace - time.Minute),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.GetAgentDM(detail.Item.ID)
+	var found bool
+	for _, m := range got.Messages {
+		if m.ID != pending.ID {
+			continue
+		}
+		found = true
+		if m.Status != "failed" || m.Error == "" {
+			t.Fatalf("expired pending = %#v, want failed retry placeholder", m)
+		}
+	}
+	if !found {
+		t.Fatalf("pending message %s missing: %#v", pending.ID, got.Messages)
+	}
+
+	sp, err := a.Spaces().LoadSpace(detail.Item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range sp.Messages {
+		if m.ID == pending.ID && m.Status != "failed" {
+			t.Fatalf("expired pending was not persisted as failed: %#v", m)
+		}
+	}
+}
+
 func TestRetrySupersededFailedMessageDoesNotDuplicateReply(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
