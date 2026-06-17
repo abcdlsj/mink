@@ -18,6 +18,7 @@ export default function App() {
   const setQuickCreate = useStore((s) => s.setQuickCreate);
   const connectStream = useStore((s) => s.connectStream);
   const openCurrentRoute = useStore((s) => s.openCurrentRoute);
+  const syncNow = useStore((s) => s.syncNow);
   const connectionStatus = useStore((s) => s.connectionStatus);
   const connectionMessage = useStore((s) => s.connectionMessage);
   const routeNotice = useStore((s) => s.routeNotice);
@@ -27,6 +28,8 @@ export default function App() {
   const [mobileLayer, setMobileLayer] = useState<MobileLayer>(null);
   const [noticeNow, setNoticeNow] = useState(() => Date.now());
   const openedScopeRef = useRef("");
+  const syncInFlightRef = useRef(false);
+  const lastSyncAtRef = useRef(0);
 
   useEffect(() => {
     void loadInitial();
@@ -36,6 +39,33 @@ export default function App() {
     if (!ready) return;
     return connectStream();
   }, [ready, connectStream]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const runSync = (force = false) => {
+      if (syncInFlightRef.current) return;
+      if (!force && document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (!force && now - lastSyncAtRef.current < 2500) return;
+      lastSyncAtRef.current = now;
+      syncInFlightRef.current = true;
+      void syncNow().finally(() => {
+        syncInFlightRef.current = false;
+      });
+    };
+    const timer = window.setInterval(() => runSync(), 10000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") runSync(true);
+    };
+    const onFocus = () => runSync(true);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [ready, syncNow]);
 
   useEffect(() => {
     const onPopState = () => {

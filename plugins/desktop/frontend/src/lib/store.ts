@@ -93,6 +93,7 @@ interface State {
   streamingByID: Record<string, StreamingTurn>;
 
   loadInitial: () => Promise<void>;
+  syncNow: () => Promise<void>;
   refreshCapabilities: () => Promise<void>;
   openChannel: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   createChannel: (name: string) => Promise<ChannelItem>;
@@ -443,6 +444,30 @@ export const useStore = create<State>((set, get) => ({
     } catch (err) {
       set({
         ready: true,
+        connectionStatus: "offline",
+        connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
+      });
+    }
+  },
+
+  async syncNow() {
+    if (!get().ready) return;
+    try {
+      const [state, nav, capabilities] = await Promise.all([
+        api.state(),
+        fetchNavigationSnapshot(),
+        api.capabilities().catch(() => get().capabilities || { skills: [], tasks: [], action_proposals: [] }),
+      ]);
+      set({
+        state,
+        ...nav,
+        capabilities,
+        connectionStatus: "online",
+        connectionMessage: "",
+      });
+      await refetchActiveScope(get, set);
+    } catch (err) {
+      set({
         connectionStatus: "offline",
         connectionMessage: err instanceof Error ? err.message : "Desktop backend is offline.",
       });
