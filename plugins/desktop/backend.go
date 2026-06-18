@@ -2460,6 +2460,34 @@ func (b *Backend) Capabilities() CapabilityView {
 	}
 }
 
+func (b *Backend) MemoryOverview(personaID, source, spaceID string) app.MemoryOverview {
+	personaID = strings.TrimSpace(personaID)
+	source = strings.TrimSpace(source)
+	spaceID = strings.TrimSpace(spaceID)
+	if spaceID != "" {
+		if sp, err := b.app.Spaces().LoadSpace(spaceID); err == nil && sp != nil {
+			if source == "" {
+				source = contextSourceForSpace(sp)
+			}
+			if personaID == "" && sp.Kind == space.KindAgentDM {
+				personaID = space.AgentParticipantID(sp)
+			}
+		}
+	}
+	scopes := make([]command.MemoryScope, 0, 4)
+	if personaID != "" {
+		scopes = append(scopes, command.MemoryScope{Kind: "persona", Key: personaID})
+	}
+	if source != "" {
+		scopes = append(scopes, command.MemoryScope{Kind: "channel", Key: source})
+	}
+	if workspace := strings.TrimSpace(b.app.Workspace()); workspace != "" {
+		scopes = append(scopes, command.MemoryScope{Kind: "workspace", Key: workspace})
+	}
+	scopes = append(scopes, command.MemoryScope{Kind: "global", Key: ""})
+	return b.app.MemoryOverview(scopes, 3)
+}
+
 func (b *Backend) ListSkills() []SkillView {
 	return skillViews(b.app.SkillDirectory())
 }
@@ -2900,6 +2928,10 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/tools", jsonHandler(func() any { return b.ListTools() }))
 	mux.HandleFunc("/api/commands", jsonHandler(func() any { return b.ListCommands() }))
 	mux.HandleFunc("/api/capabilities", jsonHandler(func() any { return b.Capabilities() }))
+	mux.HandleFunc("/api/memory/overview", func(rw http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		writeJSON(rw, b.MemoryOverview(q.Get("persona_id"), q.Get("source"), q.Get("space_id")))
+	})
 	mux.HandleFunc("/api/skills", jsonHandler(func() any { return b.ListSkills() }))
 	mux.HandleFunc("/api/skill", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetSkill(req.URL.Query().Get("name")))

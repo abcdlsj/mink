@@ -9,6 +9,7 @@ import type {
   ContextResetResult,
   DirectChatItem,
   DeleteConversationResult,
+  MemoryOverviewView,
   ModelItem,
   ParticipantsView,
   PersonaItem,
@@ -248,4 +249,15 @@ export const api = {
         body: JSON.stringify(input),
       }),
     ),
+  memoryOverview: (input: {
+    persona_id?: string;
+    source?: string;
+    space_id?: string;
+  }) => {
+    const q = new URLSearchParams();
+    if (input.persona_id) q.set("persona_id", input.persona_id);
+    if (input.source) q.set("source", input.source);
+    if (input.space_id) q.set("space_id", input.space_id);
+    return j<MemoryOverviewView>(fetch("/api/memory/overview?" + q));
+  },
 };

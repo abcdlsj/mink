@@ -4,11 +4,34 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/command"
 )
+
+type MemoryOverview struct {
+	Scopes []MemoryScopeOverview `json:"scopes"`
+}
+
+type MemoryScopeOverview struct {
+	Kind   string              `json:"kind"`
+	Key    string              `json:"key,omitempty"`
+	Label  string              `json:"label"`
+	Recent []MemoryDocOverview `json:"recent"`
+}
+
+type MemoryDocOverview struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Summary   string    `json:"summary,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
 
 func externalRuntimeName(name string) bool {
 	switch strings.TrimSpace(strings.ToLower(name)) {
@@ -91,6 +114,167 @@ func (a *App) memoryBrief(ctx context.Context) string {
 		}
 	}
 	return strings.Join(chunks, "\n\n")
+}
+
+func (a *App) MemoryOverview(scopes []command.MemoryScope, limit int) MemoryOverview {
+	if a == nil {
+		return MemoryOverview{Scopes: []MemoryScopeOverview{}}
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	out := MemoryOverview{Scopes: make([]MemoryScopeOverview, 0, len(scopes))}
+	seen := map[string]bool{}
+	for _, sc := range scopes {
+		kind := strings.TrimSpace(sc.Kind)
+		key := strings.TrimSpace(sc.Key)
+		if kind == "" {
+			continue
+		}
+		scopeID := kind + "\x00" + key
+		if seen[scopeID] {
+			continue
+		}
+		seen[scopeID] = true
+		out.Scopes = append(out.Scopes, MemoryScopeOverview{
+			Kind:   kind,
+			Key:    memoryScopePublicKey(kind, key),
+			Label:  memoryScopeLabel(kind, key),
+			Recent: a.recentMemoryDocs(kind, key, limit),
+		})
+	}
+	return out
+}
+
+func (a *App) recentMemoryDocs(kind, key string, limit int) []MemoryDocOverview {
+	dir := filepath.Join(a.cfg.MemoryDir(), sanitizeMemoryPath(kind))
+	if strings.TrimSpace(key) != "" {
+		dir = filepath.Join(dir, sanitizeMemoryPath(key))
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []MemoryDocOverview{}
+	}
+	docs := make([]MemoryDocOverview, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		doc := memoryDocOverviewFromFile(entry.Name(), string(data), info.ModTime().UTC())
+		docs = append(docs, doc)
+	}
+	sort.Slice(docs, func(i, j int) bool {
+		return docs[i].UpdatedAt.After(docs[j].UpdatedAt)
+	})
+	if len(docs) > limit {
+		docs = docs[:limit]
+	}
+	return docs
+}
+
+func memoryDocOverviewFromFile(name, raw string, mod time.Time) MemoryDocOverview {
+	body := raw
+	head := ""
+	if strings.HasPrefix(body, "---\n") {
+		rest := body[4:]
+		if i := strings.Index(rest, "\n---\n"); i >= 0 {
+			head = rest[:i]
+			body = rest[i+5:]
+		}
+	}
+	meta := parseMemoryFrontmatter(head)
+	title := strings.TrimSpace(meta["title"])
+	if title == "" {
+		title = firstMemoryHeading(body)
+	}
+	if title == "" {
+		title = strings.TrimSuffix(name, filepath.Ext(name))
+	}
+	summary := strings.TrimSpace(meta["summary"])
+	if summary == "" {
+		summary = summarizeMemoryText(body, 160)
+	}
+	updatedAt := mod
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(meta["updated_at"])); err == nil {
+		updatedAt = parsed
+	}
+	return MemoryDocOverview{
+		ID:        strings.TrimSuffix(name, filepath.Ext(name)),
+		Title:     title,
+		Summary:   summary,
+		Kind:      strings.TrimSpace(meta["kind"]),
+		UpdatedAt: updatedAt,
+	}
+}
+
+func parseMemoryFrontmatter(head string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(head, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		if key != "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func firstMemoryHeading(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "# "))
+		}
+	}
+	return ""
+}
+
+func summarizeMemoryText(s string, n int) string {
+	text := strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if len([]rune(text)) <= n {
+		return text
+	}
+	runes := []rune(text)
+	return strings.TrimSpace(string(runes[:n-1])) + "…"
+}
+
+func sanitizeMemoryPath(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "_"
+	}
+	r := strings.NewReplacer("/", "_", "\\", "_", ":", "_", "\n", "_", "\t", "_")
+	return r.Replace(s)
+}
+
+func memoryScopeLabel(kind, key string) string {
+	if strings.TrimSpace(kind) == "workspace" {
+		return "workspace"
+	}
+	if strings.TrimSpace(key) == "" {
+		return strings.TrimSpace(kind)
+	}
+	return strings.TrimSpace(kind) + ":" + strings.TrimSpace(key)
+}
+
+func memoryScopePublicKey(kind, key string) string {
+	if strings.TrimSpace(kind) == "workspace" {
+		return ""
+	}
+	return strings.TrimSpace(key)
 }
 
 func firstMemoryScope(ctx context.Context) (string, string) {

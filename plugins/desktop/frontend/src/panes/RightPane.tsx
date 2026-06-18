@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
 import { api } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
+import { MemoryOverviewCard } from "./MemoryOverviewCard";
 import type {
   ActionProposalCard,
   AgentItem,
@@ -77,6 +78,14 @@ export function RightPane() {
       agentID={contextAgentID}
     />
   );
+  const memorySec = (
+    <Section label="Memory">
+      <MemoryOverviewCard
+        personaID={activePersona?.id}
+        spaceID={scopeSpaceID}
+      />
+    </Section>
+  );
 
   let main: React.ReactNode = null;
   let more: React.ReactNode = null;
@@ -126,6 +135,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
+        {memorySec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -139,6 +149,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
+        {memorySec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -159,6 +170,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
+        {memorySec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -167,6 +179,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
+        {memorySec}
         <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -197,15 +210,15 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
   if (runs.length === 0) {
     if (archived === 0) return null;
     return (
-      <Section label="Active Tasks">
+      <Section label="Flow Tasks">
         <div className="border border-dashed border-border-soft bg-panel px-2.5 py-2 text-[12px] text-text-faint">
-          No active tasks. {archived} archived hidden.
+          No active flow tasks here. {archived} archived hidden.
         </div>
       </Section>
     );
   }
   return (
-    <Section label="Active Tasks">
+    <Section label="Flow Tasks">
       <div className="flex flex-col gap-1.5">
         {runs.slice(0, 4).map((r) => (
           <ActiveTaskMiniCard key={r.id} run={r} />
@@ -883,7 +896,7 @@ function CapabilitiesSection({
             </CapabilityGroup>
           )}
           {tasks.length > 0 && (
-            <CapabilityGroup label="Active Task State">
+            <CapabilityGroup label="Flow Task State">
               {tasks.map((t) => (
                 <CapabilityCard key={t.id}>
                   <div className="flex items-center justify-between gap-2">

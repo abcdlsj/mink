@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,6 +26,52 @@ func newBackendWithApp(t *testing.T) (*Backend, *app.App) {
 	}
 	t.Cleanup(func() { _ = a.Close() })
 	return newBackend(a), a
+}
+
+func TestMemoryOverviewIncludesRecentItemsWithoutPaths(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	dir := filepath.Join(a.Config().MemoryDir(), "persona", "coder")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pref-1.md"), []byte(`---
+title: "Reply style"
+kind: "preference"
+summary: "User prefers concise Chinese replies."
+updated_at: 2026-06-18T01:02:03Z
+---
+
+# Reply style
+
+User prefers concise Chinese replies.
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.MemoryOverview("coder", "", "")
+	var found bool
+	for _, sc := range got.Scopes {
+		if strings.Contains(sc.Label+sc.Key, a.Config().MemoryDir()) || strings.Contains(sc.Label+sc.Key, a.Workspace()) {
+			t.Fatalf("memory scope leaked path: %#v", sc)
+		}
+		if sc.Kind != "persona" || sc.Key != "coder" {
+			continue
+		}
+		found = true
+		if len(sc.Recent) != 1 {
+			t.Fatalf("recent = %#v, want one item", sc.Recent)
+		}
+		doc := sc.Recent[0]
+		if doc.ID != "pref-1" || doc.Title != "Reply style" || !strings.Contains(doc.Summary, "concise Chinese") {
+			t.Fatalf("doc = %#v", doc)
+		}
+		if strings.Contains(doc.Title+doc.Summary+doc.ID, a.Config().MemoryDir()) {
+			t.Fatalf("memory overview leaked path: %#v", doc)
+		}
+	}
+	if !found {
+		t.Fatalf("persona scope missing: %#v", got.Scopes)
+	}
 }
 
 func TestSpaceRecentRunsReadsTaskStoreBySpaceID(t *testing.T) {

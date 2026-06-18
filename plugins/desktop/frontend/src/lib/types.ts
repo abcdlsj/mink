@@ -245,6 +245,25 @@ export interface ContextResetResult {
   note?: string;
 }
 
+export interface MemoryDocView {
+  id: string;
+  title: string;
+  summary?: string;
+  kind?: string;
+  updated_at: string;
+}
+
+export interface MemoryScopeView {
+  kind: string;
+  key?: string;
+  label: string;
+  recent: MemoryDocView[];
+}
+
+export interface MemoryOverviewView {
+  scopes: MemoryScopeView[];
+}
+
 export interface AgentRun {
   id: string;
   agent_id: string;

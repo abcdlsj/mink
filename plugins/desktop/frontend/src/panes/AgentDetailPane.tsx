@@ -1,6 +1,7 @@
 import { AtSign, MessageCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
+import { MemoryOverviewCard } from "./MemoryOverviewCard";
 
 export function AgentDetailPane() {
   const agentID = useStore((s) => s.activeAgentID);
@@ -36,17 +37,20 @@ export function AgentDetailPane() {
               <div className="flex items-center gap-2 font-display text-[24px] font-extrabold text-text">
                 <AtSign className="size-5 text-text-muted" />
                 <span>{display}</span>
+                <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text-muted">
+                  Agent Profile
+                </span>
               </div>
               <div className="mt-1 font-mono text-[11px] text-text-faint">{agentID}</div>
             </div>
             <div className="flex gap-2">
               <Button variant="default" onClick={() => void openAgent(defaultDM?.id || agentID)}>
                 <MessageCircle className="size-3" />
-                <span>Message</span>
+                <span>Open default DM</span>
               </Button>
               <Button variant="primary" onClick={() => void newAgentChat(agentID)}>
                 <Plus className="size-3" />
-                <span>New chat</span>
+                <span>New Agent Chat</span>
               </Button>
             </div>
           </div>
@@ -76,6 +80,10 @@ export function AgentDetailPane() {
           </InfoCard>
         </div>
 
+        <InfoCard title="Memory">
+          <MemoryOverviewCard personaID={agentID} />
+        </InfoCard>
+
         <InfoCard title="Recent Agent Chats">
           {namedChats.length === 0 && !defaultDM ? (
             <div className="text-[12.5px] leading-[19px] text-text-faint">
@@ -90,7 +98,7 @@ export function AgentDetailPane() {
                   className="flex items-center justify-between border border-border bg-panel-2 px-2.5 py-2 text-left text-[12.5px] text-text-muted hover:text-text"
                 >
                   <span>Default DM</span>
-                  <span className="font-mono text-[10.5px] text-text-faint">Message</span>
+                  <span className="font-mono text-[10.5px] text-text-faint">Default Agent DM</span>
                 </button>
               )}
               {namedChats.slice(0, 6).map((chat) => (

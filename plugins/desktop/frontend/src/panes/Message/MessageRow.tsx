@@ -132,7 +132,10 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         )}
         {m.status === "failed" && (
           <div className="mt-2.5 flex flex-wrap items-center gap-2 border border-error border-l-4 bg-panel px-2.5 py-2 text-[12px] text-error">
-            <span className="leading-[18px]">{m.error || "Reply stopped before it finished."}</span>
+            <span className="leading-[18px]">
+              {m.error || "Reply stopped before it finished."}
+              <span className="ml-1 text-text-faint">Retry reruns this reply from the existing user message; it will not duplicate your message.</span>
+            </span>
             {spaceID && (
               <button
                 type="button"
@@ -234,6 +237,7 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
   const anyRunning = events.some((e) => e.status === "running");
   const anyError = events.some((e) => e.status === "error");
   const status = anyRunning ? "running" : anyError ? "error" : "done";
+  const actionSummary = foldedToolSummary(events);
   const label =
     "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
   if (open) {
@@ -263,11 +267,31 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
       )}
     >
       <span>{label}</span>
+      {actionSummary && (
+        <>
+          <span className="text-text-faint"> · </span>
+          <span>{actionSummary}</span>
+        </>
+      )}
       <span className="text-text-faint"> · </span>
       <span className="underline underline-offset-2 text-text-faint">view details</span>
       {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running align-middle" />}
     </button>
   );
+}
+
+function foldedToolSummary(events: EventBlockData[]): string {
+  const parts = events
+    .map((ev) => {
+      const name = ev.tool_name || "tool";
+      const detail = ev.err || ev.output || ev.args || "";
+      return detail ? `${name}: ${detail.replace(/\s+/g, " ").trim()}` : name;
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+  const text = parts.join(" · ");
+  if (text.length <= 120) return text;
+  return text.slice(0, 119).trimEnd() + "…";
 }
 
 function UsageFooter({ usage }: { usage: NonNullable<MessageView["usage"]> }) {

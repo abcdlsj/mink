@@ -41,12 +41,16 @@ export function ChannelHeader({ scope }: { scope: string }) {
   let metaText = "";
   let TitleIcon = MessageSquare;
   let listeningHint = "";
+  let objectType = "Direct Message";
+  const isNamedAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
   if (view === "channel") {
     TitleIcon = Hash;
     titleText = channel?.name || "channel";
+    objectType = "Channel";
     listeningHint = listeningSummary(channel, agents);
   } else if (view === "direct") {
     TitleIcon = MessageSquare;
+    objectType = "Direct Message";
     metaText = channel ? `in #${channel.name}` : "";
   } else if (view === "agent") {
     TitleIcon = AtSign;
@@ -55,19 +59,19 @@ export function ChannelHeader({ scope }: { scope: string }) {
       detail.item.persona_name ||
       agents.find((a) => a.id === detail.item.persona_id)?.display ||
       titleText;
-    const isNamedAgentChat = !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
-    metaText = `${isNamedAgentChat ? "Agent chat" : "DM"} · @${personaDisplay}`;
+    objectType = isNamedAgentChat ? "Agent Chat" : "Default Agent DM";
+    metaText = `@${personaDisplay}`;
     if (detail.summary) metaText += ` · ${detail.summary}`;
   }
 
-  const editableAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
+  const editableAgentChat = isNamedAgentChat;
   const deleteTarget =
     view === "channel" && detail.item.id
-      ? { kind: "channel" as const, id: detail.item.id, label: "#" + (channel?.name || item.title || "channel") }
+      ? { kind: "channel" as const, id: detail.item.id, label: "#" + (channel?.name || item.title || "channel"), type: "channel" }
       : view === "direct" && detail.item.id
-        ? { kind: "direct_chat" as const, id: detail.item.id, label: item.title || "direct chat" }
+        ? { kind: "direct_chat" as const, id: detail.item.id, label: item.title || "direct chat", type: "direct message" }
         : view === "agent" && detail.item.id
-          ? { kind: "agent_dm" as const, id: detail.item.id, label: titleText || "agent chat" }
+          ? { kind: "agent_dm" as const, id: detail.item.id, label: titleText || "agent chat", type: objectType.toLowerCase() }
           : null;
   const submitDelete = async () => {
     if (!deleteTarget || deleteBusy) return;
@@ -159,6 +163,9 @@ export function ChannelHeader({ scope }: { scope: string }) {
           ) : (
             <span>{titleText}</span>
           )}
+          <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text-muted">
+            {objectType}
+          </span>
           {view === "channel" && channel && (
             <AgentGear scope={{ kind: "channel", channel }} agents={agents} />
           )}
@@ -191,7 +198,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
       <ConfirmDialog
         open={deleteOpen}
         title={`Delete ${deleteTarget.label}?`}
-        body="This removes local chat history and model context for this conversation."
+        body={`This removes local chat history and model context for this ${deleteTarget.type}.`}
         confirmLabel="Delete"
         danger
         busy={deleteBusy}

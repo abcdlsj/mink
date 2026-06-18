@@ -25,6 +25,7 @@ export function LeftPane() {
   const [openSections, setOpenSections] = useState({
     channels: true,
     direct: true,
+    persona: true,
     agents: true,
   });
   const [agentCreate, setAgentCreate] = useState<{
@@ -39,19 +40,9 @@ export function LeftPane() {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   };
   const sidebarPersonas = personas.filter((p) => p.show_in_sidebar !== false);
-  const sidebarPersonaIDs = new Set(sidebarPersonas.map((p) => p.id));
   const humanDirectChats = directChats.filter((dm) => dm.kind !== "agent_dm");
   const agentDirectChats = directChats.filter((dm) => dm.kind === "agent_dm");
-  const extraAgentDirectChats = agentDirectChats.filter(
-    (dm) => dm.persona_id && !sidebarPersonaIDs.has(dm.persona_id),
-  );
-  const directCount = humanDirectChats.length + sidebarPersonas.length + extraAgentDirectChats.length;
-  const activePersonaID =
-    view === "agent" && activeAgentSpace
-      ? agentDMs.find((dm) => dm.id === activeAgentSpace)?.persona_id ||
-        directChats.find((dm) => dm.kind === "agent_dm" && dm.id === activeAgentSpace)?.persona_id ||
-        activeAgentSpace
-      : "";
+  const directCount = humanDirectChats.length + agentDirectChats.length;
   const agentDefaultDM = (personaID: string) =>
     directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
   const openAgentRow = (personaID: string) => openAgentDetail(personaID);
@@ -185,9 +176,37 @@ export function LeftPane() {
               tooltip={dc.has_running ? `${dc.title} · running` : undefined}
             />
           ))}
+          {agentDirectChats.map((dc) => (
+            <NavItem
+              key={dc.id}
+              icon={<AtSign className="size-3" />}
+              name={dc.title}
+              subtitle={`Default agent DM · @${dc.persona_name || dc.persona_id || "agent"}`}
+              time={relTime(dc.updated_at)}
+              running={dc.has_running}
+              active={view === "agent" && activeAgentSpace === dc.id}
+              onClick={() => void openDirectChat(dc.id)}
+              tooltip={dc.has_running ? `${dc.title} · running` : personaTooltip({
+                id: dc.persona_id || dc.id,
+                display: dc.persona_name || dc.title,
+                description: "Default agent DM",
+              } as import("@/lib/types").PersonaItem)}
+            />
+          ))}
+        </ul>
+      )}
+
+      <GroupLabel open={openSections.persona} count={sidebarPersonas.length} onToggle={() => toggleSection("persona")}>
+        Agents
+      </GroupLabel>
+      {openSections.persona && (
+        <ul className="flex flex-col gap-px">
+          {sidebarPersonas.length === 0 && (
+            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No sidebar agents.</li>
+          )}
           {sidebarPersonas.map((agent) => {
             const defaultDM = agentDefaultDM(agent.id);
-            const active = (view === "agent" && activePersonaID === agent.id) || (view === "agent_detail" && activeAgentID === agent.id);
+            const active = view === "agent_detail" && activeAgentID === agent.id;
             const display = agent.display || agent.id;
             return (
               <li key={agent.id}>
@@ -218,7 +237,7 @@ export function LeftPane() {
                   >
                     <span className="block truncate text-[13px] font-semibold">{display}</span>
                     <span className="block truncate font-mono text-[10.5px] text-text-faint">
-                      {defaultDM?.updated_at ? "dm " + relTime(defaultDM.updated_at) : "view details"}
+                      {defaultDM?.updated_at ? "Agent profile · DM " + relTime(defaultDM.updated_at) : "Agent profile"}
                     </span>
                   </button>
                   <button
@@ -228,7 +247,7 @@ export function LeftPane() {
                       openAgentCreate(agent.id, display);
                     }}
                     className="inline-flex size-6 items-center justify-center border border-border bg-panel text-text-muted hover:bg-accent hover:text-text"
-                    title={"Start with @" + display}
+                    title={"Create DM or Agent Chat with @" + display}
                   >
                     <Plus className="size-3" />
                   </button>
@@ -236,22 +255,6 @@ export function LeftPane() {
               </li>
             );
           })}
-          {extraAgentDirectChats.map((dc) => (
-            <NavItem
-              key={dc.id}
-              icon={<AtSign className="size-3" />}
-              name={dc.title}
-              subtitle={`@${dc.persona_name || dc.persona_id || "agent"}`}
-              time={relTime(dc.updated_at)}
-              running={dc.has_running}
-              active={view === "agent" && ((activeAgentSpace === dc.id) || (activePersonaID === dc.persona_id))}
-              onClick={() => void openDirectChat(dc.id)}
-              tooltip={dc.has_running ? `${dc.title} · running` : personaTooltip({
-                id: dc.persona_id || dc.id,
-                display: dc.persona_name || dc.title,
-              } as import("@/lib/types").PersonaItem)}
-            />
-          ))}
         </ul>
       )}
 
@@ -282,7 +285,7 @@ export function LeftPane() {
                   </span>
                 </div>
                 <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-faint">
-                  @{dm.persona_name || dm.persona_id}
+                  Agent Chat · @{dm.persona_name || dm.persona_id}
                   {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
                 </div>
               </button>
