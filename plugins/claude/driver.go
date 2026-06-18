@@ -264,15 +264,13 @@ func parseOutput(line string) *external.Message {
 			Type:    external.MsgTurnDone,
 			Text:    env.Result,
 			Reason:  env.TerminalReason,
+			Model:   strings.TrimSpace(env.Model),
 			CostUSD: env.TotalCostUSD,
 			Usage:   tokenUsage(env.Usage),
 		}
-		for model, mu := range env.ModelUsage {
+		for _, mu := range env.ModelUsage {
 			if mu.CostUSD > done.CostUSD {
 				done.CostUSD = mu.CostUSD
-			}
-			if done.Model == "" {
-				done.Model = model
 			}
 			if done.Usage != nil {
 				if mu.ContextWindow > done.Usage.ContextWindow {

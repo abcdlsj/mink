@@ -274,10 +274,28 @@ func TestParseOutputResultEmitsTurnDoneWithUsage(t *testing.T) {
 	if m.Type != external.MsgTurnDone {
 		t.Fatalf("type = %v, want MsgTurnDone", m.Type)
 	}
-	if m.CostUSD != 0.42 || m.Reason != "completed" || m.Model != "claude-opus-4-7" {
+	if m.CostUSD != 0.42 || m.Reason != "completed" || m.Model != "" {
 		t.Fatalf("meta = %#v", m)
 	}
 	if m.Usage == nil || m.Usage.Input != 105 || m.Usage.Output != 20 || m.Usage.ContextWindow != 200000 {
 		t.Fatalf("usage = %#v", m.Usage)
+	}
+}
+
+func TestParseOutputResultUsesTopLevelModelOnly(t *testing.T) {
+	line := mustJSON(t, map[string]any{
+		"type":   "result",
+		"result": "done",
+		"model":  "claude-sonnet-4-6",
+		"modelUsage": map[string]any{
+			"claude-haiku-4-5-20251001": map[string]any{"costUSD": 0.01},
+		},
+	})
+	m := parseOutput(line)
+	if m == nil || m.Type != external.MsgTurnDone {
+		t.Fatalf("got %#v", m)
+	}
+	if m.Model != "claude-sonnet-4-6" {
+		t.Fatalf("model = %q, want top-level model", m.Model)
 	}
 }

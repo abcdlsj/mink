@@ -207,6 +207,27 @@ func TestRuntimeMetaPersistsOnAssistantMessage(t *testing.T) {
 	}
 }
 
+func TestRuntimeMetaModelFillsUsageModel(t *testing.T) {
+	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: bus.New(), AgentID: "coder"}
+	st := &runState{calls: map[string]toolCallState{}}
+
+	handleMessage("test", turn, st, &Message{Type: MsgRuntimeMeta, Meta: map[string]string{
+		"runtime": "claude",
+		"model":   "claude-sonnet-4-6",
+	}})
+	handleMessage("test", turn, st, &Message{Type: MsgAssistantText, Text: "ok"})
+	handleMessage("test", turn, st, &Message{Type: MsgTurnDone, Usage: &msg.TokenUsage{Input: 1, Output: 2}})
+	st.flush(turn.Session)
+
+	if len(turn.Session.Messages) != 1 {
+		t.Fatalf("messages = %d, want 1", len(turn.Session.Messages))
+	}
+	usage := turn.Session.Messages[0].Usage
+	if usage == nil || usage.Model != "claude-sonnet-4-6" {
+		t.Fatalf("usage = %#v, want runtime meta model", usage)
+	}
+}
+
 func TestDriverRuntimeMetaPublishesBeforeCommand(t *testing.T) {
 	r := &Runtime{
 		driver: Driver{

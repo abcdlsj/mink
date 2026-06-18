@@ -265,7 +265,8 @@ func (s *runState) addAssistant(sess *session.Session) {
 		return
 	}
 	usage := s.usage
-	if s.cost > 0 || s.model != "" {
+	runtimeModel := strings.TrimSpace(s.runtimeMeta["model"])
+	if s.cost > 0 || s.model != "" || runtimeModel != "" {
 		if usage == nil {
 			usage = &msg.TokenUsage{}
 		}
@@ -274,6 +275,8 @@ func (s *runState) addAssistant(sess *session.Session) {
 		}
 		if s.model != "" {
 			usage.Model = s.model
+		} else if runtimeModel != "" {
+			usage.Model = runtimeModel
 		}
 	}
 	sess.Add(msg.Message{
