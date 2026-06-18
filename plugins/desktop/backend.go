@@ -905,11 +905,25 @@ func sessionSourceMatches(source string, candidates []string) bool {
 	return false
 }
 
-func (b *Backend) NewDirectChat() (SessionDetail, error) {
+func (b *Backend) NewDirectChat(title, agentID string) (SessionDetail, error) {
 	seed := newDirectChatSeed()
 	sp, err := b.app.Spaces().EnsureSpace(space.KindDirectChat, seed, space.PersonaInfo{})
 	if err != nil {
 		return SessionDetail{}, err
+	}
+	if title = strings.TrimSpace(title); title != "" {
+		if err := b.app.Spaces().UpdateTitle(sp.ID, title); err != nil {
+			return SessionDetail{}, err
+		}
+		if updated, err := b.app.Spaces().LoadSpace(sp.ID); err == nil && updated != nil {
+			sp = updated
+		}
+	}
+	if agentID = strings.TrimSpace(agentID); agentID != "" {
+		_ = b.app.Spaces().SetAgentMode(sp.ID, agentID, "listen")
+		if updated, err := b.app.Spaces().LoadSpace(sp.ID); err == nil && updated != nil {
+			sp = updated
+		}
 	}
 	return SessionDetail{
 		Item: SessionItem{
@@ -919,6 +933,38 @@ func (b *Backend) NewDirectChat() (SessionDetail, error) {
 			MessageCount: len(sp.Messages),
 		},
 		Messages: spaceMessagesToView(sp, b.app),
+	}, nil
+}
+
+func (b *Backend) UpdateDirectChatTitle(spaceID, title string) (DirectChatItem, error) {
+	spaceID = strings.TrimSpace(spaceID)
+	title = strings.TrimSpace(title)
+	if spaceID == "" || title == "" {
+		return DirectChatItem{}, fmt.Errorf("space id and title required")
+	}
+	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	if err != nil {
+		return DirectChatItem{}, err
+	}
+	if sp == nil || sp.Kind != space.KindDirectChat {
+		return DirectChatItem{}, fmt.Errorf("direct chat not found: %s", spaceID)
+	}
+	if isDefaultSumiDirect(sp) {
+		return DirectChatItem{}, fmt.Errorf("default direct chat title is fixed")
+	}
+	if err := b.app.Spaces().UpdateTitle(sp.ID, title); err != nil {
+		return DirectChatItem{}, err
+	}
+	updated, err := b.app.Spaces().LoadSpace(sp.ID)
+	if err != nil {
+		return DirectChatItem{}, err
+	}
+	return DirectChatItem{
+		ID:        updated.ID,
+		Kind:      "direct_chat",
+		Title:     directChatTitle(updated),
+		Agents:    directChatAgentIDs(updated),
+		UpdatedAt: updated.UpdatedAt,
 	}, nil
 }
 
@@ -2801,6 +2847,26 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/direct-chat", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetDirectChat(req.URL.Query().Get("id")))
 	})
+	mux.HandleFunc("/api/direct-chat/title", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		item, err := b.UpdateDirectChatTitle(in.ID, in.Title)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, item)
+	})
 	mux.HandleFunc("/api/recent", jsonHandler(func() any { return b.ListRecent() }))
 	mux.HandleFunc("/api/run", func(rw http.ResponseWriter, req *http.Request) {
 		writeJSON(rw, b.GetRunDetail(req.URL.Query().Get("id")))
@@ -2870,7 +2936,14 @@ func (b *Backend) APIHandler() http.Handler {
 			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		out, err := b.NewDirectChat()
+		var in struct {
+			Title   string `json:"title"`
+			AgentID string `json:"agent_id"`
+		}
+		if req.ContentLength > 0 {
+			_ = json.NewDecoder(req.Body).Decode(&in)
+		}
+		out, err := b.NewDirectChat(in.Title, in.AgentID)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusInternalServerError)
 			return

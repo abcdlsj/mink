@@ -20,6 +20,7 @@ export function QuickCreate() {
   const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [selectedAgentID, setSelectedAgentID] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function QuickCreate() {
       setIdx(0);
       setErr(null);
       setBusy(false);
+      setSelectedAgentID(null);
       const t = setTimeout(() => inputRef.current?.focus(), 30);
       return () => clearTimeout(t);
     }
@@ -84,10 +86,12 @@ export function QuickCreate() {
   const submitDirect = async () => {
     if (busy) return;
     setBusy(true);
+    setErr(null);
     try {
-      await newDirectChat();
+      await newDirectChat(name.trim() || undefined, selectedAgentID || undefined);
       close();
-    } finally {
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   };
@@ -101,9 +105,7 @@ export function QuickCreate() {
       setIdx((i) => (i - 1 + menuItems.length) % menuItems.length);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const next = menuItems[idx].id;
-      if (next === "direct") void submitDirect();
-      else setMode(next);
+      setMode(menuItems[idx].id);
     }
   };
 
@@ -118,6 +120,21 @@ export function QuickCreate() {
     } else if (e.key === "Enter") {
       e.preventDefault();
       void submitAgent(filteredAgents[idx].id);
+    }
+  };
+
+  const onDirectAgentKey = (e: React.KeyboardEvent) => {
+    if (filteredAgents.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setIdx((i) => (i + 1) % filteredAgents.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setIdx((i) => (i - 1 + filteredAgents.length) % filteredAgents.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const a = filteredAgents[idx];
+      if (a) setSelectedAgentID((prev) => (prev === a.id ? null : a.id));
     }
   };
 
@@ -138,6 +155,7 @@ export function QuickCreate() {
             {mode === "menu" && "Pick what you want to start."}
             {mode === "channel" && "Letters, numbers, dashes."}
             {mode === "agent" && "Pick an agent; title is optional."}
+            {mode === "direct" && "Title and agent are optional."}
           </div>
         </div>
 
@@ -157,10 +175,7 @@ export function QuickCreate() {
                     i === idx ? "border-border bg-panel-2" : "hover:border-border hover:bg-panel-2",
                   )}
                   onMouseEnter={() => setIdx(i)}
-                  onClick={() => {
-                    if (it.id === "direct") void submitDirect();
-                    else setMode(it.id);
-                  }}
+                  onClick={() => setMode(it.id)}
                 >
                   {it.icon}
                   <span className="flex-1">
@@ -254,7 +269,67 @@ export function QuickCreate() {
             </div>
           </div>
         )}
+
+        {mode === "direct" && (
+          <div>
+            <input
+              ref={inputRef}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Chat title (optional)"
+              autoFocus
+              className="w-full border-b-hard border-border bg-bg px-4 py-2.5 text-[13.5px] text-text outline-none"
+            />
+            <div onKeyDown={onDirectAgentKey}>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search agents… (optional)"
+                className="w-full border-b-hard border-border bg-panel px-4 py-2 text-[13px] text-text outline-none"
+              />
+              <ul className="py-1 max-h-[220px] overflow-y-auto">
+                {filteredAgents.length === 0 ? (
+                  <li className="px-4 py-2.5 text-[12px] text-text-faint">No matching agent.</li>
+                ) : (
+                  filteredAgents.map((a, i) => (
+                    <li key={a.id}>
+                      <button
+                        className={cn(
+                          "flex w-full cursor-pointer items-center gap-2 border-y border-transparent px-4 py-2 text-left",
+                          selectedAgentID === a.id
+                            ? "border-border bg-panel-2 text-text"
+                            : i === idx
+                              ? "border-border bg-panel-2"
+                              : "hover:border-border hover:bg-panel-2",
+                        )}
+                        onMouseEnter={() => setIdx(i)}
+                        onClick={() => setSelectedAgentID((prev) => (prev === a.id ? null : a.id))}
+                      >
+                        <AtSign className="size-3 text-text-faint" />
+                        <span className="text-[13px] text-text">{a.display}</span>
+                        {a.role && <span className="ml-auto text-[11.5px] text-text-faint truncate max-w-[60%]">{a.role}</span>}
+                        {selectedAgentID === a.id && (
+                          <span className="ml-1 shrink-0 font-mono text-[10.5px] text-text-muted">selected</span>
+                        )}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </div>
+            {err && <div className="px-4 py-2 text-[12px] text-error">{err}</div>}
+            <div className="flex justify-end gap-2 border-t-hard border-border px-4 py-2">
+              <Button variant="default" type="button" onClick={() => setMode("menu")} disabled={busy}>
+                Back
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={() => void submitDirect()}>
+                {busy ? "Creating…" : "Create"}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

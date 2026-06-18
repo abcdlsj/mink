@@ -102,13 +102,25 @@ export const api = {
         body: JSON.stringify({ id, title }),
       }),
     ),
-  newDirect: () =>
+  newDirect: (title?: string, agentID?: string) =>
     j<SessionDetail>(
-      fetch("/api/new-direct", { method: "POST" }),
+      fetch("/api/new-direct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title || "", agent_id: agentID || "" }),
+      }),
     ),
   directChats: () => j<DirectChatItem[]>(fetch("/api/direct-chats")),
   directChat: (id: string) =>
     j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
+  updateDirectChatTitle: (id: string, title: string) =>
+    j<DirectChatItem>(
+      fetch("/api/direct-chat/title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, title }),
+      }),
+    ),
   recent: () => j<RecentItem[]>(fetch("/api/recent")),
   run: (id: string) => j<RunDetail>(fetch("/api/run?id=" + encodeURIComponent(id))),
   updateTaskStatus: (taskID: string, status: string) =>

@@ -108,7 +108,8 @@ interface State {
   updateAgentChatTitle: (id: string, title: string) => Promise<void>;
   openTaskBoard: (routeOpts?: RouteWriteOptions) => void;
   openDirectChat: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
-  newDirectChat: () => Promise<void>;
+  newDirectChat: (title?: string, agentID?: string) => Promise<void>;
+  updateDirectChatTitle: (id: string, title: string) => Promise<void>;
   deleteConversation: (input: { kind: "channel" | "direct_chat" | "agent_dm" | "thread"; id: string; parentMessageID?: string }) => Promise<void>;
   setPalette: (open: boolean) => void;
   setQuickCreate: (open: boolean) => void;
@@ -693,10 +694,10 @@ export const useStore = create<State>((set, get) => ({
     writeWebRoute({ view: "tasks" }, routeOpts);
   },
 
-  async newDirectChat() {
+  async newDirectChat(title, agentID) {
     let detail: SessionDetail;
     try {
-      detail = await api.newDirect();
+      detail = await api.newDirect(title, agentID);
     } catch {
       return;
     }
@@ -718,6 +719,16 @@ export const useStore = create<State>((set, get) => ({
       set({ directChats, recent });
     } catch {
           }
+  },
+
+  async updateDirectChatTitle(id, title) {
+    const item = await api.updateDirectChatTitle(id, title);
+    const [directChats] = await Promise.all([api.directChats()]);
+    const detail = get().detail;
+    set({
+      directChats,
+      detail: detail && detail.item.id === id ? { ...detail, item: { ...detail.item, title: item.title } } : detail,
+    });
   },
 
   async openDirectChat(id, routeOpts?: RouteWriteOptions) {

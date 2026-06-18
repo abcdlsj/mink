@@ -11,9 +11,11 @@ export function ChannelHeader({ scope }: { scope: string }) {
   const channels = useStore((s) => s.channels);
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
+  const activeDirect = useStore((s) => s.activeDirect);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const updateAgentChatTitle = useStore((s) => s.updateAgentChatTitle);
+  const updateDirectChatTitle = useStore((s) => s.updateDirectChatTitle);
   const deleteConversation = useStore((s) => s.deleteConversation);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -43,6 +45,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   let listeningHint = "";
   let objectType = "Direct Message";
   const isNamedAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
+  const isEditableDirect = view === "direct" && !!activeDirect && item.title !== "Sumi";
   if (view === "channel") {
     TitleIcon = Hash;
     titleText = channel?.name || "channel";
@@ -64,7 +67,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     if (detail.summary) metaText += ` · ${detail.summary}`;
   }
 
-  const editableAgentChat = isNamedAgentChat;
+  const editable = isNamedAgentChat || isEditableDirect;
   const deleteTarget =
     view === "channel" && detail.item.id
       ? { kind: "channel" as const, id: detail.item.id, label: "#" + (channel?.name || item.title || "channel"), type: "channel" }
@@ -87,13 +90,13 @@ export function ChannelHeader({ scope }: { scope: string }) {
     }
   };
   const beginTitleEdit = () => {
-    if (!editableAgentChat) return;
+    if (!editable) return;
     setTitleDraft(titleText === "New chat" ? "" : titleText);
     setTitleErr(null);
     setEditingTitle(true);
   };
   const submitTitleEdit = async () => {
-    if (!editableAgentChat || !activeAgentSpace || titleBusy) return;
+    if (!editable || titleBusy) return;
     const next = titleDraft.trim();
     if (!next) {
       setTitleErr("Title is required.");
@@ -106,7 +109,11 @@ export function ChannelHeader({ scope }: { scope: string }) {
     setTitleBusy(true);
     setTitleErr(null);
     try {
-      await updateAgentChatTitle(activeAgentSpace, next);
+      if (isNamedAgentChat && activeAgentSpace) {
+        await updateAgentChatTitle(activeAgentSpace, next);
+      } else if (isEditableDirect && activeDirect) {
+        await updateDirectChatTitle(activeDirect, next);
+      }
       setEditingTitle(false);
     } catch (e) {
       setTitleErr(e instanceof Error ? e.message : String(e));
@@ -127,7 +134,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
           <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
             <TitleIcon className="size-[14px] text-text" />
           </span>
-          {editableAgentChat && editingTitle ? (
+          {editable && editingTitle ? (
             <span className="inline-flex min-w-[220px] flex-col gap-1">
               <input
                 value={titleDraft}
@@ -151,7 +158,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
               />
               {titleErr && <span className="font-mono text-[10.5px] font-medium text-error">{titleErr}</span>}
             </span>
-          ) : editableAgentChat ? (
+          ) : editable ? (
             <button
               type="button"
               onClick={beginTitleEdit}

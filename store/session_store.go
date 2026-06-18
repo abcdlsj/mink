@@ -167,15 +167,24 @@ func (s *Store) loadSessionsLocked() (map[string]diskSession, error) {
 	if err != nil {
 		return nil, err
 	}
+	dirty := false
 	for id, meta := range idx {
 		d, err := loadSessionFile(meta.Path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				delete(idx, id)
+				dirty = true
+				continue
+			}
 			return nil, err
 		}
 		out[d.ID] = d
 		if d.ID != id {
 			delete(out, id)
 		}
+	}
+	if dirty {
+		_ = s.saveIndexLocked(idx)
 	}
 	return out, nil
 }

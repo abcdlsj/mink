@@ -8,6 +8,8 @@ import { personaForActiveAgent } from "../Message/message-helpers";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import { applyMention, mentionCandidates, nextMentionState, type MentionState } from "./composer-helpers";
 
+const draftMap = new Map<string, string>();
+
 export function Composer() {
   const view = useStore((s) => s.view);
   const channels = useStore((s) => s.channels);
@@ -118,6 +120,11 @@ export function Composer() {
     if (view === "channel") return activeChannel || "";
     return "";
   })();
+
+  useEffect(() => {
+    const saved = currentScopeKey ? (draftMap.get(currentScopeKey) ?? "") : "";
+    setInput(saved);
+  }, [currentScopeKey]);
   const sending = currentScopeKey ? !!sendingByScope[currentScopeKey] : false;
   const canSend = trimmed.length > 0 && !sending;
   const usesRouting =
@@ -140,6 +147,7 @@ export function Composer() {
     if (!canSend) return;
     const text = trimmed;
     setInput("");
+    if (currentScopeKey) draftMap.delete(currentScopeKey);
     await send(text, persona || undefined);
   };
 
@@ -180,6 +188,7 @@ export function Composer() {
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInput(value);
+    if (currentScopeKey) draftMap.set(currentScopeKey, value);
     updateMentionState(value, e.target.selectionStart ?? value.length);
   };
 

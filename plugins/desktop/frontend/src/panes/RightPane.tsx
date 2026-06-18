@@ -329,7 +329,7 @@ function RuntimeContextSection({
           </div>
         )}
         <div className="mt-2 text-[11px] leading-[1.35] text-text-faint">
-          Reset session clears model cache only. Reset summary clears compressed runtime memory. Neither deletes chat history.
+          Clear cache resets the model's runtime token only. Clear summary removes compressed context memory. Neither deletes chat history.
         </div>
         {lastReset && <div className="mt-2 text-[11px] text-text-muted">{lastReset}</div>}
         {error && <div className="mt-2 text-[11px] text-error">{error}</div>}
@@ -339,6 +339,7 @@ function RuntimeContextSection({
             size="xs"
             disabled={!!busy}
             onClick={() => void load()}
+            title="Reload context data from the backend"
           >
             Refresh
           </Button>
@@ -347,16 +348,18 @@ function RuntimeContextSection({
             size="xs"
             disabled={!!busy}
             onClick={() => void reset("runtime_session")}
+            title="Clears the model's runtime token cache. Chat history is preserved."
           >
-            {busy === "runtime_session" ? "Resetting..." : "Reset session"}
+            {busy === "runtime_session" ? "Clearing…" : "Clear cache"}
           </Button>
           <Button
             variant="danger"
             size="xs"
             disabled={!!busy}
             onClick={() => void reset("summary")}
+            title="Clears the compressed context summary. Chat history is preserved."
           >
-            {busy === "summary" ? "Resetting..." : "Reset summary"}
+            {busy === "summary" ? "Clearing…" : "Clear summary"}
           </Button>
         </div>
       </div>
