@@ -406,6 +406,68 @@ func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 	}
 }
 
+func TestNewDirectChatWithAgentAddsVisibleParticipant(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub", Description: "writes code"}, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := b.NewDirectChat("Pairing", "coder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Item.ID == "" || detail.Item.Title != "Pairing" || detail.Item.TitleFixed {
+		t.Fatalf("detail item = %#v", detail.Item)
+	}
+
+	var gotDirect *DirectChatItem
+	for _, item := range b.ListDirectChats() {
+		if item.ID == detail.Item.ID {
+			got := item
+			gotDirect = &got
+			break
+		}
+	}
+	if gotDirect == nil {
+		t.Fatalf("new direct chat missing from list")
+	}
+	if len(gotDirect.Agents) != 1 || gotDirect.Agents[0] != "coder" {
+		t.Fatalf("direct agents = %#v, want coder", gotDirect.Agents)
+	}
+
+	participants := b.GetParticipants(detail.Item.ID, "")
+	if len(participants.Agents) != 1 || participants.Agents[0].ID != "coder" || participants.Agents[0].Display != "Coder" {
+		t.Fatalf("participants = %#v, want visible coder", participants.Agents)
+	}
+}
+
+func TestNewDirectChatRejectsUnknownAgent(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+	if _, err := b.NewDirectChat("Pairing", "missing"); err == nil {
+		t.Fatal("expected unknown agent error")
+	}
+}
+
+func TestListDirectChatsKeepsExplicitEmptyChats(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+	first, err := b.NewDirectChat("First empty", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := b.NewDirectChat("Second empty", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seen := map[string]bool{}
+	for _, item := range b.ListDirectChats() {
+		seen[item.ID] = true
+	}
+	if !seen[first.Item.ID] || !seen[second.Item.ID] {
+		t.Fatalf("explicit empty direct chats missing from list: seen=%#v first=%s second=%s", seen, first.Item.ID, second.Item.ID)
+	}
+}
+
 func TestDeleteAgentChatRemovesSpaceSessionsAndTasks(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

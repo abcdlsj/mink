@@ -35,6 +35,7 @@ export interface DirectChatItem {
   persona_id?: string;
   persona_name?: string;
   title: string;
+  title_fixed?: boolean;
   agents: string[];
   updated_at: string;
   unread_count: number;
@@ -176,6 +177,7 @@ export interface ThreadDetail {
 export interface SessionItem {
   id: string;
   title: string;
+  title_fixed?: boolean;
   persona_id?: string;
   persona_name?: string;
   runtime?: string;

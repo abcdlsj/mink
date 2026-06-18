@@ -695,13 +695,14 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async newDirectChat(title, agentID) {
-    let detail: SessionDetail;
+    const detail = await api.newDirect(title, agentID);
+    if (!detail.item?.id) throw new Error("Direct chat was not created");
+    let participants: ParticipantsView | null = null;
     try {
-      detail = await api.newDirect(title, agentID);
+      participants = await api.participants(detail.item.id, "");
     } catch {
-      return;
+      participants = null;
     }
-    if (!detail.item?.id) return;
     set({
       view: "direct",
       activeDirect: detail.item.id,
@@ -711,14 +712,14 @@ export const useStore = create<State>((set, get) => ({
       activeAgentID: null,
       activeAnchor: null,
       detail,
-      participants: { agents: [] },
+      participants,
     });
     writeWebRoute({ view: "direct", id: detail.item.id });
     try {
       const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
       set({ directChats, recent });
     } catch {
-          }
+    }
   },
 
   async updateDirectChatTitle(id, title) {

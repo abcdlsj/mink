@@ -920,7 +920,20 @@ func (b *Backend) NewDirectChat(title, agentID string) (SessionDetail, error) {
 		}
 	}
 	if agentID = strings.TrimSpace(agentID); agentID != "" {
-		_ = b.app.Spaces().SetAgentMode(sp.ID, agentID, "listen")
+		p := b.app.Personas().Get(agentID)
+		if p == nil {
+			return SessionDetail{}, fmt.Errorf("persona not registered: %s", agentID)
+		}
+		if err := b.app.Spaces().AddAgentParticipant(sp.ID, space.PersonaInfo{
+			ID:      p.ID,
+			Display: p.Display,
+			Role:    p.Description,
+		}); err != nil {
+			return SessionDetail{}, err
+		}
+		if err := b.app.Spaces().SetAgentMode(sp.ID, agentID, "listen"); err != nil {
+			return SessionDetail{}, err
+		}
 		if updated, err := b.app.Spaces().LoadSpace(sp.ID); err == nil && updated != nil {
 			sp = updated
 		}
@@ -929,6 +942,7 @@ func (b *Backend) NewDirectChat(title, agentID string) (SessionDetail, error) {
 		Item: SessionItem{
 			ID:           sp.ID,
 			Title:        directChatTitle(sp),
+			TitleFixed:   isDefaultSumiDirect(sp),
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
 		},
@@ -960,11 +974,12 @@ func (b *Backend) UpdateDirectChatTitle(spaceID, title string) (DirectChatItem, 
 		return DirectChatItem{}, err
 	}
 	return DirectChatItem{
-		ID:        updated.ID,
-		Kind:      "direct_chat",
-		Title:     directChatTitle(updated),
-		Agents:    directChatAgentIDs(updated),
-		UpdatedAt: updated.UpdatedAt,
+		ID:         updated.ID,
+		Kind:       "direct_chat",
+		Title:      directChatTitle(updated),
+		TitleFixed: isDefaultSumiDirect(updated),
+		Agents:     directChatAgentIDs(updated),
+		UpdatedAt:  updated.UpdatedAt,
 	}, nil
 }
 
@@ -977,31 +992,24 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 		return []DirectChatItem{}
 	}
 	type entry struct {
-		sp    *space.Space
-		empty bool
+		sp *space.Space
 	}
 	all := make([]entry, 0)
 	for _, sp := range spaces {
 		if sp.Kind != space.KindDirectChat {
 			continue
 		}
-		all = append(all, entry{sp: sp, empty: len(sp.Messages) == 0})
+		all = append(all, entry{sp: sp})
 	}
 	sort.Slice(all, func(i, j int) bool { return all[i].sp.UpdatedAt.After(all[j].sp.UpdatedAt) })
 
 	out := make([]DirectChatItem, 0, len(all))
-	keptEmpty := false
 	for _, e := range all {
-		if e.empty && !isDefaultSumiDirect(e.sp) {
-			if keptEmpty {
-				continue
-			}
-			keptEmpty = true
-		}
 		out = append(out, DirectChatItem{
 			ID:         e.sp.ID,
 			Kind:       "direct_chat",
 			Title:      directChatTitle(e.sp),
+			TitleFixed: isDefaultSumiDirect(e.sp),
 			Agents:     directChatAgentIDs(e.sp),
 			UpdatedAt:  e.sp.UpdatedAt,
 			HasRunning: b.directChatHasActiveTurn(e.sp),
@@ -1039,7 +1047,7 @@ func isDefaultSumiDirect(sp *space.Space) bool {
 }
 
 func isDefaultSumiDirectItem(item DirectChatItem) bool {
-	return item.Kind == "direct_chat" && strings.EqualFold(strings.TrimSpace(item.Title), defaultSumiDirectTitle)
+	return item.Kind == "direct_chat" && (item.TitleFixed || strings.EqualFold(strings.TrimSpace(item.Title), defaultSumiDirectTitle))
 }
 
 func directChatAgentIDs(sp *space.Space) []string {
@@ -1105,6 +1113,7 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 		Item: SessionItem{
 			ID:           sp.ID,
 			Title:        directChatTitle(sp),
+			TitleFixed:   isDefaultSumiDirect(sp),
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
 			Running:      b.directChatHasActiveTurn(sp),
@@ -2941,7 +2950,10 @@ func (b *Backend) APIHandler() http.Handler {
 			AgentID string `json:"agent_id"`
 		}
 		if req.ContentLength > 0 {
-			_ = json.NewDecoder(req.Body).Decode(&in)
+			if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+				http.Error(rw, "invalid json: "+err.Error(), http.StatusBadRequest)
+				return
+			}
 		}
 		out, err := b.NewDirectChat(in.Title, in.AgentID)
 		if err != nil {

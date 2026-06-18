@@ -5,6 +5,7 @@ import "time"
 type SessionItem struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
+	TitleFixed   bool      `json:"title_fixed,omitempty"`
 	PersonaID    string    `json:"persona_id,omitempty"`
 	PersonaName  string    `json:"persona_name,omitempty"`
 	Runtime      string    `json:"runtime"`
@@ -264,6 +265,7 @@ type DirectChatItem struct {
 	PersonaID   string    `json:"persona_id,omitempty"`
 	PersonaName string    `json:"persona_name,omitempty"`
 	Title       string    `json:"title"`
+	TitleFixed  bool      `json:"title_fixed,omitempty"`
 	Agents      []string  `json:"agents"`
 	UpdatedAt   time.Time `json:"updated_at"`
 	UnreadCount int       `json:"unread_count"`

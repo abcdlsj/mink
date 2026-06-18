@@ -56,6 +56,7 @@ export function Composer() {
     if (!choice) return;
     const applied = applyMention(input, mentionState, choice);
     setInput(applied.next);
+    if (currentScopeKey) draftMap.set(currentScopeKey, applied.next);
     closeMention();
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
@@ -75,6 +76,7 @@ export function Composer() {
     const next = input.slice(0, start) + prefix + mention + input.slice(end);
     const caret = start + prefix.length + mention.length;
     setInput(next);
+    if (currentScopeKey) draftMap.set(currentScopeKey, next);
     closeMention();
     requestAnimationFrame(() => {
       const current = textareaRef.current;

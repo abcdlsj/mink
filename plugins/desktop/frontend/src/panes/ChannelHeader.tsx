@@ -45,7 +45,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   let listeningHint = "";
   let objectType = "Direct Message";
   const isNamedAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
-  const isEditableDirect = view === "direct" && !!activeDirect && item.title !== "Sumi";
+  const isEditableDirect = view === "direct" && !!activeDirect && !item.title_fixed;
   if (view === "channel") {
     TitleIcon = Hash;
     titleText = channel?.name || "channel";
