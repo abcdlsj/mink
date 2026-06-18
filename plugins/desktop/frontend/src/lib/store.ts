@@ -407,6 +407,23 @@ export const useStore = create<State>((set, get) => ({
       const initialRoute = parseWebRoute();
       if (initialRoute) {
         try {
+          if (initialRoute.view === "home") {
+            set({
+              view: "home",
+              detail: null,
+              threadDetail: null,
+              participants: null,
+              activeChannel: null,
+              activeDirect: null,
+              activeThread: null,
+              activeAgentSpace: null,
+              activeAgentID: null,
+              activeAnchor: null,
+              expandedTaskID: null,
+            });
+            writeWebRoute({ view: "home" }, { replace: true });
+            return;
+          }
           if (initialRoute.view === "channel") {
             await get().openChannel(initialRoute.id, { replace: true });
             if (initialRoute.thread) await get().openThread(initialRoute.thread, { replace: true });
@@ -607,6 +624,7 @@ export const useStore = create<State>((set, get) => ({
       }));
       set({
         ...nav,
+        view: "home",
         detail: null,
         threadDetail: null,
         participants: null,
@@ -619,21 +637,7 @@ export const useStore = create<State>((set, get) => ({
         expandedTaskID: null,
         routeNotice: { text: hint, at: Date.now() },
       });
-      const nextDirect =
-        nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
-        nav.directChats.find((d) => d.kind === "direct_chat");
-      if (nextDirect) {
-        await get().openDirectChat(nextDirect.id, routeOpts);
-        set({ routeNotice: { text: hint, at: Date.now() } });
-        return;
-      }
-      if (nav.channels[0]) {
-        await get().openChannel(nav.channels[0].id, routeOpts);
-        set({ routeNotice: { text: hint, at: Date.now() } });
-        return;
-      }
-      get().openTaskBoard(routeOpts);
-      set({ routeNotice: { text: hint, at: Date.now() } });
+      writeWebRoute({ view: "home" }, routeOpts);
       return;
     }
     if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
@@ -792,6 +796,7 @@ export const useStore = create<State>((set, get) => ({
     });
     const openHome = async () => {
       set({
+        view: "home",
         detail: null,
         threadDetail: null,
         participants: null,
@@ -803,18 +808,7 @@ export const useStore = create<State>((set, get) => ({
         activeAnchor: null,
         expandedTaskID: null,
       });
-      const nextDirect =
-        nav.directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi") ||
-        nav.directChats.find((d) => d.kind === "direct_chat");
-      if (nextDirect) {
-        await get().openDirectChat(nextDirect.id, { replace: true });
-        return;
-      }
-      if (nav.channels[0]) {
-        await get().openChannel(nav.channels[0].id, { replace: true });
-        return;
-      }
-      get().openTaskBoard({ replace: true });
+      writeWebRoute({ view: "home" }, { replace: true });
     };
     if (kind === "thread") {
       if (get().threadDetail?.space_id === id && get().threadDetail?.parent_id === parentMessageID) {
@@ -838,6 +832,23 @@ export const useStore = create<State>((set, get) => ({
   async openCurrentRoute() {
     const route = parseWebRoute();
     if (!route) return;
+    if (route.view === "home") {
+      set({
+        view: "home",
+        detail: null,
+        threadDetail: null,
+        participants: null,
+        activeChannel: null,
+        activeDirect: null,
+        activeThread: null,
+        activeAgentSpace: null,
+        activeAgentID: null,
+        activeAnchor: null,
+        expandedTaskID: null,
+      });
+      writeWebRoute({ view: "home" }, { replace: true });
+      return;
+    }
     if (route.view === "channel") {
       await get().openChannel(route.id, { replace: true });
       if (route.thread) await get().openThread(route.thread, { replace: true });
