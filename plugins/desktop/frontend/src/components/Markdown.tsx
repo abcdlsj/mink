@@ -189,8 +189,12 @@ function isHeadingLine(line: string): boolean {
 function repairInlineHeadings(src: string): string {
   return src
     .split("\n")
-    .flatMap((line) => splitInlineHeading(line))
+    .flatMap((line) => (isTableLikeLine(line) ? [line] : splitInlineHeading(line)))
     .join("\n");
+}
+
+function isTableLikeLine(line: string): boolean {
+  return line.trimStart().startsWith("|");
 }
 
 function splitInlineHeading(line: string): string[] {
