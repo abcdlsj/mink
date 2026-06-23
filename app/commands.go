@@ -88,7 +88,11 @@ func (a *App) registerBuiltinCommands() {
 		if err := a.switchModel(args[0], args[1]); err != nil {
 			return "", err
 		}
-		return "switched model to " + a.currentModel(), nil
+		msg := "switched model to " + a.currentModel()
+		if err := config.PersistModel(a.cfg); err != nil {
+			msg += "\nwarning: failed to persist model: " + err.Error()
+		}
+		return msg, nil
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("models", "list detected model options", func(ctx context.Context, args []string) (string, error) {
