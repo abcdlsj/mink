@@ -9,13 +9,21 @@ import { cn, relTime } from "@/lib/utils";
 import { ReasoningPreface } from "./ReasoningPreface";
 import { TaskAccessoryRow } from "./TaskAccessory";
 import { TaskCandidate } from "./TaskCandidate";
-import { ThreadLink, ThreadSummaryRow } from "./ThreadAccessory";
+import { ThreadLink, ThreadStartRow, ThreadSummaryRow } from "./ThreadAccessory";
 import { personaForActiveAgent, shortRole, stripCollabLeak } from "./message-helpers";
 
 const LONG_CONTENT_CHARS = 2600;
 const LONG_CONTENT_LINES = 48;
 
-export function MessageRow({ m, compact }: { m: MessageView; compact: boolean }) {
+export function MessageRow({
+  m,
+  compact,
+  threadStartsEnabled = false,
+}: {
+  m: MessageView;
+  compact: boolean;
+  threadStartsEnabled?: boolean;
+}) {
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
   const view = useStore((s) => s.view);
@@ -52,12 +60,20 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const noticeEvents = events.filter((e) => e.kind === "service_notice");
   const shouldFoldTools = toolEvents.length > 1;
   const spaceID = threadDetail?.space_id || detail?.item.id || "";
+  const canStartThread =
+    threadStartsEnabled &&
+    view === "channel" &&
+    m.role !== "system" &&
+    !m.is_thread_reply &&
+    !m.thread_id &&
+    !m.thread_info &&
+    (!!m.content?.trim() || events.length > 0);
 
   return (
     <div
       id={"message-" + m.id}
       className={cn(
-        "grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
+        "group/message grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
         compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
       )}
     >
@@ -152,8 +168,9 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
         {m.thread_id && m.thread_summary && (
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
-        {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} />}
+        {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} forceMainScope={threadStartsEnabled} />}
         {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
+        {canStartThread && <ThreadStartRow messageID={m.id} />}
         {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
         {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
       </div>

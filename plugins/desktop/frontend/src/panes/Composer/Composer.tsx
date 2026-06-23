@@ -10,7 +10,7 @@ import { applyMention, mentionCandidates, nextMentionState, type MentionState } 
 
 const draftMap = new Map<string, string>();
 
-export function Composer() {
+export function Composer({ forceMainScope = false }: { forceMainScope?: boolean }) {
   const view = useStore((s) => s.view);
   const channels = useStore((s) => s.channels);
   const activeChannel = useStore((s) => s.activeChannel);
@@ -23,6 +23,7 @@ export function Composer() {
   const send = useStore((s) => s.send);
   const threadDetail = useStore((s) => s.threadDetail);
   const participants = useStore((s) => s.participants);
+  const activeThreadDetail = forceMainScope ? null : threadDetail;
 
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState("");
@@ -46,7 +47,7 @@ export function Composer() {
     view,
     agents,
     channel: view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined,
-    threadDetail,
+    threadDetail: activeThreadDetail,
     participants: participants?.agents || [],
   });
 
@@ -100,7 +101,7 @@ export function Composer() {
   }, [view, activeAgentSpace, activeChannel, activeDirect, activeThread, inferredPersona]);
 
   let placeholder = "Message...";
-  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+  if (activeThreadDetail && !activeThreadDetail.unsupported && !activeThreadDetail.not_found) {
     placeholder = "Reply to thread...";
   } else if (view === "channel") {
     const ch = channels.find((c) => c.id === activeChannel);
@@ -114,8 +115,8 @@ export function Composer() {
 
   const trimmed = input.trim();
   const currentScopeKey = (() => {
-    if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
-      return threadDetail.space_id + "::thread:" + threadDetail.parent_id;
+    if (activeThreadDetail && !activeThreadDetail.unsupported && !activeThreadDetail.not_found) {
+      return activeThreadDetail.space_id + "::thread:" + activeThreadDetail.parent_id;
     }
     if (view === "agent") return detail?.item.id || activeAgentSpace || "";
     if (view === "direct") return activeDirect || "";
@@ -131,7 +132,7 @@ export function Composer() {
   const canSend = trimmed.length > 0 && !sending;
   const usesRouting =
     (view === "channel" && !!activeChannel) ||
-    !!threadDetail;
+    !!activeThreadDetail;
   const hasMention = /(^|\s)@/.test(input);
   const showRouteHint = usesRouting && trimmed.length >= 5 && !hasMention;
   const channelForHint = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
@@ -150,7 +151,12 @@ export function Composer() {
     const text = trimmed;
     setInput("");
     if (currentScopeKey) draftMap.delete(currentScopeKey);
-    await send(text, persona || undefined);
+    await send(text, persona || undefined, {
+      parentMessageID: activeThreadDetail && !activeThreadDetail.unsupported && !activeThreadDetail.not_found
+        ? activeThreadDetail.parent_id
+        : null,
+      scopeKey: currentScopeKey,
+    });
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

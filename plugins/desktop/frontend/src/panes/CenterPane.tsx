@@ -9,7 +9,7 @@ import { TaskBoard } from "./TaskBoard";
 import { ThreadView } from "./ThreadView";
 import { useMessageAutoScroll } from "./useMessageAutoScroll";
 
-export function CenterPane() {
+export function CenterPane({ preferThreadView = false }: { preferThreadView?: boolean }) {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
   const activeChannel = useStore((s) => s.activeChannel);
@@ -19,7 +19,9 @@ export function CenterPane() {
   const activeAnchor = useStore((s) => s.activeAnchor);
 
   const messageCount = detail?.messages.length ?? 0;
-  const scope = `${view}:${activeChannel || ""}:${activeDirect || ""}:${activeThread || ""}:${activeAgentSpace || ""}`;
+  const scope = preferThreadView
+    ? `${view}:${activeChannel || ""}:${activeDirect || ""}:${activeThread || ""}:${activeAgentSpace || ""}`
+    : `${view}:${activeChannel || ""}:${activeDirect || ""}:${activeAgentSpace || ""}`;
   const { scrollRef, onScroll } = useMessageAutoScroll(detail?.messages || [], scope);
 
   useEffect(() => {
@@ -41,7 +43,7 @@ export function CenterPane() {
     return <AgentDetailPane />;
   }
 
-  if (threadDetail) {
+  if (threadDetail && preferThreadView) {
     return <ThreadView />;
   }
 
@@ -52,7 +54,7 @@ export function CenterPane() {
         <div className="overflow-y-auto px-3 py-5 text-[12.5px] text-text-muted md:px-5 md:py-6">
           Pick a channel, agent, or thread to start.
         </div>
-        <Composer />
+        <Composer forceMainScope={!preferThreadView} />
       </main>
     );
   }
@@ -63,11 +65,11 @@ export function CenterPane() {
 
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5 md:pt-5">
         <div className="mx-auto max-w-[880px]">
-          <MessageStream messages={detail.messages} empty={<EmptyState />} />
+          <MessageStream messages={detail.messages} empty={<EmptyState />} threadStartsEnabled />
         </div>
       </div>
 
-      <Composer />
+      <Composer forceMainScope={!preferThreadView} />
     </main>
   );
 }

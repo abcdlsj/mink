@@ -7,7 +7,13 @@ const dragStyle = {
   "--wails-draggable": "drag",
 } as CSSProperties & Record<"--wails-draggable", string>;
 
-export function TopBar() {
+export function TopBar({
+  detailsEnabled = false,
+  onOpenDetails,
+}: {
+  detailsEnabled?: boolean;
+  onOpenDetails?: () => void;
+}) {
   const state = useStore((s) => s.state);
   const detail = useStore((s) => s.detail);
 
@@ -24,8 +30,20 @@ export function TopBar() {
         <img src="/sumi-icon.svg" alt="" className="size-[18px] rounded-sm border border-border bg-panel" />
         <div className="text-[14px] font-display font-extrabold uppercase text-text">Sumi</div>
       </div>
-      <div className="border border-border bg-bg px-2 py-0.5 font-mono text-[11px] uppercase text-text tabular-nums">
-        {label}
+      <div className="flex items-center gap-2">
+        {onOpenDetails && (
+          <button
+            type="button"
+            disabled={!detailsEnabled}
+            onClick={onOpenDetails}
+            className="border border-border bg-panel-2 px-2 py-0.5 font-mono text-[11px] uppercase text-text-muted hover:bg-accent hover:text-text disabled:cursor-not-allowed disabled:text-text-whisper disabled:hover:bg-panel-2"
+          >
+            Details
+          </button>
+        )}
+        <div className="border border-border bg-bg px-2 py-0.5 font-mono text-[11px] uppercase text-text tabular-nums">
+          {label}
+        </div>
       </div>
     </header>
   );

@@ -8,11 +8,13 @@ export function MessageStream({
   empty,
   filterRenderable = true,
   compactAcrossThreadLinks = false,
+  threadStartsEnabled = false,
 }: {
   messages: MessageView[];
   empty: ReactNode;
   filterRenderable?: boolean;
   compactAcrossThreadLinks?: boolean;
+  threadStartsEnabled?: boolean;
 }) {
   const visible = filterRenderable ? messages.filter(renderableMessage) : messages;
   if (visible.length === 0) return <>{empty}</>;
@@ -27,7 +29,7 @@ export function MessageStream({
       close &&
       (compactAcrossThreadLinks || !m.thread_id) &&
       !hasHardBreakEvents(m);
-    return <MessageRow key={m.id} m={m} compact={!!compact} />;
+    return <MessageRow key={m.id} m={m} compact={!!compact} threadStartsEnabled={threadStartsEnabled} />;
   });
 }
 

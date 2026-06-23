@@ -5,6 +5,7 @@ import { TopBar } from "@/panes/TopBar";
 import { LeftPane } from "@/panes/LeftPane";
 import { CenterPane } from "@/panes/CenterPane";
 import { RightPane } from "@/panes/RightPane";
+import { ThreadView } from "@/panes/ThreadView";
 import { CommandPalette } from "@/components/CommandPalette";
 import { QuickCreate } from "@/components/QuickCreate";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ export default function App() {
   const threadDetail = useStore((s) => s.threadDetail);
   const view = useStore((s) => s.view);
   const [mobileLayer, setMobileLayer] = useState<MobileLayer>(null);
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [noticeNow, setNoticeNow] = useState(() => Date.now());
   const openedScopeRef = useRef("");
   const syncInFlightRef = useRef(false);
@@ -106,6 +108,7 @@ export default function App() {
       if (e.key === "Escape") {
         setPalette(false);
         setQuickCreate(false);
+        setDetailsDrawerOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -138,19 +141,26 @@ export default function App() {
     </div>
   );
   const statusBanner = offlineBanner || routeNoticeBanner;
+  const desktopHasThread = !!threadDetail;
+  const desktopDetailsEnabled = !!detail || !!threadDetail;
 
   return (
     <>
       <div
         className="hidden h-screen bg-bg text-text md:grid"
         style={{
-          gridTemplateColumns: "260px 1fr 320px",
+          gridTemplateColumns: desktopHasThread ? "260px minmax(0,1fr) minmax(360px,430px)" : "260px minmax(0,1fr)",
           gridTemplateRows: "40px 1fr",
-          gridTemplateAreas: '"topbar topbar topbar" "left center right"',
+          gridTemplateAreas: desktopHasThread
+            ? '"topbar topbar topbar" "left center right"'
+            : '"topbar topbar" "left center"',
         }}
       >
         <div style={{ gridArea: "topbar" }}>
-          <TopBar />
+          <TopBar
+            detailsEnabled={desktopDetailsEnabled}
+            onOpenDetails={() => setDetailsDrawerOpen(true)}
+          />
         </div>
         {statusBanner}
         <div style={{ gridArea: "left" }} className="min-h-0">
@@ -159,9 +169,16 @@ export default function App() {
         <div style={{ gridArea: "center" }} className="min-h-0">
           <CenterPane />
         </div>
-        <div style={{ gridArea: "right" }} className="min-h-0">
-          <RightPane />
-        </div>
+        {desktopHasThread && (
+          <div style={{ gridArea: "right" }} className="min-h-0 border-l-hard border-border bg-panel">
+            <ThreadSplitPanel />
+          </div>
+        )}
+        {detailsDrawerOpen && (
+          <DetailsDrawer onClose={() => setDetailsDrawerOpen(false)}>
+            <RightPane />
+          </DetailsDrawer>
+        )}
         <CommandPalette />
         <QuickCreate />
       </div>
@@ -179,7 +196,7 @@ export default function App() {
           onOpenDetails={() => setMobileLayer("details")}
         />
         <div className="min-h-0 overflow-hidden">
-          <CenterPane />
+          <CenterPane preferThreadView />
         </div>
         {mobileLayer === "spaces" && (
           <MobileOverlay onClose={() => setMobileLayer(null)}>
@@ -281,6 +298,37 @@ function MobileSheet({ onClose, children }: { onClose: () => void; children: Rea
           </button>
         </div>
         <div className="h-[calc(78dvh-39px)] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ThreadSplitPanel() {
+  return (
+    <section className="h-full min-w-0 bg-panel shadow-[inset_10px_0_0_rgba(0,0,0,0.02)]">
+      <ThreadView />
+    </section>
+  );
+}
+
+function DetailsDrawer({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-border/35" onClick={onClose}>
+      <div
+        className="h-full w-[380px] max-w-[calc(100vw-24px)] border-l-hard border-border bg-panel-3 shadow-hard"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex h-10 items-center justify-between border-b-hard border-border bg-panel px-3">
+          <div className="font-display text-[12px] font-extrabold uppercase text-text">Details</div>
+          <button
+            type="button"
+            className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+        <div className="h-[calc(100%-40px)] overflow-y-auto">{children}</div>
       </div>
     </div>
   );

@@ -113,7 +113,7 @@ interface State {
   deleteConversation: (input: { kind: "channel" | "direct_chat" | "agent_dm" | "thread"; id: string; parentMessageID?: string }) => Promise<void>;
   setPalette: (open: boolean) => void;
   setQuickCreate: (open: boolean) => void;
-  send: (input: string, personaID?: string) => Promise<void>;
+  send: (input: string, personaID?: string, options?: SendOptions) => Promise<void>;
   retryMessage: (spaceID: string, messageID: string) => Promise<void>;
   stop: () => Promise<void>;
   expandTaskInRail: (taskID: string) => void;
@@ -134,6 +134,11 @@ function scopeKey(spaceID: string, parentMessageID?: string): string {
   return parentMessageID ? spaceID + "::thread:" + parentMessageID : spaceID;
 }
 
+interface SendOptions {
+  parentMessageID?: string | null;
+  scopeKey?: string;
+}
+
 function activeScopeKey(s: State): string {
   if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
     return scopeKey(s.threadDetail.space_id, s.threadDetail.parent_id);
@@ -150,6 +155,7 @@ function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
   if (!ev.space_id) return false;
   if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
     if (ev.space_id !== s.activeChannel) return false;
+    if (!ev.parent_message_id) return true;
     if (ev.parent_message_id === s.threadDetail.parent_id) return true;
     if (ev.message_id === s.threadDetail.parent_id) return true;
     return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id || r.id === ev.message_id);
@@ -173,7 +179,6 @@ function streamingViewUpdates(
   s: State,
   stream: StreamingTurn,
   placeholder: MessageView,
-  forThreadView: boolean,
 ): Partial<State> {
   const detail = s.detail;
   const updates: Partial<State> = {};
@@ -181,7 +186,7 @@ function streamingViewUpdates(
     const exists = detail.messages.some((m) => m.id === placeholder.id);
     updates.detail = {
       ...detail,
-      messages: forThreadView || exists ? detail.messages : [...detail.messages, placeholder],
+      messages: exists ? detail.messages : [...detail.messages, placeholder],
     };
   }
   if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
@@ -219,7 +224,7 @@ function streamMatchesMainScope(s: State, stream: StreamingTurn): boolean {
   if (stream.parentMessageID) return false;
   if (s.view === "agent") return !!s.detail && s.detail.item.id === stream.spaceID;
   if (s.view === "direct") return s.activeDirect === stream.spaceID;
-  if (s.view === "channel" && !s.threadDetail) return s.activeChannel === stream.spaceID;
+  if (s.view === "channel") return s.activeChannel === stream.spaceID;
   return false;
 }
 
@@ -266,8 +271,20 @@ async function refetchActiveScope(
   const s = get();
   try {
     if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+      const updates: Partial<State> = {};
       const td = await api.threadDetail(s.threadDetail.space_id, s.threadDetail.parent_id);
-      set({ threadDetail: td });
+      updates.threadDetail = td;
+      if (s.view === "channel" && s.activeChannel) {
+        const [detail, participants, channels] = await Promise.all([
+          api.channel(s.activeChannel),
+          api.participants(s.activeChannel, ""),
+          api.channels(),
+        ]);
+        updates.detail = detail;
+        updates.participants = participants;
+        updates.channels = channels;
+      }
+      set(updates);
       return;
     }
     if (s.view === "channel" && s.activeChannel) {
@@ -903,12 +920,15 @@ export const useStore = create<State>((set, get) => ({
     writeRouteAnchor(null);
   },
 
-  async send(input, personaID) {
+  async send(input, personaID, options) {
     const before = get();
     const sid = activeSessionID(before);
-    const sendScope = activeScopeKey(before);
+    const parentMessageID =
+      options?.parentMessageID === null
+        ? undefined
+        : options?.parentMessageID ?? before.threadDetail?.parent_id;
+    const sendScope = options?.scopeKey || (sid ? scopeKey(sid, parentMessageID) : activeScopeKey(before));
     if (!sid || !sendScope || !input.trim() || before.sendingByScope[sendScope]) return;
-    const parentMessageID = before.threadDetail?.parent_id;
     set({
       sending: true,
       sendingByScope: { ...before.sendingByScope, [sendScope]: true },
@@ -1161,11 +1181,7 @@ export const useStore = create<State>((set, get) => ({
           reasoning: "",
           toolCalls: new Map(),
         };
-        const inThreadView =
-          !!cur.threadDetail &&
-          !cur.threadDetail.unsupported &&
-          !cur.threadDetail.not_found;
-        const updates = streamingViewUpdates(cur, stream, placeholder, inThreadView);
+        const updates = streamingViewUpdates(cur, stream, placeholder);
         set({
           ...updateStream(cur, stream),
           ...updates,

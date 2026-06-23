@@ -10,11 +10,11 @@ interface SourceRef {
   sourceThreadID?: string;
 }
 
-export function TaskCandidate({ message }: { message: MessageView }) {
+export function TaskCandidate({ message, forceMainScope = false }: { message: MessageView; forceMainScope?: boolean }) {
   const personas = useStore((s) => s.personas);
   const refreshCapabilities = useStore((s) => s.refreshCapabilities);
   const openCurrentRoute = useStore((s) => s.openCurrentRoute);
-  const source = useTaskSource(message);
+  const source = useTaskSource(message, forceMainScope);
   const executors = personas.filter(canExecuteTask);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(() => defaultTitle(message.content || ""));
@@ -136,14 +136,14 @@ export function TaskCandidate({ message }: { message: MessageView }) {
   );
 }
 
-function useTaskSource(message: MessageView): SourceRef | null {
+function useTaskSource(message: MessageView, forceMainScope: boolean): SourceRef | null {
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeDirect = useStore((s) => s.activeDirect);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const detail = useStore((s) => s.detail);
   const threadDetail = useStore((s) => s.threadDetail);
-  if (threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
+  if (!forceMainScope && threadDetail && !threadDetail.unsupported && !threadDetail.not_found) {
     return {
       spaceID: threadDetail.space_id,
       sourceMessageID: message.id,
