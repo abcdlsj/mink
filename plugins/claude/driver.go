@@ -18,30 +18,50 @@ func driver() external.Driver {
 		Name:    "claude",
 		Command: "claude",
 		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
-			args := []string{
-				"--print",
-				"--output-format", "stream-json",
-				"--verbose",
-				"--permission-mode", "bypassPermissions",
-				"--dangerously-skip-permissions",
-			}
-			if sessionID != "" {
-				if resume {
-					args = append(args, "--resume", sessionID)
-				} else {
-					args = append(args, "--session-id", sessionID)
-				}
-			}
-			if workDir != "" && workDir != "." {
-				args = append(args, "--add-dir", workDir)
-			}
-			args = append(args, "-p", prompt)
-			return args
+			return buildArgs(prompt, workDir, sessionID, resume, external.Profile{})
+		},
+		BuildArgsWithProfile: func(prompt, workDir, sessionID string, resume bool, profile external.Profile) []string {
+			return buildArgs(prompt, workDir, sessionID, resume, profile)
 		},
 		ParseOutput:   parseOutput,
 		FormatHistory: formatHistory,
 		RuntimeMeta:   runtimeMeta,
 	}
+}
+
+func buildArgs(prompt, workDir, sessionID string, resume bool, profile external.Profile) []string {
+	args := []string{
+		"--print",
+		"--output-format", "stream-json",
+		"--verbose",
+		"--permission-mode", "bypassPermissions",
+		"--dangerously-skip-permissions",
+	}
+	if profile.Isolated {
+		args = append(args,
+			"--bare",
+			"--no-session-persistence",
+		)
+		if profile.SettingsPath != "" {
+			args = append(args, "--settings", profile.SettingsPath)
+		}
+		for _, dir := range profile.PluginDirs {
+			if strings.TrimSpace(dir) != "" {
+				args = append(args, "--plugin-dir", dir)
+			}
+		}
+	} else if sessionID != "" {
+		if resume {
+			args = append(args, "--resume", sessionID)
+		} else {
+			args = append(args, "--session-id", sessionID)
+		}
+	}
+	if workDir != "" && workDir != "." {
+		args = append(args, "--add-dir", workDir)
+	}
+	args = append(args, "-p", prompt)
+	return args
 }
 
 var (

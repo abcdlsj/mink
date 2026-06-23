@@ -91,6 +91,34 @@ func TestDriverBuildArgsResumesExistingSession(t *testing.T) {
 	t.Fatalf("--resume not found in args: %v", args)
 }
 
+func TestDriverBuildArgsUsesIsolatedProfile(t *testing.T) {
+	profile := external.Profile{
+		Isolated:     true,
+		SettingsPath: "/tmp/sumi/external/claude/bob/claude/settings.json",
+		PluginDirs:   []string{"/tmp/sumi/external/claude/bob/claude/plugins"},
+	}
+	args := driver().BuildArgsWithProfile("hello", "/tmp/demo", "test-session-123", true, profile)
+	for _, want := range []string{
+		"--bare",
+		"--no-session-persistence",
+		"--settings",
+		profile.SettingsPath,
+		"--plugin-dir",
+		profile.PluginDirs[0],
+		"--add-dir",
+		"/tmp/demo",
+	} {
+		if !contains(args, want) {
+			t.Fatalf("isolated args missing %q: %v", want, args)
+		}
+	}
+	for _, forbidden := range []string{"--resume", "--session-id"} {
+		if contains(args, forbidden) {
+			t.Fatalf("isolated args contain %q: %v", forbidden, args)
+		}
+	}
+}
+
 func TestParseOutputMarksAssistantSnapshot(t *testing.T) {
 	m := parseOutput(mustJSON(t, map[string]any{
 		"type":    "assistant",
@@ -108,6 +136,15 @@ func TestParseOutputMarksAssistantSnapshot(t *testing.T) {
 	if m.Type != external.MsgAssistantText || !m.Snapshot || m.Text != "hello" {
 		t.Fatalf("assistant got %#v", m)
 	}
+}
+
+func contains(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestParseOutputResultEmitsTurnDoneSnapshot(t *testing.T) {

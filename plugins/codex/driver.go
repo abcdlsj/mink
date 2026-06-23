@@ -16,21 +16,34 @@ func driver() external.Driver {
 		Command:     "codex",
 		StdinPrompt: true,
 		BuildArgs: func(prompt, workDir, sessionID string, resume bool) []string {
-			args := []string{
-				"exec",
-				"--json",
-				"--dangerously-bypass-approvals-and-sandbox",
-			}
-			if workDir != "" && workDir != "." {
-				args = append(args, "-C", workDir)
-			}
-			args = append(args, "-")
-			return args
+			return buildArgs(prompt, workDir, external.Profile{})
+		},
+		BuildArgsWithProfile: func(prompt, workDir, sessionID string, resume bool, profile external.Profile) []string {
+			return buildArgs(prompt, workDir, profile)
 		},
 		ParseOutput:   parseOutput,
 		FormatHistory: formatHistory,
 		RuntimeMeta:   runtimeMeta,
 	}
+}
+
+func buildArgs(prompt, workDir string, profile external.Profile) []string {
+	args := []string{
+		"exec",
+		"--json",
+		"--dangerously-bypass-approvals-and-sandbox",
+	}
+	if profile.Isolated {
+		args = append(args,
+			"--ephemeral",
+			"--ignore-rules",
+		)
+	}
+	if workDir != "" && workDir != "." {
+		args = append(args, "-C", workDir)
+	}
+	args = append(args, "-")
+	return args
 }
 
 var (

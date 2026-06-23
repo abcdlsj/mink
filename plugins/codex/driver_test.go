@@ -51,6 +51,20 @@ func TestDriverBuildArgsNeverAskForInteractiveApproval(t *testing.T) {
 	t.Fatalf("approval/sandbox bypass not found in args: %v", args)
 }
 
+func TestDriverBuildArgsUsesIsolatedProfile(t *testing.T) {
+	args := driver().BuildArgsWithProfile("hello", "/tmp/demo", "", false, external.Profile{Isolated: true})
+	for _, want := range []string{
+		"--ephemeral",
+		"--ignore-rules",
+		"-C",
+		"/tmp/demo",
+	} {
+		if !contains(args, want) {
+			t.Fatalf("isolated args missing %q: %v", want, args)
+		}
+	}
+}
+
 func TestParseOutputThreadStartedEmitsRuntimeMeta(t *testing.T) {
 	line := mustJSON(t, map[string]any{
 		"type":      "thread.started",
@@ -63,6 +77,15 @@ func TestParseOutputThreadStartedEmitsRuntimeMeta(t *testing.T) {
 	if m.Meta["runtime"] != "codex" || m.Meta["thread_id"] != "019e95b8-ecdc-7c53-b991-4ccb2f8cae48" {
 		t.Fatalf("meta = %#v", m.Meta)
 	}
+}
+
+func contains(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestParseOutputAgentMessageEmitsAssistantText(t *testing.T) {
@@ -106,9 +129,9 @@ func TestParseOutputTurnCompletedCarriesUsage(t *testing.T) {
 	line := mustJSON(t, map[string]any{
 		"type": "turn.completed",
 		"usage": map[string]any{
-			"input_tokens":          100,
-			"cached_input_tokens":   50,
-			"output_tokens":         20,
+			"input_tokens":            100,
+			"cached_input_tokens":     50,
+			"output_tokens":           20,
 			"reasoning_output_tokens": 5,
 		},
 	})

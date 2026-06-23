@@ -25,6 +25,7 @@ type ToolRunner interface {
 type RuntimeEnv struct {
 	Provider             llm.Provider
 	Tools                ToolRunner
+	DataRoot             string
 	Workspace            string
 	MemoryRoot           string
 	ProjectContext       string

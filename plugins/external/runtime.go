@@ -6,9 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -19,13 +22,25 @@ import (
 )
 
 type Driver struct {
-	Name          string
-	Command       string
-	StdinPrompt   bool
-	BuildArgs     func(prompt, workDir, sessionID string, resume bool) []string
-	ParseOutput   func(line string) *Message
-	FormatHistory func(messages []msg.Message) string
-	RuntimeMeta   func(context.Context) map[string]string
+	Name                 string
+	Command              string
+	StdinPrompt          bool
+	BuildArgs            func(prompt, workDir, sessionID string, resume bool) []string
+	BuildArgsWithProfile func(prompt, workDir, sessionID string, resume bool, profile Profile) []string
+	ParseOutput          func(line string) *Message
+	FormatHistory        func(messages []msg.Message) string
+	RuntimeMeta          func(context.Context) map[string]string
+}
+
+type Profile struct {
+	Isolated     bool
+	Runtime      string
+	Root         string
+	Home         string
+	CodexHome    string
+	SettingsPath string
+	PluginDirs   []string
+	Env          []string
 }
 
 type MessageType int
@@ -79,17 +94,24 @@ type Runtime struct {
 }
 
 func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
-	sessionID, resume := r.externalSession(turn)
+	profile, err := r.prepareProfile()
+	if err != nil {
+		return err
+	}
+	sessionID, resume := "", false
+	if !profile.Isolated {
+		sessionID, resume = r.externalSession(turn)
+	}
 	prompt := textutil.Valid(r.buildPrompt(turn, !resume || turn.IncludeHistory))
 	fallbackPrompt := textutil.Valid(r.buildPrompt(turn, true))
 	addUser(turn.Session, turn.Input)
 
 	st := newRunState()
-	runErr := r.runCommand(ctx, turn, st, prompt, sessionID, resume)
-	if runErr != nil && resume && missingExternalSession(runErr) {
+	runErr := r.runCommand(ctx, turn, st, prompt, sessionID, resume, profile)
+	if runErr != nil && resume && !profile.Isolated && missingExternalSession(runErr) {
 		sessionID = r.resetSessionID(turn.Session)
 		st = newRunState()
-		runErr = r.runCommand(ctx, turn, st, fallbackPrompt, sessionID, false)
+		runErr = r.runCommand(ctx, turn, st, fallbackPrompt, sessionID, false, profile)
 	}
 	st.flush(turn.Session)
 	return runErr
@@ -109,16 +131,14 @@ func newRunState() *runState {
 	return &runState{calls: map[string]toolCallState{}}
 }
 
-func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState, prompt, sessionID string, resume bool) error {
+func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState, prompt, sessionID string, resume bool, profile Profile) error {
 	if r.driver.RuntimeMeta != nil {
 		if meta := r.driver.RuntimeMeta(ctx); len(meta) > 0 {
 			st.onRuntimeMeta(turn, &Message{Type: MsgRuntimeMeta, Meta: meta})
 		}
 	}
-	cmd := exec.CommandContext(ctx, r.driver.Command, r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)...)
-	if r.env != nil && len(r.env.ChildEnv) > 0 {
-		cmd.Env = r.env.ChildEnv
-	}
+	cmd := exec.CommandContext(ctx, r.driver.Command, r.buildArgs(prompt, sessionID, resume, profile)...)
+	cmd.Env = profile.Env
 	if r.workspace != "" {
 		cmd.Dir = r.workspace
 	}
@@ -191,6 +211,16 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 	return runErr
 }
 
+func (r *Runtime) buildArgs(prompt, sessionID string, resume bool, profile Profile) []string {
+	if r.driver.BuildArgsWithProfile != nil {
+		return r.driver.BuildArgsWithProfile(prompt, r.workspace, sessionID, resume, profile)
+	}
+	if r.driver.BuildArgs != nil {
+		return r.driver.BuildArgs(prompt, r.workspace, sessionID, resume)
+	}
+	return nil
+}
+
 func (r *Runtime) runtimeLabel() string {
 	name := strings.TrimSpace(r.driver.Name)
 	if name == "" {
@@ -239,6 +269,196 @@ func (r *Runtime) buildPrompt(turn *agent.Turn, includeHistory bool) string {
 		}
 	}
 	return agent.BuildExternalPrompt(r.env, turn, hist)
+}
+
+func (r *Runtime) prepareProfile() (Profile, error) {
+	name := strings.ToLower(strings.TrimSpace(r.driver.Name))
+	profile := Profile{
+		Runtime: name,
+		Env:     cloneEnv(r.env),
+	}
+	switch name {
+	case "claude", "codex":
+	default:
+		return profile, nil
+	}
+	root, err := r.profileRoot(name)
+	if err != nil {
+		return profile, err
+	}
+	profile.Isolated = true
+	profile.Root = root
+	profile.Home = filepath.Join(root, "home")
+	profile.CodexHome = filepath.Join(root, "codex")
+	profile.SettingsPath = filepath.Join(root, "claude", "settings.json")
+	profile.PluginDirs = []string{filepath.Join(root, "claude", "plugins")}
+	if err := ensureProfileDirs(profile); err != nil {
+		return profile, err
+	}
+	if name == "claude" {
+		if err := ensureClaudeSettings(profile); err != nil {
+			return profile, err
+		}
+	}
+	profile.Env = isolatedProfileEnv(profile.Env, profile)
+	if err := validateIsolatedAuth(profile); err != nil {
+		return profile, err
+	}
+	return profile, nil
+}
+
+func (r *Runtime) profileRoot(name string) (string, error) {
+	dataRoot := ""
+	if r.env != nil {
+		dataRoot = strings.TrimSpace(r.env.DataRoot)
+	}
+	if dataRoot == "" {
+		dataRoot = ".sumi"
+	}
+	profile := "default"
+	if r.env != nil && r.env.Persona != nil && strings.TrimSpace(r.env.Persona.ID) != "" {
+		profile = r.env.Persona.ID
+	}
+	root := filepath.Join(dataRoot, "external", name, sanitizeProfileName(profile))
+	if strings.TrimSpace(root) == "" {
+		return "", fmt.Errorf("%s isolated profile root is empty", name)
+	}
+	return root, nil
+}
+
+func ensureProfileDirs(profile Profile) error {
+	dirs := []string{
+		profile.Root,
+		profile.Home,
+		filepath.Join(profile.Root, "xdg-config"),
+		filepath.Join(profile.Root, "xdg-cache"),
+		filepath.Join(profile.Root, "xdg-data"),
+		filepath.Dir(profile.SettingsPath),
+		profile.CodexHome,
+	}
+	dirs = append(dirs, profile.PluginDirs...)
+	for _, dir := range dirs {
+		if strings.TrimSpace(dir) == "" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureClaudeSettings(profile Profile) error {
+	if strings.TrimSpace(profile.SettingsPath) == "" {
+		return nil
+	}
+	if _, err := os.Stat(profile.SettingsPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(profile.SettingsPath, []byte("{}\n"), 0o600)
+}
+
+func isolatedProfileEnv(base []string, profile Profile) []string {
+	env := envMap(base)
+	delete(env, "CODEX_HOME")
+	delete(env, "CLAUDE_CONFIG_DIR")
+	delete(env, "CLAUDE_HOME")
+	env["HOME"] = profile.Home
+	env["XDG_CONFIG_HOME"] = filepath.Join(profile.Root, "xdg-config")
+	env["XDG_CACHE_HOME"] = filepath.Join(profile.Root, "xdg-cache")
+	env["XDG_DATA_HOME"] = filepath.Join(profile.Root, "xdg-data")
+	if profile.Runtime == "codex" {
+		env["CODEX_HOME"] = profile.CodexHome
+	}
+	return flattenEnv(env)
+}
+
+func validateIsolatedAuth(profile Profile) error {
+	env := envMap(profile.Env)
+	switch profile.Runtime {
+	case "claude":
+		if strings.TrimSpace(env["ANTHROPIC_API_KEY"]) != "" {
+			return nil
+		}
+		return fmt.Errorf("claude isolated profile requires ANTHROPIC_API_KEY or SUMI_CLAUDE_API_KEY; refusing to fall back to host ~/.claude")
+	case "codex":
+		if strings.TrimSpace(env["OPENAI_API_KEY"]) != "" {
+			return nil
+		}
+		if strings.TrimSpace(profile.CodexHome) != "" {
+			if _, err := os.Stat(filepath.Join(profile.CodexHome, "auth.json")); err == nil {
+				return nil
+			}
+		}
+		return fmt.Errorf("codex isolated profile requires OPENAI_API_KEY, SUMI_CODEX_OPENAI_API_KEY, or auth.json under Sumi CODEX_HOME; refusing to fall back to host ~/.codex")
+	default:
+		return nil
+	}
+}
+
+func cloneEnv(env *agent.RuntimeEnv) []string {
+	if env == nil || len(env.ChildEnv) == 0 {
+		return nil
+	}
+	return append([]string(nil), env.ChildEnv...)
+}
+
+func sanitizeProfileName(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "default"
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range s {
+		switch {
+		case unicode.IsLetter(r), unicode.IsDigit(r):
+			b.WriteRune(unicode.ToLower(r))
+			lastDash = false
+		case r == '_', r == '-', r == '.':
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		default:
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "default"
+	}
+	return out
+}
+
+func envMap(src []string) map[string]string {
+	out := make(map[string]string, len(src))
+	for _, entry := range src {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || strings.Contains(key, "=") {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func flattenEnv(env map[string]string) []string {
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, key+"="+env[key])
+	}
+	return out
 }
 
 func (r *Runtime) getOrCreateSessionID(s *session.Session) (string, bool) {

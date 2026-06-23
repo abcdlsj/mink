@@ -22,6 +22,73 @@ func (c Config) ChildEnv() []string {
 	return flattenEnv(env)
 }
 
+func (c Config) ExternalRuntimeEnv() []string {
+	host := envMap(os.Environ())
+	env := map[string]string{}
+	for _, key := range externalEnvAllowlist(host) {
+		if value, ok := host[key]; ok {
+			env[key] = value
+		}
+	}
+	for key, value := range c.ScopedEnv {
+		key = strings.TrimSpace(key)
+		if !validEnvKey(key) {
+			continue
+		}
+		env[key] = value
+	}
+	c.deriveExternalAuthEnv(env)
+	return flattenEnv(env)
+}
+
+func externalEnvAllowlist(host map[string]string) []string {
+	keys := []string{
+		"PATH",
+		"TMPDIR",
+		"TEMP",
+		"TMP",
+		"LANG",
+		"LC_ALL",
+		"TZ",
+		"ANTHROPIC_API_KEY",
+		"OPENAI_API_KEY",
+		"SSL_CERT_FILE",
+		"SSL_CERT_DIR",
+		"REQUESTS_CA_BUNDLE",
+	}
+	for key := range host {
+		upper := strings.ToUpper(key)
+		if strings.HasSuffix(upper, "_PROXY") {
+			keys = append(keys, key)
+		}
+		if strings.HasPrefix(upper, "LC_") {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func (c Config) deriveExternalAuthEnv(env map[string]string) {
+	if env["ANTHROPIC_API_KEY"] == "" {
+		switch {
+		case env["SUMI_CLAUDE_API_KEY"] != "":
+			env["ANTHROPIC_API_KEY"] = env["SUMI_CLAUDE_API_KEY"]
+		case strings.Contains(strings.ToLower(c.Provider), "anthropic") && strings.TrimSpace(c.APIKey) != "":
+			env["ANTHROPIC_API_KEY"] = strings.TrimSpace(c.APIKey)
+		}
+	}
+	if env["OPENAI_API_KEY"] == "" {
+		switch {
+		case env["SUMI_CODEX_OPENAI_API_KEY"] != "":
+			env["OPENAI_API_KEY"] = env["SUMI_CODEX_OPENAI_API_KEY"]
+		case env["SUMI_CODEX_API_KEY"] != "":
+			env["OPENAI_API_KEY"] = env["SUMI_CODEX_API_KEY"]
+		case strings.Contains(strings.ToLower(c.Provider), "openai") && strings.TrimSpace(c.APIKey) != "":
+			env["OPENAI_API_KEY"] = strings.TrimSpace(c.APIKey)
+		}
+	}
+}
+
 func loadScopedEnv(path string) map[string]string {
 	var raw map[string]any
 	if _, err := toml.DecodeFile(path, &raw); err != nil {

@@ -3,6 +3,7 @@ package external
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -248,7 +249,7 @@ func TestDriverRuntimeMetaPublishesBeforeCommand(t *testing.T) {
 	defer cancel()
 	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: b}
 
-	_ = r.runCommand(context.Background(), turn, newRunState(), "hi", "", false)
+	_ = r.runCommand(context.Background(), turn, newRunState(), "hi", "", false, Profile{Env: r.env.ChildEnv})
 
 	select {
 	case ev := <-evs:
@@ -279,12 +280,89 @@ func TestRunCommandUsesRuntimeChildEnv(t *testing.T) {
 	turn := &agent.Turn{Source: "test", Session: session.New("test"), Bus: bus.New()}
 	st := newRunState()
 
-	if err := r.runCommand(context.Background(), turn, st, "hi", "", false); err != nil {
+	if err := r.runCommand(context.Background(), turn, st, "hi", "", false, Profile{Env: r.env.ChildEnv}); err != nil {
 		t.Fatal(err)
 	}
 	st.flush(turn.Session)
 	if got := turn.Session.Messages[len(turn.Session.Messages)-1].Content; got != "ok" {
 		t.Fatalf("assistant = %q, want ok", got)
+	}
+}
+
+func TestPrepareProfileIsolatesCodexHomeAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	r := &Runtime{
+		driver: Driver{Name: "codex"},
+		env: &agent.RuntimeEnv{
+			DataRoot: dir,
+			ChildEnv: []string{
+				"PATH=/bin",
+				"HOME=/host/home",
+				"CODEX_HOME=/host/codex",
+				"CLAUDE_CONFIG_DIR=/host/claude",
+				"OPENAI_API_KEY=ok",
+				"SUMI_EMBY_SERVER=https://emby.example",
+			},
+			Persona: &agent.Persona{ID: "Bob Agent"},
+		},
+	}
+
+	profile, err := r.prepareProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.Isolated {
+		t.Fatal("profile is not isolated")
+	}
+	if !strings.HasPrefix(profile.Root, filepath.Join(dir, "external", "codex")) {
+		t.Fatalf("profile root = %q", profile.Root)
+	}
+	env := envMap(profile.Env)
+	if got := env["HOME"]; got == "/host/home" || !strings.HasPrefix(got, profile.Root) {
+		t.Fatalf("HOME = %q", got)
+	}
+	if got := env["CODEX_HOME"]; got == "/host/codex" || got != profile.CodexHome {
+		t.Fatalf("CODEX_HOME = %q, want %q", got, profile.CodexHome)
+	}
+	if _, ok := env["CLAUDE_CONFIG_DIR"]; ok {
+		t.Fatal("CLAUDE_CONFIG_DIR leaked into isolated profile env")
+	}
+	if got := env["SUMI_EMBY_SERVER"]; got != "https://emby.example" {
+		t.Fatalf("SUMI_EMBY_SERVER = %q", got)
+	}
+}
+
+func TestPrepareProfileFailsClosedWithoutClaudeAuth(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{Name: "claude"},
+		env: &agent.RuntimeEnv{
+			DataRoot: t.TempDir(),
+			ChildEnv: []string{
+				"PATH=/bin",
+			},
+		},
+	}
+
+	_, err := r.prepareProfile()
+	if err == nil || !strings.Contains(err.Error(), "refusing to fall back to host ~/.claude") {
+		t.Fatalf("err = %v, want fail closed", err)
+	}
+}
+
+func TestPrepareProfileFailsClosedWithoutCodexAuth(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{Name: "codex"},
+		env: &agent.RuntimeEnv{
+			DataRoot: t.TempDir(),
+			ChildEnv: []string{
+				"PATH=/bin",
+			},
+		},
+	}
+
+	_, err := r.prepareProfile()
+	if err == nil || !strings.Contains(err.Error(), "refusing to fall back to host ~/.codex") {
+		t.Fatalf("err = %v, want fail closed", err)
 	}
 }
 
@@ -401,6 +479,47 @@ func TestRuntimeExternalSessionCanDisableResume(t *testing.T) {
 	}
 	if got := s.ExternalSession["claude"]; got != "existing" {
 		t.Fatalf("stored session changed to %q", got)
+	}
+}
+
+func TestRuntimeIsolatedProfileDoesNotCreateExternalSession(t *testing.T) {
+	r := &Runtime{
+		driver: Driver{
+			Name:    "claude",
+			Command: "/bin/sh",
+			BuildArgsWithProfile: func(prompt, workDir, sessionID string, resume bool, profile Profile) []string {
+				if sessionID != "" || resume {
+					t.Fatalf("isolated run got sessionID=%q resume=%v", sessionID, resume)
+				}
+				if !profile.Isolated {
+					t.Fatal("profile is not isolated")
+				}
+				return []string{"-c", "printf '{\"type\":\"result\",\"result\":\"ok\"}\\n'"}
+			},
+			ParseOutput: func(line string) *Message {
+				return &Message{Type: MsgTurnDone, Text: "ok"}
+			},
+		},
+		env: &agent.RuntimeEnv{
+			DataRoot: t.TempDir(),
+			ChildEnv: []string{
+				"PATH=/bin",
+				"ANTHROPIC_API_KEY=ok",
+			},
+		},
+	}
+	s := session.New("test")
+	err := r.Run(context.Background(), &agent.Turn{
+		Source:  "test",
+		Input:   "hello",
+		Session: s,
+		Bus:     bus.New(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.ExternalSession) != 0 {
+		t.Fatalf("external session was persisted: %#v", s.ExternalSession)
 	}
 }
 
