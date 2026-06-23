@@ -422,6 +422,10 @@ func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
 	changed := false
 	now := time.Now()
 	for i := range sp.Messages {
+		if normalized, ok := normalizeLegacyRuntimeError(sp.Messages[i].Error); ok {
+			sp.Messages[i].Error = normalized
+			changed = true
+		}
 		if sp.Messages[i].Status != "pending" {
 			continue
 		}
@@ -499,6 +503,30 @@ func legacyRoutedFailureNotice(m space.Message) bool {
 		return false
 	}
 	return strings.Contains(content, " failed:")
+}
+
+func normalizeLegacyRuntimeError(errText string) (string, bool) {
+	raw := strings.TrimSpace(errText)
+	if raw == "" {
+		return "", false
+	}
+	lower := strings.ToLower(raw)
+	if !strings.Contains(lower, "failed to connect to websocket") {
+		return raw, false
+	}
+	summary := "failed to connect to websocket"
+	if strings.Contains(lower, "connection reset by peer") {
+		summary = "failed to connect to websocket: connection reset by peer"
+	}
+	prefix := ""
+	if idx := strings.Index(raw, ":"); idx > 0 {
+		head := strings.TrimSpace(raw[:idx])
+		if strings.Contains(strings.ToLower(head), "exited") {
+			prefix = head + ": "
+		}
+	}
+	normalized := prefix + summary
+	return normalized, normalized != raw
 }
 
 func retryPlaceholderSuperseded(messages []space.Message, idx int, m space.Message) bool {

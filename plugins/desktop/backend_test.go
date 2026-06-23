@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +63,23 @@ func TestDropLegacyRoutedFailureNotices(t *testing.T) {
 		if m.ID == "failed" {
 			t.Fatalf("legacy routed failure notice was not dropped: %#v", sp.Messages)
 		}
+	}
+}
+
+func TestNormalizeLegacyRuntimeError(t *testing.T) {
+	raw := strings.Join([]string{
+		"codex exited: 2026-06-23T10:31:13Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: Connection reset by peer (os error 54), url: wss://api.openai.com/v1/responses",
+		"2026-06-23T10:31:14Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: Connection reset by peer (os error 54), url: wss://api.openai.com/v1/responses",
+	}, "\n")
+	got, changed := normalizeLegacyRuntimeError(raw)
+	if !changed {
+		t.Fatal("normalizeLegacyRuntimeError did not report change")
+	}
+	if got != "codex exited: failed to connect to websocket: connection reset by peer" {
+		t.Fatalf("normalized = %q", got)
+	}
+	if strings.Contains(got, "wss://") || strings.Contains(got, "2026-") {
+		t.Fatalf("normalized error leaked raw details: %q", got)
 	}
 }
 
