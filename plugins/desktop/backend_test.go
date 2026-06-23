@@ -630,6 +630,71 @@ func TestRetryFailedAgentMessageReusesUserMessage(t *testing.T) {
 	}
 }
 
+func TestRetryFailedChannelAgentMessagePersistsReply(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.start(ctx)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "channel retry ok: " + turn.Input})
+			return nil
+		}), nil
+	})
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, err := a.Spaces().AppendUserMessage(sp.ID, "retry channel", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, _, err := a.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Status:     "failed",
+		Error:      "interrupted",
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := b.RetryMessage(RetryMessageRequest{SpaceID: sp.ID, MessageID: failed.ID}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(30 * time.Millisecond)
+
+	got := b.GetChannel(sp.ID)
+	var users, failedMessages int
+	var assistantOK bool
+	for _, m := range got.Messages {
+		if m.Role == "user" {
+			users++
+			if m.ID != user.ID {
+				t.Fatalf("unexpected user message = %#v", m)
+			}
+		}
+		if m.Status == "failed" || m.Status == "pending" {
+			failedMessages++
+		}
+		if m.Role == "agent" && m.AuthorID == "coder" && m.Content == "channel retry ok: retry channel" {
+			assistantOK = true
+		}
+	}
+	if users != 1 {
+		t.Fatalf("user message count = %d, want 1; messages=%#v", users, got.Messages)
+	}
+	if failedMessages != 0 {
+		t.Fatalf("failed/pending messages = %d, want none; messages=%#v", failedMessages, got.Messages)
+	}
+	if !assistantOK {
+		t.Fatalf("retried channel assistant output missing: %#v", got.Messages)
+	}
+}
+
 func TestGetAgentDMDropsSupersededFailedRetryPlaceholder(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

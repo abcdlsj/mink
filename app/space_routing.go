@@ -209,6 +209,45 @@ func (a *App) runQueuedChannelWake(job channelWakeJob) {
 	}
 }
 
+func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID, agentID, parentMessageID, originMessageID, originUserContent string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	target := space.RoutingTarget{
+		AgentID:         strings.TrimSpace(agentID),
+		OriginMessageID: strings.TrimSpace(originMessageID),
+		Reason:          "retry",
+	}
+	if parent := strings.TrimSpace(parentMessageID); parent != "" {
+		chain := space.NewRoutingChain(strings.TrimSpace(originMessageID), strings.TrimSpace(spaceID), space.DefaultRoutingBudget)
+		chain.ParentMessageID = parent
+		target.Chain = chain
+	}
+	result := a.runChannelWake(ctx, originSource, spaceID, target, originUserContent)
+	if len(result.notices) > 0 {
+		a.publishRoutingNotices(originSource, result.notices)
+	}
+	if result.err != nil {
+		return "", result.err
+	}
+	if strings.TrimSpace(result.resultMessageID) == "" {
+		return "", nil
+	}
+	if a == nil || a.spaces == nil {
+		return "", nil
+	}
+	sp, err := a.spaces.LoadSpace(spaceID)
+	if err != nil || sp == nil {
+		return "", err
+	}
+	for _, m := range sp.Messages {
+		if m.ID == result.resultMessageID {
+			return strings.TrimSpace(m.Content), nil
+		}
+	}
+	return "", nil
+}
+
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) channelWakeResult {
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {

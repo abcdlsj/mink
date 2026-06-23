@@ -218,7 +218,12 @@ func (b *Backend) RetryMessage(req RetryMessageRequest) (string, error) {
 	if failed.ParentMessageID != "" {
 		ctx = command.WithParentMessage(ctx, failed.ParentMessageID)
 	}
-	out, err := b.app.HandleExistingUserInput(ctx, source, personaID, prev.Content, prev.ID)
+	var out string
+	if sp.Kind == space.KindChannel && personaID != "" {
+		out, err = b.app.RetryChannelAgentReply(ctx, source, sp.ID, personaID, failed.ParentMessageID, prev.ID, prev.Content)
+	} else {
+		out, err = b.app.HandleExistingUserInput(ctx, source, personaID, prev.Content, prev.ID)
+	}
 	if err != nil {
 		_, _ = b.app.Spaces().UpdateMessage(sp.ID, failed.ID, func(m *space.Message) {
 			m.Status = "failed"
