@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { EventBlock as EventBlockData, MessageView } from "@/lib/types";
-import { EventBlock } from "@/components/EventBlock";
+import { EventBlock, toolEventSummary } from "@/components/EventBlock";
 import { Identicon } from "@/components/Identicon";
 import { Markdown } from "@/components/Markdown";
 import { renderMentions } from "@/components/Mention";
@@ -56,12 +56,12 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
       id={"message-" + m.id}
       className={cn(
         "grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
-        compact ? "-mt-2.5 mb-2" : "mb-5 border-b border-border-soft pb-4 last:border-b-0",
+        compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
       )}
     >
       <div
         className={cn(
-          "mt-px size-7 overflow-hidden border-2 border-border bg-panel md:size-8",
+          "mt-px size-7 overflow-hidden border border-border-soft bg-panel md:size-8",
           compact && "invisible",
         )}
       >
@@ -69,13 +69,13 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
       </div>
       <div className="min-w-0">
         {!compact && (
-          <div className="mb-1.5 flex items-baseline gap-2">
-            <span className="font-display text-[13px] font-extrabold leading-tight text-text">
+          <div className="mb-1 flex items-baseline gap-2">
+            <span className="font-display text-[13px] font-bold leading-tight text-text">
               {displayName}
             </span>
             {m.role !== "user" && ag?.role && (
               <span
-                className="border border-border bg-panel-event px-1 font-display text-[10px] font-semibold uppercase text-text"
+                className="border border-border-soft bg-transparent px-1 font-mono text-[10px] uppercase text-text-faint"
                 title={ag.role}
               >
                 {shortRole(ag.role)}
@@ -94,7 +94,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
             {routedReply.labels.map((label, i) => (
               <span
                 key={label + i}
-                className="inline-flex border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] text-text-muted"
+                className="inline-flex border border-border-soft bg-transparent px-1.5 py-px font-mono text-[10.5px] text-text-faint"
               >
                 {label}
               </span>
@@ -125,7 +125,7 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
           </div>
         )}
         {m.status === "pending" && (
-          <div className="mt-2.5 inline-flex items-center gap-2 border border-border-soft bg-panel-2 px-2 py-1 text-[11.5px] text-text-muted">
+          <div className="mt-2.5 inline-flex items-center gap-2 text-[11.5px] text-text-muted">
             <span className="inline-block size-1.5 rounded-full bg-running" />
             <span>Reply in progress.</span>
           </div>
@@ -238,8 +238,8 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
   const anyError = events.some((e) => e.status === "error");
   const status = anyRunning ? "running" : anyError ? "error" : "done";
   const actionSummary = foldedToolSummary(events);
-  const label =
-    "Used " + events.length + " tools · " + (anyRunning ? "running" : (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms"));
+  const label = anyError ? "Tool failed" : anyRunning ? "Using tools" : "Tool finished";
+  const duration = totalMs ? (totalMs >= 1000 ? Math.round(totalMs / 100) / 10 + "s" : totalMs + "ms") : "";
   if (open) {
     return (
       <div className="flex flex-col gap-1">
@@ -262,10 +262,16 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
     <button
       onClick={() => setOpen(true)}
       className={cn(
-        "self-start cursor-pointer font-mono text-[11.5px]",
-        status === "error" ? "text-error" : status === "running" ? "text-running" : "text-text-muted",
+        "self-start cursor-pointer text-[11.5px]",
+        status === "error" ? "text-error" : "text-text-muted",
       )}
     >
+      <span
+        className={cn(
+          "mr-1.5 inline-block size-1.5 rounded-full align-middle",
+          status === "error" ? "bg-error" : status === "running" ? "bg-running" : "bg-text-faint",
+        )}
+      />
       <span>{label}</span>
       {actionSummary && (
         <>
@@ -273,23 +279,25 @@ function ToolFold({ events }: { events: EventBlockData[] }) {
           <span>{actionSummary}</span>
         </>
       )}
+      {duration && (
+        <>
+          <span className="text-text-faint"> · </span>
+          <span className="text-text-faint tabular-nums">{duration}</span>
+        </>
+      )}
       <span className="text-text-faint"> · </span>
       <span className="underline underline-offset-2 text-text-faint">view details</span>
-      {anyRunning && <span className="ml-1.5 inline-block size-1.5 rounded-full bg-running align-middle" />}
     </button>
   );
 }
 
 function foldedToolSummary(events: EventBlockData[]): string {
   const parts = events
-    .map((ev) => {
-      const name = ev.tool_name || "tool";
-      const detail = ev.err || ev.output || ev.args || "";
-      return detail ? `${name}: ${detail.replace(/\s+/g, " ").trim()}` : name;
-    })
+    .map((ev) => toolEventSummary(ev))
     .filter(Boolean)
+    .filter((part, index, all) => all.indexOf(part) === index)
     .slice(0, 2);
-  const text = parts.join(" · ");
+  const text = parts.join("; ");
   if (text.length <= 120) return text;
   return text.slice(0, 119).trimEnd() + "…";
 }

@@ -32,6 +32,7 @@ function ServiceLine({ ev }: EventBlockProps) {
 }
 
 function ToolLine({ ev }: EventBlockProps) {
+  const [open, setOpen] = useState(false);
   const [, setTick] = useState(0);
   const startRef = useRef<number | null>(null);
   const status = ev.status || "idle";
@@ -49,44 +50,63 @@ function ToolLine({ ev }: EventBlockProps) {
     ? Date.now() - startRef.current
     : ev.duration_ms;
 
-  const headLabel = (() => {
-    if (status === "error") return "Failed";
-    if (status === "running") return "Running";
-    return "Ran";
-  })();
-  const summary = toolSummary(ev);
+  const headLabel = status === "error" ? "Tool failed" : status === "running" ? "Using tools" : "Tool finished";
+  const summary = toolEventSummary(ev);
+  const hasDetails = !!(ev.args || ev.output || ev.err);
 
   return (
-    <div className={cn("inline-flex max-w-full border px-2 py-1 text-[11.5px] leading-[17px]", status === "error" ? "border-error bg-panel text-error" : "border-border-soft bg-panel-2 text-text-muted")}>
+    <div className={cn("max-w-full py-0.5 text-[11.5px] leading-[17px]", status === "error" ? "text-error" : "text-text-muted")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+        <span
+          className={cn(
+            "size-1.5 rounded-full self-center",
+            status === "error" ? "bg-error" : status === "running" ? "bg-running" : "bg-text-faint",
+          )}
+        />
         <span>{headLabel}</span>
-        {ev.tool_name && (
-          <span className="font-mono font-semibold text-text-muted">{ev.tool_name}</span>
-        )}
-        {summary && (
-          <span className={cn("max-w-[34rem] truncate", status === "error" ? "text-error" : "text-text-faint")}>
-            · {summary}
-          </span>
-        )}
-        {elapsedMs ? (
-          <span className="text-text-faint tabular-nums">
-            · {fmtMs(elapsedMs, status)}
-          </span>
-        ) : null}
-        {status === "running" && (
-          <span className="size-1.5 rounded-full bg-running" />
+        {summary && <span className="max-w-[34rem] truncate text-text-faint">· {summary}</span>}
+        {elapsedMs ? <span className="text-text-faint tabular-nums">· {fmtMs(elapsedMs, status)}</span> : null}
+        {hasDetails && (
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="cursor-pointer text-text-faint underline underline-offset-2 hover:text-text-muted"
+          >
+            {open ? "hide details" : "view details"}
+          </button>
         )}
       </div>
+      {open && hasDetails && (
+        <div className="ml-3.5 mt-1.5 space-y-2 border-l border-border-soft bg-panel/60 px-3 py-2 text-[11px] text-text-muted">
+          {ev.err && <ToolDetail label="error" tone="error" value={ev.err} />}
+          {ev.args && <ToolDetail label={ev.tool_name ? `args · ${ev.tool_name}` : "args"} value={ev.args} />}
+          {ev.output && <ToolDetail label="output" value={ev.output} />}
+        </div>
+      )}
     </div>
   );
 }
 
-function toolSummary(ev: EventBlockData): string {
-  if (ev.err) return shorten(cleanText(ev.err), 120);
+function ToolDetail({ label, value, tone }: { label: string; value: string; tone?: "error" }) {
+  return (
+    <div>
+      <div className={cn("mb-1 font-mono text-[10px] uppercase", tone === "error" ? "text-error" : "text-text-faint")}>
+        {label}
+      </div>
+      <pre className={cn(
+        "max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.45]",
+        tone === "error" ? "text-error" : "text-text-muted",
+      )}>
+        {value}
+      </pre>
+    </div>
+  );
+}
+
+export function toolEventSummary(ev: EventBlockData): string {
   const fromArgs = summarizeArgs(ev.tool_name || "", ev.args || "");
   if (fromArgs) return fromArgs;
-  if (ev.output) return shorten(cleanText(ev.output), 120);
-  return "";
+  return toolActivity(ev.tool_name || "", !!ev.err);
 }
 
 function summarizeArgs(toolName: string, raw: string): string {
@@ -100,14 +120,16 @@ function summarizeArgs(toolName: string, raw: string): string {
     const query = stringValue(obj.query) || stringValue(obj.q) || stringValue(obj.search_query) || stringValue(obj.pattern);
     const path = stringValue(obj.path) || stringValue(obj.file) || stringValue(obj.filename) || stringValue(obj.uri);
     const target = stringValue(obj.target) || stringValue(obj.channel) || stringValue(obj.url);
-    const title = stringValue(obj.title) || stringValue(obj.name);
-    if (command) return shorten(commandLabel(lower) + " " + command, 120);
-    if (query) return shorten("search " + query, 120);
-    if (path) return shorten(pathAction(lower) + " " + path, 120);
-    if (target) return shorten("target " + target, 120);
-    if (title) return shorten(title, 120);
+    const title = stringValue(obj.title) || stringValue(obj.name) || stringValue(obj.intent);
+    if (command) return commandSummary(command);
+    if (query) return querySummary(query);
+    if (path) return pathAction(lower) + " file";
+    if (target) return targetSummary(target);
+    if (title) return titleSummary(title, lower);
   }
-  return shorten(text.replace(/^["']|["']$/g, ""), 120);
+  const bare = text.replace(/^["']|["']$/g, "");
+  if (looksLikePayload(bare)) return toolActivity(toolName, false);
+  return shorten("checking " + bare, 80);
 }
 
 function parseJSON(raw: string): unknown | null {
@@ -125,16 +147,75 @@ function stringValue(value: unknown): string {
   return "";
 }
 
-function commandLabel(toolName: string): string {
-  if (toolName.includes("bash") || toolName.includes("shell") || toolName.includes("exec")) return "run";
-  return "command";
-}
-
 function pathAction(toolName: string): string {
   if (toolName.includes("write") || toolName.includes("edit") || toolName.includes("patch")) return "edit";
   if (toolName.includes("list")) return "list";
   if (toolName.includes("read") || toolName.includes("open")) return "read";
-  return "path";
+  return "checking";
+}
+
+function commandSummary(command: string): string {
+  const c = command.trim();
+  if (!c) return "running shell command";
+  if (/\b(git status|git diff|git log|git show)\b/.test(c)) return "checking git state";
+  if (/\b(go test|gotestsum)\b/.test(c)) return "running Go tests";
+  if (/\bgo vet\b/.test(c)) return "running Go vet";
+  if (/\bgo build\b|\bmake build\b/.test(c)) return "running build";
+  if (/\b(npm run build|pnpm build|yarn build|vite build)\b/.test(c)) return "running frontend build";
+  if (/\b(tsc|typecheck)\b/.test(c)) return "running type check";
+  if (/\b(rg|grep|fd|find)\b/.test(c)) return "searching project";
+  if (/\b(sed|cat|tail|head|less)\b/.test(c)) return "reading files";
+  if (/\b(curl|wget)\b/.test(c)) return "checking endpoint";
+  if (/\b(lsof|ps|kill)\b/.test(c)) return "checking local process";
+  if (looksLikePayload(c)) return "running shell command";
+  return shorten("running " + firstCommandWord(c), 80);
+}
+
+function querySummary(query: string): string {
+  const q = query.trim();
+  if (!q || looksLikePayload(q)) return "searching";
+  return `searching "${shorten(q, 44)}"`;
+}
+
+function targetSummary(target: string): string {
+  if (/^https?:\/\//i.test(target)) return "checking URL";
+  if (looksLikePath(target)) return "checking target";
+  return shorten("checking " + target, 60);
+}
+
+function titleSummary(title: string, toolName: string): string {
+  const t = cleanText(title);
+  if (!t || looksLikePayload(t)) return toolActivity(toolName, false);
+  return shorten("checking " + t, 70);
+}
+
+function toolActivity(toolName: string, failed: boolean): string {
+  const lower = toolName.toLowerCase();
+  if (failed) return "see details";
+  if (lower.includes("search") || lower.includes("grep") || lower.includes("find")) return "searching project";
+  if (lower.includes("read") || lower.includes("open") || lower.includes("cat")) return "reading file";
+  if (lower.includes("list") || lower.includes("ls")) return "listing files";
+  if (lower.includes("write") || lower.includes("edit") || lower.includes("patch")) return "editing file";
+  if (lower.includes("http") || lower.includes("fetch") || lower.includes("curl")) return "checking endpoint";
+  if (lower.includes("bash") || lower.includes("shell") || lower.includes("exec")) return "running shell command";
+  return "checking tool result";
+}
+
+function firstCommandWord(command: string): string {
+  const first = command.split(/\s+/)[0] || "command";
+  return first.replace(/^.*\//, "");
+}
+
+function looksLikePayload(text: string): boolean {
+  if (text.length > 120) return true;
+  if (/^[\[{]/.test(text.trim())) return true;
+  if (looksLikePath(text)) return true;
+  if (/https?:\/\/\S{20,}/i.test(text)) return true;
+  return false;
+}
+
+function looksLikePath(text: string): boolean {
+  return /(^|[\s"'])(\/Users\/|\/tmp\/|\/var\/|~\/|\.\.?\/|[A-Za-z]:\\)/.test(text);
 }
 
 function cleanText(text: string): string {

@@ -7,7 +7,8 @@ export function ReasoningPreface({ text }: { text: string }) {
   const isLong = flat.length > 280;
   const collapsed = isLong ? flat.slice(0, 280) + "…" : flat;
   return (
-    <div className="mb-2 max-w-[66ch] border-l-2 border-border-soft bg-transparent px-2 py-1 text-[11.5px] leading-[1.5] text-text-faint">
+    <div className="mb-2 max-w-[66ch] rounded-[2px] bg-panel/50 px-2 py-1 text-[11.5px] leading-[1.5] text-text-faint">
+      <span className="mr-1 font-mono text-[10px] uppercase text-text-whisper">thinking</span>
       {open ? (
         <Markdown variant="lite" className="whitespace-pre-wrap">
           {text}

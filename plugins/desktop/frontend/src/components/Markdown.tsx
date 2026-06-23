@@ -129,7 +129,7 @@ function codeRenderer({ children, className }: any) {
     return <code className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.55]">{children}</code>;
   }
   return (
-    <code className="rounded-[3px] border border-border-soft bg-panel-2 px-1 py-px font-mono text-[12.5px] text-text-muted">
+    <code className="rounded-[3px] bg-panel/70 px-1 py-px font-mono text-[12px] text-text-muted">
       {children}
     </code>
   );

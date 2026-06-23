@@ -7,12 +7,10 @@ import { api } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
 import { MemoryOverviewCard } from "./MemoryOverviewCard";
 import type {
-  ActionProposalCard,
   AgentItem,
   AgentRun,
   CapabilityView,
   ContextInspectView,
-  SkillView,
   TaskStateCard,
   ThreadItem,
 } from "@/lib/types";
@@ -30,17 +28,16 @@ export function RightPane() {
   const activeChannel = useStore((s) => s.activeChannel);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const participants = useStore((s) => s.participants);
-  const tools = useStore((s) => s.tools);
   const streamingByID = useStore((s) => s.streamingByID);
   const capabilities = useStore((s) => s.capabilities);
-  const [moreOpen, setMoreOpen] = useState(true);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const inThread = !!threadDetail && !threadDetail.unsupported && !threadDetail.not_found;
   const threadParticipants = inThread ? threadDetail!.participants : null;
   const threadRecentRuns = inThread ? threadDetail!.recent_runs : null;
   const workbenchView = inThread ? "thread" : view;
 
-  if (!detail && !inThread) return <aside className="h-full border-l-hard border-border bg-panel-3 px-3 py-4" />;
+  if (!detail && !inThread) return <aside className="h-full border-l border-border-soft bg-panel-3 px-3 py-4" />;
 
   const liveRuns: AgentRun[] = Object.values(streamingByID).map((s) => ({
     id: s.messageID,
@@ -100,7 +97,6 @@ export function RightPane() {
       personas={personas}
       agentDMs={agentDMs}
       agents={agents}
-      tools={tools}
       capabilities={capabilities}
       recentRuns={scopeRecentRuns}
       agentModes={agentModes}
@@ -136,7 +132,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else if (view === "direct" || inThread) {
@@ -150,7 +146,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else if (view === "agent") {
@@ -171,7 +167,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   } else {
@@ -180,26 +176,26 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitiesSection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
   }
 
   return (
-    <aside className="h-full overflow-y-auto border-l-hard border-border bg-panel-3 px-5 pb-8 pt-5">
+    <aside className="h-full overflow-y-auto border-l border-border-soft bg-panel-3 px-4 pb-8 pt-4">
       <div>{main}</div>
       {more && (
         <>
           <button
             onClick={() => setMoreOpen((v) => !v)}
-            className="mt-2 flex w-full items-center justify-between border-y border-border py-2.5 text-[11.5px] font-semibold uppercase text-text-muted hover:text-text"
+            className="mt-1 flex w-full items-center justify-between border-t border-border-soft py-2.5 text-[11.5px] font-semibold uppercase text-text-muted hover:text-text"
           >
             <span>{moreOpen ? "Hide details" : "More details"}</span>
             <ChevronRight
               className={cn("size-3 text-text-faint transition-transform", moreOpen && "rotate-90")}
             />
           </button>
-          {moreOpen && <div className="pt-5">{more}</div>}
+          {moreOpen && <div className="pt-4">{more}</div>}
         </>
       )}
     </aside>
@@ -211,7 +207,7 @@ function ActiveTasksSection({ runs, archived }: { runs: AgentRun[]; archived: nu
     if (archived === 0) return null;
     return (
       <Section label="Flow Tasks">
-        <div className="border border-dashed border-border-soft bg-panel px-2.5 py-2 text-[12px] text-text-faint">
+        <div className="px-0.5 py-1 text-[12px] text-text-faint">
           No active flow tasks here. {archived} archived hidden.
         </div>
       </Section>
@@ -291,8 +287,8 @@ function RuntimeContextSection({
   if (!spaceID) return null;
   return (
     <Section label="Runtime Context">
-      <div className="border border-border bg-panel px-2.5 py-2">
-        <div className="grid grid-cols-3 gap-px border border-border bg-border text-[10.5px]">
+      <div className="bg-panel/60 px-2.5 py-2">
+        <div className="grid grid-cols-3 gap-1 text-[10.5px]">
           <ContextMetric label="Profile" value={inspect?.profile || "-"} />
           <ContextMetric label="Selected" value={String(inspect?.selected_count ?? "-")} />
           <ContextMetric label="Filtered" value={String(totalFiltered(inspect) || 0)} />
@@ -310,7 +306,7 @@ function RuntimeContextSection({
           </div>
         )}
         {(inspect?.summary || inspect?.session_summary) && (
-          <div className="mt-2 border-l-2 border-border pl-2 text-[11px] leading-[1.35] text-text-muted">
+          <div className="mt-2 border-l border-border-soft pl-2 text-[11px] leading-[1.35] text-text-muted">
             <div className="mb-1 font-mono text-[10px] uppercase text-text-faint">
               {inspect.summary ? "Context summary" : "Session summary"}
             </div>
@@ -369,7 +365,7 @@ function RuntimeContextSection({
 
 function ContextMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-panel-2 px-2 py-1.5">
+    <div className="bg-panel-2/70 px-2 py-1.5">
       <div className="font-mono uppercase text-text-faint">{label}</div>
       <div className="truncate text-[11.5px] text-text">{value}</div>
     </div>
@@ -385,7 +381,7 @@ function ActiveTaskMiniCard({ run }: { run: AgentRun }) {
   const ag = agents.find((a) => a.id === run.agent_id);
   const status = taskStatusLabel(run.status);
   return (
-    <div className="border border-border bg-panel px-2.5 py-2">
+    <div className="border border-border-soft bg-panel/70 px-2.5 py-2">
       <div className="flex items-start justify-between gap-2">
         <div className="line-clamp-2 break-words text-[12.5px] font-semibold leading-[1.35] text-text">
           {run.title || "Untitled task"}
@@ -411,8 +407,8 @@ function taskStatusLabel(status: string): string {
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <section className="mb-6">
-      <div className="mb-2 border-b border-border-soft pb-1 font-display text-[11px] font-extrabold uppercase tracking-[0.3px] text-text-muted">
+    <section className="mb-5">
+      <div className="mb-2 font-display text-[11px] font-bold uppercase tracking-[0.35px] text-text-muted">
         {label}
       </div>
       <div>{children}</div>
@@ -429,7 +425,6 @@ function AgentWorkbenchPanel({
   personas,
   agentDMs,
   agents,
-  tools,
   capabilities,
   recentRuns,
   agentModes,
@@ -442,7 +437,6 @@ function AgentWorkbenchPanel({
   personas: import("@/lib/types").PersonaItem[];
   agentDMs: import("@/lib/types").AgentDMItem[];
   agents: AgentItem[];
-  tools: import("@/lib/types").ToolItem[];
   capabilities: CapabilityView | null;
   recentRuns: AgentRun[];
   agentModes?: Record<string, string>;
@@ -454,25 +448,20 @@ function AgentWorkbenchPanel({
   const runningIDs = new Set(runs.filter((r) => r.status === "running").map((r) => r.agent_id));
   const summary = capabilitySummary(capabilities);
   const failures = recentFailures(recentRuns, capabilities);
-  const globalTools = tools.map((t) => t.name);
   const permission = permissionSummary(view);
+  const runningCount = runs.filter((r) => r.status === "running").length;
+  const queuedCount = recentRuns.filter((r) => r.status === "queued").length;
   return (
     <Section label="Agent Workbench">
-      <div className="mb-2 grid grid-cols-3 border border-border-soft bg-panel text-[11px]">
-        <div className="border-r border-border-soft px-2 py-1.5">
-          <div className="font-mono text-[10.5px] uppercase text-text-faint">Mode</div>
-          <div className="truncate text-text">{permission.label}</div>
-        </div>
-        <div className="border-r border-border-soft px-2 py-1.5">
-          <div className="font-mono text-[10.5px] uppercase text-text-faint">Skills</div>
-          <div className={summary.missing > 0 ? "text-error" : "text-text"}>
-            {summary.ready}/{summary.total} ready
-          </div>
-        </div>
-        <div className="px-2 py-1.5">
-          <div className="font-mono text-[10.5px] uppercase text-text-faint">Failures</div>
-          <div className={failures.length > 0 ? "text-error" : "text-text"}>{failures.length || "none"}</div>
-        </div>
+      <div className="mb-2 flex flex-wrap gap-x-2 gap-y-1 text-[11.5px] leading-[1.4] text-text-muted">
+        <span>{permission.label}</span>
+        {runningCount > 0 && <span className="text-running">· {runningCount} working</span>}
+        {queuedCount > 0 && <span>· {queuedCount} queued</span>}
+        <span className={summary.missing > 0 ? "text-error" : "text-text-faint"}>
+          · {summary.total > 0 ? `${summary.ready} skills ready` : "no skills"}
+          {summary.missing > 0 ? `, ${summary.missing} missing` : ""}
+        </span>
+        {failures.length > 0 && <span className="text-error">· {failures.length} failure</span>}
       </div>
       <div className="flex flex-col gap-2">
         {panelAgents.map((p) => {
@@ -481,42 +470,31 @@ function AgentWorkbenchPanel({
           const runState = agentRunState(p.id, runs, recentRuns);
           const isRunning = runningIDs.has(p.id) || p.status === "running" || runState.running;
           const hasDM = agentDMs.some((d) => d.persona_id === p.id);
-          const agentTools = p.tools && p.tools.length > 0 ? p.tools : globalTools;
           const routeMode = routeModeLabel(view, agentModes?.[p.id]);
           return (
             <div key={p.id} className={cn(
-              "border bg-panel px-2.5 py-2",
-              isRunning ? "border-border border-l-4 border-l-running" : "border-border-soft",
+              "border bg-panel/70 px-2.5 py-2",
+              isRunning ? "border-border-soft border-l-2 border-l-running" : "border-border-soft",
             )}>
-              <div className="flex min-w-0 items-center gap-2">
-                <Dot status={isRunning ? "running" : "idle"} />
-                <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">
-                  @{display}
-                </span>
-                <span className="shrink-0 font-mono text-[10.5px] uppercase text-text-faint">
-                  {agentStatusLabel(isRunning, runState.queued, hasDM)}
-                </span>
-              </div>
-              <div className="mt-1 truncate font-mono text-[10.5px] text-text-muted">
-                {runtime || runtimeLabel(undefined, stateRuntime)}
-              </div>
-              {p.description && !isRunning && (
-                <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
-                  {p.description}
+              <div className="flex min-w-0 items-start gap-2">
+                <Dot status={isRunning ? "running" : "idle"} className="mt-1" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text">
+                      @{display}
+                    </span>
+                    <span className="shrink-0 font-mono text-[10.5px] uppercase text-text-faint">
+                      {agentStatusLabel(isRunning, runState.queued, hasDM)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10.5px] text-text-faint">
+                    <span className="truncate font-mono">{runtime || runtimeLabel(undefined, stateRuntime)}</span>
+                    {routeMode && <span>· {routeMode}</span>}
+                    {runState.queued > 0 && <span>· queued {runState.queued}</span>}
+                    {summary.total > 0 && <span>· {summary.ready} skills ready</span>}
+                  </div>
                 </div>
-              )}
-              <div className="mt-2 flex flex-wrap gap-1">
-                <CapabilityPill label={permission.short} />
-                {routeMode && <CapabilityPill label={routeMode} />}
-                {runState.queued > 0 && <CapabilityPill label={`queued ${runState.queued}`} />}
-                <CapabilityPill label={agentTools.length > 0 ? `${agentTools.length} tools` : "no tools"} />
-                <CapabilityPill label={summary.missing > 0 ? `${summary.missing} skill config missing` : `${summary.ready} skills ready`} error={summary.missing > 0} />
               </div>
-              {agentTools.length > 0 && (
-                <div className="mt-1.5 line-clamp-1 font-mono text-[10.5px] text-text-faint">
-                  {agentTools.slice(0, 5).join(" · ")}
-                </div>
-              )}
               {failures.length > 0 && (
                 <div className="mt-1.5 line-clamp-2 text-[11px] leading-[1.35] text-error">
                   Recent failure: {failures[0]}
@@ -525,10 +503,10 @@ function AgentWorkbenchPanel({
               <div className="mt-2 flex gap-1.5">
                 {p.id !== "sumi" && (
                   <>
-                    <Button variant="default" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void openAgent(p.id)}>
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void openAgent(p.id)}>
                       DM
                     </Button>
-                    <Button variant="default" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void newAgentChat(p.id)}>
+                    <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => void newAgentChat(p.id)}>
                       Chat
                     </Button>
                   </>
@@ -545,7 +523,7 @@ function AgentWorkbenchPanel({
         })}
       </div>
       {panelAgents.length === 0 && (
-        <div className="border border-dashed border-border-soft bg-panel px-2.5 py-2 text-[12px] text-text-muted">
+        <div className="px-0.5 py-1 text-[12px] text-text-faint">
           No agent attached here.
         </div>
       )}
@@ -570,8 +548,6 @@ type WorkbenchAgent = {
   runtime?: string;
   model?: string;
   status: string;
-  description?: string;
-  tools?: string[];
 };
 
 function workbenchAgents(
@@ -593,8 +569,6 @@ function workbenchAgents(
         runtime: p?.runtime || agent.runtime,
         model: p?.model || agent.model,
         status: agent.status,
-        description: p?.description || agent.role,
-        tools: p?.tools,
       };
     });
   }
@@ -605,7 +579,6 @@ function workbenchAgents(
     id: "sumi",
     display: "Sumi",
     status: "idle",
-    description: "Default assistant for direct conversation.",
   }];
 }
 
@@ -616,25 +589,23 @@ function personaWorkbenchAgent(p: import("@/lib/types").PersonaItem, status: str
     runtime: p.runtime,
     model: p.model,
     status,
-    description: p.description,
-    tools: p.tools,
   };
 }
 
-function permissionSummary(view: string): { label: string; short: string } {
+function permissionSummary(view: string): { label: string } {
   if (view === "channel") {
-    return { label: "Routed channel", short: "routed" };
+    return { label: "Routed channel" };
   }
   if (view === "thread") {
-    return { label: "Routed thread", short: "thread" };
+    return { label: "Routed thread" };
   }
   if (view === "direct") {
-    return { label: "Direct chat", short: "direct" };
+    return { label: "Direct chat" };
   }
   if (view === "agent") {
-    return { label: "Direct agent", short: "direct" };
+    return { label: "Direct agent" };
   }
-  return { label: "Direct chat", short: "direct" };
+  return { label: "Direct chat" };
 }
 
 function capabilitySummary(capabilities: CapabilityView | null): { total: number; ready: number; missing: number } {
@@ -744,7 +715,7 @@ function ThreadMiniCard({ thread, showChannel }: { thread: ThreadItem; showChann
   );
 }
 
-function CapabilitiesSection({
+function CapabilitySummarySection({
   capabilities,
   scopeSpaceID,
   scopeAgentIDs,
@@ -753,41 +724,6 @@ function CapabilitiesSection({
   scopeSpaceID?: string;
   scopeAgentIDs: string[];
 }) {
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [skillDetail, setSkillDetail] = useState<SkillView | null>(null);
-  const [skillError, setSkillError] = useState<string>("");
-
-  useEffect(() => {
-    if (!capabilities || capabilities.skills.length === 0) {
-      setSelectedSkill(null);
-      setSkillDetail(null);
-      return;
-    }
-    setSelectedSkill((current) => {
-      if (current && capabilities.skills.some((s) => s.name === current)) return current;
-      return null;
-    });
-  }, [capabilities]);
-
-  useEffect(() => {
-    if (!selectedSkill) {
-      setSkillDetail(null);
-      return;
-    }
-    let alive = true;
-    setSkillError("");
-    api.skill(selectedSkill)
-      .then((detail) => {
-        if (alive) setSkillDetail(detail?.name ? detail : null);
-      })
-      .catch((err) => {
-        if (alive) setSkillError(err instanceof Error ? err.message : String(err));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [selectedSkill]);
-
   if (!capabilities) {
     return (
       <Section label="Capabilities">
@@ -795,210 +731,31 @@ function CapabilitiesSection({
       </Section>
     );
   }
-  const skills = capabilities.skills;
+  const summary = capabilitySummary(capabilities);
   const scopedTasks = capabilities.tasks.filter((t) => taskInScope(t, scopeSpaceID, scopeAgentIDs));
-  const tasks = scopedTasks.filter(activeTask).slice(0, 3);
+  const activeTasks = scopedTasks.filter(activeTask).length;
   const archivedTasks = capabilities.archived_task_state_count || 0;
-  const proposals = capabilities.action_proposals.slice(0, 3);
-  const empty = skills.length === 0 && tasks.length === 0 && proposals.length === 0 && archivedTasks === 0;
-  const selected = skillDetail?.name === selectedSkill ? skillDetail : skills.find((s) => s.name === selectedSkill) || null;
+  const proposals = capabilities.action_proposals.length;
+  const empty = summary.total === 0 && activeTasks === 0 && proposals === 0 && archivedTasks === 0;
   return (
     <Section label="Capabilities">
       {empty ? (
         <div className="text-[12px] text-text-faint">No capability state recorded.</div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {skills.length > 0 && (
-            <CapabilityGroup label={`Skills · ${skills.length}`}>
-              <div className="flex flex-col gap-1.5">
-                {skills.map((s) => (
-                  <button
-                    key={s.name}
-                    type="button"
-                    onClick={() => setSelectedSkill((current) => (current === s.name ? null : s.name))}
-                    className={cn(
-                      "border border-border bg-panel px-2.5 py-2 text-left text-[12px] transition-colors hover:border-text-faint",
-                      selectedSkill === s.name && "border-text-muted bg-panel-2",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-semibold text-text">{s.name}</span>
-                      <span className={cn(
-                        "shrink-0 border px-1.5 py-px font-mono text-[10.5px]",
-                        s.configured ? "border-border text-text-muted" : "border-error/50 text-error",
-                      )}>
-                        {skillStatus(s)}
-                      </span>
-                    </div>
-                    <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
-                      {s.when || s.description || s.risk || "Skill card"}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              {!selected && (
-                <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[11.5px] text-text-faint">
-                  Select a skill to inspect its detail.
-                </div>
-              )}
-              {selected && (
-                <CapabilityCard>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10.5px] uppercase text-text-faint">Skill detail</span>
-                    <span className="flex items-center gap-2">
-                      {selected.last_action && <span className="text-[11px] text-text-faint">last {selected.last_action}</span>}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedSkill(null)}
-                        className="border border-border bg-panel-2 px-1.5 py-px text-[10.5px] text-text-muted hover:text-text"
-                      >
-                        Close
-                      </button>
-                    </span>
-                  </div>
-                  <div className="mt-1.5 font-semibold text-text">{selected.name}</div>
-                  {(selected.when || selected.description) && (
-                    <div className="mt-1 text-[11.5px] leading-[1.45] text-text-muted">
-                      {selected.when || selected.description}
-                    </div>
-                  )}
-                  {selected.risk && (
-                    <div className="mt-1 font-mono text-[10.5px] uppercase text-text-faint">
-                      Risk · {selected.risk}
-                    </div>
-                  )}
-                  {selected.env_needs && selected.env_needs.length > 0 && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      {selected.env_needs.map((need) => (
-                        <div key={need.name} className="text-[11.5px] leading-[1.35] text-text-muted">
-                          <span className={need.configured ? "text-text-faint" : "text-error"}>
-                            {need.configured ? "Configured" : "Missing"}
-                          </span>
-                          {" · "}
-                          <span className="font-mono">{need.name}</span>
-                          {!need.configured && need.hint && (
-                            <div className="mt-0.5 text-text-faint">{need.hint}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {selected.examples && selected.examples.length > 0 && (
-                    <div className="mt-2 text-[11.5px] leading-[1.4] text-text-muted">
-                      {selected.examples.slice(0, 2).join(" · ")}
-                    </div>
-                  )}
-                  {selected.body && (
-                    <div className="mt-2 max-h-32 overflow-auto border border-border bg-bg px-2 py-1.5 font-mono text-[10.5px] leading-[1.45] text-text-faint">
-                      {skillBodyPreview(selected.body)}
-                    </div>
-                  )}
-                  {skillError && <div className="mt-2 text-[11.5px] text-error">{skillError}</div>}
-                </CapabilityCard>
-              )}
-            </CapabilityGroup>
-          )}
-          {tasks.length > 0 && (
-            <CapabilityGroup label="Flow Task State">
-              {tasks.map((t) => (
-                <CapabilityCard key={t.id}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="line-clamp-1 font-semibold text-text">{t.title}</span>
-                    <span className="shrink-0 font-mono text-[10.5px] text-text-muted">{t.run_status || t.status}</span>
-                  </div>
-                  <div className="mt-1 text-[11.5px] leading-[1.4] text-text-muted">
-                    {taskStateLine(t)}
-                  </div>
-                </CapabilityCard>
-              ))}
-            </CapabilityGroup>
-          )}
-          {archivedTasks > 0 && (
-            <div className="border border-dashed border-border bg-panel px-2.5 py-2 text-[11.5px] text-text-faint">
-              {archivedTasks} archived tasks hidden
+        <div className="space-y-1.5 text-[12px] leading-[1.45] text-text-muted">
+          {summary.total > 0 && (
+            <div className={summary.missing > 0 ? "text-error" : "text-text-muted"}>
+              {summary.ready} skills ready{summary.missing > 0 ? ` · ${summary.missing} missing config` : ""}
             </div>
           )}
-          {proposals.length > 0 && (
-            <CapabilityGroup label="Action Proposals">
-              {proposals.map((p, i) => (
-                <CapabilityCard key={`${p.time}-${i}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-semibold text-text">{p.tool || "action"}</span>
-                    <span className="shrink-0 font-mono text-[10.5px] text-text-muted">{p.result || relTime(p.time)}</span>
-                  </div>
-                  <div className="mt-1 line-clamp-2 text-[11.5px] leading-[1.4] text-text-muted">
-                    {proposalLine(p)}
-                  </div>
-                </CapabilityCard>
-              ))}
-            </CapabilityGroup>
-          )}
+          {activeTasks > 0 && <div>{activeTasks} active flow task{activeTasks === 1 ? "" : "s"}</div>}
+          {proposals > 0 && <div>{proposals} action proposal{proposals === 1 ? "" : "s"}</div>}
+          {archivedTasks > 0 && <div className="text-text-faint">{archivedTasks} archived tasks hidden</div>}
+          <div className="pt-0.5 text-[11px] text-text-faint">
+            Skill details live in the agent profile; this rail only shows current readiness.
+          </div>
         </div>
       )}
     </Section>
   );
-}
-
-function CapabilityGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1.5 font-mono text-[10.5px] uppercase text-text-faint">
-        {label}
-      </div>
-      <div className="flex flex-col gap-1.5">{children}</div>
-    </div>
-  );
-}
-
-function CapabilityCard({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="border border-border bg-panel px-2.5 py-2 text-[12px]">
-      {children}
-    </div>
-  );
-}
-
-function taskStateLine(t: TaskStateCard): string {
-  const checkpoint = t.state?.checkpoint || t.outcome || "No checkpoint";
-  const blockers = t.state?.blockers?.length || 0;
-  if (blockers > 0) {
-    return `${checkpoint} · ${blockers} blocker${blockers === 1 ? "" : "s"}`;
-  }
-  return checkpoint;
-}
-
-function proposalLine(p: ActionProposalCard): string {
-  const parts = [p.intent, p.target, p.risk].filter((v): v is string => !!v && v.trim() !== "");
-  if (parts.length > 0) {
-    return parts.join(" · ");
-  }
-  return p.source || "No proposal detail";
-}
-
-function skillStatus(s: SkillView): string {
-  if (!s.configured) {
-    const count = s.missing_env?.length || 0;
-    return count > 1 ? `missing ${count}` : "missing";
-  }
-  return s.risk || "ready";
-}
-
-function skillBodyPreview(body: string): string {
-  let text = body.trim();
-  if (text.startsWith("---")) {
-    const end = text.indexOf("\n---", 3);
-    if (end >= 0) {
-      text = text.slice(end + 4).trim();
-    }
-  }
-  text = text.replace(/^#\s+/gm, "").trim();
-  return firstSentence(text);
-}
-
-function firstSentence(s: string): string {
-  const trimmed = s.trim();
-  const m = trimmed.match(/^(.{0,140}?[.。!?！？])/);
-  if (m) return m[1];
-  if (trimmed.length <= 140) return trimmed;
-  return trimmed.slice(0, 140) + "…";
 }
