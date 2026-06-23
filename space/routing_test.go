@@ -106,6 +106,33 @@ func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
 	}
 }
 
+func TestRouterThreadListeningAgentWakesOnPlainMessage(t *testing.T) {
+	router, mgr, ch := newRouterTestEnv(t)
+	root, err := mgr.AppendUserMessage(ch.ID, "root", nil)
+	if err != nil {
+		t.Fatalf("AppendUserMessage: %v", err)
+	}
+	if err := mgr.SetAgentMode(ch.ID, "reviewer", "listen"); err != nil {
+		t.Fatalf("SetAgentMode: %v", err)
+	}
+	if err := mgr.SetThreadAgentMode(ch.ID, root.ID, "coder", "listen"); err != nil {
+		t.Fatalf("SetThreadAgentMode: %v", err)
+	}
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "thread follow-up", root.ID)
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
+		t.Fatalf("expected thread listening coder wake, got %+v", wakes)
+	}
+	if wakes[0].Chain == nil || wakes[0].Chain.ParentMessageID != root.ID {
+		t.Fatalf("wake chain parent = %+v, want %q", wakes[0].Chain, root.ID)
+	}
+	if len(notices) != 0 {
+		t.Errorf("expected no notices, got %+v", notices)
+	}
+}
+
 func TestRouterMultipleListeningAgentsAreAmbiguous(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {

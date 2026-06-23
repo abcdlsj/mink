@@ -149,7 +149,7 @@ export default function App() {
       <div
         className="hidden h-screen bg-bg text-text md:grid"
         style={{
-          gridTemplateColumns: desktopHasThread ? "260px minmax(0,1fr) minmax(360px,430px)" : "260px minmax(0,1fr)",
+          gridTemplateColumns: desktopHasThread ? "260px minmax(0,1fr) minmax(460px,540px)" : "260px minmax(0,1fr)",
           gridTemplateRows: "40px 1fr",
           gridTemplateAreas: desktopHasThread
             ? '"topbar topbar topbar" "left center right"'

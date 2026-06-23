@@ -21,17 +21,14 @@ func ListeningAgents(sp *Space, parentMessageID string) []string {
 	if sp == nil {
 		return nil
 	}
-	merged := map[string]string{}
-	for id, mode := range sp.AgentModes {
-		merged[id] = mode
-	}
+	modes := sp.AgentModes
 	if parentMessageID = strings.TrimSpace(parentMessageID); parentMessageID != "" {
-		for id, mode := range sp.ThreadAgentModes[parentMessageID] {
-			merged[id] = mode
+		if threadModes, ok := sp.ThreadAgentModes[parentMessageID]; ok {
+			modes = threadModes
 		}
 	}
-	out := make([]string, 0, len(merged))
-	for id, mode := range merged {
+	out := make([]string, 0, len(modes))
+	for id, mode := range modes {
 		if mode == "listen" {
 			out = append(out, id)
 		}

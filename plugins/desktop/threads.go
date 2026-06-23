@@ -129,10 +129,13 @@ func threadKind(k space.Kind) bool {
 
 func effectiveThreadModes(sp *space.Space, parentID string) map[string]string {
 	out := map[string]string{}
-	for id, mode := range sp.AgentModes {
-		out[id] = mode
+	if modes, ok := sp.ThreadAgentModes[parentID]; ok {
+		for id, mode := range modes {
+			out[id] = mode
+		}
+		return out
 	}
-	for id, mode := range sp.ThreadAgentModes[parentID] {
+	for id, mode := range sp.AgentModes {
 		out[id] = mode
 	}
 	return out

@@ -83,6 +83,30 @@ func TestNormalizeLegacyRuntimeError(t *testing.T) {
 	}
 }
 
+func TestEffectiveThreadModesUseThreadLocalOverride(t *testing.T) {
+	sp := &space.Space{
+		AgentModes: map[string]string{
+			"reviewer": "listen",
+		},
+		ThreadAgentModes: map[string]map[string]string{
+			"root": {
+				"coder": "listen",
+			},
+		},
+	}
+	got := effectiveThreadModes(sp, "root")
+	if got["coder"] != "listen" {
+		t.Fatalf("thread-local coder mode missing: %#v", got)
+	}
+	if _, ok := got["reviewer"]; ok {
+		t.Fatalf("channel mode leaked into thread-local override: %#v", got)
+	}
+	inherited := effectiveThreadModes(sp, "other")
+	if inherited["reviewer"] != "listen" {
+		t.Fatalf("thread without local modes should inherit channel modes: %#v", inherited)
+	}
+}
+
 func TestListToolsReturnsRegistryTools(t *testing.T) {
 	b, _ := newBackendWithApp(t)
 	tools := b.ListTools()

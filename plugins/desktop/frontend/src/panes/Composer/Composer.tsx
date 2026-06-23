@@ -207,7 +207,7 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
 
   return (
     <div className="border-t-hard border-border bg-panel px-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-2.5 md:px-5 md:pb-3.5 md:pt-3">
-      <div className="max-w-[1040px]">
+      <div className="w-full">
         {showRoutingHint && (
           <div className="mb-2 inline-flex border border-border bg-accent-bg px-2 py-0.5 text-[11.5px] text-text">
             {composerHint?.text}
