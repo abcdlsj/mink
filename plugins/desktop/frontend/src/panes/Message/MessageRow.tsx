@@ -207,12 +207,12 @@ function LongContent({
   return (
     <div className={cn("relative", className)}>
       {isUser ? (
-        <div className="message-prose max-w-full whitespace-pre-wrap break-words text-[14px] leading-[22px] text-text">
+        <div className="message-prose max-w-[820px] whitespace-pre-wrap break-words text-[14px] leading-[22px] text-text">
           {renderMentions(visible, mentions)}
         </div>
       ) : (
         <Markdown
-          className="message-prose max-w-full text-[14px] leading-[22px] text-text"
+          className="message-prose max-w-[820px] text-[14px] leading-[22px] text-text"
           mentions={mentions}
         >
           {visible}

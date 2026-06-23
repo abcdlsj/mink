@@ -64,7 +64,7 @@ export function CenterPane({ preferThreadView = false }: { preferThreadView?: bo
       <ChannelHeader scope={scope} />
 
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5 md:pt-5">
-        <div className="mx-auto max-w-[880px]">
+        <div className="w-full max-w-[1040px]">
           <MessageStream messages={detail.messages} empty={<EmptyState />} threadStartsEnabled />
         </div>
       </div>
