@@ -560,6 +560,8 @@ func claudeProfileHasAuth(profile Profile) bool {
 		}
 		text := strings.ToLower(string(data))
 		if strings.Contains(text, "apikeyhelper") ||
+			strings.Contains(text, "primaryapikey") ||
+			strings.Contains(text, "api_key_helper") ||
 			strings.Contains(text, "api_key") ||
 			strings.Contains(text, "access_token") ||
 			strings.Contains(text, "accesstoken") ||

@@ -363,7 +363,7 @@ func TestPrepareProfileImportsHostClaudeProfile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(hostClaude, "skills", "demo"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(hostClaude, "config.json"), []byte(`{"oauth":{"accessToken":"host-token"}}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(hostClaude, "config.json"), []byte(`{"primaryApiKey":"host-token"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(hostClaude, "settings.json"), []byte(`{"apiKeyHelper":"helper"}`), 0o600); err != nil {
