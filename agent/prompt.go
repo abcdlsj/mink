@@ -16,7 +16,7 @@ func BuildSystemPrompt(env *RuntimeEnv, t *Turn) string {
 
 func BuildExternalPrompt(env *RuntimeEnv, t *Turn, hist string) string {
 	var p promptEnvelope
-	if sys := strings.TrimSpace(BuildSystemPrompt(env, t)); sys != "" {
+	if sys := strings.TrimSpace(promptBuilder{env: env, turn: t, external: true}.system()); sys != "" {
 		p.Add("system_prompt", sys)
 	}
 	if hist = strings.TrimSpace(hist); hist != "" {
@@ -29,13 +29,15 @@ func BuildExternalPrompt(env *RuntimeEnv, t *Turn, hist string) string {
 }
 
 type promptBuilder struct {
-	env  *RuntimeEnv
-	turn *Turn
+	env      *RuntimeEnv
+	turn     *Turn
+	external bool
 }
 
 func (b promptBuilder) system() string {
 	var p promptSections
 	p.Add(b.base())
+	p.Add(b.externalStateContract())
 	p.Add(b.persona())
 	p.Add(b.collaboration())
 	p.Add(b.memoryBrief())
@@ -58,6 +60,20 @@ func (b promptBuilder) base() string {
 		"Work directly and concisely.",
 		"Use tools when needed. Prefer read before edit.",
 		"Keep changes within the workspace unless the user asks otherwise.",
+	}, "\n")
+}
+
+func (b promptBuilder) externalStateContract() string {
+	if !b.external {
+		return ""
+	}
+	return strings.Join([]string{
+		"External runtime state contract:",
+		"- Agent owns intent. Sumi owns product state commits.",
+		"- You may use inherited coding capabilities, but you do not directly commit Sumi product state.",
+		"- Sumi-owned actions include memory, tasks, chat/space mutations, delete/reset, retry/resume, and cancellation.",
+		"- Do not claim that memory, tasks, chats, deletion, reset, retry, or resume changed unless a Sumi action/commit result is present in this turn.",
+		"- Host runtime memory, project notes, local history, and identity prompts are not Sumi product state; do not cite or expose them as Sumi memory.",
 	}, "\n")
 }
 
@@ -96,6 +112,9 @@ func (b promptBuilder) collaboration() string {
 }
 
 func (b promptBuilder) memoryPolicy() string {
+	if b.external {
+		return b.externalMemoryPolicy()
+	}
 	if b.env == nil || b.env.Persona == nil {
 		return strings.Join([]string{
 			"Memory protocol:",
@@ -127,6 +146,19 @@ func (b promptBuilder) memoryPolicy() string {
 	}, "\n")
 }
 
+func (b promptBuilder) externalMemoryPolicy() string {
+	return strings.Join([]string{
+		"Memory protocol:",
+		"- Sumi-managed memory is the only product memory.",
+		"- External runtimes do not have direct Sumi memory tools in this phase.",
+		"- If the Sumi memory action section reports a successful commit, you may acknowledge that committed result.",
+		"- If the Sumi memory action section reports failure or is absent, do not claim that memory was saved.",
+		"- For inferred long-term memory, describe the candidate memory or ask for confirmation; do not claim it is saved.",
+		"- If asked where memory is stored, answer at the product level: Sumi manages scoped persona/workspace memory. Do not reveal host filesystem paths.",
+		"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+	}, "\n")
+}
+
 func (b promptBuilder) memoryBrief() string {
 	if b.turn == nil {
 		return ""
@@ -146,6 +178,9 @@ func (b promptBuilder) taskDelegation() string {
 		return ""
 	}
 	caps := taskCapabilities(b.env.Persona.Capabilities)
+	if b.external {
+		return b.externalTaskDelegation(caps)
+	}
 	if len(caps) == 0 {
 		return strings.Join([]string{
 			"Task delegation protocol:",
@@ -181,6 +216,29 @@ func (b promptBuilder) taskDelegation() string {
 		"- task.review agents may mark reviewed work done or closed; executors should not self-done their own work.",
 		"- If you lack a required task capability, only suggest the action or mention an agent that has it.",
 	}, "\n")
+}
+
+func (b promptBuilder) externalTaskDelegation(caps []string) string {
+	if len(caps) == 0 {
+		return strings.Join([]string{
+			"Task delegation protocol:",
+			"- This persona has no task.* capabilities.",
+			"- Do not create, assign, execute, or review Task Board items.",
+			"- If work should become a task, propose the task shape and ask a capable agent or human to create it.",
+		}, "\n")
+	}
+	lines := []string{
+		"Task delegation protocol:",
+		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
+		"- These are intent capabilities for this persona, not direct external commit tools.",
+		"- Do not claim that a Task Board item was created, assigned, updated, reviewed, or closed unless a Sumi action/commit result is present in this turn.",
+		"- If the user explicitly asks for task creation or assignment, propose the title, assignee, expected outcome, acceptance criteria, and source, then wait for Sumi/human commit.",
+		"- If the user only asks for help, a fix, an explanation, a lookup, or a review, answer or do the work directly without task ceremony.",
+	}
+	if b.env.Persona.TaskPolicy == "auto_commit" {
+		lines = append(lines, "- Even with auto-commit policy, external runtime output alone is not a product state commit.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func taskCapabilities(in []string) []string {

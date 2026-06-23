@@ -247,6 +247,50 @@ func TestBuildExternalPromptWrapsSystemHistoryAndInput(t *testing.T) {
 	}
 }
 
+func TestBuildExternalPromptStopsFakeCapabilityInstructions(t *testing.T) {
+	env := &RuntimeEnv{
+		Persona: &Persona{
+			ID:           "helper",
+			Display:      "Helper",
+			Capabilities: []string{"task.create", "task.assign"},
+			TaskPolicy:   "auto_commit",
+		},
+	}
+	turn := &Turn{
+		Source:       "desktop:channel:work:persona:helper",
+		Input:        "记住我喜欢中文简洁回答",
+		Session:      session.New("desktop:channel:work:persona:helper"),
+		MemoryNotice: "Remembered memory preference: prefer concise Chinese replies",
+	}
+
+	out := BuildExternalPrompt(env, turn, "")
+	for _, want := range []string{
+		"External runtime state contract:",
+		"Agent owns intent. Sumi owns product state commits.",
+		"External runtimes do not have direct Sumi memory tools in this phase.",
+		"Sumi memory action:",
+		"Remembered memory preference: prefer concise Chinese replies",
+		"These are intent capabilities for this persona, not direct external commit tools.",
+		"Even with auto-commit policy, external runtime output alone is not a product state commit.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("external prompt missing %q:\n%s", want, out)
+		}
+	}
+	for _, forbidden := range []string{
+		"call remember_memory",
+		"call propose_memory",
+		"write_memory",
+		"delete_memory",
+		"task_create",
+		"task.create/task.assign require",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("external prompt contains fake capability instruction %q:\n%s", forbidden, out)
+		}
+	}
+}
+
 func TestBuildExternalPromptProtectsBlockBoundaries(t *testing.T) {
 	env := &RuntimeEnv{}
 	turn := &Turn{
