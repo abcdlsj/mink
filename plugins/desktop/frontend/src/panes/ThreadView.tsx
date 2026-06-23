@@ -93,12 +93,16 @@ export function ThreadView() {
 
   return (
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
-      <div className="flex items-center gap-3 border-b-hard border-border px-5 py-3">
-        <button onClick={() => closeThread()} className="border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text">
-          ← Back to {channel ? "#" + channel.name : "channel"}
+      <div className="flex min-w-0 items-center gap-2 border-b-hard border-border px-3 py-2">
+        <button
+          onClick={() => closeThread()}
+          className="shrink-0 border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
+          aria-label={channel ? "Back to " + channel.name : "Back to channel"}
+        >
+          ←
         </button>
-        <div className="font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
-        <div className="font-mono text-[12px] text-text-muted">
+        <div className="min-w-0 truncate font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
+        <div className="shrink-0 font-mono text-[11px] text-text-muted">
           {replies.length === 1 ? "1 reply" : replies.length + " replies"}
         </div>
         <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
@@ -109,11 +113,10 @@ export function ThreadView() {
             setDeleteOpen(true);
           }}
           disabled={deleteBusy}
-          className="ml-auto inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2 py-1 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg"
-          title="Delete thread replies and runtime context"
+          className="ml-auto inline-flex size-7 shrink-0 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-error hover:text-bg"
+          aria-label="Delete thread"
         >
           <Trash2 className="size-3.5" />
-          Delete thread
         </button>
       </div>
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">

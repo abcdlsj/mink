@@ -335,7 +335,15 @@ func (r *Runtime) prepareProfile() (Profile, error) {
 			return profile, err
 		}
 	}
+	if name == "codex" {
+		if err := importHostCodexProfile(profile); err != nil {
+			return profile, err
+		}
+	}
 	profile.Env = isolatedProfileEnv(profile.Env, profile)
+	if name == "codex" {
+		profile.Env = inheritCodexProviderEnv(profile.Env, profile)
+	}
 	if err := validateIsolatedAuth(profile); err != nil {
 		return profile, err
 	}
@@ -436,6 +444,129 @@ func importHostClaudeProfile(profile Profile) error {
 		}
 	}
 	return nil
+}
+
+func importHostCodexProfile(profile Profile) error {
+	hostHome, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(hostHome) == "" || strings.TrimSpace(profile.CodexHome) == "" {
+		return nil
+	}
+	hostCodex := filepath.Join(hostHome, ".codex")
+	if samePath(hostCodex, profile.CodexHome) {
+		return nil
+	}
+	if _, err := os.Stat(hostCodex); err != nil {
+		return nil
+	}
+	if err := copySanitizedCodexConfigIfProfileMissing(filepath.Join(hostCodex, "config.toml"), filepath.Join(profile.CodexHome, "config.toml")); err != nil {
+		return err
+	}
+	if err := copyFileIfProfileMissing(filepath.Join(hostCodex, "auth.json"), filepath.Join(profile.CodexHome, "auth.json")); err != nil {
+		return err
+	}
+	return nil
+}
+
+func copySanitizedCodexConfigIfProfileMissing(src, dst string) error {
+	if strings.TrimSpace(src) == "" || strings.TrimSpace(dst) == "" {
+		return nil
+	}
+	info, err := os.Lstat(src)
+	if err != nil || info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if !codexConfigNeedsImport(dst) {
+		return nil
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	sanitized := sanitizeCodexConfig(data)
+	if strings.TrimSpace(sanitized) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, []byte(sanitized), 0o600)
+}
+
+func codexConfigNeedsImport(path string) bool {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "{}" {
+		return true
+	}
+	sanitized := sanitizeCodexConfig(data)
+	return !strings.Contains(sanitized, "model_provider") && !strings.Contains(sanitized, "[model_providers.")
+}
+
+func sanitizeCodexConfig(data []byte) string {
+	var out strings.Builder
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	section := ""
+	includeSection := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			section = strings.Trim(trimmed, "[]")
+			includeSection = codexConfigSectionAllowed(section)
+			if includeSection {
+				writeCodexConfigLine(&out, trimmed)
+			}
+			continue
+		}
+		if section == "" {
+			if codexConfigTopLevelAllowed(trimmed) {
+				writeCodexConfigLine(&out, line)
+			}
+			continue
+		}
+		if includeSection {
+			writeCodexConfigLine(&out, line)
+		}
+	}
+	return out.String()
+}
+
+func writeCodexConfigLine(out *strings.Builder, line string) {
+	if out.Len() > 0 {
+		out.WriteByte('\n')
+	}
+	out.WriteString(line)
+}
+
+func codexConfigTopLevelAllowed(line string) bool {
+	key, _, ok := strings.Cut(line, "=")
+	if !ok {
+		return false
+	}
+	switch strings.TrimSpace(key) {
+	case "model_provider",
+		"model",
+		"model_reasoning_effort",
+		"model_reasoning_summary",
+		"model_verbosity",
+		"disable_response_storage":
+		return true
+	default:
+		return false
+	}
+}
+
+func codexConfigSectionAllowed(section string) bool {
+	return strings.HasPrefix(section, "model_providers.") || section == "features"
 }
 
 func copyFileIfProfileMissing(src, dst string) error {
@@ -553,6 +684,66 @@ func isolatedProfileEnv(base []string, profile Profile) []string {
 	return flattenEnv(env)
 }
 
+func inheritCodexProviderEnv(base []string, profile Profile) []string {
+	configPath := filepath.Join(profile.CodexHome, "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return base
+	}
+	env := envMap(base)
+	for _, key := range codexConfigEnvKeys(string(data)) {
+		if _, exists := env[key]; exists {
+			continue
+		}
+		if value := os.Getenv(key); strings.TrimSpace(value) != "" {
+			env[key] = value
+		}
+	}
+	return flattenEnv(env)
+}
+
+func codexConfigEnvKeys(config string) []string {
+	seen := map[string]bool{}
+	var keys []string
+	scanner := bufio.NewScanner(strings.NewReader(config))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "env_key") {
+			continue
+		}
+		_, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key := strings.Trim(strings.TrimSpace(value), `"'`)
+		if !validEnvKey(key) || seen[key] {
+			continue
+		}
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func validEnvKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for i, r := range key {
+		if i == 0 {
+			if r != '_' && !unicode.IsLetter(r) {
+				return false
+			}
+			continue
+		}
+		if r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
 func validateIsolatedAuth(profile Profile) error {
 	env := envMap(profile.Env)
 	switch profile.Runtime {
@@ -568,6 +759,11 @@ func validateIsolatedAuth(profile Profile) error {
 		if strings.TrimSpace(env["OPENAI_API_KEY"]) != "" {
 			return nil
 		}
+		for _, key := range codexConfigEnvKeys(readCodexConfig(profile)) {
+			if strings.TrimSpace(env[key]) != "" {
+				return nil
+			}
+		}
 		if strings.TrimSpace(profile.CodexHome) != "" {
 			if _, err := os.Stat(filepath.Join(profile.CodexHome, "auth.json")); err == nil {
 				return nil
@@ -577,6 +773,14 @@ func validateIsolatedAuth(profile Profile) error {
 	default:
 		return nil
 	}
+}
+
+func readCodexConfig(profile Profile) string {
+	data, err := os.ReadFile(filepath.Join(profile.CodexHome, "config.toml"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func claudeProfileHasAuth(profile Profile) bool {

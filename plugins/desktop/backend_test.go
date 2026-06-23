@@ -45,6 +45,26 @@ func TestFallback(t *testing.T) {
 	}
 }
 
+func TestDropLegacyRoutedFailureNotices(t *testing.T) {
+	sp := &space.Space{Messages: []space.Message{
+		{ID: "user", AuthorKind: space.ParticipantUser, Content: "@bob please check"},
+		{ID: "failed", AuthorKind: space.ParticipantSystem, Content: "@bob failed: codex exited: noisy stderr"},
+		{ID: "other", AuthorKind: space.ParticipantSystem, Content: "Send failed: provider 400"},
+	}}
+
+	if !dropLegacyRoutedFailureNotices(sp) {
+		t.Fatal("dropLegacyRoutedFailureNotices did not report change")
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("messages len = %d, want 2: %#v", len(sp.Messages), sp.Messages)
+	}
+	for _, m := range sp.Messages {
+		if m.ID == "failed" {
+			t.Fatalf("legacy routed failure notice was not dropped: %#v", sp.Messages)
+		}
+	}
+}
+
 func TestListToolsReturnsRegistryTools(t *testing.T) {
 	b, _ := newBackendWithApp(t)
 	tools := b.ListTools()

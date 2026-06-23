@@ -47,11 +47,10 @@ export function ThreadStartRow({ messageID }: { messageID: string }) {
   return (
     <button
       onClick={() => void openThread(messageID)}
-      className="mt-1.5 inline-flex items-center gap-1.5 border border-transparent bg-transparent px-1 py-0.5 font-mono text-[10.5px] uppercase text-text-faint opacity-70 hover:border-border-soft hover:bg-panel-event hover:text-text md:opacity-0 md:group-hover/message:opacity-100"
-      title="Open a side thread for this message"
+      className="mt-1.5 inline-flex size-6 items-center justify-center border border-transparent bg-transparent font-mono text-[13px] text-text-faint opacity-70 hover:border-border-soft hover:bg-panel-event hover:text-text md:opacity-0 md:group-hover/message:opacity-100"
+      aria-label="Reply in thread"
     >
-      <span>↳</span>
-      <span>Reply in thread</span>
+      ↳
     </button>
   );
 }

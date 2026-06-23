@@ -426,6 +426,7 @@ func TestPrepareProfileImportsHostClaudeProfile(t *testing.T) {
 }
 
 func TestPrepareProfileFailsClosedWithoutCodexAuth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	r := &Runtime{
 		driver: Driver{Name: "codex"},
 		env: &agent.RuntimeEnv{
@@ -439,6 +440,86 @@ func TestPrepareProfileFailsClosedWithoutCodexAuth(t *testing.T) {
 	_, err := r.prepareProfile()
 	if err == nil || !strings.Contains(err.Error(), "refusing to fall back to host ~/.codex") {
 		t.Fatalf("err = %v, want fail closed", err)
+	}
+}
+
+func TestPrepareProfileImportsHostCodexProviderConfig(t *testing.T) {
+	hostHome := t.TempDir()
+	hostCodex := filepath.Join(hostHome, ".codex")
+	if err := os.MkdirAll(hostCodex, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	hostConfig := `
+model_provider = "aicoding"
+model = "gpt-5.5"
+disable_response_storage = true
+
+[model_providers.aicoding]
+name = "aicoding"
+base_url = "http://api-ai-coding.example/api/v1/codex"
+wire_api = "responses"
+env_key = "AICODING_API_KEY"
+
+[mcp_servers.secret]
+url = "https://mcp.example"
+api_token = "do-not-copy"
+
+[projects."/tmp/project"]
+trust_level = "trusted"
+`
+	if err := os.WriteFile(filepath.Join(hostCodex, "config.toml"), []byte(hostConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", hostHome)
+	t.Setenv("AICODING_API_KEY", "host-provider-key")
+
+	r := &Runtime{
+		driver: Driver{Name: "codex"},
+		env: &agent.RuntimeEnv{
+			DataRoot: t.TempDir(),
+			ChildEnv: []string{
+				"PATH=/bin",
+			},
+			Persona: &agent.Persona{ID: "Bob"},
+		},
+	}
+	staleProfileConfig := filepath.Join(r.env.DataRoot, "external", "codex", "bob", "codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(staleProfileConfig), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staleProfileConfig, []byte(`[projects."/tmp/project"]`+"\n"+`trust_level = "trusted"`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	profile, err := r.prepareProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := os.ReadFile(filepath.Join(profile.CodexHome, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(config)
+	for _, want := range []string{
+		`model_provider = "aicoding"`,
+		`[model_providers.aicoding]`,
+		`env_key = "AICODING_API_KEY"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("codex config missing %q:\n%s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"mcp_servers", "do-not-copy", "projects."} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("codex config copied forbidden %q:\n%s", forbidden, text)
+		}
+	}
+	env := envMap(profile.Env)
+	if got := env["CODEX_HOME"]; got != profile.CodexHome {
+		t.Fatalf("CODEX_HOME = %q, want %q", got, profile.CodexHome)
+	}
+	if got := env["AICODING_API_KEY"]; got != "host-provider-key" {
+		t.Fatalf("AICODING_API_KEY = %q", got)
 	}
 }
 

@@ -8,6 +8,7 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
   const expandTaskInRail = useStore((s) => s.expandTaskInRail);
   const expandedTaskID = useStore((s) => s.expandedTaskID);
   const taskInScope = useTaskInActiveRail(info.task_id);
+  if (isQuietTerminalStatus(info.status)) return null;
   const label = taskAccessoryLabel(info);
   const isRunning = info.status === "running" || info.status === "queued";
   const opened = expandedTaskID === info.task_id;
@@ -20,11 +21,10 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
     <button
       type="button"
       onClick={onClick}
-      title={taskInScope ? undefined : "Task is outside current view"}
       className={cn(
         "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-left text-[11.5px]",
         info.terminal ? "text-text-faint" : "text-text-muted",
-        taskInScope ? "hover:text-text" : "cursor-help",
+        taskInScope ? "hover:text-text" : "cursor-default",
         opened && "text-text",
       )}
     >
@@ -32,6 +32,10 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
       <span>{label}</span>
     </button>
   );
+}
+
+function isQuietTerminalStatus(status: string): boolean {
+  return status === "finished" || status === "done" || status === "complete" || status === "completed" || status === "no_output";
 }
 
 function useTaskInActiveRail(taskID: string): boolean {

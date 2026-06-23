@@ -438,6 +438,9 @@ func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
 	if dropSupersededRetryPlaceholders(sp) {
 		changed = true
 	}
+	if dropLegacyRoutedFailureNotices(sp) {
+		changed = true
+	}
 	if !changed {
 		return sp
 	}
@@ -465,6 +468,37 @@ func dropSupersededRetryPlaceholders(sp *space.Space) bool {
 	}
 	sp.Messages = next
 	return true
+}
+
+func dropLegacyRoutedFailureNotices(sp *space.Space) bool {
+	if sp == nil || len(sp.Messages) == 0 {
+		return false
+	}
+	next := sp.Messages[:0]
+	changed := false
+	for _, m := range sp.Messages {
+		if legacyRoutedFailureNotice(m) {
+			changed = true
+			continue
+		}
+		next = append(next, m)
+	}
+	if !changed {
+		return false
+	}
+	sp.Messages = next
+	return true
+}
+
+func legacyRoutedFailureNotice(m space.Message) bool {
+	if m.AuthorKind != space.ParticipantSystem {
+		return false
+	}
+	content := strings.TrimSpace(m.Content)
+	if !strings.HasPrefix(content, "@") {
+		return false
+	}
+	return strings.Contains(content, " failed:")
 }
 
 func retryPlaceholderSuperseded(messages []space.Message, idx int, m space.Message) bool {
