@@ -689,6 +689,20 @@ func TestRuntimeStartErrorIncludesRuntimeName(t *testing.T) {
 	}
 }
 
+func TestSummarizeStderrCollapsesRepeatedWebsocketErrors(t *testing.T) {
+	stderr := strings.Join([]string{
+		"2026-06-23T10:31:13.842645Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: Connection reset by peer (os error 54), url: wss://api.openai.com/v1/responses",
+		"2026-06-23T10:31:14.209902Z ERROR codex_api::endpoint::responses_websocket: failed to connect to websocket: IO error: Connection reset by peer (os error 54), url: wss://api.openai.com/v1/responses",
+	}, "\n")
+	got := summarizeStderr(stderr)
+	if got != "failed to connect to websocket: connection reset by peer" {
+		t.Fatalf("summary = %q", got)
+	}
+	if strings.Contains(got, "wss://") || strings.Contains(got, "2026-") {
+		t.Fatalf("summary leaked raw stderr details: %q", got)
+	}
+}
+
 func TestRuntimeExitErrorIncludesRuntimeName(t *testing.T) {
 	r := &Runtime{driver: Driver{
 		Name:    "shell",

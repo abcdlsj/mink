@@ -483,15 +483,9 @@ func (a *App) routingNoticeParent(spaceID, messageID string) string {
 }
 
 func (a *App) persistChannelWakeFailure(spaceID, parentMessageID, agentID string, err error) error {
-	if err == nil {
-		return nil
-	}
-	agentID = strings.TrimSpace(agentID)
-	prefix := "Agent failed"
-	if agentID != "" {
-		prefix = "@" + agentID + " failed"
-	}
-	return a.appendSystemSpaceMessage(spaceID, parentMessageID, prefix+": "+err.Error())
+	// The pending agent message is the user-visible failure surface.
+	// Adding a separate system message makes retry look like a new participant reply.
+	return nil
 }
 
 func (a *App) appendSystemSpaceMessage(spaceID, parentMessageID, content string) error {

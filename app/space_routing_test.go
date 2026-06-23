@@ -314,7 +314,7 @@ func TestRoutedNoTargetThreadNoticePersistsAsReply(t *testing.T) {
 	}
 }
 
-func TestChannelWakeFailurePersistsToSpace(t *testing.T) {
+func TestChannelWakeFailureDoesNotAppendSystemNotice(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
@@ -354,11 +354,11 @@ func TestChannelWakeFailurePersistsToSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sp.Messages) != 2 {
-		t.Fatalf("messages = %#v, want user + failure notice", sp.Messages)
+	if len(sp.Messages) != 1 {
+		t.Fatalf("messages = %#v, want only original user message", sp.Messages)
 	}
-	if sp.Messages[1].AuthorKind != space.ParticipantSystem || sp.Messages[1].Content != "@bob failed: boom" {
-		t.Fatalf("failure notice = %#v", sp.Messages[1])
+	if sp.Messages[0].ID != origin.ID {
+		t.Fatalf("messages = %#v, want original user message only", sp.Messages)
 	}
 }
 

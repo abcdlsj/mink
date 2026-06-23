@@ -200,11 +200,11 @@ func (r *Runtime) runCommand(ctx context.Context, turn *agent.Turn, st *runState
 		return r.contextError(ctxErr)
 	}
 	if runErr != nil && stderrText != "" {
-		runErr = fmt.Errorf("%w: %s", runErr, stderrText)
+		runErr = fmt.Errorf("%w: %s", runErr, summarizeStderr(stderrText))
 	}
 	if runErr == nil && waitErr != nil {
 		if stderrText != "" {
-			runErr = r.exitError(errors.New(stderrText))
+			runErr = r.exitError(errors.New(summarizeStderr(stderrText)))
 		} else {
 			runErr = r.exitError(waitErr)
 		}
@@ -258,6 +258,37 @@ func (r *Runtime) exitError(err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s exited: %w", r.runtimeLabel(), err)
+}
+
+func summarizeStderr(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "failed to connect to websocket") {
+			if strings.Contains(lower, "connection reset by peer") {
+				return "failed to connect to websocket: connection reset by peer"
+			}
+			return "failed to connect to websocket"
+		}
+		if idx := strings.Index(line, " ERROR "); idx >= 0 {
+			line = strings.TrimSpace(line[idx+len(" ERROR "):])
+		}
+		return trimErrorLine(line, 240)
+	}
+	return "runtime exited without stderr"
+}
+
+func trimErrorLine(line string, limit int) string {
+	line = strings.Join(strings.Fields(strings.TrimSpace(line)), " ")
+	if limit <= 0 || len([]rune(line)) <= limit {
+		return line
+	}
+	rs := []rune(line)
+	return string(rs[:limit]) + "..."
 }
 
 func (r *Runtime) buildPrompt(turn *agent.Turn, includeHistory bool) string {
