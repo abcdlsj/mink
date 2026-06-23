@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -296,6 +297,9 @@ func (r *Runtime) prepareProfile() (Profile, error) {
 		return profile, err
 	}
 	if name == "claude" {
+		if err := importHostClaudeProfile(profile); err != nil {
+			return profile, err
+		}
 		if err := ensureClaudeSettings(profile); err != nil {
 			return profile, err
 		}
@@ -360,6 +364,149 @@ func ensureClaudeSettings(profile Profile) error {
 	return os.WriteFile(profile.SettingsPath, []byte("{}\n"), 0o600)
 }
 
+func importHostClaudeProfile(profile Profile) error {
+	hostHome, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(hostHome) == "" {
+		return nil
+	}
+	hostClaude := filepath.Join(hostHome, ".claude")
+	profileClaude := filepath.Join(profile.Home, ".claude")
+	if samePath(hostClaude, profileClaude) {
+		return nil
+	}
+	if _, err := os.Stat(hostClaude); err != nil {
+		return nil
+	}
+	if err := os.MkdirAll(profileClaude, 0o700); err != nil {
+		return err
+	}
+	files := []struct {
+		src string
+		dst string
+	}{
+		{filepath.Join(hostClaude, "settings.json"), profile.SettingsPath},
+		{filepath.Join(hostClaude, "settings.local.json"), filepath.Join(profileClaude, "settings.local.json")},
+		{filepath.Join(hostClaude, "config.json"), filepath.Join(profileClaude, "config.json")},
+		{filepath.Join(hostClaude, ".credentials.json"), filepath.Join(profileClaude, ".credentials.json")},
+	}
+	for _, f := range files {
+		if err := copyFileIfProfileMissing(f.src, f.dst); err != nil {
+			return err
+		}
+	}
+	if len(profile.PluginDirs) > 0 {
+		if err := copyDirIfProfileEmpty(filepath.Join(hostClaude, "plugins"), profile.PluginDirs[0]); err != nil {
+			return err
+		}
+	}
+	for _, name := range []string{"commands", "skills"} {
+		if err := copyDirIfProfileEmpty(filepath.Join(hostClaude, name), filepath.Join(profileClaude, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFileIfProfileMissing(src, dst string) error {
+	if strings.TrimSpace(src) == "" || strings.TrimSpace(dst) == "" {
+		return nil
+	}
+	info, err := os.Lstat(src)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	if !profileFileNeedsImport(dst) {
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
+}
+
+func profileFileNeedsImport(path string) bool {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	trimmed := strings.TrimSpace(string(data))
+	return trimmed == "" || trimmed == "{}"
+}
+
+func copyDirIfProfileEmpty(src, dst string) error {
+	if strings.TrimSpace(src) == "" || strings.TrimSpace(dst) == "" {
+		return nil
+	}
+	info, err := os.Lstat(src)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+	empty, err := dirMissingOrEmpty(dst)
+	if err != nil || !empty {
+		return err
+	}
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil || rel == "." {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		return copyFileIfProfileMissing(path, target)
+	})
+}
+
+func dirMissingOrEmpty(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
+}
+
+func samePath(a, b string) bool {
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return a == b
+	}
+	return aa == bb
+}
+
 func isolatedProfileEnv(base []string, profile Profile) []string {
 	env := envMap(base)
 	delete(env, "CODEX_HOME")
@@ -382,7 +529,10 @@ func validateIsolatedAuth(profile Profile) error {
 		if strings.TrimSpace(env["ANTHROPIC_API_KEY"]) != "" {
 			return nil
 		}
-		return fmt.Errorf("claude isolated profile requires ANTHROPIC_API_KEY or SUMI_CLAUDE_API_KEY; refusing to fall back to host ~/.claude")
+		if claudeProfileHasAuth(profile) {
+			return nil
+		}
+		return fmt.Errorf("claude isolated profile requires ANTHROPIC_API_KEY, SUMI_CLAUDE_API_KEY, or imported auth under the Sumi Claude profile; refusing to fall back to host ~/.claude")
 	case "codex":
 		if strings.TrimSpace(env["OPENAI_API_KEY"]) != "" {
 			return nil
@@ -396,6 +546,30 @@ func validateIsolatedAuth(profile Profile) error {
 	default:
 		return nil
 	}
+}
+
+func claudeProfileHasAuth(profile Profile) bool {
+	for _, path := range []string{
+		filepath.Join(profile.Home, ".claude", "config.json"),
+		filepath.Join(profile.Home, ".claude", ".credentials.json"),
+		profile.SettingsPath,
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+			continue
+		}
+		text := strings.ToLower(string(data))
+		if strings.Contains(text, "apikeyhelper") ||
+			strings.Contains(text, "api_key") ||
+			strings.Contains(text, "access_token") ||
+			strings.Contains(text, "accesstoken") ||
+			strings.Contains(text, "refresh_token") ||
+			strings.Contains(text, "refreshtoken") ||
+			strings.Contains(text, "oauth") {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneEnv(env *agent.RuntimeEnv) []string {

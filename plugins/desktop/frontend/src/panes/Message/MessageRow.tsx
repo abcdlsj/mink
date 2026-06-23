@@ -42,6 +42,8 @@ export function MessageRow({ m, compact }: { m: MessageView; compact: boolean })
   const kind = m.role === "user" ? "user" : "agent";
   const displayName = m.role === "user"
     ? "You"
+    : m.role === "system"
+      ? "System"
     : (dmAgent?.display || m.author_name || ag?.display || "Sumi");
 
   const events = m.events || [];

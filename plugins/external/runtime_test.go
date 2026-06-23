@@ -2,6 +2,7 @@ package external
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -333,6 +334,7 @@ func TestPrepareProfileIsolatesCodexHomeAndEnv(t *testing.T) {
 }
 
 func TestPrepareProfileFailsClosedWithoutClaudeAuth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	r := &Runtime{
 		driver: Driver{Name: "claude"},
 		env: &agent.RuntimeEnv{
@@ -346,6 +348,80 @@ func TestPrepareProfileFailsClosedWithoutClaudeAuth(t *testing.T) {
 	_, err := r.prepareProfile()
 	if err == nil || !strings.Contains(err.Error(), "refusing to fall back to host ~/.claude") {
 		t.Fatalf("err = %v, want fail closed", err)
+	}
+}
+
+func TestPrepareProfileImportsHostClaudeProfile(t *testing.T) {
+	hostHome := t.TempDir()
+	hostClaude := filepath.Join(hostHome, ".claude")
+	if err := os.MkdirAll(filepath.Join(hostClaude, "plugins", "local-plugin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(hostClaude, "commands"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(hostClaude, "skills", "demo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostClaude, "config.json"), []byte(`{"oauth":{"accessToken":"host-token"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostClaude, "settings.json"), []byte(`{"apiKeyHelper":"helper"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostClaude, "plugins", "local-plugin", "plugin.json"), []byte(`{"name":"local-plugin"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostClaude, "commands", "ship.md"), []byte("# Ship\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostClaude, "skills", "demo", "SKILL.md"), []byte("# Demo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(hostClaude, "config.json"), filepath.Join(hostClaude, "skills", "linked-config.json")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	t.Setenv("HOME", hostHome)
+
+	r := &Runtime{
+		driver: Driver{Name: "claude"},
+		env: &agent.RuntimeEnv{
+			DataRoot: t.TempDir(),
+			ChildEnv: []string{
+				"PATH=/bin",
+			},
+			Persona: &agent.Persona{ID: "Bob"},
+		},
+	}
+
+	profile, err := r.prepareProfile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.Isolated {
+		t.Fatal("profile is not isolated")
+	}
+	env := envMap(profile.Env)
+	if got := env["HOME"]; got == hostHome || !strings.HasPrefix(got, profile.Root) {
+		t.Fatalf("HOME = %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(profile.Home, ".claude", "config.json")); err != nil {
+		t.Fatalf("missing imported claude config: %v", err)
+	}
+	if _, err := os.Stat(profile.SettingsPath); err != nil {
+		t.Fatalf("missing imported claude settings: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(profile.PluginDirs[0], "local-plugin", "plugin.json")); err != nil {
+		t.Fatalf("missing imported claude plugin: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(profile.Home, ".claude", "commands", "ship.md")); err != nil {
+		t.Fatalf("missing imported claude command: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(profile.Home, ".claude", "skills", "demo", "SKILL.md")); err != nil {
+		t.Fatalf("missing imported claude skill: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(profile.Home, ".claude", "skills", "linked-config.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("imported symlink = %v, want skipped", err)
 	}
 }
 
