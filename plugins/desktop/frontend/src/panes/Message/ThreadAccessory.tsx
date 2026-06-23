@@ -16,38 +16,36 @@ export function ThreadLink({ threadId, summary }: { threadId: string; summary: s
   );
 }
 
-export function ThreadSummaryRow({ info }: { info: ThreadSummary }) {
+export function ThreadAction({ info, messageID }: { info?: ThreadSummary; messageID?: string }) {
   const openThread = useStore((s) => s.openThread);
   const activeThread = useStore((s) => s.activeThread);
-  const selected = activeThread === info.parent_id;
-  const continueLabel = info.reply_count >= 2 ? "Open thread" : "Start thread";
-  const replyLabel = info.reply_count === 1 ? "1 reply" : info.reply_count + " replies";
-  const last = info.last_reply_author ? "last by " + info.last_reply_author : "";
-  const when = relTime(info.last_reply_time);
-  const segments = [replyLabel, last, when].filter((s) => s !== "");
+  if (info) {
+    const selected = activeThread === info.parent_id;
+    const replyLabel = info.reply_count === 1 ? "1 reply" : info.reply_count + " replies";
+    const last = info.last_reply_author ? "last by " + info.last_reply_author : "";
+    const when = relTime(info.last_reply_time);
+    const segments = [replyLabel, last, when].filter((s) => s !== "");
+    return (
+      <button
+        type="button"
+        onClick={() => void openThread(info.parent_id)}
+        className={cn(
+          "inline-flex h-5 items-center gap-1 border border-border-soft bg-transparent px-1.5 font-mono text-[10.5px] text-text-faint hover:border-border hover:bg-panel-event hover:text-text",
+          selected && "border-border bg-accent-bg text-text",
+        )}
+        aria-label={"Open thread: " + segments.join(" · ")}
+      >
+        {info.has_running_worker ? <Dot status="running" /> : <span>↳</span>}
+        <span>{info.reply_count}</span>
+      </button>
+    );
+  }
+  if (!messageID) return null;
   return (
     <button
-      onClick={() => void openThread(info.parent_id)}
-      className={cn(
-        "mt-2 inline-grid max-w-full grid-cols-[auto_1fr_auto] items-center gap-2 border border-border-soft bg-panel-event px-2 py-1 text-left text-[11.5px] text-text-muted hover:border-border hover:bg-accent-bg hover:text-text",
-        selected && "border-border bg-accent-bg text-text",
-      )}
-      title={segments.join(" · ")}
-    >
-      {info.has_running_worker && <Dot status="running" />}
-      {!info.has_running_worker && <span className="font-mono text-[10px] text-text-faint">↳</span>}
-      <span className="min-w-0 truncate font-medium">{continueLabel}</span>
-      <span className="min-w-0 truncate font-normal text-text-faint">{segments.join(" · ")}</span>
-    </button>
-  );
-}
-
-export function ThreadStartRow({ messageID }: { messageID: string }) {
-  const openThread = useStore((s) => s.openThread);
-  return (
-    <button
+      type="button"
       onClick={() => void openThread(messageID)}
-      className="mt-1.5 inline-flex size-6 items-center justify-center border border-transparent bg-transparent font-mono text-[13px] text-text-faint opacity-70 hover:border-border-soft hover:bg-panel-event hover:text-text md:opacity-0 md:group-hover/message:opacity-100"
+      className="inline-flex size-5 items-center justify-center border border-transparent bg-transparent font-mono text-[12px] text-text-faint opacity-0 hover:border-border-soft hover:bg-panel-event hover:text-text focus:opacity-100 md:group-hover/message:opacity-100"
       aria-label="Reply in thread"
     >
       ↳

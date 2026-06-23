@@ -9,7 +9,7 @@ import { cn, relTime } from "@/lib/utils";
 import { ReasoningPreface } from "./ReasoningPreface";
 import { TaskAccessoryRow } from "./TaskAccessory";
 import { TaskCandidate } from "./TaskCandidate";
-import { ThreadLink, ThreadStartRow, ThreadSummaryRow } from "./ThreadAccessory";
+import { ThreadAction, ThreadLink } from "./ThreadAccessory";
 import { personaForActiveAgent, shortRole, stripCollabLeak } from "./message-helpers";
 
 const LONG_CONTENT_CHARS = 2600;
@@ -68,6 +68,9 @@ export function MessageRow({
     !m.thread_id &&
     !m.thread_info &&
     (!!m.content?.trim() || events.length > 0);
+  const threadAction = (m.thread_info || canStartThread)
+    ? <ThreadAction info={m.thread_info} messageID={canStartThread ? m.id : undefined} />
+    : null;
 
   return (
     <div
@@ -85,21 +88,31 @@ export function MessageRow({
       >
         <Identicon seed={seed} kind={kind} />
       </div>
-      <div className="min-w-0">
+      <div className={cn("relative min-w-0", compact && threadAction && "pr-7")}>
         {!compact && (
-          <div className="mb-1 flex items-baseline gap-2">
-            <span className="font-display text-[13px] font-bold leading-tight text-text">
-              {displayName}
-            </span>
-            {m.role !== "user" && ag?.role && (
-              <span
-                className="border border-border-soft bg-transparent px-1 font-mono text-[10px] uppercase text-text-faint"
-                title={ag.role}
-              >
-                {shortRole(ag.role)}
+          <div className="mb-1 flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 items-baseline gap-2">
+              <span className="min-w-0 truncate font-display text-[13px] font-bold leading-tight text-text">
+                {displayName}
               </span>
-            )}
-            <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(m.time)}</span>
+              {m.role !== "user" && ag?.role && (
+                <span
+                  className="shrink-0 border border-border-soft bg-transparent px-1 font-mono text-[10px] uppercase text-text-faint"
+                  title={ag.role}
+                >
+                  {shortRole(ag.role)}
+                </span>
+              )}
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(m.time)}</span>
+              {threadAction}
+            </div>
+          </div>
+        )}
+        {compact && threadAction && (
+          <div className="absolute right-0 top-0">
+            {threadAction}
           </div>
         )}
         {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
@@ -169,8 +182,6 @@ export function MessageRow({
           <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
         )}
         {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} forceMainScope={threadStartsEnabled} />}
-        {m.thread_info && <ThreadSummaryRow info={m.thread_info} />}
-        {canStartThread && <ThreadStartRow messageID={m.id} />}
         {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
         {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
       </div>
