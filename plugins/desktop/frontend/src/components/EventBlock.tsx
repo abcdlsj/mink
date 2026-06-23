@@ -22,7 +22,7 @@ function ServiceLine({ ev }: EventBlockProps) {
     <div
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 border px-2 py-1 text-[11.5px] leading-[17px]",
-        isError ? "border-error bg-panel text-error" : "border-border-soft bg-panel-2 text-text-muted",
+        isError ? "border-error-border bg-error-bg text-error" : "border-tool-border bg-tool-bg text-tool",
       )}
     >
       {isError && <AlertTriangle className="size-3 shrink-0" />}
@@ -55,12 +55,12 @@ function ToolLine({ ev }: EventBlockProps) {
   const hasDetails = !!(ev.args || ev.output || ev.err);
 
   return (
-    <div className={cn("max-w-full py-0.5 text-[11.5px] leading-[17px]", status === "error" ? "text-error" : "text-text-muted")}>
+    <div className={cn("max-w-full py-0.5 text-[11.5px] leading-[17px]", status === "error" ? "text-error" : "text-tool")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span
           className={cn(
             "size-1.5 rounded-full self-center",
-            status === "error" ? "bg-error" : status === "running" ? "bg-running" : "bg-text-faint",
+            status === "error" ? "bg-error" : status === "running" ? "bg-running" : "bg-tool",
           )}
         />
         <span>{headLabel}</span>
@@ -70,14 +70,14 @@ function ToolLine({ ev }: EventBlockProps) {
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="cursor-pointer text-text-faint underline underline-offset-2 hover:text-text-muted"
+            className="cursor-pointer text-text-faint underline underline-offset-2 hover:text-tool"
           >
             {open ? "hide details" : "view details"}
           </button>
         )}
       </div>
       {open && hasDetails && (
-        <div className="ml-3.5 mt-1.5 space-y-2 border-l border-border-soft bg-panel/60 px-3 py-2 text-[11px] text-text-muted">
+        <div className="ml-3.5 mt-1.5 space-y-2 border-l border-tool-border bg-tool-bg px-3 py-2 text-[11px] text-tool">
           {ev.err && <ToolDetail label="error" tone="error" value={ev.err} />}
           {ev.args && <ToolDetail label={ev.tool_name ? `args · ${ev.tool_name}` : "args"} value={ev.args} />}
           {ev.output && <ToolDetail label="output" value={ev.output} />}
@@ -95,7 +95,7 @@ function ToolDetail({ label, value, tone }: { label: string; value: string; tone
       </div>
       <pre className={cn(
         "max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10.5px] leading-[1.45]",
-        tone === "error" ? "text-error" : "text-text-muted",
+        tone === "error" ? "text-error" : "text-tool",
       )}>
         {value}
       </pre>
@@ -243,11 +243,11 @@ function fmtMs(ms: number, status: EventStatus): string {
 function MentionLine({ ev }: EventBlockProps) {
   const display = ev.agent_display || ev.agent_id || "agent";
   return (
-    <div className="py-0.5 text-[11.5px] text-text-muted">
+    <div className="py-0.5 text-[11.5px] text-mention">
       <div className="flex items-center gap-1.5 flex-wrap">
-        <ArrowRight className="size-3 text-text-muted shrink-0" />
+        <ArrowRight className="size-3 text-mention shrink-0" />
         <span className="whitespace-nowrap">called</span>
-        <span className="inline-flex items-baseline border border-border-soft bg-panel-2 px-1 font-display font-semibold text-text-muted whitespace-nowrap">
+        <span className="inline-flex items-baseline border border-mention-border bg-mention-bg px-1 font-display font-semibold text-mention whitespace-nowrap">
           <AtSign className="size-3 self-center" />
           {display}
         </span>
@@ -256,7 +256,7 @@ function MentionLine({ ev }: EventBlockProps) {
         ) : null}
       </div>
       {ev.reply && (
-        <div className="ml-4 mt-1 border-l-2 border-border-soft bg-panel-2 px-3 py-1.5 text-[12.5px] leading-[1.55] text-text-muted">
+        <div className="ml-4 mt-1 border-l-2 border-mention-border bg-mention-bg px-3 py-1.5 text-[12.5px] leading-[1.55] text-text-muted">
           <Markdown variant="lite" className="whitespace-pre-wrap">
             {ev.reply}
           </Markdown>
@@ -303,11 +303,18 @@ function DelegateLine({ ev }: EventBlockProps) {
   const detailLabel = status === "done" ? "view result" : status === "error" ? "view details" : "view details";
 
   return (
-    <div className={cn("py-0.5 text-[11.5px]", status === "error" ? "text-error" : "text-text-muted")}>
+    <div className={cn("py-0.5 text-[11.5px]", status === "error" ? "text-error" : "text-tool")}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <ArrowRight className="size-3 text-text-faint shrink-0 self-center" />
         <span className="whitespace-nowrap">delegated to</span>
-        <span className="inline-flex items-center gap-0.5 border border-border-soft bg-panel-2 px-1 font-display font-semibold text-text-muted whitespace-nowrap">
+        <span className={cn(
+          "inline-flex items-center gap-0.5 border px-1 font-display font-semibold whitespace-nowrap",
+          status === "running" || status === "pending"
+            ? "border-running-border bg-running-bg text-running"
+            : status === "error"
+              ? "border-error-border bg-error-bg text-error"
+              : "border-agent-border bg-agent-bg text-agent",
+        )}>
           <AtSign className="size-3" />
           {display}
         </span>
@@ -326,7 +333,7 @@ function DelegateLine({ ev }: EventBlockProps) {
         )}
       </div>
       {open && hasDetails && (
-        <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-border-soft bg-panel-2 px-3 py-2 text-[12.5px] text-text">
+        <div className="ml-4 mt-1.5 space-y-2.5 border-l-2 border-tool-border bg-tool-bg px-3 py-2 text-[12.5px] text-text">
           {ev.err && (
             <div>
               <div className="font-display text-[10.5px] font-semibold uppercase text-error mb-1">error</div>

@@ -679,7 +679,7 @@ function CapabilityPill({ label, error }: { label: string; error?: boolean }) {
   return (
     <span className={cn(
       "border px-1.5 py-px font-mono text-[10.5px]",
-      error ? "border-error/50 text-error" : "border-border-soft text-text-faint",
+      error ? "border-error-border text-error" : "border-border-soft text-text-faint",
     )}>
       {label}
     </span>

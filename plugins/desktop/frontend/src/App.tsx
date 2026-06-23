@@ -136,7 +136,7 @@ export default function App() {
     </div>
   );
   const routeNoticeBanner = routeNotice && noticeNow - routeNotice.at < 8000 && (
-    <div className="fixed left-1/2 top-12 z-50 max-w-[calc(100vw-24px)] -translate-x-1/2 border-hard border-border bg-accent-bg px-3 py-1.5 font-mono text-[11.5px] text-text shadow-hard">
+    <div className="fixed left-1/2 top-12 z-50 max-w-[calc(100vw-24px)] -translate-x-1/2 border-hard border-accent-border bg-action-bg px-3 py-1.5 font-mono text-[11.5px] text-text shadow-hard">
       {routeNotice.text}
     </div>
   );
@@ -505,7 +505,7 @@ function MobileCapabilityRow({
       onClick={onClick}
       className={cn(
         "flex w-full items-center justify-between border-2 border-border bg-panel px-2.5 py-2 text-left text-[12.5px] shadow-card",
-        active && "bg-accent-bg",
+        active && "bg-accent",
       )}
     >
       <span className="font-semibold text-text">{label}</span>

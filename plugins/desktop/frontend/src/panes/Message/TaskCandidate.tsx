@@ -66,7 +66,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-2 inline-flex border border-border bg-panel-event px-1.5 py-0.5 font-mono text-[11px] text-text-muted hover:text-text"
+        className="mt-2 inline-flex border border-mention-border bg-mention-bg px-1.5 py-0.5 font-mono text-[11px] text-mention hover:text-text"
       >
         Create task
       </button>
@@ -74,7 +74,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
   }
 
   return (
-    <div className="mt-2 max-w-[560px] border border-border bg-panel-event p-2.5">
+    <div className="mt-2 max-w-[560px] border border-mention-border bg-mention-bg p-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="font-display text-[12px] font-extrabold uppercase text-text">Task candidate</div>
         <button type="button" onClick={() => setOpen(false)} className="font-mono text-[11px] text-text-faint hover:text-text">
@@ -125,7 +125,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
           disabled={!ready || busy || !!created}
           onClick={() => void create()}
           className={cn(
-            "shrink-0 border border-border bg-accent px-2 py-1 font-mono text-[11px] text-text hover:border-text-faint",
+            "shrink-0 border border-mention-border bg-panel px-2 py-1 font-mono text-[11px] text-mention hover:border-text-faint hover:text-text",
             (!ready || busy || !!created) && "pointer-events-none opacity-45",
           )}
         >

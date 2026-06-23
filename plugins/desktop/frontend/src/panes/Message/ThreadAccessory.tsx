@@ -8,7 +8,7 @@ export function ThreadLink({ threadId, summary }: { threadId: string; summary: s
   return (
     <button
       onClick={() => void openThread(threadId)}
-      className="mt-2.5 inline-flex items-center gap-1.5 border border-border bg-panel-event px-1.5 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
+      className="mt-2.5 inline-flex items-center gap-1.5 border border-tool-border bg-tool-bg px-1.5 py-0.5 text-[12px] text-tool hover:border-accent-border hover:bg-accent hover:text-text"
     >
       <Dot status="running" />
       <span>{summary}</span>
@@ -31,7 +31,7 @@ export function ThreadAction({ info, messageID }: { info?: ThreadSummary; messag
         onClick={() => void openThread(info.parent_id)}
         className={cn(
           "inline-flex h-5 items-center gap-1 border border-border-soft bg-transparent px-1.5 font-mono text-[10.5px] text-text-faint hover:border-border hover:bg-panel-event hover:text-text",
-          selected && "border-border bg-accent-bg text-text",
+          selected && "border-agent-border bg-agent-bg text-agent",
         )}
         aria-label={"Open thread: " + segments.join(" · ")}
       >

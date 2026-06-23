@@ -209,7 +209,7 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
     <div className="border-t-hard border-border bg-panel px-3 pb-[max(0.875rem,env(safe-area-inset-bottom))] pt-2.5 md:px-5 md:pb-3.5 md:pt-3">
       <div className="w-full">
         {showRoutingHint && (
-          <div className="mb-2 inline-flex border border-border bg-accent-bg px-2 py-0.5 text-[11.5px] text-text">
+          <div className="mb-2 inline-flex border border-mention-border bg-mention-bg px-2 py-0.5 text-[11.5px] text-mention">
             {composerHint?.text}
           </div>
         )}
@@ -234,10 +234,10 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
                 title={ag.listening ? `@${ag.display} is listening` : `Mention @${ag.display}`}
                 className={cn(
                   "inline-flex items-center gap-1 border border-border bg-panel px-1.5 py-0.5 text-[11.5px] font-medium text-text-muted hover:bg-accent hover:text-text",
-                  ag.listening && "bg-accent-bg text-text",
+                  ag.listening && "border-agent-border bg-agent-bg text-agent",
                 )}
               >
-                {ag.listening && <Ear className="size-3 text-running" />}
+                {ag.listening && <Ear className="size-3 text-agent" />}
                 <span>@{ag.display}</span>
               </button>
             ))}

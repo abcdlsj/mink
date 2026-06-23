@@ -22,7 +22,7 @@ export function renderMentions(
       out.push(
         <span
           key={`m${i}`}
-          className="border border-border bg-accent px-1 py-px font-semibold text-text"
+          className="border border-mention-border bg-mention-bg px-1 py-px font-semibold text-mention"
         >
           @{id}
         </span>,

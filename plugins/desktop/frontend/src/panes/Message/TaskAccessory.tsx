@@ -23,7 +23,7 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
       onClick={onClick}
       className={cn(
         "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 text-left font-mono text-[10.5px]",
-        isRunning ? "border-running/15 bg-running/5 text-text-faint" : "border-border-soft bg-transparent text-text-faint",
+        isRunning ? "border-running-border bg-running-bg text-running" : "border-border-soft bg-transparent text-text-faint",
         taskInScope ? "hover:text-text" : "cursor-default",
         opened && "text-text",
       )}

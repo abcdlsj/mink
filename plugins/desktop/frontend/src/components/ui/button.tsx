@@ -4,7 +4,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-sm border-hard text-[12.5px] font-medium transition-[background,color,transform,box-shadow] duration-100 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-accent-bg focus-visible:border-border",
+  "inline-flex items-center justify-center gap-1.5 rounded-sm border-hard text-[12.5px] font-medium transition-[background,color,transform,box-shadow] duration-100 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-action-bg focus-visible:border-action",
   {
     variants: {
       variant: {
@@ -12,7 +12,7 @@ const buttonVariants = cva(
         primary: "bg-action text-panel hover:shadow-card disabled:bg-panel-3 disabled:text-text-faint disabled:opacity-100",
         outline: "bg-transparent text-text-muted hover:bg-accent hover:text-text hover:shadow-card",
         ghost: "border-transparent bg-transparent text-text-muted hover:border-border hover:bg-panel-2 hover:text-text",
-        danger: "bg-transparent text-text-muted hover:border-error hover:bg-action-bg hover:text-error",
+        danger: "bg-transparent text-text-muted hover:border-error-border hover:bg-error-bg hover:text-error",
       },
       size: {
         default: "h-7 px-3",

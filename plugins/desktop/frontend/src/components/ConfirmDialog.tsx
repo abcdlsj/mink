@@ -45,7 +45,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         className="w-[460px] max-w-[calc(100vw-32px)] overflow-hidden border-hard border-border bg-panel shadow-hard"
       >
-        <div className={danger ? "border-b-hard border-border bg-action-bg px-4 pb-2.5 pt-3.5" : "border-b-hard border-border bg-accent px-4 pb-2.5 pt-3.5"}>
+        <div className={danger ? "border-b-hard border-error-border bg-error-bg px-4 pb-2.5 pt-3.5" : "border-b-hard border-border bg-accent px-4 pb-2.5 pt-3.5"}>
           <div className="flex items-start gap-3">
             <span className={danger ? "mt-0.5 inline-flex size-7 items-center justify-center border-2 border-error bg-panel text-error" : "mt-0.5 inline-flex size-7 items-center justify-center border-2 border-border bg-panel text-text"}>
               <AlertTriangle className="size-4" />
@@ -69,7 +69,7 @@ export function ConfirmDialog({
         </div>
         <div className="px-4 py-3.5">
           {error && (
-            <div className="mb-3 border border-error bg-action-bg px-3 py-2 font-mono text-[11.5px] leading-relaxed text-error">
+            <div className="mb-3 border border-error-border bg-error-bg px-3 py-2 font-mono text-[11.5px] leading-relaxed text-error">
               {error}
             </div>
           )}

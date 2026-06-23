@@ -34,7 +34,7 @@ export function MentionAutocomplete({
           onMouseEnter={() => onHover(i)}
           className={cn(
             "flex w-full items-center gap-2 px-3 py-1.5 text-left",
-            i === index ? "bg-accent" : "hover:bg-accent",
+            i === index ? "bg-mention-bg text-mention" : "hover:bg-mention-bg hover:text-mention",
           )}
         >
           <span className="text-text-faint">@</span>

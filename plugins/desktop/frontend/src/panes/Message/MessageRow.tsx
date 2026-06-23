@@ -156,13 +156,13 @@ export function MessageRow({
           </div>
         )}
         {m.status === "pending" && (
-          <div className="mt-2.5 inline-flex items-center gap-2 text-[11.5px] text-text-muted">
+          <div className="mt-2.5 inline-flex items-center gap-2 border border-running-border bg-running-bg px-2 py-1 text-[11.5px] text-running">
             <span className="inline-block size-1.5 rounded-full bg-running" />
             <span>Reply in progress.</span>
           </div>
         )}
         {m.status === "failed" && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-2 border border-error border-l-4 bg-panel px-2.5 py-2 text-[12px] text-error">
+          <div className="mt-2.5 flex flex-wrap items-center gap-2 border border-error-border border-l-4 bg-error-bg px-2.5 py-2 text-[12px] text-error">
             <span className="leading-[18px]">
               {m.error || "Reply stopped before it finished."}
               <span className="ml-1 text-text-faint">Retry reruns this reply from the existing user message; it will not duplicate your message.</span>
@@ -171,7 +171,7 @@ export function MessageRow({
               <button
                 type="button"
                 onClick={() => void retryMessage(spaceID, m.id)}
-                className="border border-error bg-bg px-2 py-0.5 font-mono text-[10.5px] font-semibold text-error hover:bg-panel-2"
+                className="border border-error-border bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold text-error hover:bg-error-bg"
               >
                 Retry
               </button>

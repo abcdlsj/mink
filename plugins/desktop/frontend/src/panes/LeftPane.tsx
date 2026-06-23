@@ -214,7 +214,7 @@ export function LeftPane() {
                   className={cn(
                     "grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 border-2 border-transparent py-2 pl-2 pr-2 text-text-muted transition-colors",
                     active
-                      ? "border-border border-l-[10px] border-l-accent bg-panel text-text shadow-card"
+                      ? "border-agent-border border-l-[10px] border-l-agent bg-agent-bg text-agent shadow-card"
                       : "hover:border-border hover:bg-panel hover:text-text",
                   )}
                   title={personaTooltip(agent)}
@@ -224,7 +224,7 @@ export function LeftPane() {
                     onClick={() => openAgentRow(agent.id)}
                     className={cn(
                       "inline-flex size-5 items-center justify-center border border-transparent font-mono",
-                      active ? "border-border bg-accent text-text" : "text-text-muted",
+                      active ? "border-agent-border bg-panel text-agent" : "text-text-muted",
                     )}
                     tabIndex={-1}
                   >
@@ -273,7 +273,7 @@ export function LeftPane() {
                 className={cn(
                   "w-full cursor-pointer border-2 border-transparent px-2 py-2 text-left transition-colors",
                   view === "agent" && activeAgentSpace === dm.id
-                    ? "border-border border-l-[10px] border-l-accent bg-panel text-text shadow-card"
+                    ? "border-agent-border border-l-[10px] border-l-agent bg-agent-bg text-agent shadow-card"
                     : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
                 )}
                 title={"@" + (dm.persona_name || dm.persona_id)}
@@ -304,8 +304,8 @@ export function LeftPane() {
           }}
         >
           <div className="w-[460px] overflow-hidden border-hard border-border bg-panel shadow-hard">
-            <div className="border-b-hard border-border bg-accent px-4 pb-2 pt-3.5">
-              <div className="font-display text-[13px] font-extrabold uppercase text-text">
+            <div className="border-b-hard border-agent-border bg-agent-bg px-4 pb-2 pt-3.5">
+              <div className="font-display text-[13px] font-extrabold uppercase text-agent">
                 Start with @{agentCreate.display}
               </div>
               <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
