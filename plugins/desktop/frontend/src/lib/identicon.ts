@@ -108,7 +108,7 @@ export function identiconSVG(seed: string, kind: IdenticonKind = "agent"): strin
   const accentShift = (h >>> 16) & 1;
   const title = escapeAttr(seed || "anon");
   const cellSize = 4;
-  const cells = [`<rect width="40" height="40" fill="${PAPER}"/>`];
+  const cells = [`<rect width="40" height="40" fill="${INK}"/>`, `<rect x="4" y="4" width="32" height="32" fill="${palette.bg}"/>`];
 
   for (let y = 0; y < template.length; y++) {
     for (let x = 0; x < template[y].length; x++) {
