@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/abcdlsj/sumi/msg"
 )
 
 func TestPrepareImageInputDirective(t *testing.T) {
@@ -78,6 +80,25 @@ func TestPrepareImageInputPlainWebURL(t *testing.T) {
 		t.Fatalf("text = %q", text)
 	}
 	if len(attachments) != 0 {
+		t.Fatalf("attachments = %#v", attachments)
+	}
+}
+
+func TestPrepareImageInputLeavesNonImageAttachmentsAlone(t *testing.T) {
+	in := []msg.Attachment{{
+		Kind:  "quoted_transcript",
+		Label: "Quote",
+		MIME:  "application/vnd.sumi.transcript+json",
+		Data:  `{"title":"Quote","source":"dm:x","messages":[]}`,
+	}}
+	text, attachments, err := prepareImageInput("", in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "" {
+		t.Fatalf("text = %q", text)
+	}
+	if len(attachments) != 1 || attachments[0].Kind != "quoted_transcript" {
 		t.Fatalf("attachments = %#v", attachments)
 	}
 }

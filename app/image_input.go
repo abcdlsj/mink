@@ -32,6 +32,9 @@ func prepareImageInput(input string, attachments []msg.Attachment) (string, []ms
 	if len(attachments) == 0 {
 		return input, nil, nil
 	}
+	if !hasImageAttachments(attachments) {
+		return input, attachments, nil
+	}
 	clean = strings.TrimSpace(clean)
 	if clean == "" {
 		clean = "请看这张图片。"
@@ -39,6 +42,15 @@ func prepareImageInput(input string, attachments []msg.Attachment) (string, []ms
 	attachments = labelImageAttachments(attachments)
 	clean = appendImageReferences(clean, attachments)
 	return clean, attachments, nil
+}
+
+func hasImageAttachments(attachments []msg.Attachment) bool {
+	for _, a := range attachments {
+		if a.Kind == "image" {
+			return true
+		}
+	}
+	return false
 }
 
 func labelImageAttachments(attachments []msg.Attachment) []msg.Attachment {

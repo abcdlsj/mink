@@ -25,6 +25,7 @@ export function MessageSelectionBar({
     if (messages.length === 0) return;
     const text = serializeMessagesForCopy({ title, sourceLabel, messages, hrefFor: hrefFor || defaultHrefFor });
     await navigator.clipboard.writeText(text);
+    onCancel();
   };
 
   if (!active) {
