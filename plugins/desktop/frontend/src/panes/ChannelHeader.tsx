@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Hash, MessageSquare, Trash2 } from "lucide-react";
-import { Identicon } from "@/components/Identicon";
 import type { AgentItem, ChannelItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -43,7 +42,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   let titleText = item.title;
   let metaText = "";
   let TitleIcon = MessageSquare;
-  let agentTitleIcon: React.ReactNode = null;
+  let showTitleIcon = true;
   let listeningHint = "";
   let objectType = "Direct Message";
   const isNamedAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
@@ -64,13 +63,11 @@ export function ChannelHeader({ scope }: { scope: string }) {
       agents.find((a) => a.id === detail.item.persona_id)?.display ||
       titleText;
     objectType = isNamedAgentChat ? "Agent Chat" : "Default Agent DM";
-    metaText = personaDisplay;
-    if (detail.summary) metaText += ` · ${detail.summary}`;
-    agentTitleIcon = (
-      <span className="inline-flex size-7 overflow-hidden border-2 border-agent-border bg-agent-bg">
-        <Identicon seed={detail.item.persona_id || activeAgentSpace || personaDisplay} kind="agent" />
-      </span>
-    );
+    showTitleIcon = false;
+    const metaParts = [];
+    if (personaDisplay && personaDisplay !== titleText) metaParts.push(`Participant: ${personaDisplay}`);
+    if (detail.summary) metaParts.push(detail.summary);
+    metaText = metaParts.join(" · ");
   }
 
   const editable = isNamedAgentChat || isEditableDirect;
@@ -137,7 +134,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
     <div className="flex items-end justify-between border-b-hard border-border bg-panel px-5 pb-3.5 pt-4">
       <div>
         <h2 className="flex items-center gap-2 font-display text-[19px] font-extrabold leading-tight text-text">
-          {agentTitleIcon || (
+          {showTitleIcon && (
             <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
               <TitleIcon className="size-[14px] text-text" />
             </span>
