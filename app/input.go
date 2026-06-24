@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
@@ -183,6 +184,9 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+	if visionLabel != "" {
+		agent.StripVisionedImageAttachments(s)
+	}
 	return latestAssistant(s), nil
 }
 
@@ -257,6 +261,9 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		if err := f.app.runTurnAsNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
 		}
+	}
+	if visionLabel != "" {
+		agent.StripVisionedImageAttachments(s)
 	}
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
 	if sp != nil && (strings.TrimSpace(content) != "" || strings.TrimSpace(reasoning) != "") {

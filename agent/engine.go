@@ -50,6 +50,14 @@ func imageInputUnsupported(err error) bool {
 }
 
 func downgradeImageAttachments(s *session.Session) bool {
+	return stripImageAttachments(s, true)
+}
+
+func StripVisionedImageAttachments(s *session.Session) bool {
+	return stripImageAttachments(s, false)
+}
+
+func stripImageAttachments(s *session.Session, addNote bool) bool {
 	if s == nil {
 		return false
 	}
@@ -75,7 +83,7 @@ func downgradeImageAttachments(s *session.Session) bool {
 		if len(m.Attachments) == 0 {
 			m.Attachments = nil
 		}
-		if !strings.Contains(m.Content, imageUnsupportedNote) {
+		if addNote && !strings.Contains(m.Content, imageUnsupportedNote) {
 			m.Content = strings.TrimSpace(m.Content) + "\n\n" + imageUnsupportedNote
 		}
 		changed = true
