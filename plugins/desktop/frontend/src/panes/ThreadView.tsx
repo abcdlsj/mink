@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AgentGear } from "./AgentGear";
 import { Composer } from "./Composer/Composer";
+import { MessageSelectionBar } from "./Message/MessageSelectionBar";
 import { MessageRow } from "./Message/MessageRow";
 import { MessageStream } from "./Message/MessageStream";
 import { useStore } from "@/lib/store";
@@ -22,6 +23,8 @@ export function ThreadView() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIDs, setSelectedIDs] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (!activeAnchor?.startsWith("message:")) return;
@@ -37,7 +40,21 @@ export function ThreadView() {
     setDeleteOpen(false);
     setDeleteBusy(false);
     setDeleteErr(null);
+    setSelecting(false);
+    setSelectedIDs(new Set());
   }, [scope]);
+
+  const selectedMessages = useMemo(
+    () => replies.filter((m) => selectedIDs.has(m.id)),
+    [replies, selectedIDs],
+  );
+  useEffect(() => {
+    setSelectedIDs((prev) => {
+      const visible = new Set(replies.map((m) => m.id));
+      const next = new Set([...prev].filter((id) => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [replies]);
 
   if (!threadDetail) return null;
   const root = threadDetail.parent;
@@ -94,31 +111,56 @@ export function ThreadView() {
 
   return (
     <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">
-      <div className="flex min-w-0 items-center gap-2 border-b-hard border-border px-3 py-2">
-        <button
-          onClick={() => closeThread()}
-          className="shrink-0 border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
-          aria-label={channel ? "Back to " + channel.name : "Back to channel"}
-        >
-          ←
-        </button>
-        <div className="min-w-0 truncate font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
-        <div className="shrink-0 font-mono text-[11px] text-text-muted">
-          {replies.length === 1 ? "1 reply" : replies.length + " replies"}
+      <div>
+        <div className="flex min-w-0 items-center gap-2 border-b-hard border-border px-3 py-2">
+          <button
+            onClick={() => closeThread()}
+            className="shrink-0 border border-border bg-panel-2 px-2 py-0.5 text-[12px] text-text-muted hover:bg-accent hover:text-text"
+            aria-label={channel ? "Back to " + channel.name : "Back to channel"}
+          >
+            ←
+          </button>
+          <div className="min-w-0 truncate font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
+          <div className="shrink-0 font-mono text-[11px] text-text-muted">
+            {replies.length === 1 ? "1 reply" : replies.length + " replies"}
+          </div>
+          <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {!selecting && (
+              <button
+                type="button"
+                onClick={() => setSelecting(true)}
+                className="border border-border bg-panel-2 px-2 py-1 font-mono text-[10.5px] font-semibold uppercase text-text-muted hover:bg-accent hover:text-text"
+              >
+                Select messages
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setDeleteErr(null);
+                setDeleteOpen(true);
+              }}
+              disabled={deleteBusy}
+              className="inline-flex size-7 shrink-0 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-error hover:text-bg"
+              aria-label="Delete thread"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </div>
         </div>
-        <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
-        <button
-          type="button"
-          onClick={() => {
-            setDeleteErr(null);
-            setDeleteOpen(true);
+        <MessageSelectionBar
+          active={selecting}
+          selectedCount={selectedIDs.size}
+          messages={selectedMessages}
+          sourceLabel={sourceLabel}
+          title="Thread"
+          onCancel={() => {
+            setSelecting(false);
+            setSelectedIDs(new Set());
           }}
-          disabled={deleteBusy}
-          className="ml-auto inline-flex size-7 shrink-0 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-error hover:text-bg"
-          aria-label="Delete thread"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+          onSelectAll={() => setSelectedIDs(new Set(replies.map((m) => m.id)))}
+        />
       </div>
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5">
         <div className="mx-auto max-w-[880px]">
@@ -136,8 +178,14 @@ export function ThreadView() {
             empty={null}
             filterRenderable={false}
             compactAcrossThreadLinks
-            sourceLabel={sourceLabel}
-            title="Thread"
+            selecting={selecting}
+            selectedIDs={selectedIDs}
+            onToggleSelected={(id) => setSelectedIDs((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })}
           />
         </div>
       </div>

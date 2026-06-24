@@ -105,7 +105,7 @@ func (r *Runtime) Run(ctx context.Context, turn *agent.Turn) error {
 	}
 	prompt := textutil.Valid(r.buildPrompt(turn, !resume || turn.IncludeHistory))
 	fallbackPrompt := textutil.Valid(r.buildPrompt(turn, true))
-	addUser(turn.Session, turn.Input)
+	addUser(turn.Session, turn.Input, turn.Attachments)
 
 	st := newRunState()
 	runErr := r.runCommand(ctx, turn, st, prompt, sessionID, resume, profile)
@@ -300,7 +300,12 @@ func (r *Runtime) buildPrompt(turn *agent.Turn, includeHistory bool) string {
 			hist = FormatHistory(turn.Session.Messages)
 		}
 	}
-	return agent.BuildExternalPrompt(r.env, turn, hist)
+	if turn == nil {
+		return agent.BuildExternalPrompt(r.env, turn, hist)
+	}
+	copyTurn := *turn
+	copyTurn.Input = agent.UserInputWithAttachments(turn.Input, turn.Attachments)
+	return agent.BuildExternalPrompt(r.env, &copyTurn, hist)
 }
 
 func (r *Runtime) prepareProfile() (Profile, error) {

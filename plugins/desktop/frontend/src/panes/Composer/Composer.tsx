@@ -5,10 +5,16 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { AgentItem, ChannelItem, ThreadDetail } from "@/lib/types";
 import { personaForActiveAgent } from "../Message/message-helpers";
+import {
+  parseSumiTranscripts,
+  transcriptAttachmentData,
+  type SumiTranscript,
+} from "../Message/message-transcript";
 import { MentionAutocomplete } from "./MentionAutocomplete";
 import { applyMention, mentionCandidates, nextMentionState, type MentionState } from "./composer-helpers";
 
 const draftMap = new Map<string, string>();
+const quoteDraftMap = new Map<string, SumiTranscript[]>();
 
 export function Composer({ forceMainScope = false }: { forceMainScope?: boolean }) {
   const view = useStore((s) => s.view);
@@ -29,6 +35,7 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
   const [persona, setPersona] = useState("");
   const [mentionState, setMentionState] = useState<MentionState | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [quotedTranscripts, setQuotedTranscripts] = useState<SumiTranscript[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const updateMentionState = (value: string, caret: number) => {
@@ -126,10 +133,12 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
 
   useEffect(() => {
     const saved = currentScopeKey ? (draftMap.get(currentScopeKey) ?? "") : "";
+    const savedQuotes = currentScopeKey ? (quoteDraftMap.get(currentScopeKey) ?? []) : [];
     setInput(saved);
+    setQuotedTranscripts(savedQuotes);
   }, [currentScopeKey]);
   const sending = currentScopeKey ? !!sendingByScope[currentScopeKey] : false;
-  const canSend = trimmed.length > 0 && !sending;
+  const canSend = (trimmed.length > 0 || quotedTranscripts.length > 0) && !sending;
   const usesRouting =
     (view === "channel" && !!activeChannel) ||
     !!activeThreadDetail;
@@ -150,12 +159,20 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
     if (!canSend) return;
     const text = trimmed;
     setInput("");
+    setQuotedTranscripts([]);
     if (currentScopeKey) draftMap.delete(currentScopeKey);
+    if (currentScopeKey) quoteDraftMap.delete(currentScopeKey);
     await send(text, persona || undefined, {
       parentMessageID: activeThreadDetail && !activeThreadDetail.unsupported && !activeThreadDetail.not_found
         ? activeThreadDetail.parent_id
         : null,
       scopeKey: currentScopeKey,
+      attachments: quotedTranscripts.map((qt) => ({
+        kind: "quoted_transcript",
+        label: qt.title,
+        mime: "application/vnd.sumi.transcript+json",
+        data: transcriptAttachmentData(qt),
+      })),
     });
   };
 
@@ -198,6 +215,28 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
     setInput(value);
     if (currentScopeKey) draftMap.set(currentScopeKey, value);
     updateMentionState(value, e.target.selectionStart ?? value.length);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData.getData("text/plain");
+    const transcripts = parseSumiTranscripts(pasted);
+    if (transcripts.length === 0) return;
+    e.preventDefault();
+    const quotes = [...quotedTranscripts, ...transcripts];
+    setQuotedTranscripts(quotes);
+    if (currentScopeKey) {
+      quoteDraftMap.set(currentScopeKey, quotes);
+    }
+    closeMention();
+  };
+
+  const removeQuote = (idx: number) => {
+    const next = quotedTranscripts.filter((_, i) => i !== idx);
+    setQuotedTranscripts(next);
+    if (currentScopeKey) {
+      if (next.length === 0) quoteDraftMap.delete(currentScopeKey);
+      else quoteDraftMap.set(currentScopeKey, next);
+    }
   };
 
   const handleSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
@@ -243,6 +282,25 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
             ))}
           </div>
         )}
+        {quotedTranscripts.length > 0 && (
+          <div className="mb-2 grid gap-1.5">
+            {quotedTranscripts.map((qt, idx) => (
+              <div key={idx} className="flex items-center gap-2 border border-border bg-panel-2 px-2.5 py-1.5 text-[12px] text-text">
+                <div className="min-w-0 flex-1">
+                  <div className="font-mono text-[10.5px] font-semibold uppercase text-text-muted">Quoted transcript</div>
+                  <div className="truncate font-medium">{qt.title} · {qt.messages.length} messages · {qt.source}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeQuote(idx)}
+                  className="border border-border-soft bg-panel px-2 py-0.5 font-mono text-[10.5px] text-text-muted hover:border-border hover:text-text"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="relative border-hard border-border bg-bg shadow-card">
           <textarea
             ref={textareaRef}
@@ -250,6 +308,7 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
             placeholder={placeholder}
             value={input}
             onChange={handleChange}
+            onPaste={handlePaste}
             onSelect={handleSelect}
             onKeyDown={handleKey}
             onBlur={() => {

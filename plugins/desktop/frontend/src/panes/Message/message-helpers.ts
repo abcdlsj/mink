@@ -23,6 +23,7 @@ export function renderableMessage(m: MessageView): boolean {
   if (m.content && m.content.trim() !== "") return true;
   if (m.reasoning && m.reasoning.trim() !== "") return true;
   if (m.events && m.events.length > 0) return true;
+  if (m.attachments?.some((a) => a.kind === "quoted_transcript")) return true;
   if (m.thread_id && m.thread_summary) return true;
   if (m.thread_info) return true;
   return false;

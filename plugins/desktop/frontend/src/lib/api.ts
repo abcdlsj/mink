@@ -23,6 +23,7 @@ import type {
   TaskStateCard,
   ToolItem,
   WorkspaceState,
+  AttachmentView,
 } from "./types";
 
 const j = async <T>(p: Promise<Response>): Promise<T> => {
@@ -192,7 +193,7 @@ export const api = {
   skills: () => j<SkillView[]>(fetch("/api/skills")),
   skill: (name: string) => j<SkillView>(fetch("/api/skill?name=" + encodeURIComponent(name))),
   personas: () => j<PersonaItem[]>(fetch("/api/personas")),
-  send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string) =>
+  send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string, attachments?: AttachmentView[]) =>
     j<{ output: string }>(
       fetch("/api/send", {
         method: "POST",
@@ -202,6 +203,7 @@ export const api = {
           input,
           persona_id: personaID,
           parent_message_id: parentMessageID,
+          attachments,
         }),
       }),
     ),

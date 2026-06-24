@@ -31,6 +31,10 @@ func (a *App) HandleInputAs(ctx context.Context, source, personaID, input string
 	return a.handleInputAs(ctx, source, personaID, input, nil)
 }
 
+func (a *App) HandleInputAsWithAttachments(ctx context.Context, source, personaID, input string, attachments []msg.Attachment) (string, error) {
+	return a.handleInputAs(ctx, source, personaID, input, attachments)
+}
+
 func (a *App) HandleExistingUserInput(ctx context.Context, source, personaID, input, existingUserMessageID string) (string, error) {
 	runtime := a.cfg.Runtime
 	if personaID != "" {
@@ -137,7 +141,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 			contextSpaceID = sp.ID
 			excludeMessageID = f.existingUserMessageID
 		} else {
-			m, err := f.app.appendAgentDMUserToSpace(f.source, personaID, f.input)
+			m, err := f.app.appendAgentDMUserWithAttachmentsToSpace(f.source, personaID, f.input, f.attachments)
 			if err != nil {
 				return "", err
 			}
@@ -206,7 +210,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 		if f.existingUserMessageID != "" {
 			excludeMessageID = f.existingUserMessageID
 		} else {
-			m, err := f.app.spaces.AppendUserMessageInThread(sp.ID, command.ParentMessageFrom(ctx), f.input, nil)
+			m, err := f.app.spaces.AppendUserMessageWithAttachmentsInThread(sp.ID, command.ParentMessageFrom(ctx), f.input, nil, f.attachments)
 			if err != nil {
 				return "", err
 			}

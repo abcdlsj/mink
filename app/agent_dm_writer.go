@@ -83,11 +83,15 @@ func (a *App) resolveAgentDMTargetSpace(source, explicit string) (*space.Space, 
 }
 
 func (a *App) appendAgentDMUserToSpace(source, explicit, content string) (*space.Message, error) {
+	return a.appendAgentDMUserWithAttachmentsToSpace(source, explicit, content, nil)
+}
+
+func (a *App) appendAgentDMUserWithAttachmentsToSpace(source, explicit, content string, attachments []msg.Attachment) (*space.Message, error) {
 	sp, _, err := a.resolveAgentDMTargetSpace(source, explicit)
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.spaces.AppendUserMessage(sp.ID, content, nil)
+	m, err := a.spaces.AppendUserMessageWithAttachmentsInThread(sp.ID, "", content, nil, attachments)
 	if err != nil {
 		return nil, err
 	}

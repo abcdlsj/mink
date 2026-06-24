@@ -377,11 +377,14 @@ func (s *runState) stableIDs() []string {
 	return out
 }
 
-func addUser(s *session.Session, input string) {
-	if s == nil || strings.TrimSpace(input) == "" {
+func addUser(s *session.Session, input string, attachments []msg.Attachment) {
+	if s == nil {
 		return
 	}
-	s.Add(agent.NewUserMessage(input))
+	if strings.TrimSpace(input) == "" && len(attachments) == 0 {
+		return
+	}
+	s.Add(agent.NewUserMessageWithAttachments(input, attachments))
 }
 
 func wrapMessageError(name string, m *Message) error {

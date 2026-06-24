@@ -11,6 +11,7 @@ import { TaskAccessoryRow } from "./TaskAccessory";
 import { TaskCandidate } from "./TaskCandidate";
 import { ThreadAction, ThreadLink } from "./ThreadAccessory";
 import { personaForActiveAgent, shortRole, stripCollabLeak } from "./message-helpers";
+import { parseTranscriptAttachment, type SumiTranscript } from "./message-transcript";
 
 const LONG_CONTENT_CHARS = 2600;
 const LONG_CONTENT_LINES = 48;
@@ -159,6 +160,11 @@ export function MessageRow({
             mentions={knownMentions}
           />
         )}
+        <QuotedTranscripts transcripts={(m.attachments || [])
+          .filter((a) => a.kind === "quoted_transcript")
+          .map((a) => parseTranscriptAttachment(a.data))
+          .filter((t): t is SumiTranscript => !!t)}
+        />
         {events.length > 0 && (
           <div className="mt-2.5 flex flex-col gap-1.5">
             {collabEvents.map((ev, i) => (
@@ -204,6 +210,48 @@ export function MessageRow({
         {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
         {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
       </div>
+    </div>
+  );
+}
+
+function QuotedTranscripts({ transcripts }: { transcripts: SumiTranscript[] }) {
+  if (transcripts.length === 0) return null;
+  return (
+    <div className="mt-2.5 grid max-w-[820px] gap-2">
+      {transcripts.map((t, idx) => (
+        <div key={idx} className="border border-border bg-panel-2 text-text shadow-card">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent px-2.5 py-1.5">
+            <span className="font-mono text-[10.5px] font-extrabold uppercase tracking-[0.4px] text-text">
+              Quoted transcript
+            </span>
+            <span className="min-w-0 truncate text-[12px] font-semibold text-text">
+              {t.title}
+            </span>
+            <span className="font-mono text-[10.5px] text-text-muted">
+              {t.messages.length} messages · {t.source}
+            </span>
+          </div>
+          <div className="divide-y divide-border-soft">
+            {t.messages.map((m) => (
+              <div key={m.id} className="grid gap-1 px-2.5 py-2 text-[12.5px] leading-[1.5]">
+                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10.5px] text-text-muted">
+                  <span className="font-semibold text-text">{m.sender}</span>
+                  <span>{m.time}</span>
+                  <span>msg:{m.id}</span>
+                  {m.link && (
+                    <a href={m.link} className="text-action underline underline-offset-2 hover:text-text">
+                      jump
+                    </a>
+                  )}
+                </div>
+                <div className="line-clamp-3 whitespace-pre-wrap text-text">
+                  {m.content}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

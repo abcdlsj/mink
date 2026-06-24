@@ -9,7 +9,6 @@ export function MessageSelectionBar({
   sourceLabel,
   title,
   hrefFor,
-  onStart,
   onCancel,
   onSelectAll,
 }: {
@@ -18,33 +17,22 @@ export function MessageSelectionBar({
   messages: MessageView[];
   sourceLabel: string;
   title?: string;
-  hrefFor: (m: MessageView) => string;
-  onStart: () => void;
+  hrefFor?: (m: MessageView) => string;
   onCancel: () => void;
   onSelectAll: () => void;
 }) {
   const copy = async () => {
     if (messages.length === 0) return;
-    const text = serializeMessagesForCopy({ title, sourceLabel, messages, hrefFor });
+    const text = serializeMessagesForCopy({ title, sourceLabel, messages, hrefFor: hrefFor || defaultHrefFor });
     await navigator.clipboard.writeText(text);
   };
 
   if (!active) {
-    return (
-      <div className="sticky top-0 z-10 mb-3 flex justify-end bg-panel/95 pb-2">
-        <button
-          type="button"
-          onClick={onStart}
-          className="border border-border-soft bg-panel-2 px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-[0.4px] text-text-muted hover:border-border hover:text-text"
-        >
-          Select messages
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
-    <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-2 border border-border bg-panel-2 px-2.5 py-2 shadow-card">
+    <div className="flex flex-wrap items-center gap-2 border-b-hard border-border bg-panel-2 px-5 py-2 shadow-card">
       <div className="font-mono text-[11px] uppercase tracking-[0.5px] text-text-muted">
         {selectedCount} selected
       </div>
@@ -63,7 +51,7 @@ export function MessageSelectionBar({
           "border px-2 py-0.5 font-mono text-[10.5px] font-semibold",
           messages.length === 0
             ? "cursor-not-allowed border-border-soft bg-panel text-text-whisper"
-            : "border-accent bg-accent text-bg hover:brightness-95",
+            : "border-action bg-action text-panel hover:brightness-95",
         )}
       >
         Copy transcript
@@ -77,4 +65,11 @@ export function MessageSelectionBar({
       </button>
     </div>
   );
+}
+
+function defaultHrefFor(m: MessageView): string {
+  if (typeof window === "undefined") return "#message-" + m.id;
+  const url = new URL(window.location.href);
+  url.searchParams.set("anchor", "message:" + m.id);
+  return url.toString();
 }

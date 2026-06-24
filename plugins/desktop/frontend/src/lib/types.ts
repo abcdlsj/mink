@@ -128,6 +128,16 @@ export interface MessageView {
   mentions?: string[];
   usage?: TokenUsage;
   runtime_meta?: Record<string, string>;
+  attachments?: AttachmentView[];
+}
+
+export interface AttachmentView {
+  kind: string;
+  label?: string;
+  name?: string;
+  mime?: string;
+  data?: string;
+  url?: string;
 }
 
 export interface TokenUsage {

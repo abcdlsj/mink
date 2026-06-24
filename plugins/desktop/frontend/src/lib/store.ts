@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  AttachmentView,
   AgentDMItem,
   AgentItem,
   CapabilityView,
@@ -138,6 +139,7 @@ function scopeKey(spaceID: string, parentMessageID?: string): string {
 interface SendOptions {
   parentMessageID?: string | null;
   scopeKey?: string;
+  attachments?: AttachmentView[];
 }
 
 function activeScopeKey(s: State): string {
@@ -982,7 +984,8 @@ export const useStore = create<State>((set, get) => ({
         ? undefined
         : options?.parentMessageID ?? before.threadDetail?.parent_id;
     const sendScope = options?.scopeKey || (sid ? scopeKey(sid, parentMessageID) : activeScopeKey(before));
-    if (!sid || !sendScope || !input.trim() || before.sendingByScope[sendScope]) return;
+    const hasPayload = input.trim() || (options?.attachments?.length ?? 0) > 0;
+    if (!sid || !sendScope || !hasPayload || before.sendingByScope[sendScope]) return;
     set({
       sending: true,
       sendingByScope: { ...before.sendingByScope, [sendScope]: true },
@@ -994,7 +997,7 @@ export const useStore = create<State>((set, get) => ({
       set({ sendingByScope: next, sending: Object.keys(next).length > 0 });
     };
     try {
-      await api.send(sid, input, personaID, parentMessageID);
+      await api.send(sid, input, personaID, parentMessageID, options?.attachments);
       clearSending();
       if (activeSessionID(get()) === sid) {
         await refetchActiveScope(get, set);

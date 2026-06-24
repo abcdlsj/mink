@@ -5,7 +5,15 @@ import { useStore } from "@/lib/store";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AgentGear } from "./AgentGear";
 
-export function ChannelHeader({ scope }: { scope: string }) {
+export function ChannelHeader({
+  scope,
+  selecting = false,
+  onStartSelection,
+}: {
+  scope: string;
+  selecting?: boolean;
+  onStartSelection?: () => void;
+}) {
   const view = useStore((s) => s.view);
   const detail = useStore((s) => s.detail);
   const channels = useStore((s) => s.channels);
@@ -180,21 +188,32 @@ export function ChannelHeader({ scope }: { scope: string }) {
           </div>
         )}
       </div>
-      {deleteTarget && (
-        <button
-          type="button"
-          onClick={() => {
-            setDeleteErr(null);
-            setDeleteOpen(true);
-          }}
-          disabled={deleteBusy}
-          className="inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
-          title="Delete local conversation history and runtime context"
-        >
-          <Trash2 className="size-3.5" />
-          {deleteBusy ? "Deleting" : "Delete"}
-        </button>
-      )}
+      <div className="flex shrink-0 items-center gap-2">
+        {onStartSelection && !selecting && (
+          <button
+            type="button"
+            onClick={onStartSelection}
+            className="border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-accent hover:text-text"
+          >
+            Select messages
+          </button>
+        )}
+        {deleteTarget && (
+          <button
+            type="button"
+            onClick={() => {
+              setDeleteErr(null);
+              setDeleteOpen(true);
+            }}
+            disabled={deleteBusy}
+            className="inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
+            title="Delete local conversation history and runtime context"
+          >
+            <Trash2 className="size-3.5" />
+            {deleteBusy ? "Deleting" : "Delete"}
+          </button>
+        )}
+      </div>
     </div>
     {deleteTarget && (
       <ConfirmDialog

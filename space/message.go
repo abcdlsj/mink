@@ -13,6 +13,7 @@ type Message struct {
 	AuthorID        string            `json:"author_id"`
 	AuthorKind      ParticipantKind   `json:"author_kind"`
 	Content         string            `json:"content,omitempty"`
+	Attachments     []msg.Attachment  `json:"attachments,omitempty"`
 	Reasoning       string            `json:"reasoning,omitempty"`
 	Status          string            `json:"status,omitempty"`
 	Error           string            `json:"error,omitempty"`

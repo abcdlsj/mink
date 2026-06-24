@@ -149,9 +149,9 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		personaID = ""
 	}
 	if personaID != "" {
-		out, err = b.app.HandleInputAs(ctx, source, personaID, req.Input)
+		out, err = b.app.HandleInputAsWithAttachments(ctx, source, personaID, req.Input, req.Attachments)
 	} else {
-		out, err = b.app.HandleInput(ctx, source, req.Input)
+		out, err = b.app.HandleInputWithAttachments(ctx, source, req.Input, req.Attachments)
 	}
 	if err != nil {
 		b.persistSendFailure(sp, parentMessageID, req.Input, messageCountBefore, err)
@@ -1546,6 +1546,7 @@ func baseMessageView(sp *space.Space, m space.Message, resolver space.DisplayRes
 		AutoReplyReason: m.AutoReplyReason,
 		Mentions:        append([]string(nil), m.Mentions...),
 		RuntimeMeta:     copyStringMap(m.RuntimeMeta),
+		Attachments:     cloneMessageAttachments(m.Attachments),
 	}
 	if m.Usage != nil {
 		view.Usage = &TokenUsage{
@@ -1576,6 +1577,15 @@ func copyStringMap(in map[string]string) map[string]string {
 	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+func cloneMessageAttachments(in []msg.Attachment) []msg.Attachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]msg.Attachment, len(in))
+	copy(out, in)
 	return out
 }
 

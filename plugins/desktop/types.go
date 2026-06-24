@@ -1,6 +1,10 @@
 package desktop
 
-import "time"
+import (
+	"time"
+
+	"github.com/abcdlsj/sumi/msg"
+)
 
 type SessionItem struct {
 	ID           string    `json:"id"`
@@ -43,6 +47,7 @@ type MessageView struct {
 	AutoReplyReason string             `json:"auto_reply_reason,omitempty"`
 	Mentions        []string           `json:"mentions,omitempty"`
 	RuntimeMeta     map[string]string  `json:"runtime_meta,omitempty"`
+	Attachments     []msg.Attachment   `json:"attachments,omitempty"`
 }
 
 type TaskAccessoryInfo struct {
@@ -131,10 +136,11 @@ type WorkspaceState struct {
 }
 
 type SendRequest struct {
-	SessionID       string `json:"session_id"`
-	PersonaID       string `json:"persona_id,omitempty"`
-	Input           string `json:"input"`
-	ParentMessageID string `json:"parent_message_id,omitempty"`
+	SessionID       string           `json:"session_id"`
+	PersonaID       string           `json:"persona_id,omitempty"`
+	Input           string           `json:"input"`
+	ParentMessageID string           `json:"parent_message_id,omitempty"`
+	Attachments     []msg.Attachment `json:"attachments,omitempty"`
 }
 
 type RetryMessageRequest struct {

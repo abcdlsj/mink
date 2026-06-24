@@ -268,10 +268,15 @@ func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) 
 }
 
 func (m *Manager) AppendUserMessageInThread(spaceID, parentMessageID, content string, mentions []string) (Message, error) {
+	return m.AppendUserMessageWithAttachmentsInThread(spaceID, parentMessageID, content, mentions, nil)
+}
+
+func (m *Manager) AppendUserMessageWithAttachmentsInThread(spaceID, parentMessageID, content string, mentions []string, attachments []msg.Attachment) (Message, error) {
 	return m.appendMessage(spaceID, Message{
 		AuthorID:        m.userID,
 		AuthorKind:      ParticipantUser,
 		Content:         content,
+		Attachments:     cloneAttachments(attachments),
 		Mentions:        mentions,
 		ParentMessageID: strings.TrimSpace(parentMessageID),
 	})
@@ -291,6 +296,15 @@ func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content,
 		Usage:           usage,
 		RuntimeMeta:     runtimeMeta,
 	})
+}
+
+func cloneAttachments(in []msg.Attachment) []msg.Attachment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]msg.Attachment, len(in))
+	copy(out, in)
+	return out
 }
 
 func (m *Manager) UpdateMessage(spaceID, messageID string, update func(*Message)) (Message, error) {

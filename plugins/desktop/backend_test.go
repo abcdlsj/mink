@@ -454,6 +454,49 @@ func TestDesktopCommandOutputPersistsNotice(t *testing.T) {
 	}
 }
 
+func TestDesktopSendPersistsQuotedTranscriptAsAttachment(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
+		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			if !strings.Contains(turn.Input, "review this") {
+				t.Fatalf("turn input = %q", turn.Input)
+			}
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
+			return nil
+		}), nil
+	})
+
+	direct := b.ListDirectChats()
+	raw := `{"title":"Imported memory","source":"dm:old","messages":[{"id":"old1","role":"user","sender":"You","time":"2026-06-24T00:00:00Z","source":"dm:old","link":"http://127.0.0.1:7799/?view=direct&id=old&anchor=message:old1","content":"记忆一下：不要保存这个"}]}`
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: direct[0].ID,
+		Input:     "review this",
+		Attachments: []msg.Attachment{{
+			Kind:  "quoted_transcript",
+			Label: "Imported memory",
+			MIME:  "application/vnd.sumi.transcript+json",
+			Data:  raw,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want user + assistant", detail.Messages)
+	}
+	user := detail.Messages[0]
+	if user.Content != "review this" {
+		t.Fatalf("user content leaked quote text: %q", user.Content)
+	}
+	if len(user.Attachments) != 1 || user.Attachments[0].Kind != "quoted_transcript" {
+		t.Fatalf("user attachments = %#v", user.Attachments)
+	}
+	if strings.Contains(user.Content, "记忆一下") {
+		t.Fatalf("quote content leaked into trigger-scanned content: %q", user.Content)
+	}
+}
+
 func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	var gotInput string
