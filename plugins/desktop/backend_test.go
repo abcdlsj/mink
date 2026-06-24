@@ -434,6 +434,26 @@ func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
 	}
 }
 
+func TestDesktopCommandOutputPersistsNotice(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "/model"}); err != nil {
+		t.Fatal(err)
+	}
+
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 1 {
+		t.Fatalf("messages = %#v, want command output only", detail.Messages)
+	}
+	if detail.Messages[0].Role != "system" || !strings.Contains(detail.Messages[0].Content, "(unconfigured)") {
+		t.Fatalf("command output = %#v", detail.Messages[0])
+	}
+}
+
 func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	var gotInput string

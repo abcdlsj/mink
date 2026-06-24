@@ -1128,6 +1128,14 @@ export const useStore = create<State>((set, get) => ({
       return;
     }
 
+    if (ev.type === "model.changed") {
+      void Promise.all([
+        api.state().then((state) => set({ state })).catch(() => undefined),
+        api.models().then((models) => set({ models })).catch(() => undefined),
+      ]);
+      return;
+    }
+
     if (
       ev.type === "task.created" ||
       ev.type === "task.updated" ||

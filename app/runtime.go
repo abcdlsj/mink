@@ -156,7 +156,13 @@ func latestAssistant(s *session.Session) string {
 
 func (a *App) switchModel(provider, model string) error {
 	next := a.cfg
-	next.Resolve(provider, model)
+	if next.ResolveNamedModel(provider, model) {
+		// Configured model names carry provider/base_url/api_key; optional model overrides only the model id.
+	} else if strings.TrimSpace(model) != "" {
+		next.Resolve(provider, model)
+	} else {
+		return fmt.Errorf("model %q is not configured", strings.TrimSpace(provider))
+	}
 	if !next.Ready() {
 		return fmt.Errorf("provider %s is not configured", provider)
 	}

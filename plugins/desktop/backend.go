@@ -157,6 +157,7 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 		b.persistSendFailure(sp, parentMessageID, req.Input, messageCountBefore, err)
 		return "", err
 	}
+	b.persistCommandOutput(sp, parentMessageID, req.Input, out)
 	return out, nil
 }
 
@@ -272,6 +273,18 @@ func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input str
 		AuthorID:        "sumi",
 		AuthorKind:      space.ParticipantSystem,
 		Content:         "Send failed: " + sendErr.Error(),
+		ParentMessageID: strings.TrimSpace(parentMessageID),
+	}, nil, nil)
+}
+
+func (b *Backend) persistCommandOutput(sp *space.Space, parentMessageID, input, output string) {
+	if sp == nil || strings.TrimSpace(output) == "" || !strings.HasPrefix(strings.TrimSpace(input), "/") {
+		return
+	}
+	_, _, _ = b.app.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+		AuthorID:        "sumi",
+		AuthorKind:      space.ParticipantSystem,
+		Content:         strings.TrimSpace(output),
 		ParentMessageID: strings.TrimSpace(parentMessageID),
 	}, nil, nil)
 }

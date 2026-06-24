@@ -278,6 +278,100 @@ func TestHandleInputPublishesCommandHandledForShellShortcut(t *testing.T) {
 	}
 }
 
+func TestModelCommandSwitchesConfiguredAlias(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:     "stub",
+		DataDir:     filepath.Join(dir, "sumi-data"),
+		Workspace:   dir,
+		ActiveModel: "main",
+		Models: map[string]config.ModelConfig{
+			"main": {
+				Provider: "openai",
+				Model:    "gpt-test",
+				APIKey:   "test-key",
+			},
+			"deepseek_plat": {
+				Provider: "openai",
+				Model:    "deepseek-v4-flash",
+				APIKey:   "test-key",
+				BaseURL:  "https://example.test/v1",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	out, err := a.HandleInput(context.Background(), "test", "/model deepseek_plat deepseek-v4-flash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "switched model to openai / deepseek-v4-flash") {
+		t.Fatalf("out = %q", out)
+	}
+	if a.cfg.ActiveModel != "deepseek_plat" {
+		t.Fatalf("active model = %q, want deepseek_plat", a.cfg.ActiveModel)
+	}
+	if a.cfg.BaseURL != "https://example.test/v1" {
+		t.Fatalf("base url = %q", a.cfg.BaseURL)
+	}
+}
+
+func TestModelCommandUnknownReturnsReadableMessage(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+		Models: map[string]config.ModelConfig{
+			"main": {
+				Provider: "openai",
+				Model:    "gpt-test",
+				APIKey:   "test-key",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	out, err := a.HandleInput(context.Background(), "test", "/model nope")
+	if err != nil {
+		t.Fatalf("model command should render a readable command response, got error: %v", err)
+	}
+	for _, want := range []string{"model switch failed", "model \"nope\" is not configured", "Use `/models`"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestUnknownSlashCommandReturnsDiscoverableMessage(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	out, err := a.HandleInput(context.Background(), "test", "/doesnotexist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"unknown command: /doesnotexist", "Supported inline commands:", "/model", "/help"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("out missing %q: %q", want, out)
+		}
+	}
+}
+
 func TestHandleInputAutoCompactsNativeRuntimeByModelWindow(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{

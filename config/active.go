@@ -32,6 +32,27 @@ func (c *Config) Resolve(provider, model string) {
 	c.useManual(provider, model)
 }
 
+func (c *Config) ResolveNamed(name string) bool {
+	return c.ResolveNamedModel(name, "")
+}
+
+func (c *Config) ResolveNamedModel(name, model string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	mc, ok := c.Models[name]
+	if !ok {
+		return false
+	}
+	if strings.TrimSpace(model) != "" {
+		mc.Model = strings.TrimSpace(model)
+	}
+	c.ActiveModel = name
+	c.useModel(mc)
+	return true
+}
+
 func (c *Config) ResolveActive() bool {
 	if c.resolveNamedActive() || c.resolveDirectActive() {
 		return true

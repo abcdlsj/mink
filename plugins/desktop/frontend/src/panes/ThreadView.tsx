@@ -41,6 +41,7 @@ export function ThreadView() {
 
   if (!threadDetail) return null;
   const root = threadDetail.parent;
+  const sourceLabel = `${channel ? "#" + channel.name : threadDetail.space_id} / thread ${threadDetail.parent_id}`;
 
   const submitDelete = async () => {
     if (deleteBusy) return;
@@ -135,6 +136,8 @@ export function ThreadView() {
             empty={null}
             filterRenderable={false}
             compactAcrossThreadLinks
+            sourceLabel={sourceLabel}
+            title="Thread"
           />
         </div>
       </div>

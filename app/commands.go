@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/abcdlsj/sumi/bus"
@@ -78,15 +79,19 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: /model [provider model]", func(ctx context.Context, args []string) (string, error) {
+	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: /model [name] or /model <provider> <model>", func(ctx context.Context, args []string) (string, error) {
 		if len(args) == 0 {
 			return a.currentModel(), nil
 		}
-		if len(args) != 2 {
-			return "usage: /model <provider> <model>", nil
+		if len(args) > 2 {
+			return "usage: /model <configured-name> or /model <provider> <model>\nUse /models to list configured options.", nil
 		}
-		if err := a.switchModel(args[0], args[1]); err != nil {
-			return "", err
+		model := ""
+		if len(args) == 2 {
+			model = args[1]
+		}
+		if err := a.switchModel(args[0], model); err != nil {
+			return modelSwitchError(err, args[0], model, a.cfg), nil
 		}
 		msg := "switched model to " + a.currentModel()
 		if err := config.PersistModel(a.cfg); err != nil {
@@ -96,13 +101,19 @@ func (a *App) registerBuiltinCommands() {
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("models", "list detected model options", func(ctx context.Context, args []string) (string, error) {
-		opts := config.Detect()
-		if len(opts) == 0 {
+		var sections []string
+		if configured := configuredModelLines(a.cfg); len(configured) > 0 {
+			sections = append(sections, "Configured models:\n"+strings.Join(configured, "\n"))
+		}
+		if opts := config.Detect(); len(opts) > 0 {
+			sections = append(sections, listItems("Detected models", opts, func(opt config.Option) string {
+				return opt.Provider + " / " + opt.Model + " [" + opt.Source + "]"
+			}))
+		}
+		if len(sections) == 0 {
 			return "no configured model providers detected", nil
 		}
-		return listItems("Detected models", opts, func(opt config.Option) string {
-			return opt.Provider + " / " + opt.Model + " [" + opt.Source + "]"
-		}), nil
+		return strings.Join(sections, "\n\n"), nil
 	}))
 
 	a.RegisterCommand(command.NewFuncCmd("session", "manage sessions", a.runSessionCommand))
@@ -111,6 +122,51 @@ func (a *App) registerBuiltinCommands() {
 	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
 	a.RegisterCommand(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
 	a.RegisterCommand(command.NewFuncCmd("usage", "show recorded API token usage", a.runUsageCommand))
+}
+
+func configuredModelLines(cfg config.Config) []string {
+	if len(cfg.Models) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(cfg.Models))
+	for name := range cfg.Models {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	lines := make([]string, 0, len(names))
+	for _, name := range names {
+		mc := cfg.Models[name]
+		status := "ready"
+		if strings.TrimSpace(mc.APIKey) == "" && strings.TrimSpace(cfg.APIKey) == "" {
+			status = "missing api key"
+		}
+		active := ""
+		if cfg.ActiveModel == name {
+			active = " *"
+		}
+		lines = append(lines, "- "+name+active+" - "+compactJoin([]string{mc.Provider, mc.Model, status}, " / "))
+	}
+	return lines
+}
+
+func modelSwitchError(err error, provider, model string, cfg config.Config) string {
+	target := strings.TrimSpace(provider)
+	if strings.TrimSpace(model) != "" {
+		target += " / " + strings.TrimSpace(model)
+	}
+	var b strings.Builder
+	b.WriteString("model switch failed: ")
+	b.WriteString(err.Error())
+	if len(cfg.Models) > 0 {
+		b.WriteString("\nUse `/models` to list configured names, then switch with `/model <name>`.")
+	} else {
+		b.WriteString("\nUse `/models` to list detected providers, or configure a named model first.")
+	}
+	if target != "" {
+		b.WriteString("\nrequested: ")
+		b.WriteString(target)
+	}
+	return b.String()
 }
 
 func skillListLine(s SkillDirectoryItem) string {

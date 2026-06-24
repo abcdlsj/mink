@@ -36,6 +36,7 @@ export function CenterPane({ preferThreadView = false }: { preferThreadView?: bo
   }, [activeAnchor, messageCount]);
 
   const threadDetail = useStore((s) => s.threadDetail);
+  const sourceLabel = detail ? sourceLabelForDetail(view, detail.item.title, detail.item.id) : "current conversation";
   if (view === "tasks") {
     return <TaskBoard />;
   }
@@ -70,11 +71,24 @@ export function CenterPane({ preferThreadView = false }: { preferThreadView?: bo
 
       <div ref={scrollRef} onScroll={onScroll} className="overflow-y-auto px-3 pb-4 pt-4 md:px-5 md:pb-5 md:pt-5">
         <div className="w-full max-w-[1040px]">
-          <MessageStream messages={detail.messages} empty={<EmptyState />} threadStartsEnabled />
+          <MessageStream
+            messages={detail.messages}
+            empty={<EmptyState />}
+            threadStartsEnabled
+            sourceLabel={sourceLabel}
+            title={detail.item.title}
+          />
         </div>
       </div>
 
       <Composer forceMainScope={!preferThreadView} />
     </main>
   );
+}
+
+function sourceLabelForDetail(view: string, title: string, id: string): string {
+  if (view === "channel") return "#" + (title || id);
+  if (view === "direct") return "dm:" + (title || id);
+  if (view === "agent") return "agent:" + (title || id);
+  return title || id;
 }

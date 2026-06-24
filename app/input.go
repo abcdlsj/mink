@@ -352,6 +352,10 @@ func (f inputFlow) route(ctx context.Context) (string, bool, error) {
 		f.publishCommandHandled(out, err)
 		return out, true, err
 	}
+	if unknown, ok := f.unknownSlashCommand(); ok {
+		f.publishCommandHandled(unknown, nil)
+		return unknown, true, nil
+	}
 	if !command.IsCommand(f.input) {
 		return "", false, nil
 	}
@@ -360,6 +364,28 @@ func (f inputFlow) route(ctx context.Context) (string, bool, error) {
 		f.publishCommandHandled(out, err)
 	}
 	return out, ok, err
+}
+
+func (f inputFlow) unknownSlashCommand() (string, bool) {
+	input := strings.TrimSpace(f.input)
+	if !strings.HasPrefix(input, "/") || strings.HasPrefix(input, "//") {
+		return "", false
+	}
+	name := strings.Fields(strings.TrimPrefix(input, "/"))
+	if len(name) == 0 {
+		return "", false
+	}
+	available := f.availableCommandNames()
+	return fmt.Sprintf("unknown command: /%s\nSupported inline commands: %s\nUse /help for details.", name[0], strings.Join(available, ", ")), true
+}
+
+func (f inputFlow) availableCommandNames() []string {
+	cmds := f.app.cmds.All()
+	out := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		out = append(out, "/"+c.Name())
+	}
+	return out
 }
 
 func (f inputFlow) mention(ctx context.Context) (string, bool, error) {

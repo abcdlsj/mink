@@ -19,10 +19,16 @@ export function MessageRow({
   m,
   compact,
   threadStartsEnabled = false,
+  selecting = false,
+  selected = false,
+  onToggleSelected,
 }: {
   m: MessageView;
   compact: boolean;
   threadStartsEnabled?: boolean;
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelected?: () => void;
 }) {
   const agents = useStore((s) => s.agents);
   const agentDMs = useStore((s) => s.agentDMs);
@@ -76,10 +82,23 @@ export function MessageRow({
     <div
       id={"message-" + m.id}
       className={cn(
-        "group/message grid grid-cols-[28px_1fr] gap-2.5 md:grid-cols-[32px_1fr] md:gap-3.5",
+        "group/message grid gap-2.5 md:gap-3.5",
+        selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
         compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
+        selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
       )}
     >
+      {selecting && (
+        <label className={cn("mt-1 flex justify-center", compact && "mt-0")}>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelected}
+            className="size-3.5 accent-accent"
+            aria-label={"Select message " + m.id}
+          />
+        </label>
+      )}
       <div
         className={cn(
           "mt-px size-7 overflow-hidden border border-border-soft bg-panel md:size-8",
