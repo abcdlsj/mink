@@ -837,6 +837,97 @@ func TestGetAgentDMKeepsRecentCrossProcessPendingMessage(t *testing.T) {
 	}
 }
 
+func TestGetAgentDMFailsPendingFromPreviousBackend(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "abandoned request", nil); err != nil {
+		t.Fatal(err)
+	}
+	pending, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Content:    "still optimistic",
+		Status:     "pending",
+		RuntimeMeta: map[string]string{
+			pendingMetaStreamID:  "stream-old-backend",
+			pendingMetaBackendID: "old-backend",
+			pendingMetaStartedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		},
+		CreatedAt: time.Now(),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := b.GetAgentDM(detail.Item.ID)
+	var found bool
+	for _, m := range got.Messages {
+		if m.ID != pending.ID {
+			continue
+		}
+		found = true
+		if m.Status != "failed" || !strings.Contains(m.Error, "backend restarted") {
+			t.Fatalf("previous backend pending = %#v, want restarted failure", m)
+		}
+	}
+	if !found {
+		t.Fatalf("pending message %s missing: %#v", pending.ID, got.Messages)
+	}
+}
+
+func TestGetAgentDMKeepsActiveCurrentBackendPending(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetAgentDM("coder")
+	if _, err := a.Spaces().AppendUserMessage(detail.Item.ID, "running request", nil); err != nil {
+		t.Fatal(err)
+	}
+	pending, _, err := a.Spaces().AppendMessageWithRouting(detail.Item.ID, space.Message{
+		AuthorID:   "coder",
+		AuthorKind: space.ParticipantAgent,
+		Content:    "still running",
+		Status:     "pending",
+		RuntimeMeta: map[string]string{
+			pendingMetaStreamID:  "stream-current-backend",
+			pendingMetaBackendID: b.backendID,
+			pendingMetaStartedAt: time.Now().Add(-pendingRecoveryGrace - time.Minute).UTC().Format(time.RFC3339Nano),
+		},
+		CreatedAt: time.Now().Add(-pendingRecoveryGrace - time.Minute),
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b.mu.Lock()
+	b.cancel[detail.Item.ID] = cancel
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		delete(b.cancel, detail.Item.ID)
+		b.mu.Unlock()
+	}()
+	got := b.GetAgentDM(detail.Item.ID)
+	var found bool
+	for _, m := range got.Messages {
+		if m.ID != pending.ID {
+			continue
+		}
+		found = true
+		if m.Status != "pending" || m.Error != "" {
+			t.Fatalf("active current backend pending = %#v, want pending without error", m)
+		}
+	}
+	if !found {
+		t.Fatalf("pending message %s missing: %#v", pending.ID, got.Messages)
+	}
+}
+
 func TestGetAgentDMFailsExpiredPendingMessage(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

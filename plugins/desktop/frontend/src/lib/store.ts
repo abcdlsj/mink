@@ -265,6 +265,34 @@ function removeStream(s: State, streamID: string): Pick<State, "streaming" | "st
   return { streaming: currentStreaming(streamingByID), streamingByID };
 }
 
+function interruptLocalStreams(s: State, message: string): Partial<State> {
+  const updates: Partial<State> = {
+    streaming: null,
+    streamingByID: {},
+    sending: false,
+    sendingByScope: {},
+  };
+  const patch = (m: MessageView): MessageView =>
+    m.status === "pending"
+      ? { ...m, status: "failed", error: message }
+      : m;
+  if (s.detail) {
+    const streamIDs = new Set(Object.values(s.streamingByID).filter((stream) => streamMatchesMainScope(s, stream)).map((stream) => stream.messageID));
+    updates.detail = {
+      ...s.detail,
+      messages: s.detail.messages.map((m) => (streamIDs.has(m.id) ? patch(m) : m)),
+    };
+  }
+  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+    const streamIDs = new Set(Object.values(s.streamingByID).filter((stream) => streamMatchesThreadScope(s, stream)).map((stream) => stream.messageID));
+    updates.threadDetail = {
+      ...s.threadDetail,
+      replies: s.threadDetail.replies.map((m) => (streamIDs.has(m.id) ? patch(m) : m)),
+    };
+  }
+  return updates;
+}
+
 async function refetchActiveScope(
   get: () => State,
   set: (partial: Partial<State>) => void,
@@ -1051,10 +1079,15 @@ export const useStore = create<State>((set, get) => ({
       set({ connectionStatus: "online", connectionMessage: "" });
     };
     src.onerror = () => {
+      const message = "Agent reply was interrupted because the desktop backend disconnected. Retry to run this message again.";
+      const cur = get();
       set({
+        ...interruptLocalStreams(cur, message),
         connectionStatus: "offline",
         connectionMessage: "Desktop backend disconnected. Agent replies will not run until it reconnects.",
       });
+      void refetchActiveScope(get, set);
+      void refetchNavigation(set);
     };
     const onMessage = (e: MessageEvent) => {
       try {
