@@ -140,12 +140,13 @@ export function RightPane() {
       <>
         {workbenchSec}
         {activeTasksSec}
+        {!inThread && memorySec}
       </>
     );
     more = (
       <>
         {runtimeContextSec}
-        {memorySec}
+        {inThread && memorySec}
         <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );
@@ -154,6 +155,7 @@ export function RightPane() {
       <>
         {workbenchSec}
         {activeTasksSec}
+        {memorySec}
         {threads.length > 0 && (
           <Section label="Recent Threads">
             {threads.slice(0, 3).map((t) => (
@@ -166,7 +168,6 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
-        {memorySec}
         <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
       </>
     );

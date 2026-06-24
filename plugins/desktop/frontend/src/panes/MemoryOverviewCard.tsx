@@ -12,6 +12,7 @@ interface MemoryOverviewCardProps {
 export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOverviewCardProps) {
   const [overview, setOverview] = useState<MemoryOverviewView | null>(null);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -30,9 +31,23 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
 
   const scopes = overview?.scopes || [];
   const recent = scopes.flatMap((scope) => scope.recent.map((doc) => ({ scope, doc })));
+  const copyDeleteCommand = async (scopeLabel: string, id: string) => {
+    const cmd = `!memory delete ${scopeLabel} ${id}`;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(cmd);
+    }
+    setCopied(id);
+    window.setTimeout(() => setCopied((current) => current === id ? "" : current), 1800);
+  };
 
   return (
     <div className="border border-border bg-panel px-2.5 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="font-mono text-[10.5px] font-extrabold uppercase tracking-[0.45px] text-text-muted">
+          Memory list
+        </div>
+        <div className="text-[10.5px] text-text-faint">recent ids</div>
+      </div>
       {scopes.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {scopes.map((scope) => (
@@ -59,7 +74,20 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
                 </div>
               )}
               <div className="mt-1 font-mono text-[10.5px] text-text-faint">
-                {scope.label} · id {doc.id}
+                {scope.label}
+              </div>
+              <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                <span className="min-w-0 truncate border border-border-soft bg-bg px-1.5 py-px font-mono text-[10px] text-text-muted" title={doc.id}>
+                  id {doc.id}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void copyDeleteCommand(scope.label, doc.id)}
+                  className="shrink-0 border border-border-soft bg-panel px-1.5 py-px font-mono text-[10px] font-semibold text-text-muted hover:border-error-border hover:text-error"
+                  title={`Copy !memory delete ${scope.label} ${doc.id}`}
+                >
+                  {copied === doc.id ? "Copied" : "Copy delete"}
+                </button>
               </div>
             </div>
           ))}
@@ -71,7 +99,7 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
       ) : null}
 
       <div className="mt-2 text-[11px] leading-[1.35] text-text-faint">
-        View with !memory recent &lt;scope&gt;. Delete with !memory delete &lt;scope&gt; &lt;id&gt;.
+        View with !memory recent &lt;scope&gt;. Delete command uses the id shown above.
       </div>
       {error && <div className="mt-2 text-[11px] text-error">{error}</div>}
     </div>
