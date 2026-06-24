@@ -6,6 +6,9 @@ import (
 	"github.com/abcdlsj/sumi/msg"
 )
 
+// Message is the product-visible chat fact. Desktop history, channel/thread
+// views, DMs, attachments, tasks, and transcript quotes must be derived from
+// Space messages, not from runtime sessions or runlogs.
 type Message struct {
 	ID              string            `json:"id"`
 	SpaceID         string            `json:"space_id"`

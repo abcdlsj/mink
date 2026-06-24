@@ -152,6 +152,54 @@ func TestBaseMessageViewCarriesRuntimeMeta(t *testing.T) {
 	}
 }
 
+func TestDirectChatDetailUsesSpaceMessagesOnly(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	sp, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Direct", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+		AuthorID:   "user",
+		AuthorKind: space.ParticipantUser,
+		Content:    "visible from space",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.CurrentSession("desktop:direct:" + sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Add(msg.Message{Role: "assistant", Content: "session cache must not render"})
+	if err := a.SaveSession(s); err != nil {
+		t.Fatal(err)
+	}
+	a.Bus().Publish(bus.Event{
+		Type:      bus.ToolCallFinished,
+		Source:    s.Source,
+		SessionID: s.ID,
+		Output:    "runlog must not render",
+		Time:      time.Now(),
+	})
+	if evs, err := a.ReplaySession(s.ID, 10); err != nil {
+		t.Fatal(err)
+	} else if len(evs) == 0 {
+		t.Fatal("runlog event was not recorded")
+	}
+
+	detail := b.GetDirectChat(sp.ID)
+	if len(detail.Messages) != 1 {
+		t.Fatalf("messages = %#v, want only Space message", detail.Messages)
+	}
+	if detail.Messages[0].Content != "visible from space" {
+		t.Fatalf("message content = %q", detail.Messages[0].Content)
+	}
+	for _, m := range detail.Messages {
+		if strings.Contains(m.Content, "session cache") || strings.Contains(m.Content, "runlog") {
+			t.Fatalf("runtime-only content leaked into UI: %#v", detail.Messages)
+		}
+	}
+}
+
 func TestToBusEventMapsCollab(t *testing.T) {
 	cases := []struct {
 		name string

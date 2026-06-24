@@ -13,10 +13,13 @@ import (
 )
 
 type Session struct {
-	ID              string
-	Source          string
-	Title           string
-	Summary         string
+	ID      string
+	Source  string
+	Title   string
+	Summary string
+	// Messages is a disposable runtime context cache. It may be compacted,
+	// rebuilt from Space, or deleted; do not use it as product-visible chat
+	// history.
 	Messages        []msg.Message
 	Usage           Usage
 	CreatedAt       time.Time

@@ -10,6 +10,9 @@ import (
 )
 
 func (s *Store) AppendEvent(ev bus.Event) error {
+	// Runlog is append-only execution evidence for debugging and replay. It is
+	// intentionally separate from Space and must not create product-visible
+	// messages by itself.
 	line, err := json.Marshal(ev)
 	if err != nil {
 		return err

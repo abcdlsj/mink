@@ -48,6 +48,66 @@ func TestHandleInputUsesConfiguredRuntimeWithoutProvider(t *testing.T) {
 	}
 }
 
+func TestVisionRoutedImagesPersistInSpaceButNotSessionCache(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime: "stub",
+		Models: map[string]config.ModelConfig{
+			"vision": {Provider: "openai", Model: "vision"},
+		},
+		Vision:    "vision",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "user", Content: turn.Input, Attachments: turn.Attachments})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "saw image"})
+			return nil
+		}), nil
+	})
+
+	attachment := msg.Attachment{
+		Kind: "image",
+		Name: "photo.png",
+		MIME: "image/png",
+		Data: "abcd",
+	}
+	out, err := a.HandleInputWithAttachments(context.Background(), "desktop", "describe", []msg.Attachment{attachment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "saw image" {
+		t.Fatalf("reply = %q, want saw image", out)
+	}
+
+	sp, err := a.Spaces().Resolve("desktop", space.PersonaInfo{ID: "assistant", Display: "Sumi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sp.Messages) != 2 {
+		t.Fatalf("space messages = %#v, want user + assistant", sp.Messages)
+	}
+	if len(sp.Messages[0].Attachments) != 1 || sp.Messages[0].Attachments[0].Kind != "image" {
+		t.Fatalf("space user attachment = %#v", sp.Messages[0].Attachments)
+	}
+
+	s, err := a.CurrentSession("desktop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range s.Messages {
+		if len(m.Attachments) != 0 {
+			t.Fatalf("session cache retained vision image attachment: %#v", s.Messages)
+		}
+	}
+}
+
 func TestFileCommandAttachesTextToCurrentSession(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
