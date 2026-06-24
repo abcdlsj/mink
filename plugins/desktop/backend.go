@@ -278,10 +278,17 @@ func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input str
 }
 
 func (b *Backend) persistCommandOutput(sp *space.Space, parentMessageID, input, output string) {
-	if sp == nil || strings.TrimSpace(output) == "" || !b.app.IsRegisteredCommandInput(input) {
+	if sp == nil {
 		return
 	}
-	_, _, _ = b.app.Spaces().AppendMessageWithRouting(sp.ID, space.Message{
+	b.persistCommandOutputForSpace(sp.ID, parentMessageID, input, output)
+}
+
+func (b *Backend) persistCommandOutputForSpace(spaceID, parentMessageID, input, output string) {
+	if strings.TrimSpace(spaceID) == "" || strings.TrimSpace(output) == "" || !b.app.IsRegisteredCommandInput(input) {
+		return
+	}
+	_, _, _ = b.app.Spaces().AppendMessageWithRouting(spaceID, space.Message{
 		AuthorID:        "sumi",
 		AuthorKind:      space.ParticipantSystem,
 		Content:         strings.TrimSpace(output),
@@ -2651,6 +2658,51 @@ func (b *Backend) MemoryOverview(personaID, source, spaceID string) app.MemoryOv
 	return b.app.MemoryOverview(scopes, 3)
 }
 
+func (b *Backend) DeleteMemory(req DeleteMemoryRequest) (DeleteMemoryResult, error) {
+	scopeToken := strings.TrimSpace(req.Scope)
+	memoryID := strings.TrimSpace(req.ID)
+	if scopeToken == "" || memoryID == "" {
+		return DeleteMemoryResult{}, fmt.Errorf("memory scope and id required")
+	}
+	spaceID := strings.TrimSpace(req.SpaceID)
+	personaID := strings.TrimSpace(req.PersonaID)
+	source := strings.TrimSpace(req.Source)
+	if spaceID != "" {
+		if sp, err := b.app.Spaces().LoadSpace(spaceID); err == nil && sp != nil {
+			if source == "" {
+				source = contextSourceForSpace(sp)
+			}
+			if personaID == "" && sp.Kind == space.KindAgentDM {
+				personaID = space.AgentParticipantID(sp)
+			}
+		}
+	}
+	ctx := context.Background()
+	if source != "" {
+		ctx = command.WithSource(ctx, source)
+	}
+	input := "!memory delete " + scopeToken + " " + memoryID
+	out, err := b.app.HandleInput(ctx, firstNonEmpty(source, desktopSource), input)
+	if err != nil {
+		if spaceID != "" {
+			_, _, _ = b.app.Spaces().AppendMessageWithRouting(spaceID, space.Message{
+				AuthorID:   "sumi",
+				AuthorKind: space.ParticipantSystem,
+				Content:    "Memory delete failed: " + err.Error(),
+			}, nil, nil)
+		}
+		return DeleteMemoryResult{}, err
+	}
+	if spaceID != "" {
+		b.persistCommandOutputForSpace(spaceID, "", input, out)
+	}
+	return DeleteMemoryResult{
+		OK:       true,
+		Output:   strings.TrimSpace(out),
+		Overview: b.MemoryOverview(personaID, source, spaceID),
+	}, nil
+}
+
 func (b *Backend) ListSkills() []SkillView {
 	return skillViews(b.app.SkillDirectory())
 }
@@ -3124,6 +3176,23 @@ func (b *Backend) APIHandler() http.Handler {
 	mux.HandleFunc("/api/memory/overview", func(rw http.ResponseWriter, req *http.Request) {
 		q := req.URL.Query()
 		writeJSON(rw, b.MemoryOverview(q.Get("persona_id"), q.Get("source"), q.Get("space_id")))
+	})
+	mux.HandleFunc("/api/memory/delete", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in DeleteMemoryRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.DeleteMemory(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(rw, out)
 	})
 	mux.HandleFunc("/api/skills", jsonHandler(func() any { return b.ListSkills() }))
 	mux.HandleFunc("/api/skill", func(rw http.ResponseWriter, req *http.Request) {

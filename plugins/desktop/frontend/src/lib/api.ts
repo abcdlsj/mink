@@ -274,4 +274,18 @@ export const api = {
     if (input.space_id) q.set("space_id", input.space_id);
     return j<MemoryOverviewView>(fetch("/api/memory/overview?" + q));
   },
+  deleteMemory: (input: {
+    persona_id?: string;
+    source?: string;
+    space_id?: string;
+    scope: string;
+    id: string;
+  }) =>
+    j<{ ok: boolean; output: string; overview: MemoryOverviewView }>(
+      fetch("/api/memory/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    ),
 };

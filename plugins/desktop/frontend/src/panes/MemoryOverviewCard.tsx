@@ -13,6 +13,7 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
   const [overview, setOverview] = useState<MemoryOverviewView | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
+  const [deleting, setDeleting] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -38,6 +39,19 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
     }
     setCopied(id);
     window.setTimeout(() => setCopied((current) => current === id ? "" : current), 1800);
+  };
+  const deleteMemory = async (scopeLabel: string, id: string) => {
+    if (deleting) return;
+    setError("");
+    setDeleting(id);
+    try {
+      const res = await api.deleteMemory({ persona_id: personaID, source, space_id: spaceID, scope: scopeLabel, id });
+      setOverview(res.overview);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting("");
+    }
   };
 
   return (
@@ -87,6 +101,15 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
                   title={`Copy !memory delete ${scope.label} ${doc.id}`}
                 >
                   {copied === doc.id ? "Copied" : "Copy delete"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteMemory(scope.label, doc.id)}
+                  disabled={!!deleting}
+                  className="shrink-0 border border-error-border bg-error-bg px-1.5 py-px font-mono text-[10px] font-semibold text-error hover:bg-panel disabled:cursor-not-allowed disabled:opacity-50"
+                  title={`Delete memory ${doc.id}`}
+                >
+                  {deleting === doc.id ? "Deleting" : "Delete"}
                 </button>
               </div>
             </div>

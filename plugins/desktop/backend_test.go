@@ -544,6 +544,54 @@ func TestDesktopBangCommandOutputPersistsNoticeForRegisteredCommand(t *testing.T
 	}
 }
 
+func TestDesktopDeleteMemoryAPIDeletesAndPersistsNotice(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: direct[0].ID,
+		Input:     "!memory save persona:andy Temporary :: delete me",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetDirectChat(direct[0].ID)
+	fields := strings.Fields(detail.Messages[0].Content)
+	if len(fields) < 3 {
+		t.Fatalf("unexpected save output: %q", detail.Messages[0].Content)
+	}
+	memoryID := fields[2]
+
+	res, err := b.DeleteMemory(DeleteMemoryRequest{
+		SpaceID: direct[0].ID,
+		Scope:   "persona:andy",
+		ID:      memoryID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || !strings.Contains(res.Output, "deleted memory "+memoryID+" from persona:andy") {
+		t.Fatalf("delete result = %#v", res)
+	}
+	for _, scope := range res.Overview.Scopes {
+		if scope.Label == "persona:andy" && len(scope.Recent) != 0 {
+			t.Fatalf("deleted memory still in overview: %#v", scope.Recent)
+		}
+	}
+	detail = b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want save + delete notices", detail.Messages)
+	}
+	if detail.Messages[1].Role != "system" || !strings.Contains(detail.Messages[1].Content, "deleted memory "+memoryID+" from persona:andy") {
+		t.Fatalf("delete command output = %#v", detail.Messages[1])
+	}
+}
+
 func TestDesktopShellShortcutOutputDoesNotPersistNotice(t *testing.T) {
 	b, _ := newBackendWithApp(t)
 

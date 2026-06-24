@@ -3,6 +3,7 @@ package desktop
 import (
 	"time"
 
+	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/msg"
 )
 
@@ -146,6 +147,20 @@ type SendRequest struct {
 type RetryMessageRequest struct {
 	SpaceID   string `json:"space_id"`
 	MessageID string `json:"message_id"`
+}
+
+type DeleteMemoryRequest struct {
+	PersonaID string `json:"persona_id,omitempty"`
+	Source    string `json:"source,omitempty"`
+	SpaceID   string `json:"space_id,omitempty"`
+	Scope     string `json:"scope"`
+	ID        string `json:"id"`
+}
+
+type DeleteMemoryResult struct {
+	OK       bool               `json:"ok"`
+	Output   string             `json:"output"`
+	Overview app.MemoryOverview `json:"overview"`
 }
 
 type DeleteConversationRequest struct {
