@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { CheckSquare, Trash2 } from "lucide-react";
 import type { AgentItem, ChannelItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -193,9 +193,11 @@ export function ChannelHeader({
           <button
             type="button"
             onClick={onStartSelection}
-            className="border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-accent hover:text-text"
+            className="inline-flex size-7 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-accent hover:text-text"
+            aria-label="Select messages"
+            title="Select messages"
           >
-            Select messages
+            <CheckSquare className="size-3.5" />
           </button>
         )}
         {deleteTarget && (
@@ -206,11 +208,11 @@ export function ChannelHeader({
               setDeleteOpen(true);
             }}
             disabled={deleteBusy}
-            className="inline-flex items-center gap-1.5 border border-border bg-panel-2 px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex size-7 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-error hover:text-bg disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={deleteBusy ? "Deleting" : "Delete"}
             title="Delete local conversation history and runtime context"
           >
             <Trash2 className="size-3.5" />
-            {deleteBusy ? "Deleting" : "Delete"}
           </button>
         )}
       </div>

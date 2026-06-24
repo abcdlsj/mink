@@ -46,7 +46,7 @@ type channelInterceptResult struct {
 	notices []space.RoutingNotice
 }
 
-func (a *App) interceptRoutedInput(ctx context.Context, source, content string) (*channelInterceptResult, error) {
+func (a *App) interceptRoutedInput(ctx context.Context, source, content string, attachments []msg.Attachment) (*channelInterceptResult, error) {
 	r := a.channelRouter()
 	if r == nil {
 		return nil, nil
@@ -60,7 +60,7 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 		return nil, err
 	}
 	parentMessageID := command.ParentMessageFrom(ctx)
-	wakes, notices, err := r.RouteUserChannelMessage(sp.ID, content, parentMessageID)
+	wakes, notices, err := r.RouteUserChannelMessage(sp.ID, content, parentMessageID, attachments)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string) 
 		notices: notices,
 	}
 	for _, w := range wakes {
-		extraNotices := a.enqueueChannelWake(source, sp.ID, w, content)
+		extraNotices := a.enqueueChannelWake(source, sp.ID, w, content, attachments)
 		a.publishRoutingNotices(source, extraNotices)
 		result.notices = append(result.notices, extraNotices...)
 	}
@@ -83,6 +83,7 @@ type channelWakeJob struct {
 	spaceID           string
 	target            space.RoutingTarget
 	originUserContent string
+	originAttachments []msg.Attachment
 	taskID            string
 }
 
@@ -94,7 +95,7 @@ type channelWakeResult struct {
 	emptyOutput     bool
 }
 
-func (a *App) enqueueChannelWake(originSource, spaceID string, target space.RoutingTarget, originUserContent string) []space.RoutingNotice {
+func (a *App) enqueueChannelWake(originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) []space.RoutingNotice {
 	if a == nil {
 		return nil
 	}
@@ -135,6 +136,7 @@ func (a *App) enqueueChannelWake(originSource, spaceID string, target space.Rout
 		spaceID:           spaceID,
 		target:            target,
 		originUserContent: originUserContent,
+		originAttachments: append([]msg.Attachment(nil), originAttachments...),
 		taskID:            taskID,
 	}
 	return nil
@@ -184,7 +186,7 @@ func (a *App) runQueuedChannelWake(job channelWakeJob) {
 			}
 		}
 	}
-	result := a.runChannelWake(context.Background(), job.originSource, job.spaceID, job.target, job.originUserContent)
+	result := a.runChannelWake(context.Background(), job.originSource, job.spaceID, job.target, job.originUserContent, job.originAttachments)
 	if len(result.notices) > 0 {
 		a.publishRoutingNotices(job.originSource, result.notices)
 	}
@@ -223,7 +225,7 @@ func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID,
 		chain.ParentMessageID = parent
 		target.Chain = chain
 	}
-	result := a.runChannelWake(ctx, originSource, spaceID, target, originUserContent)
+	result := a.runChannelWake(ctx, originSource, spaceID, target, originUserContent, nil)
 	if len(result.notices) > 0 {
 		a.publishRoutingNotices(originSource, result.notices)
 	}
@@ -248,7 +250,7 @@ func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID,
 	return "", nil
 }
 
-func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string) channelWakeResult {
+func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) channelWakeResult {
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {
 		return channelWakeResult{emptyOutput: true}
@@ -265,13 +267,23 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	a.syncWakeContext(s, originSource, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
 	collaborationBrief := a.routedCollaborationBrief(spaceID, parentMessageID, target)
 	baseline := len(s.Messages)
-	rt, err := a.newRuntimeFor(persona.Runtime, persona)
+	rt, visionLabel, err := a.newRuntimeForTurn(persona.Runtime, persona, originAttachments)
 	if err != nil {
 		return channelWakeResult{err: err}
+	}
+	if visionLabel != "" {
+		a.bus.Publish(bus.Event{
+			Type:    bus.ServiceNotice,
+			Source:  s.Source,
+			SpaceID: spaceID,
+			AgentID: persona.ID,
+			Text:    "image attachment detected; routed to vision_model: " + visionLabel,
+		})
 	}
 	turn := &agent.Turn{
 		Source:                s.Source,
 		Input:                 originUserContent,
+		Attachments:           originAttachments,
 		Session:               s,
 		Bus:                   a.bus,
 		SpaceID:               spaceID,
@@ -305,6 +317,12 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		StreamID:        turn.StreamID,
 	})
 	runErr := rt.Run(ctx, turn)
+	if runErr == nil && externalRuntimeName(persona.Runtime) {
+		a.processAssistantMemoryInSession(ctx, turn, s, baseline)
+	}
+	if runErr == nil && visionLabel != "" {
+		agent.StripVisionedImageAttachments(s)
+	}
 	if runErr != nil {
 		saveErr := a.sessions.Save(s)
 		if saveErr != nil {
@@ -348,6 +366,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		})
 	}
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
+	attachments := assistantAttachments(s.Messages[baseline:], "memory_commit")
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
 		return channelWakeResult{emptyOutput: true}
 	}
@@ -368,6 +387,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 		ParentMessageID: parentMessageID,
 		Usage:           msg.AssistantUsage(s.Messages[baseline:]),
 		RuntimeMeta:     msg.AssistantRuntimeMeta(s.Messages[baseline:]),
+		Attachments:     attachments,
 	}
 	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
 		if p := a.personas.Get(id); p != nil {
@@ -393,7 +413,7 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	}
 	result.notices = append(result.notices, notices...)
 	for _, w := range chained {
-		extra := a.enqueueChannelWake(originSource, spaceID, w, content)
+		extra := a.enqueueChannelWake(originSource, spaceID, w, content, nil)
 		result.notices = append(result.notices, extra...)
 	}
 	return result

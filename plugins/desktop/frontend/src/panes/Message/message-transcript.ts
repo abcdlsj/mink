@@ -24,7 +24,6 @@ export function messageDisplayName(m: MessageView): string {
 
 export function messagePlainText(m: MessageView): string {
   const parts: string[] = [];
-  if (m.reasoning) parts.push("[reasoning]\n" + m.reasoning.trim());
   if (m.content) parts.push(m.content.trim());
   for (const ev of m.events || []) {
     if (ev.kind === "service_notice" && ev.output) {

@@ -92,6 +92,10 @@
     animation: sumi-status-breathe 1.8s ease-in-out infinite;
     pointer-events: none;
   }
+
+  .sumi-anchor-flash {
+    animation: sumi-anchor-flash 1.8s ease-out 1;
+  }
 }
 
 @keyframes sumi-status-breathe {
@@ -105,8 +109,26 @@
   }
 }
 
+@keyframes sumi-anchor-flash {
+  0% {
+    background: var(--action-bg);
+    box-shadow: inset 6px 0 0 var(--action), 0 0 0 2px var(--accent-border);
+  }
+  35% {
+    background: var(--accent-bg);
+    box-shadow: inset 6px 0 0 var(--action), 0 0 0 2px var(--accent-border);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 transparent, 0 0 0 0 transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .status-dot-running::after {
     display: none;
+  }
+  .sumi-anchor-flash {
+    animation: none;
   }
 }

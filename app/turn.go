@@ -67,6 +67,9 @@ func (f turnFlow) run(ctx context.Context) error {
 	f.app.prepareMemoryForTurn(ctx, turn, externalRuntimeName(f.runtimeName) && f.personaID != "")
 	f.emit(bus.TurnStarted, "", turn)
 	runErr := f.runtime.Run(ctx, turn)
+	if runErr == nil && externalRuntimeName(f.runtimeName) && f.personaID != "" {
+		f.app.processAssistantMemoryInSession(ctx, turn, f.session, baseline)
+	}
 	saveErr := f.app.sessions.Save(f.session)
 	var writeErr error
 	if saveErr == nil {
@@ -117,7 +120,8 @@ func (a *App) persistAssistantTurn(source, personaID string, s *session.Session,
 	}
 	usage := msg.AssistantUsage(added)
 	runtimeMeta := msg.AssistantRuntimeMeta(added)
-	m, err := a.appendAgentDMAssistantToSpace(source, personaID, content, reasoning, nil, "", usage, runtimeMeta)
+	attachments := assistantAttachments(added, "memory_commit")
+	m, err := a.appendAgentDMAssistantWithAttachmentsToSpace(source, personaID, content, reasoning, nil, "", usage, runtimeMeta, attachments)
 	if err != nil {
 		return err
 	}

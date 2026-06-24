@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { CheckSquare, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { AgentGear } from "./AgentGear";
 import { Composer } from "./Composer/Composer";
@@ -130,9 +130,11 @@ export function ThreadView() {
               <button
                 type="button"
                 onClick={() => setSelecting(true)}
-                className="border border-border bg-panel-2 px-2 py-1 font-mono text-[10.5px] font-semibold uppercase text-text-muted hover:bg-accent hover:text-text"
+                className="inline-flex size-7 shrink-0 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-accent hover:text-text"
+                aria-label="Select messages"
+                title="Select messages"
               >
-                Select messages
+                <CheckSquare className="size-3.5" />
               </button>
             )}
             <button
@@ -144,6 +146,7 @@ export function ThreadView() {
               disabled={deleteBusy}
               className="inline-flex size-7 shrink-0 items-center justify-center border border-border bg-panel-2 text-text-muted hover:bg-error hover:text-bg"
               aria-label="Delete thread"
+              title="Delete thread"
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -167,7 +170,11 @@ export function ThreadView() {
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
               <div className="mb-1 inline-flex border border-tool-border bg-tool-bg px-1.5 py-px text-[11px] font-semibold uppercase text-text-muted">Root message · context only</div>
-              <MessageRow m={root} compact={false} />
+              <MessageRow
+                m={root}
+                compact={false}
+                highlighted={activeAnchor === "message:" + root.id}
+              />
             </div>
           )}
           {replies.length === 0 && (

@@ -283,6 +283,10 @@ func (m *Manager) AppendUserMessageWithAttachmentsInThread(spaceID, parentMessag
 }
 
 func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string, usage *msg.TokenUsage, runtimeMeta map[string]string) (Message, error) {
+	return m.AppendAgentMessageWithAttachments(spaceID, agent, content, reasoning, mentions, parentMessageID, usage, runtimeMeta, nil)
+}
+
+func (m *Manager) AppendAgentMessageWithAttachments(spaceID string, agent PersonaInfo, content, reasoning string, mentions []string, parentMessageID string, usage *msg.TokenUsage, runtimeMeta map[string]string, attachments []msg.Attachment) (Message, error) {
 	if strings.TrimSpace(agent.ID) == "" {
 		return Message{}, fmt.Errorf("agent message rejected: empty author_id")
 	}
@@ -290,6 +294,7 @@ func (m *Manager) AppendAgentMessage(spaceID string, agent PersonaInfo, content,
 		AuthorID:        agent.ID,
 		AuthorKind:      ParticipantAgent,
 		Content:         content,
+		Attachments:     cloneAttachments(attachments),
 		Reasoning:       reasoning,
 		Mentions:        mentions,
 		ParentMessageID: parentMessageID,

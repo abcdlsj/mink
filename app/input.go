@@ -112,7 +112,7 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		return f.directConversation(ctx)
 	}
 	if f.personaID == "" && policy.Mode == command.ModeRouted {
-		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input); err != nil {
+		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input, f.attachments); err != nil {
 			return "", err
 		}
 		return "", nil

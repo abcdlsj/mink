@@ -99,11 +99,15 @@ func (a *App) appendAgentDMUserWithAttachmentsToSpace(source, explicit, content 
 }
 
 func (a *App) appendAgentDMAssistantToSpace(source, explicit, content, reasoning string, mentions []string, parentID string, usage *msg.TokenUsage, runtimeMeta map[string]string) (*space.Message, error) {
+	return a.appendAgentDMAssistantWithAttachmentsToSpace(source, explicit, content, reasoning, mentions, parentID, usage, runtimeMeta, nil)
+}
+
+func (a *App) appendAgentDMAssistantWithAttachmentsToSpace(source, explicit, content, reasoning string, mentions []string, parentID string, usage *msg.TokenUsage, runtimeMeta map[string]string, attachments []msg.Attachment) (*space.Message, error) {
 	sp, info, err := a.resolveAgentDMTargetSpace(source, explicit)
 	if err != nil {
 		return nil, err
 	}
-	m, err := a.spaces.AppendAgentMessage(sp.ID, *info, content, reasoning, mentions, parentID, usage, runtimeMeta)
+	m, err := a.spaces.AppendAgentMessageWithAttachments(sp.ID, *info, content, reasoning, mentions, parentID, usage, runtimeMeta, attachments)
 	if err != nil {
 		return nil, err
 	}

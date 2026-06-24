@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import type { MessageView } from "@/lib/types";
+import { useStore } from "@/lib/store";
 import { MessageRow } from "./MessageRow";
 import { renderableMessage } from "./message-helpers";
 
@@ -26,6 +27,8 @@ export function MessageStream({
     () => filterRenderable ? messages.filter(renderableMessage) : messages,
     [filterRenderable, messages],
   );
+  const activeAnchor = useStore((s) => s.activeAnchor);
+  const activeMessageID = activeAnchor?.startsWith("message:") ? activeAnchor.slice("message:".length) : "";
 
   if (visible.length === 0) return <>{empty}</>;
   return (
@@ -49,6 +52,7 @@ export function MessageStream({
             threadStartsEnabled={threadStartsEnabled}
             selecting={selecting}
             selected={!!selectedIDs?.has(m.id)}
+            highlighted={m.id === activeMessageID}
             onToggleSelected={() => onToggleSelected?.(m.id)}
           />
         );

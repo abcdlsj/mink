@@ -523,14 +523,16 @@ export const useStore = create<State>((set, get) => ({
   async syncNow() {
     if (!get().ready) return;
     try {
-      const [state, nav, capabilities] = await Promise.all([
+      const [state, nav, models, capabilities] = await Promise.all([
         api.state(),
         fetchNavigationSnapshot(),
+        api.models(),
         api.capabilities().catch(() => get().capabilities || { skills: [], tasks: [], action_proposals: [] }),
       ]);
       set({
         state,
         ...nav,
+        models,
         capabilities,
         connectionStatus: "online",
         connectionMessage: "",

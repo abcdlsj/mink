@@ -77,7 +77,7 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	res1 := a.runChannelWake(context.Background(), source, ch.ID, space.RoutingTarget{
 		AgentID:         "bob",
 		OriginMessageID: first.ID,
-	}, "@bob first")
+	}, "@bob first", nil)
 	if res1.err != nil {
 		t.Fatal(res1.err)
 	}
@@ -89,7 +89,7 @@ func TestChannelWakeUsesStablePersonaSessionWithSpaceContext(t *testing.T) {
 	res2 := a.runChannelWake(context.Background(), source, ch.ID, space.RoutingTarget{
 		AgentID:         "bob",
 		OriginMessageID: second.ID,
-	}, "@bob second")
+	}, "@bob second", nil)
 	if res2.err != nil {
 		t.Fatal(res2.err)
 	}
@@ -201,7 +201,7 @@ func TestChannelWakeCollaborationBriefIncludesAgentContext(t *testing.T) {
 		AgentID:         "bob",
 		OriginMessageID: trigger.ID,
 		Chain:           chain,
-	}, "@bob please implement this")
+	}, "@bob please implement this", nil)
 	if res.err != nil {
 		t.Fatal(res.err)
 	}
@@ -254,7 +254,7 @@ func TestRoutedNoTargetNoticePersistsToSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.interceptRoutedInput(context.Background(), "desktop:channel:"+ch.ID, "plain note"); err != nil {
+	if _, err := a.interceptRoutedInput(context.Background(), "desktop:channel:"+ch.ID, "plain note", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,7 +295,7 @@ func TestRoutedNoTargetThreadNoticePersistsAsReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := command.WithParentMessage(context.Background(), root.ID)
-	if _, err := a.interceptRoutedInput(ctx, "desktop:channel:"+ch.ID, "thread note"); err != nil {
+	if _, err := a.interceptRoutedInput(ctx, "desktop:channel:"+ch.ID, "thread note", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -345,7 +345,7 @@ func TestChannelWakeFailureDoesNotAppendSystemNotice(t *testing.T) {
 	res := a.runChannelWake(context.Background(), "desktop:channel:"+ch.ID, ch.ID, space.RoutingTarget{
 		AgentID:         "bob",
 		OriginMessageID: origin.ID,
-	}, "@bob do it")
+	}, "@bob do it", nil)
 	if res.err == nil || !strings.Contains(res.err.Error(), "boom") {
 		t.Fatalf("err = %v, want boom", res.err)
 	}

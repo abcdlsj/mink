@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { EventBlock as EventBlockData, MessageView } from "@/lib/types";
+import type { EventBlock as EventBlockData, MemoryCommitAttachment, MessageView } from "@/lib/types";
 import { EventBlock, toolEventSummary } from "@/components/EventBlock";
 import { Identicon } from "@/components/Identicon";
 import { Markdown } from "@/components/Markdown";
@@ -22,6 +22,7 @@ export function MessageRow({
   threadStartsEnabled = false,
   selecting = false,
   selected = false,
+  highlighted = false,
   onToggleSelected,
 }: {
   m: MessageView;
@@ -29,6 +30,7 @@ export function MessageRow({
   threadStartsEnabled?: boolean;
   selecting?: boolean;
   selected?: boolean;
+  highlighted?: boolean;
   onToggleSelected?: () => void;
 }) {
   const agents = useStore((s) => s.agents);
@@ -38,6 +40,7 @@ export function MessageRow({
   const detail = useStore((s) => s.detail);
   const retryMessage = useStore((s) => s.retryMessage);
   const threadDetail = useStore((s) => s.threadDetail);
+  const openCurrentRoute = useStore((s) => s.openCurrentRoute);
 
   const dmAgent = view === "agent" && m.role !== "user"
     ? personaForActiveAgent(agents, agentDMs, activeAgentSpace, detail?.item.persona_id)
@@ -79,6 +82,66 @@ export function MessageRow({
     ? <ThreadAction info={m.thread_info} messageID={canStartThread ? m.id : undefined} />
     : null;
 
+  if (m.role === "system") {
+    return (
+      <div
+        id={"message-" + m.id}
+        className={cn(
+          "group/message grid gap-2",
+          selecting ? "grid-cols-[22px_1fr]" : "grid-cols-1",
+          compact ? "mb-2" : "mb-4",
+          selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
+          highlighted && "sumi-anchor-flash",
+        )}
+      >
+        {selecting && (
+          <label className="mt-1 flex justify-center">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelected}
+              className="size-3.5 accent-accent"
+              aria-label={"Select system notice " + m.id}
+            />
+          </label>
+        )}
+        <div className="max-w-[820px] border border-border-soft border-l-4 border-l-text-faint bg-bg px-3 py-2 text-text">
+          <div className="mb-1.5 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.35px] text-text-faint">
+            <span>System notice</span>
+            <span className="ml-auto tabular-nums">{relTime(m.time)}</span>
+          </div>
+          {m.content && (
+            <LongContent
+              content={m.content}
+              isUser={false}
+              mentions={knownMentions}
+            />
+          )}
+          {events.length > 0 && (
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              {collabEvents.map((ev, i) => (
+                <EventBlock key={"c" + i} ev={ev} />
+              ))}
+              {shouldFoldTools ? (
+                <ToolFold events={toolEvents} />
+              ) : (
+                toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)
+              )}
+              {noticeEvents.map((ev, i) => (
+                <EventBlock key={"n" + i} ev={ev} />
+              ))}
+            </div>
+          )}
+          {m.status === "failed" && (
+            <div className="mt-2 border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
+              {m.error || "System action failed."}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       id={"message-" + m.id}
@@ -87,6 +150,7 @@ export function MessageRow({
         selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
         compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
         selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
+        highlighted && "sumi-anchor-flash",
       )}
     >
       {selecting && (
@@ -164,6 +228,12 @@ export function MessageRow({
           .filter((a) => a.kind === "quoted_transcript")
           .map((a) => parseTranscriptAttachment(a.data))
           .filter((t): t is SumiTranscript => !!t)}
+          onJump={() => void openCurrentRoute()}
+        />
+        <MemoryCommitCards cards={(m.attachments || [])
+          .filter((a) => a.kind === "memory_commit")
+          .map((a) => parseMemoryCommitAttachment(a.data))
+          .filter((card): card is MemoryCommitAttachment => !!card)}
         />
         {events.length > 0 && (
           <div className="mt-2.5 flex flex-col gap-1.5">
@@ -214,18 +284,113 @@ export function MessageRow({
   );
 }
 
-function QuotedTranscripts({ transcripts }: { transcripts: SumiTranscript[] }) {
-  if (transcripts.length === 0) return null;
+function MemoryCommitCards({ cards }: { cards: MemoryCommitAttachment[] }) {
+  if (cards.length === 0) return null;
   return (
     <div className="mt-2.5 grid max-w-[640px] gap-2">
-      {transcripts.map((t, idx) => (
-        <TranscriptQuoteCard key={idx} transcript={t} />
+      {cards.map((card, idx) => (
+        <div
+          key={idx}
+          className={cn(
+            "overflow-hidden border bg-panel-2 text-text shadow-card",
+            card.status === "failed" ? "border-error-border" : "border-agent-border",
+          )}
+        >
+          <div className="grid grid-cols-[6px_1fr] border-b border-border-soft bg-panel">
+            <div className={card.status === "failed" ? "bg-error" : "bg-agent"} />
+            <div className="min-w-0 px-2.5 py-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={cn(
+                    "shrink-0 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.45px]",
+                    card.status === "failed" ? "text-error" : "text-agent",
+                  )}
+                >
+                  {card.status === "failed" ? "Memory failed" : "Memory saved"}
+                </span>
+                <span className="min-w-0 truncate text-[12.5px] font-bold text-text">
+                  {card.title || "Untitled memory"}
+                </span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10.5px] text-text-muted">
+                <span>{memoryScopeLabel(card)}</span>
+                {card.kind && <span>· {card.kind}</span>}
+                {card.confidence && <span>· {card.confidence}</span>}
+                {card.memory_id && <span>· {card.memory_id}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-1.5 px-2.5 py-2">
+            <div className="whitespace-pre-wrap break-words border border-border-soft bg-bg px-2 py-1.5 text-[12px] leading-[1.5]">
+              {card.body || "(empty)"}
+            </div>
+            {card.reason && (
+              <div className="font-mono text-[10.5px] text-text-faint">Reason: {card.reason}</div>
+            )}
+            {card.error && (
+              <div className="border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
+                {card.error}
+              </div>
+            )}
+          </div>
+        </div>
       ))}
     </div>
   );
 }
 
-function TranscriptQuoteCard({ transcript }: { transcript: SumiTranscript }) {
+function parseMemoryCommitAttachment(data: string | undefined): MemoryCommitAttachment | null {
+  if (!data) return null;
+  try {
+    const parsed = JSON.parse(data) as Partial<MemoryCommitAttachment>;
+    if (typeof parsed.title !== "string" || typeof parsed.body !== "string") return null;
+    return {
+      status: parsed.status || "remembered",
+      scope_kind: parsed.scope_kind || "global",
+      scope_key: parsed.scope_key,
+      title: parsed.title,
+      body: parsed.body,
+      kind: parsed.kind,
+      reason: parsed.reason,
+      confidence: parsed.confidence,
+      memory_id: parsed.memory_id,
+      notice: parsed.notice,
+      error: parsed.error,
+      created_by: parsed.created_by,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function memoryScopeLabel(card: MemoryCommitAttachment): string {
+  return card.scope_key ? `${card.scope_kind}:${card.scope_key}` : card.scope_kind;
+}
+
+function QuotedTranscripts({
+  transcripts,
+  onJump,
+}: {
+  transcripts: SumiTranscript[];
+  onJump?: () => void;
+}) {
+  if (transcripts.length === 0) return null;
+  return (
+    <div className="mt-2.5 grid max-w-[640px] gap-2">
+      {transcripts.map((t, idx) => (
+        <TranscriptQuoteCard key={idx} transcript={t} onJump={onJump} />
+      ))}
+    </div>
+  );
+}
+
+function TranscriptQuoteCard({
+  transcript,
+  onJump,
+}: {
+  transcript: SumiTranscript;
+  onJump?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const preview = open ? transcript.messages : transcript.messages.slice(0, 3);
   const hidden = transcript.messages.length - preview.length;
@@ -274,7 +439,15 @@ function TranscriptQuoteCard({ transcript }: { transcript: SumiTranscript }) {
               {quotePreviewText(m.content)}
             </div>
             {m.link && (
-              <a href={m.link} className="shrink-0 border border-border-soft bg-panel px-1.5 py-px font-mono text-[10px] font-semibold uppercase text-text-muted opacity-80 hover:border-action hover:text-action">
+              <a
+                href={m.link}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  pushTranscriptLink(m.link);
+                  onJump?.();
+                }}
+                className="shrink-0 border border-border-soft bg-panel px-1.5 py-px font-mono text-[10px] font-semibold uppercase text-text-muted opacity-80 hover:border-action hover:text-action"
+              >
                 jump
               </a>
             )}
@@ -301,6 +474,19 @@ function TranscriptQuoteCard({ transcript }: { transcript: SumiTranscript }) {
       </div>
     </div>
   );
+}
+
+function pushTranscriptLink(link: string) {
+  try {
+    const next = new URL(link, window.location.href);
+    if (next.origin !== window.location.origin) {
+      window.location.href = link;
+      return;
+    }
+    window.history.pushState({}, "", next.pathname + next.search + next.hash);
+  } catch {
+    window.location.href = link;
+  }
 }
 
 function quotePreviewText(content: string): string {

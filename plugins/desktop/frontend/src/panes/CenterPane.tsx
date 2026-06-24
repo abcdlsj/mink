@@ -77,6 +77,25 @@ export function CenterPane({ preferThreadView = false }: { preferThreadView?: bo
     return <ThreadView />;
   }
 
+  if (view === "home") {
+    return (
+      <main className="h-full min-w-0 grid grid-rows-[auto_1fr] bg-panel">
+        <ChannelHeader scope={scope} />
+        <div className="flex min-h-0 items-center justify-center overflow-y-auto px-5 py-10">
+          <div className="max-w-[420px] border border-border bg-panel-2 px-5 py-4 shadow-card">
+            <div className="font-display text-[14px] font-extrabold uppercase text-text">Sumi Home</div>
+            <div className="mt-2 text-[13px] leading-6 text-text-muted">
+              No conversation is open. Choose a channel, direct chat, or agent from the sidebar.
+            </div>
+            <div className="mt-3 border-t border-border-soft pt-3 font-mono text-[11px] leading-5 text-text-faint">
+              If another client changed history, use the refresh button in the top bar.
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   if (!detail) {
     return (
       <main className="h-full min-w-0 grid grid-rows-[auto_1fr_auto] bg-panel">

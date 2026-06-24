@@ -41,7 +41,7 @@ func newRouterTestEnv(t *testing.T) (*Router, *Manager, *Space) {
 
 func TestRouterUserMessageWithMentionWakesOnce(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "@coder look", "")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "@coder look", "", nil)
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestRouterUserMessageWithMentionWakesOnce(t *testing.T) {
 
 func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "", nil)
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
 	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
 		t.Fatalf("SetAgentMode: %v", err)
 	}
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "", nil)
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestRouterThreadListeningAgentWakesOnPlainMessage(t *testing.T) {
 	if err := mgr.SetThreadAgentMode(ch.ID, root.ID, "coder", "listen"); err != nil {
 		t.Fatalf("SetThreadAgentMode: %v", err)
 	}
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "thread follow-up", root.ID)
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "thread follow-up", root.ID, nil)
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestRouterMultipleListeningAgentsAreAmbiguous(t *testing.T) {
 	if err := mgr.SetAgentMode(ch.ID, "reviewer", "listen"); err != nil {
 		t.Fatalf("SetAgentMode reviewer: %v", err)
 	}
-	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "")
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "just thinking out loud", "", nil)
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRouterMultipleListeningAgentsAreAmbiguous(t *testing.T) {
 
 func TestRouterUnknownMentionDropsSilently(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
-	wakes, notices, _ := router.RouteUserChannelMessage(ch.ID, "@nobody hi", "")
+	wakes, notices, _ := router.RouteUserChannelMessage(ch.ID, "@nobody hi", "", nil)
 	if len(wakes) != 0 {
 		t.Errorf("unknown mention must not wake, got %+v", wakes)
 	}
@@ -172,7 +172,7 @@ func TestRouterUnknownMentionDropsSilently(t *testing.T) {
 
 func TestRouterMultipleMentionsWakeAll(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder and @reviewer please", "")
+	wakes, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder and @reviewer please", "", nil)
 	got := make([]string, 0, len(wakes))
 	for _, w := range wakes {
 		got = append(got, w.AgentID)
@@ -190,7 +190,7 @@ func TestRouterMultipleMentionsWakeAll(t *testing.T) {
 
 func TestRouterAgentReplyHonorsBudget(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder look", "")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder look", "", nil)
 	if len(wakes1) != 1 {
 		t.Fatalf("expected coder wake, got %+v", wakes1)
 	}
@@ -231,7 +231,7 @@ func TestRouterAgentReplyWithoutChain(t *testing.T) {
 
 func TestRouterAgentCannotWakeItself(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder do it", "")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder do it", "", nil)
 	chain := wakes1[0].Chain
 
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "reply-1", "hmm @coder", "coder")
@@ -242,7 +242,7 @@ func TestRouterAgentCannotWakeItself(t *testing.T) {
 
 func TestRouterFanOutBudgetCapsAcrossReplies(t *testing.T) {
 	router, _, ch := newRouterTestEnv(t)
-	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder", "")
+	wakes1, _, _ := router.RouteUserChannelMessage(ch.ID, "@coder", "", nil)
 	chain := wakes1[0].Chain
 
 	wakes2, _, _ := router.RouteAgentReply(ch.ID, chain.RootMessageID, "r1", "@reviewer", "coder")

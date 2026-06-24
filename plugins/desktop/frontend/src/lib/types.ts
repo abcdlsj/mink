@@ -140,6 +140,21 @@ export interface AttachmentView {
   url?: string;
 }
 
+export interface MemoryCommitAttachment {
+  status: "remembered" | "failed" | string;
+  scope_kind: string;
+  scope_key?: string;
+  title: string;
+  body: string;
+  kind?: string;
+  reason?: string;
+  confidence?: string;
+  memory_id?: string;
+  notice?: string;
+  error?: string;
+  created_by?: string;
+}
+
 export interface TokenUsage {
   input: number;
   output: number;
