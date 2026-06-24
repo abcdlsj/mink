@@ -38,8 +38,8 @@ type ThreadDetail struct {
 const previewLen = 120
 
 func (b *Backend) ListThreadsForSpace(id string) []ThreadSummary {
-	sp, err := b.app.Spaces().LoadSpace(strings.TrimSpace(id))
-	if err != nil || sp == nil || !threadKind(sp.Kind) {
+	sp, err := b.spaceLoader().LoadThreadable(id)
+	if err != nil || sp == nil {
 		return []ThreadSummary{}
 	}
 	groups := groupReplies(sp)
@@ -63,7 +63,7 @@ func (b *Backend) ListThreadsForSpace(id string) []ThreadSummary {
 func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 	parentID = strings.TrimSpace(parentID)
 	spaceID = strings.TrimSpace(spaceID)
-	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	sp, err := b.spaceLoader().Load(spaceID)
 	if err != nil || sp == nil {
 		return ThreadDetail{SpaceID: spaceID, ParentID: parentID, NotFound: true}
 	}

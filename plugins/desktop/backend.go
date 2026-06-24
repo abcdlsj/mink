@@ -108,7 +108,7 @@ func (b *Backend) SendMessage(req SendRequest) (string, error) {
 	var sp *space.Space
 	var parentMessageID string
 	messageCountBefore := -1
-	if loaded, err := b.app.Spaces().LoadSpace(req.SessionID); err == nil && loaded != nil {
+	if loaded, err := b.spaceLoader().Load(req.SessionID); err == nil && loaded != nil {
 		sp = loaded
 		messageCountBefore = len(sp.Messages)
 		switch sp.Kind {
@@ -167,7 +167,7 @@ func (b *Backend) RetryMessage(req RetryMessageRequest) (string, error) {
 	if spaceID == "" || messageID == "" {
 		return "", fmt.Errorf("space_id and message_id required")
 	}
-	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	sp, err := b.spaceLoader().Load(spaceID)
 	if err != nil || sp == nil {
 		return "", fmt.Errorf("conversation not found: %s", spaceID)
 	}
@@ -297,7 +297,7 @@ func (b *Backend) persistCommandOutputForSpace(spaceID, parentMessageID, input, 
 }
 
 func (b *Backend) hasFailedPendingMessage(spaceID, parentMessageID string) bool {
-	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	sp, err := b.spaceLoader().Load(spaceID)
 	if err != nil || sp == nil {
 		return false
 	}
@@ -830,7 +830,7 @@ func (b *Backend) normalizeContextRequest(req ContextInspectRequest) (ContextIns
 		}
 		return req, nil
 	}
-	sp, err := b.app.Spaces().LoadSpace(req.SpaceID)
+	sp, err := b.spaceLoader().Load(req.SpaceID)
 	if err != nil || sp == nil {
 		return ContextInspectRequest{}, fmt.Errorf("space not found: %s", req.SpaceID)
 	}
@@ -1061,11 +1061,11 @@ func (b *Backend) UpdateDirectChatTitle(spaceID, title string) (DirectChatItem, 
 	if spaceID == "" || title == "" {
 		return DirectChatItem{}, fmt.Errorf("space id and title required")
 	}
-	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	sp, err := b.spaceLoader().LoadTyped(spaceID, space.KindDirectChat)
 	if err != nil {
 		return DirectChatItem{}, err
 	}
-	if sp == nil || sp.Kind != space.KindDirectChat {
+	if sp == nil {
 		return DirectChatItem{}, fmt.Errorf("direct chat not found: %s", spaceID)
 	}
 	if isDefaultSumiDirect(sp) {
@@ -1209,8 +1209,8 @@ func (b *Backend) directChatHasActiveTurn(sp *space.Space) bool {
 }
 
 func (b *Backend) GetDirectChat(id string) SessionDetail {
-	sp, err := b.app.Spaces().LoadSpace(id)
-	if err != nil || sp == nil || sp.Kind != space.KindDirectChat {
+	sp, err := b.spaceLoader().LoadTyped(id, space.KindDirectChat)
+	if err != nil || sp == nil {
 		return SessionDetail{}
 	}
 	sp = b.recoverPendingMessages(sp)
@@ -1483,7 +1483,7 @@ func (b *Backend) GetChannel(id string) SessionDetail {
 	cfg := b.app.Config()
 	var sp *space.Space
 	if space.IsSpaceID(id) {
-		if loaded, err := b.app.Spaces().LoadSpace(id); err == nil && loaded != nil && loaded.Kind == space.KindChannel {
+		if loaded, err := b.spaceLoader().LoadTyped(id, space.KindChannel); err == nil && loaded != nil {
 			sp = loaded
 		}
 	}
@@ -2182,7 +2182,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 	}
 	var sp *space.Space
 	if space.IsSpaceID(agentID) {
-		if loaded, err := b.app.Spaces().LoadSpace(agentID); err == nil && loaded != nil && loaded.Kind == space.KindAgentDM {
+		if loaded, err := b.spaceLoader().LoadTyped(agentID, space.KindAgentDM); err == nil && loaded != nil {
 			sp = loaded
 		}
 		if sp == nil {
@@ -2276,11 +2276,11 @@ func (b *Backend) UpdateAgentDMTitle(spaceID, title string) (AgentDMItem, error)
 	if spaceID == "" || title == "" {
 		return AgentDMItem{}, fmt.Errorf("space id and title required")
 	}
-	sp, err := b.app.Spaces().LoadSpace(spaceID)
+	sp, err := b.spaceLoader().LoadTyped(spaceID, space.KindAgentDM)
 	if err != nil {
 		return AgentDMItem{}, err
 	}
-	if sp == nil || sp.Kind != space.KindAgentDM {
+	if sp == nil {
 		return AgentDMItem{}, fmt.Errorf("agent chat not found: %s", spaceID)
 	}
 	if isDefaultAgentDM(sp) {
