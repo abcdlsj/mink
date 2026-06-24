@@ -209,6 +209,39 @@ func (t *deleteTool) Run(ctx context.Context, args json.RawMessage) (string, err
 	return fmt.Sprintf("deleted memory %s from %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
 }
 
+type updateTool struct{ s *store }
+
+func (t *updateTool) Name() string { return "update_memory" }
+func (t *updateTool) Desc() string {
+	return "Update a committed memory doc by exact id in a scope"
+}
+func (t *updateTool) Schema() map[string]any {
+	return tool.ObjectSchema(
+		tool.Prop("scope_kind", "string", "Scope kind"),
+		tool.Prop("scope_key", "string", "Scope key"),
+		tool.Prop("id", "string", "Memory id"),
+		tool.Prop("title", "string", "Updated title"),
+		tool.Prop("body", "string", "Updated body"),
+		tool.Prop("summary", "string", "Updated summary"),
+		tool.Prop("kind", "string", "Memory kind"),
+		tool.Prop("confidence", "string", "Confidence: low, medium, or high"),
+		tool.Required("id", "title", "body"),
+	)
+}
+
+func (t *updateTool) Run(ctx context.Context, args json.RawMessage) (string, error) {
+	var in updateArgs
+	if err := decode("update_memory", args, &in); err != nil {
+		return "", err
+	}
+	sc := t.s.resolveWriteScope(ctx, command.SourceFrom(ctx), in.ScopeKind, in.ScopeKey)
+	d, err := t.s.update(ctx, sc, in)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("updated memory %s in %s:%s", d.ID, d.ScopeKind, d.ScopeKey), nil
+}
+
 func memoryDocFromWrite(ctx context.Context, in writeArgs) doc {
 	return doc{
 		Title:           strings.TrimSpace(in.Title),

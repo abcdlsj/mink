@@ -314,7 +314,7 @@ function MemoryCommitCards({ cards }: { cards: MemoryCommitAttachment[] }) {
                     card.status === "failed" ? "text-error" : "text-agent",
                   )}
                 >
-                  {card.status === "failed" ? "Memory failed" : "Memory saved"}
+                  {memoryCommitLabel(card)}
                 </span>
                 <span className="min-w-0 truncate text-[12.5px] font-bold text-text">
                   {card.title || "Untitled memory"}
@@ -352,6 +352,7 @@ function parseMemoryCommitAttachment(data: string | undefined): MemoryCommitAtta
     if (typeof parsed.title !== "string" || typeof parsed.body !== "string") return null;
     return {
       status: parsed.status || "remembered",
+      action: parsed.action,
       scope_kind: parsed.scope_kind || "global",
       scope_key: parsed.scope_key,
       title: parsed.title,
@@ -367,6 +368,12 @@ function parseMemoryCommitAttachment(data: string | undefined): MemoryCommitAtta
   } catch {
     return null;
   }
+}
+
+function memoryCommitLabel(card: MemoryCommitAttachment): string {
+  if (card.status === "failed") return "Memory failed";
+  if (card.status === "updated" || card.action === "update") return "Memory updated";
+  return "Memory saved";
 }
 
 function memoryScopeLabel(card: MemoryCommitAttachment): string {

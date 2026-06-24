@@ -122,6 +122,42 @@ func (s *store) delete(ctx context.Context, sc scope, id string) (doc, error) {
 	return doc{}, fmt.Errorf("memory %s not found in %s", id, scopeText(sc))
 }
 
+func (s *store) update(ctx context.Context, sc scope, in updateArgs) (doc, error) {
+	id := strings.TrimSpace(in.ID)
+	if id == "" {
+		return doc{}, fmt.Errorf("memory id is required")
+	}
+	title := strings.TrimSpace(in.Title)
+	body := strings.TrimSpace(in.Body)
+	if title == "" || body == "" {
+		return doc{}, fmt.Errorf("title and body are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	docs, err := s.loadScopeLocked(sc)
+	if err != nil {
+		return doc{}, err
+	}
+	for _, d := range docs {
+		if d.ID != id && strings.TrimSuffix(filepath.Base(d.Path), filepath.Ext(d.Path)) != id {
+			continue
+		}
+		d.Title = title
+		d.Body = body
+		d.Summary = blank(in.Summary, summarize(body, 140))
+		d.Kind = blank(in.Kind, "note")
+		d.Confidence = normalizeConfidence(in.Confidence)
+		d.UpdatedAt = time.Now().UTC()
+		d.ScopeKind = sc.Kind
+		d.ScopeKey = sc.Key
+		if err := writeFile(d.Path, []byte(renderDoc(d))); err != nil {
+			return doc{}, err
+		}
+		return d, nil
+	}
+	return doc{}, fmt.Errorf("memory %s not found in %s", id, scopeText(sc))
+}
+
 func matchesQuery(d doc, q string) bool {
 	text := strings.ToLower(strings.Join([]string{d.Title, d.Summary, d.Body}, "\n"))
 	return strings.Contains(text, q)

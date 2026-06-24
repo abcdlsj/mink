@@ -131,6 +131,8 @@ func (b promptBuilder) memoryPolicy() string {
 			"- Policy: auto-commit.",
 			"- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
 			"- Allowed: durable memory for stable preferences, identity facts, project conventions, confirmed long-lived decisions.",
+			"- Allowed: update_memory only when the user explicitly asks to change existing memory and you have an exact memory id/scope from memory results or user text.",
+			"- Scope rule: prefer current channel/conversation memory for local facts; use persona memory for durable cross-conversation preferences or concepts; use workspace/global only for broad conventions.",
 			"- Forbidden: one-off lookups, temporary task state, unverified guesses, debug state, credentials, tokens, keys, cookies, or webhook URLs.",
 		}, "\n")
 	}
@@ -141,7 +143,9 @@ func (b promptBuilder) memoryPolicy() string {
 		"- Storage answer: Sumi manages scoped persona/workspace memory; never reveal filesystem paths.",
 		"- Allowed: explicit remember -> call remember_memory with authorization_text from that message; reply Remembered with undo path.",
 		"- Allowed: inferred memory -> call propose_memory with scope, kind, content, reason, confidence; do not claim saved.",
-		"- Forbidden: write_memory/delete_memory in proposal-only mode.",
+		"- Allowed: existing memory changes -> propose the intended update; do not claim saved until Sumi confirms.",
+		"- Scope rule: prefer current channel/conversation memory for local facts; use persona memory for durable cross-conversation preferences or concepts; use workspace/global only for broad conventions.",
+		"- Forbidden: write_memory/update_memory/delete_memory in proposal-only mode.",
 		"- Forbidden: propose one-off lookups, temp state, guesses, debug, credentials, tokens, keys, cookies, or webhook URLs.",
 		"- User response: after proposing, give id plus !memory confirm <id> / !memory reject <id>.",
 	}, "\n")
@@ -152,7 +156,10 @@ func (b promptBuilder) externalMemoryPolicy() string {
 		"Memory protocol:",
 		"- Source of truth: Sumi memory action commit result only.",
 		"- Memory write path: user can request memory, but Sumi commits only a structured agent proposal.",
-		"- To request a commit, output exactly one ```sumi-memory JSON fence with title/body/kind/reason/confidence; do not rely on plain user text.",
+		"- To request a new memory commit, output exactly one ```sumi-memory JSON fence with action:\"remember\", scope_kind/scope_key, title, body, kind, reason, confidence.",
+		"- To request an existing memory update, output exactly one ```sumi-memory JSON fence with action:\"update\", id, scope_kind/scope_key, title, body, kind, reason, confidence.",
+		"- JSON fence requirements: body must be a valid JSON string with escaped newlines; do not put nested triple-backtick fences inside JSON strings.",
+		"- Scope rule: prefer current channel/conversation memory for local facts; use persona memory for durable cross-conversation preferences or concepts; use workspace/global only for broad conventions.",
 		"- After outputting a proposal, say it was proposed/requested; only say saved after a commit result/card exists.",
 		"- Runtime response: acknowledge memory only when a Sumi memory action commit result is present.",
 		"- No direct tool visible: do not list host tools like Bash/Edit/Read as Sumi product capabilities.",

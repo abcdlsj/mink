@@ -116,6 +116,17 @@ type deleteArgs struct {
 	ID        string `json:"id"`
 }
 
+type updateArgs struct {
+	ScopeKind  string `json:"scope_kind"`
+	ScopeKey   string `json:"scope_key"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	Summary    string `json:"summary"`
+	Kind       string `json:"kind"`
+	Confidence string `json:"confidence"`
+}
+
 const usageText = "usage: !memory [recent [scope] [limit] | search [scope] <query> | save [scope] <title> :: <body> | proposals | confirm <proposal-id> | reject <proposal-id> | delete [scope] <memory-id>]"
 const searchUsageText = "usage: !memory search [scope] <query>"
 const saveUsageText = "usage: !memory save [scope] <title> :: <body>"

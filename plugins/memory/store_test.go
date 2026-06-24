@@ -255,6 +255,64 @@ func TestRejectProposalAndDeleteMemory(t *testing.T) {
 	}
 }
 
+func TestUpdateMemoryPreservesIDAndMetadata(t *testing.T) {
+	s, err := open(t.TempDir(), "/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := command.WithSource(context.Background(), "desktop:channel:alpha")
+	ctx = command.WithPersona(ctx, "bob")
+	ctx = command.WithParentMessage(ctx, "msg-123")
+
+	d, err := s.put(ctx, scope{Kind: "persona", Key: "bob"}, memoryDocFromWrite(ctx, writeArgs{
+		Title:         "Project context",
+		Body:          "Old memory body.",
+		Kind:          "fact",
+		SourceSpaceID: "space-1",
+		CreatedBy:     "bob",
+		Confidence:    "medium",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalPath := d.Path
+	originalCreatedAt := d.CreatedAt
+
+	out, err := (&updateTool{s: s}).Run(ctx, mustMemoryJSON(t, updateArgs{
+		ScopeKind:  "persona",
+		ScopeKey:   "bob",
+		ID:         d.ID,
+		Title:      "Renamed project context",
+		Body:       "Updated memory body.",
+		Kind:       "decision",
+		Confidence: "high",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "updated memory "+d.ID) {
+		t.Fatalf("update output = %q", out)
+	}
+
+	docs, err := s.recent(ctx, scope{Kind: "persona", Key: "bob"}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 1 {
+		t.Fatalf("docs = %d, want 1", len(docs))
+	}
+	updated := docs[0]
+	if updated.ID != d.ID || updated.Path != originalPath {
+		t.Fatalf("updated doc moved or changed id: before id=%q path=%q after=%#v", d.ID, originalPath, updated)
+	}
+	if updated.CreatedAt != originalCreatedAt || updated.SourceMessageID != "msg-123" || updated.SourceSpaceID != "space-1" || updated.CreatedBy != "bob" {
+		t.Fatalf("metadata not preserved: %#v", updated)
+	}
+	if updated.Title != "Renamed project context" || !strings.Contains(updated.Body, "Updated memory body.") || updated.Kind != "decision" || updated.Confidence != "high" {
+		t.Fatalf("updated fields wrong: %#v", updated)
+	}
+}
+
 func mustMemoryJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	b, err := json.Marshal(v)

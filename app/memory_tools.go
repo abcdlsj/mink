@@ -9,6 +9,7 @@ func memoryToolBlocks(p *persona.Persona) map[string]string {
 	reason := "current memory policy is proposal-only; long-term memory changes require human confirmation"
 	return map[string]string{
 		"write_memory":  reason,
+		"update_memory": reason,
 		"delete_memory": reason,
 	}
 }

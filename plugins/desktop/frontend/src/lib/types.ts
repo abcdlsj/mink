@@ -141,7 +141,8 @@ export interface AttachmentView {
 }
 
 export interface MemoryCommitAttachment {
-  status: "remembered" | "failed" | string;
+  status: "remembered" | "updated" | "failed" | string;
+  action?: string;
   scope_kind: string;
   scope_key?: string;
   title: string;

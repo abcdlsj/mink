@@ -356,14 +356,14 @@ func (f inputFlow) runContextWithSession(ctx context.Context, session string) co
 
 func (f inputFlow) memoryScopes(source, delivery string) []command.MemoryScope {
 	var out []command.MemoryScope
-	if strings.TrimSpace(f.personaID) != "" {
-		out = append(out, command.MemoryScope{Kind: "persona", Key: strings.TrimSpace(f.personaID)})
-	}
 	if strings.TrimSpace(source) != "" {
 		out = append(out, command.MemoryScope{Kind: "channel", Key: strings.TrimSpace(source)})
 	}
 	if d := strings.TrimSpace(delivery); d != "" && d != strings.TrimSpace(source) {
 		out = append(out, command.MemoryScope{Kind: "channel", Key: d})
+	}
+	if strings.TrimSpace(f.personaID) != "" {
+		out = append(out, command.MemoryScope{Kind: "persona", Key: strings.TrimSpace(f.personaID)})
 	}
 	if strings.TrimSpace(f.app.cfg.Workspace) != "" {
 		out = append(out, command.MemoryScope{Kind: "workspace", Key: strings.TrimSpace(f.app.cfg.Workspace)})

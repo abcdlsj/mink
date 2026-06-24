@@ -88,6 +88,7 @@ func (a *App) prepareMemoryForTurn(ctx context.Context, turn *agent.Turn, precom
 
 type MemoryCommitCard struct {
 	Status     string   `json:"status"`
+	Action     string   `json:"action,omitempty"`
 	ScopeKind  string   `json:"scope_kind"`
 	ScopeKey   string   `json:"scope_key,omitempty"`
 	Title      string   `json:"title"`
@@ -103,6 +104,9 @@ type MemoryCommitCard struct {
 }
 
 type memoryProposalFence struct {
+	Action     string   `json:"action"`
+	ID         string   `json:"id"`
+	MemoryID   string   `json:"memory_id"`
 	ScopeKind  string   `json:"scope_kind"`
 	ScopeKey   string   `json:"scope_key"`
 	Title      string   `json:"title"`
@@ -117,6 +121,9 @@ type memoryProposalFence struct {
 
 func (p *memoryProposalFence) UnmarshalJSON(data []byte) error {
 	type rawProposal struct {
+		Action     string          `json:"action"`
+		ID         string          `json:"id"`
+		MemoryID   string          `json:"memory_id"`
 		ScopeKind  string          `json:"scope_kind"`
 		ScopeKey   string          `json:"scope_key"`
 		Title      string          `json:"title"`
@@ -133,6 +140,9 @@ func (p *memoryProposalFence) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*p = memoryProposalFence{
+		Action:     raw.Action,
+		ID:         raw.ID,
+		MemoryID:   raw.MemoryID,
 		ScopeKind:  raw.ScopeKind,
 		ScopeKey:   raw.ScopeKey,
 		Title:      raw.Title,
@@ -230,6 +240,7 @@ func (a *App) commitAgentMemoryProposal(ctx context.Context, turn *agent.Turn, p
 	body := strings.TrimSpace(firstNonEmpty(proposal.Body, proposal.Content))
 	card := MemoryCommitCard{
 		Status:     "failed",
+		Action:     normalizedMemoryProposalAction(proposal),
 		ScopeKind:  scopeKind,
 		ScopeKey:   scopeKey,
 		Title:      strings.TrimSpace(proposal.Title),
@@ -255,6 +266,36 @@ func (a *App) commitAgentMemoryProposal(ctx context.Context, turn *agent.Turn, p
 		card.Error = "refusing to remember sensitive memory: " + reason
 		return card
 	}
+	if card.Action == "update" {
+		memoryID := strings.TrimSpace(firstNonEmpty(proposal.ID, proposal.MemoryID))
+		if memoryID == "" {
+			card.Error = "memory update proposals require id"
+			return card
+		}
+		args := map[string]any{
+			"scope_kind": scopeKind,
+			"scope_key":  scopeKey,
+			"id":         memoryID,
+			"title":      card.Title,
+			"body":       body,
+			"summary":    strings.TrimSpace(proposal.Summary),
+			"kind":       card.Kind,
+			"confidence": card.Confidence,
+		}
+		raw, _ := json.Marshal(args)
+		notice, err := a.tools.Run(ctx, "update_memory", raw)
+		if err != nil {
+			card.Error = err.Error()
+			return card
+		}
+		card.Status = "updated"
+		card.Notice = strings.TrimSpace(notice)
+		card.MemoryID = memoryIDFromNotice(card.Notice)
+		if card.MemoryID == "" {
+			card.MemoryID = memoryID
+		}
+		return card
+	}
 	args := map[string]any{
 		"scope_kind":        scopeKind,
 		"scope_key":         scopeKey,
@@ -278,6 +319,22 @@ func (a *App) commitAgentMemoryProposal(ctx context.Context, turn *agent.Turn, p
 	card.Notice = strings.TrimSpace(notice)
 	card.MemoryID = memoryIDFromNotice(card.Notice)
 	return card
+}
+
+func normalizedMemoryProposalAction(p memoryProposalFence) string {
+	action := strings.ToLower(strings.TrimSpace(p.Action))
+	switch action {
+	case "update", "write", "remember", "create":
+		if action == "write" || action == "remember" || action == "create" {
+			return "remember"
+		}
+		return action
+	default:
+		if strings.TrimSpace(firstNonEmpty(p.ID, p.MemoryID)) != "" {
+			return "update"
+		}
+		return "remember"
+	}
 }
 
 func decodeMemoryConfidence(raw json.RawMessage) string {

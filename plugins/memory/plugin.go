@@ -17,6 +17,7 @@ func Plugin() app.Plugin {
 		a.RegisterTool(&proposeTool{s: s})
 		a.RegisterTool(&rememberTool{s: s})
 		a.RegisterTool(&writeTool{s: s})
+		a.RegisterTool(&updateTool{s: s})
 		a.RegisterTool(&deleteTool{s: s})
 		a.RegisterCommand(&cmd{s: s})
 		return nil

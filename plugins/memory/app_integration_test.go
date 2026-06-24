@@ -87,7 +87,7 @@ func TestExternalPersonaMemoryProposalCommitsAndPersistsCard(t *testing.T) {
 
 	a.RegisterRuntime("claude", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
 		return appRuntimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "已整理。\n\n```sumi-memory\n{\"title\":\"Reply style\",\"body\":\"User prefers concise Chinese replies.\",\"kind\":\"preference\",\"reason\":\"User explicitly asked to remember this stable preference.\",\"confidence\":\"high\"}\n```"})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "已整理。\n\n```sumi-memory\n{\"scope_kind\":\"persona\",\"scope_key\":\"bob\",\"title\":\"Reply style\",\"body\":\"User prefers concise Chinese replies.\",\"kind\":\"preference\",\"reason\":\"User explicitly asked to remember this stable preference.\",\"confidence\":\"high\"}\n```"})
 			return nil
 		}), nil
 	})
@@ -168,7 +168,7 @@ func TestExternalPersonaMemoryProposalAcceptsNumericConfidence(t *testing.T) {
 
 	a.RegisterRuntime("claude", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
 		return appRuntimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "已整理。\n\n```sumi-memory\n{\"title\":\"Polymer app context\",\"body\":\"Bilibili polymer repos live under ~/Workspace/bili.\",\"kind\":\"fact\",\"reason\":\"User asked Sumi to remember durable project context.\",\"confidence\":0.95}\n```"})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "已整理。\n\n```sumi-memory\n{\"scope_kind\":\"persona\",\"scope_key\":\"andy\",\"title\":\"Polymer app context\",\"body\":\"Bilibili polymer repos live under ~/Workspace/bili.\",\"kind\":\"fact\",\"reason\":\"User asked Sumi to remember durable project context.\",\"confidence\":0.95}\n```"})
 			return nil
 		}), nil
 	})
@@ -196,6 +196,111 @@ func TestExternalPersonaMemoryProposalAcceptsNumericConfidence(t *testing.T) {
 	}
 }
 
+func TestExternalPersonaMemoryProposalUpdatesExistingMemory(t *testing.T) {
+	dir := t.TempDir()
+	a, err := app.New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	if err := Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Personas().Create("andy", persona.Meta{Runtime: "claude"}, "# Andy"); err != nil {
+		t.Fatal(err)
+	}
+
+	initial := `---
+scope_kind: "persona"
+scope_key: "andy"
+title: "Project context"
+kind: "fact"
+source: "desktop:agent:andy"
+source_space_id: "space-old"
+source_message_id: "msg-old"
+created_by: "andy"
+confidence: "medium"
+summary: "Old context."
+created_at: 2026-06-24T01:02:03Z
+updated_at: 2026-06-24T01:02:03Z
+---
+
+# Project context
+
+Old context.
+`
+	memDir := filepath.Join(a.Config().MemoryDir(), "persona", "andy")
+	if err := os.MkdirAll(memDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	memID := "project-context-mem-123"
+	if err := os.WriteFile(filepath.Join(memDir, memID+".md"), []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a.RegisterRuntime("claude", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return appRuntimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "已整理更新。\n\n```sumi-memory\n{\"action\":\"update\",\"id\":\"project-context-mem-123\",\"scope_kind\":\"persona\",\"scope_key\":\"andy\",\"title\":\"Project context\",\"body\":\"Updated durable project context.\",\"kind\":\"fact\",\"reason\":\"User explicitly asked to update the original memory.\",\"confidence\":\"high\"}\n```"})
+			return nil
+		}), nil
+	})
+
+	out, err := a.HandleInputAs(context.Background(), "desktop:agent:andy", "andy", "更新原来的项目上下文")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "已整理更新。" {
+		t.Fatalf("out = %q, want fence stripped", out)
+	}
+
+	entries, err := os.ReadDir(memDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != memID+".md" {
+		t.Fatalf("memory files = %#v, want unchanged id file", entries)
+	}
+	data, err := os.ReadFile(filepath.Join(memDir, memID+".md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, want := range []string{
+		"Updated durable project context.",
+		`confidence: "high"`,
+		`source_space_id: "space-old"`,
+		`source_message_id: "msg-old"`,
+		`created_by: "andy"`,
+		"created_at: 2026-06-24T01:02:03Z",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("updated memory missing %q:\n%s", want, text)
+		}
+	}
+
+	spaces, err := a.Spaces().ListSpaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundUpdatedCard bool
+	for _, sp := range spaces {
+		for _, m := range sp.Messages {
+			for _, att := range m.Attachments {
+				if att.Kind == "memory_commit" && strings.Contains(att.Data, `"status":"updated"`) && strings.Contains(att.Data, memID) {
+					foundUpdatedCard = true
+				}
+			}
+		}
+	}
+	if !foundUpdatedCard {
+		t.Fatal("updated memory commit card missing from Space")
+	}
+}
+
 func TestExternalPersonaMemoryDeleteProposalDoesNotWriteMemory(t *testing.T) {
 	dir := t.TempDir()
 	a, err := app.New(config.Config{
@@ -216,7 +321,7 @@ func TestExternalPersonaMemoryDeleteProposalDoesNotWriteMemory(t *testing.T) {
 
 	a.RegisterRuntime("claude", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
 		return appRuntimeFunc(func(ctx context.Context, turn *agent.Turn) error {
-			turn.Session.Add(msg.Message{Role: "assistant", Content: "试一下。\n\n```sumi-memory\n{\"title\":\"delete mistaken memory\",\"body\":\"Delete two mistaken memories.\",\"kind\":\"delete\",\"reason\":\"User asked to remove test memories.\",\"confidence\":0.95}\n```"})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "试一下。\n\n```sumi-memory\n{\"scope_kind\":\"persona\",\"scope_key\":\"andy\",\"title\":\"delete mistaken memory\",\"body\":\"Delete two mistaken memories.\",\"kind\":\"delete\",\"reason\":\"User asked to remove test memories.\",\"confidence\":0.95}\n```"})
 			return nil
 		}), nil
 	})
