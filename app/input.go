@@ -169,10 +169,11 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if err := f.app.autoCompact(ctx, f.source, runtimeName, s); err != nil {
 		return "", err
 	}
-	rt, err := f.app.newRuntimeFor(runtimeName, f.app.personas.Get(f.personaID))
+	rt, visionLabel, err := f.app.newRuntimeForTurn(runtimeName, f.app.personas.Get(f.personaID), f.attachments)
 	if err != nil {
 		return "", err
 	}
+	f.notifyVisionRoute(visionLabel)
 	if contextSpaceID != "" {
 		if err := f.app.runTurnAsWithSpaceHistoryNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
@@ -243,10 +244,11 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	if useDefaultSumi {
 		runtimePersona = nil
 	}
-	rt, err := f.app.newRuntimeFor(runtimeName, runtimePersona)
+	rt, visionLabel, err := f.app.newRuntimeForTurn(runtimeName, runtimePersona, f.attachments)
 	if err != nil {
 		return "", err
 	}
+	f.notifyVisionRoute(visionLabel)
 	if sp != nil {
 		if err := f.app.runTurnAsWithSpaceHistoryNamed(ctx, rt, runtimeName, f.source, f.personaID, f.input, f.attachments, s); err != nil {
 			return "", err
@@ -289,6 +291,18 @@ func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, sp
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
 	}).Apply(s)
+}
+
+func (f inputFlow) notifyVisionRoute(label string) {
+	label = strings.TrimSpace(label)
+	if label == "" || f.app == nil || f.app.bus == nil {
+		return
+	}
+	f.app.bus.Publish(bus.Event{
+		Type:   bus.ServiceNotice,
+		Source: f.source,
+		Text:   "image attachment detected; routed to vision_model: " + label,
+	})
 }
 
 func runtimeForPermission(runtime, permission string) string {

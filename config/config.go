@@ -11,6 +11,7 @@ type Config struct {
 	ActiveModel string                 `toml:"active_model"`
 	Default     string                 `toml:"default_model"`
 	Cheap       string                 `toml:"cheap_model"`
+	Vision      string                 `toml:"vision_model"`
 	Models      map[string]ModelConfig `toml:"models"`
 	APIKeys     map[string]string      `toml:"api_keys"`
 

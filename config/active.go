@@ -73,6 +73,23 @@ func (c *Config) ResolveActive() bool {
 	return true
 }
 
+func (c *Config) NamedModel(name string) (ModelConfig, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ModelConfig{}, false
+	}
+	mc, ok := c.Models[name]
+	if !ok {
+		return ModelConfig{}, false
+	}
+	mc.APIKey = c.expandKey(mc.APIKey)
+	mc.Headers = cloneHeaders(mc.Headers)
+	if mc.MaxTokens <= 0 {
+		mc.MaxTokens = 4096
+	}
+	return mc, true
+}
+
 func (c *Config) resolveNamedActive() bool {
 	for _, name := range []string{c.ActiveModel, c.Default} {
 		if name == "" {

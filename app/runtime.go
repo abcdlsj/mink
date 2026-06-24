@@ -28,6 +28,39 @@ func newProvider(cfg config.Config) (llm.Provider, error) {
 	})
 }
 
+func providerFromModel(mc config.ModelConfig) (llm.Provider, error) {
+	if strings.TrimSpace(mc.Provider) == "" || strings.TrimSpace(mc.Model) == "" {
+		return nil, fmt.Errorf("model %s missing provider or model", mc.Model)
+	}
+	return llm.NewProvider(llm.Config{
+		Provider:  mc.Provider,
+		APIKey:    mc.APIKey,
+		BaseURL:   mc.BaseURL,
+		Model:     mc.Model,
+		Headers:   mc.Headers,
+		MaxTokens: mc.MaxTokens,
+	})
+}
+
+func (a *App) visionProvider() (llm.Provider, string, error) {
+	if a == nil {
+		return nil, "", nil
+	}
+	name := strings.TrimSpace(a.cfg.Vision)
+	if name == "" {
+		return nil, "", nil
+	}
+	mc, ok := a.cfg.NamedModel(name)
+	if !ok {
+		return nil, "", fmt.Errorf("vision_model=%q not registered", name)
+	}
+	p, err := providerFromModel(mc)
+	if err != nil {
+		return nil, "", err
+	}
+	return p, mc.Provider + " / " + mc.Model, nil
+}
+
 func (a *App) runtimeEnv() *agent.RuntimeEnv {
 	return &agent.RuntimeEnv{
 		Provider:             a.provider,
@@ -69,6 +102,35 @@ func (a *App) runtimeEnvFor(p *persona.Persona) *agent.RuntimeEnv {
 	return env
 }
 
+func (a *App) runtimeEnvForTurn(p *persona.Persona, attachments []msg.Attachment) (*agent.RuntimeEnv, string) {
+	env := a.runtimeEnvFor(p)
+	if !hasImageAttachment(attachments) {
+		return env, ""
+	}
+	provider, label, err := a.visionProvider()
+	if err != nil {
+		a.bus.Publish(bus.Event{Type: bus.ServiceNotice, Text: "vision_model: " + err.Error()})
+		return env, ""
+	}
+	if provider == nil {
+		return env, ""
+	}
+	env.Provider = provider
+	return env, label
+}
+
+func hasImageAttachment(attachments []msg.Attachment) bool {
+	for _, a := range attachments {
+		if a.Kind != "image" {
+			continue
+		}
+		if a.URL != "" || (a.Data != "" && a.MIME != "") {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *App) runtimeFactory(name string) agent.RuntimeFactory {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -86,6 +148,19 @@ func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, err
 		return nil, fmt.Errorf("runtime not found: %s", name)
 	}
 	return f(a.runtimeEnvFor(p))
+}
+
+func (a *App) newRuntimeForTurn(name string, p *persona.Persona, attachments []msg.Attachment) (agent.Runtime, string, error) {
+	f := a.runtimeFactory(name)
+	if f == nil {
+		return nil, "", fmt.Errorf("runtime not found: %s", name)
+	}
+	env, label := a.runtimeEnvForTurn(p, attachments)
+	rt, err := f(env)
+	if err != nil {
+		return nil, "", err
+	}
+	return rt, label, nil
 }
 
 func (a *App) NewRuntimeFor(name string, p *persona.Persona) (agent.Runtime, error) {
