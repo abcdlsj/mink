@@ -37,7 +37,7 @@ export function AgentDetailPane() {
               <div className="flex items-center gap-2 font-display text-[24px] font-extrabold text-text">
                 <AtSign className="size-5 text-text-muted" />
                 <span>{display}</span>
-                <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text-muted">
+                <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text">
                   Agent Profile
                 </span>
               </div>
@@ -123,7 +123,7 @@ export function AgentDetailPane() {
 function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border border-border bg-panel-2 px-3 py-3">
-      <div className="mb-2 font-display text-[11px] font-extrabold uppercase text-text-muted">{title}</div>
+      <div className="mb-2 font-display text-[11px] font-extrabold uppercase text-text">{title}</div>
       {children}
     </section>
   );
@@ -132,7 +132,7 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border-soft py-1.5 last:border-b-0">
-      <span className="font-mono text-[10.5px] uppercase text-text-faint">{label}</span>
+      <span className="font-mono text-[10.5px] font-medium uppercase text-text-muted">{label}</span>
       <span className="truncate text-[12.5px] text-text">{value}</span>
     </div>
   );
@@ -142,7 +142,7 @@ function PillList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
-        <span key={item} className="border border-border bg-panel px-1.5 py-px font-mono text-[10.5px] text-text-muted">
+        <span key={item} className="border border-border bg-panel px-1.5 py-px font-mono text-[10.5px] font-medium text-text">
           {item}
         </span>
       ))}

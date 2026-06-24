@@ -97,7 +97,7 @@ export function MessageRow({
               </span>
               {m.role !== "user" && ag?.role && (
                 <span
-                  className="shrink-0 border border-border-soft bg-transparent px-1 font-mono text-[10px] uppercase text-text-faint"
+                  className="shrink-0 border border-border-soft bg-transparent px-1 font-mono text-[10px] font-medium uppercase text-text-muted"
                   title={ag.role}
                 >
                   {shortRole(ag.role)}
@@ -125,7 +125,7 @@ export function MessageRow({
             {routedReply.labels.map((label, i) => (
               <span
                 key={label + i}
-                className="inline-flex border border-border-soft bg-transparent px-1.5 py-px font-mono text-[10.5px] text-text-faint"
+                className="inline-flex border border-border-soft bg-transparent px-1.5 py-px font-mono text-[10.5px] font-medium text-text-muted"
               >
                 {label}
               </span>

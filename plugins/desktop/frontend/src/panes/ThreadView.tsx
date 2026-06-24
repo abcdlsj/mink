@@ -123,7 +123,7 @@ export function ThreadView() {
         <div className="mx-auto max-w-[880px]">
           {root && (
             <div className="mb-4 border-b border-border-soft border-l-2 border-l-border pl-4 pb-3">
-              <div className="mb-1 inline-flex border border-tool-border bg-tool-bg px-1.5 py-px text-[11px] font-medium uppercase text-tool">Root message · context only</div>
+              <div className="mb-1 inline-flex border border-tool-border bg-tool-bg px-1.5 py-px text-[11px] font-semibold uppercase text-text-muted">Root message · context only</div>
               <MessageRow m={root} compact={false} />
             </div>
           )}

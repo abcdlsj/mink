@@ -366,7 +366,7 @@ function RuntimeContextSection({
 function ContextMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-panel-2/70 px-2 py-1.5">
-      <div className="font-mono uppercase text-text-faint">{label}</div>
+      <div className="font-mono font-medium uppercase text-text-muted">{label}</div>
       <div className="truncate text-[11.5px] text-text">{value}</div>
     </div>
   );
@@ -386,7 +386,7 @@ function ActiveTaskMiniCard({ run }: { run: AgentRun }) {
         <div className="line-clamp-2 break-words text-[12.5px] font-semibold leading-[1.35] text-text">
           {run.title || "Untitled task"}
         </div>
-        <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] text-text-muted">
+        <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] font-medium text-text">
           {status}
         </span>
       </div>

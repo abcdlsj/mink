@@ -36,7 +36,7 @@ export function MemoryOverviewCard({ personaID, source, spaceID }: MemoryOvervie
       {scopes.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {scopes.map((scope) => (
-            <span key={scope.label} className="border border-border-soft px-1.5 py-px font-mono text-[10.5px] text-text-faint">
+            <span key={scope.label} className="border border-border-soft px-1.5 py-px font-mono text-[10.5px] font-medium text-text-muted">
               {scope.label}
             </span>
           ))}

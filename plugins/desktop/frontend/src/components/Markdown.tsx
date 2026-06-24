@@ -41,7 +41,7 @@ const fullComponents: Components = {
   h3: ({ children }) => <h3 className="font-display text-[15.5px] font-semibold mt-4 mb-1.5 first:mt-0"><MentionAware>{children}</MentionAware></h3>,
   h4: ({ children }) => <h4 className="font-display text-[14.5px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h4>,
   h5: ({ children }) => <h5 className="font-display text-[13.5px] font-semibold mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h5>,
-  h6: ({ children }) => <h6 className="font-display text-[12px] font-semibold uppercase tracking-[0.6px] text-text-muted mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
+  h6: ({ children }) => <h6 className="font-display text-[12px] font-semibold uppercase tracking-[0.6px] text-text mt-3 mb-1 first:mt-0"><MentionAware>{children}</MentionAware></h6>,
   ul: ({ children }) => <ul className="my-2 pl-5 list-disc marker:text-text-faint">{children}</ul>,
   ol: ({ children }) => <ol className="my-2 pl-5 list-decimal marker:text-text-faint">{children}</ol>,
   li: ({ children }) => <li className="my-1 pl-1 text-[14px] leading-[22px]"><MentionAware>{children}</MentionAware></li>,
@@ -70,7 +70,7 @@ const fullComponents: Components = {
       <table className="min-w-full table-auto border-collapse text-[13px] leading-[1.6]">{children}</table>
     </div>
   ),
-  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11.5px] font-semibold uppercase tracking-[0.6px] text-text-muted">{children}</thead>,
+  thead: ({ children }) => <thead className="bg-panel-2 text-left font-display text-[11.5px] font-semibold uppercase tracking-[0.6px] text-text">{children}</thead>,
   th: ({ children }) => (
     <th className="break-words border-b border-r border-border px-3.5 py-2.5 font-semibold align-bottom last:border-r-0">
       <MentionAware>{children}</MentionAware>
@@ -129,7 +129,7 @@ function codeRenderer({ children, className }: any) {
     return <code className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-[1.55]">{children}</code>;
   }
   return (
-    <code className="rounded-[3px] bg-panel/70 px-1 py-px font-mono text-[12px] text-text-muted">
+    <code className="rounded-[3px] bg-panel/70 px-1 py-px font-mono text-[12px] font-medium text-text">
       {children}
     </code>
   );

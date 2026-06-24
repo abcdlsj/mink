@@ -170,7 +170,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
           ) : (
             <span>{titleText}</span>
           )}
-          <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text-muted">
+          <span className="border border-border-soft bg-panel-2 px-1.5 py-px font-mono text-[10.5px] font-semibold uppercase tracking-[0.2px] text-text">
             {objectType}
           </span>
           {view === "channel" && channel && (
