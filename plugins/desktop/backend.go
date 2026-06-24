@@ -1709,10 +1709,7 @@ func personaResolver(a appAccessor) space.DisplayResolver {
 		return nil
 	}
 	return space.DisplayResolverFunc(func(id string) string {
-		if p := a.Personas().Get(id); p != nil {
-			return p.Display
-		}
-		return ""
+		return personaDisplay(a, id, "")
 	})
 }
 
@@ -2123,10 +2120,17 @@ func resolveWorkerDisplay(workerID string, a appAccessor) string {
 	if a == nil || strings.TrimSpace(workerID) == "" {
 		return ""
 	}
-	if p := a.Personas().Get(workerID); p != nil && strings.TrimSpace(p.Display) != "" {
+	return personaDisplay(a, workerID, workerID)
+}
+
+func personaDisplay(a appAccessor, id, fallback string) string {
+	if a == nil || strings.TrimSpace(id) == "" {
+		return fallback
+	}
+	if p := a.Personas().Get(id); p != nil && strings.TrimSpace(p.Display) != "" {
 		return p.Display
 	}
-	return workerID
+	return fallback
 }
 
 func personaAgentItem(p *persona.Persona, status string) AgentItem {

@@ -301,16 +301,14 @@ func (a *App) requireTaskCapability(ctx context.Context, caps ...string) (*perso
 	if id == "" {
 		return nil, fmt.Errorf("task tool requires a persona identity")
 	}
-	p := a.personas.Get(id)
-	if p == nil {
-		return nil, fmt.Errorf("task tool persona not found: %s", id)
-	}
-	for _, cap := range caps {
-		if p.HasCapability(cap) {
-			return p, nil
-		}
-	}
-	return nil, fmt.Errorf("persona %s lacks required capability: %s", p.ID, strings.Join(caps, " or "))
+	return a.personaWithAnyCapability(
+		id,
+		caps,
+		func(id string) error { return fmt.Errorf("task tool persona not found: %s", id) },
+		func(p *persona.Persona, caps []string) error {
+			return fmt.Errorf("persona %s lacks required capability: %s", p.ID, strings.Join(caps, " or "))
+		},
+	)
 }
 
 func (a *App) requireTaskStatusCapability(ctx context.Context, status string) (*persona.Persona, error) {
@@ -327,14 +325,28 @@ func (a *App) taskAssignee(id string) (*persona.Persona, error) {
 	if id == "" {
 		return nil, fmt.Errorf("task assignee is required")
 	}
+	return a.personaWithAnyCapability(
+		id,
+		[]string{capTaskExecute},
+		func(id string) error { return fmt.Errorf("task assignee not found: %s", id) },
+		func(p *persona.Persona, caps []string) error {
+			return fmt.Errorf("task assignee %s lacks required capability: %s", p.ID, strings.Join(caps, " or "))
+		},
+	)
+}
+
+func (a *App) personaWithAnyCapability(id string, caps []string, notFound func(string) error, denied func(*persona.Persona, []string) error) (*persona.Persona, error) {
+	id = strings.TrimSpace(id)
 	p := a.personas.Get(id)
 	if p == nil {
-		return nil, fmt.Errorf("task assignee not found: %s", id)
+		return nil, notFound(id)
 	}
-	if !p.HasCapability(capTaskExecute) {
-		return nil, fmt.Errorf("task assignee %s lacks required capability: %s", p.ID, capTaskExecute)
+	for _, cap := range caps {
+		if p.HasCapability(cap) {
+			return p, nil
+		}
 	}
-	return p, nil
+	return nil, denied(p, caps)
 }
 
 func (a *App) taskSpaceID(ctx context.Context, explicit string) (string, error) {

@@ -37,102 +37,58 @@ const j = async <T>(p: Promise<Response>): Promise<T> => {
   return r.json();
 };
 
+const get = <T>(path: string): Promise<T> => j<T>(fetch(path));
+
+const post = <T>(path: string, body: unknown = {}): Promise<T> =>
+  j<T>(
+    fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+
 export const api = {
-  state: () => j<WorkspaceState>(fetch("/api/state")),
-  channels: () => j<ChannelItem[]>(fetch("/api/channels")),
-  createChannel: (name: string) =>
-    j<ChannelItem>(
-      fetch("/api/channel/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      }),
-    ),
-  threads: () => j<ThreadItem[]>(fetch("/api/threads")),
-  agents: () => j<AgentItem[]>(fetch("/api/agents")),
+  state: () => get<WorkspaceState>("/api/state"),
+  channels: () => get<ChannelItem[]>("/api/channels"),
+  createChannel: (name: string) => post<ChannelItem>("/api/channel/create", { name }),
+  threads: () => get<ThreadItem[]>("/api/threads"),
+  agents: () => get<AgentItem[]>("/api/agents"),
   setChannelAgentMode: (channelID: string, personaID: string, mode: string) =>
-    j<{ ok: string }>(
-      fetch("/api/channel/agent-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel_id: channelID, persona_id: personaID, mode }),
-      }),
-    ),
+    post<{ ok: string }>("/api/channel/agent-mode", { channel_id: channelID, persona_id: personaID, mode }),
   addAgentToChannel: (channelID: string, personaID: string) =>
-    j<{ ok: string }>(
-      fetch("/api/channel/add-agent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel_id: channelID, persona_id: personaID }),
-      }),
-    ),
+    post<{ ok: string }>("/api/channel/add-agent", { channel_id: channelID, persona_id: personaID }),
   setThreadAgentMode: (
     spaceID: string,
     parentMessageID: string,
     personaID: string,
     mode: string,
   ) =>
-    j<{ ok: string }>(
-      fetch("/api/thread/agent-mode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          space_id: spaceID,
-          parent_message_id: parentMessageID,
-          persona_id: personaID,
-          mode,
-        }),
-      }),
-    ),
-  channel: (id: string) => j<SessionDetail>(fetch("/api/channel?id=" + encodeURIComponent(id))),
+    post<{ ok: string }>("/api/thread/agent-mode", {
+      space_id: spaceID,
+      parent_message_id: parentMessageID,
+      persona_id: personaID,
+      mode,
+    }),
+  channel: (id: string) => get<SessionDetail>("/api/channel?id=" + encodeURIComponent(id)),
   agentDM: (agentID: string) =>
-    j<SessionDetail>(fetch("/api/agent-dm?agent=" + encodeURIComponent(agentID))),
-  agentDMs: () => j<AgentDMItem[]>(fetch("/api/agent-dms")),
+    get<SessionDetail>("/api/agent-dm?agent=" + encodeURIComponent(agentID)),
+  agentDMs: () => get<AgentDMItem[]>("/api/agent-dms"),
   createAgentDM: (personaID: string, title?: string) =>
-    j<AgentDMItem>(
-      fetch("/api/agent-dm/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ persona_id: personaID, title }),
-      }),
-    ),
+    post<AgentDMItem>("/api/agent-dm/create", { persona_id: personaID, title }),
   updateAgentDMTitle: (id: string, title: string) =>
-    j<AgentDMItem>(
-      fetch("/api/agent-dm/title", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, title }),
-      }),
-    ),
+    post<AgentDMItem>("/api/agent-dm/title", { id, title }),
   newDirect: (title?: string, agentID?: string) =>
-    j<SessionDetail>(
-      fetch("/api/new-direct", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title || "", agent_id: agentID || "" }),
-      }),
-    ),
-  directChats: () => j<DirectChatItem[]>(fetch("/api/direct-chats")),
+    post<SessionDetail>("/api/new-direct", { title: title || "", agent_id: agentID || "" }),
+  directChats: () => get<DirectChatItem[]>("/api/direct-chats"),
   directChat: (id: string) =>
-    j<SessionDetail>(fetch("/api/direct-chat?id=" + encodeURIComponent(id))),
+    get<SessionDetail>("/api/direct-chat?id=" + encodeURIComponent(id)),
   updateDirectChatTitle: (id: string, title: string) =>
-    j<DirectChatItem>(
-      fetch("/api/direct-chat/title", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, title }),
-      }),
-    ),
-  recent: () => j<RecentItem[]>(fetch("/api/recent")),
-  run: (id: string) => j<RunDetail>(fetch("/api/run?id=" + encodeURIComponent(id))),
+    post<DirectChatItem>("/api/direct-chat/title", { id, title }),
+  recent: () => get<RecentItem[]>("/api/recent"),
+  run: (id: string) => get<RunDetail>("/api/run?id=" + encodeURIComponent(id)),
   updateTaskStatus: (taskID: string, status: string) =>
-    j<AgentRun>(
-      fetch("/api/task/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id: taskID, status }),
-      }),
-    ),
+    post<AgentRun>("/api/task/status", { task_id: taskID, status }),
   createTask: (input: {
     space_id: string;
     source_message?: string;
@@ -150,13 +106,7 @@ export const api = {
     source?: string;
     explicit_task_intent?: boolean;
   }) =>
-    j<TaskStateCard>(
-      fetch("/api/task/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<TaskStateCard>("/api/task/create", input),
   assignTask: (input: {
     task_id: string;
     assignee_id?: string;
@@ -166,72 +116,42 @@ export const api = {
     expected_outcome?: string;
     acceptance_criteria?: string;
   }) =>
-    j<TaskStateCard>(
-      fetch("/api/task/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<TaskStateCard>("/api/task/assign", input),
   threadsForSpace: (spaceId: string) =>
-    j<ThreadSummary[]>(fetch("/api/threads-for-space?space=" + encodeURIComponent(spaceId))),
+    get<ThreadSummary[]>("/api/threads-for-space?space=" + encodeURIComponent(spaceId)),
   threadDetail: (spaceId: string, parentId: string) => {
     const q = new URLSearchParams();
     q.set("space", spaceId);
     q.set("parent", parentId);
-    return j<ThreadDetail>(fetch("/api/thread-detail?" + q));
+    return get<ThreadDetail>("/api/thread-detail?" + q);
   },
   participants: (channelID: string, threadID: string) => {
     const q = new URLSearchParams();
     if (channelID) q.set("channel", channelID);
     if (threadID) q.set("thread", threadID);
-    return j<ParticipantsView>(fetch("/api/participants?" + q));
+    return get<ParticipantsView>("/api/participants?" + q);
   },
-  models: () => j<ModelItem[]>(fetch("/api/models")),
-  tools: () => j<ToolItem[]>(fetch("/api/tools")),
-  commands: () => j<CommandItem[]>(fetch("/api/commands")),
-  capabilities: () => j<CapabilityView>(fetch("/api/capabilities")),
-  skills: () => j<SkillView[]>(fetch("/api/skills")),
-  skill: (name: string) => j<SkillView>(fetch("/api/skill?name=" + encodeURIComponent(name))),
-  personas: () => j<PersonaItem[]>(fetch("/api/personas")),
+  models: () => get<ModelItem[]>("/api/models"),
+  tools: () => get<ToolItem[]>("/api/tools"),
+  commands: () => get<CommandItem[]>("/api/commands"),
+  capabilities: () => get<CapabilityView>("/api/capabilities"),
+  skills: () => get<SkillView[]>("/api/skills"),
+  skill: (name: string) => get<SkillView>("/api/skill?name=" + encodeURIComponent(name)),
+  personas: () => get<PersonaItem[]>("/api/personas"),
   send: (sessionID: string, input: string, personaID?: string, parentMessageID?: string, attachments?: AttachmentView[]) =>
-    j<{ output: string }>(
-      fetch("/api/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: sessionID,
-          input,
-          persona_id: personaID,
-          parent_message_id: parentMessageID,
-          attachments,
-        }),
-      }),
-    ),
+    post<{ output: string }>("/api/send", {
+      session_id: sessionID,
+      input,
+      persona_id: personaID,
+      parent_message_id: parentMessageID,
+      attachments,
+    }),
   retryMessage: (spaceID: string, messageID: string) =>
-    j<{ output: string }>(
-      fetch("/api/message/retry", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ space_id: spaceID, message_id: messageID }),
-      }),
-    ),
+    post<{ output: string }>("/api/message/retry", { space_id: spaceID, message_id: messageID }),
   stop: (sessionID: string) =>
-    j<{ ok: boolean }>(
-      fetch("/api/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionID }),
-      }),
-    ),
+    post<{ ok: boolean }>("/api/stop", { session_id: sessionID }),
   deleteConversation: (input: { kind: string; id: string; parent_message_id?: string }) =>
-    j<DeleteConversationResult>(
-      fetch("/api/conversation/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<DeleteConversationResult>("/api/conversation/delete", input),
   contextInspect: (input: {
     space_id?: string;
     source?: string;
@@ -247,7 +167,7 @@ export const api = {
     if (input.parent_message_id) q.set("parent_message_id", input.parent_message_id);
     if (input.agent_id) q.set("agent_id", input.agent_id);
     if (input.profile) q.set("profile", input.profile);
-    return j<ContextInspectView>(fetch("/api/context/inspect?" + q));
+    return get<ContextInspectView>("/api/context/inspect?" + q);
   },
   contextReset: (input: {
     action: "runtime_session" | "summary";
@@ -257,13 +177,7 @@ export const api = {
     parent_message_id?: string;
     agent_id?: string;
   }) =>
-    j<ContextResetResult>(
-      fetch("/api/context/reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<ContextResetResult>("/api/context/reset", input),
   memoryOverview: (input: {
     persona_id?: string;
     source?: string;
@@ -273,13 +187,13 @@ export const api = {
     if (input.persona_id) q.set("persona_id", input.persona_id);
     if (input.source) q.set("source", input.source);
     if (input.space_id) q.set("space_id", input.space_id);
-    return j<MemoryOverviewView>(fetch("/api/memory/overview?" + q));
+    return get<MemoryOverviewView>("/api/memory/overview?" + q);
   },
   memoryDoc: (input: { scope: string; id: string }) => {
     const q = new URLSearchParams();
     q.set("scope", input.scope);
     q.set("id", input.id);
-    return j<MemoryDocDetail>(fetch("/api/memory/doc?" + q));
+    return get<MemoryDocDetail>("/api/memory/doc?" + q);
   },
   updateMemory: (input: {
     persona_id?: string;
@@ -293,13 +207,7 @@ export const api = {
     kind?: string;
     confidence?: string;
   }) =>
-    j<{ ok: boolean; output: string; memory: MemoryDocDetail; overview: MemoryOverviewView }>(
-      fetch("/api/memory/update", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<{ ok: boolean; output: string; memory: MemoryDocDetail; overview: MemoryOverviewView }>("/api/memory/update", input),
   deleteMemory: (input: {
     persona_id?: string;
     source?: string;
@@ -307,11 +215,5 @@ export const api = {
     scope: string;
     id: string;
   }) =>
-    j<{ ok: boolean; output: string; overview: MemoryOverviewView }>(
-      fetch("/api/memory/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      }),
-    ),
+    post<{ ok: boolean; output: string; overview: MemoryOverviewView }>("/api/memory/delete", input),
 };

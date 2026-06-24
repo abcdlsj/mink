@@ -20,22 +20,8 @@ func (a *App) channelRouter() *space.Router {
 		return nil
 	}
 	a.spaceRouterOnce.Do(func() {
-		a.spaceRouter = space.NewRouter(a.spaces, func(id string) (space.PersonaInfo, bool) {
-			id = strings.TrimSpace(id)
-			if id == "" || a.personas == nil {
-				return space.PersonaInfo{}, false
-			}
-			if p := a.personas.Get(id); p != nil {
-				return space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}, true
-			}
-			lower := strings.ToLower(id)
-			for _, p := range a.personas.List() {
-				if strings.ToLower(p.Display) == lower || strings.ToLower(p.ID) == lower {
-					return space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}, true
-				}
-			}
-			return space.PersonaInfo{}, false
-		}, 4)
+		resolver := a.fuzzyPersonaResolver()
+		a.spaceRouter = space.NewRouter(a.spaces, resolver.Resolve, 4)
 	})
 	return a.spaceRouter
 }
@@ -377,24 +363,19 @@ func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, 
 	resolved := space.ParseMentions(content, r.ResolverFunc(), r.MaxMentions())
 	resolved = filterOut(resolved, target.AgentID)
 
-	draft := space.Message{
-		AuthorID:        persona.ID,
-		AuthorKind:      space.ParticipantAgent,
+	added := s.Messages[baseline:]
+	draft := DraftAssistantMessage{
+		AgentID:         persona.ID,
 		Content:         content,
 		Reasoning:       reasoning,
 		Mentions:        resolved,
 		AutoReplyReason: a.routedReplyReason(spaceID, target),
 		ParentMessageID: parentMessageID,
-		Usage:           msg.AssistantUsage(s.Messages[baseline:]),
-		RuntimeMeta:     msg.AssistantRuntimeMeta(s.Messages[baseline:]),
+		Added:           added,
 		Attachments:     attachments,
-	}
-	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, func(id string) space.PersonaInfo {
-		if p := a.personas.Get(id); p != nil {
-			return space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
-		}
-		return space.PersonaInfo{ID: id}
-	})
+	}.Message()
+	personas := a.fuzzyPersonaResolver()
+	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, personas.Info)
 	if err != nil {
 		return channelWakeResult{err: err}
 	}

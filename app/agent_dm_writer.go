@@ -59,7 +59,8 @@ func (a *App) personaInfo(id string) (string, *space.PersonaInfo, error) {
 	if p == nil {
 		return "", nil, fmt.Errorf("%w: %s", ErrAgentDMPersonaNotFound, id)
 	}
-	return p.ID, &space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}, nil
+	info := personaInfoFromPersona(p)
+	return p.ID, &info, nil
 }
 
 func (a *App) resolveAgentDMTargetSpace(source, explicit string) (*space.Space, *space.PersonaInfo, error) {
