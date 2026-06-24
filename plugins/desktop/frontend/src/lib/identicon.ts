@@ -51,102 +51,53 @@ const KIND_PALETTES: Record<Exclude<IdenticonKind, "agent">, Palette> = {
 };
 
 const TEMPLATES: Pixel[][][] = [
-  rows([
-    "..........",
-    "..kkkkkk..",
-    ".kmmmmmmk.",
-    ".kmhmmhmk.",
-    ".kmmmmmmk.",
-    ".kmkmmkmk.",
-    ".kmmkkmmk.",
-    "..kmmmmk..",
-    "..kskkks..",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "...kkkk...",
-    "..kmmmmk..",
-    ".kmmhhmmk.",
-    ".kmmkkmmk.",
-    ".kmmmmmmk.",
-    "..kmssmk..",
-    "...kkkk...",
-    "..kssssk..",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "..kkkkkk..",
-    ".kmmmmmmk.",
-    ".kmkkkkmk.",
-    ".kmkwwkmk.",
-    ".kmkkkkmk.",
-    ".kmmmmmmk.",
-    "..kssssk..",
-    "..kkkkkk..",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "..kkkkkk..",
-    ".kmmmmmmk.",
-    ".kmmhmmmk.",
-    ".kmmmmhmk.",
-    "..kmmmmk..",
-    "...kmmk...",
-    "..ksmmk...",
-    ".ksskk....",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "...kkkk...",
-    "..kmmmmk..",
-    ".kmmmmmmk.",
-    ".kmkhhkmk.",
-    ".kmmmmmmk.",
-    "..kssssk..",
-    "...kkkk...",
-    "..ks..sk..",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "..kkkkkk..",
-    ".kmmmmmmk.",
-    ".kmmkkmmk.",
-    ".kmmmmmmk.",
-    ".kksmmskk.",
-    "..kssssk..",
-    "..kssssk..",
-    "...kkkk...",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "..kkkkkk..",
-    ".kmmmmmmk.",
-    ".kmhkkhmk.",
-    ".kmmmmmmk.",
-    ".kmkkkkmk.",
-    ".kmmmmmmk.",
-    "..ksmmk...",
-    "...kkkk...",
-    "..........",
-  ]),
-  rows([
-    "..........",
-    "...kkkk...",
-    "..kmmmmk..",
-    ".kmmmmmmk.",
-    ".kmkhhkmk.",
-    ".kmmmmmmk.",
-    ".kkmssmkk.",
-    "...kssk...",
-    "..ks..sk..",
-    "..........",
-  ]),
+  // Robots / screens
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k...", "...k..k..."]),
+  rows(["...kkk....", "...kmk....", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkmmkmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
+  rows([".kkkkkkkk.", "kwwwwwwwwk", "kwkkkkkkwk", "kwkmmmmkwk", "kwkmmmmkwk", "kwksssskwk", "kwkkkkkkwk", "kwwwwwwwwk", ".kkkkkkkk.", "....kk...."]),
+  rows(["kkkkkk....", "kmmmmk....", "kmhhmk....", "kmmmmkkkk.", "kmmmmmmmmk", "kmmkmmkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
+  rows(["...kkkkkk.", "..kmmmmmmk", ".kmmhmmhmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...kk..kk.", "...k....k."]),
+  rows([".kkkkkkkk.", "kwwwwwwwwk", "kwmmmmmmwk", "kwmkkkkmwk", "kwmkwwkmwk", "kwmkkkkmwk", "kwmmmmmmwk", "kwwsssswwk", ".kkkkkkkk.", "kk......kk"]),
+
+  // Creature faces
+  rows(["k..kkkk..k", "kkkmmmmkkk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
+  rows(["kk......kk", "kmm....mmk", "kmmkkkkmmk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
+  rows(["...kkkk...", "..kmmmmk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "kk.k..k.kk", "k..k..k..k", "k........k"]),
+  rows(["kkk....kkk", "kmmk..kmmk", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
+  rows(["..........", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmssssmmk", "kssssssssk", "kssssssssk", ".kssksssk.", "..kk..kk.."]),
+  rows(["..kk..kk..", "..kmmmmk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "k..kss..k.", "k...kk...k", "k........k"]),
+  rows(["....kk....", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", ".kk....kk.", "kk......kk"]),
+
+  // Objects
+  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmmmmmmmk", "kssssssssk", ".kksssskk.", "...kkkk...", "..kk..kk.."]),
+  rows(["......kkk.", "...kkkkmmk", "..kmmmmmmk", ".kmmmmmmmk", "kmmhmmmmmk", "kmmmmmmmkk", ".kmmmmmkk.", "..kkkkk...", "..........", ".........."]),
+  rows(["..kkkk....", ".kmmmmkk..", "kmmmmmmmk.", "kmmhmmmmmk", "kmmmmmmmmk", "kmmmmmssmk", ".kmmssssk.", "..kkkkkk..", ".....kk...", ".........."]),
+  rows(["...kk.....", "..kmmkk...", ".kmmmmk...", "kmmhhmmk..", "kmmmmmmk..", ".kmmmssk..", "..kssmk...", "...kk.....", "..........", ".........."]),
+  rows(["...kkkk...", "..kmmmmk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "..kk..kk.."]),
+  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhhhhmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kssk...", "....kk....", "....kk...."]),
+
+  // Tools / roles
+  rows(["kkkkkkkkk.", "kwwwwwwwk.", "kwmmmmmwk.", "kwmsssmwk.", "kwmmmmmwk.", "kwwwwwwwk.", "kkkkkkkkk.", "k........k", "kk......kk", ".........."]),
+  rows(["..kkkk....", ".kmmmmk...", "kmmkkmmk..", "kmkkkkmk..", "kmmkkmmk..", ".kmmmmk...", "..kkkkkk..", "......kmmk", ".......kkk", ".........."]),
+  rows(["......kkk.", ".....kmmk.", "....kmmk..", "kk.kmmk...", "kmmkmmk...", ".kmmmk....", "..kmmk....", "...kmmk...", "....kk....", ".........."]),
+  rows(["....kkkk..", "...kmmmmk.", "..kmmmmkk.", ".kmmmmk...", "kmmmmk....", ".kmmmmk...", "..kmmmmk..", "...ksssk..", "....kkk...", ".........."]),
+  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kkmmmmmmkk", "..kmmmmk..", "...kssk...", "....kk....", "....kk...."]),
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", "kmmssssmmk", "kmmmmmmmmk", "kssssssssk", ".kkkkkkkk.", "..k....k..", "kk......kk"]),
+  rows(["kkkkkk....", "kmmmmkk...", "kmhhhhmk..", "kmmmmmmk..", "kmssssmk..", "kmmmmmmk..", "kmmmmkk...", "kkkkkk....", "....kkk...", ".....kkk.."]),
+  rows(["..kkkk....", ".kmmmmk...", "kmmhmmmk..", "kmmmmmmk..", ".kmmssmk..", "..kkkkkk..", ".....kmmk.", "......kmmk", ".......kkk", ".........."]),
+
+  // Abstract badges
+  rows(["...kkkk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmkkmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", ".kksssskk.", "kk......kk"]),
+  rows([".....kk...", "....kmmk..", "...kmmk...", "..kmmmk...", "..kkmmk...", "...kmmmk..", "...kssk...", "..kssk....", "..kk......", ".........."]),
+  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmmmmmk.", "kmmmmmmmmk", "kkmmmmmmkk", "..kssssk..", "..kkkkkk..", "....kk....", ".........."]),
+  rows(["kkk.......", "kmmkkkk...", "kmmmmmmk..", "kmmhhmmmk.", "kmmmmmmmk.", "kmmssmmk..", "kmmmmkk...", "kkkkk.....", "kk........", ".........."]),
+  rows(["kkkkkkkk..", "kmkmkmk...", "kkmkmk....", "kmkmkmk...", "kkmkmkmk..", "kmkmkmkmk.", "kkmkmkmkmk", ".kkkkkkkk.", "..........", ".........."]),
+  rows(["kkk.......", "kmmkk.....", "kmmmmkk...", "kmmmmmmk..", "kmmhmmhmk.", "kmmmmmmk..", ".kmmssmk..", "..kkkkk...", "...kk.....", ".........."]),
+  rows(["...kkkkkk.", "..kmmmmmmk", ".kmmkkkkmk", "kmmkwwkmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "..........", ".........."]),
+  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kssk...", "....kk....", "....kk....", "....kk...."]),
 ];
 
 export function identiconSVG(seed: string, kind: IdenticonKind = "agent"): string {
@@ -156,13 +107,14 @@ export function identiconSVG(seed: string, kind: IdenticonKind = "agent"): strin
   const template = TEMPLATES[(h >>> 8) % TEMPLATES.length];
   const accentShift = (h >>> 16) & 1;
   const title = escapeAttr(seed || "anon");
-  const cells = [`<rect width="40" height="40" fill="${PAPER}"/>`, `<rect x="2" y="2" width="36" height="36" fill="${INK}"/>`, `<rect x="5" y="5" width="30" height="30" fill="${palette.bg}"/>`];
+  const cellSize = 4;
+  const cells = [`<rect width="40" height="40" fill="${PAPER}"/>`];
 
   for (let y = 0; y < template.length; y++) {
     for (let x = 0; x < template[y].length; x++) {
       const pixel = template[y][x];
       if (pixel === ".") continue;
-      cells.push(`<rect x="${x * 3 + 5}" y="${y * 3 + 5}" width="3" height="3" fill="${pixelColor(pixel, palette, accentShift)}"/>`);
+      cells.push(`<rect x="${x * cellSize}" y="${y * cellSize}" width="${cellSize}" height="${cellSize}" fill="${pixelColor(pixel, palette, accentShift)}"/>`);
     }
   }
 
