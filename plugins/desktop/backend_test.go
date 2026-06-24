@@ -592,6 +592,68 @@ func TestDesktopDeleteMemoryAPIDeletesAndPersistsNotice(t *testing.T) {
 	}
 }
 
+func TestDesktopUpdateMemoryAPIUpdatesSameIDAndPersistsNotice(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: direct[0].ID,
+		Input:     "!memory save persona:andy Original title :: old body",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetDirectChat(direct[0].ID)
+	fields := strings.Fields(detail.Messages[0].Content)
+	if len(fields) < 3 {
+		t.Fatalf("unexpected save output: %q", detail.Messages[0].Content)
+	}
+	memoryID := fields[2]
+
+	doc, err := b.GetMemory(GetMemoryRequest{Scope: "persona:andy", ID: memoryID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.ID != memoryID || !strings.Contains(doc.Body, "old body") {
+		t.Fatalf("memory doc = %#v", doc)
+	}
+	res, err := b.UpdateMemory(UpdateMemoryRequest{
+		SpaceID:    direct[0].ID,
+		Scope:      "persona:andy",
+		ID:         memoryID,
+		Title:      "Updated title",
+		Body:       "new body",
+		Summary:    "new summary",
+		Kind:       "project_context",
+		Confidence: "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK || res.Memory.ID != memoryID || res.Memory.Title != "Updated title" || res.Memory.Body != "new body" {
+		t.Fatalf("update result = %#v", res)
+	}
+	updated, err := b.GetMemory(GetMemoryRequest{Scope: "persona:andy", ID: memoryID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != memoryID || updated.Title != "Updated title" || updated.Body != "new body" || updated.Kind != "project_context" {
+		t.Fatalf("updated memory = %#v", updated)
+	}
+	detail = b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want save + update notices", detail.Messages)
+	}
+	if detail.Messages[1].Role != "system" || !strings.Contains(detail.Messages[1].Content, "updated memory "+memoryID+" in persona:andy") {
+		t.Fatalf("update command output = %#v", detail.Messages[1])
+	}
+}
+
 func TestDesktopShellShortcutOutputDoesNotPersistNotice(t *testing.T) {
 	b, _ := newBackendWithApp(t)
 

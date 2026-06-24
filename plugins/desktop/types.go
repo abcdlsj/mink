@@ -163,6 +163,31 @@ type DeleteMemoryResult struct {
 	Overview app.MemoryOverview `json:"overview"`
 }
 
+type GetMemoryRequest struct {
+	Scope string `json:"scope"`
+	ID    string `json:"id"`
+}
+
+type UpdateMemoryRequest struct {
+	PersonaID  string `json:"persona_id,omitempty"`
+	Source     string `json:"source,omitempty"`
+	SpaceID    string `json:"space_id,omitempty"`
+	Scope      string `json:"scope"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	Summary    string `json:"summary,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
+}
+
+type UpdateMemoryResult struct {
+	OK       bool                `json:"ok"`
+	Output   string              `json:"output"`
+	Memory   app.MemoryDocDetail `json:"memory"`
+	Overview app.MemoryOverview  `json:"overview"`
+}
+
 type DeleteConversationRequest struct {
 	Kind            string `json:"kind"`
 	ID              string `json:"id"`

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,6 +37,37 @@ type MemoryDocOverview struct {
 	Summary   string    `json:"summary,omitempty"`
 	Kind      string    `json:"kind,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type MemoryDocDetail struct {
+	ID              string    `json:"id"`
+	ScopeKind       string    `json:"scope_kind"`
+	ScopeKey        string    `json:"scope_key,omitempty"`
+	ScopeLabel      string    `json:"scope_label"`
+	Title           string    `json:"title"`
+	Body            string    `json:"body"`
+	Summary         string    `json:"summary,omitempty"`
+	Kind            string    `json:"kind,omitempty"`
+	Tags            []string  `json:"tags,omitempty"`
+	Source          string    `json:"source,omitempty"`
+	SourceSpaceID   string    `json:"source_space_id,omitempty"`
+	SourceMessageID string    `json:"source_message_id,omitempty"`
+	CreatedBy       string    `json:"created_by,omitempty"`
+	Confidence      string    `json:"confidence,omitempty"`
+	CreatedAt       time.Time `json:"created_at,omitempty"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	ExpiresAt       time.Time `json:"expires_at,omitempty"`
+}
+
+type MemoryUpdateInput struct {
+	ScopeKind  string `json:"scope_kind"`
+	ScopeKey   string `json:"scope_key,omitempty"`
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	Summary    string `json:"summary,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
 }
 
 func externalRuntimeName(name string) bool {
@@ -433,6 +465,105 @@ func (a *App) MemoryOverview(scopes []command.MemoryScope, limit int) MemoryOver
 	return out
 }
 
+func (a *App) MemoryDoc(kind, key, id string) (MemoryDocDetail, error) {
+	if a == nil {
+		return MemoryDocDetail{}, fmt.Errorf("app not initialized")
+	}
+	kind = strings.TrimSpace(kind)
+	key = strings.TrimSpace(key)
+	id = strings.TrimSpace(id)
+	if kind == "" || id == "" {
+		return MemoryDocDetail{}, fmt.Errorf("memory scope and id required")
+	}
+	doc, err := a.loadMemoryDoc(kind, key, id)
+	if err != nil {
+		return MemoryDocDetail{}, err
+	}
+	return memoryDocDetailFromFile(kind, key, doc.id, doc.raw, doc.mod), nil
+}
+
+func (a *App) UpdateMemoryDoc(in MemoryUpdateInput) (MemoryDocDetail, error) {
+	if a == nil {
+		return MemoryDocDetail{}, fmt.Errorf("app not initialized")
+	}
+	kind := strings.TrimSpace(in.ScopeKind)
+	key := strings.TrimSpace(in.ScopeKey)
+	id := strings.TrimSpace(in.ID)
+	if kind == "" || id == "" {
+		return MemoryDocDetail{}, fmt.Errorf("memory scope and id required")
+	}
+	title := strings.TrimSpace(in.Title)
+	body := strings.TrimSpace(in.Body)
+	if title == "" || body == "" {
+		return MemoryDocDetail{}, fmt.Errorf("memory title and body required")
+	}
+	loaded, err := a.loadMemoryDoc(kind, key, id)
+	if err != nil {
+		return MemoryDocDetail{}, err
+	}
+	detail := memoryDocDetailFromFile(kind, key, loaded.id, loaded.raw, loaded.mod)
+	detail.Title = title
+	detail.Body = body
+	detail.Summary = strings.TrimSpace(in.Summary)
+	if detail.Summary == "" {
+		detail.Summary = summarizeMemoryText(body, 160)
+	}
+	detail.Kind = strings.TrimSpace(in.Kind)
+	if detail.Kind == "" {
+		detail.Kind = "note"
+	}
+	detail.Confidence = normalizeMemoryConfidence(strings.TrimSpace(in.Confidence))
+	if detail.Confidence == "" {
+		detail.Confidence = "medium"
+	}
+	detail.UpdatedAt = time.Now().UTC()
+	if err := writeMemoryDocFile(loaded.path, detail); err != nil {
+		return MemoryDocDetail{}, err
+	}
+	return detail, nil
+}
+
+type loadedMemoryDoc struct {
+	id   string
+	path string
+	raw  string
+	mod  time.Time
+}
+
+func (a *App) loadMemoryDoc(kind, key, id string) (loadedMemoryDoc, error) {
+	dir := filepath.Join(a.cfg.MemoryDir(), sanitizeMemoryPath(kind))
+	if strings.TrimSpace(key) != "" {
+		dir = filepath.Join(dir, sanitizeMemoryPath(key))
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return loadedMemoryDoc{}, fmt.Errorf("memory %s not found in %s", id, memoryScopeLabel(kind, key))
+		}
+		return loadedMemoryDoc{}, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".md" {
+			continue
+		}
+		fileID := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		if fileID != id {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return loadedMemoryDoc{}, err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return loadedMemoryDoc{}, err
+		}
+		return loadedMemoryDoc{id: fileID, path: path, raw: string(data), mod: info.ModTime().UTC()}, nil
+	}
+	return loadedMemoryDoc{}, fmt.Errorf("memory %s not found in %s", id, memoryScopeLabel(kind, key))
+}
+
 func (a *App) recentMemoryDocs(kind, key string, limit int) []MemoryDocOverview {
 	dir := filepath.Join(a.cfg.MemoryDir(), sanitizeMemoryPath(kind))
 	if strings.TrimSpace(key) != "" {
@@ -466,6 +597,65 @@ func (a *App) recentMemoryDocs(kind, key string, limit int) []MemoryDocOverview 
 		docs = docs[:limit]
 	}
 	return docs
+}
+
+func memoryDocDetailFromFile(kind, key, id, raw string, mod time.Time) MemoryDocDetail {
+	body := raw
+	head := ""
+	if strings.HasPrefix(body, "---\n") {
+		rest := body[4:]
+		if i := strings.Index(rest, "\n---\n"); i >= 0 {
+			head = rest[:i]
+			body = rest[i+5:]
+		}
+	}
+	meta := parseMemoryFrontmatter(head)
+	body = strings.TrimSpace(stripLeadingMemoryTitle(body, meta["title"]))
+	detail := MemoryDocDetail{
+		ID:              id,
+		ScopeKind:       strings.TrimSpace(kind),
+		ScopeKey:        memoryScopePublicKey(kind, key),
+		ScopeLabel:      memoryScopeLabel(kind, key),
+		Title:           strings.TrimSpace(meta["title"]),
+		Body:            body,
+		Summary:         strings.TrimSpace(meta["summary"]),
+		Kind:            strings.TrimSpace(meta["kind"]),
+		Tags:            parseMemoryTags(head),
+		Source:          strings.TrimSpace(meta["source"]),
+		SourceSpaceID:   strings.TrimSpace(meta["source_space_id"]),
+		SourceMessageID: strings.TrimSpace(meta["source_message_id"]),
+		CreatedBy:       strings.TrimSpace(meta["created_by"]),
+		Confidence:      strings.TrimSpace(meta["confidence"]),
+		UpdatedAt:       mod,
+	}
+	if detail.Title == "" {
+		detail.Title = firstMemoryHeading(raw)
+	}
+	if detail.Title == "" {
+		detail.Title = id
+	}
+	if detail.Body == "" {
+		detail.Body = strings.TrimSpace(raw)
+	}
+	if detail.Summary == "" {
+		detail.Summary = summarizeMemoryText(detail.Body, 160)
+	}
+	if detail.Kind == "" {
+		detail.Kind = "note"
+	}
+	if detail.Confidence == "" {
+		detail.Confidence = "medium"
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(meta["updated_at"])); err == nil {
+		detail.UpdatedAt = parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(meta["created_at"])); err == nil {
+		detail.CreatedAt = parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(meta["expires_at"])); err == nil {
+		detail.ExpiresAt = parsed
+	}
+	return detail
 }
 
 func memoryDocOverviewFromFile(name, raw string, mod time.Time) MemoryDocOverview {
@@ -503,6 +693,72 @@ func memoryDocOverviewFromFile(name, raw string, mod time.Time) MemoryDocOvervie
 	}
 }
 
+func writeMemoryDocFile(path string, detail MemoryDocDetail) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("---\n")
+	fmt.Fprintf(&b, "scope_kind: %s\n", quoteMemoryMeta(detail.ScopeKind))
+	fmt.Fprintf(&b, "scope_key: %s\n", quoteMemoryMeta(detail.ScopeKey))
+	fmt.Fprintf(&b, "title: %s\n", quoteMemoryMeta(detail.Title))
+	fmt.Fprintf(&b, "kind: %s\n", quoteMemoryMeta(firstNonEmpty(detail.Kind, "note")))
+	if detail.Source != "" {
+		fmt.Fprintf(&b, "source: %s\n", quoteMemoryMeta(detail.Source))
+	}
+	if detail.SourceSpaceID != "" {
+		fmt.Fprintf(&b, "source_space_id: %s\n", quoteMemoryMeta(detail.SourceSpaceID))
+	}
+	if detail.SourceMessageID != "" {
+		fmt.Fprintf(&b, "source_message_id: %s\n", quoteMemoryMeta(detail.SourceMessageID))
+	}
+	if detail.CreatedBy != "" {
+		fmt.Fprintf(&b, "created_by: %s\n", quoteMemoryMeta(detail.CreatedBy))
+	}
+	if detail.Confidence != "" {
+		fmt.Fprintf(&b, "confidence: %s\n", quoteMemoryMeta(detail.Confidence))
+	}
+	if detail.Summary != "" {
+		fmt.Fprintf(&b, "summary: %s\n", quoteMemoryMeta(detail.Summary))
+	}
+	if len(detail.Tags) > 0 {
+		b.WriteString("tags:\n")
+		for _, tag := range detail.Tags {
+			fmt.Fprintf(&b, "  - %s\n", quoteMemoryMeta(tag))
+		}
+	}
+	if !detail.CreatedAt.IsZero() {
+		fmt.Fprintf(&b, "created_at: %s\n", detail.CreatedAt.Format(time.RFC3339Nano))
+	}
+	fmt.Fprintf(&b, "updated_at: %s\n", detail.UpdatedAt.Format(time.RFC3339Nano))
+	if !detail.ExpiresAt.IsZero() {
+		fmt.Fprintf(&b, "expires_at: %s\n", detail.ExpiresAt.Format(time.RFC3339Nano))
+	}
+	b.WriteString("---\n\n")
+	b.WriteString("# ")
+	b.WriteString(strings.TrimSpace(detail.Title))
+	b.WriteString("\n\n")
+	b.WriteString(strings.TrimSpace(detail.Body))
+	if !strings.HasSuffix(detail.Body, "\n") {
+		b.WriteByte('\n')
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(b.String()); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return os.Rename(tmpPath, path)
+}
+
 func parseMemoryFrontmatter(head string) map[string]string {
 	out := map[string]string{}
 	for _, line := range strings.Split(head, "\n") {
@@ -517,6 +773,62 @@ func parseMemoryFrontmatter(head string) map[string]string {
 		}
 	}
 	return out
+}
+
+func parseMemoryTags(head string) []string {
+	var tags []string
+	lines := strings.Split(head, "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "tags:" {
+			continue
+		}
+		for i+1 < len(lines) {
+			next := strings.TrimSpace(lines[i+1])
+			if !strings.HasPrefix(next, "- ") {
+				return tags
+			}
+			tag := strings.Trim(strings.TrimSpace(strings.TrimPrefix(next, "- ")), `"`)
+			if unquoted, err := strconv.Unquote(strings.TrimSpace(strings.TrimPrefix(next, "- "))); err == nil {
+				tag = unquoted
+			}
+			if tag != "" {
+				tags = append(tags, tag)
+			}
+			i++
+		}
+	}
+	return tags
+}
+
+func stripLeadingMemoryTitle(body, title string) string {
+	body = strings.TrimSpace(body)
+	title = strings.TrimSpace(title)
+	if body == "" || title == "" {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) == 0 {
+		return body
+	}
+	first := strings.TrimSpace(lines[0])
+	if strings.TrimSpace(strings.TrimLeft(first, "#")) != title {
+		return body
+	}
+	return strings.TrimSpace(strings.Join(lines[1:], "\n"))
+}
+
+func quoteMemoryMeta(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	return strconv.Quote(s)
+}
+
+func normalizeMemoryConfidence(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "low", "medium", "high":
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return ""
+	}
 }
 
 func firstMemoryHeading(body string) string {

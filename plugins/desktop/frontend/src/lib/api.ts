@@ -9,6 +9,7 @@ import type {
   ContextResetResult,
   DirectChatItem,
   DeleteConversationResult,
+  MemoryDocDetail,
   MemoryOverviewView,
   ModelItem,
   ParticipantsView,
@@ -274,6 +275,31 @@ export const api = {
     if (input.space_id) q.set("space_id", input.space_id);
     return j<MemoryOverviewView>(fetch("/api/memory/overview?" + q));
   },
+  memoryDoc: (input: { scope: string; id: string }) => {
+    const q = new URLSearchParams();
+    q.set("scope", input.scope);
+    q.set("id", input.id);
+    return j<MemoryDocDetail>(fetch("/api/memory/doc?" + q));
+  },
+  updateMemory: (input: {
+    persona_id?: string;
+    source?: string;
+    space_id?: string;
+    scope: string;
+    id: string;
+    title: string;
+    body: string;
+    summary?: string;
+    kind?: string;
+    confidence?: string;
+  }) =>
+    j<{ ok: boolean; output: string; memory: MemoryDocDetail; overview: MemoryOverviewView }>(
+      fetch("/api/memory/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    ),
   deleteMemory: (input: {
     persona_id?: string;
     source?: string;

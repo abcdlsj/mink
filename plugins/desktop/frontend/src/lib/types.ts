@@ -155,6 +155,19 @@ export interface MemoryCommitAttachment {
   created_by?: string;
 }
 
+export interface MemoryDocDetail {
+  id: string;
+  scope_kind: string;
+  scope_key?: string;
+  scope_label: string;
+  title: string;
+  body: string;
+  summary?: string;
+  kind?: string;
+  confidence?: string;
+  updated_at: string;
+}
+
 export interface TokenUsage {
   input: number;
   output: number;
