@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Command } from "cmdk";
-import { Hash, AtSign, MessageSquare, Sparkles, Cpu, Settings as SettingsIcon } from "lucide-react";
+import { Hash, AtSign, MessageSquare } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-const MAX = { channel: 4, thread: 4, agent: 3, command: 3, model: 2, settings: 1 };
+const MAX = { channel: 4, thread: 4, agent: 3 };
 
 interface CommandItemRow {
-  type: "channel" | "thread" | "agent" | "command" | "model" | "settings";
+  type: "channel" | "thread" | "agent";
   id: string;
   label: string;
   meta?: string;
@@ -20,8 +20,6 @@ export function CommandPalette() {
   const channels = useStore((s) => s.channels);
   const threads = useStore((s) => s.threads);
   const agents = useStore((s) => s.agents);
-  const commands = useStore((s) => s.commands);
-  const models = useStore((s) => s.models);
   const openChannel = useStore((s) => s.openChannel);
   const openThread = useStore((s) => s.openThread);
   const newAgentChat = useStore((s) => s.newAgentChat);
@@ -77,39 +75,8 @@ export function CommandPalette() {
       }),
     );
 
-    commands.forEach((c) =>
-      items.push({
-        type: "command",
-        id: c.name,
-        label: c.name,
-        meta: c.summary,
-        onRun: () => {
-          setPalette(false);
-        },
-      }),
-    );
-
-    models.forEach((m) =>
-      items.push({
-        type: "model",
-        id: m.name,
-        label: m.model,
-        meta: m.provider + (m.ready ? " · ready" : ""),
-        onRun: () => {
-          setPalette(false);
-        },
-      }),
-    );
-
-    items.push({
-      type: "settings",
-      id: "open-settings",
-      label: "Open Settings",
-      onRun: () => setPalette(false),
-    });
-
     return items;
-  }, [channels, threads, agents, commands, models, openChannel, openThread, newAgentChat, setPalette]);
+  }, [channels, threads, agents, openChannel, openThread, newAgentChat, setPalette]);
 
   const filtered = useMemo(() => {
     return allItems.filter((it) => {
@@ -124,9 +91,6 @@ export function CommandPalette() {
       channel: { title: "Channels", rows: [] },
       thread: { title: "Threads", rows: [] },
       agent: { title: "Agents", rows: [] },
-      command: { title: "Commands", rows: [] },
-      model: { title: "Models", rows: [] },
-      settings: { title: "Settings", rows: [] },
     };
     filtered.forEach((it) => sections[it.type].rows.push(it));
     Object.keys(sections).forEach((k) => {
@@ -154,14 +118,14 @@ export function CommandPalette() {
           autoFocus
           value={query}
           onValueChange={setQuery}
-          placeholder="Search #channel, thread, @agent, /command, model"
+          placeholder="Search #channel, thread, or @agent"
           className="w-full border-b-hard border-border bg-bg px-[18px] py-4 text-[14px] outline-none placeholder:text-text-faint"
         />
         <Command.List className="max-h-[420px] overflow-y-auto py-1.5 pb-2.5">
           <Command.Empty className="px-4 py-6 text-center text-[12.5px] text-text-faint">
-            No results. Try #channel, thread, @agent, /command, or model name.
+            No results. Try #channel, thread, or @agent.
           </Command.Empty>
-          {(["channel", "thread", "agent", "command", "model", "settings"] as const).map((key) => {
+          {(["channel", "thread", "agent"] as const).map((key) => {
             const sec = grouped[key];
             if (!sec.rows.length) return null;
             return (
@@ -204,22 +168,15 @@ function PaletteIcon({ type }: { type: CommandItemRow["type"] }) {
   const cls = "size-3.5 text-text-faint shrink-0";
   if (type === "channel") return <Hash className={cls} />;
   if (type === "thread") return <MessageSquare className={cls} />;
-  if (type === "agent") return <AtSign className={cls} />;
-  if (type === "command") return <Sparkles className={cls} />;
-  if (type === "model") return <Cpu className={cls} />;
-  return <SettingsIcon className={cls} />;
+  return <AtSign className={cls} />;
 }
 
 function parseQuery(q: string): { mode: CommandItemRow["type"] | null; normalized: string } {
   const lower = q.replace(/^\s+/, "").toLowerCase();
   if (lower.startsWith("#")) return { mode: "channel", normalized: lower.slice(1).trim() };
   if (lower.startsWith("@")) return { mode: "agent", normalized: lower.slice(1).trim() };
-  if (lower.startsWith("/")) return { mode: "command", normalized: lower.trim() };
   if (lower.startsWith("thread ") || lower === "thread") {
     return { mode: "thread", normalized: lower.slice(6).trim() };
-  }
-  if (lower.startsWith("model ") || lower === "model") {
-    return { mode: "model", normalized: lower.slice(5).trim() };
   }
   return { mode: null, normalized: lower.trim() };
 }

@@ -71,9 +71,9 @@ export function LeftPane() {
         >
           <Bot className="size-3" />
           <span>Agents</span>
-          <span className="ml-auto border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
-            {agents.length}
-          </span>
+          {agents.length > 0 && (
+            <span className="ml-auto text-[11px] text-text-faint">{agents.length} agents</span>
+          )}
         </Button>
         <Button
           variant="default"
@@ -198,7 +198,7 @@ export function LeftPane() {
 
 function AgentBadge({ seed }: { seed: string }) {
   return (
-    <span className="inline-flex size-5 shrink-0 overflow-hidden border border-agent-border bg-agent-bg">
+    <span className="inline-flex size-5 shrink-0 overflow-hidden border border-border bg-panel">
       <Identicon seed={seed} kind="agent" />
     </span>
   );
