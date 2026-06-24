@@ -102,56 +102,73 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 	if out, ok, err := f.route(ctx); ok {
 		return out, err
 	}
-	input, attachments, err := prepareImageInput(f.input, f.attachments)
+	prepared, err := f.withPreparedInput()
 	if err != nil {
 		return "", err
 	}
+	return EntrypointHandler{flow: prepared, policy: policy}.Dispatch(ctx)
+}
+
+func (f inputFlow) withPreparedInput() (inputFlow, error) {
+	input, attachments, err := prepareImageInput(f.input, f.attachments)
+	if err != nil {
+		return inputFlow{}, err
+	}
 	f.input = input
 	f.attachments = attachments
-	if f.personaID == "" && policy.Mode == command.ModeDirect && policy.Mention == command.MentionText {
+	return f, nil
+}
+
+type EntrypointHandler struct {
+	flow   inputFlow
+	policy command.Entrypoint
+}
+
+func (h EntrypointHandler) Dispatch(ctx context.Context) (string, error) {
+	f := h.flow
+	if f.personaID == "" && h.policy.Mode == command.ModeDirect && h.policy.Mention == command.MentionText {
 		return f.directConversation(ctx)
 	}
-	if f.personaID == "" && policy.Mode == command.ModeRouted {
-		if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input, f.attachments); err != nil {
-			return "", err
-		}
-		return "", nil
+	if f.personaID == "" && h.policy.Mode == command.ModeRouted {
+		return f.routedConversation(ctx)
 	}
-	if policy.Mention == command.MentionLeading {
+	if h.policy.Mention == command.MentionLeading {
 		if out, ok, err := f.mention(ctx); ok {
 			return out, err
 		}
 	}
-	var contextSpaceID, excludeMessageID string
-	if space.MapSource(f.source).Kind == space.KindAgentDM {
-		personaID, _, err := f.app.resolveAgentDMPersonaID(f.source, f.personaID)
-		if err != nil {
-			return "", err
-		}
-		f.personaID = personaID
-		if p := f.app.personas.Get(personaID); p != nil && strings.TrimSpace(p.Runtime) != "" {
-			f.runtime = p.Runtime
-		}
-		ctx = command.WithPersona(ctx, personaID)
-		ctx = f.withRunContext(ctx)
-		if f.existingUserMessageID != "" {
-			sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, personaID)
-			if err != nil {
-				return "", err
-			}
-			contextSpaceID = sp.ID
-			excludeMessageID = f.existingUserMessageID
-		} else {
-			m, err := f.app.appendAgentDMUserWithAttachmentsToSpace(f.source, personaID, f.input, f.attachments)
-			if err != nil {
-				return "", err
-			}
-			if m != nil {
-				contextSpaceID = m.SpaceID
-				excludeMessageID = m.ID
-			}
-		}
+	if f.isAgentDM() {
+		return f.agentDMConversation(ctx)
 	}
+	return f.runDefaultTurn(ctx, turnContextSeed{})
+}
+
+func (f inputFlow) routedConversation(ctx context.Context) (string, error) {
+	if _, err := f.app.interceptRoutedInput(ctx, f.source, f.input, f.attachments); err != nil {
+		return "", err
+	}
+	return "", nil
+}
+
+type turnContextSeed struct {
+	spaceID          string
+	excludeMessageID string
+}
+
+func (f inputFlow) isAgentDM() bool {
+	return space.MapSource(f.source).Kind == space.KindAgentDM
+}
+
+func (f inputFlow) agentDMConversation(ctx context.Context) (string, error) {
+	seed, ctx, err := f.prepareAgentDMContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	return f.runDefaultTurn(ctx, seed)
+}
+
+func (f inputFlow) runDefaultTurn(ctx context.Context, seed turnContextSeed) (string, error) {
+	contextSpaceID, excludeMessageID := seed.spaceID, seed.excludeMessageID
 	sessionSource := command.SessionSourceFrom(ctx)
 	s, err := f.app.sessions.Current(sessionSource)
 	if err != nil {
@@ -188,6 +205,34 @@ func (f inputFlow) run(ctx context.Context) (string, error) {
 		agent.StripVisionedImageAttachments(s)
 	}
 	return latestAssistant(s), nil
+}
+
+func (f *inputFlow) prepareAgentDMContext(ctx context.Context) (turnContextSeed, context.Context, error) {
+	personaID, _, err := f.app.resolveAgentDMPersonaID(f.source, f.personaID)
+	if err != nil {
+		return turnContextSeed{}, ctx, err
+	}
+	f.personaID = personaID
+	if p := f.app.personas.Get(personaID); p != nil && strings.TrimSpace(p.Runtime) != "" {
+		f.runtime = p.Runtime
+	}
+	ctx = command.WithPersona(ctx, personaID)
+	ctx = f.withRunContext(ctx)
+	if f.existingUserMessageID != "" {
+		sp, _, err := f.app.resolveAgentDMTargetSpace(f.source, personaID)
+		if err != nil {
+			return turnContextSeed{}, ctx, err
+		}
+		return turnContextSeed{spaceID: sp.ID, excludeMessageID: f.existingUserMessageID}, ctx, nil
+	}
+	m, err := f.app.appendAgentDMUserWithAttachmentsToSpace(f.source, personaID, f.input, f.attachments)
+	if err != nil {
+		return turnContextSeed{}, ctx, err
+	}
+	if m != nil {
+		return turnContextSeed{spaceID: m.SpaceID, excludeMessageID: m.ID}, ctx, nil
+	}
+	return turnContextSeed{}, ctx, nil
 }
 
 func (f inputFlow) directConversation(ctx context.Context) (string, error) {
