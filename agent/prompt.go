@@ -151,7 +151,11 @@ func (b promptBuilder) externalMemoryPolicy() string {
 	return strings.Join([]string{
 		"Memory protocol:",
 		"- Source of truth: Sumi memory action commit result only.",
-		"- Direct tools: external runtimes have no direct Sumi memory tools in this phase.",
+		"- Memory write path: external runtime expresses memory intent; Sumi host detects explicit remember requests and commits memory.",
+		"- Runtime response: acknowledge memory only when a Sumi memory action commit result is present.",
+		"- No direct tool visible: do not list host tools like Bash/Edit/Read as Sumi product capabilities.",
+		"- If asked about remember_memory: say you cannot directly call the low-level tool; Sumi host owns memory commit.",
+		"- If user says to use the Sumi-exposed memory way: treat it as explicit memory intent, not a tool-list question.",
 		"- Allowed: acknowledge successful commit result.",
 		"- If absent/failed: do not claim memory was saved.",
 		"- Inferred memory: describe candidate or ask confirmation; do not claim saved.",

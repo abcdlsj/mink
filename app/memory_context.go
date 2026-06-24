@@ -291,6 +291,7 @@ func explicitRememberRequest(s string) bool {
 	lower := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 	for _, phrase := range []string{
 		"记住",
+		"记忆",
 		"记得",
 		"以后都",
 		"以后请",
@@ -324,7 +325,15 @@ func rememberTitle(input string) string {
 
 func rememberBody(input string) string {
 	body := strings.TrimSpace(input)
+	if explicitRememberRequest(body) {
+		if left, right, ok := strings.Cut(body, "："); ok && explicitRememberRequest(left) && strings.TrimSpace(right) != "" {
+			body = strings.TrimSpace(right)
+		} else if left, right, ok := strings.Cut(body, ":"); ok && explicitRememberRequest(left) && strings.TrimSpace(right) != "" {
+			body = strings.TrimSpace(right)
+		}
+	}
 	prefixes := []string{
+		"请记忆一下", "帮我记忆一下", "你记忆一下", "记忆一下", "请记忆", "帮我记忆", "你记忆", "记忆",
 		"请记住", "帮我记住", "你记住", "记住", "记得",
 		"please remember that", "please remember", "remember that",
 	}

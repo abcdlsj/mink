@@ -272,6 +272,7 @@ func explicitRememberAuthorization(s string) bool {
 	lower := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 	phrases := []string{
 		"记住",
+		"记忆",
 		"记得",
 		"以后都",
 		"以后请",
