@@ -461,6 +461,7 @@ function mobileMode(view: string): string {
   if (view === "channel") return "routed";
   if (view === "direct") return "direct";
   if (view === "agent") return "direct agent";
+  if (view === "agents") return "agent directory";
   if (view === "tasks") return "task board";
   return "direct";
 }
@@ -531,6 +532,7 @@ function MobileCapabilityList({ items }: { items: [string, string][] }) {
 }
 
 function mobileTitle(view: string, title?: string, parent?: string): string {
+  if (view === "agents") return "Agents";
   if (view === "tasks") return "Task Board";
   const raw = title || parent || (view === "home" ? "Home" : view);
   const compact = raw.replace(/\s+/g, " ").trim();

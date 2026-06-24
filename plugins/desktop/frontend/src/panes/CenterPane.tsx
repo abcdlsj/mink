@@ -3,6 +3,7 @@ import { useStore } from "@/lib/store";
 import { ChannelHeader } from "./ChannelHeader";
 import { Composer } from "./Composer/Composer";
 import { AgentDetailPane } from "./AgentDetailPane";
+import { AgentsPanel } from "./AgentsPanel";
 import { EmptyState } from "./EmptyState";
 import { MessageStream } from "./Message/MessageStream";
 import { TaskBoard } from "./TaskBoard";
@@ -37,6 +38,10 @@ export function CenterPane({ preferThreadView = false }: { preferThreadView?: bo
   const threadDetail = useStore((s) => s.threadDetail);
   if (view === "tasks") {
     return <TaskBoard />;
+  }
+
+  if (view === "agents") {
+    return <AgentsPanel />;
   }
 
   if (view === "agent_detail") {

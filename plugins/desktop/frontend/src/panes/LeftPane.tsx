@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AtSign, ChevronRight, ClipboardList, Hash, MessageCircle, Plus, Search } from "lucide-react";
+import { AtSign, Bot, ChevronRight, ClipboardList, Hash, MessageCircle, Plus, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
@@ -8,86 +8,29 @@ export function LeftPane() {
   const channels = useStore((s) => s.channels);
   const directChats = useStore((s) => s.directChats);
   const agentDMs = useStore((s) => s.agentDMs);
-  const personas = useStore((s) => s.personas);
+  const agents = useStore((s) => s.agents);
   const view = useStore((s) => s.view);
   const activeChannel = useStore((s) => s.activeChannel);
   const activeDirect = useStore((s) => s.activeDirect);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
-  const activeAgentID = useStore((s) => s.activeAgentID);
   const openChannel = useStore((s) => s.openChannel);
   const openAgent = useStore((s) => s.openAgent);
-  const openAgentDetail = useStore((s) => s.openAgentDetail);
+  const openAgentsPanel = useStore((s) => s.openAgentsPanel);
   const openDirectChat = useStore((s) => s.openDirectChat);
   const openTaskBoard = useStore((s) => s.openTaskBoard);
-  const newAgentChat = useStore((s) => s.newAgentChat);
   const setPalette = useStore((s) => s.setPalette);
   const setQuickCreate = useStore((s) => s.setQuickCreate);
   const [openSections, setOpenSections] = useState({
     channels: true,
     direct: true,
-    persona: true,
     agents: true,
   });
-  const [agentCreate, setAgentCreate] = useState<{
-    personaID: string;
-    display: string;
-    hasDefaultDM: boolean;
-  } | null>(null);
-  const [chatTitle, setChatTitle] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [createErr, setCreateErr] = useState<string | null>(null);
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((s) => ({ ...s, [key]: !s[key] }));
   };
-  const sidebarPersonas = personas.filter((p) => p.show_in_sidebar !== false);
   const humanDirectChats = directChats.filter((dm) => dm.kind !== "agent_dm");
   const agentDirectChats = directChats.filter((dm) => dm.kind === "agent_dm");
   const directCount = humanDirectChats.length + agentDirectChats.length;
-  const agentDefaultDM = (personaID: string) =>
-    directChats.find((dm) => dm.kind === "agent_dm" && dm.persona_id === personaID);
-  const openAgentRow = (personaID: string) => openAgentDetail(personaID);
-  const openAgentCreate = (personaID: string, display: string) => {
-    setAgentCreate({ personaID, display, hasDefaultDM: !!agentDefaultDM(personaID) });
-    setChatTitle("");
-    setCreating(false);
-    setCreateErr(null);
-  };
-  const closeAgentCreate = () => {
-    if (creating) return;
-    setAgentCreate(null);
-    setChatTitle("");
-    setCreateErr(null);
-  };
-  const resetAgentCreate = () => {
-    setAgentCreate(null);
-    setChatTitle("");
-    setCreating(false);
-    setCreateErr(null);
-  };
-  const createDefaultDM = async () => {
-    if (!agentCreate || creating) return;
-    setCreating(true);
-    setCreateErr(null);
-    try {
-      await openAgent(agentCreate.personaID);
-      resetAgentCreate();
-    } catch (e) {
-      setCreateErr(e instanceof Error ? e.message : String(e));
-      setCreating(false);
-    }
-  };
-  const createNamedAgentChat = async () => {
-    if (!agentCreate || creating) return;
-    setCreating(true);
-    setCreateErr(null);
-    try {
-      await newAgentChat(agentCreate.personaID, chatTitle.trim());
-      resetAgentCreate();
-    } catch (e) {
-      setCreateErr(e instanceof Error ? e.message : String(e));
-      setCreating(false);
-    }
-  };
 
   return (
     <aside className="relative h-full overflow-y-auto border-r-hard border-border bg-panel-2 px-3 pb-5 pt-3">
@@ -114,6 +57,21 @@ export function LeftPane() {
           <span>Search</span>
           <span className="ml-auto border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
             ⌘K
+          </span>
+        </Button>
+        <Button
+          variant="default"
+          size="default"
+          className={cn(
+            "justify-start bg-bg text-text-muted hover:text-text",
+            view === "agents" && "bg-agent-bg text-agent",
+          )}
+          onClick={() => openAgentsPanel()}
+        >
+          <Bot className="size-3" />
+          <span>Agents</span>
+          <span className="ml-auto border border-border bg-panel px-1.5 py-px font-mono text-[11px] text-text-muted">
+            {agents.length}
           </span>
         </Button>
         <Button
@@ -186,75 +144,9 @@ export function LeftPane() {
               running={dc.has_running}
               active={view === "agent" && activeAgentSpace === dc.id}
               onClick={() => void openDirectChat(dc.id)}
-              tooltip={dc.has_running ? `${dc.title} · running` : personaTooltip({
-                id: dc.persona_id || dc.id,
-                display: dc.persona_name || dc.title,
-                description: "Default agent DM",
-              } as import("@/lib/types").PersonaItem)}
+              tooltip={dc.has_running ? `${dc.title} · running` : `@${dc.persona_name || dc.persona_id || "agent"} · Default agent DM`}
             />
           ))}
-        </ul>
-      )}
-
-      <GroupLabel open={openSections.persona} count={sidebarPersonas.length} onToggle={() => toggleSection("persona")}>
-        Agents
-      </GroupLabel>
-      {openSections.persona && (
-        <ul className="flex flex-col gap-px">
-          {sidebarPersonas.length === 0 && (
-            <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No sidebar agents.</li>
-          )}
-          {sidebarPersonas.map((agent) => {
-            const defaultDM = agentDefaultDM(agent.id);
-            const active = view === "agent_detail" && activeAgentID === agent.id;
-            const display = agent.display || agent.id;
-            return (
-              <li key={agent.id}>
-                <div
-                  className={cn(
-                    "grid w-full cursor-pointer grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 border-2 border-transparent py-2 pl-2 pr-2 text-text-muted transition-colors",
-                    active
-                      ? "border-agent-border border-l-[10px] border-l-agent bg-agent-bg text-agent shadow-card"
-                      : "hover:border-border hover:bg-panel hover:text-text",
-                  )}
-                  title={personaTooltip(agent)}
-                >
-                  <button
-                    type="button"
-                    onClick={() => openAgentRow(agent.id)}
-                    className={cn(
-                      "inline-flex size-5 items-center justify-center border border-transparent font-mono",
-                      active ? "border-agent-border bg-panel text-agent" : "text-text-muted",
-                    )}
-                    tabIndex={-1}
-                  >
-                    <AtSign className="size-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAgentRow(agent.id)}
-                    className="min-w-0 text-left"
-                  >
-                    <span className="block truncate text-[13px] font-semibold">{display}</span>
-                    <span className="block truncate font-mono text-[10.5px] text-text-faint">
-                      {defaultDM?.updated_at ? "Agent profile · DM " + relTime(defaultDM.updated_at) : "Agent profile"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openAgentCreate(agent.id, display);
-                    }}
-                    className="inline-flex size-6 items-center justify-center border border-border bg-panel text-text-muted hover:bg-accent hover:text-text"
-                    title={"Create DM or Agent Chat with @" + display}
-                  >
-                    <Plus className="size-3" />
-                  </button>
-                </div>
-              </li>
-            );
-          })}
         </ul>
       )}
 
@@ -293,67 +185,8 @@ export function LeftPane() {
           ))}
         </ul>
       )}
-      {agentCreate && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/35 pt-[18vh]"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeAgentCreate();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") closeAgentCreate();
-          }}
-        >
-          <div className="w-[460px] overflow-hidden border-hard border-border bg-panel shadow-hard">
-            <div className="border-b-hard border-agent-border bg-agent-bg px-4 pb-2 pt-3.5">
-              <div className="font-display text-[13px] font-extrabold uppercase text-agent">
-                Start with @{agentCreate.display}
-              </div>
-              <div className="mt-0.5 font-mono text-[11.5px] text-text-muted">
-                {agentCreate.hasDefaultDM
-                  ? "Create a named agent chat."
-                  : "Create the default DM, or create a named agent chat."}
-              </div>
-            </div>
-            <div className="px-4 py-3.5">
-              <label className="block font-mono text-[11px] uppercase text-text-faint">
-                Chat title
-              </label>
-              <input
-                value={chatTitle}
-                onChange={(e) => setChatTitle(e.target.value)}
-                placeholder="Optional for Agent Chat; DM title is fixed"
-                disabled={creating}
-                autoFocus
-                className="mt-1.5 w-full border-hard border-border bg-bg px-3 py-2 text-[13.5px] text-text outline-none transition-[box-shadow] hover:shadow-card focus:shadow-card disabled:opacity-70"
-              />
-              {createErr && <div className="mt-2 text-[12px] text-error">{createErr}</div>}
-              <div className="mt-4 flex justify-end gap-2">
-                <Button variant="default" type="button" onClick={closeAgentCreate} disabled={creating}>
-                  Cancel
-                </Button>
-                {!agentCreate.hasDefaultDM && (
-                  <Button variant="default" type="button" onClick={() => void createDefaultDM()} disabled={creating}>
-                    Create DM
-                  </Button>
-                )}
-                <Button variant="primary" type="button" onClick={() => void createNamedAgentChat()} disabled={creating}>
-                  {creating ? "Creating…" : "Create Agent Chat"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </aside>
   );
-}
-
-function personaTooltip(agent: import("@/lib/types").PersonaItem) {
-  const lines = [
-    "@" + (agent.display || agent.id),
-  ];
-  if (agent.description) lines.push(agent.description);
-  return lines.join("\n");
 }
 
 function GroupLabel({

@@ -103,6 +103,7 @@ interface State {
   openThread: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   closeThread: (routeOpts?: RouteWriteOptions) => void;
   openAgentDetail: (id: string, routeOpts?: RouteWriteOptions) => void;
+  openAgentsPanel: (routeOpts?: RouteWriteOptions) => void;
   openAgent: (id: string, routeOpts?: RouteWriteOptions) => Promise<void>;
   newAgentChat: (personaID: string, title?: string) => Promise<void>;
   updateAgentChatTitle: (id: string, title: string) => Promise<void>;
@@ -454,6 +455,10 @@ export const useStore = create<State>((set, get) => ({
             if (initialRoute.anchor) writeRouteAnchor(initialRoute.anchor, { replace: true });
             return;
           }
+          if (initialRoute.view === "agents") {
+            get().openAgentsPanel({ replace: true });
+            return;
+          }
           if (initialRoute.view === "agent") {
             await get().openAgent(initialRoute.id, { replace: true });
             set(applyRouteAnchor(initialRoute.anchor));
@@ -611,6 +616,23 @@ export const useStore = create<State>((set, get) => ({
       expandedTaskID: null,
     });
     writeWebRoute({ view: "agent", id: "detail:" + agentID }, routeOpts);
+  },
+
+  openAgentsPanel(routeOpts?: RouteWriteOptions) {
+    set({
+      view: "agents",
+      activeChannel: null,
+      activeDirect: null,
+      activeThread: null,
+      activeAgentSpace: null,
+      activeAgentID: null,
+      activeAnchor: null,
+      detail: null,
+      threadDetail: null,
+      participants: null,
+      expandedTaskID: null,
+    });
+    writeWebRoute({ view: "agents" }, routeOpts);
   },
 
   async openAgent(id, routeOpts?: RouteWriteOptions) {
@@ -877,6 +899,10 @@ export const useStore = create<State>((set, get) => ({
       await get().openDirectChat(route.id, { replace: true });
       set(applyRouteAnchor(route.anchor));
       if (route.anchor) writeRouteAnchor(route.anchor, { replace: true });
+      return;
+    }
+    if (route.view === "agents") {
+      get().openAgentsPanel({ replace: true });
       return;
     }
     if (route.view === "agent") {
