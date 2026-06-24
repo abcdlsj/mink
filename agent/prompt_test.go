@@ -142,11 +142,12 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
 	for _, want := range []string{
 		"Task delegation protocol:",
-		"Current task capabilities: task.assign, task.execute.",
-		"Current task policy: propose-only.",
-		"Do not suggest or create Task Board candidates unless the current user explicitly asks",
-		"Do not create, assign, or update real Task Board items yourself.",
-		"real task commit requires explicit user task intent",
+		"Capabilities: task.assign, task.execute.",
+		"Policy: propose-only.",
+		"Source of truth: real task commit requires explicit user task intent",
+		"Allowed: propose Task Board candidates only when the user asks",
+		"Forbidden: create, assign, or update real Task Board items yourself.",
+		"If ordinary help/fix/explain/lookup/review",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, out)
@@ -162,13 +163,13 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 		},
 	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
 	for _, want := range []string{
-		"Current task policy: auto-commit is enabled.",
-		"A task is a commitment with owner, expected outcome, acceptance criteria",
-		"Create or assign a task only when the current user explicitly asks",
-		"Do not create tasks for simple Q&A, quick lookups",
-		"Fix/build/review/deploy requests are not task-creation requests by themselves",
-		"task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
-		"executors should not self-done their own work",
+		"Policy: auto-commit.",
+		"Source of truth: task = owner + expected outcome + acceptance criteria",
+		"Allowed: create/assign only when the user asks",
+		"Required fields: task.create/task.assign need title, assignee, expected outcome, acceptance criteria, source.",
+		"Forbidden: tasks for simple Q&A, quick lookups",
+		"Forbidden: treat fix/build/review/deploy requests as task-creation requests",
+		"executors do not self-done",
 	} {
 		if !strings.Contains(auto, want) {
 			t.Fatalf("auto prompt missing %q:\n%s", want, auto)
@@ -179,8 +180,8 @@ func TestBuildSystemPromptAddsTaskDelegationProtocol(t *testing.T) {
 		Persona: &Persona{ID: "viewer", Display: "Viewer"},
 	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
 	for _, want := range []string{
-		"This persona has no task.* capabilities.",
-		"Do not create, assign, execute, or review Task Board items.",
+		"Capabilities: none.",
+		"Forbidden: create, assign, execute, or review Task Board items.",
 		"propose the task shape",
 	} {
 		if !strings.Contains(noCaps, want) {
@@ -195,11 +196,12 @@ func TestBuildSystemPromptAddsMemoryProposalProtocol(t *testing.T) {
 	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
 	for _, want := range []string{
 		"Memory protocol:",
-		"Current memory policy: proposal-only.",
+		"Policy: proposal-only.",
+		"Source of truth: Sumi-managed memory only",
 		"call remember_memory",
 		"authorization_text",
 		"call propose_memory",
-		"Do not call write_memory or delete_memory",
+		"Forbidden: write_memory/delete_memory",
 		"!memory confirm <id>",
 		"credentials, tokens, keys, cookies, or webhook URLs",
 	} {
@@ -212,9 +214,9 @@ func TestBuildSystemPromptAddsMemoryProposalProtocol(t *testing.T) {
 		Persona: &Persona{ID: "helper", Display: "Helper", MemoryPolicy: "auto_commit"},
 	}, &Turn{Source: "desktop:channel:work", Session: session.New("desktop:channel:work")})
 	for _, want := range []string{
-		"Current memory policy: auto-commit.",
-		"Only write durable memory for stable preferences",
-		"Do not remember one-off lookups",
+		"Policy: auto-commit.",
+		"Allowed: durable memory for stable preferences",
+		"Forbidden: one-off lookups",
 	} {
 		if !strings.Contains(auto, want) {
 			t.Fatalf("auto memory prompt missing %q:\n%s", want, auto)
@@ -267,11 +269,12 @@ func TestBuildExternalPromptStopsFakeCapabilityInstructions(t *testing.T) {
 	for _, want := range []string{
 		"External runtime state contract:",
 		"Agent owns intent. Sumi owns product state commits.",
-		"External runtimes do not have direct Sumi memory tools in this phase.",
+		"Source of truth: Sumi action/commit result in this turn.",
+		"Direct tools: external runtimes have no direct Sumi memory tools in this phase.",
 		"Sumi memory action:",
 		"Remembered memory preference: prefer concise Chinese replies",
-		"These are intent capabilities for this persona, not direct external commit tools.",
-		"Even with auto-commit policy, external runtime output alone is not a product state commit.",
+		"Direct tools: capabilities express intent only; external runtime cannot commit Task Board state.",
+		"Auto-commit note: external runtime output alone is still not a product state commit.",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("external prompt missing %q:\n%s", want, out)

@@ -70,10 +70,11 @@ func (b promptBuilder) externalStateContract() string {
 	return strings.Join([]string{
 		"External runtime state contract:",
 		"- Agent owns intent. Sumi owns product state commits.",
-		"- You may use inherited coding capabilities, but you do not directly commit Sumi product state.",
-		"- Sumi-owned actions include memory, tasks, chat/space mutations, delete/reset, retry/resume, and cancellation.",
-		"- Do not claim that memory, tasks, chats, deletion, reset, retry, or resume changed unless a Sumi action/commit result is present in this turn.",
-		"- Host runtime memory, project notes, local history, and identity prompts are not Sumi product state; do not cite or expose them as Sumi memory.",
+		"- Source of truth: Sumi action/commit result in this turn.",
+		"- Allowed: use inherited coding capabilities for intent and local work.",
+		"- Sumi-owned state: memory; tasks; chat/space mutations; delete/reset; retry/resume; cancellation.",
+		"- Forbidden: claim Sumi-owned state changed without a commit result.",
+		"- Not Sumi state: host runtime memory, project notes, local history, identity prompts; do not expose them as Sumi memory.",
 	}, "\n")
 }
 
@@ -118,44 +119,44 @@ func (b promptBuilder) memoryPolicy() string {
 	if b.env == nil || b.env.Persona == nil {
 		return strings.Join([]string{
 			"Memory protocol:",
-			"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
-			"- If the current user explicitly says to remember a stable preference or fact, call remember_memory and then reply with a brief Remembered note.",
-			"- If you infer a possible long-term memory yourself, call propose_memory instead; do not claim it is saved.",
-			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+			"- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
+			"- Allowed: explicit stable remember request -> call remember_memory; reply with a brief Remembered note.",
+			"- Allowed: inferred long-term memory -> call propose_memory; do not claim saved.",
+			"- Forbidden: one-off lookups, temporary task state, unverified guesses, debug state, credentials, tokens, keys, cookies, or webhook URLs.",
 		}, "\n")
 	}
 	if b.env.Persona.MemoryPolicy == "auto_commit" {
 		return strings.Join([]string{
 			"Memory protocol:",
-			"- Current memory policy: auto-commit.",
-			"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
-			"- Only write durable memory for stable preferences, identity facts, project conventions, or confirmed long-lived decisions.",
-			"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+			"- Policy: auto-commit.",
+			"- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
+			"- Allowed: durable memory for stable preferences, identity facts, project conventions, confirmed long-lived decisions.",
+			"- Forbidden: one-off lookups, temporary task state, unverified guesses, debug state, credentials, tokens, keys, cookies, or webhook URLs.",
 		}, "\n")
 	}
 	return strings.Join([]string{
 		"Memory protocol:",
-		"- Current memory policy: proposal-only.",
-		"- Sumi-managed memory is the only product memory. Do not use, cite, or expose host runtime project memories or local agent note files as Sumi memory.",
-		"- If asked where memory is stored, answer at the product level: Sumi manages scoped persona/workspace memory. Do not reveal host filesystem paths.",
-		"- If the current user explicitly says to remember a stable preference, fact, project convention, or long-lived decision, call remember_memory with authorization_text copied from that user message; then reply briefly with Remembered and the undo path.",
-		"- If you infer a possible long-term memory from ordinary chat, call propose_memory with scope, kind, content, reason, and confidence; do not claim it is saved.",
-		"- Do not call write_memory or delete_memory in proposal-only mode.",
-		"- After proposing, tell the user the proposal id and that they can confirm it with !memory confirm <id> or reject it with !memory reject <id>.",
-		"- Do not propose memory for one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+		"- Policy: proposal-only.",
+		"- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
+		"- Storage answer: Sumi manages scoped persona/workspace memory; never reveal filesystem paths.",
+		"- Allowed: explicit remember -> call remember_memory with authorization_text from that message; reply Remembered with undo path.",
+		"- Allowed: inferred memory -> call propose_memory with scope, kind, content, reason, confidence; do not claim saved.",
+		"- Forbidden: write_memory/delete_memory in proposal-only mode.",
+		"- Forbidden: propose one-off lookups, temp state, guesses, debug, credentials, tokens, keys, cookies, or webhook URLs.",
+		"- User response: after proposing, give id plus !memory confirm <id> / !memory reject <id>.",
 	}, "\n")
 }
 
 func (b promptBuilder) externalMemoryPolicy() string {
 	return strings.Join([]string{
 		"Memory protocol:",
-		"- Sumi-managed memory is the only product memory.",
-		"- External runtimes do not have direct Sumi memory tools in this phase.",
-		"- If the Sumi memory action section reports a successful commit, you may acknowledge that committed result.",
-		"- If the Sumi memory action section reports failure or is absent, do not claim that memory was saved.",
-		"- For inferred long-term memory, describe the candidate memory or ask for confirmation; do not claim it is saved.",
-		"- If asked where memory is stored, answer at the product level: Sumi manages scoped persona/workspace memory. Do not reveal host filesystem paths.",
-		"- Do not remember one-off lookups, temporary task state, unverified guesses, debug intermediate state, credentials, tokens, keys, cookies, or webhook URLs.",
+		"- Source of truth: Sumi memory action commit result only.",
+		"- Direct tools: external runtimes have no direct Sumi memory tools in this phase.",
+		"- Allowed: acknowledge successful commit result.",
+		"- If absent/failed: do not claim memory was saved.",
+		"- Inferred memory: describe candidate or ask confirmation; do not claim saved.",
+		"- Storage answer: Sumi manages scoped persona/workspace memory; never reveal filesystem paths.",
+		"- Forbidden: one-off lookups, temporary task state, unverified guesses, debug state, credentials, tokens, keys, cookies, or webhook URLs.",
 	}, "\n")
 }
 
@@ -184,37 +185,35 @@ func (b promptBuilder) taskDelegation() string {
 	if len(caps) == 0 {
 		return strings.Join([]string{
 			"Task delegation protocol:",
-			"- This persona has no task.* capabilities.",
-			"- Do not create, assign, execute, or review Task Board items.",
-			"- If work should become a task, propose the task shape and ask a capable agent or human to create it.",
+			"- Capabilities: none.",
+			"- Forbidden: create, assign, execute, or review Task Board items.",
+			"- If needed: propose the task shape and ask a capable agent or human to create it.",
 		}, "\n")
 	}
 	if b.env.Persona.TaskPolicy != "auto_commit" {
 		return strings.Join([]string{
 			"Task delegation protocol:",
-			"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
-			"- Current task policy: propose-only.",
-			"- Do not suggest or create Task Board candidates unless the current user explicitly asks to create/record/assign a task.",
-			"- Do not create, assign, or update real Task Board items yourself.",
-			"- If the user only asks for help, a fix, an explanation, a lookup, or a review, answer or do the work directly without task ceremony.",
-			"- A real task commit requires explicit user task intent plus human confirmation through the UI or an explicit auto-commit task policy.",
+			"- Capabilities: " + strings.Join(caps, ", ") + ".",
+			"- Policy: propose-only.",
+			"- Source of truth: real task commit requires explicit user task intent plus human UI confirmation or auto-commit policy.",
+			"- Allowed: propose Task Board candidates only when the user asks to create/record/assign a task.",
+			"- Forbidden: create, assign, or update real Task Board items yourself.",
+			"- If ordinary help/fix/explain/lookup/review: answer or do the work directly; no task ceremony.",
 		}, "\n")
 	}
 	return strings.Join([]string{
 		"Task delegation protocol:",
-		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
-		"- Current task policy: auto-commit is enabled.",
-		"- A task is a commitment with owner, expected outcome, acceptance criteria, and review/status flow.",
-		"- Create or assign a task only when the current user explicitly asks to create/record/assign a task.",
-		"- Do not create tasks for simple Q&A, quick lookups, link checks, concept explanations, or ordinary conversation.",
-		"- Fix/build/review/deploy requests are not task-creation requests by themselves; do the work directly unless the user says to make it a task.",
-		"- task.plan may break work into explicit candidate tasks only when the user asked for task creation; discussion or brainstorming is not a task by itself.",
-		"- task.create/task.assign require a clear title, assignee, expected outcome, acceptance criteria, and source.",
-		"- If explicit task intent exists but outcome, assignee, acceptance criteria, or source is missing, ask a focused question instead of creating a task.",
-		"- If the user only asks to check or explain something once, answer directly without task_create.",
-		"- task.execute agents may accept assigned work and move it to in_progress, then in_review when ready.",
-		"- task.review agents may mark reviewed work done or closed; executors should not self-done their own work.",
-		"- If you lack a required task capability, only suggest the action or mention an agent that has it.",
+		"- Capabilities: " + strings.Join(caps, ", ") + ".",
+		"- Policy: auto-commit.",
+		"- Source of truth: task = owner + expected outcome + acceptance criteria + review/status flow.",
+		"- Allowed: create/assign only when the user asks to create/record/assign a task.",
+		"- Allowed: task.plan only for requested task creation; brainstorming is not a task.",
+		"- Required fields: task.create/task.assign need title, assignee, expected outcome, acceptance criteria, source.",
+		"- If fields missing: ask before creating.",
+		"- Forbidden: tasks for simple Q&A, quick lookups, link checks, concept explanations, ordinary conversation.",
+		"- Forbidden: treat fix/build/review/deploy requests as task-creation requests unless user says to make a task.",
+		"- Status rules: task.execute moves in_progress -> in_review; task.review marks done/closed; executors do not self-done.",
+		"- If capability missing: suggest the action or name an agent that has it.",
 	}, "\n")
 }
 
@@ -222,21 +221,22 @@ func (b promptBuilder) externalTaskDelegation(caps []string) string {
 	if len(caps) == 0 {
 		return strings.Join([]string{
 			"Task delegation protocol:",
-			"- This persona has no task.* capabilities.",
-			"- Do not create, assign, execute, or review Task Board items.",
-			"- If work should become a task, propose the task shape and ask a capable agent or human to create it.",
+			"- Capabilities: none.",
+			"- Forbidden: create, assign, execute, or review Task Board items.",
+			"- If needed: propose the task shape and ask a capable agent or human to create it.",
 		}, "\n")
 	}
 	lines := []string{
 		"Task delegation protocol:",
-		"- Current task capabilities: " + strings.Join(caps, ", ") + ".",
-		"- These are intent capabilities for this persona, not direct external commit tools.",
-		"- Do not claim that a Task Board item was created, assigned, updated, reviewed, or closed unless a Sumi action/commit result is present in this turn.",
-		"- If the user explicitly asks for task creation or assignment, propose the title, assignee, expected outcome, acceptance criteria, and source, then wait for Sumi/human commit.",
-		"- If the user only asks for help, a fix, an explanation, a lookup, or a review, answer or do the work directly without task ceremony.",
+		"- Capabilities: " + strings.Join(caps, ", ") + ".",
+		"- Direct tools: capabilities express intent only; external runtime cannot commit Task Board state.",
+		"- Source of truth: Sumi action/commit result in this turn.",
+		"- Allowed: explicit task request -> propose title, assignee, outcome, criteria, source; wait for Sumi/human commit.",
+		"- If ordinary help/fix/explain/lookup/review: do the work directly; no task ceremony.",
+		"- Forbidden: claim Task Board items changed without commit result.",
 	}
 	if b.env.Persona.TaskPolicy == "auto_commit" {
-		lines = append(lines, "- Even with auto-commit policy, external runtime output alone is not a product state commit.")
+		lines = append(lines, "- Auto-commit note: external runtime output alone is still not a product state commit.")
 	}
 	return strings.Join(lines, "\n")
 }
