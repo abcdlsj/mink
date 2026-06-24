@@ -43,6 +43,21 @@ func (a *App) Commands() []command.Command {
 	return a.cmds.All()
 }
 
+func (a *App) IsRegisteredCommandInput(input string) bool {
+	if a == nil || a.cmds == nil {
+		return false
+	}
+	raw := strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(input), "!/"))
+	if raw == "" {
+		return false
+	}
+	parts := strings.Fields(raw)
+	if len(parts) == 0 {
+		return false
+	}
+	return a.cmds.Get(parts[0]) != nil
+}
+
 func (a *App) Tools() []tool.Tool {
 	if a == nil || a.tools == nil {
 		return nil

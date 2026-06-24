@@ -278,7 +278,7 @@ func (b *Backend) persistSendFailure(sp *space.Space, parentMessageID, input str
 }
 
 func (b *Backend) persistCommandOutput(sp *space.Space, parentMessageID, input, output string) {
-	if sp == nil || strings.TrimSpace(output) == "" || !strings.HasPrefix(strings.TrimSpace(input), "/") {
+	if sp == nil || strings.TrimSpace(output) == "" || !b.app.IsRegisteredCommandInput(input) {
 		return
 	}
 	_, _, _ = b.app.Spaces().AppendMessageWithRouting(sp.ID, space.Message{

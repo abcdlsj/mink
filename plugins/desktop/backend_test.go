@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/persona"
+	memoryplugin "github.com/abcdlsj/sumi/plugins/memory"
 	"github.com/abcdlsj/sumi/space"
 	taskpkg "github.com/abcdlsj/sumi/task"
 )
@@ -499,6 +500,63 @@ func TestDesktopCommandOutputPersistsNotice(t *testing.T) {
 	}
 	if detail.Messages[0].Role != "system" || !strings.Contains(detail.Messages[0].Content, "(unconfigured)") {
 		t.Fatalf("command output = %#v", detail.Messages[0])
+	}
+}
+
+func TestDesktopBangCommandOutputPersistsNoticeForRegisteredCommand(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: direct[0].ID,
+		Input:     "!memory save persona:andy Temporary :: delete me",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 1 || detail.Messages[0].Role != "system" || !strings.Contains(detail.Messages[0].Content, "saved memory ") {
+		t.Fatalf("save command output = %#v, want persisted system notice", detail.Messages)
+	}
+
+	fields := strings.Fields(detail.Messages[0].Content)
+	if len(fields) < 3 {
+		t.Fatalf("unexpected save output: %q", detail.Messages[0].Content)
+	}
+	memoryID := fields[2]
+	if _, err := b.SendMessage(SendRequest{
+		SessionID: direct[0].ID,
+		Input:     "!memory delete persona:andy " + memoryID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail = b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 2 {
+		t.Fatalf("messages = %#v, want save + delete notices", detail.Messages)
+	}
+	if detail.Messages[1].Role != "system" || !strings.Contains(detail.Messages[1].Content, "deleted memory "+memoryID+" from persona:andy") {
+		t.Fatalf("delete command output = %#v", detail.Messages[1])
+	}
+}
+
+func TestDesktopShellShortcutOutputDoesNotPersistNotice(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+
+	direct := b.ListDirectChats()
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %#v, want default Sumi", direct)
+	}
+	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "!printf hello"}); err != nil {
+		t.Fatal(err)
+	}
+	detail := b.GetDirectChat(direct[0].ID)
+	if len(detail.Messages) != 0 {
+		t.Fatalf("messages = %#v, want no persisted shell shortcut output", detail.Messages)
 	}
 }
 
