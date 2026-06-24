@@ -673,7 +673,7 @@ export const useStore = create<State>((set, get) => ({
       detail = {
         item: {
           id: "desktop:agent:" + id,
-          title: "@" + (ag?.display || id),
+          title: ag?.display || id,
           updated_at: new Date().toISOString(),
         },
         summary: ag?.role || "",
@@ -707,7 +707,7 @@ export const useStore = create<State>((set, get) => ({
       writeWebRoute({ view: "home" }, routeOpts);
       return;
     }
-    if (!detail.item.title) detail.item.title = "@" + (ag?.display || id);
+    if (!detail.item.title) detail.item.title = ag?.display || id;
     if (!detail.summary && ag?.role) detail.summary = ag.role;
     const [agentDMs, directChats] = await Promise.all([
       api.agentDMs().catch(() => get().agentDMs),

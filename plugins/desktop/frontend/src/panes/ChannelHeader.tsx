@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AtSign, Hash, MessageSquare, Trash2 } from "lucide-react";
+import { Hash, MessageSquare, Trash2 } from "lucide-react";
+import { Identicon } from "@/components/Identicon";
 import type { AgentItem, ChannelItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -42,6 +43,7 @@ export function ChannelHeader({ scope }: { scope: string }) {
   let titleText = item.title;
   let metaText = "";
   let TitleIcon = MessageSquare;
+  let agentTitleIcon: React.ReactNode = null;
   let listeningHint = "";
   let objectType = "Direct Message";
   const isNamedAgentChat = view === "agent" && !!activeAgentSpace && agentDMs.some((dm) => dm.id === activeAgentSpace);
@@ -56,15 +58,19 @@ export function ChannelHeader({ scope }: { scope: string }) {
     objectType = "Direct Message";
     metaText = channel ? `in #${channel.name}` : "";
   } else if (view === "agent") {
-    TitleIcon = AtSign;
-    titleText = titleText.replace(/^@/, "");
+    titleText = titleText.replace(/^@/, "").trim();
     const personaDisplay =
       detail.item.persona_name ||
       agents.find((a) => a.id === detail.item.persona_id)?.display ||
       titleText;
     objectType = isNamedAgentChat ? "Agent Chat" : "Default Agent DM";
-    metaText = `@${personaDisplay}`;
+    metaText = personaDisplay;
     if (detail.summary) metaText += ` · ${detail.summary}`;
+    agentTitleIcon = (
+      <span className="inline-flex size-7 overflow-hidden border-2 border-agent-border bg-agent-bg">
+        <Identicon seed={detail.item.persona_id || activeAgentSpace || personaDisplay} kind="agent" />
+      </span>
+    );
   }
 
   const editable = isNamedAgentChat || isEditableDirect;
@@ -131,9 +137,11 @@ export function ChannelHeader({ scope }: { scope: string }) {
     <div className="flex items-end justify-between border-b-hard border-border bg-panel px-5 pb-3.5 pt-4">
       <div>
         <h2 className="flex items-center gap-2 font-display text-[19px] font-extrabold leading-tight text-text">
-          <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
-            <TitleIcon className="size-[14px] text-text" />
-          </span>
+          {agentTitleIcon || (
+            <span className="inline-flex size-7 items-center justify-center border-2 border-border bg-accent">
+              <TitleIcon className="size-[14px] text-text" />
+            </span>
+          )}
           {editable && editingTitle ? (
             <span className="inline-flex min-w-[220px] flex-col gap-1">
               <input

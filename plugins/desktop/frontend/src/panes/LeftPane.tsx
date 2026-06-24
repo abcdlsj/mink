@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { AtSign, Bot, ChevronRight, ClipboardList, Hash, MessageCircle, Plus, Search } from "lucide-react";
+import { Bot, ChevronRight, ClipboardList, Hash, MessageCircle, Plus, Search } from "lucide-react";
+import { Identicon } from "@/components/Identicon";
 import { useStore } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { cn, relTime } from "@/lib/utils";
@@ -126,7 +127,7 @@ export function LeftPane() {
               key={dc.id}
               icon={<MessageCircle className="size-4" />}
               name={dc.title}
-              subtitle={dc.kind === "agent_dm" ? `@${dc.persona_name || dc.persona_id || "agent"}` : "direct"}
+              subtitle="direct"
               time={relTime(dc.updated_at)}
               running={dc.has_running}
               active={view === "direct" && activeDirect === dc.id}
@@ -134,19 +135,23 @@ export function LeftPane() {
               tooltip={dc.has_running ? `${dc.title} · running` : undefined}
             />
           ))}
-          {agentDirectChats.map((dc) => (
-            <NavItem
-              key={dc.id}
-              icon={<AtSign className="size-3" />}
-              name={dc.title}
-              subtitle={`Default agent DM · @${dc.persona_name || dc.persona_id || "agent"}`}
-              time={relTime(dc.updated_at)}
-              running={dc.has_running}
-              active={view === "agent" && activeAgentSpace === dc.id}
-              onClick={() => void openDirectChat(dc.id)}
-              tooltip={dc.has_running ? `${dc.title} · running` : `@${dc.persona_name || dc.persona_id || "agent"} · Default agent DM`}
-            />
-          ))}
+          {agentDirectChats.map((dc) => {
+            const agentName = dc.persona_name || dc.persona_id || "agent";
+            const title = chatTitle(dc.title, agentName);
+            return (
+              <NavItem
+                key={dc.id}
+                icon={<AgentBadge seed={dc.persona_id || dc.id} />}
+                name={title}
+                subtitle={`Default agent DM · ${agentName}`}
+                time={relTime(dc.updated_at)}
+                running={dc.has_running}
+                active={view === "agent" && activeAgentSpace === dc.id}
+                onClick={() => void openDirectChat(dc.id)}
+                tooltip={dc.has_running ? `${title} · running` : `${agentName} · Default agent DM`}
+              />
+            );
+          })}
         </ul>
       )}
 
@@ -158,35 +163,51 @@ export function LeftPane() {
           {agentDMs.length === 0 && (
             <li className="px-2 py-1.5 text-[11.5px] text-text-faint">No agent chats yet.</li>
           )}
-          {agentDMs.map((dm) => (
-            <li key={dm.id}>
-              <button
-                onClick={() => void openAgent(dm.id)}
-                className={cn(
-                  "w-full cursor-pointer border-2 border-transparent px-2 py-2 text-left transition-colors",
-                  view === "agent" && activeAgentSpace === dm.id
-                    ? "border-agent-border border-l-[10px] border-l-agent bg-agent-bg text-agent shadow-card"
-                    : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
-                )}
-                title={"@" + (dm.persona_name || dm.persona_id)}
-              >
-                <div className="flex items-center gap-1.5 text-[13px] font-semibold">
-                  <AtSign className="size-[11px] text-text-muted shrink-0" />
-                  <span className="truncate">
-                    {dm.title && dm.title !== "New chat" ? dm.title : "New chat"}
-                  </span>
-                </div>
-                <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-faint">
-                  Agent Chat · @{dm.persona_name || dm.persona_id}
-                  {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
-                </div>
-              </button>
-            </li>
-          ))}
+          {agentDMs.map((dm) => {
+            const agentName = dm.persona_name || dm.persona_id || "agent";
+            const title = chatTitle(dm.title);
+            return (
+              <li key={dm.id}>
+                <button
+                  onClick={() => void openAgent(dm.id)}
+                  className={cn(
+                    "w-full cursor-pointer border-2 border-transparent px-2 py-2 text-left transition-colors",
+                    view === "agent" && activeAgentSpace === dm.id
+                      ? "border-agent-border border-l-[10px] border-l-agent bg-agent-bg text-agent shadow-card"
+                      : "text-text-muted hover:border-border hover:bg-panel hover:text-text",
+                  )}
+                  title={`${title} · ${agentName}`}
+                >
+                  <div className="flex items-center gap-1.5 text-[13px] font-semibold">
+                    <AgentBadge seed={dm.persona_id || dm.id} />
+                    <span className="truncate">{title}</span>
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[10.5px] text-text-faint">
+                    Agent Chat · {agentName}
+                    {dm.updated_at ? " · " + relTime(dm.updated_at) : ""}
+                  </div>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </aside>
   );
+}
+
+function AgentBadge({ seed }: { seed: string }) {
+  return (
+    <span className="inline-flex size-5 shrink-0 overflow-hidden border border-agent-border bg-agent-bg">
+      <Identicon seed={seed} kind="agent" />
+    </span>
+  );
+}
+
+function chatTitle(raw: string | undefined, fallback = "New chat"): string {
+  const title = (raw || "").trim();
+  if (!title || title === "New chat") return fallback;
+  return title.startsWith("@") ? title.slice(1).trim() || fallback : title;
 }
 
 function GroupLabel({
