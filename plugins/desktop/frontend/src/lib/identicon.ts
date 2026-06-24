@@ -19,7 +19,7 @@ function escapeAttr(value: string): string {
 
 export type IdenticonKind = "agent" | "user" | "channel" | "thread";
 
-type Pixel = "k" | "m" | "s" | "h" | "w" | ".";
+type Pixel = "k" | "m" | "s" | "h" | "w" | "b" | ".";
 
 interface Palette {
   bg: string;
@@ -51,53 +51,45 @@ const KIND_PALETTES: Record<Exclude<IdenticonKind, "agent">, Palette> = {
 };
 
 const TEMPLATES: Pixel[][][] = [
-  // Robots / screens
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k...", "...k..k..."]),
-  rows(["...kkk....", "...kmk....", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkmmkmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
-  rows([".kkkkkkkk.", "kwwwwwwwwk", "kwkkkkkkwk", "kwkmmmmkwk", "kwkmmmmkwk", "kwksssskwk", "kwkkkkkkwk", "kwwwwwwwwk", ".kkkkkkkk.", "....kk...."]),
-  rows(["kkkkkk....", "kmmmmk....", "kmhhmk....", "kmmmmkkkk.", "kmmmmmmmmk", "kmmkmmkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
-  rows(["...kkkkkk.", "..kmmmmmmk", ".kmmhmmhmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...kk..kk.", "...k....k."]),
-  rows([".kkkkkkkk.", "kwwwwwwwwk", "kwmmmmmmwk", "kwmkkkkmwk", "kwmkwwkmwk", "kwmkkkkmwk", "kwmmmmmmwk", "kwwsssswwk", ".kkkkkkkk.", "kk......kk"]),
+  // Robots / screens.
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbkbbkbbb", "bbbbbbbbbb"]),
+  rows(["bbbkkkbbbb", "bbbkmkbbbb", "bbkkkkkkbb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkmmkmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb"]),
+  rows(["bkkkkkkkkb", "kwwwwwwwwk", "kwkkkkkkwk", "kwkmmmmkwk", "kwkmmmmkwk", "kwksssskwk", "kwkkkkkkwk", "kwwwwwwwwk", "bkkkkkkkkb", "bbbbkkbbbb"]),
+  rows(["kkkkkkbbbb", "kmmmmkbbbb", "kmhhmkbbbb", "kmmmmkkkkb", "kmmmmmmmmk", "kmmkmmkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb"]),
+  rows(["bbbkkkkkkb", "bbkmmmmmmk", "bkmmhmmhmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbkkbbkkb", "bbbbkbbbkb"]),
+  rows(["bkkkkkkkkb", "kwwwwwwwwk", "kwmmmmmmwk", "kwmkkkkmwk", "kwmkwwkmwk", "kwmkkkkmwk", "kwmmmmmmwk", "kwwsssswwk", "bkkkkkkkkb", "kkbbbbbbkk"]),
 
-  // Creature faces
-  rows(["k..kkkk..k", "kkkmmmmkkk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
-  rows(["kk......kk", "kmm....mmk", "kmmkkkkmmk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmssmmk.", "..kkkkkk..", "...k..k..."]),
-  rows(["...kkkk...", "..kmmmmk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "kk.k..k.kk", "k..k..k..k", "k........k"]),
-  rows(["kkk....kkk", "kmmk..kmmk", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
-  rows(["..........", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmssssmmk", "kssssssssk", "kssssssssk", ".kssksssk.", "..kk..kk.."]),
-  rows(["..kk..kk..", "..kmmmmk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "k..kss..k.", "k...kk...k", "k........k"]),
-  rows(["....kk....", "..kkkkkk..", ".kmmmmmmk.", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", ".kmmmmmmk.", "..kssssk..", ".kk....kk.", "kk......kk"]),
+  // Creature / persona faces.
+  rows(["kbbkkkkbbk", "kkkmmmmkkk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb"]),
+  rows(["kkbbbbbbkk", "kmmkbbkmmk", "kmmkkkkmmk", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb"]),
+  rows(["bbbkkkkbbb", "bbkmmmmkbb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "kmmmmmmmmk", "kkbkbbkbkk", "kbbkbbkbbk", "kbbbbbbbbk"]),
+  rows(["kkkbbbbkkk", "kmmkbbkmmk", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbkkbbbb"]),
+  rows(["bbbbbbbbbb", "bbkkkkkkbb", "bksssssskb", "ksswsswssk", "kssssssssk", "ksskkkkssk", "kssssssssk", "bksssssskb", "bbksskssbb", "bbbbkkbbbb"]),
+  rows(["bbkkbbkkbb", "bbkmmmmkbb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbkkbbbb"]),
+  rows(["bbbbkkbbbb", "bbkkkkkkbb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bkkbbbbkkb", "kkbbbbbbkk"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "kbbkssbbkb", "kbbbkkbbbk", "kbbbbbbbbk"]),
+  rows(["bbbbkkbbbb", "bbkkkkkkbb", "bkmmmmmmkb", "kmmhkkhmmk", "kmmmmmmmmk", "kmkkkkkkmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbbbbbbb"]),
+  rows(["bkkbbbbkkb", "bkmmkkmmkb", "bkmmmmmmkb", "kmmhmmhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbbbbbbb"]),
 
-  // Objects
-  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhmmhmmk", "kmmmmmmmmk", "kmmmmmmmmk", "kssssssssk", ".kksssskk.", "...kkkk...", "..kk..kk.."]),
-  rows(["......kkk.", "...kkkkmmk", "..kmmmmmmk", ".kmmmmmmmk", "kmmhmmmmmk", "kmmmmmmmkk", ".kmmmmmkk.", "..kkkkk...", "..........", ".........."]),
-  rows(["..kkkk....", ".kmmmmkk..", "kmmmmmmmk.", "kmmhmmmmmk", "kmmmmmmmmk", "kmmmmmssmk", ".kmmssssk.", "..kkkkkk..", ".....kk...", ".........."]),
-  rows(["...kk.....", "..kmmkk...", ".kmmmmk...", "kmmhhmmk..", "kmmmmmmk..", ".kmmmssk..", "..kssmk...", "...kk.....", "..........", ".........."]),
-  rows(["...kkkk...", "..kmmmmk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kkkk...", "..kk..kk.."]),
-  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kssssk..", "...kkkk...", "....kk...."]),
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmmmmmmmk", "kmmhhhhmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kssk...", "....kk....", "....kk...."]),
+  // Helmets / masks / role-coded agents.
+  rows(["bbkkkkkkbb", "bkkmmmmkkb", "kmmwwwwmmk", "kmmwkkwmmk", "kmmwmmwmmk", "kmmwwwwmmk", "bkmmmmmmkb", "bbksssskkb", "bbbkkkkbbb", "bbbbbbbbbb"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmwwwwmmk", "kmmwhhwmwk", "kmmwwwwmmk", "kmmssssmmk", "bkmmmmmmkb", "bbksssskkb", "bbbkkkkbbb", "bbbbbbbbbb"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmkkkkmmk", "kmmkwwkmmk", "kmmkkkkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb", "bbbbbbbbbb"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmhhhhmmk", "kmmmmmmmmk", "kmmssssmmk", "kmmmmmmmmk", "kssssssssk", "bkkkkkkkkb", "bbkbbbbkbb", "kkbbbbbbkk"]),
+  rows(["kkkbbbbbbb", "kmmkkkkbbb", "kmmmmmmkbb", "kmmhhmmmkb", "kmmmmmmmkb", "kmmkkkkmkb", "kmmmmmmkbb", "bkkkkkkbbb", "bbkbbkbbbb", "bbbbbbbbbb"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmhhhhmmk", "kmmmmmmmmk", "kmmkmmkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbkkbbbb", "bbbbbbbbbb"]),
+  rows(["kkbbbbbbkk", "kmmkkkkmmk", "kmmmmmmmmk", "kmmwwwwmmk", "kmmwkkwmmk", "kmmwwwwmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbbbbbbb"]),
+  rows(["bbbkkkkbbb", "bbkmmmmkbb", "bkmmmmmmkb", "kmmhhhhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbkkbbkkbb"]),
+  rows(["bbbkkkkbbb", "bbkmmmmkbb", "bkmmhhmmkb", "kmmmmmmmmk", "kmmmkkmmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bkksssskkb", "kkbbbbbbkk"]),
+  rows(["bbbkkkkbbb", "bbkmmmmkbb", "bkmmwwmmkb", "kmmwkkwmmk", "kmmwwwwmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbksssskkb", "bbbkkkkbbb", "bbbbbbbbbb"]),
 
-  // Tools / roles
-  rows(["kkkkkkkkk.", "kwwwwwwwk.", "kwmmmmmwk.", "kwmsssmwk.", "kwmmmmmwk.", "kwwwwwwwk.", "kkkkkkkkk.", "k........k", "kk......kk", ".........."]),
-  rows(["..kkkk....", ".kmmmmk...", "kmmkkmmk..", "kmkkkkmk..", "kmmkkmmk..", ".kmmmmk...", "..kkkkkk..", "......kmmk", ".......kkk", ".........."]),
-  rows(["......kkk.", ".....kmmk.", "....kmmk..", "kk.kmmk...", "kmmkmmk...", ".kmmmk....", "..kmmk....", "...kmmk...", "....kk....", ".........."]),
-  rows(["....kkkk..", "...kmmmmk.", "..kmmmmkk.", ".kmmmmk...", "kmmmmk....", ".kmmmmk...", "..kmmmmk..", "...ksssk..", "....kkk...", ".........."]),
-  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kkmmmmmmkk", "..kmmmmk..", "...kssk...", "....kk....", "....kk...."]),
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", "kmmssssmmk", "kmmmmmmmmk", "kssssssssk", ".kkkkkkkk.", "..k....k..", "kk......kk"]),
-  rows(["kkkkkk....", "kmmmmkk...", "kmhhhhmk..", "kmmmmmmk..", "kmssssmk..", "kmmmmmmk..", "kmmmmkk...", "kkkkkk....", "....kkk...", ".....kkk.."]),
-  rows(["..kkkk....", ".kmmmmk...", "kmmhmmmk..", "kmmmmmmk..", ".kmmssmk..", "..kkkkkk..", ".....kmmk.", "......kmmk", ".......kkk", ".........."]),
-
-  // Abstract badges
-  rows(["...kkkk...", "..kmmmmk..", ".kmmhhmmk.", "kmmmmmmmmk", "kmmmkkmmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", ".kksssskk.", "kk......kk"]),
-  rows([".....kk...", "....kmmk..", "...kmmk...", "..kmmmk...", "..kkmmk...", "...kmmmk..", "...kssk...", "..kssk....", "..kk......", ".........."]),
-  rows(["....kk....", "...kmmk...", "..kmmmmk..", ".kmmmmmmk.", "kmmmmmmmmk", "kkmmmmmmkk", "..kssssk..", "..kkkkkk..", "....kk....", ".........."]),
-  rows(["kkk.......", "kmmkkkk...", "kmmmmmmk..", "kmmhhmmmk.", "kmmmmmmmk.", "kmmssmmk..", "kmmmmkk...", "kkkkk.....", "kk........", ".........."]),
-  rows(["kkkkkkkk..", "kmkmkmk...", "kkmkmk....", "kmkmkmk...", "kkmkmkmk..", "kmkmkmkmk.", "kkmkmkmkmk", ".kkkkkkkk.", "..........", ".........."]),
-  rows(["kkk.......", "kmmkk.....", "kmmmmkk...", "kmmmmmmk..", "kmmhmmhmk.", "kmmmmmmk..", ".kmmssmk..", "..kkkkk...", "...kk.....", ".........."]),
-  rows(["...kkkkkk.", "..kmmmmmmk", ".kmmkkkkmk", "kmmkwwkmmk", "kmmkkkkmmk", "kmmmmmmmmk", ".kmmssmmk.", "..kkkkkk..", "..........", ".........."]),
-  rows(["..kkkkkk..", ".kmmmmmmk.", "kmmhhhhmmk", "kmmmmmmmmk", ".kmmmmmmk.", "..kssssk..", "...kssk...", "....kk....", "....kk....", "....kk...."]),
+  // Distinct head silhouettes.
+  rows(["bbbbkkbbbb", "bbbkmkbbbb", "bbkmmmmkbb", "bkmmmmmmkb", "kmmmmmmmmk", "kkmmmmmmkk", "bbksssskbb", "bbkkkkkkbb", "bbbbkkbbbb", "bbbbbbbbbb"]),
+  rows(["kkkbbbbbbb", "kmmkkkkbbb", "kmmmmmmkbb", "kmmhhmmmkb", "kmmmmmmmkb", "kmmssmmkbb", "kmmmmkkbbb", "kkkkkbbbbb", "kkbbbbbbbb", "bbbbbbbbbb"]),
+  rows(["bkkkkkkkkb", "kmmmmmmmmk", "kmhkhhkhmk", "kmmmmmmmmk", "kmkkkkkkmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbkkkkbbb", "bbbbbbbbbb"]),
+  rows(["kkkbbbbbbb", "kmmkkbbbbb", "kmmmmkkbbb", "kmmmmmmkbb", "kmmhmmhmkb", "kmmmmmmkbb", "bkmmssmkbb", "bbkkkkkbbb", "bbbkkbbbbb", "bbbbbbbbbb"]),
+  rows(["bbbkkkkkkb", "bbkmmmmmmk", "bkmmkkkkmk", "kmmkwwkmmk", "kmmkkkkmmk", "kmmmmmmmmk", "bkmmssmmkb", "bbkkkkkkbb", "bbbbbbbbbb", "bbbbbbbbbb"]),
+  rows(["bbkkkkkkbb", "bkmmmmmmkb", "kmmhhhhmmk", "kmmmmmmmmk", "kmmkkkkmmk", "bkmmmmmmkb", "bbksssskbb", "bbbkkkkbbb", "bbbbkkbbbb", "bbbbbbbbbb"]),
 ];
 
 export function identiconSVG(seed: string, kind: IdenticonKind = "agent"): string {
@@ -131,5 +123,6 @@ function pixelColor(pixel: Pixel, palette: Palette, accentShift: number): string
   if (pixel === "s") return palette.shade;
   if (pixel === "h") return palette.hi;
   if (pixel === "w") return accentShift ? palette.hi : PAPER;
+  if (pixel === "b") return palette.bg;
   return palette.bg;
 }
