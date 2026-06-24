@@ -83,6 +83,38 @@ type memoryProposalFence struct {
 	Confidence string   `json:"confidence"`
 }
 
+func (p *memoryProposalFence) UnmarshalJSON(data []byte) error {
+	type rawProposal struct {
+		ScopeKind  string          `json:"scope_kind"`
+		ScopeKey   string          `json:"scope_key"`
+		Title      string          `json:"title"`
+		Body       string          `json:"body"`
+		Content    string          `json:"content"`
+		Summary    string          `json:"summary"`
+		Kind       string          `json:"kind"`
+		Tags       []string        `json:"tags"`
+		Reason     string          `json:"reason"`
+		Confidence json.RawMessage `json:"confidence"`
+	}
+	var raw rawProposal
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*p = memoryProposalFence{
+		ScopeKind:  raw.ScopeKind,
+		ScopeKey:   raw.ScopeKey,
+		Title:      raw.Title,
+		Body:       raw.Body,
+		Content:    raw.Content,
+		Summary:    raw.Summary,
+		Kind:       raw.Kind,
+		Tags:       raw.Tags,
+		Reason:     raw.Reason,
+		Confidence: decodeMemoryConfidence(raw.Confidence),
+	}
+	return nil
+}
+
 type processedMemoryOutput struct {
 	Content      string
 	Reasoning    string
@@ -183,6 +215,10 @@ func (a *App) commitAgentMemoryProposal(ctx context.Context, turn *agent.Turn, p
 		card.Error = "memory proposal body is required"
 		return card
 	}
+	if memoryProposalDeletes(proposal) {
+		card.Error = "memory delete proposals are not supported; use !memory delete with a memory id"
+		return card
+	}
 	if reason := sensitiveMemoryReason(card.Title + "\n" + body); reason != "" {
 		card.Error = "refusing to remember sensitive memory: " + reason
 		return card
@@ -210,6 +246,38 @@ func (a *App) commitAgentMemoryProposal(ctx context.Context, turn *agent.Turn, p
 	card.Notice = strings.TrimSpace(notice)
 	card.MemoryID = memoryIDFromNotice(card.Notice)
 	return card
+}
+
+func decodeMemoryConfidence(raw json.RawMessage) string {
+	raw = bytesTrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	var n float64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		switch {
+		case n >= 0.8:
+			return "high"
+		case n >= 0.45:
+			return "medium"
+		default:
+			return "low"
+		}
+	}
+	return ""
+}
+
+func bytesTrimSpace(in []byte) []byte {
+	return []byte(strings.TrimSpace(string(in)))
+}
+
+func memoryProposalDeletes(p memoryProposalFence) bool {
+	kind := strings.ToLower(strings.TrimSpace(p.Kind))
+	return kind == "delete" || kind == "deletion" || kind == "remove"
 }
 
 func extractMemoryProposalFences(content string) (string, []memoryProposalFence) {

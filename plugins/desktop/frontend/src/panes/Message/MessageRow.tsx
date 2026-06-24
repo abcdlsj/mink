@@ -87,8 +87,8 @@ export function MessageRow({
       <div
         id={"message-" + m.id}
         className={cn(
-          "group/message grid gap-2",
-          selecting ? "grid-cols-[22px_1fr]" : "grid-cols-1",
+          "group/message grid gap-2.5 md:gap-3.5",
+          selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
           compact ? "mb-2" : "mb-4",
           selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
           highlighted && "sumi-anchor-flash",
@@ -105,8 +105,11 @@ export function MessageRow({
             />
           </label>
         )}
-        <div className="max-w-[820px] border border-border-soft border-l-4 border-l-text-faint bg-bg px-3 py-2 text-text">
-          <div className="mb-1.5 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.35px] text-text-faint">
+        <div className="mt-px flex size-7 items-center justify-center border border-border-soft bg-panel text-[11px] text-text-faint md:size-8">
+          !
+        </div>
+        <div className="max-w-[820px] border border-border-soft bg-bg px-3 py-2 text-text">
+          <div className="mb-1.5 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.35px] text-text-muted">
             <span>System notice</span>
             <span className="ml-auto tabular-nums">{relTime(m.time)}</span>
           </div>
@@ -287,19 +290,24 @@ export function MessageRow({
 function MemoryCommitCards({ cards }: { cards: MemoryCommitAttachment[] }) {
   if (cards.length === 0) return null;
   return (
-    <div className="mt-2.5 grid max-w-[640px] gap-2">
+    <div className="mt-2.5 grid max-w-[560px] gap-1.5">
       {cards.map((card, idx) => (
         <div
           key={idx}
           className={cn(
-            "overflow-hidden border bg-panel-2 text-text shadow-card",
-            card.status === "failed" ? "border-error-border" : "border-agent-border",
+            "border bg-panel px-2.5 py-2 text-text shadow-card",
+            card.status === "failed" ? "border-error-border border-l-4" : "border-agent-border border-l-4",
           )}
         >
-          <div className="grid grid-cols-[6px_1fr] border-b border-border-soft bg-panel">
-            <div className={card.status === "failed" ? "bg-error" : "bg-agent"} />
-            <div className="min-w-0 px-2.5 py-2">
-              <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-start gap-2">
+            <span
+              className={cn(
+                "mt-1 inline-block size-1.5 shrink-0 rounded-full",
+                card.status === "failed" ? "bg-error" : "bg-agent",
+              )}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span
                   className={cn(
                     "shrink-0 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.45px]",
@@ -318,20 +326,18 @@ function MemoryCommitCards({ cards }: { cards: MemoryCommitAttachment[] }) {
                 {card.confidence && <span>· {card.confidence}</span>}
                 {card.memory_id && <span>· {card.memory_id}</span>}
               </div>
-            </div>
-          </div>
-          <div className="grid gap-1.5 px-2.5 py-2">
-            <div className="whitespace-pre-wrap break-words border border-border-soft bg-bg px-2 py-1.5 text-[12px] leading-[1.5]">
-              {card.body || "(empty)"}
-            </div>
-            {card.reason && (
-              <div className="font-mono text-[10.5px] text-text-faint">Reason: {card.reason}</div>
-            )}
-            {card.error && (
-              <div className="border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
-                {card.error}
+              <div className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[12px] leading-[1.45] text-text-muted">
+                {card.body || "(empty)"}
               </div>
-            )}
+              {card.reason && (
+                <div className="mt-1 font-mono text-[10.5px] text-text-faint">Reason: {card.reason}</div>
+              )}
+              {card.error && (
+                <div className="mt-1 border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
+                  {card.error}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ))}
