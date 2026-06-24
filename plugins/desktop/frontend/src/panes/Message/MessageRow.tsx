@@ -217,43 +217,116 @@ export function MessageRow({
 function QuotedTranscripts({ transcripts }: { transcripts: SumiTranscript[] }) {
   if (transcripts.length === 0) return null;
   return (
-    <div className="mt-2.5 grid max-w-[820px] gap-2">
+    <div className="mt-2.5 grid max-w-[640px] gap-2">
       {transcripts.map((t, idx) => (
-        <div key={idx} className="border border-border bg-panel-2 text-text shadow-card">
-          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-accent px-2.5 py-1.5">
-            <span className="font-mono text-[10.5px] font-extrabold uppercase tracking-[0.4px] text-text">
-              Quoted transcript
-            </span>
-            <span className="min-w-0 truncate text-[12px] font-semibold text-text">
-              {t.title}
-            </span>
-            <span className="font-mono text-[10.5px] text-text-muted">
-              {t.messages.length} messages · {t.source}
-            </span>
-          </div>
-          <div className="divide-y divide-border-soft">
-            {t.messages.map((m) => (
-              <div key={m.id} className="grid gap-1 px-2.5 py-2 text-[12.5px] leading-[1.5]">
-                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10.5px] text-text-muted">
-                  <span className="font-semibold text-text">{m.sender}</span>
-                  <span>{m.time}</span>
-                  <span>msg:{m.id}</span>
-                  {m.link && (
-                    <a href={m.link} className="text-action underline underline-offset-2 hover:text-text">
-                      jump
-                    </a>
-                  )}
-                </div>
-                <div className="line-clamp-3 whitespace-pre-wrap text-text">
-                  {m.content}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <TranscriptQuoteCard key={idx} transcript={t} />
       ))}
     </div>
   );
+}
+
+function TranscriptQuoteCard({ transcript }: { transcript: SumiTranscript }) {
+  const [open, setOpen] = useState(false);
+  const preview = open ? transcript.messages : transcript.messages.slice(0, 3);
+  const hidden = transcript.messages.length - preview.length;
+  const sourceLink = transcript.messages.find((m) => m.link)?.link;
+  const range = transcriptTimeRange(transcript.messages);
+  return (
+    <div className="overflow-hidden border border-border bg-panel-2 text-text shadow-card">
+      <div className="grid grid-cols-[6px_1fr] border-b border-border-soft bg-panel">
+        <div className="bg-action" />
+        <div className="min-w-0 px-2.5 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 font-mono text-[10.5px] font-extrabold uppercase tracking-[0.45px] text-action">
+              Transcript quote
+            </span>
+            <span className="min-w-0 truncate text-[12.5px] font-bold text-text">
+              {transcript.title}
+            </span>
+          </div>
+          <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-[10.5px] text-text-muted">
+            <span>{transcript.messages.length} messages</span>
+            <span>·</span>
+            {range && (
+              <>
+                <span>{range}</span>
+                <span>·</span>
+              </>
+            )}
+            {sourceLink ? (
+              <a href={sourceLink} className="min-w-0 truncate text-action underline underline-offset-2 hover:text-text">
+                {transcript.source}
+              </a>
+            ) : (
+              <span className="min-w-0 truncate">{transcript.source}</span>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-1.5 px-2.5 py-2">
+        {preview.map((m) => (
+          <div key={m.id} className="grid grid-cols-[72px_1fr_auto] items-start gap-2 rounded-sm border border-border-soft bg-bg px-2 py-1.5 text-[12px] leading-[1.45]">
+            <div className="min-w-0">
+              <div className="truncate font-mono text-[10.5px] font-bold text-text">{m.sender}</div>
+              <div className="truncate font-mono text-[10px] text-text-faint">{compactQuoteTime(m.time)}</div>
+            </div>
+            <div className="min-w-0 whitespace-pre-wrap break-words text-text">
+              {quotePreviewText(m.content)}
+            </div>
+            {m.link && (
+              <a href={m.link} className="shrink-0 border border-border-soft bg-panel px-1.5 py-px font-mono text-[10px] font-semibold uppercase text-text-muted opacity-80 hover:border-action hover:text-action">
+                jump
+              </a>
+            )}
+          </div>
+        ))}
+        {hidden > 0 && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="justify-self-start border border-border-soft bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold text-text-muted hover:border-border hover:text-text"
+          >
+            Show {hidden} more
+          </button>
+        )}
+        {open && transcript.messages.length > 3 && (
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="justify-self-start border border-border-soft bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold text-text-muted hover:border-border hover:text-text"
+          >
+            Collapse transcript
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function quotePreviewText(content: string): string {
+  const text = content.trim() || "(empty)";
+  if (text.length <= 180) return text;
+  return text.slice(0, 180).trimEnd() + "…";
+}
+
+function compactQuoteTime(time: string): string {
+  const parsed = new Date(time);
+  if (Number.isNaN(parsed.getTime())) return time;
+  return parsed.toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function transcriptTimeRange(messages: SumiTranscript["messages"]): string {
+  if (messages.length === 0) return "";
+  const first = compactQuoteTime(messages[0].time);
+  const last = compactQuoteTime(messages[messages.length - 1].time);
+  if (!first) return last;
+  if (!last || first === last) return first;
+  return first + " - " + last;
 }
 
 function LongContent({

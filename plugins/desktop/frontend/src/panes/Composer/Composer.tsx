@@ -286,14 +286,17 @@ export function Composer({ forceMainScope = false }: { forceMainScope?: boolean 
           <div className="mb-2 grid gap-1.5">
             {quotedTranscripts.map((qt, idx) => (
               <div key={idx} className="flex items-center gap-2 border border-border bg-panel-2 px-2.5 py-1.5 text-[12px] text-text">
+                <div className="h-6 w-1 shrink-0 bg-action" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono text-[10.5px] font-semibold uppercase text-text-muted">Quoted transcript</div>
-                  <div className="truncate font-medium">{qt.title} · {qt.messages.length} messages · {qt.source}</div>
+                  <div className="truncate font-medium">{qt.title}</div>
+                  <div className="truncate font-mono text-[10.5px] text-text-muted">
+                    Transcript quote · {qt.messages.length} messages · {qt.source}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => removeQuote(idx)}
-                  className="border border-border-soft bg-panel px-2 py-0.5 font-mono text-[10.5px] text-text-muted hover:border-border hover:text-text"
+                  className="shrink-0 border border-border-soft bg-panel px-2 py-0.5 font-mono text-[10.5px] text-text-muted hover:border-border hover:text-text"
                 >
                   Remove
                 </button>
