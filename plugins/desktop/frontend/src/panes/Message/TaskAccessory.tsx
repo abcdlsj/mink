@@ -11,6 +11,7 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
   if (isQuietTerminalStatus(info.status)) return null;
   const label = taskAccessoryLabel(info);
   const isRunning = info.status === "running" || info.status === "queued";
+  const isFailed = info.status === "failed" || info.status === "canceled" || info.status === "no_output";
   const opened = expandedTaskID === info.task_id;
   const onClick = (e: MouseEvent) => {
     e.stopPropagation();
@@ -22,8 +23,12 @@ export function TaskAccessoryRow({ info }: { info: TaskAccessoryInfo }) {
       type="button"
       onClick={onClick}
       className={cn(
-        "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 text-left font-mono text-[10.5px]",
-        isRunning ? "border-running-border bg-running-bg text-running" : "border-border-soft bg-transparent text-text-faint",
+        "mt-1.5 inline-flex cursor-pointer items-center gap-1.5 border px-1.5 py-0.5 text-left font-mono text-[10px] leading-none",
+        isRunning
+          ? "border-running-border bg-running-bg text-running"
+          : isFailed
+            ? "border-error-border bg-error-bg text-error"
+            : "border-border-soft bg-transparent text-text-faint",
         taskInScope ? "hover:text-text" : "cursor-default",
         opened && "text-text",
       )}
@@ -53,7 +58,7 @@ function taskAccessoryLabel(info: TaskAccessoryInfo): string {
     case "queued":
       return who + " · queued";
     case "running":
-      return who + " · working...";
+      return who + " · working";
     case "finished":
       return who + " · finished";
     case "failed":

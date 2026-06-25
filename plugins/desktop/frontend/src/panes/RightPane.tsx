@@ -55,14 +55,14 @@ export function RightPane() {
     ? (threadRecentRuns || [])
     : (participants?.recent_runs || []);
   const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : taskRuns);
+  const activeScopeSpaceID = inThread ? threadDetail?.space_id : detail?.item.id;
+  const activeScopeAgentIDs = activePersona
+    ? [activePersona.id]
+    : (inThread ? (threadParticipants || []) : (participants?.agents || [])).map((a) => a.id);
   const archivedScopeRuns = inThread
     ? (threadDetail?.archived_runs_count || 0)
     : (participants?.archived_runs_count || 0);
-  const scopeSpaceID = inThread ? threadDetail?.space_id : detail?.item.id;
-  const scopeAgentIDs = activePersona
-    ? [activePersona.id]
-    : (inThread ? (threadParticipants || []) : (participants?.agents || [])).map((a) => a.id);
-  const contextAgentID = activePersona?.id || scopeAgentIDs[0] || "";
+  const contextAgentID = activePersona?.id || activeScopeAgentIDs[0] || "";
   const agentModes = inThread
     ? threadDetail?.agent_modes
     : view === "channel"
@@ -70,7 +70,7 @@ export function RightPane() {
       : undefined;
   const runtimeContextSec = (
     <RuntimeContextSection
-      spaceID={scopeSpaceID}
+      spaceID={activeScopeSpaceID}
       parentMessageID={inThread ? threadDetail?.parent_id : undefined}
       agentID={contextAgentID}
     />
@@ -79,7 +79,7 @@ export function RightPane() {
     <Section label="Memory">
       <MemoryOverviewCard
         personaID={activePersona?.id}
-        spaceID={scopeSpaceID}
+        spaceID={activeScopeSpaceID}
       />
     </Section>
   );
@@ -88,19 +88,19 @@ export function RightPane() {
   let more: React.ReactNode = null;
 
   const workbenchSec = (
-    <AgentWorkbenchPanel
-      view={workbenchView}
-      stateRuntime={state?.runtime}
-      activePersona={activePersona}
-      runs={runtimeRuns}
-      participants={inThread ? (threadParticipants || []) : (participants?.agents || [])}
-      personas={personas}
-      agentDMs={agentDMs}
-      agents={agents}
-      capabilities={capabilities}
-      recentRuns={scopeRecentRuns}
-      agentModes={agentModes}
-    />
+      <AgentWorkbenchPanel
+        view={workbenchView}
+        stateRuntime={state?.runtime}
+        activePersona={activePersona}
+        runs={runtimeRuns}
+        participants={inThread ? (threadParticipants || []) : (participants?.agents || [])}
+        personas={personas}
+        agentDMs={agentDMs}
+        agents={agents}
+        capabilities={capabilities}
+        recentRuns={activeScopeRuns}
+        agentModes={agentModes}
+      />
   );
 
   const activeTasksSec = (
@@ -132,7 +132,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={activeScopeSpaceID} scopeAgentIDs={activeScopeAgentIDs} />
       </>
     );
   } else if (view === "direct" || inThread) {
@@ -147,7 +147,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {inThread && memorySec}
-        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={activeScopeSpaceID} scopeAgentIDs={activeScopeAgentIDs} />
       </>
     );
   } else if (view === "agent") {
@@ -168,7 +168,7 @@ export function RightPane() {
     more = (
       <>
         {runtimeContextSec}
-        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={activeScopeSpaceID} scopeAgentIDs={activeScopeAgentIDs} />
       </>
     );
   } else {
@@ -177,7 +177,7 @@ export function RightPane() {
       <>
         {runtimeContextSec}
         {memorySec}
-        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={scopeSpaceID} scopeAgentIDs={scopeAgentIDs} />
+        <CapabilitySummarySection capabilities={capabilities} scopeSpaceID={activeScopeSpaceID} scopeAgentIDs={activeScopeAgentIDs} />
       </>
     );
   }
@@ -462,7 +462,7 @@ function AgentWorkbenchPanel({
           · {summary.total > 0 ? `${summary.ready} skills ready` : "no skills"}
           {summary.missing > 0 ? `, ${summary.missing} missing` : ""}
         </span>
-        {failures.length > 0 && <span className="text-error">· {failures.length} failure</span>}
+        {recentRuns.length > 0 && <span className="text-error">· {failures.length} failure</span>}
       </div>
       <div className="flex flex-col gap-2">
         {panelAgents.map((p) => {

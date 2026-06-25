@@ -758,7 +758,20 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async newAgentChat(personaID, title) {
-    const item = await api.createAgentDM(personaID, title);
+    const trimmed = title?.trim() || "";
+    if (!trimmed) {
+      const existing = get().agentDMs.find((d) => d.persona_id === personaID);
+      if (existing) {
+        await get().openAgent(existing.id);
+        return;
+      }
+      const fallback = get().directChats.find((d) => d.kind === "agent_dm" && d.persona_id === personaID);
+      if (fallback) {
+        await get().openAgent(fallback.id);
+        return;
+      }
+    }
+    const item = await api.createAgentDM(personaID, trimmed);
     const [agentDMs, directChats] = await Promise.all([api.agentDMs(), api.directChats()]);
     set({ agentDMs, directChats });
     await get().openAgent(item.id);

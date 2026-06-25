@@ -2253,6 +2253,11 @@ func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
 	if p == nil {
 		return AgentDMItem{}, fmt.Errorf("persona not registered: %s", personaID)
 	}
+	if title = strings.TrimSpace(title); title == "" {
+		if sp, err := b.findDefaultAgentDM(personaID); err == nil && sp != nil {
+			return agentDMItemFromSpace(sp, b.app), nil
+		}
+	}
 	seed := p.ID + "-" + uuid.NewString()[:8]
 	info := space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
 	sp, err := b.app.Spaces().EnsureSpace(space.KindAgentDM, seed, info)
@@ -2268,6 +2273,22 @@ func (b *Backend) CreateAgentDM(personaID, title string) (AgentDMItem, error) {
 		}
 	}
 	return agentDMItemFromSpace(sp, b.app), nil
+}
+
+func (b *Backend) findDefaultAgentDM(personaID string) (*space.Space, error) {
+	all, err := b.app.Spaces().Store().ListSpaces()
+	if err != nil {
+		return nil, err
+	}
+	for _, sp := range all {
+		if sp.Kind != space.KindAgentDM || !isDefaultAgentDM(sp) {
+			continue
+		}
+		if space.AgentParticipantID(sp) == personaID {
+			return sp, nil
+		}
+	}
+	return nil, nil
 }
 
 func (b *Backend) UpdateAgentDMTitle(spaceID, title string) (AgentDMItem, error) {
