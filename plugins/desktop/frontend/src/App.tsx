@@ -8,6 +8,7 @@ import { RightPane } from "@/panes/RightPane";
 import { ThreadView } from "@/panes/ThreadView";
 import { CommandPalette } from "@/components/CommandPalette";
 import { QuickCreate } from "@/components/QuickCreate";
+import type { AgentRun } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type MobileLayer = "spaces" | "details" | null;
@@ -344,6 +345,7 @@ function MobileDetailsContent() {
   const agentDMs = useStore((s) => s.agentDMs);
   const activeAgentSpace = useStore((s) => s.activeAgentSpace);
   const capabilities = useStore((s) => s.capabilities);
+  const streamingByID = useStore((s) => s.streamingByID);
   const [open, setOpen] = useState<"skills" | "tasks" | "approvals" | "agents" | null>(null);
 
   const skills = capabilities?.skills || [];
@@ -351,7 +353,7 @@ function MobileDetailsContent() {
   const approvals = capabilities?.action_proposals || [];
   const missingSkills = skills.filter((s) => !s.configured).length;
   const failures = mobileFailureCount(tasks);
-  const activeRuns = participants?.active_runs || [];
+  const activeRuns = activeRunsForMobile(participants?.active_runs || [], streamingByID);
   const activePersonaID = detail?.item?.persona_id || agentDMs.find((d) => d.id === activeAgentSpace)?.persona_id || activeAgentSpace || "";
   const activePersona = view === "agent" ? personas.find((p) => p.id === activePersonaID) : undefined;
   const visibleAgents = activePersona
@@ -446,6 +448,25 @@ function MobileDetailsContent() {
       </MobileDetailSection>
     </div>
   );
+}
+
+function activeRunsForMobile(runs: AgentRun[], streamingByID: Record<string, { agentID: string; messageID: string; startedAt: string }>): AgentRun[] {
+  const live: AgentRun[] = [];
+  const seen = new Set<string>();
+  for (const s of Object.values(streamingByID)) {
+    if (seen.has(s.agentID || "agent")) continue;
+    seen.add(s.agentID || "agent");
+    live.push({
+      id: s.messageID,
+      agent_id: s.agentID || "agent",
+      title: "Working now",
+      status: "running",
+      lifecycle: "active",
+      time: s.startedAt,
+    });
+  }
+  if (live.length > 0) return live;
+  return runs;
 }
 
 function MobileMetric({ label, value, active, error }: { label: string; value: string; active?: boolean; error?: boolean }) {

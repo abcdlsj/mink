@@ -47,14 +47,14 @@ export function RightPane() {
     lifecycle: "active",
     time: s.startedAt,
   }));
-  const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : participants?.active_runs || [];
-  const taskRuns: AgentRun[] = participants?.active_runs || [];
+  const activeTaskRuns: AgentRun[] = participants?.active_runs || [];
+  const runtimeRuns: AgentRun[] = liveRuns.length > 0 ? liveRuns : activeTaskRuns;
   const activePersona = personaForRuntime(activeAgentSpace, detail?.item?.persona_id, personas, agentDMs);
   const activeChannelItem = view === "channel" ? channels.find((c) => c.id === activeChannel) : undefined;
   const scopeRecentRuns = inThread
     ? (threadRecentRuns || [])
     : (participants?.recent_runs || []);
-  const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : taskRuns);
+  const activeScopeRuns = activeRuns(scopeRecentRuns.length > 0 ? scopeRecentRuns : activeTaskRuns);
   const activeScopeSpaceID = inThread ? threadDetail?.space_id : detail?.item.id;
   const activeScopeAgentIDs = activePersona
     ? [activePersona.id]
@@ -447,10 +447,15 @@ function AgentWorkbenchPanel({
   const newAgentChat = useStore((s) => s.newAgentChat);
   const panelAgents = workbenchAgents(view, activePersona, participants, personas, agents);
   const runningIDs = new Set(runs.filter((r) => r.status === "running").map((r) => r.agent_id));
+  const runningByAgent = new Map<string, AgentRun>();
+  for (const run of runs) {
+    if (run.status !== "running") continue;
+    if (!runningByAgent.has(run.agent_id)) runningByAgent.set(run.agent_id, run);
+  }
   const summary = capabilitySummary(capabilities);
   const failures = recentFailures(recentRuns, capabilities);
   const permission = permissionSummary(view);
-  const runningCount = runs.filter((r) => r.status === "running").length;
+  const runningCount = runningByAgent.size;
   const queuedCount = recentRuns.filter((r) => r.status === "queued").length;
   return (
     <Section label="Agent Workbench">
