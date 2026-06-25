@@ -6,13 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
-	taskpkg "github.com/abcdlsj/sumi/task"
 )
 
 func (a *App) channelRouter() *space.Router {
@@ -64,137 +62,16 @@ func (a *App) interceptRoutedInput(ctx context.Context, source, content string, 
 	return result, nil
 }
 
-type channelWakeJob struct {
-	originSource      string
-	spaceID           string
-	target            space.RoutingTarget
-	originUserContent string
-	originAttachments []msg.Attachment
-	taskID            string
-}
-
-type channelWakeResult struct {
-	notices         []space.RoutingNotice
-	resultMessageID string
-	outcome         string
-	err             error
-	emptyOutput     bool
-}
-
 func (a *App) enqueueChannelWake(originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) []space.RoutingNotice {
-	if a == nil {
-		return nil
-	}
-	triggerID := strings.TrimSpace(target.OriginMessageID)
-	if triggerID == "" && target.Chain != nil {
-		triggerID = target.Chain.RootMessageID
-	}
-	parentMessageID := ""
-	if target.Chain != nil {
-		parentMessageID = target.Chain.ParentMessageID
-	}
-	taskID := ""
-	if a.tasks != nil {
-		tk, err := a.tasks.Create(taskpkg.CreateTaskInput{
-			SpaceID:          spaceID,
-			TriggerMessageID: triggerID,
-			SourceThreadID:   parentMessageID,
-			InitiatorID:      a.spaces.UserParticipant().ID,
-			WorkerID:         target.AgentID,
-			Title:            wakeTaskTitle(originUserContent),
-			Source:           originSource,
-		})
-		if err == nil && tk != nil {
-			taskID = tk.ID
-		}
-	}
-	a.bus.Publish(bus.Event{
-		Type:            bus.TurnQueued,
-		Source:          originSource,
-		SessionID:       spaceID,
-		TaskID:          taskID,
-		SpaceID:         spaceID,
-		ParentMessageID: parentMessageID,
-		AgentID:         target.AgentID,
-	})
-	a.channelWakeQueue(wakeQueueKey(spaceID, parentMessageID, target.AgentID)) <- channelWakeJob{
-		originSource:      originSource,
-		spaceID:           spaceID,
-		target:            target,
-		originUserContent: originUserContent,
-		originAttachments: append([]msg.Attachment(nil), originAttachments...),
-		taskID:            taskID,
-	}
-	return nil
+	return a.channelWakePipeline().enqueueChannelWake(originSource, spaceID, target, originUserContent, originAttachments)
 }
 
 func (a *App) channelWakeQueue(key string) chan channelWakeJob {
-	a.wakeMu.Lock()
-	defer a.wakeMu.Unlock()
-	if a.wakeQueues == nil {
-		a.wakeQueues = map[string]chan channelWakeJob{}
-	}
-	if q, ok := a.wakeQueues[key]; ok {
-		return q
-	}
-	q := make(chan channelWakeJob, 128)
-	a.wakeQueues[key] = q
-	go func() {
-		for job := range q {
-			a.runQueuedChannelWake(job)
-		}
-	}()
-	return q
-}
-
-func wakeQueueKey(spaceID, parentMessageID, agentID string) string {
-	return spaceID + "\x00" + parentMessageID + "\x00" + agentID
-}
-
-func wakeTaskTitle(content string) string {
-	content = strings.ReplaceAll(strings.TrimSpace(content), "\n", " ")
-	rs := []rune(content)
-	if len(rs) > 76 {
-		content = string(rs[:76]) + "..."
-	}
-	if content == "" {
-		return "Agent wake"
-	}
-	return content
+	return a.channelWakePipeline().channelWakeQueue(key)
 }
 
 func (a *App) runQueuedChannelWake(job channelWakeJob) {
-	var runID string
-	if job.taskID != "" && a.tasks != nil {
-		if _, err := a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err == nil {
-			if run, err := a.tasks.StartRun(job.taskID); err == nil && run != nil {
-				runID = run.ID
-			}
-		}
-	}
-	result := a.runChannelWake(context.Background(), job.originSource, job.spaceID, job.target, job.originUserContent, job.originAttachments)
-	if len(result.notices) > 0 {
-		a.publishRoutingNotices(job.originSource, result.notices)
-	}
-	if job.taskID == "" || a.tasks == nil {
-		return
-	}
-	status := taskpkg.StatusFinished
-	outcome := result.outcome
-	if result.err != nil {
-		status = taskpkg.StatusFailed
-		outcome = result.err.Error()
-	} else if result.emptyOutput {
-		status = taskpkg.StatusEmptyOutput
-	}
-	_, _ = a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{
-		Status:          status,
-		Outcome:         outcome,
-		ResultMessageID: result.resultMessageID,
-	})
-	if runID != "" {
-		_, _ = a.tasks.FinishRun(runID, taskpkg.FinishRunInput{Status: status})
-	}
+	a.channelWakePipeline().runQueuedChannelWake(job)
 }
 
 func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID, agentID, parentMessageID, originMessageID, originUserContent string) (string, error) {
@@ -211,7 +88,7 @@ func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID,
 		chain.ParentMessageID = parent
 		target.Chain = chain
 	}
-	result := a.runChannelWake(ctx, originSource, spaceID, target, originUserContent, nil)
+	result := a.channelWakePipeline().runChannelWake(ctx, originSource, spaceID, target, originUserContent, nil)
 	if len(result.notices) > 0 {
 		a.publishRoutingNotices(originSource, result.notices)
 	}
@@ -237,167 +114,7 @@ func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID,
 }
 
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) channelWakeResult {
-	persona := a.personas.Get(target.AgentID)
-	if persona == nil {
-		return channelWakeResult{emptyOutput: true}
-	}
-	parentMessageID := ""
-	if target.Chain != nil {
-		parentMessageID = target.Chain.ParentMessageID
-	}
-	sessionSource := wakeSessionSource(originSource, parentMessageID, target.AgentID)
-	s, err := a.sessions.Current(sessionSource)
-	if err != nil {
-		return channelWakeResult{err: err}
-	}
-	a.syncWakeContext(s, originSource, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
-	collaborationBrief := a.routedCollaborationBrief(spaceID, parentMessageID, target)
-	baseline := len(s.Messages)
-	rt, visionLabel, err := a.newRuntimeForTurn(persona.Runtime, persona, originAttachments)
-	if err != nil {
-		return channelWakeResult{err: err}
-	}
-	if visionLabel != "" {
-		a.bus.Publish(bus.Event{
-			Type:    bus.ServiceNotice,
-			Source:  s.Source,
-			SpaceID: spaceID,
-			AgentID: persona.ID,
-			Text:    "image attachment detected; routed to vision_model: " + visionLabel,
-		})
-	}
-	turn := &agent.Turn{
-		Source:                s.Source,
-		Input:                 originUserContent,
-		Attachments:           originAttachments,
-		Session:               s,
-		Bus:                   a.bus,
-		SpaceID:               spaceID,
-		ParentMessageID:       parentMessageID,
-		AgentID:               persona.ID,
-		StreamID:              newStreamID(),
-		CollaborationBrief:    collaborationBrief,
-		IncludeHistory:        true,
-		DisableExternalResume: true,
-		BlockedTools:          mergeToolBlocks(taskToolBlocks(persona), memoryToolBlocks(persona)),
-	}
-	ctx = command.WithSource(ctx, originSource)
-	ctx = command.WithPersona(ctx, persona.ID)
-	if parentMessageID != "" {
-		ctx = command.WithParentMessage(ctx, parentMessageID)
-	}
-	ctx = command.WithRunContext(ctx, inputFlow{
-		app:       a,
-		source:    originSource,
-		personaID: persona.ID,
-		input:     originUserContent,
-	}.runContextWithSession(ctx, sessionSource))
-	a.prepareMemoryForTurn(ctx, turn, externalRuntimeName(persona.Runtime))
-	a.bus.Publish(bus.Event{
-		Type:            bus.TurnStarted,
-		Source:          s.Source,
-		SessionID:       s.ID,
-		SpaceID:         turn.SpaceID,
-		ParentMessageID: turn.ParentMessageID,
-		AgentID:         turn.AgentID,
-		StreamID:        turn.StreamID,
-	})
-	runErr := rt.Run(ctx, turn)
-	if runErr == nil && externalRuntimeName(persona.Runtime) {
-		a.processAssistantMemoryInSession(ctx, turn, s, baseline)
-	}
-	if runErr == nil && visionLabel != "" {
-		agent.StripVisionedImageAttachments(s)
-	}
-	if runErr != nil {
-		saveErr := a.sessions.Save(s)
-		if saveErr != nil {
-			runErr = fmt.Errorf("%w; save session: %v", runErr, saveErr)
-		}
-		_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, runErr)
-		a.bus.Publish(bus.Event{
-			Type:            bus.TurnError,
-			Source:          s.Source,
-			SessionID:       s.ID,
-			Err:             runErr.Error(),
-			SpaceID:         turn.SpaceID,
-			ParentMessageID: turn.ParentMessageID,
-			AgentID:         turn.AgentID,
-			StreamID:        turn.StreamID,
-		})
-		return channelWakeResult{err: runErr}
-	} else {
-		if err := a.sessions.Save(s); err != nil {
-			_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, err)
-			a.bus.Publish(bus.Event{
-				Type:            bus.TurnError,
-				Source:          s.Source,
-				SessionID:       s.ID,
-				Err:             err.Error(),
-				SpaceID:         turn.SpaceID,
-				ParentMessageID: turn.ParentMessageID,
-				AgentID:         turn.AgentID,
-				StreamID:        turn.StreamID,
-			})
-			return channelWakeResult{err: err}
-		}
-		a.bus.Publish(bus.Event{
-			Type:            bus.TurnFinished,
-			Source:          s.Source,
-			SessionID:       s.ID,
-			SpaceID:         turn.SpaceID,
-			ParentMessageID: turn.ParentMessageID,
-			AgentID:         turn.AgentID,
-			StreamID:        turn.StreamID,
-		})
-	}
-	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
-	attachments := assistantAttachments(s.Messages[baseline:], "memory_commit")
-	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
-		return channelWakeResult{emptyOutput: true}
-	}
-	r := a.channelRouter()
-	if r == nil {
-		return channelWakeResult{emptyOutput: true}
-	}
-	resolved := space.ParseMentions(content, r.ResolverFunc(), r.MaxMentions())
-	resolved = filterOut(resolved, target.AgentID)
-
-	added := s.Messages[baseline:]
-	draft := DraftAssistantMessage{
-		AgentID:         persona.ID,
-		Content:         content,
-		Reasoning:       reasoning,
-		Mentions:        resolved,
-		AutoReplyReason: a.routedReplyReason(spaceID, target),
-		ParentMessageID: parentMessageID,
-		Added:           added,
-		Attachments:     attachments,
-	}.Message()
-	personas := a.fuzzyPersonaResolver()
-	written, _, err := a.spaces.AppendMessageWithRouting(spaceID, draft, resolved, personas.Info)
-	if err != nil {
-		return channelWakeResult{err: err}
-	}
-	result := channelWakeResult{
-		resultMessageID: written.ID,
-		outcome:         shortOutcomeForTask(content),
-	}
-	if target.Chain == nil {
-		return result
-	}
-	chained, notices, err := r.RouteAgentReply(spaceID, target.Chain.RootMessageID, written.ID, content, target.AgentID)
-	if err != nil {
-		result.notices = notices
-		result.err = err
-		return result
-	}
-	result.notices = append(result.notices, notices...)
-	for _, w := range chained {
-		extra := a.enqueueChannelWake(originSource, spaceID, w, content, nil)
-		result.notices = append(result.notices, extra...)
-	}
-	return result
+	return a.channelWakePipeline().runChannelWake(ctx, originSource, spaceID, target, originUserContent, originAttachments)
 }
 
 func shortOutcomeForTask(content string) string {
@@ -481,12 +198,6 @@ func (a *App) routingNoticeParent(spaceID, messageID string) string {
 		}
 	}
 	return ""
-}
-
-func (a *App) persistChannelWakeFailure(spaceID, parentMessageID, agentID string, err error) error {
-	// The pending agent message is the user-visible failure surface.
-	// Adding a separate system message makes retry look like a new participant reply.
-	return nil
 }
 
 func (a *App) appendSystemSpaceMessage(spaceID, parentMessageID, content string) error {
