@@ -83,27 +83,52 @@ export function MessageRow({
 
   if (m.role === "system") {
     return (
-      <MessageShell
-        id={m.id}
-      selecting={selecting}
-      selected={selected}
-      highlighted={highlighted}
-      compact={compact}
-      checkboxLabel={"Select system notice " + m.id}
-      onToggleSelected={onToggleSelected}
-      avatar={<div className="mt-px flex size-7 items-center justify-center border border-border-soft bg-panel text-[11px] text-text-faint md:size-8">!</div>}
+      <div
+        id={"message-" + m.id}
+        className={cn(
+          "group/message grid gap-2.5 md:gap-3.5",
+          selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
+          compact ? "mb-2" : "mb-4",
+          selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
+          highlighted && "sumi-anchor-flash",
+      )}
     >
-        <MessageHeader title="System notice" time={m.time} threadAction={threadAction} />
-        {m.content && <LongContent content={m.content} isUser={false} mentions={knownMentions} />}
-        {events.length > 0 && (
-          <MessageEventList collabEvents={collabEvents} toolEvents={toolEvents} noticeEvents={noticeEvents} />
+        {selecting && (
+          <label className={cn("mt-1 flex justify-center", compact && "mt-0")}>
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelected}
+              className="size-3.5 accent-accent"
+              aria-label={"Select system notice " + m.id}
+            />
+          </label>
         )}
-        {m.status === "failed" && (
-          <MessageStatus status="error" compact={compact}>
-            {m.error || "System action failed."}
-          </MessageStatus>
-        )}
-      </MessageShell>
+        <div className="mt-px flex size-7 items-center justify-center border border-border-soft bg-panel text-[11px] text-text-faint md:size-8">
+          !
+        </div>
+        <div className="max-w-[820px] border border-border-soft bg-bg px-3 py-2 text-text">
+          <div className="mb-1.5 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.35px] text-text-muted">
+            <span>System notice</span>
+            <span className="ml-auto tabular-nums">{relTime(m.time)}</span>
+          </div>
+          {m.content && (
+            <LongContent
+              content={m.content}
+              isUser={false}
+              mentions={knownMentions}
+            />
+          )}
+          {events.length > 0 && (
+            <MessageEventList collabEvents={collabEvents} toolEvents={toolEvents} noticeEvents={noticeEvents} />
+          )}
+          {m.status === "failed" && (
+            <div className="mt-2 border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
+              {m.error || "System action failed."}
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -213,13 +238,13 @@ function MessageShell({
       className={cn(
         "group/message grid gap-2.5 md:gap-3.5",
         selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
-        compact ? "mb-2" : "mb-6 pb-1",
+        compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
         selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
         highlighted && "sumi-anchor-flash",
       )}
     >
       {selecting && (
-        <label className={cn("mt-1 flex justify-center", compact && "mt-0")}>
+        <label className="mt-1 flex justify-center">
           <input
             type="checkbox"
             checked={!!selected}
@@ -303,12 +328,13 @@ function MessageStatus({ status, compact, children }: { status: "running" | "err
   return (
     <div
       className={cn(
-        "mt-2 inline-flex max-w-full items-center gap-1.5 border px-2 py-0.5 font-mono text-[10.5px]",
+        "mt-2.5 inline-flex items-center gap-2 border px-2 py-1 text-[11.5px]",
         status === "running" ? "border-running-border bg-running-bg text-running" : "border-error-border bg-error-bg text-error",
         compact && "ml-0.5",
       )}
     >
-      {children}
+      <span className="inline-block size-1.5 rounded-full bg-running" />
+      <span>{children}</span>
     </div>
   );
 }
