@@ -2,8 +2,6 @@ package external
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -385,15 +383,4 @@ func addUser(s *session.Session, input string, attachments []msg.Attachment) {
 		return
 	}
 	s.Add(agent.NewUserMessageWithAttachments(input, attachments))
-}
-
-func wrapMessageError(name string, m *Message) error {
-	err := m.Error
-	if err == nil && m != nil && m.Text != "" {
-		err = errors.New(m.Text)
-	}
-	if err == nil {
-		err = fmt.Errorf("%s runtime failed", name)
-	}
-	return err
 }
