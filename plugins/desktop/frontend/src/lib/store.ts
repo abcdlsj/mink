@@ -142,12 +142,57 @@ interface SendOptions {
   attachments?: AttachmentView[];
 }
 
-function activeScopeKey(s: State): string {
-  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
-    return scopeKey(s.threadDetail.space_id, s.threadDetail.parent_id);
+class ScopeMatcher {
+  constructor(private readonly s: State) {}
+
+  activeScopeKey(): string {
+    if (this.s.threadDetail && !this.s.threadDetail.unsupported && !this.s.threadDetail.not_found) {
+      return scopeKey(this.s.threadDetail.space_id, this.s.threadDetail.parent_id);
+    }
+    const sid = activeSessionID(this.s);
+    return sid ? scopeKey(sid) : "";
   }
-  const sid = activeSessionID(s);
-  return sid ? scopeKey(sid) : "";
+
+  lifecycleEventInScope(ev: BusEvent): boolean {
+    if (!ev.space_id) return false;
+    if (this.s.threadDetail && !this.s.threadDetail.unsupported && !this.s.threadDetail.not_found) {
+      if (ev.space_id !== this.s.activeChannel) return false;
+      if (!ev.parent_message_id) return true;
+      if (ev.parent_message_id === this.s.threadDetail.parent_id) return true;
+      if (ev.message_id === this.s.threadDetail.parent_id) return true;
+      return this.s.threadDetail.replies.some((r) => r.id === ev.parent_message_id || r.id === ev.message_id);
+    }
+    if (this.s.view === "agent") {
+      if (!this.s.detail) return false;
+      return ev.space_id === this.s.detail.item.id;
+    }
+    if (this.s.view === "channel") {
+      if (ev.space_id !== this.s.activeChannel) return false;
+      return !ev.parent_message_id;
+    }
+    if (this.s.view === "direct") {
+      if (ev.space_id !== this.s.activeDirect) return false;
+      return !ev.parent_message_id;
+    }
+    return false;
+  }
+
+  streamMatchesMain(stream: StreamingTurn): boolean {
+    if (stream.parentMessageID) return false;
+    if (this.s.view === "agent") return !!this.s.detail && this.s.detail.item.id === stream.spaceID;
+    if (this.s.view === "direct") return this.s.activeDirect === stream.spaceID;
+    if (this.s.view === "channel") return this.s.activeChannel === stream.spaceID;
+    return false;
+  }
+
+  streamMatchesThread(stream: StreamingTurn): boolean {
+    if (!this.s.threadDetail || this.s.threadDetail.unsupported || this.s.threadDetail.not_found) return false;
+    return this.s.threadDetail.space_id === stream.spaceID && this.s.threadDetail.parent_id === stream.parentMessageID;
+  }
+}
+
+function activeScopeKey(s: State): string {
+  return new ScopeMatcher(s).activeScopeKey();
 }
 
 function newID(): string {
@@ -155,27 +200,7 @@ function newID(): string {
 }
 
 function lifecycleEventInScope(ev: BusEvent, s: State): boolean {
-  if (!ev.space_id) return false;
-  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
-    if (ev.space_id !== s.activeChannel) return false;
-    if (!ev.parent_message_id) return true;
-    if (ev.parent_message_id === s.threadDetail.parent_id) return true;
-    if (ev.message_id === s.threadDetail.parent_id) return true;
-    return s.threadDetail.replies.some((r) => r.id === ev.parent_message_id || r.id === ev.message_id);
-  }
-  if (s.view === "agent") {
-    if (!s.detail) return false;
-    return ev.space_id === s.detail.item.id;
-  }
-  if (s.view === "channel") {
-    if (ev.space_id !== s.activeChannel) return false;
-    return !ev.parent_message_id;
-  }
-  if (s.view === "direct") {
-    if (ev.space_id !== s.activeDirect) return false;
-    return !ev.parent_message_id;
-  }
-  return false;
+  return new ScopeMatcher(s).lifecycleEventInScope(ev);
 }
 
 function streamingViewUpdates(
@@ -185,14 +210,15 @@ function streamingViewUpdates(
 ): Partial<State> {
   const detail = s.detail;
   const updates: Partial<State> = {};
-  if (detail && streamMatchesMainScope(s, stream)) {
+  const matcher = new ScopeMatcher(s);
+  if (detail && matcher.streamMatchesMain(stream)) {
     const exists = detail.messages.some((m) => m.id === placeholder.id);
     updates.detail = {
       ...detail,
       messages: exists ? detail.messages : [...detail.messages, placeholder],
     };
   }
-  if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
+  if (s.threadDetail && matcher.streamMatchesThread(stream)) {
     const exists = s.threadDetail.replies.some((m) => m.id === placeholder.id);
     updates.threadDetail = {
       ...s.threadDetail,
@@ -208,13 +234,14 @@ function streamingMessageUpdates(
   patch: (m: MessageView) => MessageView,
 ): Partial<State> {
   const updates: Partial<State> = {};
-  if (s.detail && streamMatchesMainScope(s, stream)) {
+  const matcher = new ScopeMatcher(s);
+  if (s.detail && matcher.streamMatchesMain(stream)) {
     updates.detail = {
       ...s.detail,
       messages: s.detail.messages.map((m) => (m.id === stream.messageID ? patch(m) : m)),
     };
   }
-  if (s.threadDetail && streamMatchesThreadScope(s, stream)) {
+  if (s.threadDetail && matcher.streamMatchesThread(stream)) {
     updates.threadDetail = {
       ...s.threadDetail,
       replies: s.threadDetail.replies.map((m) => (m.id === stream.messageID ? patch(m) : m)),
@@ -224,16 +251,11 @@ function streamingMessageUpdates(
 }
 
 function streamMatchesMainScope(s: State, stream: StreamingTurn): boolean {
-  if (stream.parentMessageID) return false;
-  if (s.view === "agent") return !!s.detail && s.detail.item.id === stream.spaceID;
-  if (s.view === "direct") return s.activeDirect === stream.spaceID;
-  if (s.view === "channel") return s.activeChannel === stream.spaceID;
-  return false;
+  return new ScopeMatcher(s).streamMatchesMain(stream);
 }
 
 function streamMatchesThreadScope(s: State, stream: StreamingTurn): boolean {
-  if (!s.threadDetail || s.threadDetail.unsupported || s.threadDetail.not_found) return false;
-  return s.threadDetail.space_id === stream.spaceID && s.threadDetail.parent_id === stream.parentMessageID;
+  return new ScopeMatcher(s).streamMatchesThread(stream);
 }
 
 function currentStreaming(streamingByID: Record<string, StreamingTurn>): StreamingTurn | null {
