@@ -63,6 +63,10 @@ type pendingTurn struct {
 	MessageID       string
 	ParentMessageID string
 	AgentID         string
+	StreamID        string
+	SessionID       string
+	Source          string
+	StartedAt       time.Time
 }
 
 func (b *Backend) hasActiveTurn(ids ...string) bool {
@@ -378,6 +382,10 @@ func (b *Backend) trackTurnStarted(ev bus.Event) bus.Event {
 		MessageID:       written.ID,
 		ParentMessageID: strings.TrimSpace(ev.ParentMessageID),
 		AgentID:         agentID,
+		StreamID:        ev.StreamID,
+		SessionID:       ev.SessionID,
+		Source:          ev.Source,
+		StartedAt:       time.Now(),
 	}
 	b.mu.Unlock()
 	ev.MessageID = written.ID
@@ -1051,6 +1059,7 @@ func (b *Backend) NewDirectChat(title, agentID string) (SessionDetail, error) {
 			UpdatedAt:    sp.UpdatedAt,
 			MessageCount: len(sp.Messages),
 		},
+		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
 		Messages: spaceMessagesToView(sp, b.app),
 	}, nil
 }
@@ -1223,6 +1232,7 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 			MessageCount: len(sp.Messages),
 			Running:      b.directChatHasActiveTurn(sp),
 		},
+		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
 		Messages: spaceMessagesToView(sp, b.app),
 	}
 }
@@ -1924,9 +1934,49 @@ func (b *Backend) GetParticipants(channelID, threadID string) ParticipantsView {
 	recentRuns, archivedRuns := b.spaceRecentRuns(sp)
 	return ParticipantsView{
 		Agents:            spaceParticipantsAsAgents(sp, b.app),
+		ActiveRuns:        b.pendingActiveRuns(sp.ID, ""),
 		RecentRuns:        recentRuns,
 		ArchivedRunsCount: archivedRuns,
 	}
+}
+
+func (b *Backend) pendingActiveRuns(spaceID, parentMessageID string) []AgentRun {
+	if b == nil {
+		return nil
+	}
+	spaceID = strings.TrimSpace(spaceID)
+	parentMessageID = strings.TrimSpace(parentMessageID)
+	b.mu.Lock()
+	pending := make([]pendingTurn, 0, len(b.pending))
+	for _, p := range b.pending {
+		if strings.TrimSpace(p.SpaceID) != spaceID {
+			continue
+		}
+		if strings.TrimSpace(p.ParentMessageID) != parentMessageID {
+			continue
+		}
+		pending = append(pending, p)
+	}
+	b.mu.Unlock()
+	out := make([]AgentRun, 0, len(pending))
+	for _, p := range pending {
+		started := p.StartedAt
+		if started.IsZero() {
+			started = time.Now()
+		}
+		out = append(out, AgentRun{
+			ID:              p.StreamID,
+			AgentID:         p.AgentID,
+			Title:           "Working now",
+			Status:          "running",
+			Lifecycle:       "active",
+			SpaceID:         p.SpaceID,
+			ParentMessageID: p.ParentMessageID,
+			Time:            started,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out
 }
 
 func spaceParticipantsAsAgents(sp *space.Space, a appAccessor) []AgentItem {
@@ -2240,6 +2290,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 				"desktop:agent:"+pid,
 			),
 		},
+		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
 		Messages: spaceMessagesToView(sp, b.app),
 	}
 }

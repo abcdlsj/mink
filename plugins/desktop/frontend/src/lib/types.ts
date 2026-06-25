@@ -204,6 +204,7 @@ export interface ThreadDetail {
   participants?: AgentItem[];
   channel_agents?: string[];
   agent_modes?: Record<string, string>;
+  active_runs?: AgentRun[];
   recent_runs?: AgentRun[];
   archived_runs_count?: number;
   active_worker_id?: string;
@@ -231,6 +232,7 @@ export interface SessionDetail {
   item: SessionItem;
   summary?: string;
   messages: MessageView[];
+  active_runs?: AgentRun[];
 }
 
 export interface DeleteConversationResult {

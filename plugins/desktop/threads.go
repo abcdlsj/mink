@@ -26,6 +26,7 @@ type ThreadDetail struct {
 	Participants      []AgentItem       `json:"participants,omitempty"`
 	ChannelAgents     []string          `json:"channel_agents,omitempty"`
 	AgentModes        map[string]string `json:"agent_modes,omitempty"`
+	ActiveRuns        []AgentRun        `json:"active_runs,omitempty"`
 	RecentRuns        []AgentRun        `json:"recent_runs,omitempty"`
 	ArchivedRunsCount int               `json:"archived_runs_count,omitempty"`
 	ActiveWorkerID    string            `json:"active_worker_id,omitempty"`
@@ -104,10 +105,11 @@ func (b *Backend) GetThreadDetail(spaceID, parentID string) ThreadDetail {
 		Participants:      threadParticipants(sp, all, b.app),
 		ChannelAgents:     spaceAgentIDs(sp),
 		AgentModes:        effectiveThreadModes(sp, parent.ID),
+		ActiveRuns:        b.pendingActiveRuns(sp.ID, parent.ID),
 		RecentRuns:        recentRuns,
 		ArchivedRunsCount: archivedRuns,
 	}
-	for _, r := range d.RecentRuns {
+	for _, r := range append(d.ActiveRuns, d.RecentRuns...) {
 		if r.Status == "running" || r.Status == "queued" {
 			d.ActiveWorkerID = r.AgentID
 			break

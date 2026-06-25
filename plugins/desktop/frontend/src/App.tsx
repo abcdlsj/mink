@@ -353,7 +353,7 @@ function MobileDetailsContent() {
   const approvals = capabilities?.action_proposals || [];
   const missingSkills = skills.filter((s) => !s.configured).length;
   const failures = mobileFailureCount(tasks);
-  const activeRuns = activeRunsForMobile(participants?.active_runs || [], streamingByID);
+  const activeRuns = activeRunsForMobile(detail?.active_runs || participants?.active_runs || [], streamingByID);
   const activePersonaID = detail?.item?.persona_id || agentDMs.find((d) => d.id === activeAgentSpace)?.persona_id || activeAgentSpace || "";
   const activePersona = view === "agent" ? personas.find((p) => p.id === activePersonaID) : undefined;
   const visibleAgents = activePersona
@@ -450,7 +450,10 @@ function MobileDetailsContent() {
   );
 }
 
-function activeRunsForMobile(runs: AgentRun[], streamingByID: Record<string, { agentID: string; messageID: string; startedAt: string }>): AgentRun[] {
+function activeRunsForMobile(
+  runs: AgentRun[],
+  streamingByID: Record<string, { agentID: string; messageID: string; startedAt: string }>,
+): AgentRun[] {
   const live: AgentRun[] = [];
   const seen = new Set<string>();
   for (const s of Object.values(streamingByID)) {

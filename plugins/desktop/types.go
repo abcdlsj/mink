@@ -25,6 +25,7 @@ type SessionItem struct {
 type SessionDetail struct {
 	Item     SessionItem   `json:"item"`
 	Messages []MessageView `json:"messages"`
+	ActiveRuns []AgentRun   `json:"active_runs,omitempty"`
 	Summary  string        `json:"summary,omitempty"`
 }
 

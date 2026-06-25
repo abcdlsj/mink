@@ -50,6 +50,7 @@ interface StreamingTurn {
   spaceID: string;
   parentMessageID: string;
   startedAt: string;
+  lastEventAt: number;
   content: string;
   reasoning: string;
   toolCalls: Map<string, EventBlock>;
@@ -260,6 +261,88 @@ function streamMatchesThreadScope(s: State, stream: StreamingTurn): boolean {
 
 function currentStreaming(streamingByID: Record<string, StreamingTurn>): StreamingTurn | null {
   return Object.values(streamingByID)[0] || null;
+}
+
+const staleStreamGraceMs = 20_000;
+
+function eventTimeMs(time: string): number {
+  const parsed = Date.parse(time);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
+function activeRunIDs(s: State): Set<string> {
+  const runs =
+    s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found
+      ? s.threadDetail.active_runs || []
+      : s.participants?.active_runs || [];
+  return new Set(runs.map((r) => r.id));
+}
+
+function scopeMatchesStream(s: State, stream: StreamingTurn): boolean {
+  const matcher = new ScopeMatcher(s);
+  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+    return matcher.streamMatchesThread(stream);
+  }
+  return matcher.streamMatchesMain(stream);
+}
+
+function pruneStreamingState(s: State): Partial<State> {
+  if (Object.keys(s.streamingByID).length === 0) return {};
+  const now = Date.now();
+  const activeIDs = activeRunIDs(s);
+  const next: Record<string, StreamingTurn> = {};
+  const removed = new Set<string>();
+  for (const stream of Object.values(s.streamingByID)) {
+    if (!scopeMatchesStream(s, stream)) continue;
+    if (activeIDs.has(stream.streamID)) {
+      next[stream.streamID] = stream;
+      continue;
+    }
+    if (now - stream.lastEventAt < staleStreamGraceMs) {
+      next[stream.streamID] = stream;
+      continue;
+    }
+    removed.add(stream.messageID);
+  }
+  if (removed.size === 0 && Object.keys(next).length === Object.keys(s.streamingByID).length) {
+    return {};
+  }
+  const fail = (m: MessageView): MessageView =>
+    m.status === "pending"
+      ? {
+          ...m,
+          status: "failed",
+          error: "Agent reply was interrupted. Retry to run this message again.",
+        }
+      : m;
+  const updates: Partial<State> = {
+    streaming: currentStreaming(next),
+    streamingByID: next,
+  };
+  if (removed.size > 0) {
+    if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+      updates.threadDetail = {
+        ...s.threadDetail,
+        replies: s.threadDetail.replies.map((m) => (removed.has(m.id) ? fail(m) : m)),
+      };
+    } else if (s.detail) {
+      updates.detail = {
+        ...s.detail,
+        messages: s.detail.messages.map((m) => (removed.has(m.id) ? fail(m) : m)),
+      };
+    }
+  }
+  return updates;
+}
+
+function pruneVisibleStreamingState(s: State): Partial<State> {
+  if (s.threadDetail && !s.threadDetail.unsupported && !s.threadDetail.not_found) {
+    return pruneStreamingState(s);
+  }
+  if (s.detail) {
+    return pruneStreamingState(s);
+  }
+  return {};
 }
 
 function applyRouteAnchor(anchor: string | undefined): Pick<State, "activeAnchor" | "expandedTaskID"> {
@@ -560,6 +643,7 @@ export const useStore = create<State>((set, get) => ({
         connectionMessage: "",
       });
       await refetchActiveScope(get, set);
+      set((cur) => pruneVisibleStreamingState(cur));
     } catch (err) {
       set({
         connectionStatus: "offline",
@@ -595,6 +679,7 @@ export const useStore = create<State>((set, get) => ({
       expandedTaskID: null,
       participants,
     });
+    set((cur) => pruneVisibleStreamingState(cur));
     writeWebRoute({ view: "channel", id }, routeOpts);
   },
 
@@ -644,6 +729,7 @@ export const useStore = create<State>((set, get) => ({
       activeAnchor: null,
       threadDetail: detail,
     });
+    set((cur) => pruneVisibleStreamingState(cur));
     writeWebRoute({ view: "channel", id: spaceId, thread: id }, routeOpts);
   },
 
@@ -754,6 +840,7 @@ export const useStore = create<State>((set, get) => ({
       directChats,
       expandedTaskID: null,
     });
+    set((cur) => pruneVisibleStreamingState(cur));
     writeWebRoute({ view: "agent", id: detail.item.id || id }, routeOpts);
   },
 
@@ -824,6 +911,7 @@ export const useStore = create<State>((set, get) => ({
       detail,
       participants,
     });
+    set((cur) => pruneVisibleStreamingState(cur));
     writeWebRoute({ view: "direct", id: detail.item.id });
     try {
       const [directChats, recent] = await Promise.all([api.directChats(), api.recent()]);
@@ -1284,6 +1372,7 @@ export const useStore = create<State>((set, get) => ({
           spaceID: ev.space_id || "",
           parentMessageID: ev.parent_message_id || "",
           startedAt: ev.time,
+          lastEventAt: eventTimeMs(ev.time),
           content: "",
           reasoning: "",
           toolCalls: new Map(),
@@ -1299,7 +1388,7 @@ export const useStore = create<State>((set, get) => ({
         const stream = streamForEvent(cur, ev);
         if (!stream) return;
         const next = stream.content + (ev.text || "");
-        const updated = { ...stream, content: next };
+        const updated = { ...stream, content: next, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1313,7 +1402,7 @@ export const useStore = create<State>((set, get) => ({
         const stream = streamForEvent(cur, ev);
         if (!stream) return;
         const next = stream.reasoning + (ev.text || "");
-        const updated = { ...stream, reasoning: next };
+        const updated = { ...stream, reasoning: next, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1336,7 +1425,7 @@ export const useStore = create<State>((set, get) => ({
         };
         const toolCalls = new Map(stream.toolCalls);
         toolCalls.set(id, block);
-        const updated = { ...stream, toolCalls };
+        const updated = { ...stream, toolCalls, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1365,7 +1454,7 @@ export const useStore = create<State>((set, get) => ({
         };
         const toolCalls = new Map(stream.toolCalls);
         toolCalls.set(id, block);
-        const updated = { ...stream, toolCalls };
+        const updated = { ...stream, toolCalls, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1388,7 +1477,7 @@ export const useStore = create<State>((set, get) => ({
         };
         const toolCalls = new Map(stream.toolCalls);
         toolCalls.set(id, block);
-        const updated = { ...stream, toolCalls };
+        const updated = { ...stream, toolCalls, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1413,7 +1502,7 @@ export const useStore = create<State>((set, get) => ({
         };
         const toolCalls = new Map(stream.toolCalls);
         toolCalls.set(id, block);
-        const updated = { ...stream, toolCalls };
+        const updated = { ...stream, toolCalls, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
@@ -1438,7 +1527,7 @@ export const useStore = create<State>((set, get) => ({
         };
         const toolCalls = new Map(stream.toolCalls);
         toolCalls.set(id, block);
-        const updated = { ...stream, toolCalls };
+        const updated = { ...stream, toolCalls, lastEventAt: eventTimeMs(ev.time) };
         set({
           ...updateStream(cur, updated),
           ...streamingMessageUpdates(cur, updated, (m) => ({
