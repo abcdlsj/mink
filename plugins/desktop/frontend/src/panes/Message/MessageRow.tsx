@@ -328,13 +328,19 @@ function MessageStatus({ status, compact, children }: { status: "running" | "err
   return (
     <div
       className={cn(
-        "mt-2.5 inline-flex items-center gap-2 border px-2 py-1 text-[11.5px]",
+        "mt-2 inline-flex max-w-full items-center gap-1.5 border px-2 py-0.5 font-mono text-[10.5px]",
         status === "running" ? "border-running-border bg-running-bg text-running" : "border-error-border bg-error-bg text-error",
         compact && "ml-0.5",
       )}
     >
-      <span className="inline-block size-1.5 rounded-full bg-running" />
-      <span>{children}</span>
+      {status === "running" ? (
+        <>
+          <span className="inline-block size-1.5 rounded-full bg-running" />
+          <span>{children}</span>
+        </>
+      ) : (
+        <span>{children}</span>
+      )}
     </div>
   );
 }
