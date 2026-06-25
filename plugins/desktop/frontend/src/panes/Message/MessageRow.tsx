@@ -68,7 +68,6 @@ export function MessageRow({
   const collabEvents = events.filter((e) => e.kind === "mention" || e.kind === "delegate");
   const toolEvents = events.filter((e) => e.kind === "tool_call");
   const noticeEvents = events.filter((e) => e.kind === "service_notice");
-  const shouldFoldTools = toolEvents.length > 1;
   const spaceID = threadDetail?.space_id || detail?.item.id || "";
   const canStartThread =
     threadStartsEnabled &&
@@ -84,74 +83,137 @@ export function MessageRow({
 
   if (m.role === "system") {
     return (
-      <div
-        id={"message-" + m.id}
-        className={cn(
-          "group/message grid gap-2.5 md:gap-3.5",
-          selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
-          compact ? "mb-2" : "mb-4",
-          selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
-          highlighted && "sumi-anchor-flash",
+      <MessageShell
+        id={m.id}
+      selecting={selecting}
+      selected={selected}
+      highlighted={highlighted}
+      compact={compact}
+      checkboxLabel={"Select system notice " + m.id}
+      onToggleSelected={onToggleSelected}
+      avatar={<div className="mt-px flex size-7 items-center justify-center border border-border-soft bg-panel text-[11px] text-text-faint md:size-8">!</div>}
+    >
+        <MessageHeader title="System notice" time={m.time} threadAction={threadAction} />
+        {m.content && <LongContent content={m.content} isUser={false} mentions={knownMentions} />}
+        {events.length > 0 && (
+          <MessageEventList collabEvents={collabEvents} toolEvents={toolEvents} noticeEvents={noticeEvents} />
         )}
-      >
-        {selecting && (
-          <label className="mt-1 flex justify-center">
-            <input
-              type="checkbox"
-              checked={selected}
-              onChange={onToggleSelected}
-              className="size-3.5 accent-accent"
-              aria-label={"Select system notice " + m.id}
-            />
-          </label>
+        {m.status === "failed" && (
+          <MessageStatus status="error" compact={compact}>
+            {m.error || "System action failed."}
+          </MessageStatus>
         )}
-        <div className="mt-px flex size-7 items-center justify-center border border-border-soft bg-panel text-[11px] text-text-faint md:size-8">
-          !
-        </div>
-        <div className="max-w-[820px] border border-border-soft bg-bg px-3 py-2 text-text">
-          <div className="mb-1.5 flex items-center gap-2 font-mono text-[10.5px] uppercase tracking-[0.35px] text-text-muted">
-            <span>System notice</span>
-            <span className="ml-auto tabular-nums">{relTime(m.time)}</span>
-          </div>
-          {m.content && (
-            <LongContent
-              content={m.content}
-              isUser={false}
-              mentions={knownMentions}
-            />
-          )}
-          {events.length > 0 && (
-            <div className="mt-2.5 flex flex-col gap-1.5">
-              {collabEvents.map((ev, i) => (
-                <EventBlock key={"c" + i} ev={ev} />
-              ))}
-              {shouldFoldTools ? (
-                <ToolFold events={toolEvents} />
-              ) : (
-                toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)
-              )}
-              {noticeEvents.map((ev, i) => (
-                <EventBlock key={"n" + i} ev={ev} />
-              ))}
-            </div>
-          )}
-          {m.status === "failed" && (
-            <div className="mt-2 border border-error-border bg-error-bg px-2 py-1 font-mono text-[10.5px] text-error">
-              {m.error || "System action failed."}
-            </div>
-          )}
-        </div>
-      </div>
+      </MessageShell>
     );
   }
 
   return (
+    <MessageShell
+      id={m.id}
+      selecting={selecting}
+      selected={selected}
+      highlighted={highlighted}
+      compact={compact}
+      checkboxLabel={"Select message " + m.id}
+      onToggleSelected={onToggleSelected}
+      avatar={
+        <div
+          className={cn(
+            "mt-px size-7 overflow-hidden border border-border-soft bg-panel md:size-8",
+            compact && "invisible",
+          )}
+        >
+          <Identicon seed={seed} kind={kind} />
+        </div>
+      }
+      compactThreadAction={compact ? threadAction : null}
+    >
+      <MessageHeader
+        title={displayName}
+        time={m.time}
+        role={m.role !== "user" && ag?.role ? shortRole(ag.role) : ""}
+        threadAction={!compact ? threadAction : null}
+      />
+      {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
+      {routedReply && <RoutedReplyRow routedReply={routedReply} />}
+      {m.content && (
+        <LongContent
+          content={m.role === "user" ? m.content : stripCollabLeak(m.content)}
+          isUser={m.role === "user"}
+          className={cn(m.reasoning && "mt-2")}
+          mentions={knownMentions}
+        />
+      )}
+      <QuotedTranscripts transcripts={(m.attachments || [])
+        .filter((a) => a.kind === "quoted_transcript")
+        .map((a) => parseTranscriptAttachment(a.data))
+        .filter((t): t is SumiTranscript => !!t)}
+        onJump={() => void openCurrentRoute()}
+      />
+      <MemoryCommitCards cards={(m.attachments || [])
+        .filter((a) => a.kind === "memory_commit")
+        .map((a) => parseMemoryCommitAttachment(a.data))
+        .filter((card): card is MemoryCommitAttachment => !!card)}
+      />
+      {events.length > 0 && <MessageEventList collabEvents={collabEvents} toolEvents={toolEvents} noticeEvents={noticeEvents} />}
+      {m.status === "pending" && (
+        <MessageStatus status="running" compact={compact}>
+          Reply in progress.
+        </MessageStatus>
+      )}
+      {m.status === "failed" && (
+        <MessageStatus status="error" compact={compact}>
+          {m.error || "Reply stopped before it finished."}
+          <span className="ml-1 text-text-faint">Retry reruns this reply from the existing user message; it will not duplicate your message.</span>
+          {spaceID && (
+            <button
+              type="button"
+              onClick={() => void retryMessage(spaceID, m.id)}
+              className="ml-2 border border-error-border bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold text-error hover:bg-error-bg"
+            >
+              Retry
+            </button>
+          )}
+        </MessageStatus>
+      )}
+      {m.thread_id && m.thread_summary && <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />}
+      {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} forceMainScope={threadStartsEnabled} />}
+      {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
+      {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
+    </MessageShell>
+  );
+}
+
+function MessageShell({
+  id,
+  selecting,
+  selected,
+  highlighted,
+  compact,
+  checkboxLabel,
+  avatar,
+  compactThreadAction,
+  onToggleSelected,
+  children,
+}: {
+  id: string;
+  selecting?: boolean;
+  selected?: boolean;
+  highlighted?: boolean;
+  compact: boolean;
+  checkboxLabel: string;
+  avatar: React.ReactNode;
+  compactThreadAction?: React.ReactNode;
+  onToggleSelected?: () => void;
+  children: React.ReactNode;
+}) {
+  return (
     <div
-      id={"message-" + m.id}
+      id={"message-" + id}
       className={cn(
         "group/message grid gap-2.5 md:gap-3.5",
         selecting ? "grid-cols-[22px_28px_1fr] md:grid-cols-[22px_32px_1fr]" : "grid-cols-[28px_1fr] md:grid-cols-[32px_1fr]",
-        compact ? "-mt-2.5 mb-2" : "mb-6 pb-1",
+        compact ? "mb-2" : "mb-6 pb-1",
         selected && "bg-accent-bg/60 outline outline-1 outline-accent-border",
         highlighted && "sumi-anchor-flash",
       )}
@@ -160,129 +222,93 @@ export function MessageRow({
         <label className={cn("mt-1 flex justify-center", compact && "mt-0")}>
           <input
             type="checkbox"
-            checked={selected}
+            checked={!!selected}
             onChange={onToggleSelected}
             className="size-3.5 accent-accent"
-            aria-label={"Select message " + m.id}
+            aria-label={checkboxLabel}
           />
         </label>
       )}
-      <div
-        className={cn(
-          "mt-px size-7 overflow-hidden border border-border-soft bg-panel md:size-8",
-          compact && "invisible",
+      {avatar}
+      <div className={cn("relative min-w-0", compact && compactThreadAction && "pr-7")}>{children}</div>
+    </div>
+  );
+}
+
+function MessageHeader({
+  title,
+  time,
+  role,
+  threadAction,
+}: {
+  title: string;
+  time: string;
+  role?: string;
+  threadAction?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-1 flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 truncate font-display text-[13px] font-bold leading-tight text-text">{title}</span>
+        {role && (
+          <span className="shrink-0 border border-border-soft bg-transparent px-1 font-mono text-[10px] font-medium uppercase text-text-muted" title={role}>
+            {role}
+          </span>
         )}
-      >
-        <Identicon seed={seed} kind={kind} />
       </div>
-      <div className={cn("relative min-w-0", compact && threadAction && "pr-7")}>
-        {!compact && (
-          <div className="mb-1 flex min-w-0 items-center gap-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <span className="min-w-0 truncate font-display text-[13px] font-bold leading-tight text-text">
-                {displayName}
-              </span>
-              {m.role !== "user" && ag?.role && (
-                <span
-                  className="shrink-0 border border-border-soft bg-transparent px-1 font-mono text-[10px] font-medium uppercase text-text-muted"
-                  title={ag.role}
-                >
-                  {shortRole(ag.role)}
-                </span>
-              )}
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1.5">
-              <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(m.time)}</span>
-              {threadAction}
-            </div>
-          </div>
-        )}
-        {compact && threadAction && (
-          <div className="absolute right-0 top-0">
-            {threadAction}
-          </div>
-        )}
-        {m.reasoning && m.role !== "user" && <ReasoningPreface text={m.reasoning} />}
-        {routedReply && (
-          <div
-            className="mb-1.5 flex flex-wrap gap-1"
-            title={routedReply.detail}
-            aria-label={routedReply.detail}
-          >
-            {routedReply.labels.map((label, i) => (
-              <span
-                key={label + i}
-                className="inline-flex border border-border-soft bg-transparent px-1.5 py-px font-mono text-[10.5px] font-medium text-text-muted"
-              >
-                {label}
-              </span>
-            ))}
-          </div>
-        )}
-        {m.content && (
-          <LongContent
-            content={m.role === "user" ? m.content : stripCollabLeak(m.content)}
-            isUser={m.role === "user"}
-            className={cn(m.reasoning && "mt-2")}
-            mentions={knownMentions}
-          />
-        )}
-        <QuotedTranscripts transcripts={(m.attachments || [])
-          .filter((a) => a.kind === "quoted_transcript")
-          .map((a) => parseTranscriptAttachment(a.data))
-          .filter((t): t is SumiTranscript => !!t)}
-          onJump={() => void openCurrentRoute()}
-        />
-        <MemoryCommitCards cards={(m.attachments || [])
-          .filter((a) => a.kind === "memory_commit")
-          .map((a) => parseMemoryCommitAttachment(a.data))
-          .filter((card): card is MemoryCommitAttachment => !!card)}
-        />
-        {events.length > 0 && (
-          <div className="mt-2.5 flex flex-col gap-1.5">
-            {collabEvents.map((ev, i) => (
-              <EventBlock key={"c" + i} ev={ev} />
-            ))}
-            {shouldFoldTools ? (
-              <ToolFold events={toolEvents} />
-            ) : (
-              toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)
-            )}
-            {noticeEvents.map((ev, i) => (
-              <EventBlock key={"n" + i} ev={ev} />
-            ))}
-          </div>
-        )}
-        {m.status === "pending" && (
-          <div className="mt-2.5 inline-flex items-center gap-2 border border-running-border bg-running-bg px-2 py-1 text-[11.5px] text-running">
-            <span className="inline-block size-1.5 rounded-full bg-running" />
-            <span>Reply in progress.</span>
-          </div>
-        )}
-        {m.status === "failed" && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-2 border border-error-border border-l-4 bg-error-bg px-2.5 py-2 text-[12px] text-error">
-            <span className="leading-[18px]">
-              {m.error || "Reply stopped before it finished."}
-              <span className="ml-1 text-text-faint">Retry reruns this reply from the existing user message; it will not duplicate your message.</span>
-            </span>
-            {spaceID && (
-              <button
-                type="button"
-                onClick={() => void retryMessage(spaceID, m.id)}
-                className="border border-error-border bg-panel px-2 py-0.5 font-mono text-[10.5px] font-semibold text-error hover:bg-error-bg"
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-        {m.thread_id && m.thread_summary && (
-          <ThreadLink threadId={m.thread_id} summary={m.thread_summary} />
-        )}
-        {!m.task_accessory && m.role === "user" && <TaskCandidate message={m} forceMainScope={threadStartsEnabled} />}
-        {m.task_accessory && <TaskAccessoryRow info={m.task_accessory} />}
-        {m.role !== "user" && m.usage && <UsageFooter usage={m.usage} />}
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <span className="font-mono text-[11px] text-text-faint tabular-nums">{relTime(time)}</span>
+        {threadAction}
       </div>
+    </div>
+  );
+}
+
+function MessageEventList({
+  collabEvents,
+  toolEvents,
+  noticeEvents,
+}: {
+  collabEvents: EventBlockData[];
+  toolEvents: EventBlockData[];
+  noticeEvents: EventBlockData[];
+}) {
+  const shouldFoldTools = toolEvents.length > 1;
+  return (
+    <div className="mt-2.5 flex flex-col gap-1.5">
+      {collabEvents.map((ev, i) => (
+        <EventBlock key={"c" + i} ev={ev} />
+      ))}
+      {shouldFoldTools ? <ToolFold events={toolEvents} /> : toolEvents.map((ev, i) => <EventBlock key={"t" + i} ev={ev} />)}
+      {noticeEvents.map((ev, i) => (
+        <EventBlock key={"n" + i} ev={ev} />
+      ))}
+    </div>
+  );
+}
+
+function RoutedReplyRow({ routedReply }: { routedReply: NonNullable<ReturnType<typeof routedReplySignal>> }) {
+  return (
+    <div className="mb-1.5 flex flex-wrap gap-1" title={routedReply.detail} aria-label={routedReply.detail}>
+      {routedReply.labels.map((label, i) => (
+        <span key={label + i} className="inline-flex border border-border-soft bg-transparent px-1.5 py-px font-mono text-[10.5px] font-medium text-text-muted">
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function MessageStatus({ status, compact, children }: { status: "running" | "error"; compact: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn(
+        "mt-2 inline-flex max-w-full items-center gap-1.5 border px-2 py-0.5 font-mono text-[10.5px]",
+        status === "running" ? "border-running-border bg-running-bg text-running" : "border-error-border bg-error-bg text-error",
+        compact && "ml-0.5",
+      )}
+    >
+      {children}
     </div>
   );
 }
