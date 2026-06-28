@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,10 +13,7 @@ import (
 const shellEventBatch = 128
 
 func Run(ctx context.Context, a *app.App, args []string) error {
-	source, warning := resolveCLILaunch(a, args)
-	if warning != "" {
-		fmt.Fprintln(os.Stderr, warning)
-	}
+	source := resolveCLILaunch(args)
 	a.DraftSession(source)
 	ui, err := newShell(ctx, a, source)
 	if err != nil {
@@ -27,20 +22,15 @@ func Run(ctx context.Context, a *app.App, args []string) error {
 	return ui.run()
 }
 
-func resolveCLISource(a *app.App, args []string) string {
-	source, _ := resolveCLILaunch(a, args)
-	return source
+func resolveCLISource(args []string) string {
+	return resolveCLILaunch(args)
 }
 
-func resolveCLILaunch(a *app.App, args []string) (string, string) {
+func resolveCLILaunch(args []string) string {
 	if id := flagPersona(args); id != "" {
-		return "cli:agent:" + id, ""
+		return "cli:agent:" + id
 	}
-	id, warning := defaultPersonaSelection(a)
-	if id != "" {
-		return "cli:agent:" + id, warning
-	}
-	return "cli", warning
+	return "cli"
 }
 
 func flagPersona(args []string) string {
@@ -60,35 +50,6 @@ func flagPersona(args []string) string {
 		}
 	}
 	return ""
-}
-
-func defaultPersonaID(a *app.App) string {
-	id, _ := defaultPersonaSelection(a)
-	return id
-}
-
-func defaultPersonaSelection(a *app.App) (string, string) {
-	if a == nil || a.Personas() == nil {
-		return "", ""
-	}
-	configured := strings.TrimSpace(a.Config().DefaultPersona)
-	if configured != "" {
-		if p := a.Personas().Get(configured); p != nil {
-			return p.ID, ""
-		}
-	}
-	list := a.Personas().List()
-	if len(list) == 0 {
-		if configured != "" {
-			return "", fmt.Sprintf("warning: default_persona=%q is not registered, no fallback available", configured)
-		}
-		return "", ""
-	}
-	chosen := list[0].ID
-	if configured != "" {
-		return chosen, fmt.Sprintf("warning: default_persona=%q is not registered, falling back to %q", configured, chosen)
-	}
-	return chosen, ""
 }
 
 type shell struct {

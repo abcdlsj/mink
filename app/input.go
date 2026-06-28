@@ -327,7 +327,12 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 }
 
 func isDefaultSumiSource(source string) bool {
-	return strings.TrimSpace(source) == "desktop"
+	switch strings.TrimSpace(source) {
+	case "cli", "desktop":
+		return true
+	default:
+		return false
+	}
 }
 
 func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, spaceID, agentID, excludeMessageID string) {
