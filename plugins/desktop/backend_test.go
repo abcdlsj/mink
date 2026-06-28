@@ -201,6 +201,42 @@ func TestDirectChatDetailUsesSpaceMessagesOnly(t *testing.T) {
 	}
 }
 
+func TestNormalizeContextRequestInfersAgentDMSpaceIdentityWithoutSessionSource(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindAgentDM, "coder", space.PersonaInfo{ID: "coder", Display: "Coder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := b.normalizeContextRequest(ContextInspectRequest{SpaceID: sp.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != "desktop:agent:"+sp.ID {
+		t.Fatalf("source = %q, want %q", got.Source, "desktop:agent:"+sp.ID)
+	}
+	if got.AgentID != "coder" {
+		t.Fatalf("agent id = %q, want coder", got.AgentID)
+	}
+	if got.SessionSource != "" {
+		t.Fatalf("session source = %q, want empty", got.SessionSource)
+	}
+}
+
+func TestInspectAndResetContextFailLoudWithoutIdentity(t *testing.T) {
+	b, _ := newBackendWithApp(t)
+
+	if _, err := b.InspectContext(ContextInspectRequest{}); err == nil {
+		t.Fatal("expected inspect context to reject missing identity")
+	}
+	if _, err := b.ResetContext(ContextResetRequest{Action: "summary"}); err == nil {
+		t.Fatal("expected reset context to reject missing identity")
+	}
+}
+
 func TestToBusEventMapsCollab(t *testing.T) {
 	cases := []struct {
 		name string

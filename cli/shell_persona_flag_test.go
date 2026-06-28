@@ -68,6 +68,18 @@ func TestResolveCLISourceWithoutFlagUsesDefaultCLI(t *testing.T) {
 	}
 }
 
+func TestResolveCLISourceAlwaysReturnsNonEmptyLaunchSource(t *testing.T) {
+	cases := [][]string{
+		nil,
+		{"--persona", "coder"},
+	}
+	for _, args := range cases {
+		if got := resolveCLISource(args); got == "" {
+			t.Fatalf("resolveCLISource(%v) returned empty source", args)
+		}
+	}
+}
+
 func TestResolveCLISourceWithoutFlagIgnoresConfigDefaultPersona(t *testing.T) {
 	dir := t.TempDir()
 	a, err := app.New(config.Config{

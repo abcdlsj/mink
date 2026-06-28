@@ -802,9 +802,12 @@ func (b *Backend) ResetContext(req ContextResetRequest) (ContextResetResult, err
 		return ContextResetResult{}, err
 	}
 	res, err := b.app.ResetContext(app.ContextResetInput{
-		Source:        normalized.Source,
-		SessionSource: normalized.SessionSource,
-		Action:        req.Action,
+		SpaceID:         normalized.SpaceID,
+		Source:          normalized.Source,
+		SessionSource:   normalized.SessionSource,
+		ParentMessageID: normalized.ParentMessageID,
+		AgentID:         normalized.AgentID,
+		Action:          req.Action,
 	})
 	if err != nil {
 		return ContextResetResult{}, err
@@ -830,12 +833,6 @@ func (b *Backend) normalizeContextRequest(req ContextInspectRequest) (ContextIns
 	req.AgentID = strings.TrimSpace(req.AgentID)
 	req.Profile = strings.TrimSpace(req.Profile)
 	if req.SpaceID == "" {
-		if req.Source == "" {
-			req.Source = desktopSource
-		}
-		if req.SessionSource == "" {
-			req.SessionSource = req.Source
-		}
 		return req, nil
 	}
 	sp, err := b.spaceLoader().Load(req.SpaceID)
@@ -844,9 +841,6 @@ func (b *Backend) normalizeContextRequest(req ContextInspectRequest) (ContextIns
 	}
 	if req.Source == "" {
 		req.Source = contextSourceForSpace(sp)
-	}
-	if req.SessionSource == "" {
-		req.SessionSource = req.Source
 	}
 	if req.AgentID == "" && sp.Kind == space.KindAgentDM {
 		req.AgentID = space.AgentParticipantID(sp)
@@ -1060,7 +1054,7 @@ func (b *Backend) NewDirectChat(title, agentID string) (SessionDetail, error) {
 			MessageCount: len(sp.Messages),
 		},
 		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
-		Messages: spaceMessagesToView(sp, b.app),
+		Messages:   spaceMessagesToView(sp, b.app),
 	}, nil
 }
 
@@ -1233,7 +1227,7 @@ func (b *Backend) GetDirectChat(id string) SessionDetail {
 			Running:      b.directChatHasActiveTurn(sp),
 		},
 		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
-		Messages: spaceMessagesToView(sp, b.app),
+		Messages:   spaceMessagesToView(sp, b.app),
 	}
 }
 
@@ -2291,7 +2285,7 @@ func (b *Backend) GetAgentDM(agentID string) SessionDetail {
 			),
 		},
 		ActiveRuns: b.pendingActiveRuns(sp.ID, ""),
-		Messages: spaceMessagesToView(sp, b.app),
+		Messages:   spaceMessagesToView(sp, b.app),
 	}
 }
 

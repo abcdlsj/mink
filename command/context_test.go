@@ -40,6 +40,9 @@ func TestRunContextDrivesSourceSessionNoticeAndMemory(t *testing.T) {
 
 func TestRunContextFallbacks(t *testing.T) {
 	ctx := WithSource(context.Background(), "cli")
+	if got := SourceFrom(ctx); got != "cli" {
+		t.Fatalf("source fallback = %q", got)
+	}
 	if got := SessionSourceFrom(ctx); got != "cli" {
 		t.Fatalf("session fallback = %q", got)
 	}

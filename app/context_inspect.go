@@ -58,9 +58,12 @@ type ContextInspectView struct {
 }
 
 type ContextResetInput struct {
-	Source        string
-	SessionSource string
-	Action        string
+	SpaceID         string
+	Source          string
+	SessionSource   string
+	ParentMessageID string
+	AgentID         string
+	Action          string
 }
 
 type ContextResetResult struct {
@@ -75,14 +78,33 @@ type ContextResetResult struct {
 	Note                   string `json:"note,omitempty"`
 }
 
+type ContextIdentity struct {
+	SpaceID             string
+	ThreadRootMessageID string
+	AgentPersonaID      string
+	TransportSource     string
+	RuntimeSessionKey   string
+}
+
 func (a *App) InspectContext(in ContextInspectInput) (ContextInspectView, error) {
 	if a == nil {
 		return ContextInspectView{}, fmt.Errorf("app is nil")
 	}
-	in.Source = strings.TrimSpace(in.Source)
-	in.SessionSource = contextSessionSource(in.Source, in.SessionSource)
+	identity, err := a.resolveContextIdentity(ContextInspectInput{
+		SpaceID:         in.SpaceID,
+		Source:          in.Source,
+		SessionSource:   in.SessionSource,
+		ParentMessageID: in.ParentMessageID,
+		AgentID:         in.AgentID,
+	})
+	if err != nil {
+		return ContextInspectView{}, err
+	}
+	in.SpaceID = identity.SpaceID
+	in.Source = identity.TransportSource
+	in.SessionSource = identity.RuntimeSessionKey
 	in.ParentMessageID = strings.TrimSpace(in.ParentMessageID)
-	in.AgentID = strings.TrimSpace(in.AgentID)
+	in.AgentID = identity.AgentPersonaID
 	limit := in.TokenLimit
 	if limit <= 0 {
 		limit = a.wakeContextTokenLimit()
@@ -143,8 +165,18 @@ func (a *App) ResetContext(in ContextResetInput) (ContextResetResult, error) {
 	if a == nil {
 		return ContextResetResult{}, fmt.Errorf("app is nil")
 	}
-	source := strings.TrimSpace(in.Source)
-	sessionSource := contextSessionSource(source, in.SessionSource)
+	identity, err := a.resolveContextIdentity(ContextInspectInput{
+		SpaceID:         in.SpaceID,
+		Source:          in.Source,
+		SessionSource:   in.SessionSource,
+		ParentMessageID: in.ParentMessageID,
+		AgentID:         in.AgentID,
+	})
+	if err != nil {
+		return ContextResetResult{}, err
+	}
+	source := identity.TransportSource
+	sessionSource := identity.RuntimeSessionKey
 	action := strings.TrimSpace(strings.ToLower(in.Action))
 	res := ContextResetResult{Action: action, Source: source, SessionSource: sessionSource, OK: true}
 	current, _ := a.sessions.Current(sessionSource)
@@ -185,6 +217,93 @@ func (a *App) ResetContext(in ContextResetInput) (ContextResetResult, error) {
 	}
 }
 
+func (a *App) resolveContextIdentity(in ContextInspectInput) (ContextIdentity, error) {
+	if a == nil {
+		return ContextIdentity{}, fmt.Errorf("app is nil")
+	}
+	identity := ContextIdentity{
+		SpaceID:             strings.TrimSpace(in.SpaceID),
+		ThreadRootMessageID: strings.TrimSpace(in.ParentMessageID),
+		AgentPersonaID:      strings.TrimSpace(in.AgentID),
+		TransportSource:     strings.TrimSpace(in.Source),
+		RuntimeSessionKey:   strings.TrimSpace(in.SessionSource),
+	}
+	if identity.SpaceID != "" {
+		sp, err := a.spaces.LoadSpace(identity.SpaceID)
+		if err != nil || sp == nil {
+			return ContextIdentity{}, fmt.Errorf("space not found: %s", identity.SpaceID)
+		}
+		if identity.TransportSource == "" {
+			identity.TransportSource = contextTransportSourceForSpace(sp)
+		}
+		if identity.AgentPersonaID == "" && sp.Kind == space.KindAgentDM {
+			identity.AgentPersonaID = space.AgentParticipantID(sp)
+		}
+	} else if identity.TransportSource != "" {
+		target := space.MapSource(identity.TransportSource)
+		if target.Kind != "" {
+			if space.IsSpaceID(target.Seed) {
+				sp, err := a.spaces.LoadSpace(target.Seed)
+				if err != nil || sp == nil {
+					return ContextIdentity{}, fmt.Errorf("space not found: %s", target.Seed)
+				}
+				identity.SpaceID = sp.ID
+				if identity.AgentPersonaID == "" && sp.Kind == space.KindAgentDM {
+					identity.AgentPersonaID = space.AgentParticipantID(sp)
+				}
+			} else {
+				sp, err := a.spaces.Resolve(identity.TransportSource, space.PersonaInfo{})
+				if err != nil {
+					return ContextIdentity{}, err
+				}
+				if sp != nil {
+					identity.SpaceID = sp.ID
+					if identity.AgentPersonaID == "" && sp.Kind == space.KindAgentDM {
+						identity.AgentPersonaID = space.AgentParticipantID(sp)
+					}
+				}
+			}
+		}
+	}
+	if identity.RuntimeSessionKey == "" {
+		identity.RuntimeSessionKey = contextRuntimeSessionKey(identity)
+	}
+	if identity.RuntimeSessionKey == "" {
+		return ContextIdentity{}, fmt.Errorf("context identity requires a resolved space or explicit runtime session")
+	}
+	return identity, nil
+}
+
+func contextRuntimeSessionKey(identity ContextIdentity) string {
+	if identity.SpaceID == "" {
+		return ""
+	}
+	base := identity.SpaceID
+	if identity.ThreadRootMessageID != "" {
+		base += ":thread:" + identity.ThreadRootMessageID
+	}
+	if identity.AgentPersonaID != "" {
+		base += ":persona:" + identity.AgentPersonaID
+	}
+	return base
+}
+
+func contextTransportSourceForSpace(sp *space.Space) string {
+	if sp == nil {
+		return ""
+	}
+	switch sp.Kind {
+	case space.KindChannel:
+		return "desktop:channel:" + sp.ID
+	case space.KindAgentDM:
+		return "desktop:agent:" + sp.ID
+	case space.KindDirectChat:
+		return "desktop:direct:" + sp.ID
+	default:
+		return ""
+	}
+}
+
 func (a *App) runContextCommand(ctx context.Context, args []string) (string, error) {
 	source := command.SourceFrom(ctx)
 	sessionSource := command.SessionSourceFrom(ctx)
@@ -202,13 +321,25 @@ func (a *App) runContextCommand(ctx context.Context, args []string) (string, err
 	}
 	switch args[0] {
 	case "reset-session", "reset_session":
-		res, err := a.ResetContext(ContextResetInput{Source: source, SessionSource: sessionSource, Action: "runtime_session"})
+		res, err := a.ResetContext(ContextResetInput{
+			Source:          source,
+			SessionSource:   sessionSource,
+			ParentMessageID: command.ParentMessageFrom(ctx),
+			AgentID:         command.PersonaFrom(ctx),
+			Action:          "runtime_session",
+		})
 		if err != nil {
 			return "", err
 		}
 		return contextResetText(res), nil
 	case "reset-summary", "reset_summary":
-		res, err := a.ResetContext(ContextResetInput{Source: source, SessionSource: sessionSource, Action: "summary"})
+		res, err := a.ResetContext(ContextResetInput{
+			Source:          source,
+			SessionSource:   sessionSource,
+			ParentMessageID: command.ParentMessageFrom(ctx),
+			AgentID:         command.PersonaFrom(ctx),
+			Action:          "summary",
+		})
 		if err != nil {
 			return "", err
 		}
@@ -216,18 +347,6 @@ func (a *App) runContextCommand(ctx context.Context, args []string) (string, err
 	default:
 		return "usage: /context [inspect|reset-session|reset-summary]", nil
 	}
-}
-
-func contextSessionSource(source, sessionSource string) string {
-	sessionSource = strings.TrimSpace(sessionSource)
-	if sessionSource != "" {
-		return sessionSource
-	}
-	source = strings.TrimSpace(source)
-	if source != "" {
-		return source
-	}
-	return "default"
 }
 
 func (a *App) inspectSpace(in ContextInspectInput) (*space.Space, error) {
