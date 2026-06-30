@@ -10,7 +10,6 @@ import (
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/space"
-	taskpkg "github.com/abcdlsj/sumi/task"
 )
 
 type channelWakePipeline struct {
@@ -23,7 +22,6 @@ type channelWakeJob struct {
 	target            space.RoutingTarget
 	originUserContent string
 	originAttachments []msg.Attachment
-	taskID            string
 }
 
 type channelWakeResult struct {
@@ -46,34 +44,14 @@ func (p *channelWakePipeline) enqueueChannelWake(originSource, spaceID string, t
 	if a == nil {
 		return nil
 	}
-	triggerID := strings.TrimSpace(target.OriginMessageID)
-	if triggerID == "" && target.Chain != nil {
-		triggerID = target.Chain.RootMessageID
-	}
 	parentMessageID := ""
 	if target.Chain != nil {
 		parentMessageID = target.Chain.ParentMessageID
-	}
-	taskID := ""
-	if a.tasks != nil {
-		tk, err := a.tasks.Create(taskpkg.CreateTaskInput{
-			SpaceID:          spaceID,
-			TriggerMessageID: triggerID,
-			SourceThreadID:   parentMessageID,
-			InitiatorID:      a.spaces.UserParticipant().ID,
-			WorkerID:         target.AgentID,
-			Title:            wakeTaskTitle(originUserContent),
-			Source:           originSource,
-		})
-		if err == nil && tk != nil {
-			taskID = tk.ID
-		}
 	}
 	a.bus.Publish(bus.Event{
 		Type:            bus.TurnQueued,
 		Source:          originSource,
 		SessionID:       spaceID,
-		TaskID:          taskID,
 		SpaceID:         spaceID,
 		ParentMessageID: parentMessageID,
 		AgentID:         target.AgentID,
@@ -84,7 +62,6 @@ func (p *channelWakePipeline) enqueueChannelWake(originSource, spaceID string, t
 		target:            target,
 		originUserContent: originUserContent,
 		originAttachments: append([]msg.Attachment(nil), originAttachments...),
-		taskID:            taskID,
 	}
 	return nil
 }
@@ -110,37 +87,9 @@ func (p *channelWakePipeline) channelWakeQueue(key string) chan channelWakeJob {
 }
 
 func (p *channelWakePipeline) runQueuedChannelWake(job channelWakeJob) {
-	a := p.app
-	var runID string
-	if job.taskID != "" && a.tasks != nil {
-		if _, err := a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{Status: taskpkg.StatusRunning}); err == nil {
-			if run, err := a.tasks.StartRun(job.taskID); err == nil && run != nil {
-				runID = run.ID
-			}
-		}
-	}
 	result := p.runChannelWake(context.Background(), job.originSource, job.spaceID, job.target, job.originUserContent, job.originAttachments)
-	if len(result.notices) > 0 {
-		a.publishRoutingNotices(job.originSource, result.notices)
-	}
-	if job.taskID == "" || a.tasks == nil {
-		return
-	}
-	status := taskpkg.StatusFinished
-	outcome := result.outcome
-	if result.err != nil {
-		status = taskpkg.StatusFailed
-		outcome = result.err.Error()
-	} else if result.emptyOutput {
-		status = taskpkg.StatusEmptyOutput
-	}
-	_, _ = a.tasks.Update(job.taskID, taskpkg.UpdateTaskInput{
-		Status:          status,
-		Outcome:         outcome,
-		ResultMessageID: result.resultMessageID,
-	})
-	if runID != "" {
-		_, _ = a.tasks.FinishRun(runID, taskpkg.FinishRunInput{Status: status})
+	if len(result.notices) > 0 && p.app != nil {
+		p.app.publishRoutingNotices(job.originSource, result.notices)
 	}
 }
 
@@ -310,18 +259,6 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 
 func wakeQueueKey(spaceID, parentMessageID, agentID string) string {
 	return spaceID + "\x00" + parentMessageID + "\x00" + agentID
-}
-
-func wakeTaskTitle(content string) string {
-	content = strings.ReplaceAll(strings.TrimSpace(content), "\n", " ")
-	rs := []rune(content)
-	if len(rs) > 76 {
-		content = string(rs[:76]) + "..."
-	}
-	if content == "" {
-		return "Agent wake"
-	}
-	return content
 }
 
 func (a *App) persistChannelWakeFailure(spaceID, parentMessageID, agentID string, err error) error {

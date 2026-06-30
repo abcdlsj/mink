@@ -362,6 +362,72 @@ func TestChannelWakeFailureDoesNotAppendSystemNotice(t *testing.T) {
 	}
 }
 
+func TestInterceptRoutedInputWakeDoesNotCreateTaskBoardTask(t *testing.T) {
+	dir := t.TempDir()
+	a, err := New(config.Config{
+		Runtime:   "stub",
+		DataDir:   filepath.Join(dir, "sumi-data"),
+		Workspace: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	if _, err := a.Personas().Create("bob", persona.Meta{Runtime: "stub"}, "# Bob"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{}, 1)
+	a.RegisterRuntime("stub", func(env *agent.RuntimeEnv) (agent.Runtime, error) {
+		return runtimeFunc(func(ctx context.Context, turn *agent.Turn) error {
+			turn.Session.Add(msg.Message{Role: "user", Content: turn.Input})
+			turn.Session.Add(msg.Message{Role: "assistant", Content: "reply to " + turn.Input})
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+			return nil
+		}), nil
+	})
+
+	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := "desktop:channel:" + ch.ID
+	if _, err := a.interceptRoutedInput(context.Background(), source, "@bob do it", nil); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for channel wake")
+	}
+
+	tasks, err := a.Tasks().ListBySpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("channel wake created tasks = %#v, want none", tasks)
+	}
+
+	sp, err := a.Spaces().LoadSpace(ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawReply bool
+	for _, m := range sp.Messages {
+		if m.AuthorKind == space.ParticipantAgent && m.AuthorID == "bob" && m.Content == "reply to @bob do it" {
+			sawReply = true
+			break
+		}
+	}
+	if !sawReply {
+		t.Fatalf("messages = %#v, want bob wake reply persisted", sp.Messages)
+	}
+}
+
 func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
