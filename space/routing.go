@@ -104,12 +104,6 @@ func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID strin
 	if len(mentions) == 0 {
 		sp, _ := r.spaces.LoadSpace(spaceID)
 		listening := ListeningAgents(sp, parentMessageID)
-		hits := ListenMatches(content, listening)
-		if len(hits) == 1 {
-			chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
-			chain.ParentMessageID = strings.TrimSpace(parentMessageID)
-			return r.fanOutListening(chain, hits[0], spaceID, written.ID)
-		}
 		notice := RoutingNotice{
 			Kind:      NoticeChannelNoTarget,
 			SpaceID:   spaceID,
@@ -117,7 +111,7 @@ func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID strin
 			At:        time.Now(),
 		}
 		switch {
-		case len(hits) > 1:
+		case len(listening) > 1:
 			notice.Kind = NoticeListeningAmbiguous
 		case len(listening) > 0:
 			notice.Kind = NoticeListeningNoMatch
@@ -176,23 +170,6 @@ func (r *Router) fanOut(chain *RoutingChain, agents []string, spaceID, originMes
 		wakes = append(wakes, RoutingTarget{AgentID: id, OriginMessageID: originMessageID, Chain: chain})
 	}
 	return wakes, notices, nil
-}
-
-func (r *Router) fanOutListening(chain *RoutingChain, agentID, spaceID, originMessageID string) ([]RoutingTarget, []RoutingNotice, error) {
-	if ok, _ := chain.TrySpend(agentID); !ok {
-		return nil, []RoutingNotice{{
-			Kind:      NoticeChannelNoTarget,
-			SpaceID:   spaceID,
-			MessageID: originMessageID,
-			At:        time.Now(),
-		}}, nil
-	}
-	return []RoutingTarget{{
-		AgentID:         agentID,
-		OriginMessageID: originMessageID,
-		Chain:           chain,
-		Reason:          "joined from channel listening",
-	}}, nil, nil
 }
 
 func noticeKindFor(reason string) RoutingNoticeKind {

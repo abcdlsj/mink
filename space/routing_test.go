@@ -86,7 +86,7 @@ func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	}
 }
 
-func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
+func TestRouterListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
 		t.Fatalf("SetAgentMode: %v", err)
@@ -95,18 +95,15 @@ func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
-		t.Fatalf("expected listening coder wake, got %+v", wakes)
+	if len(wakes) != 0 {
+		t.Fatalf("plain message must not wake listening agent, got %+v", wakes)
 	}
-	if wakes[0].Reason != "joined from channel listening" {
-		t.Errorf("wake reason = %q", wakes[0].Reason)
-	}
-	if len(notices) != 0 {
-		t.Errorf("expected no notices, got %+v", notices)
+	if len(notices) != 1 || notices[0].Kind != NoticeListeningNoMatch {
+		t.Fatalf("expected listening_no_match notice, got %+v", notices)
 	}
 }
 
-func TestRouterThreadListeningAgentWakesOnPlainMessage(t *testing.T) {
+func TestRouterThreadListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	root, err := mgr.AppendUserMessage(ch.ID, "root", nil)
 	if err != nil {
@@ -122,14 +119,11 @@ func TestRouterThreadListeningAgentWakesOnPlainMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
-		t.Fatalf("expected thread listening coder wake, got %+v", wakes)
+	if len(wakes) != 0 {
+		t.Fatalf("thread plain message must not wake listening agent, got %+v", wakes)
 	}
-	if wakes[0].Chain == nil || wakes[0].Chain.ParentMessageID != root.ID {
-		t.Fatalf("wake chain parent = %+v, want %q", wakes[0].Chain, root.ID)
-	}
-	if len(notices) != 0 {
-		t.Errorf("expected no notices, got %+v", notices)
+	if len(notices) != 1 || notices[0].Kind != NoticeListeningNoMatch {
+		t.Fatalf("expected listening_no_match notice, got %+v", notices)
 	}
 }
 
