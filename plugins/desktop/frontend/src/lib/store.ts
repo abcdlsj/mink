@@ -610,11 +610,23 @@ export const useStore = create<State>((set, get) => ({
           // Bad or stale deep links should not block the desktop from opening.
         }
       }
-      const sumiDirect = directChats.find((d) => d.kind === "direct_chat" && d.title === "Sumi");
-      if (sumiDirect) {
-        await get().openDirectChat(sumiDirect.id, { replace: true });
-      } else if (channels.length) {
+      if (channels.length) {
         await get().openChannel(channels[0].id, { replace: true });
+      } else {
+        set({
+          view: "home",
+          detail: null,
+          threadDetail: null,
+          participants: null,
+          activeChannel: null,
+          activeDirect: null,
+          activeThread: null,
+          activeAgentSpace: null,
+          activeAgentID: null,
+          activeAnchor: null,
+          expandedTaskID: null,
+        });
+        writeWebRoute({ view: "home" }, { replace: true });
       }
     } catch (err) {
       set({

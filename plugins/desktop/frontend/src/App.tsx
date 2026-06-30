@@ -392,7 +392,7 @@ function MobileDetailsContent() {
             );
           }) : (
             <div className="border border-border bg-panel px-2 py-1.5 text-[12px] text-text-faint">
-              Default Sumi direct · {state?.runtime || "default"}{state?.model ? " / " + state.model : ""}
+              Home landing · {state?.runtime || "default"}{state?.model ? " / " + state.model : ""}
             </div>
           )}
         </div>

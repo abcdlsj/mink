@@ -404,22 +404,19 @@ func TestNamedAgentChatSendUsesExistingSpaceID(t *testing.T) {
 	}
 }
 
-func TestDirectChatsIncludeDefaultSumiConversation(t *testing.T) {
+func TestDirectChatsDoNotAutoCreateDefaultSumiConversation(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
 
 	direct := b.ListDirectChats()
-	if len(direct) != 1 {
-		t.Fatalf("direct chats = %d, want default Sumi only: %#v", len(direct), direct)
-	}
-	if direct[0].Kind != "direct_chat" || direct[0].Title != "Sumi" || direct[0].PersonaID != "" {
-		t.Fatalf("default direct item = %#v", direct[0])
+	if len(direct) != 0 {
+		t.Fatalf("direct chats = %d, want empty list without explicit direct chat: %#v", len(direct), direct)
 	}
 
-	if _, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
-		t.Fatalf("default Sumi space missing: %v", err)
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil || sp != nil {
+		t.Fatalf("default Sumi listing should not create direct chat, got space=%#v err=%v", sp, err)
 	}
 	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "coder"); err != nil || sp != nil {
 		t.Fatalf("default Sumi listing should not create agent dm, got space=%#v err=%v", sp, err)
@@ -435,9 +432,16 @@ func TestDefaultSumiDirectSendUsesExistingSpaceID(t *testing.T) {
 		}), nil
 	})
 
+	sp, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi only", direct)
+	}
+	if direct[0].ID != sp.ID {
+		t.Fatalf("direct chat id = %q, want %q", direct[0].ID, sp.ID)
 	}
 	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "hello sumi"}); err != nil {
 		t.Fatal(err)
@@ -476,6 +480,9 @@ func TestDefaultSumiDirectTreatsMentionsAsText(t *testing.T) {
 		return nil, nil
 	})
 
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi only", direct)
@@ -496,6 +503,9 @@ func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
 		}), nil
 	})
 
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi", direct)
@@ -521,6 +531,9 @@ func TestDefaultSumiSendFailurePersistsNotice(t *testing.T) {
 
 func TestDesktopCommandOutputPersistsNotice(t *testing.T) {
 	b, _ := newBackendWithApp(t)
+	if _, err := b.app.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
@@ -542,6 +555,9 @@ func TestDesktopCommandOutputPersistsNotice(t *testing.T) {
 func TestDesktopBangCommandOutputPersistsNoticeForRegisteredCommand(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -583,6 +599,9 @@ func TestDesktopBangCommandOutputPersistsNoticeForRegisteredCommand(t *testing.T
 func TestDesktopDeleteMemoryAPIDeletesAndPersistsNotice(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -631,6 +650,9 @@ func TestDesktopDeleteMemoryAPIDeletesAndPersistsNotice(t *testing.T) {
 func TestDesktopUpdateMemoryAPIUpdatesSameIDAndPersistsNotice(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if err := memoryplugin.Plugin()(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -692,6 +714,9 @@ func TestDesktopUpdateMemoryAPIUpdatesSameIDAndPersistsNotice(t *testing.T) {
 
 func TestDesktopShellShortcutOutputDoesNotPersistNotice(t *testing.T) {
 	b, _ := newBackendWithApp(t)
+	if _, err := b.app.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
@@ -718,6 +743,9 @@ func TestDesktopSendPersistsQuotedTranscriptAsAttachment(t *testing.T) {
 		}), nil
 	})
 
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 	direct := b.ListDirectChats()
 	raw := `{"title":"Imported memory","source":"dm:old","messages":[{"id":"old1","role":"user","sender":"You","time":"2026-06-24T00:00:00Z","source":"dm:old","link":"http://127.0.0.1:7799/?view=direct&id=old&anchor=message:old1","content":"记忆一下：不要保存这个"}]}`
 	if _, err := b.SendMessage(SendRequest{
@@ -760,6 +788,9 @@ func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 		}), nil
 	})
 
+	if _, err := a.Spaces().EnsureSpace(space.KindDirectChat, "Sumi", space.PersonaInfo{}); err != nil {
+		t.Fatal(err)
+	}
 	direct := b.ListDirectChats()
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi", direct)

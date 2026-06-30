@@ -1092,9 +1092,6 @@ func (b *Backend) UpdateDirectChatTitle(spaceID, title string) (DirectChatItem, 
 }
 
 func (b *Backend) ListDirectChats() []DirectChatItem {
-	if _, err := b.ensureDefaultSumiDirect(); err != nil {
-		return []DirectChatItem{}
-	}
 	spaces, err := b.app.Spaces().ListSpaces()
 	if err != nil {
 		return []DirectChatItem{}
@@ -1125,27 +1122,12 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 	}
 	out = append(out, b.defaultAgentDMItems(spaces)...)
 	sort.Slice(out, func(i, j int) bool {
-		if isDefaultSumiDirectItem(out[i]) != isDefaultSumiDirectItem(out[j]) {
-			return isDefaultSumiDirectItem(out[i])
-		}
 		if out[i].UpdatedAt.IsZero() != out[j].UpdatedAt.IsZero() {
 			return !out[i].UpdatedAt.IsZero()
 		}
 		return out[i].UpdatedAt.After(out[j].UpdatedAt)
 	})
 	return out
-}
-
-func (b *Backend) ensureDefaultSumiDirect() (*space.Space, error) {
-	spaces, err := b.app.Spaces().ListSpaces()
-	if err == nil {
-		for _, sp := range spaces {
-			if isDefaultSumiDirect(sp) {
-				return sp, nil
-			}
-		}
-	}
-	return b.app.Spaces().EnsureSpace(space.KindDirectChat, defaultSumiDirectTitle, space.PersonaInfo{})
 }
 
 func isDefaultSumiDirect(sp *space.Space) bool {
