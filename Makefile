@@ -16,6 +16,7 @@ APP_ICON_PNG ?= $(DESKTOP_DIR)/build/appicon.png
 DESKTOP_APP ?= $(DESKTOP_DIR)/build/bin/sumi.app
 APP_INSTALL_DIR ?= /Applications
 INSTALL_APP ?= $(APP_INSTALL_DIR)/Sumi.app
+RUN_ADDR ?= 127.0.0.1:7799
 
 ifeq ($(strip $(GOBIN)),)
 INSTALL_DIR ?= $(firstword $(subst :, ,$(GOPATH)))/bin
@@ -31,10 +32,11 @@ BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -X '$(MAIN).Version=$(VERSION)' -X '$(MAIN).Commit=$(COMMIT)' -X '$(MAIN).BuildTime=$(BUILD_TIME)'
 
-.PHONY: help build install install-cli install-desktop version clean frontend-deps frontend desktop desktop-icons desktop-app
+.PHONY: help run build install install-cli install-desktop version clean frontend-deps frontend desktop desktop-icons desktop-app
 
 help:
 	@printf "%-22s %s\n" \
+		"make run" "Run the browser desktop UI on $(RUN_ADDR)" \
 		"make build" "Build ./bin/sumi with version metadata" \
 		"make install" "Build and install CLI plus macOS app" \
 		"make install-cli" "Build and install $(INSTALL_BIN)" \
@@ -49,6 +51,9 @@ help:
 build:
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BIN) $(PKG)
+
+run: frontend
+	$(GO) run $(PKG) desktop -addr $(RUN_ADDR)
 
 frontend-deps:
 	cd $(FRONTEND_DIR) && $(NPM) install
