@@ -129,6 +129,9 @@ func (h EntrypointHandler) Dispatch(ctx context.Context) (string, error) {
 	if f.personaID == "" && h.policy.Mode == command.ModeDirect && h.policy.Mention == command.MentionText {
 		return f.directConversation(ctx)
 	}
+	if f.personaID == "" && h.policy.Mode == command.ModeRouted && f.usesLegacyDirectAssistant() {
+		return f.directConversation(ctx)
+	}
 	if f.personaID == "" && h.policy.Mode == command.ModeRouted {
 		return f.routedConversation(ctx)
 	}
@@ -238,8 +241,8 @@ func (f *inputFlow) prepareAgentDMContext(ctx context.Context) (turnContextSeed,
 func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	persona := f.app.defaultPersona()
 	agentInfo := space.PersonaInfo{ID: "assistant", Display: "Sumi"}
-	useDefaultSumi := isDefaultSumiSource(f.source)
-	if persona != nil && !useDefaultSumi {
+	useBuiltinAssistant := isDefaultSumiSource(f.source) || f.usesLegacyDirectAssistant()
+	if persona != nil && !useBuiltinAssistant {
 		f.personaID = persona.ID
 		if strings.TrimSpace(persona.Runtime) != "" {
 			f.runtime = persona.Runtime
@@ -251,7 +254,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 
 	var sp *space.Space
 	var excludeMessageID string
-	if f.app.spaces != nil {
+	if f.app.spaces != nil && f.shouldPersistDirectConversation() {
 		var err error
 		sp, err = f.app.spaces.Resolve(f.source, agentInfo)
 		if err != nil {
@@ -290,7 +293,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	}
 	baseline := len(s.Messages)
 	runtimePersona := persona
-	if useDefaultSumi {
+	if useBuiltinAssistant {
 		runtimePersona = nil
 	}
 	rt, visionLabel, err := f.app.newRuntimeForTurn(runtimeName, runtimePersona, f.attachments)
@@ -326,6 +329,10 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	return content, nil
 }
 
+func (f inputFlow) shouldPersistDirectConversation() bool {
+	return strings.TrimSpace(f.source) != "desktop"
+}
+
 func isDefaultSumiSource(source string) bool {
 	switch strings.TrimSpace(source) {
 	case "cli", "desktop":
@@ -333,6 +340,23 @@ func isDefaultSumiSource(source string) bool {
 	default:
 		return false
 	}
+}
+
+func (f inputFlow) usesLegacyDirectAssistant() bool {
+	if f.app == nil || f.app.spaces == nil {
+		return false
+	}
+	target := space.MapSource(f.source)
+	if target.Kind != space.KindDirectChat || strings.TrimSpace(target.Seed) == "" {
+		return false
+	}
+	sp, err := f.app.spaces.LoadSpace(target.Seed)
+	if err != nil || sp == nil {
+		return false
+	}
+	return sp.Kind == space.KindDirectChat &&
+		strings.EqualFold(strings.TrimSpace(sp.Title), "Sumi") &&
+		space.AgentParticipantID(sp) == ""
 }
 
 func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, spaceID, agentID, excludeMessageID string) {

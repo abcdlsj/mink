@@ -425,8 +425,10 @@ func TestDirectChatsDoNotAutoCreateDefaultSumiConversation(t *testing.T) {
 
 func TestDefaultSumiDirectSendUsesExistingSpaceID(t *testing.T) {
 	b, a := newBackendWithApp(t)
+	var gotSource string
 	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
 		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
+			gotSource = turn.Source
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok: " + turn.Input})
 			return nil
 		}), nil
@@ -445,6 +447,9 @@ func TestDefaultSumiDirectSendUsesExistingSpaceID(t *testing.T) {
 	}
 	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, Input: "hello sumi"}); err != nil {
 		t.Fatal(err)
+	}
+	if gotSource != "desktop:direct:"+sp.ID {
+		t.Fatalf("turn source = %q, want %q", gotSource, "desktop:direct:"+sp.ID)
 	}
 
 	detail := b.GetDirectChat(direct[0].ID)
@@ -468,9 +473,11 @@ func TestDefaultSumiDirectTreatsMentionsAsText(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotInput string
+	var gotSource string
 	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
 		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
 			gotInput = turn.Input
+			gotSource = turn.Source
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok"})
 			return nil
 		}), nil
@@ -487,11 +494,17 @@ func TestDefaultSumiDirectTreatsMentionsAsText(t *testing.T) {
 	if len(direct) != 1 {
 		t.Fatalf("direct chats = %#v, want default Sumi only", direct)
 	}
+	if direct[0].Kind != "direct_chat" {
+		t.Fatalf("direct item kind = %q, want direct_chat", direct[0].Kind)
+	}
 	if _, err := b.SendMessage(SendRequest{SessionID: direct[0].ID, PersonaID: "bob", Input: "@bob hello"}); err != nil {
 		t.Fatal(err)
 	}
 	if gotInput != "@bob hello" {
 		t.Fatalf("input = %q, want @bob hello", gotInput)
+	}
+	if gotSource != "desktop:direct:"+direct[0].ID {
+		t.Fatalf("turn source = %q, want %q", gotSource, "desktop:direct:"+direct[0].ID)
 	}
 }
 
@@ -780,9 +793,11 @@ func TestDesktopSendPersistsQuotedTranscriptAsAttachment(t *testing.T) {
 func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	var gotInput string
+	var gotSource string
 	a.RegisterRuntime("stub", func(*agent.RuntimeEnv) (agent.Runtime, error) {
 		return desktopRuntimeFunc(func(_ context.Context, turn *agent.Turn) error {
 			gotInput = turn.Input
+			gotSource = turn.Source
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "sumi ok"})
 			return nil
 		}), nil
@@ -800,6 +815,9 @@ func TestDefaultSumiDirectIgnoresPersonaID(t *testing.T) {
 	}
 	if gotInput != "still there?" {
 		t.Fatalf("input = %q, want still there?", gotInput)
+	}
+	if gotSource != "desktop:direct:"+direct[0].ID {
+		t.Fatalf("turn source = %q, want %q", gotSource, "desktop:direct:"+direct[0].ID)
 	}
 
 	detail := b.GetDirectChat(direct[0].ID)

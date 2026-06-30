@@ -86,20 +86,18 @@ func TestVisionRoutedImagesPersistInSpaceButNotSessionCache(t *testing.T) {
 		t.Fatalf("reply = %q, want saw image", out)
 	}
 
-	sp, err := a.Spaces().Resolve("desktop", space.PersonaInfo{ID: "assistant", Display: "Sumi"})
-	if err != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
 		t.Fatal(err)
-	}
-	if len(sp.Messages) != 2 {
-		t.Fatalf("space messages = %#v, want user + assistant", sp.Messages)
-	}
-	if len(sp.Messages[0].Attachments) != 1 || sp.Messages[0].Attachments[0].Kind != "image" {
-		t.Fatalf("space user attachment = %#v", sp.Messages[0].Attachments)
+	} else if sp != nil {
+		t.Fatalf("root desktop vision send should not persist hidden Sumi direct, got %#v", sp)
 	}
 
 	s, err := a.CurrentSession("desktop")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(s.Messages) != 2 {
+		t.Fatalf("session messages = %#v, want user + assistant", s.Messages)
 	}
 	for _, m := range s.Messages {
 		if len(m.Attachments) != 0 {
@@ -1000,16 +998,10 @@ func TestDesktopDefaultSumiDoesNotBindDefaultPersona(t *testing.T) {
 	if gotAgentID != "" {
 		t.Fatalf("turn agent id = %q, want empty default Sumi agent id", gotAgentID)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil || sp == nil {
-		t.Fatalf("default Sumi space not found: %v", err)
-	} else if len(sp.Messages) != 2 || sp.Messages[1].AuthorID != "assistant" {
-		t.Fatalf("default Sumi messages = %#v", sp.Messages)
-	} else {
-		for _, p := range sp.Participants {
-			if p.Kind == space.ParticipantAgent {
-				t.Fatalf("default Sumi participants = %#v, want no agent participant", sp.Participants)
-			}
-		}
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
+		t.Fatalf("find default Sumi space: %v", err)
+	} else if sp != nil {
+		t.Fatalf("root desktop should not persist hidden Sumi direct, got %#v", sp)
 	}
 	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "andy"); err != nil || sp != nil {
 		t.Fatalf("default persona agent dm should not be created, got space=%#v err=%v", sp, err)
