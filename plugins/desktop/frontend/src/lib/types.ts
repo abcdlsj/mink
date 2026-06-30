@@ -462,6 +462,9 @@ export interface TaskStateCard {
 }
 
 export interface ActionProposalCard {
+  id?: string;
+  kind?: string;
+  status?: string;
   time: string;
   source?: string;
   tool?: string;
@@ -472,4 +475,10 @@ export interface ActionProposalCard {
   preview?: string;
   rollback?: string;
   expires_at?: string;
+  reason?: string;
+  created_by?: string;
+  assignee?: string;
+  title?: string;
+  expected_outcome?: string;
+  acceptance_criteria?: string;
 }

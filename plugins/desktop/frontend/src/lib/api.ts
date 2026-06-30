@@ -2,6 +2,7 @@ import type {
   AgentDMItem,
   AgentItem,
   AgentRun,
+  ActionProposalCard,
   CapabilityView,
   ChannelItem,
   CommandItem,
@@ -107,6 +108,25 @@ export const api = {
     explicit_task_intent?: boolean;
   }) =>
     post<TaskStateCard>("/api/task/create", input),
+  prepareTaskProposal: (input: {
+    space_id: string;
+    source_message_id?: string;
+    source_thread_id?: string;
+    created_by?: string;
+    assignee_id?: string;
+    assignee?: string;
+    assigned_by?: string;
+    title: string;
+    outcome?: string;
+    expected_outcome?: string;
+    acceptance_criteria?: string;
+    authorization_text: string;
+  }) =>
+    post<ActionProposalCard>("/api/task/proposal/prepare", input),
+  commitTaskProposal: (proposalID: string) =>
+    post<TaskStateCard>("/api/task/proposal/commit", { proposal_id: proposalID }),
+  rejectTaskProposal: (proposalID: string) =>
+    post<ActionProposalCard>("/api/task/proposal/reject", { proposal_id: proposalID }),
   assignTask: (input: {
     task_id: string;
     assignee_id?: string;

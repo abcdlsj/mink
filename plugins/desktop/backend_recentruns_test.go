@@ -375,6 +375,104 @@ func TestCreateTaskRequiresExplicitTaskIntent(t *testing.T) {
 	}
 }
 
+func TestPrepareAndCommitTaskProposalLifecycle(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("dev", persona.Meta{Display: "Dev", Runtime: "stub", Capabilities: []string{"task.execute"}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "请创建任务给 dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := b.PrepareTaskProposal(PrepareTaskProposalRequest{
+		SpaceID:            sp.ID,
+		SourceMessageID:    msg.ID,
+		SourceThreadID:     msg.ID,
+		CreatedBy:          "user",
+		AssigneeID:         "dev",
+		AssignedBy:         "user",
+		Title:              "review proposal lifecycle",
+		ExpectedOutcome:    "proposal can be committed from desktop review card",
+		AcceptanceCriteria: "task exists only after commit",
+		AuthorizationText:  "请创建任务给 dev",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.ID == "" || proposal.Status != "prepared" || proposal.Kind != "task.create" {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	if pending := b.Capabilities().ActionProposals; len(pending) != 1 {
+		t.Fatalf("pending capability proposals = %#v", pending)
+	}
+	tasks, err := a.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks before commit = %d, want 0", len(tasks))
+	}
+
+	created, err := b.CommitTaskProposal(proposal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Title != "review proposal lifecycle" || created.AssigneeID != "dev" {
+		t.Fatalf("created task = %#v", created)
+	}
+	if pending := b.Capabilities().ActionProposals; len(pending) != 0 {
+		t.Fatalf("pending proposals after commit = %#v", pending)
+	}
+}
+
+func TestRejectTaskProposalRemovesPendingCard(t *testing.T) {
+	b, a := newBackendWithApp(t)
+	if _, err := a.Personas().Create("dev", persona.Meta{Display: "Dev", Runtime: "stub", Capabilities: []string{"task.execute"}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sp, err := a.Spaces().EnsureSpace(space.KindChannel, "alpha", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := a.Spaces().AppendUserMessage(sp.ID, "请创建任务给 dev", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	proposal, err := b.PrepareTaskProposal(PrepareTaskProposalRequest{
+		SpaceID:            sp.ID,
+		SourceMessageID:    msg.ID,
+		CreatedBy:          "user",
+		AssigneeID:         "dev",
+		AssignedBy:         "user",
+		Title:              "reject card",
+		ExpectedOutcome:    "proposal can be rejected from review card",
+		AcceptanceCriteria: "pending card disappears",
+		AuthorizationText:  "请创建任务给 dev",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.RejectTaskProposal(proposal.ID); err != nil {
+		t.Fatal(err)
+	}
+	if pending := b.Capabilities().ActionProposals; len(pending) != 0 {
+		t.Fatalf("pending proposals after reject = %#v", pending)
+	}
+	tasks, err := a.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks after reject = %d, want 0", len(tasks))
+	}
+}
+
 func TestGetRunDetailReturnsKeyStepsButNotResultBody(t *testing.T) {
 	b, a := newBackendWithApp(t)
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {

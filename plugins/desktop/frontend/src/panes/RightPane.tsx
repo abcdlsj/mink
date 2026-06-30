@@ -9,6 +9,7 @@ import { MemoryOverviewCard } from "./MemoryOverviewCard";
 import type {
   AgentItem,
   AgentRun,
+  ActionProposalCard,
   CapabilityView,
   ContextInspectView,
   TaskStateCard,
@@ -755,7 +756,16 @@ function CapabilitySummarySection({
             </div>
           )}
           {activeTasks > 0 && <div>{activeTasks} active flow task{activeTasks === 1 ? "" : "s"}</div>}
-          {proposals > 0 && <div>{proposals} action proposal{proposals === 1 ? "" : "s"}</div>}
+          {proposals > 0 && (
+            <>
+              <div>{proposals} action proposal{proposals === 1 ? "" : "s"}</div>
+              <div className="space-y-1.5">
+                {capabilities.action_proposals.slice(0, 4).map((proposal) => (
+                  <TaskProposalCard key={proposal.id || proposal.preview || proposal.time} proposal={proposal} />
+                ))}
+              </div>
+            </>
+          )}
           {archivedTasks > 0 && <div className="text-text-faint">{archivedTasks} archived tasks hidden</div>}
           <div className="pt-0.5 text-[11px] text-text-faint">
             Skill details live in the agent profile; this rail only shows current readiness.
@@ -763,5 +773,67 @@ function CapabilitySummarySection({
         </div>
       )}
     </Section>
+  );
+}
+
+function TaskProposalCard({ proposal }: { proposal: ActionProposalCard }) {
+  const refreshCapabilities = useStore((s) => s.refreshCapabilities);
+  const openCurrentRoute = useStore((s) => s.openCurrentRoute);
+  const [busy, setBusy] = useState<"" | "commit" | "reject">("");
+  const [error, setError] = useState("");
+
+  const act = async (kind: "commit" | "reject") => {
+    if (!proposal.id || busy) return;
+    setBusy(kind);
+    setError("");
+    try {
+      if (kind === "commit") {
+        await api.commitTaskProposal(proposal.id);
+      } else {
+        await api.rejectTaskProposal(proposal.id);
+      }
+      await Promise.all([refreshCapabilities(), openCurrentRoute()]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <div className="border border-border-soft bg-panel/70 px-2.5 py-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[12.5px] font-semibold text-text">{proposal.title || proposal.intent || "Task proposal"}</div>
+          <div className="mt-0.5 flex flex-wrap gap-x-1.5 gap-y-0.5 text-[10.5px] text-text-faint">
+            <span>{proposal.target || "unknown target"}</span>
+            {proposal.assignee && <span>· @{proposal.assignee}</span>}
+            <span>· {proposal.risk || "safe"}</span>
+          </div>
+        </div>
+        <span className="shrink-0 border border-border bg-panel-2 px-1.5 py-px font-mono text-[10px] text-text">
+          {proposal.status || proposal.result || "prepared"}
+        </span>
+      </div>
+      {proposal.expected_outcome && (
+        <div className="mt-1 text-[11px] leading-[1.4] text-text-muted">
+          {proposal.expected_outcome}
+        </div>
+      )}
+      {proposal.acceptance_criteria && (
+        <div className="mt-1 text-[11px] leading-[1.4] text-text-faint">
+          {proposal.acceptance_criteria}
+        </div>
+      )}
+      {error && <div className="mt-1 text-[11px] text-error">{error}</div>}
+      <div className="mt-2 flex gap-1.5">
+        <Button variant="outline" size="xs" disabled={!proposal.id || !!busy} onClick={() => void act("reject")}>
+          {busy === "reject" ? "Rejecting…" : "Reject"}
+        </Button>
+        <Button variant="default" size="xs" disabled={!proposal.id || !!busy} onClick={() => void act("commit")}>
+          {busy === "commit" ? "Committing…" : "Commit"}
+        </Button>
+      </div>
+    </div>
   );
 }

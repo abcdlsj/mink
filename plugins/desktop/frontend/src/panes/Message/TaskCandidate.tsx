@@ -40,7 +40,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
     setBusy(true);
     setError("");
     try {
-      const task = await api.createTask({
+      const proposal = await api.prepareTaskProposal({
         space_id: source.spaceID,
         source_message_id: source.sourceMessageID,
         source_thread_id: source.sourceThreadID,
@@ -50,12 +50,12 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
         title: title.trim(),
         expected_outcome: outcome.trim(),
         acceptance_criteria: criteria.trim(),
-        explicit_task_intent: true,
+        authorization_text: message.content || "",
       });
-      setCreated(task.id);
+      setCreated(proposal.id || "prepared");
       await Promise.all([refreshCapabilities(), openCurrentRoute()]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Create task failed");
+      setError(err instanceof Error ? err.message : "Prepare task proposal failed");
     } finally {
       setBusy(false);
     }
@@ -117,7 +117,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <div className="min-w-0 text-[11px] text-text-faint">
-          {created ? `Created ${created}` : ready ? "Source linked to this message." : `Needs ${missing.join(", ")}.`}
+          {created ? `Prepared ${created}` : ready ? "Source linked to this message." : `Needs ${missing.join(", ")}.`}
           {error && <span className="ml-2 text-error">{error}</span>}
         </div>
         <button
@@ -129,7 +129,7 @@ export function TaskCandidate({ message, forceMainScope = false }: { message: Me
             (!ready || busy || !!created) && "pointer-events-none opacity-45",
           )}
         >
-          {created ? "Created" : busy ? "creating..." : "Create task"}
+          {created ? "Prepared" : busy ? "preparing..." : "Prepare task"}
         </button>
       </div>
     </div>

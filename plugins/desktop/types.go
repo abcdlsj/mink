@@ -23,10 +23,10 @@ type SessionItem struct {
 }
 
 type SessionDetail struct {
-	Item     SessionItem   `json:"item"`
-	Messages []MessageView `json:"messages"`
-	ActiveRuns []AgentRun   `json:"active_runs,omitempty"`
-	Summary  string        `json:"summary,omitempty"`
+	Item       SessionItem   `json:"item"`
+	Messages   []MessageView `json:"messages"`
+	ActiveRuns []AgentRun    `json:"active_runs,omitempty"`
+	Summary    string        `json:"summary,omitempty"`
 }
 
 type MessageView struct {
@@ -440,14 +440,23 @@ type TaskStateCard struct {
 }
 
 type ActionProposalCard struct {
-	Time      time.Time `json:"time"`
-	Source    string    `json:"source,omitempty"`
-	Tool      string    `json:"tool,omitempty"`
-	Result    string    `json:"result,omitempty"`
-	Intent    string    `json:"intent,omitempty"`
-	Target    string    `json:"target,omitempty"`
-	Risk      string    `json:"risk,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
-	Rollback  string    `json:"rollback,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ID                 string    `json:"id,omitempty"`
+	Kind               string    `json:"kind,omitempty"`
+	Status             string    `json:"status,omitempty"`
+	Time               time.Time `json:"time"`
+	Source             string    `json:"source,omitempty"`
+	Tool               string    `json:"tool,omitempty"`
+	Result             string    `json:"result,omitempty"`
+	Intent             string    `json:"intent,omitempty"`
+	Target             string    `json:"target,omitempty"`
+	Risk               string    `json:"risk,omitempty"`
+	Preview            string    `json:"preview,omitempty"`
+	Rollback           string    `json:"rollback,omitempty"`
+	ExpiresAt          time.Time `json:"expires_at,omitempty"`
+	Reason             string    `json:"reason,omitempty"`
+	CreatedBy          string    `json:"created_by,omitempty"`
+	Assignee           string    `json:"assignee,omitempty"`
+	Title              string    `json:"title,omitempty"`
+	ExpectedOutcome    string    `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string    `json:"acceptance_criteria,omitempty"`
 }

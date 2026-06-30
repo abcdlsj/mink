@@ -83,6 +83,19 @@ type ActionProposalSummary struct {
 	Proposal tool.ActionProposal `json:"proposal,omitempty"`
 }
 
+type TaskCreateProposalPayload struct {
+	SpaceID            string `json:"space_id,omitempty"`
+	SourceMessageID    string `json:"source_message_id,omitempty"`
+	SourceThreadID     string `json:"source_thread_id,omitempty"`
+	CreatedBy          string `json:"created_by,omitempty"`
+	AssigneeID         string `json:"assignee_id,omitempty"`
+	AssignedBy         string `json:"assigned_by,omitempty"`
+	Title              string `json:"title,omitempty"`
+	ExpectedOutcome    string `json:"expected_outcome,omitempty"`
+	AcceptanceCriteria string `json:"acceptance_criteria,omitempty"`
+	AuthorizationText  string `json:"authorization_text,omitempty"`
+}
+
 func (a *App) SkillSummaries() []SkillSummary {
 	if a == nil || a.skills == nil {
 		return nil
@@ -432,6 +445,56 @@ func (a *App) RecentActionProposals(limit int) []ActionProposalSummary {
 		if limit > 0 && len(out) >= limit {
 			break
 		}
+	}
+	return out
+}
+
+func (a *App) PendingTaskCreateProposals(limit int) []ActionProposalSummary {
+	if a == nil || a.store == nil {
+		return nil
+	}
+	events, err := a.store.ReplayGlobal(1000)
+	if err != nil {
+		return nil
+	}
+	latest := map[string]ActionProposalSummary{}
+	order := make([]string, 0)
+	for _, ev := range events {
+		if ev.Type != bus.ActionProposal {
+			continue
+		}
+		var p tool.ActionProposal
+		if json.Unmarshal([]byte(ev.Input), &p) != nil {
+			continue
+		}
+		if strings.TrimSpace(p.ID) == "" || p.Kind != "task.create" {
+			continue
+		}
+		if _, ok := latest[p.ID]; !ok {
+			order = append(order, p.ID)
+		}
+		latest[p.ID] = ActionProposalSummary{
+			Time:     ev.Time,
+			Source:   ev.Source,
+			Tool:     ev.Tool,
+			Result:   ev.Output,
+			Proposal: p,
+		}
+	}
+	out := make([]ActionProposalSummary, 0, len(latest))
+	for _, id := range order {
+		item, ok := latest[id]
+		if !ok {
+			continue
+		}
+		if item.Proposal.Status != "prepared" {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out
 }

@@ -32,22 +32,29 @@ func TestTaskCreateToolRequiresCapabilityAndExecutableAssignee(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "assigned_to=dev") {
+	if !strings.Contains(out, "task proposal prepared:") {
 		t.Fatalf("output = %q", out)
 	}
 	tasks, err := a.Tasks().ListBySpace(sp.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 {
-		t.Fatalf("tasks len = %d, want 1", len(tasks))
+	if len(tasks) != 0 {
+		t.Fatalf("tasks len = %d, want 0 before human commit", len(tasks))
 	}
-	tk := tasks[0]
-	if tk.CreatedBy != "planner" || tk.AssignedBy != "planner" || tk.WorkerID != "dev" {
-		t.Fatalf("delegation metadata = %#v", tk)
+	pending := a.PendingTaskCreateProposals(10)
+	if len(pending) != 1 {
+		t.Fatalf("pending proposals = %#v", pending)
 	}
-	if tk.ExpectedOutcome != args["expected_outcome"] || tk.AcceptanceCriteria != args["acceptance_criteria"] {
-		t.Fatalf("task planning fields = %#v", tk)
+	var payload TaskCreateProposalPayload
+	if err := json.Unmarshal(pending[0].Proposal.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.CreatedBy != "planner" || payload.AssignedBy != "planner" || payload.AssigneeID != "dev" {
+		t.Fatalf("delegation metadata = %#v", payload)
+	}
+	if payload.ExpectedOutcome != args["expected_outcome"] || payload.AcceptanceCriteria != args["acceptance_criteria"] {
+		t.Fatalf("task planning fields = %#v", payload)
 	}
 
 	_, err = a.tools.Run(taskToolCtx("desktop:channel:"+sp.ID, "viewer", msg.ID), "task_create", mustJSON(t, args))
@@ -107,14 +114,48 @@ func TestTaskCreateToolRequiresExplicitCurrentUserTaskIntent(t *testing.T) {
 
 func TestTaskToolBlocksDefaultToProposeOnly(t *testing.T) {
 	blocks := taskToolBlocks(&persona.Persona{ID: "planner", Capabilities: []string{"task.assign"}})
-	for _, name := range []string{"task_create", "task_assign", "task_update_status"} {
+	for _, name := range []string{"task_assign", "task_update_status"} {
 		if _, ok := blocks[name]; !ok {
 			t.Fatalf("propose-only should block %s: %#v", name, blocks)
 		}
 	}
+	if _, ok := blocks["task_create"]; ok {
+		t.Fatalf("propose-only should keep task_create available for proposal prep: %#v", blocks)
+	}
 
 	if blocks := taskToolBlocks(&persona.Persona{ID: "planner", TaskPolicy: "auto_commit"}); blocks != nil {
 		t.Fatalf("auto_commit should expose task tools, got %#v", blocks)
+	}
+}
+
+func TestTaskCreateToolPreparesProposalWhenPolicyIsProposeOnly(t *testing.T) {
+	a := newTaskToolTestApp(t)
+	sp, msg := newTaskToolSpace(t, a)
+	ctx := taskToolCtxWithInput("desktop:channel:"+sp.ID, "planner", msg.ID, "请创建任务给 dev")
+	out, err := a.tools.Run(ctx, "task_create", mustJSON(t, map[string]string{
+		"title":               "prepare only",
+		"assignee_id":         "dev",
+		"expected_outcome":    "proposal exists without task mutation",
+		"acceptance_criteria": "no real task before human commit",
+		"space_id":            sp.ID,
+		"source_message_id":   msg.ID,
+		"authorization_text":  "请创建任务给 dev",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "task proposal prepared:") {
+		t.Fatalf("output = %q", out)
+	}
+	tasks, err := a.Tasks().ListBySpace(sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("tasks len = %d, want 0 before commit", len(tasks))
+	}
+	if pending := a.PendingTaskCreateProposals(10); len(pending) != 1 {
+		t.Fatalf("pending proposals = %#v", pending)
 	}
 }
 

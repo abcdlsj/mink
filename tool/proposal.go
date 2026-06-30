@@ -7,16 +7,23 @@ import (
 )
 
 type ActionProposal struct {
-	Intent    string    `json:"intent,omitempty"`
-	Target    string    `json:"target,omitempty"`
-	Risk      string    `json:"risk,omitempty"`
-	Preview   string    `json:"preview,omitempty"`
-	Rollback  string    `json:"rollback,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Kind      string          `json:"kind,omitempty"`
+	Status    string          `json:"status,omitempty"`
+	Intent    string          `json:"intent,omitempty"`
+	Target    string          `json:"target,omitempty"`
+	Risk      string          `json:"risk,omitempty"`
+	Preview   string          `json:"preview,omitempty"`
+	Rollback  string          `json:"rollback,omitempty"`
+	ExpiresAt time.Time       `json:"expires_at,omitempty"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+	Reason    string          `json:"reason,omitempty"`
 }
 
 func ProposalFor(call Call) ActionProposal {
 	p := ActionProposal{
+		Kind:      "generic",
+		Status:    "prepared",
 		Preview:   call.Action,
 		ExpiresAt: time.Now().Add(time.Minute),
 	}

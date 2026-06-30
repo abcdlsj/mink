@@ -2523,6 +2523,25 @@ type AssignTaskRequest struct {
 	AcceptanceCriteria string `json:"acceptance_criteria"`
 }
 
+type PrepareTaskProposalRequest struct {
+	SpaceID            string `json:"space_id"`
+	SourceMessageID    string `json:"source_message_id"`
+	SourceThreadID     string `json:"source_thread_id"`
+	CreatedBy          string `json:"created_by"`
+	AssigneeID         string `json:"assignee_id"`
+	Assignee           string `json:"assignee"`
+	AssignedBy         string `json:"assigned_by"`
+	Title              string `json:"title"`
+	Outcome            string `json:"outcome"`
+	ExpectedOutcome    string `json:"expected_outcome"`
+	AcceptanceCriteria string `json:"acceptance_criteria"`
+	AuthorizationText  string `json:"authorization_text"`
+}
+
+type ProposalActionRequest struct {
+	ProposalID string `json:"proposal_id"`
+}
+
 func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
 	if b.app.Tasks() == nil {
 		return TaskStateCard{}, fmt.Errorf("tasks not available")
@@ -2556,6 +2575,69 @@ func (b *Backend) CreateTask(in CreateTaskRequest) (TaskStateCard, error) {
 		return TaskStateCard{}, err
 	}
 	return b.taskCardFromTask(tk), nil
+}
+
+func (b *Backend) PrepareTaskProposal(in PrepareTaskProposalRequest) (ActionProposalCard, error) {
+	if b.app == nil {
+		return ActionProposalCard{}, fmt.Errorf("app not available")
+	}
+	assignee := firstNonEmpty(in.AssigneeID, in.Assignee)
+	createdBy := firstNonEmpty(in.CreatedBy, b.defaultActorID())
+	assignedBy := firstNonEmpty(in.AssignedBy, createdBy)
+	expected := firstNonEmpty(in.ExpectedOutcome, in.Outcome)
+	ctx := command.WithRunContext(context.Background(), command.RunContext{
+		Source: desktopSource,
+		Input:  strings.TrimSpace(in.AuthorizationText),
+	})
+	proposal, err := b.app.PrepareTaskCreateProposal(ctx, app.TaskCreateProposalPayload{
+		SpaceID:            strings.TrimSpace(in.SpaceID),
+		SourceMessageID:    strings.TrimSpace(in.SourceMessageID),
+		SourceThreadID:     strings.TrimSpace(in.SourceThreadID),
+		CreatedBy:          createdBy,
+		AssignedBy:         assignedBy,
+		AssigneeID:         strings.TrimSpace(assignee),
+		Title:              strings.TrimSpace(in.Title),
+		ExpectedOutcome:    strings.TrimSpace(expected),
+		AcceptanceCriteria: strings.TrimSpace(in.AcceptanceCriteria),
+		AuthorizationText:  strings.TrimSpace(in.AuthorizationText),
+	})
+	if err != nil {
+		return ActionProposalCard{}, err
+	}
+	return actionProposalCard(app.ActionProposalSummary{
+		Time:     time.Now(),
+		Source:   desktopSource,
+		Tool:     "task_create",
+		Result:   proposal.Status,
+		Proposal: proposal,
+	}), nil
+}
+
+func (b *Backend) CommitTaskProposal(proposalID string) (TaskStateCard, error) {
+	if b.app == nil {
+		return TaskStateCard{}, fmt.Errorf("app not available")
+	}
+	ctx := command.WithSource(context.Background(), desktopSource)
+	tk, err := b.app.CommitTaskCreateProposal(ctx, proposalID)
+	if err != nil {
+		return TaskStateCard{}, err
+	}
+	return b.taskCardFromTask(tk), nil
+}
+
+func (b *Backend) RejectTaskProposal(proposalID string) (ActionProposalCard, error) {
+	if b.app == nil {
+		return ActionProposalCard{}, fmt.Errorf("app not available")
+	}
+	ctx := command.WithSource(context.Background(), desktopSource)
+	if err := b.app.RejectTaskCreateProposal(ctx, proposalID); err != nil {
+		return ActionProposalCard{}, err
+	}
+	proposal, ok := b.app.FindTaskCreateProposalForUI(proposalID)
+	if !ok {
+		return ActionProposalCard{}, fmt.Errorf("task proposal not found after reject: %s", proposalID)
+	}
+	return actionProposalCard(proposal), nil
 }
 
 func validateTaskCommitment(title, expected, criteria string) error {
@@ -2674,7 +2756,7 @@ func (b *Backend) Capabilities() CapabilityView {
 		Skills:                 skillViews(b.app.SkillDirectory()),
 		Tasks:                  taskStateCards(b.app.RecentTaskStates(50)),
 		ArchivedTaskStateCount: b.app.ArchivedTaskStateCount(),
-		ActionProposals:        actionProposalCards(b.app.RecentActionProposals(6)),
+		ActionProposals:        actionProposalCards(b.app.PendingTaskCreateProposals(6)),
 	}
 }
 
@@ -2915,20 +2997,39 @@ func taskStateCard(t app.TaskStateSummary) TaskStateCard {
 func actionProposalCards(in []app.ActionProposalSummary) []ActionProposalCard {
 	out := make([]ActionProposalCard, 0, len(in))
 	for _, p := range in {
-		out = append(out, ActionProposalCard{
-			Time:      p.Time,
-			Source:    p.Source,
-			Tool:      p.Tool,
-			Result:    p.Result,
-			Intent:    p.Proposal.Intent,
-			Target:    p.Proposal.Target,
-			Risk:      p.Proposal.Risk,
-			Preview:   p.Proposal.Preview,
-			Rollback:  p.Proposal.Rollback,
-			ExpiresAt: p.Proposal.ExpiresAt,
-		})
+		out = append(out, actionProposalCard(p))
 	}
 	return out
+}
+
+func actionProposalCard(p app.ActionProposalSummary) ActionProposalCard {
+	card := ActionProposalCard{
+		ID:        p.Proposal.ID,
+		Kind:      p.Proposal.Kind,
+		Status:    p.Proposal.Status,
+		Time:      p.Time,
+		Source:    p.Source,
+		Tool:      p.Tool,
+		Result:    p.Result,
+		Intent:    p.Proposal.Intent,
+		Target:    p.Proposal.Target,
+		Risk:      p.Proposal.Risk,
+		Preview:   p.Proposal.Preview,
+		Rollback:  p.Proposal.Rollback,
+		ExpiresAt: p.Proposal.ExpiresAt,
+		Reason:    p.Proposal.Reason,
+	}
+	if p.Proposal.Kind == "task.create" && len(p.Proposal.Payload) > 0 {
+		var payload app.TaskCreateProposalPayload
+		if json.Unmarshal(p.Proposal.Payload, &payload) == nil {
+			card.CreatedBy = payload.CreatedBy
+			card.Assignee = payload.AssigneeID
+			card.Title = payload.Title
+			card.ExpectedOutcome = payload.ExpectedOutcome
+			card.AcceptanceCriteria = payload.AcceptanceCriteria
+		}
+	}
+	return card
 }
 
 func taskStateView(s taskpkg.TaskState) TaskStateView {
@@ -3190,6 +3291,57 @@ func (b *Backend) APIHandler() http.Handler {
 			return
 		}
 		out, err := b.CreateTask(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/task/proposal/prepare", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in PrepareTaskProposalRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.PrepareTaskProposal(in)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/task/proposal/commit", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in ProposalActionRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.CommitTaskProposal(in.ProposalID)
+		if err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(rw, out)
+	})
+	mux.HandleFunc("/api/task/proposal/reject", func(rw http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodPost {
+			http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var in ProposalActionRequest
+		if err := json.NewDecoder(req.Body).Decode(&in); err != nil {
+			http.Error(rw, err.Error(), http.StatusBadRequest)
+			return
+		}
+		out, err := b.RejectTaskProposal(in.ProposalID)
 		if err != nil {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return

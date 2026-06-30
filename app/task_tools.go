@@ -32,7 +32,6 @@ func taskToolBlocks(p *persona.Persona) map[string]string {
 	}
 	reason := "current task policy is propose-only; real Task Board changes require human confirmation"
 	return map[string]string{
-		"task_create":        reason,
 		"task_assign":        reason,
 		"task_update_status": reason,
 	}
@@ -103,6 +102,24 @@ func (t taskCreateTool) Run(ctx context.Context, args json.RawMessage) (string, 
 	sourceThreadID := firstNonEmpty(in.SourceThreadID, in.SourceThread, command.ParentMessageFrom(ctx))
 	if sourceMessageID == "" {
 		sourceMessageID = sourceThreadID
+	}
+	if persona := t.a.personas.Get(actor.ID); persona != nil && persona.TaskPolicy != "auto_commit" {
+		proposal, err := t.a.PrepareTaskCreateProposal(ctx, TaskCreateProposalPayload{
+			SpaceID:            spaceID,
+			SourceMessageID:    sourceMessageID,
+			SourceThreadID:     sourceThreadID,
+			CreatedBy:          actor.ID,
+			AssignedBy:         actor.ID,
+			AssigneeID:         assignee.ID,
+			Title:              title,
+			ExpectedOutcome:    expected,
+			AcceptanceCriteria: criteria,
+			AuthorizationText:  in.AuthorizationText,
+		})
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("task proposal prepared: %s assigned_to=%s status=%s", proposal.ID, assignee.ID, proposal.Status), nil
 	}
 	tk, err := t.a.tasks.Create(taskpkg.CreateTaskInput{
 		SpaceID:            spaceID,
