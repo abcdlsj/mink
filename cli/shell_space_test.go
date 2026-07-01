@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/config"
@@ -113,6 +114,30 @@ func TestNoMentionHintFiresOnlyForRoutedSourcesWithoutAt(t *testing.T) {
 				t.Fatalf("hint fired = %v, want %v", fired, tc.wantHint)
 			}
 		})
+	}
+}
+
+func TestAppendTranscriptLineReconcilesPendingUserLine(t *testing.T) {
+	m := newShellModel(context.Background(), nil, "cli:channel:bugfix")
+	now := time.Now()
+	m.appendPendingUserLine("hello", now)
+
+	m.appendTranscriptLine(space.TranscriptLine{
+		MessageID:  "msg-1",
+		AuthorID:   "user",
+		AuthorKind: space.ParticipantUser,
+		Content:    "hello",
+		CreatedAt:  now.Add(time.Second),
+	})
+
+	if len(m.items) != 1 {
+		t.Fatalf("items = %d, want 1", len(m.items))
+	}
+	if m.items[0].ID != "msg-1" {
+		t.Fatalf("item id = %q, want msg-1", m.items[0].ID)
+	}
+	if m.items[0].Status != "" {
+		t.Fatalf("item status = %q, want cleared", m.items[0].Status)
 	}
 }
 

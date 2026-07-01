@@ -568,7 +568,9 @@ func (m *shellModel) startInput(text string, attachments []msg.Attachment) tea.C
 		started:        time.Now(),
 	}
 	m.turnInput = text
-	if !m.sourceTracksSpace() {
+	if m.sourceTracksSpace() {
+		m.appendPendingUserLine(displayInput(text, attachments), time.Now())
+	} else {
 		m.addTextItem(itemUser, displayInput(text, attachments), time.Now())
 	}
 	m.syncLayout()

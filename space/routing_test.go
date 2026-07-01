@@ -86,7 +86,7 @@ func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	}
 }
 
-func TestRouterListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) {
+func TestRouterListeningAgentWakesOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
 		t.Fatalf("SetAgentMode: %v", err)
@@ -95,15 +95,15 @@ func TestRouterListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if len(wakes) != 0 {
-		t.Fatalf("plain message must not wake listening agent, got %+v", wakes)
+	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
+		t.Fatalf("plain message should wake single listening agent, got %+v", wakes)
 	}
 	if len(notices) != 0 {
-		t.Fatalf("single listening agent should stay quiet, got %+v", notices)
+		t.Fatalf("single listening agent should not produce notices, got %+v", notices)
 	}
 }
 
-func TestRouterThreadListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) {
+func TestRouterThreadListeningAgentWakesOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	root, err := mgr.AppendUserMessage(ch.ID, "root", nil)
 	if err != nil {
@@ -119,11 +119,11 @@ func TestRouterThreadListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) 
 	if err != nil {
 		t.Fatalf("route: %v", err)
 	}
-	if len(wakes) != 0 {
-		t.Fatalf("thread plain message must not wake listening agent, got %+v", wakes)
+	if len(wakes) != 1 || wakes[0].AgentID != "coder" {
+		t.Fatalf("thread plain message should wake single thread listener, got %+v", wakes)
 	}
 	if len(notices) != 0 {
-		t.Fatalf("single thread listener should stay quiet, got %+v", notices)
+		t.Fatalf("single thread listener should not produce notices, got %+v", notices)
 	}
 }
 
@@ -144,6 +144,23 @@ func TestRouterMultipleListeningAgentsAreAmbiguous(t *testing.T) {
 	}
 	if len(notices) != 1 || notices[0].Kind != NoticeListeningAmbiguous {
 		t.Fatalf("expected listening ambiguous notice, got %+v", notices)
+	}
+}
+
+func TestRouterListeningAgentWakeCarriesChain(t *testing.T) {
+	router, mgr, ch := newRouterTestEnv(t)
+	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
+		t.Fatalf("SetAgentMode: %v", err)
+	}
+	wakes, notices, err := router.RouteUserChannelMessage(ch.ID, "hello", "", nil)
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("notices = %+v, want none", notices)
+	}
+	if len(wakes) != 1 || wakes[0].Chain == nil {
+		t.Fatalf("wakes = %+v, want one chained wake", wakes)
 	}
 }
 

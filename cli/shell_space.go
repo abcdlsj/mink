@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -75,6 +76,10 @@ func (m *shellModel) appendTranscriptLine(line space.TranscriptLine) {
 	if m.spaceMsgs == nil {
 		m.spaceMsgs = map[string]bool{}
 	}
+	if m.reconcilePendingUserLine(line) {
+		m.spaceMsgs[line.MessageID] = true
+		return
+	}
 	m.spaceMsgs[line.MessageID] = true
 	item := chatItem{
 		ID:   line.MessageID,
@@ -103,6 +108,54 @@ func (m *shellModel) appendTranscriptLine(line space.TranscriptLine) {
 		return
 	}
 	m.addItem(item)
+}
+
+func (m *shellModel) appendPendingUserLine(text string, t time.Time) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if t.IsZero() {
+		t = time.Now()
+	}
+	m.addItem(chatItem{
+		ID:     fmt.Sprintf("pending:%d", t.UnixNano()),
+		Kind:   itemUser,
+		Status: "pending",
+		Time:   t,
+		Segments: []chatSegment{{
+			Kind: segText,
+			Text: text,
+			Time: t,
+		}},
+	})
+}
+
+func (m *shellModel) reconcilePendingUserLine(line space.TranscriptLine) bool {
+	if line.AuthorKind != space.ParticipantUser {
+		return false
+	}
+	content := strings.TrimSpace(line.Content)
+	if content == "" {
+		return false
+	}
+	for _, item := range m.items {
+		if item == nil || item.Kind != itemUser || item.Status != "pending" {
+			continue
+		}
+		if strings.TrimSpace(itemText(item)) != content {
+			continue
+		}
+		item.ID = line.MessageID
+		item.Status = ""
+		item.Time = line.CreatedAt
+		if len(item.Segments) > 0 {
+			item.Segments[0].Text = line.Content
+			item.Segments[0].Time = line.CreatedAt
+		}
+		return true
+	}
+	return false
 }
 
 func (m *shellModel) sourceTracksSpace() bool {

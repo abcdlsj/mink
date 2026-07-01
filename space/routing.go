@@ -113,7 +113,9 @@ func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID strin
 				At:        time.Now(),
 			}}, nil
 		case len(listening) == 1:
-			return nil, nil, nil
+			chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
+			chain.ParentMessageID = strings.TrimSpace(parentMessageID)
+			return r.fanOut(chain, listening, spaceID, written.ID)
 		}
 		return nil, []RoutingNotice{{
 			Kind:      NoticeChannelNoTarget,
