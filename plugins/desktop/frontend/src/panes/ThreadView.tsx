@@ -120,12 +120,14 @@ export function ThreadView() {
           >
             ←
           </button>
-          <div className="min-w-0 truncate font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
-          <div className="shrink-0 font-mono text-[11px] text-text-muted">
-            {replies.length === 1 ? "1 reply" : replies.length + " replies"}
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-display text-[13px] font-extrabold uppercase text-text">Thread</div>
+            <div className="font-mono text-[10.5px] text-text-muted">
+              {replies.length === 1 ? "1 reply" : replies.length + " replies"}
+            </div>
           </div>
-          <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <AgentGear scope={{ kind: "thread", detail: threadDetail }} agents={useStore.getState().agents} />
             {!selecting && (
               <button
                 type="button"

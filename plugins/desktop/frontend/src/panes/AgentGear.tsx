@@ -61,7 +61,7 @@ export function AgentGear({
   if (scope.kind === "thread" && joined.length === 0) return null;
 
   return (
-    <div className={cn("relative", scope.kind === "thread" && "ml-auto")} ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
         className={cn(

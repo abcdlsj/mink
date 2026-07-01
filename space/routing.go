@@ -104,19 +104,23 @@ func (r *Router) RouteUserChannelMessage(spaceID, content, parentMessageID strin
 	if len(mentions) == 0 {
 		sp, _ := r.spaces.LoadSpace(spaceID)
 		listening := ListeningAgents(sp, parentMessageID)
-		notice := RoutingNotice{
+		switch {
+		case len(listening) > 1:
+			return nil, []RoutingNotice{{
+				Kind:      NoticeListeningAmbiguous,
+				SpaceID:   spaceID,
+				MessageID: written.ID,
+				At:        time.Now(),
+			}}, nil
+		case len(listening) == 1:
+			return nil, nil, nil
+		}
+		return nil, []RoutingNotice{{
 			Kind:      NoticeChannelNoTarget,
 			SpaceID:   spaceID,
 			MessageID: written.ID,
 			At:        time.Now(),
-		}
-		switch {
-		case len(listening) > 1:
-			notice.Kind = NoticeListeningAmbiguous
-		case len(listening) > 0:
-			notice.Kind = NoticeListeningNoMatch
-		}
-		return nil, []RoutingNotice{notice}, nil
+		}}, nil
 	}
 	chain := r.chains.Start(written.ID, spaceID, DefaultRoutingBudget)
 	chain.ParentMessageID = strings.TrimSpace(parentMessageID)

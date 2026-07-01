@@ -86,7 +86,7 @@ func TestRouterUserMessageNoMentionDoesNotWakeButPersists(t *testing.T) {
 	}
 }
 
-func TestRouterListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
+func TestRouterListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	if err := mgr.SetAgentMode(ch.ID, "coder", "listen"); err != nil {
 		t.Fatalf("SetAgentMode: %v", err)
@@ -98,12 +98,12 @@ func TestRouterListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
 	if len(wakes) != 0 {
 		t.Fatalf("plain message must not wake listening agent, got %+v", wakes)
 	}
-	if len(notices) != 1 || notices[0].Kind != NoticeListeningNoMatch {
-		t.Fatalf("expected listening_no_match notice, got %+v", notices)
+	if len(notices) != 0 {
+		t.Fatalf("single listening agent should stay quiet, got %+v", notices)
 	}
 }
 
-func TestRouterThreadListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
+func TestRouterThreadListeningAgentDoesNotWakeOrNagOnPlainMessage(t *testing.T) {
 	router, mgr, ch := newRouterTestEnv(t)
 	root, err := mgr.AppendUserMessage(ch.ID, "root", nil)
 	if err != nil {
@@ -122,8 +122,8 @@ func TestRouterThreadListeningAgentDoesNotWakeOnPlainMessage(t *testing.T) {
 	if len(wakes) != 0 {
 		t.Fatalf("thread plain message must not wake listening agent, got %+v", wakes)
 	}
-	if len(notices) != 1 || notices[0].Kind != NoticeListeningNoMatch {
-		t.Fatalf("expected listening_no_match notice, got %+v", notices)
+	if len(notices) != 0 {
+		t.Fatalf("single thread listener should stay quiet, got %+v", notices)
 	}
 }
 
