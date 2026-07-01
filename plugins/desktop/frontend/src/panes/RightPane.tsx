@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dot } from "./LeftPane";
 import { api } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
+import { failureStatus } from "@/lib/task-helpers";
 import { MemoryOverviewCard } from "./MemoryOverviewCard";
 import type {
   AgentItem,
@@ -629,11 +630,6 @@ function recentFailures(runs: AgentRun[], capabilities: CapabilityView | null): 
     .filter((t) => activeTask(t) && failureStatus(t.run_status || t.status))
     .map((t) => `${t.title} · ${t.run_status || t.status}`);
   return [...failedRuns, ...failedTasks].slice(0, 3);
-}
-
-function failureStatus(status: string | undefined): boolean {
-  const s = (status || "").toLowerCase();
-  return s === "failed" || s === "error" || s === "canceled" || s === "rollback_failed" || s === "no_output";
 }
 
 function agentRunState(agentID: string, runs: AgentRun[], recentRuns: AgentRun[]): { running: boolean; queued: number } {

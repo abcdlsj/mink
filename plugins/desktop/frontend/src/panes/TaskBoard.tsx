@@ -4,8 +4,7 @@ import { api } from "@/lib/api";
 import type { AgentDMItem, ChannelItem, DirectChatItem, PersonaItem, TaskStateCard } from "@/lib/types";
 import { useStore } from "@/lib/store";
 import { cn, relTime } from "@/lib/utils";
-
-type TaskColumn = "todo" | "doing" | "review";
+import { normalizeCapability, taskColumn, type TaskColumn } from "@/lib/task-helpers";
 
 export function TaskBoard() {
   const capabilities = useStore((s) => s.capabilities);
@@ -106,13 +105,6 @@ function taskBoardColumns(tasks: TaskStateCard[]): { key: TaskColumn; label: str
     { key: "doing", label: "Doing", tasks: tasks.filter((task) => taskColumn(task.status) === "doing") },
     { key: "review", label: "Review", tasks: tasks.filter((task) => taskColumn(task.status) === "review") },
   ];
-}
-
-function taskColumn(status: string): TaskColumn {
-  const s = status.toLowerCase();
-  if (s === "queued" || s === "todo") return "todo";
-  if (s === "in_review" || s === "in-review" || s === "review") return "review";
-  return "doing";
 }
 
 function TaskBoardCard({
@@ -255,13 +247,6 @@ function TaskBoardCard({
 
 function canExecuteTask(p: PersonaItem): boolean {
   return (p.capabilities || []).some((cap) => normalizeCapability(cap) === "task.execute");
-}
-
-function normalizeCapability(cap: string): string {
-  const c = cap.trim().toLowerCase().replaceAll("_", ".").replaceAll(":", ".");
-  if (c === "execute" || c === "exec") return "task.execute";
-  if (c === "assign") return "task.assign";
-  return c;
 }
 
 function TaskAction({

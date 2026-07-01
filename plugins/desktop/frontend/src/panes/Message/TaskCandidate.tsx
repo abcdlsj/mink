@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import type { MessageView, PersonaItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { normalizeCapability, shortenText } from "@/lib/task-helpers";
 
 interface SourceRef {
   spaceID: string;
@@ -175,20 +176,8 @@ function capabilityLabel(p: PersonaItem): string {
   return caps.length ? caps.join(", ") : "task.execute";
 }
 
-function normalizeCapability(cap: string): string {
-  const c = cap.trim().toLowerCase().replaceAll("_", ".").replaceAll(":", ".");
-  if (c === "execute" || c === "exec") return "task.execute";
-  if (c === "assign") return "task.assign";
-  if (c === "create") return "task.create";
-  if (c === "review") return "task.review";
-  if (c === "plan") return "task.plan";
-  return c;
-}
-
 function defaultTitle(content: string): string {
-  const text = content.replace(/\s+/g, " ").trim();
-  if (!text) return "";
-  return text.length > 72 ? text.slice(0, 69) + "..." : text;
+  return shortenText(content, 72);
 }
 
 function looksLikeTaskRequest(content: string): boolean {

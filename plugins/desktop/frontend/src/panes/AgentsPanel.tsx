@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/store";
 import type { AgentItem, PersonaItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { shortenText } from "@/lib/task-helpers";
 
 export function AgentsPanel() {
   const agents = useStore((s) => s.agents);
@@ -103,7 +104,7 @@ export function AgentsPanel() {
 }
 
 function agentSummary(agent: AgentItem, persona?: PersonaItem): string {
-  const role = shortText(agent.role || persona?.description || "", 84);
+  const role = shortenText(agent.role || persona?.description || "", 84);
   if (role) return role;
   const caps = persona?.capabilities || [];
   if (caps.length) return caps.slice(0, 2).join(" · ");
@@ -116,10 +117,4 @@ function agentStatus(agent: AgentItem, hasDefaultDM: boolean): { label: string; 
     return { label: raw, tone: "running" };
   }
   return { label: hasDefaultDM ? "dm ready" : "ready", tone: "idle" };
-}
-
-function shortText(text: string, max: number): string {
-  const compact = text.replace(/\s+/g, " ").trim();
-  if (compact.length <= max) return compact;
-  return compact.slice(0, max - 1).trimEnd() + "...";
 }
