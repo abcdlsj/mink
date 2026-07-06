@@ -67,28 +67,22 @@ func TestDriverBuildArgsBypassesInteractivePermissions(t *testing.T) {
 	}
 }
 
-func TestDriverBuildArgsWithSessionID(t *testing.T) {
+func TestDriverBuildArgsIgnoresExternalSessionID(t *testing.T) {
 	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123", false)
-	found := false
-	for i, arg := range args {
-		if arg == "--session-id" && i+1 < len(args) && args[i+1] == "test-session-123" {
-			found = true
-			break
+	for _, forbidden := range []string{"--session-id", "test-session-123", "--resume"} {
+		if contains(args, forbidden) {
+			t.Fatalf("stateless claude args contain %q: %v", forbidden, args)
 		}
-	}
-	if !found {
-		t.Fatalf("--session-id not found in args: %v", args)
 	}
 }
 
-func TestDriverBuildArgsResumesExistingSession(t *testing.T) {
+func TestDriverBuildArgsDoesNotResumeExternalSession(t *testing.T) {
 	args := driver().BuildArgs("hello", "/tmp/demo", "test-session-123", true)
-	for i, arg := range args {
-		if arg == "--resume" && i+1 < len(args) && args[i+1] == "test-session-123" {
-			return
+	for _, forbidden := range []string{"--resume", "test-session-123", "--session-id"} {
+		if contains(args, forbidden) {
+			t.Fatalf("stateless claude args contain %q: %v", forbidden, args)
 		}
 	}
-	t.Fatalf("--resume not found in args: %v", args)
 }
 
 func TestDriverBuildArgsUsesIsolatedProfile(t *testing.T) {
@@ -112,7 +106,7 @@ func TestDriverBuildArgsUsesIsolatedProfile(t *testing.T) {
 			t.Fatalf("isolated args missing %q: %v", want, args)
 		}
 	}
-	for _, forbidden := range []string{"--resume", "--session-id"} {
+	for _, forbidden := range []string{"--resume", "test-session-123", "--session-id"} {
 		if contains(args, forbidden) {
 			t.Fatalf("isolated args contain %q: %v", forbidden, args)
 		}

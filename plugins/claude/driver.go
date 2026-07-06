@@ -50,12 +50,6 @@ func buildArgs(prompt, workDir, sessionID string, resume bool, profile external.
 				args = append(args, "--plugin-dir", dir)
 			}
 		}
-	} else if sessionID != "" {
-		if resume {
-			args = append(args, "--resume", sessionID)
-		} else {
-			args = append(args, "--session-id", sessionID)
-		}
 	}
 	if workDir != "" && workDir != "." {
 		args = append(args, "--add-dir", workDir)
