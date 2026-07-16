@@ -59,17 +59,25 @@ const (
 	perImageBudgetTokens = 1024
 )
 
-func (a *App) compactSession(ctx context.Context, s *session.Session) (string, error) {
-	return a.compactSessionKeep(ctx, s, 8)
+func (a *App) compactSessionKeep(ctx context.Context, s *session.Session, keep int) (string, error) {
+	return a.compactSessionKeepNote(ctx, s, keep, "")
 }
 
-func (a *App) compactSessionKeep(ctx context.Context, s *session.Session, keep int) (string, error) {
+// compactSessionKeepNote runs the authoritative summarize+compact and, when a
+// non-empty note is supplied, prepends it to the stored summary. The note is a
+// user annotation carried over from the manual /compact command (the plugin
+// heuristic used to accept one); folding it into the authoritative summary
+// preserves that capability instead of dropping it.
+func (a *App) compactSessionKeepNote(ctx context.Context, s *session.Session, keep int, note string) (string, error) {
 	if len(s.Messages) == 0 {
 		return "empty session", nil
 	}
 	summary, err := a.buildCompactSummary(ctx, s)
 	if err != nil {
 		return "", err
+	}
+	if note = strings.TrimSpace(note); note != "" {
+		summary = "Note: " + note + "\n" + summary
 	}
 	summary = summaryWithProvenance(summary, summaryProvenance{
 		Profile:      ContextProfileDirect,

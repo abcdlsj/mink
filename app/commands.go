@@ -239,7 +239,12 @@ func (a *App) runCompactCommand(ctx context.Context, args []string) (string, err
 	if err != nil {
 		return "", err
 	}
-	summary, err := a.compactSession(ctx, s)
+	keep := a.cfg.Compact.KeepRecentMessages
+	if keep < 0 {
+		keep = 8
+	}
+	note := strings.TrimSpace(strings.Join(args, " "))
+	summary, err := a.compactSessionKeepNote(ctx, s, keep, note)
 	if err != nil {
 		return "", err
 	}
@@ -252,7 +257,7 @@ func (a *App) runCompactCommand(ctx context.Context, args []string) (string, err
 		SessionID: s.ID,
 		Text:      summary,
 	})
-	return "compacted session: " + summary, nil
+	return "session compacted", nil
 }
 
 func listItems[T any](title string, items []T, fn func(T) string) string {
