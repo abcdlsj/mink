@@ -187,7 +187,7 @@ func (f inputFlow) runDefaultTurn(ctx context.Context, seed turnContextSeed) (st
 	})
 	defer release()
 	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
-	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view); err != nil {
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view, f.input, f.attachments); err != nil {
 		return "", err
 	}
 	rt, visionLabel, err := f.app.newRuntimeForTurn(runtimeName, f.app.personas.Get(f.personaID), f.attachments)
@@ -289,7 +289,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	})
 	defer release()
 	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
-	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view); err != nil {
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view, f.input, f.attachments); err != nil {
 		return "", err
 	}
 	baseline := len(s.Messages)

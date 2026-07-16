@@ -432,11 +432,16 @@ func TestUnknownSlashCommandReturnsDiscoverableMessage(t *testing.T) {
 
 func TestHandleInputAutoCompactsNativeRuntimeByModelWindow(t *testing.T) {
 	dir := t.TempDir()
+	// Realistic finite window: budget = ContextWindow - MaxTokens - ReserveTokens
+	// = 400 - 10 - 10 = 380 tok. Large enough to actually hold a summarize call
+	// (unlike the legacy 20-tok window, which could not fit the summarize prompt
+	// and now correctly fails closed), yet small enough that a handful of fat
+	// Space messages + the pending turn trip the hard-overflow guard.
 	a, err := New(config.Config{
 		Runtime:     "native",
 		DataDir:     filepath.Join(dir, "sumi-data"),
 		Workspace:   dir,
-		MaxTokens:   1,
+		MaxTokens:   10,
 		ActiveModel: "main",
 		Default:     "main",
 		Models: map[string]config.ModelConfig{
@@ -444,27 +449,36 @@ func TestHandleInputAutoCompactsNativeRuntimeByModelWindow(t *testing.T) {
 				Provider:      "openai",
 				Model:         "test",
 				APIKey:        "test-key",
-				MaxTokens:     1,
-				ContextWindow: 20,
+				MaxTokens:     10,
+				ContextWindow: 400,
 			},
 		},
 		Compact: config.CompactConfig{
 			Auto:               true,
-			KeepRecentMessages: 0,
+			KeepRecentMessages: 2,
+			ReserveTokens:      10,
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = a.Close() })
+	a.provider = &stubSummarizer{}
 
-	for i := 0; i < 5; i++ {
-		s, err := a.CurrentSession("test")
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.Add(msg.Message{Role: "user", Content: "old message with enough content to trigger compact"})
-		if err := a.SaveSession(s); err != nil {
+	// Seed the persisted direct Space with fat history. The projection (not any
+	// pre-stuffed session tail) is what the deterministic rebuild feeds the
+	// runtime, so history must live in the Space. Drive the turn through the
+	// "cli" source: its EntrypointPolicy is ModeDirect+MentionText, so it routes
+	// through directConversation, resolves/persists this Space, and sets
+	// view.SpaceID — which is what arms the hard-overflow guard. Source "test"
+	// (MentionLeading) falls through to a no-Space default turn and never
+	// projects a Space, so it cannot exercise this path.
+	sp, err := a.Spaces().Resolve("cli", space.PersonaInfo{ID: "assistant", Display: "Sumi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6; i++ {
+		if _, err := a.Spaces().AppendUserMessage(sp.ID, strings.Repeat("old detail ", 40)+string(rune('a'+i)), nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -474,18 +488,16 @@ func TestHandleInputAutoCompactsNativeRuntimeByModelWindow(t *testing.T) {
 			if turn.Session.Summary == "" {
 				t.Fatalf("expected auto compact summary")
 			}
-			if len(turn.Session.Messages) != 1 {
-				t.Fatalf("got %d messages before runtime, want 1", len(turn.Session.Messages))
-			}
-			if turn.Session.Messages[0].Role != "system" {
-				t.Fatalf("expected summary system message, got %s", turn.Session.Messages[0].Role)
+			if turn.Session.Messages[0].Role != "system" ||
+				!strings.HasPrefix(turn.Session.Messages[0].Content, "[Context Summary]") {
+				t.Fatalf("expected summary system message first, got %+v", turn.Session.Messages[0])
 			}
 			turn.Session.Add(msg.Message{Role: "assistant", Content: "ok"})
 			return nil
 		}), nil
 	})
 
-	out, err := a.HandleInput(context.Background(), "test", "ping")
+	out, err := a.HandleInput(context.Background(), "cli", "ping")
 	if err != nil {
 		t.Fatal(err)
 	}

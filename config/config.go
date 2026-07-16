@@ -35,6 +35,17 @@ type Config struct {
 	StatusLine     string            `toml:"status_line"`
 	DefaultPersona string            `toml:"default_persona"`
 
+	// ExternalInputBudgets declares the caller-confirmed usable INPUT token ceiling
+	// for each external driver runtime (keys: "claude", "codex"). This is the only
+	// thing that makes the hard-overflow guard enforceable for an external driver:
+	// its real context window is owned by the driver, not derivable from the active
+	// (summarizer) model, so we do not guess it. When a runtime has a positive
+	// budget here the hard guard enforces it (compact-or-fail-closed); when it is
+	// absent the guard stands down (unguarded) and the external driver owns and
+	// reports its own overflow. This value is the input ceiling directly — it is NOT
+	// a context window from which native MaxTokens/ReserveTokens are subtracted.
+	ExternalInputBudgets map[string]int `toml:"external_input_budgets"`
+
 	Active    ModelConfig       `toml:"-"`
 	ScopedEnv map[string]string `toml:"-"`
 }
@@ -146,6 +157,9 @@ func (c *Config) normalizeCollections() {
 	}
 	if c.ScopedEnv == nil {
 		c.ScopedEnv = map[string]string{}
+	}
+	if c.ExternalInputBudgets == nil {
+		c.ExternalInputBudgets = map[string]int{}
 	}
 }
 

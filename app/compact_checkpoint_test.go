@@ -7,15 +7,53 @@ import (
 	"testing"
 
 	"github.com/abcdlsj/sumi/config"
+	"github.com/abcdlsj/sumi/llm"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
 )
 
-// checkpointTestApp builds a stub App (provider nil → deterministic heuristic
-// summaries, no network) plus a channel Space pre-filled with `nOld` old user
-// messages. It returns the app, the space id, the agent self-id, and the
-// ordered old message IDs.
+// stubSummarizer is a deterministic, offline llm.Provider used to exercise the
+// compaction path now that the heuristic fallback is gone (a real provider is
+// mandatory; provider==nil is a hard error). Chat returns a fixed non-empty
+// summary that never contains the provenance header, so tests can assert the
+// checkpoint stores the raw summary.
+type stubSummarizer struct {
+	calls        int
+	maxUserRunes int // largest user-message payload seen across calls
+	// maxCallTokens is the largest FULL per-call input estimate seen: the whole
+	// []msg.Message the summarizer received (system prompt + the Prior summary /
+	// New messages wrapper), scored with the same estimateMessages heuristic the
+	// budget is expressed in. Asserting on this — not just the user payload —
+	// proves the wrapper and system overhead are inside the per-call budget too.
+	maxCallTokens int
+}
+
+func (p *stubSummarizer) Chat(ctx context.Context, msgs []msg.Message, tools []llm.Tool) (*llm.Response, error) {
+	p.calls++
+	if n := estimateMessages(msgs); n > p.maxCallTokens {
+		p.maxCallTokens = n
+	}
+	for _, m := range msgs {
+		if m.Role == "user" {
+			if n := len([]rune(m.Content)); n > p.maxUserRunes {
+				p.maxUserRunes = n
+			}
+		}
+	}
+	return &llm.Response{Content: "compacted-summary"}, nil
+}
+
+func (p *stubSummarizer) ChatStream(ctx context.Context, msgs []msg.Message, tools []llm.Tool) (<-chan llm.Chunk, error) {
+	ch := make(chan llm.Chunk)
+	close(ch)
+	return ch, nil
+}
+
+// checkpointTestApp builds a stub App with a deterministic offline summarizer
+// provider plus a channel Space pre-filled with `nOld` old user messages. It
+// returns the app, the space id, the agent self-id, and the ordered old message
+// IDs.
 func checkpointTestApp(t *testing.T, nOld int) (*App, string, string, []string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -32,6 +70,7 @@ func checkpointTestApp(t *testing.T, nOld int) (*App, string, string, []string) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	a.provider = &stubSummarizer{}
 	t.Cleanup(func() { _ = a.Close() })
 
 	ch, err := a.Spaces().EnsureSpace(space.KindChannel, "work", space.PersonaInfo{})
@@ -72,7 +111,7 @@ func TestAutoCompactCheckpointDeterministicProjection(t *testing.T) {
 		t.Fatalf("pre-compact projection = %d messages, want 6", len(s.Messages))
 	}
 
-	if err := a.autoCompact(context.Background(), "desktop:channel:"+spaceID, "stub", s, view); err != nil {
+	if err := a.autoCompact(context.Background(), "desktop:channel:"+spaceID, "stub", s, view, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.Checkpoint == nil {
@@ -153,7 +192,7 @@ func TestAutoCompactCheckpointNoRuntimeTailDuplication(t *testing.T) {
 	}
 	view1 := a.BuildContextView(ContextViewInput{SpaceID: spaceID, Source: source, AgentID: agentID, ExcludeMessageID: u1.ID})
 	view1.Apply(s)
-	if err := a.autoCompact(ctx, source, "stub", s, view1); err != nil {
+	if err := a.autoCompact(ctx, source, "stub", s, view1, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.Checkpoint == nil {
@@ -269,7 +308,7 @@ func TestAutoCompactCheckpointStaleInvalidation(t *testing.T) {
 			s := session.New("desktop:channel:" + spaceID + ":persona:" + agentID)
 			view := viewFor(a, spaceID, agentID)
 			view.Apply(s)
-			if err := a.autoCompact(context.Background(), "desktop:channel:"+spaceID, "stub", s, view); err != nil {
+			if err := a.autoCompact(context.Background(), "desktop:channel:"+spaceID, "stub", s, view, "", nil); err != nil {
 				t.Fatal(err)
 			}
 			if s.Checkpoint == nil {
@@ -324,7 +363,7 @@ func TestAutoCompactDraftNoCheckpoint(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		s.Add(msg.Message{Role: "user", Content: "draft line " + string(rune('a'+i))})
 	}
-	if err := a.autoCompact(context.Background(), "cli:direct:draft", "stub", s, ContextView{}); err != nil {
+	if err := a.autoCompact(context.Background(), "cli:direct:draft", "stub", s, ContextView{}, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if s.Checkpoint != nil {
