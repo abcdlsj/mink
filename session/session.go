@@ -25,6 +25,36 @@ type Session struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	ExternalSession map[string]string
+	// Checkpoint records which prefix of the source Space history has been
+	// compacted into a persistent summary, so later projection rounds can
+	// rebuild the runtime context as [summary] + un-compacted Space suffix
+	// instead of re-loading (and re-compacting) the full history every turn.
+	// It is nil until an overflow compact happens for this session.
+	Checkpoint *ProjectionCheckpoint
+}
+
+// ProjectionCheckpoint is the persistent record of a compact boundary. The
+// truth source is always the Space; this only declares "history up to
+// SummaryThroughMessageID has been folded into Summary". Profile is a neutral
+// string (not app.ContextProfile) to keep the session package free of a
+// reverse dependency on app.
+type ProjectionCheckpoint struct {
+	SpaceID                 string `json:"space_id"`
+	ParentMessageID         string `json:"parent_message_id,omitempty"`
+	AgentID                 string `json:"agent_id,omitempty"`
+	Profile                 string `json:"profile,omitempty"`
+	SummaryThroughMessageID string `json:"summary_through_message_id"`
+	Summary                 string `json:"summary"`
+	PrefixFingerprint       string `json:"prefix_fingerprint"`
+}
+
+// Clone returns a deep copy so callers can persist a stable snapshot.
+func (c *ProjectionCheckpoint) Clone() *ProjectionCheckpoint {
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	return &cp
 }
 
 type Usage struct {

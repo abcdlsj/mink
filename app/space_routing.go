@@ -492,7 +492,9 @@ func toRuntimeMessage(m space.Message, selfID string) msg.Message {
 	if m.AuthorKind == space.ParticipantUser && content != "" {
 		content = "[user] " + content
 	}
-	return msg.Message{Role: role, Content: content, AgentID: m.AuthorID}
+	// Preserve the Space message ID so a compact boundary can be matched back
+	// to the exact Space message on later projection rounds.
+	return msg.Message{ID: m.ID, Role: role, Content: content, AgentID: m.AuthorID}
 }
 
 func filterOut(ids []string, drop string) []string {

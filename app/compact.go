@@ -32,11 +32,19 @@ func (a *App) compactSessionKeep(ctx context.Context, s *session.Session, keep i
 }
 
 func (a *App) buildCompactSummary(ctx context.Context, s *session.Session) (string, error) {
-	if len(s.Messages) == 0 {
+	return a.buildCompactSummaryFor(ctx, s.Messages)
+}
+
+// buildCompactSummaryFor summarizes an explicit message slice. autoCompact feeds
+// it the compacted prefix of the Space projection (not s.Messages) so the raw
+// summary always covers exactly the folded prefix, independent of any prior
+// checkpoint replay state on the session.
+func (a *App) buildCompactSummaryFor(ctx context.Context, msgs []msg.Message) (string, error) {
+	if len(msgs) == 0 {
 		return "empty session", nil
 	}
 	var b strings.Builder
-	for _, m := range s.Messages {
+	for _, m := range msgs {
 		if !eligibleSessionSummaryMessage(m) {
 			continue
 		}
@@ -61,7 +69,7 @@ func (a *App) buildCompactSummary(ctx context.Context, s *session.Session) (stri
 			return strings.TrimSpace(resp.Content), nil
 		}
 	}
-	return heuristicSummary(s.Messages), nil
+	return heuristicSummary(msgs), nil
 }
 
 func eligibleSessionSummaryMessage(m msg.Message) bool {
@@ -85,9 +93,18 @@ func eligibleSessionSummaryMessage(m msg.Message) bool {
 	return true
 }
 
-func (a *App) autoCompact(ctx context.Context, source, runtime string, s *session.Session) error {
+func (a *App) autoCompact(ctx context.Context, source, runtime string, s *session.Session, view ContextView) error {
 	if !a.shouldAutoCompact(runtime, s) {
 		return nil
+	}
+	// A projection-backed turn (persisted Space) records a checkpoint so the raw
+	// summary and its compact boundary survive into later rounds; the deterministic
+	// rebuild in view.Apply then replays [summary] + un-compacted suffix instead of
+	// re-loading and re-compacting the whole history every turn. A turn with no
+	// Space (in-memory Draft) has nothing to project from, so it keeps the legacy
+	// in-place compaction and writes no checkpoint.
+	if strings.TrimSpace(view.SpaceID) != "" {
+		return a.autoCompactWithCheckpoint(ctx, source, s, view)
 	}
 	summary, err := a.compactSessionKeep(ctx, s, a.cfg.Compact.KeepRecentMessages)
 	if err != nil {
@@ -101,6 +118,65 @@ func (a *App) autoCompact(ctx context.Context, source, runtime string, s *sessio
 		Source:    source,
 		SessionID: s.ID,
 		Text:      summary,
+	})
+	return nil
+}
+
+// autoCompactWithCheckpoint folds the compacted prefix of the Space projection
+// into a persistent checkpoint. The boundary is computed against view.Messages
+// (the full, un-checkpointed Space projection with stable Space IDs) so it stays
+// consistent with resolveCheckpoint on every later round.
+func (a *App) autoCompactWithCheckpoint(ctx context.Context, source string, s *session.Session, view ContextView) error {
+	keep := a.cfg.Compact.KeepRecentMessages
+	if keep < 0 {
+		keep = 8
+	}
+	full := view.Messages
+	if len(full) <= keep {
+		// Nothing ahead of the keep-recent window to fold; leave the session as
+		// the full projection rather than writing an empty-prefix checkpoint.
+		return nil
+	}
+	prefix := full[:len(full)-keep]
+	boundary := prefix[len(prefix)-1]
+	if strings.TrimSpace(boundary.ID) == "" {
+		// Cannot anchor a checkpoint without a stable Space message ID; fall back
+		// to legacy in-place compaction for this turn.
+		summary, err := a.compactSessionKeep(ctx, s, keep)
+		if err != nil {
+			return err
+		}
+		if err := a.sessions.Save(s); err != nil {
+			return err
+		}
+		a.bus.Publish(bus.Event{Type: bus.SessionCompacted, Source: source, SessionID: s.ID, Text: summary})
+		return nil
+	}
+
+	raw, err := a.buildCompactSummaryFor(ctx, prefix)
+	if err != nil {
+		return err
+	}
+	s.Checkpoint = &session.ProjectionCheckpoint{
+		SpaceID:                 view.SpaceID,
+		ParentMessageID:         view.ParentMessageID,
+		AgentID:                 view.AgentID,
+		Profile:                 string(view.Profile),
+		SummaryThroughMessageID: boundary.ID,
+		Summary:                 raw,
+		PrefixFingerprint:       fingerprintMessages(prefix),
+	}
+	// Replay immediately so this round's runtime context is byte-identical to the
+	// [summary] + suffix that every subsequent round will rebuild.
+	view.Apply(s)
+	if err := a.sessions.Save(s); err != nil {
+		return err
+	}
+	a.bus.Publish(bus.Event{
+		Type:      bus.SessionCompacted,
+		Source:    source,
+		SessionID: s.ID,
+		Text:      s.Summary,
 	})
 	return nil
 }

@@ -177,7 +177,7 @@ func (f inputFlow) runDefaultTurn(ctx context.Context, seed turnContextSeed) (st
 	if err != nil {
 		return "", err
 	}
-	f.seedDirectContext(ctx, s, contextSpaceID, f.personaID, excludeMessageID)
+	view := f.seedDirectContext(ctx, s, contextSpaceID, f.personaID, excludeMessageID)
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
 			Type:      bus.TurnQueued,
@@ -187,7 +187,7 @@ func (f inputFlow) runDefaultTurn(ctx context.Context, seed turnContextSeed) (st
 	})
 	defer release()
 	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
-	if err := f.app.autoCompact(ctx, f.source, runtimeName, s); err != nil {
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view); err != nil {
 		return "", err
 	}
 	rt, visionLabel, err := f.app.newRuntimeForTurn(runtimeName, f.app.personas.Get(f.personaID), f.attachments)
@@ -276,8 +276,9 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	var view ContextView
 	if sp != nil {
-		f.seedDirectContext(ctx, s, sp.ID, agentInfo.ID, excludeMessageID)
+		view = f.seedDirectContext(ctx, s, sp.ID, agentInfo.ID, excludeMessageID)
 	}
 	release := f.app.sessions.AcquireTurn(s.ID, func(int) {
 		f.app.bus.Publish(bus.Event{
@@ -288,7 +289,7 @@ func (f inputFlow) directConversation(ctx context.Context) (string, error) {
 	})
 	defer release()
 	runtimeName := runtimeForPermission(f.runtime, command.PermissionFrom(ctx))
-	if err := f.app.autoCompact(ctx, f.source, runtimeName, s); err != nil {
+	if err := f.app.autoCompact(ctx, f.source, runtimeName, s, view); err != nil {
 		return "", err
 	}
 	baseline := len(s.Messages)
@@ -360,17 +361,23 @@ func (f inputFlow) usesLegacyDirectAssistant() bool {
 		space.AgentParticipantID(sp) == ""
 }
 
-func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, spaceID, agentID, excludeMessageID string) {
+// seedDirectContext projects the Space into the session and returns the
+// ContextView used, so the caller can hand the same projection to autoCompact
+// (which needs the full Space message set and identity to anchor a checkpoint).
+// The zero ContextView is returned when there is no Space to project from.
+func (f inputFlow) seedDirectContext(ctx context.Context, s *session.Session, spaceID, agentID, excludeMessageID string) ContextView {
 	if strings.TrimSpace(spaceID) == "" || strings.TrimSpace(agentID) == "" {
-		return
+		return ContextView{}
 	}
-	f.app.BuildContextView(ContextViewInput{
+	view := f.app.BuildContextView(ContextViewInput{
 		SpaceID:          spaceID,
 		Source:           f.source,
 		ParentMessageID:  command.ParentMessageFrom(ctx),
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
-	}).Apply(s)
+	})
+	view.Apply(s)
+	return view
 }
 
 func (f inputFlow) notifyVisionRoute(label string) {

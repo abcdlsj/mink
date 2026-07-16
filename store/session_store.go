@@ -15,15 +15,16 @@ import (
 )
 
 type diskSession struct {
-	ID              string            `json:"id"`
-	Source          string            `json:"source"`
-	Title           string            `json:"title,omitempty"`
-	Summary         string            `json:"summary,omitempty"`
-	Messages        []msg.Message     `json:"messages,omitempty"`
-	Usage           session.Usage     `json:"usage,omitempty"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
-	ExternalSession map[string]string `json:"external_session,omitempty"`
+	ID              string                        `json:"id"`
+	Source          string                        `json:"source"`
+	Title           string                        `json:"title,omitempty"`
+	Summary         string                        `json:"summary,omitempty"`
+	Messages        []msg.Message                 `json:"messages,omitempty"`
+	Usage           session.Usage                 `json:"usage,omitempty"`
+	CreatedAt       time.Time                     `json:"created_at"`
+	UpdatedAt       time.Time                     `json:"updated_at"`
+	ExternalSession map[string]string             `json:"external_session,omitempty"`
+	Checkpoint      *session.ProjectionCheckpoint `json:"checkpoint,omitempty"`
 }
 
 func (s *Store) SaveSession(v *session.Session) error {
@@ -210,6 +211,7 @@ func toDisk(s *session.Session) diskSession {
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
 		ExternalSession: s.ExternalSession,
+		Checkpoint:      s.Checkpoint.Clone(),
 	}
 }
 
@@ -228,6 +230,7 @@ func fromDisk(d diskSession) *session.Session {
 		CreatedAt:       d.CreatedAt,
 		UpdatedAt:       d.UpdatedAt,
 		ExternalSession: es,
+		Checkpoint:      d.Checkpoint.Clone(),
 	}
 }
 
