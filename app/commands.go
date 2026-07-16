@@ -116,7 +116,10 @@ func (a *App) registerBuiltinCommands() {
 		return strings.Join(sections, "\n\n"), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("session", "manage sessions", a.runSessionCommand))
+	// NOTE: /session is intentionally NOT registered by core. The sessioncmd
+	// plugin (loaded after core) provides a strict superset (adds fork/close and
+	// richer list/current formatting), so it is the single authoritative
+	// /session implementation. See plugins/sessioncmd/session.go.
 	a.RegisterCommand(command.NewFuncCmd("context", "inspect or reset runtime context: /context [inspect|reset-session|reset-summary]", a.runContextCommand))
 	a.RegisterCommand(command.NewFuncCmd("compact", "summarize and compact current session", a.runCompactCommand))
 	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
@@ -225,55 +228,6 @@ func skillDetailText(s SkillDirectoryItem) string {
 		lines = append(lines, "", strings.TrimSpace(s.Body))
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
-func (a *App) runSessionCommand(ctx context.Context, args []string) (string, error) {
-	source := command.SourceFrom(ctx)
-	if len(args) == 0 {
-		return "usage: /session [list|current|new|switch <id>]", nil
-	}
-	switch args[0] {
-	case "list":
-		sessions, err := a.sessions.ListBySource(source)
-		if err != nil {
-			return "", err
-		}
-		if len(sessions) == 0 {
-			return "no sessions", nil
-		}
-		var lines []string
-		for _, s := range sessions {
-			line := s.ID
-			if s.Title != "" {
-				line += " [" + s.Title + "]"
-			}
-			lines = append(lines, line)
-		}
-		return strings.Join(lines, "\n"), nil
-	case "current":
-		s, err := a.sessions.Current(source)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("%s [%s]", s.ID, s.Title), nil
-	case "new":
-		s, err := a.sessions.New(source)
-		if err != nil {
-			return "", err
-		}
-		return "new session: " + s.ID, nil
-	case "switch":
-		if len(args) < 2 {
-			return "usage: !session switch <id>", nil
-		}
-		s, err := a.sessions.Switch(source, args[1])
-		if err != nil {
-			return "", err
-		}
-		return "switched session: " + s.ID, nil
-	default:
-		return "usage: !session [list|current|new|switch <id>]", nil
-	}
 }
 
 func (a *App) runCompactCommand(ctx context.Context, args []string) (string, error) {
