@@ -108,12 +108,61 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 	if err != nil {
 		return channelWakeResult{err: err}
 	}
-	a.syncWakeContext(s, originSource, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
+	view := a.syncWakeContext(s, originSource, spaceID, parentMessageID, target.AgentID, target.OriginMessageID)
+
+	// Persona runtime may be empty; runtimeFactory falls back to cfg.Runtime, so
+	// the actual consumer of this turn is effectiveRuntimeName, NOT the raw
+	// persona.Runtime. Resolve it once and use the same name for the overflow
+	// preflight budget, the runtime build, and the external-vs-native memory
+	// branch — otherwise an empty persona runtime under a global external
+	// cfg.Runtime gets budgeted as native (the consumer/summarizer window mixing
+	// we forbid).
+	runtimeName := a.effectiveRuntimeName(persona.Runtime)
+
+	// Open the turn's stream and emit TurnStarted BEFORE the overflow preflight,
+	// so the whole turn follows one normal lifecycle: TurnStarted -> preflight ->
+	// (TurnError | run). The Desktop backend lands a pending agent message on
+	// TurnStarted and persists it as status=failed when a TurnError arrives on the
+	// SAME stream, so a pre-run failure (hard overflow, runtime build) is both
+	// live-visible and durable after reload — no stream-less side-band error and
+	// no direct failed-message Append. streamID is reused as the turn's StreamID
+	// below so chunks / TurnFinished stay on the same stream.
+	streamID := newStreamID()
+	a.bus.Publish(bus.Event{
+		Type:            bus.TurnStarted,
+		Source:          s.Source,
+		SessionID:       s.ID,
+		SpaceID:         spaceID,
+		ParentMessageID: parentMessageID,
+		AgentID:         persona.ID,
+		StreamID:        streamID,
+	})
+	failStream := func(err error) channelWakeResult {
+		a.bus.Publish(bus.Event{
+			Type:            bus.TurnError,
+			Source:          s.Source,
+			SessionID:       s.ID,
+			Err:             err.Error(),
+			SpaceID:         spaceID,
+			ParentMessageID: parentMessageID,
+			AgentID:         persona.ID,
+			StreamID:        streamID,
+		})
+		return channelWakeResult{err: err}
+	}
+
+	// Channel/thread wake always injects history into the prompt (IncludeHistory
+	// + DisableExternalResume below), so run the same overflow preflight the
+	// Direct/CLI path runs, against this view and the pending origin input,
+	// before the runtime builds the turn.
+	if err := a.autoCompact(ctx, originSource, runtimeName, s, view, originUserContent, originAttachments); err != nil {
+		return failStream(err)
+	}
 	collaborationBrief := a.routedCollaborationBrief(spaceID, parentMessageID, target)
 	baseline := len(s.Messages)
-	rt, visionLabel, err := a.newRuntimeForTurn(persona.Runtime, persona, originAttachments)
+	rt, visionLabel, err := a.newRuntimeForTurn(runtimeName, persona, originAttachments)
 	if err != nil {
-		return channelWakeResult{err: err}
+		return failStream(err)
 	}
 	if visionLabel != "" {
 		a.bus.Publish(bus.Event{
@@ -133,7 +182,7 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 		SpaceID:               spaceID,
 		ParentMessageID:       parentMessageID,
 		AgentID:               persona.ID,
-		StreamID:              newStreamID(),
+		StreamID:              streamID,
 		CollaborationBrief:    collaborationBrief,
 		IncludeHistory:        true,
 		DisableExternalResume: true,
@@ -150,18 +199,12 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 		personaID: persona.ID,
 		input:     originUserContent,
 	}.runContextWithSession(ctx, sessionSource))
-	a.prepareMemoryForTurn(ctx, turn, externalRuntimeName(persona.Runtime))
-	a.bus.Publish(bus.Event{
-		Type:            bus.TurnStarted,
-		Source:          s.Source,
-		SessionID:       s.ID,
-		SpaceID:         turn.SpaceID,
-		ParentMessageID: turn.ParentMessageID,
-		AgentID:         turn.AgentID,
-		StreamID:        turn.StreamID,
-	})
+	a.prepareMemoryForTurn(ctx, turn, externalRuntimeName(runtimeName))
+	// TurnStarted was already emitted on streamID before the preflight; the turn
+	// reuses that same stream, so chunks and TurnFinished/TurnError below stay on
+	// one continuous lifecycle.
 	runErr := rt.Run(ctx, turn)
-	if runErr == nil && externalRuntimeName(persona.Runtime) {
+	if runErr == nil && externalRuntimeName(runtimeName) {
 		a.processAssistantMemoryInSession(ctx, turn, s, baseline)
 	}
 	if runErr == nil && visionLabel != "" {

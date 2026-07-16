@@ -344,18 +344,26 @@ func recentAgentConclusions(sp *space.Space, parentMessageID, selfID string, lim
 	return out
 }
 
-func (a *App) syncWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) {
-	a.seedWakeContext(s, source, spaceID, parentMessageID, agentID, excludeMessageID)
+func (a *App) syncWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) ContextView {
+	return a.seedWakeContext(s, source, spaceID, parentMessageID, agentID, excludeMessageID)
 }
 
-func (a *App) seedWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) {
-	a.BuildContextView(ContextViewInput{
+// seedWakeContext rebuilds the wake session from its Space projection and returns
+// the ContextView it applied, so the channel/thread wake path can hand the same
+// view (and the pending origin input) to autoCompact for an overflow preflight
+// before runtime.Run — the collaboration path shares the frozen (Space, Thread,
+// Persona) identity, so hard overflow must be guarded here too, not only on the
+// Direct/CLI path.
+func (a *App) seedWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) ContextView {
+	view := a.BuildContextView(ContextViewInput{
 		SpaceID:          spaceID,
 		Source:           source,
 		ParentMessageID:  parentMessageID,
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
-	}).Apply(s)
+	})
+	view.Apply(s)
+	return view
 }
 
 func filterContextMessages(msgs []space.Message, excludeMessageID string, profile ContextProfile) []space.Message {

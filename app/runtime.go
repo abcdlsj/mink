@@ -142,6 +142,21 @@ func (a *App) runtimeFactory(name string) agent.RuntimeFactory {
 	return a.runtimes["native"]
 }
 
+// effectiveRuntimeName resolves the runtime that will actually consume a turn,
+// applying the same empty->cfg.Runtime fallback as runtimeFactory. Callers MUST
+// use this single resolved name for everything keyed on the consumer's identity
+// — the overflow preflight budget (hardBudgetStatusFor), the runtime build, and
+// the external-vs-native memory branch — so an empty persona runtime under a
+// global external cfg.Runtime is never mistaken for native. It does not apply
+// permission remapping; entrypoints that need it wrap the result with
+// runtimeForPermission.
+func (a *App) effectiveRuntimeName(name string) string {
+	if n := strings.TrimSpace(name); n != "" {
+		return n
+	}
+	return strings.TrimSpace(a.cfg.Runtime)
+}
+
 func (a *App) newRuntimeFor(name string, p *persona.Persona) (agent.Runtime, error) {
 	f := a.runtimeFactory(name)
 	if f == nil {
