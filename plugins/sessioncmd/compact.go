@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/app"
+	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 )
@@ -21,6 +22,9 @@ func (c *compactCmd) Desc() string {
 }
 
 func (c *compactCmd) Run(ctx context.Context, args []string) (string, error) {
+	if c.app.ManualCompactSpaceBacked(command.SourceFrom(ctx)) {
+		return "", app.ErrManualCompactSpaceBacked
+	}
 	s, err := cur(ctx, c.app)
 	if err != nil {
 		return "", err

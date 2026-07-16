@@ -85,6 +85,16 @@ func (a *App) SaveSession(s *session.Session) error {
 	return a.sessions.Save(s)
 }
 
+// ManualCompactSpaceBacked reports whether a manual compact command from this
+// source must be refused because the conversation is a persisted Space (context
+// is rebuilt from Space each turn and overflow is compacted automatically).
+// Plugin compact commands call this and return ErrManualCompactSpaceBacked when
+// it is true rather than performing an in-place compact the next projection
+// would silently discard.
+func (a *App) ManualCompactSpaceBacked(source string) bool {
+	return a.manualCompactSpaceBacked(source)
+}
+
 func (a *App) ListSessions() ([]*session.Session, error) {
 	return a.sessions.List()
 }

@@ -278,6 +278,9 @@ func (a *App) runSessionCommand(ctx context.Context, args []string) (string, err
 
 func (a *App) runCompactCommand(ctx context.Context, args []string) (string, error) {
 	source := command.SourceFrom(ctx)
+	if a.manualCompactSpaceBacked(source) {
+		return "", ErrManualCompactSpaceBacked
+	}
 	s, err := a.sessions.Current(source)
 	if err != nil {
 		return "", err
