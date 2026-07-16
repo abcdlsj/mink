@@ -19,8 +19,7 @@ func Plugin() app.Plugin {
 		a.RegisterTool(&writeTool{s: s})
 		a.RegisterTool(&updateTool{s: s})
 		a.RegisterTool(&deleteTool{s: s})
-		a.RegisterCommand(&cmd{s: s})
-		return nil
+		return a.RegisterCommand(&cmd{s: s})
 	}
 }
 

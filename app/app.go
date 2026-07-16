@@ -88,7 +88,9 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	a.RegisterRuntime("native", agent.NewNative)
-	a.registerBuiltinCommands()
+	if err := a.registerBuiltinCommands(); err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 
@@ -174,8 +176,8 @@ func (a *App) RegisterTool(t tool.Tool) {
 	a.tools.Register(t)
 }
 
-func (a *App) RegisterCommand(c command.Command) {
-	a.cmds.Register(c)
+func (a *App) RegisterCommand(c command.Command) error {
+	return a.cmds.Register(c)
 }
 
 func (a *App) RegisterRuntime(name string, f agent.RuntimeFactory) {

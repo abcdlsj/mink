@@ -12,20 +12,30 @@ import (
 	"github.com/abcdlsj/sumi/tool"
 )
 
-func (a *App) registerBuiltinCommands() {
-	a.RegisterCommand(command.NewFuncCmd("help", "show help", func(ctx context.Context, args []string) (string, error) {
+// registerBuiltinCommands registers the core command set. It short-circuits on
+// the first RegisterCommand error so a duplicate-name collision (now a hard
+// error rather than a silent overwrite) fails App construction loudly instead
+// of shadowing a command by load order.
+func (a *App) registerBuiltinCommands() error {
+	var regErr error
+	reg := func(c command.Command) {
+		if regErr == nil {
+			regErr = a.RegisterCommand(c)
+		}
+	}
+	reg(command.NewFuncCmd("help", "show help", func(ctx context.Context, args []string) (string, error) {
 		return listItems("Commands", a.cmds.All(), func(c command.Command) string {
 			return "/" + c.Name() + " - " + c.Desc()
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("tools", "list tools", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("tools", "list tools", func(ctx context.Context, args []string) (string, error) {
 		return listItems("Tools", a.tools.All(), func(t tool.Tool) string {
 			return t.Name() + " - " + t.Desc()
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("skills", "list skill cards", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("skills", "list skill cards", func(ctx context.Context, args []string) (string, error) {
 		skills := a.SkillDirectory()
 		if len(skills) == 0 {
 			return "no skills", nil
@@ -35,7 +45,7 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("skill", "show skill detail: /skill <name>", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("skill", "show skill detail: /skill <name>", func(ctx context.Context, args []string) (string, error) {
 		if len(args) == 0 {
 			return "usage: /skill <name>", nil
 		}
@@ -46,7 +56,7 @@ func (a *App) registerBuiltinCommands() {
 		return skillDetailText(s), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("tasks", "list recent task states", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("tasks", "list recent task states", func(ctx context.Context, args []string) (string, error) {
 		tasks := a.RecentTaskStates(8)
 		if len(tasks) == 0 {
 			return "no task state recorded", nil
@@ -61,7 +71,7 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("approvals", "list recent action proposals", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("approvals", "list recent action proposals", func(ctx context.Context, args []string) (string, error) {
 		proposals := a.RecentActionProposals(8)
 		if len(proposals) == 0 {
 			return "no action proposals recorded", nil
@@ -79,7 +89,7 @@ func (a *App) registerBuiltinCommands() {
 		}), nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("model", "show or set model: /model [name] or /model <provider> <model>", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("model", "show or set model: /model [name] or /model <provider> <model>", func(ctx context.Context, args []string) (string, error) {
 		if len(args) == 0 {
 			return a.currentModel(), nil
 		}
@@ -100,7 +110,7 @@ func (a *App) registerBuiltinCommands() {
 		return msg, nil
 	}))
 
-	a.RegisterCommand(command.NewFuncCmd("models", "list detected model options", func(ctx context.Context, args []string) (string, error) {
+	reg(command.NewFuncCmd("models", "list detected model options", func(ctx context.Context, args []string) (string, error) {
 		var sections []string
 		if configured := configuredModelLines(a.cfg); len(configured) > 0 {
 			sections = append(sections, "Configured models:\n"+strings.Join(configured, "\n"))
@@ -120,11 +130,12 @@ func (a *App) registerBuiltinCommands() {
 	// plugin (loaded after core) provides a strict superset (adds fork/close and
 	// richer list/current formatting), so it is the single authoritative
 	// /session implementation. See plugins/sessioncmd/session.go.
-	a.RegisterCommand(command.NewFuncCmd("context", "inspect or reset runtime context: /context [inspect|reset-session|reset-summary]", a.runContextCommand))
-	a.RegisterCommand(command.NewFuncCmd("compact", "summarize and compact current session", a.runCompactCommand))
-	a.RegisterCommand(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
-	a.RegisterCommand(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
-	a.RegisterCommand(command.NewFuncCmd("usage", "show recorded API token usage", a.runUsageCommand))
+	reg(command.NewFuncCmd("context", "inspect or reset runtime context: /context [inspect|reset-session|reset-summary]", a.runContextCommand))
+	reg(command.NewFuncCmd("compact", "summarize and compact current session", a.runCompactCommand))
+	reg(command.NewFuncCmd("project", "manage project context: /project [view|init|edit|path]", a.runProjectCommand))
+	reg(command.NewFuncCmd("file", "attach a text file to current session: /file <path>", a.runFileCommand))
+	reg(command.NewFuncCmd("usage", "show recorded API token usage", a.runUsageCommand))
+	return regErr
 }
 
 func configuredModelLines(cfg config.Config) []string {
