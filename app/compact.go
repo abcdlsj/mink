@@ -64,10 +64,17 @@ func (a *App) compactSessionKeep(ctx context.Context, s *session.Session, keep i
 }
 
 // compactSessionKeepNote runs the authoritative summarize+compact and, when a
-// non-empty note is supplied, prepends it to the stored summary. The note is a
-// user annotation carried over from the manual /compact command (the plugin
-// heuristic used to accept one); folding it into the authoritative summary
-// preserves that capability instead of dropping it.
+// non-empty note is supplied, preserves it verbatim as a stable top-level
+// prefix on the final persisted summary.
+//
+// The note is explicit user-authored information carried over from the manual
+// /compact command (the plugin heuristic used to accept one). It is NOT fed to
+// the summarizer to be paraphrased, and it must NOT sit inside the provenance
+// block — that block is framed to the model as "weak context; prefer the
+// current turn". So the order is: (1) build the authoritative provenance-wrapped
+// summary, (2) prepend the note as a `User note: ...` line above it, (3) persist.
+// The returned string is exactly what gets stored in s.Summary, so callers can
+// use it verbatim as SessionCompacted.Text. An empty note adds no noise.
 func (a *App) compactSessionKeepNote(ctx context.Context, s *session.Session, keep int, note string) (string, error) {
 	if len(s.Messages) == 0 {
 		return "empty session", nil
@@ -76,13 +83,13 @@ func (a *App) compactSessionKeepNote(ctx context.Context, s *session.Session, ke
 	if err != nil {
 		return "", err
 	}
-	if note = strings.TrimSpace(note); note != "" {
-		summary = "Note: " + note + "\n" + summary
-	}
 	summary = summaryWithProvenance(summary, summaryProvenance{
 		Profile:      ContextProfileDirect,
 		MessageCount: len(s.Messages),
 	}, time.Time{}, time.Now())
+	if note = strings.TrimSpace(note); note != "" {
+		summary = "User note: " + note + "\n\n" + summary
+	}
 	s.Compact(summary, keep)
 	return s.Summary, nil
 }

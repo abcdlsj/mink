@@ -90,8 +90,12 @@ func TestManualCompactAuthoritativeReturnsReceiptAndEmitsOnce(t *testing.T) {
 }
 
 // TestManualCompactAuthoritativeFoldsNote proves the plugin's note capability is
-// preserved (Rule #1: no capability loss) by folding a /compact argument into
-// the authoritative summary instead of dropping it.
+// preserved (Rule #1: no capability loss) and preserved correctly: an explicit
+// user note is kept VERBATIM as a stable top-level `User note:` prefix ABOVE the
+// authoritative provenance-wrapped summary — not paraphrased by the LLM and not
+// buried inside the provenance block (which is framed as weak context). The
+// persisted s.Summary starts with the note line so it survives as durable,
+// authoritative context.
 func TestManualCompactAuthoritativeFoldsNote(t *testing.T) {
 	a, _, _, _ := overflowApp(t, 200, 2)
 	source := "scratch:manual-note"
@@ -105,11 +109,67 @@ func TestManualCompactAuthoritativeFoldsNote(t *testing.T) {
 	if out != "session compacted" {
 		t.Fatalf("expected terse receipt, got %q", out)
 	}
-	if !strings.Contains(s.Summary, "Note: remember the migration") {
-		t.Fatalf("note must be folded into the summary, got %q", s.Summary)
+	if !strings.HasPrefix(s.Summary, "User note: remember the migration\n") {
+		t.Fatalf("note must be the verbatim top-level prefix of the summary, got %q", s.Summary)
+	}
+	// The note must sit ABOVE the provenance header, not inside it.
+	noteIdx := strings.Index(s.Summary, "User note: remember the migration")
+	provIdx := strings.Index(s.Summary, "Historical summary")
+	if provIdx < 0 || noteIdx > provIdx {
+		t.Fatalf("note must precede the provenance block, got %q", s.Summary)
 	}
 	if !strings.Contains(s.Summary, "compacted-summary") {
 		t.Fatalf("authoritative summary body must still be present alongside the note, got %q", s.Summary)
+	}
+}
+
+// TestManualCompactEmptyNoteAddsNoNoise proves an empty/whitespace note does not
+// inject a stray "User note:" line — the summary is exactly the authoritative
+// provenance-wrapped body.
+func TestManualCompactEmptyNoteAddsNoNoise(t *testing.T) {
+	a, _, _, _ := overflowApp(t, 200, 2)
+	source := "scratch:manual-empty-note"
+	s := seedScratchSession(t, a, source, 6)
+
+	ctx := command.WithSource(context.Background(), source)
+	if _, err := a.runCompactCommand(ctx, []string{"   "}); err != nil {
+		t.Fatalf("empty-note compact should proceed, got err=%v", err)
+	}
+	if strings.Contains(s.Summary, "User note:") {
+		t.Fatalf("empty note must add no note line, got %q", s.Summary)
+	}
+}
+
+// TestManualCompactEventTextEqualsPersistedSummary locks Iris's requirement that
+// SessionCompacted.Text equals the final persisted s.Summary (note included), so
+// event consumers see exactly what was stored.
+func TestManualCompactEventTextEqualsPersistedSummary(t *testing.T) {
+	a, _, _, _ := overflowApp(t, 200, 2)
+	source := "scratch:manual-event-text"
+	s := seedScratchSession(t, a, source, 6)
+
+	var eventText string
+	var count int
+	stop := a.Bus().OnPublish(func(ev bus.Event) {
+		if ev.Type == bus.SessionCompacted {
+			count++
+			eventText = ev.Text
+		}
+	})
+	defer stop()
+
+	ctx := command.WithSource(context.Background(), source)
+	if _, err := a.runCompactCommand(ctx, []string{"keep", "the", "invariant"}); err != nil {
+		t.Fatalf("compact should proceed, got err=%v", err)
+	}
+	if count != 1 {
+		t.Fatalf("SessionCompacted must publish exactly once, got %d", count)
+	}
+	if eventText != s.Summary {
+		t.Fatalf("SessionCompacted.Text must equal persisted summary:\n text=%q\n sum =%q", eventText, s.Summary)
+	}
+	if !strings.HasPrefix(eventText, "User note: keep the invariant\n") {
+		t.Fatalf("event text must carry the verbatim note prefix, got %q", eventText)
 	}
 }
 
