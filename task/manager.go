@@ -59,6 +59,7 @@ type CreateTaskInput struct {
 	AcceptanceCriteria string
 	Source             string
 	State              TaskState
+	ExecutionIntent    *ExecutionIntent
 }
 
 func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
@@ -85,6 +86,7 @@ func (m *Manager) Create(in CreateTaskInput) (*Task, error) {
 		AcceptanceCriteria: strings.TrimSpace(in.AcceptanceCriteria),
 		Source:             strings.TrimSpace(in.Source),
 		State:              cleanState(in.State),
+		ExecutionIntent:    cleanExecutionIntent(in.ExecutionIntent),
 		Status:             StatusQueued,
 		CreatedAt:          now,
 		UpdatedAt:          now,
@@ -359,6 +361,21 @@ func cleanList(in []string) []string {
 		}
 	}
 	return out
+}
+
+func cleanExecutionIntent(in *ExecutionIntent) *ExecutionIntent {
+	if in == nil {
+		return nil
+	}
+	trimmed := ExecutionIntent{
+		Input:        strings.TrimSpace(in.Input),
+		Runtime:      strings.TrimSpace(in.Runtime),
+		ShareContext: in.ShareContext,
+	}
+	if trimmed.Input == "" && trimmed.Runtime == "" && !trimmed.ShareContext {
+		return nil
+	}
+	return &trimmed
 }
 
 func (m *Manager) GetRun(id string) (*Run, error) {

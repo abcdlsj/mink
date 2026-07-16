@@ -82,6 +82,21 @@ type Task struct {
 	Outcome            string    `json:"outcome,omitempty"`
 	Source             string    `json:"source,omitempty"`
 	State              TaskState `json:"state,omitempty"`
+	// ExecutionIntent is the immutable execution contract for an async-delegate
+	// Task, persisted so a crash between the Task write and the Delivery write
+	// can be recovered from the Task fact alone. It holds only what Task does not
+	// already carry (Source/SpaceID/TriggerMessageID/WorkerID live above).
+	ExecutionIntent *ExecutionIntent `json:"execution_intent,omitempty"`
+}
+
+// ExecutionIntent captures the immutable inputs needed to re-run a delegated
+// turn after a restart. The Delivery references the Task by ID; the full prompt
+// is stored here rather than only in the Delivery, so it survives a crash that
+// happens before the Delivery record is written.
+type ExecutionIntent struct {
+	Input        string `json:"input"`
+	Runtime      string `json:"runtime,omitempty"`
+	ShareContext bool   `json:"share_context"`
 }
 
 type Run struct {
