@@ -167,35 +167,15 @@ func TestSubmitSendsPendingAttachment(t *testing.T) {
 	}
 }
 
-func TestShellModelLoadsSessionTranscript(t *testing.T) {
-	s := session.New("cli")
-	s.Add(msg.Message{Role: "user", Content: "hello"})
-	s.Add(msg.Message{Role: "assistant", Content: "world"})
+func TestChatPanelFiltersFullHistory(t *testing.T) {
+	sp := space.NewKeyed(space.KindDirectChat, "cli:direct:test", "deploy", nil)
+	sp.AddMessage(space.Message{AuthorID: "assistant", AuthorKind: space.ParticipantAgent, Content: "Dockerfile 使用多阶段构建"})
 
 	m := newShellModel(context.Background(), nil, "cli")
-	m.loadTranscript(s)
+	m.chats = []*space.Space{sp}
+	m.chatQuery = "dockerfile"
 
-	if len(m.items) != 2 {
-		t.Fatalf("items = %d, want 2", len(m.items))
-	}
-	if m.items[0].Kind != itemUser || m.items[1].Kind != itemAssistant {
-		t.Fatalf("item kinds = %d, %d", m.items[0].Kind, m.items[1].Kind)
-	}
-	if got := assistantText(m.items[1]); got != "world" {
-		t.Fatalf("assistant text = %q, want world", got)
-	}
-}
-
-func TestSessionPanelFiltersFullHistory(t *testing.T) {
-	s := session.New("cli")
-	s.Title = "deploy"
-	s.Add(msg.Message{Role: "assistant", Content: "Dockerfile 使用多阶段构建"})
-
-	m := newShellModel(context.Background(), nil, "cli")
-	m.sessions = []*session.Session{s}
-	m.sessionQuery = "dockerfile"
-
-	items := m.sessionItems()
+	items := m.chatItems()
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
@@ -204,15 +184,15 @@ func TestSessionPanelFiltersFullHistory(t *testing.T) {
 	}
 }
 
-func TestSessionPanelIncludesNewSessionAction(t *testing.T) {
+func TestChatPanelIncludesNewChatAction(t *testing.T) {
 	m := newShellModel(context.Background(), nil, "cli")
-	m.sessions = []*session.Session{session.New("cli")}
+	m.chats = []*space.Space{space.NewKeyed(space.KindDirectChat, "cli:direct:test", "", nil)}
 
-	items := m.sessionItems()
+	items := m.chatItems()
 	if len(items) != 2 {
 		t.Fatalf("items = %d, want 2", len(items))
 	}
-	if items[0].Title != "New session" {
+	if items[0].Title != "New chat" {
 		t.Fatalf("first item = %q", items[0].Title)
 	}
 }
@@ -431,6 +411,27 @@ func TestSlashCommandSuggestionsCanBeAccepted(t *testing.T) {
 	m.acceptSuggestion()
 	if got := m.input.Value(); got != "/help " {
 		t.Fatalf("input = %q, want /help ", got)
+	}
+}
+
+func TestRuntimeSessionCommandIsHiddenBehindChatNavigation(t *testing.T) {
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
+	m.input.SetValue("/session")
+	next, cmd := m.submit()
+	if cmd != nil {
+		t.Fatal("runtime session command escaped to app command router")
+	}
+	got := next.(shellModel)
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "Use /chat") {
+		t.Fatalf("items = %#v", got.items)
+	}
+
+	m.input.SetValue("/sess")
+	m.syncLayout()
+	for _, hint := range m.suggests {
+		if hint.Value == "session" {
+			t.Fatalf("runtime session leaked into suggestions: %#v", m.suggests)
+		}
 	}
 }
 
@@ -665,91 +666,66 @@ func TestRenderSuggestionsScrollsPastWindow(t *testing.T) {
 	}
 }
 
-type sessionShellApp struct {
-	commandShellApp
-	sessions []*session.Session
-	current  *session.Session
-	switched string
-	created  bool
-}
-
-func (a *sessionShellApp) CurrentSession(string) (*session.Session, error) {
-	return a.current, nil
-}
-
-func (a *sessionShellApp) NewSession(src string) (*session.Session, error) {
-	return a.DraftSession(src), nil
-}
-
-func (a *sessionShellApp) DraftSession(src string) *session.Session {
-	a.created = true
-	s := session.New(src)
-	s.Title = "new"
-	a.current = s
-	return s
-}
-
-func (a *sessionShellApp) SwitchSession(_ string, id string) (*session.Session, error) {
-	a.switched = id
-	for _, s := range a.sessions {
-		if s.ID == id {
-			a.current = s
-			return s, nil
-		}
+func TestChatSelectorSwitchesSpace(t *testing.T) {
+	a := newSpaceTestApp(t)
+	first, err := a.Spaces().DraftSpace(space.KindDirectChat, "cli:direct:first", "first", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return nil, fmt.Errorf("not found")
-}
+	if _, err := a.Spaces().AppendUserMessage(first.ID, "first message", nil); err != nil {
+		t.Fatal(err)
+	}
+	second, err := a.Spaces().DraftSpace(space.KindDirectChat, "cli:direct:second", "second", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spaces().AppendUserMessage(second.ID, "second message", nil); err != nil {
+		t.Fatal(err)
+	}
 
-func (a *sessionShellApp) ListSessionsBySource(string) ([]*session.Session, error) {
-	return a.sessions, nil
-}
-
-func TestSessionSelectorSwitchesSession(t *testing.T) {
-	a := &sessionShellApp{}
-	first := session.New("cli")
-	first.Title = "first"
-	second := session.New("cli")
-	second.Title = "second"
-	a.sessions = []*session.Session{first, second}
-	a.current = first
-
-	m := newShellModel(context.Background(), a, "cli")
+	m := newShellModel(context.Background(), a, cliSpaceSource(first))
 	m.width = 80
 	m.height = 24
 	m.addTextItem(itemAssistant, "old transcript", time.Now())
-	m.input.SetValue("/session")
+	m.input.SetValue("/chat")
 	next, cmd := m.submit()
 	if cmd != nil {
-		t.Fatal("session selector submit returned command")
+		t.Fatal("chat selector submit returned command")
 	}
 	got := next.(shellModel)
-	if got.overlay != overlaySession {
-		t.Fatalf("overlay = %v, want session", got.overlay)
+	if got.overlay != overlayChat {
+		t.Fatalf("overlay = %v, want chat", got.overlay)
 	}
-	got.handleSessionKey("down")
-	got.handleSessionKey("enter")
+	for i, choice := range got.chatChoices() {
+		if choice.Space != nil && choice.Space.ID == second.ID {
+			got.chat = i
+		}
+	}
+	got.handleChatKey("enter")
 
-	if a.switched != second.ID {
-		t.Fatalf("switched = %q, want %q", a.switched, second.ID)
+	if got.source != cliSpaceSource(second) {
+		t.Fatalf("source = %q, want %q", got.source, cliSpaceSource(second))
 	}
 	if got.overlay != overlayNone {
 		t.Fatalf("overlay = %v, want none", got.overlay)
 	}
-	if len(got.items) != 1 || got.items[0].Kind != itemNotice {
-		t.Fatalf("items = %#v, want switch notice only", got.items)
+	if len(got.items) < 2 || got.items[len(got.items)-1].Kind != itemNotice {
+		t.Fatalf("items = %#v, want transcript plus switch notice", got.items)
 	}
 }
 
-func TestSessionSelectorCanCreateSession(t *testing.T) {
-	a := &sessionShellApp{}
-	a.sessions = []*session.Session{session.New("cli")}
-	a.current = a.sessions[0]
-	m := newShellModel(context.Background(), a, "cli")
-	m.openSessionOverlay()
-	m.handleSessionKey("n")
+func TestChatSelectorCanCreateDraftSpace(t *testing.T) {
+	a := newSpaceTestApp(t)
+	first, err := a.Spaces().DraftSpace(space.KindDirectChat, "cli:direct:first", "", space.PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newShellModel(context.Background(), a, cliSpaceSource(first))
+	m.openChatOverlay()
+	m.handleChatKey("n")
 
-	if !a.created {
-		t.Fatal("new session was not created")
+	if m.source == cliSpaceSource(first) || m.currentSpace() == nil {
+		t.Fatal("new draft chat was not created")
 	}
 	if m.overlay != overlayNone {
 		t.Fatalf("overlay = %v, want none", m.overlay)
@@ -796,9 +772,9 @@ func TestChannelCommandAcceptsHumanTitle(t *testing.T) {
 	}
 }
 
-func TestChannelNewCreatesSessionForChannel(t *testing.T) {
-	var src string
-	m := newShellModel(context.Background(), commandShellApp{newSessionSource: &src}, "cli")
+func TestChannelNewCreatesSpaceWithoutRuntimeSession(t *testing.T) {
+	var sessionSource string
+	m := newShellModel(context.Background(), commandShellApp{newSessionSource: &sessionSource}, "cli")
 	m.input.SetValue("/channel new bugfix")
 
 	next, cmd := m.submit()
@@ -812,17 +788,16 @@ func TestChannelNewCreatesSessionForChannel(t *testing.T) {
 	if got.source != "cli:channel:bugfix" {
 		t.Fatalf("source = %q", got.source)
 	}
-	if src != "cli:channel:bugfix" {
-		t.Fatalf("new session source = %q", src)
+	if sessionSource != "" {
+		t.Fatalf("channel creation leaked runtime session: %q", sessionSource)
 	}
-	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "New session:") {
+	if len(got.items) != 1 || !strings.Contains(itemText(got.items[0]), "#bugfix") {
 		t.Fatalf("items = %#v", got.items)
 	}
 }
 
 func TestChannelCommandSubmitsOnCtrlJ(t *testing.T) {
-	var src string
-	m := newShellModel(context.Background(), commandShellApp{newSessionSource: &src}, "cli")
+	m := newShellModel(context.Background(), commandShellApp{}, "cli")
 	m.input.SetValue("/channel new bugfix")
 
 	next, cmd := m.updateKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
@@ -833,8 +808,8 @@ func TestChannelCommandSubmitsOnCtrlJ(t *testing.T) {
 	if got.channel != "bugfix" {
 		t.Fatalf("channel = %q", got.channel)
 	}
-	if src != "cli:channel:bugfix" {
-		t.Fatalf("new session source = %q", src)
+	if got.source != "cli:channel:bugfix" {
+		t.Fatalf("source = %q", got.source)
 	}
 }
 

@@ -58,7 +58,7 @@ func (f turnFlow) run(ctx context.Context) error {
 				if sp, err := f.app.spaces.LoadSpace(target.Seed); err == nil && sp != nil && sp.Kind == target.Kind {
 					turn.SpaceID = sp.ID
 				}
-			} else if sp, err := f.app.spaces.Store().FindSpaceByKindAndSeed(target.Kind, target.Seed); err == nil && sp != nil {
+			} else if sp, err := f.app.spaces.Store().FindSpaceByKindAndKey(target.Kind, target.Seed); err == nil && sp != nil {
 				turn.SpaceID = sp.ID
 			}
 		}

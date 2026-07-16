@@ -14,7 +14,7 @@ type Store interface {
 	SaveSpace(*Space) error
 	LoadSpace(id string) (*Space, error)
 	ListSpaces() ([]*Space, error)
-	FindSpaceByKindAndSeed(kind Kind, seed string) (*Space, error)
+	FindSpaceByKindAndKey(kind Kind, key string) (*Space, error)
 	DeleteSpace(id string) error
 }
 
@@ -27,6 +27,7 @@ type PersonaInfo struct {
 type Manager struct {
 	store       Store
 	mu          sync.Mutex
+	drafts      map[string]*Space
 	userID      string
 	userDisplay string
 	events      func(bus.Event)
@@ -39,7 +40,7 @@ func NewManager(store Store, userID, userDisplay string) *Manager {
 	if userDisplay == "" {
 		userDisplay = "You"
 	}
-	return &Manager{store: store, userID: userID, userDisplay: userDisplay}
+	return &Manager{store: store, drafts: map[string]*Space{}, userID: userID, userDisplay: userDisplay}
 }
 
 func (m *Manager) SetEventSink(fn func(bus.Event)) {
@@ -72,7 +73,9 @@ func (m *Manager) ListSpaces() ([]*Space, error) {
 }
 
 func (m *Manager) LoadSpace(id string) (*Space, error) {
-	return m.store.LoadSpace(id)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.loadLocked(id)
 }
 
 func (m *Manager) DeleteSpace(id string) error {
@@ -81,6 +84,12 @@ func (m *Manager) DeleteSpace(id string) error {
 		return nil
 	}
 	m.mu.Lock()
+	if _, ok := m.drafts[id]; ok {
+		delete(m.drafts, id)
+		m.mu.Unlock()
+		m.publish(bus.Event{Type: bus.SpaceUpdated, SpaceID: id})
+		return nil
+	}
 	err := m.store.DeleteSpace(id)
 	m.mu.Unlock()
 	if err != nil {
@@ -112,6 +121,12 @@ func MapSource(source string) SourceTarget {
 			rest = rest[:i]
 		}
 		return SourceTarget{Kind: KindChannel, Seed: rest}
+	case strings.HasPrefix(source, "cli:direct:"):
+		rest := strings.TrimPrefix(source, "cli:direct:")
+		if i := strings.IndexByte(rest, ':'); i >= 0 {
+			rest = rest[:i]
+		}
+		return SourceTarget{Kind: KindDirectChat, Seed: rest}
 	case strings.HasPrefix(source, "desktop:agent:"):
 		rest := strings.TrimPrefix(source, "desktop:agent:")
 		if i := strings.IndexByte(rest, ':'); i >= 0 {
@@ -151,16 +166,17 @@ func (m *Manager) Resolve(source string, agent PersonaInfo) (*Space, error) {
 		return nil, fmt.Errorf("source %q does not map to a space", source)
 	}
 	if IsSpaceID(t.Seed) {
-		if sp, err := m.store.LoadSpace(t.Seed); err == nil && sp != nil && sp.Kind == t.Kind {
+		if sp, err := m.LoadSpace(t.Seed); err == nil && sp != nil && sp.Kind == t.Kind {
 			return sp, nil
 		}
+		return nil, fmt.Errorf("%s space not found: %s", t.Kind, t.Seed)
 	}
 	return m.EnsureSpace(t.Kind, t.Seed, agent)
 }
 
-func (m *Manager) EnsureSpace(kind Kind, seed string, agent PersonaInfo) (*Space, error) {
+func (m *Manager) EnsureSpace(kind Kind, key string, agent PersonaInfo) (*Space, error) {
 	m.mu.Lock()
-	existing, err := m.store.FindSpaceByKindAndSeed(kind, seed)
+	existing, err := m.store.FindSpaceByKindAndKey(kind, key)
 	if err != nil {
 		m.mu.Unlock()
 		return nil, err
@@ -169,11 +185,53 @@ func (m *Manager) EnsureSpace(kind Kind, seed string, agent PersonaInfo) (*Space
 		m.mu.Unlock()
 		return existing, nil
 	}
+	parts, err := m.participants(kind, agent)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	sp := NewKeyed(kind, key, key, parts)
+	if err := m.store.SaveSpace(sp); err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	m.mu.Unlock()
+	m.publish(bus.Event{Type: bus.SpaceCreated, SpaceID: sp.ID, Text: string(sp.Kind)})
+	return sp, nil
+}
+
+func (m *Manager) DraftSpace(kind Kind, key, title string, agent PersonaInfo) (*Space, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	parts, err := m.participants(kind, agent)
+	if err != nil {
+		return nil, err
+	}
+	sp := NewKeyed(kind, key, title, parts)
+	m.drafts[sp.ID] = sp
+	return sp, nil
+}
+
+func (m *Manager) loadLocked(id string) (*Space, error) {
+	if sp := m.drafts[strings.TrimSpace(id)]; sp != nil {
+		return sp, nil
+	}
+	return m.store.LoadSpace(id)
+}
+
+func (m *Manager) saveLocked(sp *Space) error {
+	if err := m.store.SaveSpace(sp); err != nil {
+		return err
+	}
+	delete(m.drafts, sp.ID)
+	return nil
+}
+
+func (m *Manager) participants(kind Kind, agent PersonaInfo) ([]Participant, error) {
 	parts := []Participant{m.UserParticipant()}
 	switch kind {
 	case KindAgentDM:
 		if strings.TrimSpace(agent.ID) == "" {
-			m.mu.Unlock()
 			return nil, fmt.Errorf("agent_dm requires a persona id; got empty")
 		}
 		parts = append(parts, Participant{
@@ -186,17 +244,9 @@ func (m *Manager) EnsureSpace(kind Kind, seed string, agent PersonaInfo) (*Space
 		})
 	case KindChannel, KindDirectChat:
 	default:
-		m.mu.Unlock()
 		return nil, fmt.Errorf("unknown space kind %q", kind)
 	}
-	sp := New(kind, seed, parts)
-	if err := m.store.SaveSpace(sp); err != nil {
-		m.mu.Unlock()
-		return nil, err
-	}
-	m.mu.Unlock()
-	m.publish(bus.Event{Type: bus.SpaceCreated, SpaceID: sp.ID, Text: string(sp.Kind)})
-	return sp, nil
+	return parts, nil
 }
 
 func (m *Manager) AppendMessageWithRouting(spaceID string, draft Message, resolved []string, resolveInfo func(id string) PersonaInfo) (Message, []string, error) {
@@ -207,11 +257,12 @@ func (m *Manager) AppendMessageWithRouting(spaceID string, draft Message, resolv
 		return Message{}, nil, fmt.Errorf("message missing author_kind")
 	}
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return Message{}, nil, err
 	}
+	_, wasDraft := m.drafts[sp.ID]
 	snapshot := *sp
 	snapshot.Participants = append([]Participant(nil), sp.Participants...)
 	snapshot.Messages = append([]Message(nil), sp.Messages...)
@@ -244,12 +295,15 @@ func (m *Manager) AppendMessageWithRouting(spaceID string, draft Message, resolv
 	}
 
 	written := sp.AddMessage(draft)
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		*sp = snapshot
 		m.mu.Unlock()
 		return Message{}, nil, err
 	}
 	m.mu.Unlock()
+	if wasDraft {
+		m.publish(bus.Event{Type: bus.SpaceCreated, SpaceID: sp.ID, Text: string(sp.Kind)})
+	}
 	m.publish(bus.Event{
 		Type:            bus.SpaceMessageAdded,
 		SpaceID:         spaceID,
@@ -319,7 +373,7 @@ func (m *Manager) UpdateMessage(spaceID, messageID string, update func(*Message)
 		return Message{}, fmt.Errorf("space id and message id required")
 	}
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return Message{}, err
@@ -333,7 +387,7 @@ func (m *Manager) UpdateMessage(spaceID, messageID string, update func(*Message)
 		}
 		sp.UpdatedAt = time.Now()
 		written := sp.Messages[i]
-		if err := m.store.SaveSpace(sp); err != nil {
+		if err := m.saveLocked(sp); err != nil {
 			m.mu.Unlock()
 			return Message{}, err
 		}
@@ -358,7 +412,7 @@ func (m *Manager) DeleteMessage(spaceID, messageID string) error {
 		return nil
 	}
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -371,7 +425,7 @@ func (m *Manager) DeleteMessage(spaceID, messageID string) error {
 		agentID := sp.Messages[i].AuthorID
 		sp.Messages = append(sp.Messages[:i], sp.Messages[i+1:]...)
 		sp.UpdatedAt = time.Now()
-		if err := m.store.SaveSpace(sp); err != nil {
+		if err := m.saveLocked(sp); err != nil {
 			m.mu.Unlock()
 			return err
 		}
@@ -391,11 +445,12 @@ func (m *Manager) DeleteMessage(spaceID, messageID string) error {
 
 func (m *Manager) appendMessage(spaceID string, message Message) (Message, error) {
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return Message{}, err
 	}
+	_, wasDraft := m.drafts[sp.ID]
 	if message.AuthorID == "" {
 		m.mu.Unlock()
 		return Message{}, fmt.Errorf("message missing author_id (space=%s)", spaceID)
@@ -405,11 +460,14 @@ func (m *Manager) appendMessage(spaceID string, message Message) (Message, error
 		return Message{}, fmt.Errorf("message missing author_kind (space=%s, author=%s)", spaceID, message.AuthorID)
 	}
 	written := sp.AddMessage(message)
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return Message{}, err
 	}
 	m.mu.Unlock()
+	if wasDraft {
+		m.publish(bus.Event{Type: bus.SpaceCreated, SpaceID: sp.ID, Text: string(sp.Kind)})
+	}
 	m.publish(bus.Event{
 		Type:            bus.SpaceMessageAdded,
 		SpaceID:         spaceID,
@@ -422,7 +480,7 @@ func (m *Manager) appendMessage(spaceID string, message Message) (Message, error
 
 func (m *Manager) UpdateTitle(spaceID, title string) error {
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -434,7 +492,7 @@ func (m *Manager) UpdateTitle(spaceID, title string) error {
 	}
 	sp.Title = t
 	sp.UpdatedAt = time.Now()
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -446,7 +504,7 @@ func (m *Manager) UpdateTitle(spaceID, title string) error {
 
 func (m *Manager) SetAgentMode(spaceID, personaID, mode string) error {
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -469,7 +527,7 @@ func (m *Manager) SetAgentMode(spaceID, personaID, mode string) error {
 		return fmt.Errorf("invalid agent mode: %s", mode)
 	}
 	sp.UpdatedAt = time.Now()
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -480,7 +538,7 @@ func (m *Manager) SetAgentMode(spaceID, personaID, mode string) error {
 
 func (m *Manager) AddAgentParticipant(spaceID string, info PersonaInfo) error {
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -499,7 +557,7 @@ func (m *Manager) AddAgentParticipant(spaceID string, info PersonaInfo) error {
 		m.mu.Unlock()
 		return nil
 	}
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -510,7 +568,7 @@ func (m *Manager) AddAgentParticipant(spaceID string, info PersonaInfo) error {
 
 func (m *Manager) SetThreadAgentMode(spaceID, parentMessageID, personaID, mode string) error {
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -543,7 +601,7 @@ func (m *Manager) SetThreadAgentMode(spaceID, parentMessageID, personaID, mode s
 		sp.ThreadAgentModes[parentMessageID] = bucket
 	}
 	sp.UpdatedAt = time.Now()
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return err
 	}
@@ -559,7 +617,7 @@ func (m *Manager) DeleteThread(spaceID, parentMessageID string) error {
 		return fmt.Errorf("space id and parent message id required")
 	}
 	m.mu.Lock()
-	sp, err := m.store.LoadSpace(spaceID)
+	sp, err := m.loadLocked(spaceID)
 	if err != nil {
 		m.mu.Unlock()
 		return err
@@ -576,7 +634,7 @@ func (m *Manager) DeleteThread(spaceID, parentMessageID string) error {
 		delete(sp.ThreadAgentModes, parentMessageID)
 	}
 	sp.UpdatedAt = time.Now()
-	if err := m.store.SaveSpace(sp); err != nil {
+	if err := m.saveLocked(sp); err != nil {
 		m.mu.Unlock()
 		return err
 	}

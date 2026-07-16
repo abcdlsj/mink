@@ -264,13 +264,10 @@ export interface ContextInspectView {
   space_id?: string;
   parent_message_id?: string;
   agent_id?: string;
-  token_limit?: number;
   raw_message_count: number;
   eligible_count: number;
   selected_count: number;
-  summarized_count: number;
   filtered_counts?: ContextFilteredCount[];
-  summary?: string;
   session_summary?: string;
   messages: ContextInspectMessage[];
   notes?: string[];

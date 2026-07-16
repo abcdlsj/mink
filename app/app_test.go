@@ -86,7 +86,7 @@ func TestVisionRoutedImagesPersistInSpaceButNotSessionCache(t *testing.T) {
 		t.Fatalf("reply = %q, want saw image", out)
 	}
 
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindDirectChat, "Sumi"); err != nil {
 		t.Fatal(err)
 	} else if sp != nil {
 		t.Fatalf("root desktop vision send should not persist hidden Sumi direct, got %#v", sp)
@@ -916,7 +916,7 @@ func TestAgentDMDoesNotRequireMention(t *testing.T) {
 	if gotPersona == nil || gotPersona.ID != "helper" {
 		t.Fatalf("persona = %#v, want helper", gotPersona)
 	}
-	sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "helper")
+	sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindAgentDM, "helper")
 	if err != nil || sp == nil {
 		t.Fatalf("agent dm space not found: %v", err)
 	}
@@ -998,12 +998,12 @@ func TestDesktopDefaultSumiDoesNotBindDefaultPersona(t *testing.T) {
 	if gotAgentID != "" {
 		t.Fatalf("turn agent id = %q, want empty default Sumi agent id", gotAgentID)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindDirectChat, "Sumi"); err != nil {
 		t.Fatalf("find default Sumi space: %v", err)
 	} else if sp != nil {
 		t.Fatalf("root desktop should not persist hidden Sumi direct, got %#v", sp)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "andy"); err != nil || sp != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindAgentDM, "andy"); err != nil || sp != nil {
 		t.Fatalf("default persona agent dm should not be created, got space=%#v err=%v", sp, err)
 	}
 }
@@ -1053,12 +1053,12 @@ func TestCLIDefaultSumiDoesNotBindDefaultPersona(t *testing.T) {
 	if gotAgentID != "" {
 		t.Fatalf("turn agent id = %q, want empty default Sumi agent id", gotAgentID)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "cli"); err != nil || sp == nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindDirectChat, "cli"); err != nil || sp == nil {
 		t.Fatalf("default CLI space not found: %v", err)
 	} else if len(sp.Messages) != 2 || sp.Messages[1].AuthorID != "assistant" {
 		t.Fatalf("default Sumi messages = %#v", sp.Messages)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "andy"); err != nil || sp != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindAgentDM, "andy"); err != nil || sp != nil {
 		t.Fatalf("default persona agent dm should not be created, got space=%#v err=%v", sp, err)
 	}
 }
@@ -1231,7 +1231,7 @@ func TestTelegramDirectUsesDefaultPersonaWithoutMentionRouting(t *testing.T) {
 			t.Fatalf("telegram direct session should not be persona-suffixed: %q", s.Source)
 		}
 	}
-	sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "tg:dm:42")
+	sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindDirectChat, "tg:dm:42")
 	if err != nil || sp == nil {
 		t.Fatalf("telegram space not found: %v", err)
 	}

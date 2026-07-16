@@ -33,7 +33,6 @@ type ContextViewInput struct {
 	ParentMessageID  string
 	AgentID          string
 	ExcludeMessageID string
-	TokenLimit       int
 	Profile          ContextProfile
 }
 
@@ -45,25 +44,10 @@ func (a *App) BuildContextView(in ContextViewInput) ContextView {
 	if err != nil || sp == nil {
 		return ContextView{}
 	}
-	limit := in.TokenLimit
-	if limit <= 0 {
-		limit = a.wakeContextTokenLimit()
-	}
 	profile := contextProfile(in, sp)
 	raw := contextMessages(sp, in.ParentMessageID)
 	candidates := filterContextMessages(raw, in.ExcludeMessageID, profile)
-	kept := boundedContextMessages(candidates, in.AgentID, limit)
-	view := ContextView{Messages: runtimeContextMessages(kept, in.AgentID), Profile: profile}
-	if dropped := len(candidates) - len(kept); dropped > 0 {
-		view.Summary = wakeContextSummary(candidates[:dropped], in.AgentID, summaryProvenance{
-			Profile:         profile,
-			Source:          in.Source,
-			SpaceID:         sp.ID,
-			ParentMessageID: in.ParentMessageID,
-			MessageCount:    dropped,
-		})
-	}
-	return view
+	return ContextView{Messages: runtimeContextMessages(candidates, in.AgentID), Profile: profile}
 }
 
 func (v ContextView) Apply(s *session.Session) {

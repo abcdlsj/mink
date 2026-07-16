@@ -37,6 +37,12 @@ func New(kind Kind, title string, participants []Participant) *Space {
 	}
 }
 
+func NewKeyed(kind Kind, key, title string, participants []Participant) *Space {
+	s := New(kind, title, participants)
+	s.Key = strings.TrimSpace(key)
+	return s
+}
+
 func (s *Space) HasParticipant(id string) bool {
 	for _, p := range s.Participants {
 		if p.ID == id {

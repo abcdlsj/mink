@@ -12,23 +12,30 @@ This file is the current spec. Everything else is implementation.
 
 ## Spaces
 
-Three Space kinds:
+Three persisted Space kinds:
 
 - **Channel** — long-lived shared room. Has a title, a participant
   list (one user + N agents), a message timeline, and a per-agent
   mode map. Created by the user.
-- **Thread** — a sub-context inside a channel, anchored on a parent
-  message id. Threads are not separate Spaces; they live as messages
-  whose `ParentMessageID` points at another message in the same
-  Space. Threads inherit the channel's agents and can locally
-  override per-agent modes without leaking back.
+- **DirectChat** — a multi-participant conversation created ad hoc;
+  functionally a channel without a fixed name.
 - **AgentDM (Agent Chat)** — one-on-one chat with a single agent.
   Each `New → Message agent` mints a new instance with its own
   history and auto-derived title. Persona id is who the agent is;
   Space id is which conversation.
 
-A fourth surface, **DirectChat**, is a multi-participant space the
-user creates ad hoc; functionally a channel without a fixed name.
+**Thread** is a sub-context inside a Channel or DirectChat, anchored on
+a parent message id. Threads are not separate Spaces; they live as
+messages whose `ParentMessageID` points at another message in the same
+Space. Threads inherit the Space's agents and can locally override
+per-agent modes without leaking back.
+
+`Space.ID` identifies one concrete conversation. `Space.Key` is an
+optional immutable binding used by stable external surfaces such as
+Telegram and named channels. `Space.Title` is display-only and may be
+changed without changing conversation identity. Runtime Sessions are
+internal model state projected from a Space; they are never the source
+of user-visible history.
 
 ## Agent modes
 
@@ -45,19 +52,20 @@ inside one thread without changing the channel default.
 
 Source forms used by the desktop, CLI, and Telegram surfaces:
 
-| Source | Kind | Seed |
+| Source | Kind | Target |
 | --- | --- | --- |
-| `desktop` / `cli` | Channel | `default` (legacy fallback) |
+| `desktop` | DirectChat | stable key `Sumi` |
+| `cli:direct:<spaceID>` | DirectChat | spaceID |
 | `desktop:channel:<spaceID>` | Channel | spaceID |
 | `desktop:direct:<spaceID>` | DirectChat | spaceID |
 | `desktop:agent:<X>` | AgentDM | persona id (legacy) **or** Space id |
-| `cli:agent:<personaID>` | AgentDM | persona id |
+| `cli:agent:<spaceID>` | AgentDM | spaceID |
 | `tg:dm:*` / `tg:channel:*` | DirectChat / Channel | full source |
 
 `MapSource`, `SourceUsesRouter`, and `Manager.Resolve` must agree
 for any new source form. `Resolve` is the only entry point that
-turns a source string into a Space — LoadSpace when the seed is
-space-id shaped (`^\d{8}-`), EnsureSpace by seed otherwise. The
+turns a source string into a Space — LoadSpace when the source carries
+a Space id, EnsureSpace by key otherwise. The
 AgentDM writer adds persona-registry validation on top before
 calling `Resolve`; nothing else carries its own resolver.
 
@@ -67,19 +75,34 @@ fans out to those agents under a chained budget (`DefaultRoutingBudget`,
 channel/thread pick candidates directly. One listening agent wakes.
 Many listening agents publish `routing.listening_ambiguous` and the
 composer hint nudges the user to mention explicitly. Zero listeners
-publish `routing.channel.no_target`. Each maps to a transient
-composer hint, never a timeline message.
+publish `routing.channel.no_target`. Routing notices are also persisted
+as system messages so reopening the Space preserves the outcome.
 
 ## Wake context
 
-A woken agent runs in a scratch session seeded with up to the last
-30 Space messages (channel main line if no parent, or thread root +
-replies otherwise). The woken agent's own prior replies are mapped
+A woken agent runs in a runtime session projected from all eligible
+Space messages (channel main line if no parent, or thread root +
+replies otherwise). Projection never applies a message-count or token
+limit and never silently summarizes dropped history. The woken agent's
+own prior replies are mapped
 to `assistant`; peer agents' messages are mapped to `user` with a
 `[<agentID>] ` prefix; human messages are mapped to `user` with a
 `[user] ` prefix. The originating user message is already in the
 Space when the wake fires, so it lands in the seed naturally; the
 explicit `scratch.Add` is only a fallback when Space load fails.
+
+## CLI lifecycle
+
+- `sumi` starts a fresh draft DirectChat. The draft is persisted only
+  when the first message is written.
+- `sumi --continue` / `sumi -c` resumes the most recently updated CLI
+  Space.
+- `sumi --resume <spaceID>` resumes a specific CLI Space.
+- `sumi --resume` opens the chat picker.
+- `sumi --persona <id>` starts a fresh AgentDM instance;
+  `--persona <id> --continue` resumes that persona's latest CLI chat.
+- `/chat` switches or creates conversations. Runtime Session management
+  is intentionally not exposed as conversation navigation.
 
 ## AgentDM lifecycle
 

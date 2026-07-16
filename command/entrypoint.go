@@ -51,7 +51,7 @@ func EntrypointPolicy(source string) Entrypoint {
 		return Entrypoint{Mode: ModeBackground, Session: SessionSource, Delivery: DeliveryNotice, Mention: MentionText, Permission: "default"}
 	case strings.HasPrefix(source, "tg:dm:"), strings.HasPrefix(source, "tg:channel:"):
 		return Entrypoint{Mode: ModeDirect, Session: SessionSource, Delivery: DeliverySource, Mention: MentionText, Permission: "telegram"}
-	case source == "cli":
+	case source == "cli", strings.HasPrefix(source, "cli:direct:"):
 		return Entrypoint{Mode: ModeDirect, Session: SessionSource, Delivery: DeliverySource, Mention: MentionText, Permission: "default"}
 	case source == "desktop":
 		return Entrypoint{Mode: ModeDirect, Session: SessionSource, Delivery: DeliverySource, Mention: MentionText, Permission: "default"}

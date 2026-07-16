@@ -13,6 +13,7 @@ const (
 type Space struct {
 	ID               string                       `json:"id"`
 	Kind             Kind                         `json:"kind"`
+	Key              string                       `json:"key,omitempty"`
 	Title            string                       `json:"title,omitempty"`
 	Participants     []Participant                `json:"participants"`
 	Messages         []Message                    `json:"messages"`

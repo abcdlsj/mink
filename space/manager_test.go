@@ -34,9 +34,9 @@ func (m *memoryStore) ListSpaces() ([]*Space, error) {
 	return out, nil
 }
 
-func (m *memoryStore) FindSpaceByKindAndSeed(kind Kind, seed string) (*Space, error) {
+func (m *memoryStore) FindSpaceByKindAndKey(kind Kind, key string) (*Space, error) {
 	for _, sp := range m.byID {
-		if sp.Kind == kind && sp.Title == seed {
+		if sp.Kind == kind && sp.Key == key {
 			cp := *sp
 			return &cp, nil
 		}
@@ -68,6 +68,8 @@ func TestMapSource(t *testing.T) {
 		{"desktop:agent:coder:persona:coder", KindAgentDM, "coder", false},
 		{"desktop:direct:dchat-abc", KindDirectChat, "dchat-abc", false},
 		{"cli", KindDirectChat, "cli", false},
+		{"cli:direct:20260716-direct-deadbeef", KindDirectChat, "20260716-direct-deadbeef", false},
+		{"cli:direct:20260716-direct-deadbeef:thread:root", KindDirectChat, "20260716-direct-deadbeef", false},
 		{"cli:channel:bugfix", KindChannel, "bugfix", false},
 		{"cli:channel:bugfix:thread:root", KindChannel, "bugfix", false},
 		{"cli:agent:coder", KindAgentDM, "coder", false},
@@ -139,6 +141,44 @@ func TestEnsureSpaceSeedsParticipantsCorrectly(t *testing.T) {
 	again, _ := mgr.EnsureSpace(KindAgentDM, "coder", PersonaInfo{ID: "coder"})
 	if again.ID != dm.ID {
 		t.Error("EnsureSpace should return the existing space, not create a new one")
+	}
+}
+
+func TestSpaceKeySurvivesTitleChange(t *testing.T) {
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	sp, err := mgr.EnsureSpace(KindChannel, "engineering", PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.UpdateTitle(sp.ID, "Engineering Team"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := mgr.EnsureSpace(KindChannel, "engineering", PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != sp.ID || again.Key != "engineering" || again.Title != "Engineering Team" {
+		t.Fatalf("space identity changed with title: %+v", again)
+	}
+}
+
+func TestDraftSpacePersistsOnFirstMessage(t *testing.T) {
+	store := newMemoryStore()
+	mgr := NewManager(store, "user", "You")
+	sp, err := mgr.DraftSpace(KindDirectChat, "cli:direct:test", "", PersonaInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.LoadSpace(sp.ID); err == nil {
+		t.Fatal("draft Space was persisted before its first message")
+	}
+	if _, err := mgr.AppendUserMessage(sp.ID, "hello", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.LoadSpace(sp.ID)
+	if err != nil || len(got.Messages) != 1 || got.Key != "cli:direct:test" {
+		t.Fatalf("persisted draft = %+v err=%v", got, err)
 	}
 }
 

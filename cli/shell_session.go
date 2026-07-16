@@ -6,127 +6,159 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/abcdlsj/sumi/msg"
-	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/textutil"
 )
 
-func isSessionSelectorCommand(text string) bool {
+func isChatSelectorCommand(text string) bool {
 	text = strings.TrimSpace(text)
-	return text == "/session" || text == "/sessions"
+	return text == "/chat" || text == "/chats"
 }
 
-func (m *shellModel) openSessionOverlay() {
+func isRuntimeSessionCommand(text string) bool {
+	fields := strings.Fields(strings.TrimSpace(text))
+	return len(fields) > 0 && (fields[0] == "/session" || fields[0] == "/sessions")
+}
+
+func (m *shellModel) openChatOverlay() {
 	if m.app == nil {
 		return
 	}
 	if m.busy {
-		m.addTextItem(itemNotice, "Finish the running turn before switching sessions.", time.Now())
+		m.addTextItem(itemNotice, "Finish the running turn before switching chats.", time.Now())
 		return
 	}
-	sessions, err := m.app.ListSessionsBySource(m.source)
+	chats, err := listCLISpaces(m.app.Spaces(), "")
 	if err != nil {
 		m.addTextItem(itemError, err.Error(), time.Now())
 		return
 	}
-	m.sessions = sessions
-	m.sessionQuery = ""
-	m.session = m.currentSessionIndex()
-	m.overlay = overlaySession
+	m.chats = chats
+	m.chatQuery = ""
+	m.chat = m.currentChatIndex()
+	m.overlay = overlayChat
 }
 
-func (m *shellModel) currentSessionIndex() int {
-	cur, err := m.app.CurrentSession(m.source)
-	if err != nil || cur == nil {
+func (m *shellModel) currentSpace() *space.Space {
+	target := space.MapSource(m.source)
+	if !space.IsSpaceID(target.Seed) || m.app == nil || m.app.Spaces() == nil {
+		return nil
+	}
+	sp, _ := m.app.Spaces().LoadSpace(target.Seed)
+	return sp
+}
+
+func (m *shellModel) currentChatIndex() int {
+	cur := m.currentSpace()
+	if cur == nil {
 		return 0
 	}
-	for i, s := range m.filteredSessions() {
-		if s != nil && s.ID == cur.ID {
+	for i, sp := range m.filteredChats() {
+		if sp != nil && sp.ID == cur.ID {
 			return i + 1
 		}
 	}
 	return 0
 }
 
-func (m *shellModel) handleSessionKey(key string) {
+func (m *shellModel) handleChatKey(key string) {
 	switch key {
 	case "esc", "q":
 		m.overlay = overlayNone
-		m.sessionQuery = ""
+		m.chatQuery = ""
 	case "j", "down":
-		m.moveSession(1)
+		m.moveChat(1)
 	case "k", "up":
-		m.moveSession(-1)
+		m.moveChat(-1)
 	case "g", "home":
-		m.session = 0
+		m.chat = 0
 	case "G", "end":
-		if n := len(m.sessionChoices()); n > 0 {
-			m.session = n - 1
+		if n := len(m.chatChoices()); n > 0 {
+			m.chat = n - 1
 		}
 	case "n":
-		m.createSession()
+		m.createChat()
 	case "enter":
-		m.switchSession()
+		m.switchChat()
 	case "backspace", "ctrl+h":
-		if m.sessionQuery != "" {
-			rs := []rune(m.sessionQuery)
-			m.sessionQuery = string(rs[:len(rs)-1])
-			m.session = 0
+		if m.chatQuery != "" {
+			rs := []rune(m.chatQuery)
+			m.chatQuery = string(rs[:len(rs)-1])
+			m.chat = 0
 		}
 	default:
 		if r := printableKey(key); r != 0 {
-			m.sessionQuery += string(r)
-			m.session = 0
+			m.chatQuery += string(r)
+			m.chat = 0
 		}
 	}
 }
 
-func (m *shellModel) moveSession(delta int) {
-	choices := m.sessionChoices()
+func (m *shellModel) moveChat(delta int) {
+	choices := m.chatChoices()
 	if len(choices) == 0 {
 		return
 	}
-	m.session += delta
-	if m.session < 0 {
-		m.session = len(choices) - 1
+	m.chat += delta
+	if m.chat < 0 {
+		m.chat = len(choices) - 1
 	}
-	if m.session >= len(choices) {
-		m.session = 0
+	if m.chat >= len(choices) {
+		m.chat = 0
 	}
 }
 
-func (m *shellModel) switchSession() {
-	choices := m.sessionChoices()
-	if len(choices) == 0 || m.session < 0 || m.session >= len(choices) {
+func (m *shellModel) switchChat() {
+	choices := m.chatChoices()
+	if len(choices) == 0 || m.chat < 0 || m.chat >= len(choices) {
 		return
 	}
-	choice := choices[m.session]
+	choice := choices[m.chat]
 	if choice.New {
-		m.createSession()
+		m.createChat()
 		return
 	}
-	s := choice.Session
-	if s == nil {
+	if choice.Space == nil {
 		return
 	}
-	next, err := m.app.SwitchSession(m.source, s.ID)
+	m.source = cliSpaceSource(choice.Space)
+	m.base = m.source
+	m.channel = "main"
+	m.thread = nil
+	_, _ = m.app.CurrentSession(cliSessionSource(choice.Space))
+	m.overlay = overlayNone
+	m.chatQuery = ""
+	m.resetTranscript()
+	m.addTextItem(itemNotice, "Switched chat: "+chatLabel(choice.Space), time.Now())
+}
+
+func (m *shellModel) createChat() {
+	cur := m.currentSpace()
+	kind := space.KindDirectChat
+	info := space.PersonaInfo{}
+	key := newCLIChatKey(kind)
+	if cur != nil && cur.Kind == space.KindAgentDM {
+		kind = space.KindAgentDM
+		key = newCLIChatKey(kind)
+		pid := space.AgentParticipantID(cur)
+		if p := m.app.Personas().Get(pid); p != nil {
+			info = space.PersonaInfo{ID: p.ID, Display: p.Display, Role: p.Description}
+		}
+	}
+	sp, err := m.app.Spaces().DraftSpace(kind, key, "", info)
 	if err != nil {
 		m.addTextItem(itemError, err.Error(), time.Now())
 		return
 	}
+	m.source = cliSpaceSource(sp)
+	m.base = m.source
+	m.channel = "main"
+	m.thread = nil
+	m.app.DraftSession(cliSessionSource(sp))
 	m.overlay = overlayNone
-	m.sessionQuery = ""
+	m.chatQuery = ""
 	m.resetTranscript()
-	m.loadTranscript(next)
-	m.addTextItem(itemNotice, "Switched session: "+sessionLabel(next), time.Now())
-}
-
-func (m *shellModel) createSession() {
-	s := m.app.DraftSession(m.source)
-	m.overlay = overlayNone
-	m.sessionQuery = ""
-	m.resetTranscript()
-	m.addTextItem(itemNotice, "New session: "+sessionLabel(s), time.Now())
+	m.addTextItem(itemNotice, "New chat: "+chatLabel(sp), time.Now())
 }
 
 func (m *shellModel) resetTranscript() {
@@ -143,177 +175,101 @@ func (m *shellModel) resetTranscript() {
 	m.loadSpaceTranscript()
 }
 
-func (m *shellModel) loadTranscript(s *session.Session) {
-	if s == nil {
-		return
-	}
-	m.resetTranscript()
-	if m.sourceTracksSpace() {
-		if len(m.items) > 0 {
-			m.selected = len(m.items) - 1
-			m.follow = true
-			m.syncViewport()
-		}
-		return
-	}
-	for _, mm := range s.Messages {
-		m.addMessage(mm)
-	}
-	if len(m.items) > 0 {
-		m.selected = len(m.items) - 1
-		m.follow = true
-		m.syncViewport()
-	}
-}
-
-func (m *shellModel) addMessage(mm msg.Message) {
-	t := mm.Timestamp
-	switch mm.Role {
-	case "user":
-		if strings.TrimSpace(mm.Content) != "" {
-			m.addTextItem(itemUser, mm.Content, t)
-		}
-	case "assistant":
-		item := chatItem{Kind: itemAssistant, Time: t}
-		if strings.TrimSpace(mm.Reasoning) != "" {
-			item.Segments = append(item.Segments, chatSegment{Kind: segReasoning, Text: mm.Reasoning, Time: t})
-		}
-		if strings.TrimSpace(mm.Content) != "" {
-			item.Segments = append(item.Segments, chatSegment{Kind: segText, Text: mm.Content, Time: t})
-		}
-		for _, tc := range mm.ToolCalls {
-			item.Segments = append(item.Segments, chatSegment{
-				Kind:   segTool,
-				Tool:   tc.Name,
-				Text:   summarizeToolAction(tc.Name, string(tc.Args)),
-				Status: "done",
-				Detail: strings.TrimSpace("Tool: " + tc.Name + "\n\nInput:\n" + string(tc.Args)),
-				Time:   t,
-			})
-		}
-		if len(item.Segments) > 0 {
-			m.addItem(item)
-		}
-	case "tool":
-		if len(m.items) == 0 {
-			return
-		}
-		item := m.items[len(m.items)-1]
-		if item == nil || item.Kind != itemAssistant {
-			return
-		}
-		for _, tr := range mm.ToolResults {
-			text := textutil.Preview(firstNonEmpty(tr.Content, tr.Error), 88)
-			status := "done"
-			if strings.TrimSpace(tr.Error) != "" {
-				status = "failed"
-			}
-			item.Segments = append(item.Segments, chatSegment{
-				Kind:   segTool,
-				Tool:   "tool",
-				Text:   text,
-				Status: status,
-				Detail: strings.TrimSpace(firstNonEmpty(tr.Content, tr.Error)),
-				Time:   t,
-			})
-		}
-	}
-}
-
-func (m shellModel) filteredSessions() []*session.Session {
-	q := strings.ToLower(strings.TrimSpace(m.sessionQuery))
+func (m shellModel) filteredChats() []*space.Space {
+	q := strings.ToLower(strings.TrimSpace(m.chatQuery))
 	if q == "" {
-		return m.sessions
+		return m.chats
 	}
-	out := make([]*session.Session, 0, len(m.sessions))
-	for _, s := range m.sessions {
-		if sessionMatches(s, q) {
-			out = append(out, s)
+	out := make([]*space.Space, 0, len(m.chats))
+	for _, sp := range m.chats {
+		if spaceMatches(sp, q) {
+			out = append(out, sp)
 		}
 	}
 	return out
 }
 
-type sessionChoice struct {
-	New     bool
-	Session *session.Session
+type chatChoice struct {
+	New   bool
+	Space *space.Space
 }
 
-func (m shellModel) sessionChoices() []sessionChoice {
-	var out []sessionChoice
-	if strings.TrimSpace(m.sessionQuery) == "" {
-		out = append(out, sessionChoice{New: true})
+func (m shellModel) chatChoices() []chatChoice {
+	var out []chatChoice
+	if strings.TrimSpace(m.chatQuery) == "" {
+		out = append(out, chatChoice{New: true})
 	}
-	for _, s := range m.filteredSessions() {
-		out = append(out, sessionChoice{Session: s})
+	for _, sp := range m.filteredChats() {
+		out = append(out, chatChoice{Space: sp})
 	}
 	return out
 }
 
-func (m shellModel) sessionItems() []popupItem {
-	choices := m.sessionChoices()
+func (m shellModel) chatItems() []popupItem {
+	choices := m.chatChoices()
 	items := make([]popupItem, 0, len(choices))
 	for _, choice := range choices {
 		if choice.New {
-			items = append(items, popupItem{
-				Title: "New session",
-				Meta:  "enter",
-				Desc:  "Start a clean CLI session",
-			})
+			items = append(items, popupItem{Title: "New chat", Meta: "enter", Desc: "Start a clean CLI conversation"})
 			continue
 		}
-		s := choice.Session
-		if s == nil {
+		sp := choice.Space
+		if sp == nil {
 			continue
 		}
-		items = append(items, popupItem{
-			Title: sessionLabel(s),
-			Meta:  sessionTime(s),
-			Desc:  sessionPreview(s),
-		})
+		items = append(items, popupItem{Title: chatLabel(sp), Meta: spaceTime(sp), Desc: spacePreview(sp)})
 	}
 	return items
 }
 
-func sessionMatches(s *session.Session, q string) bool {
-	if s == nil {
+func spaceMatches(sp *space.Space, q string) bool {
+	if sp == nil {
 		return false
 	}
-	fields := []string{s.ID, s.Title, s.Summary}
-	for _, m := range s.Messages {
-		fields = append(fields, m.Content, m.Reasoning)
-		for _, tr := range m.ToolResults {
-			fields = append(fields, tr.Content, tr.Error)
-		}
+	fields := []string{sp.ID, sp.Title}
+	for _, m := range sp.Messages {
+		fields = append(fields, m.Content, m.Reasoning, m.Error)
 	}
-	hay := strings.ToLower(strings.Join(fields, "\n"))
-	return strings.Contains(hay, q)
+	return strings.Contains(strings.ToLower(strings.Join(fields, "\n")), q)
 }
 
-func sessionPreview(s *session.Session) string {
-	if s == nil {
+func spacePreview(sp *space.Space) string {
+	if sp == nil {
 		return ""
 	}
-	for _, m := range s.Messages {
+	for _, m := range sp.Messages {
 		if strings.TrimSpace(m.Content) != "" {
 			return textutil.Preview(strings.ReplaceAll(m.Content, "\n", " "), 96)
 		}
 	}
-	return textutil.Preview(strings.ReplaceAll(s.Summary, "\n", " "), 96)
+	return ""
 }
 
-func sessionTime(s *session.Session) string {
-	if s == nil {
+func spaceTime(sp *space.Space) string {
+	if sp == nil {
 		return ""
 	}
-	t := s.UpdatedAt
+	t := sp.UpdatedAt
 	if t.IsZero() {
-		t = s.CreatedAt
+		t = sp.CreatedAt
 	}
 	if t.IsZero() {
 		return ""
 	}
 	return t.Format("2006-01-02 15:04")
+}
+
+func chatLabel(sp *space.Space) string {
+	if sp == nil {
+		return "(unknown)"
+	}
+	if title := strings.TrimSpace(sp.Title); title != "" {
+		return fmt.Sprintf("%s [%s]", chatID(sp.ID), title)
+	}
+	if preview := spacePreview(sp); preview != "" {
+		return fmt.Sprintf("%s [%s]", chatID(sp.ID), textutil.Preview(preview, 36))
+	}
+	return chatID(sp.ID)
 }
 
 func printableKey(key string) rune {
@@ -326,23 +282,4 @@ func printableKey(key string) rune {
 		return r
 	}
 	return 0
-}
-
-func firstNonEmpty(v ...string) string {
-	for _, s := range v {
-		if strings.TrimSpace(s) != "" {
-			return s
-		}
-	}
-	return ""
-}
-
-func sessionLabel(s *session.Session) string {
-	if s == nil {
-		return "(unknown)"
-	}
-	if strings.TrimSpace(s.Title) != "" {
-		return fmt.Sprintf("%s [%s]", shortID(s.ID), strings.TrimSpace(s.Title))
-	}
-	return shortID(s.ID)
 }

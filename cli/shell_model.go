@@ -17,7 +17,7 @@ import (
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
 	"github.com/abcdlsj/sumi/msg"
-	"github.com/abcdlsj/sumi/session"
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/textutil"
 	"github.com/abcdlsj/sumi/tool"
 )
@@ -33,7 +33,7 @@ type shellOverlay int
 
 const (
 	overlayNone shellOverlay = iota
-	overlaySession
+	overlayChat
 )
 
 const (
@@ -129,8 +129,8 @@ type shellModel struct {
 	filesOK      bool
 	filesLoading bool
 	pendingCmd   tea.Cmd
-	sessions     []*session.Session
-	sessionQuery string
+	chats        []*space.Space
+	chatQuery    string
 	statusLine   string
 	turn         shellTurn
 	turnCancel   context.CancelFunc
@@ -146,7 +146,7 @@ type shellModel struct {
 	expanded    int
 	selected    int
 	suggest     int
-	session     int
+	chat        int
 	spinner     int
 	busy        bool
 	statusBusy  bool
@@ -198,7 +198,7 @@ func newShellModel(ctx context.Context, a shellApp, source string) shellModel {
 		ctx:       ctx,
 		app:       a,
 		source:    source,
-		base:      "cli",
+		base:      source,
 		channel:   "main",
 		viewport:  vp,
 		input:     in,
@@ -283,7 +283,7 @@ func (m shellModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	case tea.MouseMsg:
-		if m.overlay == overlaySession {
+		if m.overlay == overlayChat {
 			return m.updateSessionMouse(msg), nil
 		}
 		if m.overlay == overlayNone {
@@ -349,9 +349,9 @@ func (m shellModel) updateSessionMouse(msg tea.MouseMsg) tea.Model {
 	}
 	switch msg.Button {
 	case tea.MouseButtonWheelUp:
-		m.moveSession(-1)
+		m.moveChat(-1)
 	case tea.MouseButtonWheelDown:
-		m.moveSession(1)
+		m.moveChat(1)
 	}
 	return m
 }
@@ -376,7 +376,7 @@ func (m shellModel) View() string {
 		),
 	)
 	switch m.overlay {
-	case overlaySession:
+	case overlayChat:
 		return m.renderSessionOverlay(base)
 	default:
 		return base
@@ -387,8 +387,8 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if m.overlay == overlaySession {
-		m.handleSessionKey(msg.String())
+	if m.overlay == overlayChat {
+		m.handleChatKey(msg.String())
 		return *m, nil
 	}
 	if len(m.approvals) > 0 {
@@ -433,7 +433,7 @@ func (m *shellModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "ctrl+r":
-		m.openSessionOverlay()
+		m.openChatOverlay()
 		return *m, nil
 	case "tab":
 		return m.toggleFocus()
@@ -519,11 +519,19 @@ func (m *shellModel) submit() (tea.Model, tea.Cmd) {
 			m.syncLayout()
 			return *m, nil
 		}
-		if isSessionSelectorCommand(text) {
+		if isChatSelectorCommand(text) {
 			m.input.Reset()
 			m.input.SetHeight(2)
 			m.clearSuggestions()
-			m.openSessionOverlay()
+			m.openChatOverlay()
+			return *m, nil
+		}
+		if isRuntimeSessionCommand(text) {
+			m.input.Reset()
+			m.input.SetHeight(2)
+			m.clearSuggestions()
+			m.addTextItem(itemNotice, "Runtime sessions are internal. Use /chat to manage conversations.", time.Now())
+			m.syncLayout()
 			return *m, nil
 		}
 	}
@@ -551,7 +559,7 @@ func (m *shellModel) commandInput() bool {
 	if _, _, ok := parseNavCommand(text); ok {
 		return true
 	}
-	return isSessionSelectorCommand(text)
+	return isChatSelectorCommand(text) || isRuntimeSessionCommand(text)
 }
 
 func (m *shellModel) startInput(text string, attachments []msg.Attachment) tea.Cmd {
@@ -1266,7 +1274,7 @@ type cliState struct {
 	Runtime string
 	Model   string
 	Cwd     string
-	Session string
+	Chat    string
 	Channel string
 	Thread  string
 }
@@ -1277,7 +1285,7 @@ func (m *shellModel) state() cliState {
 	ws := "."
 	sid := "(new)"
 	if m == nil || m.app == nil {
-		return cliState{Runtime: rt, Model: model, Cwd: ws, Session: sid}
+		return cliState{Runtime: rt, Model: model, Cwd: ws, Chat: sid}
 	}
 	rt = strings.TrimSpace(m.app.Config().Runtime)
 	if rt == "" {
@@ -1294,14 +1302,16 @@ func (m *shellModel) state() cliState {
 	if ws == "" {
 		ws = "."
 	}
-	if s, err := m.app.CurrentSession(m.source); err == nil && s != nil && s.ID != "" {
-		sid = s.ID
+	if target := space.MapSource(m.source); space.IsSpaceID(target.Seed) {
+		sid = target.Seed
+	} else if sp := m.currentSpace(); sp != nil && sp.ID != "" {
+		sid = sp.ID
 	}
 	return cliState{
 		Runtime: rt,
 		Model:   model,
 		Cwd:     shortPath(filepath.Clean(ws)),
-		Session: sid,
+		Chat:    sid,
 		Channel: m.channelLabel(),
 		Thread:  m.threadLabel(),
 	}

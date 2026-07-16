@@ -219,13 +219,10 @@ type ContextInspectView struct {
 	SpaceID         string                  `json:"space_id,omitempty"`
 	ParentMessageID string                  `json:"parent_message_id,omitempty"`
 	AgentID         string                  `json:"agent_id,omitempty"`
-	TokenLimit      int                     `json:"token_limit,omitempty"`
 	RawMessageCount int                     `json:"raw_message_count"`
 	EligibleCount   int                     `json:"eligible_count"`
 	SelectedCount   int                     `json:"selected_count"`
-	SummarizedCount int                     `json:"summarized_count"`
 	FilteredCounts  []ContextFilteredCount  `json:"filtered_counts,omitempty"`
-	Summary         string                  `json:"summary,omitempty"`
 	SessionSummary  string                  `json:"session_summary,omitempty"`
 	Messages        []ContextInspectMessage `json:"messages"`
 	Notes           []string                `json:"notes,omitempty"`

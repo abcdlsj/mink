@@ -895,12 +895,9 @@ func desktopContextInspectView(v app.ContextInspectView) ContextInspectView {
 		SpaceID:         v.SpaceID,
 		ParentMessageID: v.ParentMessageID,
 		AgentID:         v.AgentID,
-		TokenLimit:      v.TokenLimit,
 		RawMessageCount: v.RawMessageCount,
 		EligibleCount:   v.EligibleCount,
 		SelectedCount:   v.SelectedCount,
-		SummarizedCount: v.SummarizedCount,
-		Summary:         v.Summary,
 		SessionSummary:  v.SessionSummary,
 		Notes:           append([]string(nil), v.Notes...),
 		Messages:        make([]ContextInspectMessage, 0, len(v.Messages)),
@@ -1129,7 +1126,7 @@ func (b *Backend) ListDirectChats() []DirectChatItem {
 func isDefaultSumiDirect(sp *space.Space) bool {
 	return sp != nil &&
 		sp.Kind == space.KindDirectChat &&
-		strings.EqualFold(strings.TrimSpace(sp.Title), defaultSumiDirectTitle)
+		strings.EqualFold(strings.TrimSpace(sp.Key), defaultSumiDirectTitle)
 }
 
 func isDefaultSumiDirectItem(item DirectChatItem) bool {
@@ -1390,7 +1387,7 @@ func (b *Backend) CreateChannel(name string) (ChannelItem, error) {
 	if seed == "" {
 		return ChannelItem{}, fmt.Errorf("channel name required")
 	}
-	if existing, err := b.app.Spaces().Store().FindSpaceByKindAndSeed(space.KindChannel, seed); err == nil && existing != nil {
+	if existing, err := b.app.Spaces().Store().FindSpaceByKindAndKey(space.KindChannel, seed); err == nil && existing != nil {
 		return ChannelItem{}, fmt.Errorf("channel %q already exists", seed)
 	}
 	sp, err := b.app.Spaces().EnsureSpace(space.KindChannel, seed, space.PersonaInfo{})
@@ -2400,7 +2397,7 @@ func isDefaultAgentDM(sp *space.Space) bool {
 		return false
 	}
 	pid := space.AgentParticipantID(sp)
-	return pid != "" && strings.TrimSpace(sp.Title) == pid
+	return pid != "" && strings.TrimSpace(sp.Key) == pid
 }
 
 func isAgentDMMachineSeed(t, personaID string) bool {

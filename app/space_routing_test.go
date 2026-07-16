@@ -428,7 +428,7 @@ func TestInterceptRoutedInputWakeDoesNotCreateTaskBoardTask(t *testing.T) {
 	}
 }
 
-func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
+func TestWakeContextProjectsCompleteSpaceHistory(t *testing.T) {
 	dir := t.TempDir()
 	a, err := New(config.Config{
 		Runtime:   "stub",
@@ -460,19 +460,16 @@ func TestWakeContextUsesTokenBudgetAndSummary(t *testing.T) {
 	s := session.New("desktop:channel:" + ch.ID + ":persona:bob")
 	a.syncWakeContext(s, "desktop:channel:"+ch.ID, ch.ID, "", "bob", current.ID)
 
-	if strings.TrimSpace(s.Summary) == "" {
-		t.Fatal("expected compact summary for dropped old context")
+	if strings.TrimSpace(s.Summary) != "" {
+		t.Fatalf("space projection unexpectedly summarized history: %q", s.Summary)
 	}
-	if got := estimateMessages(s.Messages); got > 20 {
-		t.Fatalf("context tokens = %d, want <= 20; messages=%+v", got, s.Messages)
+	if len(s.Messages) != 8 {
+		t.Fatalf("messages = %d, want all 8 old messages: %+v", len(s.Messages), s.Messages)
 	}
 	for _, m := range s.Messages {
 		if strings.Contains(m.Content, "current trigger") {
 			t.Fatalf("current trigger leaked into wake context: %+v", m)
 		}
-	}
-	if len(s.Messages) >= 8 {
-		t.Fatalf("expected token budget to drop old messages, kept %d", len(s.Messages))
 	}
 }
 
@@ -526,7 +523,6 @@ func TestContextViewFiltersNoisyRuntimeHistory(t *testing.T) {
 		Source:           "desktop:channel:" + ch.ID,
 		AgentID:          "bob",
 		ExcludeMessageID: current.ID,
-		TokenLimit:       10,
 	})
 	var joined []string
 	for _, m := range view.Messages {
@@ -541,17 +537,10 @@ func TestContextViewFiltersNoisyRuntimeHistory(t *testing.T) {
 	if !strings.Contains(strings.Join(joined, "\n"), "recent useful fact") {
 		t.Fatalf("recent useful context missing: %+v", view.Messages)
 	}
-	for _, want := range []string{
-		"Historical summary (weak context",
-		"profile=channel",
-		"source=desktop:channel:" + ch.ID,
-		"space_id=" + ch.ID,
-		"message_count=1",
-		"time_range=",
-		"stable old context",
-	} {
-		if !strings.Contains(view.Summary, want) {
-			t.Fatalf("summary missing %q:\n%s", want, view.Summary)
-		}
+	if !strings.Contains(strings.Join(joined, "\n"), "stable old context") {
+		t.Fatalf("old context was truncated: %+v", view.Messages)
+	}
+	if view.Summary != "" {
+		t.Fatalf("space projection should not summarize history: %q", view.Summary)
 	}
 }

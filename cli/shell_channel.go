@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/textutil"
 )
 
@@ -99,9 +100,13 @@ func (m *shellModel) switchChannel(name string) string {
 	if m.busy {
 		return "Finish the running turn before switching channels."
 	}
+	source, err := m.resolveChannelSource(name, false)
+	if err != nil {
+		return err.Error()
+	}
 	m.channel = name
 	m.thread = nil
-	m.source = m.channelSource(name)
+	m.source = source
 	m.resetTranscript()
 	return "channel: " + m.channelLabel()
 }
@@ -114,23 +119,15 @@ func (m *shellModel) newChannel(name string) string {
 	if m.busy {
 		return "Finish the running turn before switching channels."
 	}
-	source := m.channelSource(name)
-	var label string
-	if m.app != nil {
-		s, err := m.app.NewSession(source)
-		if err != nil {
-			return err.Error()
-		}
-		label = sessionLabel(s)
+	source, err := m.resolveChannelSource(name, true)
+	if err != nil {
+		return err.Error()
 	}
 	m.channel = name
 	m.thread = nil
 	m.source = source
 	m.resetTranscript()
-	if label == "" {
-		return "channel: " + m.channelLabel()
-	}
-	return "channel: " + m.channelLabel() + "\nNew session: " + label
+	return "channel: " + m.channelLabel()
 }
 
 func (m *shellModel) enterThread(th shellThread) {
@@ -226,15 +223,38 @@ func (m *shellModel) lastMessageID() string {
 }
 
 func (m shellModel) channelSource(name string) string {
-	base := strings.TrimSpace(m.base)
-	if base == "" {
-		base = "cli"
-	}
 	name = cleanSpaceName(name)
 	if name == "" || name == "main" {
-		return base
+		return strings.TrimSpace(m.base)
 	}
-	return base + ":channel:" + name
+	if source, err := m.resolveChannelSource(name, false); err == nil {
+		return source
+	}
+	return "cli:channel:" + name
+}
+
+func (m shellModel) resolveChannelSource(name string, create bool) (string, error) {
+	name = cleanSpaceName(name)
+	if name == "" || name == "main" {
+		return strings.TrimSpace(m.base), nil
+	}
+	if m.app == nil || m.app.Spaces() == nil {
+		return "cli:channel:" + name, nil
+	}
+	sp, err := m.app.Spaces().Store().FindSpaceByKindAndKey(space.KindChannel, name)
+	if err != nil {
+		return "", err
+	}
+	if sp == nil && create {
+		sp, err = m.app.Spaces().EnsureSpace(space.KindChannel, name, space.PersonaInfo{})
+	}
+	if err != nil {
+		return "", err
+	}
+	if sp == nil {
+		return "", fmt.Errorf("channel not found: %s", name)
+	}
+	return "cli:channel:" + sp.ID, nil
 }
 
 func (m shellModel) channelKey() string {

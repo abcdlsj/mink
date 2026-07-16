@@ -279,8 +279,8 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	if _, err := a.Personas().Create("coder", persona.Meta{Display: "Coder", Runtime: "stub"}, ""); err != nil {
 		t.Fatal(err)
 	}
-	if direct := b.ListDirectChats(); len(direct) != 1 || direct[0].Kind != "direct_chat" || direct[0].Title != "Sumi" {
-		t.Fatalf("initial direct chats should only contain Sumi: %#v", direct)
+	if direct := b.ListDirectChats(); len(direct) != 0 {
+		t.Fatalf("initial direct chats should be empty: %#v", direct)
 	}
 
 	defaultDetail := b.GetAgentDM("coder")
@@ -289,8 +289,8 @@ func TestAgentDefaultDMAndNamedChatsAreListedSeparately(t *testing.T) {
 	}
 
 	direct := b.ListDirectChats()
-	if len(direct) != 2 {
-		t.Fatalf("direct chats = %d, want Sumi + default agent dm: %#v", len(direct), direct)
+	if len(direct) != 1 {
+		t.Fatalf("direct chats = %d, want default agent dm: %#v", len(direct), direct)
 	}
 	var gotAgentDM bool
 	for _, item := range direct {
@@ -415,10 +415,10 @@ func TestDirectChatsDoNotAutoCreateDefaultSumiConversation(t *testing.T) {
 		t.Fatalf("direct chats = %d, want empty list without explicit direct chat: %#v", len(direct), direct)
 	}
 
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindDirectChat, "Sumi"); err != nil || sp != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindDirectChat, "Sumi"); err != nil || sp != nil {
 		t.Fatalf("default Sumi listing should not create direct chat, got space=%#v err=%v", sp, err)
 	}
-	if sp, err := a.Spaces().Store().FindSpaceByKindAndSeed(space.KindAgentDM, "coder"); err != nil || sp != nil {
+	if sp, err := a.Spaces().Store().FindSpaceByKindAndKey(space.KindAgentDM, "coder"); err != nil || sp != nil {
 		t.Fatalf("default Sumi listing should not create agent dm, got space=%#v err=%v", sp, err)
 	}
 }

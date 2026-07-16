@@ -60,13 +60,17 @@ func (s *Store) ListSpaces() ([]*space.Space, error) {
 	return out, nil
 }
 
-func (s *Store) FindSpaceByKindAndSeed(kind space.Kind, seed string) (*space.Space, error) {
+func (s *Store) FindSpaceByKindAndKey(kind space.Kind, key string) (*space.Space, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, nil
+	}
 	all, err := s.ListSpaces()
 	if err != nil {
 		return nil, err
 	}
 	for _, sp := range all {
-		if sp.Kind == kind && sp.Title == seed {
+		if sp.Kind == kind && sp.Key == key {
 			return sp, nil
 		}
 	}

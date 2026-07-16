@@ -334,11 +334,12 @@ func (f inputFlow) shouldPersistDirectConversation() bool {
 }
 
 func isDefaultSumiSource(source string) bool {
-	switch strings.TrimSpace(source) {
+	source = strings.TrimSpace(source)
+	switch source {
 	case "cli", "desktop":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(source, "cli:direct:")
 	}
 }
 
@@ -355,7 +356,7 @@ func (f inputFlow) usesLegacyDirectAssistant() bool {
 		return false
 	}
 	return sp.Kind == space.KindDirectChat &&
-		strings.EqualFold(strings.TrimSpace(sp.Title), "Sumi") &&
+		strings.EqualFold(strings.TrimSpace(sp.Key), "Sumi") &&
 		space.AgentParticipantID(sp) == ""
 }
 

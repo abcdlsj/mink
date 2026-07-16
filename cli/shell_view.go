@@ -210,12 +210,12 @@ func (m shellModel) renderFooter(st cliState) string {
 	if len(m.approvals) > 0 {
 		return shellTheme.Footer.Width(m.width).Render(padLine("enter confirm   esc deny", m.width))
 	}
-	if m.overlay == overlaySession {
+	if m.overlay == overlayChat {
 		return shellTheme.Footer.Width(m.width).Render(padLine("type filter   enter switch   n new   j/k move   esc close", m.width))
 	}
 
 	left := "/ commands   /channel   /thread   ctrl+v image   tab focus"
-	right := "session " + shortID(st.Session) + "   " + st.Cwd
+	right := "chat " + chatID(st.Chat) + "   " + st.Cwd
 	if len(m.queue) > 0 {
 		right = fmt.Sprintf("%d queued   %s", len(m.queue), right)
 	}
@@ -473,17 +473,17 @@ func (m shellModel) renderToolRun(segs []chatSegment, selected bool) []string {
 }
 
 func (m shellModel) renderSessionOverlay(base string) string {
-	empty := "No sessions."
-	if strings.TrimSpace(m.sessionQuery) != "" {
-		empty = "No matching sessions."
+	empty := "No chats."
+	if strings.TrimSpace(m.chatQuery) != "" {
+		empty = "No matching chats."
 	}
 	return m.renderPopupList(base, popupList{
-		Title:    "Sessions",
+		Title:    "Chats",
 		Hint:     "type filter · enter select · esc close",
-		Query:    m.sessionQuery,
+		Query:    m.chatQuery,
 		Empty:    empty,
-		Items:    m.sessionItems(),
-		Selected: m.session,
+		Items:    m.chatItems(),
+		Selected: m.chat,
 	})
 }
 
@@ -710,9 +710,9 @@ func clamp(v, lo, hi int) int {
 
 func headerLine(st cliState, width int) string {
 	width = max(1, width)
-	session := shellTheme.Chip.Render(nonEmpty(st.Session, "(new)"))
-	if lipgloss.Width(session) >= width {
-		return ansi.Truncate(session, width, "…")
+	chat := shellTheme.Chip.Render(chatID(st.Chat))
+	if lipgloss.Width(chat) >= width {
+		return ansi.Truncate(chat, width, "…")
 	}
 	left := strings.Join([]string{
 		shellTheme.Title.Render("Sumi"),
@@ -720,11 +720,11 @@ func headerLine(st cliState, width int) string {
 		shellTheme.ChipDim.Render("model ") + shellTheme.Text.Render(nonEmpty(st.Model, "unknown")),
 		shellTheme.ChipDim.Render("cwd ") + shellTheme.Text.Render(nonEmpty(st.Cwd, ".")),
 	}, "  ")
-	room := width - lipgloss.Width(session) - 2
+	room := width - lipgloss.Width(chat) - 2
 	if lipgloss.Width(left) > room {
 		left = ansi.Truncate(left, max(1, room), "…")
 	}
-	return alignFooter(left, session, width)
+	return alignFooter(left, chat, width)
 }
 
 func spaceLabel(st cliState) string {
@@ -766,6 +766,18 @@ func shortID(s string) string {
 		return s[:8]
 	}
 	return s
+}
+
+func chatID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "(new)" {
+		return "(new)"
+	}
+	parts := strings.Split(s, "-")
+	if len(parts) >= 3 {
+		return strings.Join(parts[1:], "-")
+	}
+	return shortID(s)
 }
 
 func alignFooter(left, right string, width int) string {

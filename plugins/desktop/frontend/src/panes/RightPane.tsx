@@ -299,7 +299,6 @@ function RuntimeContextSection({
         <div className="mt-2 space-y-1 font-mono text-[10.5px] text-text-faint">
           <div className="truncate">session {inspect?.session_id || "-"}</div>
           <div className="truncate">source {inspect?.session_source || inspect?.source || "-"}</div>
-          {inspect?.token_limit ? <div>budget {inspect.token_limit} tokens</div> : null}
         </div>
         {inspect?.filtered_counts && inspect.filtered_counts.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -308,13 +307,11 @@ function RuntimeContextSection({
             ))}
           </div>
         )}
-        {(inspect?.summary || inspect?.session_summary) && (
-          <div className="mt-2 border-l border-border-soft pl-2 text-[11px] leading-[1.35] text-text-muted">
-            <div className="mb-1 font-mono text-[10px] uppercase text-text-faint">
-              {inspect.summary ? "Context summary" : "Session summary"}
-            </div>
-            <div className="line-clamp-4 whitespace-pre-wrap break-words">
-              {inspect.summary || inspect.session_summary}
+        {inspect?.session_summary && (
+		  <div className="mt-2 border-l border-border-soft pl-2 text-[11px] leading-[1.35] text-text-muted">
+			<div className="mb-1 font-mono text-[10px] uppercase text-text-faint">Session summary</div>
+			<div className="line-clamp-4 whitespace-pre-wrap break-words">
+			  {inspect.session_summary}
             </div>
           </div>
         )}

@@ -19,7 +19,6 @@ type ContextInspectInput struct {
 	ParentMessageID  string
 	AgentID          string
 	ExcludeMessageID string
-	TokenLimit       int
 	Profile          ContextProfile
 }
 
@@ -45,13 +44,10 @@ type ContextInspectView struct {
 	SpaceID         string                  `json:"space_id,omitempty"`
 	ParentMessageID string                  `json:"parent_message_id,omitempty"`
 	AgentID         string                  `json:"agent_id,omitempty"`
-	TokenLimit      int                     `json:"token_limit,omitempty"`
 	RawMessageCount int                     `json:"raw_message_count"`
 	EligibleCount   int                     `json:"eligible_count"`
 	SelectedCount   int                     `json:"selected_count"`
-	SummarizedCount int                     `json:"summarized_count"`
 	FilteredCounts  []ContextFilteredCount  `json:"filtered_counts,omitempty"`
-	Summary         string                  `json:"summary,omitempty"`
 	SessionSummary  string                  `json:"session_summary,omitempty"`
 	Messages        []ContextInspectMessage `json:"messages"`
 	Notes           []string                `json:"notes,omitempty"`
@@ -105,17 +101,12 @@ func (a *App) InspectContext(in ContextInspectInput) (ContextInspectView, error)
 	in.SessionSource = identity.RuntimeSessionKey
 	in.ParentMessageID = strings.TrimSpace(in.ParentMessageID)
 	in.AgentID = identity.AgentPersonaID
-	limit := in.TokenLimit
-	if limit <= 0 {
-		limit = a.wakeContextTokenLimit()
-	}
 	view := ContextInspectView{
 		Profile:         in.Profile,
 		Source:          in.Source,
 		SessionSource:   in.SessionSource,
 		ParentMessageID: in.ParentMessageID,
 		AgentID:         in.AgentID,
-		TokenLimit:      limit,
 		Messages:        []ContextInspectMessage{},
 	}
 	if s, err := a.sessions.Current(in.SessionSource); err == nil && s != nil {
@@ -142,19 +133,8 @@ func (a *App) InspectContext(in ContextInspectInput) (ContextInspectView, error)
 	candidates, filtered := inspectContextCandidates(raw, in.ExcludeMessageID, view.Profile)
 	view.FilteredCounts = filtered
 	view.EligibleCount = len(candidates)
-	kept := boundedContextMessages(candidates, in.AgentID, limit)
-	view.SelectedCount = len(kept)
-	view.SummarizedCount = len(candidates) - len(kept)
-	if view.SummarizedCount > 0 {
-		view.Summary = wakeContextSummary(candidates[:view.SummarizedCount], in.AgentID, summaryProvenance{
-			Profile:         view.Profile,
-			Source:          in.Source,
-			SpaceID:         sp.ID,
-			ParentMessageID: in.ParentMessageID,
-			MessageCount:    view.SummarizedCount,
-		})
-	}
-	view.Messages = inspectRuntimeMessages(kept, in.AgentID)
+	view.SelectedCount = len(candidates)
+	view.Messages = inspectRuntimeMessages(candidates, in.AgentID)
 	if sp.ID != "" {
 		view.Notes = append(view.Notes, "Reset session starts a fresh runtime cache; it does not delete this Space history.")
 	}
@@ -498,7 +478,7 @@ func contextInspectText(v ContextInspectView) string {
 	if v.ParentMessageID != "" {
 		lines = append(lines, "  parent_message_id: "+v.ParentMessageID)
 	}
-	lines = append(lines, fmt.Sprintf("  messages: raw=%d eligible=%d selected=%d summarized=%d", v.RawMessageCount, v.EligibleCount, v.SelectedCount, v.SummarizedCount))
+	lines = append(lines, fmt.Sprintf("  messages: raw=%d eligible=%d selected=%d", v.RawMessageCount, v.EligibleCount, v.SelectedCount))
 	if len(v.FilteredCounts) > 0 {
 		var parts []string
 		for _, c := range v.FilteredCounts {
@@ -506,9 +486,7 @@ func contextInspectText(v ContextInspectView) string {
 		}
 		lines = append(lines, "  filtered: "+strings.Join(parts, ", "))
 	}
-	if strings.TrimSpace(v.Summary) != "" {
-		lines = append(lines, "  context_summary: "+trimText(v.Summary, 240))
-	} else if strings.TrimSpace(v.SessionSummary) != "" {
+	if strings.TrimSpace(v.SessionSummary) != "" {
 		lines = append(lines, "  session_summary: "+trimText(v.SessionSummary, 240))
 	}
 	if len(v.Messages) > 0 {

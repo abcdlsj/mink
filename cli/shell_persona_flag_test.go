@@ -8,6 +8,7 @@ import (
 	"github.com/abcdlsj/sumi/app"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/persona"
+	"github.com/abcdlsj/sumi/space"
 )
 
 func TestFlagPersonaParsesEveryShape(t *testing.T) {
@@ -54,29 +55,39 @@ func newPersonaTestApp(t *testing.T, ids ...string) *app.App {
 	return a
 }
 
-func TestResolveCLISourcePrefersExplicitPersonaFlag(t *testing.T) {
-	got := resolveCLISource([]string{"--persona", "coder"})
-	if got != "cli:agent:coder" {
-		t.Fatalf("source = %q, want cli:agent:coder", got)
+func TestResolveCLILaunchReadsExplicitPersona(t *testing.T) {
+	got, err := resolveCLILaunch([]string{"--persona", "coder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.persona != "coder" {
+		t.Fatalf("persona = %q, want coder", got.persona)
 	}
 }
 
-func TestResolveCLISourceWithoutFlagUsesDefaultCLI(t *testing.T) {
-	got := resolveCLISource(nil)
-	if got != "cli" {
-		t.Fatalf("source = %q, want cli", got)
+func TestResolveCLILaunchDefaultsToNewChat(t *testing.T) {
+	got, err := resolveCLILaunch(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.persona != "" || got.cont || got.resume != "" || got.pick {
+		t.Fatalf("launch = %+v, want new default chat", got)
 	}
 }
 
-func TestResolveCLISourceAlwaysReturnsNonEmptyLaunchSource(t *testing.T) {
-	cases := [][]string{
-		nil,
-		{"--persona", "coder"},
+func TestResolveCLILaunchRejectsContinueResumeConflict(t *testing.T) {
+	if _, err := resolveCLILaunch([]string{"--continue", "--resume", "space"}); err == nil {
+		t.Fatal("continue and resume conflict was accepted")
 	}
-	for _, args := range cases {
-		if got := resolveCLISource(args); got == "" {
-			t.Fatalf("resolveCLISource(%v) returned empty source", args)
-		}
+}
+
+func TestResolveCLILaunchResumeWithoutIDOpensPicker(t *testing.T) {
+	got, err := resolveCLILaunch([]string{"--resume"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.pick || got.resume != "" {
+		t.Fatalf("launch = %+v, want picker", got)
 	}
 }
 
@@ -97,22 +108,62 @@ func TestResolveCLISourceWithoutFlagIgnoresConfigDefaultPersona(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := resolveCLISource(nil)
-	if got != "cli" {
-		t.Fatalf("source = %q, want cli", got)
+	got, err := resolveCLILaunch(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.persona != "" {
+		t.Fatalf("default persona leaked into CLI launch: %+v", got)
 	}
 }
 
-func TestResolveCLISourceWithoutAnyPersonaKeepsLegacyCLI(t *testing.T) {
-	got := resolveCLISource(nil)
-	if got != "cli" {
-		t.Fatalf("source = %q, want cli", got)
+func TestResolveLaunchSpaceCreatesFreshChatAndContinueResumesIt(t *testing.T) {
+	a := newPersonaTestApp(t)
+	first, resumed, err := resolveLaunchSpace(a, cliLaunch{})
+	if err != nil || resumed {
+		t.Fatalf("first launch = %#v resumed=%v err=%v", first, resumed, err)
+	}
+	second, resumed, err := resolveLaunchSpace(a, cliLaunch{})
+	if err != nil || resumed {
+		t.Fatalf("second launch = %#v resumed=%v err=%v", second, resumed, err)
+	}
+	if first.ID == second.ID {
+		t.Fatal("default launches reused the same Space")
+	}
+	if _, err := a.Spaces().AppendUserMessage(first.ID, "keep this", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, resumed, err := resolveLaunchSpace(a, cliLaunch{cont: true})
+	if err != nil || !resumed || got.ID != first.ID {
+		t.Fatalf("continue = %#v resumed=%v err=%v, want %s", got, resumed, err, first.ID)
+	}
+}
+
+func TestPersonaLaunchScopesSessionToSpaceAndPersona(t *testing.T) {
+	a := newPersonaTestApp(t, "coder")
+	sp, resumed, err := resolveLaunchSpace(a, cliLaunch{persona: "coder"})
+	if err != nil || resumed {
+		t.Fatalf("launch = %#v resumed=%v err=%v", sp, resumed, err)
+	}
+	if sp.Kind != space.KindAgentDM || space.AgentParticipantID(sp) != "coder" {
+		t.Fatalf("agent chat = %+v", sp)
+	}
+	source := cliSpaceSource(sp)
+	if source != "cli:agent:"+sp.ID {
+		t.Fatalf("source = %q", source)
+	}
+	if got := cliSessionSource(sp); got != source+":persona:coder" {
+		t.Fatalf("session source = %q", got)
 	}
 }
 
 func TestBareCLISourceSuppressesNoMentionHint(t *testing.T) {
 	a := newPersonaTestApp(t, "tshoot")
-	source := resolveCLISource(nil)
+	sp, _, err := resolveLaunchSpace(a, cliLaunch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := cliSpaceSource(sp)
 	m := newShellModel(context.Background(), a, source)
 	m.turnInput = "hello"
 

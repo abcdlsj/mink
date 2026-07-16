@@ -116,7 +116,7 @@ func (m *shellModel) refreshCommandSuggestions() bool {
 	}
 	for _, c := range m.app.Commands() {
 		name := strings.TrimSpace(c.Name())
-		if name == "" || !strings.HasPrefix(name, query) {
+		if name == "" || name == "session" || !strings.HasPrefix(name, query) {
 			continue
 		}
 		out = append(out, completionHint{Kind: completionCommand, Value: name, Desc: strings.TrimSpace(c.Desc())})
@@ -130,6 +130,7 @@ func (m *shellModel) refreshCommandSuggestions() bool {
 
 func localCommandHints() []completionHint {
 	return []completionHint{
+		{Kind: completionCommand, Value: "chat", Desc: "switch conversations"},
 		{Kind: completionCommand, Value: "channel", Desc: "switch channels"},
 		{Kind: completionCommand, Value: "thread", Desc: "switch threads"},
 		{Kind: completionCommand, Value: "threads", Desc: "list threads"},

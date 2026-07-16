@@ -215,10 +215,7 @@ func (a *App) appendSystemSpaceMessage(spaceID, parentMessageID, content string)
 	return err
 }
 
-const (
-	wakeContextTokenFallback = 20000
-	wakeContextSummaryBudget = 1200
-)
+const wakeContextSummaryBudget = 1200
 
 func wakeSessionSource(originSource, parentMessageID, agentID string) string {
 	originSource = strings.TrimSpace(originSource)
@@ -348,24 +345,16 @@ func recentAgentConclusions(sp *space.Space, parentMessageID, selfID string, lim
 }
 
 func (a *App) syncWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) {
-	a.seedWakeContext(s, source, spaceID, parentMessageID, agentID, excludeMessageID, a.wakeContextTokenLimit())
+	a.seedWakeContext(s, source, spaceID, parentMessageID, agentID, excludeMessageID)
 }
 
-func (a *App) wakeContextTokenLimit() int {
-	if limit := a.compactTokenLimit(); limit > 0 {
-		return limit
-	}
-	return wakeContextTokenFallback
-}
-
-func (a *App) seedWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string, tokenLimit int) {
+func (a *App) seedWakeContext(s *session.Session, source, spaceID, parentMessageID, agentID, excludeMessageID string) {
 	a.BuildContextView(ContextViewInput{
 		SpaceID:          spaceID,
 		Source:           source,
 		ParentMessageID:  parentMessageID,
 		AgentID:          agentID,
 		ExcludeMessageID: excludeMessageID,
-		TokenLimit:       tokenLimit,
 	}).Apply(s)
 }
 
@@ -440,32 +429,6 @@ func noisyRuntimeContent(content string) bool {
 		}
 	}
 	return false
-}
-
-func boundedContextMessages(msgs []space.Message, agentID string, tokenLimit int) []space.Message {
-	if tokenLimit <= 0 {
-		tokenLimit = wakeContextTokenFallback
-	}
-	out := make([]space.Message, 0, len(msgs))
-	total := 0
-	for i := len(msgs) - 1; i >= 0; i-- {
-		m := msgs[i]
-		rm := toRuntimeMessage(m, agentID)
-		cost := estimateMessage(rm)
-		if cost > tokenLimit && len(out) == 0 {
-			out = append(out, m)
-			break
-		}
-		if total+cost > tokenLimit {
-			break
-		}
-		total += cost
-		out = append(out, m)
-	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
-	return out
 }
 
 func wakeContextSummary(msgs []space.Message, agentID string, provenance summaryProvenance) string {

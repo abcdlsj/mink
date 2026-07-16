@@ -63,18 +63,19 @@ func TestListSpacesEmpty(t *testing.T) {
 	}
 }
 
-func TestFindSpaceByKindAndSeed(t *testing.T) {
+func TestFindSpaceByKindAndKey(t *testing.T) {
 	root := t.TempDir()
 	s, _ := Open(root)
 	for i, kind := range []space.Kind{space.KindChannel, space.KindAgentDM} {
-		sp := space.New(kind, "seed-"+string(rune('a'+i)), nil)
+		key := "seed-" + string(rune('a'+i))
+		sp := space.NewKeyed(kind, key, key, nil)
 		_ = s.SaveSpace(sp)
 	}
-	hit, err := s.FindSpaceByKindAndSeed(space.KindChannel, "seed-a")
+	hit, err := s.FindSpaceByKindAndKey(space.KindChannel, "seed-a")
 	if err != nil || hit == nil {
 		t.Fatalf("expected to find channel seed-a, got %v / %v", hit, err)
 	}
-	miss, err := s.FindSpaceByKindAndSeed(space.KindChannel, "missing")
+	miss, err := s.FindSpaceByKindAndKey(space.KindChannel, "missing")
 	if err != nil || miss != nil {
 		t.Errorf("expected nil miss, got %v / %v", miss, err)
 	}

@@ -380,7 +380,7 @@ func (a *App) taskSpaceID(ctx context.Context, explicit string) (string, error) 
 			return sp.ID, nil
 		}
 	}
-	sp, err := a.spaces.Store().FindSpaceByKindAndSeed(target.Kind, target.Seed)
+	sp, err := a.spaces.Store().FindSpaceByKindAndKey(target.Kind, target.Seed)
 	if err != nil {
 		return "", err
 	}
