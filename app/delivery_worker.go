@@ -153,9 +153,10 @@ func (w *deliveryWorker) dispatch(d *delivery.Delivery, fence delivery.Fence) {
 		return
 	}
 	w.wg.Add(1)
+	runCtx := w.ctx
 	go func() {
 		defer w.wg.Done()
-		w.run(d, fence)
+		w.run(runCtx, d, fence)
 		// After a delivery finalizes its lane frees; re-sweep to pick up the next
 		// FIFO member or any chained deliveries this turn created.
 		w.wake()

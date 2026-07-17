@@ -139,15 +139,10 @@ func (a *App) driveDeliverySync(ctx context.Context, deliveryID string) (string,
 	if err != nil {
 		return "", err
 	}
-	runCtx := w.ctx
-	if runCtx == nil {
-		runCtx = ctx
-	}
-	// run() uses w.ctx for the renew loop; ensure it is set for a standalone worker.
-	prevCtx := w.ctx
-	w.ctx = runCtx
-	w.run(claimed, fence)
-	w.ctx = prevCtx
+	// Synchronous retry runs the turn inline on the caller's ctx, threaded
+	// explicitly into run() — never by mutating the shared w.ctx, which the
+	// background loop goroutine reads concurrently (data race).
+	w.run(ctx, claimed, fence)
 
 	final, err := a.store.Deliveries().Get(claimed.ID)
 	if err != nil {

@@ -412,19 +412,33 @@ func TestInterceptRoutedInputWakeDoesNotCreateTaskBoardTask(t *testing.T) {
 		t.Fatalf("channel wake created tasks = %#v, want none", tasks)
 	}
 
-	sp, err := a.Spaces().LoadSpace(ch.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawReply bool
-	for _, m := range sp.Messages {
-		if m.AuthorKind == space.ParticipantAgent && m.AuthorID == "bob" && m.Content == "reply to @bob do it" {
-			sawReply = true
+	// The runtime signals `done` the instant it appends its assistant message to
+	// the session — but the DURABLE reply is finalized into the Space by the worker
+	// AFTER the runtime callback returns (finalize-into-placeholder + Complete run
+	// past the turn). So reading the Space right after `done` races the persistence.
+	// Poll until the reply lands (or time out) rather than reading a single snapshot.
+	var lastMessages []space.Message
+	deadline := time.Now().Add(2 * time.Second)
+	sawReply := false
+	for time.Now().Before(deadline) {
+		sp, err := a.Spaces().LoadSpace(ch.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lastMessages = sp.Messages
+		for _, m := range sp.Messages {
+			if m.AuthorKind == space.ParticipantAgent && m.AuthorID == "bob" && m.Content == "reply to @bob do it" {
+				sawReply = true
+				break
+			}
+		}
+		if sawReply {
 			break
 		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	if !sawReply {
-		t.Fatalf("messages = %#v, want bob wake reply persisted", sp.Messages)
+		t.Fatalf("messages = %#v, want bob wake reply persisted", lastMessages)
 	}
 }
 

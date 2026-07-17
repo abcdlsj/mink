@@ -27,10 +27,13 @@ import (
 // Any stale-fence signal (a renew/bind that finds the lease was reclaimed) stops
 // the worker from writing further Space state for this attempt: the new owner
 // owns finalization.
-func (w *deliveryWorker) run(d *delivery.Delivery, fence delivery.Fence) {
+func (w *deliveryWorker) run(ctx context.Context, d *delivery.Delivery, fence delivery.Fence) {
 	a := w.app
 	if a == nil || d == nil {
 		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	deliveries := a.store.Deliveries()
 
@@ -72,7 +75,7 @@ func (w *deliveryWorker) run(d *delivery.Delivery, fence delivery.Fence) {
 	// shared stale flag the moment a renew is fenced out. The turn goroutine reads
 	// that flag before writing any Space state.
 	guard := &leaseGuard{}
-	renewCtx, stopRenew := context.WithCancel(w.ctx)
+	renewCtx, stopRenew := context.WithCancel(ctx)
 	var renewWG sync.WaitGroup
 	renewWG.Add(1)
 	go func() {
@@ -90,7 +93,7 @@ func (w *deliveryWorker) run(d *delivery.Delivery, fence delivery.Fence) {
 		now:             w.now,
 	}
 	result := a.channelWakePipeline().runChannelWakeBound(
-		w.ctx,
+		ctx,
 		source,
 		d.SpaceID,
 		target,

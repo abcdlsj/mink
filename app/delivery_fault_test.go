@@ -261,7 +261,7 @@ func TestFaultReplyBeforeComplete(t *testing.T) {
 	d := e.createDelivery(origin)
 
 	claimed, fence := e.claim(d.ID)
-	e.worker.run(claimed, fence)
+	e.worker.run(context.Background(), claimed, fence)
 
 	got, err := e.app.Deliveries().Get(claimed.ID)
 	if err != nil {
@@ -299,7 +299,7 @@ func TestFaultDuplicateReplay(t *testing.T) {
 
 	// First attempt: run fully (reply + complete).
 	claimed, fence := e.claim(d.ID)
-	e.worker.run(claimed, fence)
+	e.worker.run(context.Background(), claimed, fence)
 	firstRuns := e.runs
 
 	beforeCount := len(e.messages())
@@ -311,7 +311,7 @@ func TestFaultDuplicateReplay(t *testing.T) {
 	// Replay the SAME delivery+fence (simulates a redelivery of an
 	// already-finalized attempt). Completed is terminal: replay must be
 	// idempotent for the finalizing fence and must not append a new message.
-	e.worker.run(claimed, fence)
+	e.worker.run(context.Background(), claimed, fence)
 
 	afterCount := len(e.messages())
 	if afterCount != beforeCount {
@@ -372,7 +372,7 @@ func TestFaultStaleFence(t *testing.T) {
 	}
 
 	// B finishes and binds+completes the real reply.
-	e.worker.run(claimedB, fenceB)
+	e.worker.run(context.Background(), claimedB, fenceB)
 	completed, err := e.app.Deliveries().Get(claimedB.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -390,7 +390,7 @@ func TestFaultStaleFence(t *testing.T) {
 
 	// Driving the full stale run must not corrupt B's completed result: still
 	// completed, still exactly one placeholder pointing at B's message.
-	e.worker.run(claimedA, fenceA)
+	e.worker.run(context.Background(), claimedA, fenceA)
 	after, err := e.app.Deliveries().Get(claimedB.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -420,7 +420,7 @@ func TestFaultFailedRetrySamePlaceholder(t *testing.T) {
 	claimed, fence := e.claim(d.ID)
 	func() {
 		defer func() { _ = recover() }()
-		e.worker.run(claimed, fence)
+		e.worker.run(context.Background(), claimed, fence)
 	}()
 
 	// If the worker swallowed the failure internally it should have marked the
@@ -459,7 +459,7 @@ func TestFaultFailedRetrySamePlaceholder(t *testing.T) {
 	}
 	e.reply = func(input string) string { return "recovered reply to " + input }
 	claimed2, fence2 := e.claim(d.ID)
-	e.worker.run(claimed2, fence2)
+	e.worker.run(context.Background(), claimed2, fence2)
 
 	done, err := e.app.Deliveries().Get(claimed.ID)
 	if err != nil {
@@ -526,7 +526,7 @@ func TestFaultTaskExistsDeliveryMissing(t *testing.T) {
 
 	// And the recovered delivery drives to a real reply.
 	claimed, fence := e.claim(ds[0].ID)
-	e.worker.run(claimed, fence)
+	e.worker.run(context.Background(), claimed, fence)
 	got, err := e.app.Deliveries().Get(claimed.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -606,7 +606,7 @@ func TestFaultWorkerFailMarksPlaceholderFailed(t *testing.T) {
 	})
 
 	claimed, fence := e.claim(d.ID)
-	e.worker.run(claimed, fence)
+	e.worker.run(context.Background(), claimed, fence)
 
 	got, err := e.app.Deliveries().Get(claimed.ID)
 	if err != nil {
@@ -947,7 +947,7 @@ func TestFaultOriginVanishedAfterBindLeaseReclaimFailsPlaceholder(t *testing.T) 
 	if claimed2.ResultMessageID != ph.ID {
 		t.Fatalf("ResultMessageID = %q, want %q preserved across lease reclaim", claimed2.ResultMessageID, ph.ID)
 	}
-	e.worker.run(claimed2, fence2)
+	e.worker.run(context.Background(), claimed2, fence2)
 
 	// The Delivery is failed and out of the claimable set.
 	got, err := e.app.Deliveries().Get(d.ID)
