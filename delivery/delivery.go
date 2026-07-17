@@ -200,6 +200,18 @@ func (d *Delivery) fenceMatches(f Fence) bool {
 		d.Lease.Version == f.Version
 }
 
+// OwnsLiveLease reports whether f is the authoritative current owner of this
+// Delivery as of now: it holds the live lease AND that lease has not expired.
+// It is the write-side authority predicate that gates a routed worker's Space
+// finalize — evaluated inside the SAME store critical section as the Space byte
+// write, so a superseded worker (whose fence was reclaimed by a newer Claim,
+// which bumps the lease version) can never land content over the new owner. The
+// strict expiry check matches Complete/Fail/Renew: an expired-but-unreclaimed
+// lease is NOT authoritative and must re-Claim before writing.
+func (d *Delivery) OwnsLiveLease(f Fence, now time.Time) bool {
+	return d.fenceMatches(f) && d.leaseActive(now)
+}
+
 // Claim grants ownerID a fresh lease over a claimable Delivery and returns the
 // fence the owner must present for subsequent renew/complete/fail. Attempt is
 // incremented ONLY here — an explicit Requeue does not touch it, so one Retry

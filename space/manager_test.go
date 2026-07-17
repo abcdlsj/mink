@@ -2,6 +2,7 @@ package space
 
 import (
 	"testing"
+	"time"
 )
 
 type memoryStore struct {
@@ -47,6 +48,13 @@ func (m *memoryStore) FindSpaceByKindAndKey(kind Kind, key string) (*Space, erro
 func (m *memoryStore) DeleteSpace(id string) error {
 	delete(m.byID, id)
 	return nil
+}
+
+// SaveSpaceUnderDeliveryFence is a pass-through in the manager fakes: the
+// live-lease authority check is exercised by the store + app fault tests against
+// a real Store, not by these Manager-only tests. Here it just persists.
+func (m *memoryStore) SaveSpaceUnderDeliveryFence(deliveryID, fenceOwnerID string, fenceVersion int64, now time.Time, sp *Space) error {
+	return m.SaveSpace(sp)
 }
 
 var errSpaceNotFound = errMockNotFound{}

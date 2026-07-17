@@ -8,6 +8,7 @@ import (
 
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/delivery"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/session"
 	"github.com/abcdlsj/sumi/space"
@@ -74,43 +75,104 @@ func (a *App) runQueuedChannelWake(job channelWakeJob) {
 	a.channelWakePipeline().runQueuedChannelWake(job)
 }
 
+// RetryChannelAgentReply re-drives a routed wake through the durable worker. It
+// never falls back to the old volatile runChannelWake: the retry is expressed
+// as a durable state transition so the same recovery guarantees apply.
+//
+//   - failed   -> Requeue (failed -> pending), reusing the SAME placeholder.
+//   - pending/leased -> already scheduled, just re-wake the worker.
+//   - completed/canceled -> terminal, nothing to retry.
+//
+// The durable delivery is created-if-absent first (recovering the "intent
+// persisted, delivery lost" gap), then transitioned. Execution is asynchronous;
+// this returns once the retry is scheduled, not once the reply is produced.
 func (a *App) RetryChannelAgentReply(ctx context.Context, originSource, spaceID, agentID, parentMessageID, originMessageID, originUserContent string) (string, error) {
+	if a == nil || a.store == nil {
+		return "", fmt.Errorf("durable delivery store unavailable")
+	}
+	parent := strings.TrimSpace(parentMessageID)
+	d := &delivery.Delivery{
+		Kind:            channelWakeKind(parent),
+		SpaceID:         strings.TrimSpace(spaceID),
+		ParentMessageID: parent,
+		OriginMessageID: strings.TrimSpace(originMessageID),
+		AgentID:         strings.TrimSpace(agentID),
+	}
+	created, _, err := a.store.Deliveries().CreateIfAbsent(d, time.Now())
+	if err != nil {
+		return "", err
+	}
+	switch created.Status {
+	case delivery.StatusFailed:
+		if _, err := a.store.Deliveries().Requeue(created.ID, time.Now()); err != nil {
+			return "", err
+		}
+	case delivery.StatusCompleted, delivery.StatusCanceled:
+		// Terminal: nothing to retry.
+		return "", nil
+	}
+	// Drive the delivery synchronously so the caller (Desktop retry action) gets
+	// the reply text or the fail-visible error inline, exactly as the old
+	// runChannelWake did — but through the SAME durable worker turn machinery,
+	// so the placeholder/fence/complete guarantees still hold and a crash mid-run
+	// is recoverable by reconcile.
+	return a.driveDeliverySync(ctx, created.ID)
+}
+
+// driveDeliverySync claims and runs one delivery attempt inline (no goroutine),
+// then reads back the terminal outcome: completed -> the finalized reply text;
+// failed -> the recorded error. It is used by synchronous callers (retry action)
+// that must surface a result; the background worker uses the async dispatch path.
+func (a *App) driveDeliverySync(ctx context.Context, deliveryID string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	target := space.RoutingTarget{
-		AgentID:         strings.TrimSpace(agentID),
-		OriginMessageID: strings.TrimSpace(originMessageID),
-		Reason:          "retry",
-	}
-	if parent := strings.TrimSpace(parentMessageID); parent != "" {
-		chain := space.NewRoutingChain(strings.TrimSpace(originMessageID), strings.TrimSpace(spaceID), space.DefaultRoutingBudget)
-		chain.ParentMessageID = parent
-		target.Chain = chain
-	}
-	result := a.channelWakePipeline().runChannelWake(ctx, originSource, spaceID, target, originUserContent, nil)
-	if len(result.notices) > 0 {
-		a.publishRoutingNotices(originSource, result.notices)
-	}
-	if result.err != nil {
-		return "", result.err
-	}
-	if strings.TrimSpace(result.resultMessageID) == "" {
-		return "", nil
-	}
-	if a == nil || a.spaces == nil {
-		return "", nil
-	}
-	sp, err := a.spaces.LoadSpace(spaceID)
-	if err != nil || sp == nil {
+	d, err := a.store.Deliveries().Get(deliveryID)
+	if err != nil {
 		return "", err
 	}
-	for _, m := range sp.Messages {
-		if m.ID == result.resultMessageID {
-			return strings.TrimSpace(m.Content), nil
-		}
+	w := a.worker
+	if w == nil {
+		w = newDeliveryWorker(a, a.workerOwnerID)
 	}
-	return "", nil
+	claimed, fence, err := a.store.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, w.ownerID, time.Now(), deliveryLeaseTTL)
+	if err != nil {
+		return "", err
+	}
+	runCtx := w.ctx
+	if runCtx == nil {
+		runCtx = ctx
+	}
+	// run() uses w.ctx for the renew loop; ensure it is set for a standalone worker.
+	prevCtx := w.ctx
+	w.ctx = runCtx
+	w.run(claimed, fence)
+	w.ctx = prevCtx
+
+	final, err := a.store.Deliveries().Get(claimed.ID)
+	if err != nil {
+		return "", err
+	}
+	switch final.Status {
+	case delivery.StatusFailed:
+		if strings.TrimSpace(final.Error) != "" {
+			return "", fmt.Errorf("%s", final.Error)
+		}
+		return "", fmt.Errorf("delivery failed")
+	case delivery.StatusCompleted:
+		if a.spaces != nil && strings.TrimSpace(final.ResultMessageID) != "" {
+			if sp, err := a.spaces.LoadSpace(final.SpaceID); err == nil && sp != nil {
+				for _, m := range sp.Messages {
+					if m.ID == final.ResultMessageID {
+						return strings.TrimSpace(m.Content), nil
+					}
+				}
+			}
+		}
+		return "", nil
+	default:
+		return "", nil
+	}
 }
 
 func (a *App) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) channelWakeResult {

@@ -6,9 +6,59 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/abcdlsj/sumi/delivery"
 	"github.com/abcdlsj/sumi/space"
 )
+
+// SaveSpaceUnderDeliveryFence is the write-side authority seam for routed
+// worker finalizes. It performs, inside a SINGLE Store-mutex critical section:
+//
+//  1. load the authoritative Delivery record,
+//  2. verify the presented fence (ownerID, version) still owns the LIVE lease
+//     as of now (delivery.OwnsLiveLease),
+//  3. only if so, persist sp; otherwise return space.ErrStaleDeliveryWrite and
+//     write no bytes at all.
+//
+// Because the fence check and the Space byte-write share one s.mu acquisition,
+// a concurrent Claim (which serializes on the same s.mu and bumps the lease
+// version) can never interleave between them. This is the linearization point
+// Iris required: a superseded worker that reaches here after a newer owner has
+// claimed is rejected BEFORE any content lands on disk — not merely reconciled
+// away afterward. The fence is passed as raw (ownerID, version) so the space
+// package need not import delivery; the Delivery domain type is rebuilt here.
+func (s *Store) SaveSpaceUnderDeliveryFence(deliveryID, fenceOwnerID string, fenceVersion int64, now time.Time, sp *space.Space) error {
+	if sp == nil {
+		return fmt.Errorf("space is nil")
+	}
+	if strings.TrimSpace(sp.ID) == "" {
+		return fmt.Errorf("space id is empty")
+	}
+	deliveryID = strings.TrimSpace(deliveryID)
+	if deliveryID == "" {
+		return fmt.Errorf("delivery id is empty")
+	}
+	data, err := json.MarshalIndent(sp, "", "  ")
+	if err != nil {
+		return err
+	}
+	fence := delivery.Fence{OwnerID: fenceOwnerID, Version: fenceVersion}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, err := s.Deliveries().loadLocked(deliveryID)
+	if err != nil {
+		return err
+	}
+	if d == nil {
+		return delivery.ErrNotFound
+	}
+	if !d.OwnsLiveLease(fence, now) {
+		return space.ErrStaleDeliveryWrite
+	}
+	path := s.spacePath(sp)
+	return writeFile(path, append(data, '\n'))
+}
 
 func (s *Store) SaveSpace(sp *space.Space) error {
 	if sp == nil {

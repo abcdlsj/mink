@@ -18,6 +18,7 @@ import (
 	"github.com/abcdlsj/sumi/store"
 	"github.com/abcdlsj/sumi/task"
 	"github.com/abcdlsj/sumi/tool"
+	"github.com/google/uuid"
 )
 
 type Plugin func(*App) error
@@ -37,6 +38,10 @@ type App struct {
 	spaceRouterOnce sync.Once
 	wakeMu          sync.Mutex
 	wakeQueues      map[string]chan channelWakeJob
+	workerOwnerID   string
+	worker          *deliveryWorker
+	startOnce       sync.Once
+	startErr        error
 	tools           *tool.Registry
 	cmds            *command.Registry
 	router          *command.Router
@@ -61,6 +66,7 @@ func New(cfg config.Config) (*App, error) {
 		spaces:     space.NewManager(db, "user", "You"),
 		tasks:      task.NewManager(db),
 		wakeQueues: map[string]chan channelWakeJob{},
+		workerOwnerID: "worker-" + uuid.NewString()[:8],
 		tools:      tool.NewRegistry(cfg.Workspace, cfg.ChildEnv()),
 		cmds:       command.NewRegistry(),
 		runtimes:   map[string]agent.RuntimeFactory{},
@@ -134,10 +140,41 @@ func approvalLabel(v tool.Approval) string {
 }
 
 func (a *App) Close() error {
-	if a == nil || a.store == nil {
+	if a == nil {
+		return nil
+	}
+	if a.worker != nil {
+		a.worker.stop()
+	}
+	if a.store == nil {
 		return nil
 	}
 	return a.store.Close()
+}
+
+// Start performs one-time startup: reconcile persisted routing intents into
+// durable deliveries (recovering any "fact written, delivery not yet created"
+// gap) and then launch the single delivery worker. It is idempotent — the CLI
+// entrypoint, the desktop Wails bridge, and any other host all funnel through
+// here, so calling it more than once is a no-op after the first success.
+//
+// If reconcile fails, the worker is NOT started and the error is returned: the
+// process must not begin accepting routed traffic on top of an inconsistent
+// delivery set. A cached error is returned on every later call so no host can
+// silently proceed past a failed start.
+func (a *App) Start(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	a.startOnce.Do(func() {
+		if err := a.reconcileDeliveries(ctx); err != nil {
+			a.startErr = fmt.Errorf("reconcile deliveries: %w", err)
+			return
+		}
+		a.worker = newDeliveryWorker(a, a.workerOwnerID)
+		a.worker.start(ctx)
+	})
+	return a.startErr
 }
 
 func (a *App) Use(ps ...Plugin) error {
@@ -153,6 +190,12 @@ func (a *App) Use(ps ...Plugin) error {
 }
 
 func (a *App) Run(ctx context.Context, args []string) error {
+	// Start the durable delivery subsystem (reconcile + worker) before any
+	// service or entrypoint begins accepting routed traffic. Start is idempotent
+	// via startOnce, so hosts that also call it explicitly are unaffected.
+	if err := a.Start(ctx); err != nil {
+		return err
+	}
 	for _, svc := range a.services {
 		if err := svc(ctx, a); err != nil {
 			return err

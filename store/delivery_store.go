@@ -352,6 +352,66 @@ func (ds *DeliveryStore) ListLeasedByOwner(ownerID string) ([]*delivery.Delivery
 	return out, nil
 }
 
+// Lane identifies one (space, parent, agent) FIFO execution lane.
+type Lane struct {
+	SpaceID         string
+	ParentMessageID string
+	AgentID         string
+}
+
+// ClaimableLanes returns the distinct lanes that currently hold at least one
+// claimable Delivery (pending, or leased with an expired lease) and NO active
+// lease. It is the worker's fallback-sweep discovery primitive: a lane returned
+// here is safe to attempt ClaimNextInLane on without hot-looping on ErrLaneBusy,
+// and a lane with only terminal/failed members is omitted so the sweep does not
+// spin on lanes that need an explicit Requeue. This is a read-only snapshot; an
+// interleaving claim just turns a later ClaimNextInLane into ErrLaneBusy/
+// ErrNotClaimable, which the worker already tolerates.
+func (ds *DeliveryStore) ClaimableLanes(now time.Time) ([]Lane, error) {
+	ds.s.mu.Lock()
+	defer ds.s.mu.Unlock()
+	all, err := ds.allLocked()
+	if err != nil {
+		return nil, err
+	}
+	type laneState struct {
+		lane      Lane
+		claimable bool
+		busy      bool
+	}
+	byKey := map[string]*laneState{}
+	order := make([]string, 0)
+	for _, d := range all {
+		key := d.LaneKey()
+		st := byKey[key]
+		if st == nil {
+			st = &laneState{lane: Lane{SpaceID: d.SpaceID, ParentMessageID: d.ParentMessageID, AgentID: d.AgentID}}
+			byKey[key] = st
+			order = append(order, key)
+		}
+		if d.Status == delivery.StatusLeased && now.Before(leaseExpiry(d)) {
+			st.busy = true
+			continue
+		}
+		switch d.Status {
+		case delivery.StatusPending:
+			st.claimable = true
+		case delivery.StatusLeased:
+			// lease present but expired (guarded above) => reclaimable
+			st.claimable = true
+		}
+	}
+	out := make([]Lane, 0, len(order))
+	for _, key := range order {
+		st := byKey[key]
+		if st.busy || !st.claimable {
+			continue
+		}
+		out = append(out, st.lane)
+	}
+	return out, nil
+}
+
 func leaseExpiry(d *delivery.Delivery) time.Time {
 	if d.Lease == nil {
 		return time.Time{}

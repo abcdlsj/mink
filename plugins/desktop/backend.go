@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -67,6 +68,11 @@ type pendingTurn struct {
 	SessionID       string
 	Source          string
 	StartedAt       time.Time
+	// DeliveryID is non-empty when this turn is driven by the durable delivery
+	// worker. On that path the worker owns the placeholder message (appended by
+	// EnsureDeliveryPlaceholder and finalized via the Delivery), so the desktop
+	// tracker binds to it read-through and must NOT delete it on TurnFinished.
+	DeliveryID string
 }
 
 func (b *Backend) hasActiveTurn(ids ...string) bool {
@@ -341,6 +347,32 @@ func (b *Backend) trackTurnStarted(ev bus.Event) bus.Event {
 	if agentID == "" {
 		agentID = "assistant"
 	}
+	// Durable worker path: the worker already appended the one placeholder for
+	// this DeliveryID and stamped its stable MessageID onto the event. Bind to it
+	// read-through — never append a second pending message, never consume a
+	// reusePending slot (that belongs to the desktop-driven retry path). The
+	// worker owns the placeholder's content and terminal state via the Delivery.
+	if deliveryID := strings.TrimSpace(ev.DeliveryID); deliveryID != "" {
+		boundID := b.resolveDeliveryPlaceholder(ev, deliveryID)
+		if boundID == "" {
+			return ev
+		}
+		b.mu.Lock()
+		b.pending[ev.StreamID] = pendingTurn{
+			SpaceID:         ev.SpaceID,
+			MessageID:       boundID,
+			ParentMessageID: strings.TrimSpace(ev.ParentMessageID),
+			AgentID:         agentID,
+			StreamID:        ev.StreamID,
+			SessionID:       ev.SessionID,
+			Source:          ev.Source,
+			StartedAt:       time.Now(),
+			DeliveryID:      deliveryID,
+		}
+		b.mu.Unlock()
+		ev.MessageID = boundID
+		return ev
+	}
 	key := pendingKey(ev.SpaceID, ev.ParentMessageID, agentID)
 	b.mu.Lock()
 	reuseID := b.reusePending[key]
@@ -439,7 +471,36 @@ func (b *Backend) finishPendingTurn(ev bus.Event) {
 	if p.MessageID == "" {
 		return
 	}
+	// Durable worker path: the worker finalizes its placeholder INTO the Space
+	// (content + intents + Complete) and owns its terminal state. Deleting here
+	// would race the worker's finalize and drop the durable reply. Leave it.
+	if strings.TrimSpace(p.DeliveryID) != "" {
+		return
+	}
 	_ = b.app.Spaces().DeleteMessage(p.SpaceID, p.MessageID)
+}
+
+// resolveDeliveryPlaceholder returns the stable placeholder MessageID for a
+// worker-driven turn. It trusts the MessageID the worker stamped onto the event
+// when that message still carries the DeliveryID, and otherwise scans the Space
+// for the one message bearing this DeliveryID (EnsureDeliveryPlaceholder keeps
+// it unique). Returns "" only if the placeholder cannot be located, in which
+// case the tracker declines to bind rather than append a divergent message.
+func (b *Backend) resolveDeliveryPlaceholder(ev bus.Event, deliveryID string) string {
+	sp, err := b.app.Spaces().LoadSpace(ev.SpaceID)
+	if err != nil || sp == nil {
+		return strings.TrimSpace(ev.MessageID)
+	}
+	stamped := strings.TrimSpace(ev.MessageID)
+	for i := range sp.Messages {
+		if sp.Messages[i].DeliveryID == deliveryID {
+			if stamped != "" && sp.Messages[i].ID == stamped {
+				return stamped
+			}
+			return sp.Messages[i].ID
+		}
+	}
+	return stamped
 }
 
 func (b *Backend) recoverPendingMessages(sp *space.Space) *space.Space {
@@ -3548,6 +3609,11 @@ func writeJSON(rw http.ResponseWriter, v any) {
 }
 
 func (b *Backend) start(ctx context.Context) {
+	// The desktop host bypasses app.Run, so start the durable delivery subsystem
+	// (reconcile + worker) here. Idempotent via startOnce.
+	if err := b.app.Start(ctx); err != nil {
+		slog.Error("durable delivery start failed", "err", err)
+	}
 	events, cancel := b.app.Bus().Subscribe(2048)
 	go func() {
 		defer cancel()

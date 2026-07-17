@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/abcdlsj/sumi/agent"
 	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/command"
+	"github.com/abcdlsj/sumi/delivery"
 	"github.com/abcdlsj/sumi/msg"
 	"github.com/abcdlsj/sumi/space"
 )
@@ -39,6 +41,14 @@ func (a *App) channelWakePipeline() *channelWakePipeline {
 	return &channelWakePipeline{app: a}
 }
 
+// enqueueChannelWake turns a routing target into a durable Delivery and wakes
+// the worker to execute it. The wake intent was already persisted on the origin
+// message inside RouteUserChannelMessage's atomic append, so this only
+// materializes the recoverable execution attempt (create-if-absent, keyed by
+// the stable idempotency key) — a crash before or after this call is recovered
+// by reconcileDeliveries reading the same persisted intent. If the durable
+// store is unavailable (older embedding), it falls back to the legacy volatile
+// goroutine queue so behaviour degrades rather than dropping the wake.
 func (p *channelWakePipeline) enqueueChannelWake(originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) []space.RoutingNotice {
 	a := p.app
 	if a == nil {
@@ -56,6 +66,20 @@ func (p *channelWakePipeline) enqueueChannelWake(originSource, spaceID string, t
 		ParentMessageID: parentMessageID,
 		AgentID:         target.AgentID,
 	})
+	if a.store != nil && a.worker != nil {
+		d := &delivery.Delivery{
+			Kind:            channelWakeKind(parentMessageID),
+			SpaceID:         strings.TrimSpace(spaceID),
+			ParentMessageID: strings.TrimSpace(parentMessageID),
+			OriginMessageID: strings.TrimSpace(target.OriginMessageID),
+			AgentID:         strings.TrimSpace(target.AgentID),
+		}
+		if _, _, err := a.store.Deliveries().CreateIfAbsent(d, time.Now()); err == nil {
+			a.worker.wake()
+			return nil
+		}
+	}
+	// Legacy fallback: volatile per-lane goroutine queue.
 	p.channelWakeQueue(wakeQueueKey(spaceID, parentMessageID, target.AgentID)) <- channelWakeJob{
 		originSource:      originSource,
 		spaceID:           spaceID,
@@ -64,6 +88,15 @@ func (p *channelWakePipeline) enqueueChannelWake(originSource, spaceID string, t
 		originAttachments: append([]msg.Attachment(nil), originAttachments...),
 	}
 	return nil
+}
+
+// channelWakeKind selects the durable delivery kind for a first-round wake: a
+// parent message means the wake lives in a thread.
+func channelWakeKind(parentMessageID string) delivery.Kind {
+	if strings.TrimSpace(parentMessageID) != "" {
+		return delivery.KindThreadWake
+	}
+	return delivery.KindChannelWake
 }
 
 func (p *channelWakePipeline) channelWakeQueue(key string) chan channelWakeJob {
@@ -93,7 +126,27 @@ func (p *channelWakePipeline) runQueuedChannelWake(job channelWakeJob) {
 	}
 }
 
+// runChannelWakeBound is the durable-worker entrypoint: it runs one claimed
+// Delivery's turn and finalizes the reply INTO the pre-created assistant
+// placeholder (binding.resultMessageID) rather than appending a new message.
+// Turn events carry the DeliveryID and the stable placeholder MessageID so the
+// desktop backend binds instead of appending, and never deletes the message on
+// TurnFinished. It is the exact same turn machinery as runChannelWake — only the
+// finalize + chained-wake continuation differ (persist intents + create downstream
+// deliveries instead of enqueuing volatile jobs).
+func (p *channelWakePipeline) runChannelWakeBound(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment, binding *wakeBinding) channelWakeResult {
+	return p.runChannelWakeImpl(ctx, originSource, spaceID, target, originUserContent, originAttachments, binding)
+}
+
 func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment) channelWakeResult {
+	return p.runChannelWakeImpl(ctx, originSource, spaceID, target, originUserContent, originAttachments, nil)
+}
+
+// runChannelWakeImpl is the shared turn executor. binding == nil is the
+// synchronous/direct append path (unchanged legacy behavior, keeps the sync
+// tests green); binding != nil is the durable worker path that finalizes into a
+// placeholder under a delivery fence.
+func (p *channelWakePipeline) runChannelWakeImpl(ctx context.Context, originSource, spaceID string, target space.RoutingTarget, originUserContent string, originAttachments []msg.Attachment, binding *wakeBinding) channelWakeResult {
 	a := p.app
 	persona := a.personas.Get(target.AgentID)
 	if persona == nil {
@@ -102,6 +155,22 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 	parentMessageID := ""
 	if target.Chain != nil {
 		parentMessageID = target.Chain.ParentMessageID
+	}
+	// When bound to a delivery, every turn event carries the DeliveryID and the
+	// stable placeholder MessageID so the desktop backend binds to (never appends
+	// or deletes) that one message.
+	deliveryID := ""
+	boundMessageID := ""
+	if binding != nil {
+		deliveryID = binding.deliveryID
+		boundMessageID = binding.resultMessageID
+	}
+	stamp := func(ev bus.Event) bus.Event {
+		ev.DeliveryID = deliveryID
+		if boundMessageID != "" {
+			ev.MessageID = boundMessageID
+		}
+		return ev
 	}
 	sessionSource := wakeSessionSource(originSource, parentMessageID, target.AgentID)
 	s, err := a.sessions.Current(sessionSource)
@@ -128,7 +197,7 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 	// no direct failed-message Append. streamID is reused as the turn's StreamID
 	// below so chunks / TurnFinished stay on the same stream.
 	streamID := newStreamID()
-	a.bus.Publish(bus.Event{
+	a.bus.Publish(stamp(bus.Event{
 		Type:            bus.TurnStarted,
 		Source:          s.Source,
 		SessionID:       s.ID,
@@ -136,9 +205,9 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 		ParentMessageID: parentMessageID,
 		AgentID:         persona.ID,
 		StreamID:        streamID,
-	})
+	}))
 	failStream := func(err error) channelWakeResult {
-		a.bus.Publish(bus.Event{
+		a.bus.Publish(stamp(bus.Event{
 			Type:            bus.TurnError,
 			Source:          s.Source,
 			SessionID:       s.ID,
@@ -147,7 +216,7 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 			ParentMessageID: parentMessageID,
 			AgentID:         persona.ID,
 			StreamID:        streamID,
-		})
+		}))
 		return channelWakeResult{err: err}
 	}
 
@@ -216,7 +285,7 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 			runErr = fmt.Errorf("%w; save session: %v", runErr, saveErr)
 		}
 		_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, runErr)
-		a.bus.Publish(bus.Event{
+		a.bus.Publish(stamp(bus.Event{
 			Type:            bus.TurnError,
 			Source:          s.Source,
 			SessionID:       s.ID,
@@ -225,12 +294,12 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 			ParentMessageID: turn.ParentMessageID,
 			AgentID:         turn.AgentID,
 			StreamID:        turn.StreamID,
-		})
+		}))
 		return channelWakeResult{err: runErr}
 	}
 	if err := a.sessions.Save(s); err != nil {
 		_ = a.persistChannelWakeFailure(spaceID, parentMessageID, target.AgentID, err)
-		a.bus.Publish(bus.Event{
+		a.bus.Publish(stamp(bus.Event{
 			Type:            bus.TurnError,
 			Source:          s.Source,
 			SessionID:       s.ID,
@@ -239,10 +308,10 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 			ParentMessageID: turn.ParentMessageID,
 			AgentID:         turn.AgentID,
 			StreamID:        turn.StreamID,
-		})
+		}))
 		return channelWakeResult{err: err}
 	}
-	a.bus.Publish(bus.Event{
+	a.bus.Publish(stamp(bus.Event{
 		Type:            bus.TurnFinished,
 		Source:          s.Source,
 		SessionID:       s.ID,
@@ -250,7 +319,7 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 		ParentMessageID: turn.ParentMessageID,
 		AgentID:         turn.AgentID,
 		StreamID:        turn.StreamID,
-	})
+	}))
 	content, reasoning := msg.AssistantOutput(s.Messages[baseline:])
 	attachments := assistantAttachments(s.Messages[baseline:], "memory_commit")
 	if strings.TrimSpace(content) == "" && strings.TrimSpace(reasoning) == "" {
@@ -264,6 +333,14 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 	resolved = filterOut(resolved, target.AgentID)
 
 	added := s.Messages[baseline:]
+	if binding != nil {
+		// Durable worker path: a stale fence means a newer owner reclaimed this
+		// lane; do not write the reply over them.
+		if binding.guard.stale() {
+			return channelWakeResult{}
+		}
+		return p.finalizeBoundReply(spaceID, parentMessageID, target, binding, content, reasoning, resolved, added, attachments)
+	}
 	draft := DraftAssistantMessage{
 		AgentID:         persona.ID,
 		Content:         content,
@@ -298,6 +375,110 @@ func (p *channelWakePipeline) runChannelWake(ctx context.Context, originSource, 
 		result.notices = append(result.notices, extra...)
 	}
 	return result
+}
+
+// finalizeBoundReply is the durable worker's "reply-before-complete" step. It
+// fills the pre-created placeholder (binding.resultMessageID) with the produced
+// reply and, in the SAME Space commit, persists any continuation wake intents the
+// reply triggers (FinalizeDeliveryMessage.buildIntents). Only after that commit
+// does it materialize the downstream deliveries from the persisted intents, so a
+// crash between reply and downstream-create is recoverable by reconcile reading
+// those intents. It never appends or deletes — the one-placeholder-per-DeliveryID
+// invariant holds.
+func (p *channelWakePipeline) finalizeBoundReply(spaceID, parentMessageID string, target space.RoutingTarget, binding *wakeBinding, content, reasoning string, resolved []string, added []msg.Message, attachments []msg.Attachment) channelWakeResult {
+	a := p.app
+	chainRoot := ""
+	if target.Chain != nil {
+		chainRoot = strings.TrimSpace(target.Chain.RootMessageID)
+	}
+	replyReason := a.routedReplyReason(spaceID, target)
+	// buildIntents is pure: it may only read the assigned reply id and the
+	// immutable pre-finalize snapshot. It caps continuation intents by the durable
+	// routing budget = DefaultRoutingBudget - (intents already recorded for this
+	// chain root), so total wakes per chain never exceed the budget across crashes.
+	buildIntents := func(assignedID string, existing []space.Message) []space.RoutingIntent {
+		if chainRoot == "" || len(resolved) == 0 {
+			return nil
+		}
+		spent := space.CountChainIntents(existing, chainRoot)
+		remaining := space.DefaultRoutingBudget - spent
+		if remaining <= 0 {
+			return nil
+		}
+		intents := make([]space.RoutingIntent, 0, len(resolved))
+		for _, id := range resolved {
+			if len(intents) >= remaining {
+				break
+			}
+			intents = append(intents, space.RoutingIntent{
+				AgentID:         id,
+				Kind:            "chain",
+				Reason:          replyReason,
+				ParentMessageID: parentMessageID,
+				ChainRoot:       chainRoot,
+			})
+		}
+		return intents
+	}
+	personas := a.fuzzyPersonaResolver()
+	// The live-lease authority check inside the store must use the same clock the
+	// lease/renew path uses (a fake clock in tests). binding.now carries the
+	// worker's clock; nil defaults to wall time for non-worker callers.
+	now := time.Now()
+	if binding.now != nil {
+		now = binding.now()
+	}
+	written, _, err := a.spaces.FinalizeDeliveryMessage(spaceID, binding.resultMessageID, binding.deliveryID, binding.fence.OwnerID, binding.fence.Version, now, func(m *space.Message) {
+		m.Content = content
+		m.Reasoning = reasoning
+		m.Mentions = resolved
+		m.AutoReplyReason = strings.TrimSpace(replyReason)
+		m.Status = ""
+		m.Error = ""
+		m.Usage = msg.AssistantUsage(added)
+		m.RuntimeMeta = msg.AssistantRuntimeMeta(added)
+		m.Attachments = attachments
+	}, resolved, personas.Info, buildIntents)
+	if err != nil {
+		return channelWakeResult{err: err}
+	}
+	result := channelWakeResult{
+		resultMessageID: binding.resultMessageID,
+		outcome:         shortOutcomeForTask(content),
+	}
+	// Materialize downstream deliveries from the just-persisted continuation
+	// intents. CreateIfAbsent is idempotent by StableKey, so a reconcile that
+	// races this create resolves to the same Delivery.
+	notices := a.createContinuationDeliveries(spaceID, written)
+	result.notices = append(result.notices, notices...)
+	// Any mention that did not fit the budget is reported exhausted, mirroring the
+	// legacy fanOut notice.
+	result.notices = append(result.notices, budgetDropNotices(spaceID, written, resolved)...)
+	return result
+}
+
+// budgetDropNotices emits a budget-exhausted notice for each resolved mention
+// that did not receive a persisted continuation intent (the reply named more
+// agents than the remaining chain budget allowed).
+func budgetDropNotices(spaceID string, reply space.Message, resolved []string) []space.RoutingNotice {
+	kept := make(map[string]struct{}, len(reply.RoutingIntents))
+	for _, it := range reply.RoutingIntents {
+		kept[it.AgentID] = struct{}{}
+	}
+	var notices []space.RoutingNotice
+	for _, id := range resolved {
+		if _, ok := kept[id]; ok {
+			continue
+		}
+		notices = append(notices, space.RoutingNotice{
+			Kind:      space.NoticeBudgetExhausted,
+			SpaceID:   spaceID,
+			MessageID: reply.ID,
+			AgentID:   id,
+			At:        time.Now(),
+		})
+	}
+	return notices
 }
 
 func wakeQueueKey(spaceID, parentMessageID, agentID string) string {

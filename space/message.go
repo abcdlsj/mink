@@ -50,6 +50,13 @@ type Message struct {
 	// Empty for user messages, direct-path replies, or pre-Phase-2 messages. It
 	// is the append-once key that keeps one visible message across
 	// pending/chunk/fail/retry/success.
-	DeliveryID string    `json:"delivery_id,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
+	DeliveryID string `json:"delivery_id,omitempty"`
+	// The write-side fence for routed worker finalizes is NOT stored on the
+	// message. Authority is "who owns the live Delivery lease now", re-read from
+	// the Delivery record inside the store's save critical section
+	// (Store.SaveSpaceUnderDeliveryFence) — a message-level version could only
+	// prove "highest WRITTEN version", not "highest CLAIMED fence", and would
+	// reopen the crash window where a superseded worker writes before the newer
+	// owner does.
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -17,6 +17,8 @@ func (a *App) Spaces() *space.Manager { return a.spaces }
 
 func (a *App) Tasks() *task.Manager { return a.tasks }
 
+func (a *App) Deliveries() *store.DeliveryStore { return a.store.Deliveries() }
+
 func (a *App) Workspace() string {
 	return a.cfg.Workspace
 }

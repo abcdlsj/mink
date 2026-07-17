@@ -58,4 +58,12 @@ type Event struct {
 	ParentMessageID string
 	AgentID         string
 	StreamID        string
+	// DeliveryID is set on routed turn events (TurnStarted/Chunk/Finished/Error)
+	// that a durable delivery worker drives. When present, the desktop backend
+	// binds to the delivery's pre-created assistant placeholder (MessageID) rather
+	// than appending a new pending message, and must NOT delete that message on
+	// TurnFinished — the worker owns the placeholder's terminal state via the
+	// Delivery. Empty for the direct single-agent path, which keeps its original
+	// zero-Delivery projection.
+	DeliveryID string
 }
