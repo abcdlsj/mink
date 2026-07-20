@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package sumi.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1;agentv1";
+
+service AgentService {
+  rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
+  rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+}
+
+enum Driver {
+  DRIVER_UNSPECIFIED = 0;
+  DRIVER_NATIVE = 1;
+  DRIVER_CODEX = 2;
+  DRIVER_CLAUDE = 3;
+}
+
+message Agent {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  Driver driver = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message CreateAgentRequest {
+  string request_id = 1;
+  string name = 2;
+  string description = 3;
+  Driver driver = 4;
+}
+
+message CreateAgentResponse {
+  Agent agent = 1;
+}
+
+message GetAgentRequest {
+  string agent_id = 1;
+}
+
+message GetAgentResponse {
+  Agent agent = 1;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+  repeated Agent agents = 1;
+}
