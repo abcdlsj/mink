@@ -33,6 +33,7 @@ Sumi 不是：
 - 只支持 macOS 与 Linux；Windows 不进入当前版本；
 - 使用单一中心服务与 SQLite，不预埋 PostgreSQL、多中心或 HA 双轨；
 - 每个 Agent 使用按 canonical Agent ID 寻址的长期 Workspace；Sandbox runtime、进程、Secret 与 Run 临时状态单独管理生命周期；
+- 每个 Agent 同时只有一个 active Run；其他 DM、Thread 与 Work 输入进入该 Agent 的 Inbox 排队，并行通过其他 Agent 完成；
 - 优先复用成熟 Sandbox 框架或系统能力，但不得因此阻塞可用版本；
 - 无法提供强隔离时允许 trusted local Workspace，产品必须明确展示其能力，不得称为强 Sandbox；
 - beelink Linux 机器只用于有明确目标的集成、故障与长稳验证，不成为日常开发依赖。
@@ -153,6 +154,29 @@ Agent 只因以下事件被唤起：
 群组消息不能无差别灌入所有 Agent。默认由明确触发和可审计策略决定谁需要响应，避免抢答、上下文污染和无意义消耗。
 
 Agent 起草期间如果 Space 已有新进展，系统应先保留草稿，让 Agent 选择修订、原样发送或保持沉默。
+
+同一个 Agent 当前只处理一个 active Run。其他 target 的输入进入 Inbox 排队，不得在运行中的 Prompt 中途混入。UI 必须显示 Agent 当前状态、正在处理的 target、排队数量，并允许 Human 进入对应上下文或取消当前工作；后续只有出现真实需求并能隔离 Workspace 写入时才考虑同 Agent 并发。
+
+### UI/UX 合同
+
+主界面沿用用户熟悉的 Slack 式信息架构，但目标是 Human 与 Agent 的自然协作，不是把 Agent 当作频道 Bot：
+
+- 左侧展示 DM、长期 Space 和临时 Work Space；
+- 中间是当前对话、Thread 与 Composer；
+- 右侧按当前上下文展示成员、关联 Work、Artifact、来源与权限；
+- 搜索覆盖 Agent、Space、Work、Artifact 和消息，并保留来源。
+
+Work 与 Artifact 必须从对话自然进入和返回：Message 可以升级为 Work，Work 的目标、进度、阻塞、证据与结果在当前上下文就地查看，Artifact 可以预览、引用和追溯。不要用后台管理大盘替代日常对话，也不要做卡片套卡片。
+
+所有关键状态必须可理解、可操作：
+
+- Agent available、working、queued、waiting approval、offline；
+- draft held、permission denied、workspace missing、Computer unavailable、Driver unsupported；
+- retry、cancel、approve、open Work、open Artifact、view source 都有明确入口。
+
+正常协作界面不展示 lease、fence、outbox、transport ack 等实现术语。Computer、Sandbox 与 Driver capability 可以检查和诊断，但只在需要时进入次级界面。
+
+Web 与 Desktop 使用同一套页面、状态语义和交互。每条关键用户旅程在实现前先有信息架构、状态图和可走通的交互原型；空态、加载、失败、断线、长文本和窄窗口都属于验收范围。
 
 ## 7. 记忆与知识
 
