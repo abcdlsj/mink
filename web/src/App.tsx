@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Archive,
   ChevronDown,
-  CircleUserRound,
   FileStack,
   Inbox,
   MessageSquare,
@@ -126,6 +125,21 @@ export default function App() {
             </label>
           </div>
           <div className="topbar-actions">
+            <div
+              className={`server-indicator ${bootstrap.status}`}
+              title={bootstrapLabel(
+                bootstrap.status,
+                bootstrap.value?.serverId,
+              )}
+            >
+              <span className={`status-dot ${bootstrap.status}`} />
+              <span>
+                {bootstrapLabel(bootstrap.status, bootstrap.value?.serverId)}
+              </span>
+              {bootstrap.status === "ready" && (
+                <small>v{bootstrap.value.version}</small>
+              )}
+            </div>
             <button
               className="icon-button compact-context-trigger"
               type="button"
@@ -252,20 +266,6 @@ export default function App() {
             </button>
           </div>
         </footer>
-
-        <footer className="statusbar">
-          <span>
-            <CircleUserRound size={14} /> Local Human
-          </span>
-          <span className="status-separator" />
-          <span className={`server-state ${bootstrap.status}`}>
-            <span className={`status-dot ${bootstrap.status}`} />
-            {bootstrapLabel(bootstrap.status, bootstrap.value?.serverId)}
-          </span>
-          {bootstrap.status === "ready" && (
-            <span>v{bootstrap.value.version}</span>
-          )}
-        </footer>
       </section>
 
       <aside className="context-pane" aria-label="Context">
@@ -311,23 +311,23 @@ function NavGroup({
   value: string;
 }) {
   return (
-    <button className="nav-row" type="button" disabled>
+    <div className="nav-row">
       <span>{icon}</span>
       <strong>{label}</strong>
       <small>{value}</small>
-    </button>
+    </div>
   );
 }
 
 function NavSection({ label, empty }: { label: string; empty: string }) {
   return (
-    <section className="nav-section">
-      <header>
+    <details className="nav-section" open>
+      <summary>
         <strong>{label}</strong>
         <ChevronDown size={14} />
-      </header>
+      </summary>
       <p>{empty}</p>
-    </section>
+    </details>
   );
 }
 

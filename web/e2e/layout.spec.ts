@@ -1,4 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+async function settleMotion(page: Page) {
+  await page.evaluate(async () => {
+    await Promise.all(
+      document
+        .getAnimations()
+        .map((animation) => animation.finished.catch(() => {})),
+    );
+  });
+}
 
 for (const viewport of [
   { width: 1440, height: 900 },
@@ -23,6 +33,7 @@ for (const viewport of [
 
     await expect(page.getByTestId("main-composer")).toBeVisible();
     await expect(page.getByTestId("context-composer")).toHaveCount(0);
+    await settleMotion(page);
 
     await page.screenshot({
       path: `../test-results/sumi-${viewport.width}x${viewport.height}.png`,
@@ -56,6 +67,7 @@ for (const viewport of [
     expect(mainComposer!.x + mainComposer!.width).toBeLessThanOrEqual(
       contextPane!.x,
     );
+    await settleMotion(page);
 
     await page.screenshot({
       path: `../test-results/sumi-context-open-${viewport.width}x${viewport.height}.png`,
@@ -116,6 +128,19 @@ for (const width of [900, 1023]) {
     await expect(page.getByTestId("main-composer")).toBeVisible();
     await expect(page.getByTestId("context-composer")).toHaveCount(0);
 
+    const hasOverflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    );
+    expect(hasOverflow).toBe(false);
+
+    await settleMotion(page);
+    await page.screenshot({
+      path: `../test-results/sumi-compact-${width}x700.png`,
+      fullPage: true,
+    });
+
     await page.getByRole("button", { name: "Open context" }).click();
 
     await expect(conversation).toBeHidden();
@@ -123,6 +148,12 @@ for (const width of [900, 1023]) {
     await expect(page.getByTestId("main-composer")).toBeHidden();
     await expect(page.getByText("No context selected")).toBeVisible();
     await expect(page.getByTestId("context-composer")).toHaveCount(0);
+
+    await settleMotion(page);
+    await page.screenshot({
+      path: `../test-results/sumi-compact-context-${width}x700.png`,
+      fullPage: true,
+    });
 
     await page.getByRole("button", { name: "Back to conversation" }).click();
 
