@@ -20,4 +20,6 @@ var (
 	ErrParentGrantInvalid       = errors.New("parent grant invalid")
 	ErrGrantExpansion           = errors.New("grant expands parent authority")
 	ErrLastOwner                = errors.New("cannot remove last recoverable owner")
+	ErrBrowserHandoffInvalid    = errors.New("browser handoff invalid")
+	ErrBrowserSessionInvalid    = errors.New("browser session invalid")
 )

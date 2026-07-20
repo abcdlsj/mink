@@ -26,6 +26,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
+	"github.com/abcdlsj/sumi/internal/websession"
 )
 
 type Server struct {
@@ -37,9 +38,13 @@ type Config struct {
 	DataRoot                string
 	WebRoot                 string
 	BootstrapCredentialFile string
+	BrowserOrigin           string
 }
 
 func New(ctx context.Context, config Config) (*Server, error) {
+	if err := authority.ValidateBrowserOrigin(config.BrowserOrigin); err != nil {
+		return nil, err
+	}
 	layout, err := home.Ensure(config.DataRoot)
 	if err != nil {
 		return nil, err
@@ -73,15 +78,25 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	authorization := connect.WithInterceptors(authority.NewInterceptor(database))
+	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+		Origin: config.BrowserOrigin, MutationProcedures: humanMutationProcedures(),
+	}))
 	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
 	mux.Handle(systemPath, systemHandler)
 	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database))
 	mux.Handle(computerPath, computerHandler)
-	agentMutationAuthorization := connect.WithInterceptors(authority.NewProcedureInterceptor(database, agentv1connect.AgentServiceCreateAgentProcedure))
+	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+		Origin:              config.BrowserOrigin,
+		ProtectedProcedures: []string{agentv1connect.AgentServiceCreateAgentProcedure},
+		MutationProcedures:  []string{agentv1connect.AgentServiceCreateAgentProcedure},
+	}))
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(agent.New(database), agentMutationAuthorization)
 	mux.Handle(agentPath, agentHandler)
-	placementMutationAuthorization := connect.WithInterceptors(authority.NewProcedureInterceptor(database, placementv1connect.PlacementServiceSetAgentPlacementProcedure))
+	placementMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+		Origin:              config.BrowserOrigin,
+		ProtectedProcedures: []string{placementv1connect.PlacementServiceSetAgentPlacementProcedure},
+		MutationProcedures:  []string{placementv1connect.PlacementServiceSetAgentPlacementProcedure},
+	}))
 	placementPath, placementHandler := placementv1connect.NewPlacementServiceHandler(placement.New(database), placementMutationAuthorization)
 	mux.Handle(placementPath, placementHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
@@ -95,11 +110,40 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})
+	if config.BrowserOrigin != "" {
+		browserSessions, err := websession.New(database, websession.Config{Origin: config.BrowserOrigin})
+		if err != nil {
+			database.Close()
+			return nil, err
+		}
+		mux.Handle("/auth/", browserSessions)
+	}
 	if config.WebRoot != "" {
 		mux.Handle("/", http.FileServer(http.Dir(config.WebRoot)))
 	}
+	handler, err := authority.BrowserRequestMiddleware(config.BrowserOrigin, mux)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
 
-	return &Server{handler: mux, store: database}, nil
+	return &Server{handler: handler, store: database}, nil
+}
+
+func humanMutationProcedures() []string {
+	return []string{
+		organizationv1connect.OrganizationServiceCreateHumanProcedure,
+		organizationv1connect.OrganizationServiceSetHumanStatusProcedure,
+		grantv1connect.GrantServiceIssueGrantProcedure,
+		grantv1connect.GrantServiceRevokeGrantProcedure,
+		spacev1connect.CollaborationServiceCreateDMProcedure,
+		spacev1connect.CollaborationServiceCreateGroupProcedure,
+		spacev1connect.CollaborationServiceAddMemberProcedure,
+		spacev1connect.CollaborationServiceRemoveMemberProcedure,
+		spacev1connect.CollaborationServiceArchiveSpaceProcedure,
+		spacev1connect.CollaborationServiceUnarchiveSpaceProcedure,
+		spacev1connect.CollaborationServiceSendMessageProcedure,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
