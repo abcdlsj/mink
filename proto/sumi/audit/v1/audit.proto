@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package sumi.audit.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sumi/grant/v1/grant.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/audit/v1;auditv1";
+
+service AuditService {
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse);
+}
+
+enum AuditAction {
+  AUDIT_ACTION_UNSPECIFIED = 0;
+  AUDIT_ACTION_ORGANIZATION_BOOTSTRAP = 1;
+  AUDIT_ACTION_HUMAN_CREATE = 2;
+  AUDIT_ACTION_HUMAN_STATUS_SET = 3;
+  AUDIT_ACTION_GRANT_ISSUE = 4;
+  AUDIT_ACTION_GRANT_REVOKE = 5;
+  AUDIT_ACTION_SPACE_CREATE = 6;
+  AUDIT_ACTION_SPACE_MEMBER_ADD = 7;
+  AUDIT_ACTION_SPACE_MEMBER_REMOVE = 8;
+  AUDIT_ACTION_SPACE_ARCHIVE = 9;
+  AUDIT_ACTION_SPACE_UNARCHIVE = 10;
+  AUDIT_ACTION_THREAD_CREATE = 11;
+  AUDIT_ACTION_MESSAGE_SEND = 12;
+}
+
+enum AuditOutcome {
+  AUDIT_OUTCOME_UNSPECIFIED = 0;
+  AUDIT_OUTCOME_COMMITTED = 1;
+  AUDIT_OUTCOME_DENIED = 2;
+}
+
+enum AuditTargetKind {
+  AUDIT_TARGET_KIND_UNSPECIFIED = 0;
+  AUDIT_TARGET_KIND_ORGANIZATION = 1;
+  AUDIT_TARGET_KIND_HUMAN = 2;
+  AUDIT_TARGET_KIND_GRANT = 3;
+  AUDIT_TARGET_KIND_SPACE = 4;
+  AUDIT_TARGET_KIND_MEMBERSHIP = 5;
+  AUDIT_TARGET_KIND_THREAD = 6;
+  AUDIT_TARGET_KIND_MESSAGE = 7;
+}
+
+message AuditEvent {
+  uint64 sequence = 1;
+  string id = 2;
+  string organization_id = 3;
+  sumi.grant.v1.Principal actor = 4;
+  AuditAction action = 5;
+  AuditTargetKind target_kind = 6;
+  string target_id = 7;
+  string request_id = 8;
+  AuditOutcome outcome = 9;
+  string reason_code = 10;
+  google.protobuf.Timestamp occurred_at = 11;
+}
+
+message ListAuditEventsRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+
+message ListAuditEventsResponse {
+  repeated AuditEvent events = 1;
+}

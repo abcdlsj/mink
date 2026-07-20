@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package sumi.grant.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1;grantv1";
+
+service GrantService {
+  rpc IssueGrant(IssueGrantRequest) returns (IssueGrantResponse);
+  rpc RevokeGrant(RevokeGrantRequest) returns (RevokeGrantResponse);
+  rpc GetGrant(GetGrantRequest) returns (GetGrantResponse);
+  rpc ListGrants(ListGrantsRequest) returns (ListGrantsResponse);
+  rpc CheckPermission(CheckPermissionRequest) returns (CheckPermissionResponse);
+}
+
+enum PrincipalKind {
+  PRINCIPAL_KIND_UNSPECIFIED = 0;
+  PRINCIPAL_KIND_SYSTEM = 1;
+  PRINCIPAL_KIND_HUMAN = 2;
+  PRINCIPAL_KIND_AGENT = 3;
+}
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_ORGANIZATION_ADMIN = 1;
+  CAPABILITY_HUMAN_CREATE = 2;
+  CAPABILITY_GRANT_ISSUE = 3;
+  CAPABILITY_GRANT_REVOKE = 4;
+  CAPABILITY_AUDIT_READ = 5;
+  CAPABILITY_AGENT_CREATE = 6;
+  CAPABILITY_AGENT_PLACE = 7;
+  CAPABILITY_SPACE_CREATE = 8;
+  CAPABILITY_SPACE_READ = 9;
+  CAPABILITY_SPACE_MEMBERS_MANAGE = 10;
+  CAPABILITY_SPACE_ARCHIVE = 11;
+  CAPABILITY_MESSAGE_SEND = 12;
+}
+
+enum ScopeKind {
+  SCOPE_KIND_UNSPECIFIED = 0;
+  SCOPE_KIND_ORGANIZATION = 1;
+  SCOPE_KIND_AGENT = 2;
+  SCOPE_KIND_COMPUTER = 3;
+  SCOPE_KIND_SPACE = 4;
+}
+
+message Principal {
+  PrincipalKind kind = 1;
+  string id = 2;
+}
+
+message Scope {
+  ScopeKind kind = 1;
+  string id = 2;
+}
+
+message Grant {
+  string id = 1;
+  string organization_id = 2;
+  Principal subject = 3;
+  Principal issuer = 4;
+  Capability capability = 5;
+  Scope scope = 6;
+  string parent_grant_id = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  google.protobuf.Timestamp revoked_at = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message IssueGrantRequest {
+  string request_id = 1;
+  Principal subject = 2;
+  Capability capability = 3;
+  Scope scope = 4;
+  string parent_grant_id = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message IssueGrantResponse {
+  Grant grant = 1;
+}
+
+message RevokeGrantRequest {
+  string request_id = 1;
+  string grant_id = 2;
+}
+
+message RevokeGrantResponse {
+  Grant grant = 1;
+}
+
+message GetGrantRequest {
+  string grant_id = 1;
+}
+
+message GetGrantResponse {
+  Grant grant = 1;
+}
+
+message ListGrantsRequest {}
+
+message ListGrantsResponse {
+  repeated Grant grants = 1;
+}
+
+message CheckPermissionRequest {
+  Principal subject = 1;
+  Capability capability = 2;
+  Scope scope = 3;
+}
+
+message CheckPermissionResponse {
+  bool allowed = 1;
+}

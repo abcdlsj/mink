@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package sumi.organization.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/organization/v1;organizationv1";
+
+service OrganizationService {
+  rpc GetOrganization(GetOrganizationRequest) returns (GetOrganizationResponse);
+  rpc CreateHuman(CreateHumanRequest) returns (CreateHumanResponse);
+  rpc GetHuman(GetHumanRequest) returns (GetHumanResponse);
+  rpc ListHumans(ListHumansRequest) returns (ListHumansResponse);
+  rpc SetHumanStatus(SetHumanStatusRequest) returns (SetHumanStatusResponse);
+}
+
+enum HumanRole {
+  HUMAN_ROLE_UNSPECIFIED = 0;
+  HUMAN_ROLE_OWNER = 1;
+  HUMAN_ROLE_MEMBER = 2;
+}
+
+enum HumanStatus {
+  HUMAN_STATUS_UNSPECIFIED = 0;
+  HUMAN_STATUS_ACTIVE = 1;
+  HUMAN_STATUS_DISABLED = 2;
+}
+
+message Organization {
+  string id = 1;
+  string name = 2;
+  string bootstrap_human_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message Human {
+  string id = 1;
+  string organization_id = 2;
+  string name = 3;
+  HumanRole role = 4;
+  HumanStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message GetOrganizationRequest {}
+
+message GetOrganizationResponse {
+  Organization organization = 1;
+}
+
+message CreateHumanRequest {
+  string request_id = 1;
+  string name = 2;
+  HumanRole role = 3;
+  string credential = 4;
+}
+
+message CreateHumanResponse {
+  Human human = 1;
+}
+
+message GetHumanRequest {
+  string human_id = 1;
+}
+
+message GetHumanResponse {
+  Human human = 1;
+}
+
+message ListHumansRequest {}
+
+message ListHumansResponse {
+  repeated Human humans = 1;
+}
+
+message SetHumanStatusRequest {
+  string request_id = 1;
+  string human_id = 2;
+  HumanStatus status = 3;
+}
+
+message SetHumanStatusResponse {
+  Human human = 1;
+}

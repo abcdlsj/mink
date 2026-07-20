@@ -31,12 +31,13 @@ func run() error {
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	dataRoot := flag.String("data-root", defaultRoot, "Sumi data root")
 	webRoot := flag.String("web-root", "web/dist", "Production Web root")
+	ownerKeyFile := flag.String("owner-key-file", "", "0600 bootstrap owner credential file")
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app, err := server.New(ctx, server.Config{DataRoot: *dataRoot, WebRoot: *webRoot})
+	app, err := server.New(ctx, server.Config{DataRoot: *dataRoot, WebRoot: *webRoot, BootstrapCredentialFile: *ownerKeyFile})
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}

@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
+	"syscall"
 )
 
 var credentialPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43,128}$`)
@@ -50,9 +52,19 @@ func EnsureBootstrapCredential(path string, authorityExists bool) (string, error
 }
 
 func ReadCredentialFile(path string) (string, error) {
-	info, err := os.Lstat(path)
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return "", err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if file == nil {
+		syscall.Close(fd)
+		return "", fmt.Errorf("open credential file")
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return "", fmt.Errorf("inspect credential file: %w", err)
 	}
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("credential file is not a regular file")
@@ -60,7 +72,7 @@ func ReadCredentialFile(path string) (string, error) {
 	if info.Mode().Perm() != 0o600 {
 		return "", fmt.Errorf("credential file mode is %o, want 600", info.Mode().Perm())
 	}
-	payload, err := os.ReadFile(path)
+	payload, err := io.ReadAll(io.LimitReader(file, 129))
 	if err != nil {
 		return "", fmt.Errorf("read credential file: %w", err)
 	}

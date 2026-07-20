@@ -13,6 +13,7 @@ var (
 	ErrGrantNotFound            = errors.New("grant not found")
 	ErrGrantRequestConflict     = errors.New("grant request conflict")
 	ErrGrantRevokeConflict      = errors.New("grant revoke request conflict")
+	ErrGrantInvalid             = errors.New("grant invalid")
 	ErrPermissionDenied         = errors.New("permission denied")
 	ErrPrincipalNotFound        = errors.New("principal not found")
 	ErrScopeNotFound            = errors.New("scope not found")

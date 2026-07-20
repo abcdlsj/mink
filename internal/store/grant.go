@@ -33,6 +33,9 @@ func ValidCapability(capability string) bool {
 }
 
 func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant, error) {
+	if !ValidCapability(params.Capability) || (params.Subject.Kind != "human" && params.Subject.Kind != "agent") {
+		return Grant{}, ErrGrantInvalid
+	}
 	fingerprint, err := authorityFingerprint(struct {
 		SubjectKind string `json:"subject_kind"`
 		SubjectID   string `json:"subject_id"`
