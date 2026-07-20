@@ -1,0 +1,324 @@
+package store
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"errors"
+	"fmt"
+	"regexp"
+	"time"
+)
+
+const agentRuntimeSessionHashDomain = "sumi-agent-runtime-session-v1\x00"
+
+var agentRuntimeTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+
+type AgentRuntimeSession struct {
+	AgentID             string
+	ComputerID          string
+	PlacementGeneration uint64
+	CreatedAt           time.Time
+	ExpiresAt           time.Time
+}
+
+type AgentRuntimeProof struct {
+	tokenHash           [sha256.Size]byte
+	agentID             string
+	computerID          string
+	placementGeneration uint64
+}
+
+type AgentRuntimeAuthentication struct {
+	Principal Principal
+	Proof     AgentRuntimeProof
+}
+
+func (a AgentRuntimeAuthentication) Valid() bool {
+	return a.Principal.Kind == "agent" && a.Principal.ID != "" && a.Principal.OrganizationID != "" &&
+		validAgentRuntimeProof(a.Proof) && a.Proof.agentID == a.Principal.ID
+}
+
+type CreateAgentRuntimeSessionParams struct {
+	ComputerID          string
+	RegistrationKey     string
+	AgentID             string
+	PlacementGeneration uint64
+	Token               string
+	Now                 time.Time
+	ExpiresAt           time.Time
+}
+
+type RenewAgentRuntimeSessionParams struct {
+	Proof           AgentRuntimeProof
+	ComputerID      string
+	RegistrationKey string
+	Token           string
+	Now             time.Time
+	ExpiresAt       time.Time
+}
+
+type RevokeAgentRuntimeSessionParams struct {
+	Proof           AgentRuntimeProof
+	ComputerID      string
+	RegistrationKey string
+	Now             time.Time
+}
+
+func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
+	if !validAgentRuntimeSession(params.AgentID, params.ComputerID, params.PlacementGeneration, params.Token, params.Now, params.ExpiresAt) {
+		return AgentRuntimeSession{}, ErrAgentRuntimeInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AgentRuntimeSession{}, fmt.Errorf("begin agent runtime session creation: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	bound, err := activeRuntimeBinding(ctx, tx, params.AgentID, params.ComputerID, params.PlacementGeneration)
+	if err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if !bound {
+		return AgentRuntimeSession{}, ErrAgentRuntimeBinding
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE agent_runtime_sessions
+		SET revoked_at = max(created_at, ?)
+		WHERE agent_id = ? AND revoked_at IS NULL
+	`, unixNano(params.Now), params.AgentID); err != nil {
+		return AgentRuntimeSession{}, fmt.Errorf("revoke current agent runtime session: %w", err)
+	}
+	session := AgentRuntimeSession{
+		AgentID: params.AgentID, ComputerID: params.ComputerID,
+		PlacementGeneration: params.PlacementGeneration,
+		CreatedAt:           params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
+	}
+	if err := insertAgentRuntimeSession(ctx, tx, session, params.Token); err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AgentRuntimeSession{}, fmt.Errorf("commit agent runtime session creation: %w", err)
+	}
+	return session, nil
+}
+
+func (s *Store) AuthenticateAgentRuntimeSession(ctx context.Context, token string, now time.Time) (AgentRuntimeAuthentication, error) {
+	if !agentRuntimeTokenPattern.MatchString(token) || now.IsZero() {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	hash := agentRuntimeTokenHash(token)
+	authentication, err := agentRuntimeAuthentication(ctx, s.db, hash, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	if err != nil {
+		return AgentRuntimeAuthentication{}, fmt.Errorf("authenticate agent runtime session: %w", err)
+	}
+	return authentication, nil
+}
+
+func (s *Store) RenewAgentRuntimeSession(ctx context.Context, params RenewAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
+	if !validAgentRuntimeRenewal(params) {
+		return AgentRuntimeSession{}, ErrAgentRuntimeInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return AgentRuntimeSession{}, fmt.Errorf("begin agent runtime session renewal: %w", err)
+	}
+	defer tx.Rollback()
+
+	authentication, err := requireAgentRuntimeSession(ctx, tx, params.Proof, params.Now)
+	if err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if authentication.Proof.computerID != params.ComputerID {
+		return AgentRuntimeSession{}, ErrAgentRuntimeBinding
+	}
+	revoked, err := revokeAgentRuntimeProof(ctx, tx, authentication.Proof, params.Now)
+	if err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if !revoked {
+		return AgentRuntimeSession{}, ErrAgentRuntimeUnauthenticated
+	}
+	session := AgentRuntimeSession{
+		AgentID: authentication.Proof.agentID, ComputerID: authentication.Proof.computerID,
+		PlacementGeneration: authentication.Proof.placementGeneration,
+		CreatedAt:           params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
+	}
+	if err := insertAgentRuntimeSession(ctx, tx, session, params.Token); err != nil {
+		return AgentRuntimeSession{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return AgentRuntimeSession{}, fmt.Errorf("commit agent runtime session renewal: %w", err)
+	}
+	return session, nil
+}
+
+func (s *Store) RevokeAgentRuntimeSession(ctx context.Context, params RevokeAgentRuntimeSessionParams) error {
+	if params.ComputerID == "" || params.RegistrationKey == "" || params.Now.IsZero() {
+		return ErrAgentRuntimeInvalid
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin agent runtime session revocation: %w", err)
+	}
+	defer tx.Rollback()
+
+	authentication, err := requireAgentRuntimeSession(ctx, tx, params.Proof, params.Now)
+	if err != nil {
+		return err
+	}
+	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
+		return err
+	}
+	if authentication.Proof.computerID != params.ComputerID {
+		return ErrAgentRuntimeBinding
+	}
+	revoked, err := revokeAgentRuntimeProof(ctx, tx, authentication.Proof, params.Now)
+	if err != nil {
+		return err
+	}
+	if !revoked {
+		return ErrAgentRuntimeUnauthenticated
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit agent runtime session revocation: %w", err)
+	}
+	return nil
+}
+
+func requireAgentRuntimeSession(ctx context.Context, tx *sql.Tx, proof AgentRuntimeProof, now time.Time) (AgentRuntimeAuthentication, error) {
+	if !validAgentRuntimeProof(proof) || now.IsZero() {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	authentication, err := agentRuntimeAuthentication(ctx, tx, proof.tokenHash, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	if err != nil {
+		return AgentRuntimeAuthentication{}, fmt.Errorf("recheck agent runtime session: %w", err)
+	}
+	if authentication.Proof != proof {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	return authentication, nil
+}
+
+func agentRuntimeAuthentication(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, hash [sha256.Size]byte, now time.Time) (AgentRuntimeAuthentication, error) {
+	var authentication AgentRuntimeAuthentication
+	var storedHash []byte
+	err := queryer.QueryRowContext(ctx, `
+		SELECT 'agent', sessions.agent_id, organizations.id,
+		       sessions.token_hash, sessions.computer_id, sessions.placement_generation
+		FROM agent_runtime_sessions AS sessions
+		JOIN agent_placements AS placements
+		  ON placements.agent_id = sessions.agent_id
+		 AND placements.computer_id = sessions.computer_id
+		 AND placements.generation = sessions.placement_generation
+		JOIN organizations ON organizations.singleton = 1
+		WHERE sessions.token_hash = ?
+		  AND sessions.revoked_at IS NULL
+		  AND sessions.expires_at > ?
+		  AND placements.state = 'active'
+	`, hash[:], unixNano(now)).Scan(
+		&authentication.Principal.Kind,
+		&authentication.Principal.ID,
+		&authentication.Principal.OrganizationID,
+		&storedHash,
+		&authentication.Proof.computerID,
+		&authentication.Proof.placementGeneration,
+	)
+	if err != nil {
+		return AgentRuntimeAuthentication{}, err
+	}
+	if len(storedHash) != sha256.Size {
+		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	copy(authentication.Proof.tokenHash[:], storedHash)
+	authentication.Proof.agentID = authentication.Principal.ID
+	return authentication, nil
+}
+
+func activeRuntimeBinding(ctx context.Context, tx *sql.Tx, agentID, computerID string, generation uint64) (bool, error) {
+	var bound bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM agent_placements
+			WHERE agent_id = ? AND computer_id = ? AND generation = ? AND state = 'active'
+		)
+	`, agentID, computerID, generation).Scan(&bound); err != nil {
+		return false, fmt.Errorf("check active agent runtime binding: %w", err)
+	}
+	return bound, nil
+}
+
+func insertAgentRuntimeSession(ctx context.Context, tx *sql.Tx, session AgentRuntimeSession, token string) error {
+	hash := agentRuntimeTokenHash(token)
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO agent_runtime_sessions(
+			token_hash, agent_id, computer_id, placement_generation, created_at, expires_at
+		)
+		VALUES(?, ?, ?, ?, ?, ?)
+	`, hash[:], session.AgentID, session.ComputerID, session.PlacementGeneration,
+		unixNano(session.CreatedAt), unixNano(session.ExpiresAt)); err != nil {
+		return fmt.Errorf("persist agent runtime session: %w", err)
+	}
+	return nil
+}
+
+func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntimeProof, now time.Time) (bool, error) {
+	result, err := tx.ExecContext(ctx, `
+		UPDATE agent_runtime_sessions
+		SET revoked_at = max(created_at, ?)
+		WHERE token_hash = ?
+		  AND agent_id = ?
+		  AND computer_id = ?
+		  AND placement_generation = ?
+		  AND revoked_at IS NULL
+		  AND expires_at > ?
+		  AND EXISTS(
+			SELECT 1 FROM agent_placements
+			WHERE agent_id = agent_runtime_sessions.agent_id
+			  AND computer_id = agent_runtime_sessions.computer_id
+			  AND generation = agent_runtime_sessions.placement_generation
+			  AND state = 'active'
+		  )
+	`, unixNano(now), proof.tokenHash[:], proof.agentID, proof.computerID,
+		proof.placementGeneration, unixNano(now))
+	if err != nil {
+		return false, fmt.Errorf("revoke agent runtime session: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("count agent runtime session revocation: %w", err)
+	}
+	return count == 1, nil
+}
+
+func validAgentRuntimeSession(agentID, computerID string, generation uint64, token string, now, expiresAt time.Time) bool {
+	return agentID != "" && computerID != "" && generation > 0 &&
+		agentRuntimeTokenPattern.MatchString(token) && !now.IsZero() && expiresAt.After(now)
+}
+
+func validAgentRuntimeRenewal(params RenewAgentRuntimeSessionParams) bool {
+	return validAgentRuntimeProof(params.Proof) && params.ComputerID != "" && params.RegistrationKey != "" &&
+		agentRuntimeTokenPattern.MatchString(params.Token) && !params.Now.IsZero() && params.ExpiresAt.After(params.Now)
+}
+
+func validAgentRuntimeProof(proof AgentRuntimeProof) bool {
+	return proof.tokenHash != [sha256.Size]byte{} && proof.agentID != "" && proof.computerID != "" && proof.placementGeneration > 0
+}
+
+func agentRuntimeTokenHash(token string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(agentRuntimeSessionHashDomain + token))
+}

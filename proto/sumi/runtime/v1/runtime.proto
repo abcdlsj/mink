@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package sumi.runtime.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1;runtimev1";
+
+service AgentRuntimeService {
+  rpc CreateAgentRuntimeSession(CreateAgentRuntimeSessionRequest) returns (CreateAgentRuntimeSessionResponse);
+  rpc RenewAgentRuntimeSession(RenewAgentRuntimeSessionRequest) returns (RenewAgentRuntimeSessionResponse);
+  rpc RevokeAgentRuntimeSession(RevokeAgentRuntimeSessionRequest) returns (RevokeAgentRuntimeSessionResponse);
+}
+
+message AgentRuntimeSession {
+  string agent_id = 1;
+  string computer_id = 2;
+  uint64 placement_generation = 3;
+  string token = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message CreateAgentRuntimeSessionRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+  string agent_id = 3;
+  uint64 placement_generation = 4;
+}
+
+message CreateAgentRuntimeSessionResponse {
+  AgentRuntimeSession session = 1;
+}
+
+message RenewAgentRuntimeSessionRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message RenewAgentRuntimeSessionResponse {
+  AgentRuntimeSession session = 1;
+}
+
+message RevokeAgentRuntimeSessionRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message RevokeAgentRuntimeSessionResponse {}
