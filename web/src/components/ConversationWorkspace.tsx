@@ -10,6 +10,7 @@ import {
   RotateCw,
   Search,
   Send,
+  ShieldCheck,
   UsersRound,
 } from "lucide-react";
 import type { useBootstrap } from "../hooks/useBootstrap";
@@ -185,13 +186,12 @@ export function ConversationWorkspace({
           </div>
         ) : session.status === "unauthenticated" ? (
           <div className="authentication-state" role="status">
-            <span className="authentication-mark">H</span>
+            <span className="authentication-mark" aria-hidden="true">
+              <ShieldCheck size={30} strokeWidth={1.7} />
+            </span>
             <div>
               <h2>Authentication required</h2>
-              <p>
-                Use the trusted local CLI with your 0600 Human credential, then
-                open its one-time browser URL.
-              </p>
+              <p>This browser has no active Human session.</p>
             </div>
           </div>
         ) : (
@@ -248,10 +248,11 @@ export function ConversationWorkspace({
 
 function SessionIndicator({ session }: { session: Session }) {
   if (session.status !== "authenticated" && session.status !== "logging-out") {
+    const label = sessionLabel(session.status);
     return (
-      <div className={`session-indicator ${session.status}`}>
+      <div className={`session-indicator ${session.status}`} aria-label={label}>
         <span className={`status-dot ${session.status}`} />
-        <span>Human signed out</span>
+        <span>{label}</span>
       </div>
     );
   }
@@ -271,6 +272,12 @@ function SessionIndicator({ session }: { session: Session }) {
       </button>
     </div>
   );
+}
+
+function sessionLabel(status: Session["status"]) {
+  if (status === "loading" || status === "retrying") return "Checking session";
+  if (status === "error") return "Session unavailable";
+  return "Human signed out";
 }
 
 export function ServerIndicator({ bootstrap }: { bootstrap: Bootstrap }) {

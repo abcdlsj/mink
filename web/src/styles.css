@@ -549,12 +549,7 @@ select {
   width: 46px;
   height: 46px;
   place-items: center;
-  border: 1px solid var(--ink);
-  border-radius: 4px;
-  background: var(--accent-soft);
   color: #185c3b;
-  font-size: 18px;
-  font-weight: 750;
 }
 
 .authentication-state h2 {

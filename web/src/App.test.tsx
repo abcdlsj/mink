@@ -128,12 +128,37 @@ describe("App", () => {
     expect(
       await screen.findByText("Authentication required"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("This browser has no active Human session."),
+    ).toBeInTheDocument();
     expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
     expect(
       screen.queryByText("Authentication required"),
     ).not.toBeInTheDocument();
+  });
+
+  it("does not report an unknown or failed session as signed out", async () => {
+    let resolveSession!: (value: undefined) => void;
+    mockedGetSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSession = resolve;
+        }),
+    );
+
+    const first = render(<App />);
+    expect(await screen.findByText("Checking session")).toBeInTheDocument();
+    expect(screen.queryByText("Human signed out")).not.toBeInTheDocument();
+    await act(async () => resolveSession(undefined));
+    expect(await screen.findByText("Human signed out")).toBeInTheDocument();
+    first.unmount();
+
+    mockedGetSession.mockRejectedValueOnce(new Error("session unavailable"));
+    render(<App />);
+    expect(await screen.findByText("Session unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Human signed out")).not.toBeInTheDocument();
   });
 
   it("logs out without hiding public management facts", async () => {
