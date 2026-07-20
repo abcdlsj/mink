@@ -124,12 +124,18 @@ func commitMutationReplay(tx *sql.Tx, requestID string, receipt collaborationRec
 }
 
 func denyCollaboration(ctx context.Context, tx *sql.Tx, actor Principal, action, targetKind, targetID, requestID, reason string, now time.Time, result error) error {
+	return denyCollaborationWithContext(ctx, tx, actor, action, targetKind, targetID, "", "", requestID, reason, now, result)
+}
+
+func denyCollaborationWithContext(ctx context.Context, tx *sql.Tx, actor Principal, action, targetKind, targetID, contextKind, contextID, requestID, reason string, now time.Time, result error) error {
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
 		OrganizationID: actor.OrganizationID,
 		Actor:          actor,
 		Action:         action,
 		TargetKind:     targetKind,
 		TargetID:       targetID,
+		ContextKind:    contextKind,
+		ContextID:      contextID,
 		RequestID:      requestID,
 		Outcome:        "denied",
 		ReasonCode:     reason,
@@ -144,6 +150,10 @@ func denyCollaboration(ctx context.Context, tx *sql.Tx, actor Principal, action,
 }
 
 func requireCollaborationGrant(ctx context.Context, tx *sql.Tx, actor Principal, capability string, scope Scope, action, targetKind, targetID, requestID string, now time.Time) error {
+	return requireCollaborationGrantWithContext(ctx, tx, actor, capability, scope, action, targetKind, targetID, "", "", requestID, now)
+}
+
+func requireCollaborationGrantWithContext(ctx context.Context, tx *sql.Tx, actor Principal, capability string, scope Scope, action, targetKind, targetID, contextKind, contextID, requestID string, now time.Time) error {
 	reason, err := requireGrant(ctx, tx, actor, capability, scope, now, "")
 	if err != nil {
 		return err
@@ -151,7 +161,7 @@ func requireCollaborationGrant(ctx context.Context, tx *sql.Tx, actor Principal,
 	if reason == "" {
 		return nil
 	}
-	return denyCollaboration(ctx, tx, actor, action, targetKind, targetID, requestID, reason, now, ErrPermissionDenied)
+	return denyCollaborationWithContext(ctx, tx, actor, action, targetKind, targetID, contextKind, contextID, requestID, reason, now, ErrPermissionDenied)
 }
 
 func validatePrincipalInOrganization(ctx context.Context, tx *sql.Tx, principal Principal, organizationID string) error {

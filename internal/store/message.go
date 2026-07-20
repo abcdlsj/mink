@@ -126,15 +126,19 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
 			OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditThreadCreate,
 			TargetKind: "thread", TargetID: params.Target.ID, RequestID: params.RequestID,
-			Outcome: "committed", Now: params.Now,
+			ContextKind: "space", ContextID: spaceID, Outcome: "committed", Now: params.Now,
 		}); err != nil {
 			return Message{}, err
 		}
 	}
+	contextKind, contextID := "space", spaceID
+	if params.Target.Kind == MessageTargetThread {
+		contextKind, contextID = "thread", params.Target.ID
+	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
 		OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditMessageSend,
 		TargetKind: "message", TargetID: messageID, RequestID: params.RequestID,
-		Outcome: "committed", Now: params.Now,
+		ContextKind: contextKind, ContextID: contextID, Outcome: "committed", Now: params.Now,
 	}); err != nil {
 		return Message{}, err
 	}

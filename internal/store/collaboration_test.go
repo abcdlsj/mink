@@ -129,6 +129,10 @@ func TestMessageTargetSequencesThreadIsolationCursorReplayAndRestart(t *testing.
 	if root.RequestID != rootParams.RequestID {
 		t.Fatalf("root request id = %q, want %q", root.RequestID, rootParams.RequestID)
 	}
+	rootAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditMessageSend, root.ID, "committed")
+	if rootAudit.ContextKind != "space" || rootAudit.ContextID != group.ID {
+		t.Fatalf("root message audit context = %+v", rootAudit)
+	}
 	var storedFingerprint []byte
 	if err := database.db.QueryRow(`SELECT payload_fingerprint FROM messages WHERE id = ?`, root.ID).Scan(&storedFingerprint); err != nil {
 		t.Fatal(err)
@@ -175,6 +179,18 @@ func TestMessageTargetSequencesThreadIsolationCursorReplayAndRestart(t *testing.
 	assertSequences(t, threadResults, concurrent)
 	if got := countAuditAction(t, database, owner.OrganizationID, AuditThreadCreate, "committed"); got != 1 {
 		t.Fatalf("thread.create audits = %d, want 1", got)
+	}
+	mainAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditMessageSend, mainResults[0].ID, "committed")
+	if mainAudit.ContextKind != "space" || mainAudit.ContextID != group.ID {
+		t.Fatalf("main message audit context = %+v", mainAudit)
+	}
+	replyAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditMessageSend, threadResults[0].ID, "committed")
+	if replyAudit.ContextKind != "thread" || replyAudit.ContextID != root.ID {
+		t.Fatalf("thread reply audit context = %+v", replyAudit)
+	}
+	threadAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditThreadCreate, root.ID, "committed")
+	if threadAudit.ContextKind != "space" || threadAudit.ContextID != group.ID {
+		t.Fatalf("thread creation audit context = %+v", threadAudit)
 	}
 
 	auditsBeforeReplay := auditCount(t, database, owner.OrganizationID)
@@ -290,7 +306,7 @@ func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 	}); !errors.Is(err, ErrLastActiveHumanMember) {
 		t.Fatalf("remove last active human error = %v", err)
 	}
-	if latest := latestAudit(t, database, owner.OrganizationID); latest.Action != AuditSpaceMemberRemove || latest.Outcome != "denied" || latest.ReasonCode != "last_active_human" {
+	if latest := latestAudit(t, database, owner.OrganizationID); latest.Action != AuditSpaceMemberRemove || latest.Outcome != "denied" || latest.ReasonCode != "last_active_human" || latest.TargetKind != "human" || latest.TargetID != owner.ID || latest.ContextKind != "space" || latest.ContextID != group.ID {
 		t.Fatalf("last-human audit = %+v", latest)
 	}
 
@@ -299,6 +315,10 @@ func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 	firstReceipt, err := database.AddMember(context.Background(), addParams)
 	if err != nil {
 		t.Fatal(err)
+	}
+	addAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditSpaceMemberAdd, peer.ID, "committed")
+	if addAudit.TargetKind != "human" || addAudit.ContextKind != "space" || addAudit.ContextID != group.ID {
+		t.Fatalf("human membership add audit = %+v", addAudit)
 	}
 	addParams.Now = now.Add(24 * time.Hour)
 	secondReceipt, err := database.AddMember(context.Background(), addParams)
@@ -312,6 +332,10 @@ func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 		RequestID: uuid.NewString(), Actor: owner, SpaceID: group.ID, Member: peer, Now: now.Add(13 * time.Second),
 	}); err != nil {
 		t.Fatal(err)
+	}
+	removeAudit := auditEventByTarget(t, database, owner.OrganizationID, AuditSpaceMemberRemove, peer.ID, "committed")
+	if removeAudit.TargetKind != "human" || removeAudit.ContextKind != "space" || removeAudit.ContextID != group.ID {
+		t.Fatalf("human membership remove audit = %+v", removeAudit)
 	}
 	dormant := createTestHuman(t, database, owner, "Dormant Member", "member", "dormant-member-credential-abcdefghijklmnopqrstuvwxyz", now.Add(14*time.Second))
 	dormantPrincipal := Principal{Kind: "human", ID: dormant.ID, OrganizationID: owner.OrganizationID}
@@ -347,6 +371,9 @@ func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 		Member: Principal{Kind: "agent", ID: agent.ID}, Now: now.Add(20 * time.Second),
 	}); !errors.Is(err, ErrSpaceArchived) {
 		t.Fatalf("archived membership mutation error = %v", err)
+	}
+	if latest := latestAudit(t, database, owner.OrganizationID); latest.Action != AuditSpaceMemberAdd || latest.Outcome != "denied" || latest.TargetKind != "agent" || latest.TargetID != agent.ID || latest.ContextKind != "space" || latest.ContextID != group.ID {
+		t.Fatalf("denied agent membership audit = %+v", latest)
 	}
 	if _, err := database.GetSpace(context.Background(), SpaceReadParams{Actor: owner, SpaceID: group.ID, Now: now.Add(21 * time.Second)}); err != nil {
 		t.Fatalf("archived space read error = %v", err)
@@ -451,6 +478,21 @@ func countAuditAction(t *testing.T, database *Store, organizationID, action, out
 		t.Fatal(err)
 	}
 	return count
+}
+
+func auditEventByTarget(t *testing.T, database *Store, organizationID, action, targetID, outcome string) AuditEvent {
+	t.Helper()
+	events, err := database.ListAuditEvents(context.Background(), organizationID, 0, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Action == action && event.TargetID == targetID && event.Outcome == outcome {
+			return event
+		}
+	}
+	t.Fatalf("audit event not found: action=%q target=%q outcome=%q", action, targetID, outcome)
+	return AuditEvent{}
 }
 
 func assertSequences(t *testing.T, messages []Message, count int) {

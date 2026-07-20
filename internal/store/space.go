@@ -310,27 +310,27 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 	} else if found {
 		return commitMutationReplay(tx, params.RequestID, receipt)
 	}
-	if err := requireCollaborationGrant(ctx, tx, params.Actor, CapabilitySpaceMembers,
-		Scope{Kind: "space", ID: params.SpaceID}, action, "space", params.SpaceID,
-		params.RequestID, params.Now); err != nil {
+	if err := requireCollaborationGrantWithContext(ctx, tx, params.Actor, CapabilitySpaceMembers,
+		Scope{Kind: "space", ID: params.SpaceID}, action, params.Member.Kind, params.Member.ID,
+		"space", params.SpaceID, params.RequestID, params.Now); err != nil {
 		return MutationReceipt{}, err
 	}
 	space, err := loadMutationSpace(ctx, tx, params.Actor, params.SpaceID)
 	if err != nil {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
 	}
 	if space.Kind == SpaceKindDM {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, ErrDMImmutable)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, ErrDMImmutable)
 	}
 	if space.ArchivedAt != nil {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
 	}
 	validateMember := validatePrincipalExistsInOrganization
 	if add {
 		validateMember = validatePrincipalInOrganization
 	}
 	if err := validateMember(ctx, tx, params.Member, params.Actor.OrganizationID); err != nil {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "member_invalid", params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_invalid", params.Now, err)
 	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `
@@ -339,10 +339,10 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 		return MutationReceipt{}, fmt.Errorf("read membership state: %w", err)
 	}
 	if add && exists {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "member_exists", params.Now, ErrMembershipExists)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_exists", params.Now, ErrMembershipExists)
 	}
 	if !add && !exists {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "member_missing", params.Now, ErrMembershipNotFound)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_missing", params.Now, ErrMembershipNotFound)
 	}
 	if !add && params.Member.Kind == "human" {
 		var targetActive bool
@@ -360,7 +360,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 				return MutationReceipt{}, fmt.Errorf("count remaining active human members: %w", err)
 			}
 			if remaining == 0 {
-				return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "last_active_human", params.Now, ErrLastActiveHumanMember)
+				return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "last_active_human", params.Now, ErrLastActiveHumanMember)
 			}
 		}
 	}
@@ -378,7 +378,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
 		OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: action,
 		TargetKind: params.Member.Kind, TargetID: params.Member.ID, RequestID: params.RequestID,
-		Outcome: "committed", Now: params.Now,
+		ContextKind: "space", ContextID: params.SpaceID, Outcome: "committed", Now: params.Now,
 	}); err != nil {
 		return MutationReceipt{}, err
 	}
