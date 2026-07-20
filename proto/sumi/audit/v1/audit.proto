@@ -42,6 +42,13 @@ enum AuditTargetKind {
   AUDIT_TARGET_KIND_MEMBERSHIP = 5;
   AUDIT_TARGET_KIND_THREAD = 6;
   AUDIT_TARGET_KIND_MESSAGE = 7;
+  AUDIT_TARGET_KIND_AGENT = 8;
+}
+
+enum AuditContextKind {
+  AUDIT_CONTEXT_KIND_UNSPECIFIED = 0;
+  AUDIT_CONTEXT_KIND_SPACE = 1;
+  AUDIT_CONTEXT_KIND_THREAD = 2;
 }
 
 message AuditEvent {
@@ -56,6 +63,8 @@ message AuditEvent {
   AuditOutcome outcome = 9;
   string reason_code = 10;
   google.protobuf.Timestamp occurred_at = 11;
+  AuditContextKind context_kind = 12;
+  string context_id = 13;
 }
 
 message ListAuditEventsRequest {

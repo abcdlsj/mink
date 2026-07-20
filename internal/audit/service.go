@@ -57,8 +57,18 @@ func eventMessage(event store.AuditEvent) *auditv1.AuditEvent {
 		Sequence: event.Sequence, Id: event.ID, OrganizationId: event.OrganizationID,
 		Actor: principalMessage(event.Actor), Action: actionValue(event.Action), TargetKind: targetValue(event.TargetKind),
 		TargetId: event.TargetID, RequestId: event.RequestID, Outcome: outcomeValue(event.Outcome), ReasonCode: event.ReasonCode,
-		OccurredAt: timestamppb.New(event.OccurredAt),
+		OccurredAt: timestamppb.New(event.OccurredAt), ContextKind: contextValue(event.ContextKind), ContextId: event.ContextID,
 	}
+}
+
+func contextValue(value string) auditv1.AuditContextKind {
+	if value == "space" {
+		return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_SPACE
+	}
+	if value == "thread" {
+		return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_THREAD
+	}
+	return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED
 }
 
 func principalMessage(value store.Principal) *grantv1.Principal {
@@ -95,9 +105,9 @@ func targetValue(value string) auditv1.AuditTargetKind {
 	values := map[string]auditv1.AuditTargetKind{
 		"organization": auditv1.AuditTargetKind_AUDIT_TARGET_KIND_ORGANIZATION,
 		"human":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_HUMAN,
+		"agent":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT,
 		"grant":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_GRANT,
 		"space":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_SPACE,
-		"membership":   auditv1.AuditTargetKind_AUDIT_TARGET_KIND_MEMBERSHIP,
 		"thread":       auditv1.AuditTargetKind_AUDIT_TARGET_KIND_THREAD,
 		"message":      auditv1.AuditTargetKind_AUDIT_TARGET_KIND_MESSAGE,
 	}
