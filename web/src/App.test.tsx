@@ -25,6 +25,12 @@ import {
   type AgentPlacement,
 } from "./gen/sumi/placement/v1/placement_pb";
 import {
+  PrincipalKind,
+  SpaceKind,
+  type Message,
+  type Space,
+} from "./gen/sumi/space/v1/space_pb";
+import {
   GetBootstrapResponseSchema,
   type GetBootstrapResponse,
 } from "./gen/sumi/system/v1/system_pb";
@@ -38,6 +44,15 @@ import {
   type FactsSnapshot,
 } from "./lib/facts";
 import { getSession, logoutSession } from "./lib/session";
+import {
+  loadConversation,
+  loadDirectory,
+  loadThread,
+  sendSpaceMessage,
+  sendThreadMessage,
+  type ConversationSnapshot,
+  type DirectorySnapshot,
+} from "./lib/collaboration";
 
 vi.mock("./lib/bootstrap", () => ({ getBootstrap: vi.fn() }));
 vi.mock("./lib/facts", () => ({
@@ -53,6 +68,24 @@ vi.mock("./lib/session", () => ({
   getSession: vi.fn(),
   logoutSession: vi.fn(),
 }));
+vi.mock("./lib/collaboration", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/collaboration")>();
+  return {
+    ...actual,
+    loadDirectory: vi.fn(),
+    loadConversation: vi.fn(),
+    loadMoreConversationMessages: vi.fn(),
+    loadThread: vi.fn(),
+    loadMoreThreadMessages: vi.fn(),
+    createDM: vi.fn(),
+    createGroup: vi.fn(),
+    addSpaceMember: vi.fn(),
+    removeSpaceMember: vi.fn(),
+    setSpaceArchived: vi.fn(),
+    sendSpaceMessage: vi.fn(),
+    sendThreadMessage: vi.fn(),
+  };
+});
 
 const mockedBootstrap = vi.mocked(getBootstrap);
 const mockedLoadFacts = vi.mocked(loadFacts);
@@ -62,6 +95,11 @@ const mockedCreateAgent = vi.mocked(createAgent);
 const mockedSetPlacement = vi.mocked(setAgentPlacement);
 const mockedGetSession = vi.mocked(getSession);
 const mockedLogoutSession = vi.mocked(logoutSession);
+const mockedLoadDirectory = vi.mocked(loadDirectory);
+const mockedLoadConversation = vi.mocked(loadConversation);
+const mockedLoadThread = vi.mocked(loadThread);
+const mockedSendSpaceMessage = vi.mocked(sendSpaceMessage);
+const mockedSendThreadMessage = vi.mocked(sendThreadMessage);
 
 const bootstrap = create(GetBootstrapResponseSchema, {
   serverId: "7ba1a702-8df6-4a35-993f-122261797262",
@@ -80,6 +118,11 @@ beforeEach(() => {
     name: "Owner",
   });
   mockedLogoutSession.mockResolvedValue();
+  mockedLoadDirectory.mockResolvedValue(emptyDirectory());
+  mockedLoadConversation.mockReset();
+  mockedLoadThread.mockReset();
+  mockedSendSpaceMessage.mockReset();
+  mockedSendThreadMessage.mockReset();
 });
 
 afterEach(() => {
@@ -100,18 +143,24 @@ describe("App", () => {
     render(<App />);
 
     expect(screen.getByRole("status")).toHaveTextContent("Connecting to Sumi");
-    expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No conversation selected"),
+    ).not.toBeInTheDocument();
 
     await act(async () => resolveBootstrap(bootstrap));
 
-    expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No conversation selected"),
+    ).toBeInTheDocument();
   });
 
   it("shows the persistent server identity", async () => {
     render(<App />);
 
     expect(await screen.findByText("Server 7ba1a702")).toBeInTheDocument();
-    expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No conversation selected"),
+    ).toBeInTheDocument();
   });
 
   it("requires authentication only for Conversation", async () => {
@@ -131,7 +180,9 @@ describe("App", () => {
     expect(
       screen.getByText("This browser has no active Human session."),
     ).toBeInTheDocument();
-    expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No conversation selected"),
+    ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
     expect(
@@ -194,7 +245,9 @@ describe("App", () => {
     expect(
       await screen.findByRole("button", { name: "Retrying" }),
     ).toBeDisabled();
-    expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No conversation selected"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps facts loading separate from bootstrap and shows honest module empties", async () => {
@@ -337,6 +390,70 @@ describe("App", () => {
       within(workspace).queryByRole("button", { name: /placement/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("loads a real Space snapshot and sends main and first Thread messages", async () => {
+    const directory = collaborationDirectory();
+    const snapshot = conversationSnapshot(directory.spaces[0]);
+    const reply = collaborationMessage(1, "First reply", "reply-1");
+    mockedLoadDirectory.mockResolvedValue(directory);
+    const followUp = collaborationMessage(2, "Main follow-up", "message-2");
+    mockedLoadConversation
+      .mockResolvedValueOnce(snapshot)
+      .mockResolvedValue({
+        ...snapshot,
+        messages: [...snapshot.messages, followUp],
+      });
+    mockedLoadThread
+      .mockResolvedValueOnce({
+        root: snapshot.messages[0],
+        replies: [],
+        hasMore: false,
+        nextAfterSequence: 0n,
+      })
+      .mockResolvedValue({
+        root: snapshot.messages[0],
+        replies: [reply],
+        hasMore: false,
+        nextAfterSequence: 1n,
+      });
+    mockedSendSpaceMessage.mockResolvedValue(followUp);
+    mockedSendThreadMessage.mockResolvedValue(reply);
+
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open navigation" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Release room" }),
+    );
+
+    expect(await screen.findByText("Initial message")).toBeInTheDocument();
+    expect(mockedLoadConversation).toHaveBeenCalledWith(
+      "33333333-3333-4333-8333-333333333333",
+      directory.spaces[0].id,
+      { signal: expect.any(AbortSignal) },
+    );
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Main follow-up" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByText("Main follow-up")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Open thread" })[0]);
+    expect(
+      await screen.findByText("No replies yet. Start the Thread below."),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Thread reply"), {
+      target: { value: "First reply" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("complementary", { name: "Context" })).getByRole(
+        "button",
+        { name: "Send message" },
+      ),
+    );
+    expect(await screen.findByText("First reply")).toBeInTheDocument();
+  });
 });
 
 describe("direct Agent mutation contract", () => {
@@ -393,6 +510,90 @@ describe("direct Agent mutation contract", () => {
 
 function emptyFacts(): FactsSnapshot {
   return { agents: [], computers: [], placements: [] };
+}
+
+function emptyDirectory(): DirectorySnapshot {
+  return {
+    organization: {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Sumi",
+      bootstrapHumanId: "33333333-3333-4333-8333-333333333333",
+    } as DirectorySnapshot["organization"],
+    humans: [],
+    agents: [],
+    spaces: [],
+    createSpace: { status: "allowed" },
+  };
+}
+
+function collaborationDirectory(): DirectorySnapshot {
+  const space = {
+    id: "44444444-4444-4444-8444-444444444444",
+    organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    kind: SpaceKind.GROUP,
+    name: "Release room",
+  } as Space;
+  return {
+    organization: {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Sumi",
+      bootstrapHumanId: "33333333-3333-4333-8333-333333333333",
+    } as DirectorySnapshot["organization"],
+    humans: [
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        organizationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        name: "Owner",
+        status: 1,
+        role: 1,
+      } as DirectorySnapshot["humans"][number],
+    ],
+    agents: [makeAgent()],
+    spaces: [space],
+    createSpace: { status: "allowed" },
+  };
+}
+
+function conversationSnapshot(space: Space): ConversationSnapshot {
+  return {
+    space,
+    memberships: [
+      {
+        spaceId: space.id,
+        principal: {
+          kind: PrincipalKind.HUMAN,
+          id: "33333333-3333-4333-8333-333333333333",
+        },
+      } as ConversationSnapshot["memberships"][number],
+    ],
+    messages: [collaborationMessage(1, "Initial message", "message-1")],
+    permissions: {
+      members: { status: "allowed" },
+      archive: { status: "allowed" },
+      send: { status: "allowed" },
+    },
+    hasMore: false,
+    nextAfterSequence: 1n,
+  };
+}
+
+function collaborationMessage(
+  sequence: number,
+  body: string,
+  id: string,
+): Message {
+  return {
+    id,
+    spaceId: "44444444-4444-4444-8444-444444444444",
+    threadRootMessageId: id.startsWith("reply") ? "message-1" : "",
+    targetSequence: BigInt(sequence),
+    author: {
+      kind: PrincipalKind.HUMAN,
+      id: "33333333-3333-4333-8333-333333333333",
+    },
+    body,
+    requestId: `request-${id}`,
+  } as Message;
 }
 
 function readyFacts(overrides: Partial<FactsSnapshot> = {}): FactsSnapshot {
