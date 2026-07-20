@@ -5,6 +5,7 @@ import "github.com/abcdlsj/sumi/app"
 func Plugin() app.Plugin {
 	return func(a *app.App) error {
 		m := newManager(a)
+		a.RegisterAsyncTurnExecutor(m.executeAsyncTurn)
 		a.RegisterTool(spawnTool{m: m})
 		a.RegisterTool(delegateTool{m: m})
 		a.RegisterTool(delegatePollTool{m: m})

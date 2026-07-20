@@ -9,18 +9,6 @@ import (
 	"github.com/abcdlsj/sumi/space"
 )
 
-// reconcileDeliveries rebuilds durable deliveries from the persisted routing
-// facts at startup. It is the recovery half of the durability contract: the
-// volatile wake goroutines/channels are gone after a restart, but every intent a
-// message committed still lives in the Space file, so we re-derive the pending
-// deliveries from those intents alone — never from the current mentions /
-// listening / config, which may have changed since.
-//
-// Only channel/thread wakes are materialized here (commit 2 scope). async
-// delegate deliveries (Task.ExecutionIntent) are deferred to commit 3.
-// CreateIfAbsent is idempotent by StableKey, so an intent whose delivery already
-// exists (still pending, or already completed/failed) is a no-op — reconcile
-// never resurrects a terminal delivery or double-creates a live one.
 func (a *App) reconcileDeliveries(ctx context.Context) error {
 	if a == nil || a.spaces == nil || a.store == nil {
 		return nil
@@ -54,6 +42,35 @@ func (a *App) reconcileDeliveries(ctx context.Context) error {
 					continue
 				}
 			}
+		}
+	}
+	return a.reconcileAsyncDelegates(ctx)
+}
+
+func (a *App) reconcileAsyncDelegates(ctx context.Context) error {
+	if a == nil || a.tasks == nil || a.store == nil {
+		return nil
+	}
+	tasks, err := a.tasks.ListAll()
+	if err != nil {
+		return err
+	}
+	deliveries := a.store.Deliveries()
+	now := time.Now()
+	for _, tk := range tasks {
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+		}
+		d := deliveryFromTask(tk)
+		if d == nil {
+			continue
+		}
+		if _, _, err := deliveries.CreateIfAbsent(d, now); err != nil {
+			continue
 		}
 	}
 	return nil

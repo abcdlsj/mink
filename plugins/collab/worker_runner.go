@@ -87,23 +87,18 @@ func (m *manager) runWorkerAsTask(ctx context.Context, in workerRunInput) (strin
 		WorkerID:         worker.ID,
 		Title:            shortTitle(in.Title, in.Input),
 		Source:           in.Source,
+		ExecutionIntent: &taskpkg.ExecutionIntent{
+			Input:        in.Input,
+			Runtime:      in.Runtime,
+			ShareContext: in.ShareContext,
+		},
 	})
 	if err != nil {
 		return "", err
 	}
-	go func() {
-		_, _ = m.runSpaceDelegate(context.Background(), tk, spaceDelegateInput{
-			ParentSpaceID:    in.ParentSpaceID,
-			TriggerMessageID: in.TriggerMessageID,
-			InitiatorID:      in.InitiatorID,
-			WorkerID:         worker.ID,
-			Title:            in.Title,
-			Input:            in.Input,
-			Runtime:          in.Runtime,
-			Source:           in.Source,
-			ShareContext:     in.ShareContext,
-		}, worker)
-	}()
+	if _, err := m.app.EnqueueAsyncDelegate(tk); err != nil {
+		return tk.ID, err
+	}
 	return tk.ID, nil
 }
 

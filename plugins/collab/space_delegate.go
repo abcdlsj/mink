@@ -202,14 +202,18 @@ func (m *manager) delegateAsync(ctx context.Context, in spaceDelegateInput) (str
 		WorkerID:         worker.ID,
 		Title:            shortTitle(in.Title, in.Input),
 		Source:           in.Source,
+		ExecutionIntent: &taskpkg.ExecutionIntent{
+			Input:        in.Input,
+			Runtime:      in.Runtime,
+			ShareContext: in.ShareContext,
+		},
 	})
 	if err != nil {
 		return "", err
 	}
-	go func() {
-		bgCtx := context.Background()
-		_, _ = m.runSpaceDelegate(bgCtx, tk, in, worker)
-	}()
+	if _, err := m.app.EnqueueAsyncDelegate(tk); err != nil {
+		return tk.ID, err
+	}
 	return tk.ID, nil
 }
 

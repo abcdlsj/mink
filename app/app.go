@@ -50,6 +50,8 @@ type App struct {
 	runtimes        map[string]agent.RuntimeFactory
 	entries         map[string]Entrypoint
 	services        map[string]Service
+
+	asyncTurnExecutor AsyncTurnExecutor
 }
 
 func New(cfg config.Config) (*App, error) {

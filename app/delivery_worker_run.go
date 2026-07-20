@@ -35,6 +35,10 @@ func (w *deliveryWorker) run(ctx context.Context, d *delivery.Delivery, fence de
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if d.Kind == delivery.KindAsyncDelegate {
+		w.runAsyncDelegate(ctx, d, fence)
+		return
+	}
 	deliveries := a.store.Deliveries()
 
 	origin, ok := a.loadOriginMessage(d.SpaceID, d.OriginMessageID)
