@@ -55,14 +55,15 @@ type MessageTarget struct {
 }
 
 type Message struct {
-	ID             string
-	RequestID      string
-	SpaceID        string
-	Target         MessageTarget
-	TargetSequence uint64
-	Author         Principal
-	Body           string
-	CreatedAt      time.Time
+	ID                string
+	RequestID         string
+	SpaceID           string
+	Target            MessageTarget
+	TargetSequence    uint64
+	Author            Principal
+	Body              string
+	MentionedAgentIDs []string
+	CreatedAt         time.Time
 }
 
 type MutationReceipt struct {

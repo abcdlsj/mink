@@ -372,6 +372,11 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 	if err != nil {
 		return MutationReceipt{}, fmt.Errorf("persist membership change: %w", err)
 	}
+	if !add && params.Member.Kind == "agent" {
+		if err := closeRemovedAgentInbox(ctx, tx, params.Member.ID, params.SpaceID, params.Now); err != nil {
+			return MutationReceipt{}, err
+		}
+	}
 	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operation, fingerprint, params.SpaceID, params.Now); err != nil {
 		return MutationReceipt{}, err
 	}

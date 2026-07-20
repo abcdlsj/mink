@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,11 +14,12 @@ import (
 const operationSendMessage = "message.send"
 
 type SendMessageParams struct {
-	RequestID string
-	Actor     Principal
-	Target    MessageTarget
-	Body      string
-	Now       time.Time
+	RequestID         string
+	Actor             Principal
+	Target            MessageTarget
+	Body              string
+	MentionedAgentIDs []string
+	Now               time.Time
 }
 
 type GetMessageParams struct {
@@ -47,13 +49,18 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 	if params.Target.Kind != MessageTargetSpace && params.Target.Kind != MessageTargetThread {
 		return Message{}, ErrInvalidMessageTarget
 	}
+	mentions, err := canonicalMentionIDs(params.MentionedAgentIDs)
+	if err != nil {
+		return Message{}, err
+	}
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind  string `json:"actor_kind"`
-		ActorID    string `json:"actor_id"`
-		TargetKind string `json:"target_kind"`
-		TargetID   string `json:"target_id"`
-		Body       string `json:"body"`
-	}{params.Actor.Kind, params.Actor.ID, params.Target.Kind, params.Target.ID, params.Body})
+		ActorKind  string   `json:"actor_kind"`
+		ActorID    string   `json:"actor_id"`
+		TargetKind string   `json:"target_kind"`
+		TargetID   string   `json:"target_id"`
+		Body       string   `json:"body"`
+		Mentions   []string `json:"mentioned_agent_ids,omitempty"`
+	}{params.Actor.Kind, params.Actor.ID, params.Target.Kind, params.Target.ID, params.Body, mentions})
 	if err != nil {
 		return Message{}, err
 	}
@@ -65,7 +72,7 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationSendMessage, fingerprint); err != nil {
 		return Message{}, err
 	} else if found {
-		return commitMessageReplay(tx, receipt.ResultID)
+		return commitMessageReplay(ctx, tx, receipt.ResultID)
 	}
 
 	spaceID, err := resolveSendTargetSpace(ctx, tx, params.Target)
@@ -87,26 +94,47 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		return Message{}, denyCollaboration(ctx, tx, params.Actor, AuditMessageSend, "space", spaceID,
 			params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
 	}
+	if err := validateMentionMembers(ctx, tx, spaceID, mentions); err != nil {
+		return Message{}, denyCollaboration(ctx, tx, params.Actor, AuditMessageSend, "space", spaceID,
+			params.RequestID, "mention_invalid", params.Now, err)
+	}
+	message, _, err := publishMessageTx(ctx, tx, params.Actor, params.Target, params.Body, mentions, params.RequestID, fingerprint, params.Now)
+	if err != nil {
+		return Message{}, err
+	}
+	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationSendMessage, fingerprint, message.ID, params.Now); err != nil {
+		return Message{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Message{}, fmt.Errorf("commit message send: %w", err)
+	}
+	return message, nil
+}
 
+func publishMessageTx(ctx context.Context, tx *sql.Tx, actor Principal, target MessageTarget, body string, mentions []string, requestID string, fingerprint [sha256.Size]byte, now time.Time) (Message, []EligibleInboxTrigger, error) {
+	spaceID, err := resolveSendTargetSpace(ctx, tx, target)
+	if err != nil {
+		return Message{}, nil, err
+	}
 	createdThread := false
-	if params.Target.Kind == MessageTargetThread {
+	if target.Kind == MessageTargetThread {
 		result, err := tx.ExecContext(ctx, `
 			INSERT INTO threads(id, space_id, created_at)
 			VALUES(?, ?, ?)
 			ON CONFLICT(id) DO NOTHING
-		`, params.Target.ID, spaceID, unixNano(params.Now))
+		`, target.ID, spaceID, unixNano(now))
 		if err != nil {
-			return Message{}, fmt.Errorf("persist thread fact: %w", err)
+			return Message{}, nil, fmt.Errorf("persist thread fact: %w", err)
 		}
-		if affected, err := result.RowsAffected(); err != nil {
-			return Message{}, fmt.Errorf("read thread creation result: %w", err)
-		} else {
-			createdThread = affected == 1
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return Message{}, nil, fmt.Errorf("read thread creation result: %w", err)
 		}
+		createdThread = affected == 1
 	}
-	sequence, err := allocateTargetSequence(ctx, tx, params.Target)
+	sequence, err := allocateTargetSequence(ctx, tx, target)
 	if err != nil {
-		return Message{}, err
+		return Message{}, nil, err
 	}
 	messageID := uuid.NewString()
 	if _, err := tx.ExecContext(ctx, `
@@ -115,42 +143,46 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 			author_kind, author_id, body, created_at
 		)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, messageID, params.RequestID, fingerprint[:], spaceID, params.Target.Kind, params.Target.ID, sequence,
-		params.Actor.Kind, params.Actor.ID, params.Body, unixNano(params.Now)); err != nil {
-		return Message{}, fmt.Errorf("persist message: %w", err)
+	`, messageID, requestID, fingerprint[:], spaceID, target.Kind, target.ID, sequence,
+		actor.Kind, actor.ID, body, unixNano(now)); err != nil {
+		return Message{}, nil, fmt.Errorf("persist message: %w", err)
 	}
-	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationSendMessage, fingerprint, messageID, params.Now); err != nil {
-		return Message{}, err
+	for ordinal, agentID := range mentions {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO message_mentions(message_id, agent_id, ordinal) VALUES(?, ?, ?)`, messageID, agentID, ordinal); err != nil {
+			return Message{}, nil, fmt.Errorf("persist message mention: %w", err)
+		}
 	}
 	if createdThread {
 		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
-			OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditThreadCreate,
-			TargetKind: "thread", TargetID: params.Target.ID, RequestID: params.RequestID,
-			ContextKind: "space", ContextID: spaceID, Outcome: "committed", Now: params.Now,
+			OrganizationID: actor.OrganizationID, Actor: actor, Action: AuditThreadCreate,
+			TargetKind: "thread", TargetID: target.ID, RequestID: requestID,
+			ContextKind: "space", ContextID: spaceID, Outcome: "committed", Now: now,
 		}); err != nil {
-			return Message{}, err
+			return Message{}, nil, err
 		}
 	}
 	contextKind, contextID := "space", spaceID
-	if params.Target.Kind == MessageTargetThread {
-		contextKind, contextID = "thread", params.Target.ID
+	if target.Kind == MessageTargetThread {
+		contextKind, contextID = "thread", target.ID
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
-		OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditMessageSend,
-		TargetKind: "message", TargetID: messageID, RequestID: params.RequestID,
-		ContextKind: contextKind, ContextID: contextID, Outcome: "committed", Now: params.Now,
+		OrganizationID: actor.OrganizationID, Actor: actor, Action: AuditMessageSend,
+		TargetKind: "message", TargetID: messageID, RequestID: requestID,
+		ContextKind: contextKind, ContextID: contextID, Outcome: "committed", Now: now,
 	}); err != nil {
-		return Message{}, err
+		return Message{}, nil, err
 	}
 	message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+` WHERE id = ?`, messageID))
 	if err != nil {
-		return Message{}, fmt.Errorf("read sent message: %w", err)
+		return Message{}, nil, fmt.Errorf("read sent message: %w", err)
 	}
-	message.Author.OrganizationID = params.Actor.OrganizationID
-	if err := tx.Commit(); err != nil {
-		return Message{}, fmt.Errorf("commit message send: %w", err)
+	message.Author.OrganizationID = actor.OrganizationID
+	message.MentionedAgentIDs = append([]string(nil), mentions...)
+	created, err := projectMessageAttention(ctx, tx, message, mentions, now)
+	if err != nil {
+		return Message{}, nil, err
 	}
-	return message, nil
+	return message, created, nil
 }
 
 func (s *Store) GetMessage(ctx context.Context, params GetMessageParams) (Message, error) {
@@ -171,6 +203,11 @@ func (s *Store) GetMessage(ctx context.Context, params GetMessageParams) (Messag
 		return Message{}, err
 	}
 	message.Author.OrganizationID = space.OrganizationID
+	mentions, err := messageMentions(ctx, tx, message.ID)
+	if err != nil {
+		return Message{}, err
+	}
+	message.MentionedAgentIDs = mentions
 	if err := tx.Commit(); err != nil {
 		return Message{}, fmt.Errorf("commit message read: %w", err)
 	}
@@ -244,6 +281,9 @@ func (s *Store) ListMessages(ctx context.Context, params ListMessagesParams) ([]
 	if err := rows.Close(); err != nil {
 		return nil, fmt.Errorf("close messages: %w", err)
 	}
+	if err := loadMessageMentions(ctx, tx, messages); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit message list: %w", err)
 	}
@@ -305,7 +345,7 @@ func allocateTargetSequence(ctx context.Context, tx *sql.Tx, target MessageTarge
 	return sequence, nil
 }
 
-func commitMessageReplay(tx *sql.Tx, messageID string) (Message, error) {
+func commitMessageReplay(ctx context.Context, tx *sql.Tx, messageID string) (Message, error) {
 	message, err := scanMessage(tx.QueryRow(messageSelect+` WHERE id = ?`, messageID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Message{}, ErrCollaborationIntegrity
@@ -318,6 +358,11 @@ func commitMessageReplay(tx *sql.Tx, messageID string) (Message, error) {
 		return Message{}, fmt.Errorf("read replayed message organization: %w", err)
 	}
 	message.Author.OrganizationID = organizationID
+	mentions, err := messageMentions(ctx, tx, message.ID)
+	if err != nil {
+		return Message{}, err
+	}
+	message.MentionedAgentIDs = mentions
 	if err := tx.Commit(); err != nil {
 		return Message{}, fmt.Errorf("commit message request replay: %w", err)
 	}
@@ -332,4 +377,35 @@ func scanThread(row scanner) (Thread, error) {
 	}
 	thread.CreatedAt = timeFromUnixNano(createdAt)
 	return thread, nil
+}
+
+func loadMessageMentions(ctx context.Context, tx *sql.Tx, messages []Message) error {
+	for index := range messages {
+		mentions, err := messageMentions(ctx, tx, messages[index].ID)
+		if err != nil {
+			return err
+		}
+		messages[index].MentionedAgentIDs = mentions
+	}
+	return nil
+}
+
+func messageMentions(ctx context.Context, tx *sql.Tx, messageID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT agent_id FROM message_mentions WHERE message_id = ? ORDER BY ordinal`, messageID)
+	if err != nil {
+		return nil, fmt.Errorf("list message mentions: %w", err)
+	}
+	defer rows.Close()
+	var mentions []string
+	for rows.Next() {
+		var agentID string
+		if err := rows.Scan(&agentID); err != nil {
+			return nil, fmt.Errorf("scan message mention: %w", err)
+		}
+		mentions = append(mentions, agentID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate message mentions: %w", err)
+	}
+	return mentions, nil
 }
