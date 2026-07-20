@@ -13,10 +13,12 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
 	"github.com/abcdlsj/sumi/internal/agent"
 	"github.com/abcdlsj/sumi/internal/audit"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/collaboration"
 	"github.com/abcdlsj/sumi/internal/computer"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
@@ -86,6 +88,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(grantPath, grantHandler)
 	auditPath, auditHandler := auditv1connect.NewAuditServiceHandler(audit.New(database), authorization)
 	mux.Handle(auditPath, auditHandler)
+	collaborationPath, collaborationHandler := spacev1connect.NewCollaborationServiceHandler(collaboration.New(database), authorization)
+	mux.Handle(collaborationPath, collaborationHandler)
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})

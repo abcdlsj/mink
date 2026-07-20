@@ -275,9 +275,9 @@ func TestMessageTargetSequencesThreadIsolationCursorReplayAndRestart(t *testing.
 	}
 }
 
-func TestGroupMembershipLifecycleDMImmutabilityAndNoGrant(t *testing.T) {
+func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
-	database, owner, peer, _, now := openCollaborationFixture(t, path)
+	database, owner, peer, credential, now := openCollaborationFixture(t, path)
 	defer database.Close()
 	group, err := database.CreateGroup(context.Background(), CreateGroupParams{
 		RequestID: uuid.NewString(), Actor: owner, Name: "membership-lab", Now: now.Add(10 * time.Second),
@@ -369,7 +369,57 @@ func TestGroupMembershipLifecycleDMImmutabilityAndNoGrant(t *testing.T) {
 	}); !errors.Is(err, ErrDMImmutable) {
 		t.Fatalf("dm archive error = %v", err)
 	}
-	members, err := database.ListMembers(context.Background(), SpaceReadParams{Actor: owner, SpaceID: dm.ID, Now: now.Add(25 * time.Second)})
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: peer,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "no grant", Now: now.Add(25 * time.Second),
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("no-grant send error = %v", err)
+	}
+	if latest := latestAudit(t, database, owner.OrganizationID); latest.Action != AuditMessageSend || latest.Outcome != "denied" || latest.ReasonCode != "permission_missing" {
+		t.Fatalf("no-grant send audit = %+v", latest)
+	}
+	bootstrap, err := database.EnsureAuthority(context.Background(), credential, now.Add(26*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsiderHuman := createTestHuman(t, database, owner, "Outside Member", "member", "outside-member-credential-abcdefghijklmnopqrstuvwxyz", now.Add(27*time.Second))
+	outsider := Principal{Kind: "human", ID: outsiderHuman.ID, OrganizationID: owner.OrganizationID}
+	issueTestGrant(t, database, IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: owner, Subject: outsider, Capability: CapabilityMessageSend,
+		Scope: Scope{Kind: "space", ID: dm.ID}, ParentGrantID: bootstrap.RootGrant.ID, Now: now.Add(28 * time.Second),
+	})
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: outsider,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "not a member", Now: now.Add(29 * time.Second),
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("non-member send error = %v", err)
+	}
+	issueTestGrant(t, database, IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: owner, Subject: peer, Capability: CapabilityMessageSend,
+		Scope: Scope{Kind: "space", ID: dm.ID}, ParentGrantID: bootstrap.RootGrant.ID, Now: now.Add(30 * time.Second),
+	})
+	if _, err := database.SetHumanStatus(context.Background(), SetHumanStatusParams{
+		RequestID: uuid.NewString(), Actor: owner, HumanID: peer.ID, Status: "disabled", Now: now.Add(31 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: peer,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "disabled", Now: now.Add(32 * time.Second),
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("disabled send error = %v", err)
+	}
+	if latest := latestAudit(t, database, owner.OrganizationID); latest.Action != AuditMessageSend || latest.Outcome != "denied" || latest.ReasonCode != "principal_inactive" {
+		t.Fatalf("disabled send audit = %+v", latest)
+	}
+	var messages int
+	if err := database.db.QueryRow(`SELECT count(*) FROM messages WHERE space_id = ?`, dm.ID).Scan(&messages); err != nil {
+		t.Fatal(err)
+	}
+	if messages != 0 {
+		t.Fatalf("denied sends persisted %d messages", messages)
+	}
+	members, err := database.ListMembers(context.Background(), SpaceReadParams{Actor: owner, SpaceID: dm.ID, Now: now.Add(33 * time.Second)})
 	if err != nil || len(members) != 2 {
 		t.Fatalf("dm membership after denied mutations = %+v, %v", members, err)
 	}
