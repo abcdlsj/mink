@@ -26,35 +26,51 @@ export type SpacesState = {
     | "stale";
   data?: DirectorySnapshot;
   error?: string;
+  principalId?: string;
 };
 
 export function useSpaces(humanId: string | undefined, enabled: boolean) {
   const [state, setState] = useState<SpacesState>({ status: "idle" });
   const generation = useRef(0);
   const controller = useRef<AbortController | undefined>(undefined);
+  const latestHumanId = useRef(humanId);
+  const latestEnabled = useRef(enabled);
+  latestHumanId.current = humanId;
+  latestEnabled.current = enabled;
 
   const load = useCallback(
     async (pending: "loading" | "retrying") => {
-      if (!humanId) return;
+      if (
+        !humanId ||
+        latestHumanId.current !== humanId ||
+        !latestEnabled.current
+      )
+        return;
       const currentGeneration = ++generation.current;
       controller.current?.abort();
       const request = new AbortController();
       controller.current = request;
       setState((current) => ({
-        status: current.data ? "refreshing" : pending,
-        data: current.data,
+        status:
+          current.principalId === humanId && current.data
+            ? "refreshing"
+            : pending,
+        data: current.principalId === humanId ? current.data : undefined,
+        principalId: humanId,
       }));
       try {
         const data = await loadDirectory(humanId, { signal: request.signal });
         if (generation.current !== currentGeneration) return;
-        setState({ status: "ready", data });
+        setState({ status: "ready", data, principalId: humanId });
       } catch (error) {
         if (request.signal.aborted || generation.current !== currentGeneration)
           return;
         setState((current) => ({
-          status: current.data ? "stale" : "error",
-          data: current.data,
+          status:
+            current.principalId === humanId && current.data ? "stale" : "error",
+          data: current.principalId === humanId ? current.data : undefined,
           error: collaborationErrorMessage(error, "load collaboration facts"),
+          principalId: humanId,
         }));
       }
     },
@@ -74,22 +90,60 @@ export function useSpaces(humanId: string | undefined, enabled: boolean) {
 
   const createDirectMessage = useCallback(
     async (requestId: string, peer: Principal): Promise<Space> => {
+      if (!humanId) throw staleMutationError();
+      const targetHumanId = humanId;
+      const targetGeneration = generation.current;
       const space = await createDM({ requestId, peer });
-      retainCreatedSpace(setState, space);
-      await load("retrying");
+      requireCurrentMutation(
+        targetHumanId,
+        targetGeneration,
+        latestHumanId.current,
+        latestEnabled.current,
+        generation.current,
+      );
+      retainCreatedSpace(setState, targetHumanId, space);
+      const refresh = load("retrying");
+      const refreshGeneration = generation.current;
+      await refresh;
+      requireCurrentMutation(
+        targetHumanId,
+        refreshGeneration,
+        latestHumanId.current,
+        latestEnabled.current,
+        generation.current,
+      );
       return space;
     },
-    [load],
+    [humanId, load],
   );
 
   const createGroupSpace = useCallback(
     async (requestId: string, name: string): Promise<Space> => {
+      if (!humanId) throw staleMutationError();
+      const targetHumanId = humanId;
+      const targetGeneration = generation.current;
       const space = await createGroup({ requestId, name });
-      retainCreatedSpace(setState, space);
-      await load("retrying");
+      requireCurrentMutation(
+        targetHumanId,
+        targetGeneration,
+        latestHumanId.current,
+        latestEnabled.current,
+        generation.current,
+      );
+      retainCreatedSpace(setState, targetHumanId, space);
+      const refresh = load("retrying");
+      const refreshGeneration = generation.current;
+      await refresh;
+      requireCurrentMutation(
+        targetHumanId,
+        refreshGeneration,
+        latestHumanId.current,
+        latestEnabled.current,
+        generation.current,
+      );
       return space;
     },
-    [load],
+    [humanId, load],
   );
 
   return {
@@ -103,10 +157,11 @@ export function useSpaces(humanId: string | undefined, enabled: boolean) {
 
 function retainCreatedSpace(
   setState: Dispatch<SetStateAction<SpacesState>>,
+  humanId: string,
   space: Space,
 ) {
   setState((current) => {
-    if (!current.data) return current;
+    if (!current.data || current.principalId !== humanId) return current;
     return {
       ...current,
       data: {
@@ -118,4 +173,28 @@ function retainCreatedSpace(
       },
     };
   });
+}
+
+function requireCurrentMutation(
+  targetHumanId: string,
+  targetGeneration: number,
+  currentHumanId: string | undefined,
+  enabled: boolean,
+  currentGeneration: number,
+) {
+  if (
+    !enabled ||
+    currentHumanId !== targetHumanId ||
+    currentGeneration !== targetGeneration
+  ) {
+    throw staleMutationError();
+  }
+}
+
+function staleMutationError() {
+  const error = new Error(
+    "The authenticated Human changed before the mutation completed",
+  );
+  error.name = "AbortError";
+  return error;
 }

@@ -115,6 +115,7 @@ export function ThreadPane({
             )}
           </div>
           <MessageComposer
+            key={snapshot.root.id}
             targetKey={`thread:${snapshot.root.id}`}
             label="thread"
             placeholder="Reply in Thread"

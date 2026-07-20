@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { CreateAgentForm } from "./components/CreateAgentForm";
@@ -397,12 +398,10 @@ describe("App", () => {
     const reply = collaborationMessage(1, "First reply", "reply-1");
     mockedLoadDirectory.mockResolvedValue(directory);
     const followUp = collaborationMessage(2, "Main follow-up", "message-2");
-    mockedLoadConversation
-      .mockResolvedValueOnce(snapshot)
-      .mockResolvedValue({
-        ...snapshot,
-        messages: [...snapshot.messages, followUp],
-      });
+    mockedLoadConversation.mockResolvedValueOnce(snapshot).mockResolvedValue({
+      ...snapshot,
+      messages: [...snapshot.messages, followUp],
+    });
     mockedLoadThread
       .mockResolvedValueOnce({
         root: snapshot.messages[0],
@@ -453,6 +452,39 @@ describe("App", () => {
       ),
     );
     expect(await screen.findByText("First reply")).toBeInTheDocument();
+  });
+
+  it("clears selection and context when the selected Space becomes inaccessible", async () => {
+    const directory = collaborationDirectory();
+    const snapshot = conversationSnapshot(directory.spaces[0]);
+    mockedLoadDirectory.mockResolvedValue(directory);
+    mockedLoadConversation
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(
+        new ConnectError("membership revoked", Code.PermissionDenied),
+      );
+
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open navigation" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Release room" }),
+    );
+    expect(await screen.findByText("Initial message")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh conversation" }),
+    );
+
+    expect(
+      await screen.findByText("No conversation selected"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Initial message")).not.toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", {
+      name: "Open context",
+    })) {
+      expect(button).toBeDisabled();
+    }
   });
 });
 

@@ -146,10 +146,20 @@ export async function loadThread(
   root: Message,
   options: SignalOptions = {},
 ): Promise<ThreadSnapshot> {
+  let exists = true;
   try {
     await collaboration.getThread({ threadRootMessageId: root.id }, options);
   } catch (error) {
     if (ConnectError.from(error).code !== Code.NotFound) throw error;
+    exists = false;
+  }
+  if (!exists) {
+    return {
+      root,
+      replies: [],
+      hasMore: false,
+      nextAfterSequence: 0n,
+    };
   }
   const page = await loadMessages(
     { case: "threadRootMessageId", value: root.id },
@@ -370,6 +380,11 @@ export function collaborationErrorMessage(error: unknown, action: string) {
   }
   if (error instanceof Error && error.message) return error.message;
   return `Could not ${action}. Retry when the Server is available.`;
+}
+
+export function isInaccessibleCollaborationError(error: unknown) {
+  const code = ConnectError.from(error).code;
+  return code === Code.PermissionDenied || code === Code.NotFound;
 }
 
 async function loadMessages(

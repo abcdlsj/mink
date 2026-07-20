@@ -59,4 +59,40 @@ describe("MessageComposer request lifecycle", () => {
     resolve();
     await waitFor(() => expect(input).toHaveValue(""));
   });
+
+  it("does not let an old target completion clear the new target draft", async () => {
+    let resolveOld!: () => void;
+    const send = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    const view = render(
+      <MessageComposer
+        key="space-a"
+        targetKey="space:a"
+        label="main"
+        placeholder="Message"
+        onSend={send}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Old target body" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    view.rerender(
+      <MessageComposer
+        key="space-b"
+        targetKey="space:b"
+        label="main"
+        placeholder="Message"
+        onSend={send}
+      />,
+    );
+    const newDraft = screen.getByLabelText("Message");
+    fireEvent.change(newDraft, { target: { value: "New target body" } });
+    resolveOld();
+    await waitFor(() => expect(newDraft).toHaveValue("New target body"));
+  });
 });

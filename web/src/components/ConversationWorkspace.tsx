@@ -182,6 +182,7 @@ export function ConversationWorkspace({
 
       {view === "chat" && snapshot ? (
         <MessageComposer
+          key={snapshot.space.id}
           targetKey={`space:${snapshot.space.id}`}
           label="main"
           placeholder="Message this Space"

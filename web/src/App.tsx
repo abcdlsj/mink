@@ -75,6 +75,32 @@ export default function App() {
     }
   }, [selectedSpace, spaces.data]);
 
+  useEffect(() => {
+    if (
+      conversation.conversation.inaccessibleTargetId &&
+      conversation.conversation.inaccessibleTargetId === selectedSpace?.id
+    ) {
+      setSelectedSpace(undefined);
+      setThreadRoot(undefined);
+      setContextOpen(false);
+      setCompactContextOpen(false);
+      return;
+    }
+    if (
+      conversation.thread.inaccessibleTargetId &&
+      conversation.thread.inaccessibleTargetId === threadRoot?.id
+    ) {
+      setThreadRoot(undefined);
+      setContextOpen(false);
+      setCompactContextOpen(false);
+    }
+  }, [
+    conversation.conversation.inaccessibleTargetId,
+    conversation.thread.inaccessibleTargetId,
+    selectedSpace?.id,
+    threadRoot?.id,
+  ]);
+
   const selectModule = (next: WorkspaceModule) => {
     setModule(next);
     setContextOpen(false);
@@ -235,7 +261,10 @@ export default function App() {
               onClose={closeContext}
               onAdd={conversation.addMember}
               onRemove={conversation.removeMember}
-              onSetArchived={conversation.setArchived}
+              onSetArchived={async (requestId, archived) => {
+                await conversation.setArchived(requestId, archived);
+                await spaces.refresh();
+              }}
             />
           ) : (
             <>

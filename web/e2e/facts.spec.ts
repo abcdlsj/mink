@@ -112,7 +112,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    await expect(page.getByText("No conversations yet")).toBeVisible();
+    await expect(page.getByText("No conversation selected")).toBeVisible();
     await page.getByRole("button", { name: "Agents" }).focus();
     await page.keyboard.press("Enter");
     const agentNav = agentsNavigation(page);
@@ -151,7 +151,7 @@ test("browser handoff reaches Collaboration and logout revokes it immediately", 
   page,
 }) => {
   await page.goto("/");
-  await expect(page.getByText("No conversations yet")).toBeVisible();
+  await expect(page.getByText("No conversation selected")).toBeVisible();
   expect(await collaborationStatus(page)).toBe(200);
 
   await page.getByRole("button", { name: "Log out" }).click();

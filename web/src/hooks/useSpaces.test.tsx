@@ -1,6 +1,17 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadDirectory, type DirectorySnapshot } from "../lib/collaboration";
+import {
+  PrincipalKind,
+  SpaceKind,
+  type Principal,
+  type Space,
+} from "../gen/sumi/space/v1/space_pb";
+import {
+  createDM,
+  createGroup,
+  loadDirectory,
+  type DirectorySnapshot,
+} from "../lib/collaboration";
 import { useSpaces } from "./useSpaces";
 
 vi.mock("../lib/collaboration", () => ({
@@ -12,6 +23,8 @@ vi.mock("../lib/collaboration", () => ({
 }));
 
 const mockedLoadDirectory = vi.mocked(loadDirectory);
+const mockedCreateDM = vi.mocked(createDM);
+const mockedCreateGroup = vi.mocked(createGroup);
 
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
@@ -50,6 +63,48 @@ describe("useSpaces request boundaries", () => {
     expect(hook.result.current.data?.organization.name).toBe("Current");
     expect(hook.result.current.error).toBe("refresh offline");
   });
+
+  for (const kind of ["dm", "group"] as const) {
+    it(`does not merge a late Create ${kind} result into a new Human directory`, async () => {
+      mockedLoadDirectory.mockImplementation((humanId) =>
+        Promise.resolve(directory(humanId)),
+      );
+      const pending = deferred<Space>();
+      if (kind === "dm") mockedCreateDM.mockReturnValueOnce(pending.promise);
+      else mockedCreateGroup.mockReturnValueOnce(pending.promise);
+      const hook = renderHook(({ humanId }) => useSpaces(humanId, true), {
+        initialProps: { humanId: "human-a" },
+      });
+      await waitFor(() =>
+        expect(hook.result.current.data?.organization.name).toBe("human-a"),
+      );
+      let completion!: Promise<Space>;
+      act(() => {
+        completion =
+          kind === "dm"
+            ? hook.result.current.createDirectMessage("request-dm", principal())
+            : hook.result.current.createGroupSpace("request-group", "Group");
+      });
+      hook.rerender({ humanId: "human-b" });
+      await waitFor(() =>
+        expect(hook.result.current.data?.organization.name).toBe("human-b"),
+      );
+      const loadCount = mockedLoadDirectory.mock.calls.length;
+      pending.resolve(space("old-human-space"));
+      let error: unknown;
+      await act(async () => {
+        try {
+          await completion;
+        } catch (cause) {
+          error = cause;
+        }
+      });
+      expect(error).toMatchObject({ name: "AbortError" });
+      expect(hook.result.current.data?.organization.name).toBe("human-b");
+      expect(hook.result.current.data?.spaces).toHaveLength(0);
+      expect(mockedLoadDirectory).toHaveBeenCalledTimes(loadCount);
+    });
+  }
 });
 
 function directory(name: string): DirectorySnapshot {
@@ -64,4 +119,25 @@ function directory(name: string): DirectorySnapshot {
     spaces: [],
     createSpace: { status: "allowed" },
   };
+}
+
+function space(id: string): Space {
+  return {
+    id,
+    organizationId: "org",
+    kind: SpaceKind.GROUP,
+    name: id,
+  } as Space;
+}
+
+function principal(): Principal {
+  return { kind: PrincipalKind.AGENT, id: "agent" } as Principal;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }

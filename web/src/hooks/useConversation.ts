@@ -3,6 +3,7 @@ import type { Message, Principal } from "../gen/sumi/space/v1/space_pb";
 import {
   addSpaceMember,
   collaborationErrorMessage,
+  isInaccessibleCollaborationError,
   loadConversation,
   loadMoreConversationMessages,
   loadMoreThreadMessages,
@@ -20,6 +21,7 @@ type SnapshotState<T> = {
   status: "idle" | "loading" | "ready" | "refreshing" | "error" | "stale";
   data?: T;
   error?: string;
+  inaccessibleTargetId?: string;
 };
 
 export function useConversation(
@@ -43,7 +45,8 @@ export function useConversation(
   const threadController = useRef<AbortController | undefined>(undefined);
 
   const refresh = useCallback(async () => {
-    if (!humanId || !spaceId) return;
+    if (!humanId || !spaceId || latestSpaceId.current !== spaceId) return;
+    const targetSpaceId = spaceId;
     const nextGeneration = ++conversationGeneration.current;
     conversationController.current?.abort();
     const request = new AbortController();
@@ -56,18 +59,34 @@ export function useConversation(
       const data = await loadConversation(humanId, spaceId, {
         signal: request.signal,
       });
-      if (conversationGeneration.current !== nextGeneration) return;
+      if (
+        latestSpaceId.current !== targetSpaceId ||
+        conversationGeneration.current !== nextGeneration
+      )
+        return;
       setConversation({ status: "ready", data });
     } catch (error) {
       if (
         request.signal.aborted ||
+        latestSpaceId.current !== targetSpaceId ||
         conversationGeneration.current !== nextGeneration
       )
         return;
       setConversation((current) => ({
-        status: current.data?.space.id === spaceId ? "stale" : "error",
-        data: current.data?.space.id === spaceId ? current.data : undefined,
+        status:
+          !isInaccessibleCollaborationError(error) &&
+          current.data?.space.id === targetSpaceId
+            ? "stale"
+            : "error",
+        data:
+          !isInaccessibleCollaborationError(error) &&
+          current.data?.space.id === targetSpaceId
+            ? current.data
+            : undefined,
         error: collaborationErrorMessage(error, "load conversation"),
+        inaccessibleTargetId: isInaccessibleCollaborationError(error)
+          ? targetSpaceId
+          : undefined,
       }));
     }
   }, [humanId, spaceId]);
@@ -84,7 +103,7 @@ export function useConversation(
   }, [humanId, refresh, spaceId]);
 
   const refreshThread = useCallback(async () => {
-    if (!threadRoot) return;
+    if (!threadRoot || latestThreadRootId.current !== threadRoot.id) return;
     const rootId = threadRoot.id;
     const nextGeneration = ++threadGeneration.current;
     threadController.current?.abort();
@@ -96,15 +115,34 @@ export function useConversation(
     }));
     try {
       const data = await loadThread(threadRoot, { signal: request.signal });
-      if (threadGeneration.current !== nextGeneration) return;
+      if (
+        latestThreadRootId.current !== rootId ||
+        threadGeneration.current !== nextGeneration
+      )
+        return;
       setThread({ status: "ready", data });
     } catch (error) {
-      if (request.signal.aborted || threadGeneration.current !== nextGeneration)
+      if (
+        request.signal.aborted ||
+        latestThreadRootId.current !== rootId ||
+        threadGeneration.current !== nextGeneration
+      )
         return;
       setThread((current) => ({
-        status: current.data?.root.id === rootId ? "stale" : "error",
-        data: current.data?.root.id === rootId ? current.data : undefined,
+        status:
+          !isInaccessibleCollaborationError(error) &&
+          current.data?.root.id === rootId
+            ? "stale"
+            : "error",
+        data:
+          !isInaccessibleCollaborationError(error) &&
+          current.data?.root.id === rootId
+            ? current.data
+            : undefined,
         error: collaborationErrorMessage(error, "load thread"),
+        inaccessibleTargetId: isInaccessibleCollaborationError(error)
+          ? rootId
+          : undefined,
       }));
     }
   }, [threadRoot]);
@@ -121,8 +159,17 @@ export function useConversation(
   }, [refreshThread, threadRoot]);
 
   const mutateAndRefresh = useCallback(
-    async (mutation: () => Promise<void>) => {
+    async (
+      targetSpaceId: string,
+      targetGeneration: number,
+      mutation: () => Promise<void>,
+    ) => {
       await mutation();
+      if (
+        latestSpaceId.current !== targetSpaceId ||
+        conversationGeneration.current !== targetGeneration
+      )
+        return;
       await refresh();
     },
     [refresh],
@@ -186,12 +233,17 @@ export function useConversation(
     sendMain: async (requestId: string, body: string) => {
       if (!spaceId) throw new Error("No Space selected");
       const targetSpaceId = spaceId;
+      const targetGeneration = conversationGeneration.current;
       const message = await sendSpaceMessage({
         requestId,
         spaceId: targetSpaceId,
         body,
       });
-      if (latestSpaceId.current !== targetSpaceId) return;
+      if (
+        latestSpaceId.current !== targetSpaceId ||
+        conversationGeneration.current !== targetGeneration
+      )
+        return;
       setConversation((current) =>
         current.data?.space.id === targetSpaceId
           ? {
@@ -208,12 +260,17 @@ export function useConversation(
     sendReply: async (requestId: string, body: string) => {
       if (!threadRoot) throw new Error("No Thread selected");
       const targetRootId = threadRoot.id;
+      const targetGeneration = threadGeneration.current;
       const message = await sendThreadMessage({
         requestId,
         threadRootMessageId: targetRootId,
         body,
       });
-      if (latestThreadRootId.current !== targetRootId) return;
+      if (
+        latestThreadRootId.current !== targetRootId ||
+        threadGeneration.current !== targetGeneration
+      )
+        return;
       setThread((current) =>
         current.data?.root.id === targetRootId
           ? {
@@ -229,19 +286,19 @@ export function useConversation(
     },
     addMember: async (requestId: string, member: Principal) => {
       if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(() =>
+      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
         addSpaceMember({ requestId, spaceId, member }),
       );
     },
     removeMember: async (requestId: string, member: Principal) => {
       if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(() =>
+      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
         removeSpaceMember({ requestId, spaceId, member }),
       );
     },
     setArchived: async (requestId: string, archived: boolean) => {
       if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(() =>
+      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
         setSpaceArchived({ requestId, spaceId, archived }),
       );
     },
