@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sumi.system.v1;
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/system/v1;systemv1";
+
+service SystemService {
+  rpc GetBootstrap(GetBootstrapRequest) returns (GetBootstrapResponse);
+}
+
+message GetBootstrapRequest {}
+
+message GetBootstrapResponse {
+  string server_id = 1;
+  string version = 2;
+  repeated string platforms = 3;
+  repeated string capabilities = 4;
+}

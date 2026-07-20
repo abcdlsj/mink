@@ -1,0 +1,2 @@
+gen/** whitespace=-blank-at-eof
+web/src/gen/** whitespace=-blank-at-eof

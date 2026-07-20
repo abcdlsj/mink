@@ -1,0 +1,56 @@
+[tools]
+go = "1.26.5"
+node = "22"
+"go:github.com/bufbuild/buf/cmd/buf" = "1.72.0"
+
+[tasks.install]
+description = "Install Go and Web dependencies"
+run = '''
+go mod download
+npm ci --prefix web
+'''
+
+[tasks.generate]
+description = "Generate Go and TypeScript API code"
+run = "buf generate"
+
+[tasks.format]
+description = "Format source files"
+run = '''
+gofmt -w cmd gen internal
+npm run format --prefix web
+'''
+
+[tasks.lint]
+description = "Run API, Go, and Web static checks"
+run = '''
+buf lint
+go vet ./...
+npm run typecheck --prefix web
+'''
+
+[tasks.test]
+description = "Run Go and Web tests"
+run = '''
+go test ./...
+npm test --prefix web
+'''
+
+[tasks.build]
+description = "Build production Web and Go binaries"
+run = '''
+npm run build --prefix web
+go build ./...
+'''
+
+[tasks."dev:server"]
+description = "Run the local Sumi Server"
+run = "go run ./cmd/sumi-server --data-root ${SUMI_DATA_ROOT:-$HOME/.sumi}"
+
+[tasks."dev:web"]
+description = "Run the Vite Web client"
+run = "npm run dev --prefix web"
+
+[tasks.dev]
+description = "Run Sumi Server and Web together"
+depends = ["dev:server", "dev:web"]
