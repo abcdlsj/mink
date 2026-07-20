@@ -95,6 +95,8 @@ Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、
 
 当前 trusted-local 注册只使用调用方持久保存的 `registration_key` 保证重试与 Server 重启幂等。它不是 Computer 身份、不会通过读取 API 返回，也不是强认证凭证；真正的远程 Computer 身份认证与连接租约必须由后续 Host 合同单独建立。
 
+Agent Placement 是 Server 保存的 current fact，记录 Agent 当前目标 Computer、单调 generation 与 `pending / active / failed`。`active` 只表示目标 Computer 已确认本地 Workspace 可用，不表示 Agent runtime 已启动或 Work 正在执行；generation fence 阻止旧 Computer 和旧请求覆盖新的 placement。`failed` 不自动重试，必须由 Human 显式重新设置后产生新 generation。当前 trusted-local 阶段的 Human Set 尚未接入 Grant，不得包装成已完成的权限系统。
+
 Server 为每个 Agent 分配全局唯一、永不复用的 canonical Agent ID。每台承载该 Agent 的 Computer 都以此 ID 寻址本地 Agent Home 和 Workspace；display name 只用于展示，不参与路径与身份。
 
 Agent Workspace 是长期私有工作区：
@@ -104,6 +106,8 @@ Agent Workspace 是长期私有工作区：
 - 默认不与其他 Agent 共享，也不是 Space、Work、Message 或 Artifact 的事实源；
 - 同一 Agent 在不同 Computer 上的 Workspace 默认彼此独立，不自动同步；
 - 迁移到新 Computer 时，中央身份与协作事实继续，需要的成果通过 Artifact 恢复。
+
+Workspace 的绝对路径只属于本机 Computer。Server 只保存 placement 状态和稳定错误码，不保存、返回或审计本机绝对路径；旧 Computer 因 crash 或 stale ack 留下的目录也不能被 Server 当作 active 或自动删除。
 
 Sandbox 是运行 Agent 的执行边界，不等于 Workspace 目录。Sandbox runtime 可以在连续交互期间保留，也可以在 lease 结束、撤销、迁移或重置时销毁；新的 runtime 继续挂载或使用同一个长期 Workspace。
 
