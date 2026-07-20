@@ -90,6 +90,7 @@ const (
 	Capability_CAPABILITY_SPACE_MEMBERS_MANAGE Capability = 10
 	Capability_CAPABILITY_SPACE_ARCHIVE        Capability = 11
 	Capability_CAPABILITY_MESSAGE_SEND         Capability = 12
+	Capability_CAPABILITY_RUN_EXECUTE          Capability = 13
 )
 
 // Enum value maps for Capability.
@@ -108,6 +109,7 @@ var (
 		10: "CAPABILITY_SPACE_MEMBERS_MANAGE",
 		11: "CAPABILITY_SPACE_ARCHIVE",
 		12: "CAPABILITY_MESSAGE_SEND",
+		13: "CAPABILITY_RUN_EXECUTE",
 	}
 	Capability_value = map[string]int32{
 		"CAPABILITY_UNSPECIFIED":          0,
@@ -123,6 +125,7 @@ var (
 		"CAPABILITY_SPACE_MEMBERS_MANAGE": 10,
 		"CAPABILITY_SPACE_ARCHIVE":        11,
 		"CAPABILITY_MESSAGE_SEND":         12,
+		"CAPABILITY_RUN_EXECUTE":          13,
 	}
 )
 
@@ -1000,7 +1003,7 @@ const file_sumi_grant_v1_grant_proto_rawDesc = "" +
 	"\x1aPRINCIPAL_KIND_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PRINCIPAL_KIND_SYSTEM\x10\x01\x12\x18\n" +
 	"\x14PRINCIPAL_KIND_HUMAN\x10\x02\x12\x18\n" +
-	"\x14PRINCIPAL_KIND_AGENT\x10\x03*\x8d\x03\n" +
+	"\x14PRINCIPAL_KIND_AGENT\x10\x03*\xa9\x03\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12!\n" +
@@ -1016,7 +1019,8 @@ const file_sumi_grant_v1_grant_proto_rawDesc = "" +
 	"\x1fCAPABILITY_SPACE_MEMBERS_MANAGE\x10\n" +
 	"\x12\x1c\n" +
 	"\x18CAPABILITY_SPACE_ARCHIVE\x10\v\x12\x1b\n" +
-	"\x17CAPABILITY_MESSAGE_SEND\x10\f*\x89\x01\n" +
+	"\x17CAPABILITY_MESSAGE_SEND\x10\f\x12\x1a\n" +
+	"\x16CAPABILITY_RUN_EXECUTE\x10\r*\x89\x01\n" +
 	"\tScopeKind\x12\x1a\n" +
 	"\x16SCOPE_KIND_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17SCOPE_KIND_ORGANIZATION\x10\x01\x12\x14\n" +

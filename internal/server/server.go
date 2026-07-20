@@ -10,6 +10,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
@@ -22,6 +23,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/collaboration"
 	"github.com/abcdlsj/sumi/internal/computer"
+	"github.com/abcdlsj/sumi/internal/delivery"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/inbox"
@@ -113,6 +115,9 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	inboxAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, inbox.Procedures()...))
 	inboxPath, inboxHandler := inboxv1connect.NewInboxServiceHandler(inbox.New(database), inboxAuthorization)
 	mux.Handle(inboxPath, inboxHandler)
+	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
+	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
+	mux.Handle(deliveryPath, deliveryHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
 	mux.Handle(organizationPath, organizationHandler)
 	grantPath, grantHandler := grantv1connect.NewGrantServiceHandler(grant.New(database), authorization)

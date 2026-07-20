@@ -161,6 +161,10 @@ Inbox 和 HeldDraft 都使用 `after_sequence` 按单调 sequence 有界 pull，
 
 InboxService 当前十个 procedure 是 `GetInboxNotice`、`ListInboxItems`、`ClaimInboxItem`、`ObserveTarget`、`CompleteInboxItem`、`SetSpaceMute`、`SetThreadFollow`、`SendInboxReply`、`ListHeldDrafts` 与 `ResolveHeldDraft`。它们全部只接受 current Agent runtime token；Human Bearer、browser cookie、过期或被替换的 runtime token 都不能进入 service。interceptor 只建立 proof，Store 仍在每个事务内重验 current runtime、active Placement、显式 Grant、Space membership 和静态 ownership，然后才读取 receipt，最后才判断可变 lifecycle/head。只有真正 publish Message 的事务写 `message.send` Audit；Held、retry 后继续 Held、cancel、mute、follow、claim 和 complete 都不能伪造 Message publish Audit。
 
+Message-backed Inbox item 会派生持久 Delivery 与 Run：Delivery 使用 `available -> accepted -> completed`，Run 使用 `accepted -> running -> completed`，数据库 partial unique 约束保证每个 Agent 只有一个 active Run。runtime 可通过 DeliveryService 的 `ListDeliveries`、`AcceptDelivery`、`GetRun`、`ClaimRun`、`RenewRun` 与 `CompleteRun` 发现并恢复 Server 事实中的 active Run/Launch；六个 procedure 全部只接受 current Agent runtime token。Claim 产生固定 60 秒 lease，fence 在 Agent 范围内全局单调递增，holder 只能由已验证 runtime proof 中的 Computer 与 Placement generation 派生，旧 Computer、旧 generation、旧 Launch 或旧 fence 都不能完成当前 Run。
+
+所有 Run 操作都会在事务内重验 current runtime、active Placement、`run.execute` 与 Agent ownership；List/Accept 额外重验 Space read、membership 与 target 关系，Complete 及 completion receipt 重放额外重验 Space read、membership 与 `message.send`，这些 ACL 拒绝不写 Message、HeldDraft、Run、Delivery、Launch、业务 request receipt 或 completion ingress receipt。GetRun、Claim 与 Renew 不重验 Space read/send 或 membership，Claim/Renew 依赖 current holder、fence 与 lifecycle。合法 Complete 在同一个事务内提交 Message 或 HeldDraft、Run、Delivery、Launch、Audit、metadata/ref-only request receipt 与 `run_completion_receipts` ingress receipt；同一 request/event 重放从持久业务事实重建首次响应，冲突 request/event/run fail closed。`run_completion_receipts` 只描述 Server 接收 completion 的幂等事实，不是发送队列；真实 Computer-local durable outbox、dispatcher 与离线网络重放尚未实现，属于后续 Computer 交付范围。
+
 Agent 只因以下事件被唤起：
 
 - DM 输入；
