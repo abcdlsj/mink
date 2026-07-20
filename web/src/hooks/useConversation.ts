@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type { Message, Principal } from "../gen/sumi/space/v1/space_pb";
 import {
   addSpaceMember,
   collaborationErrorMessage,
   isInaccessibleCollaborationError,
+  isUnauthenticatedCollaborationError,
   loadConversation,
   loadMoreConversationMessages,
   loadMoreThreadMessages,
@@ -22,6 +30,8 @@ type SnapshotState<T> = {
   data?: T;
   error?: string;
   inaccessibleTargetId?: string;
+  inaccessibleSpaceId?: string;
+  authenticationInvalidated?: boolean;
 };
 
 export function useConversation(
@@ -87,6 +97,8 @@ export function useConversation(
         inaccessibleTargetId: isInaccessibleCollaborationError(error)
           ? targetSpaceId
           : undefined,
+        authenticationInvalidated:
+          isUnauthenticatedCollaborationError(error) || undefined,
       }));
     }
   }, [humanId, spaceId]);
@@ -128,22 +140,28 @@ export function useConversation(
         threadGeneration.current !== nextGeneration
       )
         return;
+      const inaccessible = isInaccessibleCollaborationError(error);
       setThread((current) => ({
         status:
-          !isInaccessibleCollaborationError(error) &&
-          current.data?.root.id === rootId
-            ? "stale"
-            : "error",
+          !inaccessible && current.data?.root.id === rootId ? "stale" : "error",
         data:
-          !isInaccessibleCollaborationError(error) &&
-          current.data?.root.id === rootId
+          !inaccessible && current.data?.root.id === rootId
             ? current.data
             : undefined,
         error: collaborationErrorMessage(error, "load thread"),
-        inaccessibleTargetId: isInaccessibleCollaborationError(error)
-          ? rootId
-          : undefined,
+        inaccessibleTargetId: inaccessible ? rootId : undefined,
+        inaccessibleSpaceId: inaccessible ? threadRoot.spaceId : undefined,
+        authenticationInvalidated:
+          isUnauthenticatedCollaborationError(error) || undefined,
       }));
+      if (inaccessible) {
+        clearConversationForThread(
+          setConversation,
+          threadRoot.spaceId,
+          error,
+          "load thread",
+        );
+      }
     }
   }, [threadRoot]);
 
@@ -198,10 +216,14 @@ export function useConversation(
           conversationGeneration.current !== targetGeneration
         )
           return;
+        const inaccessible = isInaccessibleCollaborationError(error);
         setConversation({
-          status: "stale",
-          data: snapshot,
+          status: inaccessible ? "error" : "stale",
+          data: inaccessible ? undefined : snapshot,
           error: collaborationErrorMessage(error, "load more messages"),
+          inaccessibleTargetId: inaccessible ? snapshot.space.id : undefined,
+          authenticationInvalidated:
+            isUnauthenticatedCollaborationError(error) || undefined,
         });
       }
     },
@@ -223,11 +245,24 @@ export function useConversation(
           threadGeneration.current !== targetGeneration
         )
           return;
+        const inaccessible = isInaccessibleCollaborationError(error);
         setThread({
-          status: "stale",
-          data: snapshot,
+          status: inaccessible ? "error" : "stale",
+          data: inaccessible ? undefined : snapshot,
           error: collaborationErrorMessage(error, "load more replies"),
+          inaccessibleTargetId: inaccessible ? snapshot.root.id : undefined,
+          inaccessibleSpaceId: inaccessible ? snapshot.root.spaceId : undefined,
+          authenticationInvalidated:
+            isUnauthenticatedCollaborationError(error) || undefined,
         });
+        if (inaccessible) {
+          clearConversationForThread(
+            setConversation,
+            snapshot.root.spaceId,
+            error,
+            "load more replies",
+          );
+        }
       }
     },
     sendMain: async (requestId: string, body: string) => {
@@ -303,4 +338,25 @@ export function useConversation(
       );
     },
   };
+}
+
+function clearConversationForThread(
+  setConversation: Dispatch<
+    SetStateAction<SnapshotState<ConversationSnapshot>>
+  >,
+  spaceId: string,
+  error: unknown,
+  action: string,
+) {
+  setConversation((current) =>
+    current.data?.space.id === spaceId
+      ? {
+          status: "error",
+          error: collaborationErrorMessage(error, action),
+          inaccessibleTargetId: spaceId,
+          authenticationInvalidated:
+            isUnauthenticatedCollaborationError(error) || undefined,
+        }
+      : current,
+  );
 }

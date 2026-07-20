@@ -1,4 +1,5 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PrincipalKind,
@@ -20,6 +21,16 @@ vi.mock("../lib/collaboration", () => ({
   createGroup: vi.fn(),
   collaborationErrorMessage: (error: unknown) =>
     error instanceof Error ? error.message : "collaboration failed",
+  isInaccessibleCollaborationError: (error: unknown) => {
+    const code = ConnectError.from(error).code;
+    return (
+      code === Code.Unauthenticated ||
+      code === Code.PermissionDenied ||
+      code === Code.NotFound
+    );
+  },
+  isUnauthenticatedCollaborationError: (error: unknown) =>
+    ConnectError.from(error).code === Code.Unauthenticated,
 }));
 
 const mockedLoadDirectory = vi.mocked(loadDirectory);
@@ -62,6 +73,41 @@ describe("useSpaces request boundaries", () => {
     expect(hook.result.current.status).toBe("stale");
     expect(hook.result.current.data?.organization.name).toBe("Current");
     expect(hook.result.current.error).toBe("refresh offline");
+  });
+
+  for (const code of [
+    Code.Unauthenticated,
+    Code.PermissionDenied,
+    Code.NotFound,
+  ]) {
+    it(`clears directory facts when Refresh fails with ${Code[code]}`, async () => {
+      mockedLoadDirectory
+        .mockResolvedValueOnce(directory("Current"))
+        .mockRejectedValueOnce(new ConnectError("access lost", code));
+      const hook = renderHook(() => useSpaces("human-a", true));
+      await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+      await act(async () => hook.result.current.refresh());
+      expect(hook.result.current.status).toBe("error");
+      expect(hook.result.current.data).toBeUndefined();
+      expect(hook.result.current.accessInvalidated).toBe(true);
+      expect(hook.result.current.authenticationInvalidated).toBe(
+        code === Code.Unauthenticated ? true : undefined,
+      );
+    });
+  }
+
+  it("keeps directory facts stale when Refresh is Unavailable", async () => {
+    mockedLoadDirectory
+      .mockResolvedValueOnce(directory("Current"))
+      .mockRejectedValueOnce(
+        new ConnectError("temporarily unavailable", Code.Unavailable),
+      );
+    const hook = renderHook(() => useSpaces("human-a", true));
+    await waitFor(() => expect(hook.result.current.status).toBe("ready"));
+    await act(async () => hook.result.current.refresh());
+    expect(hook.result.current.status).toBe("stale");
+    expect(hook.result.current.data?.organization.name).toBe("Current");
+    expect(hook.result.current.accessInvalidated).toBeUndefined();
   });
 
   for (const kind of ["dm", "group"] as const) {

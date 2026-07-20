@@ -486,6 +486,35 @@ describe("App", () => {
       expect(button).toBeDisabled();
     }
   });
+
+  it("rechecks the Human session when Collaboration returns Unauthenticated", async () => {
+    const directory = collaborationDirectory();
+    const snapshot = conversationSnapshot(directory.spaces[0]);
+    mockedLoadDirectory.mockResolvedValue(directory);
+    mockedLoadConversation
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(
+        new ConnectError("session expired", Code.Unauthenticated),
+      );
+
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open navigation" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Release room" }),
+    );
+    expect(await screen.findByText("Initial message")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Refresh conversation" }),
+    );
+
+    await waitFor(() => expect(mockedGetSession).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByText("No conversation selected"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Initial message")).not.toBeInTheDocument();
+  });
 });
 
 describe("direct Agent mutation contract", () => {

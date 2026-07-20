@@ -10,6 +10,8 @@ import {
   collaborationErrorMessage,
   createDM,
   createGroup,
+  isInaccessibleCollaborationError,
+  isUnauthenticatedCollaborationError,
   loadDirectory,
   type DirectorySnapshot,
 } from "../lib/collaboration";
@@ -27,6 +29,8 @@ export type SpacesState = {
   data?: DirectorySnapshot;
   error?: string;
   principalId?: string;
+  accessInvalidated?: boolean;
+  authenticationInvalidated?: boolean;
 };
 
 export function useSpaces(humanId: string | undefined, enabled: boolean) {
@@ -67,10 +71,22 @@ export function useSpaces(humanId: string | undefined, enabled: boolean) {
           return;
         setState((current) => ({
           status:
-            current.principalId === humanId && current.data ? "stale" : "error",
-          data: current.principalId === humanId ? current.data : undefined,
+            !isInaccessibleCollaborationError(error) &&
+            current.principalId === humanId &&
+            current.data
+              ? "stale"
+              : "error",
+          data:
+            !isInaccessibleCollaborationError(error) &&
+            current.principalId === humanId
+              ? current.data
+              : undefined,
           error: collaborationErrorMessage(error, "load collaboration facts"),
           principalId: humanId,
+          accessInvalidated:
+            isInaccessibleCollaborationError(error) || undefined,
+          authenticationInvalidated:
+            isUnauthenticatedCollaborationError(error) || undefined,
         }));
       }
     },

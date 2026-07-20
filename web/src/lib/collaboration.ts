@@ -384,7 +384,15 @@ export function collaborationErrorMessage(error: unknown, action: string) {
 
 export function isInaccessibleCollaborationError(error: unknown) {
   const code = ConnectError.from(error).code;
-  return code === Code.PermissionDenied || code === Code.NotFound;
+  return (
+    code === Code.Unauthenticated ||
+    code === Code.PermissionDenied ||
+    code === Code.NotFound
+  );
+}
+
+export function isUnauthenticatedCollaborationError(error: unknown) {
+  return ConnectError.from(error).code === Code.Unauthenticated;
 }
 
 async function loadMessages(

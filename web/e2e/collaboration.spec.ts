@@ -189,6 +189,42 @@ test("real page creates canonical DM and Group, sends main/Thread messages, mana
   ).toBeVisible();
 });
 
+test("external session revocation clears protected facts on the next Collaboration request", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/");
+  await conversationNavigation(page)
+    .getByRole("button", { name: "Direct message", exact: true })
+    .last()
+    .click();
+  const mainRow = page.locator(".message-row").filter({ hasText: mainMessage });
+  await expect(mainRow).toBeVisible();
+  await mainRow.getByRole("button", { name: "Open thread" }).click();
+  await expect(contextPane(page)).toBeVisible();
+  await expect(
+    contextPane(page)
+      .getByRole("list", { name: "Thread replies" })
+      .getByText("First reply"),
+  ).toBeVisible();
+
+  expect(
+    await page.evaluate(async () =>
+      fetch("/auth/logout", { method: "POST" }).then(
+        (response) => response.status,
+      ),
+    ),
+  ).toBe(204);
+  await page
+    .getByRole("button", { name: "Refresh conversation", exact: true })
+    .click();
+
+  await expect(page.getByText("Authentication required")).toBeVisible();
+  await expect(mainRow).toHaveCount(0);
+  await expect(contextPane(page)).toBeHidden();
+  expect(await collaborationStatus(page)).toBe(401);
+});
+
 for (const viewport of [
   { width: 1024, height: 768 },
   { width: 900, height: 700 },

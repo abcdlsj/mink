@@ -11,6 +11,8 @@ import {
 import {
   addSpaceMember,
   loadConversation,
+  loadMoreConversationMessages,
+  loadMoreThreadMessages,
   loadThread,
   removeSpaceMember,
   sendSpaceMessage,
@@ -36,12 +38,20 @@ vi.mock("../lib/collaboration", () => ({
     error instanceof Error ? error.message : "collaboration failed",
   isInaccessibleCollaborationError: (error: unknown) => {
     const code = ConnectError.from(error).code;
-    return code === Code.PermissionDenied || code === Code.NotFound;
+    return (
+      code === Code.Unauthenticated ||
+      code === Code.PermissionDenied ||
+      code === Code.NotFound
+    );
   },
+  isUnauthenticatedCollaborationError: (error: unknown) =>
+    ConnectError.from(error).code === Code.Unauthenticated,
 }));
 
 const mockedLoadConversation = vi.mocked(loadConversation);
 const mockedLoadThread = vi.mocked(loadThread);
+const mockedLoadMoreConversation = vi.mocked(loadMoreConversationMessages);
+const mockedLoadMoreThread = vi.mocked(loadMoreThreadMessages);
 const mockedAddMember = vi.mocked(addSpaceMember);
 const mockedRemoveMember = vi.mocked(removeSpaceMember);
 const mockedSetArchived = vi.mocked(setSpaceArchived);
@@ -94,7 +104,11 @@ describe("useConversation target generations", () => {
     expect(hook.result.current.thread.data?.root.id).toBe("root-b");
   });
 
-  for (const code of [Code.PermissionDenied, Code.NotFound]) {
+  for (const code of [
+    Code.Unauthenticated,
+    Code.PermissionDenied,
+    Code.NotFound,
+  ]) {
     it(`clears an inaccessible Space snapshot on ${Code[code]}`, async () => {
       mockedLoadConversation
         .mockResolvedValueOnce(conversation("space-a"))
@@ -112,8 +126,168 @@ describe("useConversation target generations", () => {
       expect(hook.result.current.conversation.inaccessibleTargetId).toBe(
         "space-a",
       );
+      expect(hook.result.current.conversation.authenticationInvalidated).toBe(
+        code === Code.Unauthenticated ? true : undefined,
+      );
     });
   }
+
+  it("keeps a Space snapshot stale on transient Unavailable refresh", async () => {
+    mockedLoadConversation
+      .mockResolvedValueOnce(conversation("space-a"))
+      .mockRejectedValueOnce(
+        new ConnectError("temporarily unavailable", Code.Unavailable),
+      );
+    const hook = renderHook(() =>
+      useConversation("human", "space-a", undefined),
+    );
+    await waitFor(() =>
+      expect(hook.result.current.conversation.status).toBe("ready"),
+    );
+    await act(async () => hook.result.current.refresh());
+    expect(hook.result.current.conversation.status).toBe("stale");
+    expect(hook.result.current.conversation.data?.space.id).toBe("space-a");
+    expect(
+      hook.result.current.conversation.inaccessibleTargetId,
+    ).toBeUndefined();
+  });
+
+  for (const code of [
+    Code.Unauthenticated,
+    Code.PermissionDenied,
+    Code.NotFound,
+  ]) {
+    it(`clears main messages when Load more fails with ${Code[code]}`, async () => {
+      mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+      const pending = deferred<ConversationSnapshot>();
+      mockedLoadMoreConversation.mockReturnValueOnce(pending.promise);
+      const hook = renderHook(() =>
+        useConversation("human", "space-a", undefined),
+      );
+      await waitFor(() =>
+        expect(hook.result.current.conversation.status).toBe("ready"),
+      );
+      let completion!: Promise<void>;
+      act(() => {
+        completion = hook.result.current.loadMore();
+      });
+      pending.reject(new ConnectError("access lost", code));
+      await act(async () => completion);
+      expect(hook.result.current.conversation.status).toBe("error");
+      expect(hook.result.current.conversation.data).toBeUndefined();
+      expect(hook.result.current.conversation.inaccessibleTargetId).toBe(
+        "space-a",
+      );
+    });
+  }
+
+  it("keeps main messages stale when Load more is Unavailable", async () => {
+    mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+    mockedLoadMoreConversation.mockRejectedValueOnce(
+      new ConnectError("temporarily unavailable", Code.Unavailable),
+    );
+    const hook = renderHook(() =>
+      useConversation("human", "space-a", undefined),
+    );
+    await waitFor(() =>
+      expect(hook.result.current.conversation.status).toBe("ready"),
+    );
+    await act(async () => hook.result.current.loadMore());
+    expect(hook.result.current.conversation.status).toBe("stale");
+    expect(hook.result.current.conversation.data?.space.id).toBe("space-a");
+  });
+
+  for (const code of [
+    Code.Unauthenticated,
+    Code.PermissionDenied,
+    Code.NotFound,
+  ]) {
+    it(`clears the Space and Thread when Thread refresh fails with ${Code[code]}`, async () => {
+      const root = message("root-a");
+      mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+      mockedLoadThread
+        .mockResolvedValueOnce(thread(root))
+        .mockRejectedValueOnce(new ConnectError("access lost", code));
+      const hook = renderHook(() => useConversation("human", "space-a", root));
+      await waitFor(() =>
+        expect(hook.result.current.thread.status).toBe("ready"),
+      );
+      await act(async () => hook.result.current.refreshThread());
+      expect(hook.result.current.thread.data).toBeUndefined();
+      expect(hook.result.current.thread.inaccessibleTargetId).toBe("root-a");
+      expect(hook.result.current.thread.inaccessibleSpaceId).toBe("space-a");
+      expect(hook.result.current.conversation.data).toBeUndefined();
+      expect(hook.result.current.conversation.inaccessibleTargetId).toBe(
+        "space-a",
+      );
+    });
+  }
+
+  it("keeps Space and Thread snapshots stale when Thread refresh is Unavailable", async () => {
+    const root = message("root-a");
+    mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+    mockedLoadThread
+      .mockResolvedValueOnce(thread(root))
+      .mockRejectedValueOnce(
+        new ConnectError("temporarily unavailable", Code.Unavailable),
+      );
+    const hook = renderHook(() => useConversation("human", "space-a", root));
+    await waitFor(() =>
+      expect(hook.result.current.thread.status).toBe("ready"),
+    );
+    await act(async () => hook.result.current.refreshThread());
+    expect(hook.result.current.thread.status).toBe("stale");
+    expect(hook.result.current.thread.data?.root.id).toBe("root-a");
+    expect(hook.result.current.conversation.data?.space.id).toBe("space-a");
+  });
+
+  for (const code of [
+    Code.Unauthenticated,
+    Code.PermissionDenied,
+    Code.NotFound,
+  ]) {
+    it(`clears Thread replies when Load more fails with ${Code[code]}`, async () => {
+      const root = message("root-a");
+      mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+      mockedLoadThread.mockResolvedValue(thread(root));
+      const pending = deferred<ThreadSnapshot>();
+      mockedLoadMoreThread.mockReturnValueOnce(pending.promise);
+      const hook = renderHook(() => useConversation("human", "space-a", root));
+      await waitFor(() =>
+        expect(hook.result.current.thread.status).toBe("ready"),
+      );
+      let completion!: Promise<void>;
+      act(() => {
+        completion = hook.result.current.loadMoreThread();
+      });
+      pending.reject(new ConnectError("access lost", code));
+      await act(async () => completion);
+      expect(hook.result.current.thread.status).toBe("error");
+      expect(hook.result.current.thread.data).toBeUndefined();
+      expect(hook.result.current.thread.inaccessibleTargetId).toBe("root-a");
+      expect(hook.result.current.thread.inaccessibleSpaceId).toBe("space-a");
+      expect(hook.result.current.conversation.data).toBeUndefined();
+      expect(hook.result.current.conversation.inaccessibleTargetId).toBe(
+        "space-a",
+      );
+    });
+  }
+
+  it("keeps Thread replies stale when Load more is Unavailable", async () => {
+    const root = message("root-a");
+    mockedLoadConversation.mockResolvedValue(conversation("space-a"));
+    mockedLoadThread.mockResolvedValue(thread(root));
+    mockedLoadMoreThread.mockRejectedValueOnce(
+      new ConnectError("temporarily unavailable", Code.Unavailable),
+    );
+    const hook = renderHook(() => useConversation("human", "space-a", root));
+    await waitFor(() =>
+      expect(hook.result.current.thread.status).toBe("ready"),
+    );
+    await act(async () => hook.result.current.loadMoreThread());
+    expect(hook.result.current.thread.status).toBe("stale");
+    expect(hook.result.current.thread.data?.root.id).toBe("root-a");
+  });
 
   for (const action of ["add", "remove", "archive"] as const) {
     it(`does not let a switch-during-${action} completion refresh the old Space`, async () => {
@@ -258,8 +432,10 @@ function principal(): Principal {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => {
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

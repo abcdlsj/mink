@@ -76,9 +76,26 @@ export default function App() {
   }, [selectedSpace, spaces.data]);
 
   useEffect(() => {
+    if (spaces.accessInvalidated) {
+      setSelectedSpace(undefined);
+      setThreadRoot(undefined);
+      setContextOpen(false);
+      setCompactContextOpen(false);
+      return;
+    }
     if (
       conversation.conversation.inaccessibleTargetId &&
       conversation.conversation.inaccessibleTargetId === selectedSpace?.id
+    ) {
+      setSelectedSpace(undefined);
+      setThreadRoot(undefined);
+      setContextOpen(false);
+      setCompactContextOpen(false);
+      return;
+    }
+    if (
+      conversation.thread.inaccessibleSpaceId &&
+      conversation.thread.inaccessibleSpaceId === selectedSpace?.id
     ) {
       setSelectedSpace(undefined);
       setThreadRoot(undefined);
@@ -97,8 +114,28 @@ export default function App() {
   }, [
     conversation.conversation.inaccessibleTargetId,
     conversation.thread.inaccessibleTargetId,
+    conversation.thread.inaccessibleSpaceId,
     selectedSpace?.id,
+    spaces.accessInvalidated,
     threadRoot?.id,
+  ]);
+
+  useEffect(() => {
+    const authenticationInvalidated =
+      spaces.authenticationInvalidated ||
+      conversation.conversation.authenticationInvalidated ||
+      conversation.thread.authenticationInvalidated;
+    if (
+      authenticationInvalidated &&
+      (session.status === "authenticated" || session.status === "logging-out")
+    ) {
+      void session.retry();
+    }
+  }, [
+    conversation.conversation.authenticationInvalidated,
+    conversation.thread.authenticationInvalidated,
+    session.status,
+    spaces.authenticationInvalidated,
   ]);
 
   const selectModule = (next: WorkspaceModule) => {
