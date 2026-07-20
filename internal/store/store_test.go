@@ -67,6 +67,39 @@ func TestOpenUpgradesVersionOneDatabase(t *testing.T) {
 	}
 }
 
+func TestOpenUpgradesVersionThreeDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configure(database); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	goose.SetBaseFS(migrations)
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := goose.UpTo(database, "migrations", 3); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.ListAgentPlacements(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {

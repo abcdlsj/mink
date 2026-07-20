@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package sumi.placement.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1;placementv1";
+
+service PlacementService {
+  rpc SetAgentPlacement(SetAgentPlacementRequest) returns (SetAgentPlacementResponse);
+  rpc GetAgentPlacement(GetAgentPlacementRequest) returns (GetAgentPlacementResponse);
+  rpc ListAgentPlacements(ListAgentPlacementsRequest) returns (ListAgentPlacementsResponse);
+  rpc ListComputerAssignments(ListComputerAssignmentsRequest) returns (ListComputerAssignmentsResponse);
+  rpc AcknowledgeAgentPlacement(AcknowledgeAgentPlacementRequest) returns (AcknowledgeAgentPlacementResponse);
+}
+
+enum PlacementState {
+  PLACEMENT_STATE_UNSPECIFIED = 0;
+  PLACEMENT_STATE_PENDING = 1;
+  PLACEMENT_STATE_ACTIVE = 2;
+  PLACEMENT_STATE_FAILED = 3;
+}
+
+enum AcknowledgementResult {
+  ACKNOWLEDGEMENT_RESULT_UNSPECIFIED = 0;
+  ACKNOWLEDGEMENT_RESULT_ACTIVE = 1;
+  ACKNOWLEDGEMENT_RESULT_FAILED = 2;
+}
+
+message AgentPlacement {
+  string agent_id = 1;
+  string computer_id = 2;
+  uint64 generation = 3;
+  PlacementState state = 4;
+  string error_code = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SetAgentPlacementRequest {
+  string agent_id = 1;
+  string computer_id = 2;
+}
+
+message SetAgentPlacementResponse {
+  AgentPlacement placement = 1;
+}
+
+message GetAgentPlacementRequest {
+  string agent_id = 1;
+}
+
+message GetAgentPlacementResponse {
+  AgentPlacement placement = 1;
+}
+
+message ListAgentPlacementsRequest {}
+
+message ListAgentPlacementsResponse {
+  repeated AgentPlacement placements = 1;
+}
+
+message ListComputerAssignmentsRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message ListComputerAssignmentsResponse {
+  repeated AgentPlacement assignments = 1;
+}
+
+message AcknowledgeAgentPlacementRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+  string agent_id = 3;
+  uint64 generation = 4;
+  AcknowledgementResult result = 5;
+  string error_code = 6;
+}
+
+message AcknowledgeAgentPlacementResponse {
+  AgentPlacement placement = 1;
+}

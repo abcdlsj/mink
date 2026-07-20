@@ -10,8 +10,8 @@ import (
 
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
+	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -37,7 +37,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 }
 
 func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Request[computerv1.HeartbeatComputerRequest]) (*connect.Response[computerv1.HeartbeatComputerResponse], error) {
-	id, err := canonicalID(request.Msg.GetComputerId(), "computer id")
+	id, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 }
 
 func (s *Service) GetComputer(ctx context.Context, request *connect.Request[computerv1.GetComputerRequest]) (*connect.Response[computerv1.GetComputerResponse], error) {
-	id, err := canonicalID(request.Msg.GetComputerId(), "computer id")
+	id, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -132,14 +132,6 @@ func displayNameValid(name string) error {
 		}
 	}
 	return nil
-}
-
-func canonicalID(value, field string) (string, error) {
-	parsed, err := uuid.Parse(value)
-	if err != nil {
-		return "", connect.NewError(connect.CodeInvalidArgument, errors.New(field+" must be a UUID"))
-	}
-	return parsed.String(), nil
 }
 
 func operatingSystem(value computerv1.OperatingSystem) (string, bool) {

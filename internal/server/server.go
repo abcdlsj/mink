@@ -7,10 +7,12 @@ import (
 
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
 	"github.com/abcdlsj/sumi/internal/agent"
 	"github.com/abcdlsj/sumi/internal/computer"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
 )
@@ -47,6 +49,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(computerPath, computerHandler)
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(agent.New(database))
 	mux.Handle(agentPath, agentHandler)
+	placementPath, placementHandler := placementv1connect.NewPlacementServiceHandler(placement.New(database))
+	mux.Handle(placementPath, placementHandler)
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})

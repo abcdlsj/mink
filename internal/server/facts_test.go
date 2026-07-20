@@ -14,6 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -289,10 +290,11 @@ func TestAgentValidationAndNotFound(t *testing.T) {
 }
 
 type factsAPI struct {
-	app       *Server
-	http      *httptest.Server
-	computers computerv1connect.ComputerServiceClient
-	agents    agentv1connect.AgentServiceClient
+	app        *Server
+	http       *httptest.Server
+	computers  computerv1connect.ComputerServiceClient
+	agents     agentv1connect.AgentServiceClient
+	placements placementv1connect.PlacementServiceClient
 }
 
 func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
@@ -303,10 +305,11 @@ func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
 	}
 	httpServer := httptest.NewServer(app.Handler())
 	return &factsAPI{
-		app:       app,
-		http:      httpServer,
-		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
-		agents:    agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		app:        app,
+		http:       httpServer,
+		computers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
 	}
 }
 
