@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package sumi.inbox.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sumi/space/v1/space.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1;inboxv1";
+
+service InboxService {
+  rpc GetInboxNotice(GetInboxNoticeRequest) returns (GetInboxNoticeResponse);
+  rpc ListInboxItems(ListInboxItemsRequest) returns (ListInboxItemsResponse);
+  rpc ClaimInboxItem(ClaimInboxItemRequest) returns (ClaimInboxItemResponse);
+  rpc ObserveTarget(ObserveTargetRequest) returns (ObserveTargetResponse);
+  rpc CompleteInboxItem(CompleteInboxItemRequest) returns (CompleteInboxItemResponse);
+  rpc SetSpaceMute(SetSpaceMuteRequest) returns (SetSpaceMuteResponse);
+  rpc SetThreadFollow(SetThreadFollowRequest) returns (SetThreadFollowResponse);
+  rpc SendInboxReply(SendInboxReplyRequest) returns (SendInboxReplyResponse);
+  rpc ListHeldDrafts(ListHeldDraftsRequest) returns (ListHeldDraftsResponse);
+  rpc ResolveHeldDraft(ResolveHeldDraftRequest) returns (ResolveHeldDraftResponse);
+}
+
+enum InboxReason {
+  INBOX_REASON_UNSPECIFIED = 0;
+  INBOX_REASON_DM = 1;
+  INBOX_REASON_MENTION = 2;
+  INBOX_REASON_THREAD_FOLLOW = 3;
+}
+
+enum InboxState {
+  INBOX_STATE_UNSPECIFIED = 0;
+  INBOX_STATE_UNREAD = 1;
+  INBOX_STATE_CLAIMED = 2;
+  INBOX_STATE_DONE = 3;
+}
+
+enum InboxCompletion {
+  INBOX_COMPLETION_UNSPECIFIED = 0;
+  INBOX_COMPLETION_SENT = 1;
+  INBOX_COMPLETION_CANCELLED = 2;
+  INBOX_COMPLETION_SILENT = 3;
+  INBOX_COMPLETION_ACCESS_LOST = 4;
+}
+
+enum HeldDraftState {
+  HELD_DRAFT_STATE_UNSPECIFIED = 0;
+  HELD_DRAFT_STATE_HELD = 1;
+  HELD_DRAFT_STATE_SENT = 2;
+  HELD_DRAFT_STATE_CANCELLED = 3;
+  HELD_DRAFT_STATE_SUPERSEDED = 4;
+  HELD_DRAFT_STATE_RETARGETED = 5;
+}
+
+enum DraftResolutionAction {
+  DRAFT_RESOLUTION_ACTION_UNSPECIFIED = 0;
+  DRAFT_RESOLUTION_ACTION_RETRY = 1;
+  DRAFT_RESOLUTION_ACTION_CANCEL = 2;
+  DRAFT_RESOLUTION_ACTION_RETARGET = 3;
+}
+
+message InboxItem {
+  uint64 sequence = 1;
+  string id = 2;
+  string agent_id = 3;
+  sumi.space.v1.MessageTarget target = 4;
+  string trigger_message_id = 5;
+  uint64 trigger_target_sequence = 6;
+  InboxReason reason = 7;
+  InboxState state = 8;
+  google.protobuf.Timestamp claimed_at = 9;
+  google.protobuf.Timestamp done_at = 10;
+  InboxCompletion completion = 11;
+  google.protobuf.Timestamp created_at = 12;
+  string space_id = 13;
+}
+
+message HeldDraft {
+  uint64 sequence = 1;
+  string id = 2;
+  string inbox_item_id = 3;
+  string predecessor_draft_id = 4;
+  sumi.space.v1.MessageTarget target = 5;
+  uint64 basis_target_sequence = 6;
+  string body = 7;
+  repeated string mentioned_agent_ids = 8;
+  HeldDraftState state = 9;
+  DraftResolutionAction resolution_action = 10;
+  oneof result_ref {
+    string result_message_id = 11;
+    string result_held_draft_id = 12;
+  }
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  string space_id = 15;
+}
+
+message GetInboxNoticeRequest {}
+
+message GetInboxNoticeResponse {
+  bool has_unread = 1;
+}
+
+message ListInboxItemsRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+
+message ListInboxItemsResponse {
+  repeated InboxItem items = 1;
+}
+
+message ClaimInboxItemRequest {
+  string request_id = 1;
+  string inbox_item_id = 2;
+}
+
+message ClaimInboxItemResponse {
+  InboxItem item = 1;
+}
+
+message ObserveTargetRequest {
+  sumi.space.v1.MessageTarget target = 1;
+  uint32 limit = 2;
+}
+
+message ObserveTargetResponse {
+  sumi.space.v1.MessageTarget target = 1;
+  uint64 head_sequence = 2;
+  repeated sumi.space.v1.Message messages = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+message CompleteInboxItemRequest {
+  string request_id = 1;
+  string inbox_item_id = 2;
+}
+
+message CompleteInboxItemResponse {
+  InboxItem item = 1;
+}
+
+message SetSpaceMuteRequest {
+  string request_id = 1;
+  string space_id = 2;
+  bool muted = 3;
+}
+
+message SetSpaceMuteResponse {
+  bool muted = 1;
+  google.protobuf.Timestamp committed_at = 2;
+}
+
+message SetThreadFollowRequest {
+  string request_id = 1;
+  string thread_root_message_id = 2;
+  bool followed = 3;
+}
+
+message SetThreadFollowResponse {
+  bool followed = 1;
+  google.protobuf.Timestamp committed_at = 2;
+}
+
+message SendInboxReplyRequest {
+  string request_id = 1;
+  string inbox_item_id = 2;
+  uint64 basis_target_sequence = 3;
+  string body = 4;
+  repeated string mentioned_agent_ids = 5;
+}
+
+message SendInboxReplyResponse {
+  oneof result {
+    sumi.space.v1.Message message = 1;
+    HeldDraft held_draft = 2;
+  }
+  google.protobuf.Timestamp committed_at = 3;
+}
+
+message ListHeldDraftsRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+
+message ListHeldDraftsResponse {
+  repeated HeldDraft drafts = 1;
+  uint64 next_sequence = 2;
+}
+
+message ResolveHeldDraftRequest {
+  string request_id = 1;
+  string held_draft_id = 2;
+  DraftResolutionAction action = 3;
+  sumi.space.v1.MessageTarget target = 4;
+  uint64 basis_target_sequence = 5;
+}
+
+message ResolveHeldDraftResponse {
+  DraftResolutionAction action = 1;
+  oneof result {
+    sumi.space.v1.Message message = 2;
+    HeldDraft held_draft = 3;
+  }
+  InboxItem item = 4;
+  google.protobuf.Timestamp committed_at = 5;
+}

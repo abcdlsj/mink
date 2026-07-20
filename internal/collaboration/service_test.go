@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -70,6 +71,18 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 	})); connectCode(err) != connect.CodeInvalidArgument {
 		t.Fatalf("invalid group name code = %v, error = %v", connectCode(err), err)
 	}
+	agent, err := database.CreateAgent(context.Background(), store.CreateAgentParams{
+		RequestID: uuid.NewString(), Actor: owner, Name: "collaboration-mention", Driver: "native", Now: now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.AddMember(context.Background(), authenticatedRequest(credential, &spacev1.AddMemberRequest{
+		RequestId: uuid.NewString(), SpaceId: group.GetId(),
+		Member: &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agent.ID},
+	})); err != nil {
+		t.Fatal(err)
+	}
 
 	dmResponse, err := client.CreateDM(context.Background(), authenticatedRequest(credential, &spacev1.CreateDMRequest{
 		RequestId: uuid.NewString(), Peer: &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN, Id: peer.ID},
@@ -88,15 +101,17 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 
 	rootRequestID := uuid.NewString()
 	rootResponse, err := client.SendMessage(context.Background(), authenticatedRequest(credential, &spacev1.SendMessageRequest{
-		RequestId: rootRequestID,
-		Target:    &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: group.GetId()}},
-		Body:      "# root\n\nMarkdown body",
+		RequestId:         rootRequestID,
+		Target:            &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: group.GetId()}},
+		Body:              "# root\n\nMarkdown body",
+		MentionedAgentIds: []string{agent.ID},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := rootResponse.Msg.GetMessage()
-	if root.GetRequestId() != rootRequestID || root.GetTargetSequence() != 1 || root.GetThreadRootMessageId() != "" {
+	if root.GetRequestId() != rootRequestID || root.GetTargetSequence() != 1 || root.GetThreadRootMessageId() != "" ||
+		!reflect.DeepEqual(root.GetMentionedAgentIds(), []string{agent.ID}) {
 		t.Fatalf("root response = %+v", root)
 	}
 	replyResponse, err := client.SendMessage(context.Background(), authenticatedRequest(credential, &spacev1.SendMessageRequest{

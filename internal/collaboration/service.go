@@ -191,7 +191,8 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 		return nil, err
 	}
 	message, err := s.store.SendMessage(ctx, store.SendMessageParams{
-		RequestID: requestID, Actor: actor, Target: target, Body: request.Msg.GetBody(), Now: s.now(),
+		RequestID: requestID, Actor: actor, Target: target, Body: request.Msg.GetBody(),
+		MentionedAgentIDs: request.Msg.GetMentionedAgentIds(), Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
@@ -384,7 +385,8 @@ func collaborationError(err error) error {
 		errors.Is(err, store.ErrInvalidMessageTarget):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, store.ErrDMRequiresDistinctPrincipals), errors.Is(err, store.ErrInvalidSpaceName),
-		errors.Is(err, store.ErrInvalidPrincipal), errors.Is(err, store.ErrInvalidMessageBody), errors.Is(err, store.ErrInvalidMessageLimit):
+		errors.Is(err, store.ErrInvalidPrincipal), errors.Is(err, store.ErrInvalidMessageBody), errors.Is(err, store.ErrInvalidMessageLimit),
+		errors.Is(err, store.ErrInvalidMention):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, err)
@@ -432,7 +434,7 @@ func messageMessage(message store.Message) *spacev1.Message {
 	result := &spacev1.Message{
 		Id: message.ID, RequestId: message.RequestID, SpaceId: message.SpaceID,
 		TargetSequence: message.TargetSequence, Author: principalMessage(message.Author), Body: message.Body,
-		CreatedAt: timestamppb.New(message.CreatedAt),
+		CreatedAt: timestamppb.New(message.CreatedAt), MentionedAgentIds: message.MentionedAgentIDs,
 	}
 	if message.Target.Kind == store.MessageTargetThread {
 		result.ThreadRootMessageId = message.Target.ID

@@ -476,6 +476,7 @@ type Message struct {
 	Body                string                 `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
 	CreatedAt           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	RequestId           string                 `protobuf:"bytes,8,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	MentionedAgentIds   []string               `protobuf:"bytes,9,rep,name=mentioned_agent_ids,json=mentionedAgentIds,proto3" json:"mentioned_agent_ids,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -564,6 +565,13 @@ func (x *Message) GetRequestId() string {
 		return x.RequestId
 	}
 	return ""
+}
+
+func (x *Message) GetMentionedAgentIds() []string {
+	if x != nil {
+		return x.MentionedAgentIds
+	}
+	return nil
 }
 
 type MutationReceipt struct {
@@ -1467,12 +1475,13 @@ func (x *UnarchiveSpaceResponse) GetReceipt() *MutationReceipt {
 }
 
 type SendMessageRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Target        *MessageTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
-	Body          string                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RequestId         string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Target            *MessageTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Body              string                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
+	MentionedAgentIds []string               `protobuf:"bytes,4,rep,name=mentioned_agent_ids,json=mentionedAgentIds,proto3" json:"mentioned_agent_ids,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SendMessageRequest) Reset() {
@@ -1524,6 +1533,13 @@ func (x *SendMessageRequest) GetBody() string {
 		return x.Body
 	}
 	return ""
+}
+
+func (x *SendMessageRequest) GetMentionedAgentIds() []string {
+	if x != nil {
+		return x.MentionedAgentIds
+	}
+	return nil
 }
 
 type SendMessageResponse struct {
@@ -1882,7 +1898,7 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"\rMessageTarget\x12\x1b\n" +
 	"\bspace_id\x18\x01 \x01(\tH\x00R\aspaceId\x125\n" +
 	"\x16thread_root_message_id\x18\x02 \x01(\tH\x00R\x13threadRootMessageIdB\b\n" +
-	"\x06target\"\xb2\x02\n" +
+	"\x06target\"\xe2\x02\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bspace_id\x18\x02 \x01(\tR\aspaceId\x123\n" +
@@ -1893,7 +1909,8 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\b \x01(\tR\trequestId\"o\n" +
+	"request_id\x18\b \x01(\tR\trequestId\x12.\n" +
+	"\x13mentioned_agent_ids\x18\t \x03(\tR\x11mentionedAgentIds\"o\n" +
 	"\x0fMutationReceipt\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12=\n" +
@@ -1946,12 +1963,13 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
 	"\bspace_id\x18\x02 \x01(\tR\aspaceId\"R\n" +
 	"\x16UnarchiveSpaceResponse\x128\n" +
-	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"}\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"\xad\x01\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x124\n" +
 	"\x06target\x18\x02 \x01(\v2\x1c.sumi.space.v1.MessageTargetR\x06target\x12\x12\n" +
-	"\x04body\x18\x03 \x01(\tR\x04body\"G\n" +
+	"\x04body\x18\x03 \x01(\tR\x04body\x12.\n" +
+	"\x13mentioned_agent_ids\x18\x04 \x03(\tR\x11mentionedAgentIds\"G\n" +
 	"\x13SendMessageResponse\x120\n" +
 	"\amessage\x18\x01 \x01(\v2\x16.sumi.space.v1.MessageR\amessage\"2\n" +
 	"\x11GetMessageRequest\x12\x1d\n" +
