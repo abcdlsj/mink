@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
+	"github.com/abcdlsj/sumi/internal/computer"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
@@ -37,8 +39,10 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}
 
 	mux := http.NewServeMux()
-	path, handler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
-	mux.Handle(path, handler)
+	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
+	mux.Handle(systemPath, systemHandler)
+	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database))
+	mux.Handle(computerPath, computerHandler)
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})

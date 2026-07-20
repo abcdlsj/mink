@@ -93,6 +93,8 @@ Artifact 必须具备：
 
 Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、Secret 和可选的 Sandbox provider。它是部署与管理对象，不是日常协作的中心。
 
+当前 trusted-local 注册只使用调用方持久保存的 `registration_key` 保证重试与 Server 重启幂等。它不是 Computer 身份、不会通过读取 API 返回，也不是强认证凭证；真正的远程 Computer 身份认证与连接租约必须由后续 Host 合同单独建立。
+
 Server 为每个 Agent 分配全局唯一、永不复用的 canonical Agent ID。每台承载该 Agent 的 Computer 都以此 ID 寻址本地 Agent Home 和 Workspace；display name 只用于展示，不参与路径与身份。
 
 Agent Workspace 是长期私有工作区：

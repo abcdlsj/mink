@@ -22,6 +22,6 @@ func (s *Service) GetBootstrap(context.Context, *connect.Request[systemv1.GetBoo
 		ServerId:     s.serverID,
 		Version:      Version,
 		Platforms:    []string{"macos", "linux"},
-		Capabilities: []string{"generated-connect-api", "persistent-server-identity", "conversation-shell"},
+		Capabilities: []string{"generated-connect-api", "persistent-server-identity", "persistent-computer-facts", "conversation-shell"},
 	}), nil
 }

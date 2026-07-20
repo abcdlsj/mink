@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package sumi.computer.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1;computerv1";
+
+service ComputerService {
+  rpc RegisterComputer(RegisterComputerRequest) returns (RegisterComputerResponse);
+  rpc HeartbeatComputer(HeartbeatComputerRequest) returns (HeartbeatComputerResponse);
+  rpc GetComputer(GetComputerRequest) returns (GetComputerResponse);
+  rpc ListComputers(ListComputersRequest) returns (ListComputersResponse);
+}
+
+enum OperatingSystem {
+  OPERATING_SYSTEM_UNSPECIFIED = 0;
+  OPERATING_SYSTEM_MACOS = 1;
+  OPERATING_SYSTEM_LINUX = 2;
+}
+
+enum Architecture {
+  ARCHITECTURE_UNSPECIFIED = 0;
+  ARCHITECTURE_ARM64 = 1;
+  ARCHITECTURE_AMD64 = 2;
+}
+
+message Computer {
+  string id = 1;
+  string name = 2;
+  OperatingSystem os = 3;
+  Architecture arch = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+}
+
+message RegisterComputerRequest {
+  string registration_key = 1;
+  string name = 2;
+  OperatingSystem os = 3;
+  Architecture arch = 4;
+}
+
+message RegisterComputerResponse {
+  Computer computer = 1;
+}
+
+message HeartbeatComputerRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message HeartbeatComputerResponse {
+  Computer computer = 1;
+}
+
+message GetComputerRequest {
+  string computer_id = 1;
+}
+
+message GetComputerResponse {
+  Computer computer = 1;
+}
+
+message ListComputersRequest {}
+
+message ListComputersResponse {
+  repeated Computer computers = 1;
+}
