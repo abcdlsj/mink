@@ -8,6 +8,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/sumi.system.v1.SystemService": "http://127.0.0.1:8080",
+      "/sumi.agent.v1.AgentService": "http://127.0.0.1:8080",
+      "/sumi.computer.v1.ComputerService": "http://127.0.0.1:8080",
+      "/sumi.placement.v1.PlacementService": "http://127.0.0.1:8080",
     },
   },
 });

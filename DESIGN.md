@@ -193,6 +193,8 @@ Work 与 Artifact 必须从对话自然进入和返回：Message 可以升级为
 
 **Agent / Computer** 是次级管理页。Agent 页面管理职责、Grant、Driver capability、Placement、Workspace 状态、Memory 状态和队列；Computer 页面管理连接、能力、承载 Agent 与诊断。它们不替代日常 DM、Space 和 Work。
 
+Agent 与 Computer 管理页只展示 Server 的真实 facts。Agent 列表只使用 `unplaced / pending / active / failed` placement 状态，不从 Workspace 或 Computer 状态推断 Agent 正在工作或在线；Computer 页面不暴露 registration key，也不提供尚不存在的 daemon 控制。创建 Agent 与可选 placement 是两个连续但不原子的操作：Agent 一旦创建成功就必须保留，后续 placement 失败应明确显示部分成功并允许只重试 placement，不能重复创建身份。模块刷新失败时保留已加载 facts 并提供原位重试；窄窗口在列表与详情间使用单 pane 切换，管理页不显示 Conversation Composer。
+
 ### 核心用户旅程
 
 **长期 DM**：打开 Agent，连续对话；Agent busy 时新输入进入可见队列；重启后从原上下文继续；询问其他 Space 的结论时，Agent 按需检索并提供来源。

@@ -1,356 +1,187 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, PanelRightClose } from "lucide-react";
+import { AgentWorkspace } from "./components/AgentWorkspace";
+import { ComputerWorkspace } from "./components/ComputerWorkspace";
+import { ConversationNavigation } from "./components/ConversationNavigation";
+import { ConversationWorkspace } from "./components/ConversationWorkspace";
 import {
-  ArrowLeft,
-  Archive,
-  ChevronDown,
-  FileStack,
-  Inbox,
-  MessageSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
-  RotateCw,
-  Search,
-  Send,
-  UsersRound,
-} from "lucide-react";
+  AgentsNavigation,
+  ComputersNavigation,
+} from "./components/DirectoryNavigation";
+import { PrimaryRail, type WorkspaceModule } from "./components/PrimaryRail";
 import { useBootstrap } from "./hooks/useBootstrap";
+import { useFacts } from "./hooks/useFacts";
 import "./styles.css";
-
-type View = "chat" | "work" | "artifacts";
-type ConnectionStatus = "loading" | "retrying" | "ready" | "offline";
-
-const viewCopy: Record<View, { title: string; detail: string }> = {
-  chat: {
-    title: "No conversations yet",
-    detail: "Your direct messages and spaces will appear here.",
-  },
-  work: {
-    title: "No work in this space",
-    detail: "Work begins only after an explicit commitment.",
-  },
-  artifacts: {
-    title: "No artifacts published",
-    detail: "Versioned results will remain linked to their source work.",
-  },
-};
 
 export default function App() {
   const bootstrap = useBootstrap();
-  const [view, setView] = useState<View>("chat");
+  const [module, setModule] = useState<WorkspaceModule>("conversation");
   const [navigationOpen, setNavigationOpen] = useState(
     () => window.innerWidth >= 1280,
   );
   const [contextOpen, setContextOpen] = useState(false);
   const [compactContextOpen, setCompactContextOpen] = useState(false);
-  const empty = viewCopy[view];
+  const [selectedAgent, setSelectedAgent] = useState<string>();
+  const [selectedComputer, setSelectedComputer] = useState<string>();
+  const facts = useFacts(
+    bootstrap.status === "ready" && module !== "conversation",
+  );
+
+  useEffect(() => {
+    if (!facts.data) return;
+    if (!selectedAgent && facts.data.agents[0]) {
+      setSelectedAgent(facts.data.agents[0].id);
+    }
+    if (!selectedComputer && facts.data.computers[0]) {
+      setSelectedComputer(facts.data.computers[0].id);
+    }
+  }, [facts.data, selectedAgent, selectedComputer]);
+
+  const selectModule = (next: WorkspaceModule) => {
+    setModule(next);
+    setContextOpen(false);
+    setCompactContextOpen(false);
+    if (next === "conversation") {
+      setNavigationOpen(window.innerWidth >= 1280);
+    } else {
+      setNavigationOpen(true);
+    }
+  };
+
+  const showAgent = (id: string) => {
+    setSelectedAgent(id);
+    if (window.innerWidth < 1024) setNavigationOpen(false);
+  };
+
+  const showComputer = (id: string) => {
+    setSelectedComputer(id);
+    if (window.innerWidth < 1024) setNavigationOpen(false);
+  };
+
+  const management = module !== "conversation";
+  const shellClasses = [
+    "app-shell",
+    navigationOpen ? "" : "navigation-collapsed",
+    contextOpen && !management ? "" : "context-collapsed",
+    compactContextOpen && !management ? "compact-context-open" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
-    <main
-      className={`app-shell ${navigationOpen ? "" : "navigation-collapsed"} ${contextOpen ? "" : "context-collapsed"} ${compactContextOpen ? "compact-context-open" : ""}`}
-    >
-      <nav className="icon-rail" aria-label="Primary">
-        <div className="brand-mark" aria-label="Sumi">
-          S
-        </div>
-        <div className="rail-actions">
-          <button
-            className="icon-button rail-button active"
-            type="button"
-            aria-label="Chat"
-            title="Chat"
-            onClick={() => setNavigationOpen((open) => !open)}
-          >
-            <MessageSquare size={20} strokeWidth={1.8} />
-          </button>
-        </div>
-      </nav>
+    <main className={shellClasses}>
+      <PrimaryRail
+        active={module}
+        factsAvailable={bootstrap.status === "ready"}
+        onSelect={selectModule}
+      />
 
-      <aside className="secondary-nav" aria-label="Conversation navigation">
-        <header className="nav-header">
-          <div>
-            <span className="eyebrow">Workspace</span>
-            <strong>Sumi</strong>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="Collapse navigation"
-            title="Collapse navigation"
-            onClick={() => setNavigationOpen(false)}
-          >
-            <PanelLeftClose size={18} />
-          </button>
-        </header>
-        <nav className="nav-groups">
-          <NavGroup icon={<Inbox size={15} />} label="Inbox" value="Empty" />
-          <NavGroup icon={<Archive size={15} />} label="Saved" value="None" />
-          <NavGroup
-            icon={<FileStack size={15} />}
-            label="Pinned"
-            value="None"
+      <aside
+        className="secondary-nav"
+        aria-label={
+          module === "conversation"
+            ? "Conversation navigation"
+            : `${capitalize(module)} navigation`
+        }
+      >
+        {module === "conversation" ? (
+          <ConversationNavigation
+            bootstrap={bootstrap}
+            onClose={() => setNavigationOpen(false)}
           />
-          <NavSection label="Spaces" empty="No spaces yet" />
-          <NavSection label="Direct messages" empty="No direct messages" />
-          <NavSection label="Work" empty="No active work" />
-        </nav>
-        <div className="nav-runtime">
-          <span className={`status-dot ${bootstrap.status}`} />
-          <div>
-            <strong>Local workspace</strong>
-            <span>{serverStatus(bootstrap.status)}</span>
-          </div>
-        </div>
+        ) : module === "agents" ? (
+          <AgentsNavigation
+            state={facts}
+            selected={selectedAgent}
+            onSelect={showAgent}
+            onCreate={() => showAgent("create")}
+            onRefresh={facts.refresh}
+            onClose={() => setNavigationOpen(false)}
+          />
+        ) : (
+          <ComputersNavigation
+            state={facts}
+            selected={selectedComputer}
+            onSelect={showComputer}
+            onRefresh={facts.refresh}
+            onClose={() => setNavigationOpen(false)}
+          />
+        )}
       </aside>
 
-      <section className="conversation" aria-label="Conversation">
-        <header className="topbar">
-          <div className="topbar-leading">
-            {!navigationOpen && (
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="Open navigation"
-                title="Open navigation"
-                onClick={() => setNavigationOpen(true)}
-              >
-                <PanelLeftOpen size={18} />
-              </button>
-            )}
-            <label className="search-field">
-              <Search size={17} />
-              <input type="search" placeholder="Search Sumi" disabled />
-            </label>
-          </div>
-          <div className="topbar-actions">
-            <div
-              className={`server-indicator ${bootstrap.status}`}
-              title={bootstrapLabel(
-                bootstrap.status,
-                bootstrap.value?.serverId,
-              )}
-            >
-              <span className={`status-dot ${bootstrap.status}`} />
-              <span>
-                {bootstrapLabel(bootstrap.status, bootstrap.value?.serverId)}
-              </span>
-              {bootstrap.status === "ready" && (
-                <small>v{bootstrap.value.version}</small>
-              )}
-            </div>
+      {module === "conversation" ? (
+        <ConversationWorkspace
+          bootstrap={bootstrap}
+          navigationOpen={navigationOpen}
+          contextOpen={contextOpen}
+          onOpenNavigation={() => setNavigationOpen(true)}
+          onOpenContext={() => {
+            if (window.innerWidth < 1024) setCompactContextOpen(true);
+            else setContextOpen(true);
+          }}
+        />
+      ) : module === "agents" ? (
+        <AgentWorkspace
+          selected={selectedAgent}
+          facts={facts}
+          bootstrap={bootstrap}
+          navigationOpen={navigationOpen}
+          onOpenNavigation={() => setNavigationOpen(true)}
+          onSelectAgent={showAgent}
+          onCancelCreate={() => {
+            const first = facts.data?.agents[0];
+            if (first) showAgent(first.id);
+            else {
+              setSelectedAgent(undefined);
+              setNavigationOpen(true);
+            }
+          }}
+        />
+      ) : (
+        <ComputerWorkspace
+          selected={selectedComputer}
+          facts={facts}
+          bootstrap={bootstrap}
+          navigationOpen={navigationOpen}
+          onOpenNavigation={() => setNavigationOpen(true)}
+        />
+      )}
+
+      {module === "conversation" && (
+        <aside className="context-pane" aria-label="Context">
+          <header className="context-header">
             <button
-              className="icon-button compact-context-trigger"
+              className="icon-button compact-context-back"
               type="button"
-              aria-label="Open context"
-              title="Open context"
-              onClick={() => setCompactContextOpen(true)}
+              aria-label="Back to conversation"
+              title="Back to conversation"
+              onClick={() => setCompactContextOpen(false)}
             >
-              <PanelRightOpen size={18} />
+              <ArrowLeft size={18} />
             </button>
-            {!contextOpen && (
-              <button
-                className="icon-button desktop-context-trigger"
-                type="button"
-                aria-label="Open context"
-                title="Open context"
-                onClick={() => setContextOpen(true)}
-              >
-                <PanelRightOpen size={18} />
-              </button>
-            )}
-          </div>
-        </header>
-
-        <header className="space-header">
-          <div>
-            <span className="eyebrow">Conversation</span>
-            <h1>Sumi workspace</h1>
-          </div>
-          <div className="space-presence">
-            <UsersRound size={17} />
-            <span>Local Human</span>
-          </div>
-        </header>
-
-        <div
-          className="tab-strip"
-          role="tablist"
-          aria-label="Conversation views"
-        >
-          {(["chat", "work", "artifacts"] as const).map((item) => (
-            <button
-              className={view === item ? "selected" : ""}
-              type="button"
-              role="tab"
-              aria-selected={view === item}
-              onClick={() => setView(item)}
-              key={item}
-            >
-              {capitalize(item)}
-            </button>
-          ))}
-        </div>
-
-        <div className="timeline" data-testid="timeline">
-          {bootstrap.status === "loading" ? (
-            <div className="loading-state" role="status">
-              <span className="status-dot loading" />
-              <div>
-                <h2>Connecting to Sumi</h2>
-                <p>Waiting for the local Server.</p>
-              </div>
-            </div>
-          ) : bootstrap.status === "offline" ||
-            bootstrap.status === "retrying" ? (
-            <div className="offline-state" role="alert">
-              <span className="offline-mark">!</span>
-              <div>
-                <h2>Server unavailable</h2>
-                <p>
-                  The conversation shell is offline. Existing local files are
-                  unchanged.
-                </p>
-              </div>
-              <button
-                className="command-button"
-                type="button"
-                onClick={bootstrap.retry}
-                disabled={bootstrap.status === "retrying"}
-              >
-                <RotateCw size={16} />
-                {bootstrap.status === "retrying" ? "Retrying" : "Retry"}
-              </button>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <span className="empty-icon">{emptyIcon(view)}</span>
-              <h2>{empty.title}</h2>
-              <p>{empty.detail}</p>
-            </div>
-          )}
-        </div>
-
-        <footer className="composer" data-testid="main-composer">
-          <textarea
-            aria-label="Message"
-            placeholder="Connect an Agent to begin a conversation"
-            disabled
-            rows={1}
-          />
-          <div className="composer-toolbar">
             <div>
-              <button
-                className="icon-button compact"
-                type="button"
-                aria-label="Add attachment"
-                title="Attachments are not available yet"
-                disabled
-              >
-                <Plus size={18} />
-              </button>
-              <label className="work-toggle">
-                <input type="checkbox" disabled />
-                As Work
-              </label>
+              <span className="eyebrow">Current space</span>
+              <strong>Context</strong>
             </div>
             <button
-              className="icon-button compact send-button"
+              className="icon-button desktop-context-close"
               type="button"
-              aria-label="Send message"
-              title="Messaging is not available yet"
-              disabled
+              aria-label="Close context"
+              title="Close context"
+              onClick={() => setContextOpen(false)}
             >
-              <Send size={17} />
+              <PanelRightClose size={18} />
             </button>
+          </header>
+          <div className="context-content context-empty">
+            <p>No context selected</p>
           </div>
-        </footer>
-      </section>
-
-      <aside className="context-pane" aria-label="Context">
-        <header className="context-header">
-          <button
-            className="icon-button compact-context-back"
-            type="button"
-            aria-label="Back to conversation"
-            title="Back to conversation"
-            onClick={() => setCompactContextOpen(false)}
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <span className="eyebrow">Current space</span>
-            <strong>Context</strong>
-          </div>
-          <button
-            className="icon-button desktop-context-close"
-            type="button"
-            aria-label="Close context"
-            title="Close context"
-            onClick={() => setContextOpen(false)}
-          >
-            <PanelRightClose size={18} />
-          </button>
-        </header>
-        <div className="context-content context-empty">
-          <p>No context selected</p>
-        </div>
-      </aside>
+        </aside>
+      )}
     </main>
-  );
-}
-
-function NavGroup({
-  icon,
-  label,
-  value,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="nav-row">
-      <span>{icon}</span>
-      <strong>{label}</strong>
-      <small>{value}</small>
-    </div>
-  );
-}
-
-function NavSection({ label, empty }: { label: string; empty: string }) {
-  return (
-    <details className="nav-section" open>
-      <summary>
-        <strong>{label}</strong>
-        <ChevronDown size={14} />
-      </summary>
-      <p>{empty}</p>
-    </details>
   );
 }
 
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function emptyIcon(view: View) {
-  if (view === "work") return <Archive size={30} strokeWidth={1.6} />;
-  if (view === "artifacts") return <FileStack size={30} strokeWidth={1.6} />;
-  return <MessageSquare size={30} strokeWidth={1.6} />;
-}
-
-function serverStatus(status: ConnectionStatus) {
-  if (status === "ready") return "Server connected";
-  if (status === "offline") return "Server offline";
-  if (status === "retrying") return "Retrying connection";
-  return "Connecting to server";
-}
-
-function bootstrapLabel(status: ConnectionStatus, id?: string) {
-  if (status === "offline") return "Server offline";
-  if (status === "retrying") return "Retrying";
-  if (status === "loading") return "Connecting";
-  return `Server ${id?.slice(0, 8)}`;
 }
