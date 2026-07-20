@@ -1564,7 +1564,11 @@ func projectMessageAttention(ctx context.Context, tx *sql.Tx, message Message, m
 		if err != nil {
 			return nil, fmt.Errorf("project inbox attention: %w", err)
 		}
-		created = append(created, EligibleInboxTrigger{Item: item, Message: message})
+		trigger := EligibleInboxTrigger{Item: item, Message: message}
+		if _, err := ensureDeliveryTx(ctx, tx, trigger); err != nil {
+			return nil, err
+		}
+		created = append(created, trigger)
 	}
 	return created, nil
 }

@@ -26,6 +26,7 @@ const (
 	CapabilitySpaceMembers      = "space.members.manage"
 	CapabilitySpaceArchive      = "space.archive"
 	CapabilityMessageSend       = "message.send"
+	CapabilityRunExecute        = "run.execute"
 )
 
 type Organization struct {

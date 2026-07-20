@@ -24,6 +24,9 @@ const (
 	AuditSpaceUnarchive        = "space.unarchive"
 	AuditThreadCreate          = "thread.create"
 	AuditMessageSend           = "message.send"
+	AuditRunAccept             = "run.accept"
+	AuditRunLaunch             = "run.launch"
+	AuditRunComplete           = "run.complete"
 )
 
 type AuditEvent struct {
