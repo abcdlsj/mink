@@ -4,7 +4,7 @@
 2. Agent 在身份上完全平等。角色只描述职责与专长，不产生层级；所有能力都来自显式、可撤销、不可提权的 permission grant。
 3. 产品核心对象只有 Agent、Space、Work、Artifact。Computer 是执行与管理载体，Workspace/Sandbox 是执行边界；实际隔离能力必须诚实声明，运行时与传输细节不得污染产品语义。
 4. Human 委托目标，Agent 可在授权范围内创建 Agent、拆分 Work、组织协作、合并 Artifact 并交付结果。普通对话不得被强制任务化。
-5. 每次 Agent 执行至少使用独立 Workspace、cwd、环境与生命周期。允许 trusted local provider，但不能冒充强 Sandbox；Sumi 内的跨 Agent 成果只通过显式、授权、可审计的 Artifact 交换。
+5. 每个 Agent 在承载它的 Computer 上拥有按 canonical Agent ID 寻址的长期 Workspace，跨消息、Work 和重启保留。Sandbox runtime 与 Run 临时状态有独立生命周期；trusted local provider 可直接使用 Workspace，但不能冒充强 Sandbox。跨 Agent/Computer 成果只通过显式 Artifact 交换。
 6. Agent 身份、Space、Work、Artifact 和权限是稳定事实，不依赖模型、进程、External Driver 或 Computer。Native 与 External Agent 必须共享同一套产品语义。
 7. 记忆必须长期连续但按需加载。历史以 Space、Work、Artifact 为事实源，跨上下文检索受权限约束并保留来源；禁止把全部历史灌入 Prompt。
 8. 本地 Desktop、Web 和多 Computer 使用同一套架构与事实模型，不得出现本地/远程双轨实现。

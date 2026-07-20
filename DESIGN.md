@@ -11,7 +11,7 @@ Sumi 是一个安全、长期存在、能够自主组织协作并完成目标的
 - Human 可以与 Agent 私聊、参与长期群组，也可以只委托目标并等待结果；
 - Agent 可以在授权范围内创建其他 Agent、拆分工作、组织讨论、交换成果、处理失败并合并结论；
 - Agent 可以运行在不同 Computer 上，但身份、关系、工作与记忆边界不随进程和机器变化；
-- 所有执行都拥有独立 Workspace，并明确声明实际 Sandbox 能力；所有 Sumi 内的跨 Agent 协作都有边界、权限与审计。
+- 每个 Agent 都拥有长期 Workspace，执行时明确声明实际 Sandbox 能力；所有 Sumi 内的跨 Agent 协作都有边界、权限与审计。
 
 Sumi 的价值不在于让更多 Agent 在频道里说话，而在于让 Human 以较少介入获得可靠、可追溯、受控的结果。
 
@@ -32,7 +32,7 @@ Sumi 不是：
 
 - 只支持 macOS 与 Linux；Windows 不进入当前版本；
 - 使用单一中心服务与 SQLite，不预埋 PostgreSQL、多中心或 HA 双轨；
-- 每次执行使用独立 Workspace、cwd、精简环境和生命周期清理；
+- 每个 Agent 使用按 canonical Agent ID 寻址的长期 Workspace；Sandbox runtime、进程、Secret 与 Run 临时状态单独管理生命周期；
 - 优先复用成熟 Sandbox 框架或系统能力，但不得因此阻塞可用版本；
 - 无法提供强隔离时允许 trusted local Workspace，产品必须明确展示其能力，不得称为强 Sandbox；
 - beelink Linux 机器只用于有明确目标的集成、故障与长稳验证，不成为日常开发依赖。
@@ -92,16 +92,21 @@ Artifact 必须具备：
 
 Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、Secret 和可选的 Sandbox provider。它是部署与管理对象，不是日常协作的中心。
 
-Workspace 是每次执行的独立工作目录。当前版本最低保证：
+Server 为每个 Agent 分配全局唯一、永不复用的 canonical Agent ID。每台承载该 Agent 的 Computer 都以此 ID 寻址本地 Agent Home 和 Workspace；display name 只用于展示，不参与路径与身份。
 
-- 独立目录、cwd、精简环境与生命周期清理；
-- Workspace 默认不与其他 Agent 共享；
-- Sumi 内的文件与成果通过显式、授权、可审计的 Artifact 发布与获取来交换；
-- Secret 不写入 Workspace、Artifact、消息或日志。
+Agent Workspace 是长期私有工作区：
 
-trusted local provider 使用本机文件系统，不能阻止恶意进程主动读取 Host 其他路径。它必须在 UI、日志与调度能力中被明确标识。
+- 跨消息、Work、进程重启和应用重启保留；
+- 保存 Agent 的工作文件、私有记忆材料、草稿和工具状态；
+- 默认不与其他 Agent 共享，也不是 Space、Work、Message 或 Artifact 的事实源；
+- 同一 Agent 在不同 Computer 上的 Workspace 默认彼此独立，不自动同步；
+- 迁移到新 Computer 时，中央身份与协作事实继续，需要的成果通过 Artifact 恢复。
 
-更强的 Sandbox provider 可使用 Linux/macOS 的成熟框架或系统能力，负责文件、进程、资源和网络限制。具体 provider 可以后续替换，但不能降低或伪造它所声明的能力。
+Sandbox 是运行 Agent 的执行边界，不等于 Workspace 目录。Sandbox runtime 可以在连续交互期间保留，也可以在 lease 结束、撤销、迁移或重置时销毁；新的 runtime 继续挂载或使用同一个长期 Workspace。
+
+Run 只拥有进程、临时 Secret、socket、pid、下载缓存和未发布中间状态。Run 临时状态可清理，需要长期保留的内容写入 Agent Workspace，需要跨 Agent/Computer 共享的内容发布为 Artifact。
+
+trusted local provider 直接在长期 Workspace 上执行，不能阻止恶意进程主动读取 Host 其他路径。它必须在 UI、日志与调度能力中被明确标识。更强的 Sandbox provider 可使用 Linux/macOS 的成熟框架或系统能力，但不能降低或伪造它所声明的能力。
 
 ## 5. 自主协作
 
@@ -215,16 +220,18 @@ Computer daemon 主动连接中心，不要求暴露公网入站端口。它负�
 ~/.sumi/
 ├── config.toml
 ├── data/
-├── sandboxes/
+├── agents/
+│   └── agent_<agent_id>/
+│       └── workspace/
 ├── cache/
 └── logs/
 ```
 
 - `data/` 保存 SQLite、Artifact blob 和 Computer durable state；
-- `sandboxes/` 保存可清理的执行 Workspace；
+- `agents/agent_<agent_id>/workspace/` 是该 Agent 在本 Computer 上的长期私有 Workspace，目录名只使用 Server canonical ID；
 - `cache/` 可删除并重建；
 - `logs/` 保存运行日志，安全审计仍属于中央事实；
-- Secret 不进入 `.sumi`，临时 socket、pid 等运行文件使用操作系统 runtime directory。
+- Secret 不进入 `.sumi`，Run scratch、临时 socket、pid 等使用操作系统 runtime/temp directory。
 
 不得按功能随意向 `~/.sumi` 根目录增加文件或隐藏状态。
 
@@ -244,7 +251,7 @@ Human 与 Agent 长期 DM。Agent 保持身份与记忆连续；需要引用其�
 
 ### 跨 Computer 协作
 
-不同 Agent 运行在不同 Computer 的 Workspace/Sandbox 中，通过 Space 交流、围绕 Work 协作，并通过 Artifact 显式交换成果。系统必须展示每个执行位置实际提供的隔离能力。
+不同 Agent 在不同 Computer 上使用各自长期 Workspace，并在声明了能力的 Sandbox runtime 中执行。它们通过 Space 交流、围绕 Work 协作，并通过 Artifact 显式交换成果；本地 Workspace 不被当作自动共享盘。
 
 ## 13. 模块与代码准则
 
@@ -270,7 +277,7 @@ Human 与 Agent 长期 DM。Agent 保持身份与记忆连续；需要引用其�
 - Agent 身份独立于模型、进程、Driver 和 Computer；
 - Space 是沟通上下文，Work 是交付承诺，Artifact 是成果载体；
 - 普通对话不自动任务化；
-- 每次执行拥有独立 Workspace，实际 Sandbox 能力必须诚实标识；
+- 每个 Agent 拥有按 canonical ID 寻址的长期 Workspace，实际 Sandbox runtime 能力必须诚实标识；
 - Sumi 内的跨 Workspace 成果交换必须通过显式授权的 Artifact；
 - 历史按需加载并遵守权限；
 - 所有部署形态共享同一事实模型；
