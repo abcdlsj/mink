@@ -234,6 +234,10 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 权限与角色分离。角色描述“适合做什么”，grant 决定“允许做什么”。
 
+当前每个 Server 保存一个 Organization。fresh Server 原子创建 bootstrap Human 与 organization root Grant；bootstrap credential 只来自 no-follow `0600` 文件，Server 只保存 hash。其他 Human 使用各自独立的高熵 credential，HTTP mutation 的 actor 只由 Authorization metadata 解析，request body 不能传 `actor_id` 冒充。Human 的 `owner / member` 只表达组织成员与最后恢复责任，不隐式赋予任何能力。
+
+当前 credential adapter 面向默认 localhost/trusted-local 部署，它建立了真实 principal 绑定与权限检查，但不是远程 session、mTLS 或完整登录系统。后续 pairing/auth 可以替换 adapter，不得改写 Human、Grant 与 Audit 的事实语义。
+
 可授权的能力包括但不限于：
 
 - 创建 Agent、Space 和 Work；
@@ -244,6 +248,10 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 - 对外发布、删除或执行高风险动作。
 
 任何 Agent 都不能通过创建 Agent 或继续委托获得更高权限。Grant 必须可撤销、可过期、可审计，并保留授权来源。
+
+Grant 明确记录 subject principal、issuer principal、capability、scope、parent、expiry 与 revoke。普通签发必须是 issuer 当前 effective parent Grant 的子集；capability、scope 和有效期都不能扩大。parent revoke/expire 或 issuer/subject disabled 后，整条 descendant chain 立即失效。root Grant 可以撤销，但不能 disable 或 revoke 最后一个仍可恢复 authority 的 active owner。
+
+已认证 mutation 在同一 SQLite transaction 内完成 `require grant -> business fact -> audit -> commit`。权限拒绝只提交 `outcome=denied` 与稳定 reason code 的 Audit，不写业务事实；未认证或 credential 非法不向共享 Audit 注入伪 actor。Audit 是 append-only 中央事实，不保存 raw credential、Secret 或本机路径。
 
 高风险动作遵循：准备、校验、Human 审批、执行、审计。
 
