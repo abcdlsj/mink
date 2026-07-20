@@ -53,7 +53,7 @@ func TestAgentRuntimeHTTPCreateRenewRevokeAndRestart(t *testing.T) {
 	_, err := client.RenewAgentRuntimeSession(context.Background(), wrongKey)
 	assertConnectCode(t, err, connect.CodePermissionDenied)
 	if strings.Contains(err.Error(), wrongKey.Msg.GetRegistrationKey()) || strings.Contains(err.Error(), renewed.GetToken()) {
-		t.Fatalf("runtime credential leaked in error: %v", err)
+		t.Fatal("runtime credential leaked in error")
 	}
 	if _, err := api.app.store.AuthenticateAgentRuntimeSession(context.Background(), renewed.GetToken(), time.Now()); err != nil {
 		t.Fatal(err)
@@ -220,7 +220,8 @@ func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeSer
 	}
 	session := response.Msg.GetSession()
 	if len(session.GetToken()) != 43 || !session.GetExpiresAt().AsTime().After(time.Now().Add(9*time.Minute)) {
-		t.Fatalf("runtime response = %v", session)
+		t.Fatalf("runtime response = agent:%q computer:%q generation:%d token_length:%d expires:%s",
+			session.GetAgentId(), session.GetComputerId(), session.GetPlacementGeneration(), len(session.GetToken()), session.GetExpiresAt().AsTime())
 	}
 	return session
 }

@@ -30,10 +30,10 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	}
 	first := created.Msg.GetSession()
 	if first.GetAgentId() != fixture.agent.ID || first.GetComputerId() != fixture.computer.ID || first.GetPlacementGeneration() != 1 {
-		t.Fatalf("created session = %v", first)
+		t.Fatalf("created binding = agent:%q computer:%q generation:%d", first.GetAgentId(), first.GetComputerId(), first.GetPlacementGeneration())
 	}
 	if len(first.GetToken()) != 43 || !first.GetExpiresAt().AsTime().Equal(fixture.now.Add(10*time.Minute)) {
-		t.Fatalf("created token/expiry = %q %s", first.GetToken(), first.GetExpiresAt().AsTime())
+		t.Fatalf("created token_length:%d expires:%s", len(first.GetToken()), first.GetExpiresAt().AsTime())
 	}
 
 	renewRequest := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
@@ -46,7 +46,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	}
 	second := renewed.Msg.GetSession()
 	if second.GetToken() == first.GetToken() || len(second.GetToken()) != 43 {
-		t.Fatalf("renewed token = %q", second.GetToken())
+		t.Fatalf("renewed token reused:%t token_length:%d", second.GetToken() == first.GetToken(), len(second.GetToken()))
 	}
 
 	replay := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
@@ -56,7 +56,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	_, err = client.RenewAgentRuntimeSession(context.Background(), replay)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 	if strings.Contains(err.Error(), first.GetToken()) {
-		t.Fatalf("old token leaked in error: %v", err)
+		t.Fatal("old token leaked in error")
 	}
 
 	wrongKey := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
@@ -66,7 +66,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	_, err = client.RenewAgentRuntimeSession(context.Background(), wrongKey)
 	assertRuntimeCode(t, err, connect.CodePermissionDenied)
 	if strings.Contains(err.Error(), wrongKey.Msg.GetRegistrationKey()) || strings.Contains(err.Error(), second.GetToken()) {
-		t.Fatalf("credential leaked in error: %v", err)
+		t.Fatal("credential leaked in error")
 	}
 
 	revoke := connect.NewRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{
