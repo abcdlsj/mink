@@ -345,17 +345,23 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "member_missing", params.Now, ErrMembershipNotFound)
 	}
 	if !add && params.Member.Kind == "human" {
-		var remaining int
-		if err := tx.QueryRowContext(ctx, `
-			SELECT count(*)
-			FROM space_memberships m
-			JOIN humans h ON h.id = m.principal_id AND h.organization_id = ? AND h.status = 'active'
-			WHERE m.space_id = ? AND m.principal_kind = 'human' AND m.principal_id != ?
-		`, params.Actor.OrganizationID, params.SpaceID, params.Member.ID).Scan(&remaining); err != nil {
-			return MutationReceipt{}, fmt.Errorf("count remaining active human members: %w", err)
+		var targetActive bool
+		if err := tx.QueryRowContext(ctx, `SELECT status = 'active' FROM humans WHERE id = ?`, params.Member.ID).Scan(&targetActive); err != nil {
+			return MutationReceipt{}, fmt.Errorf("read removed human status: %w", err)
 		}
-		if remaining == 0 {
-			return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "last_active_human", params.Now, ErrLastActiveHumanMember)
+		if targetActive {
+			var remaining int
+			if err := tx.QueryRowContext(ctx, `
+				SELECT count(*)
+				FROM space_memberships m
+				JOIN humans h ON h.id = m.principal_id AND h.organization_id = ? AND h.status = 'active'
+				WHERE m.space_id = ? AND m.principal_kind = 'human' AND m.principal_id != ?
+			`, params.Actor.OrganizationID, params.SpaceID, params.Member.ID).Scan(&remaining); err != nil {
+				return MutationReceipt{}, fmt.Errorf("count remaining active human members: %w", err)
+			}
+			if remaining == 0 {
+				return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "last_active_human", params.Now, ErrLastActiveHumanMember)
+			}
 		}
 	}
 	if add {

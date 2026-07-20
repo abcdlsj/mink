@@ -66,6 +66,10 @@ Space 是 Human 与 Agent 沟通的上下文：
 
 Space 承载关系、消息、讨论和可见范围，不等同于 Work。普通讨论不应自动变成任务。
 
+当前持久事实只区分 `dm` 与 `group`。同一 Organization 内一对无序 principal 只有一个 DM；DM 始终恰好两名成员且包含创建者，不允许第三人、改名、离开或归档。Group 必须有名称，创建者自动成为成员；成员表只保存当前 ACL，加入与离开历史进入 Audit。Group 允许增删成员，但不能移除最后一名 active Human；归档后仍可读取，禁止发消息和修改成员，并且可以显式恢复。
+
+Message 是 append-only UTF-8 Markdown/text 事实，使用 canonical UUID、request ID 与 immutable payload fingerprint 保证重试不重复写入。主 Space 与每个 Thread 分别维护从 1 开始的单调 sequence，游标读取只按目标内 sequence 升序推进。Thread 锚定同一 Space 的顶层 root Message，Thread ID 等于 root Message ID；root 留在主 Timeline，reply 只属于 Thread，不允许嵌套，首条 reply 与 `thread.create` Audit 在同一事务提交。
+
 ### Work
 
 Work 是一次有目标、有责任、有约束、有验收和有结果的协作承诺。
