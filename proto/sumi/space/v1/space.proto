@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+package sumi.space.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/space/v1;spacev1";
+
+service CollaborationService {
+  rpc CreateDM(CreateDMRequest) returns (CreateDMResponse);
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  rpc GetSpace(GetSpaceRequest) returns (GetSpaceResponse);
+  rpc ListSpaces(ListSpacesRequest) returns (ListSpacesResponse);
+  rpc AddMember(AddMemberRequest) returns (AddMemberResponse);
+  rpc RemoveMember(RemoveMemberRequest) returns (RemoveMemberResponse);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc ArchiveSpace(ArchiveSpaceRequest) returns (ArchiveSpaceResponse);
+  rpc UnarchiveSpace(UnarchiveSpaceRequest) returns (UnarchiveSpaceResponse);
+  rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+  rpc GetMessage(GetMessageRequest) returns (GetMessageResponse);
+  rpc GetThread(GetThreadRequest) returns (GetThreadResponse);
+  rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+}
+
+enum PrincipalKind {
+  PRINCIPAL_KIND_UNSPECIFIED = 0;
+  PRINCIPAL_KIND_HUMAN = 1;
+  PRINCIPAL_KIND_AGENT = 2;
+}
+
+enum SpaceKind {
+  SPACE_KIND_UNSPECIFIED = 0;
+  SPACE_KIND_DM = 1;
+  SPACE_KIND_GROUP = 2;
+}
+
+message Principal {
+  PrincipalKind kind = 1;
+  string id = 2;
+}
+
+message Space {
+  string id = 1;
+  string organization_id = 2;
+  SpaceKind kind = 3;
+  string name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp archived_at = 7;
+}
+
+message Membership {
+  string space_id = 1;
+  Principal principal = 2;
+  google.protobuf.Timestamp joined_at = 3;
+}
+
+message Thread {
+  string id = 1;
+  string space_id = 2;
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message MessageTarget {
+  oneof target {
+    string space_id = 1;
+    string thread_root_message_id = 2;
+  }
+}
+
+message Message {
+  string id = 1;
+  string space_id = 2;
+  string thread_root_message_id = 3;
+  uint64 target_sequence = 4;
+  Principal author = 5;
+  string body = 6;
+  google.protobuf.Timestamp created_at = 7;
+  string request_id = 8;
+}
+
+message MutationReceipt {
+  string request_id = 1;
+  google.protobuf.Timestamp committed_at = 2;
+}
+
+message CreateDMRequest {
+  string request_id = 1;
+  Principal peer = 2;
+}
+
+message CreateGroupRequest {
+  string request_id = 1;
+  string name = 2;
+}
+
+message CreateDMResponse {
+  Space space = 1;
+}
+
+message CreateGroupResponse {
+  Space space = 1;
+}
+
+message GetSpaceRequest {
+  string space_id = 1;
+}
+
+message GetSpaceResponse {
+  Space space = 1;
+}
+
+message ListSpacesRequest {}
+
+message ListSpacesResponse {
+  repeated Space spaces = 1;
+}
+
+message AddMemberRequest {
+  string request_id = 1;
+  string space_id = 2;
+  Principal member = 3;
+}
+
+message RemoveMemberRequest {
+  string request_id = 1;
+  string space_id = 2;
+  Principal member = 3;
+}
+
+message AddMemberResponse {
+  MutationReceipt receipt = 1;
+}
+
+message RemoveMemberResponse {
+  MutationReceipt receipt = 1;
+}
+
+message ListMembersRequest {
+  string space_id = 1;
+}
+
+message ListMembersResponse {
+  repeated Membership memberships = 1;
+}
+
+message ArchiveSpaceRequest {
+  string request_id = 1;
+  string space_id = 2;
+}
+
+message ArchiveSpaceResponse {
+  MutationReceipt receipt = 1;
+}
+
+message UnarchiveSpaceRequest {
+  string request_id = 1;
+  string space_id = 2;
+}
+
+message UnarchiveSpaceResponse {
+  MutationReceipt receipt = 1;
+}
+
+message SendMessageRequest {
+  string request_id = 1;
+  MessageTarget target = 2;
+  string body = 3;
+}
+
+message SendMessageResponse {
+  Message message = 1;
+}
+
+message GetMessageRequest {
+  string message_id = 1;
+}
+
+message GetMessageResponse {
+  Message message = 1;
+}
+
+message GetThreadRequest {
+  string thread_root_message_id = 1;
+}
+
+message GetThreadResponse {
+  Thread thread = 1;
+}
+
+message ListMessagesRequest {
+  MessageTarget target = 1;
+  uint64 after_sequence = 2;
+  uint32 limit = 3;
+}
+
+message ListMessagesResponse {
+  repeated Message messages = 1;
+}
