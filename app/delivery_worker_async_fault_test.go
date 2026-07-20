@@ -521,6 +521,180 @@ func TestFaultAsyncFailurePublishesNoDelegateFinished(t *testing.T) {
 	}
 }
 
+func TestFaultAsyncRetryStaleResetCannotClobberFinalized(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	tk, d := e.seedAsyncTask("do the thing")
+
+	past := time.Now().Add(-2 * deliveryLeaseTTL)
+	_, fenceA, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-A", past, deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("claim A: %v", err)
+	}
+	personas := e.app.fuzzyPersonaResolver()
+	ph, _, err := e.app.Spaces().EnsureDeliveryPlaceholder(d.SpaceID, d.ID, d.AgentID, d.ParentMessageID, personas.Info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.app.Deliveries().BindResultMessage(d.ID, fenceA, ph.ID, past); err != nil {
+		t.Fatalf("bind A: %v", err)
+	}
+
+	claimedB, fenceB, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-B", time.Now(), deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("claim B: %v", err)
+	}
+	if !(fenceB.Version > fenceA.Version) {
+		t.Fatalf("reclaim fence version %d not greater than A %d", fenceB.Version, fenceA.Version)
+	}
+	e.worker.run(context.Background(), claimedB, fenceB)
+
+	got, err := e.app.Deliveries().Get(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != delivery.StatusCompleted {
+		t.Fatalf("delivery status after B run = %q, want completed", got.Status)
+	}
+
+	if _, err := e.app.Spaces().ResetDeliveryMessage(d.SpaceID, ph.ID, d.ID, fenceA.OwnerID, fenceA.Version, time.Now()); !errors.Is(err, space.ErrStaleDeliveryWrite) {
+		t.Fatalf("stale-fence reset err = %v, want ErrStaleDeliveryWrite (a superseded retry must not silently succeed)", err)
+	}
+
+	after := e.placeholders(d.ID)
+	if len(after) != 1 {
+		t.Fatalf("placeholders after stale reset = %d, want exactly 1", len(after))
+	}
+	if after[0].Status == "pending" {
+		t.Fatalf("finalized placeholder clobbered back to pending by a stale retry reset (Delivery=completed/Message=pending split-brain)")
+	}
+	if strings.TrimSpace(after[0].Content) == "" {
+		t.Fatalf("finalized placeholder content erased by stale reset")
+	}
+	gotTask, err := e.app.Tasks().Get(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTask.Status != task.StatusFinished {
+		t.Fatalf("task status = %q, want finished", gotTask.Status)
+	}
+}
+
+func TestFaultAsyncRetryResetsPlaceholderBeforeExec(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	e.exec = func(ctx context.Context, req AsyncTurnRequest) AsyncTurnResult {
+		e.runs++
+		return AsyncTurnResult{Err: errors.New("transient failure")}
+	}
+	_, d := e.seedAsyncTask("do the thing")
+
+	claimed, fence := e.claim(d.ID)
+	e.worker.run(context.Background(), claimed, fence)
+	failedPH := e.placeholders(claimed.ID)
+	if len(failedPH) != 1 || failedPH[0].Status != "failed" {
+		t.Fatalf("after failure placeholders = %+v, want exactly 1 failed", failedPH)
+	}
+
+	if _, err := e.app.RetryAsyncDelegate(claimed.ID); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	requeued, err := e.app.Deliveries().Get(claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requeued.Status != delivery.StatusPending {
+		t.Fatalf("delivery after retry = %q, want pending", requeued.Status)
+	}
+	if beforeClaim := e.placeholders(claimed.ID); beforeClaim[0].Status != "failed" {
+		t.Fatalf("placeholder after retry-only = %q, want still failed (reset is the reclaiming worker's fenced job, not retry's)", beforeClaim[0].Status)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	e.exec = func(ctx context.Context, req AsyncTurnRequest) AsyncTurnResult {
+		e.runs++
+		close(entered)
+		<-release
+		return AsyncTurnResult{Content: "recovered reply", Steps: []task.KeyStep{{Kind: task.KindSummary, Title: "done", At: time.Now(), OK: true}}}
+	}
+
+	claimed2, fence2 := e.claim(claimed.ID)
+	done := make(chan struct{})
+	go func() {
+		e.worker.run(context.Background(), claimed2, fence2)
+		close(done)
+	}()
+	<-entered
+	mid := e.placeholders(claimed.ID)
+	if len(mid) != 1 {
+		t.Fatalf("placeholders mid-exec = %d, want 1", len(mid))
+	}
+	if mid[0].Status != "pending" {
+		t.Fatalf("placeholder mid-exec = %q, want pending (claim-time reset must precede exec, so claim->pending is authoritative)", mid[0].Status)
+	}
+	if mid[0].Error != "" {
+		t.Fatalf("placeholder error mid-exec = %q, want cleared at claim time", mid[0].Error)
+	}
+	close(release)
+	<-done
+
+	final := e.placeholders(claimed.ID)
+	if len(final) != 1 || strings.TrimSpace(final[0].Content) != "recovered reply" {
+		t.Fatalf("final placeholder = %+v, want single recovered reply", final)
+	}
+}
+
+func TestFaultAsyncStaleWorkerCannotExecuteOrFinalize(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	tk, d := e.seedAsyncTask("do the thing")
+
+	past := time.Now().Add(-2 * deliveryLeaseTTL)
+	_, fenceA, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-A", past, deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("claim A: %v", err)
+	}
+	personas := e.app.fuzzyPersonaResolver()
+	ph, _, err := e.app.Spaces().EnsureDeliveryPlaceholder(d.SpaceID, d.ID, d.AgentID, d.ParentMessageID, personas.Info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.app.Deliveries().BindResultMessage(d.ID, fenceA, ph.ID, past); err != nil {
+		t.Fatalf("bind A: %v", err)
+	}
+
+	if _, _, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-B", time.Now(), deliveryLeaseTTL); err != nil {
+		t.Fatalf("claim B: %v", err)
+	}
+
+	claimedA, err := e.app.Deliveries().Get(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runsBefore := e.runs
+	e.worker.run(context.Background(), claimedA, fenceA)
+
+	if e.runs != runsBefore {
+		t.Fatalf("stale-fence worker executed the turn (runs %d -> %d); a failed reset must abort before exec", runsBefore, e.runs)
+	}
+	got, err := e.app.Deliveries().Get(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == delivery.StatusCompleted {
+		t.Fatalf("stale-fence worker completed the delivery; a failed reset must not silently succeed")
+	}
+	after := e.placeholders(d.ID)
+	if len(after) != 1 {
+		t.Fatalf("placeholders after stale run = %d, want exactly 1", len(after))
+	}
+	gotTask, err := e.app.Tasks().Get(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTask.Status == task.StatusFinished {
+		t.Fatalf("stale-fence worker finished the task; a failed reset must abort")
+	}
+}
+
 func mustRuns(t *testing.T, a *App, taskID string) []*task.Run {
 	t.Helper()
 	runs, err := a.Tasks().ListRuns(taskID)

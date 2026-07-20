@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/delivery"
-	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/task"
 )
 
@@ -68,12 +67,6 @@ func (a *App) RetryAsyncDelegate(deliveryID string) (bool, error) {
 	}
 	if _, err := deliveries.Requeue(id, time.Now()); err != nil {
 		return false, err
-	}
-	if a.spaces != nil && strings.TrimSpace(d.ResultMessageID) != "" {
-		_, _ = a.spaces.UpdateMessage(d.SpaceID, d.ResultMessageID, func(m *space.Message) {
-			m.Status = "pending"
-			m.Error = ""
-		})
 	}
 	if a.worker != nil {
 		a.worker.wake()

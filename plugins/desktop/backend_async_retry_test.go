@@ -90,11 +90,8 @@ func TestRetryMessageRequeuesAsyncDelivery(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("placeholders for delivery = %d, want exactly 1 reused", count)
 	}
-	if replay.Status != "pending" {
-		t.Fatalf("placeholder status after retry = %q, want pending", replay.Status)
-	}
-	if replay.Error != "" {
-		t.Fatalf("placeholder error after retry = %q, want cleared", replay.Error)
+	if replay.Status != "failed" {
+		t.Fatalf("placeholder status after retry = %q, want still failed (retry only requeues; reset is the reclaiming worker's fenced job)", replay.Status)
 	}
 }
 

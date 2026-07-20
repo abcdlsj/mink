@@ -41,6 +41,14 @@ func (w *deliveryWorker) runAsyncDelegate(ctx context.Context, d *delivery.Deliv
 	}
 	resultMessageID := bound.ResultMessageID
 
+	if _, err := a.spaces.ResetDeliveryMessage(d.SpaceID, resultMessageID, d.ID, fence.OwnerID, fence.Version, w.now()); err != nil {
+		if errors.Is(err, space.ErrStaleDeliveryWrite) {
+			return
+		}
+		_, _ = deliveries.Fail(d.ID, fence, "reset placeholder: "+err.Error(), w.now())
+		return
+	}
+
 	worker := a.personas.Get(d.AgentID)
 	if worker == nil {
 		if _, ferr := a.spaces.FailDeliveryMessage(d.SpaceID, resultMessageID, d.ID, fence.OwnerID, fence.Version, w.now(), "worker persona not registered"); ferr == nil {

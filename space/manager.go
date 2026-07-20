@@ -715,6 +715,51 @@ func (m *Manager) FailDeliveryMessage(spaceID, messageID, deliveryID, fenceOwner
 	return written, nil
 }
 
+func (m *Manager) ResetDeliveryMessage(spaceID, messageID, deliveryID, fenceOwnerID string, fenceVersion int64, now time.Time) (Message, error) {
+	spaceID = strings.TrimSpace(spaceID)
+	messageID = strings.TrimSpace(messageID)
+	if spaceID == "" || messageID == "" {
+		return Message{}, fmt.Errorf("space id and message id required")
+	}
+	m.mu.Lock()
+	sp, err := m.loadLocked(spaceID)
+	if err != nil {
+		m.mu.Unlock()
+		return Message{}, err
+	}
+	snapshot := *sp
+	snapshot.Messages = append([]Message(nil), sp.Messages...)
+	idx := -1
+	for i := range sp.Messages {
+		if sp.Messages[i].ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		m.mu.Unlock()
+		return Message{}, fmt.Errorf("delivery placeholder not found: %s", messageID)
+	}
+	sp.Messages[idx].Status = "pending"
+	sp.Messages[idx].Error = ""
+	sp.UpdatedAt = time.Now()
+	written := sp.Messages[idx]
+	if err := m.saveSpaceUnderFence(deliveryID, fenceOwnerID, fenceVersion, now, sp); err != nil {
+		*sp = snapshot
+		m.mu.Unlock()
+		return Message{}, err
+	}
+	m.mu.Unlock()
+	m.publish(bus.Event{
+		Type:            bus.SpaceUpdated,
+		SpaceID:         spaceID,
+		MessageID:       written.ID,
+		ParentMessageID: written.ParentMessageID,
+		AgentID:         written.AuthorID,
+	})
+	return written, nil
+}
+
 func (m *Manager) AppendUserMessage(spaceID, content string, mentions []string) (Message, error) {
 	return m.AppendUserMessageInThread(spaceID, "", content, mentions)
 }
