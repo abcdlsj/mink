@@ -161,12 +161,33 @@ Agent 起草期间如果 Space 已有新进展，系统应先保留草稿，让 
 
 主界面沿用用户熟悉的 Slack 式信息架构，但目标是 Human 与 Agent 的自然协作，不是把 Agent 当作频道 Bot：
 
-- 左侧展示 DM、长期 Space 和临时 Work Space；
-- 中间是当前对话、Thread 与 Composer；
-- 右侧按当前上下文展示成员、关联 Work、Artifact、来源与权限；
-- 搜索覆盖 Agent、Space、Work、Artifact 和消息，并保留来源。
+- 顶部提供全局搜索与快速创建；
+- 左侧展示 Human Inbox、DM、长期 Space、临时 Work Space 与 Work 入口；
+- 中间展示当前对话或当前 Work；
+- 右侧按当前上下文展示 Thread、关联 Work、Artifact、成员、来源与权限；
+- 底部只显示当前 Human 与 Server/Computer 的简洁状态。
+
+Human Inbox 只聚合需要本人处理的 Mention、Approval、Blocked Work 与重要系统事件，不复制聊天历史。Agent Inbox 是执行侧注意力队列，两者共享事实来源但不是同一个 UI。
 
 Work 与 Artifact 必须从对话自然进入和返回：Message 可以升级为 Work，Work 的目标、进度、阻塞、证据与结果在当前上下文就地查看，Artifact 可以预览、引用和追溯。不要用后台管理大盘替代日常对话，也不要做卡片套卡片。
+
+### 页面合同
+
+**Conversation** 是默认首页。Header 展示 Space/DM 身份、成员与 Agent 简洁状态；Timeline 混合 Human/Agent Message、Work 引用、Artifact 引用和审批事件；Composer 支持 Mention、附件与明确委托。Thread 在右栏打开，关闭后返回原 Message 位置。
+
+**Work** 不是 Kanban。中心区域按目标、计划与协作者、当前进度与阻塞、Artifact 与证据、最终结果组织；Human 可以查看和处理例外，但不需要维护 Agent 的日常任务板。Work 必须保留来源 Message/Thread，并能一键返回原对话。
+
+**Artifact** 在右栏或专注视图中预览，展示版本、作者、所属 Work、来源、权限与内容摘要。Artifact 的本地路径、对象存储 key 和传输细节不进入普通 UI。
+
+**Agent / Computer** 是次级管理页。Agent 页面管理职责、Grant、Driver capability、Placement、Workspace 状态、Memory 状态和队列；Computer 页面管理连接、能力、承载 Agent 与诊断。它们不替代日常 DM、Space 和 Work。
+
+### 核心用户旅程
+
+**长期 DM**：打开 Agent，连续对话；Agent busy 时新输入进入可见队列；重启后从原上下文继续；询问其他 Space 的结论时，Agent 按需检索并提供来源。
+
+**委托目标**：Human 发出明确委托；Agent 创建可见 Work，自行选择或创建协作者并拆分子 Work；仅在审批、阻塞和关键歧义时打扰 Human；Artifact 和证据持续进入 Work，最终结果回到原对话。
+
+**长期群组讨论**：Human 与不同职责 Agent 加入 Space；Mention 或职责订阅触发指定 Agent；各 Thread 保持独立上下文；讨论结论可升级为 Work，其他 Thread 内容只有显式检索后才能进入当前回答。
 
 所有关键状态必须可理解、可操作：
 
@@ -177,6 +198,8 @@ Work 与 Artifact 必须从对话自然进入和返回：Message 可以升级为
 正常协作界面不展示 lease、fence、outbox、transport ack 等实现术语。Computer、Sandbox 与 Driver capability 可以检查和诊断，但只在需要时进入次级界面。
 
 Web 与 Desktop 使用同一套页面、状态语义和交互。每条关键用户旅程在实现前先有信息架构、状态图和可走通的交互原型；空态、加载、失败、断线、长文本和窄窗口都属于验收范围。
+
+布局必须保持稳定：右栏开关、消息 streaming、Agent 状态变化、队列数字和错误提示不能让主区域跳动或遮挡；固定格式控件使用稳定尺寸。桌面和窄窗口都要保证 Header、Timeline、Composer 与审批动作不重叠。
 
 ## 7. 记忆与知识
 
