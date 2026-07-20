@@ -1,4 +1,4 @@
-import { PanelLeftClose, Plus, RotateCw } from "lucide-react";
+import { PanelLeftClose, RotateCw } from "lucide-react";
 import type { Agent } from "../gen/sumi/agent/v1/agent_pb";
 import type { Computer } from "../gen/sumi/computer/v1/computer_pb";
 import type { AgentPlacement } from "../gen/sumi/placement/v1/placement_pb";
@@ -14,14 +14,12 @@ export function AgentsNavigation({
   state,
   selected,
   onSelect,
-  onCreate,
   onRefresh,
   onClose,
 }: {
   state: FactsState;
   selected?: string;
   onSelect: (id: string) => void;
-  onCreate: () => void;
   onRefresh: () => void;
   onClose: () => void;
 }) {
@@ -30,16 +28,14 @@ export function AgentsNavigation({
     <DirectoryNavigation
       eyebrow="Directory"
       title="Agents"
-      actionLabel="Create Agent"
       state={state}
-      onAction={onCreate}
       onRefresh={onRefresh}
       onClose={onClose}
     >
       {state.data && state.data.agents.length === 0 ? (
         <NavigationEmpty
           title="No agents yet"
-          detail="Create the first durable Agent identity."
+          detail="Durable Agent identities created by an authorized client will appear here."
         />
       ) : (
         state.data?.agents.map((agent) => (
@@ -99,19 +95,15 @@ export function ComputersNavigation({
 function DirectoryNavigation({
   eyebrow,
   title,
-  actionLabel,
   state,
   children,
-  onAction,
   onRefresh,
   onClose,
 }: {
   eyebrow: string;
   title: string;
-  actionLabel?: string;
   state: FactsState;
   children: React.ReactNode;
-  onAction?: () => void;
   onRefresh: () => void;
   onClose: () => void;
 }) {
@@ -134,21 +126,11 @@ function DirectoryNavigation({
         </button>
       </header>
       <div className="directory-toolbar">
-        {actionLabel && onAction ? (
-          <button
-            className="primary-action"
-            type="button"
-            onClick={onAction}
-            disabled={!state.data || pending}
-          >
-            <Plus size={15} />
-            {actionLabel}
-          </button>
-        ) : (
-          <span className="directory-count">
-            {state.data?.computers.length ?? 0} registered
-          </span>
-        )}
+        <span className="directory-count">
+          {title === "Agents"
+            ? `${state.data?.agents.length ?? 0} identities`
+            : `${state.data?.computers.length ?? 0} registered`}
+        </span>
         <button
           className="icon-button compact"
           type="button"

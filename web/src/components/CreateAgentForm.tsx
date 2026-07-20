@@ -25,6 +25,7 @@ export function CreateAgentForm({
   const [driver, setDriver] = useState(Driver.NATIVE);
   const [computerId, setComputerId] = useState("");
   const [requestId] = useState(() => crypto.randomUUID());
+  const [placementRequestId] = useState(() => crypto.randomUUID());
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [partial, setPartial] = useState<{
@@ -51,7 +52,11 @@ export function CreateAgentForm({
         return;
       }
       try {
-        const placement = await setAgentPlacement(agent.id, computerId);
+        const placement = await setAgentPlacement({
+          requestId: placementRequestId,
+          agentId: agent.id,
+          computerId,
+        });
         onPlacementChanged(placement);
         onFinished(agent.id);
       } catch (reason) {
@@ -72,10 +77,11 @@ export function CreateAgentForm({
     if (!partial || pending) return;
     setPending(true);
     try {
-      const placement = await setAgentPlacement(
-        partial.agent.id,
-        partial.computerId,
-      );
+      const placement = await setAgentPlacement({
+        requestId: placementRequestId,
+        agentId: partial.agent.id,
+        computerId: partial.computerId,
+      });
       onPlacementChanged(placement);
       onFinished(partial.agent.id);
     } catch (reason) {

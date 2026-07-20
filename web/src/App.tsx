@@ -94,7 +94,6 @@ export default function App() {
             state={facts}
             selected={selectedAgent}
             onSelect={showAgent}
-            onCreate={() => showAgent("create")}
             onRefresh={facts.refresh}
             onClose={() => setNavigationOpen(false)}
           />
@@ -128,14 +127,6 @@ export default function App() {
           navigationOpen={navigationOpen}
           onOpenNavigation={() => setNavigationOpen(true)}
           onSelectAgent={showAgent}
-          onCancelCreate={() => {
-            const first = facts.data?.agents[0];
-            if (first) showAgent(first.id);
-            else {
-              setSelectedAgent(undefined);
-              setNavigationOpen(true);
-            }
-          }}
         />
       ) : (
         <ComputerWorkspace

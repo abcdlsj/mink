@@ -4,12 +4,14 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { CreateAgentForm } from "./components/CreateAgentForm";
 import { AgentSchema, Driver, type Agent } from "./gen/sumi/agent/v1/agent_pb";
 import {
   Architecture,
@@ -227,174 +229,87 @@ describe("App", () => {
     expect(mockedGetComputer).toHaveBeenCalledWith(facts.computers[0].id);
   });
 
-  it("creates an Agent and optional placement as two real steps", async () => {
-    const facts = readyFacts({ agents: [], placements: [] });
-    const agent = makeAgent("artifact-reviewer");
-    const placement = makePlacement(agent.id, facts.computers[0].id);
+  it("keeps Agent management read-only while preserving placement facts", async () => {
+    const facts = readyFacts();
     mockedLoadFacts.mockResolvedValue(facts);
-    mockedCreateAgent.mockResolvedValue(agent);
-    mockedSetPlacement.mockResolvedValue(placement);
-    mockedGetAgentDetail.mockResolvedValue({ agent, placement });
+    mockedGetAgentDetail.mockResolvedValue({
+      agent: facts.agents[0],
+      placement: facts.placements[0],
+    });
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
-    await screen.findByText("No agents yet");
-    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 
-    const form = screen
-      .getByRole("heading", { name: "New Agent identity" })
-      .closest("form")!;
-    fireEvent.change(within(form).getByLabelText(/^Name/), {
-      target: { value: "artifact-reviewer" },
+    const navigation = screen.getByRole("complementary", {
+      name: "Agents navigation",
     });
-    fireEvent.change(within(form).getByLabelText(/^Description/), {
-      target: { value: "Reviews published artifacts" },
-    });
-    fireEvent.change(within(form).getByLabelText(/^Driver/), {
-      target: { value: Driver.CODEX },
-    });
-    const computerSelect = within(form).getByLabelText(/^Optional Computer/);
+    const workspace = screen.getByRole("region", { name: "Agents" });
     expect(
-      Array.from((computerSelect as HTMLSelectElement).options).map(
-        (option) => option.value,
+      within(navigation).queryByRole("button", { name: "Create Agent" }),
+    ).not.toBeInTheDocument();
+    expect(
+      await within(workspace).findByText("Build host"),
+    ).toBeInTheDocument();
+    expect(
+      within(workspace).getByText(
+        "Placement changes require an authenticated Human management client.",
       ),
-    ).toContain(facts.computers[0].id);
-    fireEvent.change(computerSelect, {
-      target: { value: facts.computers[0].id },
-    });
-    expect(computerSelect).toHaveValue(facts.computers[0].id);
-    fireEvent.submit(form);
-
-    expect(await screen.findByText("Durable identity")).toBeInTheDocument();
-    expect(mockedCreateAgent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "artifact-reviewer",
-        description: "Reviews published artifacts",
-        driver: Driver.CODEX,
-        requestId: expect.any(String),
-      }),
-    );
-    expect(mockedSetPlacement).toHaveBeenCalledWith(
-      agent.id,
-      facts.computers[0].id,
-    );
+    ).toBeInTheDocument();
+    expect(
+      within(workspace).queryByRole("button", { name: /placement/i }),
+    ).not.toBeInTheDocument();
   });
+});
 
-  it("preserves a created Agent when optional placement fails and retries only placement", async () => {
-    const facts = readyFacts({ agents: [], placements: [] });
+describe("direct Agent mutation contract", () => {
+  it("reuses one canonical placement request ID across a retry lifecycle", async () => {
+    const computer = makeComputer();
     const agent = makeAgent("recovery-agent");
-    const placement = makePlacement(agent.id, facts.computers[0].id);
-    mockedLoadFacts.mockResolvedValue(facts);
+    const placement = makePlacement(agent.id, computer.id);
     mockedCreateAgent.mockResolvedValue(agent);
     mockedSetPlacement
       .mockRejectedValueOnce(new Error("Computer no longer exists"))
       .mockResolvedValueOnce(placement);
-    mockedGetAgentDetail.mockResolvedValue({ agent, placement });
 
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
-    await screen.findByText("No agents yet");
-    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+    render(
+      <CreateAgentForm
+        computers={[computer]}
+        onAgentCreated={() => {}}
+        onPlacementChanged={() => {}}
+        onFinished={() => {}}
+        onCancel={() => {}}
+      />,
+    );
     const form = screen
       .getByRole("heading", { name: "New Agent identity" })
       .closest("form")!;
     fireEvent.change(within(form).getByLabelText(/^Name/), {
-      target: { value: "recovery-agent" },
+      target: { value: agent.name },
     });
-    const computerSelect = within(form).getByLabelText(/^Optional Computer/);
-    fireEvent.change(computerSelect, {
-      target: { value: facts.computers[0].id },
+    fireEvent.change(within(form).getByLabelText(/^Optional Computer/), {
+      target: { value: computer.id },
     });
-    expect(computerSelect).toHaveValue(facts.computers[0].id);
     fireEvent.submit(form);
 
     expect(
       await screen.findByText("Agent created, placement failed"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/recovery-agent is preserved/)).toBeInTheDocument();
-
     fireEvent.click(screen.getByRole("button", { name: "Retry placement" }));
 
-    expect(await screen.findByText("Durable identity")).toBeInTheDocument();
-    expect(mockedCreateAgent).toHaveBeenCalledTimes(1);
-    expect(mockedSetPlacement).toHaveBeenCalledTimes(2);
-  });
-
-  it("prevents duplicate Create Agent submits while the first request is pending", async () => {
-    const facts = readyFacts({ agents: [], placements: [] });
-    let resolveAgent!: (agent: Agent) => void;
-    mockedLoadFacts.mockResolvedValue(facts);
-    mockedCreateAgent.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          resolveAgent = resolve;
-        }),
+    await waitFor(() => expect(mockedSetPlacement).toHaveBeenCalledTimes(2));
+    const first = mockedSetPlacement.mock.calls[0][0];
+    const second = mockedSetPlacement.mock.calls[1][0];
+    expect(first).toEqual({
+      requestId: expect.any(String),
+      agentId: agent.id,
+      computerId: computer.id,
+    });
+    expect(first.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
-    await screen.findByText("No agents yet");
-    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-    const form = screen
-      .getByRole("heading", { name: "New Agent identity" })
-      .closest("form")!;
-    fireEvent.change(within(form).getByLabelText(/^Name/), {
-      target: { value: "single-submit" },
-    });
-    fireEvent.submit(form);
-    fireEvent.submit(form);
-
-    expect(
-      within(form).getByRole("button", { name: "Creating Agent" }),
-    ).toBeDisabled();
-    expect(mockedCreateAgent).toHaveBeenCalledTimes(1);
-
-    await act(async () => resolveAgent(makeAgent("single-submit")));
-  });
-
-  it("reuses one request ID when a lost Create response is retried", async () => {
-    const facts = readyFacts({ agents: [], placements: [] });
-    const agent = makeAgent("idempotent-create");
-    const placement = makePlacement(agent.id, facts.computers[0].id);
-    mockedLoadFacts.mockResolvedValue(facts);
-    mockedCreateAgent
-      .mockRejectedValueOnce(new Error("Create response was lost"))
-      .mockResolvedValueOnce(agent);
-    mockedSetPlacement.mockResolvedValue(placement);
-    mockedGetAgentDetail.mockResolvedValue({ agent, placement });
-
-    render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
-    await screen.findByText("No agents yet");
-    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
-    const form = screen
-      .getByRole("heading", { name: "New Agent identity" })
-      .closest("form")!;
-    fireEvent.change(within(form).getByLabelText(/^Name/), {
-      target: { value: "idempotent-create" },
-    });
-    fireEvent.change(within(form).getByLabelText(/^Optional Computer/), {
-      target: { value: facts.computers[0].id },
-    });
-
-    fireEvent.submit(form);
-    expect(
-      await within(form).findByText("Create response was lost"),
-    ).toBeInTheDocument();
-    expect(mockedSetPlacement).not.toHaveBeenCalled();
-
-    fireEvent.submit(form);
-    expect(await screen.findByText("Durable identity")).toBeInTheDocument();
-
-    expect(mockedCreateAgent).toHaveBeenCalledTimes(2);
-    const firstRequest = mockedCreateAgent.mock.calls[0][0];
-    const secondRequest = mockedCreateAgent.mock.calls[1][0];
-    expect(secondRequest.requestId).toBe(firstRequest.requestId);
-    expect(mockedSetPlacement).toHaveBeenCalledTimes(1);
-    expect(mockedSetPlacement).toHaveBeenCalledWith(
-      agent.id,
-      facts.computers[0].id,
-    );
+    expect(second.requestId).toBe(first.requestId);
+    expect(second.agentId).toBe(first.agentId);
+    expect(second.computerId).toBe(first.computerId);
   });
 });
 

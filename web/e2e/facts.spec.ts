@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { createClient } from "@connectrpc/connect";
+import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, mkdtemp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,18 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const run = promisify(execFile);
 const transport = createConnectTransport({ baseUrl: baseURL });
-const agentClient = createClient(AgentService, transport);
+let ownerCredential = "";
+const ownerAuthorization: Interceptor = (next) => async (request) => {
+  if (!ownerCredential) throw new Error("Owner credential is not available");
+  request.header.set("Authorization", `Bearer ${ownerCredential}`);
+  return next(request);
+};
+const ownerTransport = createConnectTransport({
+  baseUrl: baseURL,
+  interceptors: [ownerAuthorization],
+});
+const ownerAgentClient = createClient(AgentService, ownerTransport);
+const ownerPlacementClient = createClient(PlacementService, ownerTransport);
 const computerClient = createClient(ComputerService, transport);
 const placementClient = createClient(PlacementService, transport);
 
@@ -33,11 +45,13 @@ let seed: Seed;
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(async () => {
+  ownerCredential = await readOwnerCredential();
   seed = await seedFacts();
 });
 
 test.afterAll(async () => {
-  await rm(seed.hostRoot, { recursive: true, force: true });
+  ownerCredential = "";
+  if (seed) await rm(seed.hostRoot, { recursive: true, force: true });
 });
 
 test("real facts move from pending to active after sumi-computer ack", async ({
@@ -56,33 +70,27 @@ test("real facts move from pending to active after sumi-computer ack", async ({
   await expect(page.locator("body")).not.toContainText(seed.hostRoot);
 });
 
-test("Create Agent keeps identity separate from optional placement", async ({
+test("Agent management is read-only without browser Human auth", async ({
   page,
 }) => {
-  const name = `ui-${randomUUID().slice(0, 8)}`;
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Agents" }).click();
   const navigation = agentsNavigation(page);
   await expect(navigation.getByText(seed.pendingAgentName)).toBeVisible();
-  await navigation.getByRole("button", { name: "Create Agent" }).click();
-
-  await page.getByLabel(/^Name/).fill(name);
-  await page
-    .getByLabel(/^Description/)
-    .fill("Created through the production Web flow");
-  await page.getByLabel(/^Driver/).selectOption(String(Driver.CODEX));
-  await page.getByLabel(/^Optional Computer/).selectOption(seed.computerId);
-  await agentRegion(page).getByRole("button", { name: "Create Agent" }).focus();
-  await page.keyboard.press("Enter");
-
-  await expect(agentRegion(page).getByText("Durable identity")).toBeVisible();
   await expect(
-    agentRegion(page).getByRole("heading", { name, level: 2 }),
+    navigation.getByRole("button", { name: "Create Agent" }),
+  ).toHaveCount(0);
+  await openAgent(page, seed.pendingAgentName);
+  await expect(agentRegion(page).getByText(seed.computerName)).toBeVisible();
+  await expect(
+    agentRegion(page).getByText(
+      "Placement changes require an authenticated Human management client.",
+    ),
   ).toBeVisible();
-  await expect(agentRegion(page).locator(".state-chip.pending")).toBeVisible();
-  const persisted = await agentClient.listAgents({});
-  expect(persisted.agents.some((agent) => agent.name === name)).toBe(true);
+  await expect(
+    agentRegion(page).getByRole("button", { name: /placement/i }),
+  ).toHaveCount(0);
 });
 
 for (const viewport of [
@@ -113,20 +121,6 @@ for (const viewport of [
     ).toBeVisible();
     await expect(agentRegion(page)).not.toContainText(seed.registrationKey);
     await screenshot(page, `agents-detail-${viewport.width}`);
-
-    if (viewport.width < 1024) {
-      await page.getByRole("button", { name: "Back to Agents list" }).click();
-    }
-    await agentsNavigation(page)
-      .getByRole("button", { name: "Create Agent" })
-      .click();
-    await expect(
-      page.getByRole("heading", { name: "New Agent identity" }),
-    ).toBeVisible();
-    await screenshot(page, `agents-create-${viewport.width}`);
-
-    await agentRegion(page).getByRole("button", { name: "Cancel" }).focus();
-    await page.keyboard.press("Enter");
 
     await page.getByRole("button", { name: "Computers" }).click();
     const computerNav = computersNavigation(page);
@@ -167,14 +161,16 @@ async function seedFacts() {
   if (!registered.computer) throw new Error("Computer seed failed");
   const pendingAgentName = `pending-${suffix}`;
   const pendingAgent = await createSeedAgent(pendingAgentName);
-  await placementClient.setAgentPlacement({
+  await ownerPlacementClient.setAgentPlacement({
+    requestId: randomUUID(),
     agentId: pendingAgent.id,
     computerId: registered.computer.id,
   });
 
   const failedAgentName = `failed-${suffix}`;
   const failedAgent = await createSeedAgent(failedAgentName);
-  const failedPlacement = await placementClient.setAgentPlacement({
+  const failedPlacement = await ownerPlacementClient.setAgentPlacement({
+    requestId: randomUUID(),
     agentId: failedAgent.id,
     computerId: registered.computer.id,
   });
@@ -207,7 +203,7 @@ async function seedFacts() {
 }
 
 async function createSeedAgent(name: string) {
-  const response = await agentClient.createAgent({
+  const response = await ownerAgentClient.createAgent({
     requestId: randomUUID(),
     name,
     description: `Production Web seed for ${name}`,
@@ -215,6 +211,31 @@ async function createSeedAgent(name: string) {
   });
   if (!response.agent) throw new Error("Agent seed failed");
   return response.agent;
+}
+
+async function readOwnerCredential() {
+  if (!process.env.PLAYWRIGHT_OWNER_KEY_FILE) {
+    throw new Error("PLAYWRIGHT_OWNER_KEY_FILE is required");
+  }
+  const handle = await open(
+    process.env.PLAYWRIGHT_OWNER_KEY_FILE,
+    constants.O_RDONLY | constants.O_NOFOLLOW,
+  );
+  try {
+    const info = await handle.stat();
+    if (!info.isFile() || (info.mode & 0o777) !== 0o600) {
+      throw new Error("PLAYWRIGHT_OWNER_KEY_FILE must be a regular 0600 file");
+    }
+    const credential = await handle.readFile({ encoding: "utf8" });
+    if (!/^[A-Za-z0-9_-]{43,128}$/.test(credential)) {
+      throw new Error(
+        "PLAYWRIGHT_OWNER_KEY_FILE must contain one high-entropy credential",
+      );
+    }
+    return credential;
+  } finally {
+    await handle.close();
+  }
 }
 
 async function runHost(current: Seed) {
@@ -241,7 +262,7 @@ async function runHost(current: Seed) {
 }
 
 async function openAgent(page: Page, name: string) {
-  await page.getByRole("button", { name: "Agents" }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
   const navigation = agentsNavigation(page);
   await navigation.getByRole("button", { name: new RegExp(name) }).click();
   await expect(

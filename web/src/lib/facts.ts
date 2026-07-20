@@ -72,11 +72,12 @@ export async function createAgent(input: {
   return response.agent;
 }
 
-export async function setAgentPlacement(
-  agentId: string,
-  computerId: string,
-): Promise<AgentPlacement> {
-  const response = await placements.setAgentPlacement({ agentId, computerId });
+export async function setAgentPlacement(input: {
+  requestId: string;
+  agentId: string;
+  computerId: string;
+}): Promise<AgentPlacement> {
+  const response = await placements.setAgentPlacement(input);
   if (!response.placement) throw new Error("Placement response was empty");
   return response.placement;
 }
@@ -96,6 +97,12 @@ async function getPlacement(
 
 export function factErrorMessage(error: unknown, action: string) {
   const connectError = ConnectError.from(error);
+  if (
+    connectError.code === Code.Unauthenticated ||
+    connectError.code === Code.PermissionDenied
+  ) {
+    return `Authorization required to ${action}. Use an authenticated Human management client.`;
+  }
   if (connectError.code === Code.AlreadyExists) {
     return "An Agent with this name already exists.";
   }
