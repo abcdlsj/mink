@@ -199,6 +199,15 @@ func (b *Backend) RetryMessage(req RetryMessageRequest) (string, error) {
 		_ = b.app.Spaces().DeleteMessage(sp.ID, failed.ID)
 		return "", fmt.Errorf("message already has a successful reply")
 	}
+	if strings.TrimSpace(failed.DeliveryID) != "" {
+		handled, err := b.app.RetryAsyncDelegate(failed.DeliveryID)
+		if err != nil {
+			return "", err
+		}
+		if handled {
+			return "", nil
+		}
+	}
 	prev, ok := previousUserMessage(sp.Messages[:idx], failed.ParentMessageID)
 	if !ok {
 		return "", fmt.Errorf("no user message found to retry")

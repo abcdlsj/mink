@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/config"
 	"github.com/abcdlsj/sumi/delivery"
 	"github.com/abcdlsj/sumi/persona"
@@ -119,32 +121,76 @@ func (e *asyncFaultEnv) placeholders(deliveryID string) []space.Message {
 	return out
 }
 
-func TestFaultAsyncReplyBeforeComplete(t *testing.T) {
+func TestFaultAsyncReplyPersistedNotCompletedReclaim(t *testing.T) {
 	e := newAsyncFaultEnv(t)
 	tk, d := e.seedAsyncTask("do the thing")
 
-	claimed, fence := e.claim(d.ID)
-	e.worker.run(context.Background(), claimed, fence)
+	past := time.Now().Add(-2 * deliveryLeaseTTL)
+	_, fenceA, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-A", past, deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("claim A: %v", err)
+	}
+	personas := e.app.fuzzyPersonaResolver()
+	ph, _, err := e.app.Spaces().EnsureDeliveryPlaceholder(d.SpaceID, d.ID, d.AgentID, d.ParentMessageID, personas.Info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.app.Deliveries().BindResultMessage(d.ID, fenceA, ph.ID, past); err != nil {
+		t.Fatalf("bind: %v", err)
+	}
+	if _, _, err := e.app.Spaces().FinalizeDeliveryMessage(d.SpaceID, ph.ID, d.ID, fenceA.OwnerID, fenceA.Version, past, func(m *space.Message) {
+		m.Content = "reply written before crash"
+		m.Status = ""
+	}, nil, personas.Info, nil); err != nil {
+		t.Fatalf("A finalize: %v", err)
+	}
 
-	got, err := e.app.Deliveries().Get(claimed.ID)
+	beforeReclaim := e.placeholders(d.ID)
+	if len(beforeReclaim) != 1 {
+		t.Fatalf("placeholders before reclaim = %d, want 1", len(beforeReclaim))
+	}
+	preGot, err := e.app.Deliveries().Get(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preGot.Status == delivery.StatusCompleted {
+		t.Fatalf("delivery already completed before reclaim; the interrupt window was not reproduced")
+	}
+
+	claimed2, fence2, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-B", time.Now(), deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("reclaim B: %v", err)
+	}
+	if !(fence2.Version > fenceA.Version) {
+		t.Fatalf("reclaim fence version %d not greater than A %d", fence2.Version, fenceA.Version)
+	}
+	if claimed2.ResultMessageID != ph.ID {
+		t.Fatalf("ResultMessageID = %q, want %q preserved across reclaim", claimed2.ResultMessageID, ph.ID)
+	}
+	e.worker.run(context.Background(), claimed2, fence2)
+
+	got, err := e.app.Deliveries().Get(d.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Status != delivery.StatusCompleted {
-		t.Fatalf("delivery status = %q, want completed", got.Status)
+		t.Fatalf("delivery status after reclaim = %q, want completed", got.Status)
 	}
-	ph := e.placeholders(claimed.ID)
-	if len(ph) != 1 {
-		t.Fatalf("placeholders = %d, want exactly 1", len(ph))
+	ph2 := e.placeholders(d.ID)
+	if len(ph2) != 1 {
+		t.Fatalf("placeholders after reclaim = %d, want exactly 1", len(ph2))
 	}
-	if got.ResultMessageID != ph[0].ID {
-		t.Fatalf("delivery result %q != placeholder %q", got.ResultMessageID, ph[0].ID)
+	if ph2[0].ID != ph.ID {
+		t.Fatalf("reclaim bound a different message %q != %q", ph2[0].ID, ph.ID)
 	}
-	if strings.TrimSpace(ph[0].Content) == "" {
+	if got.ResultMessageID != ph2[0].ID {
+		t.Fatalf("delivery result %q != placeholder %q", got.ResultMessageID, ph2[0].ID)
+	}
+	if strings.TrimSpace(ph2[0].Content) == "" {
 		t.Fatalf("finalized placeholder content empty, want reply text")
 	}
-	if ph[0].Status == "pending" {
-		t.Fatalf("finalized placeholder still pending")
+	if ph2[0].Status == "pending" {
+		t.Fatalf("finalized placeholder still pending after reclaim")
 	}
 
 	gotTask, err := e.app.Tasks().Get(tk.ID)
@@ -154,11 +200,8 @@ func TestFaultAsyncReplyBeforeComplete(t *testing.T) {
 	if gotTask.Status != task.StatusFinished {
 		t.Fatalf("task status = %q, want finished", gotTask.Status)
 	}
-	if gotTask.ResultMessageID != ph[0].ID {
-		t.Fatalf("task result %q != placeholder %q", gotTask.ResultMessageID, ph[0].ID)
-	}
-	if runs := len(mustRuns(t, e.app, tk.ID)); runs != 1 {
-		t.Fatalf("task runs = %d, want exactly 1", runs)
+	if gotTask.ResultMessageID != ph2[0].ID {
+		t.Fatalf("task result %q != placeholder %q", gotTask.ResultMessageID, ph2[0].ID)
 	}
 }
 
@@ -325,6 +368,156 @@ func TestFaultAsyncTaskOnlyCrashRecovery(t *testing.T) {
 	}
 	if gotTask.Status != task.StatusFinished {
 		t.Fatalf("recovered task status = %q, want finished", gotTask.Status)
+	}
+}
+
+func TestFaultAsyncCancelDuringRunReclaimable(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	tk, d := e.seedAsyncTask("do the thing")
+
+	entered := make(chan struct{})
+	e.exec = func(ctx context.Context, req AsyncTurnRequest) AsyncTurnResult {
+		e.runs++
+		close(entered)
+		<-ctx.Done()
+		return AsyncTurnResult{Err: ctx.Err()}
+	}
+
+	claimed, fence := e.claim(d.ID)
+	runCtx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		e.worker.run(runCtx, claimed, fence)
+		close(done)
+	}()
+	<-entered
+	cancel()
+	<-done
+
+	got, err := e.app.Deliveries().Get(claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status == delivery.StatusFailed || got.Status == delivery.StatusCompleted {
+		t.Fatalf("delivery status after cancel = %q, want a non-terminal reclaimable state", got.Status)
+	}
+	gotTask, err := e.app.Tasks().Get(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTask.Status == task.StatusFailed {
+		t.Fatalf("task marked failed on a normal cancel; want reclaimable")
+	}
+	ph := e.placeholders(claimed.ID)
+	if len(ph) != 1 {
+		t.Fatalf("placeholders after cancel = %d, want exactly 1", len(ph))
+	}
+	if ph[0].Status != "pending" {
+		t.Fatalf("placeholder status after cancel = %q, want still pending", ph[0].Status)
+	}
+
+	e.exec = func(ctx context.Context, req AsyncTurnRequest) AsyncTurnResult {
+		e.runs++
+		return AsyncTurnResult{Content: "reclaimed reply", Steps: []task.KeyStep{{Kind: task.KindSummary, Title: "done", At: time.Now(), OK: true}}}
+	}
+	future := time.Now().Add(2 * deliveryLeaseTTL)
+	claimed2, fence2, err := e.app.Deliveries().ClaimNextInLane(d.SpaceID, d.ParentMessageID, d.AgentID, "owner-B", future, deliveryLeaseTTL)
+	if err != nil {
+		t.Fatalf("reclaim B: %v", err)
+	}
+	if !(fence2.Version > fence.Version) {
+		t.Fatalf("reclaim fence version %d not greater than %d", fence2.Version, fence.Version)
+	}
+	e.worker.run(context.Background(), claimed2, fence2)
+
+	got, err = e.app.Deliveries().Get(claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != delivery.StatusCompleted {
+		t.Fatalf("delivery status after reclaim = %q, want completed", got.Status)
+	}
+	ph2 := e.placeholders(claimed.ID)
+	if len(ph2) != 1 {
+		t.Fatalf("placeholders after reclaim = %d, want exactly 1", len(ph2))
+	}
+	if ph2[0].ID != ph[0].ID {
+		t.Fatalf("reclaim bound a different message %q != %q", ph2[0].ID, ph[0].ID)
+	}
+	gotTask, err = e.app.Tasks().Get(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotTask.Status != task.StatusFinished {
+		t.Fatalf("task status after reclaim = %q, want finished", gotTask.Status)
+	}
+}
+
+func TestFaultAsyncReconcileFailsClosedOnCorruptStore(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	e.seedAsyncTask("do the thing")
+
+	corrupt := filepath.Join(e.app.cfg.DataRoot(), "deliveries", "corrupt.json")
+	if err := os.WriteFile(corrupt, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.app.reconcileDeliveries(context.Background()); err == nil {
+		t.Fatalf("reconcileDeliveries returned nil on a corrupt store; want fail-closed error")
+	}
+}
+
+func TestFaultAsyncSuccessPublishesDelegateFinishedOnce(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	tk, d := e.seedAsyncTask("do the thing")
+
+	events, cancel := e.app.Bus().Subscribe(16)
+	defer cancel()
+
+	claimed, fence := e.claim(d.ID)
+	e.worker.run(context.Background(), claimed, fence)
+
+	finished := 0
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == bus.DelegateFinished && ev.TaskID == tk.ID {
+				finished++
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if finished != 1 {
+		t.Fatalf("DelegateFinished events for task = %d, want exactly 1", finished)
+	}
+}
+
+func TestFaultAsyncFailurePublishesNoDelegateFinished(t *testing.T) {
+	e := newAsyncFaultEnv(t)
+	e.exec = func(ctx context.Context, req AsyncTurnRequest) AsyncTurnResult {
+		e.runs++
+		return AsyncTurnResult{Err: errors.New("model exploded")}
+	}
+	tk, d := e.seedAsyncTask("do the thing")
+
+	events, cancel := e.app.Bus().Subscribe(16)
+	defer cancel()
+
+	claimed, fence := e.claim(d.ID)
+	e.worker.run(context.Background(), claimed, fence)
+
+	for {
+		select {
+		case ev := <-events:
+			if ev.Type == bus.DelegateFinished && ev.TaskID == tk.ID {
+				t.Fatalf("headless failure published a DelegateFinished event; want none")
+			}
+			continue
+		default:
+		}
+		break
 	}
 }
 

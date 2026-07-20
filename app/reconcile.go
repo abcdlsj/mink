@@ -70,7 +70,7 @@ func (a *App) reconcileAsyncDelegates(ctx context.Context) error {
 			continue
 		}
 		if _, _, err := deliveries.CreateIfAbsent(d, now); err != nil {
-			continue
+			return err
 		}
 	}
 	return nil
@@ -104,10 +104,6 @@ func (a *App) createContinuationDeliveries(spaceID string, reply space.Message) 
 	return nil
 }
 
-// deliveryFromIntent maps one persisted RoutingIntent on an origin message to the
-// Delivery that should execute it. The origin message is the delivery's
-// OriginMessageID; the intent's parent threads it; async_delegate is skipped
-// (commit 3). Returns nil for intents outside commit 2 scope or missing an agent.
 func deliveryFromIntent(spaceID string, origin space.Message, it space.RoutingIntent) *delivery.Delivery {
 	agentID := strings.TrimSpace(it.AgentID)
 	if agentID == "" || strings.TrimSpace(spaceID) == "" || strings.TrimSpace(origin.ID) == "" {

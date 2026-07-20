@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/abcdlsj/sumi/bus"
 	"github.com/abcdlsj/sumi/delivery"
 	"github.com/abcdlsj/sumi/space"
 	"github.com/abcdlsj/sumi/task"
@@ -90,6 +91,10 @@ func (w *deliveryWorker) runAsyncDelegate(ctx context.Context, d *delivery.Deliv
 		return
 	}
 
+	if ctx.Err() != nil {
+		return
+	}
+
 	if result.Err != nil {
 		w.failAsync(d, fence, tk, run.ID, resultMessageID, result.Steps, result.Err)
 		return
@@ -134,6 +139,12 @@ func (w *deliveryWorker) runAsyncDelegate(ctx context.Context, d *delivery.Deliv
 	if _, err := deliveries.Complete(d.ID, fence, written.ID, now); err != nil {
 		return
 	}
+	a.Bus().Publish(bus.Event{
+		Type:   bus.DelegateFinished,
+		Source: tk.Source,
+		TaskID: tk.ID,
+		Output: outcome,
+	})
 }
 
 func (w *deliveryWorker) failAsync(d *delivery.Delivery, fence delivery.Fence, tk *task.Task, runID, resultMessageID string, steps []task.KeyStep, cause error) {
