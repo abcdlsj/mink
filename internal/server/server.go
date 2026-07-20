@@ -79,7 +79,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 
 	mux := http.NewServeMux()
 	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
-		Origin: config.BrowserOrigin, MutationProcedures: humanMutationProcedures(),
+		Origin: config.BrowserOrigin, BrowserReadProcedures: humanReadProcedures(),
 	}))
 	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
 	mux.Handle(systemPath, systemHandler)
@@ -88,14 +88,12 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
 		Origin:              config.BrowserOrigin,
 		ProtectedProcedures: []string{agentv1connect.AgentServiceCreateAgentProcedure},
-		MutationProcedures:  []string{agentv1connect.AgentServiceCreateAgentProcedure},
 	}))
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(agent.New(database), agentMutationAuthorization)
 	mux.Handle(agentPath, agentHandler)
 	placementMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
 		Origin:              config.BrowserOrigin,
 		ProtectedProcedures: []string{placementv1connect.PlacementServiceSetAgentPlacementProcedure},
-		MutationProcedures:  []string{placementv1connect.PlacementServiceSetAgentPlacementProcedure},
 	}))
 	placementPath, placementHandler := placementv1connect.NewPlacementServiceHandler(placement.New(database), placementMutationAuthorization)
 	mux.Handle(placementPath, placementHandler)
@@ -130,19 +128,21 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	return &Server{handler: handler, store: database}, nil
 }
 
-func humanMutationProcedures() []string {
+func humanReadProcedures() []string {
 	return []string{
-		organizationv1connect.OrganizationServiceCreateHumanProcedure,
-		organizationv1connect.OrganizationServiceSetHumanStatusProcedure,
-		grantv1connect.GrantServiceIssueGrantProcedure,
-		grantv1connect.GrantServiceRevokeGrantProcedure,
-		spacev1connect.CollaborationServiceCreateDMProcedure,
-		spacev1connect.CollaborationServiceCreateGroupProcedure,
-		spacev1connect.CollaborationServiceAddMemberProcedure,
-		spacev1connect.CollaborationServiceRemoveMemberProcedure,
-		spacev1connect.CollaborationServiceArchiveSpaceProcedure,
-		spacev1connect.CollaborationServiceUnarchiveSpaceProcedure,
-		spacev1connect.CollaborationServiceSendMessageProcedure,
+		organizationv1connect.OrganizationServiceGetOrganizationProcedure,
+		organizationv1connect.OrganizationServiceGetHumanProcedure,
+		organizationv1connect.OrganizationServiceListHumansProcedure,
+		grantv1connect.GrantServiceGetGrantProcedure,
+		grantv1connect.GrantServiceListGrantsProcedure,
+		grantv1connect.GrantServiceCheckPermissionProcedure,
+		auditv1connect.AuditServiceListAuditEventsProcedure,
+		spacev1connect.CollaborationServiceGetSpaceProcedure,
+		spacev1connect.CollaborationServiceListSpacesProcedure,
+		spacev1connect.CollaborationServiceListMembersProcedure,
+		spacev1connect.CollaborationServiceGetMessageProcedure,
+		spacev1connect.CollaborationServiceGetThreadProcedure,
+		spacev1connect.CollaborationServiceListMessagesProcedure,
 	}
 }
 

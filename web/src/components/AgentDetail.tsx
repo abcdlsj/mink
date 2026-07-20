@@ -98,7 +98,7 @@ export function AgentDetail({
           />
         )}
         <p className="readonly-note">
-          Placement changes require an authenticated Human management client.
+          Placement changes are not available in this read-only view.
         </p>
       </section>
       <section className="detail-section diagnostics-section">

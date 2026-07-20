@@ -23,10 +23,10 @@ type browserSessionAuthenticator interface {
 }
 
 type BrowserInterceptorConfig struct {
-	Origin              string
-	ProtectedProcedures []string
-	MutationProcedures  []string
-	Now                 func() time.Time
+	Origin                string
+	ProtectedProcedures   []string
+	BrowserReadProcedures []string
+	Now                   func() time.Time
 }
 
 const BrowserSessionCookieName = "sumi_browser_session"
@@ -54,7 +54,7 @@ func NewBrowserInterceptor(authenticator humanAuthenticator, sessions browserSes
 }
 
 func newInterceptor(authenticator humanAuthenticator, protected map[string]struct{}, config BrowserInterceptorConfig, sessions ...browserSessionAuthenticator) connect.Interceptor {
-	mutations := procedureSet(config.MutationProcedures)
+	reads := procedureSet(config.BrowserReadProcedures)
 	now := config.Now
 	if now == nil {
 		now = time.Now
@@ -66,7 +66,7 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 					return next(ctx, request)
 				}
 			}
-			subject, err := authenticateRequest(ctx, request, authenticator, sessions, config.Origin, mutations, now())
+			subject, err := authenticateRequest(ctx, request, authenticator, sessions, config.Origin, reads, now())
 			if errors.Is(err, store.ErrPermissionDenied) {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human authentication invalid"))
 			}
@@ -82,7 +82,7 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 	})
 }
 
-func authenticateRequest(ctx context.Context, request connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, mutations map[string]struct{}, now time.Time) (store.Principal, error) {
+func authenticateRequest(ctx context.Context, request connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (store.Principal, error) {
 	if len(request.Header().Values("Authorization")) > 0 {
 		credential, ok := BearerCredential(request.Header())
 		if !ok {
@@ -93,7 +93,7 @@ func authenticateRequest(ctx context.Context, request connect.AnyRequest, authen
 	if len(sessions) != 1 || origin == "" || !BrowserRequestAllowed(ctx) {
 		return store.Principal{}, store.ErrPermissionDenied
 	}
-	if _, mutation := mutations[request.Spec().Procedure]; mutation {
+	if _, read := browserReads[request.Spec().Procedure]; !read {
 		origins := request.Header().Values("Origin")
 		if len(origins) != 1 || origins[0] != origin {
 			return store.Principal{}, connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))

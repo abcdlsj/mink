@@ -11,10 +11,12 @@ import {
 import { PrimaryRail, type WorkspaceModule } from "./components/PrimaryRail";
 import { useBootstrap } from "./hooks/useBootstrap";
 import { useFacts } from "./hooks/useFacts";
+import { useSession } from "./hooks/useSession";
 import "./styles.css";
 
 export default function App() {
   const bootstrap = useBootstrap();
+  const session = useSession();
   const [module, setModule] = useState<WorkspaceModule>("conversation");
   const [navigationOpen, setNavigationOpen] = useState(
     () => window.innerWidth >= 1280,
@@ -111,6 +113,7 @@ export default function App() {
       {module === "conversation" ? (
         <ConversationWorkspace
           bootstrap={bootstrap}
+          session={session}
           navigationOpen={navigationOpen}
           contextOpen={contextOpen}
           onOpenNavigation={() => setNavigationOpen(true)}

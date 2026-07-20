@@ -40,7 +40,9 @@ func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
 	principal := store.Principal{Kind: "human", ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
 	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
-	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{Origin: "http://127.0.0.1:8080"})
+	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{
+		Origin: "http://127.0.0.1:8080", BrowserReadProcedures: []string{""},
+	})
 	wrapper := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
 		subject, err := Subject(ctx)
 		if err != nil {
@@ -82,10 +84,9 @@ func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
 
 func TestBrowserInterceptorRequiresExactOriginForMutations(t *testing.T) {
 	principal := store.Principal{Kind: "human", ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
+	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
-	interceptor := NewBrowserInterceptor(testHumanAuthenticator{}, sessions, BrowserInterceptorConfig{
-		Origin: "http://127.0.0.1:8080", MutationProcedures: []string{""},
-	})
+	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{Origin: "http://127.0.0.1:8080"})
 	wrapper := interceptor.WrapUnary(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
 		return connect.NewResponse(&emptypb.Empty{}), nil
 	})
@@ -105,6 +106,11 @@ func TestBrowserInterceptorRequiresExactOriginForMutations(t *testing.T) {
 	request.Header().Set("Origin", "http://127.0.0.1:8080")
 	if _, err := wrapper(browserContext(t, "http://127.0.0.1:8080", true), request); err != nil {
 		t.Fatal(err)
+	}
+	request = connect.NewRequest(&emptypb.Empty{})
+	request.Header().Set("Authorization", "Bearer "+humans.credential)
+	if _, err := wrapper(browserContext(t, "http://127.0.0.1:8080", true), request); err != nil {
+		t.Fatalf("bearer unexpectedly required Origin: %v", err)
 	}
 }
 

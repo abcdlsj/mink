@@ -19,7 +19,7 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    await expect(page.getByText("No conversations yet")).toBeVisible();
+    await expect(page.getByText("Authentication required")).toBeVisible();
     await expect(page.getByText(/Server [a-f0-9]{8}/)).toBeVisible();
     await expect(page.getByLabel("Context", { exact: true })).toBeHidden();
     await expect(page.getByText("No context selected")).toBeHidden();

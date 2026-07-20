@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import {
   Archive,
   FileStack,
+  LogOut,
   MessageSquare,
   PanelLeftOpen,
   PanelRightOpen,
@@ -12,9 +13,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import type { useBootstrap } from "../hooks/useBootstrap";
+import type { useSession } from "../hooks/useSession";
 
 type View = "chat" | "work" | "artifacts";
 type Bootstrap = ReturnType<typeof useBootstrap>;
+type Session = ReturnType<typeof useSession>;
 
 const viewCopy: Record<View, { title: string; detail: string }> = {
   chat: {
@@ -33,12 +36,14 @@ const viewCopy: Record<View, { title: string; detail: string }> = {
 
 export function ConversationWorkspace({
   bootstrap,
+  session,
   navigationOpen,
   contextOpen,
   onOpenNavigation,
   onOpenContext,
 }: {
   bootstrap: Bootstrap;
+  session: Session;
   navigationOpen: boolean;
   contextOpen: boolean;
   onOpenNavigation: () => void;
@@ -68,6 +73,7 @@ export function ConversationWorkspace({
           </label>
         </div>
         <div className="topbar-actions">
+          <SessionIndicator session={session} />
           <ServerIndicator bootstrap={bootstrap} />
           <button
             className="icon-button compact-context-trigger"
@@ -99,7 +105,12 @@ export function ConversationWorkspace({
         </div>
         <div className="space-presence">
           <UsersRound size={17} />
-          <span>Local Human</span>
+          <span>
+            {session.status === "authenticated" ||
+            session.status === "logging-out"
+              ? session.human.name
+              : "Human session required"}
+          </span>
         </div>
       </header>
 
@@ -148,6 +159,41 @@ export function ConversationWorkspace({
               {bootstrap.status === "retrying" ? "Retrying" : "Retry"}
             </button>
           </div>
+        ) : session.status === "loading" || session.status === "retrying" ? (
+          <div className="loading-state" role="status">
+            <span className="status-dot loading" />
+            <div>
+              <h2>Checking Human session</h2>
+              <p>Confirming browser access with the local Server.</p>
+            </div>
+          </div>
+        ) : session.status === "error" ? (
+          <div className="offline-state" role="alert">
+            <span className="offline-mark">!</span>
+            <div>
+              <h2>Authentication unavailable</h2>
+              <p>The Server is online, but session status could not be read.</p>
+            </div>
+            <button
+              className="command-button"
+              type="button"
+              onClick={session.retry}
+            >
+              <RotateCw size={16} />
+              Retry
+            </button>
+          </div>
+        ) : session.status === "unauthenticated" ? (
+          <div className="authentication-state" role="status">
+            <span className="authentication-mark">H</span>
+            <div>
+              <h2>Authentication required</h2>
+              <p>
+                Use the trusted local CLI with your 0600 Human credential, then
+                open its one-time browser URL.
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="empty-state">
             <span className="empty-icon">{emptyIcon(view)}</span>
@@ -160,7 +206,12 @@ export function ConversationWorkspace({
       <footer className="composer" data-testid="main-composer">
         <textarea
           aria-label="Message"
-          placeholder="Connect an Agent to begin a conversation"
+          placeholder={
+            session.status === "authenticated" ||
+            session.status === "logging-out"
+              ? "Connect an Agent to begin a conversation"
+              : "Authenticate to begin a conversation"
+          }
           disabled
           rows={1}
         />
@@ -192,6 +243,33 @@ export function ConversationWorkspace({
         </div>
       </footer>
     </section>
+  );
+}
+
+function SessionIndicator({ session }: { session: Session }) {
+  if (session.status !== "authenticated" && session.status !== "logging-out") {
+    return (
+      <div className={`session-indicator ${session.status}`}>
+        <span className={`status-dot ${session.status}`} />
+        <span>Human signed out</span>
+      </div>
+    );
+  }
+  return (
+    <div className="session-control">
+      <span className="status-dot ready" />
+      <span className="session-name">{session.human.name}</span>
+      <button
+        className="icon-button compact"
+        type="button"
+        aria-label="Log out"
+        title="Log out browser session"
+        onClick={session.logout}
+        disabled={session.status === "logging-out"}
+      >
+        <LogOut size={15} />
+      </button>
+    </div>
   );
 }
 

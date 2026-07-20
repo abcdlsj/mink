@@ -240,7 +240,13 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 当前每个 Server 保存一个 Organization。fresh Server 原子创建 bootstrap Human 与 organization root Grant；bootstrap credential 只来自 no-follow `0600` 文件，Server 只保存 hash。其他 Human 使用各自独立的高熵 credential，HTTP mutation 的 actor 只由 Authorization metadata 解析，request body 不能传 `actor_id` 冒充。Human 的 `owner / member` 只表达组织成员与最后恢复责任，不隐式赋予任何能力。
 
-当前 credential adapter 面向默认 localhost/trusted-local 部署，它建立了真实 principal 绑定与权限检查，但不是远程 session、mTLS 或完整登录系统。后续 pairing/auth 可以替换 adapter，不得改写 Human、Grant 与 Audit 的事实语义。
+默认 localhost/trusted-local 部署同时支持 Human Bearer credential 与本地 browser session，两者最终只生成同一个不可伪造的 Human principal。请求一旦携带 `Authorization` 就只按 Bearer 校验，即使失败也不能回退 cookie；没有 `Authorization` 时才允许 browser cookie。Human Grant、denied Audit 与业务事务不因认证载体而分叉。
+
+本地 browser session 通过 trusted CLI 一次性交接：CLI 只从 no-follow、regular、`0600` Human credential 文件读取 Bearer，向明确的 loopback Server origin 请求 32-byte 高熵 handoff。handoff 最长 60 秒且只能原子消费一次；浏览器首次访问含 handoff 的 URL 后，Server 立即 `303` 到无 token 的 `/`，只返回 opaque、HttpOnly、SameSite=Strict、Path=/ 的 session cookie。session 默认且最长 12 小时，设置 Expires/Max-Age；logout 使用相同 cookie name、Path 与 Secure 属性清除。SQLite 只保存带不同 domain separator 的 handoff/session hash、Human、created/expires 与 consumed/revoked 时间，不保存 raw handoff、raw session、cookie 或本机 credential 路径。重启继续有效，replay、expiry、revoke、disabled Human 与同名多 cookie 都立即 fail closed；失败的 handoff 消费不会清除已有有效 session。
+
+四个 `/auth/**` endpoint 都要求实际 TCP peer 是 loopback，并用请求自身的 TLS 状态与 Host 精确匹配配置 origin；不信任 `X-Forwarded-*`。cookie-auth 的受保护 procedure 只有显式 read allowlist 可以不带 Origin，其他 procedure（包括未来未知 procedure）默认视为 mutation，必须携带与配置 origin 完全一致的单一 Origin。未显式配置 browser origin 时，只有 literal loopback `--listen` 可以安全推导；其他 listen 继续允许现有非 browser API，但 browser auth 禁用。当前 loopback HTTP cookie 不设置 Secure；HTTPS loopback 才设置 Secure。这是本机安全交接，不是远程登录、反向代理或 mTLS 方案。
+
+Web bootstrap 与 Agent/Computer 公共只读 facts 不依赖登录。未登录时 Conversation 诚实显示 `Authentication required`，但用户仍可进入公共只读管理页；logout 后 Collaboration 立即返回 unauthenticated，公共 facts 继续可读。真实 DM/Space/Thread/Message 界面在后续阶段使用该 session，不在认证层伪造匿名能力。
 
 可授权的能力包括但不限于：
 

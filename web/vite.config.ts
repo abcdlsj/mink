@@ -11,6 +11,8 @@ export default defineConfig({
       "/sumi.agent.v1.AgentService": "http://127.0.0.1:8080",
       "/sumi.computer.v1.ComputerService": "http://127.0.0.1:8080",
       "/sumi.placement.v1.PlacementService": "http://127.0.0.1:8080",
+      "/sumi.space.v1.CollaborationService": "http://127.0.0.1:8080",
+      "/auth": "http://127.0.0.1:8080",
     },
   },
 });

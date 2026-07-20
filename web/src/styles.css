@@ -394,6 +394,35 @@ select {
   color: var(--warning);
 }
 
+.session-indicator,
+.session-control {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.session-indicator.error {
+  color: var(--danger);
+}
+
+.session-indicator.loading .status-dot,
+.session-indicator.retrying .status-dot {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.session-name {
+  max-width: 128px;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
 .topbar-leading {
   flex: 1;
 }
@@ -500,6 +529,46 @@ select {
   text-align: center;
   transform: translateY(-4vh);
   animation: content-in 260ms ease-out;
+}
+
+.authentication-state {
+  display: grid;
+  max-width: 500px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--soft-line);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  animation: content-in 220ms ease-out;
+}
+
+.authentication-mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 1px solid var(--ink);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: #185c3b;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.authentication-state h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.authentication-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .loading-state {
@@ -1514,7 +1583,9 @@ select {
   }
 
   .server-indicator span:not(.status-dot),
-  .server-indicator small {
+  .server-indicator small,
+  .session-indicator span:not(.status-dot),
+  .session-name {
     display: none;
   }
 

@@ -25,6 +25,7 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const run = promisify(execFile);
 const transport = createConnectTransport({ baseUrl: baseURL });
 let ownerCredential = "";
+let ownerKeyFile = "";
 const ownerAuthorization: Interceptor = (next) => async (request) => {
   if (!ownerCredential) throw new Error("Owner credential is not available");
   request.header.set("Authorization", `Bearer ${ownerCredential}`);
@@ -43,14 +44,22 @@ type Seed = Awaited<ReturnType<typeof seedFacts>>;
 let seed: Seed;
 
 test.describe.configure({ mode: "serial" });
+test.use({ trace: "off", video: "off", screenshot: "only-on-failure" });
 
 test.beforeAll(async () => {
-  ownerCredential = await readOwnerCredential();
+  const owner = await readOwnerCredential();
+  ownerCredential = owner.credential;
+  ownerKeyFile = owner.path;
   seed = await seedFacts();
+});
+
+test.beforeEach(async ({ page }) => {
+  await authenticatePage(page);
 });
 
 test.afterAll(async () => {
   ownerCredential = "";
+  ownerKeyFile = "";
   if (seed) await rm(seed.hostRoot, { recursive: true, force: true });
 });
 
@@ -70,7 +79,7 @@ test("real facts move from pending to active after sumi-computer ack", async ({
   await expect(page.locator("body")).not.toContainText(seed.hostRoot);
 });
 
-test("Agent management is read-only without browser Human auth", async ({
+test("Agent management stays read-only with browser Human auth", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -85,7 +94,7 @@ test("Agent management is read-only without browser Human auth", async ({
   await expect(agentRegion(page).getByText(seed.computerName)).toBeVisible();
   await expect(
     agentRegion(page).getByText(
-      "Placement changes require an authenticated Human management client.",
+      "Placement changes are not available in this read-only view.",
     ),
   ).toBeVisible();
   await expect(
@@ -104,14 +113,10 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByText("No conversations yet")).toBeVisible();
-    await screenshot(page, `conversation-${viewport.width}`);
-
     await page.getByRole("button", { name: "Agents" }).focus();
     await page.keyboard.press("Enter");
     const agentNav = agentsNavigation(page);
     await expect(agentNav.getByText(seed.failedAgentName)).toBeVisible();
-    await screenshot(page, `agents-list-${viewport.width}`);
-
     await agentNav
       .getByRole("button", { name: new RegExp(seed.failedAgentName) })
       .focus();
@@ -120,13 +125,9 @@ for (const viewport of [
       agentRegion(page).getByText("workspace_io_error"),
     ).toBeVisible();
     await expect(agentRegion(page)).not.toContainText(seed.registrationKey);
-    await screenshot(page, `agents-detail-${viewport.width}`);
-
     await page.getByRole("button", { name: "Computers" }).click();
     const computerNav = computersNavigation(page);
     await expect(computerNav.getByText(seed.computerName)).toBeVisible();
-    await screenshot(page, `computers-list-${viewport.width}`);
-
     await computerNav
       .getByRole("button", { name: new RegExp(seed.computerName) })
       .focus();
@@ -137,8 +138,6 @@ for (const viewport of [
     await expect(
       computerRegion(page).getByText(seed.pendingAgentName),
     ).toBeVisible();
-    await screenshot(page, `computers-detail-${viewport.width}`);
-
     const overflow = await page.evaluate(
       () =>
         document.documentElement.scrollWidth >
@@ -147,6 +146,23 @@ for (const viewport of [
     expect(overflow).toBe(false);
   });
 }
+
+test("browser handoff reaches Collaboration and logout revokes it immediately", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByText("No conversations yet")).toBeVisible();
+  expect(await collaborationStatus(page)).toBe(200);
+
+  await page.getByRole("button", { name: "Log out" }).click();
+  await expect(page.getByText("Authentication required")).toBeVisible();
+  expect(await collaborationStatus(page)).toBe(401);
+
+  await page.getByRole("button", { name: "Agents" }).click();
+  await expect(
+    agentsNavigation(page).getByText(seed.pendingAgentName),
+  ).toBeVisible();
+});
 
 async function seedFacts() {
   const suffix = randomUUID().slice(0, 8);
@@ -232,10 +248,70 @@ async function readOwnerCredential() {
         "PLAYWRIGHT_OWNER_KEY_FILE must contain one high-entropy credential",
       );
     }
-    return credential;
+    return {
+      credential,
+      path: process.env.PLAYWRIGHT_OWNER_KEY_FILE,
+    };
   } finally {
     await handle.close();
   }
+}
+
+async function authenticatePage(page: Page) {
+  let stdout = "";
+  try {
+    const result = await run(
+      "mise",
+      [
+        "exec",
+        "--",
+        "go",
+        "run",
+        "./cmd/sumi-server",
+        "auth",
+        "--server",
+        baseURL,
+        "--human-key-file",
+        ownerKeyFile,
+      ],
+      { cwd: repoRoot },
+    );
+    stdout = result.stdout.trim();
+  } catch {
+    throw new Error("Browser handoff CLI failed");
+  }
+  const handoffPattern = new RegExp(
+    `^${escapePattern(baseURL)}/auth/browser-handoffs/[A-Za-z0-9_-]{43}$`,
+  );
+  if (!handoffPattern.test(stdout)) {
+    throw new Error("Browser handoff CLI returned an unsafe URL");
+  }
+  try {
+    await page.goto(stdout);
+  } catch {
+    throw new Error("Browser handoff navigation failed");
+  }
+  if (page.url() !== `${baseURL}/`) {
+    throw new Error("Browser handoff did not clear its one-time URL");
+  }
+}
+
+async function collaborationStatus(page: Page) {
+  return page.evaluate(async () => {
+    const response = await fetch(
+      "/sumi.space.v1.CollaborationService/ListSpaces",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    return response.status;
+  });
+}
+
+function escapePattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function runHost(current: Seed) {
@@ -284,22 +360,4 @@ function agentRegion(page: Page) {
 
 function computerRegion(page: Page) {
   return page.getByRole("region", { name: "Computers" });
-}
-
-async function screenshot(page: Page, name: string) {
-  await settleMotion(page);
-  await page.screenshot({
-    path: `../test-results/task12-${name}.png`,
-    fullPage: true,
-  });
-}
-
-async function settleMotion(page: Page) {
-  await page.evaluate(async () => {
-    await Promise.all(
-      document
-        .getAnimations()
-        .map((animation) => animation.finished.catch(() => {})),
-    );
-  });
 }

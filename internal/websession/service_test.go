@@ -180,6 +180,36 @@ func TestBrowserEndpointsRejectNonLoopbackHostPeerAndQuery(t *testing.T) {
 	if consume.Code != http.StatusSeeOther || len(consume.Result().Cookies()) != 0 {
 		t.Fatalf("query consume = %d %v", consume.Code, consume.Result().Cookies())
 	}
+	for _, framing := range []struct {
+		contentLength    int64
+		transferEncoding []string
+	}{
+		{-1, nil},
+		{-1, []string{"chunked"}},
+		{1, nil},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080"+CreateHandoffPath, nil)
+		req.RemoteAddr = "127.0.0.1:42000"
+		req.Header.Set("Authorization", "Bearer "+credential)
+		req.Body = unreadableBody{}
+		req.ContentLength = framing.contentLength
+		req.TransferEncoding = framing.transferEncoding
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("unsafe body framing %+v = %d", framing, recorder.Code)
+		}
+	}
+}
+
+type unreadableBody struct{}
+
+func (unreadableBody) Read([]byte) (int, error) {
+	panic("request body must not be read")
+}
+
+func (unreadableBody) Close() error {
+	return nil
 }
 
 func browserHandler(t *testing.T, database *store.Store, origin string, now func() time.Time) http.Handler {

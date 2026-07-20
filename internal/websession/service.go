@@ -252,10 +252,5 @@ func writeStatus(response http.ResponseWriter, status int) {
 }
 
 func emptyBody(request *http.Request) bool {
-	if request.Body == nil || request.Body == http.NoBody {
-		return true
-	}
-	var payload [1]byte
-	read, err := request.Body.Read(payload[:])
-	return read == 0 && errors.Is(err, io.EOF)
+	return request.ContentLength == 0 && len(request.TransferEncoding) == 0
 }

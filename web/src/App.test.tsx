@@ -37,6 +37,7 @@ import {
   setAgentPlacement,
   type FactsSnapshot,
 } from "./lib/facts";
+import { getSession, logoutSession } from "./lib/session";
 
 vi.mock("./lib/bootstrap", () => ({ getBootstrap: vi.fn() }));
 vi.mock("./lib/facts", () => ({
@@ -48,6 +49,10 @@ vi.mock("./lib/facts", () => ({
   factErrorMessage: (error: unknown, action: string) =>
     error instanceof Error ? error.message : `Could not ${action}.`,
 }));
+vi.mock("./lib/session", () => ({
+  getSession: vi.fn(),
+  logoutSession: vi.fn(),
+}));
 
 const mockedBootstrap = vi.mocked(getBootstrap);
 const mockedLoadFacts = vi.mocked(loadFacts);
@@ -55,6 +60,8 @@ const mockedGetAgentDetail = vi.mocked(getAgentDetail);
 const mockedGetComputer = vi.mocked(getComputer);
 const mockedCreateAgent = vi.mocked(createAgent);
 const mockedSetPlacement = vi.mocked(setAgentPlacement);
+const mockedGetSession = vi.mocked(getSession);
+const mockedLogoutSession = vi.mocked(logoutSession);
 
 const bootstrap = create(GetBootstrapResponseSchema, {
   serverId: "7ba1a702-8df6-4a35-993f-122261797262",
@@ -68,6 +75,11 @@ beforeEach(() => {
   mockedLoadFacts.mockResolvedValue(emptyFacts());
   mockedGetAgentDetail.mockRejectedValue(new Error("Agent detail unavailable"));
   mockedGetComputer.mockRejectedValue(new Error("Computer detail unavailable"));
+  mockedGetSession.mockResolvedValue({
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Owner",
+  });
+  mockedLogoutSession.mockResolvedValue();
 });
 
 afterEach(() => {
@@ -100,6 +112,47 @@ describe("App", () => {
 
     expect(await screen.findByText("Server 7ba1a702")).toBeInTheDocument();
     expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+  });
+
+  it("requires authentication only for Conversation", async () => {
+    mockedGetSession.mockResolvedValueOnce(undefined);
+    const facts = readyFacts();
+    mockedLoadFacts.mockResolvedValue(facts);
+    mockedGetAgentDetail.mockResolvedValue({
+      agent: facts.agents[0],
+      placement: facts.placements[0],
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByText("Authentication required"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("No conversations yet")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Authentication required"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("logs out without hiding public management facts", async () => {
+    const facts = readyFacts();
+    mockedLoadFacts.mockResolvedValue(facts);
+    mockedGetAgentDetail.mockResolvedValue({
+      agent: facts.agents[0],
+      placement: facts.placements[0],
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
+    expect(
+      await screen.findByText("Authentication required"),
+    ).toBeInTheDocument();
+    expect(mockedLogoutSession).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Agents" }));
+    expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
   });
 
   it("shows an actionable offline state", async () => {
@@ -252,7 +305,7 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(
       within(workspace).getByText(
-        "Placement changes require an authenticated Human management client.",
+        "Placement changes are not available in this read-only view.",
       ),
     ).toBeInTheDocument();
     expect(
