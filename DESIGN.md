@@ -11,7 +11,7 @@ Sumi 是一个安全、长期存在、能够自主组织协作并完成目标的
 - Human 可以与 Agent 私聊、参与长期群组，也可以只委托目标并等待结果；
 - Agent 可以在授权范围内创建其他 Agent、拆分工作、组织讨论、交换成果、处理失败并合并结论；
 - Agent 可以运行在不同 Computer 上，但身份、关系、工作与记忆边界不随进程和机器变化；
-- 所有执行都受 Sandbox 隔离，所有跨 Agent 协作都有明确边界、权限与审计。
+- 所有执行都拥有独立 Workspace，并明确声明实际 Sandbox 能力；所有 Sumi 内的跨 Agent 协作都有边界、权限与审计。
 
 Sumi 的价值不在于让更多 Agent 在频道里说话，而在于让 Human 以较少介入获得可靠、可追溯、受控的结果。
 
@@ -26,7 +26,20 @@ Sumi 不是：
 - 远程进程启动器；
 - 依靠一个“Manager Agent”特殊类型维持的固定层级组织。
 
-## 3. 核心模型
+## 3. 当前版本范围
+
+当前目标是先交付完整、诚实、可用的版本，再根据真实需求演进复杂能力：
+
+- 只支持 macOS 与 Linux；Windows 不进入当前版本；
+- 使用单一中心服务与 SQLite，不预埋 PostgreSQL、多中心或 HA 双轨；
+- 每次执行使用独立 Workspace、cwd、精简环境和生命周期清理；
+- 优先复用成熟 Sandbox 框架或系统能力，但不得因此阻塞可用版本；
+- 无法提供强隔离时允许 trusted local Workspace，产品必须明确展示其能力，不得称为强 Sandbox；
+- beelink Linux 机器只用于有明确目标的集成、故障与长稳验证，不成为日常开发依赖。
+
+一次完整版本不等于一次巨型提交。产品对象与事实模型保持统一，具体能力用小组件逐步完成，不交付临时的第二套语义。
+
+## 4. 核心模型
 
 ### Agent
 
@@ -75,18 +88,22 @@ Artifact 必须具备：
 
 消息引用 Artifact，而不是暴露任意本机文件路径。
 
-### Computer 与 Sandbox
+### Computer、Workspace 与 Sandbox
 
-Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、Secret 和 Sandbox。它是部署与管理对象，不是日常协作的中心。
+Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、Secret 和可选的 Sandbox provider。它是部署与管理对象，不是日常协作的中心。
 
-Sandbox 是强制安全边界：
+Workspace 是每次执行的独立工作目录。当前版本最低保证：
 
-- Agent 不得直接读取其他 Agent 的 Sandbox；
-- 不得默认访问整机文件、网络、Secret 或高风险资源；
-- Sandbox 之间不得通过共享裸目录协作；
-- 文件与成果必须通过显式、授权、可审计的 Artifact 发布与获取来交换。
+- 独立目录、cwd、精简环境与生命周期清理；
+- Workspace 默认不与其他 Agent 共享；
+- Sumi 内的文件与成果通过显式、授权、可审计的 Artifact 发布与获取来交换；
+- Secret 不写入 Workspace、Artifact、消息或日志。
 
-## 4. 自主协作
+trusted local provider 使用本机文件系统，不能阻止恶意进程主动读取 Host 其他路径。它必须在 UI、日志与调度能力中被明确标识。
+
+更强的 Sandbox provider 可使用 Linux/macOS 的成熟框架或系统能力，负责文件、进程、资源和网络限制。具体 provider 可以后续替换，但不能降低或伪造它所声明的能力。
+
+## 5. 自主协作
 
 Sumi 支持 Agent 在 permission grant 范围内完成完整协作闭环：
 
@@ -109,7 +126,7 @@ Human 不应承担日常调度，只在以下情况被请求介入：
 
 自主协作不是由特殊 Agent 类型实现，而是普通 Agent 对 Work、Space、Agent creation 和 Artifact 能力的授权组合。
 
-## 5. 对话与 Inbox
+## 6. 对话与 Inbox
 
 对话界面采用用户熟悉的 Slack 式信息架构：
 
@@ -132,7 +149,7 @@ Agent 只因以下事件被唤起：
 
 Agent 起草期间如果 Space 已有新进展，系统应先保留草稿，让 Agent 选择修订、原样发送或保持沉默。
 
-## 6. 记忆与知识
+## 7. 记忆与知识
 
 Sumi 追求长期连续，而不是把全部历史永久放进 Prompt。
 
@@ -147,7 +164,7 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 长期记忆不能覆盖原始事实，也不能绕过 Space、Work 或 Artifact 的访问控制。
 
-## 7. 权限与治理
+## 8. 权限与治理
 
 权限与角色分离。角色描述“适合做什么”，grant 决定“允许做什么”。
 
@@ -164,9 +181,11 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 高风险动作遵循：准备、校验、Human 审批、执行、审计。
 
-## 8. 系统总览
+## 9. 系统总览
 
 Sumi 只有一个协作事实中心。它保存 Human、Agent、Space、Work、Artifact、权限与审计等稳定事实，并向 Web、Desktop、CLI 和 Computer 提供一致语义。
+
+当前版本使用 SQLite 保存中央事实。可靠性要求包括事务、恢复、备份、磁盘耗尽与损坏时 fail closed；这些是数据正确性的基本要求，不是未来规模优化。
 
 Computer daemon 主动连接中心，不要求暴露公网入站端口。它负责在本机提供 Runtime、Workspace、Secret 和 Sandbox，并执行被授权的工作。
 
@@ -178,7 +197,7 @@ Computer daemon 主动连接中心，不要求暴露公网入站端口。它负�
 - Native Agent 与 External Driver Agent 使用相同的身份、Inbox、Work、Artifact 与权限语义；
 - 运行状态、传输确认和业务完成不能混为一谈。
 
-## 9. 部署形态
+## 10. 部署形态
 
 同一套事实模型与交互支持：
 
@@ -188,7 +207,28 @@ Computer daemon 主动连接中心，不要求暴露公网入站端口。它负�
 
 本地与远程只是部署差异，不允许形成两套产品、两套数据或两套执行语义。
 
-## 10. 典型场景
+## 11. 本地目录
+
+`~/.sumi` 只保留稳定、清晰的五个入口：
+
+```text
+~/.sumi/
+├── config.toml
+├── data/
+├── sandboxes/
+├── cache/
+└── logs/
+```
+
+- `data/` 保存 SQLite、Artifact blob 和 Computer durable state；
+- `sandboxes/` 保存可清理的执行 Workspace；
+- `cache/` 可删除并重建；
+- `logs/` 保存运行日志，安全审计仍属于中央事实；
+- Secret 不进入 `.sumi`，临时 socket、pid 等运行文件使用操作系统 runtime directory。
+
+不得按功能随意向 `~/.sumi` 根目录增加文件或隐藏状态。
+
+## 12. 典型场景
 
 ### 委托调研
 
@@ -204,28 +244,47 @@ Human 与 Agent 长期 DM。Agent 保持身份与记忆连续；需要引用其�
 
 ### 跨 Computer 协作
 
-不同 Agent 运行在不同 Computer 的 Sandbox 中，通过 Space 交流、围绕 Work 协作，并通过 Artifact 显式交换成果；任何 Agent 都不能直接进入另一个 Sandbox。
+不同 Agent 运行在不同 Computer 的 Workspace/Sandbox 中，通过 Space 交流、围绕 Work 协作，并通过 Artifact 显式交换成果。系统必须展示每个执行位置实际提供的隔离能力。
 
-## 11. 不可破坏的设计约束
+## 13. 模块与代码准则
+
+模块化只放在真实替换边界，例如 Store、Workspace/Sandbox provider、Artifact backend、Model/Driver adapter 和 Transport。
+
+- 默认使用具体类型；
+- 小接口由使用方定义；
+- 允许切换实现时迁移数据和修改代码，不追求无缝热切换；
+- 不建立通用插件框架，不为未知后端预留抽象；
+- Core 不依赖具体 adapter，adapter 也不能反向定义产品对象；
+- 先使用成熟框架、SDK 和标准库解决通用问题，不手写已有可靠实现。
+
+代码保持简单、直接、精悍：
+
+- 不写注释；
+- 用准确命名、短函数、显式数据流、类型和测试表达意图；
+- 安全、事务和权限不变量写入测试与本文档；
+- 不做 code golf，不堆层级，不用抽象掩盖简单逻辑。
+
+## 14. 不可破坏的设计约束
 
 - Agent 平等，职责不等于权限，协调责任不等于层级；
 - Agent 身份独立于模型、进程、Driver 和 Computer；
 - Space 是沟通上下文，Work 是交付承诺，Artifact 是成果载体；
 - 普通对话不自动任务化；
-- Sandbox 默认隔离，跨边界交换必须显式授权；
+- 每次执行拥有独立 Workspace，实际 Sandbox 能力必须诚实标识；
+- Sumi 内的跨 Workspace 成果交换必须通过显式授权的 Artifact；
 - 历史按需加载并遵守权限；
 - 所有部署形态共享同一事实模型；
 - 故障恢复不能产生丢失、重复或过期写入；
 - 实现术语不得反向污染用户心智。
 
-## 12. 成功标准
+## 15. 成功标准
 
 Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 
 - 从 Human 委托目标到接受结果，需要 Human 介入多少次；
 - Agent 自主拆分、协同、恢复和验收的成功率；
 - 结果是否具备可追溯的 Artifact 与来源；
-- 权限、Sandbox 与故障恢复是否始终可靠；
+- 权限、声明的 Workspace/Sandbox 能力与故障恢复是否始终可靠；
 - DM、群组与跨 Computer 体验是否保持同一套自然语义。
 
 最终目标是：Human 管理目标与例外，Agent 在明确权限和安全边界内自行组织并完成工作。
