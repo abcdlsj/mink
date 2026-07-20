@@ -202,9 +202,60 @@ type ResolveHeldDraftResult struct {
 	CommittedAt time.Time
 }
 
-type inboxReceipt struct {
-	CommittedAt time.Time
-	Snapshot    []byte
+type inboxItemRequestReceipt struct {
+	Item InboxItem `json:"item"`
+}
+
+type inboxPreferenceRequestReceipt struct {
+	Enabled     bool      `json:"enabled"`
+	CommittedAt time.Time `json:"committed_at"`
+}
+
+type inboxMessageReference struct {
+	ID             string        `json:"id"`
+	AgentID        string        `json:"agent_id"`
+	SpaceID        string        `json:"space_id"`
+	Target         MessageTarget `json:"target"`
+	TargetSequence uint64        `json:"target_sequence"`
+	MentionCount   int           `json:"mention_count"`
+	CreatedAt      time.Time     `json:"created_at"`
+}
+
+type inboxHeldDraftReceipt struct {
+	Sequence            uint64        `json:"sequence"`
+	ID                  string        `json:"id"`
+	AgentID             string        `json:"agent_id"`
+	InboxItemID         string        `json:"inbox_item_id"`
+	PredecessorDraftID  string        `json:"predecessor_draft_id,omitempty"`
+	SpaceID             string        `json:"space_id"`
+	Target              MessageTarget `json:"target"`
+	BasisTargetSequence uint64        `json:"basis_target_sequence"`
+	MentionCount        int           `json:"mention_count"`
+	HeldReason          string        `json:"held_reason"`
+	State               string        `json:"state"`
+	ResolutionAction    string        `json:"resolution_action,omitempty"`
+	ResultKind          string        `json:"result_kind,omitempty"`
+	ResultID            string        `json:"result_id,omitempty"`
+	CreatedAt           time.Time     `json:"created_at"`
+	UpdatedAt           time.Time     `json:"updated_at"`
+}
+
+type inboxSendRequestReceipt struct {
+	InboxItemID string                 `json:"inbox_item_id"`
+	Kind        string                 `json:"kind"`
+	Message     *inboxMessageReference `json:"message,omitempty"`
+	HeldDraft   *inboxHeldDraftReceipt `json:"held_draft,omitempty"`
+	CommittedAt time.Time              `json:"committed_at"`
+}
+
+type inboxResolveRequestReceipt struct {
+	SourceDraftID string                 `json:"source_draft_id"`
+	Action        string                 `json:"action"`
+	Kind          string                 `json:"kind,omitempty"`
+	Message       *inboxMessageReference `json:"message,omitempty"`
+	HeldDraft     *inboxHeldDraftReceipt `json:"held_draft,omitempty"`
+	InboxItem     InboxItem              `json:"inbox_item"`
+	CommittedAt   time.Time              `json:"committed_at"`
 }
 
 func (s *Store) GetInboxNotice(ctx context.Context, params InboxNoticeParams) (bool, error) {
@@ -311,8 +362,7 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	var replay InboxItem
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -327,7 +377,7 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, item, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -419,8 +469,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	var replay InboxItem
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -442,7 +491,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, item, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -467,8 +516,7 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 	if _, err := requireAgentReadableTarget(ctx, tx, authentication.Principal, MessageTarget{Kind: MessageTargetSpace, ID: params.SpaceID}, params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	var replay InboxPreferenceResult
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -485,7 +533,7 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 		return InboxPreferenceResult{}, fmt.Errorf("persist space mute: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Muted, CommittedAt: params.Now.UTC()}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint, result, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -512,8 +560,7 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 	if err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	var replay InboxPreferenceResult
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -527,7 +574,7 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 		return InboxPreferenceResult{}, fmt.Errorf("persist thread follow: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Followed, CommittedAt: params.Now.UTC()}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint, result, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -566,8 +613,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	var replay SendInboxReplyResult
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxSendRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, item); err != nil {
 		return SendInboxReplyResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -597,7 +643,11 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, result, params.Now); err != nil {
+	receipt, err := newInboxSendRequestReceipt(item.ID, result)
+	if err != nil {
+		return SendInboxReplyResult{}, err
+	}
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, receipt, params.Now); err != nil {
 		return SendInboxReplyResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -708,8 +758,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 			return ResolveHeldDraftResult{}, err
 		}
 	}
-	var replay ResolveHeldDraftResult
-	if found, err := replayInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, &replay); err != nil {
+	if replay, found, err := replayInboxResolveRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, draft, item); err != nil {
 		return ResolveHeldDraftResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -788,7 +837,11 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 		}
 		result.InboxItem = item
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, result, params.Now); err != nil {
+	receipt, err := newInboxResolveRequestReceipt(draft.ID, result)
+	if err != nil {
+		return ResolveHeldDraftResult{}, err
+	}
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, receipt, params.Now); err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -825,7 +878,7 @@ func inboxFingerprint(value any) ([sha256.Size]byte, error) {
 	return sha256.Sum256(payload), nil
 }
 
-func replayInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, response any) (bool, error) {
+func readInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte) ([]byte, bool, error) {
 	var storedAgentID, storedOperation string
 	var storedFingerprint, snapshot []byte
 	err := tx.QueryRowContext(ctx, `
@@ -833,18 +886,298 @@ func replayInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, ope
 		FROM agent_requests WHERE request_id = ?
 	`, requestID).Scan(&storedAgentID, &storedOperation, &storedFingerprint, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read inbox request receipt: %w", err)
+		return nil, false, fmt.Errorf("read inbox request receipt: %w", err)
 	}
 	if storedAgentID != agentID || storedOperation != operation || !bytes.Equal(storedFingerprint, fingerprint[:]) {
-		return false, ErrInboxRequestConflict
+		return nil, false, ErrInboxRequestConflict
 	}
-	if err := json.Unmarshal(snapshot, response); err != nil {
-		return false, ErrInboxIntegrity
+	return snapshot, true, nil
+}
+
+func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, current InboxItem) (InboxItem, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+	if err != nil || !found {
+		return InboxItem{}, found, err
 	}
-	return true, nil
+	var receipt inboxItemRequestReceipt
+	if err := decodeInboxRequestReceipt(snapshot, &receipt); err != nil {
+		return InboxItem{}, false, err
+	}
+	if err := validateInboxItemReceipt(ctx, tx, agentID, current, receipt.Item); err != nil {
+		return InboxItem{}, false, err
+	}
+	return receipt.Item, true, nil
+}
+
+func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte) (InboxPreferenceResult, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+	if err != nil || !found {
+		return InboxPreferenceResult{}, found, err
+	}
+	var receipt inboxPreferenceRequestReceipt
+	if err := decodeInboxRequestReceipt(snapshot, &receipt); err != nil || receipt.CommittedAt.IsZero() {
+		return InboxPreferenceResult{}, false, ErrInboxIntegrity
+	}
+	return InboxPreferenceResult(receipt), true, nil
+}
+
+func replayInboxSendRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, item InboxItem) (SendInboxReplyResult, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+	if err != nil || !found {
+		return SendInboxReplyResult{}, found, err
+	}
+	var receipt inboxSendRequestReceipt
+	if err := decodeInboxRequestReceipt(snapshot, &receipt); err != nil || receipt.InboxItemID != item.ID || receipt.CommittedAt.IsZero() {
+		return SendInboxReplyResult{}, false, ErrInboxIntegrity
+	}
+	result, err := rehydrateInboxResult(ctx, tx, requestID, agentID, receipt.Kind, receipt.Message, receipt.HeldDraft)
+	if err != nil {
+		return SendInboxReplyResult{}, false, err
+	}
+	result.CommittedAt = receipt.CommittedAt
+	return result, true, nil
+}
+
+func replayInboxResolveRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, source HeldDraft, item InboxItem) (ResolveHeldDraftResult, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+	if err != nil || !found {
+		return ResolveHeldDraftResult{}, found, err
+	}
+	var receipt inboxResolveRequestReceipt
+	if err := decodeInboxRequestReceipt(snapshot, &receipt); err != nil || receipt.SourceDraftID != source.ID || receipt.CommittedAt.IsZero() {
+		return ResolveHeldDraftResult{}, false, ErrInboxIntegrity
+	}
+	if receipt.Action != DraftResolutionRetry && receipt.Action != DraftResolutionCancel && receipt.Action != DraftResolutionRetarget {
+		return ResolveHeldDraftResult{}, false, ErrInboxIntegrity
+	}
+	if err := validateInboxItemReceipt(ctx, tx, agentID, item, receipt.InboxItem); err != nil {
+		return ResolveHeldDraftResult{}, false, err
+	}
+	result := ResolveHeldDraftResult{Action: receipt.Action, InboxItem: receipt.InboxItem, CommittedAt: receipt.CommittedAt}
+	if receipt.Action == DraftResolutionCancel {
+		if receipt.Kind != "" || receipt.Message != nil || receipt.HeldDraft != nil {
+			return ResolveHeldDraftResult{}, false, ErrInboxIntegrity
+		}
+		return result, true, nil
+	}
+	rehydrated, err := rehydrateInboxResult(ctx, tx, requestID, agentID, receipt.Kind, receipt.Message, receipt.HeldDraft)
+	if err != nil {
+		return ResolveHeldDraftResult{}, false, err
+	}
+	result.Kind = rehydrated.Kind
+	result.Message = rehydrated.Message
+	result.HeldDraft = rehydrated.HeldDraft
+	return result, true, nil
+}
+
+func decodeInboxRequestReceipt(snapshot []byte, receipt any) error {
+	if err := json.Unmarshal(snapshot, receipt); err != nil {
+		return ErrInboxIntegrity
+	}
+	return nil
+}
+
+func newInboxSendRequestReceipt(itemID string, result SendInboxReplyResult) (inboxSendRequestReceipt, error) {
+	receipt := inboxSendRequestReceipt{InboxItemID: itemID, Kind: result.Kind, CommittedAt: result.CommittedAt}
+	switch result.Kind {
+	case InboxResultMessage:
+		if result.Message == nil || result.HeldDraft != nil {
+			return inboxSendRequestReceipt{}, ErrInboxIntegrity
+		}
+		message := newInboxMessageReference(*result.Message)
+		receipt.Message = &message
+	case InboxResultHeldDraft:
+		if result.Message != nil || result.HeldDraft == nil {
+			return inboxSendRequestReceipt{}, ErrInboxIntegrity
+		}
+		draft := newInboxHeldDraftReceipt(*result.HeldDraft)
+		receipt.HeldDraft = &draft
+	default:
+		return inboxSendRequestReceipt{}, ErrInboxIntegrity
+	}
+	if receipt.CommittedAt.IsZero() {
+		return inboxSendRequestReceipt{}, ErrInboxIntegrity
+	}
+	return receipt, nil
+}
+
+func newInboxResolveRequestReceipt(sourceDraftID string, result ResolveHeldDraftResult) (inboxResolveRequestReceipt, error) {
+	receipt := inboxResolveRequestReceipt{
+		SourceDraftID: sourceDraftID,
+		Action:        result.Action,
+		Kind:          result.Kind,
+		InboxItem:     result.InboxItem,
+		CommittedAt:   result.CommittedAt,
+	}
+	if receipt.CommittedAt.IsZero() || receipt.InboxItem.ID == "" {
+		return inboxResolveRequestReceipt{}, ErrInboxIntegrity
+	}
+	if result.Action == DraftResolutionCancel {
+		if result.Kind != "" || result.Message != nil || result.HeldDraft != nil {
+			return inboxResolveRequestReceipt{}, ErrInboxIntegrity
+		}
+		return receipt, nil
+	}
+	switch result.Kind {
+	case InboxResultMessage:
+		if result.Message == nil || result.HeldDraft != nil {
+			return inboxResolveRequestReceipt{}, ErrInboxIntegrity
+		}
+		message := newInboxMessageReference(*result.Message)
+		receipt.Message = &message
+	case InboxResultHeldDraft:
+		if result.Message != nil || result.HeldDraft == nil {
+			return inboxResolveRequestReceipt{}, ErrInboxIntegrity
+		}
+		draft := newInboxHeldDraftReceipt(*result.HeldDraft)
+		receipt.HeldDraft = &draft
+	default:
+		return inboxResolveRequestReceipt{}, ErrInboxIntegrity
+	}
+	return receipt, nil
+}
+
+func newInboxMessageReference(message Message) inboxMessageReference {
+	return inboxMessageReference{
+		ID:             message.ID,
+		AgentID:        message.Author.ID,
+		SpaceID:        message.SpaceID,
+		Target:         message.Target,
+		TargetSequence: message.TargetSequence,
+		MentionCount:   len(message.MentionedAgentIDs),
+		CreatedAt:      message.CreatedAt,
+	}
+}
+
+func newInboxHeldDraftReceipt(draft HeldDraft) inboxHeldDraftReceipt {
+	return inboxHeldDraftReceipt{
+		Sequence:            draft.Sequence,
+		ID:                  draft.ID,
+		AgentID:             draft.AgentID,
+		InboxItemID:         draft.InboxItemID,
+		PredecessorDraftID:  draft.PredecessorDraftID,
+		SpaceID:             draft.SpaceID,
+		Target:              draft.Target,
+		BasisTargetSequence: draft.BasisTargetSequence,
+		MentionCount:        len(draft.MentionedAgentIDs),
+		HeldReason:          draft.HeldReason,
+		State:               draft.State,
+		ResolutionAction:    draft.ResolutionAction,
+		ResultKind:          draft.ResultKind,
+		ResultID:            draft.ResultID,
+		CreatedAt:           draft.CreatedAt,
+		UpdatedAt:           draft.UpdatedAt,
+	}
+}
+
+func rehydrateInboxResult(ctx context.Context, tx *sql.Tx, requestID, agentID, kind string, messageReference *inboxMessageReference, draftReceipt *inboxHeldDraftReceipt) (SendInboxReplyResult, error) {
+	switch kind {
+	case InboxResultMessage:
+		if messageReference == nil || draftReceipt != nil {
+			return SendInboxReplyResult{}, ErrInboxIntegrity
+		}
+		message, err := rehydrateInboxMessage(ctx, tx, requestID, agentID, *messageReference)
+		if err != nil {
+			return SendInboxReplyResult{}, err
+		}
+		return SendInboxReplyResult{Kind: kind, Message: &message}, nil
+	case InboxResultHeldDraft:
+		if messageReference != nil || draftReceipt == nil {
+			return SendInboxReplyResult{}, ErrInboxIntegrity
+		}
+		draft, err := rehydrateInboxHeldDraft(ctx, tx, agentID, *draftReceipt)
+		if err != nil {
+			return SendInboxReplyResult{}, err
+		}
+		return SendInboxReplyResult{Kind: kind, HeldDraft: &draft}, nil
+	default:
+		return SendInboxReplyResult{}, ErrInboxIntegrity
+	}
+}
+
+func rehydrateInboxMessage(ctx context.Context, tx *sql.Tx, requestID, agentID string, reference inboxMessageReference) (Message, error) {
+	message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+` WHERE id = ?`, reference.ID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Message{}, ErrInboxIntegrity
+	}
+	if err != nil {
+		return Message{}, fmt.Errorf("read inbox message result: %w", err)
+	}
+	if message.ID != reference.ID || message.RequestID != requestID || message.Author.Kind != "agent" || message.Author.ID != agentID ||
+		reference.AgentID != agentID || message.SpaceID != reference.SpaceID || message.Target != reference.Target ||
+		message.TargetSequence != reference.TargetSequence || !message.CreatedAt.Equal(reference.CreatedAt) {
+		return Message{}, ErrInboxIntegrity
+	}
+	var organizationID string
+	if err := tx.QueryRowContext(ctx, `SELECT organization_id FROM spaces WHERE id = ?`, message.SpaceID).Scan(&organizationID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Message{}, ErrInboxIntegrity
+		}
+		return Message{}, fmt.Errorf("read inbox message organization: %w", err)
+	}
+	mentions, err := messageMentions(ctx, tx, message.ID)
+	if err != nil {
+		return Message{}, err
+	}
+	if len(mentions) != reference.MentionCount {
+		return Message{}, ErrInboxIntegrity
+	}
+	message.Author.OrganizationID = organizationID
+	message.MentionedAgentIDs = mentions
+	return message, nil
+}
+
+func rehydrateInboxHeldDraft(ctx context.Context, tx *sql.Tx, agentID string, receipt inboxHeldDraftReceipt) (HeldDraft, error) {
+	draft, err := scanHeldDraft(tx.QueryRowContext(ctx, heldDraftSelect+` WHERE id = ?`, receipt.ID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return HeldDraft{}, ErrInboxIntegrity
+	}
+	if err != nil {
+		return HeldDraft{}, fmt.Errorf("read inbox held draft result: %w", err)
+	}
+	if draft.Sequence != receipt.Sequence || draft.ID != receipt.ID || draft.AgentID != agentID || receipt.AgentID != agentID ||
+		draft.InboxItemID != receipt.InboxItemID || draft.PredecessorDraftID != receipt.PredecessorDraftID ||
+		draft.SpaceID != receipt.SpaceID || draft.Target != receipt.Target || draft.BasisTargetSequence != receipt.BasisTargetSequence ||
+		draft.HeldReason != receipt.HeldReason || !draft.CreatedAt.Equal(receipt.CreatedAt) {
+		return HeldDraft{}, ErrInboxIntegrity
+	}
+	mentions, err := heldDraftMentions(ctx, tx, draft.ID)
+	if err != nil {
+		return HeldDraft{}, err
+	}
+	if len(mentions) != receipt.MentionCount {
+		return HeldDraft{}, ErrInboxIntegrity
+	}
+	draft.State = receipt.State
+	draft.ResolutionAction = receipt.ResolutionAction
+	draft.ResultKind = receipt.ResultKind
+	draft.ResultID = receipt.ResultID
+	draft.UpdatedAt = receipt.UpdatedAt
+	draft.MentionedAgentIDs = mentions
+	return draft, nil
+}
+
+func validateInboxItemReceipt(ctx context.Context, tx *sql.Tx, agentID string, current, snapshot InboxItem) error {
+	if current.ID != snapshot.ID || current.AgentID != agentID || snapshot.AgentID != agentID ||
+		current.Sequence != snapshot.Sequence || current.SpaceID != snapshot.SpaceID || current.Target != snapshot.Target ||
+		current.TriggerMessageID != snapshot.TriggerMessageID || current.TriggerTargetSequence != snapshot.TriggerTargetSequence ||
+		current.Reason != snapshot.Reason || !current.CreatedAt.Equal(snapshot.CreatedAt) {
+		return ErrInboxIntegrity
+	}
+	message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+` WHERE id = ?`, snapshot.TriggerMessageID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrInboxIntegrity
+	}
+	if err != nil {
+		return fmt.Errorf("read inbox trigger message: %w", err)
+	}
+	if message.ID != snapshot.TriggerMessageID || message.SpaceID != snapshot.SpaceID || message.Target != snapshot.Target || message.TargetSequence != snapshot.TriggerTargetSequence {
+		return ErrInboxIntegrity
+	}
+	return nil
 }
 
 func persistInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, response any, now time.Time) error {

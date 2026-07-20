@@ -216,6 +216,151 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 	}
 }
 
+func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) {
+	fixture := openInboxFixture(t)
+	mentionedAgentID := fixture.createMentionMember(t, "receipt-mentioned", fixture.at(1))
+	freshBody := "fresh-receipt-body-6b71c7"
+	heldBody := "held-receipt-body-e2a194"
+
+	if _, _, err := fixture.sendInboxReply(t, freshBody, []string{mentionedAgentID}, false, 2); err != nil {
+		t.Fatal(err)
+	}
+	_, heldResult, err := fixture.sendInboxReply(t, heldBody, []string{mentionedAgentID}, true, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.ResolveHeldDraft(context.Background(), ResolveHeldDraftParams{
+		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		HeldDraftID: heldResult.HeldDraft.ID, Action: DraftResolutionCancel, Now: fixture.at(20),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var messageBodies, draftBodies, messageMentions, draftMentions int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM messages WHERE body = ?`, freshBody).Scan(&messageBodies); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_drafts WHERE body = ?`, heldBody).Scan(&draftBodies); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM message_mentions WHERE agent_id = ?`, mentionedAgentID).Scan(&messageMentions); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_draft_mentions WHERE agent_id = ?`, mentionedAgentID).Scan(&draftMentions); err != nil {
+		t.Fatal(err)
+	}
+	if messageBodies != 1 || draftBodies != 1 || messageMentions != 1 || draftMentions != 1 {
+		t.Fatalf("business facts = message bodies %d, draft bodies %d, message mentions %d, draft mentions %d", messageBodies, draftBodies, messageMentions, draftMentions)
+	}
+
+	rows, err := fixture.database.db.Query(`SELECT response_snapshot FROM agent_requests`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	privateValues := []string{
+		freshBody,
+		heldBody,
+		mentionedAgentID,
+		runtimeTestToken(42),
+		runtimeTestToken(250),
+		"computer-registration-key",
+	}
+	count := 0
+	for rows.Next() {
+		var snapshot string
+		if err := rows.Scan(&snapshot); err != nil {
+			t.Fatal(err)
+		}
+		count++
+		for _, privateValue := range privateValues {
+			if strings.Contains(snapshot, privateValue) {
+				t.Fatalf("request receipt contains private value %q: %s", privateValue, snapshot)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Fatalf("agent request receipts = %d, want 5", count)
+	}
+	var agentAuditCount, messageSendAuditCount int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ?`, fixture.agentID).Scan(&agentAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ? AND action = ?`, fixture.agentID, AuditMessageSend).Scan(&messageSendAuditCount); err != nil {
+		t.Fatal(err)
+	}
+	if agentAuditCount != 1 || messageSendAuditCount != 1 {
+		t.Fatalf("agent audits = %d, message.send = %d; held/cancel must not fake publish", agentAuditCount, messageSendAuditCount)
+	}
+}
+
+func TestInboxRequestReplayFailsClosedOnBrokenBusinessFacts(t *testing.T) {
+	t.Run("message missing", func(t *testing.T) {
+		fixture := openInboxFixture(t)
+		params, result, err := fixture.sendInboxReply(t, "missing-message-body", nil, false, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.database.db.Exec(`DELETE FROM messages WHERE id = ?`, result.Message.ID); err != nil {
+			t.Fatal(err)
+		}
+		params.Now = fixture.at(20)
+		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+			t.Fatalf("missing message replay error = %v", err)
+		}
+	})
+
+	t.Run("message mentions missing", func(t *testing.T) {
+		fixture := openInboxFixture(t)
+		mentionedAgentID := fixture.createMentionMember(t, "missing-mention", fixture.at(1))
+		params, result, err := fixture.sendInboxReply(t, "missing-mention-body", []string{mentionedAgentID}, false, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.database.db.Exec(`DELETE FROM message_mentions WHERE message_id = ?`, result.Message.ID); err != nil {
+			t.Fatal(err)
+		}
+		params.Now = fixture.at(20)
+		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+			t.Fatalf("missing message mentions replay error = %v", err)
+		}
+	})
+
+	t.Run("message owner mismatch", func(t *testing.T) {
+		fixture := openInboxFixture(t)
+		otherAgentID := fixture.createMentionMember(t, "wrong-owner", fixture.at(1))
+		params, result, err := fixture.sendInboxReply(t, "wrong-owner-body", nil, false, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.database.db.Exec(`UPDATE messages SET author_id = ? WHERE id = ?`, otherAgentID, result.Message.ID); err != nil {
+			t.Fatal(err)
+		}
+		params.Now = fixture.at(20)
+		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+			t.Fatalf("message owner mismatch replay error = %v", err)
+		}
+	})
+
+	t.Run("held draft missing", func(t *testing.T) {
+		fixture := openInboxFixture(t)
+		params, result, err := fixture.sendInboxReply(t, "missing-draft-body", nil, true, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fixture.database.db.Exec(`DELETE FROM agent_held_drafts WHERE id = ?`, result.HeldDraft.ID); err != nil {
+			t.Fatal(err)
+		}
+		params.Now = fixture.at(20)
+		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+			t.Fatalf("missing held draft replay error = %v", err)
+		}
+	})
+}
+
 func TestHeldDraftRetryStaleCreatesCanonicalSuccessor(t *testing.T) {
 	fixture := openInboxFixture(t)
 	ctx := context.Background()
@@ -254,9 +399,20 @@ func TestHeldDraftRetryStaleCreatesCanonicalSuccessor(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(result, replayed) {
 		t.Fatalf("stale retry replay = %+v, %v", replayed, err)
 	}
+	if _, err := fixture.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
+		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		HeldDraftID: result.HeldDraft.ID, Action: DraftResolutionCancel, Now: fixture.at(11),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	params.Now = fixture.at(12)
+	replayedAfterSuccessorTerminal, err := fixture.database.ResolveHeldDraft(ctx, params)
+	if err != nil || !reflect.DeepEqual(result, replayedAfterSuccessorTerminal) {
+		t.Fatalf("stale retry replay after successor terminal = %+v, %v", replayedAfterSuccessorTerminal, err)
+	}
 	secondRequest := uuid.NewString()
 	params.RequestID = secondRequest
-	params.Now = fixture.at(11)
+	params.Now = fixture.at(13)
 	if _, err := fixture.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
 		t.Fatalf("second stale retry error = %v", err)
 	}
@@ -902,6 +1058,66 @@ func (f *inboxFixture) makeHeldDraft(t *testing.T, space Space, start int) (Inbo
 		t.Fatalf("create held draft = %+v, %v", result, err)
 	}
 	return item, *result.HeldDraft
+}
+
+func (f *inboxFixture) createMentionMember(t *testing.T, name string, now time.Time) string {
+	t.Helper()
+	agent, err := f.database.CreateAgent(context.Background(), CreateAgentParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Name: name, Driver: "native", Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.database.AddMember(context.Background(), ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID,
+		Member: Principal{Kind: "agent", ID: agent.ID}, Now: now.Add(time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return agent.ID
+}
+
+func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []string, held bool, start int) (SendInboxReplyParams, SendInboxReplyResult, error) {
+	t.Helper()
+	ctx := context.Background()
+	trigger, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "receipt trigger",
+		MentionedAgentIDs: []string{f.agentID}, Now: f.at(start),
+	})
+	if err != nil {
+		return SendInboxReplyParams{}, SendInboxReplyResult{}, err
+	}
+	var item InboxItem
+	for _, candidate := range f.listItems(t, maxInboxListLimit, f.at(start+1)) {
+		if candidate.TriggerMessageID == trigger.ID {
+			item = candidate
+			break
+		}
+	}
+	if item.ID == "" {
+		t.Fatalf("inbox item for trigger %s not found", trigger.ID)
+	}
+	f.claim(t, item.ID, uuid.NewString(), f.at(start+2))
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: f.authentication, Target: item.Target, Limit: 200, Now: f.at(start + 3),
+	})
+	if err != nil {
+		return SendInboxReplyParams{}, SendInboxReplyResult{}, err
+	}
+	if held {
+		if _, err := f.database.SendMessage(ctx, SendMessageParams{
+			RequestID: uuid.NewString(), Actor: f.owner, Target: item.Target, Body: "receipt advance", Now: f.at(start + 4),
+		}); err != nil {
+			return SendInboxReplyParams{}, SendInboxReplyResult{}, err
+		}
+	}
+	params := SendInboxReplyParams{
+		RequestID: uuid.NewString(), Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: body, MentionedAgentIDs: mentions, Now: f.at(start + 5),
+	}
+	result, err := f.database.SendInboxReply(ctx, params)
+	return params, result, err
 }
 
 func (f *inboxFixture) listItems(t *testing.T, limit uint32, now time.Time) []InboxItem {

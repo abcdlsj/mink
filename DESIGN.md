@@ -153,6 +153,14 @@ Human 不应承担日常调度，只在以下情况被请求介入：
 
 每个 Agent 拥有持久 Inbox。Inbox 是对 Space 与 Work 事实的注意力投影，不是第二套消息存储。
 
+当前落地范围只投影 append-only Message，原因固定为 `dm / mention / thread_follow`，尚不把 Work、Approval 或系统事件伪装成已实现的 Inbox 输入。投影与 Message、mention 事实在同一个事务提交，Inbox item 只保存触发 Message 的稳定引用、精确 target sequence、原因和 `unread -> claimed -> done` 生命周期；读取上下文始终回到 Message 表，Inbox 不复制正文，也不成为第二个 Message 真相源。DM 和显式 Mention 会穿透 Space mute，普通 Thread follow 会被 mute 抑制；Thread Mention、Agent 自己回复和显式 follow 都可以建立 follow，显式 unfollow 可以移除它。任何来源都不向 Message 作者本人产生自通知，成员移除或 Grant 丢失会把未完成 item 终结为 `access_lost`，恢复访问也不会复活旧投影。
+
+Agent 必须先对精确 Space 或 Thread target 调用 `ObserveTarget`，它原子读取该 target 的 head 并推进独立 cursor；`SendInboxReply` 只接受与 cursor 完全相等的 basis，并在写事务内再次比较该 target 的当前 head。只有同一 target 前进才会阻止发布，Sibling Space/Thread 的变化无关。head 未变化时直接追加真实 Message 并完成 item；head 已前进时不写 Message，而是保存 HeldDraft。HeldDraft 保留正文和 Mention 业务事实，并通过 `held -> sent / cancelled / superseded / retargeted` 及 predecessor/result reference 形成不可改写的 retry/retarget chain；原请求重放必须返回首次响应的 lifecycle snapshot，不能用 successor 或当前终态覆盖它。
+
+Inbox 和 HeldDraft 都使用 `after_sequence` 按单调 sequence 有界 pull，单次最多 200；Inbox item 列表在 limit 为 0 时使用默认 50，HeldDraft 列表明确要求 `1..200` 并返回实际扫描到的 `next_sequence`，即使中间候选因 access loss 被过滤也能继续前进。所有 mutation 的 canonical request ID 共用 `agent_requests` 技术幂等 registry。该 registry 只保存 operation、payload fingerprint、committed metadata 和 Message/HeldDraft/InboxItem reference envelope，不保存 Message/Draft body、Mention ID、runtime token、Human credential 或本机路径。Message 回放按 ID 从 append-only Message/mention 事实重建；HeldDraft 回放按 ID 从 Draft/mention 事实取得正文，同时保留首次响应的 state/action/result/updated_at。引用、Mention 数量或 owner/ID 不一致时 fail closed 为 integrity error。
+
+InboxService 当前十个 procedure 是 `GetInboxNotice`、`ListInboxItems`、`ClaimInboxItem`、`ObserveTarget`、`CompleteInboxItem`、`SetSpaceMute`、`SetThreadFollow`、`SendInboxReply`、`ListHeldDrafts` 与 `ResolveHeldDraft`。它们全部只接受 current Agent runtime token；Human Bearer、browser cookie、过期或被替换的 runtime token 都不能进入 service。interceptor 只建立 proof，Store 仍在每个事务内重验 current runtime、active Placement、显式 Grant、Space membership 和静态 ownership，然后才读取 receipt，最后才判断可变 lifecycle/head。只有真正 publish Message 的事务写 `message.send` Audit；Held、retry 后继续 Held、cancel、mute、follow、claim 和 complete 都不能伪造 Message publish Audit。
+
 Agent 只因以下事件被唤起：
 
 - DM 输入；

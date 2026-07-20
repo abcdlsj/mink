@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
@@ -23,6 +24,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/computer"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/inbox"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/runtimeauth"
@@ -108,6 +110,9 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		runtimeauth.NewService(database, runtimeauth.Config{}), agentRuntimeAuthorization,
 	)
 	mux.Handle(agentRuntimePath, agentRuntimeHandler)
+	inboxAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, inbox.Procedures()...))
+	inboxPath, inboxHandler := inboxv1connect.NewInboxServiceHandler(inbox.New(database), inboxAuthorization)
+	mux.Handle(inboxPath, inboxHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
 	mux.Handle(organizationPath, organizationHandler)
 	grantPath, grantHandler := grantv1connect.NewGrantServiceHandler(grant.New(database), authorization)
