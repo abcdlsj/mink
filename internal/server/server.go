@@ -16,8 +16,13 @@ type Server struct {
 	store   *store.Store
 }
 
-func New(ctx context.Context, dataRoot string) (*Server, error) {
-	layout, err := home.Ensure(dataRoot)
+type Config struct {
+	DataRoot string
+	WebRoot  string
+}
+
+func New(ctx context.Context, config Config) (*Server, error) {
+	layout, err := home.Ensure(config.DataRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +42,9 @@ func New(ctx context.Context, dataRoot string) (*Server, error) {
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
 	})
+	if config.WebRoot != "" {
+		mux.Handle("/", http.FileServer(http.Dir(config.WebRoot)))
+	}
 
 	return &Server{handler: mux, store: database}, nil
 }

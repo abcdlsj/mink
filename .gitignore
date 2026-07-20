@@ -1,5 +1,6 @@
 .DS_Store
 .mise.local.toml
+*.tsbuildinfo
 bin/
 coverage/
 web/dist/

@@ -2,7 +2,11 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -27,7 +31,7 @@ func TestBootstrapUsesPersistentIdentity(t *testing.T) {
 
 func requestBootstrap(t *testing.T, dataRoot string) *systemv1.GetBootstrapResponse {
 	t.Helper()
-	server, err := New(context.Background(), dataRoot)
+	server, err := New(context.Background(), Config{DataRoot: dataRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,4 +46,32 @@ func requestBootstrap(t *testing.T, dataRoot string) *systemv1.GetBootstrapRespo
 		t.Fatal(err)
 	}
 	return response.Msg
+}
+
+func TestServesProductionWeb(t *testing.T) {
+	webRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(webRoot, "index.html"), []byte("<main>Sumi production shell</main>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(context.Background(), Config{DataRoot: t.TempDir(), WebRoot: webRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	response, err := httpServer.Client().Get(httpServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	httpServer.Close()
+	if closeErr := server.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "Sumi production shell") {
+		t.Fatalf("unexpected body: %s", body)
+	}
 }
