@@ -415,7 +415,7 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 		Driver:      "native",
 		Now:         time.Now(),
 	}
-	agent, err := store.CreateAuthorizedAgent(context.Background(), params)
+	agent, err := store.CreateAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 	if _, err := store.db.Exec("UPDATE agents SET description = ?, updated_at = ? WHERE id = ?", "current description", unixNano(params.Now.Add(time.Hour)), agent.ID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := store.CreateAuthorizedAgent(context.Background(), params)
+	replayed, err := store.CreateAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 	}
 
 	params.Description = "current description"
-	_, err = store.CreateAuthorizedAgent(context.Background(), params)
+	_, err = store.CreateAgent(context.Background(), params)
 	if !errors.Is(err, ErrAgentRequestConflict) {
 		t.Fatalf("changed payload error = %v, want %v", err, ErrAgentRequestConflict)
 	}

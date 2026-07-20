@@ -39,15 +39,7 @@ type SetAgentPlacementParams struct {
 	Now        time.Time
 }
 
-func (s *Store) SetAgentPlacement(ctx context.Context, agentID, computerID string, now time.Time) (AgentPlacement, error) {
-	return s.setAgentPlacement(ctx, SetAgentPlacementParams{AgentID: agentID, ComputerID: computerID, Now: now}, false)
-}
-
-func (s *Store) SetAuthorizedAgentPlacement(ctx context.Context, params SetAgentPlacementParams) (AgentPlacement, error) {
-	return s.setAgentPlacement(ctx, params, true)
-}
-
-func (s *Store) setAgentPlacement(ctx context.Context, params SetAgentPlacementParams, authorize bool) (AgentPlacement, error) {
+func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementParams) (AgentPlacement, error) {
 	fingerprint, err := placementRequestFingerprint(params)
 	if err != nil {
 		return AgentPlacement{}, err
@@ -57,15 +49,13 @@ func (s *Store) setAgentPlacement(ctx context.Context, params SetAgentPlacementP
 		return AgentPlacement{}, fmt.Errorf("begin set placement: %w", err)
 	}
 	defer tx.Rollback()
-	if authorize {
-		if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentPlace, Scope{Kind: "agent", ID: params.AgentID}, params.Now, ""); err != nil {
-			return AgentPlacement{}, err
-		} else if reason != "" {
-			return AgentPlacement{}, commitDeniedWithContext(ctx, tx, params.Actor, AuditAgentPlace, "agent", params.AgentID, "computer", params.ComputerID, params.RequestID, reason, params.Now)
-		}
-		if placement, found, err := readPlacementRequest(ctx, tx, params, fingerprint); err != nil || found {
-			return commitPlacementReplay(tx, placement, found, err)
-		}
+	if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentPlace, Scope{Kind: "agent", ID: params.AgentID}, params.Now, ""); err != nil {
+		return AgentPlacement{}, err
+	} else if reason != "" {
+		return AgentPlacement{}, commitDeniedWithContext(ctx, tx, params.Actor, AuditAgentPlace, "agent", params.AgentID, "computer", params.ComputerID, params.RequestID, reason, params.Now)
+	}
+	if placement, found, err := readPlacementRequest(ctx, tx, params, fingerprint); err != nil || found {
+		return commitPlacementReplay(tx, placement, found, err)
 	}
 
 	if exists, err := recordExists(ctx, tx, "agents", params.AgentID); err != nil {
@@ -102,24 +92,22 @@ func (s *Store) setAgentPlacement(ctx context.Context, params SetAgentPlacementP
 	if err != nil {
 		return AgentPlacement{}, fmt.Errorf("read placement after set: %w", err)
 	}
-	if authorize {
-		if err := persistPlacementRequest(ctx, tx, params, fingerprint, current); err != nil {
-			return AgentPlacement{}, err
-		}
-		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
-			OrganizationID: params.Actor.OrganizationID,
-			Actor:          params.Actor,
-			Action:         AuditAgentPlace,
-			TargetKind:     "agent",
-			TargetID:       params.AgentID,
-			ContextKind:    "computer",
-			ContextID:      params.ComputerID,
-			RequestID:      params.RequestID,
-			Outcome:        "committed",
-			Now:            params.Now,
-		}); err != nil {
-			return AgentPlacement{}, err
-		}
+	if err := persistPlacementRequest(ctx, tx, params, fingerprint, current); err != nil {
+		return AgentPlacement{}, err
+	}
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+		OrganizationID: params.Actor.OrganizationID,
+		Actor:          params.Actor,
+		Action:         AuditAgentPlace,
+		TargetKind:     "agent",
+		TargetID:       params.AgentID,
+		ContextKind:    "computer",
+		ContextID:      params.ComputerID,
+		RequestID:      params.RequestID,
+		Outcome:        "committed",
+		Now:            params.Now,
+	}); err != nil {
+		return AgentPlacement{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return AgentPlacement{}, fmt.Errorf("commit set placement: %w", err)

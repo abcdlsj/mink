@@ -15,6 +15,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/placementcode"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/abcdlsj/sumi/internal/workspace"
@@ -116,12 +117,19 @@ func openHostTestServer(t *testing.T, dataRoot string) *hostTestServer {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(app.Handler())
+	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	if err != nil {
+		httpServer.Close()
+		app.Close()
+		t.Fatal(err)
+	}
+	authorization := clientAuthorization(credential)
 	return &hostTestServer{
 		app:        app,
 		http:       httpServer,
-		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
 		computers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
-		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
+		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
 	}
 }
 
@@ -155,12 +163,22 @@ func createPendingAssignment(t *testing.T, api *hostTestServer, key, agentName s
 	agentID := agent.Msg.GetAgent().GetId()
 	computerID := computer.Msg.GetComputer().GetId()
 	if _, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
+		RequestId:  uuid.NewString(),
 		AgentId:    agentID,
 		ComputerId: computerID,
 	})); err != nil {
 		t.Fatal(err)
 	}
 	return agentID, computerID
+}
+
+func clientAuthorization(credential string) connect.Option {
+	return connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+			request.Header().Set("Authorization", "Bearer "+credential)
+			return next(ctx, request)
+		}
+	}))
 }
 
 func getHostPlacement(t *testing.T, api *hostTestServer, agentID string) *placementv1.AgentPlacement {

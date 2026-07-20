@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
+	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/placementcode"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -24,6 +25,14 @@ func New(database *store.Store) *Service {
 }
 
 func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Request[placementv1.SetAgentPlacementRequest]) (*connect.Response[placementv1.SetAgentPlacementResponse], error) {
+	actor, err := authority.Subject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	if err != nil {
+		return nil, err
+	}
 	agentID, err := connectapi.CanonicalID(request.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
@@ -32,7 +41,9 @@ func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	placement, err := s.store.SetAgentPlacement(ctx, agentID, computerID, s.now())
+	placement, err := s.store.SetAgentPlacement(ctx, store.SetAgentPlacementParams{
+		RequestID: requestID, Actor: actor, AgentID: agentID, ComputerID: computerID, Now: s.now(),
+	})
 	if err := placementError(err); err != nil {
 		return nil, err
 	}
@@ -143,6 +154,10 @@ func placementError(err error) error {
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, store.ErrRegistrationKeyMismatch):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
+	case errors.Is(err, store.ErrPermissionDenied):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("agent placement denied"))
+	case errors.Is(err, store.ErrPlacementRequestConflict):
+		return connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different placement data"))
 	case errors.Is(err, store.ErrPlacementStale), errors.Is(err, store.ErrPlacementConflict):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	default:

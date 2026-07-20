@@ -68,6 +68,9 @@ func contextValue(value string) auditv1.AuditContextKind {
 	if value == "thread" {
 		return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_THREAD
 	}
+	if value == "computer" {
+		return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_COMPUTER
+	}
 	return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED
 }
 
@@ -90,6 +93,8 @@ func actionValue(value string) auditv1.AuditAction {
 		store.AuditHumanStatusSet:        auditv1.AuditAction_AUDIT_ACTION_HUMAN_STATUS_SET,
 		store.AuditGrantIssue:            auditv1.AuditAction_AUDIT_ACTION_GRANT_ISSUE,
 		store.AuditGrantRevoke:           auditv1.AuditAction_AUDIT_ACTION_GRANT_REVOKE,
+		store.AuditAgentCreate:           auditv1.AuditAction_AUDIT_ACTION_AGENT_CREATE,
+		store.AuditAgentPlace:            auditv1.AuditAction_AUDIT_ACTION_AGENT_PLACE,
 		store.AuditSpaceCreate:           auditv1.AuditAction_AUDIT_ACTION_SPACE_CREATE,
 		store.AuditSpaceMemberAdd:        auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_ADD,
 		store.AuditSpaceMemberRemove:     auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_REMOVE,

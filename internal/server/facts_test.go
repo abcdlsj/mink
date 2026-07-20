@@ -304,12 +304,13 @@ func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(app.Handler())
+	authorization := ownerClientAuthorization(t, dataRoot)
 	return &factsAPI{
 		app:        app,
 		http:       httpServer,
 		computers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
-		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
-		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
+		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
 	}
 }
 

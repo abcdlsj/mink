@@ -16,8 +16,25 @@ type humanAuthenticator interface {
 }
 
 func NewInterceptor(authenticator humanAuthenticator) connect.Interceptor {
+	return newInterceptor(authenticator, nil)
+}
+
+func NewProcedureInterceptor(authenticator humanAuthenticator, procedures ...string) connect.Interceptor {
+	protected := make(map[string]struct{}, len(procedures))
+	for _, procedure := range procedures {
+		protected[procedure] = struct{}{}
+	}
+	return newInterceptor(authenticator, protected)
+}
+
+func newInterceptor(authenticator humanAuthenticator, protected map[string]struct{}) connect.Interceptor {
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+			if protected != nil {
+				if _, ok := protected[request.Spec().Procedure]; !ok {
+					return next(ctx, request)
+				}
+			}
 			credential, ok := bearerCredential(request.Header().Get("Authorization"))
 			if !ok {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human credential required"))

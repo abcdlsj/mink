@@ -1,0 +1,280 @@
+package server
+
+import (
+	"context"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"connectrpc.com/connect"
+	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
+	auditv1 "github.com/abcdlsj/sumi/gen/go/sumi/audit/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
+	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
+	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+)
+
+func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *testing.T) {
+	dataRoot := t.TempDir()
+	api := openAgentAuthorityAPI(t, dataRoot)
+	now := time.Now()
+	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), api.ownerCredential, now)
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	peerCredential := "agent-api-peer-credential-abcdefghijklmnopqrstuvwxyz"
+	peerHuman, err := api.app.store.CreateHuman(context.Background(), store.CreateHumanParams{
+		RequestID: uuid.NewString(), Actor: owner, Name: "Agent API Peer", Role: "member",
+		Credential: peerCredential, Now: now.Add(time.Second),
+	})
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	peer := store.Principal{Kind: "human", ID: peerHuman.ID, OrganizationID: owner.OrganizationID}
+	peerAgents := agentv1connect.NewAgentServiceClient(api.http.Client(), api.http.URL, clientAuthorization(peerCredential))
+	peerPlacements := placementv1connect.NewPlacementServiceClient(api.http.Client(), api.http.URL, clientAuthorization(peerCredential))
+
+	if _, err := api.rawAgents.ListAgents(context.Background(), connect.NewRequest(&agentv1.ListAgentsRequest{})); err != nil {
+		api.close(t)
+		t.Fatalf("public agent read: %v", err)
+	}
+	unauthenticatedCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "unauthenticated-agent", Driver: agentv1.Driver_DRIVER_NATIVE}
+	if _, err := api.rawAgents.CreateAgent(context.Background(), connect.NewRequest(unauthenticatedCreate)); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		api.close(t)
+		t.Fatalf("unauthenticated create error = %v", err)
+	}
+	delegatedCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "delegated-api-agent", Driver: agentv1.Driver_DRIVER_CODEX}
+	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(delegatedCreate)); connect.CodeOf(err) != connect.CodePermissionDenied {
+		api.close(t)
+		t.Fatalf("create without grant error = %v", err)
+	}
+	if listed, err := api.rawAgents.ListAgents(context.Background(), connect.NewRequest(&agentv1.ListAgentsRequest{})); err != nil || len(listed.Msg.GetAgents()) != 0 {
+		api.close(t)
+		t.Fatalf("denied create agents = %+v, %v", listed, err)
+	}
+	createGrant := issueServerGrant(t, api.app.store, owner, peer, store.CapabilityAgentCreate, store.Scope{Kind: "organization", ID: owner.OrganizationID}, bootstrap.RootGrant.ID, now.Add(2*time.Second))
+	delegatedAgentResponse, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(delegatedCreate))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	delegatedAgent := delegatedAgentResponse.Msg.GetAgent()
+	if _, err := api.ownerAgents.CreateAgent(context.Background(), connect.NewRequest(delegatedCreate)); connect.CodeOf(err) != connect.CodeAlreadyExists {
+		api.close(t)
+		t.Fatalf("cross-actor create replay error = %v", err)
+	}
+	if _, err := api.app.store.RevokeGrant(context.Background(), store.RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: owner, GrantID: createGrant.ID, Now: now.Add(3 * time.Second),
+	}); err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(delegatedCreate)); connect.CodeOf(err) != connect.CodePermissionDenied {
+		api.close(t)
+		t.Fatalf("revoked create replay error = %v", err)
+	}
+
+	computerKey := "agent-api-computer-key-abcdefghijklmnopqrstuvwxyz"
+	computerResponse, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
+		RegistrationKey: computerKey, Name: "Agent API Computer",
+		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_AMD64,
+	}))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	computerID := computerResponse.Msg.GetComputer().GetId()
+	placementRequest := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: delegatedAgent.GetId(), ComputerId: computerID}
+	if _, err := api.rawPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest)); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		api.close(t)
+		t.Fatalf("unauthenticated placement error = %v", err)
+	}
+	if _, err := peerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest)); connect.CodeOf(err) != connect.CodePermissionDenied {
+		api.close(t)
+		t.Fatalf("placement without grant error = %v", err)
+	}
+	if _, err := api.rawPlacements.GetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.GetAgentPlacementRequest{AgentId: delegatedAgent.GetId()})); connect.CodeOf(err) != connect.CodeNotFound {
+		api.close(t)
+		t.Fatalf("denied placement fact error = %v", err)
+	}
+	placeGrant := issueServerGrant(t, api.app.store, owner, peer, store.CapabilityAgentPlace, store.Scope{Kind: "agent", ID: delegatedAgent.GetId()}, bootstrap.RootGrant.ID, now.Add(4*time.Second))
+	_, err = peerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	if _, err := api.app.store.RevokeGrant(context.Background(), store.RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: owner, GrantID: placeGrant.ID, Now: now.Add(5 * time.Second),
+	}); err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	if _, err := peerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest)); connect.CodeOf(err) != connect.CodePermissionDenied {
+		api.close(t)
+		t.Fatalf("revoked placement replay error = %v", err)
+	}
+	if _, err := api.ownerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest)); connect.CodeOf(err) != connect.CodeAlreadyExists {
+		api.close(t)
+		t.Fatalf("cross-actor placement replay error = %v", err)
+	}
+
+	restartCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "restart-api-agent", Driver: agentv1.Driver_DRIVER_CLAUDE}
+	restartAgentResponse, err := api.ownerAgents.CreateAgent(context.Background(), connect.NewRequest(restartCreate))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	restartPlacement := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: restartAgentResponse.Msg.GetAgent().GetId(), ComputerId: computerID}
+	restartPlacementResponse, err := api.ownerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(restartPlacement))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	assignments, err := api.rawPlacements.ListComputerAssignments(context.Background(), connect.NewRequest(&placementv1.ListComputerAssignmentsRequest{
+		ComputerId: computerID, RegistrationKey: computerKey,
+	}))
+	if err != nil || len(assignments.Msg.GetAssignments()) != 2 {
+		api.close(t)
+		t.Fatalf("computer assignments = %+v, %v", assignments, err)
+	}
+	if _, err := api.rawPlacements.AcknowledgeAgentPlacement(context.Background(), connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
+		ComputerId: computerID, RegistrationKey: computerKey, AgentId: restartAgentResponse.Msg.GetAgent().GetId(),
+		Generation: restartPlacementResponse.Msg.GetPlacement().GetGeneration(), Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE,
+	})); err != nil {
+		api.close(t)
+		t.Fatalf("computer acknowledgement: %v", err)
+	}
+
+	if _, err := api.app.store.SetHumanStatus(context.Background(), store.SetHumanStatusParams{
+		RequestID: uuid.NewString(), Actor: owner, HumanID: peer.ID, Status: "disabled", Now: now.Add(6 * time.Second),
+	}); err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
+		RequestId: uuid.NewString(), Name: "disabled-api-agent", Driver: agentv1.Driver_DRIVER_NATIVE,
+	})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		api.close(t)
+		t.Fatalf("disabled credential error = %v", err)
+	}
+
+	audits, err := api.ownerAudits.ListAuditEvents(context.Background(), connect.NewRequest(&auditv1.ListAuditEventsRequest{Limit: 500}))
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	assertAgentAuthorityAuditAPI(t, audits.Msg.GetEvents(), delegatedCreate.GetRequestId(), auditv1.AuditAction_AUDIT_ACTION_AGENT_CREATE, auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT, delegatedAgent.GetId(), auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED, "", auditv1.AuditOutcome_AUDIT_OUTCOME_COMMITTED)
+	assertAgentAuthorityAuditAPI(t, audits.Msg.GetEvents(), delegatedCreate.GetRequestId(), auditv1.AuditAction_AUDIT_ACTION_AGENT_CREATE, auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT, "", auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED, "", auditv1.AuditOutcome_AUDIT_OUTCOME_DENIED)
+	assertAgentAuthorityAuditAPI(t, audits.Msg.GetEvents(), placementRequest.GetRequestId(), auditv1.AuditAction_AUDIT_ACTION_AGENT_PLACE, auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT, delegatedAgent.GetId(), auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_COMPUTER, computerID, auditv1.AuditOutcome_AUDIT_OUTCOME_COMMITTED)
+	assertAgentAuthorityAuditAPI(t, audits.Msg.GetEvents(), placementRequest.GetRequestId(), auditv1.AuditAction_AUDIT_ACTION_AGENT_PLACE, auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT, delegatedAgent.GetId(), auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_COMPUTER, computerID, auditv1.AuditOutcome_AUDIT_OUTCOME_DENIED)
+	encoded, err := protojson.Marshal(audits.Msg)
+	if err != nil {
+		api.close(t)
+		t.Fatal(err)
+	}
+	for _, secret := range []string{api.ownerCredential, peerCredential, computerKey, dataRoot} {
+		if strings.Contains(string(encoded), secret) {
+			api.close(t)
+			t.Fatalf("audit response leaked %q", secret)
+		}
+	}
+
+	api.close(t)
+	api = openAgentAuthorityAPI(t, dataRoot)
+	defer api.close(t)
+	replayedAgent, err := api.ownerAgents.CreateAgent(context.Background(), connect.NewRequest(restartCreate))
+	if err != nil || !proto.Equal(replayedAgent.Msg.GetAgent(), restartAgentResponse.Msg.GetAgent()) {
+		t.Fatalf("restart agent replay = %+v, %v", replayedAgent, err)
+	}
+	replayedPlacement, err := api.ownerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(restartPlacement))
+	if err != nil || !proto.Equal(replayedPlacement.Msg.GetPlacement(), restartPlacementResponse.Msg.GetPlacement()) {
+		t.Fatalf("restart placement replay = %+v, %v", replayedPlacement, err)
+	}
+	currentPlacement, err := api.rawPlacements.GetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.GetAgentPlacementRequest{AgentId: restartAgentResponse.Msg.GetAgent().GetId()}))
+	if err != nil || currentPlacement.Msg.GetPlacement().GetState() != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
+		t.Fatalf("current placement after receipt replay = %+v, %v", currentPlacement, err)
+	}
+}
+
+type agentAuthorityAPI struct {
+	app             *Server
+	http            *httptest.Server
+	ownerCredential string
+	rawAgents       agentv1connect.AgentServiceClient
+	ownerAgents     agentv1connect.AgentServiceClient
+	computers       computerv1connect.ComputerServiceClient
+	rawPlacements   placementv1connect.PlacementServiceClient
+	ownerPlacements placementv1connect.PlacementServiceClient
+	ownerAudits     auditv1connect.AuditServiceClient
+}
+
+func openAgentAuthorityAPI(t *testing.T, dataRoot string) *agentAuthorityAPI {
+	t.Helper()
+	app, err := New(context.Background(), Config{DataRoot: dataRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(app.Handler())
+	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	if err != nil {
+		httpServer.Close()
+		app.Close()
+		t.Fatal(err)
+	}
+	authorization := clientAuthorization(credential)
+	return &agentAuthorityAPI{
+		app:             app,
+		http:            httpServer,
+		ownerCredential: credential,
+		rawAgents:       agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		ownerAgents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		computers:       computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		rawPlacements:   placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
+		ownerPlacements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		ownerAudits:     auditv1connect.NewAuditServiceClient(httpServer.Client(), httpServer.URL, authorization),
+	}
+}
+
+func (api *agentAuthorityAPI) close(t *testing.T) {
+	t.Helper()
+	api.http.Close()
+	if err := api.app.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func issueServerGrant(t *testing.T, database *store.Store, owner, subject store.Principal, capability string, scope store.Scope, parentID string, now time.Time) store.Grant {
+	t.Helper()
+	grant, err := database.IssueGrant(context.Background(), store.IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: owner, Subject: subject, Capability: capability,
+		Scope: scope, ParentGrantID: parentID, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return grant
+}
+
+func assertAgentAuthorityAuditAPI(t *testing.T, events []*auditv1.AuditEvent, requestID string, action auditv1.AuditAction, targetKind auditv1.AuditTargetKind, targetID string, contextKind auditv1.AuditContextKind, contextID string, outcome auditv1.AuditOutcome) {
+	t.Helper()
+	for _, event := range events {
+		if event.GetRequestId() == requestID && event.GetAction() == action && event.GetTargetKind() == targetKind &&
+			event.GetTargetId() == targetID && event.GetContextKind() == contextKind && event.GetContextId() == contextID && event.GetOutcome() == outcome {
+			return
+		}
+	}
+	t.Fatalf("audit event not found: request=%q action=%v target=%v/%q context=%v/%q outcome=%v", requestID, action, targetKind, targetID, contextKind, contextID, outcome)
+}

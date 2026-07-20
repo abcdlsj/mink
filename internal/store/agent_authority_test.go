@@ -37,7 +37,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	peer := Principal{Kind: "human", ID: peerHuman.ID, OrganizationID: owner.OrganizationID}
 
 	deniedCreate := CreateAgentParams{RequestID: uuid.NewString(), Actor: peer, Name: "denied-agent", Driver: "native", Now: now.Add(2 * time.Second)}
-	if _, err := database.CreateAuthorizedAgent(context.Background(), deniedCreate); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := database.CreateAgent(context.Background(), deniedCreate); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("create without grant error = %v", err)
 	}
@@ -53,13 +53,13 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 
 	createGrant := issueAgentAuthorityGrant(t, database, owner, peer, CapabilityAgentCreate, Scope{Kind: "organization", ID: owner.OrganizationID}, bootstrap.RootGrant.ID, now.Add(3*time.Second))
 	createParams := CreateAgentParams{RequestID: uuid.NewString(), Actor: peer, Name: "delegated-agent", Description: "delegated", Driver: "codex", Now: now.Add(4 * time.Second)}
-	agent, err := database.CreateAuthorizedAgent(context.Background(), createParams)
+	agent, err := database.CreateAgent(context.Background(), createParams)
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
 	assertAuthorityAudit(t, database, owner.OrganizationID, AuditAgentCreate, "agent", agent.ID, "", "", "committed", "")
-	if _, err := database.CreateAuthorizedAgent(context.Background(), CreateAgentParams{
+	if _, err := database.CreateAgent(context.Background(), CreateAgentParams{
 		RequestID: createParams.RequestID, Actor: owner, Name: createParams.Name,
 		Description: createParams.Description, Driver: createParams.Driver, Now: now.Add(5 * time.Second),
 	}); !errors.Is(err, ErrAgentRequestConflict) {
@@ -72,7 +72,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		database.Close()
 		t.Fatal(err)
 	}
-	if _, err := database.CreateAuthorizedAgent(context.Background(), createParams); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := database.CreateAgent(context.Background(), createParams); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("revoked create replay error = %v", err)
 	}
@@ -89,7 +89,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	placeParams := SetAgentPlacementParams{
 		RequestID: uuid.NewString(), Actor: owner, AgentID: agent.ID, ComputerID: computer.ID, Now: now.Add(8 * time.Second),
 	}
-	placed, err := database.SetAuthorizedAgentPlacement(context.Background(), placeParams)
+	placed, err := database.SetAgentPlacement(context.Background(), placeParams)
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		database.Close()
 		t.Fatalf("placement acknowledgement = %+v, %v", active, err)
 	}
-	replayed, err := database.SetAuthorizedAgentPlacement(context.Background(), placeParams)
+	replayed, err := database.SetAgentPlacement(context.Background(), placeParams)
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		t.Fatalf("placement replay audits = %d", got)
 	}
 
-	secondAgent, err := database.CreateAuthorizedAgent(context.Background(), CreateAgentParams{
+	secondAgent, err := database.CreateAgent(context.Background(), CreateAgentParams{
 		RequestID: uuid.NewString(), Actor: owner, Name: "placement-target", Driver: "claude", Now: now.Add(10 * time.Second),
 	})
 	if err != nil {
@@ -127,7 +127,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	deniedPlace := SetAgentPlacementParams{
 		RequestID: uuid.NewString(), Actor: peer, AgentID: secondAgent.ID, ComputerID: computer.ID, Now: now.Add(11 * time.Second),
 	}
-	if _, err := database.SetAuthorizedAgentPlacement(context.Background(), deniedPlace); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := database.SetAgentPlacement(context.Background(), deniedPlace); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("placement without grant error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	}
 	assertAuthorityAudit(t, database, owner.OrganizationID, AuditAgentPlace, "agent", secondAgent.ID, "computer", computer.ID, "denied", "permission_missing")
 	placeGrant := issueAgentAuthorityGrant(t, database, owner, peer, CapabilityAgentPlace, Scope{Kind: "agent", ID: secondAgent.ID}, bootstrap.RootGrant.ID, now.Add(12*time.Second))
-	allowedPlace, err := database.SetAuthorizedAgentPlacement(context.Background(), SetAgentPlacementParams{
+	allowedPlace, err := database.SetAgentPlacement(context.Background(), SetAgentPlacementParams{
 		RequestID: deniedPlace.RequestID, Actor: peer, AgentID: secondAgent.ID, ComputerID: computer.ID, Now: now.Add(13 * time.Second),
 	})
 	if err != nil || allowedPlace.AgentID != secondAgent.ID {
@@ -150,13 +150,13 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		database.Close()
 		t.Fatal(err)
 	}
-	if _, err := database.SetAuthorizedAgentPlacement(context.Background(), SetAgentPlacementParams{
+	if _, err := database.SetAgentPlacement(context.Background(), SetAgentPlacementParams{
 		RequestID: deniedPlace.RequestID, Actor: peer, AgentID: secondAgent.ID, ComputerID: computer.ID, Now: now.Add(15 * time.Second),
 	}); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("revoked placement replay error = %v", err)
 	}
-	if _, err := database.SetAuthorizedAgentPlacement(context.Background(), SetAgentPlacementParams{
+	if _, err := database.SetAgentPlacement(context.Background(), SetAgentPlacementParams{
 		RequestID: deniedPlace.RequestID, Actor: owner, AgentID: secondAgent.ID, ComputerID: computer.ID, Now: now.Add(16 * time.Second),
 	}); !errors.Is(err, ErrPlacementRequestConflict) {
 		database.Close()
@@ -168,7 +168,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		database.Close()
 		t.Fatal(err)
 	}
-	if _, err := database.CreateAuthorizedAgent(context.Background(), CreateAgentParams{
+	if _, err := database.CreateAgent(context.Background(), CreateAgentParams{
 		RequestID: uuid.NewString(), Actor: peer, Name: "disabled-create", Driver: "native", Now: now.Add(18 * time.Second),
 	}); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
@@ -184,7 +184,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		t.Fatal(err)
 	}
 	defer database.Close()
-	restarted, err := database.SetAuthorizedAgentPlacement(context.Background(), placeParams)
+	restarted, err := database.SetAgentPlacement(context.Background(), placeParams)
 	if err != nil || restarted != placed {
 		t.Fatalf("placement restart replay = %+v, %v", restarted, err)
 	}
@@ -251,7 +251,7 @@ func TestOpenUpgradesVersionSevenAuthorityReceiptsAndAuditSequence(t *testing.T)
 		t.Fatalf("legacy receipt = %q/%q/%x", actorKind, actorID, storedFingerprint)
 	}
 	owner := Principal{Kind: "human", ID: humanID, OrganizationID: organizationID}
-	if _, err := current.CreateAuthorizedAgent(context.Background(), CreateAgentParams{
+	if _, err := current.CreateAgent(context.Background(), CreateAgentParams{
 		RequestID: requestID, Actor: owner, Name: "legacy-agent", Description: "legacy", Driver: "native", Now: now.Add(time.Second),
 	}); !errors.Is(err, ErrAgentRequestConflict) {
 		current.Close()

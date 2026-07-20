@@ -49,9 +49,11 @@ func TestCollaborationRoutePersistsSpaceThreadAndMessagesAcrossRestart(t *testin
 		t.Fatal(err)
 	}
 	ownerID := organizationResponse.Msg.GetOrganization().GetBootstrapHumanId()
-	agentResponse, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
+	createAgent := connect.NewRequest(&agentv1.CreateAgentRequest{
 		RequestId: uuid.NewString(), Name: "audit-context-agent", Driver: agentv1.Driver_DRIVER_NATIVE,
-	}))
+	})
+	authorize(createAgent, credential)
+	agentResponse, err := api.agents.CreateAgent(context.Background(), createAgent)
 	if err != nil {
 		t.Fatal(err)
 	}

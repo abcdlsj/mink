@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
+	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -26,16 +27,24 @@ func New(database *store.Store) *Service {
 }
 
 func (s *Service) CreateAgent(ctx context.Context, request *connect.Request[agentv1.CreateAgentRequest]) (*connect.Response[agentv1.CreateAgentResponse], error) {
+	actor, err := authority.Subject(ctx)
+	if err != nil {
+		return nil, err
+	}
 	params, err := createParams(request.Msg, s.now())
 	if err != nil {
 		return nil, err
 	}
+	params.Actor = actor
 	agent, err := s.store.CreateAgent(ctx, params)
 	if errors.Is(err, store.ErrAgentRequestConflict) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different agent data"))
 	}
 	if errors.Is(err, store.ErrAgentNameExists) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("agent name already exists"))
+	}
+	if errors.Is(err, store.ErrPermissionDenied) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent creation denied"))
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)

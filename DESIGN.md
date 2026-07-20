@@ -99,7 +99,7 @@ Computer 是运行 Agent 的执行载体，提供算力、Runtime、Workspace、
 
 当前 trusted-local 注册只使用调用方持久保存的 `registration_key` 保证重试与 Server 重启幂等。它不是 Computer 身份、不会通过读取 API 返回，也不是强认证凭证；真正的远程 Computer 身份认证与连接租约必须由后续 Host 合同单独建立。
 
-Agent Placement 是 Server 保存的 current fact，记录 Agent 当前目标 Computer、单调 generation 与 `pending / active / failed`。`active` 只表示目标 Computer 已确认本地 Workspace 可用，不表示 Agent runtime 已启动或 Work 正在执行；generation fence 阻止旧 Computer 和旧请求覆盖新的 placement。`failed` 不自动重试，必须由 Human 显式重新设置后产生新 generation。当前 trusted-local 阶段的 Human Set 尚未接入 Grant，不得包装成已完成的权限系统。
+Agent Placement 是 Server 保存的 current fact，记录 Agent 当前目标 Computer、单调 generation 与 `pending / active / failed`。`active` 只表示目标 Computer 已确认本地 Workspace 可用，不表示 Agent runtime 已启动或 Work 正在执行；generation fence 阻止旧 Computer 和旧请求覆盖新的 placement。`failed` 不自动重试，必须由 Human 显式重新设置后产生新 generation。Human Set 必须提供 canonical request ID，并由当前 Human 的 `agent.place` Grant 授权；receipt 保存该次响应的结构化快照，所以后续 Computer ack 或再次迁移不会改写重放结果。
 
 Server 为每个 Agent 分配全局唯一、永不复用的 canonical Agent ID。每台承载该 Agent 的 Computer 都以此 ID 寻址本地 Agent Home 和 Workspace；display name 只用于展示，不参与路径与身份。
 
@@ -256,6 +256,8 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 Grant 明确记录 subject principal、issuer principal、capability、scope、parent、expiry 与 revoke。普通签发必须是 issuer 当前 effective parent Grant 的子集；capability、scope 和有效期都不能扩大。parent revoke/expire 或 issuer/subject disabled 后，整条 descendant chain 立即失效。root Grant 可以撤销，但不能 disable 或 revoke 最后一个仍可恢复 authority 的 active owner。
 
 已认证 mutation 在同一 SQLite transaction 内完成 `require grant -> business fact -> audit -> commit`。权限拒绝只提交 `outcome=denied` 与稳定 reason code 的 Audit，不写业务事实；未认证或 credential 非法不向共享 Audit 注入伪 actor。Audit 是 append-only 中央事实，不保存 raw credential、Secret 或本机路径。
+
+Human-side `CreateAgent` 与 `SetAgentPlacement` 分别要求 `agent.create` 与 `agent.place`，actor 只来自 Authorization context，且 actor 是 immutable request fingerprint/receipt 的一部分。Agent create Audit 以 Agent 为 target；placement Audit 以 Agent 为 target、Computer 为 typed context，同时保留两个稳定维度。只有这两个 Human mutation procedure 使用 Human credential interceptor；Agent/Placement 读取仍是当前 trusted-local 可读事实，Computer register、heartbeat、assignment list 与 acknowledgement 继续使用 registration key 合同，不能被 Human interceptor 误伤。
 
 高风险动作遵循：准备、校验、Human 审批、执行、审计。
 

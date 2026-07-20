@@ -32,14 +32,6 @@ type CreateAgentParams struct {
 }
 
 func (s *Store) CreateAgent(ctx context.Context, params CreateAgentParams) (Agent, error) {
-	return s.createAgent(ctx, params, false)
-}
-
-func (s *Store) CreateAuthorizedAgent(ctx context.Context, params CreateAgentParams) (Agent, error) {
-	return s.createAgent(ctx, params, true)
-}
-
-func (s *Store) createAgent(ctx context.Context, params CreateAgentParams, authorize bool) (Agent, error) {
 	fingerprint, err := agentPayloadFingerprint(params)
 	if err != nil {
 		return Agent{}, err
@@ -49,16 +41,10 @@ func (s *Store) createAgent(ctx context.Context, params CreateAgentParams, autho
 		return Agent{}, fmt.Errorf("begin agent creation: %w", err)
 	}
 	defer tx.Rollback()
-	if authorize {
-		if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentCreate, Scope{Kind: "organization", ID: params.Actor.OrganizationID}, params.Now, ""); err != nil {
-			return Agent{}, err
-		} else if reason != "" {
-			return Agent{}, commitDenied(ctx, tx, params.Actor, AuditAgentCreate, "agent", "", params.RequestID, reason, params.Now)
-		}
-	}
-	receiptActor := params.Actor
-	if !authorize {
-		receiptActor = Principal{Kind: "system"}
+	if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentCreate, Scope{Kind: "organization", ID: params.Actor.OrganizationID}, params.Now, ""); err != nil {
+		return Agent{}, err
+	} else if reason != "" {
+		return Agent{}, commitDenied(ctx, tx, params.Actor, AuditAgentCreate, "agent", "", params.RequestID, reason, params.Now)
 	}
 
 	var existingID string
@@ -70,7 +56,7 @@ func (s *Store) createAgent(ctx context.Context, params CreateAgentParams, autho
 		WHERE request_id = ?
 	`, params.RequestID).Scan(&existingActor.Kind, &existingActor.ID, &existingID, &existingFingerprint)
 	if err == nil {
-		if existingActor.Kind != receiptActor.Kind || existingActor.ID != receiptActor.ID || !bytes.Equal(existingFingerprint, fingerprint[:]) {
+		if existingActor.Kind != params.Actor.Kind || existingActor.ID != params.Actor.ID || !bytes.Equal(existingFingerprint, fingerprint[:]) {
 			return Agent{}, ErrAgentRequestConflict
 		}
 		existing, err := scanAgent(tx.QueryRowContext(ctx, `
@@ -116,22 +102,20 @@ func (s *Store) createAgent(ctx context.Context, params CreateAgentParams, autho
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_create_requests(request_id, actor_kind, actor_id, agent_id, payload_fingerprint)
 		VALUES(?, ?, ?, ?, ?)
-	`, params.RequestID, receiptActor.Kind, receiptActor.ID, agent.ID, fingerprint[:]); err != nil {
+	`, params.RequestID, params.Actor.Kind, params.Actor.ID, agent.ID, fingerprint[:]); err != nil {
 		return Agent{}, fmt.Errorf("persist agent creation request: %w", err)
 	}
-	if authorize {
-		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
-			OrganizationID: params.Actor.OrganizationID,
-			Actor:          params.Actor,
-			Action:         AuditAgentCreate,
-			TargetKind:     "agent",
-			TargetID:       agent.ID,
-			RequestID:      params.RequestID,
-			Outcome:        "committed",
-			Now:            params.Now,
-		}); err != nil {
-			return Agent{}, err
-		}
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+		OrganizationID: params.Actor.OrganizationID,
+		Actor:          params.Actor,
+		Action:         AuditAgentCreate,
+		TargetKind:     "agent",
+		TargetID:       agent.ID,
+		RequestID:      params.RequestID,
+		Outcome:        "committed",
+		Now:            params.Now,
+	}); err != nil {
+		return Agent{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Agent{}, fmt.Errorf("commit agent creation: %w", err)

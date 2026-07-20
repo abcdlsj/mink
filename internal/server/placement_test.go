@@ -25,7 +25,7 @@ func TestPlacementSetConcurrencyAndRestart(t *testing.T) {
 	api := openFactsAPI(t, dataRoot)
 	agentID := createPlacementAgent(t, api, "placement-agent")
 	computerID := registerPlacementComputer(t, api, "placement-computer-key", "Placement host")
-	request := &placementv1.SetAgentPlacementRequest{AgentId: agentID, ComputerId: computerID}
+	request := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: agentID, ComputerId: computerID}
 
 	placements := setPlacementsConcurrently(t, api.placements, request, 20)
 	for _, placement := range placements {
@@ -221,11 +221,11 @@ func TestPlacementValidationAndNotFound(t *testing.T) {
 	agentID := createPlacementAgent(t, api, "validation-agent")
 	key := "validation-placement-key"
 	computerID := registerPlacementComputer(t, api, key, "Validation host")
-	_, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{AgentId: "not-a-uuid", ComputerId: computerID}))
+	_, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: "not-a-uuid", ComputerId: computerID}))
 	assertConnectCode(t, err, connect.CodeInvalidArgument)
-	_, err = api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{AgentId: uuid.NewString(), ComputerId: computerID}))
+	_, err = api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: uuid.NewString(), ComputerId: computerID}))
 	assertConnectCode(t, err, connect.CodeNotFound)
-	_, err = api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{AgentId: agentID, ComputerId: uuid.NewString()}))
+	_, err = api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: agentID, ComputerId: uuid.NewString()}))
 	assertConnectCode(t, err, connect.CodeNotFound)
 	setPlacement(t, api, agentID, computerID)
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeInvalidArgument, func() error {
@@ -267,7 +267,7 @@ func registerPlacementComputer(t *testing.T, api *factsAPI, key, name string) st
 
 func setPlacement(t *testing.T, api *factsAPI, agentID, computerID string) *placementv1.AgentPlacement {
 	t.Helper()
-	response, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{AgentId: agentID, ComputerId: computerID}))
+	response, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: agentID, ComputerId: computerID}))
 	if err != nil {
 		t.Fatal(err)
 	}

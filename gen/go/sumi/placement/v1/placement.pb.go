@@ -219,6 +219,7 @@ type SetAgentPlacementRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	ComputerId    string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RequestId     string                 `protobuf:"bytes,3,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -263,6 +264,13 @@ func (x *SetAgentPlacementRequest) GetAgentId() string {
 func (x *SetAgentPlacementRequest) GetComputerId() string {
 	if x != nil {
 		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *SetAgentPlacementRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
 	}
 	return ""
 }
@@ -721,11 +729,13 @@ const file_sumi_placement_v1_placement_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"V\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"u\n" +
 	"\x18SetAgentPlacementRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcomputer_id\x18\x02 \x01(\tR\n" +
-	"computerId\"\\\n" +
+	"computerId\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x03 \x01(\tR\trequestId\"\\\n" +
 	"\x19SetAgentPlacementResponse\x12?\n" +
 	"\tplacement\x18\x01 \x01(\v2!.sumi.placement.v1.AgentPlacementR\tplacement\"5\n" +
 	"\x18GetAgentPlacementRequest\x12\x19\n" +

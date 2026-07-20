@@ -39,6 +39,8 @@ const (
 	AuditAction_AUDIT_ACTION_SPACE_UNARCHIVE        AuditAction = 10
 	AuditAction_AUDIT_ACTION_THREAD_CREATE          AuditAction = 11
 	AuditAction_AUDIT_ACTION_MESSAGE_SEND           AuditAction = 12
+	AuditAction_AUDIT_ACTION_AGENT_CREATE           AuditAction = 13
+	AuditAction_AUDIT_ACTION_AGENT_PLACE            AuditAction = 14
 )
 
 // Enum value maps for AuditAction.
@@ -57,6 +59,8 @@ var (
 		10: "AUDIT_ACTION_SPACE_UNARCHIVE",
 		11: "AUDIT_ACTION_THREAD_CREATE",
 		12: "AUDIT_ACTION_MESSAGE_SEND",
+		13: "AUDIT_ACTION_AGENT_CREATE",
+		14: "AUDIT_ACTION_AGENT_PLACE",
 	}
 	AuditAction_value = map[string]int32{
 		"AUDIT_ACTION_UNSPECIFIED":            0,
@@ -72,6 +76,8 @@ var (
 		"AUDIT_ACTION_SPACE_UNARCHIVE":        10,
 		"AUDIT_ACTION_THREAD_CREATE":          11,
 		"AUDIT_ACTION_MESSAGE_SEND":           12,
+		"AUDIT_ACTION_AGENT_CREATE":           13,
+		"AUDIT_ACTION_AGENT_PLACE":            14,
 	}
 )
 
@@ -224,6 +230,7 @@ const (
 	AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED AuditContextKind = 0
 	AuditContextKind_AUDIT_CONTEXT_KIND_SPACE       AuditContextKind = 1
 	AuditContextKind_AUDIT_CONTEXT_KIND_THREAD      AuditContextKind = 2
+	AuditContextKind_AUDIT_CONTEXT_KIND_COMPUTER    AuditContextKind = 3
 )
 
 // Enum value maps for AuditContextKind.
@@ -232,11 +239,13 @@ var (
 		0: "AUDIT_CONTEXT_KIND_UNSPECIFIED",
 		1: "AUDIT_CONTEXT_KIND_SPACE",
 		2: "AUDIT_CONTEXT_KIND_THREAD",
+		3: "AUDIT_CONTEXT_KIND_COMPUTER",
 	}
 	AuditContextKind_value = map[string]int32{
 		"AUDIT_CONTEXT_KIND_UNSPECIFIED": 0,
 		"AUDIT_CONTEXT_KIND_SPACE":       1,
 		"AUDIT_CONTEXT_KIND_THREAD":      2,
+		"AUDIT_CONTEXT_KIND_COMPUTER":    3,
 	}
 )
 
@@ -533,7 +542,7 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x0eafter_sequence\x18\x01 \x01(\x04R\rafterSequence\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\"L\n" +
 	"\x17ListAuditEventsResponse\x121\n" +
-	"\x06events\x18\x01 \x03(\v2\x19.sumi.audit.v1.AuditEventR\x06events*\xbc\x03\n" +
+	"\x06events\x18\x01 \x03(\v2\x19.sumi.audit.v1.AuditEventR\x06events*\xf9\x03\n" +
 	"\vAuditAction\x12\x1c\n" +
 	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12'\n" +
 	"#AUDIT_ACTION_ORGANIZATION_BOOTSTRAP\x10\x01\x12\x1d\n" +
@@ -548,7 +557,9 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x1cAUDIT_ACTION_SPACE_UNARCHIVE\x10\n" +
 	"\x12\x1e\n" +
 	"\x1aAUDIT_ACTION_THREAD_CREATE\x10\v\x12\x1d\n" +
-	"\x19AUDIT_ACTION_MESSAGE_SEND\x10\f*d\n" +
+	"\x19AUDIT_ACTION_MESSAGE_SEND\x10\f\x12\x1d\n" +
+	"\x19AUDIT_ACTION_AGENT_CREATE\x10\r\x12\x1c\n" +
+	"\x18AUDIT_ACTION_AGENT_PLACE\x10\x0e*d\n" +
 	"\fAuditOutcome\x12\x1d\n" +
 	"\x19AUDIT_OUTCOME_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17AUDIT_OUTCOME_COMMITTED\x10\x01\x12\x18\n" +
@@ -562,11 +573,12 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x1cAUDIT_TARGET_KIND_MEMBERSHIP\x10\x05\x12\x1c\n" +
 	"\x18AUDIT_TARGET_KIND_THREAD\x10\x06\x12\x1d\n" +
 	"\x19AUDIT_TARGET_KIND_MESSAGE\x10\a\x12\x1b\n" +
-	"\x17AUDIT_TARGET_KIND_AGENT\x10\b*s\n" +
+	"\x17AUDIT_TARGET_KIND_AGENT\x10\b*\x94\x01\n" +
 	"\x10AuditContextKind\x12\"\n" +
 	"\x1eAUDIT_CONTEXT_KIND_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18AUDIT_CONTEXT_KIND_SPACE\x10\x01\x12\x1d\n" +
-	"\x19AUDIT_CONTEXT_KIND_THREAD\x10\x022p\n" +
+	"\x19AUDIT_CONTEXT_KIND_THREAD\x10\x02\x12\x1f\n" +
+	"\x1bAUDIT_CONTEXT_KIND_COMPUTER\x10\x032p\n" +
 	"\fAuditService\x12`\n" +
 	"\x0fListAuditEvents\x12%.sumi.audit.v1.ListAuditEventsRequest\x1a&.sumi.audit.v1.ListAuditEventsResponseB6Z4github.com/abcdlsj/sumi/gen/go/sumi/audit/v1;auditv1b\x06proto3"
 

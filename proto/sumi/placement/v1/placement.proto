@@ -40,6 +40,7 @@ message AgentPlacement {
 message SetAgentPlacementRequest {
   string agent_id = 1;
   string computer_id = 2;
+  string request_id = 3;
 }
 
 message SetAgentPlacementResponse {
