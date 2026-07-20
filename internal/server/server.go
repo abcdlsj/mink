@@ -13,6 +13,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
 	"github.com/abcdlsj/sumi/internal/agent"
@@ -24,6 +25,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
+	"github.com/abcdlsj/sumi/internal/runtimeauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
 	"github.com/abcdlsj/sumi/internal/websession"
@@ -97,6 +99,15 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}))
 	placementPath, placementHandler := placementv1connect.NewPlacementServiceHandler(placement.New(database), placementMutationAuthorization)
 	mux.Handle(placementPath, placementHandler)
+	agentRuntimeAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(
+		database,
+		runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,
+		runtimev1connect.AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure,
+	))
+	agentRuntimePath, agentRuntimeHandler := runtimev1connect.NewAgentRuntimeServiceHandler(
+		runtimeauth.NewService(database, runtimeauth.Config{}), agentRuntimeAuthorization,
+	)
+	mux.Handle(agentRuntimePath, agentRuntimeHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
 	mux.Handle(organizationPath, organizationHandler)
 	grantPath, grantHandler := grantv1connect.NewGrantServiceHandler(grant.New(database), authorization)

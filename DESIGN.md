@@ -265,6 +265,10 @@ Grant 明确记录 subject principal、issuer principal、capability、scope、p
 
 Human-side `CreateAgent` 与 `SetAgentPlacement` 分别要求 `agent.create` 与 `agent.place`，actor 只来自 Authorization context，且 actor 是 immutable request fingerprint/receipt 的一部分。Agent create Audit 以 Agent 为 target；placement Audit 以 Agent 为 target、Computer 为 typed context，同时保留两个稳定维度。只有这两个 Human mutation procedure 使用 Human credential interceptor；Agent/Placement 读取仍是当前 trusted-local 可读事实，Computer register、heartbeat、assignment list 与 acknowledgement 继续使用 registration key 合同，不能被 Human interceptor 误伤。
 
+Agent runtime 身份只从当前 `active` Placement 派生，Placement 是身份资格而不是权限。当前 trusted-local Computer 必须同时提交 canonical Computer ID、registration key、Agent ID 与精确 placement generation，Server 在一个 transaction 内确认 Computer credential 和 current binding 后才签发固定 10 分钟的 32-byte opaque runtime token。每个 Agent 同时最多一个 current runtime session；Create 会先撤销该 Agent 的旧 session，Renew 以当前 token 与同一 Computer credential 原子轮换，Revoke 立即终止。Computer 重启或 lost response 通过重新 Create 恢复，不能让旧 token 复活；改机、增代、Placement 变为 `pending / failed`、过期或撤销后旧 token 都立即失效。
+
+SQLite 只保存带独立 domain separator 的 runtime token hash、Agent、Computer、placement generation 与生命周期时间，不保存 raw token、registration key 或本机路径。runtime interceptor 只在显式 procedure allowlist 上接受 token，并把 Agent principal 与不可伪造的 hash/binding proof 放入进程内 context；业务 mutation 仍必须在写事实的同一个 transaction 内重新校验 proof 与 current active Placement，避免 interceptor 后发生 renew、revoke 或迁移造成 TOCTOU。runtime identity 本身不赋 Grant、不绕过 Space membership，也不替代后续远程 Computer identity、pairing 或 lease 合同。
+
 高风险动作遵循：准备、校验、Human 审批、执行、审计。
 
 ## 9. 系统总览

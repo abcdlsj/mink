@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -92,6 +94,46 @@ func TestAgentRuntimeCreateValidatesComputerBeforeBinding(t *testing.T) {
 		t.Fatalf("missing computer error = %v", err)
 	}
 	assertRuntimeRows(t, fixture.database, 0)
+}
+
+func TestAgentRuntimeTTLValidationDoesNotMutateSessions(t *testing.T) {
+	fixture := openAgentRuntimeFixture(t)
+	for index, lifetime := range []time.Duration{10*time.Minute + time.Nanosecond, 24 * time.Hour} {
+		_, err := fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
+			ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+			AgentID: fixture.agentID, PlacementGeneration: 1, Token: runtimeTestToken(byte(50 + index)),
+			Now: fixture.now, ExpiresAt: fixture.now.Add(lifetime),
+		})
+		if !errors.Is(err, ErrAgentRuntimeInvalid) {
+			t.Fatalf("create lifetime %s error = %v", lifetime, err)
+		}
+		assertRuntimeRows(t, fixture.database, 0)
+	}
+
+	currentToken := runtimeTestToken(52)
+	createRuntimeSession(t, fixture, currentToken, fixture.now)
+	authentication, err := fixture.database.AuthenticateAgentRuntimeSession(context.Background(), currentToken, fixture.now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := readAgentRuntimeRows(t, fixture.database)
+	for index, lifetime := range []time.Duration{10*time.Minute + time.Nanosecond, 24 * time.Hour} {
+		_, err := fixture.database.RenewAgentRuntimeSession(context.Background(), RenewAgentRuntimeSessionParams{
+			Proof: authentication.Proof, ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+			Token: runtimeTestToken(byte(53 + index)), Now: fixture.now.Add(time.Second),
+			ExpiresAt: fixture.now.Add(time.Second).Add(lifetime),
+		})
+		if !errors.Is(err, ErrAgentRuntimeInvalid) {
+			t.Fatalf("renew lifetime %s error = %v", lifetime, err)
+		}
+		after := readAgentRuntimeRows(t, fixture.database)
+		if !reflect.DeepEqual(after, before) {
+			t.Fatalf("renew lifetime %s mutated rows: before=%+v after=%+v", lifetime, before, after)
+		}
+		if _, err := fixture.database.AuthenticateAgentRuntimeSession(context.Background(), currentToken, fixture.now.Add(2*time.Second)); err != nil {
+			t.Fatalf("renew lifetime %s revoked current token: %v", lifetime, err)
+		}
+	}
 }
 
 func TestAgentRuntimeRenewAndRevokeRequireCurrentComputer(t *testing.T) {
@@ -437,4 +479,39 @@ func assertRuntimeRows(t *testing.T, database *Store, want int) {
 	if count != want {
 		t.Fatalf("runtime session rows = %d, want %d", count, want)
 	}
+}
+
+type agentRuntimeRow struct {
+	TokenHash           string
+	AgentID             string
+	ComputerID          string
+	PlacementGeneration uint64
+	CreatedAt           int64
+	ExpiresAt           int64
+	RevokedAt           sql.NullInt64
+}
+
+func readAgentRuntimeRows(t *testing.T, database *Store) []agentRuntimeRow {
+	t.Helper()
+	rows, err := database.db.Query(`
+		SELECT hex(token_hash), agent_id, computer_id, placement_generation, created_at, expires_at, revoked_at
+		FROM agent_runtime_sessions
+		ORDER BY created_at, hex(token_hash)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var result []agentRuntimeRow
+	for rows.Next() {
+		var row agentRuntimeRow
+		if err := rows.Scan(&row.TokenHash, &row.AgentID, &row.ComputerID, &row.PlacementGeneration, &row.CreatedAt, &row.ExpiresAt, &row.RevokedAt); err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return result
 }

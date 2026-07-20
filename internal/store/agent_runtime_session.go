@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const agentRuntimeSessionHashDomain = "sumi-agent-runtime-session-v1\x00"
+const (
+	agentRuntimeSessionHashDomain = "sumi-agent-runtime-session-v1\x00"
+	agentRuntimeSessionTTL        = 10 * time.Minute
+)
 
 var agentRuntimeTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
@@ -306,13 +309,15 @@ func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntime
 }
 
 func validAgentRuntimeSession(agentID, computerID string, generation uint64, token string, now, expiresAt time.Time) bool {
+	lifetime := expiresAt.Sub(now)
 	return agentID != "" && computerID != "" && generation > 0 &&
-		agentRuntimeTokenPattern.MatchString(token) && !now.IsZero() && expiresAt.After(now)
+		agentRuntimeTokenPattern.MatchString(token) && !now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 
 func validAgentRuntimeRenewal(params RenewAgentRuntimeSessionParams) bool {
+	lifetime := params.ExpiresAt.Sub(params.Now)
 	return validAgentRuntimeProof(params.Proof) && params.ComputerID != "" && params.RegistrationKey != "" &&
-		agentRuntimeTokenPattern.MatchString(params.Token) && !params.Now.IsZero() && params.ExpiresAt.After(params.Now)
+		agentRuntimeTokenPattern.MatchString(params.Token) && !params.Now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 
 func validAgentRuntimeProof(proof AgentRuntimeProof) bool {
