@@ -401,15 +401,21 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	bootstrap, err := store.EnsureAuthority(context.Background(), "agent-receipt-owner-credential-abcdefghijklmnopqrstuvwxyz", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 
 	params := CreateAgentParams{
 		RequestID:   uuid.NewString(),
+		Actor:       owner,
 		Name:        "receipt-agent",
 		Description: "original description",
 		Driver:      "native",
 		Now:         time.Now(),
 	}
-	agent, err := store.CreateAgent(context.Background(), params)
+	agent, err := store.CreateAuthorizedAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +434,7 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 	if _, err := store.db.Exec("UPDATE agents SET description = ?, updated_at = ? WHERE id = ?", "current description", unixNano(params.Now.Add(time.Hour)), agent.ID); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := store.CreateAgent(context.Background(), params)
+	replayed, err := store.CreateAuthorizedAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +443,7 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 	}
 
 	params.Description = "current description"
-	_, err = store.CreateAgent(context.Background(), params)
+	_, err = store.CreateAuthorizedAgent(context.Background(), params)
 	if !errors.Is(err, ErrAgentRequestConflict) {
 		t.Fatalf("changed payload error = %v, want %v", err, ErrAgentRequestConflict)
 	}

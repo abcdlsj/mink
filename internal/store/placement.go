@@ -1,9 +1,11 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -29,56 +31,169 @@ type AcknowledgePlacementParams struct {
 	Now             time.Time
 }
 
+type SetAgentPlacementParams struct {
+	RequestID  string
+	Actor      Principal
+	AgentID    string
+	ComputerID string
+	Now        time.Time
+}
+
 func (s *Store) SetAgentPlacement(ctx context.Context, agentID, computerID string, now time.Time) (AgentPlacement, error) {
+	return s.setAgentPlacement(ctx, SetAgentPlacementParams{AgentID: agentID, ComputerID: computerID, Now: now}, false)
+}
+
+func (s *Store) SetAuthorizedAgentPlacement(ctx context.Context, params SetAgentPlacementParams) (AgentPlacement, error) {
+	return s.setAgentPlacement(ctx, params, true)
+}
+
+func (s *Store) setAgentPlacement(ctx context.Context, params SetAgentPlacementParams, authorize bool) (AgentPlacement, error) {
+	fingerprint, err := placementRequestFingerprint(params)
+	if err != nil {
+		return AgentPlacement{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AgentPlacement{}, fmt.Errorf("begin set placement: %w", err)
 	}
 	defer tx.Rollback()
+	if authorize {
+		if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentPlace, Scope{Kind: "agent", ID: params.AgentID}, params.Now, ""); err != nil {
+			return AgentPlacement{}, err
+		} else if reason != "" {
+			return AgentPlacement{}, commitDeniedWithContext(ctx, tx, params.Actor, AuditAgentPlace, "agent", params.AgentID, "computer", params.ComputerID, params.RequestID, reason, params.Now)
+		}
+		if placement, found, err := readPlacementRequest(ctx, tx, params, fingerprint); err != nil || found {
+			return commitPlacementReplay(tx, placement, found, err)
+		}
+	}
 
-	if exists, err := recordExists(ctx, tx, "agents", agentID); err != nil {
+	if exists, err := recordExists(ctx, tx, "agents", params.AgentID); err != nil {
 		return AgentPlacement{}, err
 	} else if !exists {
 		return AgentPlacement{}, ErrAgentNotFound
 	}
-	if exists, err := recordExists(ctx, tx, "computers", computerID); err != nil {
+	if exists, err := recordExists(ctx, tx, "computers", params.ComputerID); err != nil {
 		return AgentPlacement{}, err
 	} else if !exists {
 		return AgentPlacement{}, ErrComputerNotFound
 	}
 
-	current, err := placementByAgent(ctx, tx, agentID)
+	current, err := placementByAgent(ctx, tx, params.AgentID)
 	if errors.Is(err, sql.ErrNoRows) {
-		stamp := unixNano(now)
+		stamp := unixNano(params.Now)
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at)
 			VALUES(?, ?, 1, 'pending', '', ?, ?)
-		`, agentID, computerID, stamp, stamp); err != nil {
+		`, params.AgentID, params.ComputerID, stamp, stamp); err != nil {
 			return AgentPlacement{}, fmt.Errorf("persist placement: %w", err)
 		}
-		current, err = placementByAgent(ctx, tx, agentID)
-	} else if err == nil && current.ComputerID == computerID && (current.State == "pending" || current.State == "active") {
-		if err := tx.Commit(); err != nil {
-			return AgentPlacement{}, fmt.Errorf("commit idempotent placement: %w", err)
-		}
-		return current, nil
-	} else if err == nil {
+		current, err = placementByAgent(ctx, tx, params.AgentID)
+	} else if err == nil && (current.ComputerID != params.ComputerID || (current.State != "pending" && current.State != "active")) {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE agent_placements
 			SET computer_id = ?, generation = generation + 1, state = 'pending', error_code = '', updated_at = max(updated_at, ?)
 			WHERE agent_id = ?
-		`, computerID, unixNano(now), agentID); err != nil {
+		`, params.ComputerID, unixNano(params.Now), params.AgentID); err != nil {
 			return AgentPlacement{}, fmt.Errorf("replace placement: %w", err)
 		}
-		current, err = placementByAgent(ctx, tx, agentID)
+		current, err = placementByAgent(ctx, tx, params.AgentID)
 	}
 	if err != nil {
 		return AgentPlacement{}, fmt.Errorf("read placement after set: %w", err)
+	}
+	if authorize {
+		if err := persistPlacementRequest(ctx, tx, params, fingerprint, current); err != nil {
+			return AgentPlacement{}, err
+		}
+		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+			OrganizationID: params.Actor.OrganizationID,
+			Actor:          params.Actor,
+			Action:         AuditAgentPlace,
+			TargetKind:     "agent",
+			TargetID:       params.AgentID,
+			ContextKind:    "computer",
+			ContextID:      params.ComputerID,
+			RequestID:      params.RequestID,
+			Outcome:        "committed",
+			Now:            params.Now,
+		}); err != nil {
+			return AgentPlacement{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return AgentPlacement{}, fmt.Errorf("commit set placement: %w", err)
 	}
 	return current, nil
+}
+
+func placementRequestFingerprint(params SetAgentPlacementParams) ([sha256.Size]byte, error) {
+	payload, err := json.Marshal(struct {
+		ActorKind      string `json:"actor_kind"`
+		ActorID        string `json:"actor_id"`
+		OrganizationID string `json:"organization_id"`
+		AgentID        string `json:"agent_id"`
+		ComputerID     string `json:"computer_id"`
+	}{params.Actor.Kind, params.Actor.ID, params.Actor.OrganizationID, params.AgentID, params.ComputerID})
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("encode placement request: %w", err)
+	}
+	return sha256.Sum256(payload), nil
+}
+
+func readPlacementRequest(ctx context.Context, tx *sql.Tx, params SetAgentPlacementParams, fingerprint [sha256.Size]byte) (AgentPlacement, bool, error) {
+	var placement AgentPlacement
+	var actor Principal
+	var storedFingerprint []byte
+	var createdAt, updatedAt int64
+	err := tx.QueryRowContext(ctx, `
+		SELECT actor_kind, actor_id, payload_fingerprint, agent_id, computer_id,
+		       generation, state, error_code, created_at, updated_at
+		FROM agent_placement_requests
+		WHERE request_id = ?
+	`, params.RequestID).Scan(&actor.Kind, &actor.ID, &storedFingerprint, &placement.AgentID,
+		&placement.ComputerID, &placement.Generation, &placement.State, &placement.ErrorCode,
+		&createdAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentPlacement{}, false, nil
+	}
+	if err != nil {
+		return AgentPlacement{}, false, fmt.Errorf("read placement request: %w", err)
+	}
+	if actor.Kind != params.Actor.Kind || actor.ID != params.Actor.ID || !bytes.Equal(storedFingerprint, fingerprint[:]) {
+		return AgentPlacement{}, false, ErrPlacementRequestConflict
+	}
+	placement.CreatedAt = timeFromUnixNano(createdAt)
+	placement.UpdatedAt = timeFromUnixNano(updatedAt)
+	return placement, true, nil
+}
+
+func persistPlacementRequest(ctx context.Context, tx *sql.Tx, params SetAgentPlacementParams, fingerprint [sha256.Size]byte, placement AgentPlacement) error {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO agent_placement_requests(
+			request_id, actor_kind, actor_id, payload_fingerprint, agent_id, computer_id,
+			generation, state, error_code, created_at, updated_at
+		)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, params.RequestID, params.Actor.Kind, params.Actor.ID, fingerprint[:], placement.AgentID,
+		placement.ComputerID, placement.Generation, placement.State, placement.ErrorCode,
+		unixNano(placement.CreatedAt), unixNano(placement.UpdatedAt)); err != nil {
+		return fmt.Errorf("persist placement request: %w", err)
+	}
+	return nil
+}
+
+func commitPlacementReplay(tx *sql.Tx, placement AgentPlacement, found bool, err error) (AgentPlacement, error) {
+	if err != nil {
+		return AgentPlacement{}, err
+	}
+	if !found {
+		return AgentPlacement{}, errors.New("placement replay called without receipt")
+	}
+	if err := tx.Commit(); err != nil {
+		return AgentPlacement{}, fmt.Errorf("commit placement request replay: %w", err)
+	}
+	return placement, nil
 }
 
 func (s *Store) GetAgentPlacement(ctx context.Context, agentID string) (AgentPlacement, error) {

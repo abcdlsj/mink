@@ -24,6 +24,7 @@ type Agent struct {
 
 type CreateAgentParams struct {
 	RequestID   string
+	Actor       Principal
 	Name        string
 	Description string
 	Driver      string
@@ -31,6 +32,14 @@ type CreateAgentParams struct {
 }
 
 func (s *Store) CreateAgent(ctx context.Context, params CreateAgentParams) (Agent, error) {
+	return s.createAgent(ctx, params, false)
+}
+
+func (s *Store) CreateAuthorizedAgent(ctx context.Context, params CreateAgentParams) (Agent, error) {
+	return s.createAgent(ctx, params, true)
+}
+
+func (s *Store) createAgent(ctx context.Context, params CreateAgentParams, authorize bool) (Agent, error) {
 	fingerprint, err := agentPayloadFingerprint(params)
 	if err != nil {
 		return Agent{}, err
@@ -40,16 +49,28 @@ func (s *Store) CreateAgent(ctx context.Context, params CreateAgentParams) (Agen
 		return Agent{}, fmt.Errorf("begin agent creation: %w", err)
 	}
 	defer tx.Rollback()
+	if authorize {
+		if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityAgentCreate, Scope{Kind: "organization", ID: params.Actor.OrganizationID}, params.Now, ""); err != nil {
+			return Agent{}, err
+		} else if reason != "" {
+			return Agent{}, commitDenied(ctx, tx, params.Actor, AuditAgentCreate, "agent", "", params.RequestID, reason, params.Now)
+		}
+	}
+	receiptActor := params.Actor
+	if !authorize {
+		receiptActor = Principal{Kind: "system"}
+	}
 
 	var existingID string
+	var existingActor Principal
 	var existingFingerprint []byte
 	err = tx.QueryRowContext(ctx, `
-		SELECT agent_id, payload_fingerprint
+		SELECT actor_kind, actor_id, agent_id, payload_fingerprint
 		FROM agent_create_requests
 		WHERE request_id = ?
-	`, params.RequestID).Scan(&existingID, &existingFingerprint)
+	`, params.RequestID).Scan(&existingActor.Kind, &existingActor.ID, &existingID, &existingFingerprint)
 	if err == nil {
-		if !bytes.Equal(existingFingerprint, fingerprint[:]) {
+		if existingActor.Kind != receiptActor.Kind || existingActor.ID != receiptActor.ID || !bytes.Equal(existingFingerprint, fingerprint[:]) {
 			return Agent{}, ErrAgentRequestConflict
 		}
 		existing, err := scanAgent(tx.QueryRowContext(ctx, `
@@ -93,10 +114,24 @@ func (s *Store) CreateAgent(ctx context.Context, params CreateAgentParams) (Agen
 		return Agent{}, fmt.Errorf("persist agent: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO agent_create_requests(request_id, agent_id, payload_fingerprint)
-		VALUES(?, ?, ?)
-	`, params.RequestID, agent.ID, fingerprint[:]); err != nil {
+		INSERT INTO agent_create_requests(request_id, actor_kind, actor_id, agent_id, payload_fingerprint)
+		VALUES(?, ?, ?, ?, ?)
+	`, params.RequestID, receiptActor.Kind, receiptActor.ID, agent.ID, fingerprint[:]); err != nil {
 		return Agent{}, fmt.Errorf("persist agent creation request: %w", err)
+	}
+	if authorize {
+		if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+			OrganizationID: params.Actor.OrganizationID,
+			Actor:          params.Actor,
+			Action:         AuditAgentCreate,
+			TargetKind:     "agent",
+			TargetID:       agent.ID,
+			RequestID:      params.RequestID,
+			Outcome:        "committed",
+			Now:            params.Now,
+		}); err != nil {
+			return Agent{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Agent{}, fmt.Errorf("commit agent creation: %w", err)
@@ -158,13 +193,19 @@ func scanAgent(row scanner) (Agent, error) {
 
 func agentPayloadFingerprint(params CreateAgentParams) ([sha256.Size]byte, error) {
 	payload, err := json.Marshal(struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Driver      string `json:"driver"`
+		ActorKind      string `json:"actor_kind"`
+		ActorID        string `json:"actor_id"`
+		OrganizationID string `json:"organization_id"`
+		Name           string `json:"name"`
+		Description    string `json:"description"`
+		Driver         string `json:"driver"`
 	}{
-		Name:        params.Name,
-		Description: params.Description,
-		Driver:      params.Driver,
+		ActorKind:      params.Actor.Kind,
+		ActorID:        params.Actor.ID,
+		OrganizationID: params.Actor.OrganizationID,
+		Name:           params.Name,
+		Description:    params.Description,
+		Driver:         params.Driver,
 	})
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("encode agent request payload: %w", err)

@@ -15,6 +15,8 @@ const (
 	AuditHumanStatusSet        = "human.status.set"
 	AuditGrantIssue            = "grant.issue"
 	AuditGrantRevoke           = "grant.revoke"
+	AuditAgentCreate           = "agent.create"
+	AuditAgentPlace            = "agent.place"
 	AuditSpaceCreate           = "space.create"
 	AuditSpaceMemberAdd        = "space.member.add"
 	AuditSpaceMemberRemove     = "space.member.remove"
@@ -76,7 +78,7 @@ func validateAuditContext(kind, id string) error {
 	if kind == "" && id == "" {
 		return nil
 	}
-	if (kind != "space" && kind != "thread") || id == "" {
+	if (kind != "space" && kind != "thread" && kind != "computer") || id == "" {
 		return fmt.Errorf("invalid audit context")
 	}
 	parsed, err := uuid.Parse(id)

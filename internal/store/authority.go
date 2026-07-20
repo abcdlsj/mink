@@ -475,7 +475,11 @@ func commitHumanReplay(tx *sql.Tx, human Human, found bool, err error) (Human, e
 }
 
 func commitDenied(ctx context.Context, tx *sql.Tx, actor Principal, action, targetKind, targetID, requestID, reason string, now time.Time) error {
-	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: actor.OrganizationID, Actor: actor, Action: action, TargetKind: targetKind, TargetID: targetID, RequestID: requestID, Outcome: "denied", ReasonCode: reason, Now: now}); err != nil {
+	return commitDeniedWithContext(ctx, tx, actor, action, targetKind, targetID, "", "", requestID, reason, now)
+}
+
+func commitDeniedWithContext(ctx context.Context, tx *sql.Tx, actor Principal, action, targetKind, targetID, contextKind, contextID, requestID, reason string, now time.Time) error {
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: actor.OrganizationID, Actor: actor, Action: action, TargetKind: targetKind, TargetID: targetID, ContextKind: contextKind, ContextID: contextID, RequestID: requestID, Outcome: "denied", ReasonCode: reason, Now: now}); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {

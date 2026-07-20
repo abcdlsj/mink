@@ -356,7 +356,7 @@ func TestGroupMembershipLifecycleDMImmutabilityAndDeniedSenders(t *testing.T) {
 	}
 
 	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: uuid.NewString(), Name: "membership-agent", Driver: "native", Now: now.Add(18 * time.Second),
+		RequestID: uuid.NewString(), Actor: owner, Name: "membership-agent", Driver: "native", Now: now.Add(18 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
