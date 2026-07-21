@@ -293,6 +293,18 @@ SQLite 只保存带独立 domain separator 的 runtime token hash、Agent、Comp
 
 高风险动作遵循：准备、校验、Human 审批、执行、审计。
 
+### Driver 与 Host Contract
+
+Native、Codex 和 Claude 是同一 Agent Host Contract 下的 Driver，不是三套 Agent。Host 为每个 Run 生成版本化 typed 输入，包含 Agent、Computer/Placement、effective capability、Work、精确 Space/Thread target 与 basis sequence、短 memory index、授权来源和当前输入。Secret 值、runtime token、本机凭证和任意未授权 Workspace 内容不进入输入。
+
+输入 section 的顺序固定为 host policy、agent identity、placement、capabilities、work、target、memory index、retrieved sources、current input。Server facts、权限和 freshness 由 Host enforcement 保证，Prompt 只能解释合同，不能赋权。
+
+Driver 只负责适配，不拥有产品事实：Native 直接消费结构化输入；External Driver 将同一输入渲染为命令或 JSONL，并把结果归一为同一个 TurnResult 与有序可选 RunEvent。单个 Driver 由一个 owner 串行处理 prompt、steer、spawn、fork 命令，队列有界；事件流可以丢弃，终态结果不能依赖事件消费者。Driver session、compact、cache 丢失后，Run 必须从 Server facts 与 Agent Home 恢复。
+
+Driver capability 只声明 streaming、tools、resume、cancel、steering 等实际能力。能力不足时拒绝或降级，不改变 Inbox、Work、Artifact、权限、freshness、retry 和 cancel 语义。每次 provider model call 的 usage 只记录 provider 实际报告或明确标记 estimated/unavailable，不保存 prompt、secret、tool args、token 或路径。
+
+Host CLI 是稳定的可观察入口，成功输出和错误输出遵循统一合同：`Error`、`Code`、`Next action`。CLI 的能力说明从 typed Driver surface 生成，不复制另一份自然语言 Prompt 文档；shell 输出也不是 Message、Work 或 Audit 事实。
+
 ## 9. 系统总览
 
 Sumi 只有一个协作事实中心。它保存 Human、Agent、Space、Work、Artifact、权限与审计等稳定事实，并向 Web、Desktop、CLI 和 Computer 提供一致语义。
@@ -337,6 +349,7 @@ Computer daemon 主动连接中心，不要求暴露公网入站端口。它负�
 - `data/` 保存 SQLite、Artifact blob 和 Computer durable state；
 - `agents/agent_<agent_id>/workspace/` 是该 Agent 在本 Computer 上的长期私有 Workspace，目录名只使用 Server canonical ID；
 - `cache/` 可删除并重建；
+- Driver session、compact 和 provider cache 只能进入 `cache/`，不能成为 Agent 或 Run 的事实；
 - `logs/` 保存运行日志，安全审计仍属于中央事实；
 - Secret 不进入 `.sumi`，Run scratch、临时 socket、pid 等使用操作系统 runtime/temp directory。
 
