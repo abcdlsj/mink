@@ -5,12 +5,12 @@ import (
 	"errors"
 	"math"
 	"time"
-	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	"github.com/abcdlsj/sumi/internal/agentmessage"
 	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/runtimeauth"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -20,8 +20,6 @@ import (
 const (
 	defaultListLimit = 50
 	maxListLimit     = 200
-	maxMessageRunes  = 400_000
-	maxMentions      = 64
 )
 
 type inboxStore interface {
@@ -92,7 +90,11 @@ func (s *Service) ListInboxItems(ctx context.Context, request *connect.Request[i
 	}
 	response := &inboxv1.ListInboxItemsResponse{Items: make([]*inboxv1.InboxItem, 0, len(items))}
 	for _, item := range items {
-		response.Items = append(response.Items, inboxItemMessage(item))
+		message, err := inboxItemMessage(item)
+		if err != nil {
+			return nil, err
+		}
+		response.Items = append(response.Items, message)
 	}
 	return connect.NewResponse(response), nil
 }
@@ -108,7 +110,11 @@ func (s *Service) ClaimInboxItem(ctx context.Context, request *connect.Request[i
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&inboxv1.ClaimInboxItemResponse{Item: inboxItemMessage(item)}), nil
+	message, err := inboxItemMessage(item)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&inboxv1.ClaimInboxItemResponse{Item: message}), nil
 }
 
 func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[inboxv1.ObserveTargetRequest]) (*connect.Response[inboxv1.ObserveTargetResponse], error) {
@@ -116,7 +122,7 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 	if err != nil {
 		return nil, err
 	}
-	target, err := targetParams(request.Msg.GetTarget())
+	target, err := agentmessage.ParseTarget(request.Msg.GetTarget())
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +136,20 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
+	targetMessage, err := agentmessage.Target(result.Target)
+	if err != nil {
+		return nil, err
+	}
 	response := &inboxv1.ObserveTargetResponse{
-		Target: targetMessage(result.Target), HeadSequence: result.Head,
+		Target: targetMessage, HeadSequence: result.Head,
 		Messages: make([]*spacev1.Message, 0, len(result.Messages)), ObservedAt: timestamppb.New(result.ObservedAt),
 	}
 	for _, message := range result.Messages {
-		response.Messages = append(response.Messages, messageMessage(message))
+		message, err := agentmessage.Message(message)
+		if err != nil {
+			return nil, err
+		}
+		response.Messages = append(response.Messages, message)
 	}
 	return connect.NewResponse(response), nil
 }
@@ -151,7 +165,11 @@ func (s *Service) CompleteInboxItem(ctx context.Context, request *connect.Reques
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&inboxv1.CompleteInboxItemResponse{Item: inboxItemMessage(item)}), nil
+	message, err := inboxItemMessage(item)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&inboxv1.CompleteInboxItemResponse{Item: message}), nil
 }
 
 func (s *Service) SetSpaceMute(ctx context.Context, request *connect.Request[inboxv1.SetSpaceMuteRequest]) (*connect.Response[inboxv1.SetSpaceMuteResponse], error) {
@@ -210,10 +228,10 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 	if request.Msg.GetBasisTargetSequence() > math.MaxInt64 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("basis target sequence is too large"))
 	}
-	if err := messageBodyValid(request.Msg.GetBody()); err != nil {
+	if err := agentmessage.ValidateBody(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := mentionedAgentIDs(request.Msg.GetMentionedAgentIds())
+	mentions, err := agentmessage.MentionedAgentIDs(request.Msg.GetMentionedAgentIds())
 	if err != nil {
 		return nil, err
 	}
@@ -231,12 +249,20 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
-		response.Result = &inboxv1.SendInboxReplyResponse_Message{Message: messageMessage(*result.Message)}
+		message, err := agentmessage.Message(*result.Message)
+		if err != nil {
+			return nil, err
+		}
+		response.Result = &inboxv1.SendInboxReplyResponse_Message{Message: message}
 	case store.InboxResultHeldDraft:
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
-		response.Result = &inboxv1.SendInboxReplyResponse_HeldDraft{HeldDraft: heldDraftMessage(*result.HeldDraft)}
+		draft, err := agentmessage.HeldDraft(*result.HeldDraft)
+		if err != nil {
+			return nil, err
+		}
+		response.Result = &inboxv1.SendInboxReplyResponse_HeldDraft{HeldDraft: draft}
 	default:
 		return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 	}
@@ -262,7 +288,11 @@ func (s *Service) ListHeldDrafts(ctx context.Context, request *connect.Request[i
 		Drafts: make([]*inboxv1.HeldDraft, 0, len(result.Drafts)), NextSequence: result.NextSequence,
 	}
 	for _, draft := range result.Drafts {
-		response.Drafts = append(response.Drafts, heldDraftMessage(draft))
+		draft, err := agentmessage.HeldDraft(draft)
+		if err != nil {
+			return nil, err
+		}
+		response.Drafts = append(response.Drafts, draft)
 	}
 	return connect.NewResponse(response), nil
 }
@@ -286,7 +316,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	}
 	target := store.MessageTarget{}
 	if action == store.DraftResolutionRetarget {
-		target, err = targetParams(request.Msg.GetTarget())
+		target, err = agentmessage.ParseTarget(request.Msg.GetTarget())
 		if err != nil {
 			return nil, err
 		}
@@ -301,8 +331,12 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
+	item, err := inboxItemMessage(result.InboxItem)
+	if err != nil {
+		return nil, err
+	}
 	response := &inboxv1.ResolveHeldDraftResponse{
-		Action: resolutionActionMessage(result.Action), Item: inboxItemMessage(result.InboxItem),
+		Action: agentmessage.DraftResolutionAction(result.Action), Item: item,
 		CommittedAt: timestamppb.New(result.CommittedAt),
 	}
 	switch result.Kind {
@@ -311,12 +345,20 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
-		response.Result = &inboxv1.ResolveHeldDraftResponse_Message{Message: messageMessage(*result.Message)}
+		message, err := agentmessage.Message(*result.Message)
+		if err != nil {
+			return nil, err
+		}
+		response.Result = &inboxv1.ResolveHeldDraftResponse_Message{Message: message}
 	case store.InboxResultHeldDraft:
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
-		response.Result = &inboxv1.ResolveHeldDraftResponse_HeldDraft{HeldDraft: heldDraftMessage(*result.HeldDraft)}
+		draft, err := agentmessage.HeldDraft(*result.HeldDraft)
+		if err != nil {
+			return nil, err
+		}
+		response.Result = &inboxv1.ResolveHeldDraftResponse_HeldDraft{HeldDraft: draft}
 	default:
 		return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 	}
@@ -368,59 +410,6 @@ func requiredListParams(after uint64, limit uint32) (uint64, uint32, error) {
 	return listParams(after, limit)
 }
 
-func targetParams(value *spacev1.MessageTarget) (store.MessageTarget, error) {
-	if value == nil {
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is required"))
-	}
-	switch target := value.GetTarget().(type) {
-	case *spacev1.MessageTarget_SpaceId:
-		id, err := connectapi.CanonicalID(target.SpaceId, "space id")
-		if err != nil {
-			return store.MessageTarget{}, err
-		}
-		return store.MessageTarget{Kind: store.MessageTargetSpace, ID: id}, nil
-	case *spacev1.MessageTarget_ThreadRootMessageId:
-		id, err := connectapi.CanonicalID(target.ThreadRootMessageId, "thread root message id")
-		if err != nil {
-			return store.MessageTarget{}, err
-		}
-		return store.MessageTarget{Kind: store.MessageTargetThread, ID: id}, nil
-	default:
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
-	}
-}
-
-func messageBodyValid(body string) error {
-	if !utf8.ValidString(body) {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("message body must be valid UTF-8"))
-	}
-	size := utf8.RuneCountInString(body)
-	if size < 1 || size > maxMessageRunes {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("message body must contain 1 to 400000 characters"))
-	}
-	return nil
-}
-
-func mentionedAgentIDs(values []string) ([]string, error) {
-	if len(values) > maxMentions {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent count must be at most 64"))
-	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		id, err := connectapi.CanonicalID(value, "mentioned agent id")
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := seen[id]; ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent ids must be unique"))
-		}
-		seen[id] = struct{}{}
-		result = append(result, id)
-	}
-	return result, nil
-}
-
 func resolutionAction(value inboxv1.DraftResolutionAction) (string, error) {
 	switch value {
 	case inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETRY:
@@ -460,10 +449,14 @@ func serviceError(err error) error {
 	}
 }
 
-func inboxItemMessage(item store.InboxItem) *inboxv1.InboxItem {
+func inboxItemMessage(item store.InboxItem) (*inboxv1.InboxItem, error) {
+	target, err := agentmessage.Target(item.Target)
+	if err != nil {
+		return nil, err
+	}
 	result := &inboxv1.InboxItem{
 		Sequence: item.Sequence, Id: item.ID, AgentId: item.AgentID, SpaceId: item.SpaceID,
-		Target: targetMessage(item.Target), TriggerMessageId: item.TriggerMessageID,
+		Target: target, TriggerMessageId: item.TriggerMessageID,
 		TriggerTargetSequence: item.TriggerTargetSequence, Reason: inboxReasonMessage(item.Reason),
 		State: inboxStateMessage(item.State), Completion: inboxCompletionMessage(item.Completion),
 		CreatedAt: timestamppb.New(item.CreatedAt),
@@ -474,56 +467,7 @@ func inboxItemMessage(item store.InboxItem) *inboxv1.InboxItem {
 	if item.DoneAt != nil {
 		result.DoneAt = timestamppb.New(*item.DoneAt)
 	}
-	return result
-}
-
-func heldDraftMessage(draft store.HeldDraft) *inboxv1.HeldDraft {
-	result := &inboxv1.HeldDraft{
-		Sequence: draft.Sequence, Id: draft.ID, InboxItemId: draft.InboxItemID,
-		PredecessorDraftId: draft.PredecessorDraftID, SpaceId: draft.SpaceID, Target: targetMessage(draft.Target),
-		BasisTargetSequence: draft.BasisTargetSequence, Body: draft.Body,
-		MentionedAgentIds: draft.MentionedAgentIDs, State: heldDraftStateMessage(draft.State),
-		ResolutionAction: resolutionActionMessage(draft.ResolutionAction),
-		CreatedAt:        timestamppb.New(draft.CreatedAt), UpdatedAt: timestamppb.New(draft.UpdatedAt),
-	}
-	if draft.ResultKind == store.InboxResultMessage {
-		result.ResultRef = &inboxv1.HeldDraft_ResultMessageId{ResultMessageId: draft.ResultID}
-	} else if draft.ResultKind == store.InboxResultHeldDraft {
-		result.ResultRef = &inboxv1.HeldDraft_ResultHeldDraftId{ResultHeldDraftId: draft.ResultID}
-	}
-	return result
-}
-
-func messageMessage(message store.Message) *spacev1.Message {
-	result := &spacev1.Message{
-		Id: message.ID, RequestId: message.RequestID, SpaceId: message.SpaceID,
-		TargetSequence: message.TargetSequence, Author: principalMessage(message.Author), Body: message.Body,
-		MentionedAgentIds: message.MentionedAgentIDs, CreatedAt: timestamppb.New(message.CreatedAt),
-	}
-	if message.Target.Kind == store.MessageTargetThread {
-		result.ThreadRootMessageId = message.Target.ID
-	}
-	return result
-}
-
-func principalMessage(principal store.Principal) *spacev1.Principal {
-	kind := spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
-	if principal.Kind == "human" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	} else if principal.Kind == "agent" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT
-	}
-	return &spacev1.Principal{Kind: kind, Id: principal.ID}
-}
-
-func targetMessage(target store.MessageTarget) *spacev1.MessageTarget {
-	result := &spacev1.MessageTarget{}
-	if target.Kind == store.MessageTargetSpace {
-		result.Target = &spacev1.MessageTarget_SpaceId{SpaceId: target.ID}
-	} else if target.Kind == store.MessageTargetThread {
-		result.Target = &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: target.ID}
-	}
-	return result
+	return result, nil
 }
 
 func inboxReasonMessage(reason string) inboxv1.InboxReason {
@@ -564,35 +508,5 @@ func inboxCompletionMessage(completion string) inboxv1.InboxCompletion {
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_ACCESS_LOST
 	default:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_UNSPECIFIED
-	}
-}
-
-func heldDraftStateMessage(state string) inboxv1.HeldDraftState {
-	switch state {
-	case store.HeldDraftStateHeld:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_HELD
-	case store.HeldDraftStateSent:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SENT
-	case store.HeldDraftStateCancelled:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_CANCELLED
-	case store.HeldDraftStateSuperseded:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SUPERSEDED
-	case store.HeldDraftStateRetargeted:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_RETARGETED
-	default:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_UNSPECIFIED
-	}
-}
-
-func resolutionActionMessage(action string) inboxv1.DraftResolutionAction {
-	switch action {
-	case store.DraftResolutionRetry:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETRY
-	case store.DraftResolutionCancel:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL
-	case store.DraftResolutionRetarget:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETARGET
-	default:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_UNSPECIFIED
 	}
 }

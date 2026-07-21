@@ -5,25 +5,20 @@ import (
 	"errors"
 	"math"
 	"time"
-	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
-	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
-	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	"github.com/abcdlsj/sumi/internal/agentmessage"
 	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/runtimeauth"
 	"github.com/abcdlsj/sumi/internal/store"
-	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
 	defaultListLimit = 50
 	maxListLimit     = 200
-	maxMessageRunes  = 400_000
-	maxMentions      = 64
 )
 
 type deliveryStore interface {
@@ -225,10 +220,10 @@ func (s *Service) CompleteRun(ctx context.Context, request *connect.Request[deli
 	if err != nil {
 		return nil, err
 	}
-	if err := messageBodyValid(request.Msg.GetBody()); err != nil {
+	if err := agentmessage.ValidateBody(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := mentionedAgentIDs(request.Msg.GetMentionedAgentIds())
+	mentions, err := agentmessage.MentionedAgentIDs(request.Msg.GetMentionedAgentIds())
 	if err != nil {
 		return nil, err
 	}
@@ -250,7 +245,7 @@ func (s *Service) CompleteRun(ctx context.Context, request *connect.Request[deli
 		if result.Message == nil || result.HeldDraft != nil || result.Run.ResultKind != store.InboxResultMessage || result.Run.ResultID != result.Message.ID {
 			return nil, internalError()
 		}
-		message, err := messageMessage(*result.Message)
+		message, err := agentmessage.Message(*result.Message)
 		if err != nil {
 			return nil, err
 		}
@@ -259,7 +254,7 @@ func (s *Service) CompleteRun(ctx context.Context, request *connect.Request[deli
 		if result.Message != nil || result.HeldDraft == nil || result.Run.ResultKind != store.InboxResultHeldDraft || result.Run.ResultID != result.HeldDraft.ID {
 			return nil, internalError()
 		}
-		draft, err := heldDraftMessage(*result.HeldDraft)
+		draft, err := agentmessage.HeldDraft(*result.HeldDraft)
 		if err != nil {
 			return nil, err
 		}
@@ -326,37 +321,6 @@ func outcomeParam(value deliveryv1.RunOutcome) (string, error) {
 	}
 }
 
-func messageBodyValid(body string) error {
-	if !utf8.ValidString(body) {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("message body must be valid UTF-8"))
-	}
-	size := utf8.RuneCountInString(body)
-	if size < 1 || size > maxMessageRunes {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("message body must contain 1 to 400000 characters"))
-	}
-	return nil
-}
-
-func mentionedAgentIDs(values []string) ([]string, error) {
-	if len(values) > maxMentions {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent count must be at most 64"))
-	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		id, err := connectapi.CanonicalID(value, "mentioned agent id")
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := seen[id]; ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent ids must be unique"))
-		}
-		seen[id] = struct{}{}
-		result = append(result, id)
-	}
-	return result, nil
-}
-
 func serviceError(err error) error {
 	switch {
 	case err == nil:
@@ -407,7 +371,7 @@ func deliveryMessage(value store.Delivery) (*deliveryv1.Delivery, error) {
 	default:
 		return nil, internalError()
 	}
-	target, err := targetMessage(value.Target)
+	target, err := agentmessage.Target(value.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -518,154 +482,6 @@ func runLaunchMessage(value store.RunLaunch) (*deliveryv1.RunLaunch, error) {
 		message.ClosedAt = timestamppb.New(*value.ClosedAt)
 	}
 	return message, nil
-}
-
-func heldDraftMessage(value store.HeldDraft) (*inboxv1.HeldDraft, error) {
-	state := heldDraftStateMessage(value.State)
-	if state == inboxv1.HeldDraftState_HELD_DRAFT_STATE_UNSPECIFIED {
-		return nil, internalError()
-	}
-	action := resolutionActionMessage(value.ResolutionAction)
-	if value.ResolutionAction != "" && action == inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_UNSPECIFIED {
-		return nil, internalError()
-	}
-	switch value.State {
-	case store.HeldDraftStateHeld:
-		if value.ResolutionAction != "" || value.ResultKind != "" || value.ResultID != "" {
-			return nil, internalError()
-		}
-	case store.HeldDraftStateCancelled:
-		if value.ResolutionAction != store.DraftResolutionCancel || value.ResultKind != "" || value.ResultID != "" {
-			return nil, internalError()
-		}
-	case store.HeldDraftStateSent:
-		if value.ResolutionAction != store.DraftResolutionRetry || value.ResultKind != store.InboxResultMessage || value.ResultID == "" {
-			return nil, internalError()
-		}
-	case store.HeldDraftStateSuperseded:
-		if value.ResolutionAction != store.DraftResolutionRetry || value.ResultKind != store.InboxResultHeldDraft || value.ResultID == "" {
-			return nil, internalError()
-		}
-	case store.HeldDraftStateRetargeted:
-		if value.ResolutionAction != store.DraftResolutionRetarget ||
-			(value.ResultKind != store.InboxResultMessage && value.ResultKind != store.InboxResultHeldDraft) || value.ResultID == "" {
-			return nil, internalError()
-		}
-	default:
-		return nil, internalError()
-	}
-	target, err := targetMessage(value.Target)
-	if err != nil {
-		return nil, err
-	}
-	message := &inboxv1.HeldDraft{
-		Sequence: value.Sequence, Id: value.ID, InboxItemId: value.InboxItemID,
-		PredecessorDraftId: value.PredecessorDraftID, SpaceId: value.SpaceID,
-		Target: target, BasisTargetSequence: value.BasisTargetSequence,
-		Body: value.Body, MentionedAgentIds: value.MentionedAgentIDs,
-		State: state, ResolutionAction: action,
-		CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt),
-	}
-	if value.ResultKind == store.InboxResultMessage {
-		message.ResultRef = &inboxv1.HeldDraft_ResultMessageId{ResultMessageId: value.ResultID}
-	} else if value.ResultKind == store.InboxResultHeldDraft {
-		message.ResultRef = &inboxv1.HeldDraft_ResultHeldDraftId{ResultHeldDraftId: value.ResultID}
-	} else if value.ResultKind != "" || value.ResultID != "" {
-		return nil, internalError()
-	}
-	return message, nil
-}
-
-func messageMessage(value store.Message) (*spacev1.Message, error) {
-	author := principalMessage(value.Author)
-	if author.Kind == spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED {
-		return nil, internalError()
-	}
-	if !canonicalStoreID(value.SpaceID) {
-		return nil, internalError()
-	}
-	switch value.Target.Kind {
-	case store.MessageTargetSpace:
-		if value.Target.ID != value.SpaceID {
-			return nil, internalError()
-		}
-	case store.MessageTargetThread:
-		if !canonicalStoreID(value.Target.ID) {
-			return nil, internalError()
-		}
-	default:
-		return nil, internalError()
-	}
-	message := &spacev1.Message{
-		Id: value.ID, RequestId: value.RequestID, SpaceId: value.SpaceID,
-		TargetSequence: value.TargetSequence, Author: author,
-		Body: value.Body, MentionedAgentIds: value.MentionedAgentIDs,
-		CreatedAt: timestamppb.New(value.CreatedAt),
-	}
-	if value.Target.Kind == store.MessageTargetThread {
-		message.ThreadRootMessageId = value.Target.ID
-	}
-	return message, nil
-}
-
-func targetMessage(value store.MessageTarget) (*spacev1.MessageTarget, error) {
-	if !canonicalStoreID(value.ID) {
-		return nil, internalError()
-	}
-	message := &spacev1.MessageTarget{}
-	if value.Kind == store.MessageTargetSpace {
-		message.Target = &spacev1.MessageTarget_SpaceId{SpaceId: value.ID}
-	} else if value.Kind == store.MessageTargetThread {
-		message.Target = &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: value.ID}
-	} else {
-		return nil, internalError()
-	}
-	return message, nil
-}
-
-func canonicalStoreID(value string) bool {
-	parsed, err := uuid.Parse(value)
-	return err == nil && parsed.String() == value
-}
-
-func principalMessage(value store.Principal) *spacev1.Principal {
-	kind := spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
-	if value.Kind == "human" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	} else if value.Kind == "agent" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT
-	}
-	return &spacev1.Principal{Kind: kind, Id: value.ID}
-}
-
-func heldDraftStateMessage(value string) inboxv1.HeldDraftState {
-	switch value {
-	case store.HeldDraftStateHeld:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_HELD
-	case store.HeldDraftStateSent:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SENT
-	case store.HeldDraftStateCancelled:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_CANCELLED
-	case store.HeldDraftStateSuperseded:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SUPERSEDED
-	case store.HeldDraftStateRetargeted:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_RETARGETED
-	default:
-		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_UNSPECIFIED
-	}
-}
-
-func resolutionActionMessage(value string) inboxv1.DraftResolutionAction {
-	switch value {
-	case store.DraftResolutionRetry:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETRY
-	case store.DraftResolutionCancel:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL
-	case store.DraftResolutionRetarget:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETARGET
-	default:
-		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_UNSPECIFIED
-	}
 }
 
 func internalError() error {

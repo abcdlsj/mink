@@ -427,5 +427,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 ## 16. 2026-07-21 维护记录
 
 - `internal/store/work.go` 与 `internal/collaboration/service.go` 仅收敛了真实重复的参数和 assignment 结束流程；Work、Space、Message、权限、API 与迁移事实均未改变。
+- `internal/agentmessage` 现在是 Inbox 与 Delivery 共用的 Message/HeldDraft Store↔proto codec：两侧统一执行 body、mention、target、principal 与 HeldDraft 状态链校验；不合法的 Store fact 一律 fail closed，不再由 Inbox 静默输出不完整协议。RPC 授权、状态机、Store 接口、API schema 与迁移事实均未改变。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
+- 已验证共用 codec、Inbox、Delivery 的 focused tests，以及三者 `-race -count=3`；全仓门禁仍受 Driver 队列测试死锁阻塞，尚未在本提交修复。
 - 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。

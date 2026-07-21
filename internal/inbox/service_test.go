@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
+	"github.com/abcdlsj/sumi/internal/agentmessage"
 	"github.com/abcdlsj/sumi/internal/runtimeauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
@@ -250,7 +251,16 @@ func TestHeldDraftResultRefMappingIsExclusive(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			message := heldDraftMessage(test.draft)
+			spaceID := uuid.NewString()
+			test.draft.ID = uuid.NewString()
+			test.draft.InboxItemID = uuid.NewString()
+			test.draft.SpaceID = spaceID
+			test.draft.Target = store.MessageTarget{Kind: store.MessageTargetSpace, ID: spaceID}
+			test.draft.Body = "draft body"
+			message, err := agentmessage.HeldDraft(test.draft)
+			if err != nil {
+				t.Fatal(err)
+			}
 			switch test.kind {
 			case store.InboxResultMessage:
 				if _, ok := message.GetResultRef().(*inboxv1.HeldDraft_ResultMessageId); !ok || message.GetResultMessageId() != test.id || message.GetResultHeldDraftId() != "" {
