@@ -66,11 +66,14 @@ func TestComputerSandboxMigrationBackfillsUnknownCapabilityAndPairingReceipt(t *
 		unixNano(createdAt), requestID, legacyFingerprint[:], computerID); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := database.Exec(`UPDATE computers SET name = 'migrated-host', os = 'macos', arch = 'arm64' WHERE id = ?`, computerID); err != nil {
+		t.Fatal(err)
+	}
 	replayParams := PairComputerParams{
 		RequestID: requestID, PairingToken: token, RegistrationKey: registrationKey,
 		Name: name, OS: operatingSystem, Arch: architecture, Now: createdAt.Add(time.Second),
 	}
-	if _, err := ownerStore.PairComputer(context.Background(), replayParams); err != ErrComputerPairingConflict {
+	if _, err := ownerStore.PairComputer(context.Background(), replayParams); err != ErrComputerPairingInvalid {
 		t.Fatalf("unmigrated v13 replay error = %v", err)
 	}
 	if err := database.Close(); err != nil {
@@ -109,7 +112,7 @@ func TestComputerSandboxMigrationBackfillsUnknownCapabilityAndPairingReceipt(t *
 		change func(*PairComputerParams)
 	}{
 		{"registration key", func(params *PairComputerParams) { params.RegistrationKey = "changed-migration-key" }},
-		{"name", func(params *PairComputerParams) { params.Name = "changed-migration-host" }},
+		{"name", func(params *PairComputerParams) { params.Name = "migrated-host" }},
 		{"operating system", func(params *PairComputerParams) { params.OS = "macos" }},
 		{"architecture", func(params *PairComputerParams) { params.Arch = "arm64" }},
 		{"capability", func(params *PairComputerParams) { params.SandboxCapability = TrustedLocalSandboxCapability() }},
@@ -174,10 +177,6 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentFingerprint, err := computerPairingPayloadFingerprint(keyHash[:], name, operatingSystem, architecture, UnknownSandboxCapability())
-	if err != nil {
-		t.Fatal(err)
-	}
 	pairingToken := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
 	tokenHash := computerPairingTokenHash(pairingToken)
 	pairingID := uuid.NewString()
@@ -187,7 +186,7 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 			id, request_id, human_id, token_hash, payload_fingerprint, created_at, expires_at,
 			consumed_at, consume_request_id, consume_fingerprint, computer_id
 		) VALUES(?, ?, ?, ?, zeroblob(32), 1, 2, 1, ?, ?, ?)
-	`, pairingID, uuid.NewString(), bootstrap.Human.ID, tokenHash[:], consumeRequestID, currentFingerprint[:], computerID); err != nil {
+	`, pairingID, uuid.NewString(), bootstrap.Human.ID, tokenHash[:], consumeRequestID, legacyFingerprint[:], computerID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`
@@ -197,6 +196,12 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 			sandbox_secret_materialization, sandbox_daemon_crash_cleanup, sandbox_declaration_revision
 		) VALUES(?, 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 'unknown', 0)
 	`, pairingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&Store{db: database}).RecoverComputer(context.Background(), RegisterComputerParams{
+		RegistrationKey: registrationKey, Name: "round-trip-migrated-host", OS: "macos", Arch: "arm64",
+		SandboxCapability: UnknownSandboxCapability(), Now: time.Unix(0, 3),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := goose.DownTo(database, "migrations", 13); err != nil {
@@ -231,7 +236,7 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 		change func(*PairComputerParams)
 	}{
 		{"registration key", func(params *PairComputerParams) { params.RegistrationKey = "changed-round-trip-key" }},
-		{"name", func(params *PairComputerParams) { params.Name = "changed-round-trip-host" }},
+		{"name", func(params *PairComputerParams) { params.Name = "round-trip-migrated-host" }},
 		{"operating system", func(params *PairComputerParams) { params.OS = "macos" }},
 		{"architecture", func(params *PairComputerParams) { params.Arch = "arm64" }},
 	}
@@ -265,7 +270,7 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 	if err := database.QueryRow(`SELECT consume_fingerprint FROM computer_pairings WHERE id = ?`, pairingID).Scan(&fingerprint); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(fingerprint, currentFingerprint[:]) {
+	if !bytes.Equal(fingerprint, legacyFingerprint[:]) {
 		t.Fatalf("consume fingerprint after re-up = %x", fingerprint)
 	}
 	var receipts int

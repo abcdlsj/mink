@@ -76,79 +76,40 @@ func upComputerSandboxCapability(ctx context.Context, tx *sql.Tx) error {
 	`); err != nil {
 		return fmt.Errorf("create computer sandbox capability facts: %w", err)
 	}
-	return migrateConsumedPairingFingerprints(ctx, tx, true)
+	return validateConsumedPairingReceipts(ctx, tx)
 }
 
-func migrateConsumedPairingFingerprints(ctx context.Context, tx *sql.Tx, includeCapability bool) error {
+func validateConsumedPairingReceipts(ctx context.Context, tx *sql.Tx) error {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT pairings.id, computers.registration_key_hash, computers.name, computers.os, computers.arch
+		SELECT pairings.id, computers.id, computers.registration_key_hash, receipts.pairing_id
 		FROM computer_pairings AS pairings
 		LEFT JOIN computers ON computers.id = pairings.computer_id
+		LEFT JOIN computer_pairing_sandbox_receipts AS receipts ON receipts.pairing_id = pairings.id
 		WHERE pairings.consumed_at IS NOT NULL
 		ORDER BY pairings.id
 	`)
 	if err != nil {
 		return fmt.Errorf("read consumed computer pairings: %w", err)
 	}
-	type consumedPairing struct {
-		id                  string
-		registrationKeyHash []byte
-		name                string
-		operatingSystem     string
-		architecture        string
-	}
-	var pairings []consumedPairing
+	defer rows.Close()
 	for rows.Next() {
-		var pairing consumedPairing
-		if err := rows.Scan(&pairing.id, &pairing.registrationKeyHash, &pairing.name, &pairing.operatingSystem, &pairing.architecture); err != nil {
-			rows.Close()
+		var pairingID string
+		var computerID, receiptID sql.NullString
+		var registrationKeyHash []byte
+		if err := rows.Scan(&pairingID, &computerID, &registrationKeyHash, &receiptID); err != nil {
 			return fmt.Errorf("scan consumed computer pairing: %w", err)
 		}
-		if len(pairing.registrationKeyHash) != 32 {
-			rows.Close()
-			return errors.New("consumed computer pairing registration key hash is invalid")
+		if !computerID.Valid || len(registrationKeyHash) != 32 || !receiptID.Valid || receiptID.String != pairingID {
+			return errors.New("consumed computer pairing facts are invalid")
 		}
-		pairings = append(pairings, pairing)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close consumed computer pairings: %w", err)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate consumed computer pairings: %w", err)
-	}
-	for _, pairing := range pairings {
-		var fingerprint [32]byte
-		if includeCapability {
-			fingerprint, err = computerPairingPayloadFingerprint(
-				pairing.registrationKeyHash, pairing.name, pairing.operatingSystem, pairing.architecture, UnknownSandboxCapability(),
-			)
-		} else {
-			fingerprint, err = legacyComputerPairingPayloadFingerprint(
-				pairing.registrationKeyHash, pairing.name, pairing.operatingSystem, pairing.architecture,
-			)
-		}
-		if err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, `
-			UPDATE computer_pairings SET consume_fingerprint = ?
-			WHERE id = ? AND consumed_at IS NOT NULL
-		`, fingerprint[:], pairing.id)
-		if err != nil {
-			return fmt.Errorf("migrate consumed computer pairing fingerprint: %w", err)
-		}
-		updated, err := result.RowsAffected()
-		if err != nil || updated != 1 {
-			return errors.New("migrate consumed computer pairing fingerprint lost its source row")
-		}
 	}
 	return nil
 }
 
 func downComputerSandboxCapability(ctx context.Context, tx *sql.Tx) error {
-	if err := migrateConsumedPairingFingerprints(ctx, tx, false); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `
 		DROP TABLE computer_pairing_sandbox_receipts;
 		ALTER TABLE computers DROP COLUMN sandbox_declaration_revision;
