@@ -113,11 +113,6 @@ type Daemon struct {
 	persistOutbox func(context.Context, computerstate.OutboxEvent) error
 }
 
-type retryGate struct {
-	failures uint
-	next     time.Time
-}
-
 func NewDaemon(config DaemonConfig) *Daemon {
 	client := config.HTTPClient
 	if client == nil {
@@ -194,18 +189,29 @@ func (d *Daemon) snapshotLoop(ctx context.Context, identity computerstate.Identi
 }
 
 func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, operation func(context.Context) bool) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	var retry retryGate
-	retry.record(d.config.Now(), operation(ctx), interval, d.config.BackoffMax, d.config.RetryJitter)
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	var failures uint
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			if retry.ready(d.config.Now()) {
-				retry.record(d.config.Now(), operation(ctx), interval, d.config.BackoffMax, d.config.RetryJitter)
+		case <-timer.C:
+			if ctx.Err() != nil {
+				return
 			}
+			succeeded := operation(ctx)
+			if ctx.Err() != nil {
+				return
+			}
+			delay := interval
+			if succeeded {
+				failures = 0
+			} else {
+				failures++
+				delay = retryDelay(failures, interval, d.config.BackoffMax, d.config.RetryJitter)
+			}
+			timer.Reset(delay)
 		}
 	}
 }
@@ -376,20 +382,9 @@ func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.Age
 }
 
 func (d *Daemon) deliveryLoop(ctx context.Context, identity computerstate.Identity) {
-	ticker := time.NewTicker(d.config.DeliveryInterval)
-	defer ticker.Stop()
-	var retry retryGate
-	retry.record(d.config.Now(), d.dispatchDeliveries(ctx, identity), d.config.DeliveryInterval, d.config.BackoffMax, d.config.RetryJitter)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if retry.ready(d.config.Now()) {
-				retry.record(d.config.Now(), d.dispatchDeliveries(ctx, identity), d.config.DeliveryInterval, d.config.BackoffMax, d.config.RetryJitter)
-			}
-		}
-	}
+	d.periodicLoop(ctx, d.config.DeliveryInterval, func(ctx context.Context) bool {
+		return d.dispatchDeliveries(ctx, identity)
+	})
 }
 
 func (d *Daemon) dispatchDeliveries(ctx context.Context, identity computerstate.Identity) bool {
@@ -427,6 +422,9 @@ func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Ident
 	delivery := response.Msg.GetActiveDelivery()
 	launch := response.Msg.GetActiveLaunch()
 	if !validActiveDeliveryResponse(session.AgentID, delivery, run, launch) {
+		return false
+	}
+	if run != nil && !d.reconcileActiveMutations(ctx, session, delivery, run, launch) {
 		return false
 	}
 	if run == nil && len(response.Msg.GetDeliveries()) > 0 {
@@ -530,6 +528,40 @@ func (d *Daemon) claimRun(ctx context.Context, session computerstate.RuntimeSess
 		return nil
 	}
 	return launch
+}
+
+func (d *Daemon) reconcileActiveMutations(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) bool {
+	acceptHash := mutationHash("delivery.accept", delivery.GetId())
+	if !d.reconcilePendingMutation(ctx, "delivery.accept", delivery.GetId(), acceptHash, "", 0, nil) {
+		return false
+	}
+	if launch == nil || launch.GetHolderComputerId() != session.ComputerID || launch.GetHolderPlacementGeneration() != session.PlacementGeneration {
+		return true
+	}
+	expiresAt := launch.GetExpiresAt().AsTime()
+	claimHash := mutationHash("run.claim", run.GetId(), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
+	if !d.reconcilePendingMutation(ctx, "run.claim", run.GetId(), claimHash, launch.GetId(), launch.GetFence(), &expiresAt) {
+		return false
+	}
+	renewHash := mutationHash("run.renew", run.GetId(), launch.GetId(), fmt.Sprint(launch.GetFence()), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
+	return d.reconcilePendingMutation(ctx, "run.renew", launch.GetId(), renewHash, launch.GetId(), launch.GetFence(), &expiresAt)
+}
+
+func (d *Daemon) reconcilePendingMutation(ctx context.Context, operation, subjectID string, payloadHash [sha256.Size]byte, responseLaunchID string, responseFence uint64, responseExpiresAt *time.Time) bool {
+	attempts, err := d.config.State.MutationAttempts(ctx, operation, subjectID)
+	if err != nil {
+		return false
+	}
+	for _, attempt := range attempts {
+		if attempt.Status != "pending" {
+			continue
+		}
+		if attempt.PayloadHash != payloadHash {
+			return false
+		}
+		return d.config.State.CompleteMutation(ctx, attempt.RequestID, "succeeded", responseLaunchID, responseFence, responseExpiresAt, d.config.Now()) == nil
+	}
+	return true
 }
 
 func (d *Daemon) startWorker(parent context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) {
@@ -702,20 +734,7 @@ func (d *Daemon) renewRun(ctx context.Context, session computerstate.RuntimeSess
 }
 
 func (d *Daemon) outboxLoop(ctx context.Context) {
-	ticker := time.NewTicker(d.config.OutboxInterval)
-	defer ticker.Stop()
-	var retry retryGate
-	retry.record(d.config.Now(), d.dispatchOutbox(ctx), d.config.OutboxInterval, d.config.BackoffMax, d.config.RetryJitter)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if retry.ready(d.config.Now()) {
-				retry.record(d.config.Now(), d.dispatchOutbox(ctx), d.config.OutboxInterval, d.config.BackoffMax, d.config.RetryJitter)
-			}
-		}
-	}
+	d.periodicLoop(ctx, d.config.OutboxInterval, d.dispatchOutbox)
 }
 
 func (d *Daemon) dispatchOutbox(ctx context.Context) bool {
@@ -853,7 +872,14 @@ func validActiveDeliveryResponse(agentID string, delivery *deliveryv1.Delivery, 
 		delivery.GetState() != deliveryv1.DeliveryState_DELIVERY_STATE_ACCEPTED || !validRun(run, delivery.GetId(), agentID) {
 		return false
 	}
-	return launch == nil || validLaunchFacts(launch, run.GetId(), agentID)
+	switch run.GetState() {
+	case deliveryv1.RunState_RUN_STATE_ACCEPTED:
+		return launch == nil
+	case deliveryv1.RunState_RUN_STATE_RUNNING:
+		return validLaunchFacts(launch, run.GetId(), agentID)
+	default:
+		return false
+	}
 }
 
 func validRun(run *deliveryv1.Run, deliveryID, agentID string) bool {
@@ -966,21 +992,6 @@ func setDaemonDefaults(config *DaemonConfig) {
 			return time.Duration(rand.Int64N(int64(window) + 1))
 		}
 	}
-}
-
-func (r *retryGate) ready(now time.Time) bool {
-	return r.next.IsZero() || !now.Before(r.next)
-}
-
-func (r *retryGate) record(now time.Time, succeeded bool, base, maximum time.Duration, jitter func(time.Duration) time.Duration) {
-	if succeeded {
-		r.failures = 0
-		r.next = time.Time{}
-		return
-	}
-	r.failures++
-	delay := retryDelay(r.failures, base, maximum, jitter)
-	r.next = now.Add(delay)
 }
 
 func retryDelay(failures uint, base, maximum time.Duration, jitter func(time.Duration) time.Duration) time.Duration {

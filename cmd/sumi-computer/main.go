@@ -46,6 +46,7 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	dataRoot := flags.String("data-root", defaultRoot, "Computer data root")
 	keyFile := flags.String("registration-key-file", filepath.Join(defaultRoot, "computer.key"), "0600 registration key file")
 	pairingTokenFile := flags.String("pairing-token-file", "", "0600 pairing token file, or - for stdin")
+	resetPairingAttempt := flags.Bool("reset-pairing-attempt", false, "Replace a definitively invalid unpaired attempt using a new --pairing-token-file")
 	name := flags.String("name", hostname, "Computer display name")
 	once := flags.Bool("once", false, "Register and synchronize pending assignments once")
 	if err := flags.Parse(args); err != nil {
@@ -73,13 +74,33 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 		ServerURL: *serverURL, DataRoot: *dataRoot, RegistrationKey: key, Name: *name,
 		OS: osName, Arch: arch, State: state,
 	})
-	if found && *pairingTokenFile != "" {
+	if found && (*pairingTokenFile != "" || *resetPairingAttempt) {
 		return errors.New("paired computer does not accept another pairing token")
 	}
 	if !found {
 		attempt, attemptFound, err := state.PairingAttempt(ctx)
 		if err != nil {
 			return err
+		}
+		if *resetPairingAttempt {
+			if !attemptFound {
+				return errors.New("pairing attempt not found")
+			}
+			if *pairingTokenFile == "" {
+				return errors.New("pairing token file is required to reset the pairing attempt")
+			}
+			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
+			if err != nil {
+				return err
+			}
+			recovered, err := host.ReplacePairingAttempt(ctx, token, *name, osName, arch, time.Now())
+			if err != nil {
+				return err
+			}
+			if recovered {
+				return errors.New("existing computer identity recovered; replacement pairing token was not used")
+			}
+			return nil
 		}
 		if attemptFound && *pairingTokenFile != "" {
 			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)

@@ -87,12 +87,16 @@ func TestPairOnceReplaysPersistedAttemptAfterCommittedResponseIsLost(t *testing.
 	if _, err := first.PairOnce(context.Background()); err == nil || strings.Contains(err.Error(), token) || strings.Contains(err.Error(), attempt.RegistrationKey) {
 		t.Fatalf("lost response error = %v", err)
 	}
-	replayed, err := New(Config{ServerURL: api.http.URL, DataRoot: computerRoot, State: state, HTTPClient: api.http.Client()}).PairOnce(context.Background())
-	if err != nil {
-		t.Fatal(err)
+	replacementToken := testRuntimeToken(13)
+	recovered, err := New(Config{ServerURL: api.http.URL, DataRoot: computerRoot, State: state, HTTPClient: api.http.Client()}).ReplacePairingAttempt(
+		context.Background(), replacementToken, "replacement must not run",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_AMD64, time.Now(),
+	)
+	if err != nil || !recovered {
+		t.Fatalf("replace request after committed response loss = recovered %v, %v", recovered, err)
 	}
 	identity, found, err := state.Identity(context.Background())
-	if err != nil || !found || identity.ComputerID != replayed || identity.RegistrationKey != attempt.RegistrationKey {
+	if err != nil || !found || identity.ComputerID == "" || identity.RegistrationKey != attempt.RegistrationKey {
 		t.Fatalf("identity = %+v, %v, %v", identity, found, err)
 	}
 	if _, found, err := state.PairingAttempt(context.Background()); err != nil || found {
@@ -101,6 +105,36 @@ func TestPairOnceReplaysPersistedAttemptAfterCommittedResponseIsLost(t *testing.
 	computers, err := api.ownerComputers.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
 	if err != nil || len(computers.Msg.GetComputers()) != 1 {
 		t.Fatalf("computers = %v, %v", len(computers.Msg.GetComputers()), err)
+	}
+}
+
+func TestReplacePairingAttemptKeepsOldAttemptOnUnavailable(t *testing.T) {
+	computerRoot := filepath.Join(t.TempDir(), "computer")
+	state, err := computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	oldToken := testRuntimeToken(14)
+	if err := preparePairing(context.Background(), state, "http://127.0.0.1:1", oldToken, "offline host",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS, computerv1.Architecture_ARCHITECTURE_ARM64,
+		time.Now(), bytes.NewReader(bytes.Repeat([]byte{20}, 32))); err != nil {
+		t.Fatal(err)
+	}
+	expected, found, err := state.PairingAttempt(context.Background())
+	if err != nil || !found {
+		t.Fatalf("pairing attempt = %+v, %v, %v", expected, found, err)
+	}
+	recovered, err := New(Config{ServerURL: expected.ServerURL, DataRoot: computerRoot, State: state}).ReplacePairingAttempt(
+		context.Background(), testRuntimeToken(15), "new host",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_AMD64, time.Now(),
+	)
+	if err == nil || recovered {
+		t.Fatalf("offline replacement = recovered %v, %v", recovered, err)
+	}
+	actual, found, err := state.PairingAttempt(context.Background())
+	if err != nil || !found || actual != expected {
+		t.Fatalf("pairing attempt after unavailable = %+v, %v, %v", actual, found, err)
 	}
 }
 

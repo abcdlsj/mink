@@ -370,9 +370,11 @@ func TestDaemonHeartbeatBackoffRecoversWhileSnapshotIsBlocked(t *testing.T) {
 		t.Fatalf("heartbeat attempts = %d, want recovered bounded polling", len(attempts))
 	}
 	minimumGaps := []time.Duration{7 * time.Millisecond, 15 * time.Millisecond, 30 * time.Millisecond}
+	maximumGaps := []time.Duration{12 * time.Millisecond, 19 * time.Millisecond, 38 * time.Millisecond}
 	for index, minimum := range minimumGaps {
-		if gap := attempts[index+1].Sub(attempts[index]); gap < minimum {
-			t.Fatalf("heartbeat retry gap %d = %s, want >= %s", index+1, gap, minimum)
+		gap := attempts[index+1].Sub(attempts[index])
+		if gap < minimum || gap > maximumGaps[index] {
+			t.Fatalf("heartbeat retry gap %d = %s, want [%s, %s]", index+1, gap, minimum, maximumGaps[index])
 		}
 	}
 }
@@ -472,6 +474,134 @@ func TestDaemonMutationJournalReplaysAcrossRestartAndAdvancesRenewRequest(t *tes
 	}
 	if len(unauthenticatedRequests) != 2 || unauthenticatedRequests[0] != unauthenticatedRequests[1] {
 		t.Fatalf("unauthenticated request ids = %v", unauthenticatedRequests)
+	}
+}
+
+func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer func() { _ = fixture.state.Close() }()
+	now := time.Now()
+	agentID := uuid.NewString()
+	deliveryID := uuid.NewString()
+	runID := uuid.NewString()
+	oldLaunchID := uuid.NewString()
+	session := computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 2,
+		Token: testRuntimeToken(26), ExpiresAt: now.Add(time.Minute), UpdatedAt: now,
+	}
+	if err := fixture.state.SaveRuntimeSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	acceptAttempt, err := fixture.state.BeginMutation(context.Background(), computerstate.MutationAttempt{
+		Operation: "delivery.accept", SubjectID: deliveryID, PayloadHash: mutationHash("delivery.accept", deliveryID), CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimAttempt, err := fixture.state.BeginMutation(context.Background(), computerstate.MutationAttempt{
+		Operation: "run.claim", SubjectID: runID,
+		PayloadHash: mutationHash("run.claim", runID, session.ComputerID, "2"), RunID: runID, CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewAttempt, err := fixture.state.BeginMutation(context.Background(), computerstate.MutationAttempt{
+		Operation: "run.renew", SubjectID: oldLaunchID,
+		PayloadHash: mutationHash("run.renew", runID, oldLaunchID, "4", session.ComputerID, "2"),
+		RunID:       runID, LaunchID: oldLaunchID, Fence: 4, CreatedAt: now.Add(-time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopenDaemonState(t, &fixture)
+	restartFixtureDaemon(&fixture)
+	oldLaunch := testLaunch(oldLaunchID, runID, agentID, session.ComputerID, 2, 4, now.Add(-time.Second))
+	fixture.deliveries.list = func(*connect.Request[deliveryv1.ListDeliveriesRequest]) (*deliveryv1.ListDeliveriesResponse, error) {
+		return &deliveryv1.ListDeliveriesResponse{
+			ActiveDelivery: activeDelivery(deliveryID, agentID),
+			ActiveRun:      activeRun(runID, deliveryID, agentID),
+			ActiveLaunch:   oldLaunch,
+		}, nil
+	}
+	var newClaimRequestID string
+	newLaunchID := uuid.NewString()
+	fixture.deliveries.claim = func(request *connect.Request[deliveryv1.ClaimRunRequest]) (*deliveryv1.RunLaunch, error) {
+		newClaimRequestID = request.Msg.GetRequestId()
+		return testLaunch(newLaunchID, runID, agentID, session.ComputerID, 2, 5, now.Add(time.Minute)), nil
+	}
+	fixture.daemon.config.Executor = blockingExecutor{}
+	if !fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
+		t.Fatal("dispatch after restart failed")
+	}
+	if newClaimRequestID == "" || newClaimRequestID == claimAttempt.RequestID {
+		t.Fatalf("new claim request id = %q, old = %q", newClaimRequestID, claimAttempt.RequestID)
+	}
+	for _, check := range []struct {
+		operation string
+		subject   string
+		requestID string
+	}{
+		{"delivery.accept", deliveryID, acceptAttempt.RequestID},
+		{"run.claim", runID, claimAttempt.RequestID},
+		{"run.renew", oldLaunchID, renewAttempt.RequestID},
+	} {
+		attempts, err := fixture.state.MutationAttempts(context.Background(), check.operation, check.subject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status := mutationStatus(attempts, check.requestID); status != "succeeded" {
+			t.Fatalf("%s %s status = %q, attempts=%+v", check.operation, check.requestID, status, attempts)
+		}
+	}
+	claimAttempts, err := fixture.state.MutationAttempts(context.Background(), "run.claim", runID)
+	if err != nil || mutationStatus(claimAttempts, newClaimRequestID) != "succeeded" {
+		t.Fatalf("new claim attempts = %+v, %v", claimAttempts, err)
+	}
+	fixture.daemon.stopAllWorkers()
+	fixture.daemon.workersWG.Wait()
+}
+
+func TestDaemonRejectsImpossibleActiveRunLaunchCombinations(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  deliveryv1.RunState
+		launch bool
+	}{
+		{name: "accepted with launch", state: deliveryv1.RunState_RUN_STATE_ACCEPTED, launch: true},
+		{name: "running without launch", state: deliveryv1.RunState_RUN_STATE_RUNNING},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newDaemonFixture(t)
+			defer fixture.state.Close()
+			agentID := uuid.NewString()
+			deliveryID := uuid.NewString()
+			runID := uuid.NewString()
+			session := computerstate.RuntimeSession{
+				AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+				Token: testRuntimeToken(27), ExpiresAt: time.Now().Add(time.Minute), UpdatedAt: time.Now(),
+			}
+			executor := &countingExecutor{}
+			fixture.daemon.config.Executor = executor
+			fixture.deliveries.list = func(*connect.Request[deliveryv1.ListDeliveriesRequest]) (*deliveryv1.ListDeliveriesResponse, error) {
+				response := &deliveryv1.ListDeliveriesResponse{
+					ActiveDelivery: activeDelivery(deliveryID, agentID),
+					ActiveRun: &deliveryv1.Run{
+						Id: runID, DeliveryId: deliveryID, AgentId: agentID, State: test.state,
+					},
+				}
+				if test.launch {
+					response.ActiveLaunch = testLaunch(uuid.NewString(), runID, agentID, session.ComputerID, 1, 1, time.Now().Add(time.Minute))
+				}
+				return response, nil
+			}
+			if fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
+				t.Fatal("impossible active facts reported success")
+			}
+			if fixture.deliveries.claimCount() != 0 || executor.count() != 0 {
+				t.Fatalf("invalid facts activity: claim=%d execute=%d", fixture.deliveries.claimCount(), executor.count())
+			}
+		})
 	}
 }
 
@@ -895,6 +1025,24 @@ func (cancelCompletionExecutor) Execute(ctx context.Context, _ Execution) (Compl
 	return Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: "must not persist"}, nil
 }
 
+type countingExecutor struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (e *countingExecutor) Execute(context.Context, Execution) (Completion, error) {
+	e.mu.Lock()
+	e.calls++
+	e.mu.Unlock()
+	return Completion{}, errors.New("unexpected execution")
+}
+
+func (e *countingExecutor) count() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls
+}
+
 func activePlacement(agentID, computerID string, generation uint64) *placementv1.AgentPlacement {
 	return &placementv1.AgentPlacement{
 		AgentId: agentID, ComputerId: computerID, Generation: generation,
@@ -956,8 +1104,27 @@ func reopenDaemonState(t *testing.T, fixture *daemonFixture) {
 	fixture.daemon.config.State = state
 }
 
+func restartFixtureDaemon(fixture *daemonFixture) {
+	daemon := NewDaemon(fixture.daemon.config)
+	daemon.computers = fixture.computers
+	daemon.placements = fixture.placements
+	daemon.runtimes = fixture.runtimes
+	daemon.inbox = fixture.inbox
+	daemon.deliveries = fixture.deliveries
+	fixture.daemon = daemon
+}
+
 func sameCompleteRequest(left, right *deliveryv1.CompleteRunRequest) bool {
 	return proto.Equal(left, right)
+}
+
+func mutationStatus(attempts []computerstate.MutationAttempt, requestID string) string {
+	for _, attempt := range attempts {
+		if attempt.RequestID == requestID {
+			return attempt.Status
+		}
+	}
+	return ""
 }
 
 func bearer(value string) string {

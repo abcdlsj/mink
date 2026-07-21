@@ -95,7 +95,7 @@ func (h *Host) PairOnce(ctx context.Context) (string, error) {
 		PairingToken:    attempt.PairingToken,
 	}))
 	if err != nil {
-		return "", fmt.Errorf("pair computer: %s", connect.CodeOf(err))
+		return "", connect.NewError(connect.CodeOf(err), errors.New("pair computer request failed"))
 	}
 	computer := response.Msg.GetComputer()
 	if computer == nil || computer.GetCreatedAt() == nil || computer.GetCreatedAt().CheckValid() != nil {
@@ -108,6 +108,44 @@ func (h *Host) PairOnce(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("persist paired computer identity: %w", err)
 	}
 	return computer.GetId(), nil
+}
+
+func (h *Host) ReplacePairingAttempt(ctx context.Context, pairingToken, name string, operatingSystem computerv1.OperatingSystem, architecture computerv1.Architecture, now time.Time) (bool, error) {
+	if h.config.State == nil {
+		return false, errors.New("computer state is required for pairing replacement")
+	}
+	attempt, found, err := h.config.State.PairingAttempt(ctx)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, errors.New("pairing attempt not found")
+	}
+	if !canonicalSecret(pairingToken) || pairingToken == attempt.PairingToken {
+		return false, errors.New("replacement pairing token is invalid")
+	}
+	if _, err := h.PairOnce(ctx); err == nil {
+		return true, nil
+	} else if connect.CodeOf(err) != connect.CodeInvalidArgument {
+		return false, errors.New("pairing attempt replacement requires a definitive invalid or expired Server response")
+	}
+	osName, archName, err := platformNames(operatingSystem, architecture)
+	if err != nil {
+		return false, err
+	}
+	registrationKey, err := randomSecret(rand.Reader)
+	if err != nil {
+		return false, err
+	}
+	replacement := computerstate.PairingAttempt{
+		ServerURL: attempt.ServerURL, PairingToken: pairingToken, RequestID: uuid.NewString(), RegistrationKey: registrationKey,
+		Name: name, OS: osName, Arch: archName, CreatedAt: now,
+	}
+	if err := h.config.State.ReplacePairingAttempt(ctx, attempt, replacement); err != nil {
+		return false, err
+	}
+	_, err = h.PairOnce(ctx)
+	return false, err
 }
 
 func readSecureFile(path, kind string) ([]byte, error) {
