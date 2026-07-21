@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package sumi.artifact.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sumi/grant/v1/grant.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1;artifactv1";
+
+service ArtifactService {
+  rpc PublishArtifact(stream PublishArtifactRequest) returns (PublishArtifactResponse);
+  rpc GetArtifact(GetArtifactRequest) returns (GetArtifactResponse);
+  rpc ListArtifacts(ListArtifactsRequest) returns (ListArtifactsResponse);
+  rpc GrantArtifact(GrantArtifactRequest) returns (GrantArtifactResponse);
+  rpc RevokeArtifactGrant(RevokeArtifactGrantRequest) returns (RevokeArtifactGrantResponse);
+  rpc FetchArtifact(FetchArtifactRequest) returns (stream FetchArtifactResponse);
+}
+
+enum ArtifactIntegrityState {
+  ARTIFACT_INTEGRITY_STATE_UNSPECIFIED = 0;
+  ARTIFACT_INTEGRITY_STATE_READY = 1;
+  ARTIFACT_INTEGRITY_STATE_MISSING = 2;
+  ARTIFACT_INTEGRITY_STATE_CORRUPT = 3;
+}
+
+enum ArtifactCapability {
+  ARTIFACT_CAPABILITY_UNSPECIFIED = 0;
+  ARTIFACT_CAPABILITY_READ = 1;
+  ARTIFACT_CAPABILITY_MANAGE = 2;
+}
+
+message Artifact {
+  string id = 1;
+  string organization_id = 2;
+  string owning_work_id = 3;
+  bool owning_work_restricted = 4;
+  string name = 5;
+  string media_type = 6;
+  sumi.grant.v1.Principal creator = 7;
+  google.protobuf.Timestamp created_at = 8;
+}
+
+message ArtifactVersion {
+  string artifact_id = 1;
+  string organization_id = 2;
+  uint64 version = 3;
+  bytes digest = 4;
+  int64 size = 5;
+  ArtifactIntegrityState integrity_state = 6;
+  string summary = 7;
+  sumi.grant.v1.Principal author = 8;
+  google.protobuf.Timestamp created_at = 9;
+  ArtifactExecution execution = 10;
+  repeated ArtifactSource sources = 11;
+}
+
+message ArtifactView {
+  Artifact artifact = 1;
+  ArtifactVersion version = 2;
+}
+
+message ArtifactExecution {
+  bool restricted = 1;
+  string delivery_id = 2;
+  string run_id = 3;
+  string launch_id = 4;
+  string agent_id = 5;
+  string computer_id = 6;
+  uint64 placement_generation = 7;
+  uint64 fence = 8;
+}
+
+message ArtifactSource {
+  bool restricted = 1;
+  oneof source {
+    string message_id = 2;
+    ArtifactVersionRef artifact_version = 3;
+  }
+}
+
+message ArtifactVersionRef {
+  string artifact_id = 1;
+  uint64 version = 2;
+}
+
+message ArtifactGrant {
+  string id = 1;
+  string artifact_id = 2;
+  string organization_id = 3;
+  ArtifactGrantTarget target = 4;
+  reserved 5;
+  ArtifactCapability capability = 6;
+  sumi.grant.v1.Principal granted_by = 7;
+  google.protobuf.Timestamp granted_at = 8;
+  sumi.grant.v1.Principal revoked_by = 9;
+  google.protobuf.Timestamp revoked_at = 10;
+}
+
+message ArtifactGrantTarget {
+  oneof target {
+    string agent_id = 1;
+    string space_id = 2;
+    string work_id = 3;
+  }
+}
+
+message ArtifactExecutionInput {
+  string delivery_id = 1;
+  string run_id = 2;
+  string launch_id = 3;
+  uint64 fence = 4;
+}
+
+message ArtifactSourceInput {
+  oneof source {
+    string message_id = 1;
+    ArtifactVersionRef artifact_version = 2;
+  }
+}
+
+message PublishArtifactMetadata {
+  string request_id = 1;
+  string artifact_id = 2;
+  string owning_work_id = 3;
+  string name = 4;
+  string media_type = 5;
+  string summary = 6;
+  ArtifactExecutionInput execution = 7;
+  repeated ArtifactSourceInput sources = 8;
+  int64 declared_size = 9;
+  bytes declared_digest = 10;
+}
+
+message PublishArtifactRequest {
+  oneof payload {
+    PublishArtifactMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message PublishArtifactResponse {
+  Artifact artifact = 1;
+  ArtifactVersion version = 2;
+  google.protobuf.Timestamp committed_at = 3;
+}
+
+message GetArtifactRequest {
+  string artifact_id = 1;
+  uint64 version = 2;
+}
+
+message GetArtifactResponse {
+  ArtifactView view = 1;
+}
+
+message ListArtifactsRequest {
+  string owning_work_id = 1;
+  string after_artifact_id = 2;
+  uint32 limit = 3;
+}
+
+message ListArtifactsResponse {
+  repeated ArtifactView views = 1;
+  string next_artifact_id = 2;
+}
+
+message GrantArtifactRequest {
+  string request_id = 1;
+  string artifact_id = 2;
+  ArtifactGrantTarget target = 3;
+  reserved 4;
+  ArtifactCapability capability = 5;
+}
+
+message GrantArtifactResponse {
+  ArtifactGrant grant = 1;
+}
+
+message RevokeArtifactGrantRequest {
+  string request_id = 1;
+  string grant_id = 2;
+}
+
+message RevokeArtifactGrantResponse {
+  ArtifactGrant grant = 1;
+}
+
+message FetchArtifactRequest {
+  string artifact_id = 1;
+  uint64 version = 2;
+}
+
+message FetchArtifactMetadata {
+  ArtifactView view = 1;
+}
+
+message FetchArtifactResponse {
+  oneof payload {
+    FetchArtifactMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}

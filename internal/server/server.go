@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
@@ -19,6 +20,8 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
 	"github.com/abcdlsj/sumi/internal/agent"
+	"github.com/abcdlsj/sumi/internal/artifact"
+	"github.com/abcdlsj/sumi/internal/artifactblob"
 	"github.com/abcdlsj/sumi/internal/audit"
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/collaboration"
@@ -82,6 +85,20 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		database.Close()
 		return nil, err
 	}
+	blobs, err := artifactblob.OpenLocal(layout.Artifacts)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	artifacts, err := store.NewArtifactStore(database, blobs, store.ArtifactMaxBlobSize)
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	if _, err := artifacts.Reconcile(ctx, time.Now()); err != nil {
+		database.Close()
+		return nil, err
+	}
 
 	mux := http.NewServeMux()
 	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
@@ -122,6 +139,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
 	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
 	mux.Handle(deliveryPath, deliveryHandler)
+	artifactPath, artifactHandler := artifactv1connect.NewArtifactServiceHandler(artifact.New(artifacts, database, config.BrowserOrigin))
+	mux.Handle(artifactPath, artifactHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
 	mux.Handle(organizationPath, organizationHandler)
 	grantPath, grantHandler := grantv1connect.NewGrantServiceHandler(grant.New(database), authorization)

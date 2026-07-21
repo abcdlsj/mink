@@ -116,6 +116,70 @@ func TestArtifactHumanPublishVersionsReplayFetchAndRestart(t *testing.T) {
 	}
 }
 
+func TestArtifactPublishDeclaredContentMismatchAndReplayConflict(t *testing.T) {
+	t.Run("mismatch leaves only a reconcilable orphan", func(t *testing.T) {
+		fixture := openArtifactFixture(t)
+		content := []byte("declared artifact body")
+		wrongDigest := sha256.Sum256([]byte("different body"))
+		size := int64(len(content))
+		params := fixture.humanPublishParams(uuid.NewString(), string(content), fixture.at(1))
+		params.ExpectedDigest = &wrongDigest
+		params.ExpectedSize = &size
+		if _, err := fixture.artifacts.Publish(context.Background(), params); !errors.Is(err, ErrArtifactIntegrity) {
+			t.Fatalf("declared digest mismatch = %v", err)
+		}
+		assertArtifactFactCounts(t, fixture.database, 0, 0, 0)
+		var committedAudits int
+		if err := fixture.database.db.QueryRow(`
+			SELECT count(*) FROM audit_events
+			WHERE action = 'artifact.publish' AND outcome = 'committed'
+		`).Scan(&committedAudits); err != nil {
+			t.Fatal(err)
+		}
+		if committedAudits != 0 {
+			t.Fatalf("declared mismatch committed audits = %d", committedAudits)
+		}
+		reconciled, err := fixture.artifacts.Reconcile(context.Background(), fixture.at(2))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reconciled.Quarantined != 1 {
+			t.Fatalf("declared mismatch orphan reconcile = %+v", reconciled)
+		}
+	})
+
+	t.Run("replay fingerprints declaration and computed content", func(t *testing.T) {
+		fixture := openArtifactFixture(t)
+		content := []byte("fingerprinted artifact")
+		digest := sha256.Sum256(content)
+		size := int64(len(content))
+		params := fixture.humanPublishParams(uuid.NewString(), string(content), fixture.at(1))
+		params.ExpectedDigest = &digest
+		params.ExpectedSize = &size
+		first, err := fixture.artifacts.Publish(context.Background(), params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		params.Content = bytes.NewReader(content)
+		replayed, err := fixture.artifacts.Publish(context.Background(), params)
+		if err != nil || replayed.Artifact.ID != first.Artifact.ID || replayed.Version.Version != first.Version.Version {
+			t.Fatalf("declared replay = %+v, %v", replayed, err)
+		}
+		changedDigest := sha256.Sum256([]byte("changed declaration"))
+		params.ExpectedDigest = &changedDigest
+		params.Content = bytes.NewReader(content)
+		if _, err := fixture.artifacts.Publish(context.Background(), params); !errors.Is(err, ErrArtifactRequestConflict) {
+			t.Fatalf("changed declaration replay = %v", err)
+		}
+		params.ExpectedDigest = &digest
+		params.Content = strings.NewReader("changed artifact body")
+		if _, err := fixture.artifacts.Publish(context.Background(), params); !errors.Is(err, ErrArtifactRequestConflict) {
+			t.Fatalf("changed content replay = %v", err)
+		}
+		assertArtifactFactCounts(t, fixture.database, 1, 1, 1)
+	})
+}
+
 func TestArtifactDomainGrantsAndRestrictedSources(t *testing.T) {
 	fixture := openArtifactFixture(t)
 	upstream, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "upstream body", fixture.at(1)))

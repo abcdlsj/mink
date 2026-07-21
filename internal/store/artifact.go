@@ -128,6 +128,8 @@ type PublishArtifactParams struct {
 	Summary        string
 	Execution      *ArtifactExecutionInput
 	Sources        []ArtifactSourceInput
+	ExpectedDigest *[sha256.Size]byte
+	ExpectedSize   *int64
 	Content        io.Reader
 	Now            time.Time
 }
@@ -182,16 +184,18 @@ func (s *ArtifactStore) Publish(ctx context.Context, params PublishArtifactParam
 		return PublishArtifactResult{}, ErrArtifactBlobUnavailable
 	}
 	fingerprint, err := artifactFingerprint(struct {
-		ArtifactID   string                  `json:"artifact_id"`
-		OwningWorkID string                  `json:"owning_work_id"`
-		Name         string                  `json:"name"`
-		MediaType    string                  `json:"media_type"`
-		Summary      string                  `json:"summary"`
-		Execution    *ArtifactExecutionInput `json:"execution,omitempty"`
-		Sources      []ArtifactSourceInput   `json:"sources,omitempty"`
-		Digest       [sha256.Size]byte       `json:"digest"`
-		Size         int64                   `json:"size"`
-	}{params.ArtifactID, params.OwningWorkID, params.Name, params.MediaType, params.Summary, params.Execution, params.Sources, digest, size})
+		ArtifactID     string                  `json:"artifact_id"`
+		OwningWorkID   string                  `json:"owning_work_id"`
+		Name           string                  `json:"name"`
+		MediaType      string                  `json:"media_type"`
+		Summary        string                  `json:"summary"`
+		Execution      *ArtifactExecutionInput `json:"execution,omitempty"`
+		Sources        []ArtifactSourceInput   `json:"sources,omitempty"`
+		ExpectedDigest *[sha256.Size]byte      `json:"expected_digest,omitempty"`
+		ExpectedSize   *int64                  `json:"expected_size,omitempty"`
+		Digest         [sha256.Size]byte       `json:"digest"`
+		Size           int64                   `json:"size"`
+	}{params.ArtifactID, params.OwningWorkID, params.Name, params.MediaType, params.Summary, params.Execution, params.Sources, params.ExpectedDigest, params.ExpectedSize, digest, size})
 	if err != nil {
 		return PublishArtifactResult{}, err
 	}
@@ -208,6 +212,9 @@ func (s *ArtifactStore) Publish(ctx context.Context, params PublishArtifactParam
 		return PublishArtifactResult{}, err
 	} else if found {
 		return commitArtifactPublishReplay(ctx, tx, receipt)
+	}
+	if params.ExpectedDigest != nil && (*params.ExpectedDigest != digest || *params.ExpectedSize != size) {
+		return PublishArtifactResult{}, ErrArtifactIntegrity
 	}
 
 	artifact, creating, err := loadPublishArtifact(ctx, tx, actor.OrganizationID, params)
@@ -455,6 +462,12 @@ func validatePublishArtifactParams(params PublishArtifactParams) error {
 		if _, err := uuid.Parse(params.ArtifactID); err != nil {
 			return ErrArtifactInvalid
 		}
+	}
+	if (params.ExpectedDigest == nil) != (params.ExpectedSize == nil) {
+		return ErrArtifactInvalid
+	}
+	if params.ExpectedSize != nil && (*params.ExpectedSize < 0 || *params.ExpectedSize > ArtifactMaxBlobSize) {
+		return ErrArtifactInvalid
 	}
 	if !validArtifactText(params.Name, 255) || !validArtifactText(params.MediaType, 255) || !validArtifactText(params.Summary, 20000) || len(params.Sources) > 100 {
 		return ErrArtifactInvalid
