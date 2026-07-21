@@ -50,6 +50,13 @@ func TestLocalPutOpenStreamsAndDeduplicates(t *testing.T) {
 	assertMode(t, local.quarantine, 0o700)
 	assertMode(t, directory, 0o700)
 	assertMode(t, path, 0o600)
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasSingleLink(info) {
+		t.Fatal("published artifact did not settle to one filesystem link")
+	}
 
 	content, err := local.Open(context.Background(), digest, size)
 	if err != nil {
@@ -62,6 +69,22 @@ func TestLocalPutOpenStreamsAndDeduplicates(t *testing.T) {
 	}
 	if !bytes.Equal(got, payload) {
 		t.Fatal("opened content differs")
+	}
+	reopened, err := OpenLocal(local.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedContent, err := reopened.Open(context.Background(), digest, size)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedPayload, err := io.ReadAll(restartedContent)
+	restartedContent.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(restartedPayload, payload) {
+		t.Fatal("restarted artifact content differs")
 	}
 }
 
@@ -129,6 +152,16 @@ func TestLocalOpenRejectsMissingSymlinkModeAndCorruption(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, path := local.objectPath(digest)
+	externalLink := filepath.Join(t.TempDir(), "external-link")
+	if err := os.Link(path, externalLink); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := local.Open(context.Background(), digest, size); !errors.Is(err, ErrBlobIntegrity) {
+		t.Fatalf("multiple-link open = %v", err)
+	}
+	if err := os.Remove(externalLink); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(path, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +195,38 @@ func TestLocalOpenRejectsMissingSymlinkModeAndCorruption(t *testing.T) {
 	}
 	if _, err := local.Open(context.Background(), digest, size); !errors.Is(err, ErrBlobMissing) {
 		t.Fatalf("missing open = %v", err)
+	}
+}
+
+func TestLocalReconcileQuarantinesMultipleLinkObject(t *testing.T) {
+	local := openTestLocal(t)
+	payload := []byte("linked artifact")
+	digest, size, err := local.Put(context.Background(), bytes.NewReader(payload), int64(len(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, path := local.objectPath(digest)
+	externalLink := filepath.Join(t.TempDir(), "external-link")
+	if err := os.Link(path, externalLink); err != nil {
+		t.Fatal(err)
+	}
+	states, quarantined, _, err := local.Reconcile(
+		context.Background(),
+		map[[sha256.Size]byte]int64{digest: size},
+		time.Date(2026, 7, 21, 16, 0, 0, 0, time.UTC),
+		24*time.Hour,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[digest] != string(IntegrityCorrupt) || quarantined != 1 {
+		t.Fatalf("multiple-link reconcile = %v/%d", states, quarantined)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("multiple-link canonical object remains: %v", err)
+	}
+	if content, err := os.ReadFile(externalLink); err != nil || !bytes.Equal(content, payload) {
+		t.Fatalf("external inode = %q, %v", content, err)
 	}
 }
 

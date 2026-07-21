@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -57,6 +58,11 @@ func OpenLocal(root string) (*Local, error) {
 			return nil, err
 		}
 	}
+	if same, err := sameFilesystem(local.staging, local.objects); err != nil {
+		return nil, err
+	} else if !same {
+		return nil, fmt.Errorf("artifact staging and objects must share a filesystem")
+	}
 	return local, nil
 }
 
@@ -73,6 +79,15 @@ func (l *Local) Put(ctx context.Context, source io.Reader, limit int64) ([sha256
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
 		return [sha256.Size]byte{}, 0, fmt.Errorf("secure artifact staging file: %w", err)
+	}
+	temporaryInfo, err := temporary.Stat()
+	if err != nil {
+		temporary.Close()
+		return [sha256.Size]byte{}, 0, fmt.Errorf("inspect artifact staging file: %w", err)
+	}
+	if !temporaryInfo.Mode().IsRegular() || temporaryInfo.Mode().Perm() != 0o600 || !hasSingleLink(temporaryInfo) {
+		temporary.Close()
+		return [sha256.Size]byte{}, 0, ErrBlobIntegrity
 	}
 
 	hash := sha256.New()
@@ -129,16 +144,20 @@ func (l *Local) Put(ctx context.Context, source io.Reader, limit int64) ([sha256
 	if err := syncDirectory(l.objects); err != nil {
 		return [sha256.Size]byte{}, 0, err
 	}
-	if err := verifyFile(path, digest, size); err == nil {
+	if err := verifyPublishedFile(ctx, path, digest, size); err == nil {
 		return digest, size, nil
 	} else if !errors.Is(err, ErrBlobMissing) {
 		return [sha256.Size]byte{}, 0, err
 	}
 	if err := os.Link(temporaryPath, path); err != nil {
-		if verifyErr := verifyFile(path, digest, size); verifyErr == nil {
+		if !errors.Is(err, os.ErrExist) {
+			return [sha256.Size]byte{}, 0, fmt.Errorf("publish artifact blob: %w", err)
+		}
+		verifyErr := verifyPublishedFile(ctx, path, digest, size)
+		if verifyErr == nil {
 			return digest, size, nil
 		}
-		return [sha256.Size]byte{}, 0, fmt.Errorf("publish artifact blob: %w", err)
+		return [sha256.Size]byte{}, 0, verifyErr
 	}
 	if err := os.Remove(temporaryPath); err != nil {
 		return [sha256.Size]byte{}, 0, fmt.Errorf("remove published artifact staging file: %w", err)
@@ -148,6 +167,13 @@ func (l *Local) Put(ctx context.Context, source io.Reader, limit int64) ([sha256
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		return [sha256.Size]byte{}, 0, fmt.Errorf("secure artifact blob: %w", err)
+	}
+	publishedInfo, err := os.Lstat(path)
+	if err != nil {
+		return [sha256.Size]byte{}, 0, fmt.Errorf("inspect published artifact blob: %w", err)
+	}
+	if !publishedInfo.Mode().IsRegular() || publishedInfo.Mode().Perm() != 0o600 || !hasSingleLink(publishedInfo) {
+		return [sha256.Size]byte{}, 0, ErrBlobIntegrity
 	}
 	if err := syncDirectory(directory); err != nil {
 		return [sha256.Size]byte{}, 0, err
@@ -328,7 +354,7 @@ func verifiedFile(ctx context.Context, path string, digest [sha256.Size]byte, si
 	if err != nil {
 		return nil, fmt.Errorf("inspect artifact blob: %w", err)
 	}
-	if linkInfo.Mode()&os.ModeSymlink != 0 || !linkInfo.Mode().IsRegular() || linkInfo.Mode().Perm() != 0o600 {
+	if linkInfo.Mode()&os.ModeSymlink != 0 || !linkInfo.Mode().IsRegular() || linkInfo.Mode().Perm() != 0o600 || !hasSingleLink(linkInfo) {
 		return nil, ErrBlobIntegrity
 	}
 	file, err := os.Open(path)
@@ -340,7 +366,7 @@ func verifiedFile(ctx context.Context, path string, digest [sha256.Size]byte, si
 		file.Close()
 		return nil, fmt.Errorf("inspect open artifact blob: %w", err)
 	}
-	if !os.SameFile(linkInfo, fileInfo) || !fileInfo.Mode().IsRegular() || fileInfo.Size() != size {
+	if !os.SameFile(linkInfo, fileInfo) || !fileInfo.Mode().IsRegular() || !hasSingleLink(fileInfo) || fileInfo.Size() != size {
 		file.Close()
 		return nil, ErrBlobIntegrity
 	}
@@ -403,4 +429,55 @@ func syncDirectory(path string) error {
 		return fmt.Errorf("sync artifact directory: %w", err)
 	}
 	return nil
+}
+
+func sameFilesystem(first, second string) (bool, error) {
+	firstInfo, err := os.Stat(first)
+	if err != nil {
+		return false, fmt.Errorf("inspect artifact filesystem: %w", err)
+	}
+	secondInfo, err := os.Stat(second)
+	if err != nil {
+		return false, fmt.Errorf("inspect artifact filesystem: %w", err)
+	}
+	firstStat, firstOK := firstInfo.Sys().(*syscall.Stat_t)
+	secondStat, secondOK := secondInfo.Sys().(*syscall.Stat_t)
+	if !firstOK || !secondOK {
+		return false, fmt.Errorf("artifact filesystem identity is unavailable")
+	}
+	return uint64(firstStat.Dev) == uint64(secondStat.Dev), nil
+}
+
+func hasSingleLink(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && uint64(stat.Nlink) == 1
+}
+
+func verifyPublishedFile(ctx context.Context, path string, digest [sha256.Size]byte, size int64) error {
+	timeout := time.NewTimer(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer timeout.Stop()
+	defer ticker.Stop()
+	for {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrBlobMissing
+		}
+		if err != nil {
+			return fmt.Errorf("inspect concurrently published artifact blob: %w", err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			return ErrBlobIntegrity
+		}
+		if hasSingleLink(info) {
+			return verifyFile(path, digest, size)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout.C:
+			return ErrBlobIntegrity
+		case <-ticker.C:
+		}
+	}
 }

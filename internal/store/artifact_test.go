@@ -169,6 +169,7 @@ func TestArtifactDomainGrantsAndRestrictedSources(t *testing.T) {
 	if !view.OwningWorkRestricted || view.OwningWorkID != "" || len(view.Version.Sources) != 2 || view.Version.Sources[0].Restricted || !view.Version.Sources[1].Restricted {
 		t.Fatalf("space-granted view = %+v", view)
 	}
+	assertArtifactReaderCannotManage(t, fixture, agentAuthentication, published.Artifact, fixture.at(6))
 	exactGrant, err := fixture.artifacts.Grant(context.Background(), GrantArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
 		ArtifactID: published.Artifact.ID, TargetKind: ArtifactGrantTargetAgent,
@@ -225,6 +226,7 @@ func TestArtifactDomainGrantsAndRestrictedSources(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("work-target read = %v", err)
 	}
+	assertArtifactReaderCannotManage(t, fixture, agentAuthentication, published.Artifact, fixture.at(16))
 	if _, err := fixture.artifacts.RevokeGrant(context.Background(), RevokeArtifactGrantParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
 		GrantID: workGrant.ID, Now: fixture.at(17),
@@ -276,10 +278,11 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.artifacts.Grant(context.Background(), GrantArtifactParams{
+	manageGrant, err := fixture.artifacts.Grant(context.Background(), GrantArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner}, ArtifactID: result.Artifact.ID,
 		TargetKind: ArtifactGrantTargetAgent, TargetID: fixture.agentID, Capability: ArtifactGrantManage, Now: fixture.at(8),
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	managed, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
@@ -290,6 +293,63 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	})
 	if err != nil || managed.Version.Version != 2 {
 		t.Fatalf("exact-agent manage append = %+v, %v", managed, err)
+	}
+	agentView, err := fixture.artifacts.Get(context.Background(), GetArtifactParams{
+		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, ArtifactID: result.Artifact.ID, Now: fixture.at(9),
+	})
+	if err != nil || agentView.Version.Execution == nil || agentView.Version.Execution.Restricted ||
+		agentView.Version.Execution.RunID != run.ID || agentView.Version.Execution.LaunchID != launch.ID {
+		t.Fatalf("current agent execution view = %+v, %v", agentView.Version.Execution, err)
+	}
+	runGrant, err := scanGrant(fixture.database.db.QueryRow(grantSelect+`
+		WHERE subject_kind = 'agent' AND subject_id = ? AND capability = ?
+		  AND scope_kind = 'agent' AND scope_id = ? AND revoked_at IS NULL
+	`, fixture.agentID, CapabilityRunExecute, fixture.agentID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: runGrant.ID, Now: fixture.at(10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agentView, err = fixture.artifacts.Get(context.Background(), GetArtifactParams{
+		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, ArtifactID: result.Artifact.ID, Now: fixture.at(10),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution := agentView.Version.Execution; execution == nil || !execution.Restricted || execution.DeliveryID != "" ||
+		execution.RunID != "" || execution.LaunchID != "" || execution.AgentID != "" || execution.ComputerID != "" ||
+		execution.PlacementGeneration != 0 || execution.Fence != 0 {
+		t.Fatalf("revoked run.execute leaked execution = %+v", execution)
+	}
+	listed, err := fixture.artifacts.List(context.Background(), ListArtifactsParams{
+		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, Now: fixture.at(10),
+	})
+	if err != nil || len(listed) != 1 || listed[0].Version.Execution == nil || !listed[0].Version.Execution.Restricted ||
+		listed[0].Version.Execution.RunID != "" || listed[0].Version.Execution.ComputerID != "" {
+		t.Fatalf("revoked run.execute list projection = %+v, %v", listed, err)
+	}
+	if _, err := fixture.artifacts.RevokeGrant(context.Background(), RevokeArtifactGrantParams{
+		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
+		GrantID: manageGrant.ID, Now: fixture.at(10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	beforeDeniedAppend := readArtifactMutationCounts(t, fixture.database, result.Artifact.ID)
+	if _, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
+		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Agent: fixture.authentication},
+		ArtifactID: result.Artifact.ID, OwningWorkID: fixture.work.ID, Name: result.Artifact.Name,
+		MediaType: result.Artifact.MediaType, Summary: "revoked exact-agent manage",
+		Content:   strings.NewReader("must not append"),
+		Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence},
+		Now:       fixture.at(10),
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("append after exact-agent manage revoke = %v", err)
+	}
+	if after := readArtifactMutationCounts(t, fixture.database, result.Artifact.ID); after != beforeDeniedAppend {
+		t.Fatalf("revoked manage changed artifact facts: before=%+v after=%+v", beforeDeniedAppend, after)
 	}
 	if _, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
@@ -800,6 +860,48 @@ func assertArtifactFactCounts(t *testing.T, database *Store, wantArtifacts, want
 		if count != want {
 			t.Fatalf("%s count = %d, want %d", table, count, want)
 		}
+	}
+}
+
+type artifactMutationCounts struct {
+	Versions     int
+	Receipts     int
+	ActiveGrants int
+}
+
+func readArtifactMutationCounts(t *testing.T, database *Store, artifactID string) artifactMutationCounts {
+	t.Helper()
+	var counts artifactMutationCounts
+	if err := database.db.QueryRow(`SELECT count(*) FROM artifact_versions WHERE artifact_id = ?`, artifactID).Scan(&counts.Versions); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM artifact_requests`).Scan(&counts.Receipts); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM artifact_grants WHERE artifact_id = ? AND revoked_at IS NULL`, artifactID).Scan(&counts.ActiveGrants); err != nil {
+		t.Fatal(err)
+	}
+	return counts
+}
+
+func assertArtifactReaderCannotManage(t *testing.T, fixture *artifactFixture, authentication ArtifactAuthentication, artifact Artifact, now time.Time) {
+	t.Helper()
+	before := readArtifactMutationCounts(t, fixture.database, artifact.ID)
+	if _, err := fixture.artifacts.Grant(context.Background(), GrantArtifactParams{
+		RequestID: uuid.NewString(), Authentication: authentication, ArtifactID: artifact.ID,
+		TargetKind: ArtifactGrantTargetAgent, TargetID: fixture.agentID, Capability: ArtifactGrantManage, Now: now,
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("reader artifact grant = %v", err)
+	}
+	if _, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
+		RequestID: uuid.NewString(), Authentication: authentication,
+		ArtifactID: artifact.ID, OwningWorkID: artifact.OwningWorkID, Name: artifact.Name, MediaType: artifact.MediaType,
+		Summary: "reader must not append", Content: strings.NewReader("must not persist"), Now: now,
+	}); !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("reader artifact append = %v", err)
+	}
+	if after := readArtifactMutationCounts(t, fixture.database, artifact.ID); after != before {
+		t.Fatalf("reader changed artifact facts: before=%+v after=%+v", before, after)
 	}
 }
 

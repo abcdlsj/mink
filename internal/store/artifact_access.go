@@ -268,7 +268,7 @@ func (s *ArtifactStore) Get(ctx context.Context, params GetArtifactParams) (Arti
 	if _, err := uuid.Parse(params.ArtifactID); err != nil || params.Now.IsZero() {
 		return ArtifactView{}, ErrArtifactInvalid
 	}
-	tx, actor, _, err := s.beginTransaction(ctx, params.Authentication, params.Now)
+	tx, actor, authentication, err := s.beginTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
 		return ArtifactView{}, err
 	}
@@ -297,7 +297,7 @@ func (s *ArtifactStore) Get(ctx context.Context, params GetArtifactParams) (Arti
 	if err != nil {
 		return ArtifactView{}, err
 	}
-	view, err := projectArtifactView(ctx, tx, actor, artifact, version, params.Now)
+	view, err := projectArtifactView(ctx, tx, actor, authentication, artifact, version, params.Now)
 	if err != nil {
 		return ArtifactView{}, err
 	}
@@ -311,7 +311,7 @@ func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) ([
 	if params.Now.IsZero() {
 		return nil, ErrArtifactInvalid
 	}
-	tx, actor, _, err := s.beginTransaction(ctx, params.Authentication, params.Now)
+	tx, actor, authentication, err := s.beginTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) ([
 		if err != nil {
 			return nil, err
 		}
-		view, err := projectArtifactView(ctx, tx, actor, artifact, version, params.Now)
+		view, err := projectArtifactView(ctx, tx, actor, authentication, artifact, version, params.Now)
 		if err != nil {
 			return nil, err
 		}
@@ -373,10 +373,7 @@ func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) ([
 }
 
 func (s *ArtifactStore) Fetch(ctx context.Context, params FetchArtifactParams) (FetchArtifactResult, error) {
-	view, err := s.Get(ctx, GetArtifactParams{
-		Authentication: params.Authentication, ArtifactID: params.ArtifactID,
-		Version: params.Version, Now: params.Now,
-	})
+	view, err := s.Get(ctx, GetArtifactParams(params))
 	if err != nil {
 		return FetchArtifactResult{}, err
 	}
@@ -447,7 +444,7 @@ func artifactReadAllowed(ctx context.Context, tx *sql.Tx, actor Principal, artif
 	return false, nil
 }
 
-func projectArtifactView(ctx context.Context, tx *sql.Tx, actor Principal, artifact Artifact, version ArtifactVersion, now time.Time) (ArtifactView, error) {
+func projectArtifactView(ctx context.Context, tx *sql.Tx, actor Principal, authentication AgentRuntimeAuthentication, artifact Artifact, version ArtifactVersion, now time.Time) (ArtifactView, error) {
 	view := ArtifactView{Artifact: artifact, Version: ArtifactVersionView{
 		ArtifactID: version.ArtifactID, OrganizationID: version.OrganizationID,
 		Version: version.Version, Digest: version.Digest, Size: version.Size,
@@ -463,7 +460,7 @@ func projectArtifactView(ctx context.Context, tx *sql.Tx, actor Principal, artif
 		view.OwningWorkRestricted = true
 	}
 	if version.Execution != nil {
-		visible, err := artifactExecutionReadable(ctx, tx, actor, *version.Execution, now)
+		visible, err := artifactExecutionReadable(ctx, tx, actor, authentication, *version.Execution, now)
 		if err != nil {
 			return ArtifactView{}, err
 		}
@@ -505,8 +502,45 @@ func projectArtifactView(ctx context.Context, tx *sql.Tx, actor Principal, artif
 	return view, nil
 }
 
-func artifactExecutionReadable(ctx context.Context, tx *sql.Tx, actor Principal, execution ArtifactExecution, now time.Time) (bool, error) {
-	if actor.Kind == "agent" && actor.ID == execution.AgentID {
+func artifactExecutionReadable(ctx context.Context, tx *sql.Tx, actor Principal, authentication AgentRuntimeAuthentication, execution ArtifactExecution, now time.Time) (bool, error) {
+	if actor.Kind == "agent" {
+		if actor.ID != execution.AgentID || !authentication.Valid() {
+			return false, nil
+		}
+		reason, err := requireGrant(ctx, tx, actor, CapabilityRunExecute, Scope{Kind: "agent", ID: actor.ID}, now, "")
+		if err != nil || reason != "" {
+			return false, err
+		}
+		run, err := requireOwnedRun(ctx, tx, actor.ID, execution.RunID)
+		if errors.Is(err, ErrRunNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if run.DeliveryID != execution.DeliveryID || run.State != RunStateRunning {
+			return false, nil
+		}
+		delivery, _, _, err := requireOwnedDelivery(ctx, tx, actor.ID, execution.DeliveryID)
+		if errors.Is(err, ErrDeliveryNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if delivery.State != DeliveryStateAccepted {
+			return false, nil
+		}
+		launch, found, err := currentRunLaunch(ctx, tx, run.ID)
+		if err != nil {
+			return false, err
+		}
+		if !found || launch.ID != execution.LaunchID || launch.Fence != execution.Fence ||
+			launch.HolderComputerID != execution.ComputerID ||
+			launch.HolderPlacementGeneration != execution.PlacementGeneration ||
+			!runLaunchHeldBy(launch, authentication.Proof) || !launch.ExpiresAt.After(now) {
+			return false, nil
+		}
 		return true, nil
 	}
 	reason, err := requireGrant(ctx, tx, actor, CapabilityAuditRead, Scope{Kind: "organization", ID: actor.OrganizationID}, now, "")
