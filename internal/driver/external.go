@@ -10,7 +10,7 @@ import (
 )
 
 type CommandRunner interface {
-	Run(context.Context, []byte, func([]byte) error) error
+	Run(context.Context, Command, []byte, func([]byte) error) error
 }
 
 type External struct {
@@ -37,7 +37,7 @@ func (d External) Execute(ctx context.Context, command Command, events EventSink
 		return TurnResult{}, fmt.Errorf("encode driver command: %w", err)
 	}
 	var result *TurnResult
-	err = d.Runner.Run(ctx, payload, func(line []byte) error {
+	err = d.Runner.Run(ctx, command, payload, func(line []byte) error {
 		message, err := parseWireLine(line)
 		if err != nil {
 			return err
@@ -123,7 +123,7 @@ type JSONLRunner struct {
 	Command func(context.Context, []byte) (string, error)
 }
 
-func (r JSONLRunner) Run(ctx context.Context, input []byte, emit func([]byte) error) error {
+func (r JSONLRunner) Run(ctx context.Context, _ Command, input []byte, emit func([]byte) error) error {
 	if r.Command == nil {
 		return errors.New("jsonl command is required")
 	}

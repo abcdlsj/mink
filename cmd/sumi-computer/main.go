@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +25,8 @@ import (
 	"github.com/abcdlsj/sumi/internal/driver"
 	"github.com/abcdlsj/sumi/internal/driverexec"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/sandbox"
+	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 )
 
 func main() {
@@ -56,7 +59,7 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	name := flags.String("name", hostname, "Computer display name")
 	once := flags.Bool("once", false, "Register and synchronize pending assignments once")
 	var externalArgs []string
-	var externalEnv []string
+	var externalSecrets []sandbox.SecretEnvironmentVariable
 	externalDriver := flags.String("external-driver", "", "External driver kind: codex or claude")
 	externalExecutable := flags.String("external-executable", "", "Absolute external driver executable path")
 	externalHostPolicy := flags.String("external-host-policy", "", "Required host policy for external driver runs")
@@ -67,8 +70,12 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 		externalArgs = append(externalArgs, value)
 		return nil
 	})
-	flags.Func("external-env", "Explicit external driver KEY=VALUE environment entry; repeat to add more", func(value string) error {
-		externalEnv = append(externalEnv, value)
+	flags.Func("external-secret", "External driver ENV_NAME=computer.environment:KEY reference; repeat to add more", func(value string) error {
+		secret, err := parseExternalSecret(value)
+		if err != nil {
+			return err
+		}
+		externalSecrets = append(externalSecrets, secret)
 		return nil
 	})
 	if err := flags.Parse(args); err != nil {
@@ -80,7 +87,7 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	externalConfigured := false
 	flags.Visit(func(flag *flag.Flag) {
 		switch flag.Name {
-		case "external-driver", "external-executable", "external-host-policy", "external-timeout", "external-termination-grace", "external-output-limit", "external-arg", "external-env":
+		case "external-driver", "external-executable", "external-host-policy", "external-timeout", "external-termination-grace", "external-output-limit", "external-arg", "external-secret":
 			externalConfigured = true
 		}
 	})
@@ -200,9 +207,9 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 		log.Printf("Computer %s synchronized %d assignments", result.ComputerID, result.Assignments)
 		return nil
 	}
-	executor, err := externalExecutor(*serverURL, externalRuntimeConfig{
+	executor, err := externalExecutor(*serverURL, *dataRoot, externalRuntimeConfig{
 		enabled: externalConfigured,
-		driver:  *externalDriver, executable: *externalExecutable, args: externalArgs, environment: externalEnv,
+		driver:  *externalDriver, executable: *externalExecutable, args: externalArgs, secrets: externalSecrets,
 		hostPolicy: *externalHostPolicy, timeout: *externalTimeout, terminationGrace: *externalTerminationGrace,
 		outputLimit: *externalOutputLimit,
 	})
@@ -223,15 +230,26 @@ type externalRuntimeConfig struct {
 	driver           string
 	executable       string
 	args             []string
-	environment      []string
+	secrets          []sandbox.SecretEnvironmentVariable
 	hostPolicy       string
 	timeout          time.Duration
 	terminationGrace time.Duration
 	outputLimit      int64
 }
 
-func externalExecutor(serverURL string, config externalRuntimeConfig) (*driverexec.ComputerExecutor, error) {
-	return newExternalExecutor(config, func(ctx context.Context, agentID string) (driver.Kind, error) {
+func externalExecutor(serverURL, dataRoot string, config externalRuntimeConfig) (*driverexec.ComputerExecutor, error) {
+	if !config.enabled {
+		return nil, nil
+	}
+	kind := driver.Kind(config.driver)
+	if (kind != driver.KindCodex && kind != driver.KindClaude) || config.executable == "" || config.hostPolicy == "" {
+		return nil, errors.New("external driver, executable, and host policy must be configured together")
+	}
+	provider, err := trustedlocal.New(trustedlocal.Config{ScratchRoot: dataRoot, GracePeriod: config.terminationGrace})
+	if err != nil {
+		return nil, err
+	}
+	return newExternalExecutor(config, provider, func(ctx context.Context, agentID string) (driver.Kind, error) {
 		client := agentv1connect.NewAgentServiceClient(http.DefaultClient, serverURL)
 		response, err := client.GetAgent(ctx, connect.NewRequest(&agentv1.GetAgentRequest{AgentId: agentID}))
 		if err != nil || response == nil || response.Msg == nil || response.Msg.GetAgent() == nil {
@@ -250,7 +268,7 @@ func externalExecutor(serverURL string, config externalRuntimeConfig) (*driverex
 	})
 }
 
-func newExternalExecutor(config externalRuntimeConfig, resolve driverexec.AgentDriverResolver) (*driverexec.ComputerExecutor, error) {
+func newExternalExecutor(config externalRuntimeConfig, provider sandbox.Provider, resolve driverexec.AgentDriverResolver) (*driverexec.ComputerExecutor, error) {
 	if !config.enabled {
 		return nil, nil
 	}
@@ -259,7 +277,7 @@ func newExternalExecutor(config externalRuntimeConfig, resolve driverexec.AgentD
 		return nil, errors.New("external driver, executable, and host policy must be configured together")
 	}
 	runner := driver.ProcessRunner{
-		Path: config.executable, Args: config.args, Env: config.environment, Timeout: config.timeout,
+		Path: config.executable, Args: config.args, Secrets: config.secrets, Provider: provider, Timeout: config.timeout,
 		TerminationGrace: config.terminationGrace, MaxOutputBytes: config.outputLimit,
 	}
 	if err := runner.Validate(); err != nil {
@@ -267,6 +285,16 @@ func newExternalExecutor(config externalRuntimeConfig, resolve driverexec.AgentD
 	}
 	engine := driver.External{Kind: kind, Runner: runner}
 	return driverexec.NewComputerExecutor(kind, engine, config.hostPolicy, resolve)
+}
+
+func parseExternalSecret(value string) (sandbox.SecretEnvironmentVariable, error) {
+	name, reference, found := strings.Cut(value, "=")
+	source, key, sourceFound := strings.Cut(reference, ":")
+	if !found || !sourceFound || name == "" || key == "" || source != trustedlocal.SecretSourceComputerEnvironment ||
+		strings.ContainsAny(name, "=\x00") || strings.ContainsAny(key, "=\x00") {
+		return sandbox.SecretEnvironmentVariable{}, errors.New("external driver secret reference is invalid")
+	}
+	return sandbox.SecretEnvironmentVariable{Name: name, Ref: sandbox.SecretRef{Source: source, Key: key}}, nil
 }
 
 func platform(goos, goarch string) (computerv1.OperatingSystem, computerv1.Architecture, error) {

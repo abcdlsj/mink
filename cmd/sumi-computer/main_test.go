@@ -19,6 +19,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/computerhost"
 	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/driver"
+	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -396,26 +397,29 @@ func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.
 	resolve := func(context.Context, string) (driver.Kind, error) {
 		return driver.KindCodex, nil
 	}
-	if executor, err := newExternalExecutor(externalRuntimeConfig{}, resolve); err != nil || executor != nil {
+	provider, err := trustedlocal.New(trustedlocal.Config{ScratchRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executor, err := newExternalExecutor(externalRuntimeConfig{}, provider, resolve); err != nil || executor != nil {
 		t.Fatalf("unconfigured executor = %v, %v", executor, err)
 	}
 	valid := externalRuntimeConfig{
 		enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local",
-		environment: []string{"SUMI_EXTERNAL_TEST=1"}, timeout: time.Second, terminationGrace: time.Second, outputLimit: 1024,
+		timeout: time.Second, terminationGrace: time.Second, outputLimit: 1024,
 	}
 	invalid := []externalRuntimeConfig{
 		{enabled: true, driver: string(driver.KindCodex)},
 		{enabled: true, driver: string(driver.KindNative), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
 		{enabled: true, driver: string(driver.KindCodex), executable: "relative", hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
-		{enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local", environment: []string{"A=1", "A=2"}, timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
 		{enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second},
 	}
 	for _, config := range invalid {
-		if executor, err := newExternalExecutor(config, resolve); err == nil || executor != nil {
+		if executor, err := newExternalExecutor(config, provider, resolve); err == nil || executor != nil {
 			t.Fatalf("invalid executor = %v, %v for %+v", executor, err, config)
 		}
 	}
-	executor, err := newExternalExecutor(valid, resolve)
+	executor, err := newExternalExecutor(valid, provider, resolve)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,5 +427,17 @@ func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.
 	eligible, err := executor.Eligible(context.Background(), "agent-1")
 	if err != nil || !eligible {
 		t.Fatalf("eligible = %t, %v", eligible, err)
+	}
+}
+
+func TestParseExternalSecretRejectsRawValues(t *testing.T) {
+	secret, err := parseExternalSecret("SUMI_TOKEN=computer.environment:DRIVER_TOKEN")
+	if err != nil || secret.Name != "SUMI_TOKEN" || secret.Ref.Source != trustedlocal.SecretSourceComputerEnvironment || secret.Ref.Key != "DRIVER_TOKEN" {
+		t.Fatalf("secret = %+v, %v", secret, err)
+	}
+	for _, value := range []string{"SUMI_TOKEN=value", "SUMI_TOKEN=other:DRIVER_TOKEN", "SUMI_TOKEN=computer.environment:", "=computer.environment:DRIVER_TOKEN"} {
+		if _, err := parseExternalSecret(value); err == nil {
+			t.Fatalf("invalid secret reference %q was accepted", value)
+		}
 	}
 }
