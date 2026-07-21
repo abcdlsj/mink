@@ -28,6 +28,10 @@ const (
 	CapabilityMessageSend       = "message.send"
 	CapabilityRunExecute        = "run.execute"
 	CapabilityComputerPair      = "computer.pair"
+	CapabilityWorkCreate        = "work.create"
+	CapabilityWorkRead          = "work.read"
+	CapabilityWorkManage        = "work.manage"
+	CapabilityWorkApprove       = "work.approve"
 )
 
 type Organization struct {
