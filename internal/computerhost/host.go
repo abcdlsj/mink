@@ -60,11 +60,16 @@ func (h *Host) SyncOnce(ctx context.Context) (SyncResult, error) {
 	if hasIdentity {
 		registrationKey = identity.RegistrationKey
 	}
+	sandboxCapability, err := TrustedLocalSandboxCapability()
+	if err != nil {
+		return SyncResult{}, err
+	}
 	registered, err := h.computers.RegisterComputer(ctx, connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: registrationKey,
-		Name:            h.config.Name,
-		Os:              h.config.OS,
-		Arch:            h.config.Arch,
+		RegistrationKey:   registrationKey,
+		Name:              h.config.Name,
+		Os:                h.config.OS,
+		Arch:              h.config.Arch,
+		SandboxCapability: sandboxCapability,
 	}))
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("register computer: %w", err)

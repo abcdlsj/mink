@@ -132,6 +132,17 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 	}
 }
 
+func TestDaemonHeartbeatDeclaresTrustedLocalCapability(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	if !fixture.daemon.heartbeat(context.Background(), fixture.identity) {
+		t.Fatal("heartbeat failed")
+	}
+	if capability := fixture.computers.sandboxCapability(); !proto.Equal(capability, mustTrustedLocalSandboxCapability(t)) {
+		t.Fatalf("heartbeat sandbox capability = %+v", capability)
+	}
+}
+
 func drainSignals(signals <-chan struct{}) {
 	for {
 		select {
@@ -391,6 +402,44 @@ func TestReconcileActiveMutationsRefreshesRunningWorkerLease(t *testing.T) {
 		return len(fixture.daemon.workers) == 0
 	})
 	fixture.daemon.workersWG.Wait()
+}
+
+func TestExecutionBindsCurrentComputerAndRejectsStalePlacement(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	executor := newExecutionCaptureExecutor()
+	fixture.daemon.config.Executor = executor
+	agentID := uuid.NewString()
+	session := computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 3,
+	}
+	deliveryID := uuid.NewString()
+	runID := uuid.NewString()
+	fixture.daemon.startWorker(context.Background(), session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID),
+		testLaunch(uuid.NewString(), runID, agentID, session.ComputerID, 3, 7, time.Now().Add(time.Minute)))
+	select {
+	case execution := <-executor.executions:
+		if execution.ComputerID != session.ComputerID || execution.AgentID != agentID || execution.PlacementGeneration != 3 || execution.Fence != 7 {
+			t.Fatalf("execution binding = %+v", execution)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("executor did not receive current binding")
+	}
+	fixture.daemon.workersWG.Wait()
+
+	for _, launch := range []*deliveryv1.RunLaunch{
+		testLaunch(uuid.NewString(), uuid.NewString(), agentID, uuid.NewString(), 3, 8, time.Now().Add(time.Minute)),
+		testLaunch(uuid.NewString(), uuid.NewString(), agentID, session.ComputerID, 2, 9, time.Now().Add(time.Minute)),
+	} {
+		deliveryID := uuid.NewString()
+		runID := launch.GetRunId()
+		fixture.daemon.startWorker(context.Background(), session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID), launch)
+	}
+	select {
+	case execution := <-executor.executions:
+		t.Fatalf("stale binding executed = %+v", execution)
+	case <-time.After(50 * time.Millisecond):
+	}
 }
 
 func TestExecutorCompletionCreatesDurableOutbox(t *testing.T) {
@@ -978,13 +1027,15 @@ type stubComputerClient struct {
 	mu         sync.Mutex
 	heartbeats int
 	heartbeat  func(int) error
+	capability *computerv1.SandboxCapability
 }
 
-func (s *stubComputerClient) HeartbeatComputer(context.Context, *connect.Request[computerv1.HeartbeatComputerRequest]) (*connect.Response[computerv1.HeartbeatComputerResponse], error) {
+func (s *stubComputerClient) HeartbeatComputer(_ context.Context, request *connect.Request[computerv1.HeartbeatComputerRequest]) (*connect.Response[computerv1.HeartbeatComputerResponse], error) {
 	s.mu.Lock()
 	s.heartbeats++
 	count := s.heartbeats
 	heartbeat := s.heartbeat
+	s.capability = proto.Clone(request.Msg.GetSandboxCapability()).(*computerv1.SandboxCapability)
 	s.mu.Unlock()
 	if heartbeat != nil {
 		if err := heartbeat(count); err != nil {
@@ -992,6 +1043,12 @@ func (s *stubComputerClient) HeartbeatComputer(context.Context, *connect.Request
 		}
 	}
 	return connect.NewResponse(&computerv1.HeartbeatComputerResponse{}), nil
+}
+
+func (s *stubComputerClient) sandboxCapability() *computerv1.SandboxCapability {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return proto.Clone(s.capability).(*computerv1.SandboxCapability)
 }
 
 func (s *stubComputerClient) count() int {
@@ -1191,6 +1248,19 @@ type blockingCountingExecutor struct {
 	mu      sync.Mutex
 	calls   int
 	once    sync.Once
+}
+
+type executionCaptureExecutor struct {
+	executions chan Execution
+}
+
+func newExecutionCaptureExecutor() *executionCaptureExecutor {
+	return &executionCaptureExecutor{executions: make(chan Execution, 3)}
+}
+
+func (e *executionCaptureExecutor) Execute(_ context.Context, execution Execution) (Completion, error) {
+	e.executions <- execution
+	return Completion{}, errors.New("captured execution")
 }
 
 func newBlockingCountingExecutor() *blockingCountingExecutor {

@@ -20,6 +20,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -89,6 +90,7 @@ func TestOncePairsFromPrivateTokenFileAndPersistsIdentity(t *testing.T) {
 	if err != nil || len(computers.Msg.GetComputers()) != 1 || computers.Msg.GetComputers()[0].GetId() != identity.ComputerID {
 		t.Fatalf("computers = %+v, %v", computers.Msg.GetComputers(), err)
 	}
+	assertTrustedLocalCapability(t, computers.Msg.GetComputers()[0])
 	restartArgs := []string{"--once", "--server", httpServer.URL, "--data-root", computerRoot, "--name", "Paired host"}
 	if err := runContext(context.Background(), restartArgs, bytes.NewReader(nil)); err != nil {
 		t.Fatalf("paired restart: %v", err)
@@ -171,6 +173,7 @@ func TestResetExpiredUnconsumedPairingAttemptUsesNewTokenWithoutOldHandoffFile(t
 	if err != nil || len(computers.Msg.GetComputers()) != 1 {
 		t.Fatalf("computers after reset and re-pair = %+v, %v", computers.Msg.GetComputers(), err)
 	}
+	assertTrustedLocalCapability(t, computers.Msg.GetComputers()[0])
 }
 
 func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing.T) {
@@ -222,6 +225,7 @@ func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing
 	if _, err := public.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
 		RegistrationKey: attempt.RegistrationKey, Name: attempt.Name, Os: osName, Arch: arch,
 		RequestId: attempt.RequestID, PairingToken: attempt.PairingToken,
+		SandboxCapability: mustTrustedLocalSandboxCapability(t),
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -261,6 +265,7 @@ func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing
 	if err != nil || len(computers.Msg.GetComputers()) != 1 || computers.Msg.GetComputers()[0].GetId() != identity.ComputerID {
 		t.Fatalf("computers after consumed reset request = %+v, %v", computers.Msg.GetComputers(), err)
 	}
+	assertTrustedLocalCapability(t, computers.Msg.GetComputers()[0])
 }
 
 func TestOnceImportsLegacyKeyFileAndThenUsesPersistedIdentity(t *testing.T) {
@@ -336,6 +341,27 @@ func TestOnceImportsLegacyKeyFileAndThenUsesPersistedIdentity(t *testing.T) {
 	if err := run(args); err != nil {
 		t.Fatalf("restart without legacy key file: %v", err)
 	}
+	computers, err := owner.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
+	if err != nil || len(computers.Msg.GetComputers()) != 1 || computers.Msg.GetComputers()[0].GetId() != identity.ComputerID {
+		t.Fatalf("computers after legacy recovery = %+v, %v", computers.Msg.GetComputers(), err)
+	}
+	assertTrustedLocalCapability(t, computers.Msg.GetComputers()[0])
+}
+
+func assertTrustedLocalCapability(t *testing.T, computer *computerv1.Computer) {
+	t.Helper()
+	if !proto.Equal(computer.GetSandboxCapability(), mustTrustedLocalSandboxCapability(t)) {
+		t.Fatalf("computer sandbox capability = %+v", computer.GetSandboxCapability())
+	}
+}
+
+func mustTrustedLocalSandboxCapability(t *testing.T) *computerv1.SandboxCapability {
+	t.Helper()
+	capability, err := computerhost.TrustedLocalSandboxCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return capability
 }
 
 func TestPlatform(t *testing.T) {

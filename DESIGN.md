@@ -121,6 +121,12 @@ trusted local provider 直接在长期 Workspace 上执行，不能阻止恶意�
 
 Computer 的 Sandbox capability 是经该 Computer credential 认证的当前自声明，不是 Server 认证能力、Grant 或 Placement authority。声明只能是全 `UNSPECIFIED` 的 `unknown`，或完整的 trusted-local tuple：direct read-write Workspace、context-bound process group、无 Host filesystem/network isolation、environment Secret materialization、无 daemon crash cleanup；partial 或矛盾声明 fail closed。历史 Computer 迁移为 `unknown`，Get/List 只返回 Server 当前保存的声明与单调 declaration revision。每次合法 Register、recover 或 heartbeat 在同一 SQLite transaction 内按提交顺序产生下一 revision；revision 定义的是 Server 接收并提交声明的 total order，不声称按客户端发起时间或墙钟阻止迟到请求后提交。Pairing 的首次 capability/revision 另存 receipt，lost-response replay 即使当前声明后来变化也返回首次快照，改变 pairing request 中的声明会冲突。
 
+当前 trusted-local provider 只接受完整的 Agent、Computer、Delivery、Run、Launch、placement generation 与 fence binding、真实 `0700` Workspace、绝对命令和显式环境。每次启动产生仅本机存在的随机 runtime ID 与独立 `0700` scratch；子进程不继承 Computer ambient environment，临时 HOME/TMP/XDG 都落在 scratch。daemon 存活时，取消、lease 到期或 placement 变化通过 Unix process group 执行 TERM、grace、KILL，并由内部 reaper 回收进程和 scratch；daemon 被 SIGKILL 后不承诺收容，scratch 也不构成 Host filesystem 或 network isolation。fence 仍只阻止旧 Run 写回，不能撤销 Host 副作用。
+
+Secret 只以 Execution 明确列出的 `SecretRef{source,key}` 与目标环境名存在；当前唯一 source 是 Computer process environment。provider 在 Start 前最后一刻逐项解析，不扫描或继承其他环境，缺失、非法、含 NUL 或超限值都在启动前 fail closed。raw Secret 不进入 proto、Server、Computer state、outbox、receipt、日志、错误或 scratch；启动后覆盖 Go slice 与 command environment 引用只是 best effort，不能宣称清除了 Go string 或阻止同用户 Host 进程观察 child environment。
+
+C2 只实现 provider 与绑定合同，并在 `Execution` 中携带 current Computer ID；production `sumi-computer` 的 Executor 仍为 nil，因此不会 Observe、Accept、Claim 或执行 Run。Driver 到命令、provider 与 Completion 的 adapter 属于 C3，不能由 capability 声明暗示已经启用。
+
 trusted-local 的 `daemon-crash-cleanup=none` 是真实限制：daemon 存活时可以在 cancel、lease 失效、Placement 迁移或正常停止时收口进程与临时状态；daemon 被 `SIGKILL` 或 Host crash 后不保证收容遗留进程。Run fence 只阻止旧 Launch 向 Server 提交结果，不能终止 Host 进程，也不能撤销已经发生的网络或文件副作用。
 
 ## 5. 自主协作

@@ -33,6 +33,7 @@ type Executor interface {
 
 type Execution struct {
 	AgentID             string
+	ComputerID          string
 	DeliveryID          string
 	RunID               string
 	LaunchID            string
@@ -219,10 +220,15 @@ func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, opera
 }
 
 func (d *Daemon) heartbeat(ctx context.Context, identity computerstate.Identity) bool {
+	sandboxCapability, err := TrustedLocalSandboxCapability()
+	if err != nil {
+		return false
+	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	defer cancel()
-	_, err := d.computers.HeartbeatComputer(rpcCtx, connect.NewRequest(&computerv1.HeartbeatComputerRequest{
+	_, err = d.computers.HeartbeatComputer(rpcCtx, connect.NewRequest(&computerv1.HeartbeatComputerRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
+		SandboxCapability: sandboxCapability,
 	}))
 	return err == nil
 }
@@ -591,6 +597,9 @@ func (d *Daemon) reconcilePendingMutation(ctx context.Context, operation, subjec
 }
 
 func (d *Daemon) startWorker(parent context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) {
+	if !validLaunch(launch, run.GetId(), session.AgentID, session.ComputerID, session.PlacementGeneration) {
+		return
+	}
 	events, err := d.config.State.Outbox(parent)
 	if err != nil {
 		return
@@ -635,7 +644,7 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 	}, 1)
 	go func() {
 		completion, executeErr := d.config.Executor.Execute(ctx, Execution{
-			AgentID: session.AgentID, DeliveryID: delivery.GetId(), RunID: run.GetId(),
+			AgentID: session.AgentID, ComputerID: session.ComputerID, DeliveryID: delivery.GetId(), RunID: run.GetId(),
 			LaunchID: launch.GetId(), Fence: launch.GetFence(), PlacementGeneration: session.PlacementGeneration,
 			Workspace: workspacePath,
 		})

@@ -25,6 +25,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -56,6 +57,10 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	}
 	if result.ComputerID != computerID || result.Assignments != 1 || result.Active != 1 || result.Failed != 0 {
 		t.Fatalf("sync result = %+v", result)
+	}
+	computers, err := api.ownerComputers.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
+	if err != nil || len(computers.Msg.GetComputers()) != 1 || !proto.Equal(computers.Msg.GetComputers()[0].GetSandboxCapability(), mustTrustedLocalSandboxCapability(t)) {
+		t.Fatalf("registered sandbox declaration = %+v, %v", computers.Msg.GetComputers(), err)
 	}
 	assertWorkspaceState(t, workspacePath, marker)
 	placement := getHostPlacement(t, api, agentID)
@@ -100,6 +105,15 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	assertWorkspaceState(t, workspacePath, marker)
 	api.close(t)
 	assertServerFilesExcludePath(t, serverRoot, computerRoot)
+}
+
+func mustTrustedLocalSandboxCapability(t *testing.T) *computerv1.SandboxCapability {
+	t.Helper()
+	capability, err := TrustedLocalSandboxCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return capability
 }
 
 func TestSyncOnceAcknowledgesStableProvisionFailure(t *testing.T) {
