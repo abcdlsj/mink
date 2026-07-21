@@ -26,6 +26,7 @@ import (
 func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 	fixture := newDaemonFixture(t)
 	defer fixture.state.Close()
+	fixture.daemon.config.RPCDeadline = 5 * time.Second
 	now := time.Now()
 	executionAgent := uuid.NewString()
 	outboxAgent := uuid.NewString()
@@ -61,8 +62,13 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 			ActiveLaunch:   launch,
 		}, nil
 	}
+	renewed := make(chan struct{}, 16)
 	fixture.deliveries.renew = func(request *connect.Request[deliveryv1.RenewRunRequest]) (*deliveryv1.RunLaunch, error) {
 		fixture.deliveries.incrementRenew()
+		select {
+		case renewed <- struct{}{}:
+		default:
+		}
 		return &deliveryv1.RunLaunch{
 			Id: request.Msg.GetLaunchId(), RunId: request.Msg.GetRunId(), AgentId: executionAgent,
 			HolderComputerId: fixture.identity.ComputerID, HolderPlacementGeneration: 1,
@@ -70,16 +76,25 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 			ExpiresAt: timestamppb.New(time.Now().Add(500 * time.Millisecond)),
 		}, nil
 	}
-	completeStarted := make(chan struct{}, 1)
-	fixture.deliveries.complete = func(ctx context.Context, request *connect.Request[deliveryv1.CompleteRunRequest]) (*deliveryv1.CompleteRunResponse, error) {
+	heartbeat := make(chan struct{}, 32)
+	fixture.computers.heartbeat = func(int) error {
 		select {
-		case completeStarted <- struct{}{}:
+		case heartbeat <- struct{}{}:
 		default:
 		}
+		return nil
+	}
+	completeStarted := make(chan struct{})
+	releaseComplete := make(chan struct{})
+	completeFinished := make(chan struct{}, 1)
+	var startOnce sync.Once
+	fixture.deliveries.complete = func(ctx context.Context, request *connect.Request[deliveryv1.CompleteRunRequest]) (*deliveryv1.CompleteRunResponse, error) {
+		startOnce.Do(func() { close(completeStarted) })
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(150 * time.Millisecond):
+		case <-releaseComplete:
+			completeFinished <- struct{}{}
 			return canonicalCompleteResponse(request.Msg, outboxAgent), nil
 		}
 	}
@@ -99,16 +114,43 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("outbox Complete did not start")
 	}
-	time.Sleep(100 * time.Millisecond)
-	if heartbeats := fixture.computers.count(); heartbeats < 5 {
-		t.Fatalf("heartbeats during slow Complete = %d, want >= 5", heartbeats)
+	drainSignals(heartbeat)
+	drainSignals(renewed)
+	waitForSignals(t, heartbeat, 3, time.Second, "heartbeats during blocked Complete")
+	waitForSignals(t, renewed, 3, time.Second, "Run renews during blocked Complete")
+	select {
+	case <-completeFinished:
+		t.Fatal("Complete returned before the test released it")
+	default:
 	}
-	if renews := fixture.deliveries.renewCount(); renews < 3 {
-		t.Fatalf("Run renews during slow Complete = %d, want >= 3", renews)
-	}
+	close(releaseComplete)
+	waitForSignals(t, completeFinished, 1, time.Second, "released Complete")
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func drainSignals(signals <-chan struct{}) {
+	for {
+		select {
+		case <-signals:
+		default:
+			return
+		}
+	}
+}
+
+func waitForSignals(t *testing.T, signals <-chan struct{}, count int, timeout time.Duration, description string) {
+	t.Helper()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for received := 0; received < count; received++ {
+		select {
+		case <-signals:
+		case <-timer.C:
+			t.Fatalf("timed out waiting for %s: received %d, want %d", description, received, count)
+		}
 	}
 }
 
