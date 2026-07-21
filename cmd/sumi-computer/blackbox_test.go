@@ -119,11 +119,15 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	idB, keyB := pairComputerProcess(t, binary, httpServer.URL, rootB, computerOwner, "computer-b")
 	computerA := startComputerDaemon(t, binary, proxy.URL, rootA)
 	computerB := startComputerDaemon(t, binary, httpServer.URL, rootB)
-	defer stopComputer(t, computerB, syscall.SIGTERM)
 
 	waitForBlackbox(t, 15*time.Second, func() bool {
 		return blackboxComputerSeen(t, computerPublic, idA)
 	})
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxComputerSeen(t, computerPublic, idB)
+	})
+	stopComputer(t, computerB, syscall.SIGKILL)
+	computerB = startComputerDaemon(t, binary, httpServer.URL, rootB)
 	waitForBlackbox(t, 15*time.Second, func() bool {
 		return blackboxComputerSeen(t, computerPublic, idB)
 	})
@@ -178,6 +182,11 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	if lastSeen := blackboxComputerLastSeen(t, computerPublic, idA); lastSeen.After(beforePartition.Add(8 * time.Second)) {
 		t.Fatalf("Computer A heartbeat advanced during partition: before=%v after=%v", beforePartition, lastSeen)
 	}
+	proxy.Offline.Store(false)
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxComputerLastSeen(t, computerPublic, idA).After(beforePartition)
+	})
+	proxy.Offline.Store(true)
 	stopComputer(t, computerA, syscall.SIGKILL)
 
 	if _, err := placementClient.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
