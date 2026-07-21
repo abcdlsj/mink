@@ -435,6 +435,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - `sumi-computer` pairing 成功后的 identity 已由持久 State 作为唯一后续来源；删除不会被读取的本地 registration key 回写，保留 legacy key import 的实际使用路径，消除静态检查噪声而不改变 pairing 或 daemon 合同。
 - `driverexec` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
 - Computer Host 只会把 `ObserveTarget` 返回的唯一精确 trigger 交给 Executor：Delivery 的 target、space、message ID 和 target sequence 必须同时匹配，body 必须是非空、合法且在 Driver 预算内的 UTF-8。缺失、重复、target 不一致或超预算 trigger 会在 Accept、Claim 与 worker/process 之前 fail closed；accepted Run 使用 Server 固化的 basis sequence，重启恢复也重新取得同一权威 trigger。该边界仅补齐 C3 的事实输入，不选择 Driver 或启动 External runtime。
+- External Driver 的本地进程 runner 只接受绝对、可执行的 argv 文件和显式、无重复的环境，不继承 Computer ambient environment，也不经过 shell。它要求 timeout、TERM→KILL grace 和 stdout/stderr 总量上限；超量、取消、超时或子进程失败都不给出可完成 Run 的结果。stdout 仅按受限 JSONL 逐行交给 External adapter，只有 adapter 验证后的唯一 typed result 才能映射为 Completion。该 runner 仍是 Driver 层能力，尚未由 production CLI 选择或启动。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
 - 已验证共用 codec、Inbox、Delivery 的 focused tests，以及三者 `-race -count=3`；全仓门禁仍受 Driver 队列测试死锁阻塞，尚未在本提交修复。
 - 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。
