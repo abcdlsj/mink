@@ -21,7 +21,7 @@ type command struct {
 }
 
 func main() {
-	if os.Getenv("SUMI_EXTERNAL_DRIVER") != "1" || os.Getenv("HOME") == "" {
+	if os.Getenv("SUMI_EXTERNAL_DRIVER") == "" || os.Getenv("HOME") == "" {
 		os.Exit(2)
 	}
 	input, err := io.ReadAll(os.Stdin)

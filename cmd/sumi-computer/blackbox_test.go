@@ -250,7 +250,8 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 	}
 	binary := buildComputerBinary(t)
 	externalDriver := buildExternalDriverBinary(t)
-	t.Setenv("SUMI_EXTERNAL_DRIVER", "1")
+	secret := "external-blackbox-secret"
+	t.Setenv("SUMI_EXTERNAL_DRIVER", secret)
 	serverRoot := t.TempDir()
 	app, err := server.New(context.Background(), server.Config{DataRoot: serverRoot})
 	if err != nil {
@@ -312,7 +313,7 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 
 	computerRoot := t.TempDir()
 	computerID, registrationKey := pairComputerProcess(t, binary, httpServer.URL, computerRoot, computerOwner, "external-computer")
-	startComputerDaemonWithArgs(t, binary, httpServer.URL, computerRoot,
+	computer := startComputerDaemonWithArgs(t, binary, httpServer.URL, computerRoot,
 		"--external-driver", "codex",
 		"--external-executable", externalDriver,
 		"--external-host-policy", "trusted local blackbox policy",
@@ -345,6 +346,8 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 		return blackboxMessageCount(t, serverRoot, "external blackbox completion") == 1
 	})
 	assertBlackboxCompletedDelivery(t, serverRoot, trigger.Msg.GetMessage().GetId())
+	stopComputer(t, computer, syscall.SIGTERM)
+	assertNoBlackboxSecret(t, serverRoot, computerRoot, secret, computer)
 }
 
 func TestExternalDriverFailureMatrixBlackbox(t *testing.T) {
@@ -449,6 +452,8 @@ type blackboxProxyStateServer struct {
 type blackboxComputerProcess struct {
 	command *exec.Cmd
 	done    chan error
+	stdout  *bytes.Buffer
+	stderr  *bytes.Buffer
 }
 
 func buildComputerBinary(t *testing.T) string {
@@ -519,12 +524,14 @@ func startComputerDaemonWithArgs(t *testing.T, binary, serverURL, root string, a
 	t.Helper()
 	args := append([]string{"--server", serverURL, "--data-root", root}, arguments...)
 	command := exec.Command(binary, args...)
-	command.Stdout = new(bytes.Buffer)
-	command.Stderr = new(bytes.Buffer)
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command.Stdout = stdout
+	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	process := &blackboxComputerProcess{command: command, done: make(chan error, 1)}
+	process := &blackboxComputerProcess{command: command, done: make(chan error, 1), stdout: stdout, stderr: stderr}
 	go func() { process.done <- command.Wait() }()
 	t.Cleanup(func() {
 		if command.Process != nil {
@@ -706,6 +713,31 @@ func assertBlackboxCompletedDelivery(t *testing.T, dataRoot, triggerMessageID st
 		WHERE deliveries.trigger_message_id = ?`, triggerMessageID).Scan(&deliveryState, &runState)
 	if err != nil || deliveryState != "completed" || runState != "completed" {
 		t.Fatalf("external delivery state = %q/%q, %v", deliveryState, runState, err)
+	}
+}
+
+func assertNoBlackboxSecret(t *testing.T, serverRoot, computerRoot, secret string, process *blackboxComputerProcess) {
+	t.Helper()
+	if process != nil && ((process.stdout != nil && bytes.Contains(process.stdout.Bytes(), []byte(secret))) || (process.stderr != nil && bytes.Contains(process.stderr.Bytes(), []byte(secret)))) {
+		t.Fatal("external secret appeared in Computer output")
+	}
+	database, err := sql.Open("sqlite", filepath.Join(serverRoot, "data", "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var messages int
+	if err := database.QueryRow(`SELECT count(*) FROM messages WHERE body LIKE ?`, "%"+secret+"%").Scan(&messages); err != nil || messages != 0 {
+		t.Fatalf("secret scan messages = %d, %v", messages, err)
+	}
+	computerDatabase, err := sql.Open("sqlite", filepath.Join(computerRoot, "data", "computer", "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer computerDatabase.Close()
+	var outbox int
+	if err := computerDatabase.QueryRow(`SELECT count(*) FROM outbox_events WHERE body LIKE ?`, "%"+secret+"%").Scan(&outbox); err != nil || outbox != 0 {
+		t.Fatalf("secret scan outbox = %d, %v", outbox, err)
 	}
 }
 
