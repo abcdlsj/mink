@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/sys/unix"
@@ -633,7 +634,7 @@ func (s *State) MutationAttempts(ctx context.Context, operation, subjectID strin
 }
 
 func (s *State) EnqueueOutbox(ctx context.Context, event OutboxEvent) error {
-	if !validID(event.OutboxEventID) || !validID(event.RequestID) || !validID(event.AgentID) || !validID(event.RunID) || !validID(event.LaunchID) || event.PlacementGeneration == 0 || event.Fence == 0 || (event.Outcome != "succeeded" && event.Outcome != "failed") || event.CreatedAt.IsZero() {
+	if !validID(event.OutboxEventID) || !validID(event.RequestID) || !validID(event.AgentID) || !validID(event.RunID) || !validID(event.LaunchID) || event.PlacementGeneration == 0 || event.Fence == 0 || (event.Outcome != "succeeded" && event.Outcome != "failed") || event.CreatedAt.IsZero() || !ValidCompletionPayload(event.Body, event.MentionedAgentIDs) {
 		return errors.New("outbox event is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -674,6 +675,33 @@ func (s *State) EnqueueOutbox(ctx context.Context, event OutboxEvent) error {
 		return fmt.Errorf("commit enqueue outbox: %w", err)
 	}
 	return s.secureSQLiteFiles()
+}
+
+const (
+	maxCompletionBodyRunes = 400_000
+	maxCompletionMentions  = 64
+)
+
+// ValidCompletionPayload mirrors the Server's durable completion input limits.
+func ValidCompletionPayload(body string, mentionedAgentIDs []string) bool {
+	if !utf8.ValidString(body) {
+		return false
+	}
+	runes := utf8.RuneCountInString(body)
+	if runes < 1 || runes > maxCompletionBodyRunes || len(mentionedAgentIDs) > maxCompletionMentions {
+		return false
+	}
+	seen := make(map[string]struct{}, len(mentionedAgentIDs))
+	for _, agentID := range mentionedAgentIDs {
+		if !validID(agentID) {
+			return false
+		}
+		if _, found := seen[agentID]; found {
+			return false
+		}
+		seen[agentID] = struct{}{}
+	}
+	return true
 }
 
 func outboxCollision(ctx context.Context, tx *sql.Tx, candidate OutboxEvent) (OutboxEvent, bool, error) {

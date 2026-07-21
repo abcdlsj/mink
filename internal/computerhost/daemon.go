@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -91,11 +92,12 @@ type deliveryDaemonClient interface {
 }
 
 type runWorker struct {
-	cancel     context.CancelFunc
-	agentID    string
-	generation uint64
-	launchID   string
-	fence      uint64
+	cancel      context.CancelFunc
+	agentID     string
+	generation  uint64
+	launchID    string
+	fence       uint64
+	leaseExpiry *atomic.Int64
 }
 
 type Daemon struct {
@@ -539,12 +541,32 @@ func (d *Daemon) reconcileActiveMutations(ctx context.Context, session computers
 		return true
 	}
 	expiresAt := launch.GetExpiresAt().AsTime()
+	d.updateWorkerLease(run.GetId(), launch.GetId(), launch.GetFence(), expiresAt)
 	claimHash := mutationHash("run.claim", run.GetId(), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
 	if !d.reconcilePendingMutation(ctx, "run.claim", claimSubject(run.GetId(), session), claimHash, launch.GetId(), launch.GetFence(), &expiresAt) {
 		return false
 	}
 	renewHash := mutationHash("run.renew", run.GetId(), launch.GetId(), fmt.Sprint(launch.GetFence()), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
 	return d.reconcilePendingMutation(ctx, "run.renew", launch.GetId(), renewHash, launch.GetId(), launch.GetFence(), &expiresAt)
+}
+
+func (d *Daemon) updateWorkerLease(runID, launchID string, fence uint64, expiresAt time.Time) {
+	if runID == "" || launchID == "" || fence == 0 || expiresAt.IsZero() {
+		return
+	}
+	d.workersMu.Lock()
+	defer d.workersMu.Unlock()
+	worker, found := d.workers[runID]
+	if !found || worker.launchID != launchID || worker.fence != fence || worker.leaseExpiry == nil {
+		return
+	}
+	newExpiry := expiresAt.UnixNano()
+	for {
+		current := worker.leaseExpiry.Load()
+		if newExpiry <= current || worker.leaseExpiry.CompareAndSwap(current, newExpiry) {
+			return
+		}
+	}
 }
 
 func claimSubject(runID string, session computerstate.RuntimeSession) string {
@@ -587,19 +609,21 @@ func (d *Daemon) startWorker(parent context.Context, session computerstate.Runti
 		existing.cancel()
 	}
 	ctx, cancel := context.WithCancel(parent)
+	leaseExpiry := &atomic.Int64{}
+	leaseExpiry.Store(launch.GetExpiresAt().AsTime().UnixNano())
 	d.workers[run.GetId()] = runWorker{
 		cancel: cancel, agentID: session.AgentID, generation: session.PlacementGeneration,
-		launchID: launch.GetId(), fence: launch.GetFence(),
+		launchID: launch.GetId(), fence: launch.GetFence(), leaseExpiry: leaseExpiry,
 	}
 	d.workersWG.Add(1)
 	d.workersMu.Unlock()
 	go func() {
 		defer d.workersWG.Done()
-		d.runLeaseWatchdog(ctx, session, delivery, run, launch)
+		d.runLeaseWatchdog(ctx, session, delivery, run, launch, leaseExpiry)
 	}()
 }
 
-func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) {
+func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch, leaseExpiry *atomic.Int64) {
 	defer d.removeWorker(run.GetId(), launch.GetId(), launch.GetFence())
 	workspacePath, err := workspace.Provision(d.config.DataRoot, session.AgentID)
 	if err != nil {
@@ -647,6 +671,9 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 		return true
 	}
 	for {
+		if updatedExpiry := time.Unix(0, leaseExpiry.Load()); updatedExpiry.After(expiresAt) {
+			expiresAt = updatedExpiry
+		}
 		remaining := expiresAt.Sub(d.config.Now())
 		if remaining <= 0 {
 			return
@@ -657,6 +684,9 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 			expiry.Stop()
 			return
 		case <-expiry.C:
+			if updatedExpiry := time.Unix(0, leaseExpiry.Load()); updatedExpiry.After(d.config.Now()) {
+				continue
+			}
 			return
 		case executionResult := <-result:
 			expiry.Stop()
@@ -698,6 +728,7 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 			updated, ok := d.renewRun(ctx, currentSession, run.GetId(), launch.GetId(), launch.GetFence(), expiresAt)
 			if ok {
 				expiresAt = updated
+				leaseExpiry.Store(updated.UnixNano())
 			}
 		}
 	}
@@ -946,7 +977,8 @@ func mutationHash(values ...string) [sha256.Size]byte {
 }
 
 func validCompletion(completion Completion) bool {
-	return completion.Outcome == deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED || completion.Outcome == deliveryv1.RunOutcome_RUN_OUTCOME_FAILED
+	return (completion.Outcome == deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED || completion.Outcome == deliveryv1.RunOutcome_RUN_OUTCOME_FAILED) &&
+		computerstate.ValidCompletionPayload(completion.Body, completion.MentionedAgentIDs)
 }
 
 func outcomeName(outcome deliveryv1.RunOutcome) string {

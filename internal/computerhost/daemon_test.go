@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -283,6 +284,11 @@ func TestPlacementSnapshotRotatesRuntimeOnlyForCurrentBinding(t *testing.T) {
 }
 
 func TestExecutorErrorAndCancelCreateNoOutbox(t *testing.T) {
+	mentionID := uuid.NewString()
+	tooManyMentions := make([]string, 65)
+	for index := range tooManyMentions {
+		tooManyMentions[index] = uuid.NewString()
+	}
 	tests := []struct {
 		name     string
 		executor Executor
@@ -291,6 +297,11 @@ func TestExecutorErrorAndCancelCreateNoOutbox(t *testing.T) {
 		{name: "technical error", executor: errorExecutor{}},
 		{name: "shutdown cancel", executor: blockingExecutor{}, cancel: true},
 		{name: "completion racing shutdown", executor: cancelCompletionExecutor{}, cancel: true},
+		{name: "empty completion body", executor: completionExecutor{completion: Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED}}},
+		{name: "invalid completion utf8", executor: completionExecutor{completion: Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: string([]byte{0xff})}}},
+		{name: "completion body too long", executor: completionExecutor{completion: Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: strings.Repeat("x", 400_001)}}},
+		{name: "too many completion mentions", executor: completionExecutor{completion: Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: "result", MentionedAgentIDs: tooManyMentions}}},
+		{name: "duplicate completion mentions", executor: completionExecutor{completion: Completion{Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: "result", MentionedAgentIDs: []string{mentionID, mentionID}}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -323,6 +334,63 @@ func TestExecutorErrorAndCancelCreateNoOutbox(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReconcileActiveMutationsRefreshesRunningWorkerLease(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	agentID := uuid.NewString()
+	deliveryID := uuid.NewString()
+	runID := uuid.NewString()
+	launchID := uuid.NewString()
+	now := time.Now()
+	executor := newBlockingCountingExecutor()
+	fixture.daemon.config.Executor = executor
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	session := computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+		Token: testRuntimeToken(1), ExpiresAt: now.Add(time.Minute), UpdatedAt: now,
+	}
+	if err := fixture.state.SaveRuntimeSession(context.Background(), session); err != nil {
+		t.Fatal(err)
+	}
+	delivery := activeDelivery(deliveryID, agentID)
+	run := activeRun(runID, deliveryID, agentID)
+	launch := testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(2*time.Second))
+	fixture.daemon.startWorker(ctx, session, delivery, run, launch)
+	select {
+	case <-executor.started:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not start")
+	}
+	if ok := fixture.daemon.reconcileActiveMutations(context.Background(), session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second))); !ok {
+		t.Fatal("active mutation reconciliation failed")
+	}
+	fixture.daemon.workersMu.Lock()
+	workerExpiry := fixture.daemon.workers[runID].leaseExpiry.Load()
+	fixture.daemon.workersMu.Unlock()
+	if !time.Unix(0, workerExpiry).After(now.Add(900 * time.Millisecond)) {
+		t.Fatalf("worker lease was not refreshed: %v", time.Unix(0, workerExpiry))
+	}
+	time.Sleep(2500 * time.Millisecond)
+	fixture.daemon.startWorker(ctx, session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second)))
+	if calls := executor.count(); calls != 1 {
+		t.Fatalf("executor calls after initial lease expiry = %d, want 1", calls)
+	}
+	fixture.daemon.workersMu.Lock()
+	workerCount := len(fixture.daemon.workers)
+	fixture.daemon.workersMu.Unlock()
+	if workerCount != 1 {
+		t.Fatalf("workers after reconciled lease expiry = %d, want 1", workerCount)
+	}
+	cancel()
+	waitFor(t, time.Second, func() bool {
+		fixture.daemon.workersMu.Lock()
+		defer fixture.daemon.workersMu.Unlock()
+		return len(fixture.daemon.workers) == 0
+	})
+	fixture.daemon.workersWG.Wait()
 }
 
 func TestExecutorCompletionCreatesDurableOutbox(t *testing.T) {
@@ -1116,6 +1184,32 @@ type blockingExecutor struct{}
 func (blockingExecutor) Execute(ctx context.Context, _ Execution) (Completion, error) {
 	<-ctx.Done()
 	return Completion{}, ctx.Err()
+}
+
+type blockingCountingExecutor struct {
+	started chan struct{}
+	mu      sync.Mutex
+	calls   int
+	once    sync.Once
+}
+
+func newBlockingCountingExecutor() *blockingCountingExecutor {
+	return &blockingCountingExecutor{started: make(chan struct{})}
+}
+
+func (e *blockingCountingExecutor) Execute(ctx context.Context, _ Execution) (Completion, error) {
+	e.mu.Lock()
+	e.calls++
+	e.mu.Unlock()
+	e.once.Do(func() { close(e.started) })
+	<-ctx.Done()
+	return Completion{}, ctx.Err()
+}
+
+func (e *blockingCountingExecutor) count() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.calls
 }
 
 type errorExecutor struct{}

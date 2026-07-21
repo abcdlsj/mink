@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -375,6 +376,49 @@ func TestStaleOutboxFenceTombstoneAllowsNewFence(t *testing.T) {
 	events, err = state.Outbox(ctx)
 	if err != nil || len(events) != 1 || events[0].State != "tombstone" {
 		t.Fatalf("outbox after ack = %+v, %v", events, err)
+	}
+}
+
+func TestEnqueueOutboxRejectsInvalidCompletionPayload(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	base := OutboxEvent{
+		OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: uuid.NewString(),
+		PlacementGeneration: 1, RunID: uuid.NewString(), LaunchID: uuid.NewString(), Fence: 1,
+		Outcome: "succeeded", Body: "valid completion", CreatedAt: time.Now(),
+	}
+	mention := uuid.NewString()
+	tooManyMentions := make([]string, 65)
+	for index := range tooManyMentions {
+		tooManyMentions[index] = uuid.NewString()
+	}
+	cases := []struct {
+		name  string
+		apply func(*OutboxEvent)
+	}{
+		{"empty body", func(event *OutboxEvent) { event.Body = "" }},
+		{"invalid utf8", func(event *OutboxEvent) { event.Body = string([]byte{0xff}) }},
+		{"body too long", func(event *OutboxEvent) { event.Body = strings.Repeat("x", maxCompletionBodyRunes+1) }},
+		{"too many mentions", func(event *OutboxEvent) { event.MentionedAgentIDs = tooManyMentions }},
+		{"duplicate mentions", func(event *OutboxEvent) { event.MentionedAgentIDs = []string{mention, mention} }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			event := base
+			event.OutboxEventID = uuid.NewString()
+			event.RequestID = uuid.NewString()
+			test.apply(&event)
+			if err := state.EnqueueOutbox(context.Background(), event); err == nil {
+				t.Fatal("invalid completion payload was persisted")
+			}
+			events, err := state.Outbox(context.Background())
+			if err != nil || len(events) != 0 {
+				t.Fatalf("outbox after invalid completion = %+v, %v", events, err)
+			}
+		})
 	}
 }
 
