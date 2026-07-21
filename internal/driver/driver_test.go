@@ -84,8 +84,9 @@ func TestOwnerSerializesCommandsAndNumbersEvents(t *testing.T) {
 func TestOwnerRejectsCommandsAboveBoundedQueue(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
+	var startedOnce sync.Once
 	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
-		close(started)
+		startedOnce.Do(func() { close(started) })
 		select {
 		case <-release:
 			return TurnResult{Outcome: OutcomeSucceeded}, nil
@@ -98,24 +99,40 @@ func TestOwnerRejectsCommandsAboveBoundedQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer owner.Close()
-	firstDone := make(chan struct{})
+	firstDone := make(chan error, 1)
 	go func() {
-		_, _ = owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "first"})
-		close(firstDone)
+		_, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "first"})
+		firstDone <- err
 	}()
 	select {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("engine did not start")
 	}
-	if _, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "queued"}); err != nil {
-		t.Fatal(err)
+	queuedDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "queued"})
+		queuedDone <- err
+	}()
+	deadline := time.After(time.Second)
+	for len(owner.queue) != 1 {
+		select {
+		case <-deadline:
+			t.Fatal("queued command did not enter owner queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
 	}
 	if _, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "rejected"}); !errors.Is(err, ErrQueueFull) {
 		t.Fatalf("third submit error = %v, want ErrQueueFull", err)
 	}
 	close(release)
-	<-firstDone
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first submit error = %v", err)
+	}
+	if err := <-queuedDone; err != nil {
+		t.Fatalf("queued submit error = %v", err)
+	}
 }
 
 func TestOwnerDoesNotDependOnEventConsumerForResult(t *testing.T) {
