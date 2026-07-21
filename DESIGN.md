@@ -433,6 +433,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - Driver owner 的 bounded queue 合同未改；修正的是测试并发编排：首个执行被阻塞时，第二个 Submit 必须在独立 goroutine 入队，第三个才验证 `ErrQueueFull`，释放后两个已接受请求必须收口。该回归防止测试自身死锁掩盖真实队列行为。
 - Driver `RunInput` 在 contract 边界统一限制 UTF-8、单项、集合与总量预算：host policy、work goal、memory index、retrieved source 和 current input 都不能无界进入 Prompt；短 memory index 与按需来源读取由 typed contract 强制，不依赖 assembler 或 adapter 自觉。该变更只收紧非法/超限输入，不改变 Driver、权限或 Server facts。
 - `sumi-computer` pairing 成功后的 identity 已由持久 State 作为唯一后续来源；删除不会被读取的本地 registration key 回写，保留 legacy key import 的实际使用路径，消除静态检查噪声而不改变 pairing 或 daemon 合同。
+- `driverexec` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
 - 已验证共用 codec、Inbox、Delivery 的 focused tests，以及三者 `-race -count=3`；全仓门禁仍受 Driver 队列测试死锁阻塞，尚未在本提交修复。
 - 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。
