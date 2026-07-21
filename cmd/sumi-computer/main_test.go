@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -19,6 +20,72 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestOncePairsFromPrivateTokenFileAndPersistsIdentity(t *testing.T) {
+	serverRoot := t.TempDir()
+	app, err := server.New(context.Background(), server.Config{DataRoot: serverRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(app.Handler())
+	defer httpServer.Close()
+	defer app.Close()
+	credential, err := authority.ReadCredentialFile(filepath.Join(serverRoot, "owner.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+			request.Header().Set("Authorization", "Bearer "+credential)
+			return next(ctx, request)
+		}
+	}))
+	owner := computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, authorization)
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		t.Fatal(err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
+	if _, err := owner.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	computerRoot := filepath.Join(t.TempDir(), "computer-root")
+	if err := os.Mkdir(computerRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tokenPath := filepath.Join(computerRoot, "pairing.token")
+	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{
+		"--once", "--server", httpServer.URL, "--data-root", computerRoot,
+		"--pairing-token-file", tokenPath, "--name", "Paired host",
+	}
+	if err := runContext(context.Background(), args, bytes.NewReader(nil)); err != nil {
+		t.Fatal(err)
+	}
+	state, err := computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, found, err := state.Identity(context.Background())
+	if closeErr := state.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil || !found || identity.RegistrationKey == "" {
+		t.Fatalf("paired identity = %+v, %v, %v", identity, found, err)
+	}
+	computers, err := owner.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
+	if err != nil || len(computers.Msg.GetComputers()) != 1 || computers.Msg.GetComputers()[0].GetId() != identity.ComputerID {
+		t.Fatalf("computers = %+v, %v", computers.Msg.GetComputers(), err)
+	}
+	restartArgs := []string{"--once", "--server", httpServer.URL, "--data-root", computerRoot, "--name", "Paired host"}
+	if err := runContext(context.Background(), restartArgs, bytes.NewReader(nil)); err != nil {
+		t.Fatalf("paired restart: %v", err)
+	}
+}
 
 func TestOnceImportsLegacyKeyFileAndThenUsesPersistedIdentity(t *testing.T) {
 	serverRoot := t.TempDir()

@@ -444,6 +444,16 @@ func (s *State) RuntimeSessions(ctx context.Context) ([]RuntimeSession, error) {
 	return sessions, nil
 }
 
+func (s *State) RuntimeSession(ctx context.Context, agentID string) (RuntimeSession, bool, error) {
+	if !validID(agentID) {
+		return RuntimeSession{}, false, errors.New("agent id is invalid")
+	}
+	return readRuntimeSession(s.db.QueryRowContext(ctx, `
+		SELECT agent_id, computer_id, placement_generation, token, expires_at, updated_at
+		FROM runtime_sessions WHERE agent_id = ?
+	`, agentID))
+}
+
 func (s *State) BeginMutation(ctx context.Context, attempt MutationAttempt) (MutationAttempt, error) {
 	if attempt.RequestID == "" {
 		attempt.RequestID = uuid.NewString()
@@ -692,6 +702,25 @@ func (s *State) TombstoneOutbox(ctx context.Context, eventID, rejectionCode stri
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit tombstone outbox: %w", err)
+	}
+	return s.secureSQLiteFiles()
+}
+
+func (s *State) RecordOutboxAttempt(ctx context.Context, eventID string, attemptedAt time.Time) error {
+	if !validID(eventID) || attemptedAt.IsZero() {
+		return errors.New("outbox attempt is invalid")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE outbox_events
+		SET last_attempt_at = ?, attempts = attempts + 1
+		WHERE outbox_event_id = ? AND state = 'pending'
+	`, unixNano(attemptedAt), eventID)
+	if err != nil {
+		return fmt.Errorf("record outbox attempt: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil || updated != 1 {
+		return errors.New("pending outbox event not found")
 	}
 	return s.secureSQLiteFiles()
 }

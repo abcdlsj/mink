@@ -5,10 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
+	"syscall"
+	"time"
 
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/internal/computerhost"
@@ -17,12 +21,18 @@ import (
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runContext(ctx, os.Args[1:], os.Stdin); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func run(args []string) error {
+	return runContext(context.Background(), args, os.Stdin)
+}
+
+func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	defaultRoot, err := home.DefaultRoot()
 	if err != nil {
 		return err
@@ -35,51 +45,114 @@ func run(args []string) error {
 	serverURL := flags.String("server", "http://127.0.0.1:8080", "Sumi Server URL")
 	dataRoot := flags.String("data-root", defaultRoot, "Computer data root")
 	keyFile := flags.String("registration-key-file", filepath.Join(defaultRoot, "computer.key"), "0600 registration key file")
+	pairingTokenFile := flags.String("pairing-token-file", "", "0600 pairing token file, or - for stdin")
 	name := flags.String("name", hostname, "Computer display name")
 	once := flags.Bool("once", false, "Register and synchronize pending assignments once")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if !*once {
-		return errors.New("continuous mode is not available; use --once")
+	if flags.NArg() != 0 {
+		return errors.New("unexpected positional arguments")
+	}
+	osName, arch, err := platform(runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		return err
 	}
 	state, err := computerstate.Open(*dataRoot)
 	if err != nil {
 		return err
 	}
 	defer state.Close()
-	identity, found, err := state.Identity(context.Background())
+	identity, found, err := state.Identity(ctx)
 	if err != nil {
 		return err
 	}
-	key := ""
-	if found {
-		key = identity.RegistrationKey
-	} else {
-		key, err = computerhost.ReadRegistrationKey(*keyFile)
+	key := identity.RegistrationKey
+	var initialSync *computerhost.SyncResult
+	host := computerhost.New(computerhost.Config{
+		ServerURL: *serverURL, DataRoot: *dataRoot, RegistrationKey: key, Name: *name,
+		OS: osName, Arch: arch, State: state,
+	})
+	if found && *pairingTokenFile != "" {
+		return errors.New("paired computer does not accept another pairing token")
+	}
+	if !found {
+		attempt, attemptFound, err := state.PairingAttempt(ctx)
 		if err != nil {
 			return err
 		}
+		if attemptFound && *pairingTokenFile != "" {
+			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
+			if err != nil {
+				return err
+			}
+			if token != attempt.PairingToken {
+				return errors.New("pairing token does not match persisted attempt")
+			}
+		}
+		if !attemptFound && *pairingTokenFile != "" {
+			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
+			if err != nil {
+				return err
+			}
+			if err := computerhost.PreparePairing(ctx, state, *serverURL, token, *name, osName, arch, time.Now()); err != nil {
+				return err
+			}
+			attemptFound = true
+		}
+		if attemptFound {
+			if _, err := host.PairOnce(ctx); err != nil {
+				return err
+			}
+			identity, found, err = state.Identity(ctx)
+			if err != nil || !found {
+				return errors.New("paired computer identity was not persisted")
+			}
+			key = identity.RegistrationKey
+		} else {
+			key, err = computerhost.ReadRegistrationKey(*keyFile)
+			if err != nil {
+				return err
+			}
+			legacyConfig := computerhost.Config{
+				ServerURL: *serverURL, DataRoot: *dataRoot, RegistrationKey: key, Name: *name,
+				OS: osName, Arch: arch, State: state,
+			}
+			result, err := computerhost.New(legacyConfig).SyncOnce(ctx)
+			if err != nil {
+				return err
+			}
+			identity, found, err = state.Identity(ctx)
+			if err != nil || !found || identity.ComputerID != result.ComputerID {
+				return errors.New("legacy computer identity was not persisted")
+			}
+			initialSync = &result
+		}
 	}
-	osName, arch, err := platform(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return err
+	if *once {
+		host = computerhost.New(computerhost.Config{
+			ServerURL:       *serverURL,
+			DataRoot:        *dataRoot,
+			RegistrationKey: identity.RegistrationKey,
+			Name:            *name,
+			OS:              osName,
+			Arch:            arch,
+			State:           state,
+		})
+		result := initialSync
+		if result == nil {
+			synchronized, err := host.SyncOnce(ctx)
+			if err != nil {
+				return err
+			}
+			result = &synchronized
+		}
+		log.Printf("Computer %s synchronized %d assignments", result.ComputerID, result.Assignments)
+		return nil
 	}
-	host := computerhost.New(computerhost.Config{
-		ServerURL:       *serverURL,
-		DataRoot:        *dataRoot,
-		RegistrationKey: key,
-		Name:            *name,
-		OS:              osName,
-		Arch:            arch,
-		State:           state,
-	})
-	result, err := host.SyncOnce(context.Background())
-	if err != nil {
-		return err
-	}
-	log.Printf("Computer %s synchronized %d assignments", result.ComputerID, result.Assignments)
-	return nil
+	return computerhost.NewDaemon(computerhost.DaemonConfig{
+		ServerURL: *serverURL, DataRoot: *dataRoot, State: state,
+	}).Run(ctx)
 }
 
 func platform(goos, goarch string) (computerv1.OperatingSystem, computerv1.Architecture, error) {
