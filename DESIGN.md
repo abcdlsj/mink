@@ -423,3 +423,9 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - DM、群组与跨 Computer 体验是否保持同一套自然语义。
 
 最终目标是：Human 管理目标与例外，Agent 在明确权限和安全边界内自行组织并完成工作。
+
+## 16. 2026-07-21 维护记录
+
+- `internal/store/work.go` 与 `internal/collaboration/service.go` 仅收敛了真实重复的参数和 assignment 结束流程；Work、Space、Message、权限、API 与迁移事实均未改变。
+- 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
+- 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。
