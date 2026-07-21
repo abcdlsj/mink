@@ -195,6 +195,27 @@ func TestDaemonNilExecutorDoesNotObserveAcceptOrClaim(t *testing.T) {
 	}
 }
 
+func TestDaemonIneligibleExecutorDoesNotListObserveAcceptOrClaim(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	agentID := uuid.NewString()
+	now := time.Now()
+	if err := fixture.state.SaveRuntimeSession(context.Background(), computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+		Token: testRuntimeToken(42), ExpiresAt: now.Add(time.Minute), UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.daemon.config.Executor = eligibleTestExecutor{eligible: false}
+	if !fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity) {
+		t.Fatal("ineligible dispatch failed")
+	}
+	if fixture.deliveries.listCount() != 0 || fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || fixture.inbox.count() != 0 {
+		t.Fatalf("ineligible executor activity: list=%d accept=%d claim=%d observe=%d",
+			fixture.deliveries.listCount(), fixture.deliveries.acceptCount(), fixture.deliveries.claimCount(), fixture.inbox.count())
+	}
+}
+
 func TestAuthoritativeTriggerRejectsMissingDuplicateAndOversizeInput(t *testing.T) {
 	delivery := availableDelivery(uuid.NewString(), uuid.NewString())
 	valid := func() *inboxv1.ObserveTargetResponse {
@@ -1316,6 +1337,19 @@ type blockingExecutor struct{}
 func (blockingExecutor) Execute(ctx context.Context, _ Execution) (Completion, error) {
 	<-ctx.Done()
 	return Completion{}, ctx.Err()
+}
+
+type eligibleTestExecutor struct {
+	eligible bool
+	err      error
+}
+
+func (e eligibleTestExecutor) Eligible(context.Context, string) (bool, error) {
+	return e.eligible, e.err
+}
+
+func (eligibleTestExecutor) Execute(context.Context, Execution) (Completion, error) {
+	return Completion{}, errors.New("unexpected execution")
 }
 
 type blockingCountingExecutor struct {

@@ -35,6 +35,10 @@ type Executor interface {
 	Execute(context.Context, Execution) (Completion, error)
 }
 
+type EligibleExecutor interface {
+	Eligible(context.Context, string) (bool, error)
+}
+
 type Execution struct {
 	AgentID             string
 	ComputerID          string
@@ -431,6 +435,15 @@ func (d *Daemon) dispatchDeliveries(ctx context.Context, identity computerstate.
 }
 
 func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Identity, session computerstate.RuntimeSession) bool {
+	if executor, ok := d.config.Executor.(EligibleExecutor); ok {
+		eligible, err := executor.Eligible(ctx, session.AgentID)
+		if err != nil {
+			return false
+		}
+		if !eligible {
+			return true
+		}
+	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	response, err := d.deliveries.ListDeliveries(rpcCtx, runtimeRequest(session.Token, &deliveryv1.ListDeliveriesRequest{Limit: 50}))
 	cancel()

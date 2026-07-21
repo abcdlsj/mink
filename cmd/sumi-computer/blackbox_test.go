@@ -241,6 +241,108 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	assertBlackboxMessageCount(t, serverRoot, "blackbox completion", 1)
 }
 
+func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("sumi-computer supports macOS and Linux")
+	}
+	binary := buildComputerBinary(t)
+	externalDriver := buildExternalDriverBinary(t)
+	serverRoot := t.TempDir()
+	app, err := server.New(context.Background(), server.Config{DataRoot: serverRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(app.Handler())
+	t.Cleanup(func() {
+		httpServer.Close()
+		if err := app.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+
+	owner := blackboxOwnerOption(t, serverRoot)
+	computerOwner := computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, owner)
+	computerPublic := computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL)
+	agentClient := agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, owner)
+	placementClient := placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, owner)
+	spaceClient := spacev1connect.NewCollaborationServiceClient(httpServer.Client(), httpServer.URL, owner)
+	grantClient := grantv1connect.NewGrantServiceClient(httpServer.Client(), httpServer.URL, owner)
+
+	agentResponse, err := agentClient.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
+		RequestId: uuid.NewString(), Name: "external-blackbox-agent", Driver: agentv1.Driver_DRIVER_CODEX,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentID := agentResponse.Msg.GetAgent().GetId()
+	groupResponse, err := spaceClient.CreateGroup(context.Background(), connect.NewRequest(&spacev1.CreateGroupRequest{
+		RequestId: uuid.NewString(), Name: "external-blackbox",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := groupResponse.Msg.GetSpace().GetId()
+	if _, err := spaceClient.AddMember(context.Background(), connect.NewRequest(&spacev1.AddMemberRequest{
+		RequestId: uuid.NewString(), SpaceId: groupID,
+		Member: &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agentID},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	rootGrantID := blackboxRootGrant(t, grantClient)
+	for _, capability := range []grantv1.Capability{
+		grantv1.Capability_CAPABILITY_SPACE_READ,
+		grantv1.Capability_CAPABILITY_MESSAGE_SEND,
+		grantv1.Capability_CAPABILITY_RUN_EXECUTE,
+	} {
+		scope := &grantv1.Scope{Kind: grantv1.ScopeKind_SCOPE_KIND_SPACE, Id: groupID}
+		if capability == grantv1.Capability_CAPABILITY_RUN_EXECUTE {
+			scope = &grantv1.Scope{Kind: grantv1.ScopeKind_SCOPE_KIND_AGENT, Id: agentID}
+		}
+		if _, err := grantClient.IssueGrant(context.Background(), connect.NewRequest(&grantv1.IssueGrantRequest{
+			RequestId: uuid.NewString(), Subject: &grantv1.Principal{Kind: grantv1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agentID},
+			Capability: capability, Scope: scope, ParentGrantId: rootGrantID,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	computerRoot := t.TempDir()
+	computerID, registrationKey := pairComputerProcess(t, binary, httpServer.URL, computerRoot, computerOwner, "external-computer")
+	startComputerDaemonWithArgs(t, binary, httpServer.URL, computerRoot,
+		"--external-driver", "codex",
+		"--external-executable", externalDriver,
+		"--external-host-policy", "trusted local blackbox policy",
+		"--external-env", "SUMI_EXTERNAL_DRIVER=1",
+		"--external-timeout", "2s",
+		"--external-termination-grace", "100ms",
+		"--external-output-limit", "4096",
+	)
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxComputerSeen(t, computerPublic, computerID)
+	})
+	placement, err := placementClient.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
+		RequestId: uuid.NewString(), AgentId: agentID, ComputerId: computerID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := placement.Msg.GetPlacement().GetGeneration()
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxPlacementActive(t, placementClient, agentID, computerID, generation, registrationKey)
+	})
+	trigger, err := spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
+		RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: groupID}},
+		Body: "external blackbox trigger", MentionedAgentIds: []string{agentID},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxMessageCount(t, serverRoot, "external blackbox completion") == 1
+	})
+	assertBlackboxCompletedDelivery(t, serverRoot, trigger.Msg.GetMessage().GetId())
+}
+
 type blackboxProxyState struct {
 	Offline atomic.Bool
 }
@@ -290,6 +392,22 @@ func buildComputerBinary(t *testing.T) string {
 	return binary
 }
 
+func buildExternalDriverBinary(t *testing.T) string {
+	t.Helper()
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve blackbox test source")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../.."))
+	binary := filepath.Join(t.TempDir(), "external-driver")
+	command := exec.Command("go", "build", "-o", binary, "./cmd/sumi-computer/testdata/external_driver")
+	command.Dir = root
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build external driver: %v\n%s", err, output)
+	}
+	return binary
+}
+
 func pairComputerProcess(t *testing.T, binary, serverURL, root string, owner computerv1connect.ComputerServiceClient, name string) (string, string) {
 	t.Helper()
 	token := blackboxToken(t, name[len(name)-1])
@@ -319,8 +437,13 @@ func pairComputerProcess(t *testing.T, binary, serverURL, root string, owner com
 }
 
 func startComputerDaemon(t *testing.T, binary, serverURL, root string) *blackboxComputerProcess {
+	return startComputerDaemonWithArgs(t, binary, serverURL, root)
+}
+
+func startComputerDaemonWithArgs(t *testing.T, binary, serverURL, root string, arguments ...string) *blackboxComputerProcess {
 	t.Helper()
-	command := exec.Command(binary, "--server", serverURL, "--data-root", root)
+	args := append([]string{"--server", serverURL, "--data-root", root}, arguments...)
+	command := exec.Command(binary, args...)
 	command.Stdout = new(bytes.Buffer)
 	command.Stderr = new(bytes.Buffer)
 	if err := command.Start(); err != nil {
@@ -475,6 +598,13 @@ func expireBlackboxLaunch(t *testing.T, dataRoot, launchID string) {
 
 func assertBlackboxMessageCount(t *testing.T, dataRoot, body string, want int) {
 	t.Helper()
+	if count := blackboxMessageCount(t, dataRoot, body); count != want {
+		t.Fatalf("visible message count for %q = %d, want %d", body, count, want)
+	}
+}
+
+func blackboxMessageCount(t *testing.T, dataRoot, body string) int {
+	t.Helper()
 	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -484,8 +614,23 @@ func assertBlackboxMessageCount(t *testing.T, dataRoot, body string, want int) {
 	if err := database.QueryRow(`SELECT count(*) FROM messages WHERE body = ?`, body).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != want {
-		t.Fatalf("visible message count for %q = %d, want %d", body, count, want)
+	return count
+}
+
+func assertBlackboxCompletedDelivery(t *testing.T, dataRoot, triggerMessageID string) {
+	t.Helper()
+	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var deliveryState, runState string
+	err = database.QueryRow(`
+		SELECT deliveries.state, runs.state
+		FROM deliveries JOIN runs ON runs.delivery_id = deliveries.id
+		WHERE deliveries.trigger_message_id = ?`, triggerMessageID).Scan(&deliveryState, &runState)
+	if err != nil || deliveryState != "completed" || runState != "completed" {
+		t.Fatalf("external delivery state = %q/%q, %v", deliveryState, runState, err)
 	}
 }
 

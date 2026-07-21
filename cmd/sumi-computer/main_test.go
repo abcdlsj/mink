@@ -18,6 +18,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/computerhost"
 	"github.com/abcdlsj/sumi/internal/computerstate"
+	"github.com/abcdlsj/sumi/internal/driver"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -388,5 +389,39 @@ func TestPlatform(t *testing.T) {
 	}
 	if _, _, err := platform("linux", "386"); err == nil {
 		t.Fatal("386 error = nil")
+	}
+}
+
+func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.T) {
+	resolve := func(context.Context, string) (driver.Kind, error) {
+		return driver.KindCodex, nil
+	}
+	if executor, err := newExternalExecutor(externalRuntimeConfig{}, resolve); err != nil || executor != nil {
+		t.Fatalf("unconfigured executor = %v, %v", executor, err)
+	}
+	valid := externalRuntimeConfig{
+		enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local",
+		environment: []string{"SUMI_EXTERNAL_TEST=1"}, timeout: time.Second, terminationGrace: time.Second, outputLimit: 1024,
+	}
+	invalid := []externalRuntimeConfig{
+		{enabled: true, driver: string(driver.KindCodex)},
+		{enabled: true, driver: string(driver.KindNative), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
+		{enabled: true, driver: string(driver.KindCodex), executable: "relative", hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
+		{enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local", environment: []string{"A=1", "A=2"}, timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
+		{enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second},
+	}
+	for _, config := range invalid {
+		if executor, err := newExternalExecutor(config, resolve); err == nil || executor != nil {
+			t.Fatalf("invalid executor = %v, %v for %+v", executor, err, config)
+		}
+	}
+	executor, err := newExternalExecutor(valid, resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer executor.Close()
+	eligible, err := executor.Eligible(context.Background(), "agent-1")
+	if err != nil || !eligible {
+		t.Fatalf("eligible = %t, %v", eligible, err)
 	}
 }

@@ -24,6 +24,10 @@ type ProcessRunner struct {
 	MaxOutputBytes   int64
 }
 
+func (r ProcessRunner) Validate() error {
+	return r.validate()
+}
+
 func (r ProcessRunner) Run(ctx context.Context, input []byte, emit func([]byte) error) error {
 	if err := r.validate(); err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,9 +15,14 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
+	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/internal/computerhost"
 	"github.com/abcdlsj/sumi/internal/computerstate"
+	"github.com/abcdlsj/sumi/internal/driver"
+	"github.com/abcdlsj/sumi/internal/driverexec"
 	"github.com/abcdlsj/sumi/internal/home"
 )
 
@@ -49,12 +55,35 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	resetPairingAttempt := flags.Bool("reset-pairing-attempt", false, "Replace a definitively invalid unpaired attempt using a new --pairing-token-file")
 	name := flags.String("name", hostname, "Computer display name")
 	once := flags.Bool("once", false, "Register and synchronize pending assignments once")
+	var externalArgs []string
+	var externalEnv []string
+	externalDriver := flags.String("external-driver", "", "External driver kind: codex or claude")
+	externalExecutable := flags.String("external-executable", "", "Absolute external driver executable path")
+	externalHostPolicy := flags.String("external-host-policy", "", "Required host policy for external driver runs")
+	externalTimeout := flags.Duration("external-timeout", 2*time.Minute, "External driver run timeout")
+	externalTerminationGrace := flags.Duration("external-termination-grace", 5*time.Second, "External driver TERM to KILL grace")
+	externalOutputLimit := flags.Int64("external-output-limit", 1<<20, "External driver stdout/stderr limit in bytes")
+	flags.Func("external-arg", "External driver argument; repeat to add more", func(value string) error {
+		externalArgs = append(externalArgs, value)
+		return nil
+	})
+	flags.Func("external-env", "Explicit external driver KEY=VALUE environment entry; repeat to add more", func(value string) error {
+		externalEnv = append(externalEnv, value)
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
+	externalConfigured := false
+	flags.Visit(func(flag *flag.Flag) {
+		switch flag.Name {
+		case "external-driver", "external-executable", "external-host-policy", "external-timeout", "external-termination-grace", "external-output-limit", "external-arg", "external-env":
+			externalConfigured = true
+		}
+	})
 	osName, arch, err := platform(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
@@ -171,9 +200,73 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 		log.Printf("Computer %s synchronized %d assignments", result.ComputerID, result.Assignments)
 		return nil
 	}
+	executor, err := externalExecutor(*serverURL, externalRuntimeConfig{
+		enabled: externalConfigured,
+		driver:  *externalDriver, executable: *externalExecutable, args: externalArgs, environment: externalEnv,
+		hostPolicy: *externalHostPolicy, timeout: *externalTimeout, terminationGrace: *externalTerminationGrace,
+		outputLimit: *externalOutputLimit,
+	})
+	if err != nil {
+		return err
+	}
+	if executor != nil {
+		defer executor.Close()
+	}
 	return computerhost.NewDaemon(computerhost.DaemonConfig{
 		ServerURL: *serverURL, DataRoot: *dataRoot, State: state,
+		Executor: executor,
 	}).Run(ctx)
+}
+
+type externalRuntimeConfig struct {
+	enabled          bool
+	driver           string
+	executable       string
+	args             []string
+	environment      []string
+	hostPolicy       string
+	timeout          time.Duration
+	terminationGrace time.Duration
+	outputLimit      int64
+}
+
+func externalExecutor(serverURL string, config externalRuntimeConfig) (*driverexec.ComputerExecutor, error) {
+	return newExternalExecutor(config, func(ctx context.Context, agentID string) (driver.Kind, error) {
+		client := agentv1connect.NewAgentServiceClient(http.DefaultClient, serverURL)
+		response, err := client.GetAgent(ctx, connect.NewRequest(&agentv1.GetAgentRequest{AgentId: agentID}))
+		if err != nil || response == nil || response.Msg == nil || response.Msg.GetAgent() == nil {
+			return "", errors.New("resolve agent driver")
+		}
+		switch response.Msg.GetAgent().GetDriver() {
+		case agentv1.Driver_DRIVER_CODEX:
+			return driver.KindCodex, nil
+		case agentv1.Driver_DRIVER_CLAUDE:
+			return driver.KindClaude, nil
+		case agentv1.Driver_DRIVER_NATIVE:
+			return driver.KindNative, nil
+		default:
+			return "", errors.New("agent driver is invalid")
+		}
+	})
+}
+
+func newExternalExecutor(config externalRuntimeConfig, resolve driverexec.AgentDriverResolver) (*driverexec.ComputerExecutor, error) {
+	if !config.enabled {
+		return nil, nil
+	}
+	kind := driver.Kind(config.driver)
+	if (kind != driver.KindCodex && kind != driver.KindClaude) || config.executable == "" || config.hostPolicy == "" {
+		return nil, errors.New("external driver, executable, and host policy must be configured together")
+	}
+	runner := driver.ProcessRunner{
+		Path: config.executable, Args: config.args, Env: config.environment, Timeout: config.timeout,
+		TerminationGrace: config.terminationGrace, MaxOutputBytes: config.outputLimit,
+	}
+	if err := runner.Validate(); err != nil {
+		return nil, err
+	}
+	engine := driver.External{Kind: kind, Runner: runner}
+	return driverexec.NewComputerExecutor(kind, engine, config.hostPolicy, resolve)
 }
 
 func platform(goos, goarch string) (computerv1.OperatingSystem, computerv1.Architecture, error) {
