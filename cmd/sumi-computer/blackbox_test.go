@@ -126,10 +126,11 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	waitForBlackbox(t, 15*time.Second, func() bool {
 		return blackboxComputerSeen(t, computerPublic, idB)
 	})
+	beforeB := blackboxComputerLastSeen(t, computerPublic, idB)
 	stopComputer(t, computerB, syscall.SIGKILL)
-	computerB = startComputerDaemon(t, binary, httpServer.URL, rootB)
+	startComputerDaemon(t, binary, httpServer.URL, rootB)
 	waitForBlackbox(t, 15*time.Second, func() bool {
-		return blackboxComputerSeen(t, computerPublic, idB)
+		return blackboxComputerLastSeen(t, computerPublic, idB).After(beforeB)
 	})
 
 	placement, err := placementClient.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
@@ -212,6 +213,14 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	}
 	if reclaimed.Msg.GetLaunch().GetFence() <= oldLaunch.GetFence() || reclaimed.Msg.GetLaunch().GetHolderComputerId() != idB {
 		t.Fatalf("reclaimed launch = %+v, old = %+v", reclaimed.Msg.GetLaunch(), oldLaunch)
+	}
+	staleCompletion := &deliveryv1.CompleteRunRequest{
+		RequestId: uuid.NewString(), OutboxEventId: uuid.NewString(), RunId: accepted.Msg.GetRun().GetId(),
+		LaunchId: oldLaunch.GetId(), Fence: oldLaunch.GetFence(),
+		Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: "stale blackbox completion",
+	}
+	if _, err := deliveryClient.CompleteRun(context.Background(), blackboxRequest(newSession.Token, staleCompletion)); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("stale launch completion = %v, want failed precondition", err)
 	}
 	completionRequest := &deliveryv1.CompleteRunRequest{
 		RequestId: uuid.NewString(), OutboxEventId: uuid.NewString(), RunId: accepted.Msg.GetRun().GetId(),
