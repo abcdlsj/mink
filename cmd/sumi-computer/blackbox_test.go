@@ -38,6 +38,9 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/computerstate"
+	"github.com/abcdlsj/sumi/internal/driver"
+	"github.com/abcdlsj/sumi/internal/sandbox"
+	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -247,6 +250,7 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 	}
 	binary := buildComputerBinary(t)
 	externalDriver := buildExternalDriverBinary(t)
+	t.Setenv("SUMI_EXTERNAL_DRIVER", "1")
 	serverRoot := t.TempDir()
 	app, err := server.New(context.Background(), server.Config{DataRoot: serverRoot})
 	if err != nil {
@@ -312,7 +316,7 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 		"--external-driver", "codex",
 		"--external-executable", externalDriver,
 		"--external-host-policy", "trusted local blackbox policy",
-		"--external-env", "SUMI_EXTERNAL_DRIVER=1",
+		"--external-secret", "SUMI_EXTERNAL_DRIVER=computer.environment:SUMI_EXTERNAL_DRIVER",
 		"--external-timeout", "2s",
 		"--external-termination-grace", "100ms",
 		"--external-output-limit", "4096",
@@ -341,6 +345,77 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 		return blackboxMessageCount(t, serverRoot, "external blackbox completion") == 1
 	})
 	assertBlackboxCompletedDelivery(t, serverRoot, trigger.Msg.GetMessage().GetId())
+}
+
+func TestExternalDriverFailureMatrixBlackbox(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("trusted-local provider supports macOS and Linux")
+	}
+	for _, mode := range []string{"duplicate", "event-only", "ordinary", "partial", "stdout-overflow", "stderr-overflow", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			external, command := externalDriverForMode(t, mode)
+			if _, err := external.Execute(context.Background(), command, nil); err == nil {
+				t.Fatalf("external mode %q produced a Completion", mode)
+			}
+		})
+	}
+	t.Run("caller cancel", func(t *testing.T) {
+		external, command := externalDriverForMode(t, "timeout")
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan error, 1)
+		go func() {
+			_, err := external.Execute(ctx, command, nil)
+			result <- err
+		}()
+		time.Sleep(25 * time.Millisecond)
+		cancel()
+		select {
+		case err := <-result:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("caller cancellation error = %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("caller cancellation did not reap external process")
+		}
+	})
+	t.Run("oversized result cannot become durable completion", func(t *testing.T) {
+		external, command := externalDriverForMode(t, "result-overflow")
+		result, err := external.Execute(context.Background(), command, nil)
+		if err != nil || computerstate.ValidCompletionPayload(result.Body, result.MentionedAgentIDs) {
+			t.Fatalf("oversized external result = %+v, %v", result, err)
+		}
+	})
+}
+
+func externalDriverForMode(t *testing.T, mode string) (driver.External, driver.Command) {
+	t.Helper()
+	binary := buildExternalDriverBinary(t)
+	provider, err := trustedlocal.New(trustedlocal.Config{
+		ScratchRoot: t.TempDir(), GracePeriod: 20 * time.Millisecond,
+		SecretLookup: func(key string) (string, bool) { return "1", key == "EXTERNAL_DRIVER" },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	if err := os.Chmod(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	input := driver.RunInput{
+		AgentID: uuid.NewString(), ComputerID: uuid.NewString(), DeliveryID: uuid.NewString(), RunID: uuid.NewString(), LaunchID: uuid.NewString(),
+		Fence: 1, Generation: 1, Workspace: workspace, Capabilities: driver.Capability{Streaming: true, Tools: true, Cancel: true},
+		Target: driver.Target{SpaceID: uuid.NewString(), HeadSequence: 1}, CurrentInput: "external-mode:" + mode, HostPolicy: "blackbox",
+	}
+	outputLimit := int64(4096)
+	timeout := 100 * time.Millisecond
+	if mode == "result-overflow" {
+		outputLimit = 1 << 20
+		timeout = 5 * time.Second
+	}
+	return driver.External{Kind: driver.KindCodex, Runner: driver.ProcessRunner{
+		Path: binary, Provider: provider, Timeout: timeout, TerminationGrace: 20 * time.Millisecond, MaxOutputBytes: outputLimit,
+		Secrets: []sandbox.SecretEnvironmentVariable{{Name: "SUMI_EXTERNAL_DRIVER", Ref: sandbox.SecretRef{Source: trustedlocal.SecretSourceComputerEnvironment, Key: "EXTERNAL_DRIVER"}}},
+	}}, driver.Command{Kind: driver.CommandPrompt, Input: &input}
 }
 
 type blackboxProxyState struct {

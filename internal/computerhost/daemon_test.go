@@ -216,6 +216,47 @@ func TestDaemonIneligibleExecutorDoesNotListObserveAcceptOrClaim(t *testing.T) {
 	}
 }
 
+func TestIneligibleExecutorDoesNotStartNewWorkAndReplaysPendingOutbox(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	agentID := uuid.NewString()
+	now := time.Now()
+	if err := fixture.state.SaveRuntimeSession(context.Background(), computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+		Token: testRuntimeToken(43), ExpiresAt: now.Add(time.Minute), UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fixture.daemon.config.Executor = eligibleTestExecutor{eligible: false}
+	event := computerstate.OutboxEvent{
+		OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: agentID, PlacementGeneration: 1,
+		RunID: uuid.NewString(), LaunchID: uuid.NewString(), Fence: 1, Outcome: "succeeded", Body: "completed before unconfigure", CreatedAt: now,
+	}
+	if err := fixture.state.EnqueueOutbox(context.Background(), event); err != nil {
+		t.Fatal(err)
+	}
+	completed := 0
+	fixture.deliveries.complete = func(_ context.Context, request *connect.Request[deliveryv1.CompleteRunRequest]) (*deliveryv1.CompleteRunResponse, error) {
+		completed++
+		return canonicalCompleteResponse(request.Msg, agentID), nil
+	}
+	if !fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity) {
+		t.Fatal("ineligible dispatch failed")
+	}
+	if fixture.deliveries.listCount() != 0 || fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || fixture.inbox.count() != 0 {
+		t.Fatalf("ineligible new-work activity: list=%d accept=%d claim=%d observe=%d",
+			fixture.deliveries.listCount(), fixture.deliveries.acceptCount(), fixture.deliveries.claimCount(), fixture.inbox.count())
+	}
+	replayed := fixture.daemon.dispatchOutbox(context.Background())
+	if !replayed || completed != 1 {
+		t.Fatalf("pending outbox replay = %t, complete=%d", replayed, completed)
+	}
+	events, err := fixture.state.Outbox(context.Background())
+	if err != nil || len(events) != 0 {
+		t.Fatalf("outbox after replay = %+v, %v", events, err)
+	}
+}
+
 func TestAuthoritativeTriggerRejectsMissingDuplicateAndOversizeInput(t *testing.T) {
 	delivery := availableDelivery(uuid.NewString(), uuid.NewString())
 	valid := func() *inboxv1.ObserveTargetResponse {
