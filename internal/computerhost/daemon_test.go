@@ -66,7 +66,8 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 		return &deliveryv1.RunLaunch{
 			Id: request.Msg.GetLaunchId(), RunId: request.Msg.GetRunId(), AgentId: executionAgent,
 			HolderComputerId: fixture.identity.ComputerID, HolderPlacementGeneration: 1,
-			Fence: request.Msg.GetFence(), ExpiresAt: timestamppb.New(time.Now().Add(500 * time.Millisecond)),
+			Fence: request.Msg.GetFence(), ClaimedAt: timestamppb.New(time.Now().Add(-time.Second)),
+			ExpiresAt: timestamppb.New(time.Now().Add(500 * time.Millisecond)),
 		}, nil
 	}
 	completeStarted := make(chan struct{}, 1)
@@ -499,7 +500,7 @@ func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *t
 		t.Fatal(err)
 	}
 	claimAttempt, err := fixture.state.BeginMutation(context.Background(), computerstate.MutationAttempt{
-		Operation: "run.claim", SubjectID: runID,
+		Operation: "run.claim", SubjectID: claimSubject(runID, session),
 		PayloadHash: mutationHash("run.claim", runID, session.ComputerID, "2"), RunID: runID, CreatedAt: now.Add(-time.Minute),
 	})
 	if err != nil {
@@ -542,7 +543,7 @@ func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *t
 		requestID string
 	}{
 		{"delivery.accept", deliveryID, acceptAttempt.RequestID},
-		{"run.claim", runID, claimAttempt.RequestID},
+		{"run.claim", claimSubject(runID, session), claimAttempt.RequestID},
 		{"run.renew", oldLaunchID, renewAttempt.RequestID},
 	} {
 		attempts, err := fixture.state.MutationAttempts(context.Background(), check.operation, check.subject)
@@ -553,7 +554,7 @@ func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *t
 			t.Fatalf("%s %s status = %q, attempts=%+v", check.operation, check.requestID, status, attempts)
 		}
 	}
-	claimAttempts, err := fixture.state.MutationAttempts(context.Background(), "run.claim", runID)
+	claimAttempts, err := fixture.state.MutationAttempts(context.Background(), "run.claim", claimSubject(runID, session))
 	if err != nil || mutationStatus(claimAttempts, newClaimRequestID) != "succeeded" {
 		t.Fatalf("new claim attempts = %+v, %v", claimAttempts, err)
 	}
@@ -561,14 +562,82 @@ func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *t
 	fixture.daemon.workersWG.Wait()
 }
 
+func TestDaemonClaimJournalIsScopedToPlacementBinding(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	now := time.Now()
+	agentID := uuid.NewString()
+	runID := uuid.NewString()
+	deliveryID := uuid.NewString()
+	gen1 := computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+		Token: testRuntimeToken(33), ExpiresAt: now.Add(time.Minute), UpdatedAt: now,
+	}
+	oldAttempt, err := fixture.state.BeginMutation(context.Background(), computerstate.MutationAttempt{
+		Operation: "run.claim", SubjectID: claimSubject(runID, gen1),
+		PayloadHash: mutationHash("run.claim", runID, gen1.ComputerID, "1"), RunID: runID, CreatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen2 := gen1
+	gen2.PlacementGeneration = 2
+	gen2.Token = testRuntimeToken(34)
+	gen2.UpdatedAt = now.Add(time.Second)
+	if err := fixture.state.SaveRuntimeSession(context.Background(), gen2); err != nil {
+		t.Fatal(err)
+	}
+	fixture.deliveries.list = func(*connect.Request[deliveryv1.ListDeliveriesRequest]) (*deliveryv1.ListDeliveriesResponse, error) {
+		return &deliveryv1.ListDeliveriesResponse{
+			ActiveDelivery: activeDelivery(deliveryID, agentID),
+			ActiveRun: &deliveryv1.Run{
+				Id: runID, DeliveryId: deliveryID, AgentId: agentID, State: deliveryv1.RunState_RUN_STATE_ACCEPTED,
+			},
+		}, nil
+	}
+	var newRequestID string
+	fixture.deliveries.claim = func(request *connect.Request[deliveryv1.ClaimRunRequest]) (*deliveryv1.RunLaunch, error) {
+		newRequestID = request.Msg.GetRequestId()
+		return testLaunch(uuid.NewString(), runID, agentID, gen2.ComputerID, 2, 2, now.Add(time.Minute)), nil
+	}
+	fixture.daemon.config.Executor = blockingExecutor{}
+	if !fixture.daemon.dispatchAgent(context.Background(), fixture.identity, gen2) {
+		t.Fatal("gen2 dispatch failed")
+	}
+	if newRequestID == "" || newRequestID == oldAttempt.RequestID {
+		t.Fatalf("gen2 claim request = %q, gen1 = %q", newRequestID, oldAttempt.RequestID)
+	}
+	oldAttempts, err := fixture.state.MutationAttempts(context.Background(), "run.claim", claimSubject(runID, gen1))
+	if err != nil || mutationStatus(oldAttempts, oldAttempt.RequestID) != "pending" {
+		t.Fatalf("gen1 claim attempts = %+v, %v", oldAttempts, err)
+	}
+	newAttempts, err := fixture.state.MutationAttempts(context.Background(), "run.claim", claimSubject(runID, gen2))
+	if err != nil || mutationStatus(newAttempts, newRequestID) != "succeeded" {
+		t.Fatalf("gen2 claim attempts = %+v, %v", newAttempts, err)
+	}
+	fixture.daemon.stopAllWorkers()
+	fixture.daemon.workersWG.Wait()
+}
+
 func TestDaemonRejectsImpossibleActiveRunLaunchCombinations(t *testing.T) {
 	tests := []struct {
-		name   string
-		state  deliveryv1.RunState
-		launch bool
+		name         string
+		state        deliveryv1.RunState
+		launch       bool
+		mutateLaunch func(*deliveryv1.RunLaunch)
 	}{
 		{name: "accepted with launch", state: deliveryv1.RunState_RUN_STATE_ACCEPTED, launch: true},
 		{name: "running without launch", state: deliveryv1.RunState_RUN_STATE_RUNNING},
+		{name: "running without claimed time", state: deliveryv1.RunState_RUN_STATE_RUNNING, launch: true, mutateLaunch: func(launch *deliveryv1.RunLaunch) {
+			launch.ClaimedAt = nil
+		}},
+		{name: "running with inverted lease", state: deliveryv1.RunState_RUN_STATE_RUNNING, launch: true, mutateLaunch: func(launch *deliveryv1.RunLaunch) {
+			launch.ExpiresAt = launch.ClaimedAt
+		}},
+		{name: "running with closed launch", state: deliveryv1.RunState_RUN_STATE_RUNNING, launch: true, mutateLaunch: func(launch *deliveryv1.RunLaunch) {
+			launch.ClosedAt = timestamppb.Now()
+			launch.CloseReason = deliveryv1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_REPLACED
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -592,6 +661,9 @@ func TestDaemonRejectsImpossibleActiveRunLaunchCombinations(t *testing.T) {
 				}
 				if test.launch {
 					response.ActiveLaunch = testLaunch(uuid.NewString(), runID, agentID, session.ComputerID, 1, 1, time.Now().Add(time.Minute))
+					if test.mutateLaunch != nil {
+						test.mutateLaunch(response.ActiveLaunch)
+					}
 				}
 				return response, nil
 			}
@@ -675,7 +747,7 @@ func TestClaimDoesNotReturnLaunchBeforeCanonicalReceiptIsDurable(t *testing.T) {
 	}
 	fixture.state = state
 	fixture.daemon.config.State = state
-	attempts, err := state.MutationAttempts(context.Background(), "run.claim", runID)
+	attempts, err := state.MutationAttempts(context.Background(), "run.claim", claimSubject(runID, session))
 	if err != nil || len(attempts) != 1 || attempts[0].Status != "pending" {
 		t.Fatalf("claim attempts = %+v, %v", attempts, err)
 	}
@@ -1087,7 +1159,8 @@ func canonicalCompleteResponse(request *deliveryv1.CompleteRunRequest, agentID s
 func testLaunch(launchID, runID, agentID, computerID string, generation, fence uint64, expiresAt time.Time) *deliveryv1.RunLaunch {
 	return &deliveryv1.RunLaunch{
 		Id: launchID, RunId: runID, AgentId: agentID, HolderComputerId: computerID,
-		HolderPlacementGeneration: generation, Fence: fence, ExpiresAt: timestamppb.New(expiresAt),
+		HolderPlacementGeneration: generation, Fence: fence, ClaimedAt: timestamppb.New(expiresAt.Add(-time.Minute)),
+		ExpiresAt: timestamppb.New(expiresAt),
 	}
 }
 

@@ -138,14 +138,77 @@ func TestReplacePairingAttemptKeepsOldAttemptOnUnavailable(t *testing.T) {
 	}
 }
 
+func TestReplacePairingAttemptReplaysSameNewTokenAfterCommitResponseLoss(t *testing.T) {
+	api := openHostTestServer(t, t.TempDir())
+	defer api.close(t)
+	oldToken := testRuntimeToken(16)
+	newToken := testRuntimeToken(17)
+	if _, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: oldToken, ExpiresAt: timestamppb.New(time.Now().Add(100 * time.Millisecond)),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: newToken, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
+	})); err != nil {
+		t.Fatal(err)
+	}
+	computerRoot := filepath.Join(t.TempDir(), "computer")
+	state, err := computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	if err := preparePairing(context.Background(), state, api.http.URL, oldToken, "replace retry host",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS, computerv1.Architecture_ARCHITECTURE_ARM64,
+		time.Now(), bytes.NewReader(bytes.Repeat([]byte{21}, 32))); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(150 * time.Millisecond)
+	faultClient := *api.http.Client()
+	faultClient.Transport = &loseCommittedResponseTransport{base: faultClient.Transport, target: 2}
+	host := New(Config{ServerURL: api.http.URL, DataRoot: computerRoot, State: state, HTTPClient: &faultClient})
+	if recovered, err := host.ReplacePairingAttempt(context.Background(), newToken, "replace retry host",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS, computerv1.Architecture_ARCHITECTURE_ARM64, time.Now()); err == nil || recovered {
+		t.Fatalf("first replacement = recovered %v, %v", recovered, err)
+	}
+	attempt, found, err := state.PairingAttempt(context.Background())
+	if err != nil || !found || attempt.PairingToken != newToken {
+		t.Fatalf("replacement attempt after response loss = %+v, %v, %v", attempt, found, err)
+	}
+	retry := New(Config{ServerURL: api.http.URL, DataRoot: computerRoot, State: state, HTTPClient: api.http.Client()})
+	recovered, err := retry.ReplacePairingAttempt(context.Background(), newToken, "replace retry host",
+		computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS, computerv1.Architecture_ARCHITECTURE_ARM64, time.Now())
+	if err != nil || !recovered {
+		t.Fatalf("replacement replay = recovered %v, %v", recovered, err)
+	}
+	if _, found, err := state.PairingAttempt(context.Background()); err != nil || found {
+		t.Fatalf("pairing attempt after replacement replay = %v, %v", found, err)
+	}
+	computers, err := api.ownerComputers.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
+	if err != nil || len(computers.Msg.GetComputers()) != 1 {
+		t.Fatalf("computers after replacement replay = %v, %v", len(computers.Msg.GetComputers()), err)
+	}
+}
+
 type loseCommittedResponseTransport struct {
-	base http.RoundTripper
+	base   http.RoundTripper
+	target int
+	count  int
 }
 
 func (t *loseCommittedResponseTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	response, err := t.base.RoundTrip(request)
 	if err != nil {
 		return nil, err
+	}
+	t.count++
+	target := t.target
+	if target == 0 {
+		target = 1
+	}
+	if t.count != target {
+		return response, nil
 	}
 	_, _ = io.Copy(io.Discard, response.Body)
 	_ = response.Body.Close()

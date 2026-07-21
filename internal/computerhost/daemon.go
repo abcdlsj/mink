@@ -500,7 +500,7 @@ func (d *Daemon) acceptDelivery(ctx context.Context, session computerstate.Runti
 func (d *Daemon) claimRun(ctx context.Context, session computerstate.RuntimeSession, runID string) *deliveryv1.RunLaunch {
 	payloadHash := mutationHash("run.claim", runID, session.ComputerID, fmt.Sprint(session.PlacementGeneration))
 	attempt, err := d.config.State.BeginMutation(ctx, computerstate.MutationAttempt{
-		Operation: "run.claim", SubjectID: runID, PayloadHash: payloadHash, RunID: runID,
+		Operation: "run.claim", SubjectID: claimSubject(runID, session), PayloadHash: payloadHash, RunID: runID,
 		CreatedAt: d.config.Now(),
 	})
 	if err != nil {
@@ -540,11 +540,15 @@ func (d *Daemon) reconcileActiveMutations(ctx context.Context, session computers
 	}
 	expiresAt := launch.GetExpiresAt().AsTime()
 	claimHash := mutationHash("run.claim", run.GetId(), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
-	if !d.reconcilePendingMutation(ctx, "run.claim", run.GetId(), claimHash, launch.GetId(), launch.GetFence(), &expiresAt) {
+	if !d.reconcilePendingMutation(ctx, "run.claim", claimSubject(run.GetId(), session), claimHash, launch.GetId(), launch.GetFence(), &expiresAt) {
 		return false
 	}
 	renewHash := mutationHash("run.renew", run.GetId(), launch.GetId(), fmt.Sprint(launch.GetFence()), session.ComputerID, fmt.Sprint(session.PlacementGeneration))
 	return d.reconcilePendingMutation(ctx, "run.renew", launch.GetId(), renewHash, launch.GetId(), launch.GetFence(), &expiresAt)
+}
+
+func claimSubject(runID string, session computerstate.RuntimeSession) string {
+	return fmt.Sprintf("%s:%s:%d", runID, session.ComputerID, session.PlacementGeneration)
 }
 
 func (d *Daemon) reconcilePendingMutation(ctx context.Context, operation, subjectID string, payloadHash [sha256.Size]byte, responseLaunchID string, responseFence uint64, responseExpiresAt *time.Time) bool {
@@ -895,7 +899,10 @@ func validLaunch(launch *deliveryv1.RunLaunch, runID, agentID, computerID string
 func validLaunchFacts(launch *deliveryv1.RunLaunch, runID, agentID string) bool {
 	return launch != nil && validUUID(launch.GetId()) && launch.GetRunId() == runID && launch.GetAgentId() == agentID &&
 		validUUID(launch.GetHolderComputerId()) && launch.GetHolderPlacementGeneration() > 0 && launch.GetFence() > 0 &&
-		launch.GetExpiresAt() != nil && launch.GetExpiresAt().CheckValid() == nil
+		launch.GetClaimedAt() != nil && launch.GetClaimedAt().CheckValid() == nil &&
+		launch.GetExpiresAt() != nil && launch.GetExpiresAt().CheckValid() == nil &&
+		launch.GetExpiresAt().AsTime().After(launch.GetClaimedAt().AsTime()) && launch.GetClosedAt() == nil &&
+		launch.GetCloseReason() == deliveryv1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_UNSPECIFIED
 }
 
 func validCompleteResponse(response *deliveryv1.CompleteRunResponse, event computerstate.OutboxEvent) bool {

@@ -121,13 +121,13 @@ func (h *Host) ReplacePairingAttempt(ctx context.Context, pairingToken, name str
 	if !found {
 		return false, errors.New("pairing attempt not found")
 	}
-	if !canonicalSecret(pairingToken) || pairingToken == attempt.PairingToken {
-		return false, errors.New("replacement pairing token is invalid")
-	}
 	if _, err := h.PairOnce(ctx); err == nil {
 		return true, nil
 	} else if connect.CodeOf(err) != connect.CodeInvalidArgument {
 		return false, errors.New("pairing attempt replacement requires a definitive invalid or expired Server response")
+	}
+	if !canonicalSecret(pairingToken) || pairingToken == attempt.PairingToken {
+		return false, errors.New("replacement pairing token is invalid")
 	}
 	osName, archName, err := platformNames(operatingSystem, architecture)
 	if err != nil {

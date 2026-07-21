@@ -148,7 +148,7 @@ func TestResetExpiredUnconsumedPairingAttemptUsesNewTokenWithoutOldHandoffFile(t
 	if err := os.WriteFile(newTokenPath, []byte(newToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	resetArgs := append(append([]string{}, baseArgs...), "--reset-pairing-attempt", "--pairing-token-file", newTokenPath)
+	resetArgs := append(append([]string{}, baseArgs...), "--once", "--reset-pairing-attempt", "--pairing-token-file", newTokenPath)
 	if err := runContext(context.Background(), resetArgs, bytes.NewReader(nil)); err != nil {
 		t.Fatal(err)
 	}
@@ -239,12 +239,11 @@ func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing
 		t.Fatal(err)
 	}
 	resetArgs := []string{
-		"--server", httpServer.URL, "--data-root", computerRoot, "--name", "Consumed host",
+		"--once", "--server", httpServer.URL, "--data-root", computerRoot, "--name", "Consumed host",
 		"--reset-pairing-attempt", "--pairing-token-file", tokenPath,
 	}
-	if err := runContext(context.Background(), resetArgs, bytes.NewReader(nil)); err == nil ||
-		bytes.Contains([]byte(err.Error()), []byte(token)) || bytes.Contains([]byte(err.Error()), []byte(replacementToken)) {
-		t.Fatalf("consumed replacement request error = %v", err)
+	if err := runContext(context.Background(), resetArgs, bytes.NewReader(nil)); err != nil {
+		t.Fatal(err)
 	}
 	state, err = computerstate.Open(computerRoot)
 	if err != nil {

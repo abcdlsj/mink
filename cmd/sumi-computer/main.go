@@ -93,61 +93,63 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 			if err != nil {
 				return err
 			}
-			recovered, err := host.ReplacePairingAttempt(ctx, token, *name, osName, arch, time.Now())
+			_, err = host.ReplacePairingAttempt(ctx, token, *name, osName, arch, time.Now())
 			if err != nil {
-				return err
-			}
-			if recovered {
-				return errors.New("existing computer identity recovered; replacement pairing token was not used")
-			}
-			return nil
-		}
-		if attemptFound && *pairingTokenFile != "" {
-			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
-			if err != nil {
-				return err
-			}
-			if token != attempt.PairingToken {
-				return errors.New("pairing token does not match persisted attempt")
-			}
-		}
-		if !attemptFound && *pairingTokenFile != "" {
-			token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
-			if err != nil {
-				return err
-			}
-			if err := computerhost.PreparePairing(ctx, state, *serverURL, token, *name, osName, arch, time.Now()); err != nil {
-				return err
-			}
-			attemptFound = true
-		}
-		if attemptFound {
-			if _, err := host.PairOnce(ctx); err != nil {
 				return err
 			}
 			identity, found, err = state.Identity(ctx)
 			if err != nil || !found {
-				return errors.New("paired computer identity was not persisted")
+				return errors.New("paired computer identity was not persisted after pairing replacement")
 			}
 			key = identity.RegistrationKey
 		} else {
-			key, err = computerhost.ReadRegistrationKey(*keyFile)
-			if err != nil {
-				return err
+			if attemptFound && *pairingTokenFile != "" {
+				token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
+				if err != nil {
+					return err
+				}
+				if token != attempt.PairingToken {
+					return errors.New("pairing token does not match persisted attempt")
+				}
 			}
-			legacyConfig := computerhost.Config{
-				ServerURL: *serverURL, DataRoot: *dataRoot, RegistrationKey: key, Name: *name,
-				OS: osName, Arch: arch, State: state,
+			if !attemptFound && *pairingTokenFile != "" {
+				token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
+				if err != nil {
+					return err
+				}
+				if err := computerhost.PreparePairing(ctx, state, *serverURL, token, *name, osName, arch, time.Now()); err != nil {
+					return err
+				}
+				attemptFound = true
 			}
-			result, err := computerhost.New(legacyConfig).SyncOnce(ctx)
-			if err != nil {
-				return err
+			if attemptFound {
+				if _, err := host.PairOnce(ctx); err != nil {
+					return err
+				}
+				identity, found, err = state.Identity(ctx)
+				if err != nil || !found {
+					return errors.New("paired computer identity was not persisted")
+				}
+				key = identity.RegistrationKey
+			} else {
+				key, err = computerhost.ReadRegistrationKey(*keyFile)
+				if err != nil {
+					return err
+				}
+				legacyConfig := computerhost.Config{
+					ServerURL: *serverURL, DataRoot: *dataRoot, RegistrationKey: key, Name: *name,
+					OS: osName, Arch: arch, State: state,
+				}
+				result, err := computerhost.New(legacyConfig).SyncOnce(ctx)
+				if err != nil {
+					return err
+				}
+				identity, found, err = state.Identity(ctx)
+				if err != nil || !found || identity.ComputerID != result.ComputerID {
+					return errors.New("legacy computer identity was not persisted")
+				}
+				initialSync = &result
 			}
-			identity, found, err = state.Identity(ctx)
-			if err != nil || !found || identity.ComputerID != result.ComputerID {
-				return errors.New("legacy computer identity was not persisted")
-			}
-			initialSync = &result
 		}
 	}
 	if *once {
