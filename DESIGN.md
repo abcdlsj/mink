@@ -99,6 +99,16 @@ Artifact 必须具备：
 - 可见范围和访问权限；
 - 可引用、可检索、可审计的历史。
 
+Artifact family 是稳定身份，并且必须属于一个 owning Work。family 的名称和 media type 创建后不可修改；version 从 1 单调递增且不可覆盖。每个 version 保存 Server 计算的 SHA-256、大小、摘要、结构化作者和完整来源事实，正文只进入受控对象存储，不进入 SQLite、receipt、Audit、错误或日志。
+
+Artifact 使用独立 Grant，不把 Space 或 Work 伪装成 Principal。Grant target 是显式 Agent、Space 或 Work union：Space 与 Work 只能获得 read，manage 只能授予 exact Agent；owning Work 当前 `work.manage` 也提供默认 manage。所有 Get、List、Fetch、Publish、Grant、Revoke 和 request replay 都重新检查当前权限，撤权、成员变化或 runtime 失效立即生效。Artifact read 只授予该 Artifact 的元数据和内容，不传递 owning Work、Message、上游 Artifact、Run、Delivery、Launch 或 Computer 的访问权。
+
+完整 provenance 始终保存在中央事实中，但 API 按调用方当前权限逐项投影。不可读来源只返回不含 kind、ID 或关系的 restricted 占位。Agent 发布的 execution provenance 必须同时绑定当前 runtime、Placement、Run、Delivery、未过期 Launch、Computer、generation 和 fence；Human 不能自报或伪造这些执行关系。
+
+Publish 是 client stream：首帧唯一 metadata，后续为非空且不超过 64 KiB 的数据块；单个 version 硬上限 64 MiB。调用方声明 size 与 digest，Server 完整流式读取并独立计算后才允许提交；声明不一致、格式错误、超限或取消都不写 Artifact、version、receipt 或 committed Audit。相同 request ID 只有在全部 metadata、声明值和完整 payload fingerprint 相同时才能 replay，不能凭首帧提前命中旧结果。Fetch 是 server stream，先返回 metadata，再返回不超过 64 KiB 的数据块。
+
+Human Bearer、browser session 与 current Agent runtime 共用同一 Artifact API；多身份同时出现时 fail closed，browser mutation 还必须 same-origin。对象存储采用 durable CAS 与最终业务事务分离的提交边界，因此失败最多留下未引用对象，不能留下半套业务事实。Server 启动时 reconcile staging、引用与完整性；单个对象 missing/corrupt 只影响对应 Artifact，不能阻止其余服务，CAS 根目录或权限结构不可用才允许启动失败。
+
 消息引用 Artifact，而不是暴露任意本机文件路径。
 
 ### Computer、Workspace 与 Sandbox
@@ -428,6 +438,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 
 - `internal/store/work.go` 与 `internal/collaboration/service.go` 仅收敛了真实重复的参数和 assignment 结束流程；Work、Space、Message、权限、API 与迁移事实均未改变。
 - `internal/agentmessage` 现在是 Inbox 与 Delivery 共用的 Message/HeldDraft Store↔proto codec：两侧统一执行 body、mention、target、principal 与 HeldDraft 状态链校验；不合法的 Store fact 一律 fail closed，不再由 Inbox 静默输出不完整协议。RPC 授权、状态机、Store 接口、API schema 与迁移事实均未改变。
+- Artifact checkpoint① `0490a437` + `7545edd7` 落地 immutable family/version、独立 ACL、完整 provenance、64 MiB/64 KiB bounded CAS、两段 authority revalidation、integrity/quarantine 与 replay；checkpoint② `af8ce60a` 落地 streaming RPC、Human/browser/runtime auth、显式 Grant oneof、Server wiring 与真实 HTTP/restart/corruption 证据。两次独立 review 均为 0 个未关闭 P0/P1/P2；代码仍只在本地分支，未 push。C1 两进程 blackbox 曾出现一次 15 秒 readiness 时序失败，随后 x3、全量与 race 均通过，当前没有 D2 启动 reconcile 导致该失败的因果证据，继续作为既有环境时序风险观察。
 - `mise lint` 纳入 staticcheck；Playwright 不混入无环境依赖的默认 test，而通过 `mise run test:e2e` 作为 release validation 明确执行。该入口要求正在运行的目标 Server，并要求 `PLAYWRIGHT_OWNER_KEY_FILE` 指向该 Server 的 `0600` owner credential 文件；E2E 结果不能被表述成无外部前置的全量单测。同步修正 Server CLI 错误文案的 Go 静态规范，不改变 CLI 合同。
 - C1 checkpoint③ 冻结后，移除了 Computer Host 测试 stub 中未使用的 heartbeat 计数 accessor；它不改变 daemon、协议或测试覆盖的产品语义，专门收口 staticcheck U1000。
 - Driver owner 的 bounded queue 合同未改；修正的是测试并发编排：首个执行被阻塞时，第二个 Submit 必须在独立 goroutine 入队，第三个才验证 `ErrQueueFull`，释放后两个已接受请求必须收口。该回归防止测试自身死锁掩盖真实队列行为。
