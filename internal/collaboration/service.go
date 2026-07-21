@@ -29,6 +29,12 @@ type Service struct {
 	now   func() time.Time
 }
 
+type spaceMutationIDs struct {
+	requestID string
+	actor     store.Principal
+	spaceID   string
+}
+
 var _ spacev1connect.CollaborationServiceHandler = (*Service)(nil)
 
 func New(database *store.Store) *Service {
@@ -265,39 +271,39 @@ func (s *Service) ListMessages(ctx context.Context, request *connect.Request[spa
 }
 
 func (s *Service) memberParams(ctx context.Context, requestIDValue, spaceIDValue string, memberValue *spacev1.Principal) (store.ChangeMemberParams, error) {
-	actor, err := authority.Subject(ctx)
+	ids, err := s.spaceMutationIDs(ctx, requestIDValue, spaceIDValue)
 	if err != nil {
 		return store.ChangeMemberParams{}, err
 	}
-	requestID, err := connectapi.CanonicalID(requestIDValue, "request id")
+	member, err := principalParams(memberValue, ids.actor.OrganizationID)
 	if err != nil {
 		return store.ChangeMemberParams{}, err
 	}
-	spaceID, err := connectapi.CanonicalID(spaceIDValue, "space id")
-	if err != nil {
-		return store.ChangeMemberParams{}, err
-	}
-	member, err := principalParams(memberValue, actor.OrganizationID)
-	if err != nil {
-		return store.ChangeMemberParams{}, err
-	}
-	return store.ChangeMemberParams{RequestID: requestID, Actor: actor, SpaceID: spaceID, Member: member, Now: s.now()}, nil
+	return store.ChangeMemberParams{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Member: member, Now: s.now()}, nil
 }
 
 func (s *Service) archiveParams(ctx context.Context, requestIDValue, spaceIDValue string) (store.ChangeSpaceArchiveParams, error) {
-	actor, err := authority.Subject(ctx)
+	ids, err := s.spaceMutationIDs(ctx, requestIDValue, spaceIDValue)
 	if err != nil {
 		return store.ChangeSpaceArchiveParams{}, err
+	}
+	return store.ChangeSpaceArchiveParams{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Now: s.now()}, nil
+}
+
+func (s *Service) spaceMutationIDs(ctx context.Context, requestIDValue, spaceIDValue string) (spaceMutationIDs, error) {
+	actor, err := authority.Subject(ctx)
+	if err != nil {
+		return spaceMutationIDs{}, err
 	}
 	requestID, err := connectapi.CanonicalID(requestIDValue, "request id")
 	if err != nil {
-		return store.ChangeSpaceArchiveParams{}, err
+		return spaceMutationIDs{}, err
 	}
 	spaceID, err := connectapi.CanonicalID(spaceIDValue, "space id")
 	if err != nil {
-		return store.ChangeSpaceArchiveParams{}, err
+		return spaceMutationIDs{}, err
 	}
-	return store.ChangeSpaceArchiveParams{RequestID: requestID, Actor: actor, SpaceID: spaceID, Now: s.now()}, nil
+	return spaceMutationIDs{requestID: requestID, actor: actor, spaceID: spaceID}, nil
 }
 
 func principalParams(value *spacev1.Principal, organizationID string) (store.Principal, error) {
