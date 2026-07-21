@@ -11,6 +11,17 @@ import (
 const ContractVersion = "sumi.run.v1"
 
 const (
+	maxHostPolicyRunes    = 20_000
+	maxWorkGoalRunes      = 20_000
+	maxMemoryIndexEntries = 100
+	maxMemoryEntryRunes   = 2_000
+	maxMemoryIndexRunes   = 20_000
+	maxSources            = 20
+	maxSourceTextRunes    = 20_000
+	maxSourceRunes        = 100_000
+	maxCurrentInputRunes  = 400_000
+	maxContextRunes       = 512_000
+
 	KindNative Kind = "native"
 	KindCodex  Kind = "codex"
 	KindClaude Kind = "claude"
@@ -135,13 +146,15 @@ func (input RunInput) validate() error {
 	if err := required("workspace", input.Workspace); err != nil {
 		return err
 	}
-	if err := required("host policy", input.HostPolicy); err != nil {
+	hostPolicyRunes, err := requiredText("host policy", input.HostPolicy, maxHostPolicyRunes)
+	if err != nil {
 		return err
 	}
 	if err := required("space id", input.Target.SpaceID); err != nil {
 		return err
 	}
-	if err := required("current input", input.CurrentInput); err != nil {
+	currentInputRunes, err := requiredText("current input", input.CurrentInput, maxCurrentInputRunes)
+	if err != nil {
 		return err
 	}
 	if input.Generation == 0 {
@@ -165,18 +178,69 @@ func (input RunInput) validate() error {
 	if !input.Capabilities.Valid() {
 		return errors.New("driver capabilities are invalid")
 	}
-	if utf8.RuneCountInString(input.CurrentInput) > 400_000 {
-		return errors.New("current input is too large")
-	}
-	for _, source := range input.Sources {
-		if strings.TrimSpace(source.ID) == "" || strings.TrimSpace(source.Kind) == "" {
-			return errors.New("retrieved source identity is required")
-		}
+	workGoalRunes, err := optionalText("work goal", input.WorkGoal, maxWorkGoalRunes)
+	if err != nil {
+		return err
 	}
 	if input.WorkID != "" && strings.TrimSpace(input.WorkGoal) == "" {
 		return errors.New("work goal is required")
 	}
+	if len(input.MemoryIndex) > maxMemoryIndexEntries {
+		return errors.New("memory index has too many entries")
+	}
+	memoryRunes := 0
+	for _, entry := range input.MemoryIndex {
+		runes, err := requiredText("memory index entry", entry, maxMemoryEntryRunes)
+		if err != nil {
+			return err
+		}
+		memoryRunes += runes
+		if memoryRunes > maxMemoryIndexRunes {
+			return errors.New("memory index is too large")
+		}
+	}
+	if len(input.Sources) > maxSources {
+		return errors.New("retrieved sources have too many entries")
+	}
+	sourceRunes := 0
+	for _, source := range input.Sources {
+		if _, err := requiredText("retrieved source id", source.ID, maxMemoryEntryRunes); err != nil {
+			return err
+		}
+		if _, err := requiredText("retrieved source kind", source.Kind, maxMemoryEntryRunes); err != nil {
+			return err
+		}
+		runes, err := requiredText("retrieved source text", source.Text, maxSourceTextRunes)
+		if err != nil {
+			return err
+		}
+		sourceRunes += runes
+		if sourceRunes > maxSourceRunes {
+			return errors.New("retrieved sources are too large")
+		}
+	}
+	if hostPolicyRunes+workGoalRunes+memoryRunes+sourceRunes+currentInputRunes > maxContextRunes {
+		return errors.New("run context is too large")
+	}
 	return nil
+}
+
+func requiredText(name, value string, maximum int) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, fmt.Errorf("%s is required", name)
+	}
+	return optionalText(name, value, maximum)
+}
+
+func optionalText(name, value string, maximum int) (int, error) {
+	if !utf8.ValidString(value) {
+		return 0, fmt.Errorf("%s must be valid UTF-8", name)
+	}
+	runes := utf8.RuneCountInString(value)
+	if runes > maximum {
+		return 0, fmt.Errorf("%s is too large", name)
+	}
+	return runes, nil
 }
 
 func required(name, value string) error {

@@ -431,6 +431,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - `mise lint` 纳入 staticcheck；Playwright 不混入无环境依赖的默认 test，而通过 `mise run test:e2e` 作为 release validation 明确执行。该入口要求正在运行的目标 Server，并要求 `PLAYWRIGHT_OWNER_KEY_FILE` 指向该 Server 的 `0600` owner credential 文件；E2E 结果不能被表述成无外部前置的全量单测。同步修正 Server CLI 错误文案的 Go 静态规范，不改变 CLI 合同。
 - C1 checkpoint③ 冻结后，移除了 Computer Host 测试 stub 中未使用的 heartbeat 计数 accessor；它不改变 daemon、协议或测试覆盖的产品语义，专门收口 staticcheck U1000。
 - Driver owner 的 bounded queue 合同未改；修正的是测试并发编排：首个执行被阻塞时，第二个 Submit 必须在独立 goroutine 入队，第三个才验证 `ErrQueueFull`，释放后两个已接受请求必须收口。该回归防止测试自身死锁掩盖真实队列行为。
+- Driver `RunInput` 在 contract 边界统一限制 UTF-8、单项、集合与总量预算：host policy、work goal、memory index、retrieved source 和 current input 都不能无界进入 Prompt；短 memory index 与按需来源读取由 typed contract 强制，不依赖 assembler 或 adapter 自觉。该变更只收紧非法/超限输入，不改变 Driver、权限或 Server facts。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
 - 已验证共用 codec、Inbox、Delivery 的 focused tests，以及三者 `-race -count=3`；全仓门禁仍受 Driver 队列测试死锁阻塞，尚未在本提交修复。
 - 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。

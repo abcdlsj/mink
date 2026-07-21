@@ -36,6 +36,56 @@ func TestPromptUsesStableSectionOrderAndNoSecretField(t *testing.T) {
 	}
 }
 
+func TestPromptRejectsUnboundedContext(t *testing.T) {
+	tests := map[string]func(*RunInput){
+		"host policy invalid utf8": func(input *RunInput) {
+			input.HostPolicy = string([]byte{0xff})
+		},
+		"work goal too large": func(input *RunInput) {
+			input.WorkID = "work-1"
+			input.WorkGoal = strings.Repeat("w", maxWorkGoalRunes+1)
+		},
+		"memory index too many entries": func(input *RunInput) {
+			input.MemoryIndex = make([]string, maxMemoryIndexEntries+1)
+			for index := range input.MemoryIndex {
+				input.MemoryIndex[index] = "memory"
+			}
+		},
+		"memory entry too large": func(input *RunInput) {
+			input.MemoryIndex = []string{strings.Repeat("m", maxMemoryEntryRunes+1)}
+		},
+		"source text invalid utf8": func(input *RunInput) {
+			input.Sources = []Source{{ID: "source-1", Kind: "message", Text: string([]byte{0xff})}}
+		},
+		"source text too large": func(input *RunInput) {
+			input.Sources = []Source{{ID: "source-1", Kind: "message", Text: strings.Repeat("s", maxSourceTextRunes+1)}}
+		},
+		"sources too many entries": func(input *RunInput) {
+			input.Sources = make([]Source, maxSources+1)
+			for index := range input.Sources {
+				input.Sources[index] = Source{ID: "source", Kind: "message", Text: "text"}
+			}
+		},
+		"aggregate context too large": func(input *RunInput) {
+			input.HostPolicy = strings.Repeat("h", maxHostPolicyRunes)
+			input.CurrentInput = strings.Repeat("i", maxCurrentInputRunes)
+			input.Sources = make([]Source, maxSources)
+			for index := range input.Sources {
+				input.Sources[index] = Source{ID: "source", Kind: "message", Text: strings.Repeat("s", maxSourceRunes/maxSources)}
+			}
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			input := testInput()
+			mutate(&input)
+			if _, err := input.Prompt(); err == nil {
+				t.Fatal("unbounded context accepted")
+			}
+		})
+	}
+}
+
 func TestOwnerSerializesCommandsAndNumbersEvents(t *testing.T) {
 	var mu sync.Mutex
 	var commands []CommandKind
