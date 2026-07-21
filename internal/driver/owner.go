@@ -13,6 +13,7 @@ var (
 
 type request struct {
 	command Command
+	ctx     context.Context
 	result  chan response
 }
 
@@ -61,7 +62,7 @@ func (o *Owner) Submit(ctx context.Context, command Command) (TurnResult, error)
 	if err := command.validate(); err != nil {
 		return TurnResult{}, err
 	}
-	request := request{command: command, result: make(chan response, 1)}
+	request := request{command: command, ctx: ctx, result: make(chan response, 1)}
 	o.mu.Lock()
 	if o.closed {
 		o.mu.Unlock()
@@ -117,12 +118,29 @@ func (o *Owner) run() {
 		return nil
 	}}
 	for {
+		if err := o.ctx.Err(); err != nil {
+			o.failQueued(err)
+			return
+		}
 		select {
 		case <-o.ctx.Done():
 			o.failQueued(o.ctx.Err())
 			return
 		case request := <-o.queue:
-			result, err := o.engine.Execute(o.ctx, request.command, sink)
+			if err := o.ctx.Err(); err != nil {
+				request.result <- response{err: err}
+				o.failQueued(err)
+				return
+			}
+			if err := request.ctx.Err(); err != nil {
+				request.result <- response{err: err}
+				continue
+			}
+			executionCtx, cancel := context.WithCancel(o.ctx)
+			stop := context.AfterFunc(request.ctx, cancel)
+			result, err := o.engine.Execute(executionCtx, request.command, sink)
+			stop()
+			cancel()
 			request.result <- response{result: result, err: err}
 		}
 	}

@@ -185,6 +185,167 @@ func TestOwnerRejectsCommandsAboveBoundedQueue(t *testing.T) {
 	}
 }
 
+func TestOwnerSkipsCancelledQueuedCommandAndContinues(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var commands []string
+	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+		mu.Lock()
+		commands = append(commands, command.Text)
+		mu.Unlock()
+		if command.Text == "first" {
+			close(started)
+			select {
+			case <-release:
+				return TurnResult{Outcome: OutcomeSucceeded, Body: command.Text}, nil
+			case <-ctx.Done():
+				return TurnResult{}, ctx.Err()
+			}
+		}
+		return TurnResult{Outcome: OutcomeSucceeded, Body: command.Text}, nil
+	}}
+	owner, err := NewOwner(engine, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "first"})
+		firstDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first command did not start")
+	}
+	cancelledCtx, cancel := context.WithCancel(context.Background())
+	cancelledDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(cancelledCtx, Command{Kind: CommandSteer, Text: "cancelled"})
+		cancelledDone <- err
+	}()
+	deadline := time.After(time.Second)
+	for len(owner.queue) != 1 {
+		select {
+		case <-deadline:
+			t.Fatal("cancelled command did not enter owner queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	cancel()
+	if err := <-cancelledDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled submit error = %v", err)
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first submit error = %v", err)
+	}
+	result, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "next"})
+	if err != nil || result.Body != "next" {
+		t.Fatalf("next result = %+v, %v", result, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := strings.Join(commands, ","); got != "first,next" {
+		t.Fatalf("executed commands = %q", got)
+	}
+}
+
+func TestOwnerCancelsRunningCommandAndContinues(t *testing.T) {
+	started := make(chan struct{})
+	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+		if command.Text == "cancel" {
+			close(started)
+			<-ctx.Done()
+			return TurnResult{}, ctx.Err()
+		}
+		return TurnResult{Outcome: OutcomeSucceeded, Body: command.Text}, nil
+	}}
+	owner, err := NewOwner(engine, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancelledDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(ctx, Command{Kind: CommandSteer, Text: "cancel"})
+		cancelledDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled command did not start")
+	}
+	cancel()
+	if err := <-cancelledDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled submit error = %v", err)
+	}
+	result, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "next"})
+	if err != nil || result.Body != "next" {
+		t.Fatalf("next result = %+v, %v", result, err)
+	}
+}
+
+func TestOwnerCloseCancelsRunningAndQueuedCommands(t *testing.T) {
+	started := make(chan struct{})
+	var mu sync.Mutex
+	var commands []string
+	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+		mu.Lock()
+		commands = append(commands, command.Text)
+		mu.Unlock()
+		close(started)
+		<-ctx.Done()
+		return TurnResult{}, ctx.Err()
+	}}
+	owner, err := NewOwner(engine, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "running"})
+		firstDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("running command did not start")
+	}
+	queuedDone := make(chan error, 1)
+	go func() {
+		_, err := owner.Submit(context.Background(), Command{Kind: CommandSteer, Text: "queued"})
+		queuedDone <- err
+	}()
+	deadline := time.After(time.Second)
+	for len(owner.queue) != 1 {
+		select {
+		case <-deadline:
+			t.Fatal("queued command did not enter owner queue")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	if err := owner.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("running submit error = %v", err)
+	}
+	if err := <-queuedDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("queued submit error = %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got := strings.Join(commands, ","); got != "running" {
+		t.Fatalf("executed commands = %q", got)
+	}
+}
+
 func TestOwnerDoesNotDependOnEventConsumerForResult(t *testing.T) {
 	engine := Native{ExecuteFunc: func(_ context.Context, _ Command, events EventSink) (TurnResult, error) {
 		if err := events.Publish(Event{Kind: EventStarted}); err != nil {
