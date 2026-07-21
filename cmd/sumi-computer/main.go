@@ -101,7 +101,6 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 			if err != nil || !found {
 				return errors.New("paired computer identity was not persisted after pairing replacement")
 			}
-			key = identity.RegistrationKey
 		} else {
 			if attemptFound && *pairingTokenFile != "" {
 				token, err := computerhost.ReadPairingToken(*pairingTokenFile, stdin)
@@ -130,7 +129,6 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 				if err != nil || !found {
 					return errors.New("paired computer identity was not persisted")
 				}
-				key = identity.RegistrationKey
 			} else {
 				key, err = computerhost.ReadRegistrationKey(*keyFile)
 				if err != nil {
