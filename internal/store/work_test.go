@@ -105,6 +105,25 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if assignment.HolderComputerID != computerID || assignment.HolderPlacementGeneration != 1 {
 		t.Fatalf("assignment = %+v", assignment)
 	}
+	firstAssignment := assignment
+	assignment, err = database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: agent.ID, Now: now.Add(4 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reassignedAt int64
+	if err := database.db.QueryRow(`SELECT ended_at FROM work_assignments WHERE id = ?`, firstAssignment.ID).Scan(&reassignedAt); err != nil {
+		t.Fatal(err)
+	}
+	if reassignedAt == 0 {
+		t.Fatal("reassigned work did not end previous assignment")
+	}
+	var reassignedEvents int
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_events WHERE work_id = ? AND event_kind = 'assignment.ended' AND reference_id = ?`, work.ID, firstAssignment.ID).Scan(&reassignedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if reassignedEvents != 1 {
+		t.Fatalf("reassigned assignment ended events = %d", reassignedEvents)
+	}
 	approval, err := database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, Question: "may I proceed?", Now: now.Add(5 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +193,7 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if err := database.db.QueryRow(`SELECT count(*) FROM work_requests`).Scan(&receiptCount); err != nil {
 		t.Fatal(err)
 	}
-	if eventCount < 7 || receiptCount != 5 {
+	if eventCount < 9 || receiptCount != 6 {
 		t.Fatalf("work facts counts = events %d receipts %d", eventCount, receiptCount)
 	}
 	rows, err := database.db.Query(`PRAGMA foreign_key_check`)

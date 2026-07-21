@@ -476,8 +476,14 @@ func insertWorkEvent(ctx context.Context, tx *sql.Tx, workID, organizationID, ki
 	return nil
 }
 
-func endCurrentWorkAssignments(ctx context.Context, tx *sql.Tx, workID string, actor Principal, reason string, now time.Time) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM work_assignments WHERE work_id = ? AND ended_at IS NULL`, workID)
+func endWorkAssignments(ctx context.Context, tx *sql.Tx, workID, agentID, role string, actor Principal, reason string, now time.Time) error {
+	filter := ""
+	args := []any{workID}
+	if agentID != "" || role != "" {
+		filter = " AND (agent_id = ? OR role = ?)"
+		args = append(args, agentID, role)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM work_assignments WHERE work_id = ? AND ended_at IS NULL`+filter, args...)
 	if err != nil {
 		return err
 	}
@@ -496,38 +502,8 @@ func endCurrentWorkAssignments(ctx context.Context, tx *sql.Tx, workID string, a
 	if len(ids) == 0 {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE work_assignments SET ended_at = ?, end_reason = ? WHERE work_id = ? AND ended_at IS NULL`, unixNano(now), reason, workID); err != nil {
-		return err
-	}
-	for _, id := range ids {
-		if err := insertWorkEvent(ctx, tx, workID, actor.OrganizationID, "assignment.ended", actor, "", "", "assignment", id, reason, now); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func endSelectedWorkAssignments(ctx context.Context, tx *sql.Tx, workID, agentID, role string, actor Principal, reason string, now time.Time) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM work_assignments WHERE work_id = ? AND ended_at IS NULL AND (agent_id = ? OR role = ?)`, workID, agentID, role)
-	if err != nil {
-		return err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE work_assignments SET ended_at = ?, end_reason = ? WHERE work_id = ? AND ended_at IS NULL AND (agent_id = ? OR role = ?)`, unixNano(now), reason, workID, agentID, role); err != nil {
+	args = append([]any{unixNano(now), reason}, args...)
+	if _, err := tx.ExecContext(ctx, `UPDATE work_assignments SET ended_at = ?, end_reason = ? WHERE work_id = ? AND ended_at IS NULL`+filter, args...); err != nil {
 		return err
 	}
 	for _, id := range ids {
@@ -661,7 +637,7 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	if exists, err := recordExists(ctx, tx, "agents", params.AgentID); err != nil || !exists {
 		return WorkAssignment{}, ErrPrincipalNotFound
 	}
-	if err := endSelectedWorkAssignments(ctx, tx, params.WorkID, params.AgentID, params.Role, params.Actor, "reassigned", params.Now); err != nil {
+	if err := endWorkAssignments(ctx, tx, params.WorkID, params.AgentID, params.Role, params.Actor, "reassigned", params.Now); err != nil {
 		return WorkAssignment{}, err
 	}
 	assignmentID := uuid.NewString()
@@ -831,7 +807,7 @@ func (s *Store) TransitionWork(ctx context.Context, params TransitionWorkParams)
 				return Work{}, err
 			}
 		}
-		if err := endCurrentWorkAssignments(ctx, tx, work.ID, params.Actor, reason, params.Now); err != nil {
+		if err := endWorkAssignments(ctx, tx, work.ID, "", "", params.Actor, reason, params.Now); err != nil {
 			return Work{}, err
 		}
 	}
