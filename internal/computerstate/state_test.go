@@ -1,8 +1,10 @@
 package computerstate
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,9 +19,9 @@ func TestPairingAttemptSurvivesRestartAndCompletesAtomically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Unix(1_800_000_000, 0).UTC()
+	now := time.Now()
 	attempt := PairingAttempt{
-		ServerURL: "https://sumi.test", PairingToken: "pairing-secret", RequestID: uuid.NewString(),
+		ServerURL: "https://sumi.test", PairingToken: testSecret(1), RequestID: uuid.NewString(),
 		RegistrationKey: "registration-secret", Name: "build-host", OS: "linux", Arch: "arm64", CreatedAt: now,
 	}
 	if err := state.SavePairingAttempt(context.Background(), attempt); err != nil {
@@ -46,11 +48,14 @@ func TestPairingAttemptSurvivesRestartAndCompletesAtomically(t *testing.T) {
 	}
 	defer state.Close()
 	restored, found, err := state.PairingAttempt(context.Background())
-	if err != nil || !found || restored != attempt {
+	if err != nil || !found || !samePairingAttempt(restored, attempt) {
 		t.Fatalf("restored pairing attempt = %+v, %v, %v", restored, found, err)
 	}
 	identity := Identity{
 		ServerURL: attempt.ServerURL, ComputerID: uuid.NewString(), RegistrationKey: attempt.RegistrationKey, PairedAt: now.Add(time.Second),
+	}
+	if err := state.SaveIdentity(context.Background(), identity); err == nil {
+		t.Fatal("legacy identity import bypassed a pending pairing attempt")
 	}
 	if err := state.CompletePairing(context.Background(), identity); err != nil {
 		t.Fatal(err)
@@ -59,10 +64,48 @@ func TestPairingAttemptSurvivesRestartAndCompletesAtomically(t *testing.T) {
 		t.Fatalf("pairing attempt after completion = %v, %v", found, err)
 	}
 	storedIdentity, found, err := state.Identity(context.Background())
-	if err != nil || !found || storedIdentity != identity {
+	if err != nil || !found || !sameIdentity(storedIdentity, identity) {
 		t.Fatalf("stored identity = %+v, %v, %v", storedIdentity, found, err)
 	}
+	if err := state.CompletePairing(context.Background(), identity); err != nil {
+		t.Fatalf("exact identity completion replay: %v", err)
+	}
+	if err := state.SaveIdentity(context.Background(), identity); err != nil {
+		t.Fatalf("exact identity import replay: %v", err)
+	}
+	newAttempt := attempt
+	newAttempt.RequestID = uuid.NewString()
+	newAttempt.PairingToken = testSecret(2)
+	if err := state.SavePairingAttempt(context.Background(), newAttempt); err == nil {
+		t.Fatal("pairing attempt was accepted after identity existed")
+	}
+	conflictingIdentity := identity
+	conflictingIdentity.ServerURL = "https://other-sumi.test"
+	conflictingIdentity.ComputerID = uuid.NewString()
+	conflictingIdentity.RegistrationKey = "other-registration-secret"
+	if err := state.CompletePairing(context.Background(), conflictingIdentity); err == nil {
+		t.Fatal("conflicting identity completion was accepted")
+	}
+	unchanged, found, err := state.Identity(context.Background())
+	if err != nil || !found || !sameIdentity(unchanged, identity) {
+		t.Fatalf("identity after conflicts = %+v, %v, %v", unchanged, found, err)
+	}
 	assertStateModes(t, dataRoot)
+}
+
+func TestPairingAttemptRejectsNonCanonicalToken(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	attempt := PairingAttempt{
+		ServerURL: "https://sumi.test", PairingToken: "not-a-32-byte-secret", RequestID: uuid.NewString(),
+		RegistrationKey: "registration-secret", Name: "host", OS: "linux", Arch: "arm64", CreatedAt: time.Now(),
+	}
+	if err := state.SavePairingAttempt(context.Background(), attempt); err == nil {
+		t.Fatal("non-canonical pairing token was persisted")
+	}
 }
 
 func TestStateRejectsSymlinksAndLooseFiles(t *testing.T) {
@@ -164,6 +207,115 @@ func TestRenewMutationAttemptsUseDistinctRequestsAndExpiries(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionCASRejectsStaleSaveAndDelete(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	ctx := context.Background()
+	now := time.Now()
+	agentID := uuid.NewString()
+	firstComputerID := uuid.NewString()
+	secondComputerID := uuid.NewString()
+	first := RuntimeSession{
+		AgentID: agentID, ComputerID: firstComputerID, PlacementGeneration: 1, Token: testSecret(3),
+		ExpiresAt: now.Add(10 * time.Minute), UpdatedAt: now,
+	}
+	second := RuntimeSession{
+		AgentID: agentID, ComputerID: secondComputerID, PlacementGeneration: 2, Token: testSecret(4),
+		ExpiresAt: now.Add(11 * time.Minute), UpdatedAt: now.Add(time.Minute),
+	}
+	if err := state.SaveRuntimeSession(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveRuntimeSession(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveRuntimeSession(ctx, first); err == nil {
+		t.Fatal("generation 1 response replaced generation 2")
+	}
+	if err := state.DeleteRuntimeSession(ctx, agentID, firstComputerID, 1); err != nil {
+		t.Fatal(err)
+	}
+	staleRenew := second
+	staleRenew.Token = testSecret(5)
+	staleRenew.ExpiresAt = second.ExpiresAt.Add(-time.Minute)
+	staleRenew.UpdatedAt = second.UpdatedAt.Add(-time.Minute)
+	if err := state.SaveRuntimeSession(ctx, staleRenew); err == nil {
+		t.Fatal("stale same-generation renew response replaced current session")
+	}
+	sessions, err := state.RuntimeSessions(ctx)
+	if err != nil || len(sessions) != 1 || sessions[0].PlacementGeneration != 2 || sessions[0].ComputerID != secondComputerID || sessions[0].Token != second.Token {
+		t.Fatalf("runtime after stale operations = %+v, %v", sessions, err)
+	}
+	if err := state.DeleteRuntimeSession(ctx, agentID, secondComputerID, 2); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err = state.RuntimeSessions(ctx)
+	if err != nil || len(sessions) != 0 {
+		t.Fatalf("runtime after exact delete = %+v, %v", sessions, err)
+	}
+}
+
+func TestMutationPendingSingleFlightSurvivesRestart(t *testing.T) {
+	dataRoot := filepath.Join(t.TempDir(), "sumi")
+	state, err := Open(dataRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	runID := uuid.NewString()
+	launchID := uuid.NewString()
+	hash := sha256.Sum256([]byte("renew-payload"))
+	candidate := MutationAttempt{
+		Operation: "run.renew", SubjectID: runID, PayloadHash: hash, RunID: runID,
+		LaunchID: launchID, Fence: 9, CreatedAt: time.Now(),
+	}
+	first, err := state.BeginMutation(ctx, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := state.BeginMutation(ctx, candidate)
+	if err != nil || replayed.RequestID != first.RequestID {
+		t.Fatalf("pending replay = %+v, %v", replayed, err)
+	}
+	if _, err := state.db.ExecContext(ctx, `
+		INSERT INTO mutation_attempts(request_id, operation, subject_id, payload_hash, status, run_id, launch_id, fence, created_at)
+		VALUES(?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+	`, uuid.NewString(), candidate.Operation, candidate.SubjectID, candidate.PayloadHash[:], candidate.RunID, candidate.LaunchID, candidate.Fence, time.Now().UnixNano()); err == nil {
+		t.Fatal("database allowed a second pending mutation")
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state, err = Open(dataRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	reopened, err := state.BeginMutation(ctx, candidate)
+	if err != nil || reopened.RequestID != first.RequestID {
+		t.Fatalf("reopened pending replay = %+v, %v", reopened, err)
+	}
+	conflict := candidate
+	conflict.PayloadHash = sha256.Sum256([]byte("different-payload"))
+	if _, err := state.BeginMutation(ctx, conflict); err == nil {
+		t.Fatal("conflicting pending mutation was accepted")
+	}
+	expiresAt := time.Now().Add(time.Minute)
+	if err := state.CompleteMutation(ctx, first.RequestID, "succeeded", launchID, 9, &expiresAt, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	next, err := state.BeginMutation(ctx, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.RequestID == first.RequestID {
+		t.Fatalf("completed mutation request id was reused: %s", next.RequestID)
+	}
+}
+
 func TestStaleOutboxFenceTombstoneAllowsNewFence(t *testing.T) {
 	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
 	if err != nil {
@@ -245,4 +397,8 @@ func assertStateModes(t *testing.T, dataRoot string) {
 			t.Fatalf("state file %s = %v, %v", entry.Name(), info, err)
 		}
 	}
+}
+
+func testSecret(value byte) string {
+	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{value}, 32))
 }

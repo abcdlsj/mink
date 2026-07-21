@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -170,25 +171,49 @@ func (s *State) Close() error {
 }
 
 func (s *State) SavePairingAttempt(ctx context.Context, attempt PairingAttempt) error {
-	if !validID(attempt.RequestID) || attempt.ServerURL == "" || attempt.PairingToken == "" || attempt.RegistrationKey == "" || attempt.CreatedAt.IsZero() {
+	if !validID(attempt.RequestID) || attempt.ServerURL == "" || !validSecret(attempt.PairingToken) || attempt.RegistrationKey == "" || attempt.CreatedAt.IsZero() {
 		return errors.New("pairing attempt is invalid")
 	}
-	existing, found, err := s.PairingAttempt(ctx)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("begin save pairing attempt: %w", err)
 	}
-	if found {
-		if existing != attempt {
+	defer tx.Rollback()
+	var identityExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM computer_identity WHERE singleton = 1)`).Scan(&identityExists); err != nil {
+		return fmt.Errorf("check computer identity before pairing: %w", err)
+	}
+	if identityExists {
+		return errors.New("computer identity already exists")
+	}
+	var existing PairingAttempt
+	var createdAt int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT server_url, pairing_token, request_id, registration_key, name, os, arch, created_at
+		FROM pairing_attempt WHERE singleton = 1
+	`).Scan(&existing.ServerURL, &existing.PairingToken, &existing.RequestID, &existing.RegistrationKey, &existing.Name, &existing.OS, &existing.Arch, &createdAt)
+	if err == nil {
+		existing.CreatedAt = fromUnixNano(createdAt)
+		if !samePairingAttempt(existing, attempt) {
 			return errors.New("pairing attempt conflicts with persisted attempt")
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit pairing attempt replay: %w", err)
 		}
 		return nil
 	}
-	_, err = s.db.ExecContext(ctx, `
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read pairing attempt before save: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO pairing_attempt(singleton, server_url, pairing_token, request_id, registration_key, name, os, arch, created_at)
 		VALUES(1, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, attempt.ServerURL, attempt.PairingToken, attempt.RequestID, attempt.RegistrationKey, attempt.Name, attempt.OS, attempt.Arch, unixNano(attempt.CreatedAt))
 	if err != nil {
 		return fmt.Errorf("save pairing attempt: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit pairing attempt: %w", err)
 	}
 	return s.secureSQLiteFiles()
 }
@@ -219,6 +244,25 @@ func (s *State) CompletePairing(ctx context.Context, identity Identity) error {
 		return fmt.Errorf("begin complete pairing: %w", err)
 	}
 	defer tx.Rollback()
+	var existing Identity
+	var existingPairedAt int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT server_url, computer_id, registration_key, paired_at
+		FROM computer_identity WHERE singleton = 1
+	`).Scan(&existing.ServerURL, &existing.ComputerID, &existing.RegistrationKey, &existingPairedAt)
+	if err == nil {
+		existing.PairedAt = fromUnixNano(existingPairedAt)
+		if !sameIdentity(existing, identity) {
+			return errors.New("computer identity does not match persisted identity")
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit pairing completion replay: %w", err)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read computer identity before pairing completion: %w", err)
+	}
 	var attemptServer, attemptKey string
 	if err := tx.QueryRowContext(ctx, `SELECT server_url, registration_key FROM pairing_attempt WHERE singleton = 1`).Scan(&attemptServer, &attemptKey); err != nil {
 		return fmt.Errorf("read pairing attempt for completion: %w", err)
@@ -229,11 +273,6 @@ func (s *State) CompletePairing(ctx context.Context, identity Identity) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO computer_identity(singleton, server_url, computer_id, registration_key, paired_at)
 		VALUES(1, ?, ?, ?, ?)
-		ON CONFLICT(singleton) DO UPDATE SET
-			server_url = excluded.server_url,
-			computer_id = excluded.computer_id,
-			registration_key = excluded.registration_key,
-			paired_at = excluded.paired_at
 	`, identity.ServerURL, identity.ComputerID, identity.RegistrationKey, unixNano(identity.PairedAt)); err != nil {
 		return fmt.Errorf("save computer identity: %w", err)
 	}
@@ -250,28 +289,46 @@ func (s *State) SaveIdentity(ctx context.Context, identity Identity) error {
 	if !validID(identity.ComputerID) || identity.ServerURL == "" || identity.RegistrationKey == "" || identity.PairedAt.IsZero() {
 		return errors.New("computer identity is invalid")
 	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin save computer identity: %w", err)
+	}
+	defer tx.Rollback()
 	var existing Identity
 	var existingPairedAt int64
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		SELECT server_url, computer_id, registration_key, paired_at
 		FROM computer_identity WHERE singleton = 1
 	`).Scan(&existing.ServerURL, &existing.ComputerID, &existing.RegistrationKey, &existingPairedAt)
 	if err == nil {
 		existing.PairedAt = fromUnixNano(existingPairedAt)
-		if existing != identity {
+		if !sameIdentity(existing, identity) {
 			return errors.New("computer identity does not match persisted identity")
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit computer identity replay: %w", err)
 		}
 		return nil
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("read computer identity server: %w", err)
 	}
-	_, err = s.db.ExecContext(ctx, `
+	var pairingExists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pairing_attempt WHERE singleton = 1)`).Scan(&pairingExists); err != nil {
+		return fmt.Errorf("check pairing attempt before identity import: %w", err)
+	}
+	if pairingExists {
+		return errors.New("pairing attempt already exists")
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO computer_identity(singleton, server_url, computer_id, registration_key, paired_at)
 		VALUES(1, ?, ?, ?, ?)
 	`, identity.ServerURL, identity.ComputerID, identity.RegistrationKey, unixNano(identity.PairedAt))
 	if err != nil {
 		return fmt.Errorf("save computer identity: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit computer identity: %w", err)
 	}
 	return s.secureSQLiteFiles()
 }
@@ -297,27 +354,65 @@ func (s *State) SaveRuntimeSession(ctx context.Context, session RuntimeSession) 
 	if !validID(session.AgentID) || !validID(session.ComputerID) || session.PlacementGeneration == 0 || session.Token == "" || session.ExpiresAt.IsZero() || session.UpdatedAt.IsZero() {
 		return errors.New("runtime session is invalid")
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin save runtime session: %w", err)
+	}
+	defer tx.Rollback()
+	existing, found, err := readRuntimeSession(tx.QueryRowContext(ctx, `
+		SELECT agent_id, computer_id, placement_generation, token, expires_at, updated_at
+		FROM runtime_sessions WHERE agent_id = ?
+	`, session.AgentID))
+	if err != nil {
+		return err
+	}
+	if found {
+		if session.PlacementGeneration < existing.PlacementGeneration {
+			return errors.New("runtime session placement generation is stale")
+		}
+		if session.PlacementGeneration == existing.PlacementGeneration {
+			if session.ComputerID != existing.ComputerID {
+				return errors.New("runtime session computer conflicts with current binding")
+			}
+			if session.UpdatedAt.Before(existing.UpdatedAt) || session.ExpiresAt.Before(existing.ExpiresAt) {
+				return errors.New("runtime session response is stale")
+			}
+			if session.UpdatedAt.Equal(existing.UpdatedAt) && session.ExpiresAt.Equal(existing.ExpiresAt) && session.Token != existing.Token {
+				return errors.New("runtime session response conflicts with current token")
+			}
+		}
+		result, err := tx.ExecContext(ctx, `
+			UPDATE runtime_sessions
+			SET computer_id = ?, placement_generation = ?, token = ?, expires_at = ?, updated_at = ?
+			WHERE agent_id = ? AND placement_generation = ?
+		`, session.ComputerID, session.PlacementGeneration, session.Token, unixNano(session.ExpiresAt), unixNano(session.UpdatedAt), session.AgentID, existing.PlacementGeneration)
+		if err != nil {
+			return fmt.Errorf("update runtime session: %w", err)
+		}
+		updated, err := result.RowsAffected()
+		if err != nil || updated != 1 {
+			return errors.New("runtime session binding changed during update")
+		}
+	} else if _, err := tx.ExecContext(ctx, `
 		INSERT INTO runtime_sessions(agent_id, computer_id, placement_generation, token, expires_at, updated_at)
 		VALUES(?, ?, ?, ?, ?, ?)
-		ON CONFLICT(agent_id) DO UPDATE SET
-			computer_id = excluded.computer_id,
-			placement_generation = excluded.placement_generation,
-			token = excluded.token,
-			expires_at = excluded.expires_at,
-			updated_at = excluded.updated_at
-	`, session.AgentID, session.ComputerID, session.PlacementGeneration, session.Token, unixNano(session.ExpiresAt), unixNano(session.UpdatedAt))
-	if err != nil {
-		return fmt.Errorf("save runtime session: %w", err)
+	`, session.AgentID, session.ComputerID, session.PlacementGeneration, session.Token, unixNano(session.ExpiresAt), unixNano(session.UpdatedAt)); err != nil {
+		return fmt.Errorf("insert runtime session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit runtime session: %w", err)
 	}
 	return s.secureSQLiteFiles()
 }
 
-func (s *State) DeleteRuntimeSession(ctx context.Context, agentID string) error {
-	if !validID(agentID) {
-		return errors.New("agent id is invalid")
+func (s *State) DeleteRuntimeSession(ctx context.Context, agentID, computerID string, placementGeneration uint64) error {
+	if !validID(agentID) || !validID(computerID) || placementGeneration == 0 {
+		return errors.New("runtime session binding is invalid")
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM runtime_sessions WHERE agent_id = ?`, agentID); err != nil {
+	if _, err := s.db.ExecContext(ctx, `
+		DELETE FROM runtime_sessions
+		WHERE agent_id = ? AND computer_id = ? AND placement_generation = ?
+	`, agentID, computerID, placementGeneration); err != nil {
 		return fmt.Errorf("delete runtime session: %w", err)
 	}
 	return s.secureSQLiteFiles()
@@ -357,13 +452,49 @@ func (s *State) BeginMutation(ctx context.Context, attempt MutationAttempt) (Mut
 		return MutationAttempt{}, errors.New("mutation attempt is invalid")
 	}
 	attempt.Status = "pending"
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MutationAttempt{}, fmt.Errorf("begin mutation transaction: %w", err)
+	}
+	defer tx.Rollback()
+	var existing MutationAttempt
+	var payloadHash []byte
+	var createdAt int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT request_id, payload_hash, run_id, launch_id, fence, created_at
+		FROM mutation_attempts
+		WHERE operation = ? AND subject_id = ? AND status = 'pending'
+	`, attempt.Operation, attempt.SubjectID).Scan(&existing.RequestID, &payloadHash, &existing.RunID, &existing.LaunchID, &existing.Fence, &createdAt)
+	if err == nil {
+		existing.Operation = attempt.Operation
+		existing.SubjectID = attempt.SubjectID
+		existing.Status = "pending"
+		existing.CreatedAt = fromUnixNano(createdAt)
+		if len(payloadHash) != sha256.Size {
+			return MutationAttempt{}, errors.New("pending mutation payload hash is invalid")
+		}
+		copy(existing.PayloadHash[:], payloadHash)
+		if !samePendingMutation(existing, attempt) {
+			return MutationAttempt{}, errors.New("pending mutation conflicts with requested attempt")
+		}
+		if err := tx.Commit(); err != nil {
+			return MutationAttempt{}, fmt.Errorf("commit mutation replay: %w", err)
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return MutationAttempt{}, fmt.Errorf("read pending mutation: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO mutation_attempts(
 			request_id, operation, subject_id, payload_hash, status, run_id, launch_id, fence, created_at
 		) VALUES(?, ?, ?, ?, 'pending', ?, ?, ?, ?)
 	`, attempt.RequestID, attempt.Operation, attempt.SubjectID, attempt.PayloadHash[:], attempt.RunID, attempt.LaunchID, attempt.Fence, unixNano(attempt.CreatedAt))
 	if err != nil {
 		return MutationAttempt{}, fmt.Errorf("begin mutation attempt: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MutationAttempt{}, fmt.Errorf("commit mutation attempt: %w", err)
 	}
 	if err := s.secureSQLiteFiles(); err != nil {
 		return MutationAttempt{}, err
@@ -742,6 +873,44 @@ func inspectExistingStateFiles(directory string, names ...string) error {
 func validID(value string) bool {
 	parsed, err := uuid.Parse(value)
 	return err == nil && parsed.String() == value
+}
+
+func validSecret(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32 && base64.RawURLEncoding.EncodeToString(decoded) == value
+}
+
+func samePairingAttempt(left, right PairingAttempt) bool {
+	return left.ServerURL == right.ServerURL && left.PairingToken == right.PairingToken &&
+		left.RequestID == right.RequestID && left.RegistrationKey == right.RegistrationKey &&
+		left.Name == right.Name && left.OS == right.OS && left.Arch == right.Arch &&
+		left.CreatedAt.Equal(right.CreatedAt)
+}
+
+func sameIdentity(left, right Identity) bool {
+	return left.ServerURL == right.ServerURL && left.ComputerID == right.ComputerID &&
+		left.RegistrationKey == right.RegistrationKey && left.PairedAt.Equal(right.PairedAt)
+}
+
+func readRuntimeSession(row interface{ Scan(...any) error }) (RuntimeSession, bool, error) {
+	var session RuntimeSession
+	var expiresAt, updatedAt int64
+	err := row.Scan(&session.AgentID, &session.ComputerID, &session.PlacementGeneration, &session.Token, &expiresAt, &updatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RuntimeSession{}, false, nil
+	}
+	if err != nil {
+		return RuntimeSession{}, false, fmt.Errorf("read runtime session: %w", err)
+	}
+	session.ExpiresAt = fromUnixNano(expiresAt)
+	session.UpdatedAt = fromUnixNano(updatedAt)
+	return session, true, nil
+}
+
+func samePendingMutation(left, right MutationAttempt) bool {
+	return left.Operation == right.Operation && left.SubjectID == right.SubjectID &&
+		left.PayloadHash == right.PayloadHash && left.RunID == right.RunID &&
+		left.LaunchID == right.LaunchID && left.Fence == right.Fence
 }
 
 func unixNano(value time.Time) int64 {

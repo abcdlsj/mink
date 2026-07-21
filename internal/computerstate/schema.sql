@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS mutation_attempts (
     )
 );
 
-CREATE INDEX IF NOT EXISTS mutation_attempts_pending
-ON mutation_attempts(operation, subject_id, created_at)
+DROP INDEX IF EXISTS mutation_attempts_pending;
+
+CREATE UNIQUE INDEX IF NOT EXISTS mutation_attempts_one_pending
+ON mutation_attempts(operation, subject_id)
 WHERE status = 'pending';
 
 CREATE TABLE IF NOT EXISTS outbox_events (
