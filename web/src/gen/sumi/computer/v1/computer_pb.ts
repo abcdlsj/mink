@@ -12,7 +12,59 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/computer/v1/computer.proto.
  */
 export const file_sumi_computer_v1_computer: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIrACCghDb21wdXRlchIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEi0KAm9zGAMgASgOMiEuc3VtaS5jb21wdXRlci52MS5PcGVyYXRpbmdTeXN0ZW0SLAoEYXJjaBgEIAEoDjIeLnN1bWkuY29tcHV0ZXIudjEuQXJjaGl0ZWN0dXJlEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGb25saW5lGAcgASgIEjsKF2Nvbm5lY3Rpdml0eV9leHBpcmVzX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ5ChxDcmVhdGVDb21wdXRlclBhaXJpbmdSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNcGFpcmluZ190b2tlbhgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJjCh1DcmVhdGVDb21wdXRlclBhaXJpbmdSZXNwb25zZRISCgpwYWlyaW5nX2lkGAEgASgJEi4KCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIskBChdSZWdpc3RlckNvbXB1dGVyUmVxdWVzdBIYChByZWdpc3RyYXRpb25fa2V5GAEgASgJEgwKBG5hbWUYAiABKAkSLQoCb3MYAyABKA4yIS5zdW1pLmNvbXB1dGVyLnYxLk9wZXJhdGluZ1N5c3RlbRIsCgRhcmNoGAQgASgOMh4uc3VtaS5jb21wdXRlci52MS5BcmNoaXRlY3R1cmUSEgoKcmVxdWVzdF9pZBgFIAEoCRIVCg1wYWlyaW5nX3Rva2VuGAYgASgJIkgKGFJlZ2lzdGVyQ29tcHV0ZXJSZXNwb25zZRIsCghjb21wdXRlchgBIAEoCzIaLnN1bWkuY29tcHV0ZXIudjEuQ29tcHV0ZXIiSQoYSGVhcnRiZWF0Q29tcHV0ZXJSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiSQoZSGVhcnRiZWF0Q29tcHV0ZXJSZXNwb25zZRIsCghjb21wdXRlchgBIAEoCzIaLnN1bWkuY29tcHV0ZXIudjEuQ29tcHV0ZXIiKQoSR2V0Q29tcHV0ZXJSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJIkMKE0dldENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIhYKFExpc3RDb21wdXRlcnNSZXF1ZXN0IkYKFUxpc3RDb21wdXRlcnNSZXNwb25zZRItCgljb21wdXRlcnMYASADKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyKmsKD09wZXJhdGluZ1N5c3RlbRIgChxPUEVSQVRJTkdfU1lTVEVNX1VOU1BFQ0lGSUVEEAASGgoWT1BFUkFUSU5HX1NZU1RFTV9NQUNPUxABEhoKFk9QRVJBVElOR19TWVNURU1fTElOVVgQAipcCgxBcmNoaXRlY3R1cmUSHAoYQVJDSElURUNUVVJFX1VOU1BFQ0lGSUVEEAASFgoSQVJDSElURUNUVVJFX0FSTTY0EAESFgoSQVJDSElURUNUVVJFX0FNRDY0EAIyogQKD0NvbXB1dGVyU2VydmljZRJ4ChVDcmVhdGVDb21wdXRlclBhaXJpbmcSLi5zdW1pLmNvbXB1dGVyLnYxLkNyZWF0ZUNvbXB1dGVyUGFpcmluZ1JlcXVlc3QaLy5zdW1pLmNvbXB1dGVyLnYxLkNyZWF0ZUNvbXB1dGVyUGFpcmluZ1Jlc3BvbnNlEmkKEFJlZ2lzdGVyQ29tcHV0ZXISKS5zdW1pLmNvbXB1dGVyLnYxLlJlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0Giouc3VtaS5jb21wdXRlci52MS5SZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USbAoRSGVhcnRiZWF0Q29tcHV0ZXISKi5zdW1pLmNvbXB1dGVyLnYxLkhlYXJ0YmVhdENvbXB1dGVyUmVxdWVzdBorLnN1bWkuY29tcHV0ZXIudjEuSGVhcnRiZWF0Q29tcHV0ZXJSZXNwb25zZRJaCgtHZXRDb21wdXRlchIkLnN1bWkuY29tcHV0ZXIudjEuR2V0Q29tcHV0ZXJSZXF1ZXN0GiUuc3VtaS5jb21wdXRlci52MS5HZXRDb21wdXRlclJlc3BvbnNlEmAKDUxpc3RDb21wdXRlcnMSJi5zdW1pLmNvbXB1dGVyLnYxLkxpc3RDb21wdXRlcnNSZXF1ZXN0Gicuc3VtaS5jb21wdXRlci52MS5MaXN0Q29tcHV0ZXJzUmVzcG9uc2VCPFo6Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvY29tcHV0ZXIvdjE7Y29tcHV0ZXJ2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIrIEChFTYW5kYm94Q2FwYWJpbGl0eRIzCghwcm92aWRlchgBIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb3ZpZGVyEjUKCWlzb2xhdGlvbhgCIAEoDjIiLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveElzb2xhdGlvbhJCChB3b3Jrc3BhY2VfYWNjZXNzGAMgASgOMiguc3VtaS5jb21wdXRlci52MS5TYW5kYm94V29ya3NwYWNlQWNjZXNzEkAKD3Byb2Nlc3NfY29udHJvbBgEIAEoDjInLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb2Nlc3NDb250cm9sEkoKFGZpbGVzeXN0ZW1faXNvbGF0aW9uGAUgASgOMiwuc3VtaS5jb21wdXRlci52MS5TYW5kYm94RmlsZXN5c3RlbUlzb2xhdGlvbhJEChFuZXR3b3JrX2lzb2xhdGlvbhgGIAEoDjIpLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveE5ldHdvcmtJc29sYXRpb24STgoWc2VjcmV0X21hdGVyaWFsaXphdGlvbhgHIAEoDjIuLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFNlY3JldE1hdGVyaWFsaXphdGlvbhJJChRkYWVtb25fY3Jhc2hfY2xlYW51cBgIIAEoDjIrLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveERhZW1vbkNyYXNoQ2xlYW51cCKXAwoIQ29tcHV0ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBm9ubGluZRgHIAEoCBI7Chdjb25uZWN0aXZpdHlfZXhwaXJlc19hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPwoSc2FuZGJveF9jYXBhYmlsaXR5GAkgASgLMiMuc3VtaS5jb21wdXRlci52MS5TYW5kYm94Q2FwYWJpbGl0eRIkChxzYW5kYm94X2RlY2xhcmF0aW9uX3JldmlzaW9uGAogASgEInkKHENyZWF0ZUNvbXB1dGVyUGFpcmluZ1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIVCg1wYWlyaW5nX3Rva2VuGAIgASgJEi4KCmV4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wImMKHUNyZWF0ZUNvbXB1dGVyUGFpcmluZ1Jlc3BvbnNlEhIKCnBhaXJpbmdfaWQYASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiigIKF1JlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0EhgKEHJlZ2lzdHJhdGlvbl9rZXkYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZRISCgpyZXF1ZXN0X2lkGAUgASgJEhUKDXBhaXJpbmdfdG9rZW4YBiABKAkSPwoSc2FuZGJveF9jYXBhYmlsaXR5GAcgASgLMiMuc3VtaS5jb21wdXRlci52MS5TYW5kYm94Q2FwYWJpbGl0eSJIChhSZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIooBChhIZWFydGJlYXRDb21wdXRlclJlcXVlc3QSEwoLY29tcHV0ZXJfaWQYASABKAkSGAoQcmVnaXN0cmF0aW9uX2tleRgCIAEoCRI/ChJzYW5kYm94X2NhcGFiaWxpdHkYAyABKAsyIy5zdW1pLmNvbXB1dGVyLnYxLlNhbmRib3hDYXBhYmlsaXR5IkkKGUhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIikKEkdldENvbXB1dGVyUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCSJDChNHZXRDb21wdXRlclJlc3BvbnNlEiwKCGNvbXB1dGVyGAEgASgLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciIWChRMaXN0Q29tcHV0ZXJzUmVxdWVzdCJGChVMaXN0Q29tcHV0ZXJzUmVzcG9uc2USLQoJY29tcHV0ZXJzGAEgAygLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciprCg9PcGVyYXRpbmdTeXN0ZW0SIAocT1BFUkFUSU5HX1NZU1RFTV9VTlNQRUNJRklFRBAAEhoKFk9QRVJBVElOR19TWVNURU1fTUFDT1MQARIaChZPUEVSQVRJTkdfU1lTVEVNX0xJTlVYEAIqXAoMQXJjaGl0ZWN0dXJlEhwKGEFSQ0hJVEVDVFVSRV9VTlNQRUNJRklFRBAAEhYKEkFSQ0hJVEVDVFVSRV9BUk02NBABEhYKEkFSQ0hJVEVDVFVSRV9BTUQ2NBACKlcKD1NhbmRib3hQcm92aWRlchIgChxTQU5EQk9YX1BST1ZJREVSX1VOU1BFQ0lGSUVEEAASIgoeU0FOREJPWF9QUk9WSURFUl9UUlVTVEVEX0xPQ0FMEAEqWgoQU2FuZGJveElzb2xhdGlvbhIhCh1TQU5EQk9YX0lTT0xBVElPTl9VTlNQRUNJRklFRBAAEiMKH1NBTkRCT1hfSVNPTEFUSU9OX1RSVVNURURfTE9DQUwQASpyChZTYW5kYm94V29ya3NwYWNlQWNjZXNzEigKJFNBTkRCT1hfV09SS1NQQUNFX0FDQ0VTU19VTlNQRUNJRklFRBAAEi4KKlNBTkRCT1hfV09SS1NQQUNFX0FDQ0VTU19ESVJFQ1RfUkVBRF9XUklURRABKnMKFVNhbmRib3hQcm9jZXNzQ29udHJvbBInCiNTQU5EQk9YX1BST0NFU1NfQ09OVFJPTF9VTlNQRUNJRklFRBAAEjEKLVNBTkRCT1hfUFJPQ0VTU19DT05UUk9MX0NPTlRFWFRfUFJPQ0VTU19HUk9VUBABKnEKGlNhbmRib3hGaWxlc3lzdGVtSXNvbGF0aW9uEiwKKFNBTkRCT1hfRklMRVNZU1RFTV9JU09MQVRJT05fVU5TUEVDSUZJRUQQABIlCiFTQU5EQk9YX0ZJTEVTWVNURU1fSVNPTEFUSU9OX05PTkUQASpoChdTYW5kYm94TmV0d29ya0lzb2xhdGlvbhIpCiVTQU5EQk9YX05FVFdPUktfSVNPTEFUSU9OX1VOU1BFQ0lGSUVEEAASIgoeU0FOREJPWF9ORVRXT1JLX0lTT0xBVElPTl9OT05FEAEqiAEKHFNhbmRib3hTZWNyZXRNYXRlcmlhbGl6YXRpb24SLgoqU0FOREJPWF9TRUNSRVRfTUFURVJJQUxJWkFUSU9OX1VOU1BFQ0lGSUVEEAASOAo0U0FOREJPWF9TRUNSRVRfTUFURVJJQUxJWkFUSU9OX0VQSEVNRVJBTF9FTlZJUk9OTUVOVBABKnAKGVNhbmRib3hEYWVtb25DcmFzaENsZWFudXASLAooU0FOREJPWF9EQUVNT05fQ1JBU0hfQ0xFQU5VUF9VTlNQRUNJRklFRBAAEiUKIVNBTkRCT1hfREFFTU9OX0NSQVNIX0NMRUFOVVBfTk9ORRABMqIECg9Db21wdXRlclNlcnZpY2USeAoVQ3JlYXRlQ29tcHV0ZXJQYWlyaW5nEi4uc3VtaS5jb21wdXRlci52MS5DcmVhdGVDb21wdXRlclBhaXJpbmdSZXF1ZXN0Gi8uc3VtaS5jb21wdXRlci52MS5DcmVhdGVDb21wdXRlclBhaXJpbmdSZXNwb25zZRJpChBSZWdpc3RlckNvbXB1dGVyEikuc3VtaS5jb21wdXRlci52MS5SZWdpc3RlckNvbXB1dGVyUmVxdWVzdBoqLnN1bWkuY29tcHV0ZXIudjEuUmVnaXN0ZXJDb21wdXRlclJlc3BvbnNlEmwKEUhlYXJ0YmVhdENvbXB1dGVyEiouc3VtaS5jb21wdXRlci52MS5IZWFydGJlYXRDb21wdXRlclJlcXVlc3QaKy5zdW1pLmNvbXB1dGVyLnYxLkhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USWgoLR2V0Q29tcHV0ZXISJC5zdW1pLmNvbXB1dGVyLnYxLkdldENvbXB1dGVyUmVxdWVzdBolLnN1bWkuY29tcHV0ZXIudjEuR2V0Q29tcHV0ZXJSZXNwb25zZRJgCg1MaXN0Q29tcHV0ZXJzEiYuc3VtaS5jb21wdXRlci52MS5MaXN0Q29tcHV0ZXJzUmVxdWVzdBonLnN1bWkuY29tcHV0ZXIudjEuTGlzdENvbXB1dGVyc1Jlc3BvbnNlQjxaOmdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2NvbXB1dGVyL3YxO2NvbXB1dGVydjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+
+/**
+ * @generated from message sumi.computer.v1.SandboxCapability
+ */
+export type SandboxCapability = Message<"sumi.computer.v1.SandboxCapability"> & {
+  /**
+   * @generated from field: sumi.computer.v1.SandboxProvider provider = 1;
+   */
+  provider: SandboxProvider;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxIsolation isolation = 2;
+   */
+  isolation: SandboxIsolation;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxWorkspaceAccess workspace_access = 3;
+   */
+  workspaceAccess: SandboxWorkspaceAccess;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxProcessControl process_control = 4;
+   */
+  processControl: SandboxProcessControl;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxFilesystemIsolation filesystem_isolation = 5;
+   */
+  filesystemIsolation: SandboxFilesystemIsolation;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxNetworkIsolation network_isolation = 6;
+   */
+  networkIsolation: SandboxNetworkIsolation;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxSecretMaterialization secret_materialization = 7;
+   */
+  secretMaterialization: SandboxSecretMaterialization;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxDaemonCrashCleanup daemon_crash_cleanup = 8;
+   */
+  daemonCrashCleanup: SandboxDaemonCrashCleanup;
+};
+
+/**
+ * Describes the message sumi.computer.v1.SandboxCapability.
+ * Use `create(SandboxCapabilitySchema)` to create a new message.
+ */
+export const SandboxCapabilitySchema: GenMessage<SandboxCapability> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 0);
 
 /**
  * @generated from message sumi.computer.v1.Computer
@@ -57,6 +109,16 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
    * @generated from field: google.protobuf.Timestamp connectivity_expires_at = 8;
    */
   connectivityExpiresAt?: Timestamp;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 9;
+   */
+  sandboxCapability?: SandboxCapability;
+
+  /**
+   * @generated from field: uint64 sandbox_declaration_revision = 10;
+   */
+  sandboxDeclarationRevision: bigint;
 };
 
 /**
@@ -64,7 +126,7 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
  * Use `create(ComputerSchema)` to create a new message.
  */
 export const ComputerSchema: GenMessage<Computer> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 0);
+  messageDesc(file_sumi_computer_v1_computer, 1);
 
 /**
  * @generated from message sumi.computer.v1.CreateComputerPairingRequest
@@ -91,7 +153,7 @@ export type CreateComputerPairingRequest = Message<"sumi.computer.v1.CreateCompu
  * Use `create(CreateComputerPairingRequestSchema)` to create a new message.
  */
 export const CreateComputerPairingRequestSchema: GenMessage<CreateComputerPairingRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 1);
+  messageDesc(file_sumi_computer_v1_computer, 2);
 
 /**
  * @generated from message sumi.computer.v1.CreateComputerPairingResponse
@@ -113,7 +175,7 @@ export type CreateComputerPairingResponse = Message<"sumi.computer.v1.CreateComp
  * Use `create(CreateComputerPairingResponseSchema)` to create a new message.
  */
 export const CreateComputerPairingResponseSchema: GenMessage<CreateComputerPairingResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 2);
+  messageDesc(file_sumi_computer_v1_computer, 3);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerRequest
@@ -148,6 +210,11 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
    * @generated from field: string pairing_token = 6;
    */
   pairingToken: string;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 7;
+   */
+  sandboxCapability?: SandboxCapability;
 };
 
 /**
@@ -155,7 +222,7 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
  * Use `create(RegisterComputerRequestSchema)` to create a new message.
  */
 export const RegisterComputerRequestSchema: GenMessage<RegisterComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 3);
+  messageDesc(file_sumi_computer_v1_computer, 4);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerResponse
@@ -172,7 +239,7 @@ export type RegisterComputerResponse = Message<"sumi.computer.v1.RegisterCompute
  * Use `create(RegisterComputerResponseSchema)` to create a new message.
  */
 export const RegisterComputerResponseSchema: GenMessage<RegisterComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 4);
+  messageDesc(file_sumi_computer_v1_computer, 5);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerRequest
@@ -187,6 +254,11 @@ export type HeartbeatComputerRequest = Message<"sumi.computer.v1.HeartbeatComput
    * @generated from field: string registration_key = 2;
    */
   registrationKey: string;
+
+  /**
+   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 3;
+   */
+  sandboxCapability?: SandboxCapability;
 };
 
 /**
@@ -194,7 +266,7 @@ export type HeartbeatComputerRequest = Message<"sumi.computer.v1.HeartbeatComput
  * Use `create(HeartbeatComputerRequestSchema)` to create a new message.
  */
 export const HeartbeatComputerRequestSchema: GenMessage<HeartbeatComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 5);
+  messageDesc(file_sumi_computer_v1_computer, 6);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerResponse
@@ -211,7 +283,7 @@ export type HeartbeatComputerResponse = Message<"sumi.computer.v1.HeartbeatCompu
  * Use `create(HeartbeatComputerResponseSchema)` to create a new message.
  */
 export const HeartbeatComputerResponseSchema: GenMessage<HeartbeatComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 6);
+  messageDesc(file_sumi_computer_v1_computer, 7);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerRequest
@@ -228,7 +300,7 @@ export type GetComputerRequest = Message<"sumi.computer.v1.GetComputerRequest"> 
  * Use `create(GetComputerRequestSchema)` to create a new message.
  */
 export const GetComputerRequestSchema: GenMessage<GetComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 7);
+  messageDesc(file_sumi_computer_v1_computer, 8);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerResponse
@@ -245,7 +317,7 @@ export type GetComputerResponse = Message<"sumi.computer.v1.GetComputerResponse"
  * Use `create(GetComputerResponseSchema)` to create a new message.
  */
 export const GetComputerResponseSchema: GenMessage<GetComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 8);
+  messageDesc(file_sumi_computer_v1_computer, 9);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersRequest
@@ -258,7 +330,7 @@ export type ListComputersRequest = Message<"sumi.computer.v1.ListComputersReques
  * Use `create(ListComputersRequestSchema)` to create a new message.
  */
 export const ListComputersRequestSchema: GenMessage<ListComputersRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 9);
+  messageDesc(file_sumi_computer_v1_computer, 10);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersResponse
@@ -275,7 +347,7 @@ export type ListComputersResponse = Message<"sumi.computer.v1.ListComputersRespo
  * Use `create(ListComputersResponseSchema)` to create a new message.
  */
 export const ListComputersResponseSchema: GenMessage<ListComputersResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 10);
+  messageDesc(file_sumi_computer_v1_computer, 11);
 
 /**
  * @generated from enum sumi.computer.v1.OperatingSystem
@@ -328,6 +400,174 @@ export enum Architecture {
  */
 export const ArchitectureSchema: GenEnum<Architecture> = /*@__PURE__*/
   enumDesc(file_sumi_computer_v1_computer, 1);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxProvider
+ */
+export enum SandboxProvider {
+  /**
+   * @generated from enum value: SANDBOX_PROVIDER_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_PROVIDER_TRUSTED_LOCAL = 1;
+   */
+  TRUSTED_LOCAL = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxProvider.
+ */
+export const SandboxProviderSchema: GenEnum<SandboxProvider> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 2);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxIsolation
+ */
+export enum SandboxIsolation {
+  /**
+   * @generated from enum value: SANDBOX_ISOLATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_ISOLATION_TRUSTED_LOCAL = 1;
+   */
+  TRUSTED_LOCAL = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxIsolation.
+ */
+export const SandboxIsolationSchema: GenEnum<SandboxIsolation> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 3);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxWorkspaceAccess
+ */
+export enum SandboxWorkspaceAccess {
+  /**
+   * @generated from enum value: SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE = 1;
+   */
+  DIRECT_READ_WRITE = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxWorkspaceAccess.
+ */
+export const SandboxWorkspaceAccessSchema: GenEnum<SandboxWorkspaceAccess> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 4);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxProcessControl
+ */
+export enum SandboxProcessControl {
+  /**
+   * @generated from enum value: SANDBOX_PROCESS_CONTROL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP = 1;
+   */
+  CONTEXT_PROCESS_GROUP = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxProcessControl.
+ */
+export const SandboxProcessControlSchema: GenEnum<SandboxProcessControl> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 5);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxFilesystemIsolation
+ */
+export enum SandboxFilesystemIsolation {
+  /**
+   * @generated from enum value: SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_FILESYSTEM_ISOLATION_NONE = 1;
+   */
+  NONE = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxFilesystemIsolation.
+ */
+export const SandboxFilesystemIsolationSchema: GenEnum<SandboxFilesystemIsolation> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 6);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxNetworkIsolation
+ */
+export enum SandboxNetworkIsolation {
+  /**
+   * @generated from enum value: SANDBOX_NETWORK_ISOLATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_NETWORK_ISOLATION_NONE = 1;
+   */
+  NONE = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxNetworkIsolation.
+ */
+export const SandboxNetworkIsolationSchema: GenEnum<SandboxNetworkIsolation> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 7);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxSecretMaterialization
+ */
+export enum SandboxSecretMaterialization {
+  /**
+   * @generated from enum value: SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT = 1;
+   */
+  EPHEMERAL_ENVIRONMENT = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxSecretMaterialization.
+ */
+export const SandboxSecretMaterializationSchema: GenEnum<SandboxSecretMaterialization> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 8);
+
+/**
+ * @generated from enum sumi.computer.v1.SandboxDaemonCrashCleanup
+ */
+export enum SandboxDaemonCrashCleanup {
+  /**
+   * @generated from enum value: SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SANDBOX_DAEMON_CRASH_CLEANUP_NONE = 1;
+   */
+  NONE = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.SandboxDaemonCrashCleanup.
+ */
+export const SandboxDaemonCrashCleanupSchema: GenEnum<SandboxDaemonCrashCleanup> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 9);
 
 /**
  * @generated from service sumi.computer.v1.ComputerService

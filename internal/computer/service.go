@@ -77,13 +77,14 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 			return nil, err
 		}
 		computer, err = s.store.PairComputer(ctx, store.PairComputerParams{
-			RequestID:       requestID,
-			PairingToken:    request.Msg.GetPairingToken(),
-			RegistrationKey: params.RegistrationKey,
-			Name:            params.Name,
-			OS:              params.OS,
-			Arch:            params.Arch,
-			Now:             params.Now,
+			RequestID:         requestID,
+			PairingToken:      request.Msg.GetPairingToken(),
+			RegistrationKey:   params.RegistrationKey,
+			Name:              params.Name,
+			OS:                params.OS,
+			Arch:              params.Arch,
+			SandboxCapability: params.SandboxCapability,
+			Now:               params.Now,
 		})
 	}
 	if errors.Is(err, store.ErrComputerNotFound) {
@@ -103,12 +104,19 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	computer, err := s.store.HeartbeatComputer(ctx, id, request.Msg.GetRegistrationKey(), s.now())
+	capability, err := sandboxCapability(request.Msg.GetSandboxCapability())
+	if err != nil {
+		return nil, err
+	}
+	computer, err := s.store.HeartbeatComputer(ctx, id, request.Msg.GetRegistrationKey(), capability, s.now())
 	if errors.Is(err, store.ErrComputerNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
 	}
 	if errors.Is(err, store.ErrRegistrationKeyMismatch) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
+	}
+	if errors.Is(err, store.ErrSandboxCapabilityInvalid) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability is invalid"))
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -182,12 +190,17 @@ func registerParams(request *computerv1.RegisterComputerRequest, now time.Time) 
 	if !ok {
 		return store.RegisterComputerParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("architecture must be arm64 or amd64"))
 	}
+	capability, err := sandboxCapability(request.GetSandboxCapability())
+	if err != nil {
+		return store.RegisterComputerParams{}, err
+	}
 	return store.RegisterComputerParams{
-		RegistrationKey: request.GetRegistrationKey(),
-		Name:            request.GetName(),
-		OS:              os,
-		Arch:            arch,
-		Now:             now,
+		RegistrationKey:   request.GetRegistrationKey(),
+		Name:              request.GetName(),
+		OS:                os,
+		Arch:              arch,
+		SandboxCapability: capability,
+		Now:               now,
 	}, nil
 }
 
@@ -254,13 +267,59 @@ func computerMessage(computer store.Computer, now time.Time) *computerv1.Compute
 	}
 	expiresAt := computer.LastSeenAt.Add(connectivityTTL)
 	return &computerv1.Computer{
-		Id:                    computer.ID,
-		Name:                  computer.Name,
-		Os:                    os,
-		Arch:                  arch,
-		CreatedAt:             timestamppb.New(computer.CreatedAt),
-		LastSeenAt:            timestamppb.New(computer.LastSeenAt),
-		Online:                now.Before(expiresAt),
-		ConnectivityExpiresAt: timestamppb.New(expiresAt),
+		Id:                         computer.ID,
+		Name:                       computer.Name,
+		Os:                         os,
+		Arch:                       arch,
+		CreatedAt:                  timestamppb.New(computer.CreatedAt),
+		LastSeenAt:                 timestamppb.New(computer.LastSeenAt),
+		Online:                     now.Before(expiresAt),
+		ConnectivityExpiresAt:      timestamppb.New(expiresAt),
+		SandboxCapability:          sandboxCapabilityMessage(computer.SandboxCapability),
+		SandboxDeclarationRevision: computer.SandboxDeclarationRevision,
+	}
+}
+
+func sandboxCapability(value *computerv1.SandboxCapability) (store.SandboxCapability, error) {
+	if value == nil || (value.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_UNSPECIFIED &&
+		value.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_UNSPECIFIED &&
+		value.GetWorkspaceAccess() == computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED &&
+		value.GetProcessControl() == computerv1.SandboxProcessControl_SANDBOX_PROCESS_CONTROL_UNSPECIFIED &&
+		value.GetFilesystemIsolation() == computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED &&
+		value.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_UNSPECIFIED &&
+		value.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED &&
+		value.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED) {
+		return store.UnknownSandboxCapability(), nil
+	}
+	if value.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL &&
+		value.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL &&
+		value.GetWorkspaceAccess() == computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE &&
+		value.GetProcessControl() == computerv1.SandboxProcessControl_SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP &&
+		value.GetFilesystemIsolation() == computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE &&
+		value.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE &&
+		value.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT &&
+		value.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE {
+		return store.TrustedLocalSandboxCapability(), nil
+	}
+	return store.SandboxCapability{}, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability must be entirely unknown or the complete trusted-local declaration"))
+}
+
+func sandboxCapabilityMessage(value store.SandboxCapability) *computerv1.SandboxCapability {
+	if value == store.TrustedLocalSandboxCapability() {
+		return trustedLocalSandboxCapabilityMessage()
+	}
+	return &computerv1.SandboxCapability{}
+}
+
+func trustedLocalSandboxCapabilityMessage() *computerv1.SandboxCapability {
+	return &computerv1.SandboxCapability{
+		Provider:              computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL,
+		Isolation:             computerv1.SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL,
+		WorkspaceAccess:       computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE,
+		ProcessControl:        computerv1.SandboxProcessControl_SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP,
+		FilesystemIsolation:   computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE,
+		NetworkIsolation:      computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE,
+		SecretMaterialization: computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT,
+		DaemonCrashCleanup:    computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE,
 	}
 }

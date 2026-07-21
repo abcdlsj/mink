@@ -119,6 +119,10 @@ Run 只拥有进程、临时 Secret、socket、pid、下载缓存和未发布中
 
 trusted local provider 直接在长期 Workspace 上执行，不能阻止恶意进程主动读取 Host 其他路径。它必须在 UI、日志与调度能力中被明确标识。更强的 Sandbox provider 可使用 Linux/macOS 的成熟框架或系统能力，但不能降低或伪造它所声明的能力。
 
+Computer 的 Sandbox capability 是经该 Computer credential 认证的当前自声明，不是 Server 认证能力、Grant 或 Placement authority。声明只能是全 `UNSPECIFIED` 的 `unknown`，或完整的 trusted-local tuple：direct read-write Workspace、context-bound process group、无 Host filesystem/network isolation、environment Secret materialization、无 daemon crash cleanup；partial 或矛盾声明 fail closed。历史 Computer 迁移为 `unknown`，Get/List 只返回 Server 当前保存的声明与单调 declaration revision。每次合法 Register、recover 或 heartbeat 在同一 SQLite transaction 内按提交顺序产生下一 revision；revision 定义的是 Server 接收并提交声明的 total order，不声称按客户端发起时间或墙钟阻止迟到请求后提交。Pairing 的首次 capability/revision 另存 receipt，lost-response replay 即使当前声明后来变化也返回首次快照，改变 pairing request 中的声明会冲突。
+
+trusted-local 的 `daemon-crash-cleanup=none` 是真实限制：daemon 存活时可以在 cancel、lease 失效、Placement 迁移或正常停止时收口进程与临时状态；daemon 被 `SIGKILL` 或 Host crash 后不保证收容遗留进程。Run fence 只阻止旧 Launch 向 Server 提交结果，不能终止 Host 进程，也不能撤销已经发生的网络或文件副作用。
+
 ## 5. 自主协作
 
 Sumi 支持 Agent 在 permission grant 范围内完成完整协作闭环：

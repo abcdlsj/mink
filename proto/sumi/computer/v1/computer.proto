@@ -26,6 +26,57 @@ enum Architecture {
   ARCHITECTURE_AMD64 = 2;
 }
 
+enum SandboxProvider {
+  SANDBOX_PROVIDER_UNSPECIFIED = 0;
+  SANDBOX_PROVIDER_TRUSTED_LOCAL = 1;
+}
+
+enum SandboxIsolation {
+  SANDBOX_ISOLATION_UNSPECIFIED = 0;
+  SANDBOX_ISOLATION_TRUSTED_LOCAL = 1;
+}
+
+enum SandboxWorkspaceAccess {
+  SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED = 0;
+  SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE = 1;
+}
+
+enum SandboxProcessControl {
+  SANDBOX_PROCESS_CONTROL_UNSPECIFIED = 0;
+  SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP = 1;
+}
+
+enum SandboxFilesystemIsolation {
+  SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED = 0;
+  SANDBOX_FILESYSTEM_ISOLATION_NONE = 1;
+}
+
+enum SandboxNetworkIsolation {
+  SANDBOX_NETWORK_ISOLATION_UNSPECIFIED = 0;
+  SANDBOX_NETWORK_ISOLATION_NONE = 1;
+}
+
+enum SandboxSecretMaterialization {
+  SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED = 0;
+  SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT = 1;
+}
+
+enum SandboxDaemonCrashCleanup {
+  SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED = 0;
+  SANDBOX_DAEMON_CRASH_CLEANUP_NONE = 1;
+}
+
+message SandboxCapability {
+  SandboxProvider provider = 1;
+  SandboxIsolation isolation = 2;
+  SandboxWorkspaceAccess workspace_access = 3;
+  SandboxProcessControl process_control = 4;
+  SandboxFilesystemIsolation filesystem_isolation = 5;
+  SandboxNetworkIsolation network_isolation = 6;
+  SandboxSecretMaterialization secret_materialization = 7;
+  SandboxDaemonCrashCleanup daemon_crash_cleanup = 8;
+}
+
 message Computer {
   string id = 1;
   string name = 2;
@@ -35,6 +86,8 @@ message Computer {
   google.protobuf.Timestamp last_seen_at = 6;
   bool online = 7;
   google.protobuf.Timestamp connectivity_expires_at = 8;
+  SandboxCapability sandbox_capability = 9;
+  uint64 sandbox_declaration_revision = 10;
 }
 
 message CreateComputerPairingRequest {
@@ -55,6 +108,7 @@ message RegisterComputerRequest {
   Architecture arch = 4;
   string request_id = 5;
   string pairing_token = 6;
+  SandboxCapability sandbox_capability = 7;
 }
 
 message RegisterComputerResponse {
@@ -64,6 +118,7 @@ message RegisterComputerResponse {
 message HeartbeatComputerRequest {
   string computer_id = 1;
   string registration_key = 2;
+  SandboxCapability sandbox_capability = 3;
 }
 
 message HeartbeatComputerResponse {

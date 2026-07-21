@@ -120,23 +120,493 @@ func (Architecture) EnumDescriptor() ([]byte, []int) {
 	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
 }
 
-type Computer struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Os                    OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
-	Arch                  Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
-	CreatedAt             *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	LastSeenAt            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
-	Online                bool                   `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
-	ConnectivityExpiresAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=connectivity_expires_at,json=connectivityExpiresAt,proto3" json:"connectivity_expires_at,omitempty"`
+type SandboxProvider int32
+
+const (
+	SandboxProvider_SANDBOX_PROVIDER_UNSPECIFIED   SandboxProvider = 0
+	SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL SandboxProvider = 1
+)
+
+// Enum value maps for SandboxProvider.
+var (
+	SandboxProvider_name = map[int32]string{
+		0: "SANDBOX_PROVIDER_UNSPECIFIED",
+		1: "SANDBOX_PROVIDER_TRUSTED_LOCAL",
+	}
+	SandboxProvider_value = map[string]int32{
+		"SANDBOX_PROVIDER_UNSPECIFIED":   0,
+		"SANDBOX_PROVIDER_TRUSTED_LOCAL": 1,
+	}
+)
+
+func (x SandboxProvider) Enum() *SandboxProvider {
+	p := new(SandboxProvider)
+	*p = x
+	return p
+}
+
+func (x SandboxProvider) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxProvider) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[2].Descriptor()
+}
+
+func (SandboxProvider) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[2]
+}
+
+func (x SandboxProvider) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxProvider.Descriptor instead.
+func (SandboxProvider) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+}
+
+type SandboxIsolation int32
+
+const (
+	SandboxIsolation_SANDBOX_ISOLATION_UNSPECIFIED   SandboxIsolation = 0
+	SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL SandboxIsolation = 1
+)
+
+// Enum value maps for SandboxIsolation.
+var (
+	SandboxIsolation_name = map[int32]string{
+		0: "SANDBOX_ISOLATION_UNSPECIFIED",
+		1: "SANDBOX_ISOLATION_TRUSTED_LOCAL",
+	}
+	SandboxIsolation_value = map[string]int32{
+		"SANDBOX_ISOLATION_UNSPECIFIED":   0,
+		"SANDBOX_ISOLATION_TRUSTED_LOCAL": 1,
+	}
+)
+
+func (x SandboxIsolation) Enum() *SandboxIsolation {
+	p := new(SandboxIsolation)
+	*p = x
+	return p
+}
+
+func (x SandboxIsolation) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxIsolation) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[3].Descriptor()
+}
+
+func (SandboxIsolation) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[3]
+}
+
+func (x SandboxIsolation) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxIsolation.Descriptor instead.
+func (SandboxIsolation) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
+}
+
+type SandboxWorkspaceAccess int32
+
+const (
+	SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED       SandboxWorkspaceAccess = 0
+	SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE SandboxWorkspaceAccess = 1
+)
+
+// Enum value maps for SandboxWorkspaceAccess.
+var (
+	SandboxWorkspaceAccess_name = map[int32]string{
+		0: "SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED",
+		1: "SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE",
+	}
+	SandboxWorkspaceAccess_value = map[string]int32{
+		"SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED":       0,
+		"SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE": 1,
+	}
+)
+
+func (x SandboxWorkspaceAccess) Enum() *SandboxWorkspaceAccess {
+	p := new(SandboxWorkspaceAccess)
+	*p = x
+	return p
+}
+
+func (x SandboxWorkspaceAccess) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxWorkspaceAccess) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[4].Descriptor()
+}
+
+func (SandboxWorkspaceAccess) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[4]
+}
+
+func (x SandboxWorkspaceAccess) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxWorkspaceAccess.Descriptor instead.
+func (SandboxWorkspaceAccess) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
+}
+
+type SandboxProcessControl int32
+
+const (
+	SandboxProcessControl_SANDBOX_PROCESS_CONTROL_UNSPECIFIED           SandboxProcessControl = 0
+	SandboxProcessControl_SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP SandboxProcessControl = 1
+)
+
+// Enum value maps for SandboxProcessControl.
+var (
+	SandboxProcessControl_name = map[int32]string{
+		0: "SANDBOX_PROCESS_CONTROL_UNSPECIFIED",
+		1: "SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP",
+	}
+	SandboxProcessControl_value = map[string]int32{
+		"SANDBOX_PROCESS_CONTROL_UNSPECIFIED":           0,
+		"SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP": 1,
+	}
+)
+
+func (x SandboxProcessControl) Enum() *SandboxProcessControl {
+	p := new(SandboxProcessControl)
+	*p = x
+	return p
+}
+
+func (x SandboxProcessControl) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxProcessControl) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[5].Descriptor()
+}
+
+func (SandboxProcessControl) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[5]
+}
+
+func (x SandboxProcessControl) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxProcessControl.Descriptor instead.
+func (SandboxProcessControl) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
+}
+
+type SandboxFilesystemIsolation int32
+
+const (
+	SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED SandboxFilesystemIsolation = 0
+	SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE        SandboxFilesystemIsolation = 1
+)
+
+// Enum value maps for SandboxFilesystemIsolation.
+var (
+	SandboxFilesystemIsolation_name = map[int32]string{
+		0: "SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED",
+		1: "SANDBOX_FILESYSTEM_ISOLATION_NONE",
+	}
+	SandboxFilesystemIsolation_value = map[string]int32{
+		"SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED": 0,
+		"SANDBOX_FILESYSTEM_ISOLATION_NONE":        1,
+	}
+)
+
+func (x SandboxFilesystemIsolation) Enum() *SandboxFilesystemIsolation {
+	p := new(SandboxFilesystemIsolation)
+	*p = x
+	return p
+}
+
+func (x SandboxFilesystemIsolation) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxFilesystemIsolation) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[6].Descriptor()
+}
+
+func (SandboxFilesystemIsolation) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[6]
+}
+
+func (x SandboxFilesystemIsolation) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxFilesystemIsolation.Descriptor instead.
+func (SandboxFilesystemIsolation) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
+}
+
+type SandboxNetworkIsolation int32
+
+const (
+	SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_UNSPECIFIED SandboxNetworkIsolation = 0
+	SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE        SandboxNetworkIsolation = 1
+)
+
+// Enum value maps for SandboxNetworkIsolation.
+var (
+	SandboxNetworkIsolation_name = map[int32]string{
+		0: "SANDBOX_NETWORK_ISOLATION_UNSPECIFIED",
+		1: "SANDBOX_NETWORK_ISOLATION_NONE",
+	}
+	SandboxNetworkIsolation_value = map[string]int32{
+		"SANDBOX_NETWORK_ISOLATION_UNSPECIFIED": 0,
+		"SANDBOX_NETWORK_ISOLATION_NONE":        1,
+	}
+)
+
+func (x SandboxNetworkIsolation) Enum() *SandboxNetworkIsolation {
+	p := new(SandboxNetworkIsolation)
+	*p = x
+	return p
+}
+
+func (x SandboxNetworkIsolation) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxNetworkIsolation) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[7].Descriptor()
+}
+
+func (SandboxNetworkIsolation) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[7]
+}
+
+func (x SandboxNetworkIsolation) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxNetworkIsolation.Descriptor instead.
+func (SandboxNetworkIsolation) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
+}
+
+type SandboxSecretMaterialization int32
+
+const (
+	SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED           SandboxSecretMaterialization = 0
+	SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT SandboxSecretMaterialization = 1
+)
+
+// Enum value maps for SandboxSecretMaterialization.
+var (
+	SandboxSecretMaterialization_name = map[int32]string{
+		0: "SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED",
+		1: "SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT",
+	}
+	SandboxSecretMaterialization_value = map[string]int32{
+		"SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED":           0,
+		"SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT": 1,
+	}
+)
+
+func (x SandboxSecretMaterialization) Enum() *SandboxSecretMaterialization {
+	p := new(SandboxSecretMaterialization)
+	*p = x
+	return p
+}
+
+func (x SandboxSecretMaterialization) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxSecretMaterialization) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[8].Descriptor()
+}
+
+func (SandboxSecretMaterialization) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[8]
+}
+
+func (x SandboxSecretMaterialization) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxSecretMaterialization.Descriptor instead.
+func (SandboxSecretMaterialization) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
+}
+
+type SandboxDaemonCrashCleanup int32
+
+const (
+	SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED SandboxDaemonCrashCleanup = 0
+	SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE        SandboxDaemonCrashCleanup = 1
+)
+
+// Enum value maps for SandboxDaemonCrashCleanup.
+var (
+	SandboxDaemonCrashCleanup_name = map[int32]string{
+		0: "SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED",
+		1: "SANDBOX_DAEMON_CRASH_CLEANUP_NONE",
+	}
+	SandboxDaemonCrashCleanup_value = map[string]int32{
+		"SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED": 0,
+		"SANDBOX_DAEMON_CRASH_CLEANUP_NONE":        1,
+	}
+)
+
+func (x SandboxDaemonCrashCleanup) Enum() *SandboxDaemonCrashCleanup {
+	p := new(SandboxDaemonCrashCleanup)
+	*p = x
+	return p
+}
+
+func (x SandboxDaemonCrashCleanup) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (SandboxDaemonCrashCleanup) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[9].Descriptor()
+}
+
+func (SandboxDaemonCrashCleanup) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[9]
+}
+
+func (x SandboxDaemonCrashCleanup) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use SandboxDaemonCrashCleanup.Descriptor instead.
+func (SandboxDaemonCrashCleanup) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
+}
+
+type SandboxCapability struct {
+	state                 protoimpl.MessageState       `protogen:"open.v1"`
+	Provider              SandboxProvider              `protobuf:"varint,1,opt,name=provider,proto3,enum=sumi.computer.v1.SandboxProvider" json:"provider,omitempty"`
+	Isolation             SandboxIsolation             `protobuf:"varint,2,opt,name=isolation,proto3,enum=sumi.computer.v1.SandboxIsolation" json:"isolation,omitempty"`
+	WorkspaceAccess       SandboxWorkspaceAccess       `protobuf:"varint,3,opt,name=workspace_access,json=workspaceAccess,proto3,enum=sumi.computer.v1.SandboxWorkspaceAccess" json:"workspace_access,omitempty"`
+	ProcessControl        SandboxProcessControl        `protobuf:"varint,4,opt,name=process_control,json=processControl,proto3,enum=sumi.computer.v1.SandboxProcessControl" json:"process_control,omitempty"`
+	FilesystemIsolation   SandboxFilesystemIsolation   `protobuf:"varint,5,opt,name=filesystem_isolation,json=filesystemIsolation,proto3,enum=sumi.computer.v1.SandboxFilesystemIsolation" json:"filesystem_isolation,omitempty"`
+	NetworkIsolation      SandboxNetworkIsolation      `protobuf:"varint,6,opt,name=network_isolation,json=networkIsolation,proto3,enum=sumi.computer.v1.SandboxNetworkIsolation" json:"network_isolation,omitempty"`
+	SecretMaterialization SandboxSecretMaterialization `protobuf:"varint,7,opt,name=secret_materialization,json=secretMaterialization,proto3,enum=sumi.computer.v1.SandboxSecretMaterialization" json:"secret_materialization,omitempty"`
+	DaemonCrashCleanup    SandboxDaemonCrashCleanup    `protobuf:"varint,8,opt,name=daemon_crash_cleanup,json=daemonCrashCleanup,proto3,enum=sumi.computer.v1.SandboxDaemonCrashCleanup" json:"daemon_crash_cleanup,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
 
+func (x *SandboxCapability) Reset() {
+	*x = SandboxCapability{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SandboxCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SandboxCapability) ProtoMessage() {}
+
+func (x *SandboxCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SandboxCapability.ProtoReflect.Descriptor instead.
+func (*SandboxCapability) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *SandboxCapability) GetProvider() SandboxProvider {
+	if x != nil {
+		return x.Provider
+	}
+	return SandboxProvider_SANDBOX_PROVIDER_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetIsolation() SandboxIsolation {
+	if x != nil {
+		return x.Isolation
+	}
+	return SandboxIsolation_SANDBOX_ISOLATION_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetWorkspaceAccess() SandboxWorkspaceAccess {
+	if x != nil {
+		return x.WorkspaceAccess
+	}
+	return SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetProcessControl() SandboxProcessControl {
+	if x != nil {
+		return x.ProcessControl
+	}
+	return SandboxProcessControl_SANDBOX_PROCESS_CONTROL_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetFilesystemIsolation() SandboxFilesystemIsolation {
+	if x != nil {
+		return x.FilesystemIsolation
+	}
+	return SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetNetworkIsolation() SandboxNetworkIsolation {
+	if x != nil {
+		return x.NetworkIsolation
+	}
+	return SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetSecretMaterialization() SandboxSecretMaterialization {
+	if x != nil {
+		return x.SecretMaterialization
+	}
+	return SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED
+}
+
+func (x *SandboxCapability) GetDaemonCrashCleanup() SandboxDaemonCrashCleanup {
+	if x != nil {
+		return x.DaemonCrashCleanup
+	}
+	return SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED
+}
+
+type Computer struct {
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	Id                         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                       string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Os                         OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
+	Arch                       Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	CreatedAt                  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastSeenAt                 *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
+	Online                     bool                   `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
+	ConnectivityExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=connectivity_expires_at,json=connectivityExpiresAt,proto3" json:"connectivity_expires_at,omitempty"`
+	SandboxCapability          *SandboxCapability     `protobuf:"bytes,9,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
+	SandboxDeclarationRevision uint64                 `protobuf:"varint,10,opt,name=sandbox_declaration_revision,json=sandboxDeclarationRevision,proto3" json:"sandbox_declaration_revision,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
 func (x *Computer) Reset() {
 	*x = Computer{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[0]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -148,7 +618,7 @@ func (x *Computer) String() string {
 func (*Computer) ProtoMessage() {}
 
 func (x *Computer) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[0]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -161,7 +631,7 @@ func (x *Computer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Computer.ProtoReflect.Descriptor instead.
 func (*Computer) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{0}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Computer) GetId() string {
@@ -220,6 +690,20 @@ func (x *Computer) GetConnectivityExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Computer) GetSandboxCapability() *SandboxCapability {
+	if x != nil {
+		return x.SandboxCapability
+	}
+	return nil
+}
+
+func (x *Computer) GetSandboxDeclarationRevision() uint64 {
+	if x != nil {
+		return x.SandboxDeclarationRevision
+	}
+	return 0
+}
+
 type CreateComputerPairingRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -231,7 +715,7 @@ type CreateComputerPairingRequest struct {
 
 func (x *CreateComputerPairingRequest) Reset() {
 	*x = CreateComputerPairingRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -243,7 +727,7 @@ func (x *CreateComputerPairingRequest) String() string {
 func (*CreateComputerPairingRequest) ProtoMessage() {}
 
 func (x *CreateComputerPairingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -256,7 +740,7 @@ func (x *CreateComputerPairingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateComputerPairingRequest.ProtoReflect.Descriptor instead.
 func (*CreateComputerPairingRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CreateComputerPairingRequest) GetRequestId() string {
@@ -290,7 +774,7 @@ type CreateComputerPairingResponse struct {
 
 func (x *CreateComputerPairingResponse) Reset() {
 	*x = CreateComputerPairingResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -302,7 +786,7 @@ func (x *CreateComputerPairingResponse) String() string {
 func (*CreateComputerPairingResponse) ProtoMessage() {}
 
 func (x *CreateComputerPairingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -315,7 +799,7 @@ func (x *CreateComputerPairingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateComputerPairingResponse.ProtoReflect.Descriptor instead.
 func (*CreateComputerPairingResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateComputerPairingResponse) GetPairingId() string {
@@ -333,20 +817,21 @@ func (x *CreateComputerPairingResponse) GetExpiresAt() *timestamppb.Timestamp {
 }
 
 type RegisterComputerRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	RegistrationKey string                 `protobuf:"bytes,1,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
-	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Os              OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
-	Arch            Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
-	RequestId       string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	PairingToken    string                 `protobuf:"bytes,6,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	RegistrationKey   string                 `protobuf:"bytes,1,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	Name              string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Os                OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
+	Arch              Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	RequestId         string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	PairingToken      string                 `protobuf:"bytes,6,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
+	SandboxCapability *SandboxCapability     `protobuf:"bytes,7,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *RegisterComputerRequest) Reset() {
 	*x = RegisterComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -358,7 +843,7 @@ func (x *RegisterComputerRequest) String() string {
 func (*RegisterComputerRequest) ProtoMessage() {}
 
 func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -371,7 +856,7 @@ func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerRequest.ProtoReflect.Descriptor instead.
 func (*RegisterComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RegisterComputerRequest) GetRegistrationKey() string {
@@ -416,6 +901,13 @@ func (x *RegisterComputerRequest) GetPairingToken() string {
 	return ""
 }
 
+func (x *RegisterComputerRequest) GetSandboxCapability() *SandboxCapability {
+	if x != nil {
+		return x.SandboxCapability
+	}
+	return nil
+}
+
 type RegisterComputerResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Computer      *Computer              `protobuf:"bytes,1,opt,name=computer,proto3" json:"computer,omitempty"`
@@ -425,7 +917,7 @@ type RegisterComputerResponse struct {
 
 func (x *RegisterComputerResponse) Reset() {
 	*x = RegisterComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -437,7 +929,7 @@ func (x *RegisterComputerResponse) String() string {
 func (*RegisterComputerResponse) ProtoMessage() {}
 
 func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -450,7 +942,7 @@ func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerResponse.ProtoReflect.Descriptor instead.
 func (*RegisterComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RegisterComputerResponse) GetComputer() *Computer {
@@ -461,16 +953,17 @@ func (x *RegisterComputerResponse) GetComputer() *Computer {
 }
 
 type HeartbeatComputerRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ComputerId        string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RegistrationKey   string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	SandboxCapability *SandboxCapability     `protobuf:"bytes,3,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *HeartbeatComputerRequest) Reset() {
 	*x = HeartbeatComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -482,7 +975,7 @@ func (x *HeartbeatComputerRequest) String() string {
 func (*HeartbeatComputerRequest) ProtoMessage() {}
 
 func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -495,7 +988,7 @@ func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *HeartbeatComputerRequest) GetComputerId() string {
@@ -512,6 +1005,13 @@ func (x *HeartbeatComputerRequest) GetRegistrationKey() string {
 	return ""
 }
 
+func (x *HeartbeatComputerRequest) GetSandboxCapability() *SandboxCapability {
+	if x != nil {
+		return x.SandboxCapability
+	}
+	return nil
+}
+
 type HeartbeatComputerResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Computer      *Computer              `protobuf:"bytes,1,opt,name=computer,proto3" json:"computer,omitempty"`
@@ -521,7 +1021,7 @@ type HeartbeatComputerResponse struct {
 
 func (x *HeartbeatComputerResponse) Reset() {
 	*x = HeartbeatComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -533,7 +1033,7 @@ func (x *HeartbeatComputerResponse) String() string {
 func (*HeartbeatComputerResponse) ProtoMessage() {}
 
 func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -546,7 +1046,7 @@ func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *HeartbeatComputerResponse) GetComputer() *Computer {
@@ -565,7 +1065,7 @@ type GetComputerRequest struct {
 
 func (x *GetComputerRequest) Reset() {
 	*x = GetComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -577,7 +1077,7 @@ func (x *GetComputerRequest) String() string {
 func (*GetComputerRequest) ProtoMessage() {}
 
 func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -590,7 +1090,7 @@ func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerRequest.ProtoReflect.Descriptor instead.
 func (*GetComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetComputerRequest) GetComputerId() string {
@@ -609,7 +1109,7 @@ type GetComputerResponse struct {
 
 func (x *GetComputerResponse) Reset() {
 	*x = GetComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +1121,7 @@ func (x *GetComputerResponse) String() string {
 func (*GetComputerResponse) ProtoMessage() {}
 
 func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -634,7 +1134,7 @@ func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerResponse.ProtoReflect.Descriptor instead.
 func (*GetComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetComputerResponse) GetComputer() *Computer {
@@ -652,7 +1152,7 @@ type ListComputersRequest struct {
 
 func (x *ListComputersRequest) Reset() {
 	*x = ListComputersRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +1164,7 @@ func (x *ListComputersRequest) String() string {
 func (*ListComputersRequest) ProtoMessage() {}
 
 func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +1177,7 @@ func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersRequest.ProtoReflect.Descriptor instead.
 func (*ListComputersRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
 }
 
 type ListComputersResponse struct {
@@ -689,7 +1189,7 @@ type ListComputersResponse struct {
 
 func (x *ListComputersResponse) Reset() {
 	*x = ListComputersResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -701,7 +1201,7 @@ func (x *ListComputersResponse) String() string {
 func (*ListComputersResponse) ProtoMessage() {}
 
 func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -714,7 +1214,7 @@ func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersResponse.ProtoReflect.Descriptor instead.
 func (*ListComputersResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListComputersResponse) GetComputers() []*Computer {
@@ -728,7 +1228,16 @@ var File_sumi_computer_v1_computer_proto protoreflect.FileDescriptor
 
 const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
-	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\x02\n" +
+	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x05\n" +
+	"\x11SandboxCapability\x12=\n" +
+	"\bprovider\x18\x01 \x01(\x0e2!.sumi.computer.v1.SandboxProviderR\bprovider\x12@\n" +
+	"\tisolation\x18\x02 \x01(\x0e2\".sumi.computer.v1.SandboxIsolationR\tisolation\x12S\n" +
+	"\x10workspace_access\x18\x03 \x01(\x0e2(.sumi.computer.v1.SandboxWorkspaceAccessR\x0fworkspaceAccess\x12P\n" +
+	"\x0fprocess_control\x18\x04 \x01(\x0e2'.sumi.computer.v1.SandboxProcessControlR\x0eprocessControl\x12_\n" +
+	"\x14filesystem_isolation\x18\x05 \x01(\x0e2,.sumi.computer.v1.SandboxFilesystemIsolationR\x13filesystemIsolation\x12V\n" +
+	"\x11network_isolation\x18\x06 \x01(\x0e2).sumi.computer.v1.SandboxNetworkIsolationR\x10networkIsolation\x12e\n" +
+	"\x16secret_materialization\x18\a \x01(\x0e2..sumi.computer.v1.SandboxSecretMaterializationR\x15secretMaterialization\x12]\n" +
+	"\x14daemon_crash_cleanup\x18\b \x01(\x0e2+.sumi.computer.v1.SandboxDaemonCrashCleanupR\x12daemonCrashCleanup\"\x90\x04\n" +
 	"\bComputer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
@@ -739,7 +1248,10 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\flast_seen_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastSeenAt\x12\x16\n" +
 	"\x06online\x18\a \x01(\bR\x06online\x12R\n" +
-	"\x17connectivity_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x15connectivityExpiresAt\"\x9d\x01\n" +
+	"\x17connectivity_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x15connectivityExpiresAt\x12R\n" +
+	"\x12sandbox_capability\x18\t \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\x12@\n" +
+	"\x1csandbox_declaration_revision\x18\n" +
+	" \x01(\x04R\x1asandboxDeclarationRevision\"\x9d\x01\n" +
 	"\x1cCreateComputerPairingRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -750,7 +1262,7 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
 	"pairing_id\x18\x01 \x01(\tR\tpairingId\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x83\x02\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xd7\x02\n" +
 	"\x17RegisterComputerRequest\x12)\n" +
 	"\x10registration_key\x18\x01 \x01(\tR\x0fregistrationKey\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
@@ -758,13 +1270,15 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\x04arch\x18\x04 \x01(\x0e2\x1e.sumi.computer.v1.ArchitectureR\x04arch\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x05 \x01(\tR\trequestId\x12#\n" +
-	"\rpairing_token\x18\x06 \x01(\tR\fpairingToken\"R\n" +
+	"\rpairing_token\x18\x06 \x01(\tR\fpairingToken\x12R\n" +
+	"\x12sandbox_capability\x18\a \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\"R\n" +
 	"\x18RegisterComputerResponse\x126\n" +
-	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"f\n" +
+	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"\xba\x01\n" +
 	"\x18HeartbeatComputerRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
-	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"S\n" +
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12R\n" +
+	"\x12sandbox_capability\x18\x03 \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\"S\n" +
 	"\x19HeartbeatComputerResponse\x126\n" +
 	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"5\n" +
 	"\x12GetComputerRequest\x12\x1f\n" +
@@ -782,7 +1296,31 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\fArchitecture\x12\x1c\n" +
 	"\x18ARCHITECTURE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12ARCHITECTURE_ARM64\x10\x01\x12\x16\n" +
-	"\x12ARCHITECTURE_AMD64\x10\x022\xa2\x04\n" +
+	"\x12ARCHITECTURE_AMD64\x10\x02*W\n" +
+	"\x0fSandboxProvider\x12 \n" +
+	"\x1cSANDBOX_PROVIDER_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eSANDBOX_PROVIDER_TRUSTED_LOCAL\x10\x01*Z\n" +
+	"\x10SandboxIsolation\x12!\n" +
+	"\x1dSANDBOX_ISOLATION_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fSANDBOX_ISOLATION_TRUSTED_LOCAL\x10\x01*r\n" +
+	"\x16SandboxWorkspaceAccess\x12(\n" +
+	"$SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED\x10\x00\x12.\n" +
+	"*SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE\x10\x01*s\n" +
+	"\x15SandboxProcessControl\x12'\n" +
+	"#SANDBOX_PROCESS_CONTROL_UNSPECIFIED\x10\x00\x121\n" +
+	"-SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP\x10\x01*q\n" +
+	"\x1aSandboxFilesystemIsolation\x12,\n" +
+	"(SANDBOX_FILESYSTEM_ISOLATION_UNSPECIFIED\x10\x00\x12%\n" +
+	"!SANDBOX_FILESYSTEM_ISOLATION_NONE\x10\x01*h\n" +
+	"\x17SandboxNetworkIsolation\x12)\n" +
+	"%SANDBOX_NETWORK_ISOLATION_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eSANDBOX_NETWORK_ISOLATION_NONE\x10\x01*\x88\x01\n" +
+	"\x1cSandboxSecretMaterialization\x12.\n" +
+	"*SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED\x10\x00\x128\n" +
+	"4SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT\x10\x01*p\n" +
+	"\x19SandboxDaemonCrashCleanup\x12,\n" +
+	"(SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED\x10\x00\x12%\n" +
+	"!SANDBOX_DAEMON_CRASH_CLEANUP_NONE\x10\x012\xa2\x04\n" +
 	"\x0fComputerService\x12x\n" +
 	"\x15CreateComputerPairing\x12..sumi.computer.v1.CreateComputerPairingRequest\x1a/.sumi.computer.v1.CreateComputerPairingResponse\x12i\n" +
 	"\x10RegisterComputer\x12).sumi.computer.v1.RegisterComputerRequest\x1a*.sumi.computer.v1.RegisterComputerResponse\x12l\n" +
@@ -802,53 +1340,73 @@ func file_sumi_computer_v1_computer_proto_rawDescGZIP() []byte {
 	return file_sumi_computer_v1_computer_proto_rawDescData
 }
 
-var file_sumi_computer_v1_computer_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_sumi_computer_v1_computer_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_sumi_computer_v1_computer_proto_goTypes = []any{
 	(OperatingSystem)(0),                  // 0: sumi.computer.v1.OperatingSystem
 	(Architecture)(0),                     // 1: sumi.computer.v1.Architecture
-	(*Computer)(nil),                      // 2: sumi.computer.v1.Computer
-	(*CreateComputerPairingRequest)(nil),  // 3: sumi.computer.v1.CreateComputerPairingRequest
-	(*CreateComputerPairingResponse)(nil), // 4: sumi.computer.v1.CreateComputerPairingResponse
-	(*RegisterComputerRequest)(nil),       // 5: sumi.computer.v1.RegisterComputerRequest
-	(*RegisterComputerResponse)(nil),      // 6: sumi.computer.v1.RegisterComputerResponse
-	(*HeartbeatComputerRequest)(nil),      // 7: sumi.computer.v1.HeartbeatComputerRequest
-	(*HeartbeatComputerResponse)(nil),     // 8: sumi.computer.v1.HeartbeatComputerResponse
-	(*GetComputerRequest)(nil),            // 9: sumi.computer.v1.GetComputerRequest
-	(*GetComputerResponse)(nil),           // 10: sumi.computer.v1.GetComputerResponse
-	(*ListComputersRequest)(nil),          // 11: sumi.computer.v1.ListComputersRequest
-	(*ListComputersResponse)(nil),         // 12: sumi.computer.v1.ListComputersResponse
-	(*timestamppb.Timestamp)(nil),         // 13: google.protobuf.Timestamp
+	(SandboxProvider)(0),                  // 2: sumi.computer.v1.SandboxProvider
+	(SandboxIsolation)(0),                 // 3: sumi.computer.v1.SandboxIsolation
+	(SandboxWorkspaceAccess)(0),           // 4: sumi.computer.v1.SandboxWorkspaceAccess
+	(SandboxProcessControl)(0),            // 5: sumi.computer.v1.SandboxProcessControl
+	(SandboxFilesystemIsolation)(0),       // 6: sumi.computer.v1.SandboxFilesystemIsolation
+	(SandboxNetworkIsolation)(0),          // 7: sumi.computer.v1.SandboxNetworkIsolation
+	(SandboxSecretMaterialization)(0),     // 8: sumi.computer.v1.SandboxSecretMaterialization
+	(SandboxDaemonCrashCleanup)(0),        // 9: sumi.computer.v1.SandboxDaemonCrashCleanup
+	(*SandboxCapability)(nil),             // 10: sumi.computer.v1.SandboxCapability
+	(*Computer)(nil),                      // 11: sumi.computer.v1.Computer
+	(*CreateComputerPairingRequest)(nil),  // 12: sumi.computer.v1.CreateComputerPairingRequest
+	(*CreateComputerPairingResponse)(nil), // 13: sumi.computer.v1.CreateComputerPairingResponse
+	(*RegisterComputerRequest)(nil),       // 14: sumi.computer.v1.RegisterComputerRequest
+	(*RegisterComputerResponse)(nil),      // 15: sumi.computer.v1.RegisterComputerResponse
+	(*HeartbeatComputerRequest)(nil),      // 16: sumi.computer.v1.HeartbeatComputerRequest
+	(*HeartbeatComputerResponse)(nil),     // 17: sumi.computer.v1.HeartbeatComputerResponse
+	(*GetComputerRequest)(nil),            // 18: sumi.computer.v1.GetComputerRequest
+	(*GetComputerResponse)(nil),           // 19: sumi.computer.v1.GetComputerResponse
+	(*ListComputersRequest)(nil),          // 20: sumi.computer.v1.ListComputersRequest
+	(*ListComputersResponse)(nil),         // 21: sumi.computer.v1.ListComputersResponse
+	(*timestamppb.Timestamp)(nil),         // 22: google.protobuf.Timestamp
 }
 var file_sumi_computer_v1_computer_proto_depIdxs = []int32{
-	0,  // 0: sumi.computer.v1.Computer.os:type_name -> sumi.computer.v1.OperatingSystem
-	1,  // 1: sumi.computer.v1.Computer.arch:type_name -> sumi.computer.v1.Architecture
-	13, // 2: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
-	13, // 3: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
-	13, // 4: sumi.computer.v1.Computer.connectivity_expires_at:type_name -> google.protobuf.Timestamp
-	13, // 5: sumi.computer.v1.CreateComputerPairingRequest.expires_at:type_name -> google.protobuf.Timestamp
-	13, // 6: sumi.computer.v1.CreateComputerPairingResponse.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 7: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
-	1,  // 8: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
-	2,  // 9: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 10: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 11: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 12: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
-	3,  // 13: sumi.computer.v1.ComputerService.CreateComputerPairing:input_type -> sumi.computer.v1.CreateComputerPairingRequest
-	5,  // 14: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
-	7,  // 15: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
-	9,  // 16: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
-	11, // 17: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
-	4,  // 18: sumi.computer.v1.ComputerService.CreateComputerPairing:output_type -> sumi.computer.v1.CreateComputerPairingResponse
-	6,  // 19: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
-	8,  // 20: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
-	10, // 21: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
-	12, // 22: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
-	18, // [18:23] is the sub-list for method output_type
-	13, // [13:18] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	2,  // 0: sumi.computer.v1.SandboxCapability.provider:type_name -> sumi.computer.v1.SandboxProvider
+	3,  // 1: sumi.computer.v1.SandboxCapability.isolation:type_name -> sumi.computer.v1.SandboxIsolation
+	4,  // 2: sumi.computer.v1.SandboxCapability.workspace_access:type_name -> sumi.computer.v1.SandboxWorkspaceAccess
+	5,  // 3: sumi.computer.v1.SandboxCapability.process_control:type_name -> sumi.computer.v1.SandboxProcessControl
+	6,  // 4: sumi.computer.v1.SandboxCapability.filesystem_isolation:type_name -> sumi.computer.v1.SandboxFilesystemIsolation
+	7,  // 5: sumi.computer.v1.SandboxCapability.network_isolation:type_name -> sumi.computer.v1.SandboxNetworkIsolation
+	8,  // 6: sumi.computer.v1.SandboxCapability.secret_materialization:type_name -> sumi.computer.v1.SandboxSecretMaterialization
+	9,  // 7: sumi.computer.v1.SandboxCapability.daemon_crash_cleanup:type_name -> sumi.computer.v1.SandboxDaemonCrashCleanup
+	0,  // 8: sumi.computer.v1.Computer.os:type_name -> sumi.computer.v1.OperatingSystem
+	1,  // 9: sumi.computer.v1.Computer.arch:type_name -> sumi.computer.v1.Architecture
+	22, // 10: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
+	22, // 11: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
+	22, // 12: sumi.computer.v1.Computer.connectivity_expires_at:type_name -> google.protobuf.Timestamp
+	10, // 13: sumi.computer.v1.Computer.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
+	22, // 14: sumi.computer.v1.CreateComputerPairingRequest.expires_at:type_name -> google.protobuf.Timestamp
+	22, // 15: sumi.computer.v1.CreateComputerPairingResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 16: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
+	1,  // 17: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
+	10, // 18: sumi.computer.v1.RegisterComputerRequest.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
+	11, // 19: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	10, // 20: sumi.computer.v1.HeartbeatComputerRequest.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
+	11, // 21: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	11, // 22: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	11, // 23: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
+	12, // 24: sumi.computer.v1.ComputerService.CreateComputerPairing:input_type -> sumi.computer.v1.CreateComputerPairingRequest
+	14, // 25: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
+	16, // 26: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
+	18, // 27: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
+	20, // 28: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
+	13, // 29: sumi.computer.v1.ComputerService.CreateComputerPairing:output_type -> sumi.computer.v1.CreateComputerPairingResponse
+	15, // 30: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
+	17, // 31: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
+	19, // 32: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
+	21, // 33: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
+	29, // [29:34] is the sub-list for method output_type
+	24, // [24:29] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_sumi_computer_v1_computer_proto_init() }
@@ -861,8 +1419,8 @@ func file_sumi_computer_v1_computer_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_computer_v1_computer_proto_rawDesc), len(file_sumi_computer_v1_computer_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   11,
+			NumEnums:      10,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
