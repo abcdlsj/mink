@@ -188,13 +188,7 @@ func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Co
 	params.SandboxCapability = capability
 	tokenHash := computerPairingTokenHash(params.PairingToken)
 	keyHash := registrationKeyHash(params.RegistrationKey)
-	fingerprint, err := computerPairingFingerprint(struct {
-		RegistrationKeyHash []byte            `json:"registration_key_hash"`
-		Name                string            `json:"name"`
-		OS                  string            `json:"os"`
-		Arch                string            `json:"arch"`
-		SandboxCapability   SandboxCapability `json:"sandbox_capability"`
-	}{keyHash[:], params.Name, params.OS, params.Arch, params.SandboxCapability})
+	fingerprint, err := computerPairingPayloadFingerprint(keyHash[:], params.Name, params.OS, params.Arch, params.SandboxCapability)
 	if err != nil {
 		return Computer{}, err
 	}
@@ -312,6 +306,25 @@ func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Co
 		return Computer{}, fmt.Errorf("commit computer pairing: %w", err)
 	}
 	return computer, nil
+}
+
+func computerPairingPayloadFingerprint(registrationKeyHash []byte, name, operatingSystem, architecture string, capability SandboxCapability) ([sha256.Size]byte, error) {
+	return computerPairingFingerprint(struct {
+		RegistrationKeyHash []byte            `json:"registration_key_hash"`
+		Name                string            `json:"name"`
+		OS                  string            `json:"os"`
+		Arch                string            `json:"arch"`
+		SandboxCapability   SandboxCapability `json:"sandbox_capability"`
+	}{registrationKeyHash, name, operatingSystem, architecture, capability})
+}
+
+func legacyComputerPairingPayloadFingerprint(registrationKeyHash []byte, name, operatingSystem, architecture string) ([sha256.Size]byte, error) {
+	return computerPairingFingerprint(struct {
+		RegistrationKeyHash []byte `json:"registration_key_hash"`
+		Name                string `json:"name"`
+		OS                  string `json:"os"`
+		Arch                string `json:"arch"`
+	}{registrationKeyHash, name, operatingSystem, architecture})
 }
 
 // Sandbox declaration revisions order Store commits, not client clocks or request start times.
