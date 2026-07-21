@@ -29,6 +29,11 @@ const (
 	AuditRunComplete           = "run.complete"
 	AuditComputerPairPrepare   = "computer.pair.prepare"
 	AuditComputerPair          = "computer.pair"
+	AuditWorkCreate            = "work.create"
+	AuditWorkAssign            = "work.assign"
+	AuditWorkTransition        = "work.transition"
+	AuditWorkApprovalRequest   = "work.approval.request"
+	AuditWorkApprovalResolve   = "work.approval.resolve"
 )
 
 type AuditEvent struct {

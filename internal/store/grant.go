@@ -27,6 +27,10 @@ var capabilities = map[string]struct{}{
 	CapabilityMessageSend:       {},
 	CapabilityRunExecute:        {},
 	CapabilityComputerPair:      {},
+	CapabilityWorkCreate:        {},
+	CapabilityWorkRead:          {},
+	CapabilityWorkManage:        {},
+	CapabilityWorkApprove:       {},
 }
 
 func ValidCapability(capability string) bool {
@@ -36,6 +40,9 @@ func ValidCapability(capability string) bool {
 
 func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant, error) {
 	if !ValidCapability(params.Capability) || (params.Subject.Kind != "human" && params.Subject.Kind != "agent") {
+		return Grant{}, ErrGrantInvalid
+	}
+	if !validCapabilityScope(params.Capability, params.Scope.Kind) {
 		return Grant{}, ErrGrantInvalid
 	}
 	fingerprint, err := authorityFingerprint(struct {
@@ -342,7 +349,7 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 		}
 		return nil
 	}
-	table := map[string]string{"agent": "agents", "computer": "computers", "space": "spaces"}[scope.Kind]
+	table := map[string]string{"agent": "agents", "computer": "computers", "space": "spaces", "work": "works"}[scope.Kind]
 	if table == "" {
 		return ErrScopeNotFound
 	}
@@ -353,11 +360,34 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 	if !tableExists {
 		return ErrScopeNotFound
 	}
-	exists, err := recordExists(ctx, tx, table, scope.ID)
+	var exists bool
+	var err error
+	if scope.Kind == "work" || scope.Kind == "space" {
+		err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" WHERE id = ? AND organization_id = ?)", scope.ID, organizationID).Scan(&exists)
+		if err != nil {
+			return err
+		}
+	} else {
+		exists, err = recordExists(ctx, tx, table, scope.ID)
+		if err != nil {
+			return err
+		}
+	}
 	if err != nil || !exists {
 		return ErrScopeNotFound
 	}
 	return nil
+}
+
+func validCapabilityScope(capability, scopeKind string) bool {
+	switch capability {
+	case CapabilityWorkCreate:
+		return scopeKind == "organization"
+	case CapabilityWorkRead, CapabilityWorkManage, CapabilityWorkApprove:
+		return scopeKind == "organization" || scopeKind == "work"
+	default:
+		return true
+	}
 }
 
 func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, excludedHumanID, excludedGrantID string) (bool, error) {
