@@ -10,6 +10,7 @@ type Layout struct {
 	Root                string
 	Config              string
 	Data                string
+	Artifacts           string
 	Agents              string
 	Cache               string
 	Logs                string
@@ -26,6 +27,7 @@ func Ensure(root string) (Layout, error) {
 		Root:                root,
 		Config:              filepath.Join(root, "config.toml"),
 		Data:                filepath.Join(root, "data"),
+		Artifacts:           filepath.Join(root, "data", "artifacts"),
 		Agents:              filepath.Join(root, "agents"),
 		Cache:               filepath.Join(root, "cache"),
 		Logs:                filepath.Join(root, "logs"),
@@ -33,7 +35,7 @@ func Ensure(root string) (Layout, error) {
 		BootstrapCredential: filepath.Join(root, "owner.key"),
 	}
 
-	for _, dir := range []string{layout.Root, layout.Data, layout.Agents, layout.Cache, layout.Logs} {
+	for _, dir := range []string{layout.Root, layout.Data, layout.Artifacts, layout.Agents, layout.Cache, layout.Logs} {
 		if err := ensureDir(dir); err != nil {
 			return Layout{}, err
 		}

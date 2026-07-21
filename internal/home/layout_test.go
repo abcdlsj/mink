@@ -29,7 +29,7 @@ func TestEnsureCreatesMinimalLayout(t *testing.T) {
 		t.Fatalf("root entries = %v, want %v", names, want)
 	}
 
-	for _, path := range []string{layout.Root, layout.Data, layout.Agents, layout.Cache, layout.Logs} {
+	for _, path := range []string{layout.Root, layout.Data, layout.Artifacts, layout.Agents, layout.Cache, layout.Logs} {
 		assertMode(t, path, 0o700)
 	}
 	assertMode(t, layout.Config, 0o600)
