@@ -1051,12 +1051,6 @@ func (s *stubComputerClient) sandboxCapability() *computerv1.SandboxCapability {
 	return proto.Clone(s.capability).(*computerv1.SandboxCapability)
 }
 
-func (s *stubComputerClient) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.heartbeats
-}
-
 type stubPlacementClient struct {
 	list func(context.Context) ([]*placementv1.AgentPlacement, error)
 }
