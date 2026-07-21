@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,9 +23,12 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
+	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	"github.com/abcdlsj/sumi/internal/agentmessage"
 	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 type Executor interface {
@@ -40,6 +44,17 @@ type Execution struct {
 	Fence               uint64
 	PlacementGeneration uint64
 	Workspace           string
+	SpaceID             string
+	ThreadRootMessageID string
+	BasisTargetSequence uint64
+	CurrentInput        string
+}
+
+type triggerContext struct {
+	spaceID             string
+	threadRootMessageID string
+	observedHead        uint64
+	body                string
 }
 
 type Completion struct {
@@ -435,19 +450,34 @@ func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Ident
 	if run != nil && !d.reconcileActiveMutations(ctx, session, delivery, run, launch) {
 		return false
 	}
+	var trigger triggerContext
+	observedBeforeAccept := false
 	if run == nil && len(response.Msg.GetDeliveries()) > 0 {
 		delivery = response.Msg.GetDeliveries()[0]
 		if !validAvailableDelivery(delivery, session.AgentID) {
 			return false
 		}
-		if !d.observeDelivery(ctx, session, delivery) {
+		var observed bool
+		trigger, observed = d.observeDelivery(ctx, session, delivery)
+		if !observed {
 			return false
 		}
 		run = d.acceptDelivery(ctx, session, delivery)
 		launch = nil
+		observedBeforeAccept = true
 	}
 	if run == nil || delivery == nil {
 		return true
+	}
+	if !observedBeforeAccept {
+		var observed bool
+		trigger, observed = d.observeDelivery(ctx, session, delivery)
+		if !observed {
+			return false
+		}
+	}
+	if run.GetBasisTargetSequence() == 0 || (observedBeforeAccept && run.GetBasisTargetSequence() != trigger.observedHead) {
+		return false
 	}
 	if launch == nil || !launch.GetExpiresAt().AsTime().After(d.config.Now()) {
 		launch = d.claimRun(ctx, session, run.GetId())
@@ -456,21 +486,69 @@ func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Ident
 		!launch.GetExpiresAt().AsTime().After(d.config.Now()) {
 		return true
 	}
-	d.startWorker(ctx, session, delivery, run, launch)
+	d.startWorker(ctx, session, delivery, run, launch, trigger)
 	return true
 }
 
-func (d *Daemon) observeDelivery(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery) bool {
+func (d *Daemon) observeDelivery(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery) (triggerContext, bool) {
 	if delivery == nil || delivery.GetTarget() == nil {
-		return false
+		return triggerContext{}, false
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	defer cancel()
-	_, err := d.inbox.ObserveTarget(rpcCtx, runtimeRequest(session.Token, &inboxv1.ObserveTargetRequest{
+	response, err := d.inbox.ObserveTarget(rpcCtx, runtimeRequest(session.Token, &inboxv1.ObserveTargetRequest{
 		Target: delivery.GetTarget(), Limit: 200,
 	}))
 	d.invalidateRuntimeOnUnauthenticated(ctx, session, err)
-	return err == nil
+	if err != nil || response == nil {
+		return triggerContext{}, false
+	}
+	return authoritativeTrigger(delivery, response.Msg)
+}
+
+func authoritativeTrigger(delivery *deliveryv1.Delivery, observed *inboxv1.ObserveTargetResponse) (triggerContext, bool) {
+	if delivery == nil || !validUUID(delivery.GetTriggerMessageId()) || !validUUID(delivery.GetSpaceId()) ||
+		delivery.GetTriggerTargetSequence() == 0 || delivery.GetTarget() == nil {
+		return triggerContext{}, false
+	}
+	if _, err := agentmessage.ParseTarget(delivery.GetTarget()); err != nil {
+		return triggerContext{}, false
+	}
+	if observed == nil || !proto.Equal(observed.GetTarget(), delivery.GetTarget()) || observed.GetHeadSequence() < delivery.GetTriggerTargetSequence() {
+		return triggerContext{}, false
+	}
+	var trigger *spacev1.Message
+	for _, message := range observed.GetMessages() {
+		if message == nil || message.GetId() != delivery.GetTriggerMessageId() {
+			continue
+		}
+		if trigger != nil {
+			return triggerContext{}, false
+		}
+		trigger = message
+	}
+	if trigger == nil || trigger.GetSpaceId() != delivery.GetSpaceId() || trigger.GetTargetSequence() != delivery.GetTriggerTargetSequence() ||
+		!messageMatchesTarget(trigger, delivery.GetTarget()) || strings.TrimSpace(trigger.GetBody()) == "" {
+		return triggerContext{}, false
+	}
+	if err := agentmessage.ValidateBody(trigger.GetBody()); err != nil {
+		return triggerContext{}, false
+	}
+	return triggerContext{
+		spaceID: delivery.GetSpaceId(), threadRootMessageID: trigger.GetThreadRootMessageId(),
+		observedHead: observed.GetHeadSequence(), body: trigger.GetBody(),
+	}, true
+}
+
+func messageMatchesTarget(message *spacev1.Message, target *spacev1.MessageTarget) bool {
+	if message == nil || target == nil {
+		return false
+	}
+	if spaceID := target.GetSpaceId(); spaceID != "" {
+		return message.GetThreadRootMessageId() == "" && message.GetSpaceId() == spaceID
+	}
+	threadID := target.GetThreadRootMessageId()
+	return threadID != "" && message.GetThreadRootMessageId() == threadID
 }
 
 func (d *Daemon) acceptDelivery(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery) *deliveryv1.Run {
@@ -596,7 +674,7 @@ func (d *Daemon) reconcilePendingMutation(ctx context.Context, operation, subjec
 	return true
 }
 
-func (d *Daemon) startWorker(parent context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) {
+func (d *Daemon) startWorker(parent context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch, trigger triggerContext) {
 	if !validLaunch(launch, run.GetId(), session.AgentID, session.ComputerID, session.PlacementGeneration) {
 		return
 	}
@@ -628,11 +706,11 @@ func (d *Daemon) startWorker(parent context.Context, session computerstate.Runti
 	d.workersMu.Unlock()
 	go func() {
 		defer d.workersWG.Done()
-		d.runLeaseWatchdog(ctx, session, delivery, run, launch, leaseExpiry)
+		d.runLeaseWatchdog(ctx, session, delivery, run, launch, trigger, leaseExpiry)
 	}()
 }
 
-func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch, leaseExpiry *atomic.Int64) {
+func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch, trigger triggerContext, leaseExpiry *atomic.Int64) {
 	defer d.removeWorker(run.GetId(), launch.GetId(), launch.GetFence())
 	workspacePath, err := workspace.Provision(d.config.DataRoot, session.AgentID)
 	if err != nil {
@@ -646,7 +724,8 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 		completion, executeErr := d.config.Executor.Execute(ctx, Execution{
 			AgentID: session.AgentID, ComputerID: session.ComputerID, DeliveryID: delivery.GetId(), RunID: run.GetId(),
 			LaunchID: launch.GetId(), Fence: launch.GetFence(), PlacementGeneration: session.PlacementGeneration,
-			Workspace: workspacePath,
+			Workspace: workspacePath, SpaceID: trigger.spaceID, ThreadRootMessageID: trigger.threadRootMessageID,
+			BasisTargetSequence: run.GetBasisTargetSequence(), CurrentInput: trigger.body,
 		})
 		result <- struct {
 			completion Completion

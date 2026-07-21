@@ -195,6 +195,71 @@ func TestDaemonNilExecutorDoesNotObserveAcceptOrClaim(t *testing.T) {
 	}
 }
 
+func TestAuthoritativeTriggerRejectsMissingDuplicateAndOversizeInput(t *testing.T) {
+	delivery := availableDelivery(uuid.NewString(), uuid.NewString())
+	valid := func() *inboxv1.ObserveTargetResponse {
+		return &inboxv1.ObserveTargetResponse{
+			Target: delivery.GetTarget(), HeadSequence: delivery.GetTriggerTargetSequence(),
+			Messages: []*spacev1.Message{{
+				Id: delivery.GetTriggerMessageId(), SpaceId: delivery.GetSpaceId(), TargetSequence: delivery.GetTriggerTargetSequence(), Body: "authoritative trigger",
+			}},
+		}
+	}
+	trigger, ok := authoritativeTrigger(delivery, valid())
+	if !ok || trigger.spaceID != delivery.GetSpaceId() || trigger.observedHead != 1 || trigger.body != "authoritative trigger" {
+		t.Fatalf("valid trigger = %+v, %t", trigger, ok)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*inboxv1.ObserveTargetResponse)
+	}{
+		{name: "missing", mutate: func(response *inboxv1.ObserveTargetResponse) { response.Messages = nil }},
+		{name: "duplicate", mutate: func(response *inboxv1.ObserveTargetResponse) {
+			response.Messages = append(response.Messages, proto.Clone(response.Messages[0]).(*spacev1.Message))
+		}},
+		{name: "over budget", mutate: func(response *inboxv1.ObserveTargetResponse) {
+			response.Messages[0].Body = strings.Repeat("x", 400_001)
+		}},
+		{name: "wrong sequence", mutate: func(response *inboxv1.ObserveTargetResponse) { response.Messages[0].TargetSequence++ }},
+		{name: "wrong target", mutate: func(response *inboxv1.ObserveTargetResponse) {
+			response.Target = &spacev1.MessageTarget{Target: &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: uuid.NewString()}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := valid()
+			test.mutate(response)
+			if trigger, ok := authoritativeTrigger(delivery, response); ok {
+				t.Fatalf("invalid trigger accepted = %+v", trigger)
+			}
+		})
+	}
+}
+
+func TestDaemonDoesNotAcceptOrExecuteInvalidObservedTrigger(t *testing.T) {
+	fixture := newDaemonFixture(t)
+	defer fixture.state.Close()
+	agentID := uuid.NewString()
+	session := computerstate.RuntimeSession{
+		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
+		Token: testRuntimeToken(41), ExpiresAt: time.Now().Add(time.Minute), UpdatedAt: time.Now(),
+	}
+	delivery := availableDelivery(uuid.NewString(), agentID)
+	fixture.deliveries.list = func(*connect.Request[deliveryv1.ListDeliveriesRequest]) (*deliveryv1.ListDeliveriesResponse, error) {
+		return &deliveryv1.ListDeliveriesResponse{Deliveries: []*deliveryv1.Delivery{delivery}}, nil
+	}
+	fixture.inbox.observe = func(request *connect.Request[inboxv1.ObserveTargetRequest]) (*inboxv1.ObserveTargetResponse, error) {
+		return &inboxv1.ObserveTargetResponse{Target: request.Msg.GetTarget(), HeadSequence: 1}, nil
+	}
+	executor := &countingExecutor{}
+	fixture.daemon.config.Executor = executor
+	if fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
+		t.Fatal("invalid trigger reported dispatch success")
+	}
+	if fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || executor.count() != 0 {
+		t.Fatalf("invalid trigger activity: accept=%d claim=%d execute=%d", fixture.deliveries.acceptCount(), fixture.deliveries.claimCount(), executor.count())
+	}
+}
+
 func TestPlacementUnbindRequiresSuccessfulCompleteSnapshot(t *testing.T) {
 	fixture := newDaemonFixture(t)
 	defer fixture.state.Close()
@@ -241,7 +306,7 @@ func TestPlacementSnapshotRotatesRuntimeOnlyForCurrentBinding(t *testing.T) {
 	fixture.daemon.startWorker(context.Background(), computerstate.RuntimeSession{
 		AgentID: agentID, ComputerID: fixture.identity.ComputerID, PlacementGeneration: 1,
 	}, activeDelivery(uuid.NewString(), agentID), activeRun(workerRunID, uuid.NewString(), agentID),
-		testLaunch(workerLaunchID, workerRunID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(time.Minute)))
+		testLaunch(workerLaunchID, workerRunID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(time.Minute)), testTrigger(agentID))
 	fixture.placements.list = func(context.Context) ([]*placementv1.AgentPlacement, error) {
 		return []*placementv1.AgentPlacement{activePlacement(agentID, fixture.identity.ComputerID, 2)}, nil
 	}
@@ -330,7 +395,7 @@ func TestExecutorErrorAndCancelCreateNoOutbox(t *testing.T) {
 			}, &deliveryv1.Delivery{Id: uuid.NewString()}, &deliveryv1.Run{Id: runID}, &deliveryv1.RunLaunch{
 				Id: launchID, RunId: runID, AgentId: agentID, HolderComputerId: fixture.identity.ComputerID,
 				HolderPlacementGeneration: 1, Fence: 1, ExpiresAt: timestamppb.New(now.Add(time.Second)),
-			})
+			}, testTrigger(agentID))
 			if test.cancel {
 				cancel()
 			}
@@ -369,7 +434,7 @@ func TestReconcileActiveMutationsRefreshesRunningWorkerLease(t *testing.T) {
 	delivery := activeDelivery(deliveryID, agentID)
 	run := activeRun(runID, deliveryID, agentID)
 	launch := testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(2*time.Second))
-	fixture.daemon.startWorker(ctx, session, delivery, run, launch)
+	fixture.daemon.startWorker(ctx, session, delivery, run, launch, testTrigger(agentID))
 	select {
 	case <-executor.started:
 	case <-time.After(time.Second):
@@ -385,7 +450,7 @@ func TestReconcileActiveMutationsRefreshesRunningWorkerLease(t *testing.T) {
 		t.Fatalf("worker lease was not refreshed: %v", time.Unix(0, workerExpiry))
 	}
 	time.Sleep(2500 * time.Millisecond)
-	fixture.daemon.startWorker(ctx, session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second)))
+	fixture.daemon.startWorker(ctx, session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second)), testTrigger(agentID))
 	if calls := executor.count(); calls != 1 {
 		t.Fatalf("executor calls after initial lease expiry = %d, want 1", calls)
 	}
@@ -416,7 +481,7 @@ func TestExecutionBindsCurrentComputerAndRejectsStalePlacement(t *testing.T) {
 	deliveryID := uuid.NewString()
 	runID := uuid.NewString()
 	fixture.daemon.startWorker(context.Background(), session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID),
-		testLaunch(uuid.NewString(), runID, agentID, session.ComputerID, 3, 7, time.Now().Add(time.Minute)))
+		testLaunch(uuid.NewString(), runID, agentID, session.ComputerID, 3, 7, time.Now().Add(time.Minute)), testTrigger(agentID))
 	select {
 	case execution := <-executor.executions:
 		if execution.ComputerID != session.ComputerID || execution.AgentID != agentID || execution.PlacementGeneration != 3 || execution.Fence != 7 {
@@ -433,7 +498,7 @@ func TestExecutionBindsCurrentComputerAndRejectsStalePlacement(t *testing.T) {
 	} {
 		deliveryID := uuid.NewString()
 		runID := launch.GetRunId()
-		fixture.daemon.startWorker(context.Background(), session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID), launch)
+		fixture.daemon.startWorker(context.Background(), session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID), launch, testTrigger(agentID))
 	}
 	select {
 	case execution := <-executor.executions:
@@ -477,7 +542,7 @@ func TestExecutorCompletionCreatesDurableOutbox(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	fixture.daemon.startWorker(ctx, session, activeDelivery(deliveryID, agentID), activeRun(runID, deliveryID, agentID),
-		testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 3, 9, now.Add(time.Minute)))
+		testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 3, 9, now.Add(time.Minute)), testTrigger(agentID))
 	waitFor(t, time.Second, func() bool {
 		fixture.daemon.workersMu.Lock()
 		defer fixture.daemon.workersMu.Unlock()
@@ -750,7 +815,7 @@ func TestDaemonClaimJournalIsScopedToPlacementBinding(t *testing.T) {
 		return &deliveryv1.ListDeliveriesResponse{
 			ActiveDelivery: activeDelivery(deliveryID, agentID),
 			ActiveRun: &deliveryv1.Run{
-				Id: runID, DeliveryId: deliveryID, AgentId: agentID, State: deliveryv1.RunState_RUN_STATE_ACCEPTED,
+				Id: runID, DeliveryId: deliveryID, AgentId: agentID, BasisTargetSequence: 1, State: deliveryv1.RunState_RUN_STATE_ACCEPTED,
 			},
 		}, nil
 	}
@@ -1100,13 +1165,29 @@ func (s *stubRuntimeClient) RenewAgentRuntimeSession(_ context.Context, request 
 type stubInboxClient struct {
 	mu       sync.Mutex
 	observes int
+	observe  func(*connect.Request[inboxv1.ObserveTargetRequest]) (*inboxv1.ObserveTargetResponse, error)
 }
 
-func (s *stubInboxClient) ObserveTarget(context.Context, *connect.Request[inboxv1.ObserveTargetRequest]) (*connect.Response[inboxv1.ObserveTargetResponse], error) {
+func (s *stubInboxClient) ObserveTarget(_ context.Context, request *connect.Request[inboxv1.ObserveTargetRequest]) (*connect.Response[inboxv1.ObserveTargetResponse], error) {
 	s.mu.Lock()
 	s.observes++
+	observe := s.observe
 	s.mu.Unlock()
-	return connect.NewResponse(&inboxv1.ObserveTargetResponse{}), nil
+	if observe != nil {
+		response, err := observe(request)
+		if err != nil {
+			return nil, err
+		}
+		return connect.NewResponse(response), nil
+	}
+	spaceID := request.Msg.GetTarget().GetSpaceId()
+	if spaceID == "" {
+		return connect.NewResponse(&inboxv1.ObserveTargetResponse{}), nil
+	}
+	return connect.NewResponse(&inboxv1.ObserveTargetResponse{
+		Target: request.Msg.GetTarget(), HeadSequence: 1,
+		Messages: []*spacev1.Message{{Id: spaceID, SpaceId: spaceID, TargetSequence: 1, Body: "trigger"}},
+	}), nil
 }
 
 func (s *stubInboxClient) count() int {
@@ -1324,23 +1405,29 @@ func activePlacement(agentID, computerID string, generation uint64) *placementv1
 
 func activeDelivery(deliveryID, agentID string) *deliveryv1.Delivery {
 	return &deliveryv1.Delivery{
-		Id: deliveryID, AgentId: agentID, Target: &spacev1.MessageTarget{},
+		Id: deliveryID, AgentId: agentID, TriggerMessageId: agentID, SpaceId: agentID,
+		Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: agentID}}, TriggerTargetSequence: 1,
 		State: deliveryv1.DeliveryState_DELIVERY_STATE_ACCEPTED,
 	}
 }
 
 func availableDelivery(deliveryID, agentID string) *deliveryv1.Delivery {
 	return &deliveryv1.Delivery{
-		Id: deliveryID, AgentId: agentID, Target: &spacev1.MessageTarget{},
+		Id: deliveryID, AgentId: agentID, TriggerMessageId: agentID, SpaceId: agentID,
+		Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: agentID}}, TriggerTargetSequence: 1,
 		State: deliveryv1.DeliveryState_DELIVERY_STATE_AVAILABLE,
 	}
 }
 
 func activeRun(runID, deliveryID, agentID string) *deliveryv1.Run {
 	return &deliveryv1.Run{
-		Id: runID, DeliveryId: deliveryID, AgentId: agentID,
+		Id: runID, DeliveryId: deliveryID, AgentId: agentID, BasisTargetSequence: 1,
 		State: deliveryv1.RunState_RUN_STATE_RUNNING,
 	}
+}
+
+func testTrigger(agentID string) triggerContext {
+	return triggerContext{spaceID: agentID, observedHead: 1, body: "trigger"}
 }
 
 func canonicalCompleteResponse(request *deliveryv1.CompleteRunRequest, agentID string) *deliveryv1.CompleteRunResponse {
