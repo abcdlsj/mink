@@ -86,7 +86,18 @@ func (s *Service) ListDeliveries(ctx context.Context, request *connect.Request[d
 	if result.ActiveRun == nil && result.ActiveLaunch != nil {
 		return nil, internalError()
 	}
+	if (result.ActiveRun == nil) != (result.ActiveDelivery == nil) {
+		return nil, internalError()
+	}
 	if result.ActiveRun != nil {
+		if result.ActiveDelivery.ID != result.ActiveRun.DeliveryID || result.ActiveDelivery.AgentID != result.ActiveRun.AgentID ||
+			result.ActiveDelivery.State != store.DeliveryStateAccepted {
+			return nil, internalError()
+		}
+		response.ActiveDelivery, err = deliveryMessage(*result.ActiveDelivery)
+		if err != nil {
+			return nil, err
+		}
 		if (result.ActiveRun.State == store.RunStateAccepted && result.ActiveLaunch != nil) ||
 			(result.ActiveRun.State == store.RunStateRunning && result.ActiveLaunch == nil) ||
 			result.ActiveRun.State == store.RunStateCompleted {

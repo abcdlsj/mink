@@ -97,6 +97,7 @@ message ListDeliveriesResponse {
   uint64 next_sequence = 2;
   Run active_run = 3;
   RunLaunch active_launch = 4;
+  Delivery active_delivery = 5;
 }
 
 message AcceptDeliveryRequest {

@@ -11,6 +11,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/workspace"
 )
 
@@ -22,6 +23,7 @@ type Config struct {
 	OS              computerv1.OperatingSystem
 	Arch            computerv1.Architecture
 	HTTPClient      *http.Client
+	State           *computerstate.State
 }
 
 type Host struct {
@@ -50,8 +52,16 @@ func New(config Config) *Host {
 }
 
 func (h *Host) SyncOnce(ctx context.Context) (SyncResult, error) {
+	registrationKey := h.config.RegistrationKey
+	identity, hasIdentity, err := h.identity(ctx)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if hasIdentity {
+		registrationKey = identity.RegistrationKey
+	}
 	registered, err := h.computers.RegisterComputer(ctx, connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: h.config.RegistrationKey,
+		RegistrationKey: registrationKey,
 		Name:            h.config.Name,
 		Os:              h.config.OS,
 		Arch:            h.config.Arch,
@@ -60,9 +70,20 @@ func (h *Host) SyncOnce(ctx context.Context) (SyncResult, error) {
 		return SyncResult{}, fmt.Errorf("register computer: %w", err)
 	}
 	computerID := registered.Msg.GetComputer().GetId()
+	if hasIdentity && computerID != identity.ComputerID {
+		return SyncResult{}, errors.New("recovered computer does not match persisted identity")
+	}
+	if !hasIdentity && h.config.State != nil {
+		if err := h.config.State.SaveIdentity(ctx, computerstate.Identity{
+			ServerURL: h.config.ServerURL, ComputerID: computerID, RegistrationKey: registrationKey,
+			PairedAt: registered.Msg.GetComputer().GetCreatedAt().AsTime(),
+		}); err != nil {
+			return SyncResult{}, fmt.Errorf("persist recovered computer identity: %w", err)
+		}
+	}
 	assignments, err := h.placements.ListComputerAssignments(ctx, connect.NewRequest(&placementv1.ListComputerAssignmentsRequest{
 		ComputerId:      computerID,
-		RegistrationKey: h.config.RegistrationKey,
+		RegistrationKey: registrationKey,
 	}))
 	if err != nil {
 		return SyncResult{ComputerID: computerID}, fmt.Errorf("list assignments: %w", err)
@@ -71,7 +92,7 @@ func (h *Host) SyncOnce(ctx context.Context) (SyncResult, error) {
 	result := SyncResult{ComputerID: computerID, Assignments: len(assignments.Msg.GetAssignments())}
 	var syncErrors []error
 	for _, assignment := range assignments.Msg.GetAssignments() {
-		provisionError := h.provisionAndAcknowledge(ctx, assignment)
+		provisionError := h.provisionAndAcknowledge(ctx, assignment, registrationKey)
 		if provisionError == nil {
 			result.Active++
 			continue
@@ -82,7 +103,21 @@ func (h *Host) SyncOnce(ctx context.Context) (SyncResult, error) {
 	return result, errors.Join(syncErrors...)
 }
 
-func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placementv1.AgentPlacement) error {
+func (h *Host) identity(ctx context.Context) (computerstate.Identity, bool, error) {
+	if h.config.State == nil {
+		return computerstate.Identity{}, false, nil
+	}
+	identity, found, err := h.config.State.Identity(ctx)
+	if err != nil {
+		return computerstate.Identity{}, false, fmt.Errorf("read computer identity: %w", err)
+	}
+	if found && identity.ServerURL != h.config.ServerURL {
+		return computerstate.Identity{}, false, errors.New("computer identity belongs to a different Server")
+	}
+	return identity, found, nil
+}
+
+func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placementv1.AgentPlacement, registrationKey string) error {
 	_, provisionError := workspace.Provision(h.config.DataRoot, assignment.GetAgentId())
 	result := placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE
 	errorCode := ""
@@ -92,7 +127,7 @@ func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placemen
 	}
 	_, acknowledgementError := h.placements.AcknowledgeAgentPlacement(ctx, connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId:      assignment.GetComputerId(),
-		RegistrationKey: h.config.RegistrationKey,
+		RegistrationKey: registrationKey,
 		AgentId:         assignment.GetAgentId(),
 		Generation:      assignment.GetGeneration(),
 		Result:          result,

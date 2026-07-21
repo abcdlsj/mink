@@ -121,15 +121,17 @@ func (Architecture) EnumDescriptor() ([]byte, []int) {
 }
 
 type Computer struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Os            OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
-	Arch          Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	LastSeenAt    *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Os                    OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
+	Arch                  Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	CreatedAt             *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastSeenAt            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
+	Online                bool                   `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
+	ConnectivityExpiresAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=connectivity_expires_at,json=connectivityExpiresAt,proto3" json:"connectivity_expires_at,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Computer) Reset() {
@@ -204,19 +206,147 @@ func (x *Computer) GetLastSeenAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Computer) GetOnline() bool {
+	if x != nil {
+		return x.Online
+	}
+	return false
+}
+
+func (x *Computer) GetConnectivityExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ConnectivityExpiresAt
+	}
+	return nil
+}
+
+type CreateComputerPairingRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	PairingToken  string                 `protobuf:"bytes,2,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateComputerPairingRequest) Reset() {
+	*x = CreateComputerPairingRequest{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateComputerPairingRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateComputerPairingRequest) ProtoMessage() {}
+
+func (x *CreateComputerPairingRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateComputerPairingRequest.ProtoReflect.Descriptor instead.
+func (*CreateComputerPairingRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateComputerPairingRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateComputerPairingRequest) GetPairingToken() string {
+	if x != nil {
+		return x.PairingToken
+	}
+	return ""
+}
+
+func (x *CreateComputerPairingRequest) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+type CreateComputerPairingResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	PairingId     string                 `protobuf:"bytes,1,opt,name=pairing_id,json=pairingId,proto3" json:"pairing_id,omitempty"`
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateComputerPairingResponse) Reset() {
+	*x = CreateComputerPairingResponse{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateComputerPairingResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateComputerPairingResponse) ProtoMessage() {}
+
+func (x *CreateComputerPairingResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateComputerPairingResponse.ProtoReflect.Descriptor instead.
+func (*CreateComputerPairingResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CreateComputerPairingResponse) GetPairingId() string {
+	if x != nil {
+		return x.PairingId
+	}
+	return ""
+}
+
+func (x *CreateComputerPairingResponse) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
 type RegisterComputerRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	RegistrationKey string                 `protobuf:"bytes,1,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
 	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Os              OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
 	Arch            Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	RequestId       string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	PairingToken    string                 `protobuf:"bytes,6,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RegisterComputerRequest) Reset() {
 	*x = RegisterComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -228,7 +358,7 @@ func (x *RegisterComputerRequest) String() string {
 func (*RegisterComputerRequest) ProtoMessage() {}
 
 func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -241,7 +371,7 @@ func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerRequest.ProtoReflect.Descriptor instead.
 func (*RegisterComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RegisterComputerRequest) GetRegistrationKey() string {
@@ -272,6 +402,20 @@ func (x *RegisterComputerRequest) GetArch() Architecture {
 	return Architecture_ARCHITECTURE_UNSPECIFIED
 }
 
+func (x *RegisterComputerRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *RegisterComputerRequest) GetPairingToken() string {
+	if x != nil {
+		return x.PairingToken
+	}
+	return ""
+}
+
 type RegisterComputerResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Computer      *Computer              `protobuf:"bytes,1,opt,name=computer,proto3" json:"computer,omitempty"`
@@ -281,7 +425,7 @@ type RegisterComputerResponse struct {
 
 func (x *RegisterComputerResponse) Reset() {
 	*x = RegisterComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -293,7 +437,7 @@ func (x *RegisterComputerResponse) String() string {
 func (*RegisterComputerResponse) ProtoMessage() {}
 
 func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -306,7 +450,7 @@ func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerResponse.ProtoReflect.Descriptor instead.
 func (*RegisterComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RegisterComputerResponse) GetComputer() *Computer {
@@ -326,7 +470,7 @@ type HeartbeatComputerRequest struct {
 
 func (x *HeartbeatComputerRequest) Reset() {
 	*x = HeartbeatComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -338,7 +482,7 @@ func (x *HeartbeatComputerRequest) String() string {
 func (*HeartbeatComputerRequest) ProtoMessage() {}
 
 func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -351,7 +495,7 @@ func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *HeartbeatComputerRequest) GetComputerId() string {
@@ -377,7 +521,7 @@ type HeartbeatComputerResponse struct {
 
 func (x *HeartbeatComputerResponse) Reset() {
 	*x = HeartbeatComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -389,7 +533,7 @@ func (x *HeartbeatComputerResponse) String() string {
 func (*HeartbeatComputerResponse) ProtoMessage() {}
 
 func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -402,7 +546,7 @@ func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *HeartbeatComputerResponse) GetComputer() *Computer {
@@ -421,7 +565,7 @@ type GetComputerRequest struct {
 
 func (x *GetComputerRequest) Reset() {
 	*x = GetComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -433,7 +577,7 @@ func (x *GetComputerRequest) String() string {
 func (*GetComputerRequest) ProtoMessage() {}
 
 func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -446,7 +590,7 @@ func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerRequest.ProtoReflect.Descriptor instead.
 func (*GetComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetComputerRequest) GetComputerId() string {
@@ -465,7 +609,7 @@ type GetComputerResponse struct {
 
 func (x *GetComputerResponse) Reset() {
 	*x = GetComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -477,7 +621,7 @@ func (x *GetComputerResponse) String() string {
 func (*GetComputerResponse) ProtoMessage() {}
 
 func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -490,7 +634,7 @@ func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerResponse.ProtoReflect.Descriptor instead.
 func (*GetComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetComputerResponse) GetComputer() *Computer {
@@ -508,7 +652,7 @@ type ListComputersRequest struct {
 
 func (x *ListComputersRequest) Reset() {
 	*x = ListComputersRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +664,7 @@ func (x *ListComputersRequest) String() string {
 func (*ListComputersRequest) ProtoMessage() {}
 
 func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +677,7 @@ func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersRequest.ProtoReflect.Descriptor instead.
 func (*ListComputersRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
 }
 
 type ListComputersResponse struct {
@@ -545,7 +689,7 @@ type ListComputersResponse struct {
 
 func (x *ListComputersResponse) Reset() {
 	*x = ListComputersResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +701,7 @@ func (x *ListComputersResponse) String() string {
 func (*ListComputersResponse) ProtoMessage() {}
 
 func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +714,7 @@ func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersResponse.ProtoReflect.Descriptor instead.
 func (*ListComputersResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListComputersResponse) GetComputers() []*Computer {
@@ -584,7 +728,7 @@ var File_sumi_computer_v1_computer_proto protoreflect.FileDescriptor
 
 const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
-	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8e\x02\n" +
+	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfa\x02\n" +
 	"\bComputer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
@@ -593,12 +737,28 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12<\n" +
 	"\flast_seen_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"lastSeenAt\"\xbf\x01\n" +
+	"lastSeenAt\x12\x16\n" +
+	"\x06online\x18\a \x01(\bR\x06online\x12R\n" +
+	"\x17connectivity_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x15connectivityExpiresAt\"\x9d\x01\n" +
+	"\x1cCreateComputerPairingRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
+	"\rpairing_token\x18\x02 \x01(\tR\fpairingToken\x129\n" +
+	"\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"y\n" +
+	"\x1dCreateComputerPairingResponse\x12\x1d\n" +
+	"\n" +
+	"pairing_id\x18\x01 \x01(\tR\tpairingId\x129\n" +
+	"\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x83\x02\n" +
 	"\x17RegisterComputerRequest\x12)\n" +
 	"\x10registration_key\x18\x01 \x01(\tR\x0fregistrationKey\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
 	"\x02os\x18\x03 \x01(\x0e2!.sumi.computer.v1.OperatingSystemR\x02os\x122\n" +
-	"\x04arch\x18\x04 \x01(\x0e2\x1e.sumi.computer.v1.ArchitectureR\x04arch\"R\n" +
+	"\x04arch\x18\x04 \x01(\x0e2\x1e.sumi.computer.v1.ArchitectureR\x04arch\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x05 \x01(\tR\trequestId\x12#\n" +
+	"\rpairing_token\x18\x06 \x01(\tR\fpairingToken\"R\n" +
 	"\x18RegisterComputerResponse\x126\n" +
 	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"f\n" +
 	"\x18HeartbeatComputerRequest\x12\x1f\n" +
@@ -622,8 +782,9 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\fArchitecture\x12\x1c\n" +
 	"\x18ARCHITECTURE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12ARCHITECTURE_ARM64\x10\x01\x12\x16\n" +
-	"\x12ARCHITECTURE_AMD64\x10\x022\xa8\x03\n" +
-	"\x0fComputerService\x12i\n" +
+	"\x12ARCHITECTURE_AMD64\x10\x022\xa2\x04\n" +
+	"\x0fComputerService\x12x\n" +
+	"\x15CreateComputerPairing\x12..sumi.computer.v1.CreateComputerPairingRequest\x1a/.sumi.computer.v1.CreateComputerPairingResponse\x12i\n" +
 	"\x10RegisterComputer\x12).sumi.computer.v1.RegisterComputerRequest\x1a*.sumi.computer.v1.RegisterComputerResponse\x12l\n" +
 	"\x11HeartbeatComputer\x12*.sumi.computer.v1.HeartbeatComputerRequest\x1a+.sumi.computer.v1.HeartbeatComputerResponse\x12Z\n" +
 	"\vGetComputer\x12$.sumi.computer.v1.GetComputerRequest\x1a%.sumi.computer.v1.GetComputerResponse\x12`\n" +
@@ -642,45 +803,52 @@ func file_sumi_computer_v1_computer_proto_rawDescGZIP() []byte {
 }
 
 var file_sumi_computer_v1_computer_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_sumi_computer_v1_computer_proto_goTypes = []any{
-	(OperatingSystem)(0),              // 0: sumi.computer.v1.OperatingSystem
-	(Architecture)(0),                 // 1: sumi.computer.v1.Architecture
-	(*Computer)(nil),                  // 2: sumi.computer.v1.Computer
-	(*RegisterComputerRequest)(nil),   // 3: sumi.computer.v1.RegisterComputerRequest
-	(*RegisterComputerResponse)(nil),  // 4: sumi.computer.v1.RegisterComputerResponse
-	(*HeartbeatComputerRequest)(nil),  // 5: sumi.computer.v1.HeartbeatComputerRequest
-	(*HeartbeatComputerResponse)(nil), // 6: sumi.computer.v1.HeartbeatComputerResponse
-	(*GetComputerRequest)(nil),        // 7: sumi.computer.v1.GetComputerRequest
-	(*GetComputerResponse)(nil),       // 8: sumi.computer.v1.GetComputerResponse
-	(*ListComputersRequest)(nil),      // 9: sumi.computer.v1.ListComputersRequest
-	(*ListComputersResponse)(nil),     // 10: sumi.computer.v1.ListComputersResponse
-	(*timestamppb.Timestamp)(nil),     // 11: google.protobuf.Timestamp
+	(OperatingSystem)(0),                  // 0: sumi.computer.v1.OperatingSystem
+	(Architecture)(0),                     // 1: sumi.computer.v1.Architecture
+	(*Computer)(nil),                      // 2: sumi.computer.v1.Computer
+	(*CreateComputerPairingRequest)(nil),  // 3: sumi.computer.v1.CreateComputerPairingRequest
+	(*CreateComputerPairingResponse)(nil), // 4: sumi.computer.v1.CreateComputerPairingResponse
+	(*RegisterComputerRequest)(nil),       // 5: sumi.computer.v1.RegisterComputerRequest
+	(*RegisterComputerResponse)(nil),      // 6: sumi.computer.v1.RegisterComputerResponse
+	(*HeartbeatComputerRequest)(nil),      // 7: sumi.computer.v1.HeartbeatComputerRequest
+	(*HeartbeatComputerResponse)(nil),     // 8: sumi.computer.v1.HeartbeatComputerResponse
+	(*GetComputerRequest)(nil),            // 9: sumi.computer.v1.GetComputerRequest
+	(*GetComputerResponse)(nil),           // 10: sumi.computer.v1.GetComputerResponse
+	(*ListComputersRequest)(nil),          // 11: sumi.computer.v1.ListComputersRequest
+	(*ListComputersResponse)(nil),         // 12: sumi.computer.v1.ListComputersResponse
+	(*timestamppb.Timestamp)(nil),         // 13: google.protobuf.Timestamp
 }
 var file_sumi_computer_v1_computer_proto_depIdxs = []int32{
 	0,  // 0: sumi.computer.v1.Computer.os:type_name -> sumi.computer.v1.OperatingSystem
 	1,  // 1: sumi.computer.v1.Computer.arch:type_name -> sumi.computer.v1.Architecture
-	11, // 2: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
-	11, // 3: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
-	0,  // 4: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
-	1,  // 5: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
-	2,  // 6: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 7: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 8: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	2,  // 9: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
-	3,  // 10: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
-	5,  // 11: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
-	7,  // 12: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
-	9,  // 13: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
-	4,  // 14: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
-	6,  // 15: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
-	8,  // 16: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
-	10, // 17: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
-	14, // [14:18] is the sub-list for method output_type
-	10, // [10:14] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	13, // 2: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
+	13, // 3: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
+	13, // 4: sumi.computer.v1.Computer.connectivity_expires_at:type_name -> google.protobuf.Timestamp
+	13, // 5: sumi.computer.v1.CreateComputerPairingRequest.expires_at:type_name -> google.protobuf.Timestamp
+	13, // 6: sumi.computer.v1.CreateComputerPairingResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 7: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
+	1,  // 8: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
+	2,  // 9: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	2,  // 10: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	2,  // 11: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	2,  // 12: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
+	3,  // 13: sumi.computer.v1.ComputerService.CreateComputerPairing:input_type -> sumi.computer.v1.CreateComputerPairingRequest
+	5,  // 14: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
+	7,  // 15: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
+	9,  // 16: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
+	11, // 17: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
+	4,  // 18: sumi.computer.v1.ComputerService.CreateComputerPairing:output_type -> sumi.computer.v1.CreateComputerPairingResponse
+	6,  // 19: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
+	8,  // 20: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
+	10, // 21: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
+	12, // 22: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
+	18, // [18:23] is the sub-list for method output_type
+	13, // [13:18] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_sumi_computer_v1_computer_proto_init() }
@@ -694,7 +862,7 @@ func file_sumi_computer_v1_computer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_computer_v1_computer_proto_rawDesc), len(file_sumi_computer_v1_computer_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   9,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

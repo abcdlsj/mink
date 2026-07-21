@@ -27,6 +27,8 @@ const (
 	AuditRunAccept             = "run.accept"
 	AuditRunLaunch             = "run.launch"
 	AuditRunComplete           = "run.complete"
+	AuditComputerPairPrepare   = "computer.pair.prepare"
+	AuditComputerPair          = "computer.pair"
 )
 
 type AuditEvent struct {

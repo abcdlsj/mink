@@ -45,6 +45,9 @@ const (
 	// PlacementServiceListComputerAssignmentsProcedure is the fully-qualified name of the
 	// PlacementService's ListComputerAssignments RPC.
 	PlacementServiceListComputerAssignmentsProcedure = "/sumi.placement.v1.PlacementService/ListComputerAssignments"
+	// PlacementServiceListComputerPlacementsProcedure is the fully-qualified name of the
+	// PlacementService's ListComputerPlacements RPC.
+	PlacementServiceListComputerPlacementsProcedure = "/sumi.placement.v1.PlacementService/ListComputerPlacements"
 	// PlacementServiceAcknowledgeAgentPlacementProcedure is the fully-qualified name of the
 	// PlacementService's AcknowledgeAgentPlacement RPC.
 	PlacementServiceAcknowledgeAgentPlacementProcedure = "/sumi.placement.v1.PlacementService/AcknowledgeAgentPlacement"
@@ -56,6 +59,7 @@ type PlacementServiceClient interface {
 	GetAgentPlacement(context.Context, *connect.Request[v1.GetAgentPlacementRequest]) (*connect.Response[v1.GetAgentPlacementResponse], error)
 	ListAgentPlacements(context.Context, *connect.Request[v1.ListAgentPlacementsRequest]) (*connect.Response[v1.ListAgentPlacementsResponse], error)
 	ListComputerAssignments(context.Context, *connect.Request[v1.ListComputerAssignmentsRequest]) (*connect.Response[v1.ListComputerAssignmentsResponse], error)
+	ListComputerPlacements(context.Context, *connect.Request[v1.ListComputerPlacementsRequest]) (*connect.Response[v1.ListComputerPlacementsResponse], error)
 	AcknowledgeAgentPlacement(context.Context, *connect.Request[v1.AcknowledgeAgentPlacementRequest]) (*connect.Response[v1.AcknowledgeAgentPlacementResponse], error)
 }
 
@@ -94,6 +98,12 @@ func NewPlacementServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(placementServiceMethods.ByName("ListComputerAssignments")),
 			connect.WithClientOptions(opts...),
 		),
+		listComputerPlacements: connect.NewClient[v1.ListComputerPlacementsRequest, v1.ListComputerPlacementsResponse](
+			httpClient,
+			baseURL+PlacementServiceListComputerPlacementsProcedure,
+			connect.WithSchema(placementServiceMethods.ByName("ListComputerPlacements")),
+			connect.WithClientOptions(opts...),
+		),
 		acknowledgeAgentPlacement: connect.NewClient[v1.AcknowledgeAgentPlacementRequest, v1.AcknowledgeAgentPlacementResponse](
 			httpClient,
 			baseURL+PlacementServiceAcknowledgeAgentPlacementProcedure,
@@ -109,6 +119,7 @@ type placementServiceClient struct {
 	getAgentPlacement         *connect.Client[v1.GetAgentPlacementRequest, v1.GetAgentPlacementResponse]
 	listAgentPlacements       *connect.Client[v1.ListAgentPlacementsRequest, v1.ListAgentPlacementsResponse]
 	listComputerAssignments   *connect.Client[v1.ListComputerAssignmentsRequest, v1.ListComputerAssignmentsResponse]
+	listComputerPlacements    *connect.Client[v1.ListComputerPlacementsRequest, v1.ListComputerPlacementsResponse]
 	acknowledgeAgentPlacement *connect.Client[v1.AcknowledgeAgentPlacementRequest, v1.AcknowledgeAgentPlacementResponse]
 }
 
@@ -132,6 +143,11 @@ func (c *placementServiceClient) ListComputerAssignments(ctx context.Context, re
 	return c.listComputerAssignments.CallUnary(ctx, req)
 }
 
+// ListComputerPlacements calls sumi.placement.v1.PlacementService.ListComputerPlacements.
+func (c *placementServiceClient) ListComputerPlacements(ctx context.Context, req *connect.Request[v1.ListComputerPlacementsRequest]) (*connect.Response[v1.ListComputerPlacementsResponse], error) {
+	return c.listComputerPlacements.CallUnary(ctx, req)
+}
+
 // AcknowledgeAgentPlacement calls sumi.placement.v1.PlacementService.AcknowledgeAgentPlacement.
 func (c *placementServiceClient) AcknowledgeAgentPlacement(ctx context.Context, req *connect.Request[v1.AcknowledgeAgentPlacementRequest]) (*connect.Response[v1.AcknowledgeAgentPlacementResponse], error) {
 	return c.acknowledgeAgentPlacement.CallUnary(ctx, req)
@@ -143,6 +159,7 @@ type PlacementServiceHandler interface {
 	GetAgentPlacement(context.Context, *connect.Request[v1.GetAgentPlacementRequest]) (*connect.Response[v1.GetAgentPlacementResponse], error)
 	ListAgentPlacements(context.Context, *connect.Request[v1.ListAgentPlacementsRequest]) (*connect.Response[v1.ListAgentPlacementsResponse], error)
 	ListComputerAssignments(context.Context, *connect.Request[v1.ListComputerAssignmentsRequest]) (*connect.Response[v1.ListComputerAssignmentsResponse], error)
+	ListComputerPlacements(context.Context, *connect.Request[v1.ListComputerPlacementsRequest]) (*connect.Response[v1.ListComputerPlacementsResponse], error)
 	AcknowledgeAgentPlacement(context.Context, *connect.Request[v1.AcknowledgeAgentPlacementRequest]) (*connect.Response[v1.AcknowledgeAgentPlacementResponse], error)
 }
 
@@ -177,6 +194,12 @@ func NewPlacementServiceHandler(svc PlacementServiceHandler, opts ...connect.Han
 		connect.WithSchema(placementServiceMethods.ByName("ListComputerAssignments")),
 		connect.WithHandlerOptions(opts...),
 	)
+	placementServiceListComputerPlacementsHandler := connect.NewUnaryHandler(
+		PlacementServiceListComputerPlacementsProcedure,
+		svc.ListComputerPlacements,
+		connect.WithSchema(placementServiceMethods.ByName("ListComputerPlacements")),
+		connect.WithHandlerOptions(opts...),
+	)
 	placementServiceAcknowledgeAgentPlacementHandler := connect.NewUnaryHandler(
 		PlacementServiceAcknowledgeAgentPlacementProcedure,
 		svc.AcknowledgeAgentPlacement,
@@ -193,6 +216,8 @@ func NewPlacementServiceHandler(svc PlacementServiceHandler, opts ...connect.Han
 			placementServiceListAgentPlacementsHandler.ServeHTTP(w, r)
 		case PlacementServiceListComputerAssignmentsProcedure:
 			placementServiceListComputerAssignmentsHandler.ServeHTTP(w, r)
+		case PlacementServiceListComputerPlacementsProcedure:
+			placementServiceListComputerPlacementsHandler.ServeHTTP(w, r)
 		case PlacementServiceAcknowledgeAgentPlacementProcedure:
 			placementServiceAcknowledgeAgentPlacementHandler.ServeHTTP(w, r)
 		default:
@@ -218,6 +243,10 @@ func (UnimplementedPlacementServiceHandler) ListAgentPlacements(context.Context,
 
 func (UnimplementedPlacementServiceHandler) ListComputerAssignments(context.Context, *connect.Request[v1.ListComputerAssignmentsRequest]) (*connect.Response[v1.ListComputerAssignmentsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.placement.v1.PlacementService.ListComputerAssignments is not implemented"))
+}
+
+func (UnimplementedPlacementServiceHandler) ListComputerPlacements(context.Context, *connect.Request[v1.ListComputerPlacementsRequest]) (*connect.Response[v1.ListComputerPlacementsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.placement.v1.PlacementService.ListComputerPlacements is not implemented"))
 }
 
 func (UnimplementedPlacementServiceHandler) AcknowledgeAgentPlacement(context.Context, *connect.Request[v1.AcknowledgeAgentPlacementRequest]) (*connect.Response[v1.AcknowledgeAgentPlacementResponse], error) {

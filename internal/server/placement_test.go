@@ -213,6 +213,26 @@ func TestComputerAssignmentsArePrivatePendingAndSorted(t *testing.T) {
 	if got := placementAgentIDs(assignments.Msg.GetAssignments()); len(got) != 1 || got[0] != agentIDs[1] {
 		t.Fatalf("assignments after ack = %v", got)
 	}
+	snapshot, err := api.placements.ListComputerPlacements(context.Background(), connect.NewRequest(&placementv1.ListComputerPlacementsRequest{
+		ComputerId: firstComputer, RegistrationKey: firstKey,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := placementAgentIDs(snapshot.Msg.GetPlacements()); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("current placement snapshot = %v, want %v", got, want)
+	}
+	states := make(map[string]placementv1.PlacementState)
+	for _, placement := range snapshot.Msg.GetPlacements() {
+		states[placement.GetAgentId()] = placement.GetState()
+	}
+	if states[agentIDs[0]] != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE || states[agentIDs[1]] != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
+		t.Fatalf("current placement states = %v", states)
+	}
+	_, err = api.placements.ListComputerPlacements(context.Background(), connect.NewRequest(&placementv1.ListComputerPlacementsRequest{
+		ComputerId: firstComputer, RegistrationKey: "wrong-key",
+	}))
+	assertConnectCode(t, err, connect.CodePermissionDenied)
 }
 
 func TestPlacementValidationAndNotFound(t *testing.T) {
@@ -253,15 +273,7 @@ func createPlacementAgent(t *testing.T, api *factsAPI, name string) string {
 
 func registerPlacementComputer(t *testing.T, api *factsAPI, key, name string) string {
 	t.Helper()
-	response, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: key,
-		Name:            name,
-		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
-		Arch:            computerv1.Architecture_ARCHITECTURE_AMD64,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	response := pairComputer(t, api, key, name, computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_AMD64)
 	return response.Msg.GetComputer().GetId()
 }
 

@@ -41,6 +41,8 @@ const (
 	AuditAction_AUDIT_ACTION_MESSAGE_SEND           AuditAction = 12
 	AuditAction_AUDIT_ACTION_AGENT_CREATE           AuditAction = 13
 	AuditAction_AUDIT_ACTION_AGENT_PLACE            AuditAction = 14
+	AuditAction_AUDIT_ACTION_COMPUTER_PAIR_PREPARE  AuditAction = 15
+	AuditAction_AUDIT_ACTION_COMPUTER_PAIR          AuditAction = 16
 )
 
 // Enum value maps for AuditAction.
@@ -61,6 +63,8 @@ var (
 		12: "AUDIT_ACTION_MESSAGE_SEND",
 		13: "AUDIT_ACTION_AGENT_CREATE",
 		14: "AUDIT_ACTION_AGENT_PLACE",
+		15: "AUDIT_ACTION_COMPUTER_PAIR_PREPARE",
+		16: "AUDIT_ACTION_COMPUTER_PAIR",
 	}
 	AuditAction_value = map[string]int32{
 		"AUDIT_ACTION_UNSPECIFIED":            0,
@@ -78,6 +82,8 @@ var (
 		"AUDIT_ACTION_MESSAGE_SEND":           12,
 		"AUDIT_ACTION_AGENT_CREATE":           13,
 		"AUDIT_ACTION_AGENT_PLACE":            14,
+		"AUDIT_ACTION_COMPUTER_PAIR_PREPARE":  15,
+		"AUDIT_ACTION_COMPUTER_PAIR":          16,
 	}
 )
 
@@ -160,40 +166,46 @@ func (AuditOutcome) EnumDescriptor() ([]byte, []int) {
 type AuditTargetKind int32
 
 const (
-	AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED  AuditTargetKind = 0
-	AuditTargetKind_AUDIT_TARGET_KIND_ORGANIZATION AuditTargetKind = 1
-	AuditTargetKind_AUDIT_TARGET_KIND_HUMAN        AuditTargetKind = 2
-	AuditTargetKind_AUDIT_TARGET_KIND_GRANT        AuditTargetKind = 3
-	AuditTargetKind_AUDIT_TARGET_KIND_SPACE        AuditTargetKind = 4
-	AuditTargetKind_AUDIT_TARGET_KIND_MEMBERSHIP   AuditTargetKind = 5
-	AuditTargetKind_AUDIT_TARGET_KIND_THREAD       AuditTargetKind = 6
-	AuditTargetKind_AUDIT_TARGET_KIND_MESSAGE      AuditTargetKind = 7
-	AuditTargetKind_AUDIT_TARGET_KIND_AGENT        AuditTargetKind = 8
+	AuditTargetKind_AUDIT_TARGET_KIND_UNSPECIFIED      AuditTargetKind = 0
+	AuditTargetKind_AUDIT_TARGET_KIND_ORGANIZATION     AuditTargetKind = 1
+	AuditTargetKind_AUDIT_TARGET_KIND_HUMAN            AuditTargetKind = 2
+	AuditTargetKind_AUDIT_TARGET_KIND_GRANT            AuditTargetKind = 3
+	AuditTargetKind_AUDIT_TARGET_KIND_SPACE            AuditTargetKind = 4
+	AuditTargetKind_AUDIT_TARGET_KIND_MEMBERSHIP       AuditTargetKind = 5
+	AuditTargetKind_AUDIT_TARGET_KIND_THREAD           AuditTargetKind = 6
+	AuditTargetKind_AUDIT_TARGET_KIND_MESSAGE          AuditTargetKind = 7
+	AuditTargetKind_AUDIT_TARGET_KIND_AGENT            AuditTargetKind = 8
+	AuditTargetKind_AUDIT_TARGET_KIND_COMPUTER_PAIRING AuditTargetKind = 9
+	AuditTargetKind_AUDIT_TARGET_KIND_COMPUTER         AuditTargetKind = 10
 )
 
 // Enum value maps for AuditTargetKind.
 var (
 	AuditTargetKind_name = map[int32]string{
-		0: "AUDIT_TARGET_KIND_UNSPECIFIED",
-		1: "AUDIT_TARGET_KIND_ORGANIZATION",
-		2: "AUDIT_TARGET_KIND_HUMAN",
-		3: "AUDIT_TARGET_KIND_GRANT",
-		4: "AUDIT_TARGET_KIND_SPACE",
-		5: "AUDIT_TARGET_KIND_MEMBERSHIP",
-		6: "AUDIT_TARGET_KIND_THREAD",
-		7: "AUDIT_TARGET_KIND_MESSAGE",
-		8: "AUDIT_TARGET_KIND_AGENT",
+		0:  "AUDIT_TARGET_KIND_UNSPECIFIED",
+		1:  "AUDIT_TARGET_KIND_ORGANIZATION",
+		2:  "AUDIT_TARGET_KIND_HUMAN",
+		3:  "AUDIT_TARGET_KIND_GRANT",
+		4:  "AUDIT_TARGET_KIND_SPACE",
+		5:  "AUDIT_TARGET_KIND_MEMBERSHIP",
+		6:  "AUDIT_TARGET_KIND_THREAD",
+		7:  "AUDIT_TARGET_KIND_MESSAGE",
+		8:  "AUDIT_TARGET_KIND_AGENT",
+		9:  "AUDIT_TARGET_KIND_COMPUTER_PAIRING",
+		10: "AUDIT_TARGET_KIND_COMPUTER",
 	}
 	AuditTargetKind_value = map[string]int32{
-		"AUDIT_TARGET_KIND_UNSPECIFIED":  0,
-		"AUDIT_TARGET_KIND_ORGANIZATION": 1,
-		"AUDIT_TARGET_KIND_HUMAN":        2,
-		"AUDIT_TARGET_KIND_GRANT":        3,
-		"AUDIT_TARGET_KIND_SPACE":        4,
-		"AUDIT_TARGET_KIND_MEMBERSHIP":   5,
-		"AUDIT_TARGET_KIND_THREAD":       6,
-		"AUDIT_TARGET_KIND_MESSAGE":      7,
-		"AUDIT_TARGET_KIND_AGENT":        8,
+		"AUDIT_TARGET_KIND_UNSPECIFIED":      0,
+		"AUDIT_TARGET_KIND_ORGANIZATION":     1,
+		"AUDIT_TARGET_KIND_HUMAN":            2,
+		"AUDIT_TARGET_KIND_GRANT":            3,
+		"AUDIT_TARGET_KIND_SPACE":            4,
+		"AUDIT_TARGET_KIND_MEMBERSHIP":       5,
+		"AUDIT_TARGET_KIND_THREAD":           6,
+		"AUDIT_TARGET_KIND_MESSAGE":          7,
+		"AUDIT_TARGET_KIND_AGENT":            8,
+		"AUDIT_TARGET_KIND_COMPUTER_PAIRING": 9,
+		"AUDIT_TARGET_KIND_COMPUTER":         10,
 	}
 )
 
@@ -542,7 +554,7 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x0eafter_sequence\x18\x01 \x01(\x04R\rafterSequence\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\"L\n" +
 	"\x17ListAuditEventsResponse\x121\n" +
-	"\x06events\x18\x01 \x03(\v2\x19.sumi.audit.v1.AuditEventR\x06events*\xf9\x03\n" +
+	"\x06events\x18\x01 \x03(\v2\x19.sumi.audit.v1.AuditEventR\x06events*\xc1\x04\n" +
 	"\vAuditAction\x12\x1c\n" +
 	"\x18AUDIT_ACTION_UNSPECIFIED\x10\x00\x12'\n" +
 	"#AUDIT_ACTION_ORGANIZATION_BOOTSTRAP\x10\x01\x12\x1d\n" +
@@ -559,11 +571,13 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x1aAUDIT_ACTION_THREAD_CREATE\x10\v\x12\x1d\n" +
 	"\x19AUDIT_ACTION_MESSAGE_SEND\x10\f\x12\x1d\n" +
 	"\x19AUDIT_ACTION_AGENT_CREATE\x10\r\x12\x1c\n" +
-	"\x18AUDIT_ACTION_AGENT_PLACE\x10\x0e*d\n" +
+	"\x18AUDIT_ACTION_AGENT_PLACE\x10\x0e\x12&\n" +
+	"\"AUDIT_ACTION_COMPUTER_PAIR_PREPARE\x10\x0f\x12\x1e\n" +
+	"\x1aAUDIT_ACTION_COMPUTER_PAIR\x10\x10*d\n" +
 	"\fAuditOutcome\x12\x1d\n" +
 	"\x19AUDIT_OUTCOME_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17AUDIT_OUTCOME_COMMITTED\x10\x01\x12\x18\n" +
-	"\x14AUDIT_OUTCOME_DENIED\x10\x02*\xab\x02\n" +
+	"\x14AUDIT_OUTCOME_DENIED\x10\x02*\xf3\x02\n" +
 	"\x0fAuditTargetKind\x12!\n" +
 	"\x1dAUDIT_TARGET_KIND_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eAUDIT_TARGET_KIND_ORGANIZATION\x10\x01\x12\x1b\n" +
@@ -573,7 +587,10 @@ const file_sumi_audit_v1_audit_proto_rawDesc = "" +
 	"\x1cAUDIT_TARGET_KIND_MEMBERSHIP\x10\x05\x12\x1c\n" +
 	"\x18AUDIT_TARGET_KIND_THREAD\x10\x06\x12\x1d\n" +
 	"\x19AUDIT_TARGET_KIND_MESSAGE\x10\a\x12\x1b\n" +
-	"\x17AUDIT_TARGET_KIND_AGENT\x10\b*\x94\x01\n" +
+	"\x17AUDIT_TARGET_KIND_AGENT\x10\b\x12&\n" +
+	"\"AUDIT_TARGET_KIND_COMPUTER_PAIRING\x10\t\x12\x1e\n" +
+	"\x1aAUDIT_TARGET_KIND_COMPUTER\x10\n" +
+	"*\x94\x01\n" +
 	"\x10AuditContextKind\x12\"\n" +
 	"\x1eAUDIT_CONTEXT_KIND_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18AUDIT_CONTEXT_KIND_SPACE\x10\x01\x12\x1d\n" +

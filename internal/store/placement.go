@@ -228,6 +228,30 @@ func (s *Store) ListComputerAssignments(ctx context.Context, computerID, registr
 	return assignments, nil
 }
 
+func (s *Store) ListComputerPlacements(ctx context.Context, computerID, registrationKey string) ([]AgentPlacement, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin list computer placements: %w", err)
+	}
+	defer tx.Rollback()
+	if err := authenticateComputer(ctx, tx, computerID, registrationKey); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, placementSelect+" WHERE computer_id = ? ORDER BY agent_id", computerID)
+	if err != nil {
+		return nil, fmt.Errorf("list computer placements: %w", err)
+	}
+	placements, err := scanPlacements(rows)
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit list computer placements: %w", err)
+	}
+	return placements, nil
+}
+
 func (s *Store) AcknowledgeAgentPlacement(ctx context.Context, params AcknowledgePlacementParams) (AgentPlacement, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

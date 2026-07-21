@@ -33,6 +33,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ComputerServiceCreateComputerPairingProcedure is the fully-qualified name of the
+	// ComputerService's CreateComputerPairing RPC.
+	ComputerServiceCreateComputerPairingProcedure = "/sumi.computer.v1.ComputerService/CreateComputerPairing"
 	// ComputerServiceRegisterComputerProcedure is the fully-qualified name of the ComputerService's
 	// RegisterComputer RPC.
 	ComputerServiceRegisterComputerProcedure = "/sumi.computer.v1.ComputerService/RegisterComputer"
@@ -49,6 +52,7 @@ const (
 
 // ComputerServiceClient is a client for the sumi.computer.v1.ComputerService service.
 type ComputerServiceClient interface {
+	CreateComputerPairing(context.Context, *connect.Request[v1.CreateComputerPairingRequest]) (*connect.Response[v1.CreateComputerPairingResponse], error)
 	RegisterComputer(context.Context, *connect.Request[v1.RegisterComputerRequest]) (*connect.Response[v1.RegisterComputerResponse], error)
 	HeartbeatComputer(context.Context, *connect.Request[v1.HeartbeatComputerRequest]) (*connect.Response[v1.HeartbeatComputerResponse], error)
 	GetComputer(context.Context, *connect.Request[v1.GetComputerRequest]) (*connect.Response[v1.GetComputerResponse], error)
@@ -66,6 +70,12 @@ func NewComputerServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 	baseURL = strings.TrimRight(baseURL, "/")
 	computerServiceMethods := v1.File_sumi_computer_v1_computer_proto.Services().ByName("ComputerService").Methods()
 	return &computerServiceClient{
+		createComputerPairing: connect.NewClient[v1.CreateComputerPairingRequest, v1.CreateComputerPairingResponse](
+			httpClient,
+			baseURL+ComputerServiceCreateComputerPairingProcedure,
+			connect.WithSchema(computerServiceMethods.ByName("CreateComputerPairing")),
+			connect.WithClientOptions(opts...),
+		),
 		registerComputer: connect.NewClient[v1.RegisterComputerRequest, v1.RegisterComputerResponse](
 			httpClient,
 			baseURL+ComputerServiceRegisterComputerProcedure,
@@ -95,10 +105,16 @@ func NewComputerServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 
 // computerServiceClient implements ComputerServiceClient.
 type computerServiceClient struct {
-	registerComputer  *connect.Client[v1.RegisterComputerRequest, v1.RegisterComputerResponse]
-	heartbeatComputer *connect.Client[v1.HeartbeatComputerRequest, v1.HeartbeatComputerResponse]
-	getComputer       *connect.Client[v1.GetComputerRequest, v1.GetComputerResponse]
-	listComputers     *connect.Client[v1.ListComputersRequest, v1.ListComputersResponse]
+	createComputerPairing *connect.Client[v1.CreateComputerPairingRequest, v1.CreateComputerPairingResponse]
+	registerComputer      *connect.Client[v1.RegisterComputerRequest, v1.RegisterComputerResponse]
+	heartbeatComputer     *connect.Client[v1.HeartbeatComputerRequest, v1.HeartbeatComputerResponse]
+	getComputer           *connect.Client[v1.GetComputerRequest, v1.GetComputerResponse]
+	listComputers         *connect.Client[v1.ListComputersRequest, v1.ListComputersResponse]
+}
+
+// CreateComputerPairing calls sumi.computer.v1.ComputerService.CreateComputerPairing.
+func (c *computerServiceClient) CreateComputerPairing(ctx context.Context, req *connect.Request[v1.CreateComputerPairingRequest]) (*connect.Response[v1.CreateComputerPairingResponse], error) {
+	return c.createComputerPairing.CallUnary(ctx, req)
 }
 
 // RegisterComputer calls sumi.computer.v1.ComputerService.RegisterComputer.
@@ -123,6 +139,7 @@ func (c *computerServiceClient) ListComputers(ctx context.Context, req *connect.
 
 // ComputerServiceHandler is an implementation of the sumi.computer.v1.ComputerService service.
 type ComputerServiceHandler interface {
+	CreateComputerPairing(context.Context, *connect.Request[v1.CreateComputerPairingRequest]) (*connect.Response[v1.CreateComputerPairingResponse], error)
 	RegisterComputer(context.Context, *connect.Request[v1.RegisterComputerRequest]) (*connect.Response[v1.RegisterComputerResponse], error)
 	HeartbeatComputer(context.Context, *connect.Request[v1.HeartbeatComputerRequest]) (*connect.Response[v1.HeartbeatComputerResponse], error)
 	GetComputer(context.Context, *connect.Request[v1.GetComputerRequest]) (*connect.Response[v1.GetComputerResponse], error)
@@ -136,6 +153,12 @@ type ComputerServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewComputerServiceHandler(svc ComputerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	computerServiceMethods := v1.File_sumi_computer_v1_computer_proto.Services().ByName("ComputerService").Methods()
+	computerServiceCreateComputerPairingHandler := connect.NewUnaryHandler(
+		ComputerServiceCreateComputerPairingProcedure,
+		svc.CreateComputerPairing,
+		connect.WithSchema(computerServiceMethods.ByName("CreateComputerPairing")),
+		connect.WithHandlerOptions(opts...),
+	)
 	computerServiceRegisterComputerHandler := connect.NewUnaryHandler(
 		ComputerServiceRegisterComputerProcedure,
 		svc.RegisterComputer,
@@ -162,6 +185,8 @@ func NewComputerServiceHandler(svc ComputerServiceHandler, opts ...connect.Handl
 	)
 	return "/sumi.computer.v1.ComputerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ComputerServiceCreateComputerPairingProcedure:
+			computerServiceCreateComputerPairingHandler.ServeHTTP(w, r)
 		case ComputerServiceRegisterComputerProcedure:
 			computerServiceRegisterComputerHandler.ServeHTTP(w, r)
 		case ComputerServiceHeartbeatComputerProcedure:
@@ -178,6 +203,10 @@ func NewComputerServiceHandler(svc ComputerServiceHandler, opts ...connect.Handl
 
 // UnimplementedComputerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedComputerServiceHandler struct{}
+
+func (UnimplementedComputerServiceHandler) CreateComputerPairing(context.Context, *connect.Request[v1.CreateComputerPairingRequest]) (*connect.Response[v1.CreateComputerPairingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.CreateComputerPairing is not implemented"))
+}
 
 func (UnimplementedComputerServiceHandler) RegisterComputer(context.Context, *connect.Request[v1.RegisterComputerRequest]) (*connect.Response[v1.RegisterComputerResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.RegisterComputer is not implemented"))

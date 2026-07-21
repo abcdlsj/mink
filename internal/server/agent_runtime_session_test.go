@@ -152,13 +152,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 	_, err = collaboration.ListSpaces(context.Background(), listSpaces)
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 
-	other, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: "other-computer-key", Name: "Other runtime host",
-		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_ARM64,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	other := pairComputer(t, api, "other-computer-key", "Other runtime host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
 	reassigned, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.GetId(), ComputerId: other.Msg.GetComputer().GetId(),
 	}))
@@ -179,13 +173,8 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Computer, *agentv1.Agent, *placementv1.AgentPlacement, string) {
 	t.Helper()
 	registrationKey := "server-runtime-registration-key"
-	computer, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: registrationKey, Name: "Runtime host",
-		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_ARM64,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	computer := pairComputer(t, api, registrationKey, "Runtime host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
+	var err error
 	agent, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
 		RequestId: uuid.NewString(), Name: "runtime-" + uuid.NewString()[:8], Driver: agentv1.Driver_DRIVER_NATIVE,
 	}))

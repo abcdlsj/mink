@@ -3,10 +3,13 @@ package computerhost
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
@@ -16,11 +19,13 @@ import (
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/placementcode"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
@@ -38,7 +43,13 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := New(hostConfig(api.http.URL, computerRoot, key))
+	localState, err := computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := hostConfig(api.http.URL, computerRoot, key)
+	config.State = localState
+	host := New(config)
 	result, err := host.SyncOnce(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -50,6 +61,26 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	placement := getHostPlacement(t, api, agentID)
 	if placement.GetGeneration() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
 		t.Fatalf("placement = %v", placement)
+	}
+	identity, found, err := localState.Identity(context.Background())
+	if err != nil || !found || identity.ComputerID != computerID || identity.RegistrationKey != key {
+		t.Fatalf("imported legacy identity = %+v, %v, %v", identity, found, err)
+	}
+	if err := localState.Close(); err != nil {
+		t.Fatal(err)
+	}
+	localState, err = computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	importRestartConfig := hostConfig(api.http.URL, computerRoot, "")
+	importRestartConfig.State = localState
+	importRestart, err := New(importRestartConfig).SyncOnce(context.Background())
+	if err != nil || importRestart.ComputerID != computerID || importRestart.Assignments != 0 {
+		t.Fatalf("legacy identity restart = %+v, %v", importRestart, err)
+	}
+	if err := localState.Close(); err != nil {
+		t.Fatal(err)
 	}
 	api.close(t)
 
@@ -103,11 +134,12 @@ func TestSyncOnceAcknowledgesStableProvisionFailure(t *testing.T) {
 }
 
 type hostTestServer struct {
-	app        *server.Server
-	http       *httptest.Server
-	agents     agentv1connect.AgentServiceClient
-	computers  computerv1connect.ComputerServiceClient
-	placements placementv1connect.PlacementServiceClient
+	app            *server.Server
+	http           *httptest.Server
+	agents         agentv1connect.AgentServiceClient
+	computers      computerv1connect.ComputerServiceClient
+	ownerComputers computerv1connect.ComputerServiceClient
+	placements     placementv1connect.PlacementServiceClient
 }
 
 func openHostTestServer(t *testing.T, dataRoot string) *hostTestServer {
@@ -125,10 +157,13 @@ func openHostTestServer(t *testing.T, dataRoot string) *hostTestServer {
 	}
 	authorization := clientAuthorization(credential)
 	return &hostTestServer{
-		app:        app,
-		http:       httpServer,
-		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
-		computers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		app:       app,
+		http:      httpServer,
+		agents:    agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		ownerComputers: computerv1connect.NewComputerServiceClient(
+			httpServer.Client(), httpServer.URL, authorization,
+		),
 		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
 	}
 }
@@ -151,11 +186,23 @@ func createPendingAssignment(t *testing.T, api *hostTestServer, key, agentName s
 	if err != nil {
 		t.Fatal(err)
 	}
+	rawToken := make([]byte, 32)
+	if _, err := rand.Read(rawToken); err != nil {
+		t.Fatal(err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(rawToken)
+	if _, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
+	})); err != nil {
+		t.Fatal(err)
+	}
 	computer, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
 		RegistrationKey: key,
 		Name:            "Host test computer",
 		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
 		Arch:            computerv1.Architecture_ARCHITECTURE_AMD64,
+		RequestId:       uuid.NewString(),
+		PairingToken:    token,
 	}))
 	if err != nil {
 		t.Fatal(err)

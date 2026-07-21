@@ -12,6 +12,7 @@ import (
 
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/internal/computerhost"
+	"github.com/abcdlsj/sumi/internal/computerstate"
 	"github.com/abcdlsj/sumi/internal/home"
 )
 
@@ -42,9 +43,23 @@ func run(args []string) error {
 	if !*once {
 		return errors.New("continuous mode is not available; use --once")
 	}
-	key, err := computerhost.ReadRegistrationKey(*keyFile)
+	state, err := computerstate.Open(*dataRoot)
 	if err != nil {
 		return err
+	}
+	defer state.Close()
+	identity, found, err := state.Identity(context.Background())
+	if err != nil {
+		return err
+	}
+	key := ""
+	if found {
+		key = identity.RegistrationKey
+	} else {
+		key, err = computerhost.ReadRegistrationKey(*keyFile)
+		if err != nil {
+			return err
+		}
 	}
 	osName, arch, err := platform(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -57,6 +72,7 @@ func run(args []string) error {
 		Name:            *name,
 		OS:              osName,
 		Arch:            arch,
+		State:           state,
 	})
 	result, err := host.SyncOnce(context.Background())
 	if err != nil {

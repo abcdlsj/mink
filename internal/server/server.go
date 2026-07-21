@@ -89,7 +89,11 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}))
 	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
 	mux.Handle(systemPath, systemHandler)
-	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database))
+	computerMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+		Origin:              config.BrowserOrigin,
+		ProtectedProcedures: []string{computerv1connect.ComputerServiceCreateComputerPairingProcedure},
+	}))
+	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database), computerMutationAuthorization)
 	mux.Handle(computerPath, computerHandler)
 	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
 		Origin:              config.BrowserOrigin,

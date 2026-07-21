@@ -11,6 +11,7 @@ service PlacementService {
   rpc GetAgentPlacement(GetAgentPlacementRequest) returns (GetAgentPlacementResponse);
   rpc ListAgentPlacements(ListAgentPlacementsRequest) returns (ListAgentPlacementsResponse);
   rpc ListComputerAssignments(ListComputerAssignmentsRequest) returns (ListComputerAssignmentsResponse);
+  rpc ListComputerPlacements(ListComputerPlacementsRequest) returns (ListComputerPlacementsResponse);
   rpc AcknowledgeAgentPlacement(AcknowledgeAgentPlacementRequest) returns (AcknowledgeAgentPlacementResponse);
 }
 
@@ -68,6 +69,15 @@ message ListComputerAssignmentsRequest {
 
 message ListComputerAssignmentsResponse {
   repeated AgentPlacement assignments = 1;
+}
+
+message ListComputerPlacementsRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message ListComputerPlacementsResponse {
+  repeated AgentPlacement placements = 1;
 }
 
 message AcknowledgeAgentPlacementRequest {

@@ -86,10 +86,11 @@ type ListDeliveriesParams struct {
 }
 
 type ListDeliveriesResult struct {
-	Deliveries   []Delivery
-	NextSequence uint64
-	ActiveRun    *Run
-	ActiveLaunch *RunLaunch
+	Deliveries     []Delivery
+	NextSequence   uint64
+	ActiveDelivery *Delivery
+	ActiveRun      *Run
+	ActiveLaunch   *RunLaunch
 }
 
 type AcceptDeliveryParams struct {
@@ -192,6 +193,9 @@ func (s *Store) ListDeliveries(ctx context.Context, params ListDeliveriesParams)
 		if delivery.State != DeliveryStateAccepted || item.State != InboxStateClaimed {
 			return ListDeliveriesResult{}, ErrRunIntegrity
 		}
+		if delivery.ID != activeRun.DeliveryID || delivery.AgentID != activeRun.AgentID {
+			return ListDeliveriesResult{}, ErrRunIntegrity
+		}
 		launch, launchFound, err := currentRunLaunch(ctx, tx, activeRun.ID)
 		if err != nil {
 			return ListDeliveriesResult{}, err
@@ -209,6 +213,7 @@ func (s *Store) ListDeliveries(ctx context.Context, params ListDeliveriesParams)
 		default:
 			return ListDeliveriesResult{}, ErrRunIntegrity
 		}
+		result.ActiveDelivery = &delivery
 		result.ActiveRun = &activeRun
 	}
 	for len(result.Deliveries) < int(params.Limit) {

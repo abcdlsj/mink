@@ -1,9 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +22,68 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestComputerPairingCreateConsumeReplayAndQuiet(t *testing.T) {
+	dataRoot := t.TempDir()
+	api := openFactsAPI(t, dataRoot)
+	defer api.close(t)
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		t.Fatal(err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	createRequest := &computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
+	}
+	created, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedCreate, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
+	if err != nil || replayedCreate.Msg.GetPairingId() != created.Msg.GetPairingId() ||
+		!replayedCreate.Msg.GetExpiresAt().AsTime().Equal(created.Msg.GetExpiresAt().AsTime()) {
+		t.Fatalf("pairing creation replay = %+v, %v", replayedCreate, err)
+	}
+	conflictingToken := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	_, err = api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: createRequest.GetRequestId(), PairingToken: conflictingToken, ExpiresAt: createRequest.GetExpiresAt(),
+	}))
+	assertConnectCode(t, err, connect.CodeAlreadyExists)
+	_, err = api.computers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
+	assertConnectCode(t, err, connect.CodeUnauthenticated)
+
+	registrationKey := "pairing-registration-secret"
+	registerRequest := &computerv1.RegisterComputerRequest{
+		RegistrationKey: registrationKey, Name: "Paired host",
+		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_ARM64,
+		RequestId: uuid.NewString(), PairingToken: token,
+	}
+	registered, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(registerRequest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayedRegister, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(registerRequest))
+	if err != nil || replayedRegister.Msg.GetComputer().GetId() != registered.Msg.GetComputer().GetId() {
+		t.Fatalf("pairing consume replay = %+v, %v", replayedRegister, err)
+	}
+	conflictingRegister := proto.Clone(registerRequest).(*computerv1.RegisterComputerRequest)
+	conflictingRegister.RequestId = uuid.NewString()
+	_, err = api.computers.RegisterComputer(context.Background(), connect.NewRequest(conflictingRegister))
+	assertConnectCode(t, err, connect.CodeAlreadyExists)
+
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		payload, readErr := os.ReadFile(filepath.Join(dataRoot, "data", "server.db"+suffix))
+		if readErr != nil && !os.IsNotExist(readErr) {
+			t.Fatal(readErr)
+		}
+		if bytes.Contains(payload, []byte(token)) || bytes.Contains(payload, []byte(registrationKey)) {
+			t.Fatalf("server sqlite %q contains raw computer credential", suffix)
+		}
+	}
+}
 
 func TestComputerRegistrationConcurrencyAndRestart(t *testing.T) {
 	dataRoot := t.TempDir()
@@ -28,6 +94,8 @@ func TestComputerRegistrationConcurrencyAndRestart(t *testing.T) {
 		Name:            "Build host",
 		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS,
 		Arch:            computerv1.Architecture_ARCHITECTURE_ARM64,
+		RequestId:       uuid.NewString(),
+		PairingToken:    createPairingToken(t, api.ownerComputers),
 	}
 
 	ids := registerComputersConcurrently(t, api.computers, request, 20)
@@ -79,15 +147,7 @@ func TestComputerRegistrationConcurrencyAndRestart(t *testing.T) {
 		t.Fatalf("get after restart returned %v", persisted.Msg.GetComputer())
 	}
 
-	other, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: "another-trusted-local-key",
-		Name:            "Auxiliary host",
-		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS,
-		Arch:            computerv1.Architecture_ARCHITECTURE_ARM64,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	other := pairComputer(t, api, "another-trusted-local-key", "Auxiliary host", computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS, computerv1.Architecture_ARCHITECTURE_ARM64)
 	if other.Msg.GetComputer().GetId() == firstID {
 		t.Fatal("different registration keys received the same computer id")
 	}
@@ -106,20 +166,12 @@ func TestComputerHeartbeatRejectsMismatchedKeyWithoutMutation(t *testing.T) {
 	api := openFactsAPI(t, t.TempDir())
 	defer api.close(t)
 	key := "heartbeat-registration-key"
-	registered, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: key,
-		Name:            "Heartbeat host",
-		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
-		Arch:            computerv1.Architecture_ARCHITECTURE_AMD64,
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
+	registered := pairComputer(t, api, key, "Heartbeat host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_AMD64)
 	id := registered.Msg.GetComputer().GetId()
 	before := registered.Msg.GetComputer().GetLastSeenAt().AsTime()
 
 	wrongKey := "wrong-registration-key"
-	_, err = api.computers.HeartbeatComputer(context.Background(), connect.NewRequest(&computerv1.HeartbeatComputerRequest{
+	_, err := api.computers.HeartbeatComputer(context.Background(), connect.NewRequest(&computerv1.HeartbeatComputerRequest{
 		ComputerId:      id,
 		RegistrationKey: wrongKey,
 	}))
@@ -169,7 +221,12 @@ func TestComputerValidation(t *testing.T) {
 		_, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(request))
 		assertConnectCode(t, err, connect.CodeInvalidArgument)
 	}
-	_, err := api.computers.GetComputer(context.Background(), connect.NewRequest(&computerv1.GetComputerRequest{ComputerId: "not-a-uuid"}))
+	_, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
+		RegistrationKey: "unknown-legacy-key", Name: "unknown", Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
+		Arch: computerv1.Architecture_ARCHITECTURE_ARM64,
+	}))
+	assertConnectCode(t, err, connect.CodeNotFound)
+	_, err = api.computers.GetComputer(context.Background(), connect.NewRequest(&computerv1.GetComputerRequest{ComputerId: "not-a-uuid"}))
 	assertConnectCode(t, err, connect.CodeInvalidArgument)
 }
 
@@ -290,11 +347,12 @@ func TestAgentValidationAndNotFound(t *testing.T) {
 }
 
 type factsAPI struct {
-	app        *Server
-	http       *httptest.Server
-	computers  computerv1connect.ComputerServiceClient
-	agents     agentv1connect.AgentServiceClient
-	placements placementv1connect.PlacementServiceClient
+	app            *Server
+	http           *httptest.Server
+	computers      computerv1connect.ComputerServiceClient
+	ownerComputers computerv1connect.ComputerServiceClient
+	agents         agentv1connect.AgentServiceClient
+	placements     placementv1connect.PlacementServiceClient
 }
 
 func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
@@ -306,12 +364,49 @@ func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
 	httpServer := httptest.NewServer(app.Handler())
 	authorization := ownerClientAuthorization(t, dataRoot)
 	return &factsAPI{
-		app:        app,
-		http:       httpServer,
-		computers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		app:       app,
+		http:      httpServer,
+		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		ownerComputers: computerv1connect.NewComputerServiceClient(
+			httpServer.Client(), httpServer.URL, authorization,
+		),
 		agents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
 		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
 	}
+}
+
+func pairComputer(t *testing.T, api *factsAPI, key, name string, operatingSystem computerv1.OperatingSystem, architecture computerv1.Architecture) *connect.Response[computerv1.RegisterComputerResponse] {
+	t.Helper()
+	return pairComputerClients(t, api.ownerComputers, api.computers, key, name, operatingSystem, architecture)
+}
+
+func pairComputerClients(t *testing.T, owner, public computerv1connect.ComputerServiceClient, key, name string, operatingSystem computerv1.OperatingSystem, architecture computerv1.Architecture) *connect.Response[computerv1.RegisterComputerResponse] {
+	t.Helper()
+	request := &computerv1.RegisterComputerRequest{
+		RegistrationKey: key, Name: name, Os: operatingSystem, Arch: architecture,
+		RequestId: uuid.NewString(), PairingToken: createPairingToken(t, owner),
+	}
+	response, err := public.RegisterComputer(context.Background(), connect.NewRequest(request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return response
+}
+
+func createPairingToken(t *testing.T, client computerv1connect.ComputerServiceClient) string {
+	t.Helper()
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		t.Fatal(err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	_, err := client.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
 }
 
 func (api *factsAPI) close(t *testing.T) {

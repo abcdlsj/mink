@@ -1,14 +1,22 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+const (
+	computerPairingHashDomain = "sumi-computer-pairing-v1\x00"
+	computerPairingTTL        = 10 * time.Minute
 )
 
 type Computer struct {
@@ -28,9 +36,232 @@ type RegisterComputerParams struct {
 	Now             time.Time
 }
 
+type ComputerPairing struct {
+	ID        string
+	ExpiresAt time.Time
+}
+
+type CreateComputerPairingParams struct {
+	RequestID string
+	Actor     Principal
+	Token     string
+	ExpiresAt time.Time
+	Now       time.Time
+}
+
+type PairComputerParams struct {
+	RequestID       string
+	PairingToken    string
+	RegistrationKey string
+	Name            string
+	OS              string
+	Arch            string
+	Now             time.Time
+}
+
+func (s *Store) CreateComputerPairing(ctx context.Context, params CreateComputerPairingParams) (ComputerPairing, error) {
+	if params.Actor.Kind != "human" || params.Actor.ID == "" || params.Actor.OrganizationID == "" ||
+		!validComputerPairingToken(params.Token) || params.Now.IsZero() || params.ExpiresAt.IsZero() {
+		return ComputerPairing{}, ErrComputerPairingInvalid
+	}
+	tokenHash := computerPairingTokenHash(params.Token)
+	fingerprint, err := computerPairingFingerprint(struct {
+		ActorID   string `json:"actor_id"`
+		TokenHash []byte `json:"token_hash"`
+		ExpiresAt int64  `json:"expires_at"`
+	}{params.Actor.ID, tokenHash[:], unixNano(params.ExpiresAt)})
+	if err != nil {
+		return ComputerPairing{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ComputerPairing{}, fmt.Errorf("begin computer pairing creation: %w", err)
+	}
+	defer tx.Rollback()
+	reason, err := requireGrant(ctx, tx, params.Actor, CapabilityComputerPair, Scope{Kind: "organization", ID: params.Actor.OrganizationID}, params.Now, "")
+	if err != nil {
+		return ComputerPairing{}, err
+	}
+	if reason != "" {
+		return ComputerPairing{}, commitDenied(ctx, tx, params.Actor, AuditComputerPairPrepare, "computer_pairing", "", params.RequestID, reason, params.Now)
+	}
+	var pairing ComputerPairing
+	var humanID string
+	var storedFingerprint []byte
+	var expiresAt int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, human_id, payload_fingerprint, expires_at
+		FROM computer_pairings WHERE request_id = ?
+	`, params.RequestID).Scan(&pairing.ID, &humanID, &storedFingerprint, &expiresAt)
+	if err == nil {
+		if humanID != params.Actor.ID || !bytes.Equal(storedFingerprint, fingerprint[:]) {
+			return ComputerPairing{}, ErrComputerPairingConflict
+		}
+		pairing.ExpiresAt = timeFromUnixNano(expiresAt)
+		if err := tx.Commit(); err != nil {
+			return ComputerPairing{}, fmt.Errorf("commit computer pairing replay: %w", err)
+		}
+		return pairing, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return ComputerPairing{}, fmt.Errorf("read computer pairing request: %w", err)
+	}
+	if !params.ExpiresAt.After(params.Now) || params.ExpiresAt.Sub(params.Now) > computerPairingTTL {
+		return ComputerPairing{}, ErrComputerPairingInvalid
+	}
+	pairing = ComputerPairing{ID: uuid.NewString(), ExpiresAt: params.ExpiresAt.UTC()}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO computer_pairings(
+			id, request_id, human_id, token_hash, payload_fingerprint, created_at, expires_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?)
+	`, pairing.ID, params.RequestID, params.Actor.ID, tokenHash[:], fingerprint[:], unixNano(params.Now), unixNano(params.ExpiresAt)); err != nil {
+		if isUniqueConstraint(err, "computer_pairings.token_hash") {
+			return ComputerPairing{}, ErrComputerPairingConflict
+		}
+		return ComputerPairing{}, fmt.Errorf("persist computer pairing: %w", err)
+	}
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+		OrganizationID: params.Actor.OrganizationID, Actor: params.Actor,
+		Action: AuditComputerPairPrepare, TargetKind: "computer_pairing", TargetID: pairing.ID,
+		RequestID: params.RequestID, Outcome: "committed", Now: params.Now,
+	}); err != nil {
+		return ComputerPairing{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return ComputerPairing{}, fmt.Errorf("commit computer pairing creation: %w", err)
+	}
+	return pairing, nil
+}
+
+func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Computer, error) {
+	if !validComputerPairingToken(params.PairingToken) || params.RequestID == "" || params.RegistrationKey == "" || params.Now.IsZero() {
+		return Computer{}, ErrComputerPairingInvalid
+	}
+	tokenHash := computerPairingTokenHash(params.PairingToken)
+	keyHash := registrationKeyHash(params.RegistrationKey)
+	fingerprint, err := computerPairingFingerprint(struct {
+		RegistrationKeyHash []byte `json:"registration_key_hash"`
+		Name                string `json:"name"`
+		OS                  string `json:"os"`
+		Arch                string `json:"arch"`
+	}{keyHash[:], params.Name, params.OS, params.Arch})
+	if err != nil {
+		return Computer{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Computer{}, fmt.Errorf("begin computer pairing: %w", err)
+	}
+	defer tx.Rollback()
+	var pairingID, humanID string
+	var expiresAt int64
+	var consumedAt sql.NullInt64
+	var consumeRequestID, computerID sql.NullString
+	var consumeFingerprint []byte
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, human_id, expires_at, consumed_at, consume_request_id, consume_fingerprint, computer_id
+		FROM computer_pairings WHERE token_hash = ?
+	`, tokenHash[:]).Scan(&pairingID, &humanID, &expiresAt, &consumedAt, &consumeRequestID, &consumeFingerprint, &computerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		var other bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM computer_pairings WHERE consume_request_id = ?)`, params.RequestID).Scan(&other); err != nil {
+			return Computer{}, fmt.Errorf("check computer pairing request: %w", err)
+		}
+		if other {
+			return Computer{}, ErrComputerPairingConflict
+		}
+		return Computer{}, ErrComputerPairingInvalid
+	}
+	if err != nil {
+		return Computer{}, fmt.Errorf("read computer pairing: %w", err)
+	}
+	if consumedAt.Valid {
+		if !consumeRequestID.Valid || consumeRequestID.String != params.RequestID || !bytes.Equal(consumeFingerprint, fingerprint[:]) || !computerID.Valid {
+			return Computer{}, ErrComputerPairingConflict
+		}
+		computer, err := scanComputer(tx.QueryRowContext(ctx, `SELECT id, name, os, arch, created_at, last_seen_at FROM computers WHERE id = ?`, computerID.String))
+		if err != nil {
+			return Computer{}, ErrComputerPairingInvalid
+		}
+		if err := tx.Commit(); err != nil {
+			return Computer{}, fmt.Errorf("commit paired computer replay: %w", err)
+		}
+		return computer, nil
+	}
+	if !timeFromUnixNano(expiresAt).After(params.Now) {
+		return Computer{}, ErrComputerPairingInvalid
+	}
+	var requestUsed bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM computer_pairings WHERE consume_request_id = ?)`, params.RequestID).Scan(&requestUsed); err != nil {
+		return Computer{}, fmt.Errorf("check computer pairing consume request: %w", err)
+	}
+	if requestUsed {
+		return Computer{}, ErrComputerPairingConflict
+	}
+	computer := Computer{
+		ID: uuid.NewString(), Name: params.Name, OS: params.OS, Arch: params.Arch,
+		CreatedAt: params.Now.UTC(), LastSeenAt: params.Now.UTC(),
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+	`, computer.ID, keyHash[:], computer.Name, computer.OS, computer.Arch, unixNano(computer.CreatedAt), unixNano(computer.LastSeenAt)); err != nil {
+		if isUniqueConstraint(err, "computers.registration_key_hash") {
+			return Computer{}, ErrComputerPairingConflict
+		}
+		return Computer{}, fmt.Errorf("persist paired computer: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE computer_pairings
+		SET consumed_at = ?, consume_request_id = ?, consume_fingerprint = ?, computer_id = ?
+		WHERE id = ? AND consumed_at IS NULL AND expires_at > ?
+	`, unixNano(params.Now), params.RequestID, fingerprint[:], computer.ID, pairingID, unixNano(params.Now))
+	if err != nil {
+		return Computer{}, fmt.Errorf("consume computer pairing: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil || updated != 1 {
+		return Computer{}, ErrComputerPairingInvalid
+	}
+	var organizationID string
+	if err := tx.QueryRowContext(ctx, `SELECT organization_id FROM humans WHERE id = ? AND status = 'active'`, humanID).Scan(&organizationID); err != nil {
+		return Computer{}, ErrComputerPairingInvalid
+	}
+	actor := Principal{Kind: "human", ID: humanID, OrganizationID: organizationID}
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
+		OrganizationID: organizationID, Actor: actor, Action: AuditComputerPair,
+		TargetKind: "computer", TargetID: computer.ID, RequestID: params.RequestID,
+		Outcome: "committed", Now: params.Now,
+	}); err != nil {
+		return Computer{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Computer{}, fmt.Errorf("commit computer pairing: %w", err)
+	}
+	return computer, nil
+}
+
+func (s *Store) RecoverComputer(ctx context.Context, params RegisterComputerParams) (Computer, error) {
+	keyHash := registrationKeyHash(params.RegistrationKey)
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE computers
+		SET name = ?, os = ?, arch = ?, last_seen_at = max(last_seen_at, ?)
+		WHERE registration_key_hash = ?
+		RETURNING id, name, os, arch, created_at, last_seen_at
+	`, params.Name, params.OS, params.Arch, unixNano(params.Now), keyHash[:])
+	computer, err := scanComputer(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Computer{}, ErrComputerNotFound
+	}
+	if err != nil {
+		return Computer{}, fmt.Errorf("recover computer: %w", err)
+	}
+	return computer, nil
+}
+
 func (s *Store) RegisterComputer(ctx context.Context, params RegisterComputerParams) (Computer, error) {
 	stamp := unixNano(params.Now)
-	keyHash := sha256.Sum256([]byte(params.RegistrationKey))
+	keyHash := registrationKeyHash(params.RegistrationKey)
 	row := s.db.QueryRowContext(ctx, `
 		INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?)
@@ -55,7 +286,7 @@ func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey strin
 	}
 	defer tx.Rollback()
 
-	keyHash := sha256.Sum256([]byte(registrationKey))
+	keyHash := registrationKeyHash(registrationKey)
 	row := tx.QueryRowContext(ctx, `
 		UPDATE computers
 		SET last_seen_at = max(last_seen_at, ?)
@@ -81,6 +312,27 @@ func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey strin
 		return Computer{}, ErrComputerNotFound
 	}
 	return Computer{}, ErrRegistrationKeyMismatch
+}
+
+func computerPairingFingerprint(value any) ([sha256.Size]byte, error) {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return [sha256.Size]byte{}, fmt.Errorf("encode computer pairing: %w", err)
+	}
+	return sha256.Sum256(payload), nil
+}
+
+func computerPairingTokenHash(token string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(computerPairingHashDomain + token))
+}
+
+func validComputerPairingToken(token string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(token)
+	return err == nil && len(decoded) == 32 && base64.RawURLEncoding.EncodeToString(decoded) == token
+}
+
+func registrationKeyHash(key string) [sha256.Size]byte {
+	return sha256.Sum256([]byte(key))
 }
 
 func (s *Store) GetComputer(ctx context.Context, id string) (Computer, error) {

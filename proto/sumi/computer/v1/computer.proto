@@ -7,6 +7,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1;computerv1";
 
 service ComputerService {
+  rpc CreateComputerPairing(CreateComputerPairingRequest) returns (CreateComputerPairingResponse);
   rpc RegisterComputer(RegisterComputerRequest) returns (RegisterComputerResponse);
   rpc HeartbeatComputer(HeartbeatComputerRequest) returns (HeartbeatComputerResponse);
   rpc GetComputer(GetComputerRequest) returns (GetComputerResponse);
@@ -32,6 +33,19 @@ message Computer {
   Architecture arch = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp last_seen_at = 6;
+  bool online = 7;
+  google.protobuf.Timestamp connectivity_expires_at = 8;
+}
+
+message CreateComputerPairingRequest {
+  string request_id = 1;
+  string pairing_token = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message CreateComputerPairingResponse {
+  string pairing_id = 1;
+  google.protobuf.Timestamp expires_at = 2;
 }
 
 message RegisterComputerRequest {
@@ -39,6 +53,8 @@ message RegisterComputerRequest {
   string name = 2;
   OperatingSystem os = 3;
   Architecture arch = 4;
+  string request_id = 5;
+  string pairing_token = 6;
 }
 
 message RegisterComputerResponse {

@@ -26,6 +26,7 @@ var capabilities = map[string]struct{}{
 	CapabilitySpaceArchive:      {},
 	CapabilityMessageSend:       {},
 	CapabilityRunExecute:        {},
+	CapabilityComputerPair:      {},
 }
 
 func ValidCapability(capability string) bool {

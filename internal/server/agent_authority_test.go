@@ -88,14 +88,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 	}
 
 	computerKey := "agent-api-computer-key-abcdefghijklmnopqrstuvwxyz"
-	computerResponse, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: computerKey, Name: "Agent API Computer",
-		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_AMD64,
-	}))
-	if err != nil {
-		api.close(t)
-		t.Fatal(err)
-	}
+	computerResponse := pairComputerClients(t, api.ownerComputers, api.computers, computerKey, "Agent API Computer", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_AMD64)
 	computerID := computerResponse.Msg.GetComputer().GetId()
 	placementRequest := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: delegatedAgent.GetId(), ComputerId: computerID}
 	if _, err := api.rawPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest)); connect.CodeOf(err) != connect.CodeUnauthenticated {
@@ -216,6 +209,7 @@ type agentAuthorityAPI struct {
 	rawAgents       agentv1connect.AgentServiceClient
 	ownerAgents     agentv1connect.AgentServiceClient
 	computers       computerv1connect.ComputerServiceClient
+	ownerComputers  computerv1connect.ComputerServiceClient
 	rawPlacements   placementv1connect.PlacementServiceClient
 	ownerPlacements placementv1connect.PlacementServiceClient
 	ownerAudits     auditv1connect.AuditServiceClient
@@ -242,6 +236,7 @@ func openAgentAuthorityAPI(t *testing.T, dataRoot string) *agentAuthorityAPI {
 		rawAgents:       agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
 		ownerAgents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
 		computers:       computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		ownerComputers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, authorization),
 		rawPlacements:   placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
 		ownerPlacements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
 		ownerAudits:     auditv1connect.NewAuditServiceClient(httpServer.Client(), httpServer.URL, authorization),

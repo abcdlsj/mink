@@ -288,6 +288,7 @@ func capabilityName(value grantv1.Capability) (string, bool) {
 		grantv1.Capability_CAPABILITY_SPACE_ARCHIVE:        store.CapabilitySpaceArchive,
 		grantv1.Capability_CAPABILITY_MESSAGE_SEND:         store.CapabilityMessageSend,
 		grantv1.Capability_CAPABILITY_RUN_EXECUTE:          store.CapabilityRunExecute,
+		grantv1.Capability_CAPABILITY_COMPUTER_PAIR:        store.CapabilityComputerPair,
 	}
 	name, ok := names[value]
 	return name, ok
@@ -308,6 +309,7 @@ func capabilityValue(value string) grantv1.Capability {
 		grantv1.Capability_CAPABILITY_SPACE_ARCHIVE:        store.CapabilitySpaceArchive,
 		grantv1.Capability_CAPABILITY_MESSAGE_SEND:         store.CapabilityMessageSend,
 		grantv1.Capability_CAPABILITY_RUN_EXECUTE:          store.CapabilityRunExecute,
+		grantv1.Capability_CAPABILITY_COMPUTER_PAIR:        store.CapabilityComputerPair,
 	} {
 		if name == value {
 			return enum

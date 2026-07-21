@@ -85,6 +85,21 @@ func (s *Service) ListComputerAssignments(ctx context.Context, request *connect.
 	return connect.NewResponse(&placementv1.ListComputerAssignmentsResponse{Assignments: placementMessages(assignments)}), nil
 }
 
+func (s *Service) ListComputerPlacements(ctx context.Context, request *connect.Request[placementv1.ListComputerPlacementsRequest]) (*connect.Response[placementv1.ListComputerPlacementsResponse], error) {
+	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	if err != nil {
+		return nil, err
+	}
+	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+		return nil, err
+	}
+	placements, err := s.store.ListComputerPlacements(ctx, computerID, request.Msg.GetRegistrationKey())
+	if err := placementError(err); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&placementv1.ListComputerPlacementsResponse{Placements: placementMessages(placements)}), nil
+}
+
 func (s *Service) AcknowledgeAgentPlacement(ctx context.Context, request *connect.Request[placementv1.AcknowledgeAgentPlacementRequest]) (*connect.Response[placementv1.AcknowledgeAgentPlacementResponse], error) {
 	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {

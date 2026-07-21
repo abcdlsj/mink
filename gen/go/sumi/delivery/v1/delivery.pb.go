@@ -681,13 +681,14 @@ func (x *ListDeliveriesRequest) GetLimit() uint32 {
 }
 
 type ListDeliveriesResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Deliveries    []*Delivery            `protobuf:"bytes,1,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
-	NextSequence  uint64                 `protobuf:"varint,2,opt,name=next_sequence,json=nextSequence,proto3" json:"next_sequence,omitempty"`
-	ActiveRun     *Run                   `protobuf:"bytes,3,opt,name=active_run,json=activeRun,proto3" json:"active_run,omitempty"`
-	ActiveLaunch  *RunLaunch             `protobuf:"bytes,4,opt,name=active_launch,json=activeLaunch,proto3" json:"active_launch,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	Deliveries     []*Delivery            `protobuf:"bytes,1,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	NextSequence   uint64                 `protobuf:"varint,2,opt,name=next_sequence,json=nextSequence,proto3" json:"next_sequence,omitempty"`
+	ActiveRun      *Run                   `protobuf:"bytes,3,opt,name=active_run,json=activeRun,proto3" json:"active_run,omitempty"`
+	ActiveLaunch   *RunLaunch             `protobuf:"bytes,4,opt,name=active_launch,json=activeLaunch,proto3" json:"active_launch,omitempty"`
+	ActiveDelivery *Delivery              `protobuf:"bytes,5,opt,name=active_delivery,json=activeDelivery,proto3" json:"active_delivery,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListDeliveriesResponse) Reset() {
@@ -744,6 +745,13 @@ func (x *ListDeliveriesResponse) GetActiveRun() *Run {
 func (x *ListDeliveriesResponse) GetActiveLaunch() *RunLaunch {
 	if x != nil {
 		return x.ActiveLaunch
+	}
+	return nil
+}
+
+func (x *ListDeliveriesResponse) GetActiveDelivery() *Delivery {
+	if x != nil {
+		return x.ActiveDelivery
 	}
 	return nil
 }
@@ -1393,7 +1401,7 @@ const file_sumi_delivery_v1_delivery_proto_rawDesc = "" +
 	" \x01(\x0e2&.sumi.delivery.v1.RunLaunchCloseReasonR\vcloseReason\"T\n" +
 	"\x15ListDeliveriesRequest\x12%\n" +
 	"\x0eafter_sequence\x18\x01 \x01(\x04R\rafterSequence\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"\xf1\x01\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\"\xb6\x02\n" +
 	"\x16ListDeliveriesResponse\x12:\n" +
 	"\n" +
 	"deliveries\x18\x01 \x03(\v2\x1a.sumi.delivery.v1.DeliveryR\n" +
@@ -1401,7 +1409,8 @@ const file_sumi_delivery_v1_delivery_proto_rawDesc = "" +
 	"\rnext_sequence\x18\x02 \x01(\x04R\fnextSequence\x124\n" +
 	"\n" +
 	"active_run\x18\x03 \x01(\v2\x15.sumi.delivery.v1.RunR\tactiveRun\x12@\n" +
-	"\ractive_launch\x18\x04 \x01(\v2\x1b.sumi.delivery.v1.RunLaunchR\factiveLaunch\"W\n" +
+	"\ractive_launch\x18\x04 \x01(\v2\x1b.sumi.delivery.v1.RunLaunchR\factiveLaunch\x12C\n" +
+	"\x0factive_delivery\x18\x05 \x01(\v2\x1a.sumi.delivery.v1.DeliveryR\x0eactiveDelivery\"W\n" +
 	"\x15AcceptDeliveryRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
@@ -1528,32 +1537,33 @@ var file_sumi_delivery_v1_delivery_proto_depIdxs = []int32{
 	4,  // 14: sumi.delivery.v1.ListDeliveriesResponse.deliveries:type_name -> sumi.delivery.v1.Delivery
 	5,  // 15: sumi.delivery.v1.ListDeliveriesResponse.active_run:type_name -> sumi.delivery.v1.Run
 	6,  // 16: sumi.delivery.v1.ListDeliveriesResponse.active_launch:type_name -> sumi.delivery.v1.RunLaunch
-	5,  // 17: sumi.delivery.v1.AcceptDeliveryResponse.run:type_name -> sumi.delivery.v1.Run
-	5,  // 18: sumi.delivery.v1.GetRunResponse.run:type_name -> sumi.delivery.v1.Run
-	6,  // 19: sumi.delivery.v1.ClaimRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
-	6,  // 20: sumi.delivery.v1.RenewRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
-	2,  // 21: sumi.delivery.v1.CompleteRunRequest.outcome:type_name -> sumi.delivery.v1.RunOutcome
-	5,  // 22: sumi.delivery.v1.CompleteRunResponse.run:type_name -> sumi.delivery.v1.Run
-	21, // 23: sumi.delivery.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
-	22, // 24: sumi.delivery.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
-	20, // 25: sumi.delivery.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
-	7,  // 26: sumi.delivery.v1.DeliveryService.ListDeliveries:input_type -> sumi.delivery.v1.ListDeliveriesRequest
-	9,  // 27: sumi.delivery.v1.DeliveryService.AcceptDelivery:input_type -> sumi.delivery.v1.AcceptDeliveryRequest
-	11, // 28: sumi.delivery.v1.DeliveryService.GetRun:input_type -> sumi.delivery.v1.GetRunRequest
-	13, // 29: sumi.delivery.v1.DeliveryService.ClaimRun:input_type -> sumi.delivery.v1.ClaimRunRequest
-	15, // 30: sumi.delivery.v1.DeliveryService.RenewRun:input_type -> sumi.delivery.v1.RenewRunRequest
-	17, // 31: sumi.delivery.v1.DeliveryService.CompleteRun:input_type -> sumi.delivery.v1.CompleteRunRequest
-	8,  // 32: sumi.delivery.v1.DeliveryService.ListDeliveries:output_type -> sumi.delivery.v1.ListDeliveriesResponse
-	10, // 33: sumi.delivery.v1.DeliveryService.AcceptDelivery:output_type -> sumi.delivery.v1.AcceptDeliveryResponse
-	12, // 34: sumi.delivery.v1.DeliveryService.GetRun:output_type -> sumi.delivery.v1.GetRunResponse
-	14, // 35: sumi.delivery.v1.DeliveryService.ClaimRun:output_type -> sumi.delivery.v1.ClaimRunResponse
-	16, // 36: sumi.delivery.v1.DeliveryService.RenewRun:output_type -> sumi.delivery.v1.RenewRunResponse
-	18, // 37: sumi.delivery.v1.DeliveryService.CompleteRun:output_type -> sumi.delivery.v1.CompleteRunResponse
-	32, // [32:38] is the sub-list for method output_type
-	26, // [26:32] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	4,  // 17: sumi.delivery.v1.ListDeliveriesResponse.active_delivery:type_name -> sumi.delivery.v1.Delivery
+	5,  // 18: sumi.delivery.v1.AcceptDeliveryResponse.run:type_name -> sumi.delivery.v1.Run
+	5,  // 19: sumi.delivery.v1.GetRunResponse.run:type_name -> sumi.delivery.v1.Run
+	6,  // 20: sumi.delivery.v1.ClaimRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
+	6,  // 21: sumi.delivery.v1.RenewRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
+	2,  // 22: sumi.delivery.v1.CompleteRunRequest.outcome:type_name -> sumi.delivery.v1.RunOutcome
+	5,  // 23: sumi.delivery.v1.CompleteRunResponse.run:type_name -> sumi.delivery.v1.Run
+	21, // 24: sumi.delivery.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
+	22, // 25: sumi.delivery.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
+	20, // 26: sumi.delivery.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
+	7,  // 27: sumi.delivery.v1.DeliveryService.ListDeliveries:input_type -> sumi.delivery.v1.ListDeliveriesRequest
+	9,  // 28: sumi.delivery.v1.DeliveryService.AcceptDelivery:input_type -> sumi.delivery.v1.AcceptDeliveryRequest
+	11, // 29: sumi.delivery.v1.DeliveryService.GetRun:input_type -> sumi.delivery.v1.GetRunRequest
+	13, // 30: sumi.delivery.v1.DeliveryService.ClaimRun:input_type -> sumi.delivery.v1.ClaimRunRequest
+	15, // 31: sumi.delivery.v1.DeliveryService.RenewRun:input_type -> sumi.delivery.v1.RenewRunRequest
+	17, // 32: sumi.delivery.v1.DeliveryService.CompleteRun:input_type -> sumi.delivery.v1.CompleteRunRequest
+	8,  // 33: sumi.delivery.v1.DeliveryService.ListDeliveries:output_type -> sumi.delivery.v1.ListDeliveriesResponse
+	10, // 34: sumi.delivery.v1.DeliveryService.AcceptDelivery:output_type -> sumi.delivery.v1.AcceptDeliveryResponse
+	12, // 35: sumi.delivery.v1.DeliveryService.GetRun:output_type -> sumi.delivery.v1.GetRunResponse
+	14, // 36: sumi.delivery.v1.DeliveryService.ClaimRun:output_type -> sumi.delivery.v1.ClaimRunResponse
+	16, // 37: sumi.delivery.v1.DeliveryService.RenewRun:output_type -> sumi.delivery.v1.RenewRunResponse
+	18, // 38: sumi.delivery.v1.DeliveryService.CompleteRun:output_type -> sumi.delivery.v1.CompleteRunResponse
+	33, // [33:39] is the sub-list for method output_type
+	27, // [27:33] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_sumi_delivery_v1_delivery_proto_init() }

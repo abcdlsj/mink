@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/computer/v1/computer.proto.
  */
 export const file_sumi_computer_v1_computer: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIuMBCghDb21wdXRlchIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEi0KAm9zGAMgASgOMiEuc3VtaS5jb21wdXRlci52MS5PcGVyYXRpbmdTeXN0ZW0SLAoEYXJjaBgEIAEoDjIeLnN1bWkuY29tcHV0ZXIudjEuQXJjaGl0ZWN0dXJlEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAingEKF1JlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0EhgKEHJlZ2lzdHJhdGlvbl9rZXkYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZSJIChhSZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIkkKGEhlYXJ0YmVhdENvbXB1dGVyUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIkkKGUhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIikKEkdldENvbXB1dGVyUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCSJDChNHZXRDb21wdXRlclJlc3BvbnNlEiwKCGNvbXB1dGVyGAEgASgLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciIWChRMaXN0Q29tcHV0ZXJzUmVxdWVzdCJGChVMaXN0Q29tcHV0ZXJzUmVzcG9uc2USLQoJY29tcHV0ZXJzGAEgAygLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciprCg9PcGVyYXRpbmdTeXN0ZW0SIAocT1BFUkFUSU5HX1NZU1RFTV9VTlNQRUNJRklFRBAAEhoKFk9QRVJBVElOR19TWVNURU1fTUFDT1MQARIaChZPUEVSQVRJTkdfU1lTVEVNX0xJTlVYEAIqXAoMQXJjaGl0ZWN0dXJlEhwKGEFSQ0hJVEVDVFVSRV9VTlNQRUNJRklFRBAAEhYKEkFSQ0hJVEVDVFVSRV9BUk02NBABEhYKEkFSQ0hJVEVDVFVSRV9BTUQ2NBACMqgDCg9Db21wdXRlclNlcnZpY2USaQoQUmVnaXN0ZXJDb21wdXRlchIpLnN1bWkuY29tcHV0ZXIudjEuUmVnaXN0ZXJDb21wdXRlclJlcXVlc3QaKi5zdW1pLmNvbXB1dGVyLnYxLlJlZ2lzdGVyQ29tcHV0ZXJSZXNwb25zZRJsChFIZWFydGJlYXRDb21wdXRlchIqLnN1bWkuY29tcHV0ZXIudjEuSGVhcnRiZWF0Q29tcHV0ZXJSZXF1ZXN0Gisuc3VtaS5jb21wdXRlci52MS5IZWFydGJlYXRDb21wdXRlclJlc3BvbnNlEloKC0dldENvbXB1dGVyEiQuc3VtaS5jb21wdXRlci52MS5HZXRDb21wdXRlclJlcXVlc3QaJS5zdW1pLmNvbXB1dGVyLnYxLkdldENvbXB1dGVyUmVzcG9uc2USYAoNTGlzdENvbXB1dGVycxImLnN1bWkuY29tcHV0ZXIudjEuTGlzdENvbXB1dGVyc1JlcXVlc3QaJy5zdW1pLmNvbXB1dGVyLnYxLkxpc3RDb21wdXRlcnNSZXNwb25zZUI8WjpnaXRodWIuY29tL2FiY2Rsc2ovc3VtaS9nZW4vZ28vc3VtaS9jb21wdXRlci92MTtjb21wdXRlcnYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIrACCghDb21wdXRlchIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEi0KAm9zGAMgASgOMiEuc3VtaS5jb21wdXRlci52MS5PcGVyYXRpbmdTeXN0ZW0SLAoEYXJjaBgEIAEoDjIeLnN1bWkuY29tcHV0ZXIudjEuQXJjaGl0ZWN0dXJlEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3Rfc2Vlbl9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDgoGb25saW5lGAcgASgIEjsKF2Nvbm5lY3Rpdml0eV9leHBpcmVzX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJ5ChxDcmVhdGVDb21wdXRlclBhaXJpbmdSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNcGFpcmluZ190b2tlbhgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJjCh1DcmVhdGVDb21wdXRlclBhaXJpbmdSZXNwb25zZRISCgpwYWlyaW5nX2lkGAEgASgJEi4KCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIskBChdSZWdpc3RlckNvbXB1dGVyUmVxdWVzdBIYChByZWdpc3RyYXRpb25fa2V5GAEgASgJEgwKBG5hbWUYAiABKAkSLQoCb3MYAyABKA4yIS5zdW1pLmNvbXB1dGVyLnYxLk9wZXJhdGluZ1N5c3RlbRIsCgRhcmNoGAQgASgOMh4uc3VtaS5jb21wdXRlci52MS5BcmNoaXRlY3R1cmUSEgoKcmVxdWVzdF9pZBgFIAEoCRIVCg1wYWlyaW5nX3Rva2VuGAYgASgJIkgKGFJlZ2lzdGVyQ29tcHV0ZXJSZXNwb25zZRIsCghjb21wdXRlchgBIAEoCzIaLnN1bWkuY29tcHV0ZXIudjEuQ29tcHV0ZXIiSQoYSGVhcnRiZWF0Q29tcHV0ZXJSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiSQoZSGVhcnRiZWF0Q29tcHV0ZXJSZXNwb25zZRIsCghjb21wdXRlchgBIAEoCzIaLnN1bWkuY29tcHV0ZXIudjEuQ29tcHV0ZXIiKQoSR2V0Q29tcHV0ZXJSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJIkMKE0dldENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIhYKFExpc3RDb21wdXRlcnNSZXF1ZXN0IkYKFUxpc3RDb21wdXRlcnNSZXNwb25zZRItCgljb21wdXRlcnMYASADKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyKmsKD09wZXJhdGluZ1N5c3RlbRIgChxPUEVSQVRJTkdfU1lTVEVNX1VOU1BFQ0lGSUVEEAASGgoWT1BFUkFUSU5HX1NZU1RFTV9NQUNPUxABEhoKFk9QRVJBVElOR19TWVNURU1fTElOVVgQAipcCgxBcmNoaXRlY3R1cmUSHAoYQVJDSElURUNUVVJFX1VOU1BFQ0lGSUVEEAASFgoSQVJDSElURUNUVVJFX0FSTTY0EAESFgoSQVJDSElURUNUVVJFX0FNRDY0EAIyogQKD0NvbXB1dGVyU2VydmljZRJ4ChVDcmVhdGVDb21wdXRlclBhaXJpbmcSLi5zdW1pLmNvbXB1dGVyLnYxLkNyZWF0ZUNvbXB1dGVyUGFpcmluZ1JlcXVlc3QaLy5zdW1pLmNvbXB1dGVyLnYxLkNyZWF0ZUNvbXB1dGVyUGFpcmluZ1Jlc3BvbnNlEmkKEFJlZ2lzdGVyQ29tcHV0ZXISKS5zdW1pLmNvbXB1dGVyLnYxLlJlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0Giouc3VtaS5jb21wdXRlci52MS5SZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USbAoRSGVhcnRiZWF0Q29tcHV0ZXISKi5zdW1pLmNvbXB1dGVyLnYxLkhlYXJ0YmVhdENvbXB1dGVyUmVxdWVzdBorLnN1bWkuY29tcHV0ZXIudjEuSGVhcnRiZWF0Q29tcHV0ZXJSZXNwb25zZRJaCgtHZXRDb21wdXRlchIkLnN1bWkuY29tcHV0ZXIudjEuR2V0Q29tcHV0ZXJSZXF1ZXN0GiUuc3VtaS5jb21wdXRlci52MS5HZXRDb21wdXRlclJlc3BvbnNlEmAKDUxpc3RDb21wdXRlcnMSJi5zdW1pLmNvbXB1dGVyLnYxLkxpc3RDb21wdXRlcnNSZXF1ZXN0Gicuc3VtaS5jb21wdXRlci52MS5MaXN0Q29tcHV0ZXJzUmVzcG9uc2VCPFo6Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvY29tcHV0ZXIvdjE7Y29tcHV0ZXJ2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message sumi.computer.v1.Computer
@@ -47,6 +47,16 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
    * @generated from field: google.protobuf.Timestamp last_seen_at = 6;
    */
   lastSeenAt?: Timestamp;
+
+  /**
+   * @generated from field: bool online = 7;
+   */
+  online: boolean;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp connectivity_expires_at = 8;
+   */
+  connectivityExpiresAt?: Timestamp;
 };
 
 /**
@@ -55,6 +65,55 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
  */
 export const ComputerSchema: GenMessage<Computer> = /*@__PURE__*/
   messageDesc(file_sumi_computer_v1_computer, 0);
+
+/**
+ * @generated from message sumi.computer.v1.CreateComputerPairingRequest
+ */
+export type CreateComputerPairingRequest = Message<"sumi.computer.v1.CreateComputerPairingRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string pairing_token = 2;
+   */
+  pairingToken: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 3;
+   */
+  expiresAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CreateComputerPairingRequest.
+ * Use `create(CreateComputerPairingRequestSchema)` to create a new message.
+ */
+export const CreateComputerPairingRequestSchema: GenMessage<CreateComputerPairingRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 1);
+
+/**
+ * @generated from message sumi.computer.v1.CreateComputerPairingResponse
+ */
+export type CreateComputerPairingResponse = Message<"sumi.computer.v1.CreateComputerPairingResponse"> & {
+  /**
+   * @generated from field: string pairing_id = 1;
+   */
+  pairingId: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 2;
+   */
+  expiresAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CreateComputerPairingResponse.
+ * Use `create(CreateComputerPairingResponseSchema)` to create a new message.
+ */
+export const CreateComputerPairingResponseSchema: GenMessage<CreateComputerPairingResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 2);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerRequest
@@ -79,6 +138,16 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
    * @generated from field: sumi.computer.v1.Architecture arch = 4;
    */
   arch: Architecture;
+
+  /**
+   * @generated from field: string request_id = 5;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string pairing_token = 6;
+   */
+  pairingToken: string;
 };
 
 /**
@@ -86,7 +155,7 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
  * Use `create(RegisterComputerRequestSchema)` to create a new message.
  */
 export const RegisterComputerRequestSchema: GenMessage<RegisterComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 1);
+  messageDesc(file_sumi_computer_v1_computer, 3);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerResponse
@@ -103,7 +172,7 @@ export type RegisterComputerResponse = Message<"sumi.computer.v1.RegisterCompute
  * Use `create(RegisterComputerResponseSchema)` to create a new message.
  */
 export const RegisterComputerResponseSchema: GenMessage<RegisterComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 2);
+  messageDesc(file_sumi_computer_v1_computer, 4);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerRequest
@@ -125,7 +194,7 @@ export type HeartbeatComputerRequest = Message<"sumi.computer.v1.HeartbeatComput
  * Use `create(HeartbeatComputerRequestSchema)` to create a new message.
  */
 export const HeartbeatComputerRequestSchema: GenMessage<HeartbeatComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 3);
+  messageDesc(file_sumi_computer_v1_computer, 5);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerResponse
@@ -142,7 +211,7 @@ export type HeartbeatComputerResponse = Message<"sumi.computer.v1.HeartbeatCompu
  * Use `create(HeartbeatComputerResponseSchema)` to create a new message.
  */
 export const HeartbeatComputerResponseSchema: GenMessage<HeartbeatComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 4);
+  messageDesc(file_sumi_computer_v1_computer, 6);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerRequest
@@ -159,7 +228,7 @@ export type GetComputerRequest = Message<"sumi.computer.v1.GetComputerRequest"> 
  * Use `create(GetComputerRequestSchema)` to create a new message.
  */
 export const GetComputerRequestSchema: GenMessage<GetComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 5);
+  messageDesc(file_sumi_computer_v1_computer, 7);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerResponse
@@ -176,7 +245,7 @@ export type GetComputerResponse = Message<"sumi.computer.v1.GetComputerResponse"
  * Use `create(GetComputerResponseSchema)` to create a new message.
  */
 export const GetComputerResponseSchema: GenMessage<GetComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 6);
+  messageDesc(file_sumi_computer_v1_computer, 8);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersRequest
@@ -189,7 +258,7 @@ export type ListComputersRequest = Message<"sumi.computer.v1.ListComputersReques
  * Use `create(ListComputersRequestSchema)` to create a new message.
  */
 export const ListComputersRequestSchema: GenMessage<ListComputersRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 7);
+  messageDesc(file_sumi_computer_v1_computer, 9);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersResponse
@@ -206,7 +275,7 @@ export type ListComputersResponse = Message<"sumi.computer.v1.ListComputersRespo
  * Use `create(ListComputersResponseSchema)` to create a new message.
  */
 export const ListComputersResponseSchema: GenMessage<ListComputersResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 8);
+  messageDesc(file_sumi_computer_v1_computer, 10);
 
 /**
  * @generated from enum sumi.computer.v1.OperatingSystem
@@ -264,6 +333,14 @@ export const ArchitectureSchema: GenEnum<Architecture> = /*@__PURE__*/
  * @generated from service sumi.computer.v1.ComputerService
  */
 export const ComputerService: GenService<{
+  /**
+   * @generated from rpc sumi.computer.v1.ComputerService.CreateComputerPairing
+   */
+  createComputerPairing: {
+    methodKind: "unary";
+    input: typeof CreateComputerPairingRequestSchema;
+    output: typeof CreateComputerPairingResponseSchema;
+  },
   /**
    * @generated from rpc sumi.computer.v1.ComputerService.RegisterComputer
    */

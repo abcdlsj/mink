@@ -102,19 +102,23 @@ func actionValue(value string) auditv1.AuditAction {
 		store.AuditSpaceUnarchive:        auditv1.AuditAction_AUDIT_ACTION_SPACE_UNARCHIVE,
 		store.AuditThreadCreate:          auditv1.AuditAction_AUDIT_ACTION_THREAD_CREATE,
 		store.AuditMessageSend:           auditv1.AuditAction_AUDIT_ACTION_MESSAGE_SEND,
+		store.AuditComputerPairPrepare:   auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR_PREPARE,
+		store.AuditComputerPair:          auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR,
 	}
 	return values[value]
 }
 
 func targetValue(value string) auditv1.AuditTargetKind {
 	values := map[string]auditv1.AuditTargetKind{
-		"organization": auditv1.AuditTargetKind_AUDIT_TARGET_KIND_ORGANIZATION,
-		"human":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_HUMAN,
-		"agent":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT,
-		"grant":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_GRANT,
-		"space":        auditv1.AuditTargetKind_AUDIT_TARGET_KIND_SPACE,
-		"thread":       auditv1.AuditTargetKind_AUDIT_TARGET_KIND_THREAD,
-		"message":      auditv1.AuditTargetKind_AUDIT_TARGET_KIND_MESSAGE,
+		"organization":     auditv1.AuditTargetKind_AUDIT_TARGET_KIND_ORGANIZATION,
+		"human":            auditv1.AuditTargetKind_AUDIT_TARGET_KIND_HUMAN,
+		"agent":            auditv1.AuditTargetKind_AUDIT_TARGET_KIND_AGENT,
+		"grant":            auditv1.AuditTargetKind_AUDIT_TARGET_KIND_GRANT,
+		"space":            auditv1.AuditTargetKind_AUDIT_TARGET_KIND_SPACE,
+		"thread":           auditv1.AuditTargetKind_AUDIT_TARGET_KIND_THREAD,
+		"message":          auditv1.AuditTargetKind_AUDIT_TARGET_KIND_MESSAGE,
+		"computer_pairing": auditv1.AuditTargetKind_AUDIT_TARGET_KIND_COMPUTER_PAIRING,
+		"computer":         auditv1.AuditTargetKind_AUDIT_TARGET_KIND_COMPUTER,
 	}
 	return values[value]
 }

@@ -151,7 +151,8 @@ func TestAgentDeliveryHTTPGrantRestartReclaimReplayAuthorizationAndQuiet(t *test
 	deliveryClient = deliveryv1connect.NewDeliveryServiceClient(api.http.Client(), api.http.URL)
 	restarted, err := deliveryClient.ListDeliveries(context.Background(), deliveryRequest(oldSession.GetToken(), &deliveryv1.ListDeliveriesRequest{Limit: 200}))
 	if err != nil || restarted.Msg.GetActiveRun().GetId() != accepted.Msg.GetRun().GetId() ||
-		restarted.Msg.GetActiveLaunch().GetId() != claimed.Msg.GetLaunch().GetId() {
+		restarted.Msg.GetActiveLaunch().GetId() != claimed.Msg.GetLaunch().GetId() ||
+		restarted.Msg.GetActiveDelivery().GetId() != accepted.Msg.GetRun().GetDeliveryId() {
 		api.close(t)
 		t.Fatalf("restart active discovery = %+v, %v", restarted, err)
 	}
@@ -159,14 +160,7 @@ func TestAgentDeliveryHTTPGrantRestartReclaimReplayAuthorizationAndQuiet(t *test
 	expireLaunchFixture(t, dataRoot, claimed.Msg.GetLaunch().GetId())
 	api = openFactsAPI(t, dataRoot)
 	ownerOption = ownerClientAuthorization(t, dataRoot)
-	computerResponse, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: "delivery-http-migrated-registration-key", Name: "Delivery migrated host",
-		Os: computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, Arch: computerv1.Architecture_ARCHITECTURE_ARM64,
-	}))
-	if err != nil {
-		api.close(t)
-		t.Fatal(err)
-	}
+	computerResponse := pairComputer(t, api, "delivery-http-migrated-registration-key", "Delivery migrated host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
 	newComputer := computerResponse.Msg.GetComputer()
 	placementResponse, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.GetId(), ComputerId: newComputer.GetId(),
@@ -193,6 +187,7 @@ func TestAgentDeliveryHTTPGrantRestartReclaimReplayAuthorizationAndQuiet(t *test
 	}
 	migratedList, err := deliveryClient.ListDeliveries(context.Background(), deliveryRequest(newSession.GetToken(), &deliveryv1.ListDeliveriesRequest{Limit: 200}))
 	if err != nil || migratedList.Msg.GetActiveRun().GetId() != accepted.Msg.GetRun().GetId() ||
+		migratedList.Msg.GetActiveDelivery().GetId() != accepted.Msg.GetRun().GetDeliveryId() ||
 		migratedList.Msg.GetActiveLaunch().GetId() != claimed.Msg.GetLaunch().GetId() ||
 		migratedList.Msg.GetActiveLaunch().GetExpiresAt().AsTime().After(time.Now()) {
 		api.close(t)
