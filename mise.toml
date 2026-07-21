@@ -2,6 +2,7 @@
 go = "1.26.5"
 node = "22"
 "go:github.com/bufbuild/buf/cmd/buf" = "1.72.0"
+"go:honnef.co/go/tools/cmd/staticcheck" = "0.6.1"
 
 [tasks.install]
 description = "Install Go and Web dependencies"
@@ -26,6 +27,7 @@ description = "Run API, Go, and Web static checks"
 run = '''
 buf lint
 go vet ./...
+staticcheck ./...
 npm run typecheck --prefix web
 '''
 
@@ -34,6 +36,13 @@ description = "Run Go and Web tests"
 run = '''
 go test ./...
 npm test --prefix web
+'''
+
+[tasks."test:e2e"]
+description = "Run browser release validation against a supplied Sumi Server"
+run = '''
+: "${PLAYWRIGHT_OWNER_KEY_FILE:?set PLAYWRIGHT_OWNER_KEY_FILE to the 0600 owner credential file}"
+npm run test:e2e --prefix web
 '''
 
 [tasks.build]

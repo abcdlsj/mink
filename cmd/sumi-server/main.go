@@ -111,7 +111,7 @@ func runAuth(args []string, stdout, stderr io.Writer) error {
 	}
 	credential, err := authority.ReadCredentialFile(*humanKeyFile)
 	if err != nil {
-		return errors.New("Human credential file is missing or unsafe")
+		return errors.New("human credential file is missing or unsafe")
 	}
 	request, err := http.NewRequest(http.MethodPost, origin.String()+websession.CreateHandoffPath, nil)
 	if err != nil {
