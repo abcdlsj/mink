@@ -316,6 +316,17 @@ func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) (L
 	return result, nil
 }
 
+type artifactBatchRowsErrorContextKey struct{}
+
+type artifactBatchRowsErrorFunc func(int, *sql.Rows) error
+
+func artifactBatchRowsErr(ctx context.Context, scanned int, rows *sql.Rows) error {
+	if read, ok := ctx.Value(artifactBatchRowsErrorContextKey{}).(artifactBatchRowsErrorFunc); ok {
+		return read(scanned, rows)
+	}
+	return rows.Err()
+}
+
 func listArtifactBatch(ctx context.Context, tx *sql.Tx, organizationID, owningWorkID string, afterCreatedAt time.Time, afterID string, limit uint32) ([]Artifact, error) {
 	query := `
 		SELECT id, organization_id, owning_work_id, name, media_type,
@@ -348,7 +359,7 @@ func listArtifactBatch(ctx context.Context, tx *sql.Tx, organizationID, owningWo
 		}
 		artifacts = append(artifacts, artifact)
 	}
-	if err := rows.Err(); err != nil {
+	if err := artifactBatchRowsErr(ctx, len(artifacts), rows); err != nil {
 		return nil, fmt.Errorf("iterate artifact batch: %w", err)
 	}
 	return artifacts, nil
