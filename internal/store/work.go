@@ -298,6 +298,23 @@ type workPartsQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
+const (
+	workRowsConstraints = "constraints"
+	workRowsCriteria    = "acceptance_criteria"
+	workRowsCompletion  = "completion_criteria"
+)
+
+type workRowsErrorContextKey struct{}
+
+type workRowsErrorFunc func(string, *sql.Rows) error
+
+func workRowsErr(ctx context.Context, source string, rows *sql.Rows) error {
+	if read, ok := ctx.Value(workRowsErrorContextKey{}).(workRowsErrorFunc); ok {
+		return read(source, rows)
+	}
+	return rows.Err()
+}
+
 func loadWorkParts(ctx context.Context, queryer workPartsQueryer, work *Work) error {
 	rows, err := queryer.QueryContext(ctx, `SELECT id, ordinal, body, created_at FROM work_constraints WHERE work_id = ? AND organization_id = ? ORDER BY ordinal`, work.ID, work.OrganizationID)
 	if err != nil {
@@ -312,6 +329,10 @@ func loadWorkParts(ctx context.Context, queryer workPartsQueryer, work *Work) er
 		}
 		value.CreatedAt = timeFromUnixNano(stamp)
 		work.Constraints = append(work.Constraints, value)
+	}
+	if err := workRowsErr(ctx, workRowsConstraints, rows); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate work constraints: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return err
@@ -329,6 +350,10 @@ func loadWorkParts(ctx context.Context, queryer workPartsQueryer, work *Work) er
 		}
 		value.CreatedAt = timeFromUnixNano(stamp)
 		work.AcceptanceCriteria = append(work.AcceptanceCriteria, value)
+	}
+	if err := workRowsErr(ctx, workRowsCriteria, rows); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate work criteria: %w", err)
 	}
 	return rows.Close()
 }
@@ -885,6 +910,9 @@ func ensureCriteriaSatisfied(ctx context.Context, tx *sql.Tx, work Work, inputs 
 		} else {
 			latest[criterionID] = verdict
 		}
+	}
+	if err := workRowsErr(ctx, workRowsCompletion, rows); err != nil {
+		return fmt.Errorf("iterate work completion criteria: %w", err)
 	}
 	for _, input := range inputs {
 		if input.Verdict != "passed" && input.Verdict != "failed" {

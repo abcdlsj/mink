@@ -328,6 +328,129 @@ func TestEndWorkAssignmentsIterationErrorRollsBackAssignmentAndEvents(t *testing
 	}
 }
 
+func TestWorkPartsIterationErrorsRejectIncompleteWorkAndRollbackCreate(t *testing.T) {
+	for _, source := range []string{workRowsConstraints, workRowsCriteria} {
+		t.Run(source, func(t *testing.T) {
+			database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+			defer database.Close()
+			space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "work parts iteration", Now: now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			message, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "delegate", Now: now.Add(time.Second)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			create := WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: message.ID, SourceSpaceID: space.ID, SourceTarget: message.Target, SourceTargetSequence: message.TargetSequence, Goal: "work parts", Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now.Add(2 * time.Second)}
+			work, err := database.CreateWork(context.Background(), create)
+			if err != nil {
+				t.Fatal(err)
+			}
+			contextWithIterationError := context.WithValue(context.Background(), workRowsErrorContextKey{}, workRowsErrorFunc(func(actual string, rows *sql.Rows) error {
+				if actual == source {
+					return errors.New("forced " + source + " iteration error")
+				}
+				return rows.Err()
+			}))
+			if _, err := database.GetWork(contextWithIterationError, WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(3 * time.Second)}); err == nil || !strings.Contains(err.Error(), "forced "+source+" iteration error") {
+				t.Fatalf("get work with %s iteration error = %v", source, err)
+			}
+			before := readWorkFactCounts(t, database)
+			create.RequestID = uuid.NewString()
+			create.Goal = "work parts rollback"
+			create.Now = now.Add(4 * time.Second)
+			if _, err := database.CreateWork(contextWithIterationError, create); err == nil || !strings.Contains(err.Error(), "forced "+source+" iteration error") {
+				t.Fatalf("create work with %s iteration error = %v", source, err)
+			}
+			after := readWorkFactCounts(t, database)
+			if after != before {
+				t.Fatalf("%s iteration error committed work facts: after=%+v before=%+v", source, after, before)
+			}
+		})
+	}
+}
+
+func TestWorkCompletionCriteriaIterationErrorRollsBackTransition(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "completion iteration", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "delegate", Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	work, err := database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: message.ID, SourceSpaceID: space.ID, SourceTarget: message.Target, SourceTargetSequence: message.TargetSequence, Goal: "completion iteration", AcceptanceCriteria: []string{"first", "second"}, Now: now.Add(2 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receiptsBefore, eventsBefore int
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_requests`).Scan(&receiptsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_events WHERE work_id = ?`, work.ID).Scan(&eventsBefore); err != nil {
+		t.Fatal(err)
+	}
+	contextWithIterationError := context.WithValue(context.Background(), workRowsErrorContextKey{}, workRowsErrorFunc(func(source string, rows *sql.Rows) error {
+		if source == workRowsCompletion {
+			return errors.New("forced completion criteria iteration error")
+		}
+		return rows.Err()
+	}))
+	results := []WorkCriterionResultInput{
+		{CriterionID: work.AcceptanceCriteria[0].ID, Verdict: "passed", Evidence: "first evidence"},
+		{CriterionID: work.AcceptanceCriteria[1].ID, Verdict: "passed", Evidence: "second evidence"},
+	}
+	if _, err := database.TransitionWork(contextWithIterationError, TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateCompleted, Result: "done", CriterionResults: results, Now: now.Add(3 * time.Second)}); err == nil || !strings.Contains(err.Error(), "forced completion criteria iteration error") {
+		t.Fatalf("complete work with criteria iteration error = %v", err)
+	}
+	current, err := database.GetWork(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(4 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != WorkStateOpen || current.CompletedAt != nil {
+		t.Fatalf("criteria iteration error completed work: %+v", current)
+	}
+	var receiptsAfter, eventsAfter, criterionResults int
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_requests`).Scan(&receiptsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_events WHERE work_id = ?`, work.ID).Scan(&eventsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_acceptance_results WHERE work_id = ?`, work.ID).Scan(&criterionResults); err != nil {
+		t.Fatal(err)
+	}
+	if receiptsAfter != receiptsBefore || eventsAfter != eventsBefore || criterionResults != 0 {
+		t.Fatalf("criteria iteration error committed transition facts: receipts %d/%d events %d/%d results %d", receiptsAfter, receiptsBefore, eventsAfter, eventsBefore, criterionResults)
+	}
+}
+
+type workFactCounts struct {
+	works, spaces, events, receipts, dirty int
+}
+
+func readWorkFactCounts(t *testing.T, database *Store) workFactCounts {
+	t.Helper()
+	var counts workFactCounts
+	for _, count := range []struct {
+		query string
+		into  *int
+	}{
+		{query: `SELECT count(*) FROM works`, into: &counts.works},
+		{query: `SELECT count(*) FROM spaces`, into: &counts.spaces},
+		{query: `SELECT count(*) FROM work_events`, into: &counts.events},
+		{query: `SELECT count(*) FROM work_requests`, into: &counts.receipts},
+		{query: `SELECT count(*) FROM knowledge_dirty_sources`, into: &counts.dirty},
+	} {
+		if err := database.db.QueryRow(count.query).Scan(count.into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return counts
+}
+
 func TestWorkMigrationDownDropsWorkFactsAndRestoresGrantSchema(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
