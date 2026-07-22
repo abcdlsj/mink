@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -16,7 +17,8 @@ import (
 var migrations embed.FS
 
 type Store struct {
-	db *sql.DB
+	db                   *sql.DB
+	knowledgeCursorCodec knowledgeCursorCodec
 }
 
 func Open(path string) (*Store, error) {
@@ -34,12 +36,22 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	key, err := bootstrapKnowledgeCursorKey(context.Background(), db, rand.Reader)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	cursorCodec, err := newKnowledgeCursorCodec(key, rand.Reader)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("initialize knowledge cursor codec: %w", ErrKnowledgeCursorKeyUnavailable)
+	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("secure sqlite: %w", err)
 	}
 
-	return &Store{db: db}, nil
+	return &Store{db: db, knowledgeCursorCodec: cursorCodec}, nil
 }
 
 func (s *Store) Close() error {
@@ -73,9 +85,9 @@ func (s *Store) ServerID(ctx context.Context) (string, error) {
 
 func configure(db *sql.DB) error {
 	for _, statement := range []string{
+		"PRAGMA busy_timeout = 5000",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA foreign_keys = ON",
-		"PRAGMA busy_timeout = 5000",
 	} {
 		if _, err := db.Exec(statement); err != nil {
 			return fmt.Errorf("configure sqlite: %w", err)

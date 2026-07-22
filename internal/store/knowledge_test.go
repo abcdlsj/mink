@@ -942,6 +942,16 @@ func TestKnowledgeMigrationDownUpRoundTrip(t *testing.T) {
 	if err := goose.Down(database, "migrations"); err != nil {
 		t.Fatal(err)
 	}
+	var keyExists bool
+	if err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'knowledge_cursor_keys')`).Scan(&keyExists); err != nil {
+		t.Fatal(err)
+	}
+	if keyExists {
+		t.Fatal("knowledge cursor key survived migration down")
+	}
+	if err := goose.Down(database, "migrations"); err != nil {
+		t.Fatal(err)
+	}
 	if err := goose.Down(database, "migrations"); err != nil {
 		t.Fatal(err)
 	}
@@ -963,6 +973,10 @@ func TestKnowledgeMigrationDownUpRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
+	var cursorKey []byte
+	if err := reopened.db.QueryRow(`SELECT key FROM knowledge_cursor_keys WHERE singleton = 1`).Scan(&cursorKey); err != nil || len(cursorKey) != 32 {
+		t.Fatalf("knowledge cursor key after migration round-trip = %d bytes, %v", len(cursorKey), err)
+	}
 	available, err := reopened.KnowledgeFTSAvailable(context.Background())
 	if err != nil || !available {
 		t.Fatalf("knowledge FTS after migration round-trip = %t, %v", available, err)

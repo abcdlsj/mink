@@ -464,7 +464,7 @@ func TestWorkMigrationDownDropsWorkFactsAndRestoresGrantSchema(t *testing.T) {
 	if err := database.db.QueryRow(`SELECT version_id FROM goose_db_version WHERE is_applied = 1 ORDER BY version_id DESC LIMIT 1`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 18 {
+	if version != 19 {
 		t.Fatalf("migration version = %d", version)
 	}
 	if _, err := database.db.Exec(`UPDATE work_constraints SET body = 'changed' WHERE 1 = 0`); err != nil {
@@ -475,6 +475,9 @@ func TestWorkMigrationDownDropsWorkFactsAndRestoresGrantSchema(t *testing.T) {
 	}
 	goose.SetBaseFS(migrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := goose.Down(database.db, "migrations"); err != nil {
 		t.Fatal(err)
 	}
 	if err := goose.Down(database.db, "migrations"); err != nil {
