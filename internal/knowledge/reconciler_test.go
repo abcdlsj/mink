@@ -3,12 +3,14 @@ package knowledge
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/google/uuid"
 )
 
 func TestReconcileNextZeroHighWaterCompletesAndActivates(t *testing.T) {
@@ -20,6 +22,40 @@ func TestReconcileNextZeroHighWaterCompletesAndActivates(t *testing.T) {
 	if want := []string{"build", "complete", "activate"}; !reflect.DeepEqual(database.calls, want) {
 		t.Fatalf("calls = %v, want %v", database.calls, want)
 	}
+}
+
+func TestStartDiscardsInheritedCompleteGeneration(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.EnqueueKnowledgeDirtySource(context.Background(), store.KnowledgeSource{Kind: store.KnowledgeSourceMessage, ID: uuid.NewString()}, [32]byte{1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := database.StartKnowledgeRebuild(context.Background(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), pending.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteKnowledgeGeneration(context.Background(), pending.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	defer reconciler.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		metadata, err := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadata.ActiveGeneration > pending.NextGeneration && metadata.NextGeneration == 0 && metadata.Status == store.KnowledgeIndexReady {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	t.Fatalf("inherited complete generation was not replaced: %+v, %v", metadata, err)
 }
 
 func TestReconcileNextDiscardsUnrecoverableSnapshot(t *testing.T) {
@@ -108,12 +144,15 @@ type reconcilerStore struct {
 
 	metadataStarted chan struct{}
 	metadataRelease chan struct{}
+	metadataOnce    sync.Once
 }
 
 func (s *reconcilerStore) KnowledgeIndexMetadata(context.Context) (store.KnowledgeIndexMetadata, error) {
 	if s.metadataStarted != nil {
-		close(s.metadataStarted)
-		<-s.metadataRelease
+		s.metadataOnce.Do(func() {
+			close(s.metadataStarted)
+			<-s.metadataRelease
+		})
 	}
 	return s.metadata, nil
 }
