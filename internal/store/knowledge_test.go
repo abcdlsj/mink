@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -551,6 +552,91 @@ func TestKnowledgeSnapshotRejectsZeroPartialAndFailedProjection(t *testing.T) {
 	}
 }
 
+func TestKnowledgeGenerationRejectsPartialSourceIteration(t *testing.T) {
+	for _, source := range []string{KnowledgeSourceMessage, KnowledgeSourceWork, KnowledgeSourceArtifactVersion} {
+		for _, operation := range []string{"build", "complete", "activate"} {
+			t.Run(source+"/"+operation, func(t *testing.T) {
+				fixture := openArtifactFixture(t)
+				defer fixture.database.Close()
+				if _, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "iteration artifact", fixture.at(1))); err != nil {
+					t.Fatal(err)
+				}
+				rebuilding, err := fixture.database.StartKnowledgeRebuild(context.Background(), fixture.at(2))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if operation != "build" {
+					if err := fixture.database.BuildKnowledgeGenerationSnapshot(context.Background(), rebuilding.NextGeneration); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if operation == "activate" {
+					if err := fixture.database.CompleteKnowledgeGeneration(context.Background(), rebuilding.NextGeneration); err != nil {
+						t.Fatal(err)
+					}
+				}
+				contextWithIterationError := context.WithValue(context.Background(), knowledgeSourceDocumentsContextKey{}, knowledgeSourceDocumentsFunc(func(ctx context.Context, queryer knowledgeSourceQueryer) ([]KnowledgeSourceDocument, error) {
+					documents, err := listKnowledgeSourceDocuments(ctx, queryer)
+					if err != nil {
+						return nil, err
+					}
+					for index, document := range documents {
+						if document.Source.Kind == source {
+							return documents[:index+1], fmt.Errorf("forced %s iteration error", source)
+						}
+					}
+					return nil, fmt.Errorf("missing %s source for forced iteration error", source)
+				}))
+				var operationErr error
+				switch operation {
+				case "build":
+					operationErr = fixture.database.BuildKnowledgeGenerationSnapshot(contextWithIterationError, rebuilding.NextGeneration)
+				case "complete":
+					operationErr = fixture.database.CompleteKnowledgeGeneration(contextWithIterationError, rebuilding.NextGeneration)
+				case "activate":
+					_, operationErr = fixture.database.ActivateKnowledgeGeneration(contextWithIterationError, rebuilding.NextGeneration)
+				}
+				if operationErr == nil || !strings.Contains(operationErr.Error(), "forced "+source+" iteration error") {
+					t.Fatalf("%s with partial %s iteration = %v", operation, source, operationErr)
+				}
+				progress, err := fixture.database.KnowledgeGenerationProgress(context.Background(), rebuilding.NextGeneration)
+				if err != nil {
+					t.Fatal(err)
+				}
+				metadata, err := fixture.database.KnowledgeIndexMetadata(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				var state string
+				if err := fixture.database.db.QueryRow(`SELECT state FROM knowledge_index_generations WHERE generation = ?`, rebuilding.NextGeneration).Scan(&state); err != nil {
+					t.Fatal(err)
+				}
+				switch operation {
+				case "build":
+					if progress.SnapshotHighWater != 0 || progress.AppliedSequence != 0 || state != "building" || metadata.Status != KnowledgeIndexRebuilding || metadata.NextGeneration != rebuilding.NextGeneration {
+						t.Fatalf("failed build advanced generation: progress=%+v state=%s metadata=%+v", progress, state, metadata)
+					}
+					var projections int
+					if err := fixture.database.db.QueryRow(`SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, rebuilding.NextGeneration).Scan(&projections); err != nil {
+						t.Fatal(err)
+					}
+					if projections != 0 {
+						t.Fatalf("failed build left projections = %d", projections)
+					}
+				case "complete":
+					if progress.SnapshotHighWater == 0 || progress.AppliedSequence != progress.SnapshotHighWater || state != "building" || metadata.Status != KnowledgeIndexRebuilding || metadata.NextGeneration != rebuilding.NextGeneration {
+						t.Fatalf("failed completion advanced generation: progress=%+v state=%s metadata=%+v", progress, state, metadata)
+					}
+				case "activate":
+					if progress.SnapshotHighWater == 0 || progress.AppliedSequence != progress.SnapshotHighWater || state != "complete" || metadata.ActiveGeneration != 0 || metadata.Status != KnowledgeIndexRebuilding || metadata.NextGeneration != rebuilding.NextGeneration {
+						t.Fatalf("failed activation advanced generation: progress=%+v state=%s metadata=%+v", progress, state, metadata)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestKnowledgeSnapshotRebuildsExistingFactsAfterFTSRepair(t *testing.T) {
 	fixture := openArtifactFixture(t)
 	defer fixture.database.Close()
@@ -666,86 +752,6 @@ func TestKnowledgeMessageDirtyHookReplaysExactlyAndRollsBack(t *testing.T) {
 	}
 	if messages != 0 || dirty != 0 {
 		t.Fatalf("failed message left facts/dirty = %d/%d", messages, dirty)
-	}
-}
-
-func TestKnowledgeArtifactDirtyHookReplaysExactlyAndRollsBack(t *testing.T) {
-	fixture := openArtifactFixture(t)
-	defer fixture.database.Close()
-	params := fixture.humanPublishParams(uuid.NewString(), "artifact exact", fixture.at(1))
-	published, err := fixture.artifacts.Publish(context.Background(), params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	params.Content = strings.NewReader("artifact exact")
-	if _, err := fixture.artifacts.Publish(context.Background(), params); err != nil {
-		t.Fatal(err)
-	}
-	assertKnowledgeDirty(t, fixture.database, KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}, KnowledgeArtifactVersionRevision(published.Artifact.ID, published.Version.Version, published.Version.Digest), 1)
-	if _, err := fixture.database.db.Exec(`CREATE TRIGGER fail_artifact_dirty BEFORE INSERT ON knowledge_dirty_sources BEGIN SELECT RAISE(ABORT, 'artifact dirty failed'); END`); err != nil {
-		t.Fatal(err)
-	}
-	failed := fixture.humanPublishParams(uuid.NewString(), "artifact rollback", fixture.at(2))
-	if _, err := fixture.artifacts.Publish(context.Background(), failed); err == nil || !strings.Contains(err.Error(), "artifact dirty failed") {
-		t.Fatalf("artifact dirty rollback = %v", err)
-	}
-	if _, err := fixture.database.db.Exec(`DROP TRIGGER fail_artifact_dirty`); err != nil {
-		t.Fatal(err)
-	}
-	var versions, dirty int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_versions WHERE artifact_id = ?`, published.Artifact.ID).Scan(&versions); err != nil {
-		t.Fatal(err)
-	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources WHERE source_kind = 'artifact_version' AND source_id = ? AND source_version = 2`, published.Artifact.ID).Scan(&dirty); err != nil {
-		t.Fatal(err)
-	}
-	if versions != 1 || dirty != 0 {
-		t.Fatalf("failed artifact left versions/dirty = %d/%d", versions, dirty)
-	}
-}
-
-func TestKnowledgeWorkDirtyHookReplaysExactlyAndRollsBack(t *testing.T) {
-	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
-	defer database.Close()
-	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "work dirty", Now: now})
-	if err != nil {
-		t.Fatal(err)
-	}
-	message, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "delegate", Now: now.Add(time.Second)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	create := WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: message.ID, SourceSpaceID: space.ID, SourceTarget: message.Target, SourceTargetSequence: message.TargetSequence, Goal: "work exact", AcceptanceCriteria: []string{"done"}, Now: now.Add(2 * time.Second)}
-	work, err := database.CreateWork(context.Background(), create)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.CreateWork(context.Background(), create); err != nil {
-		t.Fatal(err)
-	}
-	assertKnowledgeDirty(t, database, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, knowledgeWorkRevision(work), 1)
-	transition := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateBlocked, Reason: "blocked", Now: now.Add(3 * time.Second)}
-	updated, err := database.TransitionWork(context.Background(), transition)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
-		t.Fatal(err)
-	}
-	assertKnowledgeDirty(t, database, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, knowledgeWorkRevision(updated), 2)
-	if _, err := database.db.Exec(`CREATE TRIGGER fail_work_dirty BEFORE INSERT ON knowledge_dirty_sources BEGIN SELECT RAISE(ABORT, 'work dirty failed'); END`); err != nil {
-		t.Fatal(err)
-	}
-	failed := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateOpen, Now: now.Add(4 * time.Second)}
-	if _, err := database.TransitionWork(context.Background(), failed); err == nil || !strings.Contains(err.Error(), "work dirty failed") {
-		t.Fatalf("work dirty rollback = %v", err)
-	}
-	if _, err := database.db.Exec(`DROP TRIGGER fail_work_dirty`); err != nil {
-		t.Fatal(err)
-	}
-	current, err := database.GetWork(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(5 * time.Second)})
-	if err != nil || current.State != WorkStateBlocked {
-		t.Fatalf("failed transition changed work = %+v, %v", current, err)
 	}
 }
 

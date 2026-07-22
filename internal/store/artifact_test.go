@@ -116,6 +116,74 @@ func TestArtifactHumanPublishVersionsReplayFetchAndRestart(t *testing.T) {
 	}
 }
 
+func TestArtifactPublishKnowledgeDirtyFailureRollsBackAllFacts(t *testing.T) {
+	fixture := openArtifactFixture(t)
+	defer fixture.database.Close()
+	initial := fixture.humanPublishParams(uuid.NewString(), "artifact exact", fixture.at(1))
+	published, err := fixture.artifacts.Publish(context.Background(), initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial.Content = strings.NewReader("artifact exact")
+	if _, err := fixture.artifacts.Publish(context.Background(), initial); err != nil {
+		t.Fatal(err)
+	}
+	assertKnowledgeDirty(t, fixture.database, KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}, KnowledgeArtifactVersionRevision(published.Artifact.ID, published.Version.Version, published.Version.Digest), 1)
+	var artifactsBefore, versionsBefore, associatedVersionsBefore, receiptsBefore, dirtyBefore int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifacts`).Scan(&artifactsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_versions`).Scan(&versionsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_versions WHERE artifact_id = ?`, published.Artifact.ID).Scan(&associatedVersionsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_requests`).Scan(&receiptsBefore); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources`).Scan(&dirtyBefore); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.db.Exec(`CREATE TRIGGER fail_artifact_dirty BEFORE INSERT ON knowledge_dirty_sources BEGIN SELECT RAISE(ABORT, 'artifact dirty failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := PublishArtifactParams{
+		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
+		ArtifactID: published.Artifact.ID, OwningWorkID: fixture.work.ID,
+		Name: published.Artifact.Name, MediaType: published.Artifact.MediaType, Summary: "artifact rollback",
+		Content: strings.NewReader("artifact rollback"), Now: fixture.at(2),
+	}
+	if _, err := fixture.artifacts.Publish(context.Background(), failed); err == nil || !strings.Contains(err.Error(), "artifact dirty failed") {
+		t.Fatalf("artifact dirty rollback = %v", err)
+	}
+	if _, err := fixture.database.db.Exec(`DROP TRIGGER fail_artifact_dirty`); err != nil {
+		t.Fatal(err)
+	}
+	var artifactsAfter, versionsAfter, associatedVersionsAfter, receiptsAfter, dirtyAfter, failedReceipt int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifacts`).Scan(&artifactsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_versions`).Scan(&versionsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_versions WHERE artifact_id = ?`, published.Artifact.ID).Scan(&associatedVersionsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_requests`).Scan(&receiptsAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources`).Scan(&dirtyAfter); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM artifact_requests WHERE request_id = ?`, failed.RequestID).Scan(&failedReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if artifactsAfter != artifactsBefore || versionsAfter != versionsBefore || associatedVersionsAfter != associatedVersionsBefore || receiptsAfter != receiptsBefore || dirtyAfter != dirtyBefore || failedReceipt != 0 {
+		t.Fatalf("failed artifact publish changed facts: artifacts %d/%d versions %d/%d associated %d/%d receipts %d/%d dirty %d/%d request receipt %d", artifactsAfter, artifactsBefore, versionsAfter, versionsBefore, associatedVersionsAfter, associatedVersionsBefore, receiptsAfter, receiptsBefore, dirtyAfter, dirtyBefore, failedReceipt)
+	}
+}
+
 func TestArtifactPublishDeclaredContentMismatchAndReplayConflict(t *testing.T) {
 	t.Run("mismatch leaves only a reconcilable orphan", func(t *testing.T) {
 		fixture := openArtifactFixture(t)

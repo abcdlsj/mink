@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,6 +204,60 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	defer rows.Close()
 	if rows.Next() {
 		t.Fatal("work facts left a foreign-key violation")
+	}
+}
+
+func TestWorkTransitionKnowledgeDirtyFailurePreservesWorkFacts(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "work dirty", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "delegate", Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := WorkCreateParams{
+		RequestID: uuid.NewString(), Actor: owner, SourceMessageID: message.ID, SourceSpaceID: space.ID,
+		SourceTarget: message.Target, SourceTargetSequence: message.TargetSequence,
+		Goal: "work exact", AcceptanceCriteria: []string{"done"}, Now: now.Add(2 * time.Second),
+	}
+	work, err := database.CreateWork(context.Background(), create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.CreateWork(context.Background(), create); err != nil {
+		t.Fatal(err)
+	}
+	assertKnowledgeDirty(t, database, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, knowledgeWorkRevision(work), 1)
+	transition := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateBlocked, Reason: "blocked", Now: now.Add(3 * time.Second)}
+	updated, err := database.TransitionWork(context.Background(), transition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
+		t.Fatal(err)
+	}
+	assertKnowledgeDirty(t, database, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, knowledgeWorkRevision(updated), 2)
+	beforeRevision := knowledgeWorkRevision(updated)
+	beforeDirty := knowledgeDirtyCount(t, database, work.ID)
+	if _, err := database.db.Exec(`CREATE TRIGGER fail_work_dirty BEFORE INSERT ON knowledge_dirty_sources BEGIN SELECT RAISE(ABORT, 'work dirty failed'); END`); err != nil {
+		t.Fatal(err)
+	}
+	failed := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateOpen, Now: now.Add(4 * time.Second)}
+	if _, err := database.TransitionWork(context.Background(), failed); err == nil || !strings.Contains(err.Error(), "work dirty failed") {
+		t.Fatalf("work dirty rollback = %v", err)
+	}
+	if _, err := database.db.Exec(`DROP TRIGGER fail_work_dirty`); err != nil {
+		t.Fatal(err)
+	}
+	current, err := database.GetWork(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(5 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.State != updated.State || knowledgeWorkRevision(current) != beforeRevision || knowledgeDirtyCount(t, database, work.ID) != beforeDirty {
+		t.Fatalf("failed transition changed work facts: current=%+v before state=%s revision=%x dirty=%d", current, updated.State, beforeRevision, beforeDirty)
 	}
 }
 

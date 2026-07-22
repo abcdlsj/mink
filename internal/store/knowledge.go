@@ -186,7 +186,7 @@ func (s *Store) BuildKnowledgeGenerationSnapshot(ctx context.Context, generation
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) FROM knowledge_dirty_sources`).Scan(&highWater); err != nil {
 		return fmt.Errorf("read knowledge snapshot high water: %w", err)
 	}
-	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	documents, err := listKnowledgeSourceDocumentsForGeneration(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -318,7 +318,7 @@ func (s *Store) CompleteKnowledgeGeneration(ctx context.Context, generation uint
 	if progress.AppliedSequence < progress.SnapshotHighWater {
 		return fmt.Errorf("knowledge generation %d has not reached its snapshot high water", generation)
 	}
-	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	documents, err := listKnowledgeSourceDocumentsForGeneration(ctx, tx)
 	if err != nil {
 		return err
 	}
@@ -457,7 +457,7 @@ func (s *Store) ActivateKnowledgeGeneration(ctx context.Context, generation uint
 	if applied != maximum {
 		return KnowledgeIndexMetadata{}, fmt.Errorf("knowledge generation %d is applied through %d, not %d", generation, applied, maximum)
 	}
-	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	documents, err := listKnowledgeSourceDocumentsForGeneration(ctx, tx)
 	if err != nil {
 		return KnowledgeIndexMetadata{}, err
 	}
@@ -513,6 +513,17 @@ type knowledgeQueryer interface {
 type knowledgeSourceQueryer interface {
 	knowledgeQueryer
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+type knowledgeSourceDocumentsContextKey struct{}
+
+type knowledgeSourceDocumentsFunc func(context.Context, knowledgeSourceQueryer) ([]KnowledgeSourceDocument, error)
+
+func listKnowledgeSourceDocumentsForGeneration(ctx context.Context, queryer knowledgeSourceQueryer) ([]KnowledgeSourceDocument, error) {
+	if list, ok := ctx.Value(knowledgeSourceDocumentsContextKey{}).(knowledgeSourceDocumentsFunc); ok {
+		return list(ctx, queryer)
+	}
+	return listKnowledgeSourceDocuments(ctx, queryer)
 }
 
 func readKnowledgeIndexMetadata(ctx context.Context, queryer knowledgeQueryer) (KnowledgeIndexMetadata, error) {
@@ -585,6 +596,10 @@ func listKnowledgeSourceDocuments(ctx context.Context, queryer knowledgeSourceQu
 		document.Revision = KnowledgeMessageRevision(document.Source.ID, sequence)
 		documents = append(documents, document)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate knowledge message sources: %w", err)
+	}
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
@@ -603,6 +618,10 @@ func listKnowledgeSourceDocuments(ctx context.Context, queryer knowledgeSourceQu
 			return nil, fmt.Errorf("read knowledge work fields: %w", err)
 		}
 		documents = append(documents, KnowledgeSourceDocument{Source: KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, Revision: knowledgeWorkRevision(work), Body: knowledgeWorkBody(work)})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate knowledge work sources: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -629,6 +648,10 @@ func listKnowledgeSourceDocuments(ctx context.Context, queryer knowledgeSourceQu
 		document.Revision = KnowledgeArtifactVersionRevision(document.Source.ID, document.Source.Version, contentDigest)
 		document.Body = strings.Join([]string{name, mediaType, summary}, "\n")
 		documents = append(documents, document)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("iterate knowledge artifact sources: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
