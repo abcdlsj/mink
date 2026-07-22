@@ -7,8 +7,8 @@ import (
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -17,7 +17,7 @@ func (s *Service) CreateComputerPairing(ctx context.Context, request *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 	if request.Msg.GetPairingToken() == "" {
 		computer, err = s.store.RecoverComputer(ctx, params)
 	} else {
-		requestID, idErr := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+		requestID, idErr := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 		if idErr != nil {
 			return nil, idErr
 		}
@@ -81,7 +81,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 }
 
 func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Request[computerv1.HeartbeatComputerRequest]) (*connect.Response[computerv1.HeartbeatComputerResponse], error) {
-	id, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	id, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 }
 
 func (s *Service) GetComputer(ctx context.Context, request *connect.Request[computerv1.GetComputerRequest]) (*connect.Response[computerv1.GetComputerResponse], error) {
-	id, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	id, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}

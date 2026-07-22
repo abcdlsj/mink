@@ -4,7 +4,7 @@
 
 ## 约束
 
-- [x] 不把 `computerstate` 本地 SQLite 与 Server Store 合并
+- [x] 不把 `computer/state` 本地 SQLite 与 Server Store 合并
 - [x] 不引入 ORM、通用 Repository、CQRS 框架或万能事务封装
 - [x] 每个任务完成后运行与改动匹配的 format、lint、test、build
 - [x] 不删除权限、事务、replay、fence、恢复相关高价值测试
@@ -56,3 +56,10 @@
 - [x] Typed state：Execution 状态以及 Collaboration principal、Space、target 类型集中在领域边界
 - [x] 补充 Execution、Collaboration 领域不变量测试，并保留 application/SQLite 的权限、replay、Audit、事务行为测试
 - [ ] 后续随 Authority 上下文改造收口 scope 与 capability 类型，不在本轮伪造跨域统一抽象
+
+## 阶段六：bounded context 目录布局（本轮）
+
+- [x] 将拼接式顶层包名移动到所属上下文下的清晰子目录（`computer/app`、`computer/host`、`computer/state`、`execution/*`、`transport/*` 等）
+- [x] 用语义化 import alias 保持调用方可读性，避免 `app`、`state`、`domain` 等泛化包名在跨上下文代码中失去语义
+- [x] 清理旧目录和旧 import path；目录重组不改变产品事实、proto、SQLite schema、事务或权限合同
+- [x] 将目录布局决策同步到 `DESIGN.md`

@@ -8,8 +8,8 @@ import (
 	"connectrpc.com/connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
 func (s *Service) IssueGrant(ctx context.Context, request *connect.Request[grantv1.IssueGrantRequest]) (*connect.Response[grantv1.IssueGrantResponse], error) {
@@ -17,7 +17,7 @@ func (s *Service) IssueGrant(ctx context.Context, request *connect.Request[grant
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func (s *Service) IssueGrant(ctx context.Context, request *connect.Request[grant
 	if err != nil {
 		return nil, err
 	}
-	parentID, err := connectapi.CanonicalID(request.Msg.GetParentGrantId(), "parent grant id")
+	parentID, err := connectid.CanonicalID(request.Msg.GetParentGrantId(), "parent grant id")
 	if err != nil {
 		return nil, err
 	}
@@ -60,11 +60,11 @@ func (s *Service) RevokeGrant(ctx context.Context, request *connect.Request[gran
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	grantID, err := connectapi.CanonicalID(request.Msg.GetGrantId(), "grant id")
+	grantID, err := connectid.CanonicalID(request.Msg.GetGrantId(), "grant id")
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (s *Service) GetGrant(ctx context.Context, request *connect.Request[grantv1
 	if err := s.requireAdmin(ctx, actor); err != nil {
 		return nil, err
 	}
-	id, err := connectapi.CanonicalID(request.Msg.GetGrantId(), "grant id")
+	id, err := connectid.CanonicalID(request.Msg.GetGrantId(), "grant id")
 	if err != nil {
 		return nil, err
 	}

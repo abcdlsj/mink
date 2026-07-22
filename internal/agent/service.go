@@ -10,8 +10,8 @@ import (
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -53,7 +53,7 @@ func (s *Service) CreateAgent(ctx context.Context, request *connect.Request[agen
 }
 
 func (s *Service) GetAgent(ctx context.Context, request *connect.Request[agentv1.GetAgentRequest]) (*connect.Response[agentv1.GetAgentResponse], error) {
-	id, err := connectapi.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	id, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func (s *Service) ListAgents(ctx context.Context, _ *connect.Request[agentv1.Lis
 }
 
 func createParams(request *agentv1.CreateAgentRequest, now time.Time) (store.CreateAgentParams, error) {
-	requestID, err := connectapi.CanonicalID(request.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.GetRequestId(), "request id")
 	if err != nil {
 		return store.CreateAgentParams{}, err
 	}

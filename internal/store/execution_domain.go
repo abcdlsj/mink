@@ -1,6 +1,6 @@
 package store
 
-import "github.com/abcdlsj/sumi/internal/execution"
+import execution "github.com/abcdlsj/sumi/internal/execution/domain"
 
 func executionDelivery(value Delivery) execution.Delivery {
 	return execution.Delivery{

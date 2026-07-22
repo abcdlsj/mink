@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/execution"
+	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/google/uuid"
 )
 

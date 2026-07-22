@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/abcdlsj/sumi/internal/placementcode"
+	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
 	"github.com/google/uuid"
 )
 
@@ -27,7 +27,7 @@ func (e *ProvisionError) Unwrap() error {
 func Provision(dataRoot, agentID string) (string, error) {
 	parsed, err := uuid.Parse(agentID)
 	if err != nil {
-		return "", &ProvisionError{Code: placementcode.AgentHomeInvalid, Path: dataRoot, Err: errors.New("agent id is invalid")}
+		return "", &ProvisionError{Code: placementfailure.AgentHomeInvalid, Path: dataRoot, Err: errors.New("agent id is invalid")}
 	}
 	canonicalID := parsed.String()
 	agentsRoot := filepath.Join(dataRoot, "agents")
@@ -37,10 +37,10 @@ func Provision(dataRoot, agentID string) (string, error) {
 		path string
 		code string
 	}{
-		{dataRoot, placementcode.WorkspaceRootInvalid},
-		{agentsRoot, placementcode.WorkspaceRootInvalid},
-		{agentHome, placementcode.AgentHomeInvalid},
-		{workspace, placementcode.WorkspaceInvalid},
+		{dataRoot, placementfailure.WorkspaceRootInvalid},
+		{agentsRoot, placementfailure.WorkspaceRootInvalid},
+		{agentHome, placementfailure.AgentHomeInvalid},
+		{workspace, placementfailure.WorkspaceInvalid},
 	} {
 		if err := ensureDirectory(directory.path, directory.code); err != nil {
 			return "", err
@@ -51,10 +51,10 @@ func Provision(dataRoot, agentID string) (string, error) {
 
 func ErrorCode(err error) string {
 	var provisionError *ProvisionError
-	if errors.As(err, &provisionError) && placementcode.Valid(provisionError.Code) {
+	if errors.As(err, &provisionError) && placementfailure.Valid(provisionError.Code) {
 		return provisionError.Code
 	}
-	return placementcode.WorkspaceIOError
+	return placementfailure.WorkspaceIOError
 }
 
 func ensureDirectory(path, invalidCode string) error {
@@ -75,7 +75,7 @@ func ensureDirectory(path, invalidCode string) error {
 		return provisionFailure(path, invalidCode, err)
 	}
 	if info.Mode().Perm() != 0o700 {
-		return &ProvisionError{Code: placementcode.WorkspacePermissionDenied, Path: path, Err: fmt.Errorf("mode is %o", info.Mode().Perm())}
+		return &ProvisionError{Code: placementfailure.WorkspacePermissionDenied, Path: path, Err: fmt.Errorf("mode is %o", info.Mode().Perm())}
 	}
 	return nil
 }
@@ -92,9 +92,9 @@ func inspectDirectory(path string) error {
 }
 
 func provisionFailure(path, invalidCode string, err error) error {
-	code := placementcode.WorkspaceIOError
+	code := placementfailure.WorkspaceIOError
 	if errors.Is(err, os.ErrPermission) {
-		code = placementcode.WorkspacePermissionDenied
+		code = placementfailure.WorkspacePermissionDenied
 	} else if os.IsExist(err) {
 		code = invalidCode
 	}

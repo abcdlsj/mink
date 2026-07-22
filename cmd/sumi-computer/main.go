@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/abcdlsj/sumi/internal/computerapp"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/app"
 )
 
 func main() {

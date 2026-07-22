@@ -445,14 +445,14 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 ## 16. 2026-07-21 维护记录
 
 - `internal/store/work.go` 与 `internal/collaboration/service.go` 仅收敛了真实重复的参数和 assignment 结束流程；Work、Space、Message、权限、API 与迁移事实均未改变。
-- `internal/agentmessage` 现在是 Inbox 与 Delivery 共用的 Message/HeldDraft Store↔proto codec：两侧统一执行 body、mention、target、principal 与 HeldDraft 状态链校验；不合法的 Store fact 一律 fail closed，不再由 Inbox 静默输出不完整协议。RPC 授权、状态机、Store 接口、API schema 与迁移事实均未改变。
+- `internal/transport/messagecodec` 现在是 Inbox 与 Delivery 共用的 Message/HeldDraft Store↔proto codec：两侧统一执行 body、mention、target、principal 与 HeldDraft 状态链校验；不合法的 Store fact 一律 fail closed，不再由 Inbox 静默输出不完整协议。RPC 授权、状态机、Store 接口、API schema 与迁移事实均未改变。
 - Artifact checkpoint① `0490a437` + `7545edd7` 落地 immutable family/version、独立 ACL、完整 provenance、64 MiB/64 KiB bounded CAS、两段 authority revalidation、integrity/quarantine 与 replay；checkpoint② `af8ce60a` 落地 streaming RPC、Human/browser/runtime auth、显式 Grant oneof、Server wiring 与真实 HTTP/restart/corruption 证据。两次独立 review 均为 0 个未关闭 P0/P1/P2；代码仍只在本地分支，未 push。C1 两进程 blackbox 曾出现一次 15 秒 readiness 时序失败，随后 x3、全量与 race 均通过，当前没有 D2 启动 reconcile 导致该失败的因果证据，继续作为既有环境时序风险观察。
 - `mise lint` 纳入 staticcheck；Playwright 不混入无环境依赖的默认 test，而通过 `mise run test:e2e` 作为 release validation 明确执行。该入口要求正在运行的目标 Server，并要求 `PLAYWRIGHT_OWNER_KEY_FILE` 指向该 Server 的 `0600` owner credential 文件；E2E 结果不能被表述成无外部前置的全量单测。同步修正 Server CLI 错误文案的 Go 静态规范，不改变 CLI 合同。
 - C1 checkpoint③ 冻结后，移除了 Computer Host 测试 stub 中未使用的 heartbeat 计数 accessor；它不改变 daemon、协议或测试覆盖的产品语义，专门收口 staticcheck U1000。
 - Driver owner 的 bounded queue 合同未改；修正的是测试并发编排：首个执行被阻塞时，第二个 Submit 必须在独立 goroutine 入队，第三个才验证 `ErrQueueFull`，释放后两个已接受请求必须收口。该回归防止测试自身死锁掩盖真实队列行为。
 - Driver `RunInput` 在 contract 边界统一限制 UTF-8、单项、集合与总量预算：host policy、work goal、memory index、retrieved source 和 current input 都不能无界进入 Prompt；短 memory index 与按需来源读取由 typed contract 强制，不依赖 assembler 或 adapter 自觉。该变更只收紧非法/超限输入，不改变 Driver、权限或 Server facts。
 - `sumi-computer` pairing 成功后的 identity 已由持久 State 作为唯一后续来源；删除不会被读取的本地 registration key 回写，保留 legacy key import 的实际使用路径，消除静态检查噪声而不改变 pairing 或 daemon 合同。
-- `driverexec` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
+- `internal/driver/executor` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
 - Computer Host 只会把 `ObserveTarget` 返回的唯一精确 trigger 交给 Executor：Delivery 的 target、space、message ID 和 target sequence 必须同时匹配，body 必须是非空、合法且在 Driver 预算内的 UTF-8。缺失、重复、target 不一致或超预算 trigger 会在 Accept、Claim 与 worker/process 之前 fail closed；accepted Run 使用 Server 固化的 basis sequence，重启恢复也重新取得同一权威 trigger。该边界仅补齐 C3 的事实输入，不选择 Driver 或启动 External runtime。
 - C3 已将 External Driver 的 runner、trusted-local provider、SecretRef、Computer daemon 与 Completion 真实贯通。production CLI 只在完整 External 配置且 Agent Driver 精确匹配时启用 Executor；未配置时保持真 nil，Native Delivery 不会因 typed-nil interface 崩溃，也不会被错误接受。
 - C3 failure matrix 已证明唯一 typed success 可以完成；duplicate/no-final/ordinary stdout/partial JSON/oversize/timeout/cancel/process failure 会回收 child，daemon 仍存活，且不新增 durable outbox、Server completion receipt 或 Message；已持久 critical outbox 仍会按 current fence/authority 重放。
@@ -510,3 +510,19 @@ Collaboration mutation 与 Delivery transport 使用语义化 command/result。c
 本轮不改变 proto、SQLite schema、单 Server SQLite 边界、Computer State SQLite、Artifact blob、权限、replay、Audit、transaction、lease 或 fence 语义。scope 与 capability 的 typed boundary 属于后续 Authority 改造；在出现真实共同边界前不引入通用 Repository、UnitOfWork、事件总线或泛型 command/result 框架。
 
 验证已完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮不改变浏览器交互或公开协议。遗留风险是 Collaboration read API 仍有部分直接使用 Store Params/scan entity，Execution application command 仍携带 Store 创建的 opaque runtime proof；后者是有意保留的 application authentication 事实，不允许进入纯领域对象。
+
+## 21. 2026-07-22 bounded context 目录布局
+
+目录名只表达所属上下文或明确的技术边界，不再把多个概念拼成 `computerapp`、`computerstate`、`agentmessage` 这类包名。实现细节放在上下文目录下，避免顶层 `internal/` 同时承担业务对象、适配器和运行时实现：
+
+- `artifact/blob`：Artifact 的 Blob backend。
+- `authority/runtime`、`authority/websession`：运行时身份与浏览器会话适配器。
+- `cli/contract`、`cli/sumi`：CLI 合同与 Sumi CLI 入口。
+- `computer/app`、`computer/host`、`computer/state`：Computer 应用编排、Host daemon 与本地 State。
+- `driver/executor`：Driver 与 Computer Host 之间的执行适配器。
+- `execution/domain`、`execution/delivery`、`execution/inbox`：Execution 领域决策及其两个 transport/application 入口。
+- `placement/failure`：Placement 稳定失败码。
+- `server/app`：Server CLI/application 入口。
+- `transport/connectid`、`transport/messagecodec`：跨上下文复用的 transport codec。
+
+本轮只调整目录、package 名和 import alias，不改变产品语义、公开 API、proto、SQLite schema、事务、replay、lease、fence 或恢复边界。`computer/state` 仍是独立的本地 SQLite；Server 端仍由单一 `store` package 持有 SQLite 连接和显式事务。`agent`、`grant`、`organization`、`audit`、`home`、`workspace`、`system` 等顶层目录保留，因为它们直接表达独立的业务上下文或平台入口，不为追求视觉对称而增加额外层级。

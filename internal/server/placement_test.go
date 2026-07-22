@@ -14,7 +14,7 @@ import (
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
-	"github.com/abcdlsj/sumi/internal/placementcode"
+	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -110,7 +110,7 @@ func TestPlacementAcknowledgementFenceAndConflict(t *testing.T) {
 		t.Fatalf("duplicate active acknowledgement changed placement: %v != %v", repeated, active)
 	}
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementcode.WorkspaceIOError)
+		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.WorkspaceIOError)
 		return err
 	})
 }
@@ -122,12 +122,12 @@ func TestFailedPlacementRequiresExplicitRetry(t *testing.T) {
 	key := "failed-placement-key"
 	computerID := registerPlacementComputer(t, api, key, "Failed host")
 	setPlacement(t, api, agentID, computerID)
-	failed, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementcode.WorkspaceInvalid)
+	failed, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.WorkspaceInvalid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Millisecond)
-	repeated, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementcode.WorkspaceInvalid)
+	repeated, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.WorkspaceInvalid)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestFailedPlacementRequiresExplicitRetry(t *testing.T) {
 		t.Fatalf("duplicate failed acknowledgement changed placement: %v != %v", repeated, failed)
 	}
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementcode.AgentHomeInvalid)
+		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.AgentHomeInvalid)
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
@@ -253,7 +253,7 @@ func TestPlacementValidationAndNotFound(t *testing.T) {
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeInvalidArgument, func() error {
-		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, placementcode.WorkspaceInvalid)
+		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, placementfailure.WorkspaceInvalid)
 		return err
 	})
 }

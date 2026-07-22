@@ -5,7 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
-	"github.com/abcdlsj/sumi/internal/placementcode"
+	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
 )
 
 func registrationKeyValid(key string) error {
@@ -26,7 +26,7 @@ func acknowledgement(result placementv1.AcknowledgementResult, errorCode string)
 		}
 		return "active", "", nil
 	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED:
-		if !placementcode.Valid(errorCode) {
+		if !placementfailure.Valid(errorCode) {
 			return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("failed acknowledgement requires a known error code"))
 		}
 		return "failed", errorCode, nil

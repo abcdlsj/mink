@@ -19,8 +19,8 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/authority/websession"
 	"github.com/abcdlsj/sumi/internal/store"
-	"github.com/abcdlsj/sumi/internal/websession"
 	"github.com/google/uuid"
 )
 

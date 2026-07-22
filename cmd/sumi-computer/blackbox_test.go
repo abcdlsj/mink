@@ -38,7 +38,7 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/computerstate"
+	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"

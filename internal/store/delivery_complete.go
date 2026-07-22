@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/execution"
+	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 )
 
 func (s *Store) CompleteRun(ctx context.Context, params CompleteRunParams) (CompleteRunResult, error) {

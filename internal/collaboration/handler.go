@@ -9,8 +9,8 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
 func (s *Service) CreateDM(ctx context.Context, request *connect.Request[spacev1.CreateDMRequest]) (*connect.Response[spacev1.CreateDMResponse], error) {
@@ -18,7 +18,7 @@ func (s *Service) CreateDM(ctx context.Context, request *connect.Request[spacev1
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (s *Service) CreateGroup(ctx context.Context, request *connect.Request[spac
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (s *Service) GetSpace(ctx context.Context, request *connect.Request[spacev1
 	if err != nil {
 		return nil, err
 	}
-	spaceID, err := connectapi.CanonicalID(request.Msg.GetSpaceId(), "space id")
+	spaceID, err := connectid.CanonicalID(request.Msg.GetSpaceId(), "space id")
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (s *Service) ListMembers(ctx context.Context, request *connect.Request[spac
 	if err != nil {
 		return nil, err
 	}
-	spaceID, err := connectapi.CanonicalID(request.Msg.GetSpaceId(), "space id")
+	spaceID, err := connectid.CanonicalID(request.Msg.GetSpaceId(), "space id")
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +167,7 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (s *Service) GetMessage(ctx context.Context, request *connect.Request[space
 	if err != nil {
 		return nil, err
 	}
-	messageID, err := connectapi.CanonicalID(request.Msg.GetMessageId(), "message id")
+	messageID, err := connectid.CanonicalID(request.Msg.GetMessageId(), "message id")
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (s *Service) GetThread(ctx context.Context, request *connect.Request[spacev
 	if err != nil {
 		return nil, err
 	}
-	threadID, err := connectapi.CanonicalID(request.Msg.GetThreadRootMessageId(), "thread root message id")
+	threadID, err := connectid.CanonicalID(request.Msg.GetThreadRootMessageId(), "thread root message id")
 	if err != nil {
 		return nil, err
 	}

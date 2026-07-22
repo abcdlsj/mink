@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/abcdlsj/sumi/internal/execution"
+	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/google/uuid"
 )
 

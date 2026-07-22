@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/artifactblob"
+	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 )

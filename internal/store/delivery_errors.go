@@ -3,7 +3,7 @@ package store
 import (
 	"errors"
 
-	"github.com/abcdlsj/sumi/internal/execution"
+	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 )
 
 var (

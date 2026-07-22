@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/abcdlsj/sumi/internal/placementcode"
+	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
 	"github.com/google/uuid"
 )
 
@@ -58,7 +58,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 	}{
 		{
 			name: "root file",
-			code: placementcode.WorkspaceRootInvalid,
+			code: placementfailure.WorkspaceRootInvalid,
 			prepare: func(t *testing.T, root string) {
 				if err := os.WriteFile(root, []byte("file"), 0o600); err != nil {
 					t.Fatal(err)
@@ -67,7 +67,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 		},
 		{
 			name: "root symlink",
-			code: placementcode.WorkspaceRootInvalid,
+			code: placementfailure.WorkspaceRootInvalid,
 			prepare: func(t *testing.T, root string) {
 				target := filepath.Join(t.TempDir(), "target")
 				if err := os.Mkdir(target, 0o700); err != nil {
@@ -80,7 +80,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 		},
 		{
 			name: "agents file",
-			code: placementcode.WorkspaceRootInvalid,
+			code: placementfailure.WorkspaceRootInvalid,
 			prepare: func(t *testing.T, root string) {
 				if err := os.Mkdir(root, 0o700); err != nil {
 					t.Fatal(err)
@@ -92,7 +92,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 		},
 		{
 			name: "agent home symlink",
-			code: placementcode.AgentHomeInvalid,
+			code: placementfailure.AgentHomeInvalid,
 			prepare: func(t *testing.T, root string) {
 				agents := filepath.Join(root, "agents")
 				if err := os.MkdirAll(agents, 0o700); err != nil {
@@ -109,7 +109,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 		},
 		{
 			name: "workspace file",
-			code: placementcode.WorkspaceInvalid,
+			code: placementfailure.WorkspaceInvalid,
 			prepare: func(t *testing.T, root string) {
 				home := filepath.Join(root, "agents", "agent_"+agentID)
 				if err := os.MkdirAll(home, 0o700); err != nil {
@@ -122,7 +122,7 @@ func TestProvisionRejectsNonDirectoryAndSymlinkComponents(t *testing.T) {
 		},
 		{
 			name: "workspace symlink",
-			code: placementcode.WorkspaceInvalid,
+			code: placementfailure.WorkspaceInvalid,
 			prepare: func(t *testing.T, root string) {
 				home := filepath.Join(root, "agents", "agent_"+agentID)
 				if err := os.MkdirAll(home, 0o700); err != nil {

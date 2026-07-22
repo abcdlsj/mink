@@ -23,7 +23,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
-	"github.com/abcdlsj/sumi/internal/artifactblob"
+	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"

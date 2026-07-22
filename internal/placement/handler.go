@@ -8,8 +8,8 @@ import (
 	"connectrpc.com/connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
 func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Request[placementv1.SetAgentPlacementRequest]) (*connect.Response[placementv1.SetAgentPlacementResponse], error) {
@@ -17,15 +17,15 @@ func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectapi.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectapi.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Reques
 }
 
 func (s *Service) GetAgentPlacement(ctx context.Context, request *connect.Request[placementv1.GetAgentPlacementRequest]) (*connect.Response[placementv1.GetAgentPlacementResponse], error) {
-	agentID, err := connectapi.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *Service) ListAgentPlacements(ctx context.Context, _ *connect.Request[pl
 }
 
 func (s *Service) ListComputerAssignments(ctx context.Context, request *connect.Request[placementv1.ListComputerAssignmentsRequest]) (*connect.Response[placementv1.ListComputerAssignmentsResponse], error) {
-	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (s *Service) ListComputerAssignments(ctx context.Context, request *connect.
 }
 
 func (s *Service) ListComputerPlacements(ctx context.Context, request *connect.Request[placementv1.ListComputerPlacementsRequest]) (*connect.Response[placementv1.ListComputerPlacementsResponse], error) {
-	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -93,14 +93,14 @@ func (s *Service) ListComputerPlacements(ctx context.Context, request *connect.R
 }
 
 func (s *Service) AcknowledgeAgentPlacement(ctx context.Context, request *connect.Request[placementv1.AcknowledgeAgentPlacementRequest]) (*connect.Response[placementv1.AcknowledgeAgentPlacementResponse], error) {
-	computerID, err := connectapi.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	agentID, err := connectapi.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}

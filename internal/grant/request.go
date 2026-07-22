@@ -5,8 +5,8 @@ import (
 
 	"connectrpc.com/connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
-	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
 func principalParams(principal *grantv1.Principal, organizationID string, allowSystem bool) (store.Principal, error) {
@@ -24,7 +24,7 @@ func principalParams(principal *grantv1.Principal, organizationID string, allowS
 	if kind == "" {
 		return store.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))
 	}
-	id, err := connectapi.CanonicalID(principal.GetId(), "principal id")
+	id, err := connectid.CanonicalID(principal.GetId(), "principal id")
 	if err != nil {
 		return store.Principal{}, err
 	}
@@ -49,7 +49,7 @@ func scopeParams(scope *grantv1.Scope, organizationID string) (store.Scope, erro
 	if kind == "" {
 		return store.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope kind is invalid"))
 	}
-	id, err := connectapi.CanonicalID(scope.GetId(), "scope id")
+	id, err := connectid.CanonicalID(scope.GetId(), "scope id")
 	if err != nil {
 		return store.Scope{}, err
 	}
