@@ -430,6 +430,16 @@ func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.
 	}
 }
 
+func TestDisabledExternalExecutorIsNotInjectedIntoDaemon(t *testing.T) {
+	executor, err := externalExecutor("", t.TempDir(), externalRuntimeConfig{})
+	if err != nil || executor != nil {
+		t.Fatalf("disabled external executor = %v, %v", executor, err)
+	}
+	if config := newDaemonConfig("", t.TempDir(), nil, executor); config.Executor != nil {
+		t.Fatalf("disabled external daemon executor = %#v", config.Executor)
+	}
+}
+
 func TestParseExternalSecretRejectsRawValues(t *testing.T) {
 	secret, err := parseExternalSecret("SUMI_TOKEN=computer.environment:DRIVER_TOKEN")
 	if err != nil || secret.Name != "SUMI_TOKEN" || secret.Ref.Source != trustedlocal.SecretSourceComputerEnvironment || secret.Ref.Key != "DRIVER_TOKEN" {

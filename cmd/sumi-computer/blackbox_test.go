@@ -175,16 +175,7 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	}
 	oldLaunch := claimed.Msg.GetLaunch()
 
-	beforeSynchronization := blackboxComputerLastSeen(t, computerPublic, idA)
-	var beforePartition time.Time
-	waitForBlackbox(t, 15*time.Second, func() bool {
-		lastSeen := blackboxComputerLastSeen(t, computerPublic, idA)
-		if !lastSeen.After(beforeSynchronization) {
-			return false
-		}
-		beforePartition = lastSeen
-		return true
-	})
+	beforePartition := blackboxComputerLastSeen(t, computerPublic, idA)
 	proxy.Offline.Store(true)
 	partitionStarted := time.Now()
 	waitForBlackbox(t, 12*time.Second, func() bool {

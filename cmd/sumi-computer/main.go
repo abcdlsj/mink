@@ -219,10 +219,15 @@ func runContext(ctx context.Context, args []string, stdin io.Reader) error {
 	if executor != nil {
 		defer executor.Close()
 	}
-	return computerhost.NewDaemon(computerhost.DaemonConfig{
-		ServerURL: *serverURL, DataRoot: *dataRoot, State: state,
-		Executor: executor,
-	}).Run(ctx)
+	return computerhost.NewDaemon(newDaemonConfig(*serverURL, *dataRoot, state, executor)).Run(ctx)
+}
+
+func newDaemonConfig(serverURL, dataRoot string, state *computerstate.State, executor *driverexec.ComputerExecutor) computerhost.DaemonConfig {
+	config := computerhost.DaemonConfig{ServerURL: serverURL, DataRoot: dataRoot, State: state}
+	if executor != nil {
+		config.Executor = executor
+	}
+	return config
 }
 
 type externalRuntimeConfig struct {
