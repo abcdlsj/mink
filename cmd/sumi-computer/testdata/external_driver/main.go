@@ -38,6 +38,9 @@ func main() {
 			mode = strings.TrimPrefix(section.Text, "external-mode:")
 		}
 	}
+	if marker, found := strings.CutPrefix(os.Getenv("SUMI_EXTERNAL_DRIVER"), "marker:"); found {
+		_ = os.WriteFile(marker, []byte(mode), 0o600)
+	}
 	switch mode {
 	case "success":
 		_, _ = os.Stdout.WriteString(`{"type":"result","result":{"outcome":"succeeded","body":"external blackbox completion"}}` + "\n")

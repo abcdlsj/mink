@@ -38,9 +38,6 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/computerstate"
-	"github.com/abcdlsj/sumi/internal/driver"
-	"github.com/abcdlsj/sumi/internal/sandbox"
-	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -252,6 +249,82 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 	externalDriver := buildExternalDriverBinary(t)
 	secret := "external-blackbox-secret"
 	t.Setenv("SUMI_EXTERNAL_DRIVER", secret)
+	fixture := startExternalDriverBlackbox(t, binary, externalDriver, "2s", "4096")
+	trigger, err := fixture.spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
+		RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: fixture.groupID}},
+		Body: "external blackbox trigger", MentionedAgentIds: []string{fixture.agentID},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForBlackbox(t, 15*time.Second, func() bool {
+		return blackboxMessageCount(t, fixture.serverRoot, "external blackbox completion") == 1
+	})
+	assertBlackboxCompletedDelivery(t, fixture.serverRoot, trigger.Msg.GetMessage().GetId())
+	stopComputer(t, fixture.computer, syscall.SIGTERM)
+	assertNoBlackboxSecret(t, fixture.serverRoot, fixture.computerRoot, secret, fixture.computer)
+}
+
+func TestSumiComputerExternalDriverFailureMatrixBlackbox(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("sumi-computer supports macOS and Linux")
+	}
+	binary := buildComputerBinary(t)
+	externalDriver := buildExternalDriverBinary(t)
+	for _, test := range []struct {
+		name        string
+		driverMode  string
+		timeout     string
+		outputLimit string
+		cancel      bool
+	}{
+		{name: "duplicate", driverMode: "duplicate", timeout: "100ms", outputLimit: "4096"},
+		{name: "no final", driverMode: "event-only", timeout: "100ms", outputLimit: "4096"},
+		{name: "ordinary output", driverMode: "ordinary", timeout: "100ms", outputLimit: "4096"},
+		{name: "partial jsonl", driverMode: "partial", timeout: "100ms", outputLimit: "4096"},
+		{name: "stdout overflow", driverMode: "stdout-overflow", timeout: "100ms", outputLimit: "4096"},
+		{name: "stderr overflow", driverMode: "stderr-overflow", timeout: "100ms", outputLimit: "4096"},
+		{name: "timeout", driverMode: "timeout", timeout: "100ms", outputLimit: "4096"},
+		{name: "caller cancel", driverMode: "timeout", timeout: "5s", outputLimit: "4096", cancel: true},
+		{name: "oversized result", driverMode: "result-overflow", timeout: "5s", outputLimit: "1048576"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "external-driver-started")
+			t.Setenv("SUMI_EXTERNAL_DRIVER", "marker:"+marker)
+			fixture := startExternalDriverBlackbox(t, binary, externalDriver, test.timeout, test.outputLimit)
+			trigger, err := fixture.spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
+				RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: fixture.groupID}},
+				Body: "external-mode:" + test.driverMode, MentionedAgentIds: []string{fixture.agentID},
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			waitForBlackbox(t, 15*time.Second, func() bool {
+				_, err := os.Stat(marker)
+				return err == nil
+			})
+			if test.cancel {
+				stopComputer(t, fixture.computer, syscall.SIGTERM)
+			} else {
+				time.Sleep(300 * time.Millisecond)
+				stopComputer(t, fixture.computer, syscall.SIGTERM)
+			}
+			assertBlackboxFailureDidNotComplete(t, fixture.serverRoot, fixture.computerRoot, trigger.Msg.GetMessage().GetId())
+		})
+	}
+}
+
+type externalDriverBlackbox struct {
+	serverRoot   string
+	computerRoot string
+	agentID      string
+	groupID      string
+	spaceClient  spacev1connect.CollaborationServiceClient
+	computer     *blackboxComputerProcess
+}
+
+func startExternalDriverBlackbox(t *testing.T, binary, externalDriver, timeout, outputLimit string) externalDriverBlackbox {
+	t.Helper()
 	serverRoot := t.TempDir()
 	app, err := server.New(context.Background(), server.Config{DataRoot: serverRoot})
 	if err != nil {
@@ -318,9 +391,9 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 		"--external-executable", externalDriver,
 		"--external-host-policy", "trusted local blackbox policy",
 		"--external-secret", "SUMI_EXTERNAL_DRIVER=computer.environment:SUMI_EXTERNAL_DRIVER",
-		"--external-timeout", "2s",
+		"--external-timeout", timeout,
 		"--external-termination-grace", "100ms",
-		"--external-output-limit", "4096",
+		"--external-output-limit", outputLimit,
 	)
 	waitForBlackbox(t, 15*time.Second, func() bool {
 		return blackboxComputerSeen(t, computerPublic, computerID)
@@ -335,90 +408,10 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 	waitForBlackbox(t, 15*time.Second, func() bool {
 		return blackboxPlacementActive(t, placementClient, agentID, computerID, generation, registrationKey)
 	})
-	trigger, err := spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
-		RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: groupID}},
-		Body: "external blackbox trigger", MentionedAgentIds: []string{agentID},
-	}))
-	if err != nil {
-		t.Fatal(err)
+	return externalDriverBlackbox{
+		serverRoot: serverRoot, computerRoot: computerRoot, agentID: agentID, groupID: groupID,
+		spaceClient: spaceClient, computer: computer,
 	}
-	waitForBlackbox(t, 15*time.Second, func() bool {
-		return blackboxMessageCount(t, serverRoot, "external blackbox completion") == 1
-	})
-	assertBlackboxCompletedDelivery(t, serverRoot, trigger.Msg.GetMessage().GetId())
-	stopComputer(t, computer, syscall.SIGTERM)
-	assertNoBlackboxSecret(t, serverRoot, computerRoot, secret, computer)
-}
-
-func TestExternalDriverFailureMatrixBlackbox(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("trusted-local provider supports macOS and Linux")
-	}
-	for _, mode := range []string{"duplicate", "event-only", "ordinary", "partial", "stdout-overflow", "stderr-overflow", "timeout"} {
-		t.Run(mode, func(t *testing.T) {
-			external, command := externalDriverForMode(t, mode)
-			if _, err := external.Execute(context.Background(), command, nil); err == nil {
-				t.Fatalf("external mode %q produced a Completion", mode)
-			}
-		})
-	}
-	t.Run("caller cancel", func(t *testing.T) {
-		external, command := externalDriverForMode(t, "timeout")
-		ctx, cancel := context.WithCancel(context.Background())
-		result := make(chan error, 1)
-		go func() {
-			_, err := external.Execute(ctx, command, nil)
-			result <- err
-		}()
-		time.Sleep(25 * time.Millisecond)
-		cancel()
-		select {
-		case err := <-result:
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("caller cancellation error = %v", err)
-			}
-		case <-time.After(time.Second):
-			t.Fatal("caller cancellation did not reap external process")
-		}
-	})
-	t.Run("oversized result cannot become durable completion", func(t *testing.T) {
-		external, command := externalDriverForMode(t, "result-overflow")
-		result, err := external.Execute(context.Background(), command, nil)
-		if err != nil || computerstate.ValidCompletionPayload(result.Body, result.MentionedAgentIDs) {
-			t.Fatalf("oversized external result = %+v, %v", result, err)
-		}
-	})
-}
-
-func externalDriverForMode(t *testing.T, mode string) (driver.External, driver.Command) {
-	t.Helper()
-	binary := buildExternalDriverBinary(t)
-	provider, err := trustedlocal.New(trustedlocal.Config{
-		ScratchRoot: t.TempDir(), GracePeriod: 20 * time.Millisecond,
-		SecretLookup: func(key string) (string, bool) { return "1", key == "EXTERNAL_DRIVER" },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workspace := t.TempDir()
-	if err := os.Chmod(workspace, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	input := driver.RunInput{
-		AgentID: uuid.NewString(), ComputerID: uuid.NewString(), DeliveryID: uuid.NewString(), RunID: uuid.NewString(), LaunchID: uuid.NewString(),
-		Fence: 1, Generation: 1, Workspace: workspace, Capabilities: driver.Capability{Streaming: true, Tools: true, Cancel: true},
-		Target: driver.Target{SpaceID: uuid.NewString(), HeadSequence: 1}, CurrentInput: "external-mode:" + mode, HostPolicy: "blackbox",
-	}
-	outputLimit := int64(4096)
-	timeout := 100 * time.Millisecond
-	if mode == "result-overflow" {
-		outputLimit = 1 << 20
-		timeout = 5 * time.Second
-	}
-	return driver.External{Kind: driver.KindCodex, Runner: driver.ProcessRunner{
-		Path: binary, Provider: provider, Timeout: timeout, TerminationGrace: 20 * time.Millisecond, MaxOutputBytes: outputLimit,
-		Secrets: []sandbox.SecretEnvironmentVariable{{Name: "SUMI_EXTERNAL_DRIVER", Ref: sandbox.SecretRef{Source: trustedlocal.SecretSourceComputerEnvironment, Key: "EXTERNAL_DRIVER"}}},
-	}}, driver.Command{Kind: driver.CommandPrompt, Input: &input}
 }
 
 type blackboxProxyState struct {
@@ -713,6 +706,39 @@ func assertBlackboxCompletedDelivery(t *testing.T, dataRoot, triggerMessageID st
 		WHERE deliveries.trigger_message_id = ?`, triggerMessageID).Scan(&deliveryState, &runState)
 	if err != nil || deliveryState != "completed" || runState != "completed" {
 		t.Fatalf("external delivery state = %q/%q, %v", deliveryState, runState, err)
+	}
+}
+
+func assertBlackboxFailureDidNotComplete(t *testing.T, serverRoot, computerRoot, triggerMessageID string) {
+	t.Helper()
+	computerDatabase, err := sql.Open("sqlite", filepath.Join(computerRoot, "data", "computer", "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer computerDatabase.Close()
+	var outbox int
+	if err := computerDatabase.QueryRow(`SELECT count(*) FROM outbox_events`).Scan(&outbox); err != nil || outbox != 0 {
+		t.Fatalf("durable outbox events = %d, %v", outbox, err)
+	}
+	serverDatabase, err := sql.Open("sqlite", filepath.Join(serverRoot, "data", "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer serverDatabase.Close()
+	var completions, messages int
+	if err := serverDatabase.QueryRow(`SELECT count(*) FROM run_completion_receipts`).Scan(&completions); err != nil || completions != 0 {
+		t.Fatalf("server completions = %d, %v", completions, err)
+	}
+	if err := serverDatabase.QueryRow(`SELECT count(*) FROM messages`).Scan(&messages); err != nil || messages != 1 {
+		t.Fatalf("server messages = %d, %v", messages, err)
+	}
+	var deliveryState, runState string
+	err = serverDatabase.QueryRow(`
+		SELECT deliveries.state, runs.state
+		FROM deliveries JOIN runs ON runs.delivery_id = deliveries.id
+		WHERE deliveries.trigger_message_id = ?`, triggerMessageID).Scan(&deliveryState, &runState)
+	if err != nil || deliveryState == "completed" || runState == "completed" {
+		t.Fatalf("failed delivery state = %q/%q, %v", deliveryState, runState, err)
 	}
 }
 
