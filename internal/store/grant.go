@@ -350,6 +350,16 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 	return nil
 }
 
+type recoverableOwnerAfterScanContextKey struct{}
+
+type recoverableOwnerAfterScanFunc func(int, *sql.Rows)
+
+func recoverableOwnerAfterScan(ctx context.Context, scanned int, rows *sql.Rows) {
+	if apply, ok := ctx.Value(recoverableOwnerAfterScanContextKey{}).(recoverableOwnerAfterScanFunc); ok {
+		apply(scanned, rows)
+	}
+}
+
 func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, excludedHumanID, excludedGrantID string) (bool, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT id, organization_id FROM humans WHERE role = 'owner' AND status = 'active' AND id != ?", excludedHumanID)
 	if err != nil {
@@ -364,6 +374,11 @@ func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, exclude
 			return false, fmt.Errorf("scan recoverable owner: %w", err)
 		}
 		owners = append(owners, owner)
+		recoverableOwnerAfterScan(ctx, len(owners), rows)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, fmt.Errorf("iterate recoverable owners: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return false, err

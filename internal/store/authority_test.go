@@ -3,8 +3,11 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -174,6 +177,104 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 	if messageGrant.ParentGrantID != adminGrant.ID {
 		t.Fatalf("message grant parent = %q", messageGrant.ParentGrantID)
 	}
+}
+
+func TestAuthorityRecoverableOwnerIterationErrorsFailClosed(t *testing.T) {
+	for _, operation := range []string{"revoke grant", "disable human"} {
+		t.Run(operation, func(t *testing.T) {
+			database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+			bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+			target := createTestHuman(t, database, owner, "Target Owner", "owner", "target-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(time.Second))
+			createTestHuman(t, database, owner, "Spare Owner", "owner", "spare-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(2*time.Second))
+			targetGrant := issueTestGrant(t, database, IssueGrantParams{
+				RequestID: uuid.NewString(), Actor: owner,
+				Subject: Principal{Kind: "human", ID: target.ID}, Capability: CapabilityOrganizationAdmin,
+				Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, ParentGrantID: bootstrap.RootGrant.ID,
+				Now: now.Add(3 * time.Second),
+			})
+			auditsBefore := auditCount(t, database, bootstrap.Organization.ID)
+			ctx, probe, cancel := recoverableOwnerCancellationContext()
+			defer cancel()
+			requestID := uuid.NewString()
+
+			switch operation {
+			case "revoke grant":
+				_, err = database.RevokeGrant(ctx, RevokeGrantParams{
+					RequestID: requestID, Actor: owner, GrantID: targetGrant.ID, Now: now.Add(4 * time.Second),
+				})
+			case "disable human":
+				_, err = database.SetHumanStatus(ctx, SetHumanStatusParams{
+					RequestID: requestID, Actor: owner, HumanID: target.ID, Status: "disabled", Now: now.Add(4 * time.Second),
+				})
+			}
+			if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "iterate recoverable owners") {
+				t.Fatalf("%s iteration error = %v", operation, err)
+			}
+			if probe.scanned != 1 || !probe.cancellationObserved {
+				t.Fatalf("%s probe = %+v", operation, probe)
+			}
+			if got := auditCount(t, database, bootstrap.Organization.ID); got != auditsBefore {
+				t.Fatalf("%s audit count = %d, want %d", operation, got, auditsBefore)
+			}
+
+			var receipts int
+			switch operation {
+			case "revoke grant":
+				grant, getErr := database.GetGrant(context.Background(), grantapp.GetQuery{GrantID: targetGrant.ID})
+				if getErr != nil || grant.RevokedAt != nil {
+					t.Fatalf("grant changed after iteration error: %+v, %v", grant, getErr)
+				}
+				if err := database.db.QueryRow(`SELECT count(*) FROM grant_revoke_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
+					t.Fatal(err)
+				}
+			case "disable human":
+				var status string
+				if err := database.db.QueryRow(`SELECT status FROM humans WHERE id = ?`, target.ID).Scan(&status); err != nil {
+					t.Fatal(err)
+				}
+				if status != "active" {
+					t.Fatalf("human status after iteration error = %q", status)
+				}
+				if err := database.db.QueryRow(`SELECT count(*) FROM human_status_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if receipts != 0 {
+				t.Fatalf("%s request receipts = %d", operation, receipts)
+			}
+		})
+	}
+}
+
+type recoverableOwnerCancellationProbe struct {
+	scanned              int
+	cancellationObserved bool
+}
+
+func recoverableOwnerCancellationContext() (context.Context, *recoverableOwnerCancellationProbe, context.CancelFunc) {
+	queryContext, cancel := context.WithCancel(context.Background())
+	probe := &recoverableOwnerCancellationProbe{}
+	ctx := context.WithValue(queryContext, recoverableOwnerAfterScanContextKey{}, recoverableOwnerAfterScanFunc(func(scanned int, rows *sql.Rows) {
+		probe.scanned = scanned
+		if scanned == 1 {
+			cancel()
+			deadline := time.Now().Add(time.Second)
+			for rows.Err() == nil && time.Now().Before(deadline) {
+				runtime.Gosched()
+			}
+			probe.cancellationObserved = errors.Is(rows.Err(), context.Canceled)
+		}
+	}))
+	return ctx, probe, cancel
 }
 
 func TestAuthorityDeniedMutationOnlyAppendsDeniedAudit(t *testing.T) {
