@@ -483,6 +483,17 @@ func insertWorkEvent(ctx context.Context, tx *sql.Tx, workID, organizationID, ki
 	return nil
 }
 
+type workAssignmentRowsErrorContextKey struct{}
+
+type workAssignmentRowsErrorFunc func(*sql.Rows) error
+
+func workAssignmentRowsErr(ctx context.Context, rows *sql.Rows) error {
+	if read, ok := ctx.Value(workAssignmentRowsErrorContextKey{}).(workAssignmentRowsErrorFunc); ok {
+		return read(rows)
+	}
+	return rows.Err()
+}
+
 func endWorkAssignments(ctx context.Context, tx *sql.Tx, workID, agentID, role string, actor Principal, reason string, now time.Time) error {
 	filter := ""
 	args := []any{workID}
@@ -502,6 +513,10 @@ func endWorkAssignments(ctx context.Context, tx *sql.Tx, workID, agentID, role s
 			return err
 		}
 		ids = append(ids, id)
+	}
+	if err := workAssignmentRowsErr(ctx, rows); err != nil {
+		rows.Close()
+		return err
 	}
 	if err := rows.Close(); err != nil {
 		return err

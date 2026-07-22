@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -258,6 +259,72 @@ func TestWorkTransitionKnowledgeDirtyFailurePreservesWorkFacts(t *testing.T) {
 	}
 	if current.State != updated.State || knowledgeWorkRevision(current) != beforeRevision || knowledgeDirtyCount(t, database, work.ID) != beforeDirty {
 		t.Fatalf("failed transition changed work facts: current=%+v before state=%s revision=%x dirty=%d", current, updated.State, beforeRevision, beforeDirty)
+	}
+}
+
+func TestEndWorkAssignmentsIterationErrorRollsBackAssignmentAndEvents(t *testing.T) {
+	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	now := time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC)
+	bootstrap, err := database.EnsureAuthority(context.Background(), "work-iteration-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "assignment iteration", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "delegate", Now: now.Add(time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: owner, Name: "iteration worker", Description: "worker", Driver: "native", Now: now.Add(2 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	computerID := uuid.NewString()
+	if _, err := database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, zeroblob(32), 'computer', 'linux', 'amd64', ?, ?)`, computerID, unixNano(now), unixNano(now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
+		t.Fatal(err)
+	}
+	work, err := database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: source.ID, SourceSpaceID: space.ID, SourceTarget: source.Target, SourceTargetSequence: source.TargetSequence, Goal: "iteration safety", AcceptanceCriteria: []string{"done"}, Now: now.Add(3 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignment, err := database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: agent.ID, Now: now.Add(4 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextWithIterationError := context.WithValue(context.Background(), workAssignmentRowsErrorContextKey{}, workAssignmentRowsErrorFunc(func(rows *sql.Rows) error {
+		return errors.New("forced assignment iteration error")
+	}))
+	tx, err := database.db.BeginTx(contextWithIterationError, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := endWorkAssignments(contextWithIterationError, tx, work.ID, "", "", owner, "completed", now.Add(5*time.Second)); err == nil || !strings.Contains(err.Error(), "forced assignment iteration error") {
+		tx.Rollback()
+		t.Fatalf("end assignments with iteration error = %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var endedAt int64
+	if err := database.db.QueryRow(`SELECT COALESCE(ended_at, 0) FROM work_assignments WHERE id = ?`, assignment.ID).Scan(&endedAt); err != nil {
+		t.Fatal(err)
+	}
+	var endedEvents int
+	if err := database.db.QueryRow(`SELECT count(*) FROM work_events WHERE work_id = ? AND event_kind = 'assignment.ended' AND reference_id = ?`, work.ID, assignment.ID).Scan(&endedEvents); err != nil {
+		t.Fatal(err)
+	}
+	if endedAt != 0 || endedEvents != 0 {
+		t.Fatalf("iteration failure committed assignment/event facts: ended_at=%d events=%d", endedAt, endedEvents)
 	}
 }
 
