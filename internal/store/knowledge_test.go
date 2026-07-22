@@ -57,6 +57,57 @@ func TestKnowledgeFTSAvailableAfterReopen(t *testing.T) {
 	}
 }
 
+func TestKnowledgeIndexHealthRepairsMissingFTS(t *testing.T) {
+	database := openKnowledgeStore(t)
+	defer database.Close()
+	if _, err := database.db.Exec(`DROP TABLE knowledge_fts`); err != nil {
+		t.Fatal(err)
+	}
+	health, err := database.CheckKnowledgeIndexHealth(context.Background())
+	if err != nil || health != KnowledgeIndexCorrupt {
+		t.Fatalf("health after FTS drop = %v, %v", health, err)
+	}
+	if err := database.RepairKnowledgeFTS(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	health, err = database.CheckKnowledgeIndexHealth(context.Background())
+	if err != nil || health != KnowledgeIndexHealthy {
+		t.Fatalf("health after FTS repair = %v, %v", health, err)
+	}
+}
+
+func TestKnowledgeIndexHealthDetectsActiveProjectionCorruption(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "health", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "health", Now: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := database.StartKnowledgeRebuild(context.Background(), now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteKnowledgeGeneration(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ActivateKnowledgeGeneration(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`DELETE FROM knowledge_projection_rows WHERE generation = ?`, next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	health, err := database.CheckKnowledgeIndexHealth(context.Background())
+	if err != nil || health != KnowledgeIndexCorrupt {
+		t.Fatalf("health after projection deletion = %v, %v", health, err)
+	}
+}
+
 func TestKnowledgeDirtySourcesUseGlobalCommittedSequence(t *testing.T) {
 	database := openKnowledgeStore(t)
 	defer database.Close()

@@ -387,21 +387,27 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 			t.Fatalf("knowledge message projection for %q = %t, want %t", value, projected, canonical)
 		}
 	}
-	rows, err = database.Query(`SELECT f.source_id, f.revision, f.body, m.target_sequence FROM knowledge_fts f LEFT JOIN messages m ON m.id = f.source_id WHERE f.source_kind = 'message'`)
+	rows, err = database.Query(`SELECT f.source_id, f.source_version, f.revision, f.body, m.target_sequence FROM knowledge_fts f LEFT JOIN messages m ON m.id = f.source_id WHERE f.source_kind = 'message'`)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for rows.Next() {
 		var id, body string
+		var sourceVersion uint64
 		var revision []byte
 		var sequence sql.NullInt64
-		if err := rows.Scan(&id, &revision, &body, &sequence); err != nil {
+		if err := rows.Scan(&id, &sourceVersion, &revision, &body, &sequence); err != nil {
 			rows.Close()
 			t.Fatal(err)
 		}
-		if !sequence.Valid || len(revision) != 32 || body == "" {
+		if !sequence.Valid || sequence.Int64 < 0 || sourceVersion != 0 || body == "" {
 			rows.Close()
 			t.Fatalf("invalid knowledge message projection %q", id)
+		}
+		wantRevision := store.KnowledgeMessageRevision(id, uint64(sequence.Int64))
+		if string(revision) != string(wantRevision[:]) {
+			rows.Close()
+			t.Fatalf("knowledge message projection %q revision is not canonical", id)
 		}
 		var canonicalBody string
 		if err := database.QueryRow(`SELECT body FROM messages WHERE id = ?`, id).Scan(&canonicalBody); err != nil || canonicalBody != body {
@@ -410,6 +416,9 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 		}
 	}
 	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
 	logEntries, err := os.ReadDir(filepath.Join(dataRoot, "logs"))

@@ -51,6 +51,13 @@ type KnowledgeIndexMetadata struct {
 	Status           string
 }
 
+type KnowledgeIndexHealth uint8
+
+const (
+	KnowledgeIndexHealthy KnowledgeIndexHealth = iota
+	KnowledgeIndexCorrupt
+)
+
 type KnowledgeGenerationProgress struct {
 	Generation        uint64
 	SnapshotHighWater uint64
@@ -486,6 +493,36 @@ func (s *Store) KnowledgeFTSAvailable(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("read knowledge fts capability: %w", err)
 	}
 	return true, nil
+}
+
+func (s *Store) CheckKnowledgeIndexHealth(ctx context.Context) (KnowledgeIndexHealth, error) {
+	available, err := s.KnowledgeFTSAvailable(ctx)
+	if err != nil {
+		return KnowledgeIndexHealthy, err
+	}
+	if !available {
+		return KnowledgeIndexCorrupt, nil
+	}
+	metadata, err := s.KnowledgeIndexMetadata(ctx)
+	if err != nil {
+		return KnowledgeIndexHealthy, err
+	}
+	if metadata.ActiveGeneration == 0 {
+		return KnowledgeIndexHealthy, nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return KnowledgeIndexHealthy, err
+	}
+	defer tx.Rollback()
+	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	if err != nil {
+		return KnowledgeIndexHealthy, err
+	}
+	if err := verifyKnowledgeGenerationProjection(ctx, tx, metadata.ActiveGeneration, documents); err != nil {
+		return KnowledgeIndexCorrupt, nil
+	}
+	return KnowledgeIndexHealthy, nil
 }
 
 func enqueueKnowledgeDirtySource(ctx context.Context, tx *sql.Tx, source KnowledgeSource, revision [sha256.Size]byte, now time.Time) (KnowledgeDirtySource, error) {

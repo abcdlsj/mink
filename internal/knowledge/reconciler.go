@@ -13,7 +13,10 @@ type Reconciler struct {
 	store       knowledgeStore
 	now         func() time.Time
 	wake        time.Duration
+	healthWake  time.Duration
 	stepTimeout time.Duration
+	lastHealth  time.Time
+	startup     bool
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -31,16 +34,19 @@ type knowledgeStore interface {
 	CompleteKnowledgeGeneration(context.Context, uint64) error
 	ActivateKnowledgeGeneration(context.Context, uint64) (store.KnowledgeIndexMetadata, error)
 	DiscardKnowledgeGeneration(context.Context, uint64) (store.KnowledgeIndexMetadata, error)
+	CheckKnowledgeIndexHealth(context.Context) (store.KnowledgeIndexHealth, error)
+	RepairKnowledgeFTS(context.Context) error
 }
 
 func New(database *store.Store) *Reconciler {
-	return &Reconciler{store: database, now: time.Now, wake: 100 * time.Millisecond, stepTimeout: 5 * time.Second}
+	return &Reconciler{store: database, now: time.Now, wake: 100 * time.Millisecond, healthWake: time.Minute, stepTimeout: 5 * time.Second}
 }
 
 func (r *Reconciler) Start(ctx context.Context) {
 	r.once.Do(func() {
 		ctx, r.cancel = context.WithCancel(ctx)
 		r.done = make(chan struct{})
+		r.startup = true
 		go func() {
 			defer close(r.done)
 			r.run(ctx)
@@ -81,6 +87,21 @@ func (r *Reconciler) step(ctx context.Context) bool {
 	metadata, err := r.store.KnowledgeIndexMetadata(ctx)
 	if err != nil {
 		return false
+	}
+	if r.startup {
+		r.startup = false
+		if metadata.NextGeneration != 0 {
+			return r.discard(ctx, metadata.NextGeneration)
+		}
+	}
+	if r.healthDue() {
+		if !r.health(ctx) {
+			return false
+		}
+		metadata, err = r.store.KnowledgeIndexMetadata(ctx)
+		if err != nil {
+			return false
+		}
 	}
 	if metadata.NextGeneration != 0 {
 		return r.reconcileNext(ctx, metadata)
@@ -140,10 +161,29 @@ func (r *Reconciler) project(ctx context.Context, generation uint64) bool {
 		document.Revision = dirty.Revision
 	}
 	_, err = r.store.ApplyKnowledgeProjection(ctx, generation, dirty.Sequence, document)
+	if err != nil {
+		r.health(ctx)
+	}
 	return err == nil
 }
 
 func (r *Reconciler) discard(ctx context.Context, generation uint64) bool {
 	_, err := r.store.DiscardKnowledgeGeneration(ctx, generation)
 	return err == nil
+}
+
+func (r *Reconciler) healthDue() bool {
+	return r.lastHealth.IsZero() || r.now().Sub(r.lastHealth) >= r.healthWake
+}
+
+func (r *Reconciler) health(ctx context.Context) bool {
+	r.lastHealth = r.now()
+	health, err := r.store.CheckKnowledgeIndexHealth(ctx)
+	if err != nil {
+		return true
+	}
+	if health != store.KnowledgeIndexCorrupt {
+		return true
+	}
+	return r.store.RepairKnowledgeFTS(ctx) == nil
 }

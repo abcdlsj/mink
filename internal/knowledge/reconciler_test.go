@@ -164,6 +164,15 @@ func (s *reconcilerStore) DiscardKnowledgeGeneration(context.Context, uint64) (s
 	return store.KnowledgeIndexMetadata{}, nil
 }
 
+func (s *reconcilerStore) CheckKnowledgeIndexHealth(context.Context) (store.KnowledgeIndexHealth, error) {
+	return store.KnowledgeIndexHealthy, nil
+}
+
+func (s *reconcilerStore) RepairKnowledgeFTS(context.Context) error {
+	s.record("repair")
+	return nil
+}
+
 func (s *reconcilerStore) record(call string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
