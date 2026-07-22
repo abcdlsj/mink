@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -119,25 +120,37 @@ func TestArtifactHumanPublishVersionsReplayFetchAndRestart(t *testing.T) {
 
 func TestArtifactListIterationErrorDoesNotReturnPartialPage(t *testing.T) {
 	fixture := openArtifactFixture(t)
-	published, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "partial list", fixture.at(1)))
+	published, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "partial list first", fixture.at(1)))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "partial list second", fixture.at(2))); err != nil {
 		t.Fatal(err)
 	}
 	before := readArtifactMutationCounts(t, fixture.database, published.Artifact.ID)
 	auditsBefore := auditCount(t, fixture.database, fixture.owner.OrganizationID)
-	iterationError := errors.New("forced artifact list iteration error")
+	queryContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	scanned := 0
-	ctx := context.WithValue(context.Background(), artifactBatchRowsErrorContextKey{}, artifactBatchRowsErrorFunc(func(actual int, rows *sql.Rows) error {
+	cancellationObserved := false
+	ctx := context.WithValue(queryContext, artifactBatchAfterScanContextKey{}, artifactBatchAfterScanFunc(func(actual int, rows *sql.Rows) {
 		scanned = actual
-		return iterationError
+		if actual == 1 {
+			cancel()
+			deadline := time.Now().Add(time.Second)
+			for rows.Err() == nil && time.Now().Before(deadline) {
+				runtime.Gosched()
+			}
+			cancellationObserved = errors.Is(rows.Err(), context.Canceled)
+		}
 	}))
 	result, err := fixture.artifacts.List(ctx, ListArtifactsParams{
 		Authentication: ArtifactAuthentication{Human: fixture.owner},
 		OwningWorkID:   fixture.work.ID,
 		Limit:          50,
-		Now:            fixture.at(2),
+		Now:            fixture.at(3),
 	})
-	if !errors.Is(err, iterationError) || !strings.Contains(err.Error(), "iterate artifact batch") {
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "iterate artifact batch") {
 		t.Fatalf("list with iteration error = %v", err)
 	}
 	if len(result.Views) != 0 || result.NextArtifactID != "" {
@@ -145,6 +158,9 @@ func TestArtifactListIterationErrorDoesNotReturnPartialPage(t *testing.T) {
 	}
 	if scanned != 1 {
 		t.Fatalf("artifact rows scanned before iteration error = %d", scanned)
+	}
+	if !cancellationObserved {
+		t.Fatal("artifact rows did not observe query cancellation")
 	}
 	if after := readArtifactMutationCounts(t, fixture.database, published.Artifact.ID); after != before {
 		t.Fatalf("iteration error changed artifact facts: before=%+v after=%+v", before, after)

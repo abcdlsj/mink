@@ -316,15 +316,14 @@ func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) (L
 	return result, nil
 }
 
-type artifactBatchRowsErrorContextKey struct{}
+type artifactBatchAfterScanContextKey struct{}
 
-type artifactBatchRowsErrorFunc func(int, *sql.Rows) error
+type artifactBatchAfterScanFunc func(int, *sql.Rows)
 
-func artifactBatchRowsErr(ctx context.Context, scanned int, rows *sql.Rows) error {
-	if read, ok := ctx.Value(artifactBatchRowsErrorContextKey{}).(artifactBatchRowsErrorFunc); ok {
-		return read(scanned, rows)
+func artifactBatchAfterScan(ctx context.Context, scanned int, rows *sql.Rows) {
+	if apply, ok := ctx.Value(artifactBatchAfterScanContextKey{}).(artifactBatchAfterScanFunc); ok {
+		apply(scanned, rows)
 	}
-	return rows.Err()
 }
 
 func listArtifactBatch(ctx context.Context, tx *sql.Tx, organizationID, owningWorkID string, afterCreatedAt time.Time, afterID string, limit uint32) ([]Artifact, error) {
@@ -358,8 +357,9 @@ func listArtifactBatch(ctx context.Context, tx *sql.Tx, organizationID, owningWo
 			return nil, err
 		}
 		artifacts = append(artifacts, artifact)
+		artifactBatchAfterScan(ctx, len(artifacts), rows)
 	}
-	if err := artifactBatchRowsErr(ctx, len(artifacts), rows); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate artifact batch: %w", err)
 	}
 	return artifacts, nil
