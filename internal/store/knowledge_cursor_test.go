@@ -59,7 +59,7 @@ func TestOpenSecuresLiveSQLiteFilesAndKeepsCursorKeyQuiet(t *testing.T) {
 
 func TestOpenFailsClosedForCursorKeyRandomFailureAndCorruption(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
-	failed, err := openWithRandomReader(path, failingReader{})
+	failed, err := openWithObservedClose(path, failingReader{})
 	if failed != nil || !errors.Is(err, ErrKnowledgeCursorKeyUnavailable) {
 		t.Fatalf("Open with random failure = %v, %v", failed, err)
 	}
@@ -87,11 +87,23 @@ func TestOpenFailsClosedForCursorKeyRandomFailureAndCorruption(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		failed, err = Open(path)
+		failed, err = openWithObservedClose(path, bytes.NewReader(bytes.Repeat([]byte{2}, 64)))
 		if failed != nil || !errors.Is(err, ErrKnowledgeCursorKeyUnavailable) {
 			t.Fatalf("Open with corrupt key = %v, %v", failed, err)
 		}
 	}
+}
+
+func openWithObservedClose(path string, random io.Reader) (*Store, error) {
+	closes := 0
+	store, err := openWithOptions(path, random, func(database *sql.DB) error {
+		closes++
+		return database.Close()
+	})
+	if closes != 1 {
+		return store, fmt.Errorf("Open close calls = %d, want 1", closes)
+	}
+	return store, err
 }
 
 func TestKnowledgeCursorKeyConcurrentOpenDoesNotClobber(t *testing.T) {
@@ -268,6 +280,11 @@ func TestKnowledgeCursorCodecRejectsInvalidOrMismatchedTokens(t *testing.T) {
 	wrongBinding.QueryHash[0]++
 	if _, err := codec.open(token, wrongBinding); !errors.Is(err, ErrKnowledgeCursorUnavailable) {
 		t.Fatalf("wrong query binding error = %v", err)
+	}
+	wrongBinding = binding
+	wrongBinding.PrincipalFingerprint[0]++
+	if _, err := codec.open(token, wrongBinding); !errors.Is(err, ErrKnowledgeCursorUnavailable) {
+		t.Fatalf("wrong principal binding error = %v", err)
 	}
 }
 

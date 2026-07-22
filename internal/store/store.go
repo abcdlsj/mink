@@ -30,6 +30,10 @@ func Open(path string) (*Store, error) {
 }
 
 func openWithRandomReader(path string, random io.Reader) (*Store, error) {
+	return openWithOptions(path, random, (*sql.DB).Close)
+}
+
+func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error) (*Store, error) {
 	if err := secureSQLiteFile(path); err != nil {
 		return nil, err
 	}
@@ -40,33 +44,33 @@ func openWithRandomReader(path string, random io.Reader) (*Store, error) {
 	db.SetMaxOpenConns(1)
 
 	if err := configure(db); err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 	if err := initializeSQLiteWAL(db); err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 	if err := secureSQLiteFiles(path); err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 	if err := migrate(db); err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 	key, err := bootstrapKnowledgeCursorKey(context.Background(), db, random)
 	if err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 	cursorCodec, err := newKnowledgeCursorCodec(key, random)
 	if err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, fmt.Errorf("initialize knowledge cursor codec: %w", ErrKnowledgeCursorKeyUnavailable)
 	}
 	if err := secureSQLiteFiles(path); err != nil {
-		db.Close()
+		closeDB(db)
 		return nil, err
 	}
 
