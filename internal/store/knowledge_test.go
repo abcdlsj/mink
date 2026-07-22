@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,21 @@ func TestKnowledgeIndexHealthRepairsMissingFTS(t *testing.T) {
 	}
 }
 
+func TestKnowledgeIndexHealthDetectsInvalidFTSSchema(t *testing.T) {
+	database := openKnowledgeStore(t)
+	defer database.Close()
+	if _, err := database.db.Exec(`DROP TABLE knowledge_fts`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`CREATE TABLE knowledge_fts(source_kind TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	health, err := database.CheckKnowledgeIndexHealth(context.Background())
+	if err != nil || health != KnowledgeIndexCorrupt {
+		t.Fatalf("health after invalid FTS schema = %v, %v", health, err)
+	}
+}
+
 func TestKnowledgeIndexHealthDetectsActiveProjectionCorruption(t *testing.T) {
 	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
 	defer database.Close()
@@ -105,6 +121,91 @@ func TestKnowledgeIndexHealthDetectsActiveProjectionCorruption(t *testing.T) {
 	health, err := database.CheckKnowledgeIndexHealth(context.Background())
 	if err != nil || health != KnowledgeIndexCorrupt {
 		t.Fatalf("health after projection deletion = %v, %v", health, err)
+	}
+	if err := database.RepairKnowledgeFTS(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil || metadata.ActiveGeneration != 0 || metadata.NextGeneration != 0 || metadata.Status != KnowledgeIndexDegraded {
+		t.Fatalf("metadata after projection repair = %+v, %v", metadata, err)
+	}
+	var projections, ftsRows int
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_projection_rows`).Scan(&projections); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_fts`).Scan(&ftsRows); err != nil {
+		t.Fatal(err)
+	}
+	if projections != 0 || ftsRows != 0 {
+		t.Fatalf("projection repair retained derived rows: projections=%d fts=%d", projections, ftsRows)
+	}
+}
+
+func TestKnowledgeIndexHealthPreservesActiveGenerationOnTransientProjectionRead(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "health transient", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "health transient", Now: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := database.StartKnowledgeRebuild(context.Background(), now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteKnowledgeGeneration(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ActivateKnowledgeGeneration(context.Background(), next.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	beforeMetadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProgress, err := database.KnowledgeGenerationProgress(context.Background(), next.NextGeneration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeProjections, beforeFTS int
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, next.NextGeneration).Scan(&beforeProjections); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ?`, next.NextGeneration).Scan(&beforeFTS); err != nil {
+		t.Fatal(err)
+	}
+	transient := context.WithValue(context.Background(), knowledgeProjectionCheckErrorContextKey{}, knowledgeProjectionCheckErrorFunc(func(stage string) error {
+		if stage == "projection row" {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}))
+	health, err := database.CheckKnowledgeIndexHealth(transient)
+	if health != KnowledgeIndexHealthy || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("health after transient projection read = %v, %v", health, err)
+	}
+	afterMetadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil || afterMetadata != beforeMetadata {
+		t.Fatalf("metadata changed after transient projection read: before=%+v after=%+v err=%v", beforeMetadata, afterMetadata, err)
+	}
+	afterProgress, err := database.KnowledgeGenerationProgress(context.Background(), next.NextGeneration)
+	if err != nil || afterProgress != beforeProgress {
+		t.Fatalf("progress changed after transient projection read: before=%+v after=%+v err=%v", beforeProgress, afterProgress, err)
+	}
+	var afterProjections, afterFTS int
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, next.NextGeneration).Scan(&afterProjections); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.db.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ?`, next.NextGeneration).Scan(&afterFTS); err != nil {
+		t.Fatal(err)
+	}
+	if afterProjections != beforeProjections || afterFTS != beforeFTS {
+		t.Fatalf("derived rows changed after transient projection read: before=%d/%d after=%d/%d", beforeProjections, beforeFTS, afterProjections, afterFTS)
 	}
 }
 

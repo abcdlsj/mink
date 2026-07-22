@@ -59,6 +59,8 @@ const (
 	KnowledgeIndexCorrupt
 )
 
+var errKnowledgeProjectionInvariant = errors.New("knowledge projection invariant violated")
+
 type KnowledgeGenerationProgress struct {
 	Generation        uint64
 	SnapshotHighWater uint64
@@ -482,11 +484,15 @@ func (s *Store) ActivateKnowledgeGeneration(ctx context.Context, generation uint
 }
 
 func (s *Store) KnowledgeFTSAvailable(ctx context.Context) (bool, error) {
-	var exists bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts')`).Scan(&exists); err != nil {
+	var schema string
+	err := s.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts'`).Scan(&schema)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
 		return false, fmt.Errorf("read knowledge fts metadata: %w", err)
 	}
-	if !exists {
+	if normalizeKnowledgeSchema(schema) != normalizeKnowledgeSchema(knowledgeFTSSchema) {
 		return false, nil
 	}
 	var count int
@@ -534,7 +540,10 @@ func (s *Store) CheckKnowledgeIndexHealth(ctx context.Context) (KnowledgeIndexHe
 		return KnowledgeIndexHealthy, err
 	}
 	if err := verifyKnowledgeGenerationProjection(ctx, tx, metadata.ActiveGeneration, documents); err != nil {
-		return KnowledgeIndexCorrupt, nil
+		if errors.Is(err, errKnowledgeProjectionInvariant) {
+			return KnowledgeIndexCorrupt, nil
+		}
+		return KnowledgeIndexHealthy, err
 	}
 	return KnowledgeIndexHealthy, nil
 }
@@ -575,6 +584,17 @@ func rowsErr(ctx context.Context, sourceKind string, rows *sql.Rows) error {
 		return read(sourceKind, rows)
 	}
 	return rows.Err()
+}
+
+type knowledgeProjectionCheckErrorContextKey struct{}
+
+type knowledgeProjectionCheckErrorFunc func(string) error
+
+func projectionCheckErr(ctx context.Context, stage string) error {
+	if check, ok := ctx.Value(knowledgeProjectionCheckErrorContextKey{}).(knowledgeProjectionCheckErrorFunc); ok {
+		return check(stage)
+	}
+	return nil
 }
 
 func readKnowledgeIndexMetadata(ctx context.Context, queryer knowledgeQueryer) (KnowledgeIndexMetadata, error) {
@@ -716,7 +736,7 @@ func verifyKnowledgeGenerationProjection(ctx context.Context, tx *sql.Tx, genera
 		return fmt.Errorf("read knowledge fts metadata: %w", err)
 	}
 	if !exists {
-		return errors.New("knowledge fts is unavailable")
+		return fmt.Errorf("%w: knowledge fts is unavailable", errKnowledgeProjectionInvariant)
 	}
 	var probe int
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_fts WHERE knowledge_fts MATCH ?`, "knowledgecapabilityprobe").Scan(&probe); err != nil {
@@ -725,25 +745,34 @@ func verifyKnowledgeGenerationProjection(ctx context.Context, tx *sql.Tx, genera
 	for _, document := range documents {
 		var rowID int64
 		var revision []byte
+		if err := projectionCheckErr(ctx, "projection row"); err != nil {
+			return fmt.Errorf("read knowledge projection: %w", err)
+		}
 		err := tx.QueryRowContext(ctx, `SELECT fts_rowid, revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, document.Source.Kind, document.Source.ID, document.Source.Version).Scan(&rowID, &revision)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("knowledge generation %d lacks projection for %s %s", generation, document.Source.Kind, document.Source.ID)
+			return fmt.Errorf("%w: knowledge generation %d lacks projection for %s %s", errKnowledgeProjectionInvariant, generation, document.Source.Kind, document.Source.ID)
 		}
 		if err != nil {
 			return fmt.Errorf("read knowledge projection: %w", err)
 		}
 		if len(revision) != sha256.Size || string(revision) != string(document.Revision[:]) {
-			return fmt.Errorf("knowledge generation %d projection revision is stale", generation)
+			return fmt.Errorf("%w: knowledge generation %d projection revision is stale", errKnowledgeProjectionInvariant, generation)
 		}
 		var source KnowledgeSource
 		var projectionGeneration uint64
 		var ftsRevision []byte
 		var body string
+		if err := projectionCheckErr(ctx, "fts row"); err != nil {
+			return fmt.Errorf("read knowledge fts projection: %w", err)
+		}
 		if err := tx.QueryRowContext(ctx, `SELECT source_kind, source_id, source_version, generation, revision, body FROM knowledge_fts WHERE rowid = ?`, rowID).Scan(&source.Kind, &source.ID, &source.Version, &projectionGeneration, &ftsRevision, &body); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: knowledge generation %d lacks fts projection", errKnowledgeProjectionInvariant, generation)
+			}
 			return fmt.Errorf("read knowledge fts projection: %w", err)
 		}
 		if source != document.Source || projectionGeneration != generation || len(ftsRevision) != sha256.Size || string(ftsRevision) != string(document.Revision[:]) || body != document.Body {
-			return fmt.Errorf("knowledge generation %d fts projection is incomplete", generation)
+			return fmt.Errorf("%w: knowledge generation %d fts projection is incomplete", errKnowledgeProjectionInvariant, generation)
 		}
 	}
 	var count int
@@ -751,15 +780,19 @@ func verifyKnowledgeGenerationProjection(ctx context.Context, tx *sql.Tx, genera
 		return fmt.Errorf("count knowledge projections: %w", err)
 	}
 	if count != len(documents) {
-		return fmt.Errorf("knowledge generation %d has unexpected projection rows", generation)
+		return fmt.Errorf("%w: knowledge generation %d has unexpected projection rows", errKnowledgeProjectionInvariant, generation)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_fts WHERE generation = ?`, generation).Scan(&count); err != nil {
 		return fmt.Errorf("count knowledge fts projections: %w", err)
 	}
 	if count != len(documents) {
-		return fmt.Errorf("knowledge generation %d has unexpected fts rows", generation)
+		return fmt.Errorf("%w: knowledge generation %d has unexpected fts rows", errKnowledgeProjectionInvariant, generation)
 	}
 	return nil
+}
+
+func normalizeKnowledgeSchema(schema string) string {
+	return strings.ToLower(strings.Join(strings.Fields(schema), " "))
 }
 
 func readKnowledgeSourceDocument(ctx context.Context, queryer knowledgeSourceQueryer, source KnowledgeSource) (KnowledgeSourceDocument, bool, error) {
