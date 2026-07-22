@@ -294,8 +294,12 @@ func scanWork(row scanner) (Work, error) {
 	return work, nil
 }
 
-func loadWorkParts(ctx context.Context, tx *sql.Tx, work *Work) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id, ordinal, body, created_at FROM work_constraints WHERE work_id = ? AND organization_id = ? ORDER BY ordinal`, work.ID, work.OrganizationID)
+type workPartsQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func loadWorkParts(ctx context.Context, queryer workPartsQueryer, work *Work) error {
+	rows, err := queryer.QueryContext(ctx, `SELECT id, ordinal, body, created_at FROM work_constraints WHERE work_id = ? AND organization_id = ? ORDER BY ordinal`, work.ID, work.OrganizationID)
 	if err != nil {
 		return fmt.Errorf("list work constraints: %w", err)
 	}
@@ -312,7 +316,7 @@ func loadWorkParts(ctx context.Context, tx *sql.Tx, work *Work) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT id, ordinal, body, created_at FROM work_acceptance_criteria WHERE work_id = ? AND organization_id = ? ORDER BY ordinal`, work.ID, work.OrganizationID)
+	rows, err = queryer.QueryContext(ctx, `SELECT id, ordinal, body, created_at FROM work_acceptance_criteria WHERE work_id = ? AND organization_id = ? ORDER BY ordinal`, work.ID, work.OrganizationID)
 	if err != nil {
 		return fmt.Errorf("list work criteria: %w", err)
 	}
@@ -460,6 +464,9 @@ func (s *Store) CreateWork(ctx context.Context, params WorkCreateParams) (Work, 
 		return Work{}, err
 	}
 	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return Work{}, err
+	}
+	if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, knowledgeWorkRevision(work), params.Now); err != nil {
 		return Work{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -734,6 +741,10 @@ func (s *Store) TransitionWork(ctx context.Context, params TransitionWorkParams)
 	} else if err != nil {
 		return Work{}, err
 	}
+	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return Work{}, err
+	}
+	previousRevision := knowledgeWorkRevision(work)
 	if err := requireWorkGrant(ctx, tx, params.Actor, CapabilityWorkManage, work.ID, work.SourceSpaceID, AuditWorkTransition, params.RequestID, params.Now); err != nil {
 		return Work{}, err
 	}
@@ -826,6 +837,11 @@ func (s *Store) TransitionWork(ctx context.Context, params TransitionWorkParams)
 	}
 	if err := loadWorkParts(ctx, tx, &work); err != nil {
 		return Work{}, err
+	}
+	if revision := knowledgeWorkRevision(work); revision != previousRevision {
+		if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, revision, params.Now); err != nil {
+			return Work{}, err
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Work{}, err
@@ -922,6 +938,10 @@ func (s *Store) RequestWorkApproval(ctx context.Context, params RequestWorkAppro
 	} else if err != nil {
 		return WorkApproval{}, err
 	}
+	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return WorkApproval{}, err
+	}
+	previousRevision := knowledgeWorkRevision(work)
 	if err := requireWorkGrant(ctx, tx, params.Actor, CapabilityWorkManage, work.ID, work.SourceSpaceID, AuditWorkApprovalRequest, params.RequestID, params.Now); err != nil {
 		return WorkApproval{}, err
 	}
@@ -950,6 +970,18 @@ func (s *Store) RequestWorkApproval(ctx context.Context, params RequestWorkAppro
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: work.OrganizationID, Actor: params.Actor, Action: AuditWorkApprovalRequest, TargetKind: "work", TargetID: work.ID, ContextKind: "space", ContextID: work.SourceSpaceID, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
 		return WorkApproval{}, err
+	}
+	work, err = scanWork(tx.QueryRowContext(ctx, workSelect()+` WHERE id = ? AND organization_id = ?`, work.ID, work.OrganizationID))
+	if err != nil {
+		return WorkApproval{}, err
+	}
+	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return WorkApproval{}, err
+	}
+	if revision := knowledgeWorkRevision(work); revision != previousRevision {
+		if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, revision, params.Now); err != nil {
+			return WorkApproval{}, err
+		}
 	}
 	approval, err := approvalByID(ctx, tx, approvalID)
 	if err != nil {
@@ -1005,6 +1037,14 @@ func (s *Store) ResolveWorkApproval(ctx context.Context, params ResolveWorkAppro
 	if err := requireWorkGrant(ctx, tx, params.Actor, CapabilityWorkApprove, workID, sourceSpace, AuditWorkApprovalResolve, params.RequestID, params.Now); err != nil {
 		return WorkApproval{}, err
 	}
+	work, err := scanWork(tx.QueryRowContext(ctx, workSelect()+` WHERE id = ? AND organization_id = ?`, workID, organizationID))
+	if err != nil {
+		return WorkApproval{}, err
+	}
+	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return WorkApproval{}, err
+	}
+	previousRevision := knowledgeWorkRevision(work)
 	stamp := unixNano(params.Now)
 	nextState, reason := WorkStateOpen, ""
 	if params.Decision == "rejected" {
@@ -1031,6 +1071,18 @@ func (s *Store) ResolveWorkApproval(ctx context.Context, params ResolveWorkAppro
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: organizationID, Actor: params.Actor, Action: AuditWorkApprovalResolve, TargetKind: "work", TargetID: workID, ContextKind: "space", ContextID: sourceSpace, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
 		return WorkApproval{}, err
+	}
+	work, err = scanWork(tx.QueryRowContext(ctx, workSelect()+` WHERE id = ? AND organization_id = ?`, workID, organizationID))
+	if err != nil {
+		return WorkApproval{}, err
+	}
+	if err := loadWorkParts(ctx, tx, &work); err != nil {
+		return WorkApproval{}, err
+	}
+	if revision := knowledgeWorkRevision(work); revision != previousRevision {
+		if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, revision, params.Now); err != nil {
+			return WorkApproval{}, err
+		}
 	}
 	approval, err := approvalByID(ctx, tx, params.ApprovalID)
 	if err != nil {

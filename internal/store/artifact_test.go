@@ -710,6 +710,9 @@ func TestArtifactMigrationDownRemovesOnlyArtifactFacts(t *testing.T) {
 	if err := goose.Down(database.db, "migrations"); err != nil {
 		t.Fatal(err)
 	}
+	if err := goose.Down(database.db, "migrations"); err != nil {
+		t.Fatal(err)
+	}
 	for _, table := range []string{"artifact_blobs", "artifacts", "artifact_versions", "artifact_version_executions", "artifact_version_sources", "artifact_grants", "artifact_requests"} {
 		if _, err := database.db.Exec(`SELECT 1 FROM ` + table + ` LIMIT 1`); err == nil {
 			t.Fatalf("%s survived artifact down migration", table)

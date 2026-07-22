@@ -294,6 +294,9 @@ func (s *ArtifactStore) Publish(ctx context.Context, params PublishArtifactParam
 	if err != nil {
 		return PublishArtifactResult{}, err
 	}
+	if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: artifact.ID, Version: versionNumber}, KnowledgeArtifactVersionRevision(artifact.ID, versionNumber, digest), params.Now); err != nil {
+		return PublishArtifactResult{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return PublishArtifactResult{}, fmt.Errorf("commit artifact publish: %w", err)
 	}

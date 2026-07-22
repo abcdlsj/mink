@@ -178,6 +178,9 @@ func publishMessageTx(ctx context.Context, tx *sql.Tx, actor Principal, target M
 	}
 	message.Author.OrganizationID = actor.OrganizationID
 	message.MentionedAgentIDs = append([]string(nil), mentions...)
+	if _, err := enqueueKnowledgeDirtySource(ctx, tx, KnowledgeSource{Kind: KnowledgeSourceMessage, ID: message.ID}, KnowledgeMessageRevision(message.ID, message.TargetSequence), now); err != nil {
+		return Message{}, nil, err
+	}
 	created, err := projectMessageAttention(ctx, tx, message, mentions, now)
 	if err != nil {
 		return Message{}, nil, err
