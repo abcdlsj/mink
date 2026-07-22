@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
@@ -16,6 +17,8 @@ import (
 
 //go:embed migrations/*.sql
 var migrations embed.FS
+
+var migrationMutex sync.Mutex
 
 type Store struct {
 	db                   *sql.DB
@@ -161,6 +164,8 @@ func initializeSQLiteWAL(db *sql.DB) error {
 }
 
 func migrate(db *sql.DB) error {
+	migrationMutex.Lock()
+	defer migrationMutex.Unlock()
 	goose.SetBaseFS(migrations)
 	if err := goose.SetDialect("sqlite3"); err != nil {
 		return fmt.Errorf("configure migrations: %w", err)

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -103,7 +104,7 @@ func TestKnowledgeCursorKeyConcurrentOpenDoesNotClobber(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const opens = 8
+	const opens = 10
 	keys := make(chan []byte, opens)
 	errs := make(chan error, opens)
 	var group sync.WaitGroup
@@ -145,6 +146,50 @@ func TestKnowledgeCursorKeyConcurrentOpenDoesNotClobber(t *testing.T) {
 	}
 	if len(want) != 32 {
 		t.Fatalf("cursor key length = %d", len(want))
+	}
+}
+
+func TestKnowledgeCursorKeyConcurrentOpenDifferentDatabases(t *testing.T) {
+	const opens = 10
+	paths := make([]string, opens)
+	for index := range paths {
+		paths[index] = filepath.Join(t.TempDir(), fmt.Sprintf("server-%d.db", index))
+	}
+	keys := make(chan []byte, opens)
+	errs := make(chan error, opens)
+	var group sync.WaitGroup
+	for index := range opens {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+			store, err := Open(paths[index])
+			if err != nil {
+				errs <- err
+				return
+			}
+			var key []byte
+			err = store.db.QueryRow(`SELECT key FROM knowledge_cursor_keys WHERE singleton = 1`).Scan(&key)
+			if closeErr := store.Close(); err == nil {
+				err = closeErr
+			}
+			errs <- err
+			if err == nil {
+				keys <- key
+			}
+		}(index)
+	}
+	group.Wait()
+	close(errs)
+	close(keys)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for key := range keys {
+		if len(key) != 32 {
+			t.Fatalf("cursor key length = %d", len(key))
+		}
 	}
 }
 
