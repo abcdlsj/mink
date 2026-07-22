@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 const (
@@ -190,7 +192,7 @@ func (s *Store) SearchKnowledge(ctx context.Context, params KnowledgeSearchParam
 	}
 	available, err := knowledgeSearchFTSAvailable(ctx, tx)
 	if err != nil {
-		if isKnowledgeSearchCorruption(err) {
+		if errors.Is(classifyKnowledgeSearchCandidateError(err), errKnowledgeSearchCorrupt) {
 			return KnowledgeSearchPage{Status: KnowledgeIndexDegraded}, nil
 		}
 		return KnowledgeSearchPage{}, fmt.Errorf("read knowledge search fts: %w", err)
@@ -369,6 +371,31 @@ type knowledgeSearchCandidate struct {
 	revision [sha256.Size]byte
 }
 
+type knowledgeSearchCandidateFaultContextKey struct{}
+
+type knowledgeSearchCandidateFaultFunc func(string, *knowledgeSearchCandidate) error
+
+func knowledgeSearchCandidateFault(ctx context.Context, stage string, candidate *knowledgeSearchCandidate) error {
+	if fault, ok := ctx.Value(knowledgeSearchCandidateFaultContextKey{}).(knowledgeSearchCandidateFaultFunc); ok {
+		return fault(stage, candidate)
+	}
+	return nil
+}
+
+func classifyKnowledgeSearchCandidateError(err error) error {
+	if errors.Is(err, errKnowledgeSearchCorrupt) {
+		return errKnowledgeSearchCorrupt
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		switch sqliteErr.Code() {
+		case sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB:
+			return errKnowledgeSearchCorrupt
+		}
+	}
+	return err
+}
+
 func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation uint64, match string, after *KnowledgeCursorSeekKey) ([]knowledgeSearchCandidate, error) {
 	query := `
 		WITH candidates AS (
@@ -396,13 +423,13 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		if availabilityErr == nil && !available {
 			return nil, errKnowledgeSearchCorrupt
 		}
-		if availabilityErr != nil && isKnowledgeSearchCorruption(availabilityErr) {
-			return nil, errKnowledgeSearchCorrupt
+		if availabilityErr != nil {
+			return nil, fmt.Errorf("read knowledge search fts capability: %w", classifyKnowledgeSearchCandidateError(availabilityErr))
 		}
-		if isKnowledgeSearchCorruption(err) {
-			return nil, errKnowledgeSearchCorrupt
-		}
-		return nil, fmt.Errorf("list knowledge search candidates: %w", err)
+		return nil, fmt.Errorf("list knowledge search candidates: %w", classifyKnowledgeSearchCandidateError(err))
+	}
+	if err := knowledgeSearchCandidateFault(ctx, "query", nil); err != nil {
+		return nil, classifyKnowledgeSearchCandidateError(err)
 	}
 	defer rows.Close()
 	candidates := make([]knowledgeSearchCandidate, 0, knowledgeSearchCandidateLimit)
@@ -410,7 +437,10 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		var candidate knowledgeSearchCandidate
 		var revision []byte
 		if err := rows.Scan(&candidate.seek.RowID, &candidate.seek.SourceKind, &candidate.seek.SourceID, &candidate.seek.SourceVersion, &revision, &candidate.seek.Rank); err != nil {
-			return nil, fmt.Errorf("scan knowledge search candidate: %w", err)
+			return nil, fmt.Errorf("scan knowledge search candidate: %w", classifyKnowledgeSearchCandidateError(err))
+		}
+		if err := knowledgeSearchCandidateFault(ctx, "scan", &candidate); err != nil {
+			return nil, classifyKnowledgeSearchCandidateError(err)
 		}
 		if len(revision) != sha256.Size || math.IsNaN(candidate.seek.Rank) || math.IsInf(candidate.seek.Rank, 0) || !validKnowledgeCursorSeekKey(candidate.seek) {
 			return nil, errKnowledgeSearchCorrupt
@@ -419,7 +449,10 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate knowledge search candidates: %w", err)
+		return nil, fmt.Errorf("iterate knowledge search candidates: %w", classifyKnowledgeSearchCandidateError(err))
+	}
+	if err := knowledgeSearchCandidateFault(ctx, "iterate", nil); err != nil {
+		return nil, classifyKnowledgeSearchCandidateError(err)
 	}
 	return candidates, nil
 }
@@ -502,12 +535,6 @@ func knowledgeSearchSourceReadable(ctx context.Context, tx *sql.Tx, actor Princi
 	default:
 		return false, nil
 	}
-}
-
-func isKnowledgeSearchCorruption(err error) bool {
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "malformed") || strings.Contains(message, "fts5:") ||
-		strings.Contains(message, "no such table: knowledge_fts") || strings.Contains(message, "no such column:")
 }
 
 func knowledgeSearchSnippet(body string) (string, bool) {

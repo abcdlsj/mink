@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1025,20 +1026,34 @@ func TestSearchKnowledgeRejectsQueryAndPaginationBudgetViolations(t *testing.T) 
 	if err != nil || operators.match != `"OR" AND "*" AND "NEAR"` {
 		t.Fatalf("operator literal query = %+v, %v", operators, err)
 	}
-	for name, query := range map[string]string{
-		"empty":       "",
-		"query bytes": strings.Repeat("a", knowledgeSearchQueryMaxBytes+1),
-		"term count":  strings.Repeat("a ", knowledgeSearchTermsMax+1),
-		"term bytes":  strings.Repeat("a", knowledgeSearchTermMaxBytes+1),
+	for name, test := range map[string]struct {
+		query string
+		valid bool
+	}{
+		"empty":          {query: ""},
+		"query max":      {query: strings.Join([]string{strings.Repeat("a", 64), strings.Repeat("b", 64), strings.Repeat("c", 64), strings.Repeat("d", 61)}, " "), valid: true},
+		"query max plus": {query: strings.Repeat("a", knowledgeSearchQueryMaxBytes+1)},
+		"terms max":      {query: strings.TrimSpace(strings.Repeat("a ", knowledgeSearchTermsMax)), valid: true},
+		"terms max plus": {query: strings.TrimSpace(strings.Repeat("a ", knowledgeSearchTermsMax+1))},
+		"term max":       {query: strings.Repeat("a", knowledgeSearchTermMaxBytes), valid: true},
+		"term max plus":  {query: strings.Repeat("a", knowledgeSearchTermMaxBytes+1)},
+		"invalid UTF-8":  {query: string([]byte{0xff})},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := normalizeKnowledgeSearchQuery(query); !errors.Is(err, ErrKnowledgeSearchInvalid) {
+			_, err := normalizeKnowledgeSearchQuery(test.query)
+			if test.valid && err != nil {
+				t.Fatalf("normalize %q = %v", name, err)
+			}
+			if !test.valid && !errors.Is(err, ErrKnowledgeSearchInvalid) {
 				t.Fatalf("normalize %q error = %v", name, err)
 			}
 		})
 	}
 	database := openKnowledgeStore(t)
 	defer database.Close()
+	if _, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: Principal{Kind: "human", ID: "human", OrganizationID: "organization"}, Query: "valid", Limit: knowledgeSearchMaxPageSize, Now: time.Now()}); errors.Is(err, ErrKnowledgeSearchInvalid) {
+		t.Fatalf("max limit rejected: %v", err)
+	}
 	if _, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: Principal{Kind: "human", ID: "human", OrganizationID: "organization"}, Query: "valid", Limit: knowledgeSearchMaxPageSize + 1, Now: time.Now()}); !errors.Is(err, ErrKnowledgeSearchInvalid) {
 		t.Fatalf("limit error = %v", err)
 	}
@@ -1265,12 +1280,192 @@ func TestSearchKnowledgeDegradesDeterministicCorruptionAndPropagatesTransient(t 
 	}
 }
 
+func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "candidate failures", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "candidate failure", Now: now.Add(time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
+	for _, stage := range []string{"query", "scan", "iterate"} {
+		t.Run(stage+" corruption", func(t *testing.T) {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate) error {
+				if actual == stage {
+					return errKnowledgeSearchCorrupt
+				}
+				return nil
+			}))
+			page, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
+			if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
+				t.Fatalf("%s corruption = %+v, %v", stage, page, err)
+			}
+		})
+		t.Run(stage+" transient", func(t *testing.T) {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate) error {
+				if actual == stage {
+					return context.Canceled
+				}
+				return nil
+			}))
+			if _, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)}); !errors.Is(err, context.Canceled) {
+				t.Fatalf("%s transient error = %v", stage, err)
+			}
+		})
+	}
+	for _, rank := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprintf("rank %v", rank), func(t *testing.T) {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(stage string, candidate *knowledgeSearchCandidate) error {
+				if stage == "scan" {
+					candidate.seek.Rank = rank
+				}
+				return nil
+			}))
+			page, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(4 * time.Second)})
+			if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
+				t.Fatalf("rank %v search = %+v, %v", rank, page, err)
+			}
+		})
+	}
+}
+
+func TestSearchKnowledgeQuietlyDropsStaleCurrentSourceRevisions(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		query  string
+		source func(*artifactFixture, PublishArtifactResult) KnowledgeSource
+	}{
+		{name: "message", query: "source", source: func(fixture *artifactFixture, _ PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceMessage, ID: fixture.source.ID}
+		}},
+		{name: "work", query: "produce", source: func(fixture *artifactFixture, _ PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceWork, ID: fixture.work.ID}
+		}},
+		{name: "artifact", query: "revision-only", source: func(_ *artifactFixture, published PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := openArtifactFixture(t)
+			publish := fixture.humanPublishParams(uuid.NewString(), "stale artifact body", fixture.at(1))
+			publish.Summary = "revision-only artifact"
+			published, err := fixture.artifacts.Publish(context.Background(), publish)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation := activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
+			source := test.source(fixture, published)
+			for _, table := range []string{"knowledge_fts", "knowledge_projection_rows"} {
+				if _, err := fixture.database.db.Exec(`UPDATE `+table+` SET revision = zeroblob(32) WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version); err != nil {
+					t.Fatal(err)
+				}
+			}
+			page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: test.query, Now: fixture.at(3)})
+			if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
+				t.Fatalf("stale %s search = %+v, %v", test.name, page, err)
+			}
+		})
+	}
+}
+
+func TestSearchKnowledgePaginationStaysQuietAcrossStateChangesAndReopen(t *testing.T) {
+	t.Run("revoke leaves a short page without cursor", func(t *testing.T) {
+		fixture := openDeliveryFixture(t)
+		for range 2 {
+			if _, err := fixture.database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: fixture.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "page revoke", Now: fixture.at(1)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
+		first, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "page revoke", Limit: 1, Now: fixture.at(3)})
+		if err != nil || len(first.Results) != 1 || first.NextCursor == "" {
+			t.Fatalf("first revoke page = %+v, %v", first, err)
+		}
+		if _, err := fixture.database.RemoveMember(context.Background(), ChangeMemberParams{RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: Principal{Kind: "agent", ID: fixture.agentID}, Now: fixture.at(4)}); err != nil {
+			t.Fatal(err)
+		}
+		second, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "page revoke", Cursor: first.NextCursor, Limit: 1, Now: fixture.at(5)})
+		if err != nil || len(second.Results) != 0 || second.NextCursor != "" {
+			t.Fatalf("revoked second page = %+v, %v", second, err)
+		}
+	})
+	t.Run("stale leaves a short page without cursor", func(t *testing.T) {
+		database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+		defer database.Close()
+		space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "page stale", Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, 0, 2)
+		for range 2 {
+			message, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "page stale", Now: now.Add(time.Second)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, message.ID)
+		}
+		generation := activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
+		first, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "page stale", Limit: 1, Now: now.Add(3 * time.Second)})
+		if err != nil || len(first.Results) != 1 || first.NextCursor == "" {
+			t.Fatalf("first stale page = %+v, %v", first, err)
+		}
+		staleID := ids[0]
+		if staleID == first.Results[0].Source.ID {
+			staleID = ids[1]
+		}
+		for _, table := range []string{"knowledge_fts", "knowledge_projection_rows"} {
+			if _, err := database.db.Exec(`UPDATE `+table+` SET revision = zeroblob(32) WHERE generation = ? AND source_kind = 'message' AND source_id = ?`, generation, staleID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		second, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "page stale", Cursor: first.NextCursor, Limit: 1, Now: now.Add(4 * time.Second)})
+		if err != nil || len(second.Results) != 0 || second.NextCursor != "" {
+			t.Fatalf("stale second page = %+v, %v", second, err)
+		}
+	})
+	t.Run("same database reopen continues a Search cursor", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "server.db")
+		database, owner, _, _, now := openCollaborationFixture(t, path)
+		space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "page reopen", Now: now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if _, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "page reopen", Now: now.Add(time.Second)}); err != nil {
+				database.Close()
+				t.Fatal(err)
+			}
+		}
+		activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
+		first, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "page reopen", Limit: 1, Now: now.Add(3 * time.Second)})
+		if err != nil || len(first.Results) != 1 || first.NextCursor == "" {
+			database.Close()
+			t.Fatalf("first reopen page = %+v, %v", first, err)
+		}
+		if err := database.Close(); err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reopened.Close()
+		second, err := reopened.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "page reopen", Cursor: first.NextCursor, Limit: 1, Now: now.Add(4 * time.Second)})
+		if err != nil || len(second.Results) != 1 || second.Results[0].Source.ID == first.Results[0].Source.ID || second.NextCursor != "" {
+			t.Fatalf("reopened second page = %+v, %v", second, err)
+		}
+	})
+}
+
 func TestSearchKnowledgeSnippetAggregateStatusAndCursorBudgets(t *testing.T) {
 	if snippet, ok := knowledgeSearchSnippet(string([]byte{0xff})); ok || snippet != "" {
 		t.Fatalf("invalid UTF-8 snippet = %q, %t", snippet, ok)
 	}
-	body := strings.Repeat("界", 170) + "ab"
-	if snippet, ok := knowledgeSearchSnippet(body + "x"); !ok || len(snippet) != knowledgeSearchSnippetMaxBytes || !utf8.ValidString(snippet) {
+	body := strings.Repeat("界", 170) + "a界"
+	if snippet, ok := knowledgeSearchSnippet(body); !ok || len(snippet) != knowledgeSearchSnippetMaxBytes-1 || !utf8.ValidString(snippet) {
 		t.Fatalf("rune-boundary snippet = %q, %t, %d", snippet, ok, len(snippet))
 	}
 
