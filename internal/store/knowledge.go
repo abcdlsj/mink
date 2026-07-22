@@ -590,6 +590,11 @@ type knowledgeProjectionCheckErrorContextKey struct{}
 
 type knowledgeProjectionCheckErrorFunc func(string) error
 
+// WithKnowledgeProjectionCheckError injects a projection verification error for an internal caller.
+func WithKnowledgeProjectionCheckError(ctx context.Context, check func(string) error) context.Context {
+	return context.WithValue(ctx, knowledgeProjectionCheckErrorContextKey{}, knowledgeProjectionCheckErrorFunc(check))
+}
+
 func projectionCheckErr(ctx context.Context, stage string) error {
 	if check, ok := ctx.Value(knowledgeProjectionCheckErrorContextKey{}).(knowledgeProjectionCheckErrorFunc); ok {
 		return check(stage)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -295,6 +296,106 @@ func TestRunBacksOffPersistentErrors(t *testing.T) {
 	if calls < 4 || calls > 7 {
 		t.Fatalf("health calls during bounded backoff = %d, want 4..7", calls)
 	}
+}
+
+func TestRunPreservesActiveGenerationDuringTransientHealthVerification(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	direct, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer direct.Close()
+	active := createReadyMessageGeneration(t, database)
+	beforeMetadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProgress, err := database.KnowledgeGenerationProgress(context.Background(), active)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeProjections, beforeFTS int
+	if err := direct.QueryRow(`SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, active).Scan(&beforeProjections); err != nil {
+		t.Fatal(err)
+	}
+	if err := direct.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ?`, active).Scan(&beforeFTS); err != nil {
+		t.Fatal(err)
+	}
+	var transient atomic.Bool
+	transient.Store(true)
+	var checks atomic.Int64
+	recovered := make(chan struct{})
+	var recoveredOnce sync.Once
+	contextWithTransient := store.WithKnowledgeProjectionCheckError(context.Background(), func(stage string) error {
+		if stage != "projection row" {
+			return nil
+		}
+		checks.Add(1)
+		if transient.Load() {
+			return context.DeadlineExceeded
+		}
+		recoveredOnce.Do(func() { close(recovered) })
+		return nil
+	})
+	reconciler := New(database)
+	reconciler.wake = time.Millisecond
+	reconciler.backoffMax = 32 * time.Millisecond
+	reconciler.Start(contextWithTransient)
+	defer reconciler.Close()
+	deadline := time.Now().Add(time.Second)
+	for checks.Load() < 6 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond)
+	if calls := checks.Load(); calls < 6 || calls > 8 {
+		t.Fatalf("transient health verification calls = %d, want 6..8", calls)
+	}
+	afterMetadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil || afterMetadata != beforeMetadata {
+		t.Fatalf("metadata changed during transient health verification: before=%+v after=%+v err=%v", beforeMetadata, afterMetadata, err)
+	}
+	afterProgress, err := database.KnowledgeGenerationProgress(context.Background(), active)
+	if err != nil || afterProgress != beforeProgress {
+		t.Fatalf("progress changed during transient health verification: before=%+v after=%+v err=%v", beforeProgress, afterProgress, err)
+	}
+	var afterProjections, afterFTS int
+	if err := direct.QueryRow(`SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, active).Scan(&afterProjections); err != nil {
+		t.Fatal(err)
+	}
+	if err := direct.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ?`, active).Scan(&afterFTS); err != nil {
+		t.Fatal(err)
+	}
+	if afterProjections != beforeProjections || afterFTS != beforeFTS {
+		t.Fatalf("derived rows changed during transient health verification: before=%d/%d after=%d/%d", beforeProjections, beforeFTS, afterProjections, afterFTS)
+	}
+	transient.Store(false)
+	select {
+	case <-recovered:
+	case <-time.After(time.Second):
+		t.Fatal("same reconciler did not recover after transient health verification")
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := database.EnqueueKnowledgeDirtySource(context.Background(), store.KnowledgeSource{Kind: store.KnowledgeSourceMessage, ID: uuid.NewString()}, [32]byte{1}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	recoveryDeadline := time.Now().Add(20 * time.Millisecond)
+	for time.Now().Before(recoveryDeadline) {
+		_, found, err := database.NextKnowledgeDirtySource(context.Background(), active)
+		if err == nil && !found {
+			reconciler.Close()
+			if reconciler.backoff != 0 {
+				t.Fatalf("reconciler backoff did not reset after recovery: %s", reconciler.backoff)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("same reconciler did not advance after transient health verification")
 }
 
 func TestCloseAllowsImmediateStoreReopen(t *testing.T) {
