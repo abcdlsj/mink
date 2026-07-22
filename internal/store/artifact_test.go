@@ -170,6 +170,21 @@ func TestArtifactListIterationErrorDoesNotReturnPartialPage(t *testing.T) {
 	}
 }
 
+func TestArtifactMessageSourceReadPropagatesBackendError(t *testing.T) {
+	fixture := openArtifactFixture(t)
+	tx, err := fixture.database.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	readable, err := messageSourceReadable(canceled, tx, fixture.owner, fixture.source.ID, fixture.at(1))
+	if readable || !errors.Is(err, context.Canceled) {
+		t.Fatalf("message source backend error = %v, %v", readable, err)
+	}
+}
+
 func TestArtifactPublishKnowledgeDirtyFailureRollsBackAllFacts(t *testing.T) {
 	fixture := openArtifactFixture(t)
 	defer fixture.database.Close()

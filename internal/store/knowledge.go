@@ -108,6 +108,7 @@ var (
 	ErrKnowledgeSearchInvalid           = errors.New("knowledge search input is invalid")
 	ErrKnowledgeSearchUnauthenticated   = errors.New("knowledge search authentication is invalid")
 	ErrKnowledgeSearchCursorUnavailable = errors.New("knowledge search cursor is unavailable")
+	errKnowledgeSearchCorrupt           = errors.New("knowledge search index is corrupt")
 )
 
 type KnowledgeWorkFields struct {
@@ -189,6 +190,9 @@ func (s *Store) SearchKnowledge(ctx context.Context, params KnowledgeSearchParam
 	}
 	available, err := knowledgeSearchFTSAvailable(ctx, tx)
 	if err != nil {
+		if isKnowledgeSearchCorruption(err) {
+			return KnowledgeSearchPage{Status: KnowledgeIndexDegraded}, nil
+		}
 		return KnowledgeSearchPage{}, fmt.Errorf("read knowledge search fts: %w", err)
 	}
 	if !available {
@@ -209,6 +213,9 @@ func (s *Store) SearchKnowledge(ctx context.Context, params KnowledgeSearchParam
 	}
 	candidates, err := listKnowledgeSearchCandidates(ctx, tx, generation, query.match, after)
 	if err != nil {
+		if errors.Is(err, errKnowledgeSearchCorrupt) {
+			return KnowledgeSearchPage{Status: KnowledgeIndexDegraded}, nil
+		}
 		return KnowledgeSearchPage{}, err
 	}
 	var aggregate int
@@ -217,6 +224,9 @@ func (s *Store) SearchKnowledge(ctx context.Context, params KnowledgeSearchParam
 	for _, candidate := range candidates {
 		document, visible, err := currentKnowledgeSearchDocument(ctx, tx, actor, runtime, generation, candidate, params.Now)
 		if err != nil {
+			if errors.Is(err, errKnowledgeSearchCorrupt) {
+				return KnowledgeSearchPage{Status: KnowledgeIndexDegraded}, nil
+			}
 			return KnowledgeSearchPage{}, err
 		}
 		if !visible {
@@ -277,8 +287,14 @@ func knowledgeSearchAuthentication(ctx context.Context, tx *sql.Tx, params Knowl
 		return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
 	}
 	if humanProvided {
-		if params.Human.Kind != "human" || !params.Human.Valid() || validatePrincipalInOrganization(ctx, tx, params.Human, params.Human.OrganizationID) != nil {
+		if params.Human.Kind != "human" || !params.Human.Valid() {
 			return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
+		}
+		if err := validatePrincipalInOrganization(ctx, tx, params.Human, params.Human.OrganizationID); err != nil {
+			if errors.Is(err, ErrPrincipalNotFound) || errors.Is(err, ErrPermissionDenied) {
+				return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
+			}
+			return Principal{}, AgentRuntimeAuthentication{}, err
 		}
 		return params.Human, AgentRuntimeAuthentication{}, nil
 	}
@@ -286,7 +302,13 @@ func knowledgeSearchAuthentication(ctx context.Context, tx *sql.Tx, params Knowl
 		return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
 	}
 	current, err := requireAgentRuntimeSession(ctx, tx, params.Agent.Proof, now)
-	if err != nil || current.Principal != params.Agent.Principal {
+	if err != nil {
+		if errors.Is(err, ErrAgentRuntimeUnauthenticated) {
+			return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
+		}
+		return Principal{}, AgentRuntimeAuthentication{}, err
+	}
+	if current.Principal != params.Agent.Principal {
 		return Principal{}, AgentRuntimeAuthentication{}, ErrKnowledgeSearchUnauthenticated
 	}
 	return current.Principal, current, nil
@@ -324,7 +346,14 @@ func knowledgeSearchFTSAvailable(ctx context.Context, tx *sql.Tx) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	return normalizeKnowledgeSchema(schema) == normalizeKnowledgeSchema(knowledgeFTSSchema), nil
+	if normalizeKnowledgeSchema(schema) != normalizeKnowledgeSchema(knowledgeFTSSchema) {
+		return false, nil
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_fts WHERE knowledge_fts MATCH ?`, "knowledgecapabilityprobe").Scan(&count); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func knowledgeSearchPrincipalFingerprint(principal Principal) [sha256.Size]byte {
@@ -363,6 +392,16 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 	args = append(args, knowledgeSearchCandidateLimit)
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
+		available, availabilityErr := knowledgeSearchFTSAvailable(ctx, tx)
+		if availabilityErr == nil && !available {
+			return nil, errKnowledgeSearchCorrupt
+		}
+		if availabilityErr != nil && isKnowledgeSearchCorruption(availabilityErr) {
+			return nil, errKnowledgeSearchCorrupt
+		}
+		if isKnowledgeSearchCorruption(err) {
+			return nil, errKnowledgeSearchCorrupt
+		}
 		return nil, fmt.Errorf("list knowledge search candidates: %w", err)
 	}
 	defer rows.Close()
@@ -374,7 +413,7 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 			return nil, fmt.Errorf("scan knowledge search candidate: %w", err)
 		}
 		if len(revision) != sha256.Size || math.IsNaN(candidate.seek.Rank) || math.IsInf(candidate.seek.Rank, 0) || !validKnowledgeCursorSeekKey(candidate.seek) {
-			continue
+			return nil, errKnowledgeSearchCorrupt
 		}
 		copy(candidate.revision[:], revision)
 		candidates = append(candidates, candidate)
@@ -392,11 +431,14 @@ func currentKnowledgeSearchDocument(ctx context.Context, tx *sql.Tx, actor Princ
 		SELECT revision, fts_rowid FROM knowledge_projection_rows
 		WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?
 	`, generation, candidate.seek.SourceKind, candidate.seek.SourceID, candidate.seek.SourceVersion).Scan(&projectionRevision, &rowID)
-	if errors.Is(err, sql.ErrNoRows) || rowID != candidate.seek.RowID || len(projectionRevision) != sha256.Size || string(projectionRevision) != string(candidate.revision[:]) {
-		return KnowledgeSourceDocument{}, false, nil
-	}
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return KnowledgeSourceDocument{}, false, nil
+		}
 		return KnowledgeSourceDocument{}, false, fmt.Errorf("read knowledge search projection: %w", err)
+	}
+	if rowID != candidate.seek.RowID || len(projectionRevision) != sha256.Size || string(projectionRevision) != string(candidate.revision[:]) {
+		return KnowledgeSourceDocument{}, false, errKnowledgeSearchCorrupt
 	}
 	source := KnowledgeSource{Kind: candidate.seek.SourceKind, ID: candidate.seek.SourceID, Version: candidate.seek.SourceVersion}
 	document, found, err := readKnowledgeSourceDocument(ctx, tx, source)
@@ -419,14 +461,20 @@ func knowledgeSearchSourceReadable(ctx context.Context, tx *sql.Tx, actor Princi
 		return messageSourceReadable(ctx, tx, actor, document.Source.ID, now)
 	case KnowledgeSourceWork:
 		work, err := scanWork(tx.QueryRowContext(ctx, workSelect()+` WHERE id = ?`, document.Source.ID))
-		if errors.Is(err, sql.ErrNoRows) || work.OrganizationID != actor.OrganizationID {
-			return false, nil
-		}
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
 			return false, err
 		}
-		if err := validatePrincipalInOrganization(ctx, tx, actor, actor.OrganizationID); err != nil {
+		if work.OrganizationID != actor.OrganizationID {
 			return false, nil
+		}
+		if err := validatePrincipalInOrganization(ctx, tx, actor, actor.OrganizationID); err != nil {
+			if errors.Is(err, ErrPrincipalNotFound) || errors.Is(err, ErrPermissionDenied) {
+				return false, nil
+			}
+			return false, err
 		}
 		reason, err := requireGrant(ctx, tx, actor, CapabilityWorkRead, Scope{Kind: "work", ID: work.ID}, now, "")
 		return err == nil && reason == "", err
@@ -454,6 +502,12 @@ func knowledgeSearchSourceReadable(ctx context.Context, tx *sql.Tx, actor Princi
 	default:
 		return false, nil
 	}
+}
+
+func isKnowledgeSearchCorruption(err error) bool {
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "malformed") || strings.Contains(message, "fts5:") ||
+		strings.Contains(message, "no such table: knowledge_fts") || strings.Contains(message, "no such column:")
 }
 
 func knowledgeSearchSnippet(body string) (string, bool) {

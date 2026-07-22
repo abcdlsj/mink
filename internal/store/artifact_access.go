@@ -550,11 +550,14 @@ func messageSourceReadable(ctx context.Context, tx *sql.Tx, actor Principal, mes
 		FROM messages m JOIN spaces s ON s.id = m.space_id
 		WHERE m.id = ?
 	`, messageID).Scan(&spaceID, &organizationID)
-	if errors.Is(err, sql.ErrNoRows) || organizationID != actor.OrganizationID {
-		return false, nil
-	}
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
 		return false, err
+	}
+	if organizationID != actor.OrganizationID {
+		return false, nil
 	}
 	reason, err := requireGrant(ctx, tx, actor, CapabilitySpaceRead, Scope{Kind: "space", ID: spaceID}, now, "")
 	if err != nil || reason != "" {
