@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 func TestKnowledgeFTSAvailableAfterReopen(t *testing.T) {
@@ -1293,11 +1294,11 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 	activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
 	for _, stage := range []string{"query", "scan", "iterate"} {
 		t.Run(stage+" corruption", func(t *testing.T) {
-			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate) error {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
 				if actual == stage {
 					return errKnowledgeSearchCorrupt
 				}
-				return nil
+				return err
 			}))
 			page, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
 			if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
@@ -1305,11 +1306,11 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 			}
 		})
 		t.Run(stage+" transient", func(t *testing.T) {
-			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate) error {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
 				if actual == stage {
 					return context.Canceled
 				}
-				return nil
+				return err
 			}))
 			if _, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)}); !errors.Is(err, context.Canceled) {
 				t.Fatalf("%s transient error = %v", stage, err)
@@ -1318,17 +1319,33 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 	}
 	for _, rank := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		t.Run(fmt.Sprintf("rank %v", rank), func(t *testing.T) {
-			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(stage string, candidate *knowledgeSearchCandidate) error {
+			ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(stage string, candidate *knowledgeSearchCandidate, err error) error {
 				if stage == "scan" {
 					candidate.seek.Rank = rank
 				}
-				return nil
+				return err
 			}))
 			page, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(4 * time.Second)})
 			if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
 				t.Fatalf("rank %v search = %+v, %v", rank, page, err)
 			}
 		})
+	}
+}
+
+func TestKnowledgeSearchSQLiteCorruptionCodeAllowlist(t *testing.T) {
+	for code, want := range map[int]bool{
+		sqlite3.SQLITE_CORRUPT:      true,
+		sqlite3.SQLITE_CORRUPT_VTAB: true,
+		sqlite3.SQLITE_NOTADB:       true,
+		sqlite3.SQLITE_BUSY:         false,
+		sqlite3.SQLITE_LOCKED:       false,
+		sqlite3.SQLITE_INTERRUPT:    false,
+		sqlite3.SQLITE_ERROR:        false,
+	} {
+		if got := isKnowledgeSearchSQLiteCorruptionCode(code); got != want {
+			t.Fatalf("SQLite code %d corruption = %t, want %t", code, got, want)
+		}
 	}
 }
 
@@ -1358,10 +1375,34 @@ func TestSearchKnowledgeQuietlyDropsStaleCurrentSourceRevisions(t *testing.T) {
 			}
 			generation := activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
 			source := test.source(fixture, published)
-			for _, table := range []string{"knowledge_fts", "knowledge_projection_rows"} {
-				if _, err := fixture.database.db.Exec(`UPDATE `+table+` SET revision = zeroblob(32) WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version); err != nil {
-					t.Fatal(err)
+			var projectionBefore []byte
+			if err := fixture.database.db.QueryRow(`SELECT revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version).Scan(&projectionBefore); err != nil {
+				t.Fatal(err)
+			}
+			switch source.Kind {
+			case KnowledgeSourceMessage:
+				if _, err = fixture.database.db.Exec(`PRAGMA foreign_keys = OFF`); err == nil {
+					_, err = fixture.database.db.Exec(`UPDATE messages SET target_sequence = target_sequence + 100 WHERE id = ?`, source.ID)
 				}
+			case KnowledgeSourceWork:
+				_, err = fixture.database.db.Exec(`UPDATE works SET state = 'blocked', blocking_reason = 'current revision changed' WHERE id = ?`, source.ID)
+			case KnowledgeSourceArtifactVersion:
+				if _, err = fixture.database.db.Exec(`DROP TRIGGER artifact_versions_immutable_update`); err == nil {
+					_, err = fixture.database.db.Exec(`INSERT OR IGNORE INTO artifact_blobs(digest, size, integrity_state, created_at, checked_at) SELECT zeroblob(32), size, 'ready', created_at, created_at FROM artifact_versions WHERE artifact_id = ? AND version = ?`, source.ID, source.Version)
+					if err == nil {
+						_, err = fixture.database.db.Exec(`UPDATE artifact_versions SET digest = zeroblob(32) WHERE artifact_id = ? AND version = ?`, source.ID, source.Version)
+					}
+				}
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			var projectionAfter []byte
+			if err := fixture.database.db.QueryRow(`SELECT revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version).Scan(&projectionAfter); err != nil {
+				t.Fatal(err)
+			}
+			if string(projectionAfter) != string(projectionBefore) {
+				t.Fatal("current source mutation changed projection")
 			}
 			page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: test.query, Now: fixture.at(3)})
 			if err != nil || len(page.Results) != 0 || page.NextCursor != "" {

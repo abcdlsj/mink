@@ -240,7 +240,7 @@ func (s *Store) SearchKnowledge(ctx context.Context, params KnowledgeSearchParam
 		}
 		if len(page.Results) >= int(limit) || aggregate+len(snippet) > knowledgeSearchAggregateMaxBytes {
 			hasNext = len(page.Results) > 0
-			continue
+			break
 		}
 		page.Results = append(page.Results, KnowledgeSearchResult{Source: document.Source, Snippet: snippet})
 		aggregate += len(snippet)
@@ -373,13 +373,13 @@ type knowledgeSearchCandidate struct {
 
 type knowledgeSearchCandidateFaultContextKey struct{}
 
-type knowledgeSearchCandidateFaultFunc func(string, *knowledgeSearchCandidate) error
+type knowledgeSearchCandidateFaultFunc func(string, *knowledgeSearchCandidate, error) error
 
-func knowledgeSearchCandidateFault(ctx context.Context, stage string, candidate *knowledgeSearchCandidate) error {
+func knowledgeSearchCandidateFault(ctx context.Context, stage string, candidate *knowledgeSearchCandidate, err error) error {
 	if fault, ok := ctx.Value(knowledgeSearchCandidateFaultContextKey{}).(knowledgeSearchCandidateFaultFunc); ok {
-		return fault(stage, candidate)
+		return fault(stage, candidate, err)
 	}
-	return nil
+	return err
 }
 
 func classifyKnowledgeSearchCandidateError(err error) error {
@@ -388,12 +388,20 @@ func classifyKnowledgeSearchCandidateError(err error) error {
 	}
 	var sqliteErr *sqlite.Error
 	if errors.As(err, &sqliteErr) {
-		switch sqliteErr.Code() {
-		case sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB:
+		if isKnowledgeSearchSQLiteCorruptionCode(sqliteErr.Code()) {
 			return errKnowledgeSearchCorrupt
 		}
 	}
 	return err
+}
+
+func isKnowledgeSearchSQLiteCorruptionCode(code int) bool {
+	switch code & 0xff {
+	case sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB:
+		return true
+	default:
+		return false
+	}
 }
 
 func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation uint64, match string, after *KnowledgeCursorSeekKey) ([]knowledgeSearchCandidate, error) {
@@ -418,6 +426,10 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 	query += ` ORDER BY rank, source_kind, source_id, source_version, rowid LIMIT ?`
 	args = append(args, knowledgeSearchCandidateLimit)
 	rows, err := tx.QueryContext(ctx, query, args...)
+	if err == nil {
+		defer rows.Close()
+	}
+	err = knowledgeSearchCandidateFault(ctx, "query", nil, err)
 	if err != nil {
 		available, availabilityErr := knowledgeSearchFTSAvailable(ctx, tx)
 		if availabilityErr == nil && !available {
@@ -428,19 +440,14 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		}
 		return nil, fmt.Errorf("list knowledge search candidates: %w", classifyKnowledgeSearchCandidateError(err))
 	}
-	if err := knowledgeSearchCandidateFault(ctx, "query", nil); err != nil {
-		return nil, classifyKnowledgeSearchCandidateError(err)
-	}
-	defer rows.Close()
 	candidates := make([]knowledgeSearchCandidate, 0, knowledgeSearchCandidateLimit)
 	for rows.Next() {
 		var candidate knowledgeSearchCandidate
 		var revision []byte
-		if err := rows.Scan(&candidate.seek.RowID, &candidate.seek.SourceKind, &candidate.seek.SourceID, &candidate.seek.SourceVersion, &revision, &candidate.seek.Rank); err != nil {
+		err := rows.Scan(&candidate.seek.RowID, &candidate.seek.SourceKind, &candidate.seek.SourceID, &candidate.seek.SourceVersion, &revision, &candidate.seek.Rank)
+		err = knowledgeSearchCandidateFault(ctx, "scan", &candidate, err)
+		if err != nil {
 			return nil, fmt.Errorf("scan knowledge search candidate: %w", classifyKnowledgeSearchCandidateError(err))
-		}
-		if err := knowledgeSearchCandidateFault(ctx, "scan", &candidate); err != nil {
-			return nil, classifyKnowledgeSearchCandidateError(err)
 		}
 		if len(revision) != sha256.Size || math.IsNaN(candidate.seek.Rank) || math.IsInf(candidate.seek.Rank, 0) || !validKnowledgeCursorSeekKey(candidate.seek) {
 			return nil, errKnowledgeSearchCorrupt
@@ -448,11 +455,9 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		copy(candidate.revision[:], revision)
 		candidates = append(candidates, candidate)
 	}
-	if err := rows.Err(); err != nil {
+	err = knowledgeSearchCandidateFault(ctx, "iterate", nil, rows.Err())
+	if err != nil {
 		return nil, fmt.Errorf("iterate knowledge search candidates: %w", classifyKnowledgeSearchCandidateError(err))
-	}
-	if err := knowledgeSearchCandidateFault(ctx, "iterate", nil); err != nil {
-		return nil, classifyKnowledgeSearchCandidateError(err)
 	}
 	return candidates, nil
 }
