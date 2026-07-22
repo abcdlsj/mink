@@ -94,6 +94,30 @@ func TestStartDiscardsInheritedBuildingGeneration(t *testing.T) {
 	}
 }
 
+func TestStartupRetriesDiscardUntilItSucceeds(t *testing.T) {
+	database := &reconcilerStore{
+		metadata:   store.KnowledgeIndexMetadata{NextGeneration: 7},
+		discardErr: errors.New("transient discard failure"),
+	}
+	reconciler := &Reconciler{store: database, startup: true}
+	if reconciler.step(context.Background()) {
+		t.Fatal("startup discard failure reported progress")
+	}
+	if !reconciler.startup {
+		t.Fatal("startup epoch ended after transient discard failure")
+	}
+	database.discardErr = nil
+	if !reconciler.step(context.Background()) {
+		t.Fatal("successful startup discard did not report progress")
+	}
+	if reconciler.startup {
+		t.Fatal("startup epoch remained after successful discard")
+	}
+	if want := []string{"discard", "discard"}; !reflect.DeepEqual(database.calls, want) {
+		t.Fatalf("calls = %v, want %v", database.calls, want)
+	}
+}
+
 func TestStartRepairsCorruptActiveIndexAndRebuilds(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
 	database, err := store.Open(path)
@@ -190,6 +214,86 @@ func TestStartRepairsCorruptIndexWithoutActiveGeneration(t *testing.T) {
 	available, err := database.KnowledgeFTSAvailable(context.Background())
 	if err != nil || !available || metadata.ActiveGeneration == 0 {
 		t.Fatalf("corrupt index without active generation = %+v available=%t err=%v", metadata, available, err)
+	}
+}
+
+func TestHealthLagDrainsWithoutReplacingActiveGeneration(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	active := createReadyMessageGeneration(t, database)
+	bootstrap, err := database.EnsureAuthority(context.Background(), "knowledge-test-credential", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	space, err := database.CreateGroup(context.Background(), store.CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "knowledge lag", Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), store.SendMessageParams{
+		RequestID: uuid.NewString(), Actor: owner, Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: space.ID}, Body: "pending knowledge source", Now: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	health, err := database.CheckKnowledgeIndexHealth(context.Background())
+	if err != nil || health != store.KnowledgeIndexLagging {
+		t.Fatalf("health with pending dirty source = %v, %v", health, err)
+	}
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	defer reconciler.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		_, pending, err := database.NextKnowledgeDirtySource(context.Background(), active)
+		metadata, metadataErr := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadataErr == nil && !pending && metadata.ActiveGeneration == active && metadata.NextGeneration == 0 && metadata.Status == store.KnowledgeIndexReady {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	t.Fatalf("lagging active generation was replaced or not drained: %+v, %v", metadata, err)
+}
+
+func TestTransientHealthFailureDoesNotRepair(t *testing.T) {
+	database := &reconcilerStore{healthErr: errors.New("temporary sqlite failure")}
+	reconciler := &Reconciler{store: database, now: time.Now}
+	if reconciler.health(context.Background()) {
+		t.Fatal("transient health failure reported success")
+	}
+	if !reconciler.failed || len(database.calls) != 0 {
+		t.Fatalf("transient health failure repaired index: failed=%t calls=%v", reconciler.failed, database.calls)
+	}
+}
+
+func TestConfirmedHealthCorruptionRepairs(t *testing.T) {
+	database := &reconcilerStore{health: store.KnowledgeIndexCorrupt}
+	reconciler := &Reconciler{store: database, now: time.Now}
+	if !reconciler.health(context.Background()) {
+		t.Fatal("confirmed corruption did not repair")
+	}
+	if want := []string{"repair"}; !reflect.DeepEqual(database.calls, want) {
+		t.Fatalf("calls = %v, want %v", database.calls, want)
+	}
+}
+
+func TestRunBacksOffPersistentErrors(t *testing.T) {
+	database := &reconcilerStore{
+		metadata:  store.KnowledgeIndexMetadata{ActiveGeneration: 1},
+		healthErr: errors.New("persistent sqlite failure"),
+	}
+	reconciler := &Reconciler{store: database, now: time.Now, wake: time.Millisecond, backoffMax: 8 * time.Millisecond, stepTimeout: time.Second}
+	reconciler.Start(context.Background())
+	time.Sleep(24 * time.Millisecond)
+	reconciler.Close()
+	database.mu.Lock()
+	calls := database.healthCalls
+	database.mu.Unlock()
+	if calls < 4 || calls > 7 {
+		t.Fatalf("health calls during bounded backoff = %d, want 4..7", calls)
 	}
 }
 
@@ -371,6 +475,9 @@ type reconcilerStore struct {
 
 	buildErr    error
 	activateErr error
+	discardErr  error
+	healthErr   error
+	health      store.KnowledgeIndexHealth
 	calls       []string
 
 	appliedGeneration uint64
@@ -380,16 +487,22 @@ type reconcilerStore struct {
 	metadataStarted chan struct{}
 	metadataRelease chan struct{}
 	metadataOnce    sync.Once
+	metadataErr     error
+	metadataCalls   int
+	healthCalls     int
 }
 
 func (s *reconcilerStore) KnowledgeIndexMetadata(context.Context) (store.KnowledgeIndexMetadata, error) {
+	s.mu.Lock()
+	s.metadataCalls++
+	s.mu.Unlock()
 	if s.metadataStarted != nil {
 		s.metadataOnce.Do(func() {
 			close(s.metadataStarted)
 			<-s.metadataRelease
 		})
 	}
-	return s.metadata, nil
+	return s.metadata, s.metadataErr
 }
 
 func (s *reconcilerStore) StartKnowledgeRebuild(context.Context, time.Time) (store.KnowledgeIndexMetadata, error) {
@@ -435,11 +548,14 @@ func (s *reconcilerStore) ActivateKnowledgeGeneration(context.Context, uint64) (
 
 func (s *reconcilerStore) DiscardKnowledgeGeneration(context.Context, uint64) (store.KnowledgeIndexMetadata, error) {
 	s.record("discard")
-	return store.KnowledgeIndexMetadata{}, nil
+	return store.KnowledgeIndexMetadata{}, s.discardErr
 }
 
 func (s *reconcilerStore) CheckKnowledgeIndexHealth(context.Context) (store.KnowledgeIndexHealth, error) {
-	return store.KnowledgeIndexHealthy, nil
+	s.mu.Lock()
+	s.healthCalls++
+	s.mu.Unlock()
+	return s.health, s.healthErr
 }
 
 func (s *reconcilerStore) RepairKnowledgeFTS(context.Context) error {

@@ -55,6 +55,7 @@ type KnowledgeIndexHealth uint8
 
 const (
 	KnowledgeIndexHealthy KnowledgeIndexHealth = iota
+	KnowledgeIndexLagging
 	KnowledgeIndexCorrupt
 )
 
@@ -515,6 +516,19 @@ func (s *Store) CheckKnowledgeIndexHealth(ctx context.Context) (KnowledgeIndexHe
 		return KnowledgeIndexHealthy, err
 	}
 	defer tx.Rollback()
+	var maximum, applied uint64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) FROM knowledge_dirty_sources`).Scan(&maximum); err != nil {
+		return KnowledgeIndexHealthy, fmt.Errorf("read knowledge health high water: %w", err)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT applied_sequence FROM knowledge_generation_progress WHERE generation = ?`, metadata.ActiveGeneration).Scan(&applied); err != nil {
+		return KnowledgeIndexHealthy, fmt.Errorf("read knowledge health progress: %w", err)
+	}
+	if applied < maximum {
+		return KnowledgeIndexLagging, nil
+	}
+	if applied != maximum {
+		return KnowledgeIndexCorrupt, nil
+	}
 	documents, err := listKnowledgeSourceDocuments(ctx, tx)
 	if err != nil {
 		return KnowledgeIndexHealthy, err

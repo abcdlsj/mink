@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -397,38 +398,7 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 			t.Fatalf("knowledge message projection for %q = %t, want %t", value, projected, canonical)
 		}
 	}
-	rows, err = database.Query(`SELECT f.source_id, f.source_version, f.revision, f.body, m.target_sequence FROM knowledge_fts f LEFT JOIN messages m ON m.id = f.source_id WHERE f.source_kind = 'message'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for rows.Next() {
-		var id, body string
-		var sourceVersion uint64
-		var revision []byte
-		var sequence sql.NullInt64
-		if err := rows.Scan(&id, &sourceVersion, &revision, &body, &sequence); err != nil {
-			rows.Close()
-			t.Fatal(err)
-		}
-		if !sequence.Valid || sequence.Int64 < 0 || sourceVersion != 0 || body == "" {
-			rows.Close()
-			t.Fatalf("invalid knowledge message projection %q", id)
-		}
-		wantRevision := store.KnowledgeMessageRevision(id, uint64(sequence.Int64))
-		if string(revision) != string(wantRevision[:]) {
-			rows.Close()
-			t.Fatalf("knowledge message projection %q revision is not canonical", id)
-		}
-		var canonicalBody string
-		if err := database.QueryRow(`SELECT body FROM messages WHERE id = ?`, id).Scan(&canonicalBody); err != nil || canonicalBody != body {
-			rows.Close()
-			t.Fatalf("knowledge message projection %q is not canonical: %q, %v", id, body, err)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := rows.Err(); err != nil {
+	if err := checkKnowledgeMessageProjection(database, func(rows *sql.Rows) error { return rows.Err() }); err != nil {
 		t.Fatal(err)
 	}
 	logEntries, err := os.ReadDir(filepath.Join(dataRoot, "logs"))
@@ -438,6 +408,121 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 	if len(logEntries) != 0 {
 		t.Fatalf("unexpected inbox log artifacts: %v", logEntries)
 	}
+}
+
+func TestKnowledgeMessageProjectionOracleRejectsMutations(t *testing.T) {
+	for _, mutation := range []struct {
+		name    string
+		apply   func(*sql.DB) error
+		rowsErr func(*sql.Rows) error
+	}{
+		{
+			name: "revision",
+			apply: func(database *sql.DB) error {
+				_, err := database.Exec(`UPDATE knowledge_fts SET revision = zeroblob(32) WHERE source_kind = 'message'`)
+				return err
+			},
+			rowsErr: func(rows *sql.Rows) error { return rows.Err() },
+		},
+		{
+			name: "source version",
+			apply: func(database *sql.DB) error {
+				_, err := database.Exec(`UPDATE knowledge_fts SET source_version = 1 WHERE source_kind = 'message'`)
+				return err
+			},
+			rowsErr: func(rows *sql.Rows) error { return rows.Err() },
+		},
+		{
+			name:    "iterator error",
+			apply:   func(*sql.DB) error { return nil },
+			rowsErr: func(*sql.Rows) error { return errors.New("injected iterator error") },
+		},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			database := openKnowledgeOracleDatabase(t)
+			defer database.Close()
+			if err := mutation.apply(database); err != nil {
+				t.Fatal(err)
+			}
+			if err := checkKnowledgeMessageProjection(database, mutation.rowsErr); err == nil {
+				t.Fatal("knowledge projection oracle accepted a mutation")
+			}
+		})
+	}
+}
+
+func openKnowledgeOracleDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+	dataRoot := t.TempDir()
+	app, err := New(context.Background(), Config{DataRoot: dataRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	if err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
+	bootstrap, err := app.store.EnsureAuthority(context.Background(), credential, time.Now())
+	if err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	space, err := app.store.CreateGroup(context.Background(), store.CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "knowledge oracle", Now: time.Now()})
+	if err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
+	if _, err := app.store.SendMessage(context.Background(), store.SendMessageParams{
+		RequestID: uuid.NewString(), Actor: owner, Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: space.ID}, Body: "knowledge oracle source", Now: time.Now(),
+	}); err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
+	if err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
+	waitForKnowledgeMessages(t, database)
+	if err := app.Close(); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	return database
+}
+
+func checkKnowledgeMessageProjection(database *sql.DB, rowsErr func(*sql.Rows) error) error {
+	rows, err := database.Query(`SELECT f.source_id, f.source_version, f.revision, f.body, m.target_sequence FROM knowledge_fts f LEFT JOIN messages m ON m.id = f.source_id WHERE f.source_kind = 'message'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, body string
+		var sourceVersion uint64
+		var revision []byte
+		var sequence sql.NullInt64
+		if err := rows.Scan(&id, &sourceVersion, &revision, &body, &sequence); err != nil {
+			return err
+		}
+		if !sequence.Valid || sequence.Int64 < 0 || sourceVersion != 0 || body == "" {
+			return fmt.Errorf("invalid knowledge message projection %q", id)
+		}
+		wantRevision := store.KnowledgeMessageRevision(id, uint64(sequence.Int64))
+		if string(revision) != string(wantRevision[:]) {
+			return fmt.Errorf("knowledge message projection %q revision is not canonical", id)
+		}
+		var canonicalBody string
+		if err := database.QueryRow(`SELECT body FROM messages WHERE id = ?`, id).Scan(&canonicalBody); err != nil {
+			return fmt.Errorf("read canonical knowledge message %q: %w", id, err)
+		}
+		if canonicalBody != body {
+			return fmt.Errorf("knowledge message projection %q body is not canonical", id)
+		}
+	}
+	return rowsErr(rows)
 }
 
 func waitForKnowledgeMessages(t *testing.T, database *sql.DB) {
