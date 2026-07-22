@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
@@ -374,13 +375,23 @@ type knowledgeSearchCandidateFaultContextKey struct{}
 
 type knowledgeSearchCandidateFaultFunc func(string, *knowledgeSearchCandidate, error) error
 
+type knowledgeSearchCandidateSQLiteFault int
+
+func (fault knowledgeSearchCandidateSQLiteFault) Error() string {
+	return fmt.Sprintf("knowledge search candidate SQLite fault %d", fault)
+}
+
 type knowledgeSearchCandidateOverrideContextKey struct{}
 
 type knowledgeSearchCandidateOverrideFunc func(uint64) []knowledgeSearchCandidate
 
 func knowledgeSearchCandidateFault(ctx context.Context, stage string, candidate *knowledgeSearchCandidate, err error) error {
 	if fault, ok := ctx.Value(knowledgeSearchCandidateFaultContextKey{}).(knowledgeSearchCandidateFaultFunc); ok {
-		return fault(stage, candidate, err)
+		err = fault(stage, candidate, err)
+		var sqliteFault knowledgeSearchCandidateSQLiteFault
+		if errors.As(err, &sqliteFault) && isKnowledgeSearchSQLiteCorruptionCode(int(sqliteFault)) {
+			return errKnowledgeSearchCorrupt
+		}
 	}
 	return err
 }
@@ -389,10 +400,7 @@ func classifyKnowledgeSearchCandidateError(err error) error {
 	if errors.Is(err, errKnowledgeSearchCorrupt) {
 		return errKnowledgeSearchCorrupt
 	}
-	var sqliteErr interface {
-		error
-		Code() int
-	}
+	var sqliteErr *sqlite.Error
 	if errors.As(err, &sqliteErr) {
 		if isKnowledgeSearchSQLiteCorruptionCode(sqliteErr.Code()) {
 			return errKnowledgeSearchCorrupt

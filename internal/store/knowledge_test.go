@@ -1323,7 +1323,7 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 		})
 		for _, code := range []int{sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_CORRUPT_VTAB, sqlite3.SQLITE_NOTADB} {
 			t.Run(fmt.Sprintf("%s SQLite corruption %d", stage, code), func(t *testing.T) {
-				injected := knowledgeSearchSQLiteCodeError(code)
+				injected := knowledgeSearchCandidateSQLiteFault(code)
 				ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
 					if actual == stage {
 						return injected
@@ -1338,6 +1338,22 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 		}
 		for _, code := range []int{sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_INTERRUPT, sqlite3.SQLITE_ERROR} {
 			t.Run(fmt.Sprintf("%s SQLite transient %d", stage, code), func(t *testing.T) {
+				injected := knowledgeSearchCandidateSQLiteFault(code)
+				ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
+					if actual == stage {
+						return injected
+					}
+					return err
+				}))
+				_, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
+				var propagated knowledgeSearchCandidateSQLiteFault
+				if !errors.As(err, &propagated) || propagated != injected {
+					t.Fatalf("%s SQLite transient %d error = %v", stage, code, err)
+				}
+			})
+		}
+		for _, code := range []int{sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_NOTADB, sqlite3.SQLITE_CORRUPT_VTAB} {
+			t.Run(fmt.Sprintf("%s non-SQLite coded backend %d", stage, code), func(t *testing.T) {
 				injected := knowledgeSearchSQLiteCodeError(code)
 				ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
 					if actual == stage {
@@ -1348,7 +1364,7 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 				_, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
 				var propagated knowledgeSearchSQLiteCodeError
 				if !errors.As(err, &propagated) || propagated != injected {
-					t.Fatalf("%s SQLite transient %d error = %v", stage, code, err)
+					t.Fatalf("%s non-SQLite coded backend %d error = %v", stage, code, err)
 				}
 			})
 		}
