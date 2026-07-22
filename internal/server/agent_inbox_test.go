@@ -317,11 +317,21 @@ func spaceTarget(spaceID string) *spacev1.MessageTarget {
 
 func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues, globalValues []string) {
 	t.Helper()
+	app, err := New(context.Background(), Config{DataRoot: dataRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := app.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
+	waitForKnowledgeMessages(t, database)
 	rows, err := database.Query(`SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`)
 	if err != nil {
 		t.Fatal(err)
@@ -428,6 +438,27 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 	if len(logEntries) != 0 {
 		t.Fatalf("unexpected inbox log artifacts: %v", logEntries)
 	}
+}
+
+func waitForKnowledgeMessages(t *testing.T, database *sql.DB) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var activeGeneration, messageCount, projectedCount uint64
+		var status string
+		err := database.QueryRow(`SELECT active_generation, status FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&activeGeneration, &status)
+		if err == nil && activeGeneration != 0 && status == store.KnowledgeIndexReady {
+			err = database.QueryRow(`SELECT count(*) FROM messages`).Scan(&messageCount)
+			if err == nil {
+				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ? AND source_kind = 'message'`, activeGeneration).Scan(&projectedCount)
+			}
+			if err == nil && projectedCount == messageCount {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("knowledge runner did not project all canonical messages")
 }
 
 func quoteSQLiteIdentifier(value string) string {

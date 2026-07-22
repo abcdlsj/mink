@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -25,11 +26,11 @@ func TestReconcileNextZeroHighWaterCompletesAndActivates(t *testing.T) {
 }
 
 func TestStartDiscardsInheritedCompleteGeneration(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
 	if _, err := database.EnqueueKnowledgeDirtySource(context.Background(), store.KnowledgeSource{Kind: store.KnowledgeSourceMessage, ID: uuid.NewString()}, [32]byte{1}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -43,6 +44,14 @@ func TestStartDiscardsInheritedCompleteGeneration(t *testing.T) {
 	if err := database.CompleteKnowledgeGeneration(context.Background(), pending.NextGeneration); err != nil {
 		t.Fatal(err)
 	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
 	reconciler := New(database)
 	reconciler.Start(context.Background())
 	defer reconciler.Close()
@@ -56,6 +65,232 @@ func TestStartDiscardsInheritedCompleteGeneration(t *testing.T) {
 	}
 	metadata, err := database.KnowledgeIndexMetadata(context.Background())
 	t.Fatalf("inherited complete generation was not replaced: %+v, %v", metadata, err)
+}
+
+func TestStartDiscardsInheritedBuildingGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := database.StartKnowledgeRebuild(context.Background(), time.Now())
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	defer reconciler.Close()
+	if metadata := waitForReadyGeneration(t, database); metadata.ActiveGeneration <= pending.NextGeneration {
+		t.Fatalf("inherited building generation was not replaced: %+v", metadata)
+	}
+}
+
+func TestStartRepairsCorruptActiveIndexAndRebuilds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	active := createReadyGeneration(t, database)
+	direct, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := direct.Exec(`DROP TABLE knowledge_fts`); err != nil {
+		direct.Close()
+		t.Fatal(err)
+	}
+	if err := direct.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	defer reconciler.Close()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		metadata, err := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadata.ActiveGeneration > active && metadata.NextGeneration == 0 && metadata.Status == store.KnowledgeIndexReady {
+			available, err := database.KnowledgeFTSAvailable(context.Background())
+			if err != nil || !available {
+				t.Fatalf("repaired FTS available = %t, %v", available, err)
+			}
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	t.Fatalf("corrupt active index was not rebuilt: %+v, %v", metadata, err)
+}
+
+func TestStartRepairsMissingActiveDerivedRowsWithoutDirtySources(t *testing.T) {
+	for _, table := range []string{"knowledge_projection_rows", "knowledge_fts"} {
+		t.Run(table, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "server.db")
+			database, err := store.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+			active := createReadyMessageGeneration(t, database)
+			direct, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := direct.Exec(`DELETE FROM knowledge_dirty_sources`); err != nil {
+				direct.Close()
+				t.Fatal(err)
+			}
+			if _, err := direct.Exec(`DELETE FROM `+table+` WHERE generation = ?`, active); err != nil {
+				direct.Close()
+				t.Fatal(err)
+			}
+			if err := direct.Close(); err != nil {
+				t.Fatal(err)
+			}
+			reconciler := New(database)
+			reconciler.Start(context.Background())
+			defer reconciler.Close()
+			waitForGenerationAfter(t, database, active)
+		})
+	}
+}
+
+func TestStartRepairsCorruptIndexWithoutActiveGeneration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	direct, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := direct.Exec(`DROP TABLE knowledge_fts`); err != nil {
+		direct.Close()
+		t.Fatal(err)
+	}
+	if err := direct.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	defer reconciler.Close()
+	metadata := waitForReadyGeneration(t, database)
+	available, err := database.KnowledgeFTSAvailable(context.Background())
+	if err != nil || !available || metadata.ActiveGeneration == 0 {
+		t.Fatalf("corrupt index without active generation = %+v available=%t err=%v", metadata, available, err)
+	}
+}
+
+func TestCloseAllowsImmediateStoreReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciler := New(database)
+	reconciler.Start(context.Background())
+	deadline := time.Now().Add(time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		metadata, err := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadata.ActiveGeneration != 0 && metadata.Status == store.KnowledgeIndexReady {
+			ready = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !ready {
+		reconciler.Close()
+		database.Close()
+		t.Fatal("reconciler did not reach ready before Close")
+	}
+	reconciler.Close()
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+}
+
+func createReadyGeneration(t *testing.T, database *store.Store) uint64 {
+	t.Helper()
+	pending, err := database.StartKnowledgeRebuild(context.Background(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), pending.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteKnowledgeGeneration(context.Background(), pending.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ActivateKnowledgeGeneration(context.Background(), pending.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	return pending.NextGeneration
+}
+
+func createReadyMessageGeneration(t *testing.T, database *store.Store) uint64 {
+	t.Helper()
+	bootstrap, err := database.EnsureAuthority(context.Background(), "knowledge-test-credential", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	space, err := database.CreateGroup(context.Background(), store.CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "knowledge health", Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SendMessage(context.Background(), store.SendMessageParams{
+		RequestID: uuid.NewString(), Actor: owner, Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: space.ID}, Body: "knowledge health source", Now: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return createReadyGeneration(t, database)
+}
+
+func waitForReadyGeneration(t *testing.T, database *store.Store) store.KnowledgeIndexMetadata {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		metadata, err := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadata.ActiveGeneration != 0 && metadata.NextGeneration == 0 && metadata.Status == store.KnowledgeIndexReady {
+			return metadata
+		}
+		time.Sleep(time.Millisecond)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	t.Fatalf("knowledge generation was not ready: %+v, %v", metadata, err)
+	return store.KnowledgeIndexMetadata{}
+}
+
+func waitForGenerationAfter(t *testing.T, database *store.Store, generation uint64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		metadata, err := database.KnowledgeIndexMetadata(context.Background())
+		if err == nil && metadata.ActiveGeneration > generation && metadata.NextGeneration == 0 && metadata.Status == store.KnowledgeIndexReady {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	t.Fatalf("knowledge generation did not advance after corruption: %+v, %v", metadata, err)
 }
 
 func TestReconcileNextDiscardsUnrecoverableSnapshot(t *testing.T) {
