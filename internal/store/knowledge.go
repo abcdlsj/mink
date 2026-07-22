@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
@@ -375,6 +374,10 @@ type knowledgeSearchCandidateFaultContextKey struct{}
 
 type knowledgeSearchCandidateFaultFunc func(string, *knowledgeSearchCandidate, error) error
 
+type knowledgeSearchCandidateOverrideContextKey struct{}
+
+type knowledgeSearchCandidateOverrideFunc func(uint64) []knowledgeSearchCandidate
+
 func knowledgeSearchCandidateFault(ctx context.Context, stage string, candidate *knowledgeSearchCandidate, err error) error {
 	if fault, ok := ctx.Value(knowledgeSearchCandidateFaultContextKey{}).(knowledgeSearchCandidateFaultFunc); ok {
 		return fault(stage, candidate, err)
@@ -386,7 +389,10 @@ func classifyKnowledgeSearchCandidateError(err error) error {
 	if errors.Is(err, errKnowledgeSearchCorrupt) {
 		return errKnowledgeSearchCorrupt
 	}
-	var sqliteErr *sqlite.Error
+	var sqliteErr interface {
+		error
+		Code() int
+	}
 	if errors.As(err, &sqliteErr) {
 		if isKnowledgeSearchSQLiteCorruptionCode(sqliteErr.Code()) {
 			return errKnowledgeSearchCorrupt
@@ -405,6 +411,20 @@ func isKnowledgeSearchSQLiteCorruptionCode(code int) bool {
 }
 
 func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation uint64, match string, after *KnowledgeCursorSeekKey) ([]knowledgeSearchCandidate, error) {
+	if override, ok := ctx.Value(knowledgeSearchCandidateOverrideContextKey{}).(knowledgeSearchCandidateOverrideFunc); ok {
+		candidates := override(generation)
+		filtered := make([]knowledgeSearchCandidate, 0, len(candidates))
+		for _, candidate := range candidates {
+			if after != nil && !knowledgeSearchCandidateAfter(candidate.seek, *after) {
+				continue
+			}
+			filtered = append(filtered, candidate)
+			if len(filtered) == knowledgeSearchCandidateLimit {
+				break
+			}
+		}
+		return filtered, nil
+	}
 	query := `
 		WITH candidates AS (
 			SELECT rowid, source_kind, source_id, source_version, revision, bm25(knowledge_fts) AS rank
@@ -460,6 +480,22 @@ func listKnowledgeSearchCandidates(ctx context.Context, tx *sql.Tx, generation u
 		return nil, fmt.Errorf("iterate knowledge search candidates: %w", classifyKnowledgeSearchCandidateError(err))
 	}
 	return candidates, nil
+}
+
+func knowledgeSearchCandidateAfter(candidate, after KnowledgeCursorSeekKey) bool {
+	if candidate.Rank != after.Rank {
+		return candidate.Rank > after.Rank
+	}
+	if candidate.SourceKind != after.SourceKind {
+		return candidate.SourceKind > after.SourceKind
+	}
+	if candidate.SourceID != after.SourceID {
+		return candidate.SourceID > after.SourceID
+	}
+	if candidate.SourceVersion != after.SourceVersion {
+		return candidate.SourceVersion > after.SourceVersion
+	}
+	return candidate.RowID > after.RowID
 }
 
 func currentKnowledgeSearchDocument(ctx context.Context, tx *sql.Tx, actor Principal, runtime AgentRuntimeAuthentication, generation uint64, candidate knowledgeSearchCandidate, now time.Time) (KnowledgeSourceDocument, bool, error) {

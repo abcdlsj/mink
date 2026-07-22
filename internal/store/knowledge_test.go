@@ -19,6 +19,11 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
+type knowledgeSearchSQLiteCodeError int
+
+func (err knowledgeSearchSQLiteCodeError) Error() string { return fmt.Sprintf("SQLite code %d", err) }
+func (err knowledgeSearchSQLiteCodeError) Code() int     { return int(err) }
+
 func TestKnowledgeFTSAvailableAfterReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
 	database, err := Open(path)
@@ -1316,6 +1321,37 @@ func TestSearchKnowledgeCandidateStagesClassifyCorruptionAndTransient(t *testing
 				t.Fatalf("%s transient error = %v", stage, err)
 			}
 		})
+		for _, code := range []int{sqlite3.SQLITE_CORRUPT, sqlite3.SQLITE_CORRUPT_VTAB, sqlite3.SQLITE_NOTADB} {
+			t.Run(fmt.Sprintf("%s SQLite corruption %d", stage, code), func(t *testing.T) {
+				injected := knowledgeSearchSQLiteCodeError(code)
+				ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
+					if actual == stage {
+						return injected
+					}
+					return err
+				}))
+				page, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
+				if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
+					t.Fatalf("%s SQLite corruption %d = %+v, %v", stage, code, page, err)
+				}
+			})
+		}
+		for _, code := range []int{sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_INTERRUPT, sqlite3.SQLITE_ERROR} {
+			t.Run(fmt.Sprintf("%s SQLite transient %d", stage, code), func(t *testing.T) {
+				injected := knowledgeSearchSQLiteCodeError(code)
+				ctx := context.WithValue(context.Background(), knowledgeSearchCandidateFaultContextKey{}, knowledgeSearchCandidateFaultFunc(func(actual string, _ *knowledgeSearchCandidate, err error) error {
+					if actual == stage {
+						return injected
+					}
+					return err
+				}))
+				_, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "candidate", Now: now.Add(3 * time.Second)})
+				var propagated knowledgeSearchSQLiteCodeError
+				if !errors.As(err, &propagated) || propagated != injected {
+					t.Fatalf("%s SQLite transient %d error = %v", stage, code, err)
+				}
+			})
+		}
 	}
 	for _, rank := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		t.Run(fmt.Sprintf("rank %v", rank), func(t *testing.T) {
@@ -1375,8 +1411,16 @@ func TestSearchKnowledgeQuietlyDropsStaleCurrentSourceRevisions(t *testing.T) {
 			}
 			generation := activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
 			source := test.source(fixture, published)
-			var projectionBefore []byte
-			if err := fixture.database.db.QueryRow(`SELECT revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version).Scan(&projectionBefore); err != nil {
+			currentBefore, found, err := readKnowledgeSourceDocument(context.Background(), fixture.database.db, source)
+			if err != nil || !found {
+				t.Fatalf("read current %s before mutation = %+v, %t, %v", test.name, currentBefore, found, err)
+			}
+			var projectionBefore, ftsBefore []byte
+			if err := fixture.database.db.QueryRow(`
+				SELECT p.revision, f.revision
+				FROM knowledge_projection_rows p JOIN knowledge_fts f ON f.rowid = p.fts_rowid
+				WHERE p.generation = ? AND p.source_kind = ? AND p.source_id = ? AND p.source_version = ?
+			`, generation, source.Kind, source.ID, source.Version).Scan(&projectionBefore, &ftsBefore); err != nil {
 				t.Fatal(err)
 			}
 			switch source.Kind {
@@ -1385,7 +1429,10 @@ func TestSearchKnowledgeQuietlyDropsStaleCurrentSourceRevisions(t *testing.T) {
 					_, err = fixture.database.db.Exec(`UPDATE messages SET target_sequence = target_sequence + 100 WHERE id = ?`, source.ID)
 				}
 			case KnowledgeSourceWork:
-				_, err = fixture.database.db.Exec(`UPDATE works SET state = 'blocked', blocking_reason = 'current revision changed' WHERE id = ?`, source.ID)
+				_, err = fixture.database.TransitionWork(context.Background(), TransitionWorkParams{
+					RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: source.ID,
+					ToState: WorkStateBlocked, Reason: "current revision changed", Now: fixture.at(3),
+				})
 			case KnowledgeSourceArtifactVersion:
 				if _, err = fixture.database.db.Exec(`DROP TRIGGER artifact_versions_immutable_update`); err == nil {
 					_, err = fixture.database.db.Exec(`INSERT OR IGNORE INTO artifact_blobs(digest, size, integrity_state, created_at, checked_at) SELECT zeroblob(32), size, 'ready', created_at, created_at FROM artifact_versions WHERE artifact_id = ? AND version = ?`, source.ID, source.Version)
@@ -1397,16 +1444,66 @@ func TestSearchKnowledgeQuietlyDropsStaleCurrentSourceRevisions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var projectionAfter []byte
-			if err := fixture.database.db.QueryRow(`SELECT revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version).Scan(&projectionAfter); err != nil {
+			currentAfter, found, err := readKnowledgeSourceDocument(context.Background(), fixture.database.db, source)
+			if err != nil || !found {
+				t.Fatalf("read current %s after mutation = %+v, %t, %v", test.name, currentAfter, found, err)
+			}
+			if currentAfter.Revision == currentBefore.Revision {
+				t.Fatalf("current %s revision did not change", test.name)
+			}
+			var projectionAfter, ftsAfter []byte
+			if err := fixture.database.db.QueryRow(`
+				SELECT p.revision, f.revision
+				FROM knowledge_projection_rows p JOIN knowledge_fts f ON f.rowid = p.fts_rowid
+				WHERE p.generation = ? AND p.source_kind = ? AND p.source_id = ? AND p.source_version = ?
+			`, generation, source.Kind, source.ID, source.Version).Scan(&projectionAfter, &ftsAfter); err != nil {
 				t.Fatal(err)
 			}
-			if string(projectionAfter) != string(projectionBefore) {
-				t.Fatal("current source mutation changed projection")
+			if string(projectionAfter) != string(projectionBefore) || string(ftsAfter) != string(ftsBefore) {
+				t.Fatal("current source mutation changed indexed revisions")
+			}
+			page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: test.query, Now: fixture.at(4)})
+			if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
+				t.Fatalf("stale %s search = %+v, %v", test.name, page, err)
+			}
+		})
+	}
+}
+
+func TestSearchKnowledgeQuietlyDropsRawIndexRevisionMismatches(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		query  string
+		source func(*artifactFixture, PublishArtifactResult) KnowledgeSource
+	}{
+		{name: "message", query: "source", source: func(fixture *artifactFixture, _ PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceMessage, ID: fixture.source.ID}
+		}},
+		{name: "work", query: "produce", source: func(fixture *artifactFixture, _ PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceWork, ID: fixture.work.ID}
+		}},
+		{name: "artifact", query: "revision-only", source: func(_ *artifactFixture, published PublishArtifactResult) KnowledgeSource {
+			return KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := openArtifactFixture(t)
+			publish := fixture.humanPublishParams(uuid.NewString(), "stale artifact body", fixture.at(1))
+			publish.Summary = "revision-only artifact"
+			published, err := fixture.artifacts.Publish(context.Background(), publish)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation := activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
+			source := test.source(fixture, published)
+			for _, table := range []string{"knowledge_fts", "knowledge_projection_rows"} {
+				if _, err := fixture.database.db.Exec(`UPDATE `+table+` SET revision = zeroblob(32) WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, source.Kind, source.ID, source.Version); err != nil {
+					t.Fatal(err)
+				}
 			}
 			page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: test.query, Now: fixture.at(3)})
 			if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
-				t.Fatalf("stale %s search = %+v, %v", test.name, page, err)
+				t.Fatalf("raw-index %s mismatch search = %+v, %v", test.name, page, err)
 			}
 		})
 	}
@@ -1544,6 +1641,91 @@ func TestSearchKnowledgeSnippetAggregateStatusAndCursorBudgets(t *testing.T) {
 		t.Fatalf("rebuilding no-active search = %+v, %v", page, err)
 	}
 	_ = generation
+}
+
+func TestSearchKnowledgeAggregateOverflowResumesWithoutOmission(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "aggregate paging", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lengths := append(make([]int, 31), 500, 20, 10)
+	for index := range 31 {
+		lengths[index] = knowledgeSearchSnippetMaxBytes
+	}
+	messages := make([]Message, 0, len(lengths))
+	for index, length := range lengths {
+		prefix := "aggregate "
+		message, err := database.SendMessage(context.Background(), SendMessageParams{
+			RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID},
+			Body: prefix + strings.Repeat("x", length-len(prefix)), Now: now.Add(time.Duration(index+1) * time.Millisecond),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, message)
+	}
+	generation := activateKnowledgeSearchGeneration(t, database, now.Add(time.Second))
+	candidates := make([]knowledgeSearchCandidate, 0, len(messages))
+	for index, message := range messages {
+		var candidate knowledgeSearchCandidate
+		var revision []byte
+		if err := database.db.QueryRow(`
+			SELECT fts_rowid, revision FROM knowledge_projection_rows
+			WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = 0
+		`, generation, KnowledgeSourceMessage, message.ID).Scan(&candidate.seek.RowID, &revision); err != nil {
+			t.Fatal(err)
+		}
+		candidate.seek.Rank = float64(index + 1)
+		candidate.seek.SourceKind = KnowledgeSourceMessage
+		candidate.seek.SourceID = message.ID
+		copy(candidate.revision[:], revision)
+		candidates = append(candidates, candidate)
+	}
+	ctx := context.WithValue(context.Background(), knowledgeSearchCandidateOverrideContextKey{}, knowledgeSearchCandidateOverrideFunc(func(actualGeneration uint64) []knowledgeSearchCandidate {
+		if actualGeneration != generation {
+			t.Fatalf("override generation = %d, want %d", actualGeneration, generation)
+		}
+		return candidates
+	}))
+	first, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "aggregate", Limit: knowledgeSearchMaxPageSize, Now: now.Add(2 * time.Second)})
+	if err != nil || len(first.Results) != 32 || first.NextCursor == "" {
+		t.Fatalf("aggregate first page = %d results, cursor=%t, %v", len(first.Results), first.NextCursor != "", err)
+	}
+	for index, result := range first.Results {
+		if result.Source.ID != messages[index].ID || len(result.Snippet) != lengths[index] {
+			t.Fatalf("aggregate first page result %d = %s/%dB, want %s/%dB", index, result.Source.ID, len(result.Snippet), messages[index].ID, lengths[index])
+		}
+	}
+	binding := KnowledgeCursorBinding{
+		PrincipalFingerprint: knowledgeSearchPrincipalFingerprint(owner),
+		QueryHash:            sha256.Sum256([]byte("aggregate")),
+		Generation:           generation,
+	}
+	seek, err := database.OpenKnowledgeCursor(first.NextCursor, binding)
+	if err != nil || seek != candidates[31].seek {
+		t.Fatalf("aggregate first cursor = %+v, %v; want %+v", seek, err, candidates[31].seek)
+	}
+	second, err := database.SearchKnowledge(ctx, KnowledgeSearchParams{Human: owner, Query: "aggregate", Cursor: first.NextCursor, Limit: knowledgeSearchMaxPageSize, Now: now.Add(3 * time.Second)})
+	if err != nil || len(second.Results) != 2 || second.NextCursor != "" {
+		t.Fatalf("aggregate second page = %d results, cursor=%q, %v", len(second.Results), second.NextCursor, err)
+	}
+	if second.Results[0].Source.ID != messages[32].ID || len(second.Results[0].Snippet) != lengths[32] || second.Results[1].Source.ID != messages[33].ID || len(second.Results[1].Snippet) != lengths[33] {
+		t.Fatalf("aggregate second page = %+v, want %s then %s", second.Results, messages[32].ID, messages[33].ID)
+	}
+	seen := make(map[string]struct{}, len(messages))
+	for _, page := range []KnowledgeSearchPage{first, second} {
+		for _, result := range page.Results {
+			if _, duplicate := seen[result.Source.ID]; duplicate {
+				t.Fatalf("aggregate paging duplicated %s", result.Source.ID)
+			}
+			seen[result.Source.ID] = struct{}{}
+		}
+	}
+	if len(seen) != len(messages) {
+		t.Fatalf("aggregate paging returned %d sources, want %d", len(seen), len(messages))
+	}
 }
 
 func TestSearchKnowledgeRechecksWorkAndArtifactReadGrants(t *testing.T) {
