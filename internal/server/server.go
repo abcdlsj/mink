@@ -14,6 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/knowledge/v1/knowledgev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
@@ -32,7 +33,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/execution/inbox"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
-	"github.com/abcdlsj/sumi/internal/knowledge"
+	knowledgeindex "github.com/abcdlsj/sumi/internal/knowledge"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -42,7 +43,7 @@ import (
 type Server struct {
 	handler   http.Handler
 	store     *store.Store
-	knowledge *knowledge.Reconciler
+	knowledge *knowledgeindex.Reconciler
 }
 
 type Config struct {
@@ -141,6 +142,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
 	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
 	mux.Handle(deliveryPath, deliveryHandler)
+	knowledgePath, knowledgeHandler := knowledgev1connect.NewKnowledgeServiceHandler(newKnowledgeService(database, config.BrowserOrigin))
+	mux.Handle(knowledgePath, knowledgeHandler)
 	artifactPath, artifactHandler := artifactv1connect.NewArtifactServiceHandler(artifact.New(artifacts, database, config.BrowserOrigin))
 	mux.Handle(artifactPath, artifactHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
@@ -171,7 +174,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, err
 	}
 
-	runner := knowledge.New(database)
+	runner := knowledgeindex.New(database)
 	runner.Start(ctx)
 	return &Server{handler: handler, store: database, knowledge: runner}, nil
 }
