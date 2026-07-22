@@ -8,41 +8,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
+
+	placementapp "github.com/abcdlsj/sumi/internal/placement/application"
+	placementdomain "github.com/abcdlsj/sumi/internal/placement/domain"
 )
 
-type AgentPlacement struct {
-	AgentID    string
-	ComputerID string
-	Generation uint64
-	State      string
-	ErrorCode  string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-}
+type AgentPlacement = placementapp.Placement
 
-type AcknowledgePlacementParams struct {
-	ComputerID      string
-	RegistrationKey string
-	AgentID         string
-	Generation      uint64
-	State           string
-	ErrorCode       string
-	Now             time.Time
-}
+type AcknowledgePlacementParams = placementapp.AcknowledgeCommand
 
-type SetAgentPlacementParams struct {
-	RequestID  string
-	Actor      Principal
-	AgentID    string
-	ComputerID string
-	Now        time.Time
-}
+type SetAgentPlacementParams = placementapp.SetCommand
 
-type ComputerPlacementReadParams struct {
-	ComputerID      string
-	RegistrationKey string
-}
+type ComputerPlacementReadParams = placementapp.ComputerReadQuery
 
 func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementParams) (AgentPlacement, error) {
 	fingerprint, err := placementRequestFingerprint(params)
@@ -66,7 +43,7 @@ func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementP
 	if exists, err := agentExists(ctx, tx, params.AgentID); err != nil {
 		return AgentPlacement{}, err
 	} else if !exists {
-		return AgentPlacement{}, ErrAgentNotFound
+		return AgentPlacement{}, placementapp.ErrAgentNotFound
 	}
 	if exists, err := computerExists(ctx, tx, params.ComputerID); err != nil {
 		return AgentPlacement{}, err
@@ -84,7 +61,7 @@ func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementP
 			return AgentPlacement{}, fmt.Errorf("persist placement: %w", err)
 		}
 		current, err = placementByAgent(ctx, tx, params.AgentID)
-	} else if err == nil && (current.ComputerID != params.ComputerID || (current.State != "pending" && current.State != "active")) {
+	} else if err == nil && (current.ComputerID != params.ComputerID || (current.State != placementdomain.StatePending && current.State != placementdomain.StateActive)) {
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE agent_placements
 			SET computer_id = ?, generation = generation + 1, state = 'pending', error_code = '', updated_at = max(updated_at, ?)
@@ -258,6 +235,9 @@ func (s *Store) ListComputerPlacements(ctx context.Context, params ComputerPlace
 }
 
 func (s *Store) AcknowledgeAgentPlacement(ctx context.Context, params AcknowledgePlacementParams) (AgentPlacement, error) {
+	if _, err := placementdomain.NewAcknowledgement(params.State, params.ErrorCode); err != nil {
+		return AgentPlacement{}, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AgentPlacement{}, fmt.Errorf("begin placement acknowledgement: %w", err)
@@ -282,7 +262,7 @@ func (s *Store) AcknowledgeAgentPlacement(ctx context.Context, params Acknowledg
 		}
 		return current, nil
 	}
-	if current.State != "pending" {
+	if current.State != placementdomain.StatePending {
 		return AgentPlacement{}, ErrPlacementConflict
 	}
 	if _, err := tx.ExecContext(ctx, `

@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/google/uuid"
 )
 
@@ -23,93 +25,37 @@ const (
 		sandbox_daemon_crash_cleanup, sandbox_declaration_revision`
 )
 
-type Computer struct {
-	ID                         string
-	Name                       string
-	OS                         string
-	Arch                       string
-	CreatedAt                  time.Time
-	LastSeenAt                 time.Time
-	SandboxCapability          SandboxCapability
-	SandboxDeclarationRevision uint64
-}
+type Computer = computerapp.Computer
 
-type SandboxCapability struct {
-	Provider              string
-	Isolation             string
-	WorkspaceAccess       string
-	ProcessControl        string
-	FilesystemIsolation   string
-	NetworkIsolation      string
-	SecretMaterialization string
-	DaemonCrashCleanup    string
-}
+type SandboxCapability = computerdomain.SandboxCapability
 
-type RegisterComputerParams struct {
-	RegistrationKey   string
-	Name              string
-	OS                string
-	Arch              string
-	SandboxCapability SandboxCapability
-	Now               time.Time
-}
+type RegisterComputerParams = computerapp.RegistrationCommand
 
-type HeartbeatComputerParams struct {
-	ComputerID        string
-	RegistrationKey   string
-	SandboxCapability SandboxCapability
-	Now               time.Time
-}
+type HeartbeatComputerParams = computerapp.HeartbeatCommand
 
-type ComputerPairing struct {
-	ID        string
-	ExpiresAt time.Time
-}
+type ComputerPairing = computerapp.Pairing
 
-type CreateComputerPairingParams struct {
-	RequestID string
-	Actor     Principal
-	Token     string
-	ExpiresAt time.Time
-	Now       time.Time
-}
+type CreateComputerPairingParams = computerapp.PreparePairingCommand
 
-type PairComputerParams struct {
-	RequestID         string
-	PairingToken      string
-	RegistrationKey   string
-	Name              string
-	OS                string
-	Arch              string
-	SandboxCapability SandboxCapability
-	Now               time.Time
-}
+type PairComputerParams = computerapp.PairCommand
 
 func UnknownSandboxCapability() SandboxCapability {
-	return SandboxCapability{
-		Provider: "unknown", Isolation: "unknown", WorkspaceAccess: "unknown", ProcessControl: "unknown",
-		FilesystemIsolation: "unknown", NetworkIsolation: "unknown", SecretMaterialization: "unknown",
-		DaemonCrashCleanup: "unknown",
-	}
+	return computerdomain.UnknownSandboxCapability()
 }
 
 func TrustedLocalSandboxCapability() SandboxCapability {
-	return SandboxCapability{
-		Provider: "trusted_local", Isolation: "trusted_local", WorkspaceAccess: "direct_read_write",
-		ProcessControl: "context_process_group", FilesystemIsolation: "none", NetworkIsolation: "none",
-		SecretMaterialization: "ephemeral_environment", DaemonCrashCleanup: "none",
-	}
+	return computerdomain.TrustedLocalSandboxCapability()
 }
 
 func ValidSandboxCapability(capability SandboxCapability) bool {
-	return capability == UnknownSandboxCapability() || capability == TrustedLocalSandboxCapability()
+	return capability.Valid()
 }
 
 func normalizeSandboxCapability(capability SandboxCapability) (SandboxCapability, bool) {
 	if capability == (SandboxCapability{}) {
 		return UnknownSandboxCapability(), true
 	}
-	return capability, ValidSandboxCapability(capability)
+	return capability, capability.Valid()
 }
 
 func (s *Store) CreateComputerPairing(ctx context.Context, params CreateComputerPairingParams) (ComputerPairing, error) {
@@ -318,16 +264,15 @@ func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Co
 	return computer, nil
 }
 
-func legacyComputerPairingPayloadFingerprint(registrationKeyHash []byte, name, operatingSystem, architecture string) ([sha256.Size]byte, error) {
+func legacyComputerPairingPayloadFingerprint(registrationKeyHash []byte, name string, operatingSystem computerdomain.OperatingSystem, architecture computerdomain.Architecture) ([sha256.Size]byte, error) {
 	return computerPairingFingerprint(struct {
-		RegistrationKeyHash []byte `json:"registration_key_hash"`
-		Name                string `json:"name"`
-		OS                  string `json:"os"`
-		Arch                string `json:"arch"`
+		RegistrationKeyHash []byte                         `json:"registration_key_hash"`
+		Name                string                         `json:"name"`
+		OS                  computerdomain.OperatingSystem `json:"os"`
+		Arch                computerdomain.Architecture    `json:"arch"`
 	}{registrationKeyHash, name, operatingSystem, architecture})
 }
 
-// Sandbox declaration revisions order Store commits, not client clocks or request start times.
 func (s *Store) RecoverComputer(ctx context.Context, params RegisterComputerParams) (Computer, error) {
 	capability, valid := normalizeSandboxCapability(params.SandboxCapability)
 	if !valid {

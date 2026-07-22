@@ -2,11 +2,12 @@ package placement
 
 import (
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	placementapp "github.com/abcdlsj/sumi/internal/placement/application"
+	placementdomain "github.com/abcdlsj/sumi/internal/placement/domain"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func placementMessages(placements []store.AgentPlacement) []*placementv1.AgentPlacement {
+func placementMessages(placements []placementapp.Placement) []*placementv1.AgentPlacement {
 	messages := make([]*placementv1.AgentPlacement, 0, len(placements))
 	for _, placement := range placements {
 		messages = append(messages, placementMessage(placement))
@@ -14,14 +15,14 @@ func placementMessages(placements []store.AgentPlacement) []*placementv1.AgentPl
 	return messages
 }
 
-func placementMessage(placement store.AgentPlacement) *placementv1.AgentPlacement {
+func placementMessage(placement placementapp.Placement) *placementv1.AgentPlacement {
 	state := placementv1.PlacementState_PLACEMENT_STATE_UNSPECIFIED
 	switch placement.State {
-	case "pending":
+	case placementdomain.StatePending:
 		state = placementv1.PlacementState_PLACEMENT_STATE_PENDING
-	case "active":
+	case placementdomain.StateActive:
 		state = placementv1.PlacementState_PLACEMENT_STATE_ACTIVE
-	case "failed":
+	case placementdomain.StateFailed:
 		state = placementv1.PlacementState_PLACEMENT_STATE_FAILED
 	}
 	return &placementv1.AgentPlacement{

@@ -4,21 +4,22 @@ import (
 	"time"
 
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func computerMessage(computer store.Computer, now time.Time) *computerv1.Computer {
+func computerMessage(computer computerapp.Computer, now time.Time) *computerv1.Computer {
 	os := computerv1.OperatingSystem_OPERATING_SYSTEM_UNSPECIFIED
-	if computer.OS == "macos" {
+	if computer.OS == computerdomain.OperatingSystemMacOS {
 		os = computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS
-	} else if computer.OS == "linux" {
+	} else if computer.OS == computerdomain.OperatingSystemLinux {
 		os = computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX
 	}
 	arch := computerv1.Architecture_ARCHITECTURE_UNSPECIFIED
-	if computer.Arch == "arm64" {
+	if computer.Arch == computerdomain.ArchitectureARM64 {
 		arch = computerv1.Architecture_ARCHITECTURE_ARM64
-	} else if computer.Arch == "amd64" {
+	} else if computer.Arch == computerdomain.ArchitectureAMD64 {
 		arch = computerv1.Architecture_ARCHITECTURE_AMD64
 	}
 	expiresAt := computer.LastSeenAt.Add(connectivityTTL)
@@ -36,8 +37,8 @@ func computerMessage(computer store.Computer, now time.Time) *computerv1.Compute
 	}
 }
 
-func sandboxCapabilityMessage(value store.SandboxCapability) *computerv1.SandboxCapability {
-	if value == store.TrustedLocalSandboxCapability() {
+func sandboxCapabilityMessage(value computerdomain.SandboxCapability) *computerv1.SandboxCapability {
+	if value == computerdomain.TrustedLocalSandboxCapability() {
 		return trustedLocalSandboxCapabilityMessage()
 	}
 	return &computerv1.SandboxCapability{}

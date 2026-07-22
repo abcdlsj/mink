@@ -1,10 +1,10 @@
 package store
 
-import "errors"
+import placementapp "github.com/abcdlsj/sumi/internal/placement/application"
 
 var (
-	ErrPlacementNotFound        = errors.New("agent placement not found")
-	ErrPlacementStale           = errors.New("agent placement acknowledgement is stale")
-	ErrPlacementConflict        = errors.New("agent placement acknowledgement conflicts with current state")
-	ErrPlacementRequestConflict = errors.New("agent placement request conflict")
+	ErrPlacementNotFound        = placementapp.ErrNotFound
+	ErrPlacementStale           = placementapp.ErrStale
+	ErrPlacementConflict        = placementapp.ErrConflict
+	ErrPlacementRequestConflict = placementapp.ErrRequestConflict
 )

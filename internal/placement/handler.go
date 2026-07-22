@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/store"
+	placementapp "github.com/abcdlsj/sumi/internal/placement/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
@@ -29,7 +29,7 @@ func (s *Service) SetAgentPlacement(ctx context.Context, request *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	placement, err := s.store.SetAgentPlacement(ctx, store.SetAgentPlacementParams{
+	placement, err := s.store.SetAgentPlacement(ctx, placementapp.SetCommand{
 		RequestID: requestID, Actor: actor, AgentID: agentID, ComputerID: computerID, Now: s.now(),
 	})
 	if err := placementError(err); err != nil {
@@ -66,7 +66,7 @@ func (s *Service) ListComputerAssignments(ctx context.Context, request *connect.
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	assignments, err := s.store.ListComputerAssignments(ctx, store.ComputerPlacementReadParams{
+	assignments, err := s.store.ListComputerAssignments(ctx, placementapp.ComputerReadQuery{
 		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
 	})
 	if err := placementError(err); err != nil {
@@ -83,7 +83,7 @@ func (s *Service) ListComputerPlacements(ctx context.Context, request *connect.R
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	placements, err := s.store.ListComputerPlacements(ctx, store.ComputerPlacementReadParams{
+	placements, err := s.store.ListComputerPlacements(ctx, placementapp.ComputerReadQuery{
 		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
 	})
 	if err := placementError(err); err != nil {
@@ -111,7 +111,7 @@ func (s *Service) AcknowledgeAgentPlacement(ctx context.Context, request *connec
 	if err != nil {
 		return nil, err
 	}
-	placement, err := s.store.AcknowledgeAgentPlacement(ctx, store.AcknowledgePlacementParams{
+	placement, err := s.store.AcknowledgeAgentPlacement(ctx, placementapp.AcknowledgeCommand{
 		ComputerID:      computerID,
 		RegistrationKey: request.Msg.GetRegistrationKey(),
 		AgentID:         agentID,

@@ -73,3 +73,12 @@
 - [x] Store 保持 SQLite、transaction、replay、Audit 和 grant chain 所有权，只保留调用方迁移所需的类型与错误别名
 - [x] 用 Authority 领域规则测试和完整 proto capability round-trip 测试替换单点 capability mapping 测试
 - [x] 完成 format、generate、lint、Go/Web test、race、build 与 Store 边界扫描
+
+## 阶段八：Computer 与 Placement API（本轮）
+
+- [x] 将 operating system、architecture、Sandbox capability 与 Placement state/acknowledgement 迁入所属 domain
+- [x] 将 Computer/Pairing 与 Placement fact、command、query、error 迁入所属 application
+- [x] Computer 与 Placement transport、mapping、error 和 persistence port 不再依赖 `store`
+- [x] Store 保持 pairing/recovery replay、declaration revision、generation、credential、Grant、Audit 与 transaction 所有权，只保留兼容 alias
+- [x] 补充 Sandbox capability 与 acknowledgement 领域规则测试，保留 SQLite replay/fence/Audit 行为测试
+- [x] 完成 format、generate、lint、Go/Web test、race、build 与 Store 边界扫描

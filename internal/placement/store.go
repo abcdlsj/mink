@@ -3,14 +3,14 @@ package placement
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	placementapp "github.com/abcdlsj/sumi/internal/placement/application"
 )
 
 type placementStore interface {
-	SetAgentPlacement(context.Context, store.SetAgentPlacementParams) (store.AgentPlacement, error)
-	GetAgentPlacement(context.Context, string) (store.AgentPlacement, error)
-	ListAgentPlacements(context.Context) ([]store.AgentPlacement, error)
-	ListComputerAssignments(context.Context, store.ComputerPlacementReadParams) ([]store.AgentPlacement, error)
-	ListComputerPlacements(context.Context, store.ComputerPlacementReadParams) ([]store.AgentPlacement, error)
-	AcknowledgeAgentPlacement(context.Context, store.AcknowledgePlacementParams) (store.AgentPlacement, error)
+	SetAgentPlacement(context.Context, placementapp.SetCommand) (placementapp.Placement, error)
+	GetAgentPlacement(context.Context, string) (placementapp.Placement, error)
+	ListAgentPlacements(context.Context) ([]placementapp.Placement, error)
+	ListComputerAssignments(context.Context, placementapp.ComputerReadQuery) ([]placementapp.Placement, error)
+	ListComputerPlacements(context.Context, placementapp.ComputerReadQuery) ([]placementapp.Placement, error)
+	AcknowledgeAgentPlacement(context.Context, placementapp.AcknowledgeCommand) (placementapp.Placement, error)
 }

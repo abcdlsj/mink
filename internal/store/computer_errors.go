@@ -1,11 +1,11 @@
 package store
 
-import "errors"
+import computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 
 var (
-	ErrComputerNotFound         = errors.New("computer not found")
-	ErrRegistrationKeyMismatch  = errors.New("registration key mismatch")
-	ErrComputerPairingInvalid   = errors.New("computer pairing invalid")
-	ErrComputerPairingConflict  = errors.New("computer pairing conflict")
-	ErrSandboxCapabilityInvalid = errors.New("sandbox capability invalid")
+	ErrComputerNotFound         = computerapp.ErrNotFound
+	ErrRegistrationKeyMismatch  = computerapp.ErrRegistrationKeyMismatch
+	ErrComputerPairingInvalid   = computerapp.ErrPairingInvalid
+	ErrComputerPairingConflict  = computerapp.ErrPairingConflict
+	ErrSandboxCapabilityInvalid = computerapp.ErrSandboxCapabilityInvalid
 )

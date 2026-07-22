@@ -6,7 +6,7 @@ import (
 	"io"
 
 	clicontract "github.com/abcdlsj/sumi/internal/cli/contract"
-	computerapp "github.com/abcdlsj/sumi/internal/computer/app"
+	computercli "github.com/abcdlsj/sumi/internal/computer/cli"
 	serverapp "github.com/abcdlsj/sumi/internal/server/app"
 )
 
@@ -24,7 +24,7 @@ func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		if len(args) < 2 || args[1] != "run" {
 			return invalidCommand("computer", "use 'sumi computer run'")
 		}
-		return computerapp.RunContext(ctx, args[2:], stdin, stderr)
+		return computercli.RunContext(ctx, args[2:], stdin, stderr)
 	case "auth":
 		if len(args) < 2 || args[1] != "open" {
 			return invalidCommand("auth", "use 'sumi auth open --human-key-file <file>'")

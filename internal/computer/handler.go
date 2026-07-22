@@ -7,7 +7,7 @@ import (
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/store"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -28,7 +28,7 @@ func (s *Service) CreateComputerPairing(ctx context.Context, request *connect.Re
 	if expiresAt == nil || expiresAt.CheckValid() != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("pairing expiry is invalid"))
 	}
-	pairing, err := s.store.CreateComputerPairing(ctx, store.CreateComputerPairingParams{
+	pairing, err := s.store.CreateComputerPairing(ctx, computerapp.PreparePairingCommand{
 		RequestID: requestID,
 		Actor:     actor,
 		Token:     request.Msg.GetPairingToken(),
@@ -49,7 +49,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	var computer store.Computer
+	var computer computerapp.Computer
 	if request.Msg.GetPairingToken() == "" {
 		computer, err = s.store.RecoverComputer(ctx, params)
 	} else {
@@ -60,7 +60,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 		if err := pairingTokenValid(request.Msg.GetPairingToken()); err != nil {
 			return nil, err
 		}
-		computer, err = s.store.PairComputer(ctx, store.PairComputerParams{
+		computer, err = s.store.PairComputer(ctx, computerapp.PairCommand{
 			RequestID:         requestID,
 			PairingToken:      request.Msg.GetPairingToken(),
 			RegistrationKey:   params.RegistrationKey,
@@ -71,7 +71,7 @@ func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request
 			Now:               params.Now,
 		})
 	}
-	if errors.Is(err, store.ErrComputerNotFound) {
+	if errors.Is(err, computerapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
 	}
 	if err := pairingError(err); err != nil {
@@ -92,17 +92,17 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	computer, err := s.store.HeartbeatComputer(ctx, store.HeartbeatComputerParams{
+	computer, err := s.store.HeartbeatComputer(ctx, computerapp.HeartbeatCommand{
 		ComputerID: id, RegistrationKey: request.Msg.GetRegistrationKey(),
 		SandboxCapability: capability, Now: s.now(),
 	})
-	if errors.Is(err, store.ErrComputerNotFound) {
+	if errors.Is(err, computerapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
 	}
-	if errors.Is(err, store.ErrRegistrationKeyMismatch) {
+	if errors.Is(err, computerapp.ErrRegistrationKeyMismatch) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
 	}
-	if errors.Is(err, store.ErrSandboxCapabilityInvalid) {
+	if errors.Is(err, computerapp.ErrSandboxCapabilityInvalid) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability is invalid"))
 	}
 	if err != nil {
@@ -117,7 +117,7 @@ func (s *Service) GetComputer(ctx context.Context, request *connect.Request[comp
 		return nil, err
 	}
 	computer, err := s.store.GetComputer(ctx, id)
-	if errors.Is(err, store.ErrComputerNotFound) {
+	if errors.Is(err, computerapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
 	}
 	if err != nil {

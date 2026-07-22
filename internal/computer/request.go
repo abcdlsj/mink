@@ -10,7 +10,8 @@ import (
 
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 )
 
 func pairingTokenValid(token string) error {
@@ -21,26 +22,26 @@ func pairingTokenValid(token string) error {
 	return nil
 }
 
-func registerParams(request *computerv1.RegisterComputerRequest, now time.Time) (store.RegisterComputerParams, error) {
+func registerParams(request *computerv1.RegisterComputerRequest, now time.Time) (computerapp.RegistrationCommand, error) {
 	if err := registrationKeyValid(request.GetRegistrationKey()); err != nil {
-		return store.RegisterComputerParams{}, err
+		return computerapp.RegistrationCommand{}, err
 	}
 	if err := displayNameValid(request.GetName()); err != nil {
-		return store.RegisterComputerParams{}, err
+		return computerapp.RegistrationCommand{}, err
 	}
 	os, ok := operatingSystem(request.GetOs())
 	if !ok {
-		return store.RegisterComputerParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("operating system must be macos or linux"))
+		return computerapp.RegistrationCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("operating system must be macos or linux"))
 	}
 	arch, ok := architecture(request.GetArch())
 	if !ok {
-		return store.RegisterComputerParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("architecture must be arm64 or amd64"))
+		return computerapp.RegistrationCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("architecture must be arm64 or amd64"))
 	}
 	capability, err := sandboxCapability(request.GetSandboxCapability())
 	if err != nil {
-		return store.RegisterComputerParams{}, err
+		return computerapp.RegistrationCommand{}, err
 	}
-	return store.RegisterComputerParams{
+	return computerapp.RegistrationCommand{
 		RegistrationKey:   request.GetRegistrationKey(),
 		Name:              request.GetName(),
 		OS:                os,
@@ -76,29 +77,29 @@ func displayNameValid(name string) error {
 	return nil
 }
 
-func operatingSystem(value computerv1.OperatingSystem) (string, bool) {
+func operatingSystem(value computerv1.OperatingSystem) (computerdomain.OperatingSystem, bool) {
 	switch value {
 	case computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS:
-		return "macos", true
+		return computerdomain.OperatingSystemMacOS, true
 	case computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX:
-		return "linux", true
+		return computerdomain.OperatingSystemLinux, true
 	default:
 		return "", false
 	}
 }
 
-func architecture(value computerv1.Architecture) (string, bool) {
+func architecture(value computerv1.Architecture) (computerdomain.Architecture, bool) {
 	switch value {
 	case computerv1.Architecture_ARCHITECTURE_ARM64:
-		return "arm64", true
+		return computerdomain.ArchitectureARM64, true
 	case computerv1.Architecture_ARCHITECTURE_AMD64:
-		return "amd64", true
+		return computerdomain.ArchitectureAMD64, true
 	default:
 		return "", false
 	}
 }
 
-func sandboxCapability(value *computerv1.SandboxCapability) (store.SandboxCapability, error) {
+func sandboxCapability(value *computerv1.SandboxCapability) (computerdomain.SandboxCapability, error) {
 	if value == nil || (value.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_UNSPECIFIED &&
 		value.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_UNSPECIFIED &&
 		value.GetWorkspaceAccess() == computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_UNSPECIFIED &&
@@ -107,7 +108,7 @@ func sandboxCapability(value *computerv1.SandboxCapability) (store.SandboxCapabi
 		value.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_UNSPECIFIED &&
 		value.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_UNSPECIFIED &&
 		value.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED) {
-		return store.UnknownSandboxCapability(), nil
+		return computerdomain.UnknownSandboxCapability(), nil
 	}
 	if value.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL &&
 		value.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL &&
@@ -117,7 +118,7 @@ func sandboxCapability(value *computerv1.SandboxCapability) (store.SandboxCapabi
 		value.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE &&
 		value.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT &&
 		value.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE {
-		return store.TrustedLocalSandboxCapability(), nil
+		return computerdomain.TrustedLocalSandboxCapability(), nil
 	}
-	return store.SandboxCapability{}, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability must be entirely unknown or the complete trusted-local declaration"))
+	return computerdomain.SandboxCapability{}, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability must be entirely unknown or the complete trusted-local declaration"))
 }

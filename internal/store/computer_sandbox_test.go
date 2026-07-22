@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -42,8 +43,8 @@ func TestComputerSandboxMigrationBackfillsUnknownCapabilityAndPairingReceipt(t *
 	createdAt := time.Now().UTC()
 	registrationKey := "migration-computer-key"
 	name := "migration-host"
-	operatingSystem := "linux"
-	architecture := "amd64"
+	operatingSystem := computerdomain.OperatingSystemLinux
+	architecture := computerdomain.ArchitectureAMD64
 	keyHash := registrationKeyHash(registrationKey)
 	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	tokenHash := computerPairingTokenHash(token)
@@ -165,8 +166,8 @@ func TestComputerSandboxMigrationDownAndUpRoundTrip(t *testing.T) {
 	registrationKey := "round-trip-registration-key"
 	keyHash := registrationKeyHash(registrationKey)
 	name := "round-trip-host"
-	operatingSystem := "linux"
-	architecture := "amd64"
+	operatingSystem := computerdomain.OperatingSystemLinux
+	architecture := computerdomain.ArchitectureAMD64
 	if _, err := database.Exec(`
 		INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at)
 		VALUES(?, ?, ?, ?, ?, 1, 1)

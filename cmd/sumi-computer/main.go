@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	computerapp "github.com/abcdlsj/sumi/internal/computer/app"
+	computercli "github.com/abcdlsj/sumi/internal/computer/cli"
 )
 
 func main() {
@@ -20,5 +20,5 @@ func main() {
 }
 
 func runContext(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer) error {
-	return computerapp.RunContext(ctx, args, stdin, stderr)
+	return computercli.RunContext(ctx, args, stdin, stderr)
 }

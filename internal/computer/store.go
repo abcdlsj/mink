@@ -3,15 +3,14 @@ package computer
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 )
 
 type computerStore interface {
-	CreateComputerPairing(context.Context, store.CreateComputerPairingParams) (store.ComputerPairing, error)
-	PairComputer(context.Context, store.PairComputerParams) (store.Computer, error)
-	RegisterComputer(context.Context, store.RegisterComputerParams) (store.Computer, error)
-	RecoverComputer(context.Context, store.RegisterComputerParams) (store.Computer, error)
-	HeartbeatComputer(context.Context, store.HeartbeatComputerParams) (store.Computer, error)
-	GetComputer(context.Context, string) (store.Computer, error)
-	ListComputers(context.Context) ([]store.Computer, error)
+	CreateComputerPairing(context.Context, computerapp.PreparePairingCommand) (computerapp.Pairing, error)
+	PairComputer(context.Context, computerapp.PairCommand) (computerapp.Computer, error)
+	RecoverComputer(context.Context, computerapp.RegistrationCommand) (computerapp.Computer, error)
+	HeartbeatComputer(context.Context, computerapp.HeartbeatCommand) (computerapp.Computer, error)
+	GetComputer(context.Context, string) (computerapp.Computer, error)
+	ListComputers(context.Context) ([]computerapp.Computer, error)
 }

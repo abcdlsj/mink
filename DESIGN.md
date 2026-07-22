@@ -518,7 +518,8 @@ Collaboration mutation 与 Delivery transport 使用语义化 command/result。c
 - `artifact/blob`：Artifact 的 Blob backend。
 - `authority/runtime`、`authority/websession`：运行时身份与浏览器会话适配器。
 - `cli/contract`、`cli/sumi`：CLI 合同与 Sumi CLI 入口。
-- `computer/app`、`computer/host`、`computer/state`：Computer 应用编排、Host daemon 与本地 State。
+- `computer/cli`、`computer/host`、`computer/state`：Computer CLI 装配、Host daemon 与本地 State。
+- `computer/application`、`computer/domain`：Computer Server application contract 与稳定领域值。
 - `driver/executor`：Driver 与 Computer Host 之间的执行适配器。
 - `execution/domain`、`execution/delivery`、`execution/inbox`：Execution 领域决策及其两个 transport/application 入口。
 - `placement/failure`：Placement 稳定失败码。
@@ -540,3 +541,17 @@ Grant application 拥有 Grant fact 以及 Issue、Revoke、Get、List、Permiss
 验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。边界扫描确认 Authority 与 Grant 生产代码不再通过 `store.Principal`、`store.Scope`、`store.Capability`、`store.Grant` 或 Store permission error 表达新合同。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
 
 遗留风险：Audit、Artifact、Collaboration、Execution transport/codec 仍有少量调用通过 Store alias 使用 Authority 值，后续应按各自 application API 渐进迁移，不能为消灭 alias 复制领域类型。Computer 与 Placement 的 transport Params/Entity/Error 仍是下一轮优先边界；本轮不提前拆 SQLite 或跨上下文事务。
+
+## 23. 2026-07-22 Computer 与 Placement 类型边界
+
+Computer 是执行载体，Agent Placement 是 Agent 当前目标 Computer 的独立 current fact；二者处于同一业务方向，但不能合并成一份设备状态。Computer domain 拥有 operating system、architecture 与 Sandbox capability declaration。Sandbox capability 仍只允许完整 `unknown` 或完整 trusted-local tuple，零值只在既有持久化兼容入口归一为 `unknown`，不能成为第三种公开声明。
+
+Computer application 拥有 Computer、Pairing，以及 prepare pairing、pair、register/recover、heartbeat、get/list 的 command/query/result/error contract。Placement domain 拥有 `pending / active / failed` typed state 与 acknowledgement 组合规则；Placement application 拥有 Placement fact，以及 set、get/list、Computer read 与 acknowledge contract。Connect transport 只负责 proto、credential/request syntax 与 application contract 的转换，不得继续暴露 Store Params、SQLite scan entity 或 Store error。
+
+Store 继续拥有 registration key hash、pairing token hash、pairing/recovery replay、sandbox declaration revision、placement generation、request receipt、Computer credential validation、Grant、Audit 和 transaction。Computer 与 Placement application contract 不引入 Repository、UnitOfWork 或跨上下文事件；本轮不改变公开 proto、SQLite schema、排序、TTL、online projection、permission、pairing lost-response replay、generation/fence 或 acknowledgement 幂等语义。
+
+实现边界已经落实：Computer 与 Placement Connect transport、request/response mapping、error mapping 和 persistence port 只依赖各自 domain/application contract，不再 import Store。Store 通过 alias 兼容尚未迁移的调用方，并在 transaction 前使用 Placement domain 重验 acknowledgement 组合。原 `computer/app` 实际只负责 `sumi-computer` 命令装配，已改名为 `computer/cli`，避免与 Server application contract 混淆。
+
+验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。既有 Computer migration、pairing lost-response/cross-version replay、Sandbox declaration revision、Placement permission/request replay/generation/acknowledgement 与 Audit 测试全部保留并通过。边界扫描确认 Computer 与 Placement 生产代码不再 import `internal/store` 或使用对应 Store contract/error。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
+
+遗留风险：Authority runtime、Agent、Audit、Artifact、Collaboration 与 Execution 仍有调用通过 Store compatibility alias 使用其他上下文值或错误；后续应按 transport/application 边界逐个迁移，不能一次性复制所有 Store entity。Computer 本地 State SQLite、Server SQLite 与 Host proto client 仍是刻意保留的独立边界。

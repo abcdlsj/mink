@@ -5,7 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
-	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
+	placementdomain "github.com/abcdlsj/sumi/internal/placement/domain"
 )
 
 func registrationKeyValid(key string) error {
@@ -18,19 +18,25 @@ func registrationKeyValid(key string) error {
 	return nil
 }
 
-func acknowledgement(result placementv1.AcknowledgementResult, errorCode string) (string, string, error) {
+func acknowledgement(result placementv1.AcknowledgementResult, errorCode string) (placementdomain.State, string, error) {
+	var state placementdomain.State
 	switch result {
 	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE:
-		if errorCode != "" {
-			return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("active acknowledgement cannot include an error code"))
-		}
-		return "active", "", nil
+		state = placementdomain.StateActive
 	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED:
-		if !placementfailure.Valid(errorCode) {
-			return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("failed acknowledgement requires a known error code"))
-		}
-		return "failed", errorCode, nil
+		state = placementdomain.StateFailed
 	default:
 		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be active or failed"))
 	}
+	value, err := placementdomain.NewAcknowledgement(state, errorCode)
+	if errors.Is(err, placementdomain.ErrActiveWithErrorCode) {
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("active acknowledgement cannot include an error code"))
+	}
+	if errors.Is(err, placementdomain.ErrFailureCodeInvalid) {
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("failed acknowledgement requires a known error code"))
+	}
+	if err != nil {
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be active or failed"))
+	}
+	return value.State, value.ErrorCode, nil
 }
