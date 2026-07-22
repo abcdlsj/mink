@@ -358,7 +358,7 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 			t.Fatal(err)
 		}
 		values := globalValues
-		if table != "messages" && table != "agent_held_drafts" {
+		if table != "messages" && table != "agent_held_drafts" && table != "knowledge_fts" && !strings.HasPrefix(table, "knowledge_fts_") {
 			values = append(append([]string(nil), values...), businessValues...)
 		}
 		for _, name := range names {
@@ -373,6 +373,44 @@ func assertAgentInboxDataRootQuiet(t *testing.T, dataRoot string, businessValues
 				}
 			}
 		}
+	}
+	for _, value := range businessValues {
+		var canonical bool
+		if err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM messages WHERE body = ?)`, value).Scan(&canonical); err != nil {
+			t.Fatal(err)
+		}
+		var projected bool
+		if err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM knowledge_fts WHERE instr(body, ?) > 0)`, value).Scan(&projected); err != nil {
+			t.Fatal(err)
+		}
+		if canonical != projected {
+			t.Fatalf("knowledge message projection for %q = %t, want %t", value, projected, canonical)
+		}
+	}
+	rows, err = database.Query(`SELECT f.source_id, f.revision, f.body, m.target_sequence FROM knowledge_fts f LEFT JOIN messages m ON m.id = f.source_id WHERE f.source_kind = 'message'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var id, body string
+		var revision []byte
+		var sequence sql.NullInt64
+		if err := rows.Scan(&id, &revision, &body, &sequence); err != nil {
+			rows.Close()
+			t.Fatal(err)
+		}
+		if !sequence.Valid || len(revision) != 32 || body == "" {
+			rows.Close()
+			t.Fatalf("invalid knowledge message projection %q", id)
+		}
+		var canonicalBody string
+		if err := database.QueryRow(`SELECT body FROM messages WHERE id = ?`, id).Scan(&canonicalBody); err != nil || canonicalBody != body {
+			rows.Close()
+			t.Fatalf("knowledge message projection %q is not canonical: %q, %v", id, body, err)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
 	}
 	logEntries, err := os.ReadDir(filepath.Join(dataRoot, "logs"))
 	if err != nil {

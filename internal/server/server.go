@@ -32,6 +32,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/execution/inbox"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/knowledge"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -39,8 +40,9 @@ import (
 )
 
 type Server struct {
-	handler http.Handler
-	store   *store.Store
+	handler   http.Handler
+	store     *store.Store
+	knowledge *knowledge.Reconciler
 }
 
 type Config struct {
@@ -169,7 +171,9 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, err
 	}
 
-	return &Server{handler: handler, store: database}, nil
+	runner := knowledge.New(database)
+	runner.Start(ctx)
+	return &Server{handler: handler, store: database, knowledge: runner}, nil
 }
 
 func humanReadProcedures() []string {
@@ -195,6 +199,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) Close() error {
+	s.knowledge.Close()
 	if err := s.store.Close(); err != nil {
 		return fmt.Errorf("close store: %w", err)
 	}
