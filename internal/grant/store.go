@@ -3,13 +3,13 @@ package grant
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 )
 
 type grantStore interface {
-	IssueGrant(context.Context, store.IssueGrantParams) (store.Grant, error)
-	RevokeGrant(context.Context, store.RevokeGrantParams) (store.Grant, error)
-	GetGrant(context.Context, string) (store.Grant, error)
-	ListGrants(context.Context, string) ([]store.Grant, error)
-	CheckPermission(context.Context, store.CheckPermissionParams) (bool, error)
+	IssueGrant(context.Context, grantapp.IssueCommand) (grantapp.Grant, error)
+	RevokeGrant(context.Context, grantapp.RevokeCommand) (grantapp.Grant, error)
+	GetGrant(context.Context, grantapp.GetQuery) (grantapp.Grant, error)
+	ListGrants(context.Context, grantapp.ListQuery) ([]grantapp.Grant, error)
+	CheckPermission(context.Context, grantapp.PermissionQuery) (bool, error)
 }

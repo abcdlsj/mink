@@ -251,7 +251,7 @@ func (api *agentAuthorityAPI) close(t *testing.T) {
 	}
 }
 
-func issueServerGrant(t *testing.T, database *store.Store, owner, subject store.Principal, capability string, scope store.Scope, parentID string, now time.Time) store.Grant {
+func issueServerGrant(t *testing.T, database *store.Store, owner, subject store.Principal, capability store.Capability, scope store.Scope, parentID string, now time.Time) store.Grant {
 	t.Helper()
 	grant, err := database.IssueGrant(context.Background(), store.IssueGrantParams{
 		RequestID: uuid.NewString(), Actor: owner, Subject: subject, Capability: capability,

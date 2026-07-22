@@ -122,11 +122,11 @@ func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementP
 
 func placementRequestFingerprint(params SetAgentPlacementParams) ([sha256.Size]byte, error) {
 	payload, err := json.Marshal(struct {
-		ActorKind      string `json:"actor_kind"`
-		ActorID        string `json:"actor_id"`
-		OrganizationID string `json:"organization_id"`
-		AgentID        string `json:"agent_id"`
-		ComputerID     string `json:"computer_id"`
+		ActorKind      PrincipalKind `json:"actor_kind"`
+		ActorID        string        `json:"actor_id"`
+		OrganizationID string        `json:"organization_id"`
+		AgentID        string        `json:"agent_id"`
+		ComputerID     string        `json:"computer_id"`
 	}{params.Actor.Kind, params.Actor.ID, params.Actor.OrganizationID, params.AgentID, params.ComputerID})
 	if err != nil {
 		return [sha256.Size]byte{}, fmt.Errorf("encode placement request: %w", err)

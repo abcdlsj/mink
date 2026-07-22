@@ -5,100 +5,95 @@ import (
 
 	"connectrpc.com/connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
-func principalParams(principal *grantv1.Principal, organizationID string, allowSystem bool) (store.Principal, error) {
+func principalParams(principal *grantv1.Principal, organizationID string, allowSystem bool) (authoritydomain.Principal, error) {
 	if principal == nil {
-		return store.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal is required"))
+		return authoritydomain.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal is required"))
 	}
-	kind := ""
+	var kind authoritydomain.PrincipalKind
 	if principal.GetKind() == grantv1.PrincipalKind_PRINCIPAL_KIND_HUMAN {
-		kind = "human"
+		kind = authoritydomain.PrincipalHuman
 	} else if principal.GetKind() == grantv1.PrincipalKind_PRINCIPAL_KIND_AGENT {
-		kind = "agent"
+		kind = authoritydomain.PrincipalAgent
 	} else if allowSystem && principal.GetKind() == grantv1.PrincipalKind_PRINCIPAL_KIND_SYSTEM {
-		kind = "system"
+		kind = authoritydomain.PrincipalSystem
 	}
 	if kind == "" {
-		return store.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))
+		return authoritydomain.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))
 	}
 	id, err := connectid.CanonicalID(principal.GetId(), "principal id")
 	if err != nil {
-		return store.Principal{}, err
+		return authoritydomain.Principal{}, err
 	}
-	return store.Principal{Kind: kind, ID: id, OrganizationID: organizationID}, nil
+	return authoritydomain.Principal{Kind: kind, ID: id, OrganizationID: organizationID}, nil
 }
 
-func scopeParams(scope *grantv1.Scope, organizationID string) (store.Scope, error) {
+func scopeParams(scope *grantv1.Scope, organizationID string) (authoritydomain.Scope, error) {
 	if scope == nil {
-		return store.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope is required"))
+		return authoritydomain.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope is required"))
 	}
-	kind := ""
+	var kind authoritydomain.ScopeKind
 	switch scope.GetKind() {
 	case grantv1.ScopeKind_SCOPE_KIND_ORGANIZATION:
-		kind = "organization"
+		kind = authoritydomain.ScopeOrganization
 	case grantv1.ScopeKind_SCOPE_KIND_AGENT:
-		kind = "agent"
+		kind = authoritydomain.ScopeAgent
 	case grantv1.ScopeKind_SCOPE_KIND_COMPUTER:
-		kind = "computer"
+		kind = authoritydomain.ScopeComputer
 	case grantv1.ScopeKind_SCOPE_KIND_SPACE:
-		kind = "space"
+		kind = authoritydomain.ScopeSpace
 	}
 	if kind == "" {
-		return store.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope kind is invalid"))
+		return authoritydomain.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope kind is invalid"))
 	}
 	id, err := connectid.CanonicalID(scope.GetId(), "scope id")
 	if err != nil {
-		return store.Scope{}, err
+		return authoritydomain.Scope{}, err
 	}
-	if kind == "organization" && id != organizationID {
-		return store.Scope{}, connect.NewError(connect.CodePermissionDenied, errors.New("cross-organization scope denied"))
+	if kind == authoritydomain.ScopeOrganization && id != organizationID {
+		return authoritydomain.Scope{}, connect.NewError(connect.CodePermissionDenied, errors.New("cross-organization scope denied"))
 	}
-	return store.Scope{Kind: kind, ID: id}, nil
+	return authoritydomain.Scope{Kind: kind, ID: id}, nil
 }
 
-func capabilityName(value grantv1.Capability) (string, bool) {
-	names := map[grantv1.Capability]string{
-		grantv1.Capability_CAPABILITY_ORGANIZATION_ADMIN:   store.CapabilityOrganizationAdmin,
-		grantv1.Capability_CAPABILITY_HUMAN_CREATE:         store.CapabilityHumanCreate,
-		grantv1.Capability_CAPABILITY_GRANT_ISSUE:          store.CapabilityGrantIssue,
-		grantv1.Capability_CAPABILITY_GRANT_REVOKE:         store.CapabilityGrantRevoke,
-		grantv1.Capability_CAPABILITY_AUDIT_READ:           store.CapabilityAuditRead,
-		grantv1.Capability_CAPABILITY_AGENT_CREATE:         store.CapabilityAgentCreate,
-		grantv1.Capability_CAPABILITY_AGENT_PLACE:          store.CapabilityAgentPlace,
-		grantv1.Capability_CAPABILITY_SPACE_CREATE:         store.CapabilitySpaceCreate,
-		grantv1.Capability_CAPABILITY_SPACE_READ:           store.CapabilitySpaceRead,
-		grantv1.Capability_CAPABILITY_SPACE_MEMBERS_MANAGE: store.CapabilitySpaceMembers,
-		grantv1.Capability_CAPABILITY_SPACE_ARCHIVE:        store.CapabilitySpaceArchive,
-		grantv1.Capability_CAPABILITY_MESSAGE_SEND:         store.CapabilityMessageSend,
-		grantv1.Capability_CAPABILITY_RUN_EXECUTE:          store.CapabilityRunExecute,
-		grantv1.Capability_CAPABILITY_COMPUTER_PAIR:        store.CapabilityComputerPair,
-	}
-	name, ok := names[value]
-	return name, ok
+type capabilityMapping struct {
+	proto  grantv1.Capability
+	domain authoritydomain.Capability
 }
 
-func capabilityValue(value string) grantv1.Capability {
-	for enum, name := range map[grantv1.Capability]string{
-		grantv1.Capability_CAPABILITY_ORGANIZATION_ADMIN:   store.CapabilityOrganizationAdmin,
-		grantv1.Capability_CAPABILITY_HUMAN_CREATE:         store.CapabilityHumanCreate,
-		grantv1.Capability_CAPABILITY_GRANT_ISSUE:          store.CapabilityGrantIssue,
-		grantv1.Capability_CAPABILITY_GRANT_REVOKE:         store.CapabilityGrantRevoke,
-		grantv1.Capability_CAPABILITY_AUDIT_READ:           store.CapabilityAuditRead,
-		grantv1.Capability_CAPABILITY_AGENT_CREATE:         store.CapabilityAgentCreate,
-		grantv1.Capability_CAPABILITY_AGENT_PLACE:          store.CapabilityAgentPlace,
-		grantv1.Capability_CAPABILITY_SPACE_CREATE:         store.CapabilitySpaceCreate,
-		grantv1.Capability_CAPABILITY_SPACE_READ:           store.CapabilitySpaceRead,
-		grantv1.Capability_CAPABILITY_SPACE_MEMBERS_MANAGE: store.CapabilitySpaceMembers,
-		grantv1.Capability_CAPABILITY_SPACE_ARCHIVE:        store.CapabilitySpaceArchive,
-		grantv1.Capability_CAPABILITY_MESSAGE_SEND:         store.CapabilityMessageSend,
-		grantv1.Capability_CAPABILITY_RUN_EXECUTE:          store.CapabilityRunExecute,
-		grantv1.Capability_CAPABILITY_COMPUTER_PAIR:        store.CapabilityComputerPair,
-	} {
-		if name == value {
-			return enum
+var capabilityMappings = [...]capabilityMapping{
+	{grantv1.Capability_CAPABILITY_ORGANIZATION_ADMIN, authoritydomain.CapabilityOrganizationAdmin},
+	{grantv1.Capability_CAPABILITY_HUMAN_CREATE, authoritydomain.CapabilityHumanCreate},
+	{grantv1.Capability_CAPABILITY_GRANT_ISSUE, authoritydomain.CapabilityGrantIssue},
+	{grantv1.Capability_CAPABILITY_GRANT_REVOKE, authoritydomain.CapabilityGrantRevoke},
+	{grantv1.Capability_CAPABILITY_AUDIT_READ, authoritydomain.CapabilityAuditRead},
+	{grantv1.Capability_CAPABILITY_AGENT_CREATE, authoritydomain.CapabilityAgentCreate},
+	{grantv1.Capability_CAPABILITY_AGENT_PLACE, authoritydomain.CapabilityAgentPlace},
+	{grantv1.Capability_CAPABILITY_SPACE_CREATE, authoritydomain.CapabilitySpaceCreate},
+	{grantv1.Capability_CAPABILITY_SPACE_READ, authoritydomain.CapabilitySpaceRead},
+	{grantv1.Capability_CAPABILITY_SPACE_MEMBERS_MANAGE, authoritydomain.CapabilitySpaceMembers},
+	{grantv1.Capability_CAPABILITY_SPACE_ARCHIVE, authoritydomain.CapabilitySpaceArchive},
+	{grantv1.Capability_CAPABILITY_MESSAGE_SEND, authoritydomain.CapabilityMessageSend},
+	{grantv1.Capability_CAPABILITY_RUN_EXECUTE, authoritydomain.CapabilityRunExecute},
+	{grantv1.Capability_CAPABILITY_COMPUTER_PAIR, authoritydomain.CapabilityComputerPair},
+}
+
+func capabilityName(value grantv1.Capability) (authoritydomain.Capability, bool) {
+	for _, mapping := range capabilityMappings {
+		if mapping.proto == value {
+			return mapping.domain, true
+		}
+	}
+	return "", false
+}
+
+func capabilityValue(value authoritydomain.Capability) grantv1.Capability {
+	for _, mapping := range capabilityMappings {
+		if mapping.domain == value {
+			return mapping.proto
 		}
 	}
 	return grantv1.Capability_CAPABILITY_UNSPECIFIED

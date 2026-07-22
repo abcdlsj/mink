@@ -146,11 +146,11 @@ func denyCollaborationWithContext(ctx context.Context, tx *sql.Tx, actor Princip
 	return result
 }
 
-func requireCollaborationGrant(ctx context.Context, tx *sql.Tx, actor Principal, capability string, scope Scope, action, targetKind, targetID, requestID string, now time.Time) error {
+func requireCollaborationGrant(ctx context.Context, tx *sql.Tx, actor Principal, capability Capability, scope Scope, action, targetKind, targetID, requestID string, now time.Time) error {
 	return requireCollaborationGrantWithContext(ctx, tx, actor, capability, scope, action, targetKind, targetID, "", "", requestID, now)
 }
 
-func requireCollaborationGrantWithContext(ctx context.Context, tx *sql.Tx, actor Principal, capability string, scope Scope, action, targetKind, targetID, contextKind, contextID, requestID string, now time.Time) error {
+func requireCollaborationGrantWithContext(ctx context.Context, tx *sql.Tx, actor Principal, capability Capability, scope Scope, action, targetKind, targetID, contextKind, contextID, requestID string, now time.Time) error {
 	reason, err := requireGrant(ctx, tx, actor, capability, scope, now, "")
 	if err != nil {
 		return err

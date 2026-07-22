@@ -526,3 +526,17 @@ Collaboration mutation 与 Delivery transport 使用语义化 command/result。c
 - `transport/connectid`、`transport/messagecodec`：跨上下文复用的 transport codec。
 
 本轮只调整目录、package 名和 import alias，不改变产品语义、公开 API、proto、SQLite schema、事务、replay、lease、fence 或恢复边界。`computer/state` 仍是独立的本地 SQLite；Server 端仍由单一 `store` package 持有 SQLite 连接和显式事务。`agent`、`grant`、`organization`、`audit`、`home`、`workspace`、`system` 等顶层目录保留，因为它们直接表达独立的业务上下文或平台入口，不为追求视觉对称而增加额外层级。
+
+## 22. 2026-07-22 Authority 与 Grant 类型边界
+
+Principal、Scope 与 Capability 是 Authority 的稳定值，不是 SQLite row 或 transport DTO。Principal kind 只允许 `system / human / agent`；Scope kind 只允许当前事实模型中的 `organization / agent / computer / space / work`；Capability 使用显式 typed value，并保持既有 capability 与 scope 约束。角色仍只描述组织职责，不能替代 Capability 或隐式赋权。
+
+Grant application 拥有 Grant fact 以及 Issue、Revoke、Get、List、Permission query 的 command/result 合同。Connect transport 负责 proto 与 application contract 的转换；SQLite Store 负责在同一事务内完成 replay、当前权限重验、subject/scope existence、parent chain、expiry、last recoverable owner、Audit 与 commit。持久化实现可以为迁移保留局部兼容别名，但业务 transport 不得再把 `store.*Params`、SQLite scan entity 或 Store error 当作公开 application API。
+
+本轮不改变 Grant 的 effective chain、organization-admin 覆盖规则、scope containment、expiry、revoke、last owner、denied Audit、request replay、Connect code、proto 或 SQLite schema。Work capability 仍是 Server 内部已实现的 Authority capability；当前 Grant proto 未暴露它们，本轮不借类型迁移扩展公开协议。
+
+实现边界已经落实：Grant Connect transport、Authority Human/Browser interceptor、runtime identity adapter 与 browser session adapter 直接使用 Authority Principal 和 permission error，不再借用 Store 类型表达 Authority 语义。Store 通过类型与错误别名兼容尚未迁移的上下文，但 alias 不构成事实所有权；Grant transport 已完全改用 Grant application command/query/result/error contract。
+
+验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。边界扫描确认 Authority 与 Grant 生产代码不再通过 `store.Principal`、`store.Scope`、`store.Capability`、`store.Grant` 或 Store permission error 表达新合同。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
+
+遗留风险：Audit、Artifact、Collaboration、Execution transport/codec 仍有少量调用通过 Store alias 使用 Authority 值，后续应按各自 application API 渐进迁移，不能为消灭 alias 复制领域类型。Computer 与 Placement 的 transport Params/Entity/Error 仍是下一轮优先边界；本轮不提前拆 SQLite 或跨上下文事务。

@@ -177,12 +177,12 @@ func scanAgent(row scanner) (Agent, error) {
 
 func agentPayloadFingerprint(params CreateAgentParams) ([sha256.Size]byte, error) {
 	payload, err := json.Marshal(struct {
-		ActorKind      string `json:"actor_kind"`
-		ActorID        string `json:"actor_id"`
-		OrganizationID string `json:"organization_id"`
-		Name           string `json:"name"`
-		Description    string `json:"description"`
-		Driver         string `json:"driver"`
+		ActorKind      PrincipalKind `json:"actor_kind"`
+		ActorID        string        `json:"actor_id"`
+		OrganizationID string        `json:"organization_id"`
+		Name           string        `json:"name"`
+		Description    string        `json:"description"`
+		Driver         string        `json:"driver"`
 	}{
 		ActorKind:      params.Actor.Kind,
 		ActorID:        params.Actor.ID,

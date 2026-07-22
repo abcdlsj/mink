@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/google/uuid"
 )
 
@@ -153,7 +154,7 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("last root revoke error = %v", err)
 	}
-	root, err := database.GetGrant(context.Background(), bootstrap.RootGrant.ID)
+	root, err := database.GetGrant(context.Background(), grantapp.GetQuery{GrantID: bootstrap.RootGrant.ID})
 	if err != nil || root.RevokedAt != nil {
 		t.Fatalf("last root changed: %+v, %v", root, err)
 	}

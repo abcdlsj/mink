@@ -193,8 +193,9 @@ func workFingerprint(value any) ([sha256.Size]byte, error) {
 }
 
 type workReceipt struct {
-	ActorKind, ActorID, Operation, ResultKind, ResultID string
-	CommittedAt                                         time.Time
+	ActorKind                                PrincipalKind
+	ActorID, Operation, ResultKind, ResultID string
+	CommittedAt                              time.Time
 }
 
 func readWorkReceipt(ctx context.Context, tx *sql.Tx, requestID, operation string, actor Principal, fingerprint [sha256.Size]byte) (workReceipt, bool, error) {
@@ -366,7 +367,7 @@ func workName(goal string) string {
 	return "Work: " + name
 }
 
-func requireWorkGrant(ctx context.Context, tx *sql.Tx, actor Principal, capability, workID, sourceSpaceID, action, requestID string, now time.Time) error {
+func requireWorkGrant(ctx context.Context, tx *sql.Tx, actor Principal, capability Capability, workID, sourceSpaceID, action, requestID string, now time.Time) error {
 	reason, err := requireGrant(ctx, tx, actor, capability, Scope{Kind: "work", ID: workID}, now, "")
 	if err != nil {
 		return err

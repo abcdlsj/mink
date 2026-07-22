@@ -299,7 +299,7 @@ func TestOpenUpgradesVersionSevenAuthorityReceiptsAndAuditSequence(t *testing.T)
 	}
 }
 
-func issueAgentAuthorityGrant(t *testing.T, database *Store, owner, subject Principal, capability string, scope Scope, parentID string, now time.Time) Grant {
+func issueAgentAuthorityGrant(t *testing.T, database *Store, owner, subject Principal, capability Capability, scope Scope, parentID string, now time.Time) Grant {
 	t.Helper()
 	grant, err := database.IssueGrant(context.Background(), IssueGrantParams{
 		RequestID: uuid.NewString(), Actor: owner, Subject: subject, Capability: capability,

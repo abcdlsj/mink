@@ -17,6 +17,7 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -217,7 +218,7 @@ func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *sp
 	if err != nil {
 		t.Fatal(err)
 	}
-	grants, err := api.app.store.ListGrants(context.Background(), owner.OrganizationID)
+	grants, err := api.app.store.ListGrants(context.Background(), grantapp.ListQuery{OrganizationID: owner.OrganizationID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +246,7 @@ func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *sp
 	})); err != nil {
 		t.Fatal(err)
 	}
-	for _, capability := range []string{store.CapabilitySpaceRead, store.CapabilityMessageSend} {
+	for _, capability := range []store.Capability{store.CapabilitySpaceRead, store.CapabilityMessageSend} {
 		if _, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{
 			RequestID: uuid.NewString(), Actor: owner,
 			Subject:    store.Principal{Kind: "agent", ID: agentID, OrganizationID: owner.OrganizationID},

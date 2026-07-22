@@ -65,10 +65,10 @@ func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, err
 		return Space{}, err
 	}
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind string `json:"actor_kind"`
-		ActorID   string `json:"actor_id"`
-		PeerKind  string `json:"peer_kind"`
-		PeerID    string `json:"peer_id"`
+		ActorKind PrincipalKind `json:"actor_kind"`
+		ActorID   string        `json:"actor_id"`
+		PeerKind  PrincipalKind `json:"peer_kind"`
+		PeerID    string        `json:"peer_id"`
 	}{params.Actor.Kind, params.Actor.ID, params.Peer.Kind, params.Peer.ID})
 	if err != nil {
 		return Space{}, err
@@ -149,9 +149,9 @@ func (s *Store) CreateGroup(ctx context.Context, params CreateGroupParams) (Spac
 		return Space{}, err
 	}
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind string `json:"actor_kind"`
-		ActorID   string `json:"actor_id"`
-		Name      string `json:"name"`
+		ActorKind PrincipalKind `json:"actor_kind"`
+		ActorID   string        `json:"actor_id"`
+		Name      string        `json:"name"`
 	}{params.Actor.Kind, params.Actor.ID, params.Name})
 	if err != nil {
 		return Space{}, err
@@ -304,11 +304,11 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	action := change.auditAction()
 	adding := change == membershipAdd
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind  string `json:"actor_kind"`
-		ActorID    string `json:"actor_id"`
-		SpaceID    string `json:"space_id"`
-		MemberKind string `json:"member_kind"`
-		MemberID   string `json:"member_id"`
+		ActorKind  PrincipalKind `json:"actor_kind"`
+		ActorID    string        `json:"actor_id"`
+		SpaceID    string        `json:"space_id"`
+		MemberKind PrincipalKind `json:"member_kind"`
+		MemberID   string        `json:"member_id"`
 	}{params.Actor.Kind, params.Actor.ID, params.SpaceID, params.Member.Kind, params.Member.ID})
 	if err != nil {
 		return MutationReceipt{}, err
@@ -324,23 +324,23 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 		return commitMutationReplay(tx, params.RequestID, receipt)
 	}
 	if err := requireCollaborationGrantWithContext(ctx, tx, params.Actor, CapabilitySpaceMembers,
-		Scope{Kind: "space", ID: params.SpaceID}, action, params.Member.Kind, params.Member.ID,
+		Scope{Kind: "space", ID: params.SpaceID}, action, string(params.Member.Kind), params.Member.ID,
 		"space", params.SpaceID, params.RequestID, params.Now); err != nil {
 		return MutationReceipt{}, err
 	}
 	space, err := loadMutationSpace(ctx, tx, params.Actor, params.SpaceID)
 	if err != nil {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, string(params.Member.Kind), params.Member.ID, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
 	}
 	if err := collaborationSpace(space).ValidateMembershipMutation(); err != nil {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, string(params.Member.Kind), params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 	}
 	validateMember := validatePrincipalExistsInOrganization
 	if adding {
 		validateMember = validatePrincipalInOrganization
 	}
 	if err := validateMember(ctx, tx, params.Member, params.Actor.OrganizationID); err != nil {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_invalid", params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, string(params.Member.Kind), params.Member.ID, "space", params.SpaceID, params.RequestID, "member_invalid", params.Now, err)
 	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `
@@ -352,7 +352,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	if err := collaborationSpace(space).ValidateMembershipChange(
 		collaborationMembershipChange(change), collaborationPrincipal(params.Member), exists, remainingActiveHumanMembers,
 	); err != nil {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, string(params.Member.Kind), params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 	}
 	if !adding && params.Member.Kind == "human" {
 		var targetActive bool
@@ -372,7 +372,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 		if err := collaborationSpace(space).ValidateMembershipChange(
 			collaborationMembershipChange(change), collaborationPrincipal(params.Member), exists, remainingActiveHumanMembers,
 		); err != nil {
-			return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
+			return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, string(params.Member.Kind), params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 		}
 	}
 	if adding {
@@ -393,7 +393,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
 		OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: action,
-		TargetKind: params.Member.Kind, TargetID: params.Member.ID, RequestID: params.RequestID,
+		TargetKind: string(params.Member.Kind), TargetID: params.Member.ID, RequestID: params.RequestID,
 		ContextKind: "space", ContextID: params.SpaceID, Outcome: "committed", Now: params.Now,
 	}); err != nil {
 		return MutationReceipt{}, err
@@ -490,9 +490,9 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 	action := change.auditAction()
 	archiving := change == spaceArchive
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind string `json:"actor_kind"`
-		ActorID   string `json:"actor_id"`
-		SpaceID   string `json:"space_id"`
+		ActorKind PrincipalKind `json:"actor_kind"`
+		ActorID   string        `json:"actor_id"`
+		SpaceID   string        `json:"space_id"`
 	}{params.Actor.Kind, params.Actor.ID, params.SpaceID})
 	if err != nil {
 		return MutationReceipt{}, err

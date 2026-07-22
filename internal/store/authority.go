@@ -10,28 +10,30 @@ import (
 	"fmt"
 	"time"
 
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/google/uuid"
 )
 
 const (
-	CapabilityOrganizationAdmin = "organization.admin"
-	CapabilityHumanCreate       = "human.create"
-	CapabilityGrantIssue        = "grant.issue"
-	CapabilityGrantRevoke       = "grant.revoke"
-	CapabilityAuditRead         = "audit.read"
-	CapabilityAgentCreate       = "agent.create"
-	CapabilityAgentPlace        = "agent.place"
-	CapabilitySpaceCreate       = "space.create"
-	CapabilitySpaceRead         = "space.read"
-	CapabilitySpaceMembers      = "space.members.manage"
-	CapabilitySpaceArchive      = "space.archive"
-	CapabilityMessageSend       = "message.send"
-	CapabilityRunExecute        = "run.execute"
-	CapabilityComputerPair      = "computer.pair"
-	CapabilityWorkCreate        = "work.create"
-	CapabilityWorkRead          = "work.read"
-	CapabilityWorkManage        = "work.manage"
-	CapabilityWorkApprove       = "work.approve"
+	CapabilityOrganizationAdmin = authoritydomain.CapabilityOrganizationAdmin
+	CapabilityHumanCreate       = authoritydomain.CapabilityHumanCreate
+	CapabilityGrantIssue        = authoritydomain.CapabilityGrantIssue
+	CapabilityGrantRevoke       = authoritydomain.CapabilityGrantRevoke
+	CapabilityAuditRead         = authoritydomain.CapabilityAuditRead
+	CapabilityAgentCreate       = authoritydomain.CapabilityAgentCreate
+	CapabilityAgentPlace        = authoritydomain.CapabilityAgentPlace
+	CapabilitySpaceCreate       = authoritydomain.CapabilitySpaceCreate
+	CapabilitySpaceRead         = authoritydomain.CapabilitySpaceRead
+	CapabilitySpaceMembers      = authoritydomain.CapabilitySpaceMembers
+	CapabilitySpaceArchive      = authoritydomain.CapabilitySpaceArchive
+	CapabilityMessageSend       = authoritydomain.CapabilityMessageSend
+	CapabilityRunExecute        = authoritydomain.CapabilityRunExecute
+	CapabilityComputerPair      = authoritydomain.CapabilityComputerPair
+	CapabilityWorkCreate        = authoritydomain.CapabilityWorkCreate
+	CapabilityWorkRead          = authoritydomain.CapabilityWorkRead
+	CapabilityWorkManage        = authoritydomain.CapabilityWorkManage
+	CapabilityWorkApprove       = authoritydomain.CapabilityWorkApprove
 )
 
 type Organization struct {
@@ -51,30 +53,17 @@ type Human struct {
 	UpdatedAt      time.Time
 }
 
-type Principal struct {
-	Kind           string
-	ID             string
-	OrganizationID string
-}
+type Principal = authoritydomain.Principal
 
-type Scope struct {
-	Kind string
-	ID   string
-}
+type PrincipalKind = authoritydomain.PrincipalKind
 
-type Grant struct {
-	ID             string
-	OrganizationID string
-	Subject        Principal
-	Issuer         Principal
-	Capability     string
-	Scope          Scope
-	ParentGrantID  string
-	ExpiresAt      *time.Time
-	RevokedAt      *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+type Scope = authoritydomain.Scope
+
+type ScopeKind = authoritydomain.ScopeKind
+
+type Capability = authoritydomain.Capability
+
+type Grant = grantapp.Grant
 
 type AuthorityBootstrap struct {
 	Organization Organization
@@ -99,23 +88,9 @@ type SetHumanStatusParams struct {
 	Now       time.Time
 }
 
-type IssueGrantParams struct {
-	RequestID     string
-	Actor         Principal
-	Subject       Principal
-	Capability    string
-	Scope         Scope
-	ParentGrantID string
-	ExpiresAt     *time.Time
-	Now           time.Time
-}
+type IssueGrantParams = grantapp.IssueCommand
 
-type RevokeGrantParams struct {
-	RequestID string
-	Actor     Principal
-	GrantID   string
-	Now       time.Time
-}
+type RevokeGrantParams = grantapp.RevokeCommand
 
 func (s *Store) AuthorityExists(ctx context.Context) (bool, error) {
 	var count int

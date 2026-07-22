@@ -1,6 +1,11 @@
 package store
 
-import "errors"
+import (
+	"errors"
+
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
+)
 
 var (
 	ErrAuthorityNotBootstrapped = errors.New("authority not bootstrapped")
@@ -10,16 +15,16 @@ var (
 	ErrHumanCredentialExists    = errors.New("human credential exists")
 	ErrHumanRequestConflict     = errors.New("human request conflict")
 	ErrHumanStatusConflict      = errors.New("human status request conflict")
-	ErrGrantNotFound            = errors.New("grant not found")
-	ErrGrantRequestConflict     = errors.New("grant request conflict")
-	ErrGrantRevokeConflict      = errors.New("grant revoke request conflict")
-	ErrGrantInvalid             = errors.New("grant invalid")
-	ErrPermissionDenied         = errors.New("permission denied")
+	ErrGrantNotFound            = grantapp.ErrNotFound
+	ErrGrantRequestConflict     = grantapp.ErrIssueConflict
+	ErrGrantRevokeConflict      = grantapp.ErrRevokeConflict
+	ErrGrantInvalid             = grantapp.ErrInvalid
+	ErrPermissionDenied         = authoritydomain.ErrPermissionDenied
 	ErrPrincipalNotFound        = errors.New("principal not found")
 	ErrScopeNotFound            = errors.New("scope not found")
-	ErrParentGrantInvalid       = errors.New("parent grant invalid")
-	ErrGrantExpansion           = errors.New("grant expands parent authority")
-	ErrLastOwner                = errors.New("cannot remove last recoverable owner")
+	ErrParentGrantInvalid       = grantapp.ErrParentInvalid
+	ErrGrantExpansion           = grantapp.ErrExpansion
+	ErrLastOwner                = grantapp.ErrLastOwner
 	ErrBrowserHandoffInvalid    = errors.New("browser handoff invalid")
 	ErrBrowserSessionInvalid    = errors.New("browser session invalid")
 	ErrWorkNotFound             = errors.New("work not found")

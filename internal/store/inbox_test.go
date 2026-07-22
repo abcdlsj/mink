@@ -983,7 +983,7 @@ func (f *inboxFixture) at(seconds int) time.Time {
 	return f.now.Add(time.Duration(seconds) * time.Second)
 }
 
-func (f *inboxFixture) issueAgentGrant(t *testing.T, spaceID, capability string, now time.Time) Grant {
+func (f *inboxFixture) issueAgentGrant(t *testing.T, spaceID string, capability Capability, now time.Time) Grant {
 	t.Helper()
 	grant, err := f.database.IssueGrant(context.Background(), IssueGrantParams{
 		RequestID: uuid.NewString(), Actor: f.owner,

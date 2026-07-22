@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 )
@@ -163,7 +164,7 @@ func (s *Service) sendMessage(ctx context.Context, command SendMessageCommand) (
 }
 
 func (value PrincipalRef) storePrincipal() store.Principal {
-	return store.Principal{Kind: string(value.Kind), ID: value.ID, OrganizationID: value.OrganizationID}
+	return store.Principal{Kind: authoritydomain.PrincipalKind(value.Kind), ID: value.ID, OrganizationID: value.OrganizationID}
 }
 
 func (value MessageTargetRef) storeTarget() store.MessageTarget {

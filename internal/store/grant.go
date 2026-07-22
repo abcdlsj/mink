@@ -9,50 +9,26 @@ import (
 	"fmt"
 	"time"
 
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/google/uuid"
 )
 
-var capabilities = map[string]struct{}{
-	CapabilityOrganizationAdmin: {},
-	CapabilityHumanCreate:       {},
-	CapabilityGrantIssue:        {},
-	CapabilityGrantRevoke:       {},
-	CapabilityAuditRead:         {},
-	CapabilityAgentCreate:       {},
-	CapabilityAgentPlace:        {},
-	CapabilitySpaceCreate:       {},
-	CapabilitySpaceRead:         {},
-	CapabilitySpaceMembers:      {},
-	CapabilitySpaceArchive:      {},
-	CapabilityMessageSend:       {},
-	CapabilityRunExecute:        {},
-	CapabilityComputerPair:      {},
-	CapabilityWorkCreate:        {},
-	CapabilityWorkRead:          {},
-	CapabilityWorkManage:        {},
-	CapabilityWorkApprove:       {},
-}
-
-func ValidCapability(capability string) bool {
-	_, ok := capabilities[capability]
-	return ok
-}
-
 func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant, error) {
-	if !ValidCapability(params.Capability) || (params.Subject.Kind != "human" && params.Subject.Kind != "agent") {
+	if !params.Capability.Valid() || (params.Subject.Kind != authoritydomain.PrincipalHuman && params.Subject.Kind != authoritydomain.PrincipalAgent) {
 		return Grant{}, ErrGrantInvalid
 	}
-	if !validCapabilityScope(params.Capability, params.Scope.Kind) {
+	if !params.Capability.AllowsScope(params.Scope.Kind) {
 		return Grant{}, ErrGrantInvalid
 	}
 	fingerprint, err := authorityFingerprint(struct {
-		SubjectKind string `json:"subject_kind"`
-		SubjectID   string `json:"subject_id"`
-		Capability  string `json:"capability"`
-		ScopeKind   string `json:"scope_kind"`
-		ScopeID     string `json:"scope_id"`
-		ParentGrant string `json:"parent_grant_id"`
-		ExpiresAt   int64  `json:"expires_at"`
+		SubjectKind PrincipalKind `json:"subject_kind"`
+		SubjectID   string        `json:"subject_id"`
+		Capability  Capability    `json:"capability"`
+		ScopeKind   ScopeKind     `json:"scope_kind"`
+		ScopeID     string        `json:"scope_id"`
+		ParentGrant string        `json:"parent_grant_id"`
+		ExpiresAt   int64         `json:"expires_at"`
 	}{params.Subject.Kind, params.Subject.ID, params.Capability, params.Scope.Kind, params.Scope.ID, params.ParentGrantID, optionalUnixNano(params.ExpiresAt)})
 	if err != nil {
 		return Grant{}, err
@@ -194,8 +170,8 @@ func (s *Store) RevokeGrant(ctx context.Context, params RevokeGrantParams) (Gran
 	return grant, nil
 }
 
-func (s *Store) GetGrant(ctx context.Context, id string) (Grant, error) {
-	grant, err := scanGrant(s.db.QueryRowContext(ctx, grantSelect+" WHERE id = ?", id))
+func (s *Store) GetGrant(ctx context.Context, query grantapp.GetQuery) (Grant, error) {
+	grant, err := scanGrant(s.db.QueryRowContext(ctx, grantSelect+" WHERE id = ?", query.GrantID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Grant{}, ErrGrantNotFound
 	}
@@ -205,8 +181,8 @@ func (s *Store) GetGrant(ctx context.Context, id string) (Grant, error) {
 	return grant, nil
 }
 
-func (s *Store) ListGrants(ctx context.Context, organizationID string) ([]Grant, error) {
-	rows, err := s.db.QueryContext(ctx, grantSelect+" WHERE organization_id = ? ORDER BY created_at, id", organizationID)
+func (s *Store) ListGrants(ctx context.Context, query grantapp.ListQuery) ([]Grant, error) {
+	rows, err := s.db.QueryContext(ctx, grantSelect+" WHERE organization_id = ? ORDER BY created_at, id", query.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list grants: %w", err)
 	}
@@ -225,12 +201,7 @@ func (s *Store) ListGrants(ctx context.Context, organizationID string) ([]Grant,
 	return grants, nil
 }
 
-type CheckPermissionParams struct {
-	Subject    Principal
-	Capability string
-	Scope      Scope
-	Now        time.Time
-}
+type CheckPermissionParams = grantapp.PermissionQuery
 
 func (s *Store) CheckPermission(ctx context.Context, params CheckPermissionParams) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -248,7 +219,7 @@ func (s *Store) CheckPermission(ctx context.Context, params CheckPermissionParam
 	return reason == "", nil
 }
 
-func requireGrant(ctx context.Context, tx *sql.Tx, subject Principal, capability string, scope Scope, now time.Time, excludedGrantID string) (string, error) {
+func requireGrant(ctx context.Context, tx *sql.Tx, subject Principal, capability Capability, scope Scope, now time.Time, excludedGrantID string) (string, error) {
 	active, err := principalActive(ctx, tx, subject)
 	if err != nil {
 		return "", err
@@ -313,7 +284,7 @@ func grantEffective(ctx context.Context, tx *sql.Tx, id string, grants map[strin
 	return effective
 }
 
-func grantAllows(grant Grant, capability string, scope Scope) bool {
+func grantAllows(grant Grant, capability Capability, scope Scope) bool {
 	if grant.Capability != CapabilityOrganizationAdmin && grant.Capability != capability {
 		return false
 	}
@@ -322,15 +293,15 @@ func grantAllows(grant Grant, capability string, scope Scope) bool {
 
 func principalActive(ctx context.Context, tx *sql.Tx, principal Principal) (bool, error) {
 	switch principal.Kind {
-	case "human":
+	case authoritydomain.PrincipalHuman:
 		var active bool
 		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM humans WHERE id = ? AND organization_id = ? AND status = 'active')", principal.ID, principal.OrganizationID).Scan(&active); err != nil {
 			return false, fmt.Errorf("check human principal: %w", err)
 		}
 		return active, nil
-	case "agent":
+	case authoritydomain.PrincipalAgent:
 		return agentExists(ctx, tx, principal.ID)
-	case "system":
+	case authoritydomain.PrincipalSystem:
 		return principal.ID == "", nil
 	default:
 		return false, nil
@@ -350,7 +321,7 @@ func validateGrantSubject(ctx context.Context, tx *sql.Tx, organizationID string
 }
 
 func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, scope Scope) error {
-	if scope.Kind == "organization" {
+	if scope.Kind == authoritydomain.ScopeOrganization {
 		if scope.ID != organizationID {
 			return ErrScopeNotFound
 		}
@@ -359,13 +330,13 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 	var exists bool
 	var err error
 	switch scope.Kind {
-	case "agent":
+	case authoritydomain.ScopeAgent:
 		exists, err = agentExists(ctx, tx, scope.ID)
-	case "computer":
+	case authoritydomain.ScopeComputer:
 		exists, err = computerExists(ctx, tx, scope.ID)
-	case "space":
+	case authoritydomain.ScopeSpace:
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE id = ? AND organization_id = ?)`, scope.ID, organizationID).Scan(&exists)
-	case "work":
+	case authoritydomain.ScopeWork:
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM works WHERE id = ? AND organization_id = ?)`, scope.ID, organizationID).Scan(&exists)
 	default:
 		return ErrScopeNotFound
@@ -379,17 +350,6 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 	return nil
 }
 
-func validCapabilityScope(capability, scopeKind string) bool {
-	switch capability {
-	case CapabilityWorkCreate:
-		return scopeKind == "organization"
-	case CapabilityWorkRead, CapabilityWorkManage, CapabilityWorkApprove:
-		return scopeKind == "organization" || scopeKind == "work"
-	default:
-		return true
-	}
-}
-
 func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, excludedHumanID, excludedGrantID string) (bool, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT id, organization_id FROM humans WHERE role = 'owner' AND status = 'active' AND id != ?", excludedHumanID)
 	if err != nil {
@@ -398,7 +358,7 @@ func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, exclude
 	var owners []Principal
 	for rows.Next() {
 		var owner Principal
-		owner.Kind = "human"
+		owner.Kind = authoritydomain.PrincipalHuman
 		if err := rows.Scan(&owner.ID, &owner.OrganizationID); err != nil {
 			rows.Close()
 			return false, fmt.Errorf("scan recoverable owner: %w", err)

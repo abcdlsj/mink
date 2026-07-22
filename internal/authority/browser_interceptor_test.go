@@ -8,36 +8,36 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type testHumanAuthenticator struct {
 	credential string
-	principal  store.Principal
+	principal  authoritydomain.Principal
 }
 
-func (a testHumanAuthenticator) AuthenticateHuman(_ context.Context, credential string) (store.Principal, error) {
+func (a testHumanAuthenticator) AuthenticateHuman(_ context.Context, credential string) (authoritydomain.Principal, error) {
 	if credential != a.credential {
-		return store.Principal{}, store.ErrPermissionDenied
+		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
 	return a.principal, nil
 }
 
 type testBrowserAuthenticator struct {
 	token     string
-	principal store.Principal
+	principal authoritydomain.Principal
 }
 
-func (a testBrowserAuthenticator) AuthenticateBrowserSession(_ context.Context, token string, _ time.Time) (store.Principal, error) {
+func (a testBrowserAuthenticator) AuthenticateBrowserSession(_ context.Context, token string, _ time.Time) (authoritydomain.Principal, error) {
 	if token != a.token {
-		return store.Principal{}, store.ErrPermissionDenied
+		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
 	return a.principal, nil
 }
 
 func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
-	principal := store.Principal{Kind: "human", ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
+	principal := authoritydomain.Principal{Kind: authoritydomain.PrincipalHuman, ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
 	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
 	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{
@@ -83,7 +83,7 @@ func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
 }
 
 func TestBrowserInterceptorRequiresExactOriginForMutations(t *testing.T) {
-	principal := store.Principal{Kind: "human", ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
+	principal := authoritydomain.Principal{Kind: authoritydomain.PrincipalHuman, ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
 	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
 	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{Origin: "http://127.0.0.1:8080"})

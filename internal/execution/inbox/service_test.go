@@ -352,7 +352,7 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for index, capability := range []string{store.CapabilitySpaceRead, store.CapabilityMessageSend} {
+	for index, capability := range []store.Capability{store.CapabilitySpaceRead, store.CapabilityMessageSend} {
 		if _, err := database.IssueGrant(ctx, store.IssueGrantParams{
 			RequestID: uuid.NewString(), Actor: owner,
 			Subject: store.Principal{Kind: "agent", ID: agent.ID}, Capability: capability,

@@ -8,7 +8,8 @@ import (
 	"connectrpc.com/connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
@@ -45,7 +46,7 @@ func (s *Service) IssueGrant(ctx context.Context, request *connect.Request[grant
 		value := request.Msg.GetExpiresAt().AsTime()
 		expiresAt = &value
 	}
-	issued, err := s.store.IssueGrant(ctx, store.IssueGrantParams{
+	issued, err := s.store.IssueGrant(ctx, grantapp.IssueCommand{
 		RequestID: requestID, Actor: actor, Subject: subject, Capability: capability, Scope: scope,
 		ParentGrantID: parentID, ExpiresAt: expiresAt, Now: s.now(),
 	})
@@ -68,7 +69,7 @@ func (s *Service) RevokeGrant(ctx context.Context, request *connect.Request[gran
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := s.store.RevokeGrant(ctx, store.RevokeGrantParams{RequestID: requestID, Actor: actor, GrantID: grantID, Now: s.now()})
+	revoked, err := s.store.RevokeGrant(ctx, grantapp.RevokeCommand{RequestID: requestID, Actor: actor, GrantID: grantID, Now: s.now()})
 	if err := revokeError(err); err != nil {
 		return nil, err
 	}
@@ -87,8 +88,8 @@ func (s *Service) GetGrant(ctx context.Context, request *connect.Request[grantv1
 	if err != nil {
 		return nil, err
 	}
-	value, err := s.store.GetGrant(ctx, id)
-	if errors.Is(err, store.ErrGrantNotFound) {
+	value, err := s.store.GetGrant(ctx, grantapp.GetQuery{GrantID: id})
+	if errors.Is(err, grantapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("grant not found"))
 	}
 	if err != nil {
@@ -108,7 +109,7 @@ func (s *Service) ListGrants(ctx context.Context, _ *connect.Request[grantv1.Lis
 	if err := s.requireAdmin(ctx, actor); err != nil {
 		return nil, err
 	}
-	values, err := s.store.ListGrants(ctx, actor.OrganizationID)
+	values, err := s.store.ListGrants(ctx, grantapp.ListQuery{OrganizationID: actor.OrganizationID})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -139,7 +140,7 @@ func (s *Service) CheckPermission(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	allowed, err := s.store.CheckPermission(ctx, store.CheckPermissionParams{
+	allowed, err := s.store.CheckPermission(ctx, grantapp.PermissionQuery{
 		Subject: subject, Capability: capability, Scope: scope, Now: s.now(),
 	})
 	if err != nil {
@@ -148,10 +149,10 @@ func (s *Service) CheckPermission(ctx context.Context, request *connect.Request[
 	return connect.NewResponse(&grantv1.CheckPermissionResponse{Allowed: allowed}), nil
 }
 
-func (s *Service) requireAdmin(ctx context.Context, actor store.Principal) error {
-	allowed, err := s.store.CheckPermission(ctx, store.CheckPermissionParams{
-		Subject: actor, Capability: store.CapabilityOrganizationAdmin,
-		Scope: store.Scope{Kind: "organization", ID: actor.OrganizationID}, Now: s.now(),
+func (s *Service) requireAdmin(ctx context.Context, actor authoritydomain.Principal) error {
+	allowed, err := s.store.CheckPermission(ctx, grantapp.PermissionQuery{
+		Subject: actor, Capability: authoritydomain.CapabilityOrganizationAdmin,
+		Scope: authoritydomain.Scope{Kind: authoritydomain.ScopeOrganization, ID: actor.OrganizationID}, Now: s.now(),
 	})
 	if err != nil {
 		return connect.NewError(connect.CodeInternal, err)

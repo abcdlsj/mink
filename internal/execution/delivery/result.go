@@ -3,6 +3,7 @@ package delivery
 import (
 	"time"
 
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 )
@@ -35,7 +36,7 @@ type MessageView struct {
 	SpaceID           string
 	Target            MessageTargetView
 	TargetSequence    uint64
-	AuthorKind        string
+	AuthorKind        authoritydomain.PrincipalKind
 	AuthorID          string
 	Body              string
 	MentionedAgentIDs []string

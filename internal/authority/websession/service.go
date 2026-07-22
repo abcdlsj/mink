@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/authority"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 )
 
@@ -24,10 +25,10 @@ const (
 var opaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 type sessionStore interface {
-	AuthenticateHuman(context.Context, string) (store.Principal, error)
+	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
 	CreateBrowserHandoff(context.Context, store.CreateBrowserHandoffParams) error
-	ConsumeBrowserHandoff(context.Context, store.ConsumeBrowserHandoffParams) (store.Principal, error)
-	AuthenticateBrowserSession(context.Context, string, time.Time) (store.Principal, error)
+	ConsumeBrowserHandoff(context.Context, store.ConsumeBrowserHandoffParams) (authoritydomain.Principal, error)
+	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 	RevokeBrowserSession(context.Context, string, time.Time) error
 	GetHuman(context.Context, string) (store.Human, error)
 }
@@ -115,7 +116,7 @@ func (s *Service) createHandoff(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	principal, err := s.store.AuthenticateHuman(request.Context(), credential)
-	if errors.Is(err, store.ErrPermissionDenied) {
+	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 		writeStatus(response, http.StatusUnauthorized)
 		return
 	}
@@ -133,7 +134,7 @@ func (s *Service) createHandoff(response http.ResponseWriter, request *http.Requ
 	if err := s.store.CreateBrowserHandoff(request.Context(), store.CreateBrowserHandoffParams{
 		Human: principal, Token: token, Now: now, ExpiresAt: expiresAt,
 	}); err != nil {
-		if errors.Is(err, store.ErrPermissionDenied) {
+		if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 			writeStatus(response, http.StatusUnauthorized)
 			return
 		}

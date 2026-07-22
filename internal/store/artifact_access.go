@@ -739,7 +739,7 @@ func artifactGrantByID(ctx context.Context, tx *sql.Tx, grantID, organizationID 
 	grant.GrantedAt = timeFromUnixNano(granted)
 	if revoked.Valid {
 		stamp := timeFromUnixNano(revoked.Int64)
-		principal := Principal{Kind: revokedKind.String, ID: revokedID.String, OrganizationID: organizationID}
+		principal := Principal{Kind: PrincipalKind(revokedKind.String), ID: revokedID.String, OrganizationID: organizationID}
 		grant.RevokedAt = &stamp
 		grant.RevokedBy = &principal
 	}

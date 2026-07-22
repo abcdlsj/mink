@@ -20,7 +20,7 @@
 - [x] 将 `GetRun`、`HeartbeatComputer`、Computer placement read、`CheckPermission`、`ListAuditEvents` 的多参数签名收敛为 Params
 - [ ] 统一 mutation replay、receipt、committed-at 返回合同
 - [ ] 在 proto 不变的前提下统一列表排序、分页和 cursor 约定
-- [ ] 收口领域状态、主体类型、作用域类型和 capability 类型
+- [x] 收口领域状态、主体类型、作用域类型和 capability 类型
 
 ## 阶段二：SQLite 所有权
 
@@ -55,7 +55,7 @@
 - [x] Application API：Collaboration mutation 与 Delivery transport 使用语义化 command/result，不再直接暴露 `store.*Params` 或 scan entity
 - [x] Typed state：Execution 状态以及 Collaboration principal、Space、target 类型集中在领域边界
 - [x] 补充 Execution、Collaboration 领域不变量测试，并保留 application/SQLite 的权限、replay、Audit、事务行为测试
-- [ ] 后续随 Authority 上下文改造收口 scope 与 capability 类型，不在本轮伪造跨域统一抽象
+- [x] 随 Authority 上下文改造收口 principal、scope 与 capability 类型，Store 只保留迁移兼容别名
 
 ## 阶段六：bounded context 目录布局（本轮）
 
@@ -63,3 +63,13 @@
 - [x] 用语义化 import alias 保持调用方可读性，避免 `app`、`state`、`domain` 等泛化包名在跨上下文代码中失去语义
 - [x] 清理旧目录和旧 import path；目录重组不改变产品事实、proto、SQLite schema、事务或权限合同
 - [x] 将目录布局决策同步到 `DESIGN.md`
+
+## 阶段七：Authority 与 Grant API（本轮）
+
+- [x] 将 Principal、Scope、Capability 定义迁入 `authority/domain`，使用 typed kind 与 capability
+- [x] 将 Grant fact、Issue/Revoke command 和 Get/List/Permission query 迁入 `grant/application`
+- [x] Grant transport、request/response mapping、error mapping 与 persistence port 不再依赖 `store`
+- [x] Authority Human/Browser、runtime identity 与 browser session adapter 直接依赖 Authority Principal/error
+- [x] Store 保持 SQLite、transaction、replay、Audit 和 grant chain 所有权，只保留调用方迁移所需的类型与错误别名
+- [x] 用 Authority 领域规则测试和完整 proto capability round-trip 测试替换单点 capability mapping 测试
+- [x] 完成 format、generate、lint、Go/Web test、race、build 与 Store 边界扫描

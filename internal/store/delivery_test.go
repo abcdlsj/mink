@@ -916,7 +916,7 @@ func migrateDeliveryRuntime(t *testing.T, fixture *deliveryFixture, generation u
 	return authentication
 }
 
-func revokeDeliveryGrant(t *testing.T, fixture *deliveryFixture, capability string, now time.Time) Grant {
+func revokeDeliveryGrant(t *testing.T, fixture *deliveryFixture, capability Capability, now time.Time) Grant {
 	t.Helper()
 	grant, err := scanGrant(fixture.database.db.QueryRow(grantSelect+`
 		WHERE subject_kind = 'agent' AND subject_id = ? AND capability = ?

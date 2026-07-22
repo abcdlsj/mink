@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 )
 
@@ -49,10 +50,10 @@ func newProcedureInterceptor(authenticator sessionAuthenticator, now func() time
 	})
 }
 
-func Subject(ctx context.Context) (store.Principal, store.AgentRuntimeProof, error) {
+func Subject(ctx context.Context) (authoritydomain.Principal, store.AgentRuntimeProof, error) {
 	authentication, ok := ctx.Value(subjectKey{}).(store.AgentRuntimeAuthentication)
 	if !ok || !authentication.Valid() {
-		return store.Principal{}, store.AgentRuntimeProof{}, unauthenticated()
+		return authoritydomain.Principal{}, store.AgentRuntimeProof{}, unauthenticated()
 	}
 	return authentication.Principal, authentication.Proof, nil
 }

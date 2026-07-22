@@ -54,12 +54,12 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		return Message{}, err
 	}
 	fingerprint, err := collaborationFingerprint(struct {
-		ActorKind  string   `json:"actor_kind"`
-		ActorID    string   `json:"actor_id"`
-		TargetKind string   `json:"target_kind"`
-		TargetID   string   `json:"target_id"`
-		Body       string   `json:"body"`
-		Mentions   []string `json:"mentioned_agent_ids,omitempty"`
+		ActorKind  PrincipalKind `json:"actor_kind"`
+		ActorID    string        `json:"actor_id"`
+		TargetKind string        `json:"target_kind"`
+		TargetID   string        `json:"target_id"`
+		Body       string        `json:"body"`
+		Mentions   []string      `json:"mentioned_agent_ids,omitempty"`
 	}{params.Actor.Kind, params.Actor.ID, params.Target.Kind, params.Target.ID, params.Body, mentions})
 	if err != nil {
 		return Message{}, err

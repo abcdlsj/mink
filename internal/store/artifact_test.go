@@ -895,12 +895,12 @@ func (f *artifactFixture) humanPublishParams(requestID, content string, now time
 	}
 }
 
-func (f *artifactFixture) issueAgentWorkGrant(t *testing.T, capability string, now time.Time) Grant {
+func (f *artifactFixture) issueAgentWorkGrant(t *testing.T, capability Capability, now time.Time) Grant {
 	t.Helper()
 	return f.issueAgentGrant(t, capability, Scope{Kind: "work", ID: f.work.ID}, now)
 }
 
-func (f *artifactFixture) issueAgentGrant(t *testing.T, capability string, scope Scope, now time.Time) Grant {
+func (f *artifactFixture) issueAgentGrant(t *testing.T, capability Capability, scope Scope, now time.Time) Grant {
 	t.Helper()
 	grant, err := f.database.IssueGrant(context.Background(), IssueGrantParams{
 		RequestID: uuid.NewString(), Actor: f.owner,

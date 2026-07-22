@@ -555,7 +555,7 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 		}
 	}
 	grants := []struct {
-		capability string
+		capability store.Capability
 		scope      store.Scope
 	}{
 		{store.CapabilitySpaceRead, store.Scope{Kind: "space", ID: group.ID}},

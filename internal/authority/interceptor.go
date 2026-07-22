@@ -9,17 +9,17 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 )
 
 type subjectKey struct{}
 
 type humanAuthenticator interface {
-	AuthenticateHuman(context.Context, string) (store.Principal, error)
+	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
 }
 
 type browserSessionAuthenticator interface {
-	AuthenticateBrowserSession(context.Context, string, time.Time) (store.Principal, error)
+	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 }
 
 type BrowserInterceptorConfig struct {
@@ -67,7 +67,7 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 				}
 			}
 			subject, err := authenticateRequest(ctx, request, authenticator, sessions, config.Origin, reads, now())
-			if errors.Is(err, store.ErrPermissionDenied) {
+			if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human authentication invalid"))
 			}
 			if err != nil {
@@ -82,26 +82,26 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 	})
 }
 
-func authenticateRequest(ctx context.Context, request connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (store.Principal, error) {
+func authenticateRequest(ctx context.Context, request connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (authoritydomain.Principal, error) {
 	if len(request.Header().Values("Authorization")) > 0 {
 		credential, ok := BearerCredential(request.Header())
 		if !ok {
-			return store.Principal{}, store.ErrPermissionDenied
+			return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 		}
 		return authenticator.AuthenticateHuman(ctx, credential)
 	}
 	if len(sessions) != 1 || origin == "" || !BrowserRequestAllowed(ctx) {
-		return store.Principal{}, store.ErrPermissionDenied
+		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
 	if _, read := browserReads[request.Spec().Procedure]; !read {
 		origins := request.Header().Values("Origin")
 		if len(origins) != 1 || origins[0] != origin {
-			return store.Principal{}, connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))
+			return authoritydomain.Principal{}, connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))
 		}
 	}
 	token, ok := browserSessionCookie(request.Header())
 	if !ok {
-		return store.Principal{}, store.ErrPermissionDenied
+		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
 	return sessions[0].AuthenticateBrowserSession(ctx, token, now)
 }
@@ -131,10 +131,10 @@ func procedureSet(procedures []string) map[string]struct{} {
 	return result
 }
 
-func Subject(ctx context.Context) (store.Principal, error) {
-	subject, ok := ctx.Value(subjectKey{}).(store.Principal)
-	if !ok || subject.Kind != "human" || subject.ID == "" || subject.OrganizationID == "" {
-		return store.Principal{}, connect.NewError(connect.CodeUnauthenticated, errors.New("authenticated human required"))
+func Subject(ctx context.Context) (authoritydomain.Principal, error) {
+	subject, ok := ctx.Value(subjectKey{}).(authoritydomain.Principal)
+	if !ok || subject.Kind != authoritydomain.PrincipalHuman || !subject.Valid() {
+		return authoritydomain.Principal{}, connect.NewError(connect.CodeUnauthenticated, errors.New("authenticated human required"))
 	}
 	return subject, nil
 }
