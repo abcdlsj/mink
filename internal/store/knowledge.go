@@ -21,6 +21,15 @@ const (
 	KnowledgeIndexReady      = "ready"
 	KnowledgeIndexRebuilding = "rebuilding"
 	KnowledgeIndexDegraded   = "degraded"
+
+	knowledgeFTSSchema = `CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+		source_kind UNINDEXED,
+		source_id UNINDEXED,
+		source_version UNINDEXED,
+		generation UNINDEXED,
+		revision UNINDEXED,
+		body
+	)`
 )
 
 type KnowledgeSource struct {
@@ -154,20 +163,54 @@ func (s *Store) StartKnowledgeRebuild(ctx context.Context, now time.Time) (Knowl
 	return KnowledgeIndexMetadata{ActiveGeneration: metadata.ActiveGeneration, NextGeneration: next, Status: KnowledgeIndexRebuilding}, nil
 }
 
-func (s *Store) SetKnowledgeGenerationSnapshot(ctx context.Context, generation, highWater uint64) error {
+func (s *Store) BuildKnowledgeGenerationSnapshot(ctx context.Context, generation uint64) error {
 	if generation == 0 {
 		return errors.New("knowledge generation must be positive")
 	}
-	result, err := s.db.ExecContext(ctx, `UPDATE knowledge_generation_progress SET snapshot_high_water = ?, applied_sequence = ? WHERE generation = ? AND applied_sequence = 0`, highWater, highWater, generation)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("set knowledge generation snapshot: %w", err)
+		return fmt.Errorf("begin knowledge snapshot: %w", err)
+	}
+	defer tx.Rollback()
+	if err := requireBuildingKnowledgeGeneration(ctx, tx, generation); err != nil {
+		return err
+	}
+	progress, err := readKnowledgeGenerationProgress(ctx, tx, generation)
+	if err != nil {
+		return err
+	}
+	if progress.SnapshotHighWater != 0 || progress.AppliedSequence != 0 {
+		return fmt.Errorf("knowledge generation %d snapshot is already built", generation)
+	}
+	var highWater uint64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence), 0) FROM knowledge_dirty_sources`).Scan(&highWater); err != nil {
+		return fmt.Errorf("read knowledge snapshot high water: %w", err)
+	}
+	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, document := range documents {
+		if err := replaceKnowledgeProjection(ctx, tx, generation, document); err != nil {
+			return err
+		}
+	}
+	if err := verifyKnowledgeGenerationProjection(ctx, tx, generation, documents); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE knowledge_generation_progress SET snapshot_high_water = ?, applied_sequence = ? WHERE generation = ? AND snapshot_high_water = 0 AND applied_sequence = 0`, highWater, highWater, generation)
+	if err != nil {
+		return fmt.Errorf("record knowledge snapshot progress: %w", err)
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("read knowledge generation snapshot: %w", err)
+		return fmt.Errorf("read knowledge snapshot progress: %w", err)
 	}
 	if affected != 1 {
-		return fmt.Errorf("knowledge generation %d snapshot is already set", generation)
+		return fmt.Errorf("knowledge generation %d snapshot progress changed", generation)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit knowledge snapshot: %w", err)
 	}
 	return nil
 }
@@ -258,16 +301,8 @@ func (s *Store) CompleteKnowledgeGeneration(ctx context.Context, generation uint
 		return fmt.Errorf("begin knowledge generation completion: %w", err)
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `UPDATE knowledge_index_generations SET state = 'complete' WHERE generation = ? AND state = 'building'`, generation)
-	if err != nil {
-		return fmt.Errorf("complete knowledge generation: %w", err)
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("read completed knowledge generation: %w", err)
-	}
-	if affected != 1 {
-		return fmt.Errorf("knowledge generation %d is not building", generation)
+	if err := requireBuildingKnowledgeGeneration(ctx, tx, generation); err != nil {
+		return err
 	}
 	var next uint64
 	if err := tx.QueryRowContext(ctx, `SELECT next_generation FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&next); err != nil {
@@ -282,6 +317,16 @@ func (s *Store) CompleteKnowledgeGeneration(ctx context.Context, generation uint
 	}
 	if progress.AppliedSequence < progress.SnapshotHighWater {
 		return fmt.Errorf("knowledge generation %d has not reached its snapshot high water", generation)
+	}
+	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if err := verifyKnowledgeGenerationProjection(ctx, tx, generation, documents); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_index_generations SET state = 'complete' WHERE generation = ? AND state = 'building'`, generation); err != nil {
+		return fmt.Errorf("complete knowledge generation: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit knowledge generation completion: %w", err)
@@ -349,6 +394,33 @@ func (s *Store) MarkKnowledgeActiveGenerationCorrupt(ctx context.Context, genera
 	return KnowledgeIndexMetadata{NextGeneration: metadata.NextGeneration, Status: KnowledgeIndexDegraded}, nil
 }
 
+func (s *Store) RepairKnowledgeFTS(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin knowledge fts repair: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS knowledge_fts`); err != nil {
+		return fmt.Errorf("drop knowledge fts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, knowledgeFTSSchema); err != nil {
+		return fmt.Errorf("create knowledge fts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM knowledge_projection_rows`); err != nil {
+		return fmt.Errorf("clear knowledge projection bookkeeping: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_index_generations SET state = 'corrupt' WHERE state != 'corrupt'`); err != nil {
+		return fmt.Errorf("mark knowledge generations corrupt: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_index_metadata SET active_generation = 0, next_generation = 0, status = 'degraded' WHERE singleton = 1`); err != nil {
+		return fmt.Errorf("degrade knowledge index after fts repair: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit knowledge fts repair: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) ActivateKnowledgeGeneration(ctx context.Context, generation uint64) (KnowledgeIndexMetadata, error) {
 	if generation == 0 {
 		return KnowledgeIndexMetadata{}, errors.New("knowledge generation must be positive")
@@ -384,6 +456,13 @@ func (s *Store) ActivateKnowledgeGeneration(ctx context.Context, generation uint
 	}
 	if applied != maximum {
 		return KnowledgeIndexMetadata{}, fmt.Errorf("knowledge generation %d is applied through %d, not %d", generation, applied, maximum)
+	}
+	documents, err := listKnowledgeSourceDocuments(ctx, tx)
+	if err != nil {
+		return KnowledgeIndexMetadata{}, err
+	}
+	if err := verifyKnowledgeGenerationProjection(ctx, tx, generation, documents); err != nil {
+		return KnowledgeIndexMetadata{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE knowledge_index_metadata SET active_generation = ?, next_generation = 0, status = 'ready' WHERE singleton = 1`, generation); err != nil {
 		return KnowledgeIndexMetadata{}, fmt.Errorf("activate knowledge generation: %w", err)
@@ -444,6 +523,24 @@ func readKnowledgeIndexMetadata(ctx context.Context, queryer knowledgeQueryer) (
 	return metadata, nil
 }
 
+func requireBuildingKnowledgeGeneration(ctx context.Context, tx *sql.Tx, generation uint64) error {
+	var state string
+	if err := tx.QueryRowContext(ctx, `SELECT state FROM knowledge_index_generations WHERE generation = ?`, generation).Scan(&state); err != nil {
+		return fmt.Errorf("read knowledge generation: %w", err)
+	}
+	if state != "building" {
+		return fmt.Errorf("knowledge generation %d is not building", generation)
+	}
+	var next uint64
+	if err := tx.QueryRowContext(ctx, `SELECT next_generation FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&next); err != nil {
+		return fmt.Errorf("read next knowledge generation: %w", err)
+	}
+	if next != generation {
+		return fmt.Errorf("knowledge generation %d is not the pending generation", generation)
+	}
+	return nil
+}
+
 func readKnowledgeGenerationProgress(ctx context.Context, queryer knowledgeQueryer, generation uint64) (KnowledgeGenerationProgress, error) {
 	var progress KnowledgeGenerationProgress
 	if err := queryer.QueryRowContext(ctx, `SELECT generation, snapshot_high_water, applied_sequence FROM knowledge_generation_progress WHERE generation = ?`, generation).Scan(&progress.Generation, &progress.SnapshotHighWater, &progress.AppliedSequence); err != nil {
@@ -469,6 +566,126 @@ func readKnowledgeDirtySource(ctx context.Context, queryer knowledgeQueryer, seq
 	copy(entry.Revision[:], revision)
 	entry.Enqueued = timeFromUnixNano(enqueued)
 	return entry, true, nil
+}
+
+func listKnowledgeSourceDocuments(ctx context.Context, queryer knowledgeSourceQueryer) ([]KnowledgeSourceDocument, error) {
+	var documents []KnowledgeSourceDocument
+	rows, err := queryer.QueryContext(ctx, `SELECT id, target_sequence, body FROM messages ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list knowledge message sources: %w", err)
+	}
+	for rows.Next() {
+		var document KnowledgeSourceDocument
+		var sequence uint64
+		if err := rows.Scan(&document.Source.ID, &sequence, &document.Body); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		document.Source.Kind = KnowledgeSourceMessage
+		document.Revision = KnowledgeMessageRevision(document.Source.ID, sequence)
+		documents = append(documents, document)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	rows, err = queryer.QueryContext(ctx, workSelect()+` ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("list knowledge work sources: %w", err)
+	}
+	for rows.Next() {
+		work, err := scanWork(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if err := loadWorkParts(ctx, queryer, &work); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("read knowledge work fields: %w", err)
+		}
+		documents = append(documents, KnowledgeSourceDocument{Source: KnowledgeSource{Kind: KnowledgeSourceWork, ID: work.ID}, Revision: knowledgeWorkRevision(work), Body: knowledgeWorkBody(work)})
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	rows, err = queryer.QueryContext(ctx, `SELECT v.artifact_id, v.version, a.name, a.media_type, v.summary, v.digest FROM artifact_versions v JOIN artifacts a ON a.id = v.artifact_id AND a.organization_id = v.organization_id ORDER BY v.artifact_id, v.version`)
+	if err != nil {
+		return nil, fmt.Errorf("list knowledge artifact sources: %w", err)
+	}
+	for rows.Next() {
+		var document KnowledgeSourceDocument
+		var name, mediaType, summary string
+		var digest []byte
+		if err := rows.Scan(&document.Source.ID, &document.Source.Version, &name, &mediaType, &summary, &digest); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if len(digest) != sha256.Size {
+			rows.Close()
+			return nil, errors.New("knowledge artifact digest is invalid")
+		}
+		var contentDigest [sha256.Size]byte
+		copy(contentDigest[:], digest)
+		document.Source.Kind = KnowledgeSourceArtifactVersion
+		document.Revision = KnowledgeArtifactVersionRevision(document.Source.ID, document.Source.Version, contentDigest)
+		document.Body = strings.Join([]string{name, mediaType, summary}, "\n")
+		documents = append(documents, document)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return documents, nil
+}
+
+func verifyKnowledgeGenerationProjection(ctx context.Context, tx *sql.Tx, generation uint64, documents []KnowledgeSourceDocument) error {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_fts')`).Scan(&exists); err != nil {
+		return fmt.Errorf("read knowledge fts metadata: %w", err)
+	}
+	if !exists {
+		return errors.New("knowledge fts is unavailable")
+	}
+	var probe int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_fts WHERE knowledge_fts MATCH ?`, "knowledgecapabilityprobe").Scan(&probe); err != nil {
+		return fmt.Errorf("read knowledge fts capability: %w", err)
+	}
+	for _, document := range documents {
+		var rowID int64
+		var revision []byte
+		err := tx.QueryRowContext(ctx, `SELECT fts_rowid, revision FROM knowledge_projection_rows WHERE generation = ? AND source_kind = ? AND source_id = ? AND source_version = ?`, generation, document.Source.Kind, document.Source.ID, document.Source.Version).Scan(&rowID, &revision)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("knowledge generation %d lacks projection for %s %s", generation, document.Source.Kind, document.Source.ID)
+		}
+		if err != nil {
+			return fmt.Errorf("read knowledge projection: %w", err)
+		}
+		if len(revision) != sha256.Size || string(revision) != string(document.Revision[:]) {
+			return fmt.Errorf("knowledge generation %d projection revision is stale", generation)
+		}
+		var source KnowledgeSource
+		var projectionGeneration uint64
+		var ftsRevision []byte
+		var body string
+		if err := tx.QueryRowContext(ctx, `SELECT source_kind, source_id, source_version, generation, revision, body FROM knowledge_fts WHERE rowid = ?`, rowID).Scan(&source.Kind, &source.ID, &source.Version, &projectionGeneration, &ftsRevision, &body); err != nil {
+			return fmt.Errorf("read knowledge fts projection: %w", err)
+		}
+		if source != document.Source || projectionGeneration != generation || len(ftsRevision) != sha256.Size || string(ftsRevision) != string(document.Revision[:]) || body != document.Body {
+			return fmt.Errorf("knowledge generation %d fts projection is incomplete", generation)
+		}
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_projection_rows WHERE generation = ?`, generation).Scan(&count); err != nil {
+		return fmt.Errorf("count knowledge projections: %w", err)
+	}
+	if count != len(documents) {
+		return fmt.Errorf("knowledge generation %d has unexpected projection rows", generation)
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM knowledge_fts WHERE generation = ?`, generation).Scan(&count); err != nil {
+		return fmt.Errorf("count knowledge fts projections: %w", err)
+	}
+	if count != len(documents) {
+		return fmt.Errorf("knowledge generation %d has unexpected fts rows", generation)
+	}
+	return nil
 }
 
 func readKnowledgeSourceDocument(ctx context.Context, queryer knowledgeSourceQueryer, source KnowledgeSource) (KnowledgeSourceDocument, bool, error) {
