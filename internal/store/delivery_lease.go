@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/abcdlsj/sumi/internal/execution"
 	"github.com/google/uuid"
 )
 
@@ -28,31 +29,21 @@ func (s *Store) ClaimRun(ctx context.Context, params ClaimRunParams) (RunLaunch,
 	} else if found {
 		return commitInboxReplay(tx, replay)
 	}
+	current, found, err := currentRunLaunch(ctx, tx, run.ID)
+	if err != nil {
+		return RunLaunch{}, err
+	}
+	var currentLaunch *RunLaunch
+	if found {
+		currentLaunch = &current
+	}
+	decision, err := execution.CanClaim(executionRun(run), executionLaunchOrNil(currentLaunch), params.Now)
+	if err != nil {
+		return RunLaunch{}, err
+	}
 	var previous *RunLaunch
-	switch run.State {
-	case RunStateAccepted:
-		_, found, err := currentRunLaunch(ctx, tx, run.ID)
-		if err != nil {
-			return RunLaunch{}, err
-		}
-		if found {
-			return RunLaunch{}, ErrRunIntegrity
-		}
-		previous = nil
-	case RunStateRunning:
-		launch, found, err := currentRunLaunch(ctx, tx, run.ID)
-		if err != nil {
-			return RunLaunch{}, err
-		}
-		if !found {
-			return RunLaunch{}, ErrRunIntegrity
-		}
-		if launch.ExpiresAt.After(params.Now) {
-			return RunLaunch{}, ErrRunLaunchActive
-		}
-		previous = &launch
-	default:
-		return RunLaunch{}, ErrRunNotAccepted
+	if decision.ReplacedLaunchID != "" {
+		previous = currentLaunch
 	}
 	if previous != nil {
 		if _, err := tx.ExecContext(ctx, `
@@ -79,7 +70,7 @@ func (s *Store) ClaimRun(ctx context.Context, params ClaimRunParams) (RunLaunch,
 		authentication.Proof.placementGeneration, fence, unixNano(params.Now), unixNano(expiresAt)); err != nil {
 		return RunLaunch{}, fmt.Errorf("persist run launch: %w", err)
 	}
-	if run.State == RunStateAccepted {
+	if decision.StartRun {
 		if _, err := tx.ExecContext(ctx, `UPDATE runs SET state = 'running', started_at = ? WHERE id = ? AND state = 'accepted'`, unixNano(params.Now), run.ID); err != nil {
 			return RunLaunch{}, fmt.Errorf("start run: %w", err)
 		}
@@ -134,18 +125,15 @@ func (s *Store) RenewRun(ctx context.Context, params RenewRunParams) (RunLaunch,
 	} else if found {
 		return commitInboxReplay(tx, replay)
 	}
-	if run.State != RunStateRunning {
-		return RunLaunch{}, ErrRunNotRunning
-	}
 	launch, found, err := currentRunLaunch(ctx, tx, run.ID)
 	if err != nil {
 		return RunLaunch{}, err
 	}
-	if !found || launch.ID != params.LaunchID || launch.Fence != params.Fence || !runLaunchHeldBy(launch, authentication.Proof) {
-		return RunLaunch{}, ErrRunLaunchStale
+	if !found {
+		return RunLaunch{}, execution.ErrRunLaunchStale
 	}
-	if !launch.ExpiresAt.After(params.Now) {
-		return RunLaunch{}, ErrRunLaunchExpired
+	if err := execution.CanRenew(executionRun(run), executionLaunch(launch), params.LaunchID, params.Fence, runLaunchHeldBy(launch, authentication.Proof), params.Now); err != nil {
+		return RunLaunch{}, err
 	}
 	expiresAt := params.Now.Add(runLeaseTTL)
 	if _, err := tx.ExecContext(ctx, `UPDATE run_launches SET expires_at = ? WHERE id = ? AND closed_at IS NULL`, unixNano(expiresAt), launch.ID); err != nil {

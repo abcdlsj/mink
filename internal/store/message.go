@@ -46,8 +46,8 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 	if err := validateMessageBody(params.Body); err != nil {
 		return Message{}, err
 	}
-	if params.Target.Kind != MessageTargetSpace && params.Target.Kind != MessageTargetThread {
-		return Message{}, ErrInvalidMessageTarget
+	if err := validateMessageTarget(params.Target); err != nil {
+		return Message{}, err
 	}
 	mentions, err := canonicalMentionIDs(params.MentionedAgentIDs)
 	if err != nil {
@@ -90,9 +90,9 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		return Message{}, denyCollaboration(ctx, tx, params.Actor, AuditMessageSend, "space", spaceID,
 			params.RequestID, "space_unavailable", params.Now, err)
 	}
-	if space.ArchivedAt != nil {
+	if err := collaborationSpace(space).ValidateMessageSend(); err != nil {
 		return Message{}, denyCollaboration(ctx, tx, params.Actor, AuditMessageSend, "space", spaceID,
-			params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
+			params.RequestID, "space_archived", params.Now, err)
 	}
 	if err := validateMentionMembers(ctx, tx, spaceID, mentions); err != nil {
 		return Message{}, denyCollaboration(ctx, tx, params.Actor, AuditMessageSend, "space", spaceID,
@@ -294,6 +294,9 @@ func (s *Store) ListMessages(ctx context.Context, params ListMessagesParams) ([]
 }
 
 func resolveSendTargetSpace(ctx context.Context, tx *sql.Tx, target MessageTarget) (string, error) {
+	if err := validateMessageTarget(target); err != nil {
+		return "", err
+	}
 	switch target.Kind {
 	case MessageTargetSpace:
 		return target.ID, nil
@@ -311,17 +314,16 @@ func resolveSendTargetSpace(ctx context.Context, tx *sql.Tx, target MessageTarge
 			return "", fmt.Errorf("resolve thread root: %w", err)
 		}
 		return spaceID, nil
-	default:
-		return "", ErrInvalidMessageTarget
 	}
+	return "", ErrInvalidMessageTarget
 }
 
 func resolveReadableTargetSpace(ctx context.Context, tx *sql.Tx, target MessageTarget) (string, error) {
+	if err := validateMessageTarget(target); err != nil {
+		return "", err
+	}
 	if target.Kind == MessageTargetSpace {
 		return target.ID, nil
-	}
-	if target.Kind != MessageTargetThread {
-		return "", ErrInvalidMessageTarget
 	}
 	var spaceID string
 	err := tx.QueryRowContext(ctx, `SELECT space_id FROM threads WHERE id = ?`, target.ID).Scan(&spaceID)

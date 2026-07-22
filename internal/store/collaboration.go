@@ -5,14 +5,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
-	"unicode/utf8"
+
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 )
 
 const (
@@ -22,8 +20,6 @@ const (
 	MessageTargetSpace  = "space"
 	MessageTargetThread = "thread"
 
-	maxSpaceNameRunes   = 100
-	maxMessageBodyRunes = 400_000
 	maxMessageListLimit = 200
 )
 
@@ -219,35 +215,43 @@ func requireActiveMembership(ctx context.Context, tx *sql.Tx, spaceID string, pr
 }
 
 func canonicalDMKey(first, second Principal) (string, error) {
-	if first.Kind == second.Kind && first.ID == second.ID {
-		return "", ErrDMRequiresDistinctPrincipals
-	}
-	parts := []string{first.Kind + ":" + first.ID, second.Kind + ":" + second.ID}
-	sort.Strings(parts)
-	digest := sha256.Sum256([]byte(parts[0] + "\x00" + parts[1]))
-	return hex.EncodeToString(digest[:]), nil
+	return collaborationdomain.CanonicalDMKey(
+		collaborationdomain.Principal{Kind: collaborationdomain.PrincipalKind(first.Kind), ID: first.ID},
+		collaborationdomain.Principal{Kind: collaborationdomain.PrincipalKind(second.Kind), ID: second.ID},
+	)
 }
 
 func validateSpaceName(name string) error {
-	if !utf8.ValidString(name) {
-		return ErrInvalidSpaceName
-	}
-	count := utf8.RuneCountInString(name)
-	if count < 1 || count > maxSpaceNameRunes || strings.TrimSpace(name) == "" {
-		return ErrInvalidSpaceName
-	}
-	return nil
+	return collaborationdomain.ValidateSpaceName(name)
 }
 
 func validateMessageBody(body string) error {
-	if !utf8.ValidString(body) {
-		return ErrInvalidMessageBody
+	return collaborationdomain.ValidateMessageBody(body)
+}
+
+func collaborationSpace(space Space) collaborationdomain.Space {
+	return collaborationdomain.Space{
+		Kind:     collaborationdomain.SpaceKind(space.Kind),
+		Archived: space.ArchivedAt != nil,
 	}
-	count := utf8.RuneCountInString(body)
-	if count < 1 || count > maxMessageBodyRunes {
-		return ErrInvalidMessageBody
+}
+
+func collaborationPrincipal(principal Principal) collaborationdomain.Principal {
+	return collaborationdomain.Principal{
+		Kind: collaborationdomain.PrincipalKind(principal.Kind),
+		ID:   principal.ID,
 	}
-	return nil
+}
+
+func collaborationMembershipChange(change membershipChange) collaborationdomain.MembershipChange {
+	if change == membershipAdd {
+		return collaborationdomain.MembershipAdd
+	}
+	return collaborationdomain.MembershipRemove
+}
+
+func validateMessageTarget(target MessageTarget) error {
+	return collaborationdomain.ValidateMessageTarget(collaborationdomain.MessageTargetKind(target.Kind))
 }
 
 func scanSpace(row scanner) (Space, error) {

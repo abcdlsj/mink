@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/abcdlsj/sumi/internal/execution"
 	"github.com/google/uuid"
 )
 
@@ -193,31 +194,21 @@ func (s *Store) ListDeliveries(ctx context.Context, params ListDeliveriesParams)
 		if err := requireRunItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 			return ListDeliveriesResult{}, err
 		}
-		if delivery.State != DeliveryStateAccepted || item.State != InboxStateClaimed {
-			return ListDeliveriesResult{}, ErrRunIntegrity
-		}
-		if delivery.ID != activeRun.DeliveryID || delivery.AgentID != activeRun.AgentID {
-			return ListDeliveriesResult{}, ErrRunIntegrity
-		}
 		launch, launchFound, err := currentRunLaunch(ctx, tx, activeRun.ID)
 		if err != nil {
 			return ListDeliveriesResult{}, err
 		}
-		switch activeRun.State {
-		case RunStateAccepted:
-			if launchFound {
-				return ListDeliveriesResult{}, ErrRunIntegrity
-			}
-		case RunStateRunning:
-			if !launchFound {
-				return ListDeliveriesResult{}, ErrRunIntegrity
-			}
-			result.ActiveLaunch = &launch
-		default:
+		if item.State != InboxStateClaimed || (!launchFound && activeRun.State == RunStateRunning) {
 			return ListDeliveriesResult{}, ErrRunIntegrity
+		}
+		if launchFound {
+			result.ActiveLaunch = &launch
 		}
 		result.ActiveDelivery = &delivery
 		result.ActiveRun = &activeRun
+		if err := execution.ValidateActiveFacts(executionActiveFacts(result)); err != nil {
+			return ListDeliveriesResult{}, err
+		}
 	}
 	for len(result.Deliveries) < int(params.Limit) {
 		rows, err := tx.QueryContext(ctx, deliverySelect+`
@@ -291,12 +282,6 @@ func (s *Store) AcceptDelivery(ctx context.Context, params AcceptDeliveryParams)
 	} else if found {
 		return commitInboxReplay(tx, replay)
 	}
-	if delivery.State != DeliveryStateAvailable {
-		return Run{}, ErrDeliveryNotAvailable
-	}
-	if item.State != InboxStateUnread && item.State != InboxStateClaimed {
-		return Run{}, ErrDeliveryNotAvailable
-	}
 	basis, err := deliveryCursor(ctx, tx, delivery)
 	if err != nil {
 		return Run{}, err
@@ -305,8 +290,8 @@ func (s *Store) AcceptDelivery(ctx context.Context, params AcceptDeliveryParams)
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM runs WHERE agent_id = ? AND state IN ('accepted', 'running'))`, delivery.AgentID).Scan(&active); err != nil {
 		return Run{}, fmt.Errorf("check active run: %w", err)
 	}
-	if active {
-		return Run{}, ErrRunAlreadyActive
+	if err := execution.CanAccept(execution.DeliveryState(delivery.State), execution.InboxState(item.State), true, active); err != nil {
+		return Run{}, err
 	}
 	if item.State == InboxStateUnread {
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_inbox_items SET state = 'claimed', claimed_at = ? WHERE id = ? AND state = 'unread'`, unixNano(params.Now), item.ID); err != nil {

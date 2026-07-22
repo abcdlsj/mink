@@ -47,3 +47,12 @@
 - [ ] 按上下文整理测试 fixture，保留独立诊断价值的行为测试
 - [x] 运行 format、generate、lint、test、race、build
 - [x] 更新 `DESIGN.md`、本任务清单和工作区状态
+
+## 阶段五：真实 DDD 收益（本轮）
+
+- [x] Execution：将 Delivery/Run/Launch 组合不变量和状态转换提取为可脱离 SQLite 的领域决策
+- [x] Collaboration：将 Space/Membership/Message 的生命周期和 mutation 规则提取为可独立测试的领域决策
+- [x] Application API：Collaboration mutation 与 Delivery transport 使用语义化 command/result，不再直接暴露 `store.*Params` 或 scan entity
+- [x] Typed state：Execution 状态以及 Collaboration principal、Space、target 类型集中在领域边界
+- [x] 补充 Execution、Collaboration 领域不变量测试，并保留 application/SQLite 的权限、replay、Audit、事务行为测试
+- [ ] 后续随 Authority 上下文改造收口 scope 与 capability 类型，不在本轮伪造跨域统一抽象

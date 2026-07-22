@@ -3,11 +3,12 @@ package delivery
 import (
 	v1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
 	"github.com/abcdlsj/sumi/internal/agentmessage"
+	"github.com/abcdlsj/sumi/internal/execution"
 	"github.com/abcdlsj/sumi/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func completeRunResponse(result store.CompleteRunResult) (*v1.CompleteRunResponse, error) {
+func completeRunResponse(result CompleteRunResult) (*v1.CompleteRunResponse, error) {
 	if err := validateCompleteResult(result); err != nil {
 		return nil, err
 	}
@@ -17,14 +18,14 @@ func completeRunResponse(result store.CompleteRunResult) (*v1.CompleteRunRespons
 	}
 	response := &v1.CompleteRunResponse{Run: run, CommittedAt: timestamppb.New(result.CommittedAt)}
 	switch result.Kind {
-	case store.InboxResultMessage:
-		message, err := agentmessage.Message(*result.Message)
+	case execution.ResultMessage:
+		message, err := agentmessage.Message(storeMessageView(*result.Message))
 		if err != nil {
 			return nil, err
 		}
 		response.Result = &v1.CompleteRunResponse_Message{Message: message}
-	case store.InboxResultHeldDraft:
-		draft, err := agentmessage.HeldDraft(*result.HeldDraft)
+	case execution.ResultHeldDraft:
+		draft, err := agentmessage.HeldDraft(storeHeldDraftView(*result.HeldDraft))
 		if err != nil {
 			return nil, err
 		}
@@ -33,64 +34,52 @@ func completeRunResponse(result store.CompleteRunResult) (*v1.CompleteRunRespons
 	return response, nil
 }
 
-func deliveryMessage(value store.Delivery) (*v1.Delivery, error) {
+func deliveryMessage(value DeliveryResult) (*v1.Delivery, error) {
+	if err := execution.ValidateDelivery(value.Fact); err != nil {
+		return nil, internalError()
+	}
 	state := v1.DeliveryState_DELIVERY_STATE_UNSPECIFIED
-	switch value.State {
-	case store.DeliveryStateAvailable:
-		if value.AcceptedAt != nil || value.CompletedAt != nil {
-			return nil, internalError()
-		}
+	switch value.Fact.State {
+	case execution.DeliveryAvailable:
 		state = v1.DeliveryState_DELIVERY_STATE_AVAILABLE
-	case store.DeliveryStateAccepted:
-		if value.AcceptedAt == nil || value.CompletedAt != nil {
-			return nil, internalError()
-		}
+	case execution.DeliveryAccepted:
 		state = v1.DeliveryState_DELIVERY_STATE_ACCEPTED
-	case store.DeliveryStateCompleted:
-		if value.AcceptedAt == nil || value.CompletedAt == nil {
-			return nil, internalError()
-		}
+	case execution.DeliveryCompleted:
 		state = v1.DeliveryState_DELIVERY_STATE_COMPLETED
 	default:
 		return nil, internalError()
 	}
-	target, err := agentmessage.Target(value.Target)
+	target, err := agentmessage.Target(store.MessageTarget{Kind: value.Fact.TargetKind, ID: value.Fact.TargetID})
 	if err != nil {
 		return nil, err
 	}
 	message := &v1.Delivery{
-		Sequence: value.Sequence, Id: value.ID, AgentId: value.AgentID,
+		Sequence: value.Sequence, Id: value.Fact.ID, AgentId: value.Fact.AgentID,
 		InboxItemId: value.InboxItemID, TriggerMessageId: value.TriggerMessageID,
 		SpaceId: value.SpaceID, Target: target,
-		TriggerTargetSequence: value.TriggerTargetSequence, State: state,
+		TriggerTargetSequence: value.Fact.TriggerTargetSequence, State: state,
 		CreatedAt: timestamppb.New(value.CreatedAt),
 	}
-	if value.AcceptedAt != nil {
-		message.AcceptedAt = timestamppb.New(*value.AcceptedAt)
+	if value.Fact.AcceptedAt != nil {
+		message.AcceptedAt = timestamppb.New(*value.Fact.AcceptedAt)
 	}
-	if value.CompletedAt != nil {
-		message.CompletedAt = timestamppb.New(*value.CompletedAt)
+	if value.Fact.CompletedAt != nil {
+		message.CompletedAt = timestamppb.New(*value.Fact.CompletedAt)
 	}
 	return message, nil
 }
 
-func runMessage(value store.Run) (*v1.Run, error) {
+func runMessage(value execution.Run) (*v1.Run, error) {
+	if err := execution.ValidateRun(value); err != nil {
+		return nil, internalError()
+	}
 	state := v1.RunState_RUN_STATE_UNSPECIFIED
 	switch value.State {
-	case store.RunStateAccepted:
-		if value.Outcome != "" || value.ResultKind != "" || value.ResultID != "" || value.StartedAt != nil || value.CompletedAt != nil {
-			return nil, internalError()
-		}
+	case execution.RunAccepted:
 		state = v1.RunState_RUN_STATE_ACCEPTED
-	case store.RunStateRunning:
-		if value.Outcome != "" || value.ResultKind != "" || value.ResultID != "" || value.StartedAt == nil || value.CompletedAt != nil {
-			return nil, internalError()
-		}
+	case execution.RunRunning:
 		state = v1.RunState_RUN_STATE_RUNNING
-	case store.RunStateCompleted:
-		if value.Outcome == "" || value.ResultKind == "" || value.ResultID == "" || value.StartedAt == nil || value.CompletedAt == nil {
-			return nil, internalError()
-		}
+	case execution.RunCompleted:
 		state = v1.RunState_RUN_STATE_COMPLETED
 	default:
 		return nil, internalError()
@@ -98,9 +87,9 @@ func runMessage(value store.Run) (*v1.Run, error) {
 	outcome := v1.RunOutcome_RUN_OUTCOME_UNSPECIFIED
 	switch value.Outcome {
 	case "":
-	case store.RunOutcomeSucceeded:
+	case execution.OutcomeSucceeded:
 		outcome = v1.RunOutcome_RUN_OUTCOME_SUCCEEDED
-	case store.RunOutcomeFailed:
+	case execution.OutcomeFailed:
 		outcome = v1.RunOutcome_RUN_OUTCOME_FAILED
 	default:
 		return nil, internalError()
@@ -115,9 +104,9 @@ func runMessage(value store.Run) (*v1.Run, error) {
 		if value.ResultID != "" {
 			return nil, internalError()
 		}
-	case store.InboxResultMessage:
+	case execution.ResultMessage:
 		message.ResultRef = &v1.Run_ResultMessageId{ResultMessageId: value.ResultID}
-	case store.InboxResultHeldDraft:
+	case execution.ResultHeldDraft:
 		message.ResultRef = &v1.Run_ResultHeldDraftId{ResultHeldDraftId: value.ResultID}
 	default:
 		return nil, internalError()
@@ -131,27 +120,18 @@ func runMessage(value store.Run) (*v1.Run, error) {
 	return message, nil
 }
 
-func runLaunchMessage(value store.RunLaunch) (*v1.RunLaunch, error) {
+func runLaunchMessage(value execution.Launch) (*v1.RunLaunch, error) {
+	if err := execution.ValidateLaunch(value); err != nil {
+		return nil, internalError()
+	}
 	reason := v1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_UNSPECIFIED
 	switch value.CloseReason {
 	case "":
-		if value.ClosedAt != nil {
-			return nil, internalError()
-		}
-	case store.RunLaunchCloseReplaced:
-		if value.ClosedAt == nil || value.ClosedAt.Before(value.ExpiresAt) {
-			return nil, internalError()
-		}
+	case execution.CloseReplaced:
 		reason = v1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_REPLACED
-	case store.RunLaunchCloseCompleted:
-		if value.ClosedAt == nil || value.ClosedAt.Before(value.ClaimedAt) {
-			return nil, internalError()
-		}
+	case execution.CloseCompleted:
 		reason = v1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_COMPLETED
 	default:
-		return nil, internalError()
-	}
-	if value.Fence == 0 || value.HolderComputerID == "" || value.HolderPlacementGeneration == 0 || !value.ExpiresAt.After(value.ClaimedAt) {
 		return nil, internalError()
 	}
 	message := &v1.RunLaunch{

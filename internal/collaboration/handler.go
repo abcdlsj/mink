@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/connectapi"
 	"github.com/abcdlsj/sumi/internal/store"
 )
@@ -25,11 +26,16 @@ func (s *Service) CreateDM(ctx context.Context, request *connect.Request[spacev1
 	if err != nil {
 		return nil, err
 	}
-	space, err := s.store.CreateDM(ctx, store.CreateDMParams{RequestID: requestID, Actor: actor, Peer: peer, Now: s.now()})
+	space, err := s.createDM(ctx, CreateDMCommand{
+		RequestID: requestID,
+		Actor:     PrincipalRef{Kind: collaborationdomain.PrincipalKind(actor.Kind), ID: actor.ID, OrganizationID: actor.OrganizationID},
+		Peer:      peer,
+		Now:       s.now(),
+	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.CreateDMResponse{Space: spaceMessage(space)}), nil
+	return connect.NewResponse(&spacev1.CreateDMResponse{Space: spaceSnapshotMessage(space)}), nil
 }
 
 func (s *Service) CreateGroup(ctx context.Context, request *connect.Request[spacev1.CreateGroupRequest]) (*connect.Response[spacev1.CreateGroupResponse], error) {
@@ -44,11 +50,16 @@ func (s *Service) CreateGroup(ctx context.Context, request *connect.Request[spac
 	if err := groupNameValid(request.Msg.GetName()); err != nil {
 		return nil, err
 	}
-	space, err := s.store.CreateGroup(ctx, store.CreateGroupParams{RequestID: requestID, Actor: actor, Name: request.Msg.GetName(), Now: s.now()})
+	space, err := s.createGroup(ctx, CreateGroupCommand{
+		RequestID: requestID,
+		Actor:     PrincipalRef{Kind: collaborationdomain.PrincipalKind(actor.Kind), ID: actor.ID, OrganizationID: actor.OrganizationID},
+		Name:      request.Msg.GetName(),
+		Now:       s.now(),
+	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.CreateGroupResponse{Space: spaceMessage(space)}), nil
+	return connect.NewResponse(&spacev1.CreateGroupResponse{Space: spaceSnapshotMessage(space)}), nil
 }
 
 func (s *Service) GetSpace(ctx context.Context, request *connect.Request[spacev1.GetSpaceRequest]) (*connect.Response[spacev1.GetSpaceResponse], error) {
@@ -88,11 +99,11 @@ func (s *Service) AddMember(ctx context.Context, request *connect.Request[spacev
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := s.store.AddMember(ctx, params)
+	receipt, err := s.addMember(ctx, params)
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.AddMemberResponse{Receipt: receiptMessage(receipt)}), nil
+	return connect.NewResponse(&spacev1.AddMemberResponse{Receipt: receiptSnapshotMessage(receipt)}), nil
 }
 
 func (s *Service) RemoveMember(ctx context.Context, request *connect.Request[spacev1.RemoveMemberRequest]) (*connect.Response[spacev1.RemoveMemberResponse], error) {
@@ -100,11 +111,11 @@ func (s *Service) RemoveMember(ctx context.Context, request *connect.Request[spa
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := s.store.RemoveMember(ctx, params)
+	receipt, err := s.removeMember(ctx, params)
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.RemoveMemberResponse{Receipt: receiptMessage(receipt)}), nil
+	return connect.NewResponse(&spacev1.RemoveMemberResponse{Receipt: receiptSnapshotMessage(receipt)}), nil
 }
 
 func (s *Service) ListMembers(ctx context.Context, request *connect.Request[spacev1.ListMembersRequest]) (*connect.Response[spacev1.ListMembersResponse], error) {
@@ -132,11 +143,11 @@ func (s *Service) ArchiveSpace(ctx context.Context, request *connect.Request[spa
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := s.store.ArchiveSpace(ctx, params)
+	receipt, err := s.archiveSpace(ctx, params)
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.ArchiveSpaceResponse{Receipt: receiptMessage(receipt)}), nil
+	return connect.NewResponse(&spacev1.ArchiveSpaceResponse{Receipt: receiptSnapshotMessage(receipt)}), nil
 }
 
 func (s *Service) UnarchiveSpace(ctx context.Context, request *connect.Request[spacev1.UnarchiveSpaceRequest]) (*connect.Response[spacev1.UnarchiveSpaceResponse], error) {
@@ -144,11 +155,11 @@ func (s *Service) UnarchiveSpace(ctx context.Context, request *connect.Request[s
 	if err != nil {
 		return nil, err
 	}
-	receipt, err := s.store.UnarchiveSpace(ctx, params)
+	receipt, err := s.unarchiveSpace(ctx, params)
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.UnarchiveSpaceResponse{Receipt: receiptMessage(receipt)}), nil
+	return connect.NewResponse(&spacev1.UnarchiveSpaceResponse{Receipt: receiptSnapshotMessage(receipt)}), nil
 }
 
 func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spacev1.SendMessageRequest]) (*connect.Response[spacev1.SendMessageResponse], error) {
@@ -167,14 +178,15 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 	if err := messageBodyValid(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	message, err := s.store.SendMessage(ctx, store.SendMessageParams{
-		RequestID: requestID, Actor: actor, Target: target, Body: request.Msg.GetBody(),
-		MentionedAgentIDs: request.Msg.GetMentionedAgentIds(), Now: s.now(),
+	message, err := s.sendMessage(ctx, SendMessageCommand{
+		RequestID: requestID,
+		Actor:     PrincipalRef{Kind: collaborationdomain.PrincipalKind(actor.Kind), ID: actor.ID, OrganizationID: actor.OrganizationID},
+		Target:    target, Body: request.Msg.GetBody(), MentionedAgentIDs: request.Msg.GetMentionedAgentIds(), Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&spacev1.SendMessageResponse{Message: messageMessage(message)}), nil
+	return connect.NewResponse(&spacev1.SendMessageResponse{Message: messageSnapshotMessage(message)}), nil
 }
 
 func (s *Service) GetMessage(ctx context.Context, request *connect.Request[spacev1.GetMessageRequest]) (*connect.Response[spacev1.GetMessageResponse], error) {
@@ -229,7 +241,7 @@ func (s *Service) ListMessages(ctx context.Context, request *connect.Request[spa
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("message limit must be at most 200"))
 	}
 	messages, err := s.store.ListMessages(ctx, store.ListMessagesParams{
-		Actor: actor, Target: target, AfterSequence: request.Msg.GetAfterSequence(), Limit: limit, Now: s.now(),
+		Actor: actor, Target: target.storeTarget(), AfterSequence: request.Msg.GetAfterSequence(), Limit: limit, Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err

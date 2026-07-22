@@ -7,7 +7,6 @@ import (
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
 	"github.com/abcdlsj/sumi/internal/agentmessage"
 	"github.com/abcdlsj/sumi/internal/connectapi"
-	"github.com/abcdlsj/sumi/internal/store"
 )
 
 func (s *Service) ListDeliveries(ctx context.Context, request *connect.Request[deliveryv1.ListDeliveriesRequest]) (*connect.Response[deliveryv1.ListDeliveriesResponse], error) {
@@ -19,7 +18,7 @@ func (s *Service) ListDeliveries(ctx context.Context, request *connect.Request[d
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.ListDeliveries(ctx, store.ListDeliveriesParams{
+	result, err := s.listDeliveries(ctx, ListDeliveriesCommand{
 		Authentication: authentication, AfterSequence: after, Limit: limit, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -65,7 +64,7 @@ func (s *Service) AcceptDelivery(ctx context.Context, request *connect.Request[d
 	if err != nil {
 		return nil, err
 	}
-	run, err := s.store.AcceptDelivery(ctx, store.AcceptDeliveryParams{
+	run, err := s.acceptDelivery(ctx, AcceptDeliveryCommand{
 		RequestID: requestID, Authentication: authentication, DeliveryID: deliveryID, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -87,7 +86,7 @@ func (s *Service) GetRun(ctx context.Context, request *connect.Request[deliveryv
 	if err != nil {
 		return nil, err
 	}
-	run, err := s.store.GetRun(ctx, store.GetRunParams{Authentication: authentication, RunID: runID, Now: s.now()})
+	run, err := s.getRun(ctx, GetRunCommand{Authentication: authentication, RunID: runID, Now: s.now()})
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
@@ -103,7 +102,7 @@ func (s *Service) ClaimRun(ctx context.Context, request *connect.Request[deliver
 	if err != nil {
 		return nil, err
 	}
-	launch, err := s.store.ClaimRun(ctx, store.ClaimRunParams{
+	launch, err := s.claimRun(ctx, ClaimRunCommand{
 		RequestID: requestID, Authentication: authentication, RunID: runID, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -129,7 +128,7 @@ func (s *Service) RenewRun(ctx context.Context, request *connect.Request[deliver
 	if err != nil {
 		return nil, err
 	}
-	launch, err := s.store.RenewRun(ctx, store.RenewRunParams{
+	launch, err := s.renewRun(ctx, RenewRunCommand{
 		RequestID: requestID, Authentication: authentication, RunID: runID,
 		LaunchID: launchID, Fence: fence, Now: s.now(),
 	})
@@ -171,7 +170,7 @@ func (s *Service) CompleteRun(ctx context.Context, request *connect.Request[deli
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.CompleteRun(ctx, store.CompleteRunParams{
+	result, err := s.completeRun(ctx, CompleteRunCommand{
 		RequestID: requestID, OutboxEventID: outboxEventID, Authentication: authentication,
 		RunID: runID, LaunchID: launchID, Fence: fence, Outcome: outcome,
 		Body: request.Msg.GetBody(), MentionedAgentIDs: mentions, Now: s.now(),

@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	"github.com/abcdlsj/sumi/internal/execution"
 )
 
 func (s *Store) CompleteRun(ctx context.Context, params CompleteRunParams) (CompleteRunResult, error) {
@@ -105,8 +107,8 @@ type runCompletionFacts struct {
 }
 
 func validateRunCompletionInput(params CompleteRunParams) ([]string, [sha256.Size]byte, error) {
-	if params.Outcome != RunOutcomeSucceeded && params.Outcome != RunOutcomeFailed {
-		return nil, [sha256.Size]byte{}, ErrRunInvalidOutcome
+	if err := execution.ValidateOutcome(execution.Outcome(params.Outcome)); err != nil {
+		return nil, [sha256.Size]byte{}, err
 	}
 	if err := validateMessageBody(params.Body); err != nil {
 		return nil, [sha256.Size]byte{}, err
@@ -147,18 +149,22 @@ func loadRunCompletionFacts(ctx context.Context, tx *sql.Tx, principal Principal
 }
 
 func requireCompletableRunLaunch(ctx context.Context, tx *sql.Tx, facts runCompletionFacts, proof AgentRuntimeProof, params CompleteRunParams) (RunLaunch, error) {
-	if facts.run.State != RunStateRunning || facts.delivery.State != DeliveryStateAccepted || facts.item.State != InboxStateClaimed {
-		return RunLaunch{}, ErrRunNotRunning
-	}
 	launch, found, err := currentRunLaunch(ctx, tx, facts.run.ID)
 	if err != nil {
 		return RunLaunch{}, err
 	}
-	if !found || launch.ID != params.LaunchID || launch.Fence != params.Fence || !runLaunchHeldBy(launch, proof) {
-		return RunLaunch{}, ErrRunLaunchStale
+	if !found {
+		return RunLaunch{}, execution.ErrRunLaunchStale
 	}
-	if !launch.ExpiresAt.After(params.Now) {
-		return RunLaunch{}, ErrRunLaunchExpired
+	delivery := executionDelivery(facts.delivery)
+	run := executionRun(facts.run)
+	currentLaunch := executionLaunch(launch)
+	if err := execution.CanComplete(execution.ActiveFacts{
+		Delivery: &delivery,
+		Run:      &run,
+		Launch:   &currentLaunch,
+	}, params.LaunchID, params.Fence, runLaunchHeldBy(launch, proof), params.Now); err != nil {
+		return RunLaunch{}, err
 	}
 	if facts.space.ArchivedAt != nil {
 		return RunLaunch{}, ErrSpaceArchived

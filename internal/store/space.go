@@ -332,11 +332,8 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	if err != nil {
 		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
 	}
-	if space.Kind == SpaceKindDM {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, ErrDMImmutable)
-	}
-	if space.ArchivedAt != nil {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
+	if err := collaborationSpace(space).ValidateMembershipMutation(); err != nil {
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 	}
 	validateMember := validatePrincipalExistsInOrganization
 	if adding {
@@ -351,11 +348,11 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	`, params.SpaceID, params.Member.Kind, params.Member.ID).Scan(&exists); err != nil {
 		return MutationReceipt{}, fmt.Errorf("read membership state: %w", err)
 	}
-	if adding && exists {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_exists", params.Now, ErrMembershipExists)
-	}
-	if !adding && !exists {
-		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_missing", params.Now, ErrMembershipNotFound)
+	remainingActiveHumanMembers := 1
+	if err := collaborationSpace(space).ValidateMembershipChange(
+		collaborationMembershipChange(change), collaborationPrincipal(params.Member), exists, remainingActiveHumanMembers,
+	); err != nil {
+		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 	}
 	if !adding && params.Member.Kind == "human" {
 		var targetActive bool
@@ -363,18 +360,19 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 			return MutationReceipt{}, fmt.Errorf("read removed human status: %w", err)
 		}
 		if targetActive {
-			var remaining int
 			if err := tx.QueryRowContext(ctx, `
 				SELECT count(*)
 				FROM space_memberships m
 				JOIN humans h ON h.id = m.principal_id AND h.organization_id = ? AND h.status = 'active'
 				WHERE m.space_id = ? AND m.principal_kind = 'human' AND m.principal_id != ?
-			`, params.Actor.OrganizationID, params.SpaceID, params.Member.ID).Scan(&remaining); err != nil {
+			`, params.Actor.OrganizationID, params.SpaceID, params.Member.ID).Scan(&remainingActiveHumanMembers); err != nil {
 				return MutationReceipt{}, fmt.Errorf("count remaining active human members: %w", err)
 			}
-			if remaining == 0 {
-				return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "last_active_human", params.Now, ErrLastActiveHumanMember)
-			}
+		}
+		if err := collaborationSpace(space).ValidateMembershipChange(
+			collaborationMembershipChange(change), collaborationPrincipal(params.Member), exists, remainingActiveHumanMembers,
+		); err != nil {
+			return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, membershipDenialReason(err), params.Now, err)
 		}
 	}
 	if adding {
@@ -404,6 +402,23 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 		return MutationReceipt{}, fmt.Errorf("commit membership change: %w", err)
 	}
 	return MutationReceipt{RequestID: params.RequestID, CommittedAt: params.Now.UTC()}, nil
+}
+
+func membershipDenialReason(err error) string {
+	switch {
+	case errors.Is(err, ErrDMImmutable):
+		return "dm_immutable"
+	case errors.Is(err, ErrSpaceArchived):
+		return "space_archived"
+	case errors.Is(err, ErrMembershipExists):
+		return "member_exists"
+	case errors.Is(err, ErrMembershipNotFound):
+		return "member_missing"
+	case errors.Is(err, ErrLastActiveHumanMember):
+		return "last_active_human"
+	default:
+		return "membership_invalid"
+	}
 }
 
 func (s *Store) ListMembers(ctx context.Context, params SpaceReadParams) ([]Membership, error) {
@@ -501,8 +516,8 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 	if err != nil {
 		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "space_unavailable", params.Now, err)
 	}
-	if space.Kind == SpaceKindDM {
-		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, ErrDMImmutable)
+	if err := collaborationSpace(space).ValidateArchiveChange(); err != nil {
+		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, err)
 	}
 	alreadyDesired := (archiving && space.ArchivedAt != nil) || (!archiving && space.ArchivedAt == nil)
 	if !alreadyDesired {

@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
 	"github.com/abcdlsj/sumi/internal/connectapi"
+	"github.com/abcdlsj/sumi/internal/execution"
 	"github.com/abcdlsj/sumi/internal/runtimeauth"
 	"github.com/abcdlsj/sumi/internal/store"
 )
@@ -57,12 +58,12 @@ func fenceParam(value uint64) (uint64, error) {
 	return value, nil
 }
 
-func outcomeParam(value deliveryv1.RunOutcome) (string, error) {
+func outcomeParam(value deliveryv1.RunOutcome) (execution.Outcome, error) {
 	switch value {
 	case deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED:
-		return store.RunOutcomeSucceeded, nil
+		return execution.OutcomeSucceeded, nil
 	case deliveryv1.RunOutcome_RUN_OUTCOME_FAILED:
-		return store.RunOutcomeFailed, nil
+		return execution.OutcomeFailed, nil
 	default:
 		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("run outcome is invalid"))
 	}

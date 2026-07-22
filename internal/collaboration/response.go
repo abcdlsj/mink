@@ -2,25 +2,37 @@ package collaboration
 
 import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func principalMessage(principal store.Principal) *spacev1.Principal {
-	kind := spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
-	if principal.Kind == "human" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	} else if principal.Kind == "agent" {
-		kind = spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT
-	}
-	return &spacev1.Principal{Kind: kind, Id: principal.ID}
+	return &spacev1.Principal{Kind: principalKind(collaborationdomain.PrincipalKind(principal.Kind)), Id: principal.ID}
 }
 
 func spaceMessage(space store.Space) *spacev1.Space {
 	kind := spacev1.SpaceKind_SPACE_KIND_UNSPECIFIED
-	if space.Kind == store.SpaceKindDM {
+	if collaborationdomain.SpaceKind(space.Kind) == collaborationdomain.SpaceDM {
 		kind = spacev1.SpaceKind_SPACE_KIND_DM
-	} else if space.Kind == store.SpaceKindGroup {
+	} else if collaborationdomain.SpaceKind(space.Kind) == collaborationdomain.SpaceGroup {
+		kind = spacev1.SpaceKind_SPACE_KIND_GROUP
+	}
+	message := &spacev1.Space{
+		Id: space.ID, OrganizationId: space.OrganizationID, Kind: kind, Name: space.Name,
+		CreatedAt: timestamppb.New(space.CreatedAt), UpdatedAt: timestamppb.New(space.UpdatedAt),
+	}
+	if space.ArchivedAt != nil {
+		message.ArchivedAt = timestamppb.New(*space.ArchivedAt)
+	}
+	return message
+}
+
+func spaceSnapshotMessage(space SpaceSnapshot) *spacev1.Space {
+	kind := spacev1.SpaceKind_SPACE_KIND_UNSPECIFIED
+	if space.Kind == collaborationdomain.SpaceDM {
+		kind = spacev1.SpaceKind_SPACE_KIND_DM
+	} else if space.Kind == collaborationdomain.SpaceGroup {
 		kind = spacev1.SpaceKind_SPACE_KIND_GROUP
 	}
 	message := &spacev1.Space{
@@ -55,6 +67,29 @@ func messageMessage(message store.Message) *spacev1.Message {
 	return result
 }
 
-func receiptMessage(receipt store.MutationReceipt) *spacev1.MutationReceipt {
+func messageSnapshotMessage(message MessageSnapshot) *spacev1.Message {
+	result := &spacev1.Message{
+		Id: message.ID, RequestId: message.RequestID, SpaceId: message.SpaceID,
+		TargetSequence: message.TargetSequence,
+		Author:         &spacev1.Principal{Kind: principalKind(message.Author.Kind), Id: message.Author.ID},
+		Body:           message.Body, MentionedAgentIds: message.MentionedAgentIDs, CreatedAt: timestamppb.New(message.CreatedAt),
+	}
+	if message.Target.Kind == TargetThread {
+		result.ThreadRootMessageId = message.Target.ID
+	}
+	return result
+}
+
+func receiptSnapshotMessage(receipt ReceiptSnapshot) *spacev1.MutationReceipt {
 	return &spacev1.MutationReceipt{RequestId: receipt.RequestID, CommittedAt: timestamppb.New(receipt.CommittedAt)}
+}
+
+func principalKind(kind collaborationdomain.PrincipalKind) spacev1.PrincipalKind {
+	if kind == collaborationdomain.PrincipalHuman {
+		return spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN
+	}
+	if kind == collaborationdomain.PrincipalAgent {
+		return spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT
+	}
+	return spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 }

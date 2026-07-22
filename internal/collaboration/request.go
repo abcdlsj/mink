@@ -10,34 +10,34 @@ import (
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/connectapi"
-	"github.com/abcdlsj/sumi/internal/store"
 )
 
 type spaceMutationIDs struct {
 	requestID string
-	actor     store.Principal
+	actor     PrincipalRef
 	spaceID   string
 }
 
-func (s *Service) memberParams(ctx context.Context, requestIDValue, spaceIDValue string, memberValue *spacev1.Principal) (store.ChangeMemberParams, error) {
+func (s *Service) memberParams(ctx context.Context, requestIDValue, spaceIDValue string, memberValue *spacev1.Principal) (ChangeMemberCommand, error) {
 	ids, err := s.spaceMutationIDs(ctx, requestIDValue, spaceIDValue)
 	if err != nil {
-		return store.ChangeMemberParams{}, err
+		return ChangeMemberCommand{}, err
 	}
 	member, err := principalParams(memberValue, ids.actor.OrganizationID)
 	if err != nil {
-		return store.ChangeMemberParams{}, err
+		return ChangeMemberCommand{}, err
 	}
-	return store.ChangeMemberParams{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Member: member, Now: s.now()}, nil
+	return ChangeMemberCommand{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Member: member, Now: s.now()}, nil
 }
 
-func (s *Service) archiveParams(ctx context.Context, requestIDValue, spaceIDValue string) (store.ChangeSpaceArchiveParams, error) {
+func (s *Service) archiveParams(ctx context.Context, requestIDValue, spaceIDValue string) (ChangeSpaceArchiveCommand, error) {
 	ids, err := s.spaceMutationIDs(ctx, requestIDValue, spaceIDValue)
 	if err != nil {
-		return store.ChangeSpaceArchiveParams{}, err
+		return ChangeSpaceArchiveCommand{}, err
 	}
-	return store.ChangeSpaceArchiveParams{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Now: s.now()}, nil
+	return ChangeSpaceArchiveCommand{RequestID: ids.requestID, Actor: ids.actor, SpaceID: ids.spaceID, Now: s.now()}, nil
 }
 
 func (s *Service) spaceMutationIDs(ctx context.Context, requestIDValue, spaceIDValue string) (spaceMutationIDs, error) {
@@ -53,49 +53,49 @@ func (s *Service) spaceMutationIDs(ctx context.Context, requestIDValue, spaceIDV
 	if err != nil {
 		return spaceMutationIDs{}, err
 	}
-	return spaceMutationIDs{requestID: requestID, actor: actor, spaceID: spaceID}, nil
+	return spaceMutationIDs{requestID: requestID, actor: PrincipalRef{Kind: collaborationdomain.PrincipalKind(actor.Kind), ID: actor.ID, OrganizationID: actor.OrganizationID}, spaceID: spaceID}, nil
 }
 
-func principalParams(value *spacev1.Principal, organizationID string) (store.Principal, error) {
+func principalParams(value *spacev1.Principal, organizationID string) (PrincipalRef, error) {
 	if value == nil {
-		return store.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal is required"))
+		return PrincipalRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal is required"))
 	}
-	kind := ""
+	kind := collaborationdomain.PrincipalKind("")
 	switch value.GetKind() {
 	case spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN:
-		kind = "human"
+		kind = collaborationdomain.PrincipalHuman
 	case spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT:
-		kind = "agent"
+		kind = collaborationdomain.PrincipalAgent
 	}
 	if kind == "" {
-		return store.Principal{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))
+		return PrincipalRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))
 	}
 	id, err := connectapi.CanonicalID(value.GetId(), "principal id")
 	if err != nil {
-		return store.Principal{}, err
+		return PrincipalRef{}, err
 	}
-	return store.Principal{Kind: kind, ID: id, OrganizationID: organizationID}, nil
+	return PrincipalRef{Kind: kind, ID: id, OrganizationID: organizationID}, nil
 }
 
-func targetParams(value *spacev1.MessageTarget) (store.MessageTarget, error) {
+func targetParams(value *spacev1.MessageTarget) (MessageTargetRef, error) {
 	if value == nil {
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is required"))
+		return MessageTargetRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is required"))
 	}
 	switch target := value.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
 		id, err := connectapi.CanonicalID(target.SpaceId, "space id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return MessageTargetRef{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetSpace, ID: id}, nil
+		return MessageTargetRef{Kind: TargetSpace, ID: id}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
 		id, err := connectapi.CanonicalID(target.ThreadRootMessageId, "thread root message id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return MessageTargetRef{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetThread, ID: id}, nil
+		return MessageTargetRef{Kind: TargetThread, ID: id}, nil
 	default:
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
+		return MessageTargetRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
 	}
 }
 

@@ -498,3 +498,15 @@ Transport 实现按 `service / handler / request / response / errors` 职责组�
 - 已完成 `mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 和 `mise run build`；Go 全量测试与 Web 64/64 测试通过，race 与生产构建通过。
 - 本轮只移动 Service、Store helper 与 transport mapping 的代码边界，未改变产品事实、权限、协议、SQLite schema、事务、replay、lease、fence 或恢复语义。
 - 遗留风险：transport Params/Entity/Error 仍有一部分以 `store` 类型作为跨包合同；测试 fixture 尚未按 bounded context 重排。下一轮应先抽离稳定领域类型，再统一 mutation/read 元数据、replay receipt 和分页 cursor 合同，避免一次性改协议。
+
+## 20. 2026-07-22 Execution 与 Collaboration 领域边界
+
+本轮在既有 bounded context 决策上补齐真实领域行为，不建立只有目录和空接口的形式化 DDD。`internal/execution` 拥有 Delivery、Run、Launch 的 typed state、聚合一致性和 Accept、Claim、Renew、Complete 决策；这些决策只消费事实和值，不依赖 SQLite、Connect、runtime credential 或 transaction。Store 继续负责在同一事务内重验 runtime、Placement、Grant、Space access、replay 和 fence，读取持久事实后调用领域决策，再原子提交 Message/HeldDraft、Run、Delivery、Launch、Audit 与 receipt。
+
+`internal/collaboration/domain` 拥有 principal、Space、membership change 与 message target 类型，以及 canonical DM、Group name、Message body、DM 不可变、Group 最后一名 active Human、Space archive 和 archived send 等规则。Store 只负责查询成员是否存在、Human active 状态和剩余 active Human 数量，并把这些事实交给领域对象判断；拒绝 Audit 的稳定 reason、授权顺序和事务提交仍属于 application/Store 编排。领域错误由 Store 兼容别名映射到既有 Connect code，未改变公开错误合同。
+
+Collaboration mutation 与 Delivery transport 使用语义化 command/result。command 表达 Create DM/Group、Add/Remove Member、Archive/Unarchive、Send Message、Accept Delivery、Claim/Renew/Complete Run 等业务意图；result 使用独立 snapshot/view，不把 SQLite scan entity 当作 transport 的长期合同。Agent runtime proof 只存在于 application command，不进入 Execution 领域对象。read API 尚未全部迁出 Store Params，后续按上下文渐进处理，不能为追求目录对称一次性复制所有实体。
+
+本轮不改变 proto、SQLite schema、单 Server SQLite 边界、Computer State SQLite、Artifact blob、权限、replay、Audit、transaction、lease 或 fence 语义。scope 与 capability 的 typed boundary 属于后续 Authority 改造；在出现真实共同边界前不引入通用 Repository、UnitOfWork、事件总线或泛型 command/result 框架。
+
+验证已完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮不改变浏览器交互或公开协议。遗留风险是 Collaboration read API 仍有部分直接使用 Store Params/scan entity，Execution application command 仍携带 Store 创建的 opaque runtime proof；后者是有意保留的 application authentication 事实，不允许进入纯领域对象。
