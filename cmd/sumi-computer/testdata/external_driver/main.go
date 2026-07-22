@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -39,7 +40,7 @@ func main() {
 		}
 	}
 	if marker, found := strings.CutPrefix(os.Getenv("SUMI_EXTERNAL_DRIVER"), "marker:"); found {
-		_ = os.WriteFile(marker, []byte(mode), 0o600)
+		_ = os.WriteFile(marker, []byte(strconv.Itoa(os.Getpid())), 0o600)
 	}
 	switch mode {
 	case "success":

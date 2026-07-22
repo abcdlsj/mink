@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -303,13 +304,24 @@ func TestSumiComputerExternalDriverFailureMatrixBlackbox(t *testing.T) {
 				_, err := os.Stat(marker)
 				return err == nil
 			})
+			childPID := blackboxDriverPID(t, marker)
 			if test.cancel {
 				stopComputer(t, fixture.computer, syscall.SIGTERM)
 			} else {
-				time.Sleep(300 * time.Millisecond)
+				waitForBlackbox(t, 15*time.Second, func() bool {
+					return !blackboxProcessAlive(childPID)
+				})
+				if !blackboxProcessAlive(fixture.computer.command.Process.Pid) {
+					t.Fatalf("daemon exited before %s self-terminated: stdout=%s stderr=%s", test.name, fixture.computer.stdout, fixture.computer.stderr)
+				}
+			}
+			waitForBlackbox(t, 15*time.Second, func() bool {
+				return !blackboxProcessAlive(childPID)
+			})
+			assertBlackboxFailureDidNotComplete(t, fixture.serverRoot, fixture.computerRoot, trigger.Msg.GetMessage().GetId())
+			if !test.cancel {
 				stopComputer(t, fixture.computer, syscall.SIGTERM)
 			}
-			assertBlackboxFailureDidNotComplete(t, fixture.serverRoot, fixture.computerRoot, trigger.Msg.GetMessage().GetId())
 		})
 	}
 }
@@ -737,9 +749,27 @@ func assertBlackboxFailureDidNotComplete(t *testing.T, serverRoot, computerRoot,
 		SELECT deliveries.state, runs.state
 		FROM deliveries JOIN runs ON runs.delivery_id = deliveries.id
 		WHERE deliveries.trigger_message_id = ?`, triggerMessageID).Scan(&deliveryState, &runState)
-	if err != nil || deliveryState == "completed" || runState == "completed" {
-		t.Fatalf("failed delivery state = %q/%q, %v", deliveryState, runState, err)
+	if err != nil || deliveryState != "accepted" || runState != "running" {
+		t.Fatalf("failed delivery state = %q/%q, want accepted/running, %v", deliveryState, runState, err)
 	}
+}
+
+func blackboxDriverPID(t *testing.T, marker string) int {
+	t.Helper()
+	contents, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(contents))
+	if err != nil || pid <= 0 {
+		t.Fatalf("driver pid marker = %q, %v", contents, err)
+	}
+	return pid
+}
+
+func blackboxProcessAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 func assertNoBlackboxSecret(t *testing.T, serverRoot, computerRoot, secret string, process *blackboxComputerProcess) {
