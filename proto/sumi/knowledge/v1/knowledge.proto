@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package sumi.knowledge.v1;
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/knowledge/v1;knowledgev1";
+
+service KnowledgeService {
+  rpc SearchKnowledge(SearchKnowledgeRequest) returns (SearchKnowledgeResponse);
+}
+
+enum KnowledgeSourceKind {
+  KNOWLEDGE_SOURCE_KIND_UNSPECIFIED = 0;
+  KNOWLEDGE_SOURCE_KIND_MESSAGE = 1;
+  KNOWLEDGE_SOURCE_KIND_WORK = 2;
+  KNOWLEDGE_SOURCE_KIND_ARTIFACT_VERSION = 3;
+}
+
+enum KnowledgeIndexStatus {
+  KNOWLEDGE_INDEX_STATUS_UNSPECIFIED = 0;
+  KNOWLEDGE_INDEX_STATUS_READY = 1;
+  KNOWLEDGE_INDEX_STATUS_REBUILDING = 2;
+  KNOWLEDGE_INDEX_STATUS_DEGRADED = 3;
+}
+
+message MessageCitation {
+  string message_id = 1;
+}
+
+message WorkCitation {
+  string work_id = 1;
+}
+
+message ArtifactVersionCitation {
+  string artifact_id = 1;
+  uint64 version = 2;
+}
+
+message KnowledgeCitation {
+  oneof source {
+    MessageCitation message = 1;
+    WorkCitation work = 2;
+    ArtifactVersionCitation artifact_version = 3;
+  }
+}
+
+message KnowledgeResult {
+  KnowledgeCitation citation = 1;
+  string snippet = 2;
+}
+
+message SearchKnowledgeRequest {
+  string query = 1;
+  string cursor = 2;
+  uint32 limit = 3;
+}
+
+message SearchKnowledgeResponse {
+  repeated KnowledgeResult results = 1;
+  string next_cursor = 2;
+  KnowledgeIndexStatus status = 3;
+}
