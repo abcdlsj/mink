@@ -143,7 +143,7 @@ Computer 的 Sandbox capability 是经该 Computer credential 认证的当前自
 
 Secret 只以 Execution 明确列出的 `SecretRef{source,key}` 与目标环境名存在；当前唯一 source 是 Computer process environment。provider 在 Start 前最后一刻逐项解析，不扫描或继承其他环境，缺失、非法、含 NUL 或超限值都在启动前 fail closed。raw Secret 不进入 proto、Server、Computer state、outbox、receipt、日志、错误或 scratch；启动后覆盖 Go slice 与 command environment 引用只是 best effort，不能宣称清除了 Go string 或阻止同用户 Host 进程观察 child environment。
 
-C2 只实现 provider 与绑定合同，并在 `Execution` 中携带 current Computer ID；production `sumi-computer` 的 Executor 仍为 nil，因此不会 Observe、Accept、Claim 或执行 Run。Driver 到命令、provider 与 Completion 的 adapter 属于 C3，不能由 capability 声明暗示已经启用。
+production `sumi-computer` 只在 External Driver 类型、绝对可执行文件与 host policy 都被显式配置时构造 Executor。未配置时 `DaemonConfig.Executor` 必须是真 nil，daemon 继续 pairing、heartbeat 与已持久 critical outbox 重放，但不 Observe、Accept、Claim 或执行新 Run。已配置时只有 Agent 当前 Driver 与该 External Driver 精确匹配才会 dispatch；Native、未配置或类型不匹配均 fail closed，不能由 capability 声明暗示执行能力。
 
 trusted-local 的 `daemon-crash-cleanup=none` 是真实限制：daemon 存活时可以在 cancel、lease 失效、Placement 迁移或正常停止时收口进程与临时状态；daemon 被 `SIGKILL` 或 Host crash 后不保证收容遗留进程。Run fence 只阻止旧 Launch 向 Server 提交结果，不能终止 Host 进程，也不能撤销已经发生的网络或文件副作用。
 
@@ -319,6 +319,10 @@ Native、Codex 和 Claude 是同一 Agent Host Contract 下的 Driver，不是�
 
 Driver 只负责适配，不拥有产品事实：Native 直接消费结构化输入；External Driver 将同一输入渲染为命令或 JSONL，并把结果归一为同一个 TurnResult 与有序可选 RunEvent。单个 Driver 由一个 owner 串行处理 prompt、steer、spawn、fork 命令，队列有界；事件流可以丢弃，终态结果不能依赖事件消费者。Driver session、compact、cache 丢失后，Run 必须从 Server facts 与 Agent Home 恢复。
 
+Computer Host 只把 Server 固化的精确 trigger 与 current Execution binding 组装为有界 RunInput，通过单 Owner 获得唯一 TurnResult，再映射为 Completion。缺失、重复、target 不一致、非法 UTF-8、输入或结果超限、无终态或多终态都不得完成 Run。运行中的 request context、Owner lifetime、lease/fence 和 Placement 变化共同约束执行；重启后仍从 Server 取得同一权威 trigger，而不信任本地缓存的事实。
+
+External Driver 进程必须由当前 trusted-local provider 启动，只接受绝对可执行文件、受控 argv、显式 SecretRef 与受限 JSONL，不经 shell、不继承 ambient environment。超时、取消、子进程失败或输出解析提前失败都必须先关闭 pipe 解除复制阻塞，再 TERM→KILL→Wait 收口进程与 scratch。失败路径不生成新 outbox、completion receipt 或 Message；子进程 stdout 是 trusted-runtime 的业务输出，Sumi 当前不承诺 DLP。
+
 Driver capability 只声明 streaming、tools、resume、cancel、steering 等实际能力。能力不足时拒绝或降级，不改变 Inbox、Work、Artifact、权限、freshness、retry 和 cancel 语义。每次 provider model call 的 usage 只记录 provider 实际报告或明确标记 estimated/unavailable，不保存 prompt、secret、tool args、token 或路径。
 
 Host CLI 是稳定的可观察入口，成功输出和错误输出遵循统一合同：`Error`、`Code`、`Next action`。CLI 的能力说明从 typed Driver surface 生成，不复制另一份自然语言 Prompt 文档；shell 输出也不是 Message、Work 或 Audit 事实。
@@ -446,7 +450,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - `sumi-computer` pairing 成功后的 identity 已由持久 State 作为唯一后续来源；删除不会被读取的本地 registration key 回写，保留 legacy key import 的实际使用路径，消除静态检查噪声而不改变 pairing 或 daemon 合同。
 - `driverexec` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
 - Computer Host 只会把 `ObserveTarget` 返回的唯一精确 trigger 交给 Executor：Delivery 的 target、space、message ID 和 target sequence 必须同时匹配，body 必须是非空、合法且在 Driver 预算内的 UTF-8。缺失、重复、target 不一致或超预算 trigger 会在 Accept、Claim 与 worker/process 之前 fail closed；accepted Run 使用 Server 固化的 basis sequence，重启恢复也重新取得同一权威 trigger。该边界仅补齐 C3 的事实输入，不选择 Driver 或启动 External runtime。
-- External Driver 的本地进程 runner 只接受绝对、可执行的 argv 文件和显式、无重复的环境，不继承 Computer ambient environment，也不经过 shell。它要求 timeout、TERM→KILL grace 和 stdout/stderr 总量上限；超量、取消、超时或子进程失败都不给出可完成 Run 的结果。stdout 仅按受限 JSONL 逐行交给 External adapter，只有 adapter 验证后的唯一 typed result 才能映射为 Completion。该 runner 仍是 Driver 层能力，尚未由 production CLI 选择或启动。
+- C3 已将 External Driver 的 runner、trusted-local provider、SecretRef、Computer daemon 与 Completion 真实贯通。production CLI 只在完整 External 配置且 Agent Driver 精确匹配时启用 Executor；未配置时保持真 nil，Native Delivery 不会因 typed-nil interface 崩溃，也不会被错误接受。
+- C3 failure matrix 已证明唯一 typed success 可以完成；duplicate/no-final/ordinary stdout/partial JSON/oversize/timeout/cancel/process failure 会回收 child，daemon 仍存活，且不新增 durable outbox、Server completion receipt 或 Message；已持久 critical outbox 仍会按 current fence/authority 重放。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
-- 已验证共用 codec、Inbox、Delivery 的 focused tests，以及三者 `-race -count=3`；全仓门禁仍受 Driver 队列测试死锁阻塞，尚未在本提交修复。
-- 本次未把全仓测试当作绿门禁：当前 C3 的 `internal/driver/TestOwnerRejectsCommandsAboveBoundedQueue` 会超时，属于并行工作阻塞项，未在本次维护中扩展修复。
+- C3 最终独立复审关闭了全部 P0/P1/P2：原样 C1 两进程迁移 x3、External production matrix race x3、generate、buf/vet/staticcheck/TS lint、full Go race、Web 62/62、production Web+Go build、diff 与文件边界全部通过。一次全仓并发运行中，原样 C1 `waitForInboxItem` 在 15 秒内未观测到 trigger；随后三次 uncached full Go 连续通过，full race 也通过。当前无证据将该时序残余风险归因于 C3，但不得宣称测试从未失败。
