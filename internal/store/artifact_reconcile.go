@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -13,6 +14,17 @@ type ArtifactReconcileResult struct {
 	Corrupt     int
 	Quarantined int
 	Deleted     int
+}
+
+type artifactReconcileRowsErrorContextKey struct{}
+
+type artifactReconcileRowsErrorFunc func(*sql.Rows) error
+
+func artifactReconcileRowsErr(ctx context.Context, rows *sql.Rows) error {
+	if read, ok := ctx.Value(artifactReconcileRowsErrorContextKey{}).(artifactReconcileRowsErrorFunc); ok {
+		return read(rows)
+	}
+	return rows.Err()
 }
 
 func (s *ArtifactStore) Reconcile(ctx context.Context, now time.Time) (ArtifactReconcileResult, error) {
@@ -38,6 +50,10 @@ func (s *ArtifactStore) Reconcile(ctx context.Context, now time.Time) (ArtifactR
 		var digest [sha256.Size]byte
 		copy(digest[:], raw)
 		references[digest] = size
+	}
+	if err := artifactReconcileRowsErr(ctx, rows); err != nil {
+		rows.Close()
+		return ArtifactReconcileResult{}, fmt.Errorf("iterate referenced artifact blobs: %w", err)
 	}
 	if err := rows.Close(); err != nil {
 		return ArtifactReconcileResult{}, err

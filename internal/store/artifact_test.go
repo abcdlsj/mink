@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -762,6 +763,51 @@ func TestArtifactReconcileMarksMissingAndCorruptWithoutStopping(t *testing.T) {
 	}
 }
 
+func TestArtifactReconcileIterationErrorDoesNotTouchBlobOrInventory(t *testing.T) {
+	fixture := openArtifactFixture(t)
+	published, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "reconcile iterator", fixture.at(1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &reconcileArtifactBlobHook{ArtifactBlobStore: fixture.local}
+	artifacts, err := NewArtifactStore(fixture.database, backend, ArtifactMaxBlobSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var beforeState string
+	var beforeChecked int64
+	if err := fixture.database.db.QueryRow(`SELECT integrity_state, checked_at FROM artifact_blobs WHERE digest = ?`, published.Version.Digest[:]).Scan(&beforeState, &beforeChecked); err != nil {
+		t.Fatal(err)
+	}
+	contextWithIterationError := context.WithValue(context.Background(), artifactReconcileRowsErrorContextKey{}, artifactReconcileRowsErrorFunc(func(rows *sql.Rows) error {
+		return errors.New("forced artifact reconcile iteration error")
+	}))
+	if _, err := artifacts.Reconcile(contextWithIterationError, fixture.at(2)); err == nil || !strings.Contains(err.Error(), "forced artifact reconcile iteration error") {
+		t.Fatalf("reconcile with iteration error = %v", err)
+	}
+	if backend.reconcileCalls != 0 {
+		t.Fatalf("blob reconcile calls after iteration error = %d", backend.reconcileCalls)
+	}
+	var afterState string
+	var afterChecked int64
+	if err := fixture.database.db.QueryRow(`SELECT integrity_state, checked_at FROM artifact_blobs WHERE digest = ?`, published.Version.Digest[:]).Scan(&afterState, &afterChecked); err != nil {
+		t.Fatal(err)
+	}
+	if afterState != beforeState || afterChecked != beforeChecked {
+		t.Fatalf("iteration error changed artifact inventory: state %q/%q checked %d/%d", afterState, beforeState, afterChecked, beforeChecked)
+	}
+	if _, err := os.Stat(artifactBlobPath(fixture.blobRoot, published.Version.Digest)); err != nil {
+		t.Fatalf("iteration error removed referenced blob: %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(fixture.blobRoot, "quarantine"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("iteration error quarantined blobs: %v", entries)
+	}
+}
+
 func TestArtifactMigrationDownRemovesOnlyArtifactFacts(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
@@ -919,6 +965,16 @@ type artifactBlobHook struct {
 	ArtifactBlobStore
 	callback func()
 	once     sync.Once
+}
+
+type reconcileArtifactBlobHook struct {
+	ArtifactBlobStore
+	reconcileCalls int
+}
+
+func (b *reconcileArtifactBlobHook) Reconcile(ctx context.Context, references map[[sha256.Size]byte]int64, now time.Time, retention time.Duration) (map[[sha256.Size]byte]string, int, int, error) {
+	b.reconcileCalls++
+	return b.ArtifactBlobStore.Reconcile(ctx, references, now, retention)
 }
 
 func (b *artifactBlobHook) Put(ctx context.Context, source io.Reader, limit int64) ([sha256.Size]byte, int64, error) {
