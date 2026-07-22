@@ -590,7 +590,7 @@ type knowledgeProjectionCheckErrorContextKey struct{}
 
 type knowledgeProjectionCheckErrorFunc func(string) error
 
-// WithKnowledgeProjectionCheckError injects a projection verification error for an internal caller.
+// WithKnowledgeProjectionCheckError is for integration tests only to inject verify-stage errors; production callers must not use it.
 func WithKnowledgeProjectionCheckError(ctx context.Context, check func(string) error) context.Context {
 	return context.WithValue(ctx, knowledgeProjectionCheckErrorContextKey{}, knowledgeProjectionCheckErrorFunc(check))
 }
