@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"io"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -33,6 +36,60 @@ func TestKnowledgeCursorKeyPersistsAcrossReopen(t *testing.T) {
 	}
 	if got, err := second.OpenKnowledgeCursor(cursor, binding); err != nil || got != seek {
 		t.Fatalf("cursor after reopen = %+v, %v", got, err)
+	}
+}
+
+func TestOpenSecuresLiveSQLiteFilesAndKeepsCursorKeyQuiet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	store := openKnowledgeCursorStore(t, path)
+	defer store.Close()
+	key := readKnowledgeCursorKey(t, store)
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		info, err := os.Stat(candidate)
+		if err != nil || info.Mode().Perm() != 0o600 {
+			t.Fatalf("live sqlite file %s mode = %v, %v", candidate, info.Mode().Perm(), err)
+		}
+	}
+	wal, err := os.ReadFile(path + "-wal")
+	if err != nil || !bytes.Contains(wal, key) {
+		t.Fatalf("live WAL does not contain the canonical cursor key: %v", err)
+	}
+}
+
+func TestOpenFailsClosedForCursorKeyRandomFailureAndCorruption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	failed, err := openWithRandomReader(path, failingReader{})
+	if failed != nil || !errors.Is(err, ErrKnowledgeCursorKeyUnavailable) {
+		t.Fatalf("Open with random failure = %v, %v", failed, err)
+	}
+	store := openKnowledgeCursorStore(t, path)
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configure(raw); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`PRAGMA ignore_check_constraints = ON`); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`UPDATE knowledge_cursor_keys SET key = X'01' WHERE singleton = 1`); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		failed, err = Open(path)
+		if failed != nil || !errors.Is(err, ErrKnowledgeCursorKeyUnavailable) {
+			t.Fatalf("Open with corrupt key = %v, %v", failed, err)
+		}
 	}
 }
 
@@ -127,8 +184,12 @@ func TestKnowledgeCursorCodecRejectsInvalidOrMismatchedTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(token, "principal") || strings.Contains(token, "query") || strings.Contains(token, "message") {
-		t.Fatal("cursor token exposes payload text")
+	assertKnowledgeCursorConfidential(t, token, binding, seek)
+	payload := marshalCursorForTest(t, binding, seek)
+	plaintext := append([]byte{knowledgeCursorTokenVersion}, bytes.Repeat([]byte{5}, knowledgeCursorNonceSize)...)
+	plaintext = append(plaintext, payload...)
+	if err := knowledgeCursorTokenConfidential(base64.RawURLEncoding.EncodeToString(plaintext), binding, seek); err == nil {
+		t.Fatal("confidentiality oracle accepted plaintext payload")
 	}
 	if got, err := codec.open(token, binding); err != nil || got != seek {
 		t.Fatalf("cursor round-trip = %+v, %v", got, err)
@@ -196,6 +257,25 @@ func TestKnowledgeCursorCodecUsesFreshNonceAndRejectsMalformedPayload(t *testing
 	}
 }
 
+func TestKnowledgeCursorRejectsNonCanonicalSourceIDs(t *testing.T) {
+	codec, err := newKnowledgeCursorCodec([32]byte{4}, bytes.NewReader(bytes.Repeat([]byte{1}, 128)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, seek := testKnowledgeCursorBinding(), testKnowledgeCursorSeekKey()
+	for _, id := range []string{
+		"urn:uuid:" + seek.SourceID,
+		"{" + seek.SourceID + "}",
+		strings.ReplaceAll(seek.SourceID, "-", ""),
+		strings.ToUpper(seek.SourceID),
+	} {
+		seek.SourceID = id
+		if _, err := codec.seal(binding, seek); !errors.Is(err, ErrKnowledgeCursorUnavailable) {
+			t.Fatalf("non-canonical source id %q error = %v", id, err)
+		}
+	}
+}
+
 func openKnowledgeCursorStore(t *testing.T, path string) *Store {
 	t.Helper()
 	store, err := Open(path)
@@ -219,7 +299,34 @@ func testKnowledgeCursorBinding() KnowledgeCursorBinding {
 }
 
 func testKnowledgeCursorSeekKey() KnowledgeCursorSeekKey {
-	return KnowledgeCursorSeekKey{Rank: -1.5, SourceKind: KnowledgeSourceMessage, SourceID: "00000000-0000-4000-8000-000000000001", RowID: 1}
+	return KnowledgeCursorSeekKey{Rank: -1.5, SourceKind: KnowledgeSourceArtifactVersion, SourceID: "123e4567-e89b-42d3-a456-426614174000", SourceVersion: 7, RowID: 97}
+}
+
+func assertKnowledgeCursorConfidential(t *testing.T, token string, binding KnowledgeCursorBinding, seek KnowledgeCursorSeekKey) {
+	t.Helper()
+	if err := knowledgeCursorTokenConfidential(token, binding, seek); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func knowledgeCursorTokenConfidential(token string, binding KnowledgeCursorBinding, seek KnowledgeCursorSeekKey) error {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return err
+	}
+	values := [][]byte{binding.PrincipalFingerprint[:], binding.QueryHash[:], []byte(seek.SourceKind), []byte(seek.SourceID), cursorUint64(binding.Generation), cursorUint64(math.Float64bits(seek.Rank)), cursorUint64(seek.SourceVersion), cursorUint64(uint64(seek.RowID))}
+	for _, value := range values {
+		if bytes.Contains(raw, value) {
+			return errors.New("cursor raw token exposes payload")
+		}
+	}
+	return nil
+}
+
+func cursorUint64(value uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, value)
+	return encoded
 }
 
 func marshalCursorForTest(t *testing.T, binding KnowledgeCursorBinding, seek KnowledgeCursorSeekKey) []byte {

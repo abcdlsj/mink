@@ -221,7 +221,8 @@ func readKnowledgeCursorUint64(value []byte) (uint64, error) {
 }
 
 func validKnowledgeCursorSeekKey(seek KnowledgeCursorSeekKey) bool {
-	if math.IsNaN(seek.Rank) || math.IsInf(seek.Rank, 0) || seek.RowID <= 0 || uuid.Validate(seek.SourceID) != nil {
+	parsedID, err := uuid.Parse(seek.SourceID)
+	if math.IsNaN(seek.Rank) || math.IsInf(seek.Rank, 0) || seek.RowID <= 0 || len(seek.SourceID) != 36 || err != nil || parsedID.String() != seek.SourceID {
 		return false
 	}
 	if seek.SourceKind == KnowledgeSourceMessage || seek.SourceKind == KnowledgeSourceWork {
