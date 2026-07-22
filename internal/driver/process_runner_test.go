@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -63,6 +64,14 @@ func TestProcessRunnerBoundsOutputAndTerminatesOnTimeout(t *testing.T) {
 			t.Fatalf("overflow error = %v", err)
 		}
 	})
+	t.Run("stderr", func(t *testing.T) {
+		runner, command := testProcessRunner(t, "stderr-overflow")
+		runner.MaxOutputBytes = 32
+		err := runner.Run(context.Background(), command, nil, func([]byte) error { return nil })
+		if err == nil || !strings.Contains(err.Error(), "stderr exceeds limit") {
+			t.Fatalf("overflow error = %v", err)
+		}
+	})
 	t.Run("timeout", func(t *testing.T) {
 		runner, command := testProcessRunner(t, "ignore-term")
 		runner.Timeout = 20 * time.Millisecond
@@ -76,6 +85,69 @@ func TestProcessRunnerBoundsOutputAndTerminatesOnTimeout(t *testing.T) {
 			t.Fatalf("timeout cleanup took %v", elapsed)
 		}
 	})
+}
+
+func TestProcessRunnerStopsWritingChildAfterReaderFailure(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+		emit func([]byte) error
+		want string
+	}{
+		{
+			name: "emit callback", mode: "keep-writing",
+			emit: func([]byte) error { return errors.New("reject external output") }, want: "reject external output",
+		},
+		{
+			name: "invalid jsonl", mode: "invalid-jsonl-keep-writing",
+			emit: func(line []byte) error {
+				var value map[string]any
+				if err := json.Unmarshal(line, &value); err != nil {
+					return fmt.Errorf("invalid external JSONL: %w", err)
+				}
+				return nil
+			},
+			want: "invalid external JSONL",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, command := testProcessRunner(t, test.mode)
+			started := time.Now()
+			err := runner.Run(context.Background(), command, nil, test.emit)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("run error = %v, want %q", err, test.want)
+			}
+			if elapsed := time.Since(started); elapsed > time.Second {
+				t.Fatalf("cleanup took %v", elapsed)
+			}
+		})
+	}
+}
+
+func TestProcessRunnerCanRunAfterFailure(t *testing.T) {
+	runner, command := testProcessRunner(t, "stdout-overflow")
+	runner.MaxOutputBytes = 32
+	if err := runner.Run(context.Background(), command, nil, func([]byte) error { return nil }); err == nil {
+		t.Fatal("overflow run succeeded")
+	}
+	runner, command = testProcessRunner(t, "result")
+	if err := runner.Run(context.Background(), command, []byte("input"), func([]byte) error { return nil }); err != nil {
+		t.Fatalf("run after failure: %v", err)
+	}
+}
+
+func TestProcessRunnerPreservesCallerCancellation(t *testing.T) {
+	runner, command := testProcessRunner(t, "wait-for-cancel")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := runner.Run(ctx, command, nil, func([]byte) error {
+		cancel()
+		return errors.New("reject external output")
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v, want context cancellation", err)
+	}
 }
 
 func TestProcessRunnerRejectsUnboundedOrAmbientConfiguration(t *testing.T) {
@@ -145,7 +217,28 @@ func TestProcessRunnerHelper(t *testing.T) {
 		fmt.Fprintln(os.Stdout, `{"type":"result","result":{"outcome":"succeeded","body":"done"}}`)
 	case "stdout-overflow":
 		_, _ = io.WriteString(os.Stdout, strings.Repeat("x", 1025))
+	case "stderr-overflow":
+		_, _ = io.WriteString(os.Stderr, strings.Repeat("x", 1025))
+	case "keep-writing":
+		signal.Ignore(syscall.SIGTERM)
+		for {
+			_, _ = io.WriteString(os.Stdout, `{"type":"result"}`+"\n")
+			time.Sleep(time.Millisecond)
+		}
+	case "invalid-jsonl-keep-writing":
+		signal.Ignore(syscall.SIGTERM)
+		_, _ = io.WriteString(os.Stdout, "not json\n")
+		for {
+			_, _ = io.WriteString(os.Stdout, `{"type":"result"}`+"\n")
+			time.Sleep(time.Millisecond)
+		}
 	case "ignore-term":
+		signal.Ignore(syscall.SIGTERM)
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "wait-for-cancel":
+		fmt.Fprintln(os.Stdout, `{"type":"result"}`)
 		signal.Ignore(syscall.SIGTERM)
 		for {
 			time.Sleep(time.Hour)

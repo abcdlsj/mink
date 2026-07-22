@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/sandbox"
@@ -57,6 +58,13 @@ func (r ProcessRunner) Run(ctx context.Context, command Command, input []byte, e
 		_ = stderrReader.Close()
 		return fmt.Errorf("start external driver: %w", err)
 	}
+	var closeReadersOnce sync.Once
+	closeReaders := func() {
+		closeReadersOnce.Do(func() {
+			_ = stdoutReader.Close()
+			_ = stderrReader.Close()
+		})
+	}
 	stdoutDone := make(chan error, 1)
 	go func() { stdoutDone <- emitJSONLLines(stdoutReader, r.MaxOutputBytes, emit) }()
 	stderrDone := make(chan error, 1)
@@ -70,31 +78,57 @@ func (r ProcessRunner) Run(ctx context.Context, command Command, input []byte, e
 	}()
 
 	var stdoutErr, stderrErr, waitErr, contextErr error
+	var failure error
+	var stopOnce sync.Once
+	stop := func(err error) {
+		stopOnce.Do(func() {
+			failure = err
+			closeReaders()
+			cancel()
+		})
+	}
 	stdoutFinished := false
 	stderrFinished := false
 	waitFinished := false
 	contextFinished := false
+	contextDone := runCtx.Done()
 	for !stdoutFinished || !stderrFinished || !waitFinished {
 		select {
 		case stdoutErr = <-stdoutDone:
 			stdoutFinished = true
 			if stdoutErr != nil {
-				cancel()
+				if contextErr = runCtx.Err(); contextErr != nil {
+					contextFinished = true
+					contextDone = nil
+					stop(contextErr)
+				} else {
+					stop(stdoutErr)
+				}
 			}
 		case stderrErr = <-stderrDone:
 			stderrFinished = true
 			if stderrErr != nil {
-				cancel()
+				if contextErr = runCtx.Err(); contextErr != nil {
+					contextFinished = true
+					contextDone = nil
+					stop(contextErr)
+				} else {
+					stop(stderrErr)
+				}
 			}
 		case waitErr = <-waitDone:
 			waitFinished = true
-		case <-runCtx.Done():
+		case <-contextDone:
 			if !contextFinished {
 				contextErr = runCtx.Err()
 				contextFinished = true
-				cancel()
+				contextDone = nil
+				stop(contextErr)
 			}
 		}
+	}
+	if failure != nil {
+		return failure
 	}
 	if stdoutErr != nil {
 		return stdoutErr
