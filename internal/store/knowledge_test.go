@@ -575,17 +575,11 @@ func TestKnowledgeGenerationRejectsPartialSourceIteration(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				contextWithIterationError := context.WithValue(context.Background(), knowledgeSourceDocumentsContextKey{}, knowledgeSourceDocumentsFunc(func(ctx context.Context, queryer knowledgeSourceQueryer) ([]KnowledgeSourceDocument, error) {
-					documents, err := listKnowledgeSourceDocuments(ctx, queryer)
-					if err != nil {
-						return nil, err
+				contextWithIterationError := context.WithValue(context.Background(), knowledgeRowsErrorContextKey{}, knowledgeRowsErrorFunc(func(sourceKind string, rows *sql.Rows) error {
+					if sourceKind == source {
+						return fmt.Errorf("forced %s iteration error", source)
 					}
-					for index, document := range documents {
-						if document.Source.Kind == source {
-							return documents[:index+1], fmt.Errorf("forced %s iteration error", source)
-						}
-					}
-					return nil, fmt.Errorf("missing %s source for forced iteration error", source)
+					return rows.Err()
 				}))
 				var operationErr error
 				switch operation {
