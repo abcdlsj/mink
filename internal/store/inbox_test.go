@@ -682,7 +682,7 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	assertInboxRequestWrites(t, fixture.database, requestID, 0, 0)
 
 	if err := fixture.database.RevokeAgentRuntimeSession(ctx, RevokeAgentRuntimeSessionParams{
-		Proof: fixture.authentication.Proof, ComputerID: fixture.authentication.Proof.computerID,
+		Proof: fixture.authentication.Proof, ComputerID: fixture.authentication.Proof.ComputerID(),
 		RegistrationKey: "computer-registration-key", Now: fixture.at(7),
 	}); err != nil {
 		t.Fatal(err)

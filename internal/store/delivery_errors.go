@@ -1,24 +1,22 @@
 package store
 
 import (
-	"errors"
-
-	execution "github.com/abcdlsj/sumi/internal/execution/domain"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 )
 
 var (
-	ErrDeliveryNotFound          = errors.New("delivery not found")
-	ErrDeliveryNotAvailable      = execution.ErrDeliveryNotAvailable
-	ErrDeliveryCursorUnavailable = execution.ErrDeliveryCursorUnavailable
-	ErrInvalidDeliveryLimit      = errors.New("invalid delivery limit")
-	ErrRunAlreadyActive          = execution.ErrRunAlreadyActive
-	ErrRunNotFound               = errors.New("run not found")
-	ErrRunNotAccepted            = execution.ErrRunNotAccepted
-	ErrRunNotRunning             = execution.ErrRunNotRunning
-	ErrRunLaunchActive           = execution.ErrRunLaunchActive
-	ErrRunLaunchStale            = execution.ErrRunLaunchStale
-	ErrRunLaunchExpired          = execution.ErrRunLaunchExpired
-	ErrRunCompletionConflict     = errors.New("run completion conflict")
-	ErrRunInvalidOutcome         = execution.ErrRunInvalidOutcome
-	ErrRunIntegrity              = execution.ErrRunIntegrity
+	ErrDeliveryNotFound          = executionapp.ErrDeliveryNotFound
+	ErrDeliveryNotAvailable      = executionapp.ErrDeliveryNotAvailable
+	ErrDeliveryCursorUnavailable = executionapp.ErrDeliveryCursorUnavailable
+	ErrInvalidDeliveryLimit      = executionapp.ErrInvalidDeliveryLimit
+	ErrRunAlreadyActive          = executionapp.ErrRunAlreadyActive
+	ErrRunNotFound               = executionapp.ErrRunNotFound
+	ErrRunNotAccepted            = executionapp.ErrRunNotAccepted
+	ErrRunNotRunning             = executionapp.ErrRunNotRunning
+	ErrRunLaunchActive           = executionapp.ErrRunLaunchActive
+	ErrRunLaunchStale            = executionapp.ErrRunLaunchStale
+	ErrRunLaunchExpired          = executionapp.ErrRunLaunchExpired
+	ErrRunCompletionConflict     = executionapp.ErrRunCompletionConflict
+	ErrRunInvalidOutcome         = executionapp.ErrRunInvalidOutcome
+	ErrRunIntegrity              = executionapp.ErrRunIntegrity
 )

@@ -4,7 +4,7 @@ import execution "github.com/abcdlsj/sumi/internal/execution/domain"
 
 func executionDelivery(value Delivery) execution.Delivery {
 	return execution.Delivery{
-		ID: value.ID, AgentID: value.AgentID, TargetKind: value.Target.Kind, TargetID: value.Target.ID,
+		ID: value.ID, AgentID: value.AgentID, TargetKind: string(value.Target.Kind), TargetID: value.Target.ID,
 		TriggerTargetSequence: value.TriggerTargetSequence, State: execution.DeliveryState(value.State),
 		AcceptedAt: value.AcceptedAt, CompletedAt: value.CompletedAt,
 	}

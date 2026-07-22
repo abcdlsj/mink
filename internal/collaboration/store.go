@@ -3,21 +3,21 @@ package collaboration
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 )
 
 type collaborationStore interface {
-	CreateDM(context.Context, store.CreateDMParams) (store.Space, error)
-	CreateGroup(context.Context, store.CreateGroupParams) (store.Space, error)
-	GetSpace(context.Context, store.SpaceReadParams) (store.Space, error)
-	ListSpaces(context.Context, store.ListSpacesParams) ([]store.Space, error)
-	AddMember(context.Context, store.ChangeMemberParams) (store.MutationReceipt, error)
-	RemoveMember(context.Context, store.ChangeMemberParams) (store.MutationReceipt, error)
-	ListMembers(context.Context, store.SpaceReadParams) ([]store.Membership, error)
-	ArchiveSpace(context.Context, store.ChangeSpaceArchiveParams) (store.MutationReceipt, error)
-	UnarchiveSpace(context.Context, store.ChangeSpaceArchiveParams) (store.MutationReceipt, error)
-	SendMessage(context.Context, store.SendMessageParams) (store.Message, error)
-	GetMessage(context.Context, store.GetMessageParams) (store.Message, error)
-	GetThread(context.Context, store.GetThreadParams) (store.Thread, error)
-	ListMessages(context.Context, store.ListMessagesParams) ([]store.Message, error)
+	CreateDM(context.Context, collaborationapp.CreateDMCommand) (collaborationapp.Space, error)
+	CreateGroup(context.Context, collaborationapp.CreateGroupCommand) (collaborationapp.Space, error)
+	GetSpace(context.Context, collaborationapp.SpaceReadQuery) (collaborationapp.Space, error)
+	ListSpaces(context.Context, collaborationapp.ListSpacesQuery) ([]collaborationapp.Space, error)
+	AddMember(context.Context, collaborationapp.ChangeMemberCommand) (collaborationapp.MutationReceipt, error)
+	RemoveMember(context.Context, collaborationapp.ChangeMemberCommand) (collaborationapp.MutationReceipt, error)
+	ListMembers(context.Context, collaborationapp.SpaceReadQuery) ([]collaborationapp.Membership, error)
+	ArchiveSpace(context.Context, collaborationapp.ChangeSpaceArchiveCommand) (collaborationapp.MutationReceipt, error)
+	UnarchiveSpace(context.Context, collaborationapp.ChangeSpaceArchiveCommand) (collaborationapp.MutationReceipt, error)
+	SendMessage(context.Context, collaborationapp.SendMessageCommand) (collaborationapp.Message, error)
+	GetMessage(context.Context, collaborationapp.GetMessageQuery) (collaborationapp.Message, error)
+	GetThread(context.Context, collaborationapp.GetThreadQuery) (collaborationapp.Thread, error)
+	ListMessages(context.Context, collaborationapp.ListMessagesQuery) ([]collaborationapp.Message, error)
 }

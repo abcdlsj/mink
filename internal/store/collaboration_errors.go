@@ -1,13 +1,12 @@
 package store
 
 import (
-	"errors"
-
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 )
 
 var (
-	ErrSpaceNotFound                = errors.New("space not found")
+	ErrSpaceNotFound                = collaborationapp.ErrSpaceNotFound
 	ErrSpaceArchived                = collaborationdomain.ErrSpaceArchived
 	ErrDMImmutable                  = collaborationdomain.ErrDMImmutable
 	ErrDMRequiresDistinctPrincipals = collaborationdomain.ErrDMRequiresDistinctPrincipals
@@ -16,11 +15,11 @@ var (
 	ErrMembershipExists             = collaborationdomain.ErrMembershipExists
 	ErrMembershipNotFound           = collaborationdomain.ErrMembershipNotFound
 	ErrLastActiveHumanMember        = collaborationdomain.ErrLastActiveHumanMember
-	ErrCollaborationRequestConflict = errors.New("collaboration request conflict")
-	ErrMessageNotFound              = errors.New("message not found")
-	ErrThreadNotFound               = errors.New("thread not found")
+	ErrCollaborationRequestConflict = collaborationapp.ErrRequestConflict
+	ErrMessageNotFound              = collaborationapp.ErrMessageNotFound
+	ErrThreadNotFound               = collaborationapp.ErrThreadNotFound
 	ErrInvalidMessageTarget         = collaborationdomain.ErrInvalidMessageTarget
 	ErrInvalidMessageBody           = collaborationdomain.ErrInvalidMessageBody
-	ErrInvalidMessageLimit          = errors.New("invalid message limit")
-	ErrCollaborationIntegrity       = errors.New("collaboration data integrity failure")
+	ErrInvalidMessageLimit          = collaborationapp.ErrInvalidMessageLimit
+	ErrCollaborationIntegrity       = collaborationapp.ErrIntegrity
 )

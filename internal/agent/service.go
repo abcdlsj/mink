@@ -9,8 +9,9 @@ import (
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -37,13 +38,13 @@ func (s *Service) CreateAgent(ctx context.Context, request *connect.Request[agen
 	}
 	params.Actor = actor
 	agent, err := s.store.CreateAgent(ctx, params)
-	if errors.Is(err, store.ErrAgentRequestConflict) {
+	if errors.Is(err, agentapp.ErrRequestConflict) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different agent data"))
 	}
-	if errors.Is(err, store.ErrAgentNameExists) {
+	if errors.Is(err, agentapp.ErrNameExists) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("agent name already exists"))
 	}
-	if errors.Is(err, store.ErrPermissionDenied) {
+	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent creation denied"))
 	}
 	if err != nil {
@@ -58,7 +59,7 @@ func (s *Service) GetAgent(ctx context.Context, request *connect.Request[agentv1
 		return nil, err
 	}
 	agent, err := s.store.GetAgent(ctx, id)
-	if errors.Is(err, store.ErrAgentNotFound) {
+	if errors.Is(err, agentapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("agent not found"))
 	}
 	if err != nil {
@@ -79,22 +80,22 @@ func (s *Service) ListAgents(ctx context.Context, _ *connect.Request[agentv1.Lis
 	return connect.NewResponse(response), nil
 }
 
-func createParams(request *agentv1.CreateAgentRequest, now time.Time) (store.CreateAgentParams, error) {
+func createParams(request *agentv1.CreateAgentRequest, now time.Time) (agentapp.CreateCommand, error) {
 	requestID, err := connectid.CanonicalID(request.GetRequestId(), "request id")
 	if err != nil {
-		return store.CreateAgentParams{}, err
+		return agentapp.CreateCommand{}, err
 	}
 	if !agentName.MatchString(request.GetName()) || len(request.GetName()) > 32 {
-		return store.CreateAgentParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent name must be a lowercase handle of 1 to 32 characters"))
+		return agentapp.CreateCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent name must be a lowercase handle of 1 to 32 characters"))
 	}
 	if !utf8.ValidString(request.GetDescription()) || utf8.RuneCountInString(request.GetDescription()) > 1000 {
-		return store.CreateAgentParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent description must contain at most 1000 characters"))
+		return agentapp.CreateCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent description must contain at most 1000 characters"))
 	}
 	driver, ok := driverName(request.GetDriver())
 	if !ok {
-		return store.CreateAgentParams{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent driver must be native, codex, or claude"))
+		return agentapp.CreateCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent driver must be native, codex, or claude"))
 	}
-	return store.CreateAgentParams{
+	return agentapp.CreateCommand{
 		RequestID:   requestID,
 		Name:        request.GetName(),
 		Description: request.GetDescription(),
@@ -116,7 +117,7 @@ func driverName(driver agentv1.Driver) (string, bool) {
 	}
 }
 
-func agentMessage(agent store.Agent) *agentv1.Agent {
+func agentMessage(agent agentapp.Agent) *agentv1.Agent {
 	driver := agentv1.Driver_DRIVER_UNSPECIFIED
 	if agent.Driver == "native" {
 		driver = agentv1.Driver_DRIVER_NATIVE

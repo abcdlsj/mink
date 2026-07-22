@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
 	"github.com/google/uuid"
 )
 
@@ -20,15 +21,15 @@ const (
 	ArtifactMaxBlobSize  int64 = 64 << 20
 	ArtifactMaxChunkSize       = 64 << 10
 
-	ArtifactGrantRead   = "read"
-	ArtifactGrantManage = "manage"
+	ArtifactGrantRead   = artifactapp.GrantRead
+	ArtifactGrantManage = artifactapp.GrantManage
 
-	ArtifactGrantTargetAgent = "agent"
-	ArtifactGrantTargetSpace = "space"
-	ArtifactGrantTargetWork  = "work"
+	ArtifactGrantTargetAgent = artifactapp.GrantTargetAgent
+	ArtifactGrantTargetSpace = artifactapp.GrantTargetSpace
+	ArtifactGrantTargetWork  = artifactapp.GrantTargetWork
 
-	ArtifactSourceMessage = "message"
-	ArtifactSourceVersion = "artifact_version"
+	ArtifactSourceMessage = artifactapp.SourceMessage
+	ArtifactSourceVersion = artifactapp.SourceVersion
 
 	artifactAuditPublish = "artifact.publish"
 	artifactAuditGrant   = "artifact.grant"
@@ -58,87 +59,23 @@ func NewArtifactStore(database *Store, blobs ArtifactBlobStore, maxBlobSize int6
 	}, nil
 }
 
-type ArtifactAuthentication struct {
-	Human Principal
-	Agent AgentRuntimeAuthentication
-}
+type ArtifactAuthentication = artifactapp.Authentication
 
-type Artifact struct {
-	ID             string
-	OrganizationID string
-	OwningWorkID   string
-	Name           string
-	MediaType      string
-	Creator        Principal
-	CreatedAt      time.Time
-}
+type Artifact = artifactapp.Artifact
 
-type ArtifactVersion struct {
-	ArtifactID     string
-	OrganizationID string
-	Version        uint64
-	Digest         [sha256.Size]byte
-	Size           int64
-	IntegrityState string
-	Summary        string
-	Author         Principal
-	CreatedAt      time.Time
-	Execution      *ArtifactExecution
-	Sources        []ArtifactSource
-}
+type ArtifactVersion = artifactapp.Version
 
-type ArtifactExecution struct {
-	DeliveryID          string
-	RunID               string
-	LaunchID            string
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	Fence               uint64
-}
+type ArtifactExecution = artifactapp.Execution
 
-type ArtifactExecutionInput struct {
-	DeliveryID string
-	RunID      string
-	LaunchID   string
-	Fence      uint64
-}
+type ArtifactExecutionInput = artifactapp.ExecutionInput
 
-type ArtifactSourceInput struct {
-	Kind            string
-	MessageID       string
-	ArtifactID      string
-	ArtifactVersion uint64
-}
+type ArtifactSourceInput = artifactapp.SourceInput
 
-type ArtifactSource struct {
-	Kind            string
-	MessageID       string
-	ArtifactID      string
-	ArtifactVersion uint64
-}
+type ArtifactSource = artifactapp.Source
 
-type PublishArtifactParams struct {
-	RequestID      string
-	Authentication ArtifactAuthentication
-	ArtifactID     string
-	OwningWorkID   string
-	Name           string
-	MediaType      string
-	Summary        string
-	Execution      *ArtifactExecutionInput
-	Sources        []ArtifactSourceInput
-	ExpectedDigest *[sha256.Size]byte
-	ExpectedSize   *int64
-	Content        io.Reader
-	Now            time.Time
-}
+type PublishArtifactParams = artifactapp.PublishCommand
 
-type PublishArtifactResult struct {
-	Artifact    Artifact
-	Version     ArtifactVersion
-	CommittedAt time.Time
-}
+type PublishArtifactResult = artifactapp.PublishResult
 
 type artifactReceipt struct {
 	RequestID   string

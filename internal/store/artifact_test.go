@@ -403,7 +403,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Version.Execution == nil || result.Version.Execution.AgentID != fixture.agentID || result.Version.Execution.ComputerID != fixture.authentication.Proof.computerID || result.Version.Execution.PlacementGeneration != fixture.authentication.Proof.placementGeneration {
+	if result.Version.Execution == nil || result.Version.Execution.AgentID != fixture.agentID || result.Version.Execution.ComputerID != fixture.authentication.Proof.ComputerID() || result.Version.Execution.PlacementGeneration != fixture.authentication.Proof.PlacementGeneration() {
 		t.Fatalf("execution provenance = %+v", result.Version.Execution)
 	}
 	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{

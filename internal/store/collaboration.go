@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 )
 
@@ -23,49 +24,17 @@ const (
 	maxMessageListLimit = 200
 )
 
-type Space struct {
-	ID             string
-	OrganizationID string
-	Kind           string
-	Name           string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ArchivedAt     *time.Time
-}
+type Space = collaborationapp.Space
 
-type Membership struct {
-	SpaceID   string
-	Principal Principal
-	JoinedAt  time.Time
-}
+type Membership = collaborationapp.Membership
 
-type Thread struct {
-	ID        string
-	SpaceID   string
-	CreatedAt time.Time
-}
+type Thread = collaborationapp.Thread
 
-type MessageTarget struct {
-	Kind string
-	ID   string
-}
+type MessageTarget = collaborationapp.MessageTarget
 
-type Message struct {
-	ID                string
-	RequestID         string
-	SpaceID           string
-	Target            MessageTarget
-	TargetSequence    uint64
-	Author            Principal
-	Body              string
-	MentionedAgentIDs []string
-	CreatedAt         time.Time
-}
+type Message = collaborationapp.Message
 
-type MutationReceipt struct {
-	RequestID   string
-	CommittedAt time.Time
-}
+type MutationReceipt = collaborationapp.MutationReceipt
 
 type collaborationReceipt struct {
 	Operation   string

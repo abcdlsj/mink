@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
-	"github.com/abcdlsj/sumi/internal/store"
+	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
 )
 
 const (
@@ -26,11 +27,11 @@ var opaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 type sessionStore interface {
 	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
-	CreateBrowserHandoff(context.Context, store.CreateBrowserHandoffParams) error
-	ConsumeBrowserHandoff(context.Context, store.ConsumeBrowserHandoffParams) (authoritydomain.Principal, error)
+	CreateBrowserHandoff(context.Context, authorityapp.CreateBrowserHandoffCommand) error
+	ConsumeBrowserHandoff(context.Context, authorityapp.ConsumeBrowserHandoffCommand) (authoritydomain.Principal, error)
 	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 	RevokeBrowserSession(context.Context, string, time.Time) error
-	GetHuman(context.Context, string) (store.Human, error)
+	GetHuman(context.Context, string) (organizationapp.Human, error)
 }
 
 type Config struct {
@@ -78,7 +79,7 @@ func New(database sessionStore, config Config) (*Service, error) {
 		config.SessionTTL = 12 * time.Hour
 	}
 	if config.HandoffTTL <= 0 || config.HandoffTTL > time.Minute || config.SessionTTL <= 0 || config.SessionTTL > 12*time.Hour {
-		return nil, store.ErrBrowserSessionInvalid
+		return nil, authorityapp.ErrBrowserSessionInvalid
 	}
 	if config.Now == nil {
 		config.Now = time.Now
@@ -131,7 +132,7 @@ func (s *Service) createHandoff(response http.ResponseWriter, request *http.Requ
 	}
 	now := s.now()
 	expiresAt := now.Add(s.handoffTTL)
-	if err := s.store.CreateBrowserHandoff(request.Context(), store.CreateBrowserHandoffParams{
+	if err := s.store.CreateBrowserHandoff(request.Context(), authorityapp.CreateBrowserHandoffCommand{
 		Human: principal, Token: token, Now: now, ExpiresAt: expiresAt,
 	}); err != nil {
 		if errors.Is(err, authoritydomain.ErrPermissionDenied) {
@@ -155,7 +156,7 @@ func (s *Service) consumeHandoff(response http.ResponseWriter, request *http.Req
 			session, err := s.randomToken()
 			if err == nil {
 				now := s.now()
-				_, err = s.store.ConsumeBrowserHandoff(request.Context(), store.ConsumeBrowserHandoffParams{
+				_, err = s.store.ConsumeBrowserHandoff(request.Context(), authorityapp.ConsumeBrowserHandoffCommand{
 					HandoffToken: handoff, SessionToken: session, Now: now, SessionExpiresAt: now.Add(s.sessionTTL),
 				})
 				if err == nil {

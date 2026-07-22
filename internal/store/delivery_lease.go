@@ -66,8 +66,8 @@ func (s *Store) ClaimRun(ctx context.Context, params ClaimRunParams) (RunLaunch,
 			fence, claimed_at, expires_at
 		)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?)
-	`, launchID, run.ID, run.AgentID, authentication.Proof.computerID,
-		authentication.Proof.placementGeneration, fence, unixNano(params.Now), unixNano(expiresAt)); err != nil {
+	`, launchID, run.ID, run.AgentID, authentication.Proof.ComputerID(),
+		authentication.Proof.PlacementGeneration(), fence, unixNano(params.Now), unixNano(expiresAt)); err != nil {
 		return RunLaunch{}, fmt.Errorf("persist run launch: %w", err)
 	}
 	if decision.StartRun {

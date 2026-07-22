@@ -2,8 +2,9 @@ package delivery
 
 import (
 	v1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	execution "github.com/abcdlsj/sumi/internal/execution/domain"
-	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -19,13 +20,13 @@ func completeRunResponse(result CompleteRunResult) (*v1.CompleteRunResponse, err
 	response := &v1.CompleteRunResponse{Run: run, CommittedAt: timestamppb.New(result.CommittedAt)}
 	switch result.Kind {
 	case execution.ResultMessage:
-		message, err := messagecodec.Message(storeMessageView(*result.Message))
+		message, err := messagecodec.Message(collaborationMessage(*result.Message))
 		if err != nil {
 			return nil, err
 		}
 		response.Result = &v1.CompleteRunResponse_Message{Message: message}
 	case execution.ResultHeldDraft:
-		draft, err := messagecodec.HeldDraft(storeHeldDraftView(*result.HeldDraft))
+		draft, err := messagecodec.HeldDraft(executionHeldDraft(*result.HeldDraft))
 		if err != nil {
 			return nil, err
 		}
@@ -49,7 +50,7 @@ func deliveryMessage(value DeliveryResult) (*v1.Delivery, error) {
 	default:
 		return nil, internalError()
 	}
-	target, err := messagecodec.Target(store.MessageTarget{Kind: value.Fact.TargetKind, ID: value.Fact.TargetID})
+	target, err := messagecodec.Target(collaborationapp.MessageTarget{Kind: collaborationdomain.MessageTargetKind(value.Fact.TargetKind), ID: value.Fact.TargetID})
 	if err != nil {
 		return nil, err
 	}

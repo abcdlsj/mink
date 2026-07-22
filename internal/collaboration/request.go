@@ -10,7 +10,7 @@ import (
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
-	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
@@ -53,19 +53,19 @@ func (s *Service) spaceMutationIDs(ctx context.Context, requestIDValue, spaceIDV
 	if err != nil {
 		return spaceMutationIDs{}, err
 	}
-	return spaceMutationIDs{requestID: requestID, actor: PrincipalRef{Kind: collaborationdomain.PrincipalKind(actor.Kind), ID: actor.ID, OrganizationID: actor.OrganizationID}, spaceID: spaceID}, nil
+	return spaceMutationIDs{requestID: requestID, actor: actor, spaceID: spaceID}, nil
 }
 
 func principalParams(value *spacev1.Principal, organizationID string) (PrincipalRef, error) {
 	if value == nil {
 		return PrincipalRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal is required"))
 	}
-	kind := collaborationdomain.PrincipalKind("")
+	kind := authoritydomain.PrincipalKind("")
 	switch value.GetKind() {
 	case spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN:
-		kind = collaborationdomain.PrincipalHuman
+		kind = authoritydomain.PrincipalHuman
 	case spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT:
-		kind = collaborationdomain.PrincipalAgent
+		kind = authoritydomain.PrincipalAgent
 	}
 	if kind == "" {
 		return PrincipalRef{}, connect.NewError(connect.CodeInvalidArgument, errors.New("principal kind is invalid"))

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
-	"github.com/abcdlsj/sumi/internal/store"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 )
 
 const (
@@ -14,12 +14,12 @@ const (
 )
 
 type deliveryStore interface {
-	ListDeliveries(context.Context, store.ListDeliveriesParams) (store.ListDeliveriesResult, error)
-	AcceptDelivery(context.Context, store.AcceptDeliveryParams) (store.Run, error)
-	GetRun(context.Context, store.GetRunParams) (store.Run, error)
-	ClaimRun(context.Context, store.ClaimRunParams) (store.RunLaunch, error)
-	RenewRun(context.Context, store.RenewRunParams) (store.RunLaunch, error)
-	CompleteRun(context.Context, store.CompleteRunParams) (store.CompleteRunResult, error)
+	ListDeliveries(context.Context, executionapp.ListDeliveriesQuery) (executionapp.ListDeliveriesResult, error)
+	AcceptDelivery(context.Context, executionapp.AcceptDeliveryCommand) (executionapp.Run, error)
+	GetRun(context.Context, executionapp.GetRunQuery) (executionapp.Run, error)
+	ClaimRun(context.Context, executionapp.ClaimRunCommand) (executionapp.RunLaunch, error)
+	RenewRun(context.Context, executionapp.RenewRunCommand) (executionapp.RunLaunch, error)
+	CompleteRun(context.Context, executionapp.CompleteRunCommand) (executionapp.CompleteRunResult, error)
 }
 
 type Service struct {

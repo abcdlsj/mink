@@ -2,117 +2,38 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
+	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
 	"github.com/google/uuid"
 )
 
-type ArtifactGrant struct {
-	ID             string
-	ArtifactID     string
-	OrganizationID string
-	TargetKind     string
-	TargetID       string
-	Capability     string
-	GrantedBy      Principal
-	GrantedAt      time.Time
-	RevokedBy      *Principal
-	RevokedAt      *time.Time
-}
+type ArtifactGrant = artifactapp.Grant
 
-type GrantArtifactParams struct {
-	RequestID      string
-	Authentication ArtifactAuthentication
-	ArtifactID     string
-	TargetKind     string
-	TargetID       string
-	Capability     string
-	Now            time.Time
-}
+type GrantArtifactParams = artifactapp.GrantCommand
 
-type RevokeArtifactGrantParams struct {
-	RequestID      string
-	Authentication ArtifactAuthentication
-	GrantID        string
-	Now            time.Time
-}
+type RevokeArtifactGrantParams = artifactapp.RevokeGrantCommand
 
-type ArtifactSourceView struct {
-	Restricted      bool
-	Kind            string
-	MessageID       string
-	ArtifactID      string
-	ArtifactVersion uint64
-}
+type ArtifactSourceView = artifactapp.SourceView
 
-type ArtifactExecutionView struct {
-	Restricted          bool
-	DeliveryID          string
-	RunID               string
-	LaunchID            string
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	Fence               uint64
-}
+type ArtifactExecutionView = artifactapp.ExecutionView
 
-type ArtifactView struct {
-	Artifact
-	OwningWorkRestricted bool
-	Version              ArtifactVersionView
-}
+type ArtifactView = artifactapp.View
 
-type ArtifactVersionView struct {
-	ArtifactID     string
-	OrganizationID string
-	Version        uint64
-	Digest         [sha256.Size]byte
-	Size           int64
-	IntegrityState string
-	Summary        string
-	Author         Principal
-	CreatedAt      time.Time
-	Execution      *ArtifactExecutionView
-	Sources        []ArtifactSourceView
-}
+type ArtifactVersionView = artifactapp.VersionView
 
-type GetArtifactParams struct {
-	Authentication ArtifactAuthentication
-	ArtifactID     string
-	Version        uint64
-	Now            time.Time
-}
+type GetArtifactParams = artifactapp.GetQuery
 
-type ListArtifactsParams struct {
-	Authentication  ArtifactAuthentication
-	OwningWorkID    string
-	AfterArtifactID string
-	Limit           uint32
-	Now             time.Time
-}
+type ListArtifactsParams = artifactapp.ListQuery
 
-type ListArtifactsResult struct {
-	Views          []ArtifactView
-	NextArtifactID string
-}
+type ListArtifactsResult = artifactapp.ListResult
 
-type FetchArtifactParams struct {
-	Authentication ArtifactAuthentication
-	ArtifactID     string
-	Version        uint64
-	Now            time.Time
-}
+type FetchArtifactParams = artifactapp.FetchQuery
 
-type FetchArtifactResult struct {
-	Artifact Artifact
-	Version  ArtifactVersionView
-	Content  io.ReadCloser
-}
+type FetchArtifactResult = artifactapp.FetchResult
 
 func (s *ArtifactStore) Grant(ctx context.Context, params GrantArtifactParams) (ArtifactGrant, error) {
 	if err := validateGrantArtifactParams(params); err != nil {

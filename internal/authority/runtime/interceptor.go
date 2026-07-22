@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
-	"github.com/abcdlsj/sumi/internal/store"
 )
 
 type subjectKey struct{}
 
 type sessionAuthenticator interface {
-	AuthenticateAgentRuntimeSession(context.Context, string, time.Time) (store.AgentRuntimeAuthentication, error)
+	AuthenticateAgentRuntimeSession(context.Context, string, time.Time) (authorityapp.RuntimeAuthentication, error)
 }
 
 var runtimeTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -39,7 +39,7 @@ func newProcedureInterceptor(authenticator sessionAuthenticator, now func() time
 				return nil, unauthenticated()
 			}
 			authentication, err := authenticator.AuthenticateAgentRuntimeSession(ctx, token, now())
-			if errors.Is(err, store.ErrAgentRuntimeUnauthenticated) {
+			if errors.Is(err, authorityapp.ErrRuntimeUnauthenticated) {
 				return nil, unauthenticated()
 			}
 			if err != nil {
@@ -50,10 +50,10 @@ func newProcedureInterceptor(authenticator sessionAuthenticator, now func() time
 	})
 }
 
-func Subject(ctx context.Context) (authoritydomain.Principal, store.AgentRuntimeProof, error) {
-	authentication, ok := ctx.Value(subjectKey{}).(store.AgentRuntimeAuthentication)
+func Subject(ctx context.Context) (authoritydomain.Principal, authorityapp.RuntimeProof, error) {
+	authentication, ok := ctx.Value(subjectKey{}).(authorityapp.RuntimeAuthentication)
 	if !ok || !authentication.Valid() {
-		return authoritydomain.Principal{}, store.AgentRuntimeProof{}, unauthenticated()
+		return authoritydomain.Principal{}, authorityapp.RuntimeProof{}, unauthenticated()
 	}
 	return authentication.Principal, authentication.Proof, nil
 }

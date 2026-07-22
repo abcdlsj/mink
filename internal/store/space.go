@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	"github.com/google/uuid"
 )
 
@@ -19,45 +20,17 @@ const (
 	operationUnarchiveSpace = "space.unarchive"
 )
 
-type CreateDMParams struct {
-	RequestID string
-	Actor     Principal
-	Peer      Principal
-	Now       time.Time
-}
+type CreateDMParams = collaborationapp.CreateDMCommand
 
-type CreateGroupParams struct {
-	RequestID string
-	Actor     Principal
-	Name      string
-	Now       time.Time
-}
+type CreateGroupParams = collaborationapp.CreateGroupCommand
 
-type SpaceReadParams struct {
-	Actor   Principal
-	SpaceID string
-	Now     time.Time
-}
+type SpaceReadParams = collaborationapp.SpaceReadQuery
 
-type ListSpacesParams struct {
-	Actor Principal
-	Now   time.Time
-}
+type ListSpacesParams = collaborationapp.ListSpacesQuery
 
-type ChangeMemberParams struct {
-	RequestID string
-	Actor     Principal
-	SpaceID   string
-	Member    Principal
-	Now       time.Time
-}
+type ChangeMemberParams = collaborationapp.ChangeMemberCommand
 
-type ChangeSpaceArchiveParams struct {
-	RequestID string
-	Actor     Principal
-	SpaceID   string
-	Now       time.Time
-}
+type ChangeSpaceArchiveParams = collaborationapp.ChangeSpaceArchiveCommand
 
 func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, error) {
 	dmKey, err := canonicalDMKey(params.Actor, params.Peer)

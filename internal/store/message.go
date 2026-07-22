@@ -8,39 +8,19 @@ import (
 	"fmt"
 	"time"
 
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	"github.com/google/uuid"
 )
 
 const operationSendMessage = "message.send"
 
-type SendMessageParams struct {
-	RequestID         string
-	Actor             Principal
-	Target            MessageTarget
-	Body              string
-	MentionedAgentIDs []string
-	Now               time.Time
-}
+type SendMessageParams = collaborationapp.SendMessageCommand
 
-type GetMessageParams struct {
-	Actor     Principal
-	MessageID string
-	Now       time.Time
-}
+type GetMessageParams = collaborationapp.GetMessageQuery
 
-type GetThreadParams struct {
-	Actor    Principal
-	ThreadID string
-	Now      time.Time
-}
+type GetThreadParams = collaborationapp.GetThreadQuery
 
-type ListMessagesParams struct {
-	Actor         Principal
-	Target        MessageTarget
-	AfterSequence uint64
-	Limit         uint32
-	Now           time.Time
-}
+type ListMessagesParams = collaborationapp.ListMessagesQuery
 
 func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Message, error) {
 	if err := validateMessageBody(params.Body); err != nil {
@@ -60,7 +40,7 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		TargetID   string        `json:"target_id"`
 		Body       string        `json:"body"`
 		Mentions   []string      `json:"mentioned_agent_ids,omitempty"`
-	}{params.Actor.Kind, params.Actor.ID, params.Target.Kind, params.Target.ID, params.Body, mentions})
+	}{params.Actor.Kind, params.Actor.ID, string(params.Target.Kind), params.Target.ID, params.Body, mentions})
 	if err != nil {
 		return Message{}, err
 	}

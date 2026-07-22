@@ -3,10 +3,11 @@ package audit
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	auditapp "github.com/abcdlsj/sumi/internal/audit/application"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 )
 
 type auditStore interface {
-	CheckPermission(context.Context, store.CheckPermissionParams) (bool, error)
-	ListAuditEvents(context.Context, store.ListAuditEventsParams) ([]store.AuditEvent, error)
+	CheckPermission(context.Context, grantapp.PermissionQuery) (bool, error)
+	ListAuditEvents(context.Context, auditapp.ListQuery) ([]auditapp.Event, error)
 }

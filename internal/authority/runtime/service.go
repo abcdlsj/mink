@@ -11,7 +11,8 @@ import (
 
 	"connectrpc.com/connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -19,9 +20,9 @@ import (
 const sessionTTL = 10 * time.Minute
 
 type sessionStore interface {
-	CreateAgentRuntimeSession(context.Context, store.CreateAgentRuntimeSessionParams) (store.AgentRuntimeSession, error)
-	RenewAgentRuntimeSession(context.Context, store.RenewAgentRuntimeSessionParams) (store.AgentRuntimeSession, error)
-	RevokeAgentRuntimeSession(context.Context, store.RevokeAgentRuntimeSessionParams) error
+	CreateAgentRuntimeSession(context.Context, authorityapp.CreateRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
+	RenewAgentRuntimeSession(context.Context, authorityapp.RenewRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
+	RevokeAgentRuntimeSession(context.Context, authorityapp.RevokeRuntimeSessionCommand) error
 }
 
 type Config struct {
@@ -60,7 +61,7 @@ func (s *Service) CreateAgentRuntimeSession(ctx context.Context, request *connec
 		return nil, connect.NewError(connect.CodeInternal, errors.New("generate agent runtime session"))
 	}
 	now := s.now()
-	session, err := s.store.CreateAgentRuntimeSession(ctx, store.CreateAgentRuntimeSessionParams{
+	session, err := s.store.CreateAgentRuntimeSession(ctx, authorityapp.CreateRuntimeSessionCommand{
 		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
 		AgentID: agentID, PlacementGeneration: generation,
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
@@ -90,7 +91,7 @@ func (s *Service) RenewAgentRuntimeSession(ctx context.Context, request *connect
 		return nil, connect.NewError(connect.CodeInternal, errors.New("generate agent runtime session"))
 	}
 	now := s.now()
-	session, err := s.store.RenewAgentRuntimeSession(ctx, store.RenewAgentRuntimeSessionParams{
+	session, err := s.store.RenewAgentRuntimeSession(ctx, authorityapp.RenewRuntimeSessionCommand{
 		Proof: proof, ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
 	})
@@ -114,7 +115,7 @@ func (s *Service) RevokeAgentRuntimeSession(ctx context.Context, request *connec
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	err = s.store.RevokeAgentRuntimeSession(ctx, store.RevokeAgentRuntimeSessionParams{
+	err = s.store.RevokeAgentRuntimeSession(ctx, authorityapp.RevokeRuntimeSessionCommand{
 		Proof: proof, ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(), Now: s.now(),
 	})
 	if err := renewError(err); err != nil {
@@ -160,13 +161,13 @@ func createError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, store.ErrComputerNotFound):
+	case errors.Is(err, computerapp.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
-	case errors.Is(err, store.ErrRegistrationKeyMismatch):
+	case errors.Is(err, computerapp.ErrRegistrationKeyMismatch):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
-	case errors.Is(err, store.ErrAgentRuntimeBinding):
+	case errors.Is(err, authorityapp.ErrRuntimeBinding):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent runtime binding unavailable"))
-	case errors.Is(err, store.ErrAgentRuntimeInvalid):
+	case errors.Is(err, authorityapp.ErrRuntimeInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("agent runtime session invalid"))
 	default:
 		return connect.NewError(connect.CodeInternal, errors.New("create agent runtime session"))
@@ -177,18 +178,18 @@ func renewError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, store.ErrAgentRuntimeUnauthenticated):
+	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
 		return unauthenticated()
-	case errors.Is(err, store.ErrComputerNotFound), errors.Is(err, store.ErrRegistrationKeyMismatch), errors.Is(err, store.ErrAgentRuntimeBinding):
+	case errors.Is(err, computerapp.ErrNotFound), errors.Is(err, computerapp.ErrRegistrationKeyMismatch), errors.Is(err, authorityapp.ErrRuntimeBinding):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match agent runtime session"))
-	case errors.Is(err, store.ErrAgentRuntimeInvalid):
+	case errors.Is(err, authorityapp.ErrRuntimeInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("agent runtime session invalid"))
 	default:
 		return connect.NewError(connect.CodeInternal, errors.New("change agent runtime session"))
 	}
 }
 
-func sessionMessage(session store.AgentRuntimeSession, token string) *runtimev1.AgentRuntimeSession {
+func sessionMessage(session authorityapp.RuntimeSession, token string) *runtimev1.AgentRuntimeSession {
 	return &runtimev1.AgentRuntimeSession{
 		AgentId: session.AgentID, ComputerId: session.ComputerID,
 		PlacementGeneration: session.PlacementGeneration,

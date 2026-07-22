@@ -121,4 +121,7 @@ func (capability Capability) AllowsScope(kind ScopeKind) bool {
 	}
 }
 
-var ErrPermissionDenied = errors.New("permission denied")
+var (
+	ErrPermissionDenied  = errors.New("permission denied")
+	ErrPrincipalNotFound = errors.New("principal not found")
+)

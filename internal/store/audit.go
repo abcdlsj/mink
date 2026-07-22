@@ -4,73 +4,43 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
+	auditapp "github.com/abcdlsj/sumi/internal/audit/application"
 	"github.com/google/uuid"
 )
 
 const (
-	AuditOrganizationBootstrap = "organization.bootstrap"
-	AuditHumanCreate           = "human.create"
-	AuditHumanStatusSet        = "human.status.set"
-	AuditGrantIssue            = "grant.issue"
-	AuditGrantRevoke           = "grant.revoke"
-	AuditAgentCreate           = "agent.create"
-	AuditAgentPlace            = "agent.place"
-	AuditSpaceCreate           = "space.create"
-	AuditSpaceMemberAdd        = "space.member.add"
-	AuditSpaceMemberRemove     = "space.member.remove"
-	AuditSpaceArchive          = "space.archive"
-	AuditSpaceUnarchive        = "space.unarchive"
-	AuditThreadCreate          = "thread.create"
-	AuditMessageSend           = "message.send"
-	AuditRunAccept             = "run.accept"
-	AuditRunLaunch             = "run.launch"
-	AuditRunComplete           = "run.complete"
-	AuditComputerPairPrepare   = "computer.pair.prepare"
-	AuditComputerPair          = "computer.pair"
-	AuditWorkCreate            = "work.create"
-	AuditWorkAssign            = "work.assign"
-	AuditWorkTransition        = "work.transition"
-	AuditWorkApprovalRequest   = "work.approval.request"
-	AuditWorkApprovalResolve   = "work.approval.resolve"
+	AuditOrganizationBootstrap = auditapp.ActionOrganizationBootstrap
+	AuditHumanCreate           = auditapp.ActionHumanCreate
+	AuditHumanStatusSet        = auditapp.ActionHumanStatusSet
+	AuditGrantIssue            = auditapp.ActionGrantIssue
+	AuditGrantRevoke           = auditapp.ActionGrantRevoke
+	AuditAgentCreate           = auditapp.ActionAgentCreate
+	AuditAgentPlace            = auditapp.ActionAgentPlace
+	AuditSpaceCreate           = auditapp.ActionSpaceCreate
+	AuditSpaceMemberAdd        = auditapp.ActionSpaceMemberAdd
+	AuditSpaceMemberRemove     = auditapp.ActionSpaceMemberRemove
+	AuditSpaceArchive          = auditapp.ActionSpaceArchive
+	AuditSpaceUnarchive        = auditapp.ActionSpaceUnarchive
+	AuditThreadCreate          = auditapp.ActionThreadCreate
+	AuditMessageSend           = auditapp.ActionMessageSend
+	AuditRunAccept             = auditapp.ActionRunAccept
+	AuditRunLaunch             = auditapp.ActionRunLaunch
+	AuditRunComplete           = auditapp.ActionRunComplete
+	AuditComputerPairPrepare   = auditapp.ActionComputerPairPrepare
+	AuditComputerPair          = auditapp.ActionComputerPair
+	AuditWorkCreate            = auditapp.ActionWorkCreate
+	AuditWorkAssign            = auditapp.ActionWorkAssign
+	AuditWorkTransition        = auditapp.ActionWorkTransition
+	AuditWorkApprovalRequest   = auditapp.ActionWorkApprovalRequest
+	AuditWorkApprovalResolve   = auditapp.ActionWorkApprovalResolve
 )
 
-type AuditEvent struct {
-	Sequence       uint64
-	ID             string
-	OrganizationID string
-	Actor          Principal
-	Action         string
-	TargetKind     string
-	TargetID       string
-	ContextKind    string
-	ContextID      string
-	RequestID      string
-	Outcome        string
-	ReasonCode     string
-	OccurredAt     time.Time
-}
+type AuditEvent = auditapp.Event
 
-type AppendAuditParams struct {
-	OrganizationID string
-	Actor          Principal
-	Action         string
-	TargetKind     string
-	TargetID       string
-	ContextKind    string
-	ContextID      string
-	RequestID      string
-	Outcome        string
-	ReasonCode     string
-	Now            time.Time
-}
+type AppendAuditParams = auditapp.AppendCommand
 
-type ListAuditEventsParams struct {
-	OrganizationID string
-	AfterSequence  uint64
-	Limit          uint32
-}
+type ListAuditEventsParams = auditapp.ListQuery
 
 func appendAuditEvent(ctx context.Context, tx *sql.Tx, params AppendAuditParams) error {
 	if err := validateAuditContext(params.ContextKind, params.ContextID); err != nil {

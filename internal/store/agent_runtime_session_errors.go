@@ -1,9 +1,9 @@
 package store
 
-import "errors"
+import authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 
 var (
-	ErrAgentRuntimeBinding         = errors.New("agent runtime binding unavailable")
-	ErrAgentRuntimeInvalid         = errors.New("agent runtime session parameters invalid")
-	ErrAgentRuntimeUnauthenticated = errors.New("agent runtime session unauthenticated")
+	ErrAgentRuntimeBinding         = authorityapp.ErrRuntimeBinding
+	ErrAgentRuntimeInvalid         = authorityapp.ErrRuntimeInvalid
+	ErrAgentRuntimeUnauthenticated = authorityapp.ErrRuntimeUnauthenticated
 )

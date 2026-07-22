@@ -4,8 +4,10 @@ import (
 	"time"
 
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	execution "github.com/abcdlsj/sumi/internal/execution/domain"
-	"github.com/abcdlsj/sumi/internal/store"
 )
 
 type DeliveryResult struct {
@@ -71,7 +73,7 @@ type CompleteRunResult struct {
 	CommittedAt time.Time
 }
 
-func mapDelivery(value *store.Delivery) *DeliveryResult {
+func mapDelivery(value *executionapp.Delivery) *DeliveryResult {
 	if value == nil {
 		return nil
 	}
@@ -81,7 +83,7 @@ func mapDelivery(value *store.Delivery) *DeliveryResult {
 	}
 }
 
-func mapDeliveries(values []store.Delivery) []DeliveryResult {
+func mapDeliveries(values []executionapp.Delivery) []DeliveryResult {
 	result := make([]DeliveryResult, 0, len(values))
 	for index := range values {
 		result = append(result, *mapDelivery(&values[index]))
@@ -89,7 +91,7 @@ func mapDeliveries(values []store.Delivery) []DeliveryResult {
 	return result
 }
 
-func mapRun(value *store.Run) *execution.Run {
+func mapRun(value *executionapp.Run) *execution.Run {
 	if value == nil {
 		return nil
 	}
@@ -97,7 +99,7 @@ func mapRun(value *store.Run) *execution.Run {
 	return &result
 }
 
-func mapLaunch(value *store.RunLaunch) *execution.Launch {
+func mapLaunch(value *executionapp.RunLaunch) *execution.Launch {
 	if value == nil {
 		return nil
 	}
@@ -105,53 +107,53 @@ func mapLaunch(value *store.RunLaunch) *execution.Launch {
 	return &result
 }
 
-func mapMessage(value *store.Message) *MessageView {
+func mapMessage(value *collaborationapp.Message) *MessageView {
 	if value == nil {
 		return nil
 	}
 	return &MessageView{
 		ID: value.ID, RequestID: value.RequestID, SpaceID: value.SpaceID,
-		Target: MessageTargetView{Kind: value.Target.Kind, ID: value.Target.ID}, TargetSequence: value.TargetSequence,
+		Target: MessageTargetView{Kind: string(value.Target.Kind), ID: value.Target.ID}, TargetSequence: value.TargetSequence,
 		AuthorKind: value.Author.Kind, AuthorID: value.Author.ID, Body: value.Body,
 		MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), CreatedAt: value.CreatedAt,
 	}
 }
 
-func mapHeldDraft(value *store.HeldDraft) *HeldDraftView {
+func mapHeldDraft(value *executionapp.HeldDraft) *HeldDraftView {
 	if value == nil {
 		return nil
 	}
 	return &HeldDraftView{
 		Sequence: value.Sequence, ID: value.ID, AgentID: value.AgentID, InboxItemID: value.InboxItemID,
 		PredecessorDraftID: value.PredecessorDraftID, SpaceID: value.SpaceID,
-		Target: MessageTargetView{Kind: value.Target.Kind, ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
+		Target: MessageTargetView{Kind: string(value.Target.Kind), ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
 		Body: value.Body, MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), HeldReason: value.HeldReason,
 		State: value.State, ResolutionAction: value.ResolutionAction, ResultKind: value.ResultKind, ResultID: value.ResultID,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
 }
 
-func mapCompleteRun(value store.CompleteRunResult) CompleteRunResult {
+func mapCompleteRun(value executionapp.CompleteRunResult) CompleteRunResult {
 	return CompleteRunResult{
 		Run: executionRun(value.Run), Kind: execution.ResultKind(value.Kind), Message: mapMessage(value.Message),
 		HeldDraft: mapHeldDraft(value.HeldDraft), CommittedAt: value.CommittedAt,
 	}
 }
 
-func storeMessageView(value MessageView) store.Message {
-	return store.Message{
+func collaborationMessage(value MessageView) collaborationapp.Message {
+	return collaborationapp.Message{
 		ID: value.ID, RequestID: value.RequestID, SpaceID: value.SpaceID,
-		Target: store.MessageTarget{Kind: value.Target.Kind, ID: value.Target.ID}, TargetSequence: value.TargetSequence,
-		Author: store.Principal{Kind: value.AuthorKind, ID: value.AuthorID}, Body: value.Body,
+		Target: collaborationapp.MessageTarget{Kind: collaborationdomain.MessageTargetKind(value.Target.Kind), ID: value.Target.ID}, TargetSequence: value.TargetSequence,
+		Author: authoritydomain.Principal{Kind: value.AuthorKind, ID: value.AuthorID}, Body: value.Body,
 		MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), CreatedAt: value.CreatedAt,
 	}
 }
 
-func storeHeldDraftView(value HeldDraftView) store.HeldDraft {
-	return store.HeldDraft{
+func executionHeldDraft(value HeldDraftView) executionapp.HeldDraft {
+	return executionapp.HeldDraft{
 		Sequence: value.Sequence, ID: value.ID, AgentID: value.AgentID, InboxItemID: value.InboxItemID,
 		PredecessorDraftID: value.PredecessorDraftID, SpaceID: value.SpaceID,
-		Target: store.MessageTarget{Kind: value.Target.Kind, ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
+		Target: collaborationapp.MessageTarget{Kind: collaborationdomain.MessageTargetKind(value.Target.Kind), ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
 		Body: value.Body, MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), HeldReason: value.HeldReason,
 		State: value.State, ResolutionAction: value.ResolutionAction, ResultKind: value.ResultKind, ResultID: value.ResultID,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,

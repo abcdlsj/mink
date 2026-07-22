@@ -243,8 +243,8 @@ func TestRunLeaseFenceHolderAndReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Fence != 1 || first.HolderComputerID != fixture.authentication.Proof.computerID ||
-		first.HolderPlacementGeneration != fixture.authentication.Proof.placementGeneration ||
+	if first.Fence != 1 || first.HolderComputerID != fixture.authentication.Proof.ComputerID() ||
+		first.HolderPlacementGeneration != fixture.authentication.Proof.PlacementGeneration() ||
 		first.ExpiresAt.Sub(first.ClaimedAt) != runLeaseTTL {
 		t.Fatalf("first launch = %+v", first)
 	}
@@ -270,8 +270,8 @@ func TestRunLeaseFenceHolderAndReplacement(t *testing.T) {
 	}
 	newToken := runtimeTestToken(180)
 	_, err = fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
-		ComputerID: fixture.authentication.Proof.computerID, RegistrationKey: "computer-registration-key",
-		AgentID: fixture.agentID, PlacementGeneration: fixture.authentication.Proof.placementGeneration,
+		ComputerID: fixture.authentication.Proof.ComputerID(), RegistrationKey: "computer-registration-key",
+		AgentID: fixture.agentID, PlacementGeneration: fixture.authentication.Proof.PlacementGeneration(),
 		Token: newToken, Now: fixture.at(9), ExpiresAt: fixture.at(9).Add(agentRuntimeSessionTTL),
 	})
 	if err != nil {
@@ -354,8 +354,8 @@ func TestRunActiveDiscoverySurvivesRestartAndPlacementMigration(t *testing.T) {
 		RunID: running.ActiveRun.ID, Now: first.ExpiresAt,
 	})
 	if err != nil || replacement.Fence != first.Fence+1 ||
-		replacement.HolderComputerID != newAuthentication.Proof.computerID ||
-		replacement.HolderPlacementGeneration != newAuthentication.Proof.placementGeneration {
+		replacement.HolderComputerID != newAuthentication.Proof.ComputerID() ||
+		replacement.HolderPlacementGeneration != newAuthentication.Proof.PlacementGeneration() {
 		t.Fatalf("migrated replacement = %+v, %v", replacement, err)
 	}
 }
@@ -870,8 +870,8 @@ func rotateDeliveryRuntime(t *testing.T, fixture *deliveryFixture, tokenValue by
 	t.Helper()
 	token := runtimeTestToken(tokenValue)
 	if _, err := fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
-		ComputerID: fixture.authentication.Proof.computerID, RegistrationKey: "computer-registration-key",
-		AgentID: fixture.agentID, PlacementGeneration: fixture.authentication.Proof.placementGeneration,
+		ComputerID: fixture.authentication.Proof.ComputerID(), RegistrationKey: "computer-registration-key",
+		AgentID: fixture.agentID, PlacementGeneration: fixture.authentication.Proof.PlacementGeneration(),
 		Token: token, Now: now, ExpiresAt: now.Add(agentRuntimeSessionTTL),
 	}); err != nil {
 		t.Fatal(err)

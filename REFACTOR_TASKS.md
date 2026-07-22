@@ -15,11 +15,11 @@
 - [x] 盘点并冻结 bounded context 与事实所有权（已记录于 `DESIGN.md`）
 - [x] 为 Agent、Computer、Organization、Grant、Audit、Placement、Collaboration Service 定义窄接口
 - [x] 将 Service 的输入从完整 `*store.Store` 迁移到调用方接口
-- [ ] 将 transport 依赖的 Params、Entity、Error 从 `store` 逐步迁入所属上下文
-- [ ] 统一 mutation/read 请求元数据命名
+- [x] 将 transport 依赖的 Params、Entity、Error 从 `store` 逐步迁入所属上下文
+- [x] 统一 mutation/read 请求元数据命名（command 使用 `RequestID / Actor|Authentication / Now`，read 使用显式 Query；不引入通用 metadata envelope）
 - [x] 将 `GetRun`、`HeartbeatComputer`、Computer placement read、`CheckPermission`、`ListAuditEvents` 的多参数签名收敛为 Params
-- [ ] 统一 mutation replay、receipt、committed-at 返回合同
-- [ ] 在 proto 不变的前提下统一列表排序、分页和 cursor 约定
+- [x] 核查 mutation replay、receipt、committed-at 返回合同（保留各上下文首次响应快照，不伪造跨上下文泛型 receipt）
+- [x] 在 proto 不变的前提下明确列表排序、分页和 cursor 约定
 - [x] 收口领域状态、主体类型、作用域类型和 capability 类型
 
 ## 阶段二：SQLite 所有权
@@ -44,7 +44,7 @@
 
 - [x] 集中 Web Connect transport 和 client 创建
 - [x] 拆分 Web collaboration query、command、pagination、permission、error 模块
-- [ ] 按上下文整理测试 fixture，保留独立诊断价值的行为测试
+- [x] 按上下文核查测试 fixture，保留独立诊断价值的行为测试（Store 事务 fixture 留在持久化测试，不抽共享 testkit）
 - [x] 运行 format、generate、lint、test、race、build
 - [x] 更新 `DESIGN.md`、本任务清单和工作区状态
 
@@ -82,3 +82,14 @@
 - [x] Store 保持 pairing/recovery replay、declaration revision、generation、credential、Grant、Audit 与 transaction 所有权，只保留兼容 alias
 - [x] 补充 Sandbox capability 与 acknowledgement 领域规则测试，保留 SQLite replay/fence/Audit 行为测试
 - [x] 完成 format、generate、lint、Go/Web test、race、build 与 Store 边界扫描
+
+## 阶段九：剩余上下文合同收口（本轮）
+
+- [x] 迁移 Agent、Organization 与 Audit 的 fact、command/query 和 error contract
+- [x] 迁移 Authority runtime/web session 的 session、proof、handoff 和 error contract
+- [x] 迁移 Collaboration、Execution 与 Message codec 的剩余 Store contract
+- [x] 迁移 Artifact 的 fact、command/query、authentication 和 error contract
+- [x] 扫描生产代码的 Store 依赖，只保留 composition root 与 SQLite persistence adapter
+- [x] 核查 mutation/read metadata、replay receipt、committed-at、排序与 cursor 的真实一致性
+- [x] 按上下文收口重复测试 fixture，不删除具有独立诊断价值的行为测试
+- [x] 同步 `DESIGN.md`，完成 format、generate、lint、test、race、build 并提交

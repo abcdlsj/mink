@@ -297,8 +297,8 @@ func allocateRunFence(ctx context.Context, tx *sql.Tx, agentID string) (uint64, 
 }
 
 func runLaunchHeldBy(launch RunLaunch, proof AgentRuntimeProof) bool {
-	return launch.AgentID == proof.agentID && launch.HolderComputerID == proof.computerID &&
-		launch.HolderPlacementGeneration == proof.placementGeneration
+	return launch.AgentID == proof.AgentID() && launch.HolderComputerID == proof.ComputerID() &&
+		launch.HolderPlacementGeneration == proof.PlacementGeneration()
 }
 
 func requireOwnedDelivery(ctx context.Context, tx *sql.Tx, agentID, deliveryID string) (Delivery, InboxItem, Message, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	execution "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/google/uuid"
 )
@@ -34,112 +35,27 @@ const (
 	runLeaseTTL          = 60 * time.Second
 )
 
-type Delivery struct {
-	Sequence              uint64
-	ID                    string
-	AgentID               string
-	InboxItemID           string
-	TriggerMessageID      string
-	SpaceID               string
-	Target                MessageTarget
-	TriggerTargetSequence uint64
-	State                 string
-	CreatedAt             time.Time
-	AcceptedAt            *time.Time
-	CompletedAt           *time.Time
-}
+type Delivery = executionapp.Delivery
 
-type Run struct {
-	ID                  string
-	DeliveryID          string
-	AgentID             string
-	BasisTargetSequence uint64
-	State               string
-	Outcome             string
-	ResultKind          string
-	ResultID            string
-	AcceptedAt          time.Time
-	StartedAt           *time.Time
-	CompletedAt         *time.Time
-}
+type Run = executionapp.Run
 
-type RunLaunch struct {
-	ID                        string
-	RunID                     string
-	AgentID                   string
-	HolderComputerID          string
-	HolderPlacementGeneration uint64
-	Fence                     uint64
-	ClaimedAt                 time.Time
-	ExpiresAt                 time.Time
-	ClosedAt                  *time.Time
-	CloseReason               string
-}
+type RunLaunch = executionapp.RunLaunch
 
-type ListDeliveriesParams struct {
-	Authentication AgentRuntimeAuthentication
-	AfterSequence  uint64
-	Limit          uint32
-	Now            time.Time
-}
+type ListDeliveriesParams = executionapp.ListDeliveriesQuery
 
-type ListDeliveriesResult struct {
-	Deliveries     []Delivery
-	NextSequence   uint64
-	ActiveDelivery *Delivery
-	ActiveRun      *Run
-	ActiveLaunch   *RunLaunch
-}
+type ListDeliveriesResult = executionapp.ListDeliveriesResult
 
-type AcceptDeliveryParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	DeliveryID     string
-	Now            time.Time
-}
+type AcceptDeliveryParams = executionapp.AcceptDeliveryCommand
 
-type GetRunParams struct {
-	Authentication AgentRuntimeAuthentication
-	RunID          string
-	Now            time.Time
-}
+type GetRunParams = executionapp.GetRunQuery
 
-type ClaimRunParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	RunID          string
-	Now            time.Time
-}
+type ClaimRunParams = executionapp.ClaimRunCommand
 
-type RenewRunParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	RunID          string
-	LaunchID       string
-	Fence          uint64
-	Now            time.Time
-}
+type RenewRunParams = executionapp.RenewRunCommand
 
-type CompleteRunParams struct {
-	RequestID         string
-	OutboxEventID     string
-	Authentication    AgentRuntimeAuthentication
-	RunID             string
-	LaunchID          string
-	Fence             uint64
-	Outcome           string
-	Body              string
-	MentionedAgentIDs []string
-	Now               time.Time
-}
+type CompleteRunParams = executionapp.CompleteRunCommand
 
-type CompleteRunResult struct {
-	Run         Run
-	Kind        string
-	Message     *Message
-	HeldDraft   *HeldDraft
-	CommittedAt time.Time
-}
+type CompleteRunResult = executionapp.CompleteRunResult
 
 type runAcceptRequestReceipt struct {
 	Run Run `json:"run"`
@@ -321,7 +237,7 @@ func (s *Store) AcceptDelivery(ctx context.Context, params AcceptDeliveryParams)
 		Action:         AuditRunAccept,
 		TargetKind:     "run",
 		TargetID:       run.ID,
-		ContextKind:    delivery.Target.Kind,
+		ContextKind:    string(delivery.Target.Kind),
 		ContextID:      delivery.Target.ID,
 		RequestID:      params.RequestID,
 		Outcome:        "committed",

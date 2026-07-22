@@ -555,3 +555,19 @@ Store 继续拥有 registration key hash、pairing token hash、pairing/recovery
 验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。既有 Computer migration、pairing lost-response/cross-version replay、Sandbox declaration revision、Placement permission/request replay/generation/acknowledgement 与 Audit 测试全部保留并通过。边界扫描确认 Computer 与 Placement 生产代码不再 import `internal/store` 或使用对应 Store contract/error。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
 
 遗留风险：Authority runtime、Agent、Audit、Artifact、Collaboration 与 Execution 仍有调用通过 Store compatibility alias 使用其他上下文值或错误；后续应按 transport/application 边界逐个迁移，不能一次性复制所有 Store entity。Computer 本地 State SQLite、Server SQLite 与 Host proto client 仍是刻意保留的独立边界。
+
+## 24. 2026-07-22 application contract 收口
+
+Agent、Organization、Audit、Authority runtime/browser session、Collaboration、Execution 与 Artifact 的 transport contract 已归还所属上下文。Fact、command/query、result 与稳定 error 不再由 SQLite Store 反向定义；Store 只通过兼容 alias 实现这些 application port，并继续独占 SQL、transaction、replay、Audit、权限重验、lease、generation/fence、Artifact CAS 与 reconcile。`internal/server/server.go` 是唯一允许直接构造并持有 Server Store 的 composition root，不能为了扫描清零再包一层无意义接口。
+
+Authority runtime proof 是由当前 session 与 active Placement 生成的 opaque application value。它保存 token hash、Agent、Computer、placement generation 的绑定，通过只读 accessor 供 Store 重验；transport 只能传递认证结果，不能把 proof 拆成普通请求字段。Artifact authentication 复用同一 runtime authentication 与 Authority Principal，不再复制身份模型。
+
+Application command 统一使用语义化 `...Command`，mutation 显式携带 `RequestID`、`Actor` 或 `Authentication` 以及 `Now`；read 使用 `...Query`，需要动态权限重验的 query 同样显式携带身份与 `Now`。这是一致的字段语言，不是通用 metadata envelope。不同上下文的 replay 仍返回该 operation 首次提交的 fact 或响应快照；只有公开协议本来包含 `committed_at` 的响应才暴露提交时间，不引入无法表达现有协议的泛型 receipt。
+
+列表继续使用各事实所有者的稳定顺序：Message、Inbox、HeldDraft、Delivery 与 Audit 使用单调 sequence 和 `after_sequence` 升序 keyset；Artifact 使用 opaque `after_artifact_id` 继续 Store 内的 `(created_at, id)` keyset；Agent、Human、Space、Computer 与 Grant 使用各自已声明的稳定全量排序。limit 始终有界，是否允许零值表示默认由具体 API 合同决定；HeldDraft 的零 limit 仍按既有协议拒绝。不同 cursor 不可互换，因此不建立通用 Cursor 类型。
+
+测试按行为所有者保留：纯领域规则在 domain/application package 独立测试，SQLite transaction、权限、replay、Audit、fence、CAS 与恢复 fixture 留在 Store 集成测试，HTTP/RPC mapping fixture 留在 transport。没有跨上下文共享可变 fixture 或通用 testkit；仅为减少文件数量搬动 fixture 会降低失败诊断价值。本轮不删除既有高价值测试，也不改变 proto、SQLite schema、产品事实或权限边界。
+
+验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Web 64/64 单测通过，76 个 Go package 被 `./...` 覆盖，production Web/Go build 成功。`git diff --check` 通过，`proto/`、`gen/`、`web/` 无 diff，`CLAUDE.md` 仍指向 `AGENTS.md`。边界扫描确认生产代码只有 composition root `internal/server/server.go` import `internal/store`，所有 SQL 只存在于 Server Store 和独立的 Computer State SQLite。
+
+未运行需要外部 Server 与 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。遗留风险仅是 Store 为持久化实现和既有 Store 级测试保留 compatibility alias；它们不再被业务 transport 消费，后续只有在真实拆分 persistence package 时才值得删除，不能为消除 alias 破坏当前跨上下文事务。

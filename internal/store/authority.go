@@ -12,6 +12,7 @@ import (
 
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
+	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
 	"github.com/google/uuid"
 )
 
@@ -36,22 +37,9 @@ const (
 	CapabilityWorkApprove       = authoritydomain.CapabilityWorkApprove
 )
 
-type Organization struct {
-	ID               string
-	Name             string
-	BootstrapHumanID string
-	CreatedAt        time.Time
-}
+type Organization = organizationapp.Organization
 
-type Human struct {
-	ID             string
-	OrganizationID string
-	Name           string
-	Role           string
-	Status         string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
+type Human = organizationapp.Human
 
 type Principal = authoritydomain.Principal
 
@@ -71,22 +59,9 @@ type AuthorityBootstrap struct {
 	RootGrant    Grant
 }
 
-type CreateHumanParams struct {
-	RequestID  string
-	Actor      Principal
-	Name       string
-	Role       string
-	Credential string
-	Now        time.Time
-}
+type CreateHumanParams = organizationapp.CreateHumanCommand
 
-type SetHumanStatusParams struct {
-	RequestID string
-	Actor     Principal
-	HumanID   string
-	Status    string
-	Now       time.Time
-}
+type SetHumanStatusParams = organizationapp.SetHumanStatusCommand
 
 type IssueGrantParams = grantapp.IssueCommand
 

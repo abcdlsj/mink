@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"regexp"
 	"time"
+
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 )
 
 var browserOpaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -17,19 +19,9 @@ const (
 	browserSessionHashDomain = "sumi-browser-session-v1\x00"
 )
 
-type CreateBrowserHandoffParams struct {
-	Human     Principal
-	Token     string
-	Now       time.Time
-	ExpiresAt time.Time
-}
+type CreateBrowserHandoffParams = authorityapp.CreateBrowserHandoffCommand
 
-type ConsumeBrowserHandoffParams struct {
-	HandoffToken     string
-	SessionToken     string
-	Now              time.Time
-	SessionExpiresAt time.Time
-}
+type ConsumeBrowserHandoffParams = authorityapp.ConsumeBrowserHandoffCommand
 
 func (s *Store) CreateBrowserHandoff(ctx context.Context, params CreateBrowserHandoffParams) error {
 	if params.Human.Kind != "human" || params.Human.ID == "" || params.Human.OrganizationID == "" || !params.ExpiresAt.After(params.Now) || !browserOpaqueTokenPattern.MatchString(params.Token) {

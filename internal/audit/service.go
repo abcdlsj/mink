@@ -8,8 +8,10 @@ import (
 	"connectrpc.com/connect"
 	auditv1 "github.com/abcdlsj/sumi/gen/go/sumi/audit/v1"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
+	auditapp "github.com/abcdlsj/sumi/internal/audit/application"
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -27,9 +29,9 @@ func (s *Service) ListAuditEvents(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	allowed, err := s.store.CheckPermission(ctx, store.CheckPermissionParams{
-		Subject: actor, Capability: store.CapabilityAuditRead,
-		Scope: store.Scope{Kind: "organization", ID: actor.OrganizationID}, Now: s.now(),
+	allowed, err := s.store.CheckPermission(ctx, grantapp.PermissionQuery{
+		Subject: actor, Capability: authoritydomain.CapabilityAuditRead,
+		Scope: authoritydomain.Scope{Kind: authoritydomain.ScopeOrganization, ID: actor.OrganizationID}, Now: s.now(),
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -44,7 +46,7 @@ func (s *Service) ListAuditEvents(ctx context.Context, request *connect.Request[
 	if limit > 500 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("audit limit must not exceed 500"))
 	}
-	events, err := s.store.ListAuditEvents(ctx, store.ListAuditEventsParams{
+	events, err := s.store.ListAuditEvents(ctx, auditapp.ListQuery{
 		OrganizationID: actor.OrganizationID, AfterSequence: request.Msg.GetAfterSequence(), Limit: limit,
 	})
 	if err != nil {
@@ -57,7 +59,7 @@ func (s *Service) ListAuditEvents(ctx context.Context, request *connect.Request[
 	return connect.NewResponse(response), nil
 }
 
-func eventMessage(event store.AuditEvent) *auditv1.AuditEvent {
+func eventMessage(event auditapp.Event) *auditv1.AuditEvent {
 	return &auditv1.AuditEvent{
 		Sequence: event.Sequence, Id: event.ID, OrganizationId: event.OrganizationID,
 		Actor: principalMessage(event.Actor), Action: actionValue(event.Action), TargetKind: targetValue(event.TargetKind),
@@ -79,7 +81,7 @@ func contextValue(value string) auditv1.AuditContextKind {
 	return auditv1.AuditContextKind_AUDIT_CONTEXT_KIND_UNSPECIFIED
 }
 
-func principalMessage(value store.Principal) *grantv1.Principal {
+func principalMessage(value authoritydomain.Principal) *grantv1.Principal {
 	kind := grantv1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 	if value.Kind == "system" {
 		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_SYSTEM
@@ -91,24 +93,24 @@ func principalMessage(value store.Principal) *grantv1.Principal {
 	return &grantv1.Principal{Kind: kind, Id: value.ID}
 }
 
-func actionValue(value string) auditv1.AuditAction {
+func actionValue(value auditapp.Action) auditv1.AuditAction {
 	values := map[string]auditv1.AuditAction{
-		store.AuditOrganizationBootstrap: auditv1.AuditAction_AUDIT_ACTION_ORGANIZATION_BOOTSTRAP,
-		store.AuditHumanCreate:           auditv1.AuditAction_AUDIT_ACTION_HUMAN_CREATE,
-		store.AuditHumanStatusSet:        auditv1.AuditAction_AUDIT_ACTION_HUMAN_STATUS_SET,
-		store.AuditGrantIssue:            auditv1.AuditAction_AUDIT_ACTION_GRANT_ISSUE,
-		store.AuditGrantRevoke:           auditv1.AuditAction_AUDIT_ACTION_GRANT_REVOKE,
-		store.AuditAgentCreate:           auditv1.AuditAction_AUDIT_ACTION_AGENT_CREATE,
-		store.AuditAgentPlace:            auditv1.AuditAction_AUDIT_ACTION_AGENT_PLACE,
-		store.AuditSpaceCreate:           auditv1.AuditAction_AUDIT_ACTION_SPACE_CREATE,
-		store.AuditSpaceMemberAdd:        auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_ADD,
-		store.AuditSpaceMemberRemove:     auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_REMOVE,
-		store.AuditSpaceArchive:          auditv1.AuditAction_AUDIT_ACTION_SPACE_ARCHIVE,
-		store.AuditSpaceUnarchive:        auditv1.AuditAction_AUDIT_ACTION_SPACE_UNARCHIVE,
-		store.AuditThreadCreate:          auditv1.AuditAction_AUDIT_ACTION_THREAD_CREATE,
-		store.AuditMessageSend:           auditv1.AuditAction_AUDIT_ACTION_MESSAGE_SEND,
-		store.AuditComputerPairPrepare:   auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR_PREPARE,
-		store.AuditComputerPair:          auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR,
+		auditapp.ActionOrganizationBootstrap: auditv1.AuditAction_AUDIT_ACTION_ORGANIZATION_BOOTSTRAP,
+		auditapp.ActionHumanCreate:           auditv1.AuditAction_AUDIT_ACTION_HUMAN_CREATE,
+		auditapp.ActionHumanStatusSet:        auditv1.AuditAction_AUDIT_ACTION_HUMAN_STATUS_SET,
+		auditapp.ActionGrantIssue:            auditv1.AuditAction_AUDIT_ACTION_GRANT_ISSUE,
+		auditapp.ActionGrantRevoke:           auditv1.AuditAction_AUDIT_ACTION_GRANT_REVOKE,
+		auditapp.ActionAgentCreate:           auditv1.AuditAction_AUDIT_ACTION_AGENT_CREATE,
+		auditapp.ActionAgentPlace:            auditv1.AuditAction_AUDIT_ACTION_AGENT_PLACE,
+		auditapp.ActionSpaceCreate:           auditv1.AuditAction_AUDIT_ACTION_SPACE_CREATE,
+		auditapp.ActionSpaceMemberAdd:        auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_ADD,
+		auditapp.ActionSpaceMemberRemove:     auditv1.AuditAction_AUDIT_ACTION_SPACE_MEMBER_REMOVE,
+		auditapp.ActionSpaceArchive:          auditv1.AuditAction_AUDIT_ACTION_SPACE_ARCHIVE,
+		auditapp.ActionSpaceUnarchive:        auditv1.AuditAction_AUDIT_ACTION_SPACE_UNARCHIVE,
+		auditapp.ActionThreadCreate:          auditv1.AuditAction_AUDIT_ACTION_THREAD_CREATE,
+		auditapp.ActionMessageSend:           auditv1.AuditAction_AUDIT_ACTION_MESSAGE_SEND,
+		auditapp.ActionComputerPairPrepare:   auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR_PREPARE,
+		auditapp.ActionComputerPair:          auditv1.AuditAction_AUDIT_ACTION_COMPUTER_PAIR,
 	}
 	return values[value]
 }

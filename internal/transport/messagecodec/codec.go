@@ -7,7 +7,10 @@ import (
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -49,29 +52,29 @@ func MentionedAgentIDs(values []string) ([]string, error) {
 	return result, nil
 }
 
-func ParseTarget(value *spacev1.MessageTarget) (store.MessageTarget, error) {
+func ParseTarget(value *spacev1.MessageTarget) (collaborationapp.MessageTarget, error) {
 	if value == nil {
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is required"))
+		return collaborationapp.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is required"))
 	}
 	switch target := value.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
 		id, err := connectid.CanonicalID(target.SpaceId, "space id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return collaborationapp.MessageTarget{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetSpace, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetSpace, ID: id}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
 		id, err := connectid.CanonicalID(target.ThreadRootMessageId, "thread root message id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return collaborationapp.MessageTarget{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetThread, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetThread, ID: id}, nil
 	default:
-		return store.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
+		return collaborationapp.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
 	}
 }
 
-func Message(value store.Message) (*spacev1.Message, error) {
+func Message(value collaborationapp.Message) (*spacev1.Message, error) {
 	if !canonicalID(value.ID) || !canonicalID(value.RequestID) || !canonicalID(value.SpaceID) || !canonicalID(value.Author.ID) {
 		return nil, internalError()
 	}
@@ -86,11 +89,11 @@ func Message(value store.Message) (*spacev1.Message, error) {
 		return nil, internalError()
 	}
 	switch value.Target.Kind {
-	case store.MessageTargetSpace:
+	case collaborationdomain.TargetSpace:
 		if value.Target.ID != value.SpaceID {
 			return nil, internalError()
 		}
-	case store.MessageTargetThread:
+	case collaborationdomain.TargetThread:
 		if !canonicalID(value.Target.ID) {
 			return nil, internalError()
 		}
@@ -102,13 +105,13 @@ func Message(value store.Message) (*spacev1.Message, error) {
 		TargetSequence: value.TargetSequence, Author: author, Body: value.Body,
 		MentionedAgentIds: value.MentionedAgentIDs, CreatedAt: timestamppb.New(value.CreatedAt),
 	}
-	if value.Target.Kind == store.MessageTargetThread {
+	if value.Target.Kind == collaborationdomain.TargetThread {
 		message.ThreadRootMessageId = value.Target.ID
 	}
 	return message, nil
 }
 
-func HeldDraft(value store.HeldDraft) (*inboxv1.HeldDraft, error) {
+func HeldDraft(value executionapp.HeldDraft) (*inboxv1.HeldDraft, error) {
 	if !canonicalID(value.ID) || !canonicalID(value.InboxItemID) || !canonicalID(value.SpaceID) ||
 		(value.PredecessorDraftID != "" && !canonicalID(value.PredecessorDraftID)) {
 		return nil, internalError()
@@ -128,25 +131,25 @@ func HeldDraft(value store.HeldDraft) (*inboxv1.HeldDraft, error) {
 		return nil, internalError()
 	}
 	switch value.State {
-	case store.HeldDraftStateHeld:
+	case executionapp.HeldDraftStateHeld:
 		if value.ResolutionAction != "" || value.ResultKind != "" || value.ResultID != "" {
 			return nil, internalError()
 		}
-	case store.HeldDraftStateCancelled:
-		if value.ResolutionAction != store.DraftResolutionCancel || value.ResultKind != "" || value.ResultID != "" {
+	case executionapp.HeldDraftStateCancelled:
+		if value.ResolutionAction != executionapp.DraftResolutionCancel || value.ResultKind != "" || value.ResultID != "" {
 			return nil, internalError()
 		}
-	case store.HeldDraftStateSent:
-		if value.ResolutionAction != store.DraftResolutionRetry || value.ResultKind != store.InboxResultMessage || !canonicalID(value.ResultID) {
+	case executionapp.HeldDraftStateSent:
+		if value.ResolutionAction != executionapp.DraftResolutionRetry || value.ResultKind != executionapp.ResultMessage || !canonicalID(value.ResultID) {
 			return nil, internalError()
 		}
-	case store.HeldDraftStateSuperseded:
-		if value.ResolutionAction != store.DraftResolutionRetry || value.ResultKind != store.InboxResultHeldDraft || !canonicalID(value.ResultID) {
+	case executionapp.HeldDraftStateSuperseded:
+		if value.ResolutionAction != executionapp.DraftResolutionRetry || value.ResultKind != executionapp.ResultHeldDraft || !canonicalID(value.ResultID) {
 			return nil, internalError()
 		}
-	case store.HeldDraftStateRetargeted:
-		if value.ResolutionAction != store.DraftResolutionRetarget ||
-			(value.ResultKind != store.InboxResultMessage && value.ResultKind != store.InboxResultHeldDraft) || !canonicalID(value.ResultID) {
+	case executionapp.HeldDraftStateRetargeted:
+		if value.ResolutionAction != executionapp.DraftResolutionRetarget ||
+			(value.ResultKind != executionapp.ResultMessage && value.ResultKind != executionapp.ResultHeldDraft) || !canonicalID(value.ResultID) {
 			return nil, internalError()
 		}
 	default:
@@ -163,23 +166,23 @@ func HeldDraft(value store.HeldDraft) (*inboxv1.HeldDraft, error) {
 		MentionedAgentIds: value.MentionedAgentIDs, State: state, ResolutionAction: action,
 		CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt),
 	}
-	if value.ResultKind == store.InboxResultMessage {
+	if value.ResultKind == executionapp.ResultMessage {
 		message.ResultRef = &inboxv1.HeldDraft_ResultMessageId{ResultMessageId: value.ResultID}
-	} else if value.ResultKind == store.InboxResultHeldDraft {
+	} else if value.ResultKind == executionapp.ResultHeldDraft {
 		message.ResultRef = &inboxv1.HeldDraft_ResultHeldDraftId{ResultHeldDraftId: value.ResultID}
 	}
 	return message, nil
 }
 
-func Target(value store.MessageTarget) (*spacev1.MessageTarget, error) {
+func Target(value collaborationapp.MessageTarget) (*spacev1.MessageTarget, error) {
 	if !canonicalID(value.ID) {
 		return nil, internalError()
 	}
 	message := &spacev1.MessageTarget{}
 	switch value.Kind {
-	case store.MessageTargetSpace:
+	case collaborationdomain.TargetSpace:
 		message.Target = &spacev1.MessageTarget_SpaceId{SpaceId: value.ID}
-	case store.MessageTargetThread:
+	case collaborationdomain.TargetThread:
 		message.Target = &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: value.ID}
 	default:
 		return nil, internalError()
@@ -187,14 +190,14 @@ func Target(value store.MessageTarget) (*spacev1.MessageTarget, error) {
 	return message, nil
 }
 
-func Principal(value store.Principal) (*spacev1.Principal, error) {
+func Principal(value authoritydomain.Principal) (*spacev1.Principal, error) {
 	if !canonicalID(value.ID) {
 		return nil, internalError()
 	}
 	switch value.Kind {
-	case "human":
+	case authoritydomain.PrincipalHuman:
 		return &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN, Id: value.ID}, nil
-	case "agent":
+	case authoritydomain.PrincipalAgent:
 		return &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: value.ID}, nil
 	default:
 		return nil, internalError()
@@ -203,15 +206,15 @@ func Principal(value store.Principal) (*spacev1.Principal, error) {
 
 func HeldDraftState(value string) inboxv1.HeldDraftState {
 	switch value {
-	case store.HeldDraftStateHeld:
+	case executionapp.HeldDraftStateHeld:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_HELD
-	case store.HeldDraftStateSent:
+	case executionapp.HeldDraftStateSent:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SENT
-	case store.HeldDraftStateCancelled:
+	case executionapp.HeldDraftStateCancelled:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_CANCELLED
-	case store.HeldDraftStateSuperseded:
+	case executionapp.HeldDraftStateSuperseded:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_SUPERSEDED
-	case store.HeldDraftStateRetargeted:
+	case executionapp.HeldDraftStateRetargeted:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_RETARGETED
 	default:
 		return inboxv1.HeldDraftState_HELD_DRAFT_STATE_UNSPECIFIED
@@ -220,11 +223,11 @@ func HeldDraftState(value string) inboxv1.HeldDraftState {
 
 func DraftResolutionAction(value string) inboxv1.DraftResolutionAction {
 	switch value {
-	case store.DraftResolutionRetry:
+	case executionapp.DraftResolutionRetry:
 		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETRY
-	case store.DraftResolutionCancel:
+	case executionapp.DraftResolutionCancel:
 		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL
-	case store.DraftResolutionRetarget:
+	case executionapp.DraftResolutionRetarget:
 		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETARGET
 	default:
 		return inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_UNSPECIFIED

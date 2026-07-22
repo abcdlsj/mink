@@ -7,32 +7,32 @@ import (
 
 	"connectrpc.com/connect"
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	execution "github.com/abcdlsj/sumi/internal/execution/domain"
-	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
 
-func authentication(ctx context.Context) (store.AgentRuntimeAuthentication, error) {
+func authentication(ctx context.Context) (authorityapp.RuntimeAuthentication, error) {
 	principal, proof, err := runtimeauth.Subject(ctx)
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, err
+		return authorityapp.RuntimeAuthentication{}, err
 	}
-	return store.AgentRuntimeAuthentication{Principal: principal, Proof: proof}, nil
+	return authorityapp.RuntimeAuthentication{Principal: principal, Proof: proof}, nil
 }
 
-func mutationIDs(ctx context.Context, requestIDValue, factIDValue, factName string) (store.AgentRuntimeAuthentication, string, string, error) {
+func mutationIDs(ctx context.Context, requestIDValue, factIDValue, factName string) (authorityapp.RuntimeAuthentication, string, string, error) {
 	authentication, err := authentication(ctx)
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	factID, err := connectid.CanonicalID(factIDValue, factName)
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	return authentication, requestID, factID, nil
 }

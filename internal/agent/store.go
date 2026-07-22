@@ -3,11 +3,11 @@ package agent
 import (
 	"context"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 )
 
 type agentStore interface {
-	CreateAgent(context.Context, store.CreateAgentParams) (store.Agent, error)
-	GetAgent(context.Context, string) (store.Agent, error)
-	ListAgents(context.Context) ([]store.Agent, error)
+	CreateAgent(context.Context, agentapp.CreateCommand) (agentapp.Agent, error)
+	GetAgent(context.Context, string) (agentapp.Agent, error)
+	ListAgents(context.Context) ([]agentapp.Agent, error)
 }

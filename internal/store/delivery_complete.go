@@ -53,7 +53,7 @@ func (s *Store) CompleteRun(ctx context.Context, params CompleteRunParams) (Comp
 		Action:         AuditRunComplete,
 		TargetKind:     "run",
 		TargetID:       facts.run.ID,
-		ContextKind:    facts.delivery.Target.Kind,
+		ContextKind:    string(facts.delivery.Target.Kind),
 		ContextID:      facts.delivery.Target.ID,
 		RequestID:      params.RequestID,
 		Outcome:        "committed",
@@ -107,7 +107,7 @@ type runCompletionFacts struct {
 }
 
 func validateRunCompletionInput(params CompleteRunParams) ([]string, [sha256.Size]byte, error) {
-	if err := execution.ValidateOutcome(execution.Outcome(params.Outcome)); err != nil {
+	if err := execution.ValidateOutcome(params.Outcome); err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
 	if err := validateMessageBody(params.Body); err != nil {
@@ -125,7 +125,7 @@ func validateRunCompletionInput(params CompleteRunParams) ([]string, [sha256.Siz
 		Outcome       string   `json:"outcome"`
 		Body          string   `json:"body"`
 		Mentions      []string `json:"mentioned_agent_ids,omitempty"`
-	}{params.OutboxEventID, params.RunID, params.LaunchID, params.Fence, params.Outcome, params.Body, mentions})
+	}{params.OutboxEventID, params.RunID, params.LaunchID, params.Fence, string(params.Outcome), params.Body, mentions})
 	if err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}

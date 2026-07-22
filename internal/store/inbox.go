@@ -1,33 +1,37 @@
 package store
 
-import "time"
+import (
+	"time"
+
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
+)
 
 const (
-	InboxReasonDM           = "dm"
-	InboxReasonMention      = "mention"
-	InboxReasonThreadFollow = "thread_follow"
+	InboxReasonDM           = executionapp.InboxReasonDM
+	InboxReasonMention      = executionapp.InboxReasonMention
+	InboxReasonThreadFollow = executionapp.InboxReasonThreadFollow
 
-	InboxStateUnread  = "unread"
-	InboxStateClaimed = "claimed"
-	InboxStateDone    = "done"
+	InboxStateUnread  = executionapp.InboxStateUnread
+	InboxStateClaimed = executionapp.InboxStateClaimed
+	InboxStateDone    = executionapp.InboxStateDone
 
-	InboxCompletionSent       = "sent"
-	InboxCompletionCancelled  = "cancelled"
-	InboxCompletionSilent     = "silent"
-	InboxCompletionAccessLost = "access_lost"
+	InboxCompletionSent       = executionapp.InboxCompletionSent
+	InboxCompletionCancelled  = executionapp.InboxCompletionCancelled
+	InboxCompletionSilent     = executionapp.InboxCompletionSilent
+	InboxCompletionAccessLost = executionapp.InboxCompletionAccessLost
 
-	HeldDraftStateHeld       = "held"
-	HeldDraftStateSent       = "sent"
-	HeldDraftStateCancelled  = "cancelled"
-	HeldDraftStateSuperseded = "superseded"
-	HeldDraftStateRetargeted = "retargeted"
+	HeldDraftStateHeld       = executionapp.HeldDraftStateHeld
+	HeldDraftStateSent       = executionapp.HeldDraftStateSent
+	HeldDraftStateCancelled  = executionapp.HeldDraftStateCancelled
+	HeldDraftStateSuperseded = executionapp.HeldDraftStateSuperseded
+	HeldDraftStateRetargeted = executionapp.HeldDraftStateRetargeted
 
-	DraftResolutionRetry    = "retry"
-	DraftResolutionCancel   = "cancel"
-	DraftResolutionRetarget = "retarget"
+	DraftResolutionRetry    = executionapp.DraftResolutionRetry
+	DraftResolutionCancel   = executionapp.DraftResolutionCancel
+	DraftResolutionRetarget = executionapp.DraftResolutionRetarget
 
-	InboxResultMessage   = "message"
-	InboxResultHeldDraft = "held_draft"
+	InboxResultMessage   = executionapp.ResultMessage
+	InboxResultHeldDraft = executionapp.ResultHeldDraft
 
 	operationClaimInboxItem    = "claim"
 	operationCompleteInboxItem = "complete"
@@ -40,155 +44,41 @@ const (
 	maxMentionCount   = 64
 )
 
-type InboxItem struct {
-	Sequence              uint64
-	ID                    string
-	AgentID               string
-	SpaceID               string
-	Target                MessageTarget
-	TriggerMessageID      string
-	TriggerTargetSequence uint64
-	Reason                string
-	State                 string
-	ClaimedAt             *time.Time
-	DoneAt                *time.Time
-	Completion            string
-	CreatedAt             time.Time
-}
+type InboxItem = executionapp.InboxItem
 
-type EligibleInboxTrigger struct {
-	Item    InboxItem
-	Message Message
-}
+type EligibleInboxTrigger = executionapp.EligibleInboxTrigger
 
-type HeldDraft struct {
-	Sequence            uint64
-	ID                  string
-	AgentID             string
-	InboxItemID         string
-	PredecessorDraftID  string
-	SpaceID             string
-	Target              MessageTarget
-	BasisTargetSequence uint64
-	Body                string
-	MentionedAgentIDs   []string
-	HeldReason          string
-	State               string
-	ResolutionAction    string
-	ResultKind          string
-	ResultID            string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-}
+type HeldDraft = executionapp.HeldDraft
 
-type InboxNoticeParams struct {
-	Authentication AgentRuntimeAuthentication
-	Now            time.Time
-}
+type InboxNoticeParams = executionapp.InboxNoticeQuery
 
-type ListInboxItemsParams struct {
-	Authentication AgentRuntimeAuthentication
-	AfterSequence  uint64
-	Limit          uint32
-	Now            time.Time
-}
+type ListInboxItemsParams = executionapp.ListInboxItemsQuery
 
-type ClaimInboxItemParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	InboxItemID    string
-	Now            time.Time
-}
+type ClaimInboxItemParams = executionapp.ClaimInboxItemCommand
 
-type ObserveTargetParams struct {
-	Authentication AgentRuntimeAuthentication
-	Target         MessageTarget
-	Limit          uint32
-	Now            time.Time
-}
+type ObserveTargetParams = executionapp.ObserveTargetQuery
 
-type ObserveTargetResult struct {
-	Target     MessageTarget
-	Head       uint64
-	Messages   []Message
-	ObservedAt time.Time
-}
+type ObserveTargetResult = executionapp.ObserveTargetResult
 
-type CompleteInboxItemParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	InboxItemID    string
-	Now            time.Time
-}
+type CompleteInboxItemParams = executionapp.CompleteInboxItemCommand
 
-type SetSpaceMuteParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	SpaceID        string
-	Muted          bool
-	Now            time.Time
-}
+type SetSpaceMuteParams = executionapp.SetSpaceMuteCommand
 
-type SetThreadFollowParams struct {
-	RequestID      string
-	Authentication AgentRuntimeAuthentication
-	ThreadID       string
-	Followed       bool
-	Now            time.Time
-}
+type SetThreadFollowParams = executionapp.SetThreadFollowCommand
 
-type InboxPreferenceResult struct {
-	Enabled     bool
-	CommittedAt time.Time
-}
+type InboxPreferenceResult = executionapp.InboxPreferenceResult
 
-type SendInboxReplyParams struct {
-	RequestID           string
-	Authentication      AgentRuntimeAuthentication
-	InboxItemID         string
-	BasisTargetSequence uint64
-	Body                string
-	MentionedAgentIDs   []string
-	Now                 time.Time
-}
+type SendInboxReplyParams = executionapp.SendInboxReplyCommand
 
-type SendInboxReplyResult struct {
-	Kind        string
-	Message     *Message
-	HeldDraft   *HeldDraft
-	CommittedAt time.Time
-}
+type SendInboxReplyResult = executionapp.SendInboxReplyResult
 
-type ListHeldDraftsParams struct {
-	Authentication AgentRuntimeAuthentication
-	AfterSequence  uint64
-	Limit          uint32
-	Now            time.Time
-}
+type ListHeldDraftsParams = executionapp.ListHeldDraftsQuery
 
-type ListHeldDraftsResult struct {
-	Drafts       []HeldDraft
-	NextSequence uint64
-}
+type ListHeldDraftsResult = executionapp.ListHeldDraftsResult
 
-type ResolveHeldDraftParams struct {
-	RequestID           string
-	Authentication      AgentRuntimeAuthentication
-	HeldDraftID         string
-	Action              string
-	Target              MessageTarget
-	BasisTargetSequence uint64
-	Now                 time.Time
-}
+type ResolveHeldDraftParams = executionapp.ResolveHeldDraftCommand
 
-type ResolveHeldDraftResult struct {
-	Action      string
-	Kind        string
-	Message     *Message
-	HeldDraft   *HeldDraft
-	InboxItem   InboxItem
-	CommittedAt time.Time
-}
+type ResolveHeldDraftResult = executionapp.ResolveHeldDraftResult
 
 type inboxItemRequestReceipt struct {
 	Item InboxItem `json:"item"`

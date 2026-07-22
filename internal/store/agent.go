@@ -8,28 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 	"github.com/google/uuid"
 )
 
-type Agent struct {
-	ID          string
-	Name        string
-	Description string
-	Driver      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-}
+type Agent = agentapp.Agent
 
-type CreateAgentParams struct {
-	RequestID   string
-	Actor       Principal
-	Name        string
-	Description string
-	Driver      string
-	Now         time.Time
-}
+type CreateAgentParams = agentapp.CreateCommand
 
 func (s *Store) CreateAgent(ctx context.Context, params CreateAgentParams) (Agent, error) {
 	fingerprint, err := agentPayloadFingerprint(params)

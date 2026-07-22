@@ -1,9 +1,9 @@
 package store
 
-import "errors"
+import agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 
 var (
-	ErrAgentNotFound        = errors.New("agent not found")
-	ErrAgentRequestConflict = errors.New("agent request payload conflict")
-	ErrAgentNameExists      = errors.New("agent name already exists")
+	ErrAgentNotFound        = agentapp.ErrNotFound
+	ErrAgentRequestConflict = agentapp.ErrRequestConflict
+	ErrAgentNameExists      = agentapp.ErrNameExists
 )

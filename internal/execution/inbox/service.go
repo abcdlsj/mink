@@ -10,8 +10,11 @@ import (
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
-	"github.com/abcdlsj/sumi/internal/store"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -23,16 +26,16 @@ const (
 )
 
 type inboxStore interface {
-	GetInboxNotice(context.Context, store.InboxNoticeParams) (bool, error)
-	ListInboxItems(context.Context, store.ListInboxItemsParams) ([]store.InboxItem, error)
-	ClaimInboxItem(context.Context, store.ClaimInboxItemParams) (store.InboxItem, error)
-	ObserveTarget(context.Context, store.ObserveTargetParams) (store.ObserveTargetResult, error)
-	CompleteInboxItem(context.Context, store.CompleteInboxItemParams) (store.InboxItem, error)
-	SetSpaceMute(context.Context, store.SetSpaceMuteParams) (store.InboxPreferenceResult, error)
-	SetThreadFollow(context.Context, store.SetThreadFollowParams) (store.InboxPreferenceResult, error)
-	SendInboxReply(context.Context, store.SendInboxReplyParams) (store.SendInboxReplyResult, error)
-	ListHeldDrafts(context.Context, store.ListHeldDraftsParams) (store.ListHeldDraftsResult, error)
-	ResolveHeldDraft(context.Context, store.ResolveHeldDraftParams) (store.ResolveHeldDraftResult, error)
+	GetInboxNotice(context.Context, executionapp.InboxNoticeQuery) (bool, error)
+	ListInboxItems(context.Context, executionapp.ListInboxItemsQuery) ([]executionapp.InboxItem, error)
+	ClaimInboxItem(context.Context, executionapp.ClaimInboxItemCommand) (executionapp.InboxItem, error)
+	ObserveTarget(context.Context, executionapp.ObserveTargetQuery) (executionapp.ObserveTargetResult, error)
+	CompleteInboxItem(context.Context, executionapp.CompleteInboxItemCommand) (executionapp.InboxItem, error)
+	SetSpaceMute(context.Context, executionapp.SetSpaceMuteCommand) (executionapp.InboxPreferenceResult, error)
+	SetThreadFollow(context.Context, executionapp.SetThreadFollowCommand) (executionapp.InboxPreferenceResult, error)
+	SendInboxReply(context.Context, executionapp.SendInboxReplyCommand) (executionapp.SendInboxReplyResult, error)
+	ListHeldDrafts(context.Context, executionapp.ListHeldDraftsQuery) (executionapp.ListHeldDraftsResult, error)
+	ResolveHeldDraft(context.Context, executionapp.ResolveHeldDraftCommand) (executionapp.ResolveHeldDraftResult, error)
 }
 
 type Service struct {
@@ -66,7 +69,7 @@ func (s *Service) GetInboxNotice(ctx context.Context, _ *connect.Request[inboxv1
 	if err != nil {
 		return nil, err
 	}
-	hasUnread, err := s.store.GetInboxNotice(ctx, store.InboxNoticeParams{Authentication: authentication, Now: s.now()})
+	hasUnread, err := s.store.GetInboxNotice(ctx, executionapp.InboxNoticeQuery{Authentication: authentication, Now: s.now()})
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
@@ -82,7 +85,7 @@ func (s *Service) ListInboxItems(ctx context.Context, request *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	items, err := s.store.ListInboxItems(ctx, store.ListInboxItemsParams{
+	items, err := s.store.ListInboxItems(ctx, executionapp.ListInboxItemsQuery{
 		Authentication: authentication, AfterSequence: after, Limit: limit, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -104,7 +107,7 @@ func (s *Service) ClaimInboxItem(ctx context.Context, request *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	item, err := s.store.ClaimInboxItem(ctx, store.ClaimInboxItemParams{
+	item, err := s.store.ClaimInboxItem(ctx, executionapp.ClaimInboxItemCommand{
 		RequestID: requestID, Authentication: authentication, InboxItemID: itemID, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -130,7 +133,7 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.ObserveTarget(ctx, store.ObserveTargetParams{
+	result, err := s.store.ObserveTarget(ctx, executionapp.ObserveTargetQuery{
 		Authentication: authentication, Target: target, Limit: limit, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -159,7 +162,7 @@ func (s *Service) CompleteInboxItem(ctx context.Context, request *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	item, err := s.store.CompleteInboxItem(ctx, store.CompleteInboxItemParams{
+	item, err := s.store.CompleteInboxItem(ctx, executionapp.CompleteInboxItemCommand{
 		RequestID: requestID, Authentication: authentication, InboxItemID: itemID, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -185,7 +188,7 @@ func (s *Service) SetSpaceMute(ctx context.Context, request *connect.Request[inb
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.SetSpaceMute(ctx, store.SetSpaceMuteParams{
+	result, err := s.store.SetSpaceMute(ctx, executionapp.SetSpaceMuteCommand{
 		RequestID: requestID, Authentication: authentication, SpaceID: spaceID, Muted: request.Msg.GetMuted(), Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -209,7 +212,7 @@ func (s *Service) SetThreadFollow(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.SetThreadFollow(ctx, store.SetThreadFollowParams{
+	result, err := s.store.SetThreadFollow(ctx, executionapp.SetThreadFollowCommand{
 		RequestID: requestID, Authentication: authentication, ThreadID: threadID, Followed: request.Msg.GetFollowed(), Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -235,7 +238,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.SendInboxReply(ctx, store.SendInboxReplyParams{
+	result, err := s.store.SendInboxReply(ctx, executionapp.SendInboxReplyCommand{
 		RequestID: requestID, Authentication: authentication, InboxItemID: itemID,
 		BasisTargetSequence: request.Msg.GetBasisTargetSequence(), Body: request.Msg.GetBody(),
 		MentionedAgentIDs: mentions, Now: s.now(),
@@ -245,7 +248,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 	}
 	response := &inboxv1.SendInboxReplyResponse{CommittedAt: timestamppb.New(result.CommittedAt)}
 	switch result.Kind {
-	case store.InboxResultMessage:
+	case executionapp.ResultMessage:
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
@@ -254,7 +257,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 			return nil, err
 		}
 		response.Result = &inboxv1.SendInboxReplyResponse_Message{Message: message}
-	case store.InboxResultHeldDraft:
+	case executionapp.ResultHeldDraft:
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
@@ -278,7 +281,7 @@ func (s *Service) ListHeldDrafts(ctx context.Context, request *connect.Request[i
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.store.ListHeldDrafts(ctx, store.ListHeldDraftsParams{
+	result, err := s.store.ListHeldDrafts(ctx, executionapp.ListHeldDraftsQuery{
 		Authentication: authentication, AfterSequence: after, Limit: limit, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
@@ -314,17 +317,17 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	if err != nil {
 		return nil, err
 	}
-	target := store.MessageTarget{}
-	if action == store.DraftResolutionRetarget {
+	target := collaborationapp.MessageTarget{}
+	if action == executionapp.DraftResolutionRetarget {
 		target, err = messagecodec.ParseTarget(request.Msg.GetTarget())
 		if err != nil {
 			return nil, err
 		}
 	}
-	if action != store.DraftResolutionCancel && request.Msg.GetBasisTargetSequence() > math.MaxInt64 {
+	if action != executionapp.DraftResolutionCancel && request.Msg.GetBasisTargetSequence() > math.MaxInt64 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("basis target sequence is too large"))
 	}
-	result, err := s.store.ResolveHeldDraft(ctx, store.ResolveHeldDraftParams{
+	result, err := s.store.ResolveHeldDraft(ctx, executionapp.ResolveHeldDraftCommand{
 		RequestID: requestID, Authentication: authentication, HeldDraftID: draftID,
 		Action: action, Target: target, BasisTargetSequence: request.Msg.GetBasisTargetSequence(), Now: s.now(),
 	})
@@ -341,7 +344,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	}
 	switch result.Kind {
 	case "":
-	case store.InboxResultMessage:
+	case executionapp.ResultMessage:
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
@@ -350,7 +353,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 			return nil, err
 		}
 		response.Result = &inboxv1.ResolveHeldDraftResponse_Message{Message: message}
-	case store.InboxResultHeldDraft:
+	case executionapp.ResultHeldDraft:
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
@@ -365,26 +368,26 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	return connect.NewResponse(response), nil
 }
 
-func authentication(ctx context.Context) (store.AgentRuntimeAuthentication, error) {
+func authentication(ctx context.Context) (authorityapp.RuntimeAuthentication, error) {
 	principal, proof, err := runtimeauth.Subject(ctx)
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, err
+		return authorityapp.RuntimeAuthentication{}, err
 	}
-	return store.AgentRuntimeAuthentication{Principal: principal, Proof: proof}, nil
+	return authorityapp.RuntimeAuthentication{Principal: principal, Proof: proof}, nil
 }
 
-func itemMutationParams(ctx context.Context, requestIDValue, itemIDValue string) (store.AgentRuntimeAuthentication, string, string, error) {
+func itemMutationParams(ctx context.Context, requestIDValue, itemIDValue string) (authorityapp.RuntimeAuthentication, string, string, error) {
 	authentication, err := authentication(ctx)
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	itemID, err := connectid.CanonicalID(itemIDValue, "inbox item id")
 	if err != nil {
-		return store.AgentRuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
 	return authentication, requestID, itemID, nil
 }
@@ -413,11 +416,11 @@ func requiredListParams(after uint64, limit uint32) (uint64, uint32, error) {
 func resolutionAction(value inboxv1.DraftResolutionAction) (string, error) {
 	switch value {
 	case inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETRY:
-		return store.DraftResolutionRetry, nil
+		return executionapp.DraftResolutionRetry, nil
 	case inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL:
-		return store.DraftResolutionCancel, nil
+		return executionapp.DraftResolutionCancel, nil
 	case inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_RETARGET:
-		return store.DraftResolutionRetarget, nil
+		return executionapp.DraftResolutionRetarget, nil
 	default:
 		return "", connect.NewError(connect.CodeInvalidArgument, errors.New("draft resolution action is invalid"))
 	}
@@ -427,29 +430,29 @@ func serviceError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, store.ErrAgentRuntimeUnauthenticated):
+	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication invalid"))
-	case errors.Is(err, store.ErrPermissionDenied), errors.Is(err, store.ErrInboxAccessLost):
+	case errors.Is(err, authoritydomain.ErrPermissionDenied), errors.Is(err, executionapp.ErrInboxAccessLost):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("agent inbox action denied"))
-	case errors.Is(err, store.ErrInboxItemNotFound), errors.Is(err, store.ErrHeldDraftNotFound),
-		errors.Is(err, store.ErrSpaceNotFound), errors.Is(err, store.ErrThreadNotFound):
+	case errors.Is(err, executionapp.ErrInboxItemNotFound), errors.Is(err, executionapp.ErrHeldDraftNotFound),
+		errors.Is(err, collaborationapp.ErrSpaceNotFound), errors.Is(err, collaborationapp.ErrThreadNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.Is(err, store.ErrInboxRequestConflict):
+	case errors.Is(err, executionapp.ErrInboxRequestConflict):
 		return connect.NewError(connect.CodeAlreadyExists, err)
-	case errors.Is(err, store.ErrInboxItemNotUnread), errors.Is(err, store.ErrInboxItemNotClaimed),
-		errors.Is(err, store.ErrInboxItemHasHeldDraft), errors.Is(err, store.ErrInboxBasisMismatch),
-		errors.Is(err, store.ErrHeldDraftNotHeld), errors.Is(err, store.ErrSpaceArchived):
+	case errors.Is(err, executionapp.ErrInboxItemNotUnread), errors.Is(err, executionapp.ErrInboxItemNotClaimed),
+		errors.Is(err, executionapp.ErrInboxItemHasHeldDraft), errors.Is(err, executionapp.ErrInboxBasisMismatch),
+		errors.Is(err, executionapp.ErrHeldDraftNotHeld), errors.Is(err, collaborationapp.ErrSpaceArchived):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, store.ErrInvalidInboxLimit), errors.Is(err, store.ErrInvalidMessageLimit),
-		errors.Is(err, store.ErrInvalidMessageTarget), errors.Is(err, store.ErrInvalidMessageBody),
-		errors.Is(err, store.ErrInvalidMention), errors.Is(err, store.ErrInvalidDraftResolution):
+	case errors.Is(err, executionapp.ErrInvalidInboxLimit), errors.Is(err, collaborationapp.ErrInvalidMessageLimit),
+		errors.Is(err, collaborationapp.ErrInvalidMessageTarget), errors.Is(err, collaborationapp.ErrInvalidMessageBody),
+		errors.Is(err, collaborationapp.ErrInvalidMention), errors.Is(err, executionapp.ErrInvalidDraftResolution):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
 		return connect.NewError(connect.CodeInternal, errors.New("agent inbox operation failed"))
 	}
 }
 
-func inboxItemMessage(item store.InboxItem) (*inboxv1.InboxItem, error) {
+func inboxItemMessage(item executionapp.InboxItem) (*inboxv1.InboxItem, error) {
 	target, err := messagecodec.Target(item.Target)
 	if err != nil {
 		return nil, err
@@ -472,11 +475,11 @@ func inboxItemMessage(item store.InboxItem) (*inboxv1.InboxItem, error) {
 
 func inboxReasonMessage(reason string) inboxv1.InboxReason {
 	switch reason {
-	case store.InboxReasonDM:
+	case executionapp.InboxReasonDM:
 		return inboxv1.InboxReason_INBOX_REASON_DM
-	case store.InboxReasonMention:
+	case executionapp.InboxReasonMention:
 		return inboxv1.InboxReason_INBOX_REASON_MENTION
-	case store.InboxReasonThreadFollow:
+	case executionapp.InboxReasonThreadFollow:
 		return inboxv1.InboxReason_INBOX_REASON_THREAD_FOLLOW
 	default:
 		return inboxv1.InboxReason_INBOX_REASON_UNSPECIFIED
@@ -485,11 +488,11 @@ func inboxReasonMessage(reason string) inboxv1.InboxReason {
 
 func inboxStateMessage(state string) inboxv1.InboxState {
 	switch state {
-	case store.InboxStateUnread:
+	case executionapp.InboxStateUnread:
 		return inboxv1.InboxState_INBOX_STATE_UNREAD
-	case store.InboxStateClaimed:
+	case executionapp.InboxStateClaimed:
 		return inboxv1.InboxState_INBOX_STATE_CLAIMED
-	case store.InboxStateDone:
+	case executionapp.InboxStateDone:
 		return inboxv1.InboxState_INBOX_STATE_DONE
 	default:
 		return inboxv1.InboxState_INBOX_STATE_UNSPECIFIED
@@ -498,13 +501,13 @@ func inboxStateMessage(state string) inboxv1.InboxState {
 
 func inboxCompletionMessage(completion string) inboxv1.InboxCompletion {
 	switch completion {
-	case store.InboxCompletionSent:
+	case executionapp.InboxCompletionSent:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_SENT
-	case store.InboxCompletionCancelled:
+	case executionapp.InboxCompletionCancelled:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_CANCELLED
-	case store.InboxCompletionSilent:
+	case executionapp.InboxCompletionSilent:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_SILENT
-	case store.InboxCompletionAccessLost:
+	case executionapp.InboxCompletionAccessLost:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_ACCESS_LOST
 	default:
 		return inboxv1.InboxCompletion_INBOX_COMPLETION_UNSPECIFIED

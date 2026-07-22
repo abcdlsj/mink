@@ -13,19 +13,21 @@ import (
 	artifactv1 "github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
+	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
-	"github.com/abcdlsj/sumi/internal/store"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type artifactStore interface {
-	Publish(context.Context, store.PublishArtifactParams) (store.PublishArtifactResult, error)
-	Get(context.Context, store.GetArtifactParams) (store.ArtifactView, error)
-	List(context.Context, store.ListArtifactsParams) (store.ListArtifactsResult, error)
-	Grant(context.Context, store.GrantArtifactParams) (store.ArtifactGrant, error)
-	RevokeGrant(context.Context, store.RevokeArtifactGrantParams) (store.ArtifactGrant, error)
-	Fetch(context.Context, store.FetchArtifactParams) (store.FetchArtifactResult, error)
+	Publish(context.Context, artifactapp.PublishCommand) (artifactapp.PublishResult, error)
+	Get(context.Context, artifactapp.GetQuery) (artifactapp.View, error)
+	List(context.Context, artifactapp.ListQuery) (artifactapp.ListResult, error)
+	Grant(context.Context, artifactapp.GrantCommand) (artifactapp.Grant, error)
+	RevokeGrant(context.Context, artifactapp.RevokeGrantCommand) (artifactapp.Grant, error)
+	Fetch(context.Context, artifactapp.FetchQuery) (artifactapp.FetchResult, error)
 }
 
 type Service struct {
@@ -93,7 +95,7 @@ func (s *Service) GetArtifact(ctx context.Context, request *connect.Request[arti
 	if err != nil {
 		return nil, err
 	}
-	view, err := s.store.Get(ctx, store.GetArtifactParams{
+	view, err := s.store.Get(ctx, artifactapp.GetQuery{
 		Authentication: authentication, ArtifactID: artifactID, Version: version, Now: now,
 	})
 	if err := serviceError(err); err != nil {
@@ -133,7 +135,7 @@ func (s *Service) ListArtifacts(ctx context.Context, request *connect.Request[ar
 	if limit > 200 {
 		return nil, invalidArgument("artifact list limit must be at most 200")
 	}
-	result, err := s.store.List(ctx, store.ListArtifactsParams{
+	result, err := s.store.List(ctx, artifactapp.ListQuery{
 		Authentication: authentication, OwningWorkID: workID, AfterArtifactID: afterID, Limit: limit, Now: now,
 	})
 	if err := serviceError(err); err != nil {
@@ -174,7 +176,7 @@ func (s *Service) GrantArtifact(ctx context.Context, request *connect.Request[ar
 	if err != nil {
 		return nil, err
 	}
-	grant, err := s.store.Grant(ctx, store.GrantArtifactParams{
+	grant, err := s.store.Grant(ctx, artifactapp.GrantCommand{
 		RequestID: requestID, Authentication: authentication, ArtifactID: artifactID,
 		TargetKind: targetKind, TargetID: targetID, Capability: capability, Now: now,
 	})
@@ -202,7 +204,7 @@ func (s *Service) RevokeArtifactGrant(ctx context.Context, request *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	grant, err := s.store.RevokeGrant(ctx, store.RevokeArtifactGrantParams{
+	grant, err := s.store.RevokeGrant(ctx, artifactapp.RevokeGrantCommand{
 		RequestID: requestID, Authentication: authentication, GrantID: grantID, Now: now,
 	})
 	if err := serviceError(err); err != nil {
@@ -220,7 +222,7 @@ func (s *Service) FetchArtifact(ctx context.Context, request *connect.Request[ar
 	if err != nil {
 		return err
 	}
-	result, err := s.store.Fetch(ctx, store.FetchArtifactParams{
+	result, err := s.store.Fetch(ctx, artifactapp.FetchQuery{
 		Authentication: authentication, ArtifactID: artifactID, Version: version, Now: now,
 	})
 	if err := serviceError(err); err != nil {
@@ -261,19 +263,19 @@ func (s *Service) FetchArtifact(ctx context.Context, request *connect.Request[ar
 	}
 }
 
-func (s *Service) readParams(ctx context.Context, header http.Header, artifactIDValue string, versionValue uint64) (store.ArtifactAuthentication, string, uint64, time.Time, error) {
+func (s *Service) readParams(ctx context.Context, header http.Header, artifactIDValue string, versionValue uint64) (artifactapp.Authentication, string, uint64, time.Time, error) {
 	now := s.now()
 	authentication, err := s.authentication.resolve(ctx, header, false, now)
 	if err != nil {
-		return store.ArtifactAuthentication{}, "", 0, time.Time{}, err
+		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
 	artifactID, err := connectid.CanonicalID(artifactIDValue, "artifact id")
 	if err != nil {
-		return store.ArtifactAuthentication{}, "", 0, time.Time{}, err
+		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
 	version, err := artifactVersionParam(versionValue)
 	if err != nil {
-		return store.ArtifactAuthentication{}, "", 0, time.Time{}, err
+		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
 	return authentication, artifactID, version, now, nil
 }
@@ -316,32 +318,32 @@ func (r *publishReader) Read(buffer []byte) (int, error) {
 	return r.Read(buffer)
 }
 
-func publishParams(authentication store.ArtifactAuthentication, metadata *artifactv1.PublishArtifactMetadata, content io.Reader, now time.Time) (store.PublishArtifactParams, error) {
+func publishParams(authentication artifactapp.Authentication, metadata *artifactv1.PublishArtifactMetadata, content io.Reader, now time.Time) (artifactapp.PublishCommand, error) {
 	requestID, err := connectid.CanonicalID(metadata.GetRequestId(), "request id")
 	if err != nil {
-		return store.PublishArtifactParams{}, err
+		return artifactapp.PublishCommand{}, err
 	}
 	artifactID := ""
 	if metadata.GetArtifactId() != "" {
 		artifactID, err = connectid.CanonicalID(metadata.GetArtifactId(), "artifact id")
 		if err != nil {
-			return store.PublishArtifactParams{}, err
+			return artifactapp.PublishCommand{}, err
 		}
 	}
 	workID, err := connectid.CanonicalID(metadata.GetOwningWorkId(), "owning work id")
 	if err != nil {
-		return store.PublishArtifactParams{}, err
+		return artifactapp.PublishCommand{}, err
 	}
 	if metadata.GetDeclaredSize() < 0 || metadata.GetDeclaredSize() > artifactblob.MaxBlobSize {
-		return store.PublishArtifactParams{}, invalidArgument("declared artifact size is invalid")
+		return artifactapp.PublishCommand{}, invalidArgument("declared artifact size is invalid")
 	}
 	if len(metadata.GetDeclaredDigest()) != sha256.Size {
-		return store.PublishArtifactParams{}, invalidArgument("declared artifact digest must be 32 bytes")
+		return artifactapp.PublishCommand{}, invalidArgument("declared artifact digest must be 32 bytes")
 	}
 	var expectedDigest [sha256.Size]byte
 	copy(expectedDigest[:], metadata.GetDeclaredDigest())
 	expectedSize := metadata.GetDeclaredSize()
-	params := store.PublishArtifactParams{
+	params := artifactapp.PublishCommand{
 		RequestID: requestID, Authentication: authentication, ArtifactID: artifactID,
 		OwningWorkID: workID, Name: metadata.GetName(), MediaType: metadata.GetMediaType(),
 		Summary: metadata.GetSummary(), ExpectedDigest: &expectedDigest, ExpectedSize: &expectedSize,
@@ -351,52 +353,52 @@ func publishParams(authentication store.ArtifactAuthentication, metadata *artifa
 		execution := metadata.GetExecution()
 		deliveryID, err := connectid.CanonicalID(execution.GetDeliveryId(), "delivery id")
 		if err != nil {
-			return store.PublishArtifactParams{}, err
+			return artifactapp.PublishCommand{}, err
 		}
 		runID, err := connectid.CanonicalID(execution.GetRunId(), "run id")
 		if err != nil {
-			return store.PublishArtifactParams{}, err
+			return artifactapp.PublishCommand{}, err
 		}
 		launchID, err := connectid.CanonicalID(execution.GetLaunchId(), "launch id")
 		if err != nil {
-			return store.PublishArtifactParams{}, err
+			return artifactapp.PublishCommand{}, err
 		}
 		if execution.GetFence() == 0 || execution.GetFence() > math.MaxInt64 {
-			return store.PublishArtifactParams{}, invalidArgument("artifact execution fence is invalid")
+			return artifactapp.PublishCommand{}, invalidArgument("artifact execution fence is invalid")
 		}
-		params.Execution = &store.ArtifactExecutionInput{
+		params.Execution = &artifactapp.ExecutionInput{
 			DeliveryID: deliveryID, RunID: runID, LaunchID: launchID, Fence: execution.GetFence(),
 		}
 	}
-	params.Sources = make([]store.ArtifactSourceInput, 0, len(metadata.GetSources()))
+	params.Sources = make([]artifactapp.SourceInput, 0, len(metadata.GetSources()))
 	for _, source := range metadata.GetSources() {
 		if source == nil {
-			return store.PublishArtifactParams{}, invalidArgument("artifact source is invalid")
+			return artifactapp.PublishCommand{}, invalidArgument("artifact source is invalid")
 		}
 		switch value := source.GetSource().(type) {
 		case *artifactv1.ArtifactSourceInput_MessageId:
 			messageID, err := connectid.CanonicalID(value.MessageId, "artifact source message id")
 			if err != nil {
-				return store.PublishArtifactParams{}, err
+				return artifactapp.PublishCommand{}, err
 			}
-			params.Sources = append(params.Sources, store.ArtifactSourceInput{Kind: store.ArtifactSourceMessage, MessageID: messageID})
+			params.Sources = append(params.Sources, artifactapp.SourceInput{Kind: artifactapp.SourceMessage, MessageID: messageID})
 		case *artifactv1.ArtifactSourceInput_ArtifactVersion:
 			if value.ArtifactVersion == nil {
-				return store.PublishArtifactParams{}, invalidArgument("artifact version source is required")
+				return artifactapp.PublishCommand{}, invalidArgument("artifact version source is required")
 			}
 			artifactID, err := connectid.CanonicalID(value.ArtifactVersion.GetArtifactId(), "source artifact id")
 			if err != nil {
-				return store.PublishArtifactParams{}, err
+				return artifactapp.PublishCommand{}, err
 			}
 			version, err := requiredArtifactVersionParam(value.ArtifactVersion.GetVersion())
 			if err != nil {
-				return store.PublishArtifactParams{}, err
+				return artifactapp.PublishCommand{}, err
 			}
-			params.Sources = append(params.Sources, store.ArtifactSourceInput{
-				Kind: store.ArtifactSourceVersion, ArtifactID: artifactID, ArtifactVersion: version,
+			params.Sources = append(params.Sources, artifactapp.SourceInput{
+				Kind: artifactapp.SourceVersion, ArtifactID: artifactID, ArtifactVersion: version,
 			})
 		default:
-			return store.PublishArtifactParams{}, invalidArgument("artifact source is invalid")
+			return artifactapp.PublishCommand{}, invalidArgument("artifact source is invalid")
 		}
 	}
 	return params, nil
@@ -410,13 +412,13 @@ func artifactGrantParams(target *artifactv1.ArtifactGrantTarget, capability arti
 	}
 	switch value := target.GetTarget().(type) {
 	case *artifactv1.ArtifactGrantTarget_AgentId:
-		targetKind = store.ArtifactGrantTargetAgent
+		targetKind = artifactapp.GrantTargetAgent
 		targetID = value.AgentId
 	case *artifactv1.ArtifactGrantTarget_SpaceId:
-		targetKind = store.ArtifactGrantTargetSpace
+		targetKind = artifactapp.GrantTargetSpace
 		targetID = value.SpaceId
 	case *artifactv1.ArtifactGrantTarget_WorkId:
-		targetKind = store.ArtifactGrantTargetWork
+		targetKind = artifactapp.GrantTargetWork
 		targetID = value.WorkId
 	default:
 		return "", "", "", invalidArgument("artifact grant target is invalid")
@@ -424,9 +426,9 @@ func artifactGrantParams(target *artifactv1.ArtifactGrantTarget, capability arti
 	capabilityName := ""
 	switch capability {
 	case artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ:
-		capabilityName = store.ArtifactGrantRead
+		capabilityName = artifactapp.GrantRead
 	case artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_MANAGE:
-		capabilityName = store.ArtifactGrantManage
+		capabilityName = artifactapp.GrantManage
 	default:
 		return "", "", "", invalidArgument("artifact capability is invalid")
 	}
@@ -447,7 +449,7 @@ func requiredArtifactVersionParam(value uint64) (uint64, error) {
 	return artifactVersionParam(value)
 }
 
-func artifactViewMessage(value store.ArtifactView) (*artifactv1.ArtifactView, error) {
+func artifactViewMessage(value artifactapp.View) (*artifactv1.ArtifactView, error) {
 	artifact, err := artifactMessage(value.Artifact, value.OwningWorkRestricted)
 	if err != nil {
 		return nil, err
@@ -459,7 +461,7 @@ func artifactViewMessage(value store.ArtifactView) (*artifactv1.ArtifactView, er
 	return &artifactv1.ArtifactView{Artifact: artifact, Version: version}, nil
 }
 
-func artifactMessage(value store.Artifact, owningWorkRestricted bool) (*artifactv1.Artifact, error) {
+func artifactMessage(value artifactapp.Artifact, owningWorkRestricted bool) (*artifactv1.Artifact, error) {
 	creator, err := principalMessage(value.Creator)
 	if err != nil {
 		return nil, err
@@ -471,7 +473,7 @@ func artifactMessage(value store.Artifact, owningWorkRestricted bool) (*artifact
 	}, nil
 }
 
-func versionViewMessage(value store.ArtifactVersionView) (*artifactv1.ArtifactVersion, error) {
+func versionViewMessage(value artifactapp.VersionView) (*artifactv1.ArtifactVersion, error) {
 	author, err := principalMessage(value.Author)
 	if err != nil {
 		return nil, err
@@ -500,7 +502,7 @@ func versionViewMessage(value store.ArtifactVersionView) (*artifactv1.ArtifactVe
 	return message, nil
 }
 
-func publishedVersionMessage(value store.ArtifactVersion) (*artifactv1.ArtifactVersion, error) {
+func publishedVersionMessage(value artifactapp.Version) (*artifactv1.ArtifactVersion, error) {
 	author, err := principalMessage(value.Author)
 	if err != nil {
 		return nil, err
@@ -528,14 +530,14 @@ func publishedVersionMessage(value store.ArtifactVersion) (*artifactv1.ArtifactV
 	return message, nil
 }
 
-func sourceViewMessage(value store.ArtifactSourceView) *artifactv1.ArtifactSource {
+func sourceViewMessage(value artifactapp.SourceView) *artifactv1.ArtifactSource {
 	message := &artifactv1.ArtifactSource{Restricted: value.Restricted}
 	if value.Restricted {
 		return message
 	}
-	if value.Kind == store.ArtifactSourceMessage {
+	if value.Kind == artifactapp.SourceMessage {
 		message.Source = &artifactv1.ArtifactSource_MessageId{MessageId: value.MessageID}
-	} else if value.Kind == store.ArtifactSourceVersion {
+	} else if value.Kind == artifactapp.SourceVersion {
 		message.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
 			ArtifactId: value.ArtifactID, Version: value.ArtifactVersion,
 		}}
@@ -543,11 +545,11 @@ func sourceViewMessage(value store.ArtifactSourceView) *artifactv1.ArtifactSourc
 	return message
 }
 
-func sourceMessage(value store.ArtifactSource) *artifactv1.ArtifactSource {
+func sourceMessage(value artifactapp.Source) *artifactv1.ArtifactSource {
 	message := &artifactv1.ArtifactSource{}
-	if value.Kind == store.ArtifactSourceMessage {
+	if value.Kind == artifactapp.SourceMessage {
 		message.Source = &artifactv1.ArtifactSource_MessageId{MessageId: value.MessageID}
-	} else if value.Kind == store.ArtifactSourceVersion {
+	} else if value.Kind == artifactapp.SourceVersion {
 		message.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
 			ArtifactId: value.ArtifactID, Version: value.ArtifactVersion,
 		}}
@@ -555,7 +557,7 @@ func sourceMessage(value store.ArtifactSource) *artifactv1.ArtifactSource {
 	return message
 }
 
-func artifactGrantMessage(value store.ArtifactGrant) (*artifactv1.ArtifactGrant, error) {
+func artifactGrantMessage(value artifactapp.Grant) (*artifactv1.ArtifactGrant, error) {
 	grantedBy, err := principalMessage(value.GrantedBy)
 	if err != nil {
 		return nil, err
@@ -565,19 +567,19 @@ func artifactGrantMessage(value store.ArtifactGrant) (*artifactv1.ArtifactGrant,
 		Target: &artifactv1.ArtifactGrantTarget{}, GrantedBy: grantedBy, GrantedAt: timestamppb.New(value.GrantedAt),
 	}
 	switch value.TargetKind {
-	case store.ArtifactGrantTargetAgent:
+	case artifactapp.GrantTargetAgent:
 		message.Target.Target = &artifactv1.ArtifactGrantTarget_AgentId{AgentId: value.TargetID}
-	case store.ArtifactGrantTargetSpace:
+	case artifactapp.GrantTargetSpace:
 		message.Target.Target = &artifactv1.ArtifactGrantTarget_SpaceId{SpaceId: value.TargetID}
-	case store.ArtifactGrantTargetWork:
+	case artifactapp.GrantTargetWork:
 		message.Target.Target = &artifactv1.ArtifactGrantTarget_WorkId{WorkId: value.TargetID}
 	default:
 		return nil, internalError()
 	}
 	switch value.Capability {
-	case store.ArtifactGrantRead:
+	case artifactapp.GrantRead:
 		message.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ
-	case store.ArtifactGrantManage:
+	case artifactapp.GrantManage:
 		message.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_MANAGE
 	default:
 		return nil, internalError()
@@ -597,14 +599,14 @@ func artifactGrantMessage(value store.ArtifactGrant) (*artifactv1.ArtifactGrant,
 	return message, nil
 }
 
-func principalMessage(value store.Principal) (*grantv1.Principal, error) {
+func principalMessage(value authoritydomain.Principal) (*grantv1.Principal, error) {
 	kind := grantv1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 	switch value.Kind {
-	case "human":
+	case authoritydomain.PrincipalHuman:
 		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	case "agent":
+	case authoritydomain.PrincipalAgent:
 		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_AGENT
-	case "system":
+	case authoritydomain.PrincipalSystem:
 		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_SYSTEM
 	default:
 		return nil, internalError()
@@ -637,21 +639,21 @@ func serviceError(err error) error {
 		return connect.NewError(connect.CodeCanceled, errors.New("artifact request canceled"))
 	case errors.Is(err, context.DeadlineExceeded):
 		return connect.NewError(connect.CodeDeadlineExceeded, errors.New("artifact request deadline exceeded"))
-	case errors.Is(err, store.ErrAgentRuntimeUnauthenticated):
+	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
 		return unauthenticated()
-	case errors.Is(err, store.ErrPermissionDenied):
+	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("artifact action denied"))
-	case errors.Is(err, store.ErrArtifactNotFound), errors.Is(err, store.ErrArtifactVersionNotFound), errors.Is(err, store.ErrArtifactGrantNotFound):
+	case errors.Is(err, artifactapp.ErrNotFound), errors.Is(err, artifactapp.ErrVersionNotFound), errors.Is(err, artifactapp.ErrGrantNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("artifact fact not found"))
-	case errors.Is(err, store.ErrArtifactRequestConflict):
+	case errors.Is(err, artifactapp.ErrRequestConflict):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("artifact request conflicts with committed request"))
-	case errors.Is(err, store.ErrArtifactCursorUnavailable):
+	case errors.Is(err, artifactapp.ErrCursorUnavailable):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("artifact cursor is unavailable"))
-	case errors.Is(err, store.ErrArtifactInvalid):
+	case errors.Is(err, artifactapp.ErrInvalid):
 		return invalidArgument("artifact input is invalid")
-	case errors.Is(err, store.ErrArtifactIntegrity):
+	case errors.Is(err, artifactapp.ErrIntegrity):
 		return connect.NewError(connect.CodeDataLoss, errors.New("artifact content integrity failure"))
-	case errors.Is(err, store.ErrArtifactBlobUnavailable):
+	case errors.Is(err, artifactapp.ErrBlobUnavailable):
 		return connect.NewError(connect.CodeUnavailable, errors.New("artifact content unavailable"))
 	default:
 		return internalError()
