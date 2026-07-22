@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/pressly/goose/v3"
@@ -990,6 +991,254 @@ func openKnowledgeStore(t *testing.T) *Store {
 		t.Fatal(err)
 	}
 	return database
+}
+
+func TestSearchKnowledgeReturnsCurrentAuthorizedSourcesAndQuietlyDropsRawFTSHits(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "knowledge search", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "current searchable phrase", Now: now.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
+	page, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "searchable phrase", Now: now.Add(3 * time.Second)})
+	if err != nil || page.Status != KnowledgeIndexReady || len(page.Results) != 1 || page.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceMessage, ID: message.ID}) || page.Results[0].Snippet != message.Body {
+		t.Fatalf("authorized search = %+v, %v", page, err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO knowledge_fts(source_kind, source_id, source_version, generation, revision, body) VALUES('message', ?, 0, ?, zeroblob(32), 'raw fts secret')`, uuid.NewString(), generation); err != nil {
+		t.Fatal(err)
+	}
+	page, err = database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "secret", Now: now.Add(4 * time.Second)})
+	if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
+		t.Fatalf("raw FTS hit leaked = %+v, %v", page, err)
+	}
+}
+
+func TestSearchKnowledgeRejectsQueryAndPaginationBudgetViolations(t *testing.T) {
+	operators, err := normalizeKnowledgeSearchQuery("OR * NEAR")
+	if err != nil || operators.match != `"OR" AND "*" AND "NEAR"` {
+		t.Fatalf("operator literal query = %+v, %v", operators, err)
+	}
+	for name, query := range map[string]string{
+		"empty":       "",
+		"query bytes": strings.Repeat("a", knowledgeSearchQueryMaxBytes+1),
+		"term count":  strings.Repeat("a ", knowledgeSearchTermsMax+1),
+		"term bytes":  strings.Repeat("a", knowledgeSearchTermMaxBytes+1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := normalizeKnowledgeSearchQuery(query); !errors.Is(err, ErrKnowledgeSearchInvalid) {
+				t.Fatalf("normalize %q error = %v", name, err)
+			}
+		})
+	}
+	database := openKnowledgeStore(t)
+	defer database.Close()
+	if _, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: Principal{Kind: "human", ID: "human", OrganizationID: "organization"}, Query: "valid", Limit: knowledgeSearchMaxPageSize + 1, Now: time.Now()}); !errors.Is(err, ErrKnowledgeSearchInvalid) {
+		t.Fatalf("limit error = %v", err)
+	}
+}
+
+func TestSearchKnowledgeLiteralPagingCursorAndStatusContracts(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "knowledge paging", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]struct{}{}
+	for _, body := range []string{"literal OR NEAR one", "literal OR NEAR two", "literal OR NEAR three"} {
+		message, err := database.SendMessage(context.Background(), SendMessageParams{
+			RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: body, Now: now.Add(time.Second),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want[message.ID] = struct{}{}
+	}
+	activateKnowledgeSearchGeneration(t, database, now.Add(2*time.Second))
+
+	seen := map[string]struct{}{}
+	cursor := ""
+	for range len(want) {
+		page, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "OR NEAR", Cursor: cursor, Limit: 1, Now: now.Add(3 * time.Second)})
+		if err != nil || len(page.Results) != 1 || page.Status != KnowledgeIndexReady {
+			t.Fatalf("paged literal search = %+v, %v", page, err)
+		}
+		id := page.Results[0].Source.ID
+		if _, duplicate := seen[id]; duplicate {
+			t.Fatalf("duplicate paged source %s", id)
+		}
+		seen[id] = struct{}{}
+		cursor = page.NextCursor
+	}
+	if len(seen) != len(want) || cursor != "" {
+		t.Fatalf("paged sources/cursor = %v/%q, want %v/empty", seen, cursor, want)
+	}
+	first, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "OR NEAR", Limit: 1, Now: now.Add(4 * time.Second)})
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("first cursor = %+v, %v", first, err)
+	}
+	if _, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "different", Cursor: first.NextCursor, Limit: 1, Now: now.Add(4 * time.Second)}); !errors.Is(err, ErrKnowledgeSearchCursorUnavailable) {
+		t.Fatalf("query-bound cursor error = %v", err)
+	}
+	if _, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "OR NEAR", Cursor: first.NextCursor + "x", Limit: 1, Now: now.Add(4 * time.Second)}); !errors.Is(err, ErrKnowledgeSearchCursorUnavailable) {
+		t.Fatalf("tampered cursor error = %v", err)
+	}
+	if _, err := database.db.Exec(`UPDATE knowledge_index_metadata SET status = 'degraded', active_generation = 0 WHERE singleton = 1`); err != nil {
+		t.Fatal(err)
+	}
+	page, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "OR", Now: now.Add(5 * time.Second)})
+	if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
+		t.Fatalf("degraded search = %+v, %v", page, err)
+	}
+}
+
+func TestSearchKnowledgeRechecksCurrentRuntimeAndSpaceAccess(t *testing.T) {
+	fixture := openDeliveryFixture(t)
+	message, err := fixture.database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "runtime searchable", Now: fixture.at(1),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
+	page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "runtime", Now: fixture.at(3)})
+	if err != nil || len(page.Results) != 1 || page.Results[0].Source.ID != message.ID {
+		t.Fatalf("runtime search = %+v, %v", page, err)
+	}
+	if _, err := fixture.database.RemoveMember(context.Background(), ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: Principal{Kind: "agent", ID: fixture.agentID}, Now: fixture.at(4),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "runtime", Now: fixture.at(5)})
+	if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
+		t.Fatalf("removed member search = %+v, %v", page, err)
+	}
+	stale := fixture.authentication
+	rotated := rotateDeliveryRuntime(t, fixture, 91, fixture.at(6))
+	if _, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: stale, Query: "runtime", Now: fixture.at(8)}); !errors.Is(err, ErrKnowledgeSearchUnauthenticated) {
+		t.Fatalf("stale runtime error = %v", err)
+	}
+	if _, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: rotated, Query: "runtime", Now: fixture.at(8)}); err != nil {
+		t.Fatalf("current runtime search = %v", err)
+	}
+}
+
+func TestSearchKnowledgeUsesAllCurrentSourceKindsAndWritesNothing(t *testing.T) {
+	fixture := openArtifactFixture(t)
+	published, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "artifact search content", fixture.at(1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	activateKnowledgeSearchGeneration(t, fixture.database, fixture.at(2))
+	before := knowledgeSearchMutationSnapshot(t, fixture.database)
+	page, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: "artifact", Now: fixture.at(3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after := knowledgeSearchMutationSnapshot(t, fixture.database); after != before {
+		t.Fatalf("search mutated facts: before=%+v after=%+v", before, after)
+	}
+	found := map[KnowledgeSource]KnowledgeSearchResult{}
+	for _, result := range page.Results {
+		found[result.Source] = result
+	}
+	for _, source := range []KnowledgeSource{
+		{Kind: KnowledgeSourceMessage, ID: fixture.source.ID},
+		{Kind: KnowledgeSourceWork, ID: fixture.work.ID},
+		{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version},
+	} {
+		if _, ok := found[source]; !ok {
+			t.Fatalf("search omitted current source %+v: %+v", source, page)
+		}
+	}
+	if got := found[KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}].Snippet; !utf8.ValidString(got) || len(got) > knowledgeSearchSnippetMaxBytes {
+		t.Fatalf("artifact snippet = %q", got)
+	}
+}
+
+func TestSearchKnowledgeStopsAtHiddenCandidateWindowWithoutCursor(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	generation := activateKnowledgeSearchGeneration(t, database, now)
+	for index := range knowledgeSearchCandidateLimit {
+		id := fmt.Sprintf("00000000-0000-4000-8000-%012d", index)
+		if _, err := database.db.Exec(`INSERT INTO knowledge_fts(source_kind, source_id, source_version, generation, revision, body) VALUES('message', ?, 0, ?, zeroblob(32), 'hidden candidate')`, id, generation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "hidden", Now: now.Add(time.Second)})
+	if err != nil || len(page.Results) != 0 || page.NextCursor != "" {
+		t.Fatalf("hidden candidate window = %+v, %v", page, err)
+	}
+}
+
+func TestSearchKnowledgeFailsClosedForCorruptFTS(t *testing.T) {
+	database, owner, _, _, now := openCollaborationFixture(t, filepath.Join(t.TempDir(), "server.db"))
+	defer database.Close()
+	activateKnowledgeSearchGeneration(t, database, now)
+	if _, err := database.db.Exec(`DROP TABLE knowledge_fts`); err != nil {
+		t.Fatal(err)
+	}
+	page, err := database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: owner, Query: "anything", Now: now.Add(time.Second)})
+	if err != nil || page.Status != KnowledgeIndexDegraded || len(page.Results) != 0 || page.NextCursor != "" {
+		t.Fatalf("corrupt FTS search = %+v, %v", page, err)
+	}
+}
+
+type knowledgeSearchMutationState struct {
+	Messages, Works, Artifacts, Versions, Audits, Dirty, Projections, FTS int
+	Metadata                                                              KnowledgeIndexMetadata
+}
+
+func knowledgeSearchMutationSnapshot(t *testing.T, database *Store) knowledgeSearchMutationState {
+	t.Helper()
+	state := knowledgeSearchMutationState{}
+	for table, destination := range map[string]*int{
+		"messages":                  &state.Messages,
+		"works":                     &state.Works,
+		"artifacts":                 &state.Artifacts,
+		"artifact_versions":         &state.Versions,
+		"audit_events":              &state.Audits,
+		"knowledge_dirty_sources":   &state.Dirty,
+		"knowledge_projection_rows": &state.Projections,
+		"knowledge_fts":             &state.FTS,
+	} {
+		if err := database.db.QueryRow(`SELECT count(*) FROM ` + table).Scan(destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata, err := database.KnowledgeIndexMetadata(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Metadata = metadata
+	return state
+}
+
+func activateKnowledgeSearchGeneration(t *testing.T, database *Store, now time.Time) uint64 {
+	t.Helper()
+	rebuilding, err := database.StartKnowledgeRebuild(context.Background(), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), rebuilding.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteKnowledgeGeneration(context.Background(), rebuilding.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.ActivateKnowledgeGeneration(context.Background(), rebuilding.NextGeneration); err != nil {
+		t.Fatal(err)
+	}
+	return rebuilding.NextGeneration
 }
 
 func TestKnowledgeSourceValidation(t *testing.T) {
