@@ -8,9 +8,16 @@ import (
 )
 
 func TestExecutorBuildsPromptAndMapsCompletion(t *testing.T) {
-	executor, err := New(driver.Native{ExecuteFunc: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
+	executor, err := New(driver.KindCodex, driver.Native{ExecuteFunc: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
 		if command.Input == nil || command.Input.CurrentInput != "trigger" || command.Input.Target.SpaceID != "space-1" {
 			t.Fatalf("input = %+v", command.Input)
+		}
+		want, err := driver.Capabilities(driver.KindCodex)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if command.Input.Capabilities != want {
+			t.Fatalf("capabilities = %+v, want %+v", command.Input.Capabilities, want)
 		}
 		return driver.TurnResult{Outcome: driver.OutcomeSucceeded, Body: "done"}, nil
 	}}, "host policy")

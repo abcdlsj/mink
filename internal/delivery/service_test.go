@@ -691,7 +691,7 @@ func (s *stubStore) AcceptDelivery(context.Context, store.AcceptDeliveryParams) 
 	return s.run, s.err
 }
 
-func (s *stubStore) GetRun(context.Context, store.AgentRuntimeAuthentication, string, time.Time) (store.Run, error) {
+func (s *stubStore) GetRun(context.Context, store.GetRunParams) (store.Run, error) {
 	return s.run, s.err
 }
 

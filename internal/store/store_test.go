@@ -377,7 +377,9 @@ func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 	if !registered.LastSeenAt.Equal(future) {
 		t.Fatalf("earlier registration moved last_seen_at to %s", registered.LastSeenAt)
 	}
-	heartbeat, err := store.HeartbeatComputer(context.Background(), computer.ID, params.RegistrationKey, SandboxCapability{}, earlier)
+	heartbeat, err := store.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
+		ComputerID: computer.ID, RegistrationKey: params.RegistrationKey, Now: earlier,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -386,7 +388,9 @@ func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 	}
 
 	later := future.Add(time.Hour)
-	heartbeat, err = store.HeartbeatComputer(context.Background(), computer.ID, params.RegistrationKey, SandboxCapability{}, later)
+	heartbeat, err = store.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
+		ComputerID: computer.ID, RegistrationKey: params.RegistrationKey, Now: later,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,7 +4,7 @@
 
 ## 0. 设计与开发约定
 
-`AGENTS.md` 只保留不可争议的核心准则，本文档负责承载产品语义、系统边界和实现依据。每个需求开始前先阅读二者；需求完成后必须回写本文件，至少说明本次新增或改变的事实、边界、验证结果和遗留风险。若实现与本文档冲突，先暂停扩展代码并修正设计或取得明确决策。
+`AGENTS.md` 只保留工程与技术规范，本文档独占产品语义、系统边界和实现依据。每个需求开始前先阅读二者；需求完成后必须回写本文件，至少说明本次新增或改变的事实、边界、验证结果和遗留风险。若实现与本文档冲突，先暂停扩展代码并修正设计或取得明确决策。
 
 仓库入口只有 `AGENTS.md` 一份正文；`CLAUDE.md` 是指向它的软链接。代码遵循 Google Go Style Guide 与 Best Practices：短函数、直接主路径、早返回、显式数据流、准确命名和适度复用。注释不承担设计说明，设计说明归入本文件；抽象必须由真实重复或替换边界驱动，不能为了通用而牺牲可读性和类型安全。
 
@@ -413,6 +413,10 @@ Human 与 Agent 长期 DM。Agent 保持身份与记忆连续；需要引用其�
 - 安全、事务和权限不变量写入测试与本文档；
 - 不做 code golf，不堆层级，不用抽象掩盖简单逻辑。
 
+Computer daemon 按 connectivity、delivery、worker 与 outbox 四条运行路径组织；共享装配保留在 `Daemon`，各路径使用具体状态与返回错误表达失败原因。Driver kind 决定 capability，执行适配层不得维护第二份 capability 常量。Computer 本地 State 按 identity、runtime、mutation、outbox 与文件安全职责组织，SQLite 仍是同一个一致性边界，不为拆文件引入 repository 接口。
+
+Web 的远程 snapshot 使用统一的 generation、abort、stale-data 语义：切换主体或目标后，旧响应不能覆盖新状态；权限失效清除旧数据，瞬时错误保留同一目标的 stale snapshot。该复用只收敛请求生命周期，不抽象领域 mutation。
+
 ## 14. 不可破坏的设计约束
 
 - Agent 平等，职责不等于权限，协调责任不等于层级；
@@ -454,3 +458,43 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - C3 failure matrix 已证明唯一 typed success 可以完成；duplicate/no-final/ordinary stdout/partial JSON/oversize/timeout/cancel/process failure 会回收 child，daemon 仍存活，且不新增 durable outbox、Server completion receipt 或 Message；已持久 critical outbox 仍会按 current fence/authority 重放。
 - 已验证 Store 的 focused package/race tests，以及 Collaboration package 的 `-count=1` 与 `-race -count=10` tests。
 - C3 最终独立复审关闭了全部 P0/P1/P2：原样 C1 两进程迁移 x3、External production matrix race x3、generate、buf/vet/staticcheck/TS lint、full Go race、Web 62/62、production Web+Go build、diff 与文件边界全部通过。一次全仓并发运行中，原样 C1 `waitForInboxItem` 在 15 秒内未观测到 trigger；随后三次 uncached full Go 连续通过，full race 也通过。当前无证据将该时序残余风险归因于 C3，但不得宣称测试从未失败。
+
+## 17. 2026-07-22 基础代码整形
+
+- `AGENTS.md` 不再承载 Sumi 产品对象、权限或运行边界；这些事实只由本文档维护。
+- 本次只重组实现边界与错误表达，不改变 Agent、Space、Work、Artifact、Computer、Delivery、Run、权限、协议或持久化事实。
+- Driver capability 由 driver kind 单一决定；Computer daemon 的周期任务以 `error` 保留失败原因，运行路径和 Computer State 按真实职责分文件。
+- Web snapshot 请求统一 generation、abort、stale 与访问失效语义；领域 mutation 仍保持显式。
+- Store 的 Inbox、Work、Delivery 按 command/query/receipt/access/projection/scan 等真实职责分文件，仍留在同一个 package 和 SQLite 事务边界；Artifact List 在 Store 内使用有界 keyset 批次，保留当前 ACL、cursor 和投影语义，不再先加载全部事实后切片。
+- Computer outbox 轮询只读取有界 pending 批次，worker 通过绑定 existence query 判断已持久 completion；tombstone 不再进入执行热路径。
+- 未删除安全、权限、事务、replay、fence 与竞态行为测试；仅将依赖窄墙钟窗口的 heartbeat 测试改为事件驱动，并补充 outbox 批次和 Web 旧响应竞态测试。
+
+## 18. 2026-07-22 bounded context 与持久化所有权
+
+当前实现按 Connect Service 和共享 `store.Store` 组织，已经不足以表达业务边界。后续采用轻量 bounded context，不拆 Server SQLite，不引入 ORM、通用 Repository 或隐式事务框架。
+
+事实所有权暂定如下：
+
+- Authority：Organization、Human、Agent、Grant 以及 Human/Browser 身份事实。
+- Collaboration：Space、Membership、Message、Thread 以及消息顺序事实。
+- Work：Work、Assignment、Approval、Transition 和 Work Event。
+- Execution：Inbox、Delivery、Run、Launch、Lease、Completion 和运行期回执。
+- Computer：Computer、Pairing、Placement 和 Computer 生命周期事实。
+- Artifact：Artifact family/version、ACL、Provenance、完整性状态以及 Blob 元数据；Blob 内容仍由独立 Artifact Blob backend 保存。
+- Knowledge：索引 generation、dirty source、projection 和 rebuild 状态；它是受权限约束的 read model，不拥有源事实。
+- Platform：SQLite 连接、迁移、时钟、ID 和事务基础设施。
+- Audit：append-only 中央事实。业务上下文通过显式 audit writer 写入，Audit API 负责受权限保护的读取。
+
+一个 SQLite 数据库可以承载全部上下文，一个显式事务也可以跨上下文写入，但跨上下文写入必须由明确的 application command 编排，不能由任意 Store helper 隐式穿透。Message 写入 Inbox projection、Work 创建其 team Space、Run completion 产生 Message/HeldDraft 仍需保持原子性；这些是当前已存在的事务边界，不因目录拆分而改变。
+
+Transport adapter 只依赖上下文 application API 或调用方定义的窄接口。SQLite query、scan、authorization、projection 和 replay helper 归属于事实所有者；共享的 SQLite 包只负责连接、迁移和事务基础设施。Computer 本地 State SQLite 与 Server SQLite 继续保持独立边界。
+
+当前单包 SQLite 实现按文件族落实所有权：`authority/agent/grant/browser_session` 属于 Authority，`collaboration/space/message` 属于 Collaboration，`work_*` 属于 Work，`agent_runtime_session/inbox_*/delivery_*` 属于 Execution，`computer/placement` 属于 Computer，`artifact_*` 属于 Artifact，`knowledge` 属于 Knowledge，`audit` 属于 Audit，`store/time/migration` 属于 Platform。跨上下文原子写仍由拥有完整业务命令的 Store 入口编排；显式的 Agent、Computer existence lookup 只读取对应身份事实，不接受动态表名或任意 SQL 目标。
+
+Transport 实现按 `service / handler / request / response / errors` 职责组织。Collaboration、Computer、Grant、Placement 与 Delivery 的 Service 只保留依赖和生命周期；Delivery 的 active Delivery/Run/Launch 与 completion result 组合不变量由独立校验阶段处理，协议映射不再同时承担跨事实一致性判断。本轮不改变 proto、状态机、权限、replay、SQLite schema 或事务边界。
+
+## 19. 2026-07-22 基础重构验证
+
+- 已完成 `mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 和 `mise run build`；Go 全量测试与 Web 64/64 测试通过，race 与生产构建通过。
+- 本轮只移动 Service、Store helper 与 transport mapping 的代码边界，未改变产品事实、权限、协议、SQLite schema、事务、replay、lease、fence 或恢复语义。
+- 遗留风险：transport Params/Entity/Error 仍有一部分以 `store` 类型作为跨包合同；测试 fixture 尚未按 bounded context 重排。下一轮应先抽离稳定领域类型，再统一 mutation/read 元数据、replay receipt 和分页 cursor 合同，避免一次性改协议。

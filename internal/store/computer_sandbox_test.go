@@ -425,7 +425,10 @@ func TestComputerSandboxDeclarationsUseCommitOrderedMonotonicRevision(t *testing
 			if index%2 == 0 {
 				capability = TrustedLocalSandboxCapability()
 			}
-			updated, err := database.HeartbeatComputer(context.Background(), computer.ID, params.RegistrationKey, capability, params.Now.Add(time.Duration(index)*time.Millisecond))
+			updated, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
+				ComputerID: computer.ID, RegistrationKey: params.RegistrationKey,
+				SandboxCapability: capability, Now: params.Now.Add(time.Duration(index) * time.Millisecond),
+			})
 			if err != nil {
 				t.Errorf("heartbeat %d: %v", index, err)
 				return
@@ -485,7 +488,10 @@ func TestComputerPairingReplaysOriginalSandboxDeclarationAfterCurrentFactAdvance
 	if first.SandboxDeclarationRevision != 1 || first.SandboxCapability != TrustedLocalSandboxCapability() {
 		t.Fatalf("first declaration = %+v revision %d", first.SandboxCapability, first.SandboxDeclarationRevision)
 	}
-	current, err := database.HeartbeatComputer(context.Background(), first.ID, params.RegistrationKey, UnknownSandboxCapability(), now.Add(time.Second))
+	current, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
+		ComputerID: first.ID, RegistrationKey: params.RegistrationKey,
+		SandboxCapability: UnknownSandboxCapability(), Now: now.Add(time.Second),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +527,10 @@ func TestInvalidSandboxDeclarationDoesNotMutateComputer(t *testing.T) {
 	}
 	invalid := TrustedLocalSandboxCapability()
 	invalid.NetworkIsolation = "unknown"
-	if _, err := database.HeartbeatComputer(context.Background(), computer.ID, "invalid-sandbox-key", invalid, now.Add(time.Hour)); err != ErrSandboxCapabilityInvalid {
+	if _, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
+		ComputerID: computer.ID, RegistrationKey: "invalid-sandbox-key",
+		SandboxCapability: invalid, Now: now.Add(time.Hour),
+	}); err != ErrSandboxCapabilityInvalid {
 		t.Fatalf("invalid heartbeat error = %v", err)
 	}
 	current, err := database.GetComputer(context.Background(), computer.ID)

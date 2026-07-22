@@ -22,7 +22,7 @@ import (
 type artifactStore interface {
 	Publish(context.Context, store.PublishArtifactParams) (store.PublishArtifactResult, error)
 	Get(context.Context, store.GetArtifactParams) (store.ArtifactView, error)
-	List(context.Context, store.ListArtifactsParams) ([]store.ArtifactView, error)
+	List(context.Context, store.ListArtifactsParams) (store.ListArtifactsResult, error)
 	Grant(context.Context, store.GrantArtifactParams) (store.ArtifactGrant, error)
 	RevokeGrant(context.Context, store.RevokeArtifactGrantParams) (store.ArtifactGrant, error)
 	Fetch(context.Context, store.FetchArtifactParams) (store.FetchArtifactResult, error)
@@ -133,35 +133,21 @@ func (s *Service) ListArtifacts(ctx context.Context, request *connect.Request[ar
 	if limit > 200 {
 		return nil, invalidArgument("artifact list limit must be at most 200")
 	}
-	views, err := s.store.List(ctx, store.ListArtifactsParams{Authentication: authentication, OwningWorkID: workID, Now: now})
+	result, err := s.store.List(ctx, store.ListArtifactsParams{
+		Authentication: authentication, OwningWorkID: workID, AfterArtifactID: afterID, Limit: limit, Now: now,
+	})
 	if err := serviceError(err); err != nil {
 		return nil, err
 	}
-	start := 0
-	if afterID != "" {
-		found := false
-		for index, view := range views {
-			if view.ID == afterID {
-				start = index + 1
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("artifact cursor is unavailable"))
-		}
+	response := &artifactv1.ListArtifactsResponse{
+		Views: make([]*artifactv1.ArtifactView, 0, len(result.Views)), NextArtifactId: result.NextArtifactID,
 	}
-	end := min(start+int(limit), len(views))
-	response := &artifactv1.ListArtifactsResponse{Views: make([]*artifactv1.ArtifactView, 0, end-start)}
-	for _, view := range views[start:end] {
+	for _, view := range result.Views {
 		message, err := artifactViewMessage(view)
 		if err != nil {
 			return nil, err
 		}
 		response.Views = append(response.Views, message)
-	}
-	if end < len(views) {
-		response.NextArtifactId = views[end-1].ID
 	}
 	return connect.NewResponse(response), nil
 }
@@ -659,6 +645,8 @@ func serviceError(err error) error {
 		return connect.NewError(connect.CodeNotFound, errors.New("artifact fact not found"))
 	case errors.Is(err, store.ErrArtifactRequestConflict):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("artifact request conflicts with committed request"))
+	case errors.Is(err, store.ErrArtifactCursorUnavailable):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("artifact cursor is unavailable"))
 	case errors.Is(err, store.ErrArtifactInvalid):
 		return invalidArgument("artifact input is invalid")
 	case errors.Is(err, store.ErrArtifactIntegrity):

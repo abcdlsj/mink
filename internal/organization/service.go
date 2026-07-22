@@ -16,11 +16,11 @@ import (
 )
 
 type Service struct {
-	store *store.Store
+	store organizationStore
 	now   func() time.Time
 }
 
-func New(database *store.Store) *Service {
+func New(database organizationStore) *Service {
 	return &Service{store: database, now: time.Now}
 }
 

@@ -89,9 +89,16 @@ type GetArtifactParams struct {
 }
 
 type ListArtifactsParams struct {
-	Authentication ArtifactAuthentication
-	OwningWorkID   string
-	Now            time.Time
+	Authentication  ArtifactAuthentication
+	OwningWorkID    string
+	AfterArtifactID string
+	Limit           uint32
+	Now             time.Time
+}
+
+type ListArtifactsResult struct {
+	Views          []ArtifactView
+	NextArtifactID string
 }
 
 type FetchArtifactParams struct {
@@ -307,69 +314,123 @@ func (s *ArtifactStore) Get(ctx context.Context, params GetArtifactParams) (Arti
 	return view, nil
 }
 
-func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) ([]ArtifactView, error) {
-	if params.Now.IsZero() {
-		return nil, ErrArtifactInvalid
+func (s *ArtifactStore) List(ctx context.Context, params ListArtifactsParams) (ListArtifactsResult, error) {
+	if params.Now.IsZero() || params.Limit == 0 || params.Limit > 200 {
+		return ListArtifactsResult{}, ErrArtifactInvalid
 	}
 	tx, actor, authentication, err := s.beginTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
-		return nil, err
+		return ListArtifactsResult{}, err
 	}
 	defer tx.Rollback()
+	var afterCreatedAt time.Time
+	afterID := params.AfterArtifactID
+	if afterID != "" {
+		cursor, err := artifactByID(ctx, tx, afterID, actor.OrganizationID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ListArtifactsResult{}, ErrArtifactCursorUnavailable
+		}
+		if err != nil {
+			return ListArtifactsResult{}, err
+		}
+		allowed, err := artifactReadAllowed(ctx, tx, actor, cursor, params.Now)
+		if err != nil {
+			return ListArtifactsResult{}, err
+		}
+		if !allowed || params.OwningWorkID != "" && cursor.OwningWorkID != params.OwningWorkID {
+			return ListArtifactsResult{}, ErrArtifactCursorUnavailable
+		}
+		afterCreatedAt = cursor.CreatedAt
+	}
+	batchSize := params.Limit + 1
+	views := make([]ArtifactView, 0, batchSize)
+	for len(views) < int(batchSize) {
+		artifacts, err := listArtifactBatch(ctx, tx, actor.OrganizationID, params.OwningWorkID, afterCreatedAt, afterID, batchSize)
+		if err != nil {
+			return ListArtifactsResult{}, err
+		}
+		if len(artifacts) == 0 {
+			break
+		}
+		for _, artifact := range artifacts {
+			allowed, err := artifactReadAllowed(ctx, tx, actor, artifact, params.Now)
+			if err != nil {
+				return ListArtifactsResult{}, err
+			}
+			if !allowed {
+				continue
+			}
+			var versionNumber uint64
+			if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM artifact_versions WHERE artifact_id = ?`, artifact.ID).Scan(&versionNumber); err != nil {
+				return ListArtifactsResult{}, err
+			}
+			version, err := artifactVersionByID(ctx, tx, artifact.ID, versionNumber)
+			if err != nil {
+				return ListArtifactsResult{}, err
+			}
+			view, err := projectArtifactView(ctx, tx, actor, authentication, artifact, version, params.Now)
+			if err != nil {
+				return ListArtifactsResult{}, err
+			}
+			views = append(views, view)
+			if len(views) == int(batchSize) {
+				break
+			}
+		}
+		last := artifacts[len(artifacts)-1]
+		afterCreatedAt = last.CreatedAt
+		afterID = last.ID
+		if len(artifacts) < int(batchSize) {
+			break
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ListArtifactsResult{}, fmt.Errorf("commit artifact list: %w", err)
+	}
+	result := ListArtifactsResult{Views: views}
+	if len(views) > int(params.Limit) {
+		result.Views = views[:params.Limit]
+		result.NextArtifactID = result.Views[len(result.Views)-1].ID
+	}
+	return result, nil
+}
+
+func listArtifactBatch(ctx context.Context, tx *sql.Tx, organizationID, owningWorkID string, afterCreatedAt time.Time, afterID string, limit uint32) ([]Artifact, error) {
 	query := `
 		SELECT id, organization_id, owning_work_id, name, media_type,
 		       creator_kind, creator_id, created_at
-		FROM artifacts WHERE organization_id = ?
+		FROM artifacts
+		WHERE organization_id = ?
 	`
-	arguments := []any{actor.OrganizationID}
-	if params.OwningWorkID != "" {
+	arguments := []any{organizationID}
+	if owningWorkID != "" {
 		query += " AND owning_work_id = ?"
-		arguments = append(arguments, params.OwningWorkID)
+		arguments = append(arguments, owningWorkID)
 	}
-	query += " ORDER BY created_at, id"
+	if afterID != "" {
+		query += " AND (created_at > ? OR (created_at = ? AND id > ?))"
+		stamp := unixNano(afterCreatedAt)
+		arguments = append(arguments, stamp, stamp, afterID)
+	}
+	query += " ORDER BY created_at, id LIMIT ?"
+	arguments = append(arguments, limit)
 	rows, err := tx.QueryContext(ctx, query, arguments...)
 	if err != nil {
-		return nil, fmt.Errorf("list artifacts: %w", err)
+		return nil, fmt.Errorf("list artifact batch: %w", err)
 	}
+	defer rows.Close()
 	var artifacts []Artifact
 	for rows.Next() {
 		artifact, err := scanArtifact(rows)
 		if err != nil {
-			rows.Close()
 			return nil, err
 		}
 		artifacts = append(artifacts, artifact)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, err
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate artifact batch: %w", err)
 	}
-	var views []ArtifactView
-	for _, artifact := range artifacts {
-		allowed, err := artifactReadAllowed(ctx, tx, actor, artifact, params.Now)
-		if err != nil {
-			return nil, err
-		}
-		if !allowed {
-			continue
-		}
-		var versionNumber uint64
-		if err := tx.QueryRowContext(ctx, `SELECT MAX(version) FROM artifact_versions WHERE artifact_id = ?`, artifact.ID).Scan(&versionNumber); err != nil {
-			return nil, err
-		}
-		version, err := artifactVersionByID(ctx, tx, artifact.ID, versionNumber)
-		if err != nil {
-			return nil, err
-		}
-		view, err := projectArtifactView(ctx, tx, actor, authentication, artifact, version, params.Now)
-		if err != nil {
-			return nil, err
-		}
-		views = append(views, view)
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit artifact list: %w", err)
-	}
-	return views, nil
+	return artifacts, nil
 }
 
 func (s *ArtifactStore) Fetch(ctx context.Context, params FetchArtifactParams) (FetchArtifactResult, error) {
@@ -619,7 +680,7 @@ func validateArtifactGrantTarget(ctx context.Context, tx *sql.Tx, organizationID
 	var err error
 	switch kind {
 	case ArtifactGrantTargetAgent:
-		exists, err = recordExists(ctx, tx, "agents", id)
+		exists, err = agentExists(ctx, tx, id)
 	case ArtifactGrantTargetSpace:
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE id = ? AND organization_id = ?)`, id, organizationID).Scan(&exists)
 	case ArtifactGrantTargetWork:

@@ -374,7 +374,7 @@ func TestRunActiveDiscoveryRequiresCurrentAuthorization(t *testing.T) {
 		}
 		itemAfter := readInboxItemForDelivery(t, fixture.database, run.DeliveryID)
 		deliveryAfter := readDelivery(t, fixture.database, run.DeliveryID)
-		runAfter, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, fixture.at(6))
+		runAfter, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: fixture.at(6)})
 		if err != nil || !reflect.DeepEqual(itemAfter, itemBefore) ||
 			!reflect.DeepEqual(deliveryAfter, deliveryBefore) || !reflect.DeepEqual(runAfter, run) {
 			t.Fatalf("accepted facts after rejected discovery = item:%+v delivery:%+v run:%+v error:%v", itemAfter, deliveryAfter, runAfter, err)
@@ -394,7 +394,7 @@ func TestRunActiveDiscoveryRequiresCurrentAuthorization(t *testing.T) {
 		launch := fixture.claimRun(t, run, 4)
 		itemBefore := readInboxItemForDelivery(t, fixture.database, run.DeliveryID)
 		deliveryBefore := readDelivery(t, fixture.database, run.DeliveryID)
-		runBefore, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, fixture.at(5))
+		runBefore, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: fixture.at(5)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -407,7 +407,7 @@ func TestRunActiveDiscoveryRequiresCurrentAuthorization(t *testing.T) {
 		}
 		itemAfter := readInboxItemForDelivery(t, fixture.database, run.DeliveryID)
 		deliveryAfter := readDelivery(t, fixture.database, run.DeliveryID)
-		runAfter, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, launch.ExpiresAt.Add(time.Second))
+		runAfter, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: launch.ExpiresAt.Add(time.Second)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -455,7 +455,7 @@ func TestRunReplayRequiresCurrentAuthorization(t *testing.T) {
 		}
 		itemAfter := readInboxItem(t, fixture.database, trigger.Item.ID)
 		deliveryAfter := readDelivery(t, fixture.database, trigger.Delivery.ID)
-		current, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, fixture.at(6))
+		current, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: fixture.at(6)})
 		if err != nil || !reflect.DeepEqual(itemAfter, itemBefore) || !reflect.DeepEqual(deliveryAfter, deliveryBefore) || !reflect.DeepEqual(current, run) {
 			t.Fatalf("facts after rejected accept replay = item:%+v delivery:%+v run:%+v error:%v", itemAfter, deliveryAfter, current, err)
 		}
@@ -532,7 +532,7 @@ func TestRunReplayRequiresCurrentAuthorization(t *testing.T) {
 		revokeDeliveryGrant(t, fixture, CapabilitySpaceRead, fixture.at(7))
 		itemBefore := readInboxItemForDelivery(t, fixture.database, run.DeliveryID)
 		deliveryBefore := readDelivery(t, fixture.database, run.DeliveryID)
-		runBefore, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, fixture.at(8))
+		runBefore, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: fixture.at(8)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -547,7 +547,7 @@ func TestRunReplayRequiresCurrentAuthorization(t *testing.T) {
 		}
 		itemAfter := readInboxItemForDelivery(t, fixture.database, run.DeliveryID)
 		deliveryAfter := readDelivery(t, fixture.database, run.DeliveryID)
-		runAfter, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, fixture.at(10))
+		runAfter, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: fixture.at(10)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -791,7 +791,7 @@ func TestRunStaleLaunchCannotComplete(t *testing.T) {
 		t.Fatalf("stale completion error = %v", err)
 	}
 	assertRunWrites(t, fixture.database, requestID, 1, 2)
-	current, err := fixture.database.GetRun(context.Background(), fixture.authentication, run.ID, second.ClaimedAt.Add(2*time.Second))
+	current, err := fixture.database.GetRun(context.Background(), GetRunParams{Authentication: fixture.authentication, RunID: run.ID, Now: second.ClaimedAt.Add(2 * time.Second)})
 	if err != nil || current.State != RunStateRunning || current.ResultID != "" {
 		t.Fatalf("run after stale completion = %+v, %v", current, err)
 	}

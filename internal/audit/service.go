@@ -14,11 +14,11 @@ import (
 )
 
 type Service struct {
-	store *store.Store
+	store auditStore
 	now   func() time.Time
 }
 
-func New(database *store.Store) *Service {
+func New(database auditStore) *Service {
 	return &Service{store: database, now: time.Now}
 }
 
@@ -27,7 +27,10 @@ func (s *Service) ListAuditEvents(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	allowed, err := s.store.CheckPermission(ctx, actor, store.CapabilityAuditRead, store.Scope{Kind: "organization", ID: actor.OrganizationID}, s.now())
+	allowed, err := s.store.CheckPermission(ctx, store.CheckPermissionParams{
+		Subject: actor, Capability: store.CapabilityAuditRead,
+		Scope: store.Scope{Kind: "organization", ID: actor.OrganizationID}, Now: s.now(),
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -41,7 +44,9 @@ func (s *Service) ListAuditEvents(ctx context.Context, request *connect.Request[
 	if limit > 500 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("audit limit must not exceed 500"))
 	}
-	events, err := s.store.ListAuditEvents(ctx, actor.OrganizationID, request.Msg.GetAfterSequence(), limit)
+	events, err := s.store.ListAuditEvents(ctx, store.ListAuditEventsParams{
+		OrganizationID: actor.OrganizationID, AfterSequence: request.Msg.GetAfterSequence(), Limit: limit,
+	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

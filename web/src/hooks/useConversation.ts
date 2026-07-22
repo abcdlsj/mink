@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import { useCallback } from "react";
 import type { Message, Principal } from "../gen/sumi/space/v1/space_pb";
 import {
   addSpaceMember,
@@ -24,6 +17,13 @@ import {
   type ConversationSnapshot,
   type ThreadSnapshot,
 } from "../lib/collaboration";
+import {
+  useRemoteSnapshot,
+  type RemoteSnapshotState,
+  type SnapshotBinding,
+  type SnapshotFailure,
+  type SnapshotStateSetter,
+} from "./useRemoteSnapshot";
 
 type SnapshotState<T> = {
   status: "idle" | "loading" | "ready" | "refreshing" | "error" | "stale";
@@ -34,230 +34,146 @@ type SnapshotState<T> = {
   authenticationInvalidated?: boolean;
 };
 
+type ConversationFailure = SnapshotFailure & {
+  inaccessibleTargetId?: string;
+  inaccessibleSpaceId?: string;
+  authenticationInvalidated: boolean;
+};
+
 export function useConversation(
   humanId: string | undefined,
   spaceId: string | undefined,
   threadRoot: Message | undefined,
 ) {
-  const [conversation, setConversation] = useState<
-    SnapshotState<ConversationSnapshot>
-  >({ status: "idle" });
-  const [thread, setThread] = useState<SnapshotState<ThreadSnapshot>>({
-    status: "idle",
+  const loadMain = useCallback(
+    (signal: AbortSignal) => {
+      if (!humanId || !spaceId) throw new Error("No Space selected");
+      return loadConversation(humanId, spaceId, { signal });
+    },
+    [humanId, spaceId],
+  );
+  const classifyMainError = useCallback(
+    (error: unknown) => classifyFailure(error, "load conversation", spaceId),
+    [spaceId],
+  );
+  const main = useRemoteSnapshot({
+    enabled: Boolean(humanId && spaceId),
+    targetId: spaceId,
+    load: loadMain,
+    classifyError: classifyMainError,
   });
-  const conversationGeneration = useRef(0);
-  const threadGeneration = useRef(0);
-  const latestSpaceId = useRef(spaceId);
-  const latestThreadRootId = useRef(threadRoot?.id);
-  latestSpaceId.current = spaceId;
-  latestThreadRootId.current = threadRoot?.id;
-  const conversationController = useRef<AbortController | undefined>(undefined);
-  const threadController = useRef<AbortController | undefined>(undefined);
 
-  const refresh = useCallback(async () => {
-    if (!humanId || !spaceId || latestSpaceId.current !== spaceId) return;
-    const targetSpaceId = spaceId;
-    const nextGeneration = ++conversationGeneration.current;
-    conversationController.current?.abort();
-    const request = new AbortController();
-    conversationController.current = request;
-    setConversation((current) => ({
-      status: current.data?.space.id === spaceId ? "refreshing" : "loading",
-      data: current.data?.space.id === spaceId ? current.data : undefined,
-    }));
-    try {
-      const data = await loadConversation(humanId, spaceId, {
-        signal: request.signal,
-      });
-      if (
-        latestSpaceId.current !== targetSpaceId ||
-        conversationGeneration.current !== nextGeneration
-      )
-        return;
-      setConversation({ status: "ready", data });
-    } catch (error) {
-      if (
-        request.signal.aborted ||
-        latestSpaceId.current !== targetSpaceId ||
-        conversationGeneration.current !== nextGeneration
-      )
-        return;
-      setConversation((current) => ({
-        status:
-          !isInaccessibleCollaborationError(error) &&
-          current.data?.space.id === targetSpaceId
-            ? "stale"
-            : "error",
-        data:
-          !isInaccessibleCollaborationError(error) &&
-          current.data?.space.id === targetSpaceId
-            ? current.data
-            : undefined,
-        error: collaborationErrorMessage(error, "load conversation"),
-        inaccessibleTargetId: isInaccessibleCollaborationError(error)
-          ? targetSpaceId
-          : undefined,
-        authenticationInvalidated:
-          isUnauthenticatedCollaborationError(error) || undefined,
-      }));
-    }
-  }, [humanId, spaceId]);
-
-  useEffect(() => {
-    if (!humanId || !spaceId) {
-      conversationController.current?.abort();
-      conversationGeneration.current += 1;
-      setConversation({ status: "idle" });
-      return;
-    }
-    void refresh();
-    return () => conversationController.current?.abort();
-  }, [humanId, refresh, spaceId]);
-
-  const refreshThread = useCallback(async () => {
-    if (!threadRoot || latestThreadRootId.current !== threadRoot.id) return;
-    const rootId = threadRoot.id;
-    const nextGeneration = ++threadGeneration.current;
-    threadController.current?.abort();
-    const request = new AbortController();
-    threadController.current = request;
-    setThread((current) => ({
-      status: current.data?.root.id === rootId ? "refreshing" : "loading",
-      data: current.data?.root.id === rootId ? current.data : undefined,
-    }));
-    try {
-      const data = await loadThread(threadRoot, { signal: request.signal });
-      if (
-        latestThreadRootId.current !== rootId ||
-        threadGeneration.current !== nextGeneration
-      )
-        return;
-      setThread({ status: "ready", data });
-    } catch (error) {
-      if (
-        request.signal.aborted ||
-        latestThreadRootId.current !== rootId ||
-        threadGeneration.current !== nextGeneration
-      )
-        return;
-      const inaccessible = isInaccessibleCollaborationError(error);
-      setThread((current) => ({
-        status:
-          !inaccessible && current.data?.root.id === rootId ? "stale" : "error",
-        data:
-          !inaccessible && current.data?.root.id === rootId
-            ? current.data
-            : undefined,
-        error: collaborationErrorMessage(error, "load thread"),
-        inaccessibleTargetId: inaccessible ? rootId : undefined,
-        inaccessibleSpaceId: inaccessible ? threadRoot.spaceId : undefined,
-        authenticationInvalidated:
-          isUnauthenticatedCollaborationError(error) || undefined,
-      }));
-      if (inaccessible) {
+  const loadSelectedThread = useCallback(
+    (signal: AbortSignal) => {
+      if (!threadRoot) throw new Error("No Thread selected");
+      return loadThread(threadRoot, { signal });
+    },
+    [threadRoot],
+  );
+  const classifyThreadError = useCallback(
+    (error: unknown) =>
+      classifyFailure(
+        error,
+        "load thread",
+        threadRoot?.id,
+        threadRoot?.spaceId,
+      ),
+    [threadRoot],
+  );
+  const clearMainOnThreadFailure = useCallback(
+    (error: unknown, failure: ConversationFailure) => {
+      if (failure.discard && threadRoot) {
         clearConversationForThread(
-          setConversation,
+          main.setState,
           threadRoot.spaceId,
           error,
           "load thread",
         );
       }
-    }
-  }, [threadRoot]);
-
-  useEffect(() => {
-    if (!threadRoot) {
-      threadController.current?.abort();
-      threadGeneration.current += 1;
-      setThread({ status: "idle" });
-      return;
-    }
-    void refreshThread();
-    return () => threadController.current?.abort();
-  }, [refreshThread, threadRoot]);
+    },
+    [main.setState, threadRoot],
+  );
+  const selectedThread = useRemoteSnapshot({
+    enabled: Boolean(threadRoot),
+    targetId: threadRoot?.id,
+    load: loadSelectedThread,
+    classifyError: classifyThreadError,
+    onFailure: clearMainOnThreadFailure,
+  });
 
   const mutateAndRefresh = useCallback(
-    async (
-      targetSpaceId: string,
-      targetGeneration: number,
-      mutation: () => Promise<void>,
-    ) => {
+    async (binding: SnapshotBinding, mutation: () => Promise<void>) => {
       await mutation();
-      if (
-        latestSpaceId.current !== targetSpaceId ||
-        conversationGeneration.current !== targetGeneration
-      )
-        return;
-      await refresh();
+      if (!main.isCurrent(binding)) return;
+      await main.refresh();
     },
-    [refresh],
+    [main],
   );
+
+  const conversation = flattenState(main.state);
+  const thread = flattenState(selectedThread.state);
 
   return {
     conversation,
     thread,
-    refresh,
-    refreshThread,
+    refresh: main.refresh,
+    refreshThread: selectedThread.refresh,
     loadMore: async () => {
-      if (!conversation.data) return;
-      const snapshot = conversation.data;
-      const targetGeneration = conversationGeneration.current;
+      const snapshot = main.state.data;
+      const binding = main.capture();
+      if (!snapshot || !binding) return;
       try {
         const data = await loadMoreConversationMessages(snapshot);
-        if (
-          latestSpaceId.current !== snapshot.space.id ||
-          conversationGeneration.current !== targetGeneration
-        )
-          return;
-        setConversation({ status: "ready", data });
+        if (!main.isCurrent(binding)) return;
+        main.setState({
+          status: "ready",
+          data,
+          targetId: binding.targetId,
+        });
       } catch (error) {
-        if (
-          latestSpaceId.current !== snapshot.space.id ||
-          conversationGeneration.current !== targetGeneration
-        )
-          return;
-        const inaccessible = isInaccessibleCollaborationError(error);
-        setConversation({
-          status: inaccessible ? "error" : "stale",
-          data: inaccessible ? undefined : snapshot,
-          error: collaborationErrorMessage(error, "load more messages"),
-          inaccessibleTargetId: inaccessible ? snapshot.space.id : undefined,
-          authenticationInvalidated:
-            isUnauthenticatedCollaborationError(error) || undefined,
+        if (!main.isCurrent(binding)) return;
+        const failure = classifyFailure(
+          error,
+          "load more messages",
+          snapshot.space.id,
+        );
+        main.setState({
+          status: failure.discard ? "error" : "stale",
+          data: failure.discard ? undefined : snapshot,
+          targetId: binding.targetId,
+          failure,
         });
       }
     },
     loadMoreThread: async () => {
-      if (!thread.data) return;
-      const snapshot = thread.data;
-      const targetGeneration = threadGeneration.current;
+      const snapshot = selectedThread.state.data;
+      const binding = selectedThread.capture();
+      if (!snapshot || !binding) return;
       try {
         const data = await loadMoreThreadMessages(snapshot);
-        if (
-          latestThreadRootId.current !== snapshot.root.id ||
-          threadGeneration.current !== targetGeneration
-        )
-          return;
-        setThread({ status: "ready", data });
-      } catch (error) {
-        if (
-          latestThreadRootId.current !== snapshot.root.id ||
-          threadGeneration.current !== targetGeneration
-        )
-          return;
-        const inaccessible = isInaccessibleCollaborationError(error);
-        setThread({
-          status: inaccessible ? "error" : "stale",
-          data: inaccessible ? undefined : snapshot,
-          error: collaborationErrorMessage(error, "load more replies"),
-          inaccessibleTargetId: inaccessible ? snapshot.root.id : undefined,
-          inaccessibleSpaceId: inaccessible ? snapshot.root.spaceId : undefined,
-          authenticationInvalidated:
-            isUnauthenticatedCollaborationError(error) || undefined,
+        if (!selectedThread.isCurrent(binding)) return;
+        selectedThread.setState({
+          status: "ready",
+          data,
+          targetId: binding.targetId,
         });
-        if (inaccessible) {
+      } catch (error) {
+        if (!selectedThread.isCurrent(binding)) return;
+        const failure = classifyFailure(
+          error,
+          "load more replies",
+          snapshot.root.id,
+          snapshot.root.spaceId,
+        );
+        selectedThread.setState({
+          status: failure.discard ? "error" : "stale",
+          data: failure.discard ? undefined : snapshot,
+          targetId: binding.targetId,
+          failure,
+        });
+        if (failure.discard) {
           clearConversationForThread(
-            setConversation,
+            main.setState,
             snapshot.root.spaceId,
             error,
             "load more replies",
@@ -266,83 +182,113 @@ export function useConversation(
       }
     },
     sendMain: async (requestId: string, body: string) => {
-      if (!spaceId) throw new Error("No Space selected");
-      const targetSpaceId = spaceId;
-      const targetGeneration = conversationGeneration.current;
+      const binding = main.capture();
+      if (!spaceId || !binding) throw new Error("No Space selected");
       const message = await sendSpaceMessage({
         requestId,
-        spaceId: targetSpaceId,
+        spaceId: binding.targetId,
         body,
       });
-      if (
-        latestSpaceId.current !== targetSpaceId ||
-        conversationGeneration.current !== targetGeneration
-      )
-        return;
-      setConversation((current) =>
-        current.data?.space.id === targetSpaceId
+      if (!main.isCurrent(binding)) return;
+      main.setState((current) =>
+        current.data?.space.id === binding.targetId
           ? {
               status: "ready",
               data: {
                 ...current.data,
                 messages: mergeMessages(current.data.messages, [message]),
               },
+              targetId: binding.targetId,
             }
           : current,
       );
-      await refresh();
+      await main.refresh();
     },
     sendReply: async (requestId: string, body: string) => {
-      if (!threadRoot) throw new Error("No Thread selected");
-      const targetRootId = threadRoot.id;
-      const targetGeneration = threadGeneration.current;
+      const binding = selectedThread.capture();
+      if (!threadRoot || !binding) throw new Error("No Thread selected");
       const message = await sendThreadMessage({
         requestId,
-        threadRootMessageId: targetRootId,
+        threadRootMessageId: binding.targetId,
         body,
       });
-      if (
-        latestThreadRootId.current !== targetRootId ||
-        threadGeneration.current !== targetGeneration
-      )
-        return;
-      setThread((current) =>
-        current.data?.root.id === targetRootId
+      if (!selectedThread.isCurrent(binding)) return;
+      selectedThread.setState((current) =>
+        current.data?.root.id === binding.targetId
           ? {
               status: "ready",
               data: {
                 ...current.data,
                 replies: mergeMessages(current.data.replies, [message]),
               },
+              targetId: binding.targetId,
             }
           : current,
       );
-      await refreshThread();
+      await selectedThread.refresh();
     },
     addMember: async (requestId: string, member: Principal) => {
-      if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
-        addSpaceMember({ requestId, spaceId, member }),
+      const binding = main.capture();
+      if (!spaceId || !binding) throw new Error("No Space selected");
+      await mutateAndRefresh(binding, () =>
+        addSpaceMember({ requestId, spaceId: binding.targetId, member }),
       );
     },
     removeMember: async (requestId: string, member: Principal) => {
-      if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
-        removeSpaceMember({ requestId, spaceId, member }),
+      const binding = main.capture();
+      if (!spaceId || !binding) throw new Error("No Space selected");
+      await mutateAndRefresh(binding, () =>
+        removeSpaceMember({ requestId, spaceId: binding.targetId, member }),
       );
     },
     setArchived: async (requestId: string, archived: boolean) => {
-      if (!spaceId) throw new Error("No Space selected");
-      await mutateAndRefresh(spaceId, conversationGeneration.current, () =>
-        setSpaceArchived({ requestId, spaceId, archived }),
+      const binding = main.capture();
+      if (!spaceId || !binding) throw new Error("No Space selected");
+      await mutateAndRefresh(binding, () =>
+        setSpaceArchived({
+          requestId,
+          spaceId: binding.targetId,
+          archived,
+        }),
       );
     },
   };
 }
 
+function classifyFailure(
+  error: unknown,
+  action: string,
+  targetId: string | undefined,
+  spaceId?: string,
+): ConversationFailure {
+  const inaccessible = isInaccessibleCollaborationError(error);
+  return {
+    message: collaborationErrorMessage(error, action),
+    discard: inaccessible,
+    inaccessibleTargetId: inaccessible ? targetId : undefined,
+    inaccessibleSpaceId: inaccessible ? spaceId : undefined,
+    authenticationInvalidated: isUnauthenticatedCollaborationError(error),
+  };
+}
+
+function flattenState<T>(
+  state: RemoteSnapshotState<T, ConversationFailure>,
+): SnapshotState<T> {
+  return {
+    status: state.status === "retrying" ? "loading" : state.status,
+    data: state.data,
+    error: state.failure?.message,
+    inaccessibleTargetId: state.failure?.inaccessibleTargetId,
+    inaccessibleSpaceId: state.failure?.inaccessibleSpaceId,
+    authenticationInvalidated:
+      state.failure?.authenticationInvalidated || undefined,
+  };
+}
+
 function clearConversationForThread(
-  setConversation: Dispatch<
-    SetStateAction<SnapshotState<ConversationSnapshot>>
+  setConversation: SnapshotStateSetter<
+    ConversationSnapshot,
+    ConversationFailure
   >,
   spaceId: string,
   error: unknown,
@@ -352,10 +298,8 @@ function clearConversationForThread(
     current.data?.space.id === spaceId
       ? {
           status: "error",
-          error: collaborationErrorMessage(error, action),
-          inaccessibleTargetId: spaceId,
-          authenticationInvalidated:
-            isUnauthenticatedCollaborationError(error) || undefined,
+          targetId: spaceId,
+          failure: classifyFailure(error, action, spaceId),
         }
       : current,
   );

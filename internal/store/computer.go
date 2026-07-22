@@ -54,6 +54,13 @@ type RegisterComputerParams struct {
 	Now               time.Time
 }
 
+type HeartbeatComputerParams struct {
+	ComputerID        string
+	RegistrationKey   string
+	SandboxCapability SandboxCapability
+	Now               time.Time
+}
+
 type ComputerPairing struct {
 	ID        string
 	ExpiresAt time.Time
@@ -393,8 +400,8 @@ func (s *Store) RegisterComputer(ctx context.Context, params RegisterComputerPar
 	return computer, nil
 }
 
-func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey string, capability SandboxCapability, now time.Time) (Computer, error) {
-	capability, valid := normalizeSandboxCapability(capability)
+func (s *Store) HeartbeatComputer(ctx context.Context, params HeartbeatComputerParams) (Computer, error) {
+	capability, valid := normalizeSandboxCapability(params.SandboxCapability)
 	if !valid {
 		return Computer{}, ErrSandboxCapabilityInvalid
 	}
@@ -404,7 +411,7 @@ func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey strin
 	}
 	defer tx.Rollback()
 
-	keyHash := registrationKeyHash(registrationKey)
+	keyHash := registrationKeyHash(params.RegistrationKey)
 	row := tx.QueryRowContext(ctx, `
 		UPDATE computers
 		SET last_seen_at = max(last_seen_at, ?),
@@ -413,9 +420,9 @@ func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey strin
 			sandbox_daemon_crash_cleanup = ?, sandbox_declaration_revision = sandbox_declaration_revision + 1
 		WHERE id = ? AND registration_key_hash = ?
 		RETURNING `+computerColumns+`
-	`, unixNano(now), capability.Provider, capability.Isolation, capability.WorkspaceAccess, capability.ProcessControl,
+	`, unixNano(params.Now), capability.Provider, capability.Isolation, capability.WorkspaceAccess, capability.ProcessControl,
 		capability.FilesystemIsolation, capability.NetworkIsolation, capability.SecretMaterialization,
-		capability.DaemonCrashCleanup, id, keyHash[:])
+		capability.DaemonCrashCleanup, params.ComputerID, keyHash[:])
 	computer, err := scanComputer(row)
 	if err == nil {
 		if err := tx.Commit(); err != nil {
@@ -428,7 +435,7 @@ func (s *Store) HeartbeatComputer(ctx context.Context, id, registrationKey strin
 	}
 
 	var exists bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM computers WHERE id = ?)", id).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM computers WHERE id = ?)", params.ComputerID).Scan(&exists); err != nil {
 		return Computer{}, fmt.Errorf("check computer identity: %w", err)
 	}
 	if !exists {

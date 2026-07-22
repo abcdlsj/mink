@@ -55,7 +55,9 @@ func TestBrowserSessionUsesHumanAuthorityAndLogoutKeepsPublicFacts(t *testing.T)
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("denied browser mutation error = %v", err)
 	}
-	events, err := api.app.store.ListAuditEvents(context.Background(), owner.OrganizationID, 0, 100)
+	events, err := api.app.store.ListAuditEvents(context.Background(), store.ListAuditEventsParams{
+		OrganizationID: owner.OrganizationID, Limit: 100,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

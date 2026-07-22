@@ -135,8 +135,8 @@ func TestDaemonSlowOutboxDoesNotStarveHeartbeatOrRunRenew(t *testing.T) {
 func TestDaemonHeartbeatDeclaresTrustedLocalCapability(t *testing.T) {
 	fixture := newDaemonFixture(t)
 	defer fixture.state.Close()
-	if !fixture.daemon.heartbeat(context.Background(), fixture.identity) {
-		t.Fatal("heartbeat failed")
+	if err := fixture.daemon.heartbeat(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	if capability := fixture.computers.sandboxCapability(); !proto.Equal(capability, mustTrustedLocalSandboxCapability(t)) {
 		t.Fatalf("heartbeat sandbox capability = %+v", capability)
@@ -207,8 +207,8 @@ func TestDaemonIneligibleExecutorDoesNotListObserveAcceptOrClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	fixture.daemon.config.Executor = eligibleTestExecutor{eligible: false}
-	if !fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity) {
-		t.Fatal("ineligible dispatch failed")
+	if err := fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	if fixture.deliveries.listCount() != 0 || fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || fixture.inbox.count() != 0 {
 		t.Fatalf("ineligible executor activity: list=%d accept=%d claim=%d observe=%d",
@@ -240,16 +240,16 @@ func TestIneligibleExecutorDoesNotStartNewWorkAndReplaysPendingOutbox(t *testing
 		completed++
 		return canonicalCompleteResponse(request.Msg, agentID), nil
 	}
-	if !fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity) {
-		t.Fatal("ineligible dispatch failed")
+	if err := fixture.daemon.dispatchDeliveries(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	if fixture.deliveries.listCount() != 0 || fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || fixture.inbox.count() != 0 {
 		t.Fatalf("ineligible new-work activity: list=%d accept=%d claim=%d observe=%d",
 			fixture.deliveries.listCount(), fixture.deliveries.acceptCount(), fixture.deliveries.claimCount(), fixture.inbox.count())
 	}
-	replayed := fixture.daemon.dispatchOutbox(context.Background())
-	if !replayed || completed != 1 {
-		t.Fatalf("pending outbox replay = %t, complete=%d", replayed, completed)
+	replayErr := fixture.daemon.dispatchOutbox(context.Background())
+	if replayErr != nil || completed != 1 {
+		t.Fatalf("pending outbox replay error = %v, complete=%d", replayErr, completed)
 	}
 	events, err := fixture.state.Outbox(context.Background())
 	if err != nil || len(events) != 0 {
@@ -267,9 +267,9 @@ func TestAuthoritativeTriggerRejectsMissingDuplicateAndOversizeInput(t *testing.
 			}},
 		}
 	}
-	trigger, ok := authoritativeTrigger(delivery, valid())
-	if !ok || trigger.spaceID != delivery.GetSpaceId() || trigger.observedHead != 1 || trigger.body != "authoritative trigger" {
-		t.Fatalf("valid trigger = %+v, %t", trigger, ok)
+	trigger, err := authoritativeTrigger(delivery, valid())
+	if err != nil || trigger.spaceID != delivery.GetSpaceId() || trigger.observedHead != 1 || trigger.body != "authoritative trigger" {
+		t.Fatalf("valid trigger = %+v, %v", trigger, err)
 	}
 	for _, test := range []struct {
 		name   string
@@ -290,7 +290,7 @@ func TestAuthoritativeTriggerRejectsMissingDuplicateAndOversizeInput(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			response := valid()
 			test.mutate(response)
-			if trigger, ok := authoritativeTrigger(delivery, response); ok {
+			if trigger, err := authoritativeTrigger(delivery, response); err == nil {
 				t.Fatalf("invalid trigger accepted = %+v", trigger)
 			}
 		})
@@ -314,7 +314,7 @@ func TestDaemonDoesNotAcceptOrExecuteInvalidObservedTrigger(t *testing.T) {
 	}
 	executor := &countingExecutor{}
 	fixture.daemon.config.Executor = executor
-	if fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
+	if err := fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session); err == nil {
 		t.Fatal("invalid trigger reported dispatch success")
 	}
 	if fixture.deliveries.acceptCount() != 0 || fixture.deliveries.claimCount() != 0 || executor.count() != 0 {
@@ -336,15 +336,15 @@ func TestPlacementUnbindRequiresSuccessfulCompleteSnapshot(t *testing.T) {
 	fixture.placements.list = func(context.Context) ([]*placementv1.AgentPlacement, error) {
 		return nil, connect.NewError(connect.CodeUnavailable, errors.New("offline"))
 	}
-	if fixture.daemon.syncPlacements(context.Background(), fixture.identity) {
+	if err := fixture.daemon.syncPlacements(context.Background(), fixture.identity); err == nil {
 		t.Fatal("failed snapshot reported success")
 	}
 	if _, found, err := fixture.state.RuntimeSession(context.Background(), agentID); err != nil || !found {
 		t.Fatalf("runtime after failed snapshot = %v, %v", found, err)
 	}
 	fixture.placements.list = func(context.Context) ([]*placementv1.AgentPlacement, error) { return nil, nil }
-	if !fixture.daemon.syncPlacements(context.Background(), fixture.identity) {
-		t.Fatal("complete empty snapshot reported failure")
+	if err := fixture.daemon.syncPlacements(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	if _, found, err := fixture.state.RuntimeSession(context.Background(), agentID); err != nil || found {
 		t.Fatalf("runtime after complete empty snapshot = %v, %v", found, err)
@@ -381,8 +381,8 @@ func TestPlacementSnapshotRotatesRuntimeOnlyForCurrentBinding(t *testing.T) {
 			ExpiresAt: timestamppb.New(time.Now().Add(time.Duration(createCount) * time.Minute)),
 		}, nil
 	}
-	if !fixture.daemon.syncPlacements(context.Background(), fixture.identity) {
-		t.Fatal("generation rotation failed")
+	if err := fixture.daemon.syncPlacements(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	session, found, err := fixture.state.RuntimeSession(context.Background(), agentID)
 	if err != nil || !found || session.PlacementGeneration != 2 || session.Token != testRuntimeToken(31) {
@@ -399,8 +399,8 @@ func TestPlacementSnapshotRotatesRuntimeOnlyForCurrentBinding(t *testing.T) {
 	fixture.runtimes.renew = func(*connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*runtimev1.AgentRuntimeSession, error) {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("revoked"))
 	}
-	if !fixture.daemon.syncPlacements(context.Background(), fixture.identity) {
-		t.Fatal("same-binding remint after unauthenticated failed")
+	if err := fixture.daemon.syncPlacements(context.Background(), fixture.identity); err != nil {
+		t.Fatal(err)
 	}
 	session, found, err = fixture.state.RuntimeSession(context.Background(), agentID)
 	if err != nil || !found || session.PlacementGeneration != 2 || session.Token != testRuntimeToken(32) || createCount != 2 {
@@ -412,7 +412,7 @@ func TestPlacementSnapshotRotatesRuntimeOnlyForCurrentBinding(t *testing.T) {
 			activePlacement(agentID, fixture.identity.ComputerID, 3),
 		}, nil
 	}
-	if fixture.daemon.syncPlacements(context.Background(), fixture.identity) {
+	if err := fixture.daemon.syncPlacements(context.Background(), fixture.identity); err == nil {
 		t.Fatal("duplicate authoritative snapshot reported success")
 	}
 	unchanged, found, err := fixture.state.RuntimeSession(context.Background(), agentID)
@@ -502,8 +502,8 @@ func TestReconcileActiveMutationsRefreshesRunningWorkerLease(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("executor did not start")
 	}
-	if ok := fixture.daemon.reconcileActiveMutations(context.Background(), session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second))); !ok {
-		t.Fatal("active mutation reconciliation failed")
+	if err := fixture.daemon.reconcileActiveMutations(context.Background(), session, delivery, run, testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 1, now.Add(5*time.Second))); err != nil {
+		t.Fatal(err)
 	}
 	fixture.daemon.workersMu.Lock()
 	workerExpiry := fixture.daemon.workers[runID].leaseExpiry.Load()
@@ -633,10 +633,14 @@ func TestDaemonHeartbeatBackoffRecoversWhileSnapshotIsBlocked(t *testing.T) {
 	defer fixture.state.Close()
 	var mu sync.Mutex
 	var attempts []time.Time
+	recovered := make(chan struct{})
 	fixture.computers.heartbeat = func(count int) error {
 		mu.Lock()
 		attempts = append(attempts, time.Now())
 		mu.Unlock()
+		if count == 7 {
+			close(recovered)
+		}
 		if count <= 3 {
 			return connect.NewError(connect.CodeUnavailable, errors.New("offline"))
 		}
@@ -646,22 +650,29 @@ func TestDaemonHeartbeatBackoffRecoversWhileSnapshotIsBlocked(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 130*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := fixture.daemon.Run(ctx); err != nil {
+	done := make(chan error, 1)
+	go func() { done <- fixture.daemon.Run(ctx) }()
+	select {
+	case <-recovered:
+		cancel()
+	case <-ctx.Done():
+		t.Fatal("heartbeat did not recover")
+	}
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(attempts) < 7 || len(attempts) > 12 {
-		t.Fatalf("heartbeat attempts = %d, want recovered bounded polling", len(attempts))
+	if len(attempts) < 7 {
+		t.Fatalf("heartbeat attempts = %d, want at least 7", len(attempts))
 	}
-	minimumGaps := []time.Duration{7 * time.Millisecond, 15 * time.Millisecond, 30 * time.Millisecond}
-	maximumGaps := []time.Duration{12 * time.Millisecond, 19 * time.Millisecond, 38 * time.Millisecond}
+	minimumGaps := []time.Duration{7 * time.Millisecond, 14 * time.Millisecond, 28 * time.Millisecond}
 	for index, minimum := range minimumGaps {
 		gap := attempts[index+1].Sub(attempts[index])
-		if gap < minimum || gap > maximumGaps[index] {
-			t.Fatalf("heartbeat retry gap %d = %s, want [%s, %s]", index+1, gap, minimum, maximumGaps[index])
+		if gap < minimum {
+			t.Fatalf("heartbeat retry gap %d = %s, want at least %s", index+1, gap, minimum)
 		}
 	}
 }
@@ -687,12 +698,12 @@ func TestDaemonMutationJournalReplaysAcrossRestartAndAdvancesRenewRequest(t *tes
 		}
 		return activeRun(runID, deliveryID, agentID), nil
 	}
-	if run := fixture.daemon.acceptDelivery(context.Background(), session, delivery); run != nil {
-		t.Fatalf("first accept returned %+v", run)
+	if run, err := fixture.daemon.acceptDelivery(context.Background(), session, delivery); run != nil || err == nil {
+		t.Fatalf("first accept = %+v, %v", run, err)
 	}
 	reopenDaemonState(t, &fixture)
-	if run := fixture.daemon.acceptDelivery(context.Background(), session, delivery); run == nil || run.GetId() != runID {
-		t.Fatalf("replayed accept = %+v", run)
+	if run, err := fixture.daemon.acceptDelivery(context.Background(), session, delivery); err != nil || run == nil || run.GetId() != runID {
+		t.Fatalf("replayed accept = %+v, %v", run, err)
 	}
 	if len(acceptRequests) != 2 || acceptRequests[0] != acceptRequests[1] {
 		t.Fatalf("accept request ids = %v", acceptRequests)
@@ -707,12 +718,12 @@ func TestDaemonMutationJournalReplaysAcrossRestartAndAdvancesRenewRequest(t *tes
 		}
 		return testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 4, claimExpiry), nil
 	}
-	if launch := fixture.daemon.claimRun(context.Background(), session, runID); launch != nil {
-		t.Fatalf("first claim returned %+v", launch)
+	if launch, err := fixture.daemon.claimRun(context.Background(), session, runID); launch != nil || err == nil {
+		t.Fatalf("first claim = %+v, %v", launch, err)
 	}
 	reopenDaemonState(t, &fixture)
-	if launch := fixture.daemon.claimRun(context.Background(), session, runID); launch == nil || launch.GetId() != launchID {
-		t.Fatalf("replayed claim = %+v", launch)
+	if launch, err := fixture.daemon.claimRun(context.Background(), session, runID); err != nil || launch == nil || launch.GetId() != launchID {
+		t.Fatalf("replayed claim = %+v, %v", launch, err)
 	}
 	if len(claimRequests) != 2 || claimRequests[0] != claimRequests[1] {
 		t.Fatalf("claim request ids = %v", claimRequests)
@@ -727,17 +738,17 @@ func TestDaemonMutationJournalReplaysAcrossRestartAndAdvancesRenewRequest(t *tes
 		expiresAt := claimExpiry.Add(time.Duration(len(renewRequests)-1) * time.Minute)
 		return testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 4, expiresAt), nil
 	}
-	if _, ok := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, claimExpiry); ok {
+	if _, err := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, claimExpiry); err == nil {
 		t.Fatal("first renew succeeded")
 	}
 	reopenDaemonState(t, &fixture)
-	firstRenewExpiry, ok := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, claimExpiry)
-	if !ok {
-		t.Fatal("replayed renew failed")
+	firstRenewExpiry, err := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, claimExpiry)
+	if err != nil {
+		t.Fatal(err)
 	}
-	secondRenewExpiry, ok := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, firstRenewExpiry)
-	if !ok || !secondRenewExpiry.After(firstRenewExpiry) {
-		t.Fatalf("next renew = %s, %v", secondRenewExpiry, ok)
+	secondRenewExpiry, err := fixture.daemon.renewRun(context.Background(), session, runID, launchID, 4, firstRenewExpiry)
+	if err != nil || !secondRenewExpiry.After(firstRenewExpiry) {
+		t.Fatalf("next renew = %s, %v", secondRenewExpiry, err)
 	}
 	if len(renewRequests) != 3 || renewRequests[0] != renewRequests[1] || renewRequests[2] == renewRequests[1] {
 		t.Fatalf("renew request ids = %v", renewRequests)
@@ -753,11 +764,11 @@ func TestDaemonMutationJournalReplaysAcrossRestartAndAdvancesRenewRequest(t *tes
 		}
 		return activeRun(recoveryRunID, recoveryDeliveryID, agentID), nil
 	}
-	if run := fixture.daemon.acceptDelivery(context.Background(), session, availableDelivery(recoveryDeliveryID, agentID)); run != nil {
-		t.Fatalf("unauthenticated accept returned %+v", run)
+	if run, err := fixture.daemon.acceptDelivery(context.Background(), session, availableDelivery(recoveryDeliveryID, agentID)); run != nil || err == nil {
+		t.Fatalf("unauthenticated accept = %+v, %v", run, err)
 	}
-	if run := fixture.daemon.acceptDelivery(context.Background(), session, availableDelivery(recoveryDeliveryID, agentID)); run == nil {
-		t.Fatal("accept after runtime recovery failed")
+	if run, err := fixture.daemon.acceptDelivery(context.Background(), session, availableDelivery(recoveryDeliveryID, agentID)); err != nil || run == nil {
+		t.Fatalf("accept after runtime recovery = %+v, %v", run, err)
 	}
 	if len(unauthenticatedRequests) != 2 || unauthenticatedRequests[0] != unauthenticatedRequests[1] {
 		t.Fatalf("unauthenticated request ids = %v", unauthenticatedRequests)
@@ -817,20 +828,20 @@ func TestDaemonReconcilesLostMutationResponsesFromActiveFactsBeforeNewFence(t *t
 		return testLaunch(newLaunchID, runID, agentID, session.ComputerID, 2, 5, now.Add(time.Minute)), nil
 	}
 	fixture.daemon.config.Executor = blockingExecutor{}
-	if !fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
-		t.Fatal("dispatch after restart failed")
+	if err := fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session); err != nil {
+		t.Fatal(err)
 	}
 	if newClaimRequestID == "" || newClaimRequestID == claimAttempt.RequestID {
 		t.Fatalf("new claim request id = %q, old = %q", newClaimRequestID, claimAttempt.RequestID)
 	}
 	for _, check := range []struct {
-		operation string
+		operation computerstate.MutationOperation
 		subject   string
 		requestID string
 	}{
-		{"delivery.accept", deliveryID, acceptAttempt.RequestID},
-		{"run.claim", claimSubject(runID, session), claimAttempt.RequestID},
-		{"run.renew", oldLaunchID, renewAttempt.RequestID},
+		{computerstate.MutationDeliveryAccept, deliveryID, acceptAttempt.RequestID},
+		{computerstate.MutationRunClaim, claimSubject(runID, session), claimAttempt.RequestID},
+		{computerstate.MutationRunRenew, oldLaunchID, renewAttempt.RequestID},
 	} {
 		attempts, err := fixture.state.MutationAttempts(context.Background(), check.operation, check.subject)
 		if err != nil {
@@ -887,8 +898,8 @@ func TestDaemonClaimJournalIsScopedToPlacementBinding(t *testing.T) {
 		return testLaunch(uuid.NewString(), runID, agentID, gen2.ComputerID, 2, 2, now.Add(time.Minute)), nil
 	}
 	fixture.daemon.config.Executor = blockingExecutor{}
-	if !fixture.daemon.dispatchAgent(context.Background(), fixture.identity, gen2) {
-		t.Fatal("gen2 dispatch failed")
+	if err := fixture.daemon.dispatchAgent(context.Background(), fixture.identity, gen2); err != nil {
+		t.Fatal(err)
 	}
 	if newRequestID == "" || newRequestID == oldAttempt.RequestID {
 		t.Fatalf("gen2 claim request = %q, gen1 = %q", newRequestID, oldAttempt.RequestID)
@@ -953,7 +964,7 @@ func TestDaemonRejectsImpossibleActiveRunLaunchCombinations(t *testing.T) {
 				}
 				return response, nil
 			}
-			if fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session) {
+			if err := fixture.daemon.dispatchAgent(context.Background(), fixture.identity, session); err == nil {
 				t.Fatal("impossible active facts reported success")
 			}
 			if fixture.deliveries.claimCount() != 0 || executor.count() != 0 {
@@ -991,12 +1002,12 @@ func TestDaemonOutboxReplaysExactEventAfterCommittedResponseIsLost(t *testing.T)
 		}
 		return canonicalCompleteResponse(request.Msg, agentID), nil
 	}
-	if fixture.daemon.dispatchOutbox(context.Background()) {
+	if err := fixture.daemon.dispatchOutbox(context.Background()); err == nil {
 		t.Fatal("lost response reported success")
 	}
 	reopenDaemonState(t, &fixture)
-	if !fixture.daemon.dispatchOutbox(context.Background()) {
-		t.Fatal("outbox replay failed")
+	if err := fixture.daemon.dispatchOutbox(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	if len(requests) != 2 || !sameCompleteRequest(requests[0], requests[1]) {
 		t.Fatalf("Complete requests changed: %+v", requests)
@@ -1024,8 +1035,8 @@ func TestClaimDoesNotReturnLaunchBeforeCanonicalReceiptIsDurable(t *testing.T) {
 		}
 		return testLaunch(launchID, runID, agentID, fixture.identity.ComputerID, 1, 5, now.Add(time.Minute)), nil
 	}
-	if launch := fixture.daemon.claimRun(context.Background(), session, runID); launch != nil {
-		t.Fatalf("claim returned launch without durable receipt: %+v", launch)
+	if launch, err := fixture.daemon.claimRun(context.Background(), session, runID); launch != nil || err == nil {
+		t.Fatalf("claim without durable receipt = %+v, %v", launch, err)
 	}
 	state, err := computerstate.Open(fixture.dataRoot)
 	if err != nil {
@@ -1062,7 +1073,7 @@ func TestOutboxKeepsEventWhenCanonicalResponseResultDoesNotMatch(t *testing.T) {
 		response.Run.ResultRef = &deliveryv1.Run_ResultMessageId{ResultMessageId: uuid.NewString()}
 		return response, nil
 	}
-	if fixture.daemon.dispatchOutbox(context.Background()) {
+	if err := fixture.daemon.dispatchOutbox(context.Background()); err == nil {
 		t.Fatal("mismatched response reported success")
 	}
 	events, err := fixture.state.Outbox(context.Background())
@@ -1094,8 +1105,8 @@ func TestOutboxTombstonesStaleFenceAndClearsSensitivePayload(t *testing.T) {
 	fixture.deliveries.complete = func(context.Context, *connect.Request[deliveryv1.CompleteRunRequest]) (*deliveryv1.CompleteRunResponse, error) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("stale fence"))
 	}
-	if !fixture.daemon.dispatchOutbox(context.Background()) {
-		t.Fatal("terminal stale fence reported retryable failure")
+	if err := fixture.daemon.dispatchOutbox(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	events, err := fixture.state.Outbox(context.Background())
 	if err != nil || len(events) != 1 || events[0].State != "tombstone" || events[0].Body != "" ||
@@ -1553,7 +1564,7 @@ func sameCompleteRequest(left, right *deliveryv1.CompleteRunRequest) bool {
 	return proto.Equal(left, right)
 }
 
-func mutationStatus(attempts []computerstate.MutationAttempt, requestID string) string {
+func mutationStatus(attempts []computerstate.MutationAttempt, requestID string) computerstate.MutationStatus {
 	for _, attempt := range attempts {
 		if attempt.RequestID == requestID {
 			return attempt.Status

@@ -1,23 +1,12 @@
-import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   AgentService,
   type Agent,
   type Driver,
 } from "../gen/sumi/agent/v1/agent_pb";
-import {
-  ComputerService,
-  type Computer,
-} from "../gen/sumi/computer/v1/computer_pb";
-import {
-  PlacementService,
-  type AgentPlacement,
-} from "../gen/sumi/placement/v1/placement_pb";
-
-const transport = createConnectTransport({ baseUrl: window.location.origin });
-const agents = createClient(AgentService, transport);
-const computers = createClient(ComputerService, transport);
-const placements = createClient(PlacementService, transport);
+import { type Computer } from "../gen/sumi/computer/v1/computer_pb";
+import { type AgentPlacement } from "../gen/sumi/placement/v1/placement_pb";
+import { agentClient, computerClient, placementClient } from "../api/clients";
 
 export type FactsSnapshot = {
   agents: Agent[];
@@ -30,12 +19,14 @@ export type AgentDetailSnapshot = {
   placement?: AgentPlacement;
 };
 
-export async function loadFacts(): Promise<FactsSnapshot> {
+export async function loadFacts(
+  options: { signal?: AbortSignal } = {},
+): Promise<FactsSnapshot> {
   const [agentResponse, computerResponse, placementResponse] =
     await Promise.all([
-      agents.listAgents({}),
-      computers.listComputers({}),
-      placements.listAgentPlacements({}),
+      agentClient.listAgents({}, options),
+      computerClient.listComputers({}, options),
+      placementClient.listAgentPlacements({}, options),
     ]);
   return {
     agents: agentResponse.agents,
@@ -48,7 +39,7 @@ export async function getAgentDetail(
   agentId: string,
 ): Promise<AgentDetailSnapshot> {
   const [agentResponse, placement] = await Promise.all([
-    agents.getAgent({ agentId }),
+    agentClient.getAgent({ agentId }),
     getPlacement(agentId),
   ]);
   if (!agentResponse.agent) throw new Error("Agent response was empty");
@@ -56,7 +47,7 @@ export async function getAgentDetail(
 }
 
 export async function getComputer(computerId: string): Promise<Computer> {
-  const response = await computers.getComputer({ computerId });
+  const response = await computerClient.getComputer({ computerId });
   if (!response.computer) throw new Error("Computer response was empty");
   return response.computer;
 }
@@ -67,7 +58,7 @@ export async function createAgent(input: {
   description: string;
   driver: Driver;
 }): Promise<Agent> {
-  const response = await agents.createAgent(input);
+  const response = await agentClient.createAgent(input);
   if (!response.agent) throw new Error("Create Agent response was empty");
   return response.agent;
 }
@@ -77,7 +68,7 @@ export async function setAgentPlacement(input: {
   agentId: string;
   computerId: string;
 }): Promise<AgentPlacement> {
-  const response = await placements.setAgentPlacement(input);
+  const response = await placementClient.setAgentPlacement(input);
   if (!response.placement) throw new Error("Placement response was empty");
   return response.placement;
 }
@@ -86,7 +77,7 @@ async function getPlacement(
   agentId: string,
 ): Promise<AgentPlacement | undefined> {
   try {
-    const response = await placements.getAgentPlacement({ agentId });
+    const response = await placementClient.getAgentPlacement({ agentId });
     return response.placement;
   } catch (error) {
     const connectError = ConnectError.from(error);

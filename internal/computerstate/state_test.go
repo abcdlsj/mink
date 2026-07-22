@@ -379,6 +379,50 @@ func TestStaleOutboxFenceTombstoneAllowsNewFence(t *testing.T) {
 	}
 }
 
+func TestPendingOutboxIsBoundedAndHydratesMentions(t *testing.T) {
+	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	ctx := context.Background()
+	now := time.Unix(1_800_000_000, 0).UTC()
+	agentID := uuid.NewString()
+	runID := uuid.NewString()
+	var events []OutboxEvent
+	for index := 0; index < 3; index++ {
+		event := OutboxEvent{
+			OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: agentID,
+			PlacementGeneration: 1, RunID: runID, LaunchID: uuid.NewString(), Fence: uint64(index + 1),
+			Outcome: "succeeded", Body: "result", MentionedAgentIDs: []string{uuid.NewString(), uuid.NewString()},
+			CreatedAt: now.Add(time.Duration(index) * time.Second),
+		}
+		if err := state.EnqueueOutbox(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	if err := state.TombstoneOutbox(ctx, events[0].OutboxEventID, "stale_fence"); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := state.PendingOutbox(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].OutboxEventID != events[1].OutboxEventID || len(pending[0].MentionedAgentIDs) != 2 {
+		t.Fatalf("pending outbox = %+v", pending)
+	}
+	for _, event := range events[:2] {
+		found, err := state.HasOutboxCompletion(ctx, event.RunID, event.LaunchID, event.Fence)
+		if err != nil || !found {
+			t.Fatalf("completion %q found = %t, %v", event.OutboxEventID, found, err)
+		}
+	}
+	if _, err := state.PendingOutbox(ctx, 0); err == nil {
+		t.Fatal("zero pending outbox limit was accepted")
+	}
+}
+
 func TestEnqueueOutboxRejectsInvalidCompletionPayload(t *testing.T) {
 	state, err := Open(filepath.Join(t.TempDir(), "sumi"))
 	if err != nil {

@@ -81,9 +81,9 @@ func TestArtifactHumanPublishVersionsReplayFetchAndRestart(t *testing.T) {
 		t.Fatalf("latest = %+v, %v", latest, err)
 	}
 	listed, err := fixture.artifacts.List(context.Background(), ListArtifactsParams{
-		Authentication: ArtifactAuthentication{Human: fixture.owner}, OwningWorkID: fixture.work.ID, Now: fixture.at(5),
+		Authentication: ArtifactAuthentication{Human: fixture.owner}, OwningWorkID: fixture.work.ID, Limit: 50, Now: fixture.at(5),
 	})
-	if err != nil || len(listed) != 1 || listed[0].Version.Version != 2 {
+	if err != nil || len(listed.Views) != 1 || listed.Views[0].Version.Version != 2 {
 		t.Fatalf("listed = %+v, %v", listed, err)
 	}
 	assertFetchedArtifact(t, fixture.artifacts, fixture.owner, first.Artifact.ID, 1, content, fixture.at(6))
@@ -458,10 +458,10 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 		t.Fatalf("revoked run.execute leaked execution = %+v", execution)
 	}
 	listed, err := fixture.artifacts.List(context.Background(), ListArtifactsParams{
-		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, Now: fixture.at(10),
+		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, Limit: 50, Now: fixture.at(10),
 	})
-	if err != nil || len(listed) != 1 || listed[0].Version.Execution == nil || !listed[0].Version.Execution.Restricted ||
-		listed[0].Version.Execution.RunID != "" || listed[0].Version.Execution.ComputerID != "" {
+	if err != nil || len(listed.Views) != 1 || listed.Views[0].Version.Execution == nil || !listed.Views[0].Version.Execution.Restricted ||
+		listed.Views[0].Version.Execution.RunID != "" || listed.Views[0].Version.Execution.ComputerID != "" {
 		t.Fatalf("revoked run.execute list projection = %+v, %v", listed, err)
 	}
 	if _, err := fixture.artifacts.RevokeGrant(context.Background(), RevokeArtifactGrantParams{

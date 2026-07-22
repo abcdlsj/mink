@@ -482,7 +482,7 @@ func countAuditAction(t *testing.T, database *Store, organizationID, action, out
 
 func auditEventByTarget(t *testing.T, database *Store, organizationID, action, targetID, outcome string) AuditEvent {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), organizationID, 0, 1000)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,6 +66,12 @@ type AppendAuditParams struct {
 	Now            time.Time
 }
 
+type ListAuditEventsParams struct {
+	OrganizationID string
+	AfterSequence  uint64
+	Limit          uint32
+}
+
 func appendAuditEvent(ctx context.Context, tx *sql.Tx, params AppendAuditParams) error {
 	if err := validateAuditContext(params.ContextKind, params.ContextID); err != nil {
 		return err
@@ -98,7 +104,7 @@ func validateAuditContext(kind, id string) error {
 	return nil
 }
 
-func (s *Store) ListAuditEvents(ctx context.Context, organizationID string, after uint64, limit uint32) ([]AuditEvent, error) {
+func (s *Store) ListAuditEvents(ctx context.Context, params ListAuditEventsParams) ([]AuditEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT sequence, id, organization_id, actor_kind, actor_id, action,
 		       target_kind, target_id, request_id, outcome, reason_code, occurred_at,
@@ -107,7 +113,7 @@ func (s *Store) ListAuditEvents(ctx context.Context, organizationID string, afte
 		WHERE organization_id = ? AND sequence > ?
 		ORDER BY sequence
 		LIMIT ?
-	`, organizationID, after, limit)
+	`, params.OrganizationID, params.AfterSequence, params.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list audit events: %w", err)
 	}

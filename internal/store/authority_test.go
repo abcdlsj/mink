@@ -40,7 +40,7 @@ func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T)
 			t.Fatalf("bootstrap %d returned a different identity", index)
 		}
 	}
-	events, err := database.ListAuditEvents(context.Background(), results[0].Organization.ID, 0, 100)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: results[0].Organization.ID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T)
 	if restarted.Organization.ID != results[0].Organization.ID || restarted.Human.ID != results[0].Human.ID || restarted.RootGrant.ID != results[0].RootGrant.ID {
 		t.Fatalf("authority changed across restart: %+v", restarted)
 	}
-	events, err = database.ListAuditEvents(context.Background(), restarted.Organization.ID, 0, 100)
+	events, err = database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: restarted.Organization.ID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,10 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 		Now:           now.Add(4 * time.Second),
 	})
 	memberPrincipal := Principal{Kind: "human", ID: member.ID, OrganizationID: bootstrap.Organization.ID}
-	allowed, err := database.CheckPermission(context.Background(), memberPrincipal, CapabilityMessageSend, Scope{Kind: "organization", ID: bootstrap.Organization.ID}, now.Add(5*time.Second))
+	allowed, err := database.CheckPermission(context.Background(), CheckPermissionParams{
+		Subject: memberPrincipal, Capability: CapabilityMessageSend,
+		Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, Now: now.Add(5 * time.Second),
+	})
 	if err != nil || !allowed {
 		t.Fatalf("message permission = %v, %v", allowed, err)
 	}
@@ -130,7 +133,10 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 	if revoked.RevokedAt == nil {
 		t.Fatal("admin grant was not revoked")
 	}
-	allowed, err = database.CheckPermission(context.Background(), memberPrincipal, CapabilityMessageSend, Scope{Kind: "organization", ID: bootstrap.Organization.ID}, now.Add(7*time.Second))
+	allowed, err = database.CheckPermission(context.Background(), CheckPermissionParams{
+		Subject: memberPrincipal, Capability: CapabilityMessageSend,
+		Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, Now: now.Add(7 * time.Second),
+	})
 	if err != nil || allowed {
 		t.Fatalf("descendant permission after parent revoke = %v, %v", allowed, err)
 	}
@@ -287,7 +293,7 @@ func issueTestGrant(t *testing.T, database *Store, params IssueGrantParams) Gran
 
 func auditCount(t *testing.T, database *Store, organizationID string) int {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), organizationID, 0, 1000)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +302,7 @@ func auditCount(t *testing.T, database *Store, organizationID string) int {
 
 func latestAudit(t *testing.T, database *Store, organizationID string) AuditEvent {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), organizationID, 0, 1000)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

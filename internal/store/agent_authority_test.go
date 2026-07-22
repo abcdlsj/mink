@@ -276,7 +276,7 @@ func TestOpenUpgradesVersionSevenAuthorityReceiptsAndAuditSequence(t *testing.T)
 		current.Close()
 		t.Fatal(err)
 	}
-	events, err := current.ListAuditEvents(context.Background(), organizationID, 0, 100)
+	events, err := current.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
 	if err != nil {
 		current.Close()
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestOpenUpgradesVersionSevenAuthorityReceiptsAndAuditSequence(t *testing.T)
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	restartedEvents, err := restarted.ListAuditEvents(context.Background(), organizationID, 0, 100)
+	restartedEvents, err := restarted.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
 	if err != nil || len(restartedEvents) != 2 || restartedEvents[1].Sequence != 42 {
 		t.Fatalf("restart audit events = %+v, %v", restartedEvents, err)
 	}
@@ -322,7 +322,7 @@ func tableCount(t *testing.T, database *Store, table string) int {
 
 func assertAuthorityAudit(t *testing.T, database *Store, organizationID, action, targetKind, targetID, contextKind, contextID, outcome, reason string) {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), organizationID, 0, 1000)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

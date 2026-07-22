@@ -88,7 +88,10 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed, err := database.CheckPermission(context.Background(), Principal{Kind: "agent", ID: agent.ID, OrganizationID: bootstrap.Organization.ID}, CapabilityWorkManage, Scope{Kind: "work", ID: work.ID}, now.Add(3*time.Second))
+	allowed, err := database.CheckPermission(context.Background(), CheckPermissionParams{
+		Subject:    Principal{Kind: "agent", ID: agent.ID, OrganizationID: bootstrap.Organization.ID},
+		Capability: CapabilityWorkManage, Scope: Scope{Kind: "work", ID: work.ID}, Now: now.Add(3 * time.Second),
+	})
 	if err != nil || !allowed || workGrant.Scope.ID != work.ID {
 		t.Fatalf("work grant permission = %v, %v", allowed, err)
 	}
@@ -146,7 +149,7 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if approvalReceiptsAfter != approvalReceiptsBefore {
 		t.Fatalf("denied approval created receipt: %d/%d", approvalReceiptsBefore, approvalReceiptsAfter)
 	}
-	auditEvents, err := database.ListAuditEvents(context.Background(), bootstrap.Organization.ID, 0, 1000)
+	auditEvents, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: bootstrap.Organization.ID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

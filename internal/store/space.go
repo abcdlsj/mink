@@ -277,19 +277,32 @@ func (s *Store) ListSpaces(ctx context.Context, params ListSpacesParams) ([]Spac
 	return spaces, nil
 }
 
+type membershipChange string
+
+const (
+	membershipAdd    membershipChange = operationAddMember
+	membershipRemove membershipChange = operationRemoveMember
+)
+
+func (change membershipChange) auditAction() string {
+	if change == membershipAdd {
+		return AuditSpaceMemberAdd
+	}
+	return AuditSpaceMemberRemove
+}
+
 func (s *Store) AddMember(ctx context.Context, params ChangeMemberParams) (MutationReceipt, error) {
-	return s.changeMember(ctx, params, true)
+	return s.changeMember(ctx, params, membershipAdd)
 }
 
 func (s *Store) RemoveMember(ctx context.Context, params ChangeMemberParams) (MutationReceipt, error) {
-	return s.changeMember(ctx, params, false)
+	return s.changeMember(ctx, params, membershipRemove)
 }
 
-func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add bool) (MutationReceipt, error) {
-	operation, action := operationAddMember, AuditSpaceMemberAdd
-	if !add {
-		operation, action = operationRemoveMember, AuditSpaceMemberRemove
-	}
+func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, change membershipChange) (MutationReceipt, error) {
+	operation := string(change)
+	action := change.auditAction()
+	adding := change == membershipAdd
 	fingerprint, err := collaborationFingerprint(struct {
 		ActorKind  string `json:"actor_kind"`
 		ActorID    string `json:"actor_id"`
@@ -326,7 +339,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "space_archived", params.Now, ErrSpaceArchived)
 	}
 	validateMember := validatePrincipalExistsInOrganization
-	if add {
+	if adding {
 		validateMember = validatePrincipalInOrganization
 	}
 	if err := validateMember(ctx, tx, params.Member, params.Actor.OrganizationID); err != nil {
@@ -338,13 +351,13 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 	`, params.SpaceID, params.Member.Kind, params.Member.ID).Scan(&exists); err != nil {
 		return MutationReceipt{}, fmt.Errorf("read membership state: %w", err)
 	}
-	if add && exists {
+	if adding && exists {
 		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_exists", params.Now, ErrMembershipExists)
 	}
-	if !add && !exists {
+	if !adding && !exists {
 		return MutationReceipt{}, denyCollaborationWithContext(ctx, tx, params.Actor, action, params.Member.Kind, params.Member.ID, "space", params.SpaceID, params.RequestID, "member_missing", params.Now, ErrMembershipNotFound)
 	}
-	if !add && params.Member.Kind == "human" {
+	if !adding && params.Member.Kind == "human" {
 		var targetActive bool
 		if err := tx.QueryRowContext(ctx, `SELECT status = 'active' FROM humans WHERE id = ?`, params.Member.ID).Scan(&targetActive); err != nil {
 			return MutationReceipt{}, fmt.Errorf("read removed human status: %w", err)
@@ -364,7 +377,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 			}
 		}
 	}
-	if add {
+	if adding {
 		_, err = tx.ExecContext(ctx, `INSERT INTO space_memberships(space_id, principal_kind, principal_id, joined_at) VALUES(?, ?, ?, ?)`, params.SpaceID, params.Member.Kind, params.Member.ID, unixNano(params.Now))
 	} else {
 		_, err = tx.ExecContext(ctx, `DELETE FROM space_memberships WHERE space_id = ? AND principal_kind = ? AND principal_id = ?`, params.SpaceID, params.Member.Kind, params.Member.ID)
@@ -372,7 +385,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, add
 	if err != nil {
 		return MutationReceipt{}, fmt.Errorf("persist membership change: %w", err)
 	}
-	if !add && params.Member.Kind == "agent" {
+	if !adding && params.Member.Kind == "agent" {
 		if err := closeRemovedAgentInbox(ctx, tx, params.Member.ID, params.SpaceID, params.Now); err != nil {
 			return MutationReceipt{}, err
 		}
@@ -435,19 +448,32 @@ func (s *Store) ListMembers(ctx context.Context, params SpaceReadParams) ([]Memb
 	return memberships, nil
 }
 
+type spaceArchiveChange string
+
+const (
+	spaceArchive   spaceArchiveChange = operationArchiveSpace
+	spaceUnarchive spaceArchiveChange = operationUnarchiveSpace
+)
+
+func (change spaceArchiveChange) auditAction() string {
+	if change == spaceArchive {
+		return AuditSpaceArchive
+	}
+	return AuditSpaceUnarchive
+}
+
 func (s *Store) ArchiveSpace(ctx context.Context, params ChangeSpaceArchiveParams) (MutationReceipt, error) {
-	return s.changeSpaceArchive(ctx, params, true)
+	return s.changeSpaceArchive(ctx, params, spaceArchive)
 }
 
 func (s *Store) UnarchiveSpace(ctx context.Context, params ChangeSpaceArchiveParams) (MutationReceipt, error) {
-	return s.changeSpaceArchive(ctx, params, false)
+	return s.changeSpaceArchive(ctx, params, spaceUnarchive)
 }
 
-func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiveParams, archive bool) (MutationReceipt, error) {
-	operation, action := operationArchiveSpace, AuditSpaceArchive
-	if !archive {
-		operation, action = operationUnarchiveSpace, AuditSpaceUnarchive
-	}
+func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiveParams, change spaceArchiveChange) (MutationReceipt, error) {
+	operation := string(change)
+	action := change.auditAction()
+	archiving := change == spaceArchive
 	fingerprint, err := collaborationFingerprint(struct {
 		ActorKind string `json:"actor_kind"`
 		ActorID   string `json:"actor_id"`
@@ -478,9 +504,9 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 	if space.Kind == SpaceKindDM {
 		return MutationReceipt{}, denyCollaboration(ctx, tx, params.Actor, action, "space", params.SpaceID, params.RequestID, "dm_immutable", params.Now, ErrDMImmutable)
 	}
-	alreadyDesired := (archive && space.ArchivedAt != nil) || (!archive && space.ArchivedAt == nil)
+	alreadyDesired := (archiving && space.ArchivedAt != nil) || (!archiving && space.ArchivedAt == nil)
 	if !alreadyDesired {
-		if archive {
+		if archiving {
 			_, err = tx.ExecContext(ctx, `UPDATE spaces SET archived_at = ?, updated_at = max(updated_at, ?) WHERE id = ?`, unixNano(params.Now), unixNano(params.Now), space.ID)
 		} else {
 			_, err = tx.ExecContext(ctx, `UPDATE spaces SET archived_at = NULL, updated_at = max(updated_at, ?) WHERE id = ?`, unixNano(params.Now), space.ID)

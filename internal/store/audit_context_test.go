@@ -79,7 +79,7 @@ func TestOpenUpgradesVersionSixAuditWithoutContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer current.Close()
-	events, err := current.ListAuditEvents(context.Background(), organizationID, 0, 100)
+	events, err := current.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,9 @@ func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	events, err := database.ListAuditEvents(context.Background(), bootstrap.Organization.ID, 3, 100)
+	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{
+		OrganizationID: bootstrap.Organization.ID, AfterSequence: 3, Limit: 100,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

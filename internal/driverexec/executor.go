@@ -31,17 +31,22 @@ type Completion struct {
 type Executor struct {
 	owner      *driver.Owner
 	hostPolicy string
+	capability driver.Capability
 }
 
-func New(engine driver.Engine, hostPolicy string) (*Executor, error) {
+func New(kind driver.Kind, engine driver.Engine, hostPolicy string) (*Executor, error) {
 	if hostPolicy == "" {
 		return nil, errors.New("host policy is required")
+	}
+	capability, err := driver.Capabilities(kind)
+	if err != nil {
+		return nil, err
 	}
 	owner, err := driver.NewOwner(engine, 1)
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{owner: owner, hostPolicy: hostPolicy}, nil
+	return &Executor{owner: owner, hostPolicy: hostPolicy, capability: capability}, nil
 }
 
 func (e *Executor) Close() error {
@@ -52,7 +57,7 @@ func (e *Executor) Execute(ctx context.Context, execution Execution) (Completion
 	input := driver.RunInput{
 		AgentID: execution.AgentID, ComputerID: execution.ComputerID, Generation: execution.PlacementGeneration,
 		DeliveryID: execution.DeliveryID, RunID: execution.RunID, LaunchID: execution.LaunchID, Fence: execution.Fence,
-		Workspace: execution.Workspace, Capabilities: driver.Capability{Streaming: true, Tools: true, Cancel: true},
+		Workspace: execution.Workspace, Capabilities: e.capability,
 		Target:       driver.Target{SpaceID: execution.SpaceID, ThreadID: execution.ThreadRootMessageID, HeadSequence: execution.BasisTargetSequence},
 		CurrentInput: execution.CurrentInput, HostPolicy: e.hostPolicy,
 	}

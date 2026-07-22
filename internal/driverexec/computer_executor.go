@@ -24,7 +24,7 @@ func NewComputerExecutor(kind driver.Kind, engine driver.Engine, hostPolicy stri
 	if resolve == nil {
 		return nil, errors.New("agent driver resolver is required")
 	}
-	executor, err := New(engine, hostPolicy)
+	executor, err := New(kind, engine, hostPolicy)
 	if err != nil {
 		return nil, err
 	}

@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import { useCallback } from "react";
 import {
   collaborationErrorMessage,
   createDM,
@@ -16,6 +9,12 @@ import {
   type DirectorySnapshot,
 } from "../lib/collaboration";
 import type { Principal, Space } from "../gen/sumi/space/v1/space_pb";
+import {
+  useRemoteSnapshot,
+  type SnapshotBinding,
+  type SnapshotFailure,
+  type SnapshotStateSetter,
+} from "./useRemoteSnapshot";
 
 export type SpacesState = {
   status:
@@ -33,151 +32,102 @@ export type SpacesState = {
   authenticationInvalidated?: boolean;
 };
 
-export function useSpaces(humanId: string | undefined, enabled: boolean) {
-  const [state, setState] = useState<SpacesState>({ status: "idle" });
-  const generation = useRef(0);
-  const controller = useRef<AbortController | undefined>(undefined);
-  const latestHumanId = useRef(humanId);
-  const latestEnabled = useRef(enabled);
-  latestHumanId.current = humanId;
-  latestEnabled.current = enabled;
+type SpacesFailure = SnapshotFailure & {
+  accessInvalidated: boolean;
+  authenticationInvalidated: boolean;
+};
 
+export function useSpaces(humanId: string | undefined, enabled: boolean) {
   const load = useCallback(
-    async (pending: "loading" | "retrying") => {
-      if (
-        !humanId ||
-        latestHumanId.current !== humanId ||
-        !latestEnabled.current
-      )
-        return;
-      const currentGeneration = ++generation.current;
-      controller.current?.abort();
-      const request = new AbortController();
-      controller.current = request;
-      setState((current) => ({
-        status:
-          current.principalId === humanId && current.data
-            ? "refreshing"
-            : pending,
-        data: current.principalId === humanId ? current.data : undefined,
-        principalId: humanId,
-      }));
-      try {
-        const data = await loadDirectory(humanId, { signal: request.signal });
-        if (generation.current !== currentGeneration) return;
-        setState({ status: "ready", data, principalId: humanId });
-      } catch (error) {
-        if (request.signal.aborted || generation.current !== currentGeneration)
-          return;
-        setState((current) => ({
-          status:
-            !isInaccessibleCollaborationError(error) &&
-            current.principalId === humanId &&
-            current.data
-              ? "stale"
-              : "error",
-          data:
-            !isInaccessibleCollaborationError(error) &&
-            current.principalId === humanId
-              ? current.data
-              : undefined,
-          error: collaborationErrorMessage(error, "load collaboration facts"),
-          principalId: humanId,
-          accessInvalidated:
-            isInaccessibleCollaborationError(error) || undefined,
-          authenticationInvalidated:
-            isUnauthenticatedCollaborationError(error) || undefined,
-        }));
-      }
+    (signal: AbortSignal) => {
+      if (!humanId) throw staleMutationError();
+      return loadDirectory(humanId, { signal });
     },
     [humanId],
   );
-
-  useEffect(() => {
-    if (!enabled || !humanId) {
-      controller.current?.abort();
-      generation.current += 1;
-      setState({ status: "idle" });
-      return;
-    }
-    void load("loading");
-    return () => controller.current?.abort();
-  }, [enabled, humanId, load]);
+  const classifyError = useCallback(
+    (error: unknown): SpacesFailure => ({
+      message: collaborationErrorMessage(error, "load collaboration facts"),
+      discard: isInaccessibleCollaborationError(error),
+      accessInvalidated: isInaccessibleCollaborationError(error),
+      authenticationInvalidated: isUnauthenticatedCollaborationError(error),
+    }),
+    [],
+  );
+  const snapshot = useRemoteSnapshot({
+    enabled: enabled && Boolean(humanId),
+    targetId: humanId,
+    load,
+    classifyError,
+  });
 
   const createDirectMessage = useCallback(
     async (requestId: string, peer: Principal): Promise<Space> => {
-      if (!humanId) throw staleMutationError();
-      const targetHumanId = humanId;
-      const targetGeneration = generation.current;
+      const binding = requireBinding(snapshot.capture());
       const space = await createDM({ requestId, peer });
-      requireCurrentMutation(
-        targetHumanId,
-        targetGeneration,
-        latestHumanId.current,
-        latestEnabled.current,
-        generation.current,
-      );
-      retainCreatedSpace(setState, targetHumanId, space);
-      const refresh = load("retrying");
-      const refreshGeneration = generation.current;
-      await refresh;
-      requireCurrentMutation(
-        targetHumanId,
-        refreshGeneration,
-        latestHumanId.current,
-        latestEnabled.current,
-        generation.current,
-      );
+      requireCurrentMutation(snapshot.isCurrent(binding));
+      retainCreatedSpace(snapshot.setState, binding.targetId, space);
+      await refreshCurrentSnapshot(snapshot, binding.targetId);
       return space;
     },
-    [humanId, load],
+    [snapshot],
   );
 
   const createGroupSpace = useCallback(
     async (requestId: string, name: string): Promise<Space> => {
-      if (!humanId) throw staleMutationError();
-      const targetHumanId = humanId;
-      const targetGeneration = generation.current;
+      const binding = requireBinding(snapshot.capture());
       const space = await createGroup({ requestId, name });
-      requireCurrentMutation(
-        targetHumanId,
-        targetGeneration,
-        latestHumanId.current,
-        latestEnabled.current,
-        generation.current,
-      );
-      retainCreatedSpace(setState, targetHumanId, space);
-      const refresh = load("retrying");
-      const refreshGeneration = generation.current;
-      await refresh;
-      requireCurrentMutation(
-        targetHumanId,
-        refreshGeneration,
-        latestHumanId.current,
-        latestEnabled.current,
-        generation.current,
-      );
+      requireCurrentMutation(snapshot.isCurrent(binding));
+      retainCreatedSpace(snapshot.setState, binding.targetId, space);
+      await refreshCurrentSnapshot(snapshot, binding.targetId);
       return space;
     },
-    [humanId, load],
+    [snapshot],
   );
 
   return {
-    ...state,
-    retry: () => load("retrying"),
-    refresh: () => load("retrying"),
+    status: snapshot.state.status,
+    data: snapshot.state.data,
+    error: snapshot.state.failure?.message,
+    principalId: snapshot.state.targetId,
+    accessInvalidated: snapshot.state.failure?.accessInvalidated || undefined,
+    authenticationInvalidated:
+      snapshot.state.failure?.authenticationInvalidated || undefined,
+    retry: () => snapshot.refresh("retrying"),
+    refresh: () => snapshot.refresh("retrying"),
     createDirectMessage,
     createGroupSpace,
+  } satisfies SpacesState & {
+    retry: () => Promise<void>;
+    refresh: () => Promise<void>;
+    createDirectMessage: (requestId: string, peer: Principal) => Promise<Space>;
+    createGroupSpace: (requestId: string, name: string) => Promise<Space>;
   };
 }
 
+async function refreshCurrentSnapshot(
+  snapshot: {
+    refresh: (pending: "loading" | "retrying") => Promise<void>;
+    capture: () => SnapshotBinding | undefined;
+    isCurrent: (binding: SnapshotBinding) => boolean;
+  },
+  targetId: string,
+) {
+  const refresh = snapshot.refresh("retrying");
+  const binding = requireBinding(snapshot.capture());
+  await refresh;
+  requireCurrentMutation(
+    binding.targetId === targetId && snapshot.isCurrent(binding),
+  );
+}
+
 function retainCreatedSpace(
-  setState: Dispatch<SetStateAction<SpacesState>>,
+  setState: SnapshotStateSetter<DirectorySnapshot, SpacesFailure>,
   humanId: string,
   space: Space,
 ) {
   setState((current) => {
-    if (!current.data || current.principalId !== humanId) return current;
+    if (!current.data || current.targetId !== humanId) return current;
     return {
       ...current,
       data: {
@@ -191,20 +141,13 @@ function retainCreatedSpace(
   });
 }
 
-function requireCurrentMutation(
-  targetHumanId: string,
-  targetGeneration: number,
-  currentHumanId: string | undefined,
-  enabled: boolean,
-  currentGeneration: number,
-) {
-  if (
-    !enabled ||
-    currentHumanId !== targetHumanId ||
-    currentGeneration !== targetGeneration
-  ) {
-    throw staleMutationError();
-  }
+function requireBinding(binding: SnapshotBinding | undefined): SnapshotBinding {
+  if (!binding) throw staleMutationError();
+  return binding;
+}
+
+function requireCurrentMutation(current: boolean) {
+  if (!current) throw staleMutationError();
 }
 
 function staleMutationError() {

@@ -39,6 +39,11 @@ type SetAgentPlacementParams struct {
 	Now        time.Time
 }
 
+type ComputerPlacementReadParams struct {
+	ComputerID      string
+	RegistrationKey string
+}
+
 func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementParams) (AgentPlacement, error) {
 	fingerprint, err := placementRequestFingerprint(params)
 	if err != nil {
@@ -58,12 +63,12 @@ func (s *Store) SetAgentPlacement(ctx context.Context, params SetAgentPlacementP
 		return commitPlacementReplay(tx, placement, found, err)
 	}
 
-	if exists, err := recordExists(ctx, tx, "agents", params.AgentID); err != nil {
+	if exists, err := agentExists(ctx, tx, params.AgentID); err != nil {
 		return AgentPlacement{}, err
 	} else if !exists {
 		return AgentPlacement{}, ErrAgentNotFound
 	}
-	if exists, err := recordExists(ctx, tx, "computers", params.ComputerID); err != nil {
+	if exists, err := computerExists(ctx, tx, params.ComputerID); err != nil {
 		return AgentPlacement{}, err
 	} else if !exists {
 		return AgentPlacement{}, ErrComputerNotFound
@@ -204,16 +209,16 @@ func (s *Store) ListAgentPlacements(ctx context.Context) ([]AgentPlacement, erro
 	return scanPlacements(rows)
 }
 
-func (s *Store) ListComputerAssignments(ctx context.Context, computerID, registrationKey string) ([]AgentPlacement, error) {
+func (s *Store) ListComputerAssignments(ctx context.Context, params ComputerPlacementReadParams) ([]AgentPlacement, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin list assignments: %w", err)
 	}
 	defer tx.Rollback()
-	if err := authenticateComputer(ctx, tx, computerID, registrationKey); err != nil {
+	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, placementSelect+" WHERE computer_id = ? AND state = 'pending' ORDER BY agent_id", computerID)
+	rows, err := tx.QueryContext(ctx, placementSelect+" WHERE computer_id = ? AND state = 'pending' ORDER BY agent_id", params.ComputerID)
 	if err != nil {
 		return nil, fmt.Errorf("list computer assignments: %w", err)
 	}
@@ -228,16 +233,16 @@ func (s *Store) ListComputerAssignments(ctx context.Context, computerID, registr
 	return assignments, nil
 }
 
-func (s *Store) ListComputerPlacements(ctx context.Context, computerID, registrationKey string) ([]AgentPlacement, error) {
+func (s *Store) ListComputerPlacements(ctx context.Context, params ComputerPlacementReadParams) ([]AgentPlacement, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin list computer placements: %w", err)
 	}
 	defer tx.Rollback()
-	if err := authenticateComputer(ctx, tx, computerID, registrationKey); err != nil {
+	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
 		return nil, err
 	}
-	rows, err := tx.QueryContext(ctx, placementSelect+" WHERE computer_id = ? ORDER BY agent_id", computerID)
+	rows, err := tx.QueryContext(ctx, placementSelect+" WHERE computer_id = ? ORDER BY agent_id", params.ComputerID)
 	if err != nil {
 		return nil, fmt.Errorf("list computer placements: %w", err)
 	}
@@ -350,13 +355,4 @@ func authenticateComputer(ctx context.Context, tx *sql.Tx, computerID, registrat
 		return ErrComputerNotFound
 	}
 	return ErrRegistrationKeyMismatch
-}
-
-func recordExists(ctx context.Context, tx *sql.Tx, table, id string) (bool, error) {
-	query := "SELECT EXISTS(SELECT 1 FROM " + table + " WHERE id = ?)"
-	var exists bool
-	if err := tx.QueryRowContext(ctx, query, id).Scan(&exists); err != nil {
-		return false, fmt.Errorf("check %s identity: %w", table, err)
-	}
-	return exists, nil
 }

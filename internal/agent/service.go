@@ -18,11 +18,11 @@ import (
 var agentName = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
 
 type Service struct {
-	store *store.Store
+	store agentStore
 	now   func() time.Time
 }
 
-func New(database *store.Store) *Service {
+func New(database agentStore) *Service {
 	return &Service{store: database, now: time.Now}
 }
 

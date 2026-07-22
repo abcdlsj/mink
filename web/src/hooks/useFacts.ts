@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { factErrorMessage, loadFacts, type FactsSnapshot } from "../lib/facts";
+import { useRemoteSnapshot, type SnapshotFailure } from "./useRemoteSnapshot";
 
 export type FactsState = {
   status:
@@ -14,46 +15,42 @@ export type FactsState = {
   error?: string;
 };
 
-const initialState: FactsState = { status: "idle" };
-
 export function useFacts(enabled: boolean) {
-  const [state, setState] = useState<FactsState>(initialState);
-
-  const load = useCallback(async (pending: "loading" | "retrying") => {
-    setState((current) => ({
-      status: current.data ? "refreshing" : pending,
-      data: current.data,
-    }));
-    try {
-      const data = await loadFacts();
-      setState({ status: "ready", data });
-    } catch (error) {
-      setState((current) => ({
-        status: current.data ? "stale" : "error",
-        data: current.data,
-        error: factErrorMessage(error, "load facts"),
-      }));
-    }
-  }, []);
-
-  useEffect(() => {
-    if (enabled && state.status === "idle") void load("loading");
-  }, [enabled, load, state.status]);
+  const load = useCallback((signal: AbortSignal) => loadFacts({ signal }), []);
+  const classifyError = useCallback(
+    (error: unknown): SnapshotFailure => ({
+      message: factErrorMessage(error, "load facts"),
+      discard: false,
+    }),
+    [],
+  );
+  const snapshot = useRemoteSnapshot({
+    enabled,
+    targetId: enabled ? "management-facts" : undefined,
+    load,
+    classifyError,
+  });
 
   const mutate = useCallback(
     (change: (current: FactsSnapshot) => FactsSnapshot) => {
-      setState((current) => {
+      snapshot.setState((current) => {
         if (!current.data) return current;
         return { ...current, data: change(current.data) };
       });
     },
-    [],
+    [snapshot.setState],
   );
 
   return {
-    ...state,
-    retry: () => load("retrying"),
-    refresh: () => load("retrying"),
+    status: snapshot.state.status,
+    data: snapshot.state.data,
+    error: snapshot.state.failure?.message,
+    retry: () => snapshot.refresh("retrying"),
+    refresh: () => snapshot.refresh("retrying"),
     mutate,
+  } satisfies FactsState & {
+    retry: () => Promise<void>;
+    refresh: () => Promise<void>;
+    mutate: (change: (current: FactsSnapshot) => FactsSnapshot) => void;
   };
 }

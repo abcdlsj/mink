@@ -225,13 +225,20 @@ func (s *Store) ListGrants(ctx context.Context, organizationID string) ([]Grant,
 	return grants, nil
 }
 
-func (s *Store) CheckPermission(ctx context.Context, subject Principal, capability string, scope Scope, now time.Time) (bool, error) {
+type CheckPermissionParams struct {
+	Subject    Principal
+	Capability string
+	Scope      Scope
+	Now        time.Time
+}
+
+func (s *Store) CheckPermission(ctx context.Context, params CheckPermissionParams) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("begin permission check: %w", err)
 	}
 	defer tx.Rollback()
-	reason, err := requireGrant(ctx, tx, subject, capability, scope, now, "")
+	reason, err := requireGrant(ctx, tx, params.Subject, params.Capability, params.Scope, params.Now, "")
 	if err != nil {
 		return false, err
 	}
@@ -322,7 +329,7 @@ func principalActive(ctx context.Context, tx *sql.Tx, principal Principal) (bool
 		}
 		return active, nil
 	case "agent":
-		return recordExists(ctx, tx, "agents", principal.ID)
+		return agentExists(ctx, tx, principal.ID)
 	case "system":
 		return principal.ID == "", nil
 	default:
@@ -349,31 +356,24 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 		}
 		return nil
 	}
-	table := map[string]string{"agent": "agents", "computer": "computers", "space": "spaces", "work": "works"}[scope.Kind]
-	if table == "" {
-		return ErrScopeNotFound
-	}
-	var tableExists bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)", table).Scan(&tableExists); err != nil {
-		return err
-	}
-	if !tableExists {
-		return ErrScopeNotFound
-	}
 	var exists bool
 	var err error
-	if scope.Kind == "work" || scope.Kind == "space" {
-		err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM "+table+" WHERE id = ? AND organization_id = ?)", scope.ID, organizationID).Scan(&exists)
-		if err != nil {
-			return err
-		}
-	} else {
-		exists, err = recordExists(ctx, tx, table, scope.ID)
-		if err != nil {
-			return err
-		}
+	switch scope.Kind {
+	case "agent":
+		exists, err = agentExists(ctx, tx, scope.ID)
+	case "computer":
+		exists, err = computerExists(ctx, tx, scope.ID)
+	case "space":
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM spaces WHERE id = ? AND organization_id = ?)`, scope.ID, organizationID).Scan(&exists)
+	case "work":
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM works WHERE id = ? AND organization_id = ?)`, scope.ID, organizationID).Scan(&exists)
+	default:
+		return ErrScopeNotFound
 	}
-	if err != nil || !exists {
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return ErrScopeNotFound
 	}
 	return nil
