@@ -17,9 +17,16 @@ import (
 
 	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/authority/websession"
+	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/server"
+	"github.com/abcdlsj/sumi/internal/userdirs"
 )
+
+var finalizeCredentialMigration = func(migration *authority.CredentialMigration) error {
+	return migration.Finalize()
+}
 
 func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 && args[0] == "auth" {
@@ -46,15 +53,50 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
+	layout, err := home.Ensure(*dataRoot)
+	if err != nil {
+		return err
+	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		return err
+	}
+	lease, err := lifecycle.AcquireRun(layout.Root, userLayout.Runtime, lifecycle.ComponentServer)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	resolvedOrigin, err := resolveBrowserOrigin(*listen, *browserOrigin)
 	if err != nil {
 		return err
 	}
+	explicitOwnerKey := false
+	flags.Visit(func(visited *flag.Flag) {
+		if visited.Name == "owner-key-file" {
+			explicitOwnerKey = true
+		}
+	})
+	credentialPath := *ownerKeyFile
+	var migration *authority.CredentialMigration
+	if !explicitOwnerKey {
+		migration, err = authority.PrepareCredentialMigration(layout.BootstrapCredential, userLayout.HumanCredential)
+		if err != nil {
+			return err
+		}
+		defer migration.Close()
+		credentialPath = migration.CredentialPath
+	}
 	app, err := server.New(ctx, server.Config{
-		DataRoot: *dataRoot, WebRoot: *webRoot, BootstrapCredentialFile: *ownerKeyFile, BrowserOrigin: resolvedOrigin,
+		DataRoot: layout.Root, WebRoot: *webRoot, BootstrapCredentialFile: credentialPath, BrowserOrigin: resolvedOrigin,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
+	}
+	if migration != nil {
+		if err := finalizeCredentialMigration(migration); err != nil {
+			_ = app.Close()
+			return err
+		}
 	}
 	defer app.Close()
 
@@ -87,6 +129,7 @@ func RunAuth(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	flags := flag.NewFlagSet("sumi-server auth", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	serverURL := flags.String("server", "http://127.0.0.1:8080", "loopback Sumi Server origin")
+	serverPin := flags.String("server-pin", "", "sha256/base64url Server SPKI pin")
 	humanKeyFile := flags.String("human-key-file", "", "0600 Human credential file")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -94,24 +137,26 @@ func RunAuth(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if flags.NArg() != 0 || *humanKeyFile == "" {
 		return errors.New("auth requires --human-key-file and no positional arguments")
 	}
-	origin, err := parseLoopbackOrigin(*serverURL)
+	serverEndpoint, err := endpoint.Parse(*serverURL, *serverPin)
 	if err != nil {
-		return errors.New("auth server must be a loopback HTTP or HTTPS origin")
+		return errors.New("auth Server endpoint is unsafe")
+	}
+	origin, err := url.Parse(serverEndpoint.Origin)
+	if err != nil {
+		return errors.New("auth Server endpoint is unsafe")
 	}
 	credential, err := authority.ReadCredentialFile(*humanKeyFile)
 	if err != nil {
 		return errors.New("human credential file is missing or unsafe")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, origin.String()+websession.CreateHandoffPath, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverEndpoint.Origin+websession.CreateHandoffPath, nil)
 	if err != nil {
 		return errors.New("create browser authentication request")
 	}
 	request.Header.Set("Authorization", "Bearer "+credential)
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	client, err := endpoint.NewHTTPClient(serverEndpoint)
+	if err != nil {
+		return errors.New("create browser authentication transport")
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -168,13 +213,6 @@ func resolveBrowserOrigin(listen, explicit string) (string, error) {
 		return "", nil
 	}
 	return "http://" + net.JoinHostPort(host, port), nil
-}
-
-func parseLoopbackOrigin(raw string) (*url.URL, error) {
-	if err := authority.ValidateBrowserOrigin(raw); err != nil || raw == "" {
-		return nil, authority.ErrBrowserOriginInvalid
-	}
-	return url.Parse(raw)
 }
 
 func resolveHandoffURL(origin *url.URL, path string) (*url.URL, error) {

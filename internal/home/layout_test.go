@@ -45,6 +45,50 @@ func TestEnsureRejectsFileRoot(t *testing.T) {
 	}
 }
 
+func TestEnsureRejectsSymlinkAndLooseEntries(t *testing.T) {
+	for name, prepare := range map[string]func(string) error{
+		"root symlink": func(root string) error {
+			target := root + "-target"
+			if err := os.Mkdir(target, 0o700); err != nil {
+				return err
+			}
+			return os.Symlink(target, root)
+		},
+		"entry symlink": func(root string) error {
+			if err := os.Mkdir(root, 0o700); err != nil {
+				return err
+			}
+			return os.Symlink(t.TempDir(), filepath.Join(root, "data"))
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "sumi")
+			if err := prepare(root); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Ensure(root); err == nil {
+				t.Fatal("unsafe layout was accepted")
+			}
+		})
+	}
+}
+
+func TestEnsureSecuresExistingDirectoryModes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "sumi")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	layout, err := Ensure(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertMode(t, layout.Root, 0o700)
+	assertMode(t, layout.Data, 0o700)
+}
+
 func assertMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	info, err := os.Stat(path)

@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/abcdlsj/sumi/internal/configfile"
+	"golang.org/x/sys/unix"
 )
 
 type Layout struct {
@@ -40,7 +43,7 @@ func Ensure(root string) (Layout, error) {
 			return Layout{}, err
 		}
 	}
-	if err := ensureConfig(layout.Config); err != nil {
+	if err := configfile.Ensure(layout.Config); err != nil {
 		return Layout{}, err
 	}
 
@@ -56,46 +59,42 @@ func DefaultRoot() (string, error) {
 }
 
 func ensureDir(path string) error {
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("%s is not a safe directory", path)
+		}
+		return secureDirectory(path)
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect %s: %w", path, err)
+	}
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return fmt.Errorf("create %s: %w", path, err)
 	}
-	info, err := os.Stat(path)
+	info, err = os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", path, err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("%s is not a directory", path)
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%s is not a safe directory", path)
 	}
-	if err := os.Chmod(path, 0o700); err != nil {
-		return fmt.Errorf("secure %s: %w", path, err)
-	}
-	return nil
+	return secureDirectory(path)
 }
 
-func ensureConfig(path string) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err == nil {
-		if _, writeErr := file.WriteString("version = 1\n"); writeErr != nil {
-			file.Close()
-			return fmt.Errorf("write %s: %w", path, writeErr)
-		}
-		if closeErr := file.Close(); closeErr != nil {
-			return fmt.Errorf("close %s: %w", path, closeErr)
-		}
-		return nil
+func secureDirectory(path string) error {
+	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
 	}
-	if !os.IsExist(err) {
-		return fmt.Errorf("create %s: %w", path, err)
+	directory := os.NewFile(uintptr(descriptor), path)
+	defer directory.Close()
+	if err := directory.Chmod(0o700); err != nil {
+		return fmt.Errorf("secure %s: %w", path, err)
 	}
-	info, statErr := os.Stat(path)
-	if statErr != nil {
-		return fmt.Errorf("inspect %s: %w", path, statErr)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", path)
-	}
-	if chmodErr := os.Chmod(path, 0o600); chmodErr != nil {
-		return fmt.Errorf("secure %s: %w", path, chmodErr)
+	info, err := directory.Stat()
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("%s is not a safe directory", path)
 	}
 	return nil
 }

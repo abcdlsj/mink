@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +16,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/authority/websession"
+	"github.com/abcdlsj/sumi/internal/lifecycle"
+	servercore "github.com/abcdlsj/sumi/internal/server"
+	"github.com/abcdlsj/sumi/internal/userdirs"
 )
 
 const (
@@ -123,11 +129,15 @@ func TestBrowserOriginDerivationRequiresLiteralLoopbackListen(t *testing.T) {
 }
 
 func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var stdout bytes.Buffer
 	var stderr lockedBuffer
 	dataRoot := t.TempDir()
+	if err := os.Chmod(dataRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	done := make(chan error, 1)
 	go func() {
 		done <- RunServer(ctx, []string{
@@ -136,9 +146,14 @@ func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
 			"--web-root", "",
 		}, &stdout, &stderr)
 	}()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(15 * time.Second)
 	for !strings.Contains(stderr.String(), "Sumi Server listening on http://127.0.0.1:0") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case err := <-done:
+			t.Fatalf("server exited before listening: %v", err)
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 	if !strings.Contains(stderr.String(), "Sumi Server listening on http://127.0.0.1:0") {
 		t.Fatalf("server did not start: %q", stderr.String())
@@ -149,11 +164,108 @@ func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RunServer() error = %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("RunServer did not stop after context cancellation")
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("RunServer() stdout = %q", stdout.String())
+	}
+}
+
+func TestRunServerMigratesLegacyCredentialBeforeListening(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dataRoot := filepath.Join(t.TempDir(), "sumi")
+	legacy, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(dataRoot, "owner.key")
+	legacyCredential, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var stderr lockedBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- RunServer(ctx, []string{"--listen", "127.0.0.1:0", "--data-root", dataRoot, "--web-root", ""}, io.Discard, &stderr)
+	}()
+	deadline := time.Now().Add(15 * time.Second)
+	for !strings.Contains(stderr.String(), "Sumi Server listening") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(stderr.String(), "Sumi Server listening") {
+		t.Fatalf("server did not listen after migration: %q", stderr.String())
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(legacyPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy credential remains: %v", err)
+	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentCredential, err := os.ReadFile(userLayout.HumanCredential)
+	if err != nil || !bytes.Equal(currentCredential, legacyCredential) {
+		t.Fatalf("migrated credential mismatch: %v", err)
+	}
+}
+
+func TestRunServerClosesInitializedServerWhenCredentialFinalizeFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dataRoot := filepath.Join(t.TempDir(), "sumi")
+	legacy, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+	previous := finalizeCredentialMigration
+	finalizeCredentialMigration = func(*authority.CredentialMigration) error { return errors.New("injected finalize failure") }
+	t.Cleanup(func() { finalizeCredentialMigration = previous })
+	var stderr bytes.Buffer
+	err = RunServer(context.Background(), []string{"--listen", "127.0.0.1:0", "--data-root", dataRoot, "--web-root", ""}, io.Discard, &stderr)
+	if err == nil || strings.Contains(stderr.String(), "listening") {
+		t.Fatalf("finalize failure = %v, stderr %q", err, stderr.String())
+	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot, BootstrapCredentialFile: userLayout.HumanCredential})
+	if err != nil {
+		t.Fatalf("initialized Server was not closed: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunServerCannotBypassMaintenanceLease(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dataRoot := t.TempDir()
+	if err := os.Chmod(dataRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	maintenance, err := lifecycle.AcquireMaintenance(dataRoot, userLayout.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer maintenance.Close()
+	err = RunServer(context.Background(), []string{"--data-root", dataRoot, "--web-root", "", "--listen", "127.0.0.1:0"}, io.Discard, io.Discard)
+	if !errors.Is(err, lifecycle.ErrRuntimeActive) {
+		t.Fatalf("Server run bypassed maintenance = %v", err)
 	}
 }
 

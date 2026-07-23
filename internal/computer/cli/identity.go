@@ -78,6 +78,9 @@ func resolveComputerIdentity(
 		identity, err := requireComputerIdentity(ctx, state, "paired computer identity was not persisted")
 		return identity, nil, err
 	}
+	if config.registrationKeyFile == "" {
+		return computerstate.Identity{}, nil, errors.New("computer pairing is required")
+	}
 	key, err := computerhost.ReadRegistrationKey(config.registrationKeyFile)
 	if err != nil {
 		return computerstate.Identity{}, nil, err
@@ -138,6 +141,6 @@ func hostConfig(
 ) computerhost.Config {
 	return computerhost.Config{
 		ServerURL: config.serverURL, DataRoot: config.dataRoot, RegistrationKey: registrationKey,
-		Name: config.name, OS: osName, Arch: arch, State: state,
+		Name: config.name, OS: osName, Arch: arch, State: state, HTTPClient: config.httpClient,
 	}
 }

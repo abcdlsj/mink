@@ -1,0 +1,230 @@
+package pairing
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/abcdlsj/sumi/internal/endpoint"
+	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
+)
+
+const Version = 1
+
+var ErrStillValid = errors.New("pairing bundle is still valid")
+
+type ServerIdentity struct {
+	Kind    endpoint.IdentityKind `json:"kind"`
+	SPKIPin string                `json:"spki_pin,omitempty"`
+}
+
+type Bundle struct {
+	Version        int            `json:"version"`
+	RequestID      string         `json:"request_id"`
+	ServerOrigin   string         `json:"server_origin"`
+	ServerIdentity ServerIdentity `json:"server_identity"`
+	PairingToken   string         `json:"pairing_token"`
+	ExpiresAt      time.Time      `json:"expires_at"`
+}
+
+type Opened struct {
+	Bundle Bundle
+	path   string
+	file   *os.File
+}
+
+func New(server endpoint.Endpoint, expiresAt time.Time) (Bundle, error) {
+	payload := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, payload); err != nil {
+		return Bundle{}, errors.New("generate pairing token")
+	}
+	bundle := Bundle{
+		Version: Version, RequestID: uuid.NewString(), ServerOrigin: server.Origin,
+		ServerIdentity: ServerIdentity{Kind: server.Identity.Kind, SPKIPin: server.Identity.SPKIPin},
+		PairingToken:   base64.RawURLEncoding.EncodeToString(payload), ExpiresAt: expiresAt.UTC(),
+	}
+	if _, err := bundle.Endpoint(); err != nil {
+		return Bundle{}, err
+	}
+	return bundle, nil
+}
+
+func (bundle Bundle) Endpoint() (endpoint.Endpoint, error) {
+	if err := validateBundle(bundle); err != nil {
+		return endpoint.Endpoint{}, err
+	}
+	return endpoint.FromIdentity(bundle.ServerOrigin, endpoint.Identity{Kind: bundle.ServerIdentity.Kind, SPKIPin: bundle.ServerIdentity.SPKIPin})
+}
+
+func (bundle Bundle) ValidateAt(now time.Time) error {
+	if _, err := bundle.Endpoint(); err != nil {
+		return err
+	}
+	if !now.Before(bundle.ExpiresAt) {
+		return errors.New("pairing bundle is expired")
+	}
+	return nil
+}
+
+func WriteNew(path string, bundle Bundle) error {
+	if _, err := bundle.Endpoint(); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(bundle)
+	if err != nil || len(payload) > 16<<10 {
+		return errors.New("encode pairing bundle")
+	}
+	payload = append(payload, '\n')
+	parent := filepath.Dir(path)
+	info, err := os.Lstat(parent)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("pairing bundle directory is unsafe")
+	}
+	temporary, err := os.CreateTemp(parent, ".pairing-*.tmp")
+	if err != nil {
+		return errors.New("create temporary pairing bundle")
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return errors.New("secure temporary pairing bundle")
+	}
+	if _, err := temporary.Write(payload); err != nil {
+		return errors.New("write temporary pairing bundle")
+	}
+	if err := temporary.Sync(); err != nil {
+		return errors.New("sync temporary pairing bundle")
+	}
+	if err := temporary.Close(); err != nil {
+		return errors.New("close temporary pairing bundle")
+	}
+	if err := unix.Linkat(unix.AT_FDCWD, temporaryPath, unix.AT_FDCWD, path, 0); err != nil {
+		if errors.Is(err, unix.EEXIST) {
+			return errors.New("pairing bundle already exists")
+		}
+		return errors.New("publish pairing bundle")
+	}
+	if err := syncDirectory(parent); err != nil {
+		return errors.New("sync pairing bundle directory")
+	}
+	if err := os.Remove(temporaryPath); err != nil {
+		return errors.New("remove temporary pairing bundle")
+	}
+	if err := syncDirectory(parent); err != nil {
+		return errors.New("sync pairing bundle directory")
+	}
+	return nil
+}
+
+func Open(path string) (*Opened, error) {
+	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, errors.New("open pairing bundle")
+	}
+	file := os.NewFile(uintptr(descriptor), path)
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		file.Close()
+		return nil, errors.New("pairing bundle is unsafe")
+	}
+	payload, err := io.ReadAll(io.LimitReader(file, (16<<10)+1))
+	if err != nil || len(payload) > 16<<10 {
+		file.Close()
+		return nil, errors.New("pairing bundle is invalid")
+	}
+	var bundle Bundle
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&bundle); err != nil {
+		file.Close()
+		return nil, errors.New("pairing bundle is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		file.Close()
+		return nil, errors.New("pairing bundle is invalid")
+	}
+	if _, err := bundle.Endpoint(); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return &Opened{Bundle: bundle, path: path, file: file}, nil
+}
+
+func (opened *Opened) Remove() error {
+	if opened == nil || opened.file == nil {
+		return errors.New("pairing bundle is not open")
+	}
+	openedInfo, err := opened.file.Stat()
+	if err != nil {
+		return errors.New("inspect open pairing bundle")
+	}
+	pathInfo, err := os.Lstat(opened.path)
+	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(openedInfo, pathInfo) {
+		return errors.New("pairing bundle changed while open")
+	}
+	if err := unix.Unlink(opened.path); err != nil {
+		return errors.New("remove pairing bundle")
+	}
+	if err := syncDirectory(filepath.Dir(opened.path)); err != nil {
+		return errors.New("sync pairing bundle directory")
+	}
+	return opened.Close()
+}
+
+func (opened *Opened) Discard(now time.Time) error {
+	if opened == nil {
+		return errors.New("pairing bundle is not open")
+	}
+	if now.Before(opened.Bundle.ExpiresAt) {
+		return ErrStillValid
+	}
+	return opened.Remove()
+}
+
+func (opened *Opened) Close() error {
+	if opened == nil || opened.file == nil {
+		return nil
+	}
+	err := opened.file.Close()
+	opened.file = nil
+	return err
+}
+
+func validateBundle(bundle Bundle) error {
+	if bundle.Version != Version {
+		return errors.New("pairing bundle version is unsupported")
+	}
+	requestID, err := uuid.Parse(bundle.RequestID)
+	if err != nil || requestID.String() != bundle.RequestID {
+		return errors.New("pairing bundle request id is invalid")
+	}
+	token, err := base64.RawURLEncoding.DecodeString(bundle.PairingToken)
+	if err != nil || len(token) != 32 || base64.RawURLEncoding.EncodeToString(token) != bundle.PairingToken {
+		return errors.New("pairing bundle token is invalid")
+	}
+	if bundle.ExpiresAt.IsZero() || bundle.ExpiresAt.Location() != time.UTC {
+		return errors.New("pairing bundle expiry is invalid")
+	}
+	return nil
+}
+
+func syncDirectory(path string) error {
+	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	directory := os.NewFile(uintptr(descriptor), path)
+	defer directory.Close()
+	return directory.Sync()
+}

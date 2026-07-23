@@ -10,6 +10,8 @@ import (
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/lifecycle"
+	"github.com/abcdlsj/sumi/internal/userdirs"
 )
 
 func RunContext(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer) error {
@@ -25,6 +27,15 @@ func RunContext(ctx context.Context, args []string, stdin io.Reader, stderr io.W
 	if err != nil {
 		return err
 	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		return err
+	}
+	lease, err := lifecycle.AcquireRun(config.dataRoot, userLayout.Runtime, lifecycle.ComponentComputer)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
 	osName, arch, err := platform(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return err
@@ -41,12 +52,12 @@ func RunContext(ctx context.Context, args []string, stdin io.Reader, stderr io.W
 	if config.once {
 		return synchronizeOnce(ctx, config, state, identity, initialSync, osName, arch, stderr)
 	}
-	executor, err := externalExecutor(config.serverURL, config.dataRoot, config.external)
+	executor, err := externalExecutor(config.serverURL, config.dataRoot, config.httpClient, config.external)
 	if err != nil {
 		return err
 	}
 	if executor != nil {
 		defer executor.Close()
 	}
-	return computerhost.NewDaemon(newDaemonConfig(config.serverURL, config.dataRoot, state, executor)).Run(ctx)
+	return computerhost.NewDaemon(newDaemonConfig(config.serverURL, config.dataRoot, config.httpClient, state, executor)).Run(ctx)
 }

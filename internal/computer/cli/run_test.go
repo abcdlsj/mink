@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -19,13 +20,36 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
+	"github.com/abcdlsj/sumi/internal/configfile"
 	"github.com/abcdlsj/sumi/internal/driver"
+	"github.com/abcdlsj/sumi/internal/endpoint"
+	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 	"github.com/abcdlsj/sumi/internal/server"
+	"github.com/abcdlsj/sumi/internal/userdirs"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestMain(m *testing.M) {
+	home, err := os.MkdirTemp("", "sumi-computer-cli-home-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Chmod(home, 0o700); err != nil {
+		panic(err)
+	}
+	previous := os.Getenv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = os.Setenv("HOME", previous)
+	_ = os.RemoveAll(home)
+	os.Exit(code)
+}
 
 func TestOncePairsFromPrivateTokenFileAndPersistsIdentity(t *testing.T) {
 	serverRoot := t.TempDir()
@@ -401,6 +425,53 @@ func TestPlatform(t *testing.T) {
 	}
 }
 
+func TestComputerRunUsesPersistedValidatedEndpointAndLifecycleGate(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	layout, err := home.Ensure(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := configfile.Default()
+	config.Server = configfile.ServerConfig{Origin: "https://example.com", Identity: string(endpoint.IdentitySystemTrust)}
+	if err := configfile.Save(layout.Config, config); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseConfig([]string{"--data-root", root, "--once"}, io.Discard, root, "computer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.serverURL != "https://example.com" || parsed.serverEndpoint.Identity.Kind != endpoint.IdentitySystemTrust || parsed.httpClient == nil {
+		t.Fatalf("parsed endpoint = %+v", parsed)
+	}
+	if _, err := parseConfig([]string{"--data-root", root, "--server", "https://other.example.com", "--once"}, io.Discard, root, "computer"); err == nil {
+		t.Fatal("endpoint override conflict was accepted")
+	}
+	if _, err := parseConfig([]string{"--data-root", root, "--pairing-token-file", "token"}, io.Discard, root, "computer"); err == nil {
+		t.Fatal("raw remote pairing token was accepted")
+	}
+
+	config.Server = configfile.ServerConfig{}
+	if err := configfile.Save(layout.Config, config); err != nil {
+		t.Fatal(err)
+	}
+	userLayout, err := userdirs.Ensure()
+	if err != nil {
+		t.Fatal(err)
+	}
+	maintenance, err := lifecycle.AcquireMaintenance(root, userLayout.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer maintenance.Close()
+	err = RunContext(context.Background(), []string{"--data-root", root, "--once"}, bytes.NewReader(nil), io.Discard)
+	if !errors.Is(err, lifecycle.ErrRuntimeActive) {
+		t.Fatalf("Computer run bypassed maintenance = %v", err)
+	}
+}
+
 func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.T) {
 	resolve := func(context.Context, string) (driver.Kind, error) {
 		return driver.KindCodex, nil
@@ -439,11 +510,11 @@ func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.
 }
 
 func TestDisabledExternalExecutorIsNotInjectedIntoDaemon(t *testing.T) {
-	executor, err := externalExecutor("", t.TempDir(), externalRuntimeConfig{})
+	executor, err := externalExecutor("", t.TempDir(), nil, externalRuntimeConfig{})
 	if err != nil || executor != nil {
 		t.Fatalf("disabled external executor = %v, %v", executor, err)
 	}
-	if config := newDaemonConfig("", t.TempDir(), nil, executor); config.Executor != nil {
+	if config := newDaemonConfig("", t.TempDir(), nil, nil, executor); config.Executor != nil {
 		t.Fatalf("disabled external daemon executor = %#v", config.Executor)
 	}
 }

@@ -18,8 +18,8 @@ import (
 	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 )
 
-func newDaemonConfig(serverURL, dataRoot string, state *computerstate.State, executor *driverexecutor.ComputerExecutor) computerhost.DaemonConfig {
-	config := computerhost.DaemonConfig{ServerURL: serverURL, DataRoot: dataRoot, State: state}
+func newDaemonConfig(serverURL, dataRoot string, client *http.Client, state *computerstate.State, executor *driverexecutor.ComputerExecutor) computerhost.DaemonConfig {
+	config := computerhost.DaemonConfig{ServerURL: serverURL, DataRoot: dataRoot, HTTPClient: client, State: state}
 	if executor != nil {
 		config.Executor = executor
 	}
@@ -38,7 +38,7 @@ type externalRuntimeConfig struct {
 	outputLimit      int64
 }
 
-func externalExecutor(serverURL, dataRoot string, config externalRuntimeConfig) (*driverexecutor.ComputerExecutor, error) {
+func externalExecutor(serverURL, dataRoot string, client *http.Client, config externalRuntimeConfig) (*driverexecutor.ComputerExecutor, error) {
 	if !config.enabled {
 		return nil, nil
 	}
@@ -51,8 +51,8 @@ func externalExecutor(serverURL, dataRoot string, config externalRuntimeConfig) 
 		return nil, err
 	}
 	return newExternalExecutor(config, provider, func(ctx context.Context, agentID string) (driver.Kind, error) {
-		client := agentv1connect.NewAgentServiceClient(http.DefaultClient, serverURL)
-		response, err := client.GetAgent(ctx, connect.NewRequest(&agentv1.GetAgentRequest{AgentId: agentID}))
+		agents := agentv1connect.NewAgentServiceClient(client, serverURL)
+		response, err := agents.GetAgent(ctx, connect.NewRequest(&agentv1.GetAgentRequest{AgentId: agentID}))
 		if err != nil || response == nil || response.Msg == nil || response.Msg.GetAgent() == nil {
 			return "", errors.New("resolve agent driver")
 		}
