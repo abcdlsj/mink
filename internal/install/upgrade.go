@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -16,6 +17,16 @@ import (
 	"github.com/abcdlsj/sumi/internal/osservice"
 	"github.com/abcdlsj/sumi/internal/releasebundle"
 	_ "modernc.org/sqlite"
+)
+
+const (
+	serviceMaintenanceDrainTimeout  = 5 * time.Second
+	serviceMaintenanceDrainInterval = 25 * time.Millisecond
+)
+
+var (
+	serviceMaintenanceNow   = time.Now
+	serviceMaintenanceSleep = sleepWithContext
 )
 
 func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
@@ -38,7 +49,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if err := manager.stopServices(ctx); err != nil {
 		return err
 	}
-	maintenance, err := lifecycle.AcquireMaintenance(manager.Layout.DataRoot, manager.Layout.RuntimeRoot)
+	maintenance, err := manager.acquireMaintenanceAfterServiceStop(ctx)
 	if err != nil {
 		return err
 	}
@@ -104,6 +115,40 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 		return err
 	}
 	return nil
+}
+
+func (manager *Manager) acquireMaintenanceAfterServiceStop(ctx context.Context) (*lifecycle.Lease, error) {
+	deadline := serviceMaintenanceNow().Add(serviceMaintenanceDrainTimeout)
+	for {
+		maintenance, err := lifecycle.AcquireMaintenance(manager.Layout.DataRoot, manager.Layout.RuntimeRoot)
+		if err == nil {
+			return maintenance, nil
+		}
+		if !errors.Is(err, lifecycle.ErrRuntimeActive) {
+			return nil, err
+		}
+		remaining := deadline.Sub(serviceMaintenanceNow())
+		if remaining <= 0 {
+			return nil, fmt.Errorf("wait for stopped services to release runtime lease: %w", lifecycle.ErrRuntimeActive)
+		}
+		if remaining > serviceMaintenanceDrainInterval {
+			remaining = serviceMaintenanceDrainInterval
+		}
+		if err := serviceMaintenanceSleep(ctx, remaining); err != nil {
+			return nil, errors.Join(lifecycle.ErrRuntimeActive, err)
+		}
+	}
+}
+
+func sleepWithContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (manager *Manager) recoverUpgrade(ctx context.Context, point *restorePoint, oldActive ActiveManifest, candidateVersion string, maintenance *lifecycle.Lease, cause error) error {

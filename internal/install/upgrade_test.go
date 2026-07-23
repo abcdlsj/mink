@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/osservice"
@@ -208,8 +209,10 @@ func TestOldComputerStartFailureKeepsBothServicesStopped(t *testing.T) {
 	}
 }
 
-func TestStrayForegroundLeaseBlocksUpgradeBeforeSnapshot(t *testing.T) {
-	manager, _ := testManager(t)
+func TestUpgradeWaitsForStoppedServiceLeaseToDrain(t *testing.T) {
+	manager, services := testManager(t)
+	prober := &fakeProber{}
+	manager.Prober = prober
 	if err := manager.Install(context.Background(), testBundle(t, "1.0.0")); err != nil {
 		t.Fatal(err)
 	}
@@ -219,12 +222,90 @@ func TestStrayForegroundLeaseBlocksUpgradeBeforeSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer run.Close()
+	now := time.Unix(0, 0)
+	sleeps := 0
+	setServiceMaintenanceClock(t, func() time.Time { return now }, func(context.Context, time.Duration) error {
+		sleeps++
+		return run.Close()
+	})
+	if err := manager.Upgrade(context.Background(), testBundle(t, "2.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	if sleeps != 1 {
+		t.Fatalf("maintenance drain sleeps = %d", sleeps)
+	}
+	active, err := manager.Active()
+	if err != nil || active.Release.ReleaseVersion != "2.0.0" {
+		t.Fatalf("active = %+v, %v", active, err)
+	}
+	if len(prober.probed) != 1 || prober.probed[0] != "2.0.0" {
+		t.Fatalf("probes = %v", prober.probed)
+	}
+	if !services.running[osservice.Server] || !services.running[osservice.Computer] {
+		t.Fatalf("services = %v", services.running)
+	}
+}
+
+func TestStrayForegroundLeaseTimesOutBeforeUpgradeSideEffects(t *testing.T) {
+	manager, services := testManager(t)
+	if err := manager.Install(context.Background(), testBundle(t, "1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	seedUpgradeFacts(t, manager.Layout)
+	activeBefore, err := os.ReadFile(manager.Layout.ActiveManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := lifecycle.AcquireRun(manager.Layout.DataRoot, manager.Layout.RuntimeRoot, lifecycle.ComponentServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer run.Close()
+	now := time.Unix(0, 0)
+	started := now
+	sleeps := 0
+	setServiceMaintenanceClock(t, func() time.Time { return now }, func(_ context.Context, duration time.Duration) error {
+		sleeps++
+		now = now.Add(duration)
+		return nil
+	})
 	if err := manager.Upgrade(context.Background(), testBundle(t, "2.0.0")); !errors.Is(err, lifecycle.ErrRuntimeActive) {
 		t.Fatalf("upgrade beside foreground run = %v", err)
+	}
+	if sleeps == 0 {
+		t.Fatal("upgrade did not wait for the stopped service lease to drain")
+	}
+	if elapsed := now.Sub(started); elapsed != serviceMaintenanceDrainTimeout {
+		t.Fatalf("maintenance drain elapsed = %s", elapsed)
 	}
 	if _, err := os.Lstat(manager.Layout.RestoreRoot); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("snapshot created beside foreground run: %v", err)
 	}
+	if _, err := os.Lstat(manager.Layout.VersionRoot("2.0.0")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("candidate copied beside foreground run: %v", err)
+	}
+	activeAfter, err := os.ReadFile(manager.Layout.ActiveManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(activeAfter) != string(activeBefore) {
+		t.Fatal("active manifest changed beside foreground run")
+	}
+	if services.running[osservice.Server] || services.running[osservice.Computer] {
+		t.Fatalf("services restarted beside foreground run: %v", services.running)
+	}
+}
+
+func setServiceMaintenanceClock(t *testing.T, now func() time.Time, sleep func(context.Context, time.Duration) error) {
+	t.Helper()
+	previousNow := serviceMaintenanceNow
+	previousSleep := serviceMaintenanceSleep
+	serviceMaintenanceNow = now
+	serviceMaintenanceSleep = sleep
+	t.Cleanup(func() {
+		serviceMaintenanceNow = previousNow
+		serviceMaintenanceSleep = previousSleep
+	})
 }
 
 func seedUpgradeFacts(t *testing.T, layout Layout) map[string][]byte {

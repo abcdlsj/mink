@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"golang.org/x/sys/unix"
 )
 
@@ -31,7 +30,7 @@ func (manager *Manager) Uninstall(ctx context.Context, purge bool) error {
 	if err := manager.stopServices(ctx); err != nil {
 		return err
 	}
-	maintenance, err := lifecycle.AcquireMaintenance(manager.Layout.DataRoot, manager.Layout.RuntimeRoot)
+	maintenance, err := manager.acquireMaintenanceAfterServiceStop(ctx)
 	if err != nil {
 		return err
 	}
