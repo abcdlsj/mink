@@ -35,6 +35,7 @@ type launchdRestartRunner struct {
 	commands       []recordedCommand
 	loadedChecks   int
 	loadedUntil    int
+	bootoutError   error
 	bootstrapError error
 	probeError     error
 }
@@ -54,6 +55,8 @@ func (runner *launchdRestartRunner) Run(_ context.Context, executable string, ar
 			return runner.probeError
 		}
 		return errLaunchdNotLoaded
+	case "bootout":
+		return runner.bootoutError
 	case "bootstrap":
 		return runner.bootstrapError
 	default:
@@ -149,6 +152,35 @@ func TestDarwinRestartFailsClosedWhenLoadedProbeFails(t *testing.T) {
 	}
 	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "bootstrap", "gui/501", manager.unitPath(Server))
 	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
+func TestDarwinRestartReturnsBootoutFailureWithoutRemovalProbeOrStart(t *testing.T) {
+	bootoutError := errors.New("launchd bootout failed")
+	runner := &launchdRestartRunner{loadedUntil: 1, bootoutError: bootoutError}
+	manager, clock := newDarwinRestartManager(t, runner)
+	err := manager.Restart(context.Background(), Server)
+	if !errors.Is(err, bootoutError) {
+		t.Fatalf("restart error = %v", err)
+	}
+	if runner.loadedChecks != 1 {
+		t.Fatalf("loaded checks = %d", runner.loadedChecks)
+	}
+	if len(clock.waits) != 0 {
+		t.Fatalf("restart waits = %v", clock.waits)
+	}
+	want := []recordedCommand{
+		{executable: "/bin/launchctl", args: []string{"print", manager.domainTarget(Server)}},
+		{executable: "/bin/launchctl", args: []string{"bootout", manager.domainTarget(Server)}},
+	}
+	if len(runner.commands) != len(want) {
+		t.Fatalf("commands = %#v", runner.commands)
+	}
+	for index := range want {
+		if runner.commands[index].executable != want[index].executable ||
+			strings.Join(runner.commands[index].args, "\x00") != strings.Join(want[index].args, "\x00") {
+			t.Fatalf("command %d = %#v, want %#v", index, runner.commands[index], want[index])
+		}
+	}
 }
 
 func TestDarwinRestartStartsWhenServiceIsAlreadyAbsent(t *testing.T) {
