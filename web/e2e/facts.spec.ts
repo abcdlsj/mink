@@ -16,7 +16,6 @@ import { PlacementService } from "../src/gen/sumi/placement/v1/placement_pb";
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const run = promisify(execFile);
-const transport = createConnectTransport({ baseUrl: baseURL });
 let ownerCredential = "";
 let ownerKeyFile = "";
 const ownerAuthorization: Interceptor = (next) => async (request) => {
@@ -67,6 +66,7 @@ test("real facts move from pending to active after sumi-computer ack", async ({
   await page.getByRole("button", { name: "Refresh Agents" }).click();
 
   await expect(agentRegion(page).locator(".state-chip.active")).toBeVisible();
+  await expect(agentRegion(page)).not.toContainText(seed.pairingToken);
   await expect(page.locator("body")).not.toContainText(seed.hostRoot);
 });
 
@@ -107,14 +107,15 @@ for (const viewport of [
     await page.getByRole("button", { name: "Agents" }).focus();
     await page.keyboard.press("Enter");
     const agentNav = agentsNavigation(page);
-    await expect(agentNav.getByText(seed.pendingAgentName)).toBeVisible();
+    await expect(agentNav.getByText(seed.failedAgentName)).toBeVisible();
     await agentNav
-      .getByRole("button", { name: new RegExp(seed.pendingAgentName) })
+      .getByRole("button", { name: new RegExp(seed.failedAgentName) })
       .focus();
     await page.keyboard.press("Enter");
     await expect(
-      agentRegion(page).locator(".state-chip.active"),
+      agentRegion(page).getByText("workspace_invalid"),
     ).toBeVisible();
+    await expect(agentRegion(page)).not.toContainText(seed.pairingToken);
     await page.getByRole("button", { name: "Computers" }).click();
     const computerNav = computersNavigation(page);
     await expect(computerNav.getByText(seed.computerName)).toBeVisible();
@@ -173,8 +174,36 @@ async function seedFacts() {
   await mkdir(join(hostRoot, "data-root"), { recursive: true, mode: 0o700 });
   await pairHost(hostRoot, tokenFile, computerName);
   const computers = await ownerComputerClient.listComputers({});
-  if (computers.computers.length !== 1) throw new Error("Computer seed failed");
-  const computer = computers.computers[0];
+  const computer = computers.computers.find(
+    (candidate) => candidate.name === computerName,
+  );
+  if (!computer) throw new Error("Computer seed failed");
+
+  const failedAgentName = `failed-${suffix}`;
+  const failedAgent = await createSeedAgent(failedAgentName);
+  const failedPlacement = await ownerPlacementClient.setAgentPlacement({
+    requestId: randomUUID(),
+    agentId: failedAgent.id,
+    computerId: computer.id,
+  });
+  if (!failedPlacement.placement)
+    throw new Error("Failed placement seed failed");
+  const failedAgentRoot = join(
+    hostRoot,
+    "data-root",
+    "agents",
+    `agent_${failedAgent.id}`,
+  );
+  const invalidWorkspace = join(failedAgentRoot, "workspace");
+  await mkdir(failedAgentRoot, { recursive: true, mode: 0o700 });
+  await writeFile(invalidWorkspace, "not a directory", { mode: 0o600 });
+  await expectHostFailure(
+    hostRoot,
+    computerName,
+    "path is not a real directory",
+  );
+  await rm(invalidWorkspace, { force: true });
+
   const pendingAgentName = `pending-${suffix}`;
   const pendingAgent = await createSeedAgent(pendingAgentName);
   await ownerPlacementClient.setAgentPlacement({
@@ -184,9 +213,11 @@ async function seedFacts() {
   });
 
   return {
+    pairingToken,
     computerId: computer.id,
     computerName,
     pendingAgentName,
+    failedAgentName,
     hostRoot,
   };
 }
@@ -288,24 +319,7 @@ function escapePattern(value: string) {
 }
 
 async function runHost(current: Seed) {
-  await run(
-    "mise",
-    [
-      "exec",
-      "--",
-      "go",
-      "run",
-      "./cmd/sumi-computer",
-      "--server",
-      baseURL,
-      "--data-root",
-      join(current.hostRoot, "data-root"),
-      "--name",
-      current.computerName,
-      "--once",
-    ],
-    { cwd: repoRoot },
-  );
+  await syncHost(current.hostRoot, current.computerName);
 }
 
 async function pairHost(
@@ -333,6 +347,48 @@ async function pairHost(
     ],
     { cwd: repoRoot },
   );
+}
+
+async function syncHost(hostRoot: string, computerName: string) {
+  await run(
+    "mise",
+    [
+      "exec",
+      "--",
+      "go",
+      "run",
+      "./cmd/sumi-computer",
+      "--server",
+      baseURL,
+      "--data-root",
+      join(hostRoot, "data-root"),
+      "--name",
+      computerName,
+      "--once",
+    ],
+    { cwd: repoRoot },
+  );
+}
+
+async function expectHostFailure(
+  hostRoot: string,
+  computerName: string,
+  stderrNeedle: string,
+) {
+  try {
+    await syncHost(hostRoot, computerName);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "stderr" in error &&
+      String(error.stderr).includes(stderrNeedle)
+    ) {
+      return;
+    }
+    throw error;
+  }
+  throw new Error(`Computer seed unexpectedly accepted ${stderrNeedle}`);
 }
 
 async function openAgent(page: Page, name: string) {
