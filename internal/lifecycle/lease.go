@@ -6,13 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
 var ErrRuntimeActive = errors.New("sumi runtime is already active")
+
+const maintenanceFDEnvironment = "SUMI_INTERNAL_MAINTENANCE_FD"
 
 type Component string
 
@@ -36,6 +41,9 @@ func AcquireRun(dataRoot, runtimeRoot string, component Component) (*Lease, erro
 	if err != nil {
 		return nil, err
 	}
+	if rawDescriptor := os.Getenv(maintenanceFDEnvironment); rawDescriptor != "" {
+		return acquireInheritedRun(dataRoot, runtimeRoot, componentPath, rawDescriptor)
+	}
 	gate, err := openLock(gatePath)
 	if err != nil {
 		return nil, err
@@ -55,6 +63,62 @@ func AcquireRun(dataRoot, runtimeRoot string, component Component) (*Lease, erro
 		return nil, ErrRuntimeActive
 	}
 	return &Lease{gate: gate, component: componentFile}, nil
+}
+
+// PrepareMaintenanceChild transfers the current maintenance gate to a probe
+// process without exposing an operator-facing flag or persistent setting.
+func PrepareMaintenanceChild(lease *Lease, command *exec.Cmd) error {
+	if lease == nil || command == nil {
+		return errors.New("maintenance child is invalid")
+	}
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	if lease.closed || lease.gate == nil || lease.component != nil {
+		return errors.New("maintenance lease is unavailable")
+	}
+	descriptor := 3 + len(command.ExtraFiles)
+	command.ExtraFiles = append(command.ExtraFiles, lease.gate)
+	environment := command.Env
+	if environment == nil {
+		environment = os.Environ()
+	}
+	prefix := maintenanceFDEnvironment + "="
+	filtered := environment[:0]
+	for _, value := range environment {
+		if !strings.HasPrefix(value, prefix) {
+			filtered = append(filtered, value)
+		}
+	}
+	command.Env = append(filtered, prefix+strconv.Itoa(descriptor))
+	return nil
+}
+
+func acquireInheritedRun(dataRoot, runtimeRoot, componentPath, rawDescriptor string) (*Lease, error) {
+	descriptor, err := strconv.Atoi(rawDescriptor)
+	if err != nil || descriptor < 3 {
+		return nil, errors.New("inherited maintenance descriptor is invalid")
+	}
+	inherited := os.NewFile(uintptr(descriptor), "sumi-maintenance-gate")
+	if inherited == nil {
+		return nil, errors.New("inherited maintenance descriptor is invalid")
+	}
+	maintenance, err := AcquireInheritedMaintenance(dataRoot, runtimeRoot, inherited)
+	if err != nil {
+		inherited.Close()
+		return nil, err
+	}
+	componentFile, err := openLock(componentPath)
+	if err != nil {
+		maintenance.Close()
+		return nil, err
+	}
+	if err := flock(componentFile, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		componentFile.Close()
+		maintenance.Close()
+		return nil, ErrRuntimeActive
+	}
+	maintenance.component = componentFile
+	return maintenance, nil
 }
 
 func AcquireMaintenance(dataRoot, runtimeRoot string) (*Lease, error) {

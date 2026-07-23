@@ -64,7 +64,7 @@ func TestRunRoutesAuthOpenWithoutLeakingPath(t *testing.T) {
 }
 
 func TestRunRejectsUnsupportedNewSubcommands(t *testing.T) {
-	for _, args := range [][]string{{"server", "start"}, {"computer", "install"}, {"auth", "create"}} {
+	for _, args := range [][]string{{"server", "install"}, {"computer", "install"}, {"auth", "create"}} {
 		err := Run(context.Background(), args, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 		var structured *clicontract.Error
 		if !errors.As(err, &structured) || structured.Code != "INVALID_COMMAND" {

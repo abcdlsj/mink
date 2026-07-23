@@ -52,6 +52,17 @@ npm run build --prefix web
 go build ./...
 '''
 
+[tasks.package]
+description = "Build a verified clean-machine release bundle"
+run = '''
+: "${SUMI_VERSION:?set SUMI_VERSION}"
+: "${SUMI_BUNDLE_OUT:?set SUMI_BUNDLE_OUT}"
+mkdir -p bin
+go build -o bin/sumi ./cmd/sumi
+go build -o bin/sumi-package ./cmd/sumi-package
+bin/sumi-package --version "$SUMI_VERSION" --os "$(go env GOOS)" --arch "$(go env GOARCH)" --binary bin/sumi --web web/dist --out "$SUMI_BUNDLE_OUT"
+'''
+
 [tasks."dev:server"]
 description = "Run the local Sumi Server"
 run = "go run ./cmd/sumi-server --data-root ${SUMI_DATA_ROOT:-$HOME/.sumi}"

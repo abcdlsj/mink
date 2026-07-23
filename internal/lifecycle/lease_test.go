@@ -3,7 +3,10 @@ package lifecycle
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -133,6 +136,80 @@ func TestLifecycleRejectsUnsafeLockPath(t *testing.T) {
 	}
 	if _, err := AcquireRun(dataRoot, runtimeRoot, ComponentServer); err == nil {
 		t.Fatal("symlink lock path was accepted")
+	}
+}
+
+func TestPrepareMaintenanceChildUsesPrivateInheritedDescriptor(t *testing.T) {
+	dataRoot, runtimeRoot := leaseRoots(t)
+	maintenance, err := AcquireMaintenance(dataRoot, runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer maintenance.Close()
+	command := exec.Command("ignored")
+	command.Env = []string{"KEEP=value", maintenanceFDEnvironment + "=999"}
+	if err := PrepareMaintenanceChild(maintenance, command); err != nil {
+		t.Fatal(err)
+	}
+	if len(command.ExtraFiles) != 1 || command.ExtraFiles[0] != maintenance.File() {
+		t.Fatalf("extra files = %+v", command.ExtraFiles)
+	}
+	joined := strings.Join(command.Env, "\n")
+	if !strings.Contains(joined, "KEEP=value") || !strings.Contains(joined, maintenanceFDEnvironment+"=3") || strings.Contains(joined, "=999") {
+		t.Fatalf("child environment = %q", joined)
+	}
+}
+
+func TestAcquireRunConsumesInheritedMaintenanceWithoutDowngrade(t *testing.T) {
+	dataRoot, runtimeRoot := leaseRoots(t)
+	maintenance, err := AcquireMaintenance(dataRoot, runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateDescriptor, err := unix.Dup(int(maintenance.File().Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(maintenanceFDEnvironment, strconv.Itoa(duplicateDescriptor))
+	run, err := AcquireRun(dataRoot, runtimeRoot, ComponentServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := maintenance.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(maintenanceFDEnvironment, "")
+	if _, err := AcquireRun(dataRoot, runtimeRoot, ComponentComputer); !errors.Is(err, ErrRuntimeActive) {
+		t.Fatalf("new run entered inherited probe = %v", err)
+	}
+	if err := run.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcquireRunRejectsUnheldInheritedGateWithSharedHolder(t *testing.T) {
+	dataRoot, runtimeRoot := leaseRoots(t)
+	shared, err := AcquireRun(dataRoot, runtimeRoot, ComponentComputer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer shared.Close()
+	gatePath, err := GatePath(dataRoot, runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	independent, err := os.OpenFile(gatePath, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer independent.Close()
+	duplicateDescriptor, err := unix.Dup(int(independent.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(maintenanceFDEnvironment, strconv.Itoa(duplicateDescriptor))
+	if _, err := AcquireRun(dataRoot, runtimeRoot, ComponentServer); !errors.Is(err, ErrRuntimeActive) {
+		t.Fatalf("probe entered beside shared holder = %v", err)
 	}
 }
 

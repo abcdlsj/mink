@@ -6,3 +6,4 @@ coverage/
 web/dist/
 web/node_modules/
 test-results/
+release/
