@@ -193,13 +193,21 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 		capability store.Capability
 		scope      store.Scope
 	}{
+		{store.CapabilityWorkCreate, store.Scope{Kind: "organization", ID: bootstrap.Organization.ID}},
+		{store.CapabilitySpaceRead, store.Scope{Kind: "space", ID: source.SpaceID}},
 		{store.CapabilityWorkManage, store.Scope{Kind: "work", ID: created.Msg.GetWork().GetId()}},
 	} {
 		if _, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{RequestID: uuid.NewString(), Actor: ownerPrincipal, Subject: runtimePrincipal, Capability: grant.capability, Scope: grant.scope, ParentGrantID: bootstrap.RootGrant.ID, Now: time.Now()}); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if _, err := api.app.store.AddMember(context.Background(), store.ChangeMemberParams{RequestID: uuid.NewString(), Actor: ownerPrincipal, SpaceID: source.SpaceID, Member: runtimePrincipal, Now: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
 	runtimeWork := workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL)
+	if _, err := runtimeWork.CreateWork(context.Background(), runtimeRequest(workCreateRequest(source), current.GetToken())); err != nil {
+		t.Fatalf("current runtime create: %v", err)
+	}
 	if _, err := runtimeWork.AssignWork(context.Background(), runtimeRequest(&workv1.AssignWorkRequest{RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), AgentId: agent.GetId(), Role: workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR}, current.GetToken())); err != nil {
 		t.Fatalf("current runtime assign: %v", err)
 	}
