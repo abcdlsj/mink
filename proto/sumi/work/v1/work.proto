@@ -1,0 +1,241 @@
+syntax = "proto3";
+
+package sumi.work.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sumi/grant/v1/grant.proto";
+import "sumi/space/v1/space.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/work/v1;workv1";
+
+service WorkService {
+  rpc ListWorks(ListWorksRequest) returns (ListWorksResponse);
+  rpc GetWork(GetWorkRequest) returns (GetWorkResponse);
+  rpc CreateWork(CreateWorkRequest) returns (CreateWorkResponse);
+  rpc AssignWork(AssignWorkRequest) returns (AssignWorkResponse);
+  rpc TransitionWork(TransitionWorkRequest) returns (TransitionWorkResponse);
+  rpc RequestApproval(RequestApprovalRequest) returns (RequestApprovalResponse);
+  rpc ResolveApproval(ResolveApprovalRequest) returns (ResolveApprovalResponse);
+}
+
+enum WorkState {
+  WORK_STATE_UNSPECIFIED = 0;
+  WORK_STATE_OPEN = 1;
+  WORK_STATE_BLOCKED = 2;
+  WORK_STATE_WAITING_APPROVAL = 3;
+  WORK_STATE_COMPLETED = 4;
+  WORK_STATE_FAILED = 5;
+  WORK_STATE_CANCELLED = 6;
+}
+
+enum WorkAssignmentRole {
+  WORK_ASSIGNMENT_ROLE_UNSPECIFIED = 0;
+  WORK_ASSIGNMENT_ROLE_COORDINATOR = 1;
+  WORK_ASSIGNMENT_ROLE_CONTRIBUTOR = 2;
+}
+
+enum WorkApprovalStatus {
+  WORK_APPROVAL_STATUS_UNSPECIFIED = 0;
+  WORK_APPROVAL_STATUS_PENDING = 1;
+  WORK_APPROVAL_STATUS_APPROVED = 2;
+  WORK_APPROVAL_STATUS_REJECTED = 3;
+  WORK_APPROVAL_STATUS_CANCELLED = 4;
+}
+
+enum WorkApprovalDecision {
+  WORK_APPROVAL_DECISION_UNSPECIFIED = 0;
+  WORK_APPROVAL_DECISION_APPROVED = 1;
+  WORK_APPROVAL_DECISION_REJECTED = 2;
+}
+
+enum WorkCriterionVerdict {
+  WORK_CRITERION_VERDICT_UNSPECIFIED = 0;
+  WORK_CRITERION_VERDICT_PASSED = 1;
+  WORK_CRITERION_VERDICT_FAILED = 2;
+}
+
+message WorkText {
+  string id = 1;
+  uint32 ordinal = 2;
+  string body = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message WorkCriterion {
+  string id = 1;
+  uint32 ordinal = 2;
+  string body = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message Work {
+  string id = 1;
+  string organization_id = 2;
+  string root_work_id = 3;
+  string parent_work_id = 4;
+  string source_message_id = 5;
+  string source_space_id = 6;
+  sumi.space.v1.MessageTarget source_target = 7;
+  uint64 source_target_sequence = 8;
+  string team_space_id = 9;
+  string goal = 10;
+  WorkState state = 11;
+  string blocking_reason = 12;
+  string result = 13;
+  sumi.grant.v1.Principal creator = 14;
+  google.protobuf.Timestamp created_at = 15;
+  google.protobuf.Timestamp updated_at = 16;
+  google.protobuf.Timestamp state_changed_at = 17;
+  google.protobuf.Timestamp completed_at = 18;
+  google.protobuf.Timestamp failed_at = 19;
+  google.protobuf.Timestamp cancelled_at = 20;
+}
+
+message WorkAssignment {
+  string id = 1;
+  string work_id = 2;
+  string organization_id = 3;
+  WorkAssignmentRole role = 4;
+  string agent_id = 5;
+  string holder_computer_id = 6;
+  uint64 holder_placement_generation = 7;
+  sumi.grant.v1.Principal assigned_by = 8;
+  google.protobuf.Timestamp assigned_at = 9;
+  google.protobuf.Timestamp ended_at = 10;
+  string end_reason = 11;
+}
+
+message WorkApproval {
+  string id = 1;
+  string work_id = 2;
+  string organization_id = 3;
+  WorkApprovalStatus status = 4;
+  string question = 5;
+  sumi.grant.v1.Principal requested_by = 6;
+  google.protobuf.Timestamp requested_at = 7;
+  string decided_by_human_id = 8;
+  string decision_note = 9;
+  google.protobuf.Timestamp decided_at = 10;
+}
+
+message WorkCriterionResult {
+  uint64 sequence = 1;
+  string id = 2;
+  string work_id = 3;
+  string organization_id = 4;
+  string criterion_id = 5;
+  WorkCriterionVerdict verdict = 6;
+  string evidence = 7;
+  sumi.grant.v1.Principal actor = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+}
+
+message WorkEvent {
+  uint64 sequence = 1;
+  string id = 2;
+  string work_id = 3;
+  string organization_id = 4;
+  string kind = 5;
+  sumi.grant.v1.Principal actor = 6;
+  WorkState from_state = 7;
+  WorkState to_state = 8;
+  string reference_kind = 9;
+  string reference_id = 10;
+  string reason = 11;
+  google.protobuf.Timestamp occurred_at = 12;
+}
+
+message WorkDetail {
+  Work work = 1;
+  repeated WorkText constraints = 2;
+  repeated WorkCriterion acceptance_criteria = 3;
+  repeated WorkAssignment assignments = 4;
+  repeated WorkApproval approvals = 5;
+  repeated WorkCriterionResult criterion_results = 6;
+  repeated WorkEvent events = 7;
+}
+
+message ListWorksRequest {
+  string cursor = 1;
+  uint32 limit = 2;
+}
+
+message ListWorksResponse {
+  repeated Work works = 1;
+  string next_cursor = 2;
+}
+
+message GetWorkRequest {
+  string work_id = 1;
+}
+
+message GetWorkResponse {
+  WorkDetail detail = 1;
+}
+
+message CreateWorkRequest {
+  string request_id = 1;
+  string parent_work_id = 2;
+  string source_message_id = 3;
+  string source_space_id = 4;
+  sumi.space.v1.MessageTarget source_target = 5;
+  uint64 source_target_sequence = 6;
+  string goal = 7;
+  repeated string constraints = 8;
+  repeated string acceptance_criteria = 9;
+}
+
+message CreateWorkResponse {
+  Work work = 1;
+}
+
+message AssignWorkRequest {
+  string request_id = 1;
+  string work_id = 2;
+  WorkAssignmentRole role = 3;
+  string agent_id = 4;
+}
+
+message AssignWorkResponse {
+  WorkAssignment assignment = 1;
+}
+
+message WorkCriterionResultInput {
+  string criterion_id = 1;
+  WorkCriterionVerdict verdict = 2;
+  string evidence = 3;
+}
+
+message TransitionWorkRequest {
+  string request_id = 1;
+  string work_id = 2;
+  WorkState to_state = 3;
+  string reason = 4;
+  string result = 5;
+  repeated WorkCriterionResultInput criterion_results = 6;
+}
+
+message TransitionWorkResponse {
+  Work work = 1;
+}
+
+message RequestApprovalRequest {
+  string request_id = 1;
+  string work_id = 2;
+  string question = 3;
+}
+
+message RequestApprovalResponse {
+  WorkApproval approval = 1;
+}
+
+message ResolveApprovalRequest {
+  string request_id = 1;
+  string approval_id = 2;
+  WorkApprovalDecision decision = 3;
+  string note = 4;
+}
+
+message ResolveApprovalResponse {
+  WorkApproval approval = 1;
+}

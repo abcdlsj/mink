@@ -20,6 +20,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/work/v1/workv1connect"
 	"github.com/abcdlsj/sumi/internal/agent"
 	"github.com/abcdlsj/sumi/internal/artifact"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
@@ -38,6 +39,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
+	"github.com/abcdlsj/sumi/internal/work"
 )
 
 type Server struct {
@@ -146,6 +148,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(knowledgePath, knowledgeHandler)
 	artifactPath, artifactHandler := artifactv1connect.NewArtifactServiceHandler(artifact.New(artifacts, database, config.BrowserOrigin))
 	mux.Handle(artifactPath, artifactHandler)
+	workPath, workHandler := workv1connect.NewWorkServiceHandler(work.New(database, config.BrowserOrigin))
+	mux.Handle(workPath, workHandler)
 	organizationPath, organizationHandler := organizationv1connect.NewOrganizationServiceHandler(organization.New(database), authorization)
 	mux.Handle(organizationPath, organizationHandler)
 	grantPath, grantHandler := grantv1connect.NewGrantServiceHandler(grant.New(database), authorization)
