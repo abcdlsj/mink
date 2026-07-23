@@ -1,9 +1,7 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,12 +9,9 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/authority/websession"
 	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
@@ -141,59 +136,11 @@ func RunAuth(ctx context.Context, args []string, stdout, stderr io.Writer) error
 	if err != nil {
 		return errors.New("auth Server endpoint is unsafe")
 	}
-	origin, err := url.Parse(serverEndpoint.Origin)
+	handoff, err := RequestBrowserHandoff(ctx, serverEndpoint, *humanKeyFile)
 	if err != nil {
-		return errors.New("auth Server endpoint is unsafe")
+		return err
 	}
-	credential, err := authority.ReadCredentialFile(*humanKeyFile)
-	if err != nil {
-		return errors.New("human credential file is missing or unsafe")
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, serverEndpoint.Origin+websession.CreateHandoffPath, nil)
-	if err != nil {
-		return errors.New("create browser authentication request")
-	}
-	request.Header.Set("Authorization", "Bearer "+credential)
-	client, err := endpoint.NewHTTPClient(serverEndpoint)
-	if err != nil {
-		return errors.New("create browser authentication transport")
-	}
-	response, err := client.Do(request)
-	if err != nil {
-		return errors.New("browser authentication request failed")
-	}
-	defer response.Body.Close()
-	if response.StatusCode >= 300 && response.StatusCode < 400 {
-		return errors.New("browser authentication request refused a redirect")
-	}
-	if response.StatusCode != http.StatusCreated {
-		return fmt.Errorf("browser authentication request returned status %d", response.StatusCode)
-	}
-	var handoff struct {
-		Path      string    `json:"path"`
-		ExpiresAt time.Time `json:"expires_at"`
-	}
-	payload, err := io.ReadAll(io.LimitReader(response.Body, 2049))
-	if err != nil || len(payload) > 2048 {
-		return errors.New("browser authentication response is invalid")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&handoff); err != nil {
-		return errors.New("browser authentication response is invalid")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("browser authentication response is invalid")
-	}
-	if handoff.ExpiresAt.IsZero() {
-		return errors.New("browser authentication response is invalid")
-	}
-	handoffURL, err := resolveHandoffURL(origin, handoff.Path)
-	if err != nil {
-		return errors.New("browser authentication response is unsafe")
-	}
-	_, err = fmt.Fprintln(stdout, handoffURL.String())
+	_, err = fmt.Fprintln(stdout, handoff.URL.String())
 	return err
 }
 
@@ -213,25 +160,4 @@ func resolveBrowserOrigin(listen, explicit string) (string, error) {
 		return "", nil
 	}
 	return "http://" + net.JoinHostPort(host, port), nil
-}
-
-func resolveHandoffURL(origin *url.URL, path string) (*url.URL, error) {
-	handoff, err := url.Parse(path)
-	if err != nil || handoff.IsAbs() || handoff.Host != "" || handoff.RawQuery != "" || handoff.Fragment != "" || !strings.HasPrefix(handoff.Path, websession.CreateHandoffPath+"/") {
-		return nil, errors.New("invalid handoff path")
-	}
-	token := strings.TrimPrefix(handoff.Path, websession.CreateHandoffPath+"/")
-	if len(token) != 43 || strings.Contains(token, "/") || handoff.EscapedPath() != handoff.Path {
-		return nil, errors.New("invalid handoff token")
-	}
-	for _, character := range token {
-		if !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') && !(character >= '0' && character <= '9') && character != '_' && character != '-' {
-			return nil, errors.New("invalid handoff token")
-		}
-	}
-	resolved := origin.ResolveReference(handoff)
-	if resolved.Scheme != origin.Scheme || resolved.Host != origin.Host {
-		return nil, errors.New("cross-origin handoff")
-	}
-	return resolved, nil
 }

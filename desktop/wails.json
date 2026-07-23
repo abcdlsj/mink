@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "sumi-desktop",
+  "outputfilename": "Sumi",
+  "frontend:dir": "frontend",
+  "build:dir": "build",
+  "author": {
+    "name": "Sumi"
+  },
+  "info": {
+    "companyName": "Sumi",
+    "productName": "Sumi",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright Sumi",
+    "comments": "Sumi Desktop"
+  }
+}

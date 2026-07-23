@@ -2,6 +2,7 @@
 go = "1.26.5"
 node = "22"
 "go:github.com/bufbuild/buf/cmd/buf" = "1.72.0"
+"go:github.com/wailsapp/wails/v2/cmd/wails" = "2.12.0"
 "go:honnef.co/go/tools/cmd/staticcheck" = "0.6.1"
 
 [tasks.install]
@@ -50,7 +51,12 @@ description = "Build production Web and Go binaries"
 run = '''
 npm run build --prefix web
 go build ./...
+mise run build:desktop
 '''
+
+[tasks."build:desktop"]
+description = "Build the production Desktop application without debug tools"
+run = "cd desktop && wails build -clean -trimpath -m -nosyncgomod -skipbindings -skipembedcreate"
 
 [tasks.package]
 description = "Build a verified clean-machine release bundle"
