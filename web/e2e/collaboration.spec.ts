@@ -193,7 +193,9 @@ test("real page creates canonical DM and Group, sends main/Thread messages, mana
   });
 
   await page.getByRole("button", { name: "Log out" }).click();
-  await expect(page.getByText("Authentication required")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Set up local access|Sign in to Sumi/ }),
+  ).toBeVisible();
   expect(await collaborationStatus(page)).toBe(401);
   await page.getByRole("button", { name: "Agents" }).click();
   await expect(
@@ -233,7 +235,9 @@ test("external session revocation clears protected facts on the next Collaborati
     .getByRole("button", { name: "Refresh conversation", exact: true })
     .click();
 
-  await expect(page.getByText("Authentication required")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Set up local access|Sign in to Sumi/ }),
+  ).toBeVisible();
   await expect(mainRow).toHaveCount(0);
   await expect(contextPane(page)).toBeHidden();
   expect(await collaborationStatus(page)).toBe(401);

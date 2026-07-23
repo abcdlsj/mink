@@ -307,7 +307,7 @@ func sqliteIntegrity(path string) error {
 		return errors.New("candidate Server database integrity probe failed")
 	}
 	var schemaVersion string
-	if err := database.QueryRow("SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&schemaVersion); err != nil || schemaVersion != "1" {
+	if err := database.QueryRow("SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&schemaVersion); err != nil || schemaVersion != "2" {
 		return errors.New("candidate Server schema probe failed")
 	}
 	return nil

@@ -29,6 +29,8 @@ var (
 	ErrLastOwner                = grantapp.ErrLastOwner
 	ErrBrowserHandoffInvalid    = authorityapp.ErrBrowserHandoffInvalid
 	ErrBrowserSessionInvalid    = authorityapp.ErrBrowserSessionInvalid
+	ErrLocalAccountInvalid      = authorityapp.ErrLocalAccountInvalid
+	ErrLocalAccountSetupDone    = authorityapp.ErrLocalAccountSetupDone
 	ErrWorkNotFound             = errors.New("work not found")
 	ErrWorkRequestConflict      = errors.New("work request conflict")
 	ErrWorkInvalid              = errors.New("work invalid")

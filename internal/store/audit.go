@@ -34,6 +34,7 @@ const (
 	AuditWorkTransition        = auditapp.ActionWorkTransition
 	AuditWorkApprovalRequest   = auditapp.ActionWorkApprovalRequest
 	AuditWorkApprovalResolve   = auditapp.ActionWorkApprovalResolve
+	AuditAuthIdentityBind      = auditapp.ActionAuthIdentityBind
 )
 
 type AuditEvent = auditapp.Event

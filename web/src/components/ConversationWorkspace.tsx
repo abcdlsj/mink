@@ -6,7 +6,6 @@ import {
   PanelRightOpen,
   RotateCw,
   Server,
-  ShieldCheck,
   UserRound,
   UsersRound,
   WifiOff,
@@ -22,6 +21,7 @@ import { WorkInbox } from "./WorkInbox";
 import { ArtifactWorkspace } from "./ArtifactWorkspace";
 import { AuthorityWorkspace } from "./AuthorityWorkspace";
 import { IconButton } from "./IconButton";
+import { LocalAuthPanel } from "./LocalAuthPanel";
 
 type View = "chat" | "work" | "artifacts" | "authority";
 type Bootstrap = ReturnType<typeof useBootstrap>;
@@ -246,20 +246,11 @@ function renderContent({
       />
     );
   }
-  if (session.status === "unauthenticated") {
-    return (
-      <div className="timeline">
-        <div className="authentication-state" role="status">
-          <span className="authentication-mark" aria-hidden="true">
-            <ShieldCheck size={30} strokeWidth={1.7} />
-          </span>
-          <div>
-            <h2>Authentication required</h2>
-            <p>This browser has no active Human session.</p>
-          </div>
-        </div>
-      </div>
-    );
+  if (
+    session.status === "unauthenticated" ||
+    session.status === "authenticating"
+  ) {
+    return <LocalAuthPanel session={session} />;
   }
   if (
     !spaces.data &&
@@ -425,6 +416,7 @@ function SessionIndicator({ session }: { session: Session }) {
 
 function sessionLabel(status: Session["status"]) {
   if (status === "loading" || status === "retrying") return "Checking session";
+  if (status === "authenticating") return "Signing in";
   if (status === "error") return "Session unavailable";
   return "Human signed out";
 }

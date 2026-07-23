@@ -33,6 +33,7 @@ const (
 	ActionWorkTransition        Action = "work.transition"
 	ActionWorkApprovalRequest   Action = "work.approval.request"
 	ActionWorkApprovalResolve   Action = "work.approval.resolve"
+	ActionAuthIdentityBind      Action = "auth.identity.bind"
 )
 
 type Event struct {

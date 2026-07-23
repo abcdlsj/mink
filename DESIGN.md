@@ -280,13 +280,17 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 当前每个 Server 保存一个 Organization。fresh Server 原子创建 bootstrap Human 与 organization root Grant；bootstrap credential 只来自 no-follow `0600` 文件，Server 只保存 hash。其他 Human 使用各自独立的高熵 credential，HTTP mutation 的 actor 只由 Authorization metadata 解析，request body 不能传 `actor_id` 冒充。Human 的 `owner / member` 只表达组织成员与最后恢复责任，不隐式赋予任何能力。
 
+本地账号是 Human 的一种认证方式，不是新 principal。认证身份用稳定的 `provider + subject -> Human` 绑定表示；local provider 额外保存 Argon2id 的 salt、digest 与有界参数，绝不保存 raw password。future OAuth provider 必须沿用“验证 provider proof -> 解析/绑定本地 Human -> 签发同一 browser session”的边界，provider subject 不能替代 Human、Grant 或 Audit actor。
+
+fresh Server 仅在尚无任何 local identity 时开放一次性 setup：浏览器提交 canonical username、密码与本机 `human.key`（或显式配置的 `owner.key`）bootstrap credential，Server 先验证它确实属于 active bootstrap Human，再在同一 transaction 内绑定 local identity、保存 password digest、签发现有 browser session 并追加 `auth.identity.bind` Audit。任何 local identity 一旦存在，setup 永久返回 conflict；普通访问者不能匿名创建 Human，后续多 Human 注册必须走 owner-authorized/invite 产品合同，不复用一次性 setup。username 只接受 3–32 位 ASCII 字母、数字、点、下划线和连字符并按 lowercase canonicalize；新密码为 12–256 个字符。login 对未知 username 与错误密码返回相同空 body `401` 并执行同成本 Argon2id，连续失败做本机有界限流；Argon2id 同时执行槽固定为 2，饱和时返回 `429`，避免并发请求放大内存；disabled Human 在 account lookup、session 签发和既有 session 校验上都 fail closed。
+
 默认 localhost/trusted-local 部署同时支持 Human Bearer credential 与本地 browser session，两者最终只生成同一个不可伪造的 Human principal。请求一旦携带 `Authorization` 就只按 Bearer 校验，即使失败也不能回退 cookie；没有 `Authorization` 时才允许 browser cookie。Human Grant、denied Audit 与业务事务不因认证载体而分叉。
 
 本地 browser session 通过 trusted CLI 一次性交接：CLI 只从 no-follow、regular、`0600` Human credential 文件读取 Bearer，向明确的 loopback Server origin 请求 32-byte 高熵 handoff。handoff 最长 60 秒且只能原子消费一次；浏览器首次访问含 handoff 的 URL 后，Server 立即 `303` 到无 token 的 `/`，只返回 opaque、HttpOnly、SameSite=Strict、Path=/ 的 session cookie。session 默认且最长 12 小时，设置 Expires/Max-Age；logout 使用相同 cookie name、Path 与 Secure 属性清除。SQLite 只保存带不同 domain separator 的 handoff/session hash、Human、created/expires 与 consumed/revoked 时间，不保存 raw handoff、raw session、cookie 或本机 credential 路径。重启继续有效，replay、expiry、revoke、disabled Human 与同名多 cookie 都立即 fail closed；失败的 handoff 消费不会清除已有有效 session。
 
-四个 `/auth/**` endpoint 都要求实际 TCP peer 是 loopback，并用请求自身的 TLS 状态与 Host 精确匹配配置 origin；不信任 `X-Forwarded-*`。cookie-auth 的受保护 procedure 只有显式 read allowlist 可以不带 Origin，其他 procedure（包括未来未知 procedure）默认视为 mutation，必须携带与配置 origin 完全一致的单一 Origin。未显式配置 browser origin 时，只有 literal loopback `--listen` 可以安全推导；其他 listen 继续允许现有非 browser API，但 browser auth 禁用。当前 loopback HTTP cookie 不设置 Secure；HTTPS loopback 才设置 Secure。这是本机安全交接，不是远程登录、反向代理或 mTLS 方案。
+全部 `/auth/**` endpoint 都要求实际 TCP peer 是 loopback，并用请求自身的 TLS 状态与 Host 精确匹配配置 origin；不信任 `X-Forwarded-*`。local setup/login 还要求 `application/json`、16 KiB body 上限、完全一致的单一 Origin，并拒绝混入 Authorization carrier。cookie-auth 的受保护 procedure 只有显式 read allowlist 可以不带 Origin，其他 procedure（包括未来未知 procedure）默认视为 mutation，必须携带与配置 origin 完全一致的单一 Origin。未显式配置 browser origin 时，只有 literal loopback `--listen` 可以安全推导；其他 listen 继续允许现有非 browser API，但 browser auth 禁用。当前 loopback HTTP cookie 不设置 Secure；HTTPS loopback 才设置 Secure。这是本机安全登录，不是公开注册、远程登录、反向代理或 mTLS 方案。
 
-Web bootstrap 与 Agent/Computer 公共只读 facts 不依赖登录。未登录时 Conversation 诚实显示 `Authentication required`，但用户仍可进入公共只读管理页；logout 后 Collaboration 立即返回 unauthenticated，公共 facts 继续可读。真实 DM/Space/Thread/Message 界面在后续阶段使用该 session，不在认证层伪造匿名能力。
+Web bootstrap 与 Agent/Computer 公共只读 facts 不依赖登录。未登录时 Conversation 根据 Server 真相显示 one-time local setup 或 login，而不是伪造匿名能力；用户仍可进入公共只读管理页。logout 后 Collaboration 立即返回 unauthenticated，公共 facts 继续可读。
 
 可授权的能力包括但不限于：
 
@@ -574,6 +578,6 @@ Application command 统一使用语义化 `...Command`，mutation 显式携带 `
 
 ## 25. 2026-07-23 SQLite MVP schema 收口
 
-Server SQLite 的 MVP 只接受 `schema.sql` 建立的最终 schema。新库以 `system_metadata.schema_version = "1"` 作为完成标记；空库只执行这一次初始化，带对象但缺少该标记的历史 Goose schema 一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证该标记，避免把完整性正常的旧库误判为可运行的新库。
+Server SQLite 的 MVP 只接受当前 `schema.sql` 建立的最终 schema。加入 local auth identity/password credential 后，新库以 `system_metadata.schema_version = "2"` 作为完成标记；空库只执行这一次初始化，旧 `"1"`、带对象但缺少当前标记的历史 Goose schema或缺少 local auth tables 的残缺库一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证当前标记，避免把完整性正常但语义过期的旧库误判为可运行的新库。
 
 Computer 初始身份也只走有时效的 pairing token：CLI 不再接受或导入 `--registration-key-file`。自动化端到端 seed 必须经 owner 创建 pairing、Host 消费 token 和后续 identity recovery，不能用旧注册 key 伪造流程。该收口不改变已有 pairing、registration-key hash、placement 或 runtime 的服务端事实合同。

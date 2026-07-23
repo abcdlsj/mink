@@ -99,3 +99,40 @@ type ConsumeBrowserHandoffCommand struct {
 	Now              time.Time
 	SessionExpiresAt time.Time
 }
+
+type AuthenticationIdentity struct {
+	Provider string
+	Subject  string
+}
+
+type PasswordDigest struct {
+	Algorithm   string
+	Salt        []byte
+	Digest      []byte
+	Memory      uint32
+	Iterations  uint32
+	Parallelism uint8
+}
+
+type LocalAccount struct {
+	Identity AuthenticationIdentity
+	Human    authoritydomain.Principal
+	Password PasswordDigest
+}
+
+type BindBootstrapLocalAccountCommand struct {
+	RequestID        string
+	BootstrapHuman   authoritydomain.Principal
+	Identity         AuthenticationIdentity
+	Password         PasswordDigest
+	SessionToken     string
+	Now              time.Time
+	SessionExpiresAt time.Time
+}
+
+type CreateBrowserSessionCommand struct {
+	Human     authoritydomain.Principal
+	Token     string
+	Now       time.Time
+	ExpiresAt time.Time
+}

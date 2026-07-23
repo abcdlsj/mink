@@ -181,7 +181,7 @@ func initializeSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if objects != 0 {
 		var marker string
-		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "1" {
+		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "2" {
 			return fmt.Errorf("legacy sqlite schema is unsupported (%d existing objects); initialize a new database", objects)
 		}
 		return validateSchema(ctx, db)
@@ -206,11 +206,14 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM sqlite_master
-		WHERE type = 'table' AND name IN ('system_metadata', 'knowledge_cursor_keys')
+		WHERE type = 'table' AND name IN (
+			'system_metadata', 'knowledge_cursor_keys',
+			'auth_identities', 'local_password_credentials'
+		)
 	`).Scan(&objects); err != nil {
 		return fmt.Errorf("inspect sqlite schema: %w", err)
 	}
-	if objects != 2 {
+	if objects != 4 {
 		return fmt.Errorf("sqlite schema is incomplete")
 	}
 	return nil

@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/wailsapp/wails/v2 v2.12.0
+	golang.org/x/crypto v0.48.0
 	golang.org/x/sys v0.46.0
 	google.golang.org/protobuf v1.36.11
 	modernc.org/sqlite v1.54.0
@@ -40,7 +41,6 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/net v0.50.0 // indirect
 	golang.org/x/text v0.34.0 // indirect
 	modernc.org/libc v1.74.1 // indirect

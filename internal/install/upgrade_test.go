@@ -21,7 +21,7 @@ func TestSQLiteIntegrityRequiresFinalSchemaMarker(t *testing.T) {
 	}
 	if _, err := database.Exec(`
 		CREATE TABLE system_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '1');
+		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '2');
 	`); err != nil {
 		database.Close()
 		t.Fatal(err)
@@ -31,6 +31,27 @@ func TestSQLiteIntegrityRequiresFinalSchemaMarker(t *testing.T) {
 	}
 	if err := sqliteIntegrity(path); err != nil {
 		t.Fatalf("final schema marker rejected: %v", err)
+	}
+}
+
+func TestSQLiteIntegrityRejectsPreviousFinalSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE system_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '1');
+	`); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqliteIntegrity(path); err == nil {
+		t.Fatal("previous final schema passed current candidate probe")
 	}
 }
 

@@ -20,7 +20,11 @@ for (const viewport of [
   }) => {
     await page.setViewportSize(viewport);
     await page.goto("/");
-    await expect(page.getByText("Authentication required")).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: /Set up local access|Sign in to Sumi/,
+      }),
+    ).toBeVisible();
     await expect(page.getByText(/Server [a-f0-9]{8}/)).toBeVisible();
     await expect(
       page.getByRole("complementary", { name: "Context", exact: true }),

@@ -44,7 +44,13 @@ import {
   setAgentPlacement,
   type FactsSnapshot,
 } from "./lib/facts";
-import { getSession, logoutSession } from "./lib/session";
+import {
+  getLocalSetupRequired,
+  getSession,
+  loginLocalAccount,
+  logoutSession,
+  setupLocalAccount,
+} from "./lib/session";
 import {
   loadConversation,
   loadDirectory,
@@ -67,7 +73,11 @@ vi.mock("./lib/facts", () => ({
 }));
 vi.mock("./lib/session", () => ({
   getSession: vi.fn(),
+  getLocalSetupRequired: vi.fn(),
+  loginLocalAccount: vi.fn(),
+  setupLocalAccount: vi.fn(),
   logoutSession: vi.fn(),
+  LocalAuthError: class LocalAuthError extends Error {},
 }));
 vi.mock("./lib/collaboration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/collaboration")>();
@@ -95,6 +105,9 @@ const mockedGetComputer = vi.mocked(getComputer);
 const mockedCreateAgent = vi.mocked(createAgent);
 const mockedSetPlacement = vi.mocked(setAgentPlacement);
 const mockedGetSession = vi.mocked(getSession);
+const mockedGetLocalSetupRequired = vi.mocked(getLocalSetupRequired);
+const mockedLoginLocalAccount = vi.mocked(loginLocalAccount);
+const mockedSetupLocalAccount = vi.mocked(setupLocalAccount);
 const mockedLogoutSession = vi.mocked(logoutSession);
 const mockedLoadDirectory = vi.mocked(loadDirectory);
 const mockedLoadConversation = vi.mocked(loadConversation);
@@ -115,6 +128,15 @@ beforeEach(() => {
   mockedGetAgentDetail.mockRejectedValue(new Error("Agent detail unavailable"));
   mockedGetComputer.mockRejectedValue(new Error("Computer detail unavailable"));
   mockedGetSession.mockResolvedValue({
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Owner",
+  });
+  mockedGetLocalSetupRequired.mockResolvedValue(false);
+  mockedLoginLocalAccount.mockResolvedValue({
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Owner",
+  });
+  mockedSetupLocalAccount.mockResolvedValue({
     id: "33333333-3333-4333-8333-333333333333",
     name: "Owner",
   });
@@ -175,20 +197,99 @@ describe("App", () => {
 
     render(<App />);
 
+    expect(await screen.findByText("Sign in to Sumi")).toBeInTheDocument();
     expect(
-      await screen.findByText("Authentication required"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("This browser has no active Human session."),
+      screen.getByText(
+        "Continue as a Sumi Human. Your password stays on this Server.",
+      ),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("No conversation selected"),
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
+    expect(screen.queryByText("Sign in to Sumi")).not.toBeInTheDocument();
+  });
+
+  it("completes one-time local Owner setup without exposing the setup key", async () => {
+    mockedGetSession.mockResolvedValueOnce(undefined);
+    mockedGetLocalSetupRequired.mockResolvedValueOnce(true);
+    let finishSetup!: (human: { id: string; name: string }) => void;
+    mockedSetupLocalAccount.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishSetup = resolve;
+        }),
+    );
+
+    render(<App />);
+
     expect(
-      screen.queryByText("Authentication required"),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("heading", { name: "Set up local access" }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "iris" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    fireEvent.change(screen.getByLabelText("Owner setup key"), {
+      target: { value: "A".repeat(43) },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create local account" }),
+    );
+
+    expect(mockedSetupLocalAccount).toHaveBeenCalledWith({
+      username: "iris",
+      password: "correct horse battery staple",
+      bootstrapCredential: "A".repeat(43),
+    });
+    expect(
+      screen.getByRole("button", { name: "Creating local account" }),
+    ).toBeDisabled();
+    expect(screen.queryByText("A".repeat(43))).not.toBeInTheDocument();
+
+    await act(async () =>
+      finishSetup({
+        id: "33333333-3333-4333-8333-333333333333",
+        name: "Owner",
+      }),
+    );
+    expect(await screen.findByText("Owner")).toBeInTheDocument();
+  });
+
+  it("signs in locally and keeps authentication errors actionable", async () => {
+    mockedGetSession.mockResolvedValueOnce(undefined);
+    mockedLoginLocalAccount
+      .mockRejectedValueOnce(new Error("Username or password is incorrect."))
+      .mockResolvedValueOnce({
+        id: "33333333-3333-4333-8333-333333333333",
+        name: "Owner",
+      });
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to Sumi" }),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "owner" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "incorrect password value" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Username or password is incorrect.",
+    );
+
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct horse battery staple" },
+    });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(await screen.findByText("Owner")).toBeInTheDocument();
   });
 
   it("does not report an unknown or failed session as signed out", async () => {
@@ -224,9 +325,7 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
-    expect(
-      await screen.findByText("Authentication required"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Sign in to Sumi")).toBeInTheDocument();
     expect(mockedLogoutSession).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();

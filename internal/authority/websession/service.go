@@ -21,6 +21,9 @@ const (
 	CreateHandoffPath = "/auth/browser-handoffs"
 	SessionPath       = "/auth/session"
 	LogoutPath        = "/auth/logout"
+	LocalStatusPath   = "/auth/local"
+	LocalSetupPath    = "/auth/local/setup"
+	LocalLoginPath    = "/auth/local/login"
 )
 
 var opaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
@@ -32,25 +35,33 @@ type sessionStore interface {
 	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 	RevokeBrowserSession(context.Context, string, time.Time) error
 	GetHuman(context.Context, string) (organizationapp.Human, error)
+	LocalAccountSetupRequired(context.Context) (bool, error)
+	BindBootstrapLocalAccount(context.Context, authorityapp.BindBootstrapLocalAccountCommand) (authoritydomain.Principal, error)
+	GetLocalAccount(context.Context, string) (authorityapp.LocalAccount, error)
+	CreateBrowserSession(context.Context, authorityapp.CreateBrowserSessionCommand) error
 }
 
 type Config struct {
-	Origin     string
-	HandoffTTL time.Duration
-	SessionTTL time.Duration
-	Now        func() time.Time
-	Random     io.Reader
+	Origin             string
+	HandoffTTL         time.Duration
+	SessionTTL         time.Duration
+	Now                func() time.Time
+	Random             io.Reader
+	passwordParameters passwordParameters
 }
 
 type Service struct {
-	store      sessionStore
-	origin     string
-	secure     bool
-	handoffTTL time.Duration
-	sessionTTL time.Duration
-	now        func() time.Time
-	random     io.Reader
-	handler    http.Handler
+	store              sessionStore
+	origin             string
+	secure             bool
+	handoffTTL         time.Duration
+	sessionTTL         time.Duration
+	now                func() time.Time
+	random             io.Reader
+	passwordParameters passwordParameters
+	loginFailures      *loginFailureGuard
+	passwordSlots      chan struct{}
+	handler            http.Handler
 }
 
 type handoffResponse struct {
@@ -87,16 +98,28 @@ func New(database sessionStore, config Config) (*Service, error) {
 	if config.Random == nil {
 		config.Random = rand.Reader
 	}
+	if config.passwordParameters == (passwordParameters{}) {
+		config.passwordParameters = defaultPasswordParameters()
+	}
+	if !config.passwordParameters.valid() {
+		return nil, authorityapp.ErrLocalAccountInvalid
+	}
 	service := &Service{
 		store: database, origin: config.Origin, secure: secure,
 		handoffTTL: config.HandoffTTL, sessionTTL: config.SessionTTL,
 		now: config.Now, random: config.Random,
+		passwordParameters: config.passwordParameters,
+		loginFailures:      newLoginFailureGuard(),
+		passwordSlots:      make(chan struct{}, 2),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+CreateHandoffPath, service.createHandoff)
 	mux.HandleFunc("GET "+CreateHandoffPath+"/{token}", service.consumeHandoff)
 	mux.HandleFunc("GET "+SessionPath, service.getSession)
 	mux.HandleFunc("POST "+LogoutPath, service.logout)
+	mux.HandleFunc("GET "+LocalStatusPath, service.localStatus)
+	mux.HandleFunc("POST "+LocalSetupPath, service.localSetup)
+	mux.HandleFunc("POST "+LocalLoginPath, service.localLogin)
 	service.handler = mux
 	return service, nil
 }

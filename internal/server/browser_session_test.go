@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
@@ -121,6 +122,67 @@ func TestBrowserSessionSurvivesServerRestart(t *testing.T) {
 	app.Handler().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("restarted browser session status = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestLocalAccountLoginSurvivesServerRestart(t *testing.T) {
+	dataRoot := t.TempDir()
+	origin := "http://127.0.0.1:18080"
+	app, err := New(context.Background(), Config{DataRoot: dataRoot, BrowserOrigin: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupBody, err := json.Marshal(map[string]string{
+		"username": "owner", "password": "correct horse battery staple", "bootstrap_credential": credential,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, origin+websession.LocalSetupPath, bytes.NewReader(setupBody))
+	request.RemoteAddr = "127.0.0.1:42000"
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated || len(recorder.Result().Cookies()) != 1 {
+		t.Fatalf("local setup = %d %s %v", recorder.Code, recorder.Body.String(), recorder.Result().Cookies())
+	}
+	if err := app.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	app, err = New(context.Background(), Config{DataRoot: dataRoot, BrowserOrigin: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer app.Close()
+	loginBody, err := json.Marshal(map[string]string{
+		"username": "owner", "password": "correct horse battery staple",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request = httptest.NewRequest(http.MethodPost, origin+websession.LocalLoginPath, bytes.NewReader(loginBody))
+	request.RemoteAddr = "127.0.0.1:42000"
+	request.Header.Set("Origin", origin)
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	app.Handler().ServeHTTP(recorder, request)
+	cookies := recorder.Result().Cookies()
+	if recorder.Code != http.StatusOK || len(cookies) != 1 {
+		t.Fatalf("restarted local login = %d %s %v", recorder.Code, recorder.Body.String(), cookies)
+	}
+	request = httptest.NewRequest(http.MethodGet, origin+websession.SessionPath, nil)
+	request.RemoteAddr = "127.0.0.1:42000"
+	request.AddCookie(cookies[0])
+	recorder = httptest.NewRecorder()
+	app.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !bytes.Contains(recorder.Body.Bytes(), []byte(`"name":"Owner"`)) {
+		t.Fatalf("restarted local session = %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

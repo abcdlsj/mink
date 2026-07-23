@@ -8,4 +8,6 @@ var (
 	ErrRuntimeUnauthenticated = errors.New("agent runtime session unauthenticated")
 	ErrBrowserHandoffInvalid  = errors.New("browser handoff invalid")
 	ErrBrowserSessionInvalid  = errors.New("browser session invalid")
+	ErrLocalAccountInvalid    = errors.New("local account invalid")
+	ErrLocalAccountSetupDone  = errors.New("local account setup already complete")
 )

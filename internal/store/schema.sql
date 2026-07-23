@@ -323,6 +323,24 @@ CREATE TABLE browser_sessions (
     CHECK (expires_at > created_at),
     CHECK (revoked_at IS NULL OR revoked_at >= created_at)
 );
+CREATE TABLE auth_identities (
+    id TEXT PRIMARY KEY CHECK (length(id) = 36),
+    human_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT,
+    provider TEXT NOT NULL CHECK (length(provider) BETWEEN 1 AND 32),
+    subject TEXT NOT NULL CHECK (length(subject) BETWEEN 1 AND 255),
+    created_at INTEGER NOT NULL,
+    UNIQUE (provider, subject)
+);
+CREATE TABLE local_password_credentials (
+    identity_id TEXT PRIMARY KEY REFERENCES auth_identities(id) ON DELETE RESTRICT,
+    algorithm TEXT NOT NULL CHECK (algorithm = 'argon2id'),
+    salt BLOB NOT NULL CHECK (length(salt) = 16),
+    digest BLOB NOT NULL CHECK (length(digest) = 32),
+    memory_kib INTEGER NOT NULL CHECK (memory_kib BETWEEN 8192 AND 262144),
+    iterations INTEGER NOT NULL CHECK (iterations BETWEEN 1 AND 10),
+    parallelism INTEGER NOT NULL CHECK (parallelism BETWEEN 1 AND 8),
+    updated_at INTEGER NOT NULL
+);
 CREATE TABLE collaboration_requests (
     request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
     operation TEXT NOT NULL CHECK (operation IN ('space.create.dm', 'space.create.group', 'space.member.add', 'space.member.remove', 'space.archive', 'space.unarchive', 'message.send')),
@@ -626,7 +644,7 @@ CREATE TABLE system_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO system_metadata(key, value) VALUES('schema_version', '1');
+INSERT INTO system_metadata(key, value) VALUES('schema_version', '2');
 CREATE TABLE threads (
     id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE RESTRICT,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
