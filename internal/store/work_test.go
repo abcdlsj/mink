@@ -464,17 +464,20 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
+	createCounts := readWorkReplayFactCounts(t, database, created.ID)
 	create.Now = now.Add(30 * time.Second)
 	if replay, err := database.CreateWork(context.Background(), create); err != nil || replay.ID != created.ID {
 		database.Close()
 		t.Fatalf("create same-process replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "create same-process replay", createCounts)
 	changedCreate := create
 	changedCreate.Goal = "changed goal"
 	if _, err := database.CreateWork(context.Background(), changedCreate); !errors.Is(err, ErrWorkRequestConflict) {
 		database.Close()
 		t.Fatalf("create changed payload = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "create changed payload", createCounts)
 
 	assign := AssignWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, Role: WorkAssignmentCoordinator, AgentID: agent.ID, Now: now.Add(4 * time.Second)}
 	assignment, err := database.AssignWork(context.Background(), assign)
@@ -482,34 +485,40 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
+	assignCounts := readWorkReplayFactCounts(t, database, created.ID)
 	assign.Now = now.Add(40 * time.Second)
 	if replay, err := database.AssignWork(context.Background(), assign); err != nil || replay.ID != assignment.ID {
 		database.Close()
 		t.Fatalf("assign same-process replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "assign same-process replay", assignCounts)
 	changedAssign := assign
 	changedAssign.Role = WorkAssignmentContributor
 	if _, err := database.AssignWork(context.Background(), changedAssign); !errors.Is(err, ErrWorkRequestConflict) {
 		database.Close()
 		t.Fatalf("assign changed payload = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "assign changed payload", assignCounts)
 
 	transition := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, ToState: WorkStateBlocked, Reason: "needs review", CriterionResults: []WorkCriterionResultInput{{CriterionID: created.AcceptanceCriteria[0].ID, Verdict: "passed", Evidence: "evidence"}}, Now: now.Add(5 * time.Second)}
 	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
+	transitionCounts := readWorkReplayFactCounts(t, database, created.ID)
 	transition.Now = now.Add(50 * time.Second)
 	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
 		database.Close()
 		t.Fatalf("transition same-process replay = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "transition same-process replay", transitionCounts)
 	changedTransition := transition
 	changedTransition.Reason = "changed reason"
 	if _, err := database.TransitionWork(context.Background(), changedTransition); !errors.Is(err, ErrWorkRequestConflict) {
 		database.Close()
 		t.Fatalf("transition changed payload = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "transition changed payload", transitionCounts)
 
 	request := RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, Question: "approve?", Now: now.Add(6 * time.Second)}
 	pending, err := database.RequestWorkApproval(context.Background(), request)
@@ -517,17 +526,20 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
+	requestCounts := readWorkReplayFactCounts(t, database, created.ID)
 	request.Now = now.Add(60 * time.Second)
 	if replay, err := database.RequestWorkApproval(context.Background(), request); err != nil || replay.ID != pending.ID || replay.Status != "pending" {
 		database.Close()
 		t.Fatalf("request approval same-process replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "request approval same-process replay", requestCounts)
 	changedRequest := request
 	changedRequest.Question = "changed question"
 	if _, err := database.RequestWorkApproval(context.Background(), changedRequest); !errors.Is(err, ErrWorkRequestConflict) {
 		database.Close()
 		t.Fatalf("request approval changed payload = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "request approval changed payload", requestCounts)
 
 	resolve := ResolveWorkApprovalParams{RequestID: uuid.NewString(), Actor: owner, ApprovalID: pending.ID, Decision: "rejected", Note: "needs changes", Now: now.Add(7 * time.Second)}
 	resolved, err := database.ResolveWorkApproval(context.Background(), resolve)
@@ -535,17 +547,20 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
+	resolveCounts := readWorkReplayFactCounts(t, database, created.ID)
 	resolve.Now = now.Add(70 * time.Second)
 	if replay, err := database.ResolveWorkApproval(context.Background(), resolve); err != nil || replay.ID != resolved.ID || replay.Status != "rejected" {
 		database.Close()
 		t.Fatalf("resolve approval same-process replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "resolve approval same-process replay", resolveCounts)
 	changedResolve := resolve
 	changedResolve.Note = "changed note"
 	if _, err := database.ResolveWorkApproval(context.Background(), changedResolve); !errors.Is(err, ErrWorkRequestConflict) {
 		database.Close()
 		t.Fatalf("resolve approval changed payload = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "resolve approval changed payload", resolveCounts)
 
 	before := readWorkReplayFactCounts(t, database, created.ID)
 	if err := database.Close(); err != nil {
@@ -561,21 +576,31 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 	transition.Now = now.Add(82 * time.Second)
 	request.Now = now.Add(83 * time.Second)
 	resolve.Now = now.Add(84 * time.Second)
+	createReopenCounts := readWorkReplayFactCounts(t, database, created.ID)
 	if replay, err := database.CreateWork(context.Background(), create); err != nil || replay.ID != created.ID {
 		t.Fatalf("create reopen replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "create reopen replay", createReopenCounts)
+	assignReopenCounts := readWorkReplayFactCounts(t, database, created.ID)
 	if replay, err := database.AssignWork(context.Background(), assign); err != nil || replay.ID != assignment.ID {
 		t.Fatalf("assign reopen replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "assign reopen replay", assignReopenCounts)
+	transitionReopenCounts := readWorkReplayFactCounts(t, database, created.ID)
 	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
 		t.Fatalf("transition reopen replay = %v", err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "transition reopen replay", transitionReopenCounts)
+	requestReopenCounts := readWorkReplayFactCounts(t, database, created.ID)
 	if replay, err := database.RequestWorkApproval(context.Background(), request); err != nil || replay.ID != pending.ID {
 		t.Fatalf("request approval reopen replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "request approval reopen replay", requestReopenCounts)
+	resolveReopenCounts := readWorkReplayFactCounts(t, database, created.ID)
 	if replay, err := database.ResolveWorkApproval(context.Background(), resolve); err != nil || replay.ID != resolved.ID {
 		t.Fatalf("resolve approval reopen replay = %+v, %v", replay, err)
 	}
+	assertWorkReplayFactCountsUnchanged(t, database, created.ID, "resolve approval reopen replay", resolveReopenCounts)
 	if after := readWorkReplayFactCounts(t, database, created.ID); after != before {
 		t.Fatalf("replay duplicated durable facts: before=%+v after=%+v", before, after)
 	}
@@ -609,6 +634,13 @@ func readWorkReplayFactCounts(t *testing.T, database *Store, workID string) work
 		}
 	}
 	return counts
+}
+
+func assertWorkReplayFactCountsUnchanged(t *testing.T, database *Store, workID, stage string, before workReplayFactCounts) {
+	t.Helper()
+	if after := readWorkReplayFactCounts(t, database, workID); after != before {
+		t.Fatalf("%s changed durable facts: before=%+v after=%+v", stage, before, after)
+	}
 }
 
 type workFactCounts struct {
