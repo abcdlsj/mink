@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-func listPendingInboxItems(ctx context.Context, tx *sql.Tx, agentID string, after uint64, limit uint32) ([]InboxItem, error) {
+func listPendingInboxItems(ctx context.Context, tx *sql.Tx, recipient Principal, after uint64, limit uint32) ([]InboxItem, error) {
 	rows, err := tx.QueryContext(ctx, inboxItemSelect+`
-		WHERE agent_id = ? AND state != 'done' AND sequence > ?
+		WHERE recipient_kind = ? AND recipient_id = ? AND state != 'done' AND sequence > ?
 		ORDER BY sequence
 		LIMIT ?
-	`, agentID, after, limit)
+	`, recipient.Kind, recipient.ID, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending inbox items: %w", err)
 	}
@@ -22,6 +22,7 @@ func listPendingInboxItems(ctx context.Context, tx *sql.Tx, agentID string, afte
 			rows.Close()
 			return nil, fmt.Errorf("scan pending inbox item: %w", err)
 		}
+		item.Recipient.OrganizationID = recipient.OrganizationID
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -74,7 +75,7 @@ func scanInboxItem(row scanner) (InboxItem, error) {
 	var item InboxItem
 	var claimedAt, doneAt sql.NullInt64
 	var createdAt int64
-	if err := row.Scan(&item.Sequence, &item.ID, &item.AgentID, &item.SpaceID, &item.Target.Kind, &item.Target.ID,
+	if err := row.Scan(&item.Sequence, &item.ID, &item.Recipient.Kind, &item.Recipient.ID, &item.SpaceID, &item.Target.Kind, &item.Target.ID,
 		&item.TriggerMessageID, &item.TriggerTargetSequence, &item.Reason, &item.State, &claimedAt, &doneAt,
 		&item.Completion, &createdAt); err != nil {
 		return InboxItem{}, err
@@ -108,19 +109,19 @@ func scanHeldDraft(row scanner) (HeldDraft, error) {
 	return draft, nil
 }
 
-func heldDraftMentions(ctx context.Context, tx *sql.Tx, draftID string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT agent_id FROM agent_held_draft_mentions WHERE draft_id = ? ORDER BY ordinal`, draftID)
+func heldDraftMentions(ctx context.Context, tx *sql.Tx, draftID string) ([]Principal, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT principal_kind, principal_id FROM agent_held_draft_mentions WHERE draft_id = ? ORDER BY ordinal`, draftID)
 	if err != nil {
 		return nil, fmt.Errorf("list held draft mentions: %w", err)
 	}
 	defer rows.Close()
-	var mentions []string
+	var mentions []Principal
 	for rows.Next() {
-		var agentID string
-		if err := rows.Scan(&agentID); err != nil {
+		var principal Principal
+		if err := rows.Scan(&principal.Kind, &principal.ID); err != nil {
 			return nil, fmt.Errorf("scan held draft mention: %w", err)
 		}
-		mentions = append(mentions, agentID)
+		mentions = append(mentions, principal)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate held draft mentions: %w", err)
@@ -129,9 +130,9 @@ func heldDraftMentions(ctx context.Context, tx *sql.Tx, draftID string) ([]strin
 }
 
 const inboxItemSelect = `
-	SELECT sequence, id, agent_id, space_id, target_kind, target_id, trigger_message_id,
+	SELECT sequence, id, recipient_kind, recipient_id, space_id, target_kind, target_id, trigger_message_id,
 	       trigger_target_sequence, reason, state, claimed_at, done_at, completion, created_at
-	FROM agent_inbox_items`
+	FROM inbox_items`
 
 const heldDraftSelect = `
 	SELECT sequence, id, agent_id, inbox_item_id, predecessor_draft_id, space_id, target_kind, target_id,

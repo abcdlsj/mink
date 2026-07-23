@@ -356,8 +356,8 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	if err != nil {
 		return MutationReceipt{}, fmt.Errorf("persist membership change: %w", err)
 	}
-	if !adding && params.Member.Kind == "agent" {
-		if err := closeRemovedAgentInbox(ctx, tx, params.Member.ID, params.SpaceID, params.Now); err != nil {
+	if !adding {
+		if err := closeRemovedPrincipalInbox(ctx, tx, params.Member, params.SpaceID, params.Now); err != nil {
 			return MutationReceipt{}, err
 		}
 	}

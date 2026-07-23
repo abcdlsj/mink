@@ -14,7 +14,7 @@ func (s *Store) GetInboxNotice(ctx context.Context, params InboxNoticeParams) (b
 
 	after := uint64(0)
 	for {
-		items, err := listPendingInboxItems(ctx, tx, authentication.Principal.ID, after, maxInboxListLimit)
+		items, err := listPendingInboxItems(ctx, tx, authentication.Principal, after, maxInboxListLimit)
 		if err != nil {
 			return false, err
 		}
@@ -59,7 +59,7 @@ func (s *Store) ListInboxItems(ctx context.Context, params ListInboxItemsParams)
 	items := make([]InboxItem, 0, params.Limit)
 	after := params.AfterSequence
 	for len(items) < int(params.Limit) {
-		candidates, err := listPendingInboxItems(ctx, tx, authentication.Principal.ID, after, params.Limit)
+		candidates, err := listPendingInboxItems(ctx, tx, authentication.Principal, after, params.Limit)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +99,7 @@ func (s *Store) ObserveTarget(ctx context.Context, params ObserveTargetParams) (
 		return ObserveTargetResult{}, err
 	}
 	defer tx.Rollback()
-	space, err := requireAgentReadableTarget(ctx, tx, authentication.Principal, params.Target, params.Now)
+	space, err := requireInboxReadableTarget(ctx, tx, authentication.Principal, params.Target, params.Now)
 	if err != nil {
 		return ObserveTargetResult{}, err
 	}
@@ -139,12 +139,12 @@ func (s *Store) ObserveTarget(ctx context.Context, params ObserveTargetParams) (
 		return ObserveTargetResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO agent_target_cursors(agent_id, space_id, target_kind, target_id, seen_up_to_target_sequence, observed_at)
-		VALUES(?, ?, ?, ?, ?, ?)
-		ON CONFLICT(agent_id, target_kind, target_id) DO UPDATE SET
+		INSERT INTO principal_target_cursors(principal_kind, principal_id, space_id, target_kind, target_id, seen_up_to_target_sequence, observed_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(principal_kind, principal_id, target_kind, target_id) DO UPDATE SET
 			seen_up_to_target_sequence = max(seen_up_to_target_sequence, excluded.seen_up_to_target_sequence),
 			observed_at = CASE WHEN excluded.seen_up_to_target_sequence >= seen_up_to_target_sequence THEN excluded.observed_at ELSE observed_at END
-	`, authentication.Principal.ID, space.ID, params.Target.Kind, params.Target.ID, head, unixNano(params.Now)); err != nil {
+	`, authentication.Principal.Kind, authentication.Principal.ID, space.ID, params.Target.Kind, params.Target.ID, head, unixNano(params.Now)); err != nil {
 		return ObserveTargetResult{}, fmt.Errorf("persist target cursor: %w", err)
 	}
 	result := ObserveTargetResult{Target: params.Target, Head: head, Messages: messages, ObservedAt: params.Now.UTC()}
@@ -158,7 +158,7 @@ func (s *Store) ListHeldDrafts(ctx context.Context, params ListHeldDraftsParams)
 	if params.Limit == 0 || params.Limit > maxInboxListLimit {
 		return ListHeldDraftsResult{}, ErrInvalidInboxLimit
 	}
-	tx, authentication, err := s.beginInboxTransaction(ctx, params.Authentication, params.Now)
+	tx, authentication, err := s.beginAgentInboxTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
 		return ListHeldDraftsResult{}, err
 	}
@@ -174,7 +174,7 @@ func (s *Store) ListHeldDrafts(ctx context.Context, params ListHeldDraftsParams)
 		}
 		for index := range drafts {
 			result.NextSequence = drafts[index].Sequence
-			item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal.ID, drafts[index].InboxItemID)
+			item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal, drafts[index].InboxItemID)
 			if err != nil {
 				return ListHeldDraftsResult{}, err
 			}
@@ -195,7 +195,7 @@ func (s *Store) ListHeldDrafts(ctx context.Context, params ListHeldDraftsParams)
 			if err != nil {
 				return ListHeldDraftsResult{}, err
 			}
-			drafts[index].MentionedAgentIDs = mentions
+			drafts[index].MentionedPrincipals = mentions
 			result.Drafts = append(result.Drafts, drafts[index])
 			if len(result.Drafts) == int(params.Limit) {
 				break

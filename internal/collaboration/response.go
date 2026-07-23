@@ -43,10 +43,18 @@ func messageMessage(message collaborationapp.Message) *spacev1.Message {
 	result := &spacev1.Message{
 		Id: message.ID, RequestId: message.RequestID, SpaceId: message.SpaceID,
 		TargetSequence: message.TargetSequence, Author: principalMessage(message.Author), Body: message.Body,
-		CreatedAt: timestamppb.New(message.CreatedAt), MentionedAgentIds: message.MentionedAgentIDs,
+		CreatedAt: timestamppb.New(message.CreatedAt), MentionedPrincipals: principalMessages(message.MentionedPrincipals),
 	}
 	if message.Target.Kind == collaborationdomain.TargetThread {
 		result.ThreadRootMessageId = message.Target.ID
+	}
+	return result
+}
+
+func principalMessages(principals []authoritydomain.Principal) []*spacev1.Principal {
+	result := make([]*spacev1.Principal, 0, len(principals))
+	for _, principal := range principals {
+		result = append(result, principalMessage(principal))
 	}
 	return result
 }

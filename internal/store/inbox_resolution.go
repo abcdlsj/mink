@@ -29,7 +29,7 @@ func sendHeldDraft(ctx context.Context, tx *sql.Tx, authentication AgentRuntimeA
 	if targetSpace.ArchivedAt != nil {
 		return ResolveHeldDraftResult{}, ErrSpaceArchived
 	}
-	if err := requireObservedBasis(ctx, tx, authentication.Principal.ID, target, params.BasisTargetSequence); err != nil {
+	if err := requireObservedBasis(ctx, tx, authentication.Principal, target, params.BasisTargetSequence); err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
 	mentions, err := heldDraftMentions(ctx, tx, draft.ID)

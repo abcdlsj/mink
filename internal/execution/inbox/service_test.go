@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
+	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
@@ -23,7 +24,7 @@ import (
 
 func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	fixture := openServiceFixture(t)
-	service := New(fixture.database)
+	service := New(fixture.database, "")
 	service.now = func() time.Time { return fixture.current }
 	path, handler := inboxv1connect.NewInboxServiceHandler(service, connect.WithInterceptors(
 		runtimeauth.NewProcedureInterceptor(fixture.database, Procedures()...),
@@ -46,7 +47,8 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 		t.Fatalf("items = %+v, %v", listed, err)
 	}
 	item := listed.Msg.GetItems()[0]
-	if item.GetAgentId() != fixture.agent.ID || item.GetReason() != inboxv1.InboxReason_INBOX_REASON_MENTION || item.GetSpaceId() != fixture.group.ID {
+	if item.GetRecipient().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT || item.GetRecipient().GetId() != fixture.agent.ID ||
+		item.GetReason() != inboxv1.InboxReason_INBOX_REASON_MENTION || item.GetSpaceId() != fixture.group.ID {
 		t.Fatalf("item mapping = %+v", item)
 	}
 	muteRequest := &inboxv1.SetSpaceMuteRequest{RequestId: uuid.NewString(), SpaceId: fixture.group.ID, Muted: true}
@@ -91,7 +93,8 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 		Target: item.GetTarget(), Limit: 20,
 	}))
 	if err != nil || observed.Msg.GetHeadSequence() != item.GetTriggerTargetSequence() || len(observed.Msg.GetMessages()) != 1 ||
-		!reflect.DeepEqual(observed.Msg.GetMessages()[0].GetMentionedAgentIds(), []string{fixture.agent.ID}) {
+		len(observed.Msg.GetMessages()[0].GetMentionedPrincipals()) != 1 ||
+		observed.Msg.GetMessages()[0].GetMentionedPrincipals()[0].GetId() != fixture.agent.ID {
 		t.Fatalf("observe = %+v, %v", observed, err)
 	}
 	fixture.current = fixture.current.Add(time.Second)
@@ -106,14 +109,15 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	sendRequestID := uuid.NewString()
 	sendRequest := &inboxv1.SendInboxReplyRequest{
 		RequestId: sendRequestID, InboxItemId: item.GetId(), BasisTargetSequence: observed.Msg.GetHeadSequence(),
-		Body: "held response", MentionedAgentIds: []string{fixture.agent.ID},
+		Body: "held response", MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.agent.ID}},
 	}
 	held, err := client.SendInboxReply(context.Background(), runtimeRequest(fixture.token, sendRequest))
 	if err != nil || held.Msg.GetHeldDraft() == nil || held.Msg.GetMessage() != nil {
 		t.Fatalf("held send = %+v, %v", held, err)
 	}
 	if held.Msg.GetHeldDraft().GetSequence() == 0 || held.Msg.GetHeldDraft().GetBasisTargetSequence() != observed.Msg.GetHeadSequence() ||
-		!reflect.DeepEqual(held.Msg.GetHeldDraft().GetMentionedAgentIds(), []string{fixture.agent.ID}) {
+		len(held.Msg.GetHeldDraft().GetMentionedPrincipals()) != 1 ||
+		held.Msg.GetHeldDraft().GetMentionedPrincipals()[0].GetId() != fixture.agent.ID {
 		t.Fatalf("held mapping = %+v", held.Msg.GetHeldDraft())
 	}
 	fixture.current = fixture.current.Add(time.Second)
@@ -154,7 +158,7 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	secondTrigger, err := fixture.database.SendMessage(context.Background(), store.SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: fixture.group.ID}, Body: "complete silently",
-		MentionedAgentIDs: []string{fixture.agent.ID}, Now: fixture.current,
+		MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: fixture.agent.ID, OrganizationID: fixture.owner.OrganizationID}}, Now: fixture.current,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +369,7 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	trigger, err := database.SendMessage(ctx, store.SendMessageParams{
 		RequestID: uuid.NewString(), Actor: owner,
 		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: group.ID}, Body: "trigger",
-		MentionedAgentIDs: []string{agent.ID}, Now: base.Add(10 * time.Second),
+		MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: agent.ID, OrganizationID: owner.OrganizationID}}, Now: base.Add(10 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)

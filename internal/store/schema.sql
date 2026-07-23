@@ -11,9 +11,10 @@ CREATE TABLE agent_create_requests (
 );
 CREATE TABLE agent_held_draft_mentions (
     draft_id TEXT NOT NULL REFERENCES agent_held_drafts(id) ON DELETE RESTRICT,
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    principal_kind TEXT NOT NULL CHECK (principal_kind IN ('human', 'agent')),
+    principal_id TEXT NOT NULL CHECK (length(principal_id) = 36),
     ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 63),
-    PRIMARY KEY (draft_id, agent_id),
+    PRIMARY KEY (draft_id, principal_kind, principal_id),
     UNIQUE (draft_id, ordinal)
 );
 CREATE TABLE agent_held_drafts (
@@ -21,6 +22,7 @@ CREATE TABLE agent_held_drafts (
     id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
     inbox_item_id TEXT NOT NULL,
+    inbox_recipient_kind TEXT NOT NULL DEFAULT 'agent' CHECK (inbox_recipient_kind = 'agent'),
     predecessor_draft_id TEXT REFERENCES agent_held_drafts(id) ON DELETE RESTRICT,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
@@ -34,7 +36,8 @@ CREATE TABLE agent_held_drafts (
     result_id TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    FOREIGN KEY (inbox_item_id, agent_id) REFERENCES agent_inbox_items(id, agent_id) ON DELETE RESTRICT,
+    FOREIGN KEY (inbox_item_id, inbox_recipient_kind, agent_id)
+        REFERENCES inbox_items(id, recipient_kind, recipient_id) ON DELETE RESTRICT,
     CHECK (
         (target_kind = 'space' AND target_id = space_id)
         OR (target_kind = 'thread' AND length(target_id) = 36)
@@ -47,10 +50,11 @@ CREATE TABLE agent_held_drafts (
         OR (state = 'retargeted' AND resolution_action = 'retarget' AND result_kind IN ('message', 'held_draft') AND length(result_id) = 36)
     )
 );
-CREATE TABLE agent_inbox_items (
+CREATE TABLE inbox_items (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('human', 'agent')),
+    recipient_id TEXT NOT NULL CHECK (length(recipient_id) = 36),
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
     target_id TEXT NOT NULL,
@@ -62,7 +66,7 @@ CREATE TABLE agent_inbox_items (
     done_at INTEGER,
     completion TEXT NOT NULL DEFAULT '' CHECK (completion IN ('', 'sent', 'cancelled', 'silent', 'access_lost')),
     created_at INTEGER NOT NULL,
-    UNIQUE (agent_id, trigger_message_id),
+    UNIQUE (recipient_kind, recipient_id, trigger_message_id),
     FOREIGN KEY (trigger_message_id, space_id, target_kind, target_id, trigger_target_sequence)
         REFERENCES messages(id, space_id, target_kind, target_id, target_sequence) ON DELETE RESTRICT,
     CHECK (
@@ -105,9 +109,10 @@ CREATE TABLE agent_placements (
 				OR (state IN ('pending', 'active') AND error_code = '')
 			)
 		);
-CREATE TABLE agent_requests (
+CREATE TABLE inbox_requests (
     request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    actor_kind TEXT NOT NULL CHECK (actor_kind IN ('human', 'agent')),
+    actor_id TEXT NOT NULL CHECK (length(actor_id) = 36),
     operation TEXT NOT NULL CHECK (length(operation) BETWEEN 1 AND 64),
     payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
     response_snapshot BLOB NOT NULL CHECK (length(response_snapshot) > 0),
@@ -128,32 +133,35 @@ CREATE TABLE agent_runtime_sessions (
     CHECK (expires_at > created_at),
     CHECK (revoked_at IS NULL OR revoked_at >= created_at)
 );
-CREATE TABLE agent_space_mutes (
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+CREATE TABLE principal_space_mutes (
+    principal_kind TEXT NOT NULL CHECK (principal_kind IN ('human', 'agent')),
+    principal_id TEXT NOT NULL CHECK (length(principal_id) = 36),
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     muted_at INTEGER NOT NULL,
-    PRIMARY KEY (agent_id, space_id)
+    PRIMARY KEY (principal_kind, principal_id, space_id)
 );
-CREATE TABLE agent_target_cursors (
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+CREATE TABLE principal_target_cursors (
+    principal_kind TEXT NOT NULL CHECK (principal_kind IN ('human', 'agent')),
+    principal_id TEXT NOT NULL CHECK (length(principal_id) = 36),
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
     target_id TEXT NOT NULL,
     seen_up_to_target_sequence INTEGER NOT NULL CHECK (seen_up_to_target_sequence >= 0),
     observed_at INTEGER NOT NULL,
-    PRIMARY KEY (agent_id, target_kind, target_id),
+    PRIMARY KEY (principal_kind, principal_id, target_kind, target_id),
     CHECK (
         (target_kind = 'space' AND target_id = space_id)
         OR (target_kind = 'thread' AND length(target_id) = 36)
     )
 );
-CREATE TABLE agent_thread_follows (
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+CREATE TABLE principal_thread_follows (
+    principal_kind TEXT NOT NULL CHECK (principal_kind IN ('human', 'agent')),
+    principal_id TEXT NOT NULL CHECK (length(principal_id) = 36),
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     thread_root_message_id TEXT NOT NULL,
     followed_at INTEGER NOT NULL,
     source TEXT NOT NULL CHECK (source IN ('mention', 'reply', 'explicit')),
-    PRIMARY KEY (agent_id, thread_root_message_id),
+    PRIMARY KEY (principal_kind, principal_id, thread_root_message_id),
     FOREIGN KEY (thread_root_message_id, space_id) REFERENCES threads(id, space_id) ON DELETE RESTRICT
 );
 CREATE TABLE "agents" (
@@ -401,6 +409,7 @@ CREATE TABLE deliveries (
     id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
     inbox_item_id TEXT NOT NULL UNIQUE,
+    inbox_recipient_kind TEXT NOT NULL DEFAULT 'agent' CHECK (inbox_recipient_kind = 'agent'),
     trigger_message_id TEXT NOT NULL,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
     target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
@@ -411,7 +420,8 @@ CREATE TABLE deliveries (
     accepted_at INTEGER,
     completed_at INTEGER,
     UNIQUE (agent_id, trigger_message_id),
-    FOREIGN KEY (inbox_item_id, agent_id) REFERENCES agent_inbox_items(id, agent_id) ON DELETE RESTRICT,
+    FOREIGN KEY (inbox_item_id, inbox_recipient_kind, agent_id)
+        REFERENCES inbox_items(id, recipient_kind, recipient_id) ON DELETE RESTRICT,
     FOREIGN KEY (trigger_message_id, space_id, target_kind, target_id, trigger_target_sequence)
         REFERENCES messages(id, space_id, target_kind, target_id, target_sequence) ON DELETE RESTRICT,
     CHECK (
@@ -531,9 +541,10 @@ CREATE TABLE knowledge_projection_rows (
 );
 CREATE TABLE message_mentions (
     message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE RESTRICT,
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    principal_kind TEXT NOT NULL CHECK (principal_kind IN ('human', 'agent')),
+    principal_id TEXT NOT NULL CHECK (length(principal_id) = 36),
     ordinal INTEGER NOT NULL CHECK (ordinal BETWEEN 0 AND 63),
-    PRIMARY KEY (message_id, agent_id),
+    PRIMARY KEY (message_id, principal_kind, principal_id),
     UNIQUE (message_id, ordinal)
 );
 CREATE TABLE message_target_sequences (
@@ -569,7 +580,7 @@ CREATE TABLE organizations (
 );
 CREATE TABLE run_completion_receipts (
     outbox_event_id TEXT PRIMARY KEY CHECK (length(outbox_event_id) = 36),
-    request_id TEXT NOT NULL UNIQUE REFERENCES agent_requests(request_id) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL UNIQUE REFERENCES inbox_requests(request_id) ON DELETE RESTRICT,
     payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
     run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE RESTRICT,
     launch_id TEXT NOT NULL REFERENCES run_launches(id) ON DELETE RESTRICT,
@@ -810,22 +821,22 @@ ON agent_held_drafts(agent_id, state, sequence);
 CREATE UNIQUE INDEX agent_held_drafts_predecessor
 ON agent_held_drafts(predecessor_draft_id)
 WHERE predecessor_draft_id IS NOT NULL;
-CREATE INDEX agent_inbox_items_agent_state_sequence
-ON agent_inbox_items(agent_id, state, sequence);
-CREATE UNIQUE INDEX agent_inbox_items_id_agent
-ON agent_inbox_items(id, agent_id);
+CREATE INDEX inbox_items_recipient_state_sequence
+ON inbox_items(recipient_kind, recipient_id, state, sequence);
+CREATE UNIQUE INDEX inbox_items_id_recipient
+ON inbox_items(id, recipient_kind, recipient_id);
 CREATE INDEX agent_placements_computer_state_agent
 		ON agent_placements(computer_id, state, agent_id);
-CREATE INDEX agent_requests_agent_committed
-ON agent_requests(agent_id, committed_at);
+CREATE INDEX inbox_requests_actor_committed
+ON inbox_requests(actor_kind, actor_id, committed_at);
 CREATE UNIQUE INDEX agent_runtime_sessions_agent_current
 ON agent_runtime_sessions(agent_id)
 WHERE revoked_at IS NULL;
 CREATE INDEX agent_runtime_sessions_binding_active
 ON agent_runtime_sessions(agent_id, computer_id, placement_generation, expires_at)
 WHERE revoked_at IS NULL;
-CREATE INDEX agent_thread_follows_space
-ON agent_thread_follows(agent_id, space_id, thread_root_message_id);
+CREATE INDEX principal_thread_follows_space
+ON principal_thread_follows(principal_kind, principal_id, space_id, thread_root_message_id);
 CREATE UNIQUE INDEX artifact_blobs_digest_size
 ON artifact_blobs(digest, size);
 CREATE UNIQUE INDEX artifact_grants_one_active
@@ -856,8 +867,8 @@ ON grants(organization_id, subject_kind, subject_id, capability, scope_kind, sco
 CREATE INDEX knowledge_dirty_sources_sequence ON knowledge_dirty_sources(sequence);
 CREATE INDEX knowledge_projection_rows_generation_source
 ON knowledge_projection_rows(generation, source_kind, source_id, source_version);
-CREATE INDEX message_mentions_agent_message
-ON message_mentions(agent_id, message_id);
+CREATE INDEX message_mentions_principal_message
+ON message_mentions(principal_kind, principal_id, message_id);
 CREATE UNIQUE INDEX messages_inbox_trigger
 ON messages(id, space_id, target_kind, target_id, target_sequence);
 CREATE INDEX run_launches_agent_fence

@@ -147,9 +147,10 @@ func TestSumiComputerTwoProcessMigrationBlackbox(t *testing.T) {
 	oldSession := blackboxRuntimeSession(t, runtimeClient, idA, keyA, agentID, generationA)
 
 	triggerResponse, err := spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
-		RequestId: uuid.NewString(),
-		Target:    &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: groupID}},
-		Body:      "blackbox trigger", MentionedAgentIds: []string{agentID},
+		RequestId:           uuid.NewString(),
+		Target:              &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: groupID}},
+		Body:                "blackbox trigger",
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agentID}},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +254,8 @@ func TestSumiComputerExternalDriverCompletesDeliveryBlackbox(t *testing.T) {
 	fixture := startExternalDriverBlackbox(t, binary, externalDriver, "2s", "4096")
 	trigger, err := fixture.spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
 		RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: fixture.groupID}},
-		Body: "external blackbox trigger", MentionedAgentIds: []string{fixture.agentID},
+		Body:                "external blackbox trigger",
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.agentID}},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -295,7 +297,8 @@ func TestSumiComputerExternalDriverFailureMatrixBlackbox(t *testing.T) {
 			fixture := startExternalDriverBlackbox(t, binary, externalDriver, test.timeout, test.outputLimit)
 			trigger, err := fixture.spaceClient.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
 				RequestId: uuid.NewString(), Target: &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: fixture.groupID}},
-				Body: "external-mode:" + test.driverMode, MentionedAgentIds: []string{fixture.agentID},
+				Body:                "external-mode:" + test.driverMode,
+				MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.agentID}},
 			}))
 			if err != nil {
 				t.Fatal(err)

@@ -166,14 +166,14 @@ func (s *Service) CompleteRun(ctx context.Context, request *connect.Request[deli
 	if err := messagecodec.ValidateBody(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := messagecodec.MentionedAgentIDs(request.Msg.GetMentionedAgentIds())
+	mentions, err := messagecodec.MentionedPrincipals(request.Msg.GetMentionedPrincipals())
 	if err != nil {
 		return nil, err
 	}
 	result, err := s.completeRun(ctx, CompleteRunCommand{
 		RequestID: requestID, OutboxEventID: outboxEventID, Authentication: authentication,
 		RunID: runID, LaunchID: launchID, Fence: fence, Outcome: outcome,
-		Body: request.Msg.GetBody(), MentionedAgentIDs: mentions, Now: s.now(),
+		Body: request.Msg.GetBody(), MentionedPrincipals: mentions, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
 		return nil, err

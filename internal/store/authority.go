@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	PrincipalHuman              = authoritydomain.PrincipalHuman
+	PrincipalAgent              = authoritydomain.PrincipalAgent
 	CapabilityOrganizationAdmin = authoritydomain.CapabilityOrganizationAdmin
 	CapabilityHumanCreate       = authoritydomain.CapabilityHumanCreate
 	CapabilityGrantIssue        = authoritydomain.CapabilityGrantIssue

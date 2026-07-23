@@ -4,6 +4,7 @@ import (
 	"time"
 
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	executiondomain "github.com/abcdlsj/sumi/internal/execution/domain"
 )
@@ -34,7 +35,7 @@ const (
 type InboxItem struct {
 	Sequence              uint64
 	ID                    string
-	AgentID               string
+	Recipient             authoritydomain.Principal
 	SpaceID               string
 	Target                collaborationapp.MessageTarget
 	TriggerMessageID      string
@@ -45,6 +46,33 @@ type InboxItem struct {
 	DoneAt                *time.Time
 	Completion            string
 	CreatedAt             time.Time
+}
+
+// InboxAuthentication keeps the actor-neutral Inbox contract while retaining
+// the runtime proof required to revalidate Agent callers inside the write
+// transaction. Human callers carry only their canonical principal.
+type InboxAuthentication struct {
+	Principal authoritydomain.Principal
+	Runtime   authorityapp.RuntimeAuthentication
+}
+
+func HumanInboxAuthentication(principal authoritydomain.Principal) InboxAuthentication {
+	return InboxAuthentication{Principal: principal}
+}
+
+func AgentInboxAuthentication(runtime authorityapp.RuntimeAuthentication) InboxAuthentication {
+	return InboxAuthentication{Principal: runtime.Principal, Runtime: runtime}
+}
+
+func (authentication InboxAuthentication) Valid() bool {
+	switch authentication.Principal.Kind {
+	case authoritydomain.PrincipalHuman:
+		return authentication.Principal.Valid() && !authentication.Runtime.Valid()
+	case authoritydomain.PrincipalAgent:
+		return authentication.Runtime.Valid() && authentication.Runtime.Principal == authentication.Principal
+	default:
+		return false
+	}
 }
 
 type EligibleInboxTrigger struct {
@@ -62,7 +90,7 @@ type HeldDraft struct {
 	Target              collaborationapp.MessageTarget
 	BasisTargetSequence uint64
 	Body                string
-	MentionedAgentIDs   []string
+	MentionedPrincipals []authoritydomain.Principal
 	HeldReason          string
 	State               string
 	ResolutionAction    string
@@ -73,12 +101,12 @@ type HeldDraft struct {
 }
 
 type InboxNoticeQuery struct {
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	Now            time.Time
 }
 
 type ListInboxItemsQuery struct {
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	AfterSequence  uint64
 	Limit          uint32
 	Now            time.Time
@@ -86,13 +114,13 @@ type ListInboxItemsQuery struct {
 
 type ClaimInboxItemCommand struct {
 	RequestID      string
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	InboxItemID    string
 	Now            time.Time
 }
 
 type ObserveTargetQuery struct {
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	Target         collaborationapp.MessageTarget
 	Limit          uint32
 	Now            time.Time
@@ -107,14 +135,14 @@ type ObserveTargetResult struct {
 
 type CompleteInboxItemCommand struct {
 	RequestID      string
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	InboxItemID    string
 	Now            time.Time
 }
 
 type SetSpaceMuteCommand struct {
 	RequestID      string
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	SpaceID        string
 	Muted          bool
 	Now            time.Time
@@ -122,7 +150,7 @@ type SetSpaceMuteCommand struct {
 
 type SetThreadFollowCommand struct {
 	RequestID      string
-	Authentication authorityapp.RuntimeAuthentication
+	Authentication InboxAuthentication
 	ThreadID       string
 	Followed       bool
 	Now            time.Time
@@ -139,7 +167,7 @@ type SendInboxReplyCommand struct {
 	InboxItemID         string
 	BasisTargetSequence uint64
 	Body                string
-	MentionedAgentIDs   []string
+	MentionedPrincipals []authoritydomain.Principal
 	Now                 time.Time
 }
 
@@ -268,16 +296,16 @@ type RenewRunCommand struct {
 }
 
 type CompleteRunCommand struct {
-	RequestID         string
-	OutboxEventID     string
-	Authentication    authorityapp.RuntimeAuthentication
-	RunID             string
-	LaunchID          string
-	Fence             uint64
-	Outcome           executiondomain.Outcome
-	Body              string
-	MentionedAgentIDs []string
-	Now               time.Time
+	RequestID           string
+	OutboxEventID       string
+	Authentication      authorityapp.RuntimeAuthentication
+	RunID               string
+	LaunchID            string
+	Fence               uint64
+	Outcome             executiondomain.Outcome
+	Body                string
+	MentionedPrincipals []authoritydomain.Principal
+	Now                 time.Time
 }
 
 type CompleteRunResult struct {

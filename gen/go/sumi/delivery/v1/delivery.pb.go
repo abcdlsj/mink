@@ -1149,17 +1149,17 @@ func (x *RenewRunResponse) GetLaunch() *RunLaunch {
 }
 
 type CompleteRunRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	RequestId         string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	OutboxEventId     string                 `protobuf:"bytes,2,opt,name=outbox_event_id,json=outboxEventId,proto3" json:"outbox_event_id,omitempty"`
-	RunId             string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	LaunchId          string                 `protobuf:"bytes,4,opt,name=launch_id,json=launchId,proto3" json:"launch_id,omitempty"`
-	Fence             uint64                 `protobuf:"varint,5,opt,name=fence,proto3" json:"fence,omitempty"`
-	Outcome           RunOutcome             `protobuf:"varint,6,opt,name=outcome,proto3,enum=sumi.delivery.v1.RunOutcome" json:"outcome,omitempty"`
-	Body              string                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
-	MentionedAgentIds []string               `protobuf:"bytes,8,rep,name=mentioned_agent_ids,json=mentionedAgentIds,proto3" json:"mentioned_agent_ids,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RequestId           string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	OutboxEventId       string                 `protobuf:"bytes,2,opt,name=outbox_event_id,json=outboxEventId,proto3" json:"outbox_event_id,omitempty"`
+	RunId               string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	LaunchId            string                 `protobuf:"bytes,4,opt,name=launch_id,json=launchId,proto3" json:"launch_id,omitempty"`
+	Fence               uint64                 `protobuf:"varint,5,opt,name=fence,proto3" json:"fence,omitempty"`
+	Outcome             RunOutcome             `protobuf:"varint,6,opt,name=outcome,proto3,enum=sumi.delivery.v1.RunOutcome" json:"outcome,omitempty"`
+	Body                string                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
+	MentionedPrincipals []*v1.Principal        `protobuf:"bytes,8,rep,name=mentioned_principals,json=mentionedPrincipals,proto3" json:"mentioned_principals,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *CompleteRunRequest) Reset() {
@@ -1241,9 +1241,9 @@ func (x *CompleteRunRequest) GetBody() string {
 	return ""
 }
 
-func (x *CompleteRunRequest) GetMentionedAgentIds() []string {
+func (x *CompleteRunRequest) GetMentionedPrincipals() []*v1.Principal {
 	if x != nil {
-		return x.MentionedAgentIds
+		return x.MentionedPrincipals
 	}
 	return nil
 }
@@ -1435,7 +1435,7 @@ const file_sumi_delivery_v1_delivery_proto_rawDesc = "" +
 	"\tlaunch_id\x18\x03 \x01(\tR\blaunchId\x12\x14\n" +
 	"\x05fence\x18\x04 \x01(\x04R\x05fence\"G\n" +
 	"\x10RenewRunResponse\x123\n" +
-	"\x06launch\x18\x01 \x01(\v2\x1b.sumi.delivery.v1.RunLaunchR\x06launch\"\xa1\x02\n" +
+	"\x06launch\x18\x01 \x01(\v2\x1b.sumi.delivery.v1.RunLaunchR\x06launch\"\xbe\x02\n" +
 	"\x12CompleteRunRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12&\n" +
@@ -1444,8 +1444,8 @@ const file_sumi_delivery_v1_delivery_proto_rawDesc = "" +
 	"\tlaunch_id\x18\x04 \x01(\tR\blaunchId\x12\x14\n" +
 	"\x05fence\x18\x05 \x01(\x04R\x05fence\x126\n" +
 	"\aoutcome\x18\x06 \x01(\x0e2\x1c.sumi.delivery.v1.RunOutcomeR\aoutcome\x12\x12\n" +
-	"\x04body\x18\a \x01(\tR\x04body\x12.\n" +
-	"\x13mentioned_agent_ids\x18\b \x03(\tR\x11mentionedAgentIds\"\xf6\x01\n" +
+	"\x04body\x18\a \x01(\tR\x04body\x12K\n" +
+	"\x14mentioned_principals\x18\b \x03(\v2\x18.sumi.space.v1.PrincipalR\x13mentionedPrincipals\"\xf6\x01\n" +
 	"\x13CompleteRunResponse\x12'\n" +
 	"\x03run\x18\x01 \x01(\v2\x15.sumi.delivery.v1.RunR\x03run\x122\n" +
 	"\amessage\x18\x02 \x01(\v2\x16.sumi.space.v1.MessageH\x00R\amessage\x129\n" +
@@ -1516,8 +1516,9 @@ var file_sumi_delivery_v1_delivery_proto_goTypes = []any{
 	(*CompleteRunResponse)(nil),    // 18: sumi.delivery.v1.CompleteRunResponse
 	(*v1.MessageTarget)(nil),       // 19: sumi.space.v1.MessageTarget
 	(*timestamppb.Timestamp)(nil),  // 20: google.protobuf.Timestamp
-	(*v1.Message)(nil),             // 21: sumi.space.v1.Message
-	(*v11.HeldDraft)(nil),          // 22: sumi.inbox.v1.HeldDraft
+	(*v1.Principal)(nil),           // 21: sumi.space.v1.Principal
+	(*v1.Message)(nil),             // 22: sumi.space.v1.Message
+	(*v11.HeldDraft)(nil),          // 23: sumi.inbox.v1.HeldDraft
 }
 var file_sumi_delivery_v1_delivery_proto_depIdxs = []int32{
 	19, // 0: sumi.delivery.v1.Delivery.target:type_name -> sumi.space.v1.MessageTarget
@@ -1543,27 +1544,28 @@ var file_sumi_delivery_v1_delivery_proto_depIdxs = []int32{
 	6,  // 20: sumi.delivery.v1.ClaimRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
 	6,  // 21: sumi.delivery.v1.RenewRunResponse.launch:type_name -> sumi.delivery.v1.RunLaunch
 	2,  // 22: sumi.delivery.v1.CompleteRunRequest.outcome:type_name -> sumi.delivery.v1.RunOutcome
-	5,  // 23: sumi.delivery.v1.CompleteRunResponse.run:type_name -> sumi.delivery.v1.Run
-	21, // 24: sumi.delivery.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
-	22, // 25: sumi.delivery.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
-	20, // 26: sumi.delivery.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
-	7,  // 27: sumi.delivery.v1.DeliveryService.ListDeliveries:input_type -> sumi.delivery.v1.ListDeliveriesRequest
-	9,  // 28: sumi.delivery.v1.DeliveryService.AcceptDelivery:input_type -> sumi.delivery.v1.AcceptDeliveryRequest
-	11, // 29: sumi.delivery.v1.DeliveryService.GetRun:input_type -> sumi.delivery.v1.GetRunRequest
-	13, // 30: sumi.delivery.v1.DeliveryService.ClaimRun:input_type -> sumi.delivery.v1.ClaimRunRequest
-	15, // 31: sumi.delivery.v1.DeliveryService.RenewRun:input_type -> sumi.delivery.v1.RenewRunRequest
-	17, // 32: sumi.delivery.v1.DeliveryService.CompleteRun:input_type -> sumi.delivery.v1.CompleteRunRequest
-	8,  // 33: sumi.delivery.v1.DeliveryService.ListDeliveries:output_type -> sumi.delivery.v1.ListDeliveriesResponse
-	10, // 34: sumi.delivery.v1.DeliveryService.AcceptDelivery:output_type -> sumi.delivery.v1.AcceptDeliveryResponse
-	12, // 35: sumi.delivery.v1.DeliveryService.GetRun:output_type -> sumi.delivery.v1.GetRunResponse
-	14, // 36: sumi.delivery.v1.DeliveryService.ClaimRun:output_type -> sumi.delivery.v1.ClaimRunResponse
-	16, // 37: sumi.delivery.v1.DeliveryService.RenewRun:output_type -> sumi.delivery.v1.RenewRunResponse
-	18, // 38: sumi.delivery.v1.DeliveryService.CompleteRun:output_type -> sumi.delivery.v1.CompleteRunResponse
-	33, // [33:39] is the sub-list for method output_type
-	27, // [27:33] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	21, // 23: sumi.delivery.v1.CompleteRunRequest.mentioned_principals:type_name -> sumi.space.v1.Principal
+	5,  // 24: sumi.delivery.v1.CompleteRunResponse.run:type_name -> sumi.delivery.v1.Run
+	22, // 25: sumi.delivery.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
+	23, // 26: sumi.delivery.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
+	20, // 27: sumi.delivery.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
+	7,  // 28: sumi.delivery.v1.DeliveryService.ListDeliveries:input_type -> sumi.delivery.v1.ListDeliveriesRequest
+	9,  // 29: sumi.delivery.v1.DeliveryService.AcceptDelivery:input_type -> sumi.delivery.v1.AcceptDeliveryRequest
+	11, // 30: sumi.delivery.v1.DeliveryService.GetRun:input_type -> sumi.delivery.v1.GetRunRequest
+	13, // 31: sumi.delivery.v1.DeliveryService.ClaimRun:input_type -> sumi.delivery.v1.ClaimRunRequest
+	15, // 32: sumi.delivery.v1.DeliveryService.RenewRun:input_type -> sumi.delivery.v1.RenewRunRequest
+	17, // 33: sumi.delivery.v1.DeliveryService.CompleteRun:input_type -> sumi.delivery.v1.CompleteRunRequest
+	8,  // 34: sumi.delivery.v1.DeliveryService.ListDeliveries:output_type -> sumi.delivery.v1.ListDeliveriesResponse
+	10, // 35: sumi.delivery.v1.DeliveryService.AcceptDelivery:output_type -> sumi.delivery.v1.AcceptDeliveryResponse
+	12, // 36: sumi.delivery.v1.DeliveryService.GetRun:output_type -> sumi.delivery.v1.GetRunResponse
+	14, // 37: sumi.delivery.v1.DeliveryService.ClaimRun:output_type -> sumi.delivery.v1.ClaimRunResponse
+	16, // 38: sumi.delivery.v1.DeliveryService.RenewRun:output_type -> sumi.delivery.v1.RenewRunResponse
+	18, // 39: sumi.delivery.v1.DeliveryService.CompleteRun:output_type -> sumi.delivery.v1.CompleteRunResponse
+	34, // [34:40] is the sub-list for method output_type
+	28, // [28:34] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_sumi_delivery_v1_delivery_proto_init() }

@@ -17,14 +17,14 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 		return InboxItem{}, err
 	}
 	defer tx.Rollback()
-	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal.ID, params.InboxItemID)
+	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal, params.InboxItemID)
 	if err != nil {
 		return InboxItem{}, err
 	}
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, item); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fingerprint, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -32,14 +32,14 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 	if item.State != InboxStateUnread {
 		return InboxItem{}, ErrInboxItemNotUnread
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE agent_inbox_items SET state = 'claimed', claimed_at = ? WHERE id = ?`, unixNano(params.Now), item.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE inbox_items SET state = 'claimed', claimed_at = ? WHERE id = ?`, unixNano(params.Now), item.ID); err != nil {
 		return InboxItem{}, fmt.Errorf("claim inbox item: %w", err)
 	}
 	item, err = inboxItemByID(ctx, tx, item.ID)
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationClaimInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -60,14 +60,14 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 		return InboxItem{}, err
 	}
 	defer tx.Rollback()
-	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal.ID, params.InboxItemID)
+	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal, params.InboxItemID)
 	if err != nil {
 		return InboxItem{}, err
 	}
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, item); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fingerprint, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -89,7 +89,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationCompleteInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -111,27 +111,27 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 		return InboxPreferenceResult{}, err
 	}
 	defer tx.Rollback()
-	if _, err := requireAgentReadableTarget(ctx, tx, authentication.Principal, MessageTarget{Kind: MessageTargetSpace, ID: params.SpaceID}, params.Now); err != nil {
+	if _, err := requireInboxReadableTarget(ctx, tx, authentication.Principal, MessageTarget{Kind: MessageTargetSpace, ID: params.SpaceID}, params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fingerprint); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
 	}
 	if params.Muted {
 		_, err = tx.ExecContext(ctx, `
-			INSERT INTO agent_space_mutes(agent_id, space_id, muted_at) VALUES(?, ?, ?)
-			ON CONFLICT(agent_id, space_id) DO UPDATE SET muted_at = excluded.muted_at
-		`, authentication.Principal.ID, params.SpaceID, unixNano(params.Now))
+			INSERT INTO principal_space_mutes(principal_kind, principal_id, space_id, muted_at) VALUES(?, ?, ?, ?)
+			ON CONFLICT(principal_kind, principal_id, space_id) DO UPDATE SET muted_at = excluded.muted_at
+		`, authentication.Principal.Kind, authentication.Principal.ID, params.SpaceID, unixNano(params.Now))
 	} else {
-		_, err = tx.ExecContext(ctx, `DELETE FROM agent_space_mutes WHERE agent_id = ? AND space_id = ?`, authentication.Principal.ID, params.SpaceID)
+		_, err = tx.ExecContext(ctx, `DELETE FROM principal_space_mutes WHERE principal_kind = ? AND principal_id = ? AND space_id = ?`, authentication.Principal.Kind, authentication.Principal.ID, params.SpaceID)
 	}
 	if err != nil {
 		return InboxPreferenceResult{}, fmt.Errorf("persist space mute: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Muted, CommittedAt: params.Now.UTC()}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetSpaceMute, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -154,25 +154,25 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 	}
 	defer tx.Rollback()
 	target := MessageTarget{Kind: MessageTargetThread, ID: params.ThreadID}
-	space, err := requireAgentReadableTarget(ctx, tx, authentication.Principal, target, params.Now)
+	space, err := requireInboxReadableTarget(ctx, tx, authentication.Principal, target, params.Now)
 	if err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fingerprint); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
 	}
 	if params.Followed {
-		err = upsertThreadFollow(ctx, tx, authentication.Principal.ID, space.ID, params.ThreadID, "explicit", params.Now)
+		err = upsertThreadFollow(ctx, tx, authentication.Principal, space.ID, params.ThreadID, "explicit", params.Now)
 	} else {
-		_, err = tx.ExecContext(ctx, `DELETE FROM agent_thread_follows WHERE agent_id = ? AND thread_root_message_id = ?`, authentication.Principal.ID, params.ThreadID)
+		_, err = tx.ExecContext(ctx, `DELETE FROM principal_thread_follows WHERE principal_kind = ? AND principal_id = ? AND thread_root_message_id = ?`, authentication.Principal.Kind, authentication.Principal.ID, params.ThreadID)
 	}
 	if err != nil {
 		return InboxPreferenceResult{}, fmt.Errorf("persist thread follow: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Followed, CommittedAt: params.Now.UTC()}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSetThreadFollow, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -182,7 +182,7 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 }
 
 func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams) (SendInboxReplyResult, error) {
-	mentions, err := canonicalMentionIDs(params.MentionedAgentIDs)
+	mentions, err := canonicalMentionPrincipals(params.MentionedPrincipals)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
@@ -190,20 +190,20 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 		return SendInboxReplyResult{}, err
 	}
 	fingerprint, err := inboxFingerprint(struct {
-		InboxItemID string   `json:"inbox_item_id"`
-		Basis       uint64   `json:"basis_target_sequence"`
-		Body        string   `json:"body"`
-		Mentions    []string `json:"mentioned_agent_ids,omitempty"`
+		InboxItemID string      `json:"inbox_item_id"`
+		Basis       uint64      `json:"basis_target_sequence"`
+		Body        string      `json:"body"`
+		Mentions    []Principal `json:"mentioned_principals,omitempty"`
 	}{params.InboxItemID, params.BasisTargetSequence, params.Body, mentions})
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	tx, authentication, err := s.beginInboxTransaction(ctx, params.Authentication, params.Now)
+	tx, authentication, err := s.beginAgentInboxTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
 	defer tx.Rollback()
-	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal.ID, params.InboxItemID)
+	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal, params.InboxItemID)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
@@ -234,7 +234,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err := validateMentionMembers(ctx, tx, space.ID, mentions); err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	if err := requireObservedBasis(ctx, tx, authentication.Principal.ID, item.Target, params.BasisTargetSequence); err != nil {
+	if err := requireObservedBasis(ctx, tx, authentication.Principal, item.Target, params.BasisTargetSequence); err != nil {
 		return SendInboxReplyResult{}, err
 	}
 	result, err := sendOrHoldInboxReplyTx(ctx, tx, authentication.Principal, item, "", item.Target, params.BasisTargetSequence, params.Body, mentions, params.RequestID, fingerprint, params.Now)
@@ -275,7 +275,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
-	tx, authentication, err := s.beginInboxTransaction(ctx, params.Authentication, params.Now)
+	tx, authentication, err := s.beginAgentInboxTransaction(ctx, params.Authentication, params.Now)
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
@@ -284,7 +284,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
-	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal.ID, draft.InboxItemID)
+	item, err := requireOwnedInboxItem(ctx, tx, authentication.Principal, draft.InboxItemID)
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}

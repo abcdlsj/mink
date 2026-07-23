@@ -8,14 +8,15 @@ import (
 	"time"
 )
 
-func requireOwnedInboxItem(ctx context.Context, tx *sql.Tx, agentID, itemID string) (InboxItem, error) {
+func requireOwnedInboxItem(ctx context.Context, tx *sql.Tx, recipient Principal, itemID string) (InboxItem, error) {
 	item, err := inboxItemByID(ctx, tx, itemID)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && item.AgentID != agentID) {
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (item.Recipient.Kind != recipient.Kind || item.Recipient.ID != recipient.ID)) {
 		return InboxItem{}, ErrInboxItemNotFound
 	}
 	if err != nil {
 		return InboxItem{}, err
 	}
+	item.Recipient.OrganizationID = recipient.OrganizationID
 	return item, nil
 }
 
@@ -63,9 +64,9 @@ func inboxItemReadable(ctx context.Context, tx *sql.Tx, principal Principal, ite
 			SELECT 1 FROM spaces s
 			JOIN space_memberships m ON m.space_id = s.id
 			WHERE s.id = ? AND s.organization_id = ?
-			  AND m.principal_kind = 'agent' AND m.principal_id = ?
+			  AND m.principal_kind = ? AND m.principal_id = ?
 		)
-	`, item.SpaceID, principal.OrganizationID, principal.ID).Scan(&valid); err != nil {
+	`, item.SpaceID, principal.OrganizationID, principal.Kind, principal.ID).Scan(&valid); err != nil {
 		return false, fmt.Errorf("check inbox item access: %w", err)
 	}
 	return valid, nil
@@ -73,7 +74,7 @@ func inboxItemReadable(ctx context.Context, tx *sql.Tx, principal Principal, ite
 
 func closeInboxItemAccessLost(ctx context.Context, tx *sql.Tx, itemID string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE agent_inbox_items
+		UPDATE inbox_items
 		SET state = 'done', done_at = ?, completion = 'access_lost'
 		WHERE id = ? AND state != 'done'
 	`, unixNano(now), itemID); err != nil {
@@ -84,7 +85,7 @@ func closeInboxItemAccessLost(ctx context.Context, tx *sql.Tx, itemID string, no
 
 func finishInboxItem(ctx context.Context, tx *sql.Tx, itemID, completion string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
-		UPDATE agent_inbox_items SET state = 'done', done_at = ?, completion = ?
+		UPDATE inbox_items SET state = 'done', done_at = ?, completion = ?
 		WHERE id = ? AND state = 'claimed'
 	`, unixNano(now), completion, itemID); err != nil {
 		return fmt.Errorf("finish inbox item: %w", err)
@@ -92,7 +93,7 @@ func finishInboxItem(ctx context.Context, tx *sql.Tx, itemID, completion string,
 	return nil
 }
 
-func requireAgentReadableTarget(ctx context.Context, tx *sql.Tx, principal Principal, target MessageTarget, now time.Time) (Space, error) {
+func requireInboxReadableTarget(ctx context.Context, tx *sql.Tx, principal Principal, target MessageTarget, now time.Time) (Space, error) {
 	spaceID, err := resolveReadableTargetSpace(ctx, tx, target)
 	if err != nil {
 		return Space{}, err
@@ -122,12 +123,12 @@ func requireInboxReplyGrant(ctx context.Context, tx *sql.Tx, principal Principal
 	return space, nil
 }
 
-func requireObservedBasis(ctx context.Context, tx *sql.Tx, agentID string, target MessageTarget, basis uint64) error {
+func requireObservedBasis(ctx context.Context, tx *sql.Tx, principal Principal, target MessageTarget, basis uint64) error {
 	var seen uint64
 	err := tx.QueryRowContext(ctx, `
-		SELECT seen_up_to_target_sequence FROM agent_target_cursors
-		WHERE agent_id = ? AND target_kind = ? AND target_id = ?
-	`, agentID, target.Kind, target.ID).Scan(&seen)
+		SELECT seen_up_to_target_sequence FROM principal_target_cursors
+		WHERE principal_kind = ? AND principal_id = ? AND target_kind = ? AND target_id = ?
+	`, principal.Kind, principal.ID, target.Kind, target.ID).Scan(&seen)
 	if errors.Is(err, sql.ErrNoRows) {
 		seen = 0
 	} else if err != nil {

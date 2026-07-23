@@ -1211,6 +1211,27 @@ select {
   grid-column: 1 / -1;
 }
 
+.work-inbox-queues {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--soft-line);
+}
+
+.work-inbox-section {
+  border-bottom: 1px solid var(--soft-line);
+  padding: 6px;
+}
+
+.work-inbox-section > h2 {
+  margin: 0;
+  padding: 7px 9px 5px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .work-inbox > .empty-state {
   width: auto;
   margin: 0;
@@ -1228,17 +1249,18 @@ select {
   min-width: 0;
   min-height: 0;
   margin: 0;
-  overflow: auto;
-  border-right: 1px solid var(--soft-line);
-  padding: 6px;
+  padding: 0;
   list-style: none;
 }
 
 .work-inbox-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   min-width: 0;
 }
 
-.work-inbox-list li > button {
+.work-inbox-list li > .work-inbox-row {
   display: grid;
   width: 100%;
   min-width: 0;
@@ -1252,11 +1274,11 @@ select {
   text-align: left;
 }
 
-.work-inbox-list li > button:hover {
+.work-inbox-list li > .work-inbox-row:hover {
   background: var(--hover);
 }
 
-.work-inbox-list li > button[aria-pressed="true"] {
+.work-inbox-list li > .work-inbox-row[aria-pressed="true"] {
   border-color: var(--accent-bright);
   background: var(--accent-soft);
   box-shadow: inset 2px 0 0 var(--accent);
@@ -1266,6 +1288,14 @@ select {
 .work-inbox-list span,
 .work-inbox-list code {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.work-inbox-list small {
+  overflow: hidden;
+  color: var(--subtle);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2517,7 +2547,7 @@ select {
     grid-column: 1;
   }
 
-  .work-inbox-list,
+  .work-inbox-queues,
   .work-inbox > .empty-state {
     border-right: 0;
     border-bottom: 1px solid var(--soft-line);

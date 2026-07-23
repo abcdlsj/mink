@@ -210,7 +210,7 @@ func (s *Store) AcceptDelivery(ctx context.Context, params AcceptDeliveryParams)
 		return Run{}, err
 	}
 	if item.State == InboxStateUnread {
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_inbox_items SET state = 'claimed', claimed_at = ? WHERE id = ? AND state = 'unread'`, unixNano(params.Now), item.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE inbox_items SET state = 'claimed', claimed_at = ? WHERE id = ? AND state = 'unread'`, unixNano(params.Now), item.ID); err != nil {
 			return Run{}, fmt.Errorf("claim delivery inbox item: %w", err)
 		}
 	}

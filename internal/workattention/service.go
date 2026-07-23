@@ -1,4 +1,4 @@
-package humaninbox
+package workattention
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 
 type storeReader interface {
 	sharedauthentication.Authenticator
-	ListHumanInboxItems(context.Context, store.HumanInboxQuery) ([]store.HumanInboxItem, error)
+	ListWorkAttentionItems(context.Context, store.WorkAttentionQuery) ([]store.WorkAttentionItem, error)
 }
 
 type Service struct {
@@ -25,13 +25,13 @@ type Service struct {
 	now    func() time.Time
 }
 
-var _ inboxv1connect.HumanInboxServiceHandler = (*Service)(nil)
+var _ inboxv1connect.WorkAttentionServiceHandler = (*Service)(nil)
 
 func New(database storeReader, browserOrigin string) *Service {
 	return &Service{store: database, origin: browserOrigin, now: time.Now}
 }
 
-func (s *Service) ListHumanInboxItems(ctx context.Context, request *connect.Request[inboxv1.ListHumanInboxItemsRequest]) (*connect.Response[inboxv1.ListHumanInboxItemsResponse], error) {
+func (s *Service) ListWorkAttentionItems(ctx context.Context, request *connect.Request[inboxv1.ListWorkAttentionItemsRequest]) (*connect.Response[inboxv1.ListWorkAttentionItemsResponse], error) {
 	resolved, err := sharedauthentication.Resolve(ctx, s.store, http.Header(request.Header()), false, s.origin, s.now())
 	if err != nil {
 		return nil, authenticationError(err)
@@ -40,13 +40,13 @@ func (s *Service) ListHumanInboxItems(ctx context.Context, request *connect.Requ
 	if !ok || !human.Valid() {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human session is required"))
 	}
-	items, err := s.store.ListHumanInboxItems(ctx, store.HumanInboxQuery{Human: human, Limit: request.Msg.GetLimit(), Now: s.now()})
+	items, err := s.store.ListWorkAttentionItems(ctx, store.WorkAttentionQuery{Human: human, Limit: request.Msg.GetLimit(), Now: s.now()})
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("human inbox projection is unavailable"))
+		return nil, connect.NewError(connect.CodeInternal, errors.New("work attention projection is unavailable"))
 	}
-	response := &inboxv1.ListHumanInboxItemsResponse{Items: make([]*inboxv1.HumanInboxItem, 0, len(items))}
+	response := &inboxv1.ListWorkAttentionItemsResponse{Items: make([]*inboxv1.WorkAttentionItem, 0, len(items))}
 	for _, item := range items {
-		response.Items = append(response.Items, &inboxv1.HumanInboxItem{
+		response.Items = append(response.Items, &inboxv1.WorkAttentionItem{
 			WorkId: item.WorkID, SpaceId: item.SpaceID, AgentId: item.AgentID, Kind: item.Kind,
 			Status: item.Status, ReasonCode: item.ReasonCode, UpdatedAt: timestamppb.New(item.UpdatedAt),
 		})

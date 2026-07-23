@@ -1,26 +1,26 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { humanInboxClient } from "../api/clients";
+import { workAttentionClient } from "../api/clients";
 import {
-  ListHumanInboxItemsRequestSchema,
-  ListHumanInboxItemsResponseSchema,
+  ListWorkAttentionItemsRequestSchema,
+  ListWorkAttentionItemsResponseSchema,
 } from "../gen/sumi/inbox/v1/inbox_pb";
-import { listHumanInboxItems } from "./humanInbox";
+import { listWorkAttentionItems } from "./workAttention";
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("human inbox transport", () => {
+describe("work attention transport", () => {
   it("forwards the generated request, caller abort signal, response, and typed failure", async () => {
-    const request = create(ListHumanInboxItemsRequestSchema, { limit: 17 });
-    const response = create(ListHumanInboxItemsResponseSchema);
+    const request = create(ListWorkAttentionItemsRequestSchema, { limit: 17 });
+    const response = create(ListWorkAttentionItemsResponseSchema);
     const controller = new AbortController();
     const result = Promise.resolve(response);
     const client = vi
-      .spyOn(humanInboxClient, "listHumanInboxItems")
+      .spyOn(workAttentionClient, "listWorkAttentionItems")
       .mockReturnValueOnce(result);
 
-    const received = listHumanInboxItems(request, controller.signal);
+    const received = listWorkAttentionItems(request, controller.signal);
     expect(received).toBe(result);
     await expect(received).resolves.toBe(response);
     expect(client).toHaveBeenCalledWith(request, { signal: controller.signal });
@@ -28,6 +28,8 @@ describe("human inbox transport", () => {
     const failure = new ConnectError("denied", Code.PermissionDenied);
     const failed = Promise.reject(failure);
     client.mockReturnValueOnce(failed);
-    await expect(listHumanInboxItems(request, controller.signal)).rejects.toBe(failure);
+    await expect(
+      listWorkAttentionItems(request, controller.signal),
+    ).rejects.toBe(failure);
   });
 });

@@ -7,6 +7,7 @@ import (
 
 	"connectrpc.com/connect"
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
+	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 )
 
@@ -33,7 +34,7 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 		response, completeErr := d.deliveries.CompleteRun(rpcCtx, runtimeRequest(session.Token, &deliveryv1.CompleteRunRequest{
 			RequestId: event.RequestID, OutboxEventId: event.OutboxEventID,
 			RunId: event.RunID, LaunchId: event.LaunchID, Fence: event.Fence,
-			Outcome: outcomeValue(event.Outcome), Body: event.Body, MentionedAgentIds: event.MentionedAgentIDs,
+			Outcome: outcomeValue(event.Outcome), Body: event.Body, MentionedPrincipals: mentionedAgents(event.MentionedAgentIDs),
 		}))
 		cancel()
 		if completeErr == nil && response != nil && validateCompleteResponse(response.Msg, event) == nil {
@@ -57,6 +58,14 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 		}
 	}
 	return errors.Join(dispatchErrors...)
+}
+
+func mentionedAgents(agentIDs []string) []*spacev1.Principal {
+	principals := make([]*spacev1.Principal, 0, len(agentIDs))
+	for _, agentID := range agentIDs {
+		principals = append(principals, &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agentID})
+	}
+	return principals
 }
 
 func (d *Daemon) finishCanonicalMutation(ctx context.Context, requestID string, rpcErr error) {

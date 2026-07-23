@@ -19,7 +19,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	claim := fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(3))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: claim.ID, Now: fixture.at(4),
 	}); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "thread mention",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(5),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(7))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(8),
 	}); err != nil {
 		t.Fatal(err)
@@ -66,13 +66,13 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(11))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(12),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(13),
 	}); err != nil {
 		t.Fatal(err)
@@ -89,13 +89,13 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	mentioned, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted mention",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(16),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(16),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	items = fixture.listItems(t, 10, fixture.at(17))
-	if len(items) != 1 || items[0].Reason != InboxReasonMention || !reflect.DeepEqual(mentioned.MentionedAgentIDs, []string{fixture.agentID}) {
+	if len(items) != 1 || items[0].Reason != InboxReasonMention || !reflect.DeepEqual(mentioned.MentionedPrincipals, agentPrincipals(fixture.owner.OrganizationID, fixture.agentID)) {
 		t.Fatalf("muted mention = %+v, items = %+v", mentioned, items)
 	}
 
@@ -108,7 +108,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.issueAgentGrant(t, dm.ID, CapabilitySpaceRead, fixture.at(19))
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		SpaceID: dm.ID, Muted: true, Now: fixture.at(20),
 	}); err != nil {
 		t.Fatal(err)
@@ -126,13 +126,176 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 }
 
+func TestHumanInboxParityMentionMuteFollowSelfSuppressionAccessLossAndDM(t *testing.T) {
+	fixture := openInboxFixture(t)
+	ctx := context.Background()
+	humanRecord, err := fixture.database.CreateHuman(ctx, CreateHumanParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, Name: "Inbox Human", Role: "member",
+		Credential: "inbox-human-credential-abcdefghijklmnopqrstuvwxyz", Now: fixture.at(40),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := Principal{Kind: PrincipalHuman, ID: humanRecord.ID, OrganizationID: fixture.owner.OrganizationID}
+	if _, err := fixture.database.AddMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(41),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for index, capability := range []Capability{CapabilitySpaceRead, CapabilityMessageSend} {
+		if _, err := fixture.database.IssueGrant(ctx, IssueGrantParams{
+			RequestID: uuid.NewString(), Actor: fixture.owner, Subject: human, Capability: capability,
+			Scope: Scope{Kind: "space", ID: fixture.group.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.at(42 + index),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	authentication := HumanInboxAuthentication(human)
+	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "human mention",
+		MentionedPrincipals: []Principal{human}, Now: fixture.at(44),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(45)})
+	if err != nil || len(items) != 1 || items[0].Recipient != human || items[0].Reason != InboxReasonMention {
+		t.Fatalf("human mention items = %+v, %v", items, err)
+	}
+	var deliveries int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM deliveries WHERE inbox_item_id = ?`, items[0].ID).Scan(&deliveries); err != nil || deliveries != 0 {
+		t.Fatalf("human delivery adapters = %d, %v", deliveries, err)
+	}
+	claimed, err := fixture.database.ClaimInboxItem(ctx, ClaimInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: items[0].ID, Now: fixture.at(46),
+	})
+	if err != nil || claimed.State != InboxStateClaimed {
+		t.Fatalf("human claim = %+v, %v", claimed, err)
+	}
+	if _, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: authentication, Target: claimed.Target, Limit: 20, Now: fixture.at(47),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: claimed.ID, Now: fixture.at(48),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "create thread", Now: fixture.at(49),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.SetThreadFollow(ctx, SetThreadFollowParams{
+		RequestID: uuid.NewString(), Authentication: authentication, ThreadID: root.ID, Followed: true, Now: fixture.at(50),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(51),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted follow", Now: fixture.at(52),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(53)})
+	if err != nil || len(items) != 0 {
+		t.Fatalf("muted human follow items = %+v, %v", items, err)
+	}
+	mentioned, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted explicit mention",
+		MentionedPrincipals: []Principal{human}, Now: fixture.at(54),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(55)})
+	if err != nil || len(items) != 1 || items[0].TriggerMessageID != mentioned.ID || items[0].Reason != InboxReasonMention {
+		t.Fatalf("muted human mention items = %+v, %v", items, err)
+	}
+	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: human,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "self mention",
+		MentionedPrincipals: []Principal{human}, Now: fixture.at(56),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(57)})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("human self notification = %+v, %v", items, err)
+	}
+	if _, err := fixture.database.RemoveMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(58),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var completion string
+	if err := fixture.database.db.QueryRow(`
+		SELECT completion FROM inbox_items
+		WHERE recipient_kind = 'human' AND recipient_id = ? AND trigger_message_id = ?
+	`, human.ID, mentioned.ID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
+		t.Fatalf("human access-loss completion = %q, %v", completion, err)
+	}
+	for _, table := range []string{"principal_space_mutes", "principal_thread_follows", "principal_target_cursors"} {
+		var count int
+		if err := fixture.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'human' AND principal_id = ?`, human.ID).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("human %s rows = %d, %v", table, count, err)
+		}
+	}
+	if _, err := fixture.database.AddMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(59),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(60)})
+	if err != nil || len(items) != 0 {
+		t.Fatalf("restored human items resurrected = %+v, %v", items, err)
+	}
+	dm, err := fixture.database.CreateDM(ctx, CreateDMParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, Peer: human, Now: fixture.at(61),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.IssueGrant(ctx, IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner, Subject: human, Capability: CapabilitySpaceRead,
+		Scope: Scope{Kind: "space", ID: dm.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.at(62),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: dm.ID, Muted: true, Now: fixture.at(63),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dmMessage, err := fixture.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: fixture.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "muted dm", Now: fixture.at(64),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(65)})
+	if err != nil || len(items) != 1 || items[0].Reason != InboxReasonDM || items[0].TriggerMessageID != dmMessage.ID {
+		t.Fatalf("muted human dm items = %+v, %v", items, err)
+	}
+}
+
 func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 	fixture := openInboxFixture(t)
 	ctx := context.Background()
 	trigger, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +308,7 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("claim replay changed: %+v != %+v", claimed, replayedClaim)
 	}
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(5),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(5),
 	})
 	if err != nil || observed.Head != trigger.TargetSequence {
 		t.Fatalf("observe = %+v, %v", observed, err)
@@ -159,14 +322,14 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 	sendRequest := uuid.NewString()
 	held, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
 		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "agent result", MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(7),
+		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(7),
 	})
 	if err != nil || held.Kind != InboxResultHeldDraft || held.HeldDraft == nil {
 		t.Fatalf("held reply = %+v, %v", held, err)
 	}
 	replayedHeld, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
 		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "agent result", MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(8),
+		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(8),
 	})
 	if err != nil || !reflect.DeepEqual(held, replayedHeld) {
 		t.Fatalf("held replay = %+v, %v", replayedHeld, err)
@@ -176,7 +339,7 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("held request messages = %d, %v", sentWithHeldRequest, err)
 	}
 	observed, err = fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(9),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(9),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -200,13 +363,13 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 	}
 	replayedHeldAfterDone, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
 		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: trigger.TargetSequence, Body: "agent result", MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(12),
+		BasisTargetSequence: trigger.TargetSequence, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(12),
 	})
 	if err != nil || !reflect.DeepEqual(held, replayedHeldAfterDone) {
 		t.Fatalf("held replay after item done = %+v, %v", replayedHeldAfterDone, err)
 	}
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID, Now: fixture.at(13),
+		RequestID: sendRequest, Authentication: AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(13),
 	}); !errors.Is(err, ErrInboxRequestConflict) {
 		t.Fatalf("cross-operation request reuse error = %v", err)
 	}
@@ -243,17 +406,17 @@ func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) 
 	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_drafts WHERE body = ?`, heldBody).Scan(&draftBodies); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM message_mentions WHERE agent_id = ?`, mentionedAgentID).Scan(&messageMentions); err != nil {
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM message_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&messageMentions); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_draft_mentions WHERE agent_id = ?`, mentionedAgentID).Scan(&draftMentions); err != nil {
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_draft_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&draftMentions); err != nil {
 		t.Fatal(err)
 	}
 	if messageBodies != 1 || draftBodies != 1 || messageMentions != 1 || draftMentions != 1 {
 		t.Fatalf("business facts = message bodies %d, draft bodies %d, message mentions %d, draft mentions %d", messageBodies, draftBodies, messageMentions, draftMentions)
 	}
 
-	rows, err := fixture.database.db.Query(`SELECT response_snapshot FROM agent_requests`)
+	rows, err := fixture.database.db.Query(`SELECT response_snapshot FROM inbox_requests`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +529,7 @@ func TestHeldDraftRetryStaleCreatesCanonicalSuccessor(t *testing.T) {
 	ctx := context.Background()
 	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(7),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(7),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -425,7 +588,7 @@ func TestHeldDraftRetargetFreshPublishesCanonicalMessage(t *testing.T) {
 	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
 	targetGroup := fixture.createAgentGroup(t, "Retarget fresh", 7)
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication,
+		Authentication: AgentInboxAuthentication(fixture.authentication),
 		Target:         MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID}, Limit: 20, Now: fixture.at(10),
 	})
 	if err != nil || observed.Head != 0 {
@@ -475,7 +638,7 @@ func TestHeldDraftRetargetStaleCreatesCanonicalSuccessor(t *testing.T) {
 		t.Fatal(err)
 	}
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: target, Limit: 20, Now: fixture.at(11),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: target, Limit: 20, Now: fixture.at(11),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -554,7 +717,7 @@ func TestInboxAccessLossClosesItemsWithoutResurrection(t *testing.T) {
 		if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 			RequestID: uuid.NewString(), Actor: fixture.owner,
 			Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "pending",
-			MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(index + 1),
+			MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(index + 1),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -575,7 +738,7 @@ func TestInboxAccessLossClosesItemsWithoutResurrection(t *testing.T) {
 	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: secondGroup.ID}, Body: "still visible",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(6),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(6),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -585,26 +748,26 @@ func TestInboxAccessLossClosesItemsWithoutResurrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err := fixture.database.ListInboxItems(ctx, ListInboxItemsParams{
-		Authentication: fixture.authentication, Limit: 1, Now: fixture.at(8),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Limit: 1, Now: fixture.at(8),
 	})
 	if err != nil || len(items) != 1 || items[0].SpaceID != secondGroup.ID {
 		t.Fatalf("items after access loss = %+v, %v", items, err)
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(9))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(10),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	notice, err := fixture.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: fixture.authentication, Now: fixture.at(11)})
+	notice, err := fixture.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: AgentInboxAuthentication(fixture.authentication), Now: fixture.at(11)})
 	if err != nil || notice {
 		t.Fatalf("notice after access loss = %v, %v", notice, err)
 	}
 	var closed int
 	if err := fixture.database.db.QueryRow(`
-		SELECT count(*) FROM agent_inbox_items
-		WHERE agent_id = ? AND state = 'done' AND completion = 'access_lost'
+		SELECT count(*) FROM inbox_items
+		WHERE recipient_kind = 'agent' AND recipient_id = ? AND state = 'done' AND completion = 'access_lost'
 	`, fixture.agentID).Scan(&closed); err != nil || closed != 2 {
 		t.Fatalf("access-lost items = %d, %v", closed, err)
 	}
@@ -621,7 +784,7 @@ func TestInboxSiblingAdvanceDoesNotHoldReply(t *testing.T) {
 	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -629,7 +792,7 @@ func TestInboxSiblingAdvanceDoesNotHoldReply(t *testing.T) {
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -655,14 +818,14 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -689,7 +852,7 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	}
 	runtimeRequest := uuid.NewString()
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: runtimeRequest, Authentication: fixture.authentication, InboxItemID: item.ID, Now: fixture.at(8),
+		RequestID: runtimeRequest, Authentication: AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(8),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
 		t.Fatalf("revoked runtime completion error = %v", err)
 	}
@@ -702,14 +865,14 @@ func TestHeldDraftDoesNotResurrectAfterAccessLoss(t *testing.T) {
 	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -774,7 +937,7 @@ func TestInboxMentionValidationRejectsInvalidSets(t *testing.T) {
 			if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 				RequestID: uuid.NewString(), Actor: fixture.owner,
 				Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
-				Body:   "invalid mention", MentionedAgentIDs: mentions, Now: fixture.at(2),
+				Body:   "invalid mention", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, mentions...), Now: fixture.at(2),
 			}); !errors.Is(err, ErrInvalidMention) {
 				t.Fatalf("error = %v", err)
 			}
@@ -787,7 +950,7 @@ func TestInboxMentionValidationRejectsInvalidSets(t *testing.T) {
 	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
-		Body:   "too many", MentionedAgentIDs: tooMany, Now: fixture.at(3),
+		Body:   "too many", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, tooMany...), Now: fixture.at(3),
 	}); !errors.Is(err, ErrInvalidMention) {
 		t.Fatalf("too-many error = %v", err)
 	}
@@ -803,7 +966,7 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 	message, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "valid",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -815,16 +978,16 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 	`, secondAgent, unixNano(fixture.at(2)), unixNano(fixture.at(2))); err != nil {
 		t.Fatal(err)
 	}
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, agent_id, ordinal) VALUES(?, ?, 0)`, message.ID, secondAgent)
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, agent_id, ordinal) VALUES(?, ?, 64)`, message.ID, secondAgent)
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, agent_id, ordinal) VALUES(?, ?, 1)`, uuid.NewString(), secondAgent)
+	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 0)`, message.ID, secondAgent)
+	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 64)`, message.ID, secondAgent)
+	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 1)`, uuid.NewString(), secondAgent)
 	assertExecFails(t, fixture.database, `
-		UPDATE agent_inbox_items SET trigger_target_sequence = trigger_target_sequence + 1
-		WHERE agent_id = ? AND trigger_message_id = ?
+		UPDATE inbox_items SET trigger_target_sequence = trigger_target_sequence + 1
+		WHERE recipient_kind = 'agent' AND recipient_id = ? AND trigger_message_id = ?
 	`, fixture.agentID, message.ID)
 	assertExecFails(t, fixture.database, `
-		UPDATE agent_inbox_items SET state = 'done', completion = '', done_at = ?
-		WHERE agent_id = ? AND trigger_message_id = ?
+		UPDATE inbox_items SET state = 'done', completion = '', done_at = ?
+		WHERE recipient_kind = 'agent' AND recipient_id = ? AND trigger_message_id = ?
 	`, unixNano(fixture.at(3)), fixture.agentID, message.ID)
 	item := fixture.listItems(t, 1, fixture.at(4))[0]
 	draftID := uuid.NewString()
@@ -880,13 +1043,13 @@ func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
 	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(1),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(2),
 	}); err != nil {
 		t.Fatal(err)
@@ -898,13 +1061,13 @@ func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetThreadFollow(ctx, SetThreadFollowParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
+		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
 		ThreadID: root.ID, Followed: true, Now: fixture.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: fixture.authentication, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
 		Limit: 10, Now: fixture.at(5),
 	}); err != nil {
 		t.Fatal(err)
@@ -915,14 +1078,14 @@ func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, table := range []string{"agent_space_mutes", "agent_thread_follows", "agent_target_cursors"} {
+	for _, table := range []string{"principal_space_mutes", "principal_thread_follows", "principal_target_cursors"} {
 		var count int
-		if err := fixture.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE agent_id = ?`, fixture.agentID).Scan(&count); err != nil || count != 0 {
+		if err := fixture.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'agent' AND principal_id = ?`, fixture.agentID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s rows = %d, %v", table, count, err)
 		}
 	}
 	var completion string
-	if err := fixture.database.db.QueryRow(`SELECT completion FROM agent_inbox_items WHERE trigger_message_id = ? AND agent_id = ?`, root.ID, fixture.agentID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
+	if err := fixture.database.db.QueryRow(`SELECT completion FROM inbox_items WHERE trigger_message_id = ? AND recipient_kind = 'agent' AND recipient_id = ?`, root.ID, fixture.agentID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
 		t.Fatalf("removed item completion = %q, %v", completion, err)
 	}
 }
@@ -1021,7 +1184,7 @@ func (f *inboxFixture) makeHeldDraft(t *testing.T, space Space, start int) (Inbo
 	trigger, err := f.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "trigger held",
-		MentionedAgentIDs: []string{f.agentID}, Now: f.at(start),
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(start),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1039,7 +1202,7 @@ func (f *inboxFixture) makeHeldDraft(t *testing.T, space Space, start int) (Inbo
 	}
 	f.claim(t, item.ID, uuid.NewString(), f.at(start+2))
 	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: f.authentication, Target: item.Target, Limit: 20, Now: f.at(start + 3),
+		Authentication: AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(start + 3),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1083,7 +1246,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 	trigger, err := f.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "receipt trigger",
-		MentionedAgentIDs: []string{f.agentID}, Now: f.at(start),
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(start),
 	})
 	if err != nil {
 		return SendInboxReplyParams{}, SendInboxReplyResult{}, err
@@ -1100,7 +1263,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 	}
 	f.claim(t, item.ID, uuid.NewString(), f.at(start+2))
 	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: f.authentication, Target: item.Target, Limit: 200, Now: f.at(start + 3),
+		Authentication: AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 200, Now: f.at(start + 3),
 	})
 	if err != nil {
 		return SendInboxReplyParams{}, SendInboxReplyResult{}, err
@@ -1114,7 +1277,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 	}
 	params := SendInboxReplyParams{
 		RequestID: uuid.NewString(), Authentication: f.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: body, MentionedAgentIDs: mentions, Now: f.at(start + 5),
+		BasisTargetSequence: observed.Head, Body: body, MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, mentions...), Now: f.at(start + 5),
 	}
 	result, err := f.database.SendInboxReply(ctx, params)
 	return params, result, err
@@ -1123,7 +1286,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 func (f *inboxFixture) listItems(t *testing.T, limit uint32, now time.Time) []InboxItem {
 	t.Helper()
 	items, err := f.database.ListInboxItems(context.Background(), ListInboxItemsParams{
-		Authentication: f.authentication, Limit: limit, Now: now,
+		Authentication: AgentInboxAuthentication(f.authentication), Limit: limit, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1134,7 +1297,7 @@ func (f *inboxFixture) listItems(t *testing.T, limit uint32, now time.Time) []In
 func (f *inboxFixture) claim(t *testing.T, itemID, requestID string, now time.Time) InboxItem {
 	t.Helper()
 	item, err := f.database.ClaimInboxItem(context.Background(), ClaimInboxItemParams{
-		RequestID: requestID, Authentication: f.authentication, InboxItemID: itemID, Now: now,
+		RequestID: requestID, Authentication: AgentInboxAuthentication(f.authentication), InboxItemID: itemID, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1145,7 +1308,7 @@ func (f *inboxFixture) claim(t *testing.T, itemID, requestID string, now time.Ti
 func assertInboxRequestWrites(t *testing.T, database *Store, requestID string, wantRequests, wantDrafts int) {
 	t.Helper()
 	var requests, drafts int
-	if err := database.db.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
+	if err := database.db.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.db.QueryRow(`SELECT count(*) FROM agent_held_drafts`).Scan(&drafts); err != nil {
@@ -1154,6 +1317,14 @@ func assertInboxRequestWrites(t *testing.T, database *Store, requestID string, w
 	if requests != wantRequests || drafts != wantDrafts {
 		t.Fatalf("request writes = %d, drafts = %d; want %d, %d", requests, drafts, wantRequests, wantDrafts)
 	}
+}
+
+func agentPrincipals(organizationID string, ids ...string) []Principal {
+	principals := make([]Principal, 0, len(ids))
+	for _, id := range ids {
+		principals = append(principals, Principal{Kind: PrincipalAgent, ID: id, OrganizationID: organizationID})
+	}
+	return principals
 }
 
 func assertExecFails(t *testing.T, database *Store, statement string, args ...any) {
@@ -1166,7 +1337,7 @@ func assertExecFails(t *testing.T, database *Store, statement string, args ...an
 func assertAgentRequestCount(t *testing.T, database *Store, requestID string, want int) {
 	t.Helper()
 	var count int
-	if err := database.db.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, requestID).Scan(&count); err != nil {
+	if err := database.db.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, requestID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != want {

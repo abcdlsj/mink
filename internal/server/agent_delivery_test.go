@@ -214,7 +214,7 @@ func TestAgentDeliveryHTTPGrantRestartReclaimReplayAuthorizationAndQuiet(t *test
 		RequestId: uuid.NewString(), OutboxEventId: uuid.NewString(), RunId: accepted.Msg.GetRun().GetId(),
 		LaunchId: reclaimed.Msg.GetLaunch().GetId(), Fence: reclaimed.Msg.GetLaunch().GetFence(),
 		Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: completeBody,
-		MentionedAgentIds: []string{peer.GetId()},
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: peer.GetId()}},
 	}
 	completed, err := deliveryClient.CompleteRun(context.Background(), deliveryRequest(newSession.GetToken(), completeRequest))
 	if err != nil || completed.Msg.GetMessage() == nil || completed.Msg.GetHeldDraft() != nil ||
@@ -439,7 +439,7 @@ func assertAgentDeliveryDatabase(t *testing.T, dataRoot, runID string, completeR
 	if err := database.QueryRow(`SELECT count(*) FROM run_completion_receipts WHERE run_id = ? AND outbox_event_id = ? AND request_id = ?`, runID, completeRequest.GetOutboxEventId(), completeRequest.GetRequestId()).Scan(&receipts); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, completeRequest.GetRequestId()).Scan(&requests); err != nil {
+	if err := database.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, completeRequest.GetRequestId()).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}
 	if messages != 1 || drafts != 0 || receipts != 1 || requests != 1 {
@@ -447,7 +447,7 @@ func assertAgentDeliveryDatabase(t *testing.T, dataRoot, runID string, completeR
 	}
 	for _, requestID := range append([]string{staleRequest.GetRequestId()}, conflictNewRequestIDs(conflicts, completeRequest.GetRequestId())...) {
 		var count int
-		if err := database.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, requestID).Scan(&count); err != nil {
+		if err := database.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, requestID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 0 {
@@ -480,7 +480,7 @@ func assertDeliveryRegistryQuiet(t *testing.T, dataRoot string, forbidden ...str
 		t.Fatal(err)
 	}
 	defer database.Close()
-	rows, err := database.Query(`SELECT CAST(response_snapshot AS TEXT) FROM agent_requests`)
+	rows, err := database.Query(`SELECT CAST(response_snapshot AS TEXT) FROM inbox_requests`)
 	if err != nil {
 		t.Fatal(err)
 	}

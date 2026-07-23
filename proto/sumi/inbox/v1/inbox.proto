@@ -20,10 +20,10 @@ service InboxService {
   rpc ResolveHeldDraft(ResolveHeldDraftRequest) returns (ResolveHeldDraftResponse);
 }
 
-// HumanInboxService is a browser-only, read-only projection. It intentionally
-// does not share the Agent runtime mutation surface of InboxService.
-service HumanInboxService {
-  rpc ListHumanInboxItems(ListHumanInboxItemsRequest) returns (ListHumanInboxItemsResponse);
+// WorkAttentionService is a Human-only projection for Work approvals and
+// Agent exceptions. Message attention belongs to InboxService for every actor.
+service WorkAttentionService {
+  rpc ListWorkAttentionItems(ListWorkAttentionItemsRequest) returns (ListWorkAttentionItemsResponse);
 }
 
 enum InboxReason {
@@ -67,7 +67,7 @@ enum DraftResolutionAction {
 message InboxItem {
   uint64 sequence = 1;
   string id = 2;
-  string agent_id = 3;
+  sumi.space.v1.Principal recipient = 3;
   sumi.space.v1.MessageTarget target = 4;
   string trigger_message_id = 5;
   uint64 trigger_target_sequence = 6;
@@ -80,7 +80,7 @@ message InboxItem {
   string space_id = 13;
 }
 
-message HumanInboxItem {
+message WorkAttentionItem {
   string work_id = 1;
   string space_id = 2;
   string agent_id = 3;
@@ -90,12 +90,12 @@ message HumanInboxItem {
   google.protobuf.Timestamp updated_at = 7;
 }
 
-message ListHumanInboxItemsRequest {
+message ListWorkAttentionItemsRequest {
   uint32 limit = 1;
 }
 
-message ListHumanInboxItemsResponse {
-  repeated HumanInboxItem items = 1;
+message ListWorkAttentionItemsResponse {
+  repeated WorkAttentionItem items = 1;
 }
 
 message HeldDraft {
@@ -106,7 +106,7 @@ message HeldDraft {
   sumi.space.v1.MessageTarget target = 5;
   uint64 basis_target_sequence = 6;
   string body = 7;
-  repeated string mentioned_agent_ids = 8;
+  repeated sumi.space.v1.Principal mentioned_principals = 8;
   HeldDraftState state = 9;
   DraftResolutionAction resolution_action = 10;
   oneof result_ref {
@@ -190,7 +190,7 @@ message SendInboxReplyRequest {
   string inbox_item_id = 2;
   uint64 basis_target_sequence = 3;
   string body = 4;
-  repeated string mentioned_agent_ids = 5;
+  repeated sumi.space.v1.Principal mentioned_principals = 5;
 }
 
 message SendInboxReplyResponse {

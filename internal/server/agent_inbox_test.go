@@ -24,7 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAgentInboxHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
+func TestInboxHTTPCommonProceduresAcceptHumanOrCurrentAgentAndAgentAdaptersRequireRuntime(t *testing.T) {
 	dataRoot := t.TempDir()
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
@@ -39,7 +39,7 @@ func TestAgentInboxHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 	client := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
 	itemID, draftID, spaceID, threadID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	requestID := uuid.NewString()
-	calls := map[string]func(string) error{
+	commonCalls := map[string]func(string) error{
 		"notice": func(token string) error {
 			_, err := client.GetInboxNotice(context.Background(), inboxRequest(token, &inboxv1.GetInboxNoticeRequest{}))
 			return err
@@ -70,6 +70,8 @@ func TestAgentInboxHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 			_, err := client.SetThreadFollow(context.Background(), inboxRequest(token, &inboxv1.SetThreadFollowRequest{RequestId: requestID, ThreadRootMessageId: threadID, Followed: true}))
 			return err
 		},
+	}
+	agentCalls := map[string]func(string) error{
 		"send": func(token string) error {
 			_, err := client.SendInboxReply(context.Background(), inboxRequest(token, &inboxv1.SendInboxReplyRequest{RequestId: requestID, InboxItemId: itemID, Body: "reply"}))
 			return err
@@ -86,7 +88,21 @@ func TestAgentInboxHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 			return err
 		},
 	}
-	for name, call := range calls {
+	for name, call := range commonCalls {
+		for credentialName, token := range map[string]string{"missing": "", "old runtime": oldSession.GetToken()} {
+			t.Run(name+"/"+credentialName, func(t *testing.T) {
+				assertConnectCode(t, call(token), connect.CodeUnauthenticated)
+			})
+		}
+		for credentialName, token := range map[string]string{"human": ownerCredential, "current runtime": currentSession.GetToken()} {
+			t.Run(name+"/"+credentialName, func(t *testing.T) {
+				if err := call(token); connect.CodeOf(err) == connect.CodeUnauthenticated {
+					t.Fatalf("valid principal rejected before service: %v", err)
+				}
+			})
+		}
+	}
+	for name, call := range agentCalls {
 		for credentialName, token := range map[string]string{
 			"missing": "", "human": ownerCredential, "old runtime": oldSession.GetToken(),
 		} {
@@ -102,16 +118,168 @@ func TestAgentInboxHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 	}
 }
 
-func TestAgentInboxBrowserSessionCannotAuthenticateRuntime(t *testing.T) {
+func TestInboxBrowserSessionAuthenticatesHumanCommonSurface(t *testing.T) {
 	dataRoot := t.TempDir()
 	api := openBrowserServer(t, dataRoot)
 	defer api.close(t)
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	client := inboxv1connect.NewInboxServiceClient(browserClient(t, api.origin, credential), api.origin)
-	_, err = client.GetInboxNotice(context.Background(), connect.NewRequest(&inboxv1.GetInboxNoticeRequest{}))
+	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), ownerCredential, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	memberCredential := "browser-inbox-member-credential-abcdefghijklmnopqrstuvwxyz"
+	member, err := api.app.store.CreateHuman(context.Background(), store.CreateHumanParams{
+		RequestID: uuid.NewString(), Actor: owner, Name: "Browser Inbox Member", Role: "member",
+		Credential: memberCredential, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerBrowser := browserClient(t, api.origin, ownerCredential)
+	collaboration := spacev1connect.NewCollaborationServiceClient(ownerBrowser, api.origin, originAuthorization(api.origin))
+	groupResponse, err := collaboration.CreateGroup(context.Background(), connect.NewRequest(&spacev1.CreateGroupRequest{
+		RequestId: uuid.NewString(), Name: "Browser Human Inbox",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := groupResponse.Msg.GetSpace()
+	memberPrincipal := &spacev1.Principal{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN, Id: member.ID}
+	if _, err := collaboration.AddMember(context.Background(), connect.NewRequest(&spacev1.AddMemberRequest{
+		RequestId: uuid.NewString(), SpaceId: group.GetId(), Member: memberPrincipal,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: owner,
+		Subject:    store.Principal{Kind: "human", ID: member.ID, OrganizationID: owner.OrganizationID},
+		Capability: store.CapabilitySpaceRead, Scope: store.Scope{Kind: "space", ID: group.GetId()},
+		ParentGrantID: bootstrap.RootGrant.ID, Now: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	triggerResponse, err := collaboration.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
+		RequestId: uuid.NewString(), Target: spaceTarget(group.GetId()), Body: "human inbox trigger",
+		MentionedPrincipals: []*spacev1.Principal{memberPrincipal},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger := triggerResponse.Msg.GetMessage()
+	if _, err := collaboration.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
+		RequestId: uuid.NewString(),
+		Target:    &spacev1.MessageTarget{Target: &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: trigger.GetId()}},
+		Body:      "thread exists for browser follow",
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	memberBrowser := browserClient(t, api.origin, memberCredential)
+	readClient := inboxv1connect.NewInboxServiceClient(memberBrowser, api.origin)
+	notice, err := readClient.GetInboxNotice(context.Background(), connect.NewRequest(&inboxv1.GetInboxNoticeRequest{}))
+	if err != nil || !notice.Msg.GetHasUnread() {
+		t.Fatalf("browser inbox notice = %+v, %v", notice, err)
+	}
+	listed, err := readClient.ListInboxItems(context.Background(), connect.NewRequest(&inboxv1.ListInboxItemsRequest{Limit: 10}))
+	if err != nil || len(listed.Msg.GetItems()) != 1 {
+		t.Fatalf("browser inbox items = %+v, %v", listed, err)
+	}
+	item := listed.Msg.GetItems()[0]
+	if item.GetTriggerMessageId() != trigger.GetId() || item.GetRecipient().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN || item.GetRecipient().GetId() != member.ID {
+		t.Fatalf("browser inbox item lost Human identity or canonical trigger: %+v", item)
+	}
+	workAttention := inboxv1connect.NewWorkAttentionServiceClient(memberBrowser, api.origin)
+	attention, err := workAttention.ListWorkAttentionItems(context.Background(), connect.NewRequest(&inboxv1.ListWorkAttentionItemsRequest{Limit: 10}))
+	if err != nil || len(attention.Msg.GetItems()) != 0 {
+		t.Fatalf("independent Work Attention projection = %+v, %v", attention, err)
+	}
+
+	missingOrigin := inboxv1connect.NewInboxServiceClient(memberBrowser, api.origin)
+	wrongOrigin := inboxv1connect.NewInboxServiceClient(memberBrowser, api.origin, originAuthorization("http://localhost:18080"))
+	validMutation := inboxv1connect.NewInboxServiceClient(memberBrowser, api.origin, originAuthorization(api.origin))
+	for name, client := range map[string]inboxv1connect.InboxServiceClient{
+		"missing origin": missingOrigin,
+		"wrong origin":   wrongOrigin,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mutations := map[string]func() error{
+				"observe": func() error {
+					_, err := client.ObserveTarget(context.Background(), connect.NewRequest(&inboxv1.ObserveTargetRequest{
+						Target: spaceTarget(group.GetId()), Limit: 10,
+					}))
+					return err
+				},
+				"claim": func() error {
+					_, err := client.ClaimInboxItem(context.Background(), connect.NewRequest(&inboxv1.ClaimInboxItemRequest{
+						RequestId: uuid.NewString(), InboxItemId: item.GetId(),
+					}))
+					return err
+				},
+				"complete": func() error {
+					_, err := client.CompleteInboxItem(context.Background(), connect.NewRequest(&inboxv1.CompleteInboxItemRequest{
+						RequestId: uuid.NewString(), InboxItemId: item.GetId(),
+					}))
+					return err
+				},
+				"mute": func() error {
+					_, err := client.SetSpaceMute(context.Background(), connect.NewRequest(&inboxv1.SetSpaceMuteRequest{
+						RequestId: uuid.NewString(), SpaceId: group.GetId(), Muted: true,
+					}))
+					return err
+				},
+				"follow": func() error {
+					_, err := client.SetThreadFollow(context.Background(), connect.NewRequest(&inboxv1.SetThreadFollowRequest{
+						RequestId: uuid.NewString(), ThreadRootMessageId: trigger.GetId(), Followed: true,
+					}))
+					return err
+				},
+			}
+			for operation, mutate := range mutations {
+				t.Run(operation, func(t *testing.T) {
+					assertConnectCode(t, mutate(), connect.CodePermissionDenied)
+				})
+			}
+		})
+	}
+	listed, err = readClient.ListInboxItems(context.Background(), connect.NewRequest(&inboxv1.ListInboxItemsRequest{Limit: 10}))
+	if err != nil || listed.Msg.GetItems()[0].GetState() != inboxv1.InboxState_INBOX_STATE_UNREAD {
+		t.Fatalf("rejected browser mutation changed item = %+v, %v", listed, err)
+	}
+	observed, err := validMutation.ObserveTarget(context.Background(), connect.NewRequest(&inboxv1.ObserveTargetRequest{
+		Target: spaceTarget(group.GetId()), Limit: 10,
+	}))
+	if err != nil || len(observed.Msg.GetMessages()) != 1 || observed.Msg.GetMessages()[0].GetId() != trigger.GetId() {
+		t.Fatalf("same-origin browser observation = %+v, %v", observed, err)
+	}
+	claimed, err := validMutation.ClaimInboxItem(context.Background(), connect.NewRequest(&inboxv1.ClaimInboxItemRequest{
+		RequestId: uuid.NewString(), InboxItemId: item.GetId(),
+	}))
+	if err != nil || claimed.Msg.GetItem().GetState() != inboxv1.InboxState_INBOX_STATE_CLAIMED {
+		t.Fatalf("same-origin browser claim = %+v, %v", claimed, err)
+	}
+	muted, err := validMutation.SetSpaceMute(context.Background(), connect.NewRequest(&inboxv1.SetSpaceMuteRequest{
+		RequestId: uuid.NewString(), SpaceId: group.GetId(), Muted: true,
+	}))
+	if err != nil || !muted.Msg.GetMuted() {
+		t.Fatalf("same-origin browser mute = %+v, %v", muted, err)
+	}
+	followed, err := validMutation.SetThreadFollow(context.Background(), connect.NewRequest(&inboxv1.SetThreadFollowRequest{
+		RequestId: uuid.NewString(), ThreadRootMessageId: trigger.GetId(), Followed: true,
+	}))
+	if err != nil || !followed.Msg.GetFollowed() {
+		t.Fatalf("same-origin browser follow = %+v, %v", followed, err)
+	}
+	completed, err := validMutation.CompleteInboxItem(context.Background(), connect.NewRequest(&inboxv1.CompleteInboxItemRequest{
+		RequestId: uuid.NewString(), InboxItemId: item.GetId(),
+	}))
+	if err != nil || completed.Msg.GetItem().GetState() != inboxv1.InboxState_INBOX_STATE_DONE || completed.Msg.GetItem().GetCompletion() != inboxv1.InboxCompletion_INBOX_COMPLETION_SILENT {
+		t.Fatalf("same-origin browser completion = %+v, %v", completed, err)
+	}
+	_, err = readClient.ListHeldDrafts(context.Background(), connect.NewRequest(&inboxv1.ListHeldDraftsRequest{Limit: 1}))
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 }
 
@@ -263,7 +431,8 @@ func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *sp
 func sendMention(t *testing.T, client spacev1connect.CollaborationServiceClient, spaceID, agentID, body string) *spacev1.Message {
 	t.Helper()
 	response, err := client.SendMessage(context.Background(), connect.NewRequest(&spacev1.SendMessageRequest{
-		RequestId: uuid.NewString(), Target: spaceTarget(spaceID), Body: body, MentionedAgentIds: []string{agentID},
+		RequestId: uuid.NewString(), Target: spaceTarget(spaceID), Body: body,
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agentID}},
 	}))
 	if err != nil {
 		t.Fatal(err)

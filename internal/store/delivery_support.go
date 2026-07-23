@@ -13,7 +13,7 @@ import (
 )
 
 func ensureDeliveryTx(ctx context.Context, tx *sql.Tx, trigger EligibleInboxTrigger) (Delivery, error) {
-	if trigger.Item.AgentID == "" || trigger.Message.ID == "" || trigger.Item.TriggerMessageID != trigger.Message.ID ||
+	if trigger.Item.Recipient.Kind != PrincipalAgent || trigger.Item.Recipient.ID == "" || trigger.Message.ID == "" || trigger.Item.TriggerMessageID != trigger.Message.ID ||
 		trigger.Item.SpaceID != trigger.Message.SpaceID || trigger.Item.Target != trigger.Message.Target ||
 		trigger.Item.TriggerTargetSequence != trigger.Message.TargetSequence {
 		return Delivery{}, ErrRunIntegrity
@@ -26,12 +26,12 @@ func ensureDeliveryTx(ctx context.Context, tx *sql.Tx, trigger EligibleInboxTrig
 		)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, 'available', ?)
 		ON CONFLICT(agent_id, trigger_message_id) DO NOTHING
-	`, deliveryID, trigger.Item.AgentID, trigger.Item.ID, trigger.Message.ID, trigger.Message.SpaceID,
+	`, deliveryID, trigger.Item.Recipient.ID, trigger.Item.ID, trigger.Message.ID, trigger.Message.SpaceID,
 		trigger.Message.Target.Kind, trigger.Message.Target.ID, trigger.Message.TargetSequence,
 		unixNano(trigger.Item.CreatedAt)); err != nil {
 		return Delivery{}, fmt.Errorf("ensure delivery: %w", err)
 	}
-	delivery, err := deliveryByAgentMessage(ctx, tx, trigger.Item.AgentID, trigger.Message.ID)
+	delivery, err := deliveryByAgentMessage(ctx, tx, trigger.Item.Recipient.ID, trigger.Message.ID)
 	if err != nil {
 		return Delivery{}, fmt.Errorf("read ensured delivery: %w", err)
 	}
@@ -44,7 +44,7 @@ func ensureDeliveryTx(ctx context.Context, tx *sql.Tx, trigger EligibleInboxTrig
 }
 
 func (s *Store) beginRunTransaction(ctx context.Context, authentication AgentRuntimeAuthentication, now time.Time) (*sql.Tx, AgentRuntimeAuthentication, error) {
-	tx, current, err := s.beginInboxTransaction(ctx, authentication, now)
+	tx, current, err := s.beginAgentInboxTransaction(ctx, authentication, now)
 	if err != nil {
 		return nil, AgentRuntimeAuthentication{}, err
 	}
@@ -94,8 +94,8 @@ func deliveryCursor(ctx context.Context, tx *sql.Tx, delivery Delivery) (uint64,
 	var seen uint64
 	err := tx.QueryRowContext(ctx, `
 		SELECT space_id, seen_up_to_target_sequence
-		FROM agent_target_cursors
-		WHERE agent_id = ? AND target_kind = ? AND target_id = ?
+		FROM principal_target_cursors
+		WHERE principal_kind = 'agent' AND principal_id = ? AND target_kind = ? AND target_id = ?
 	`, delivery.AgentID, delivery.Target.Kind, delivery.Target.ID).Scan(&spaceID, &seen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrDeliveryCursorUnavailable
@@ -317,7 +317,7 @@ func requireOwnedDelivery(ctx context.Context, tx *sql.Tx, agentID, deliveryID s
 	if err != nil {
 		return Delivery{}, InboxItem{}, Message{}, ErrRunIntegrity
 	}
-	if item.AgentID != delivery.AgentID || item.TriggerMessageID != delivery.TriggerMessageID ||
+	if item.Recipient.Kind != PrincipalAgent || item.Recipient.ID != delivery.AgentID || item.TriggerMessageID != delivery.TriggerMessageID ||
 		item.SpaceID != delivery.SpaceID || item.Target != delivery.Target ||
 		item.TriggerTargetSequence != delivery.TriggerTargetSequence || message.SpaceID != delivery.SpaceID ||
 		message.Target != delivery.Target || message.TargetSequence != delivery.TriggerTargetSequence {

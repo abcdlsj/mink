@@ -34,13 +34,13 @@ import (
 	"github.com/abcdlsj/sumi/internal/execution/inbox"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
-	"github.com/abcdlsj/sumi/internal/humaninbox"
 	knowledgeindex "github.com/abcdlsj/sumi/internal/knowledge"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/system"
 	"github.com/abcdlsj/sumi/internal/work"
+	"github.com/abcdlsj/sumi/internal/workattention"
 )
 
 type Server struct {
@@ -139,11 +139,10 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		runtimeauth.NewService(database, runtimeauth.Config{}), agentRuntimeAuthorization,
 	)
 	mux.Handle(agentRuntimePath, agentRuntimeHandler)
-	inboxAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, inbox.Procedures()...))
-	inboxPath, inboxHandler := inboxv1connect.NewInboxServiceHandler(inbox.New(database), inboxAuthorization)
+	inboxPath, inboxHandler := inboxv1connect.NewInboxServiceHandler(inbox.New(database, config.BrowserOrigin))
 	mux.Handle(inboxPath, inboxHandler)
-	humanInboxPath, humanInboxHandler := inboxv1connect.NewHumanInboxServiceHandler(humaninbox.New(database, config.BrowserOrigin))
-	mux.Handle(humanInboxPath, humanInboxHandler)
+	workAttentionPath, workAttentionHandler := inboxv1connect.NewWorkAttentionServiceHandler(workattention.New(database, config.BrowserOrigin))
+	mux.Handle(workAttentionPath, workAttentionHandler)
 	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
 	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
 	mux.Handle(deliveryPath, deliveryHandler)
@@ -159,7 +158,14 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(grantPath, grantHandler)
 	auditPath, auditHandler := auditv1connect.NewAuditServiceHandler(audit.New(database), authorization)
 	mux.Handle(auditPath, auditHandler)
-	collaborationPath, collaborationHandler := spacev1connect.NewCollaborationServiceHandler(collaboration.New(database), authorization)
+	collaborationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+		Origin:                config.BrowserOrigin,
+		ProtectedProcedures:   collaborationBrowserProcedures(),
+		BrowserReadProcedures: collaborationBrowserReadProcedures(),
+	}))
+	collaborationPath, collaborationHandler := spacev1connect.NewCollaborationServiceHandler(
+		collaboration.New(database, config.BrowserOrigin), collaborationAuthorization,
+	)
 	mux.Handle(collaborationPath, collaborationHandler)
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
 		response.WriteHeader(http.StatusNoContent)
@@ -195,12 +201,28 @@ func humanReadProcedures() []string {
 		grantv1connect.GrantServiceListGrantsProcedure,
 		grantv1connect.GrantServiceCheckPermissionProcedure,
 		auditv1connect.AuditServiceListAuditEventsProcedure,
+	}
+}
+
+func collaborationBrowserProcedures() []string {
+	return []string{
+		spacev1connect.CollaborationServiceCreateDMProcedure,
+		spacev1connect.CollaborationServiceCreateGroupProcedure,
+		spacev1connect.CollaborationServiceGetSpaceProcedure,
+		spacev1connect.CollaborationServiceListSpacesProcedure,
+		spacev1connect.CollaborationServiceAddMemberProcedure,
+		spacev1connect.CollaborationServiceRemoveMemberProcedure,
+		spacev1connect.CollaborationServiceListMembersProcedure,
+		spacev1connect.CollaborationServiceArchiveSpaceProcedure,
+		spacev1connect.CollaborationServiceUnarchiveSpaceProcedure,
+	}
+}
+
+func collaborationBrowserReadProcedures() []string {
+	return []string{
 		spacev1connect.CollaborationServiceGetSpaceProcedure,
 		spacev1connect.CollaborationServiceListSpacesProcedure,
 		spacev1connect.CollaborationServiceListMembersProcedure,
-		spacev1connect.CollaborationServiceGetMessageProcedure,
-		spacev1connect.CollaborationServiceGetThreadProcedure,
-		spacev1connect.CollaborationServiceListMessagesProcedure,
 	}
 }
 

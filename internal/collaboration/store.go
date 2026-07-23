@@ -3,10 +3,12 @@ package collaboration
 import (
 	"context"
 
+	sharedauthentication "github.com/abcdlsj/sumi/internal/authentication"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 )
 
 type collaborationStore interface {
+	sharedauthentication.Authenticator
 	CreateDM(context.Context, collaborationapp.CreateDMCommand) (collaborationapp.Space, error)
 	CreateGroup(context.Context, collaborationapp.CreateGroupCommand) (collaborationapp.Space, error)
 	GetSpace(context.Context, collaborationapp.SpaceReadQuery) (collaborationapp.Space, error)

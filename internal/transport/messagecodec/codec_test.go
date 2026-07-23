@@ -44,7 +44,10 @@ func TestInputValidationAndTargetMapping(t *testing.T) {
 	if err != nil || target.Kind != store.MessageTargetSpace || target.ID != id {
 		t.Fatalf("parse target = %+v, %v", target, err)
 	}
-	if _, err := MentionedAgentIDs([]string{id, id}); err == nil {
+	if _, err := MentionedPrincipals([]*spacev1.Principal{
+		{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: id},
+		{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: id},
+	}); err == nil {
 		t.Fatal("duplicate mentions accepted")
 	}
 	if err := ValidateBody(""); err == nil {

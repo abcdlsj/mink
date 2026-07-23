@@ -13,12 +13,13 @@ const (
 )
 
 type Service struct {
-	store collaborationStore
-	now   func() time.Time
+	store  collaborationStore
+	origin string
+	now    func() time.Time
 }
 
 var _ spacev1connect.CollaborationServiceHandler = (*Service)(nil)
 
-func New(database collaborationStore) *Service {
-	return &Service{store: database, now: time.Now}
+func New(database collaborationStore, browserOrigin string) *Service {
+	return &Service{store: database, origin: browserOrigin, now: time.Now}
 }

@@ -17,6 +17,7 @@ import (
 	"connectrpc.com/connect"
 	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
+	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
@@ -95,7 +96,7 @@ func TestDeliveryServiceRuntimeAuthReplayFreshHeldAndQuiet(t *testing.T) {
 		RequestId: uuid.NewString(), OutboxEventId: uuid.NewString(), RunId: accepted.Msg.GetRun().GetId(),
 		LaunchId: claimed.Msg.GetLaunch().GetId(), Fence: claimed.Msg.GetLaunch().GetFence(),
 		Outcome: deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: freshBody,
-		MentionedAgentIds: []string{fixture.peer.ID},
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.peer.ID}},
 	}
 	invalidOutcome := proto.Clone(freshRequest).(*deliveryv1.CompleteRunRequest)
 	invalidOutcome.Outcome = deliveryv1.RunOutcome_RUN_OUTCOME_UNSPECIFIED
@@ -108,7 +109,10 @@ func TestDeliveryServiceRuntimeAuthReplayFreshHeldAndQuiet(t *testing.T) {
 		t.Fatalf("invalid body code = %v, error = %v", connectCode(err), err)
 	}
 	invalidMentions := proto.Clone(freshRequest).(*deliveryv1.CompleteRunRequest)
-	invalidMentions.MentionedAgentIds = []string{fixture.peer.ID, fixture.peer.ID}
+	invalidMentions.MentionedPrincipals = []*spacev1.Principal{
+		{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.peer.ID},
+		{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.peer.ID},
+	}
 	if _, err := client.CompleteRun(ctx, runtimeRequest(fixture.token, invalidMentions)); connectCode(err) != connect.CodeInvalidArgument {
 		t.Fatalf("invalid mentions code = %v, error = %v", connectCode(err), err)
 	}
@@ -116,7 +120,8 @@ func TestDeliveryServiceRuntimeAuthReplayFreshHeldAndQuiet(t *testing.T) {
 	if err != nil || fresh.Msg.GetMessage() == nil || fresh.Msg.GetHeldDraft() != nil ||
 		fresh.Msg.GetRun().GetState() != deliveryv1.RunState_RUN_STATE_COMPLETED ||
 		fresh.Msg.GetRun().GetResultMessageId() != fresh.Msg.GetMessage().GetId() ||
-		fresh.Msg.GetMessage().GetBody() != freshBody || !reflect.DeepEqual(fresh.Msg.GetMessage().GetMentionedAgentIds(), []string{fixture.peer.ID}) {
+		fresh.Msg.GetMessage().GetBody() != freshBody || len(fresh.Msg.GetMessage().GetMentionedPrincipals()) != 1 ||
+		fresh.Msg.GetMessage().GetMentionedPrincipals()[0].GetId() != fixture.peer.ID {
 		t.Fatalf("fresh completion = %+v, %v", fresh, err)
 	}
 	fixture.advance()
@@ -574,7 +579,7 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	current := base.Add(13 * time.Second)
 	trigger, err := database.SendMessage(ctx, store.SendMessageParams{
 		RequestID: uuid.NewString(), Actor: owner, Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: group.ID},
-		Body: "delivery trigger", MentionedAgentIDs: []string{agent.ID}, Now: current,
+		Body: "delivery trigger", MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: agent.ID, OrganizationID: owner.OrganizationID}}, Now: current,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -598,7 +603,7 @@ func (f *serviceFixture) advance() {
 func (f *serviceFixture) observe(t *testing.T, target store.MessageTarget) {
 	t.Helper()
 	if _, err := f.database.ObserveTarget(context.Background(), store.ObserveTargetParams{
-		Authentication: f.authentication, Target: target, Limit: 200, Now: f.current,
+		Authentication: store.AgentInboxAuthentication(f.authentication), Target: target, Limit: 200, Now: f.current,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +615,7 @@ func (f *serviceFixture) sendTrigger(t *testing.T, body string) store.Message {
 	message, err := f.database.SendMessage(context.Background(), store.SendMessageParams{
 		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: f.group.ID}, Body: body,
-		MentionedAgentIDs: []string{f.agent.ID}, Now: f.current,
+		MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: f.agent.ID, OrganizationID: f.owner.OrganizationID}}, Now: f.current,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -654,7 +659,7 @@ func assertRegistryQuiet(t *testing.T, path string, forbidden ...string) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	rows, err := database.Query(`SELECT CAST(response_snapshot AS TEXT) FROM agent_requests`)
+	rows, err := database.Query(`SELECT CAST(response_snapshot AS TEXT) FROM inbox_requests`)
 	if err != nil {
 		t.Fatal(err)
 	}

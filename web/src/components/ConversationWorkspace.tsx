@@ -22,6 +22,7 @@ import { ArtifactWorkspace } from "./ArtifactWorkspace";
 import { AuthorityWorkspace } from "./AuthorityWorkspace";
 import { IconButton } from "./IconButton";
 import { LocalAuthPanel } from "./LocalAuthPanel";
+import type { InboxDestination } from "../lib/inbox";
 
 type View = "chat" | "work" | "artifacts" | "authority";
 type Bootstrap = ReturnType<typeof useBootstrap>;
@@ -40,6 +41,7 @@ export function ConversationWorkspace({
   onOpenNavigation,
   onOpenContext,
   onOpenThread,
+  onOpenInboxMessage,
 }: {
   bootstrap: Bootstrap;
   session: Session;
@@ -51,6 +53,7 @@ export function ConversationWorkspace({
   onOpenNavigation: () => void;
   onOpenContext: () => void;
   onOpenThread: (message: Message) => void;
+  onOpenInboxMessage: (destination: InboxDestination) => void;
 }) {
   const [view, setView] = useState<View>("chat");
   const snapshot = conversation.conversation.data;
@@ -153,6 +156,10 @@ export function ConversationWorkspace({
         conversation,
         view,
         onOpenThread,
+        onOpenInboxMessage: (destination) => {
+          setView("chat");
+          onOpenInboxMessage(destination);
+        },
       })}
 
       {view === "chat" && snapshot ? (
@@ -196,6 +203,7 @@ function renderContent({
   conversation,
   view,
   onOpenThread,
+  onOpenInboxMessage,
 }: {
   bootstrap: Bootstrap;
   session: Session;
@@ -204,6 +212,7 @@ function renderContent({
   conversation: Conversation;
   view: View;
   onOpenThread: (message: Message) => void;
+  onOpenInboxMessage: (destination: InboxDestination) => void;
 }) {
   if (bootstrap.status === "loading") {
     return (
@@ -277,6 +286,18 @@ function renderContent({
       />
     );
   }
+  if (view !== "chat") {
+    if (view === "work") {
+      return (
+        <WorkInbox
+          spaces={spaces.data?.spaces || []}
+          onOpenMessage={onOpenInboxMessage}
+        />
+      );
+    }
+    if (view === "artifacts") return <ArtifactWorkspace />;
+    if (view === "authority") return <AuthorityWorkspace />;
+  }
   if (!selectedSpace) {
     return (
       <div className="timeline">
@@ -289,11 +310,6 @@ function renderContent({
         </div>
       </div>
     );
-  }
-  if (view !== "chat") {
-    if (view === "work") return <WorkInbox />;
-    if (view === "artifacts") return <ArtifactWorkspace />;
-    if (view === "authority") return <AuthorityWorkspace />;
   }
   const state = conversation.conversation;
   if (!state.data && state.status === "loading") {

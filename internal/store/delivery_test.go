@@ -34,7 +34,7 @@ func TestDeliveryAttentionCursorAndOneActiveRun(t *testing.T) {
 		t.Fatalf("item state after failed accept = %q", item.State)
 	}
 	observed, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: first.Item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestDeliveryAttentionCursorAndOneActiveRun(t *testing.T) {
 	}
 	second := fixture.createTrigger(t, "second", 6)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: second.Item.Target, Limit: 20, Now: fixture.at(7),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: second.Item.Target, Limit: 20, Now: fixture.at(7),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestRunReplayRequiresCurrentAuthorization(t *testing.T) {
 		fixture := openDeliveryFixture(t)
 		trigger := fixture.createTrigger(t, "accept authorization", 1)
 		if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-			Authentication: fixture.authentication, Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
+			Authentication: AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -523,7 +523,7 @@ func TestRunCompleteFreshReplayAndGlobalConflicts(t *testing.T) {
 		RequestID: uuid.NewString(), OutboxEventID: uuid.NewString(),
 		Authentication: fixture.authentication, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence,
 		Outcome: RunOutcomeSucceeded, Body: "unique completed result body",
-		MentionedAgentIDs: []string{mentionID}, Now: fixture.at(8),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, mentionID), Now: fixture.at(8),
 	}
 	completed, err := fixture.database.CompleteRun(context.Background(), params)
 	if err != nil {
@@ -547,7 +547,7 @@ func TestRunCompleteFreshReplayAndGlobalConflicts(t *testing.T) {
 		RequestID: params.RequestID, OutboxEventID: params.OutboxEventID,
 		Authentication: fixture.authentication, RunID: params.RunID, LaunchID: params.LaunchID,
 		Fence: params.Fence, Outcome: params.Outcome, Body: params.Body,
-		MentionedAgentIDs: params.MentionedAgentIDs, Now: fixture.at(9),
+		MentionedPrincipals: params.MentionedPrincipals, Now: fixture.at(9),
 	})
 	if err != nil || !reflect.DeepEqual(completed, replayed) {
 		t.Fatalf("completion replay = %+v, %v", replayed, err)
@@ -571,7 +571,7 @@ func TestRunCompleteFreshReplayAndGlobalConflicts(t *testing.T) {
 		}
 	}
 	var snapshot string
-	if err := fixture.database.db.QueryRow(`SELECT CAST(response_snapshot AS TEXT) FROM agent_requests WHERE request_id = ?`, params.RequestID).Scan(&snapshot); err != nil {
+	if err := fixture.database.db.QueryRow(`SELECT CAST(response_snapshot AS TEXT) FROM inbox_requests WHERE request_id = ?`, params.RequestID).Scan(&snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(snapshot, params.Body) || strings.Contains(snapshot, mentionID) {
@@ -604,7 +604,7 @@ func TestRunCompleteHeldReplayAfterDraftResolution(t *testing.T) {
 		t.Fatalf("held completion item = %+v", item)
 	}
 	observed, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: held.HeldDraft.Target, Limit: 20, Now: fixture.at(8),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: held.HeldDraft.Target, Limit: 20, Now: fixture.at(8),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -666,7 +666,7 @@ func TestDeliveryCurrentGrantFailClosed(t *testing.T) {
 	fixture := openInboxFixture(t)
 	trigger := createDeliveryTrigger(t, fixture, "grant", 1)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -822,12 +822,12 @@ func createDeliveryTrigger(t *testing.T, fixture *inboxFixture, body string, sec
 	message, err := fixture.database.SendMessage(context.Background(), SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: body,
-		MentionedAgentIDs: []string{fixture.agentID}, Now: fixture.at(second),
+		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, err := scanInboxItem(fixture.database.db.QueryRow(inboxItemSelect+` WHERE trigger_message_id = ? AND agent_id = ?`, message.ID, fixture.agentID))
+	item, err := scanInboxItem(fixture.database.db.QueryRow(inboxItemSelect+` WHERE trigger_message_id = ? AND recipient_kind = 'agent' AND recipient_id = ?`, message.ID, fixture.agentID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -839,7 +839,7 @@ func (f *deliveryFixture) acceptTrigger(t *testing.T, body string, second int) R
 	t.Helper()
 	trigger := f.createTrigger(t, body, second)
 	if _, err := f.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: f.authentication, Target: trigger.Item.Target, Limit: 200, Now: f.at(second + 1),
+		Authentication: AgentInboxAuthentication(f.authentication), Target: trigger.Item.Target, Limit: 200, Now: f.at(second + 1),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -903,7 +903,7 @@ func readInboxItemForDelivery(t *testing.T, database *Store, deliveryID string) 
 func assertRunWrites(t *testing.T, database *Store, requestID string, wantRuns, wantLaunches int) {
 	t.Helper()
 	var requests, runs, launches, audits int
-	if err := database.db.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
+	if err := database.db.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.db.QueryRow(`SELECT count(*) FROM runs`).Scan(&runs); err != nil {
@@ -926,7 +926,7 @@ func assertRunCompletionCounts(t *testing.T, database *Store, runID, requestID s
 	if err := database.db.QueryRow(`SELECT count(*) FROM messages WHERE request_id = ?`, requestID).Scan(&messages); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.db.QueryRow(`SELECT count(*) FROM agent_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
+	if err := database.db.QueryRow(`SELECT count(*) FROM inbox_requests WHERE request_id = ?`, requestID).Scan(&requests); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.db.QueryRow(`SELECT count(*) FROM run_completion_receipts WHERE run_id = ?`, runID).Scan(&receipts); err != nil {
@@ -965,7 +965,7 @@ func TestDeliverySchemaRejectsInvalidLifecycleFacts(t *testing.T) {
 	first := fixture.createTrigger(t, "schema first", 1)
 	second := fixture.createTrigger(t, "schema second", 2)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1018,8 +1018,8 @@ func TestDeliverySchemaRejectsInvalidLifecycleFacts(t *testing.T) {
 	}
 	requestID := uuid.NewString()
 	if _, err := fixture.database.db.Exec(`
-		INSERT INTO agent_requests(request_id, agent_id, operation, payload_fingerprint, response_snapshot, committed_at)
-		VALUES(?, ?, 'run.complete', ?, '{}', ?)
+		INSERT INTO inbox_requests(request_id, actor_kind, actor_id, operation, payload_fingerprint, response_snapshot, committed_at)
+		VALUES(?, 'agent', ?, 'run.complete', ?, '{}', ?)
 	`, requestID, fixture.agentID, make([]byte, 32), unixNano(fixture.at(7))); err != nil {
 		t.Fatal(err)
 	}
@@ -1041,7 +1041,7 @@ func TestDeliveryConcurrentAcceptHasOneWinner(t *testing.T) {
 	first := fixture.createTrigger(t, "concurrent first", 1)
 	second := fixture.createTrigger(t, "concurrent second", 2)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: fixture.authentication, Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
+		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
 	}); err != nil {
 		t.Fatal(err)
 	}

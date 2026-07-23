@@ -9,7 +9,10 @@ import { PlacementService } from "../gen/sumi/placement/v1/placement_pb";
 import { CollaborationService } from "../gen/sumi/space/v1/space_pb";
 import { SystemService } from "../gen/sumi/system/v1/system_pb";
 import { WorkService } from "../gen/sumi/work/v1/work_pb";
-import { HumanInboxService } from "../gen/sumi/inbox/v1/inbox_pb";
+import {
+  InboxService,
+  WorkAttentionService,
+} from "../gen/sumi/inbox/v1/inbox_pb";
 
 const transport = createConnectTransport({ baseUrl: window.location.origin });
 
@@ -25,4 +28,8 @@ export const collaborationClient = createClient(
 );
 export const artifactClient = createClient(ArtifactService, transport);
 export const workClient = createClient(WorkService, transport);
-export const humanInboxClient = createClient(HumanInboxService, transport);
+export const inboxClient = createClient(InboxService, transport);
+export const workAttentionClient = createClient(
+  WorkAttentionService,
+  transport,
+);

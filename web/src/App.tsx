@@ -18,6 +18,7 @@ import { useConversation } from "./hooks/useConversation";
 import { useSession } from "./hooks/useSession";
 import { useSpaces } from "./hooks/useSpaces";
 import type { Message, Space } from "./gen/sumi/space/v1/space_pb";
+import type { InboxDestination } from "./lib/inbox";
 import "./styles.css";
 
 export default function App() {
@@ -180,6 +181,15 @@ export default function App() {
     setCompactContextOpen(false);
   };
 
+  const showInboxMessage = (destination: InboxDestination) => {
+    const space = spaces.data?.spaces.find(
+      (candidate) => candidate.id === destination.spaceId,
+    );
+    if (!space) return;
+    showSpace(space);
+    if (destination.threadRoot) showThread(destination.threadRoot);
+  };
+
   const management = module !== "conversation";
   const shellClasses = [
     "app-shell",
@@ -249,6 +259,7 @@ export default function App() {
             else setContextOpen(true);
           }}
           onOpenThread={showThread}
+          onOpenInboxMessage={showInboxMessage}
         />
       ) : module === "agents" ? (
         <AgentWorkspace

@@ -32,22 +32,34 @@ func ValidateBody(body string) error {
 	return nil
 }
 
-func MentionedAgentIDs(values []string) ([]string, error) {
+func MentionedPrincipals(values []*spacev1.Principal) ([]authoritydomain.Principal, error) {
 	if len(values) > maxMentions {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent count must be at most 64"))
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned principal count must be at most 64"))
 	}
-	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
+	seen := make(map[authoritydomain.Principal]struct{}, len(values))
+	result := make([]authoritydomain.Principal, 0, len(values))
 	for _, value := range values {
-		id, err := connectid.CanonicalID(value, "mentioned agent id")
+		if value == nil {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned principal is required"))
+		}
+		id, err := connectid.CanonicalID(value.GetId(), "mentioned principal id")
 		if err != nil {
 			return nil, err
 		}
-		if _, ok := seen[id]; ok {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned agent ids must be unique"))
+		principal := authoritydomain.Principal{ID: id}
+		switch value.GetKind() {
+		case spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN:
+			principal.Kind = authoritydomain.PrincipalHuman
+		case spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT:
+			principal.Kind = authoritydomain.PrincipalAgent
+		default:
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned principal kind is invalid"))
 		}
-		seen[id] = struct{}{}
-		result = append(result, id)
+		if _, ok := seen[principal]; ok {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned principals must be unique"))
+		}
+		seen[principal] = struct{}{}
+		result = append(result, principal)
 	}
 	return result, nil
 }
@@ -85,7 +97,8 @@ func Message(value collaborationapp.Message) (*spacev1.Message, error) {
 	if err := ValidateBody(value.Body); err != nil {
 		return nil, internalError()
 	}
-	if _, err := MentionedAgentIDs(value.MentionedAgentIDs); err != nil {
+	mentions, err := Principals(value.MentionedPrincipals)
+	if err != nil {
 		return nil, internalError()
 	}
 	switch value.Target.Kind {
@@ -103,7 +116,7 @@ func Message(value collaborationapp.Message) (*spacev1.Message, error) {
 	message := &spacev1.Message{
 		Id: value.ID, RequestId: value.RequestID, SpaceId: value.SpaceID,
 		TargetSequence: value.TargetSequence, Author: author, Body: value.Body,
-		MentionedAgentIds: value.MentionedAgentIDs, CreatedAt: timestamppb.New(value.CreatedAt),
+		MentionedPrincipals: mentions, CreatedAt: timestamppb.New(value.CreatedAt),
 	}
 	if value.Target.Kind == collaborationdomain.TargetThread {
 		message.ThreadRootMessageId = value.Target.ID
@@ -119,7 +132,8 @@ func HeldDraft(value executionapp.HeldDraft) (*inboxv1.HeldDraft, error) {
 	if err := ValidateBody(value.Body); err != nil {
 		return nil, internalError()
 	}
-	if _, err := MentionedAgentIDs(value.MentionedAgentIDs); err != nil {
+	mentions, err := Principals(value.MentionedPrincipals)
+	if err != nil {
 		return nil, internalError()
 	}
 	state := HeldDraftState(value.State)
@@ -163,7 +177,7 @@ func HeldDraft(value executionapp.HeldDraft) (*inboxv1.HeldDraft, error) {
 		Sequence: value.Sequence, Id: value.ID, InboxItemId: value.InboxItemID,
 		PredecessorDraftId: value.PredecessorDraftID, SpaceId: value.SpaceID,
 		Target: target, BasisTargetSequence: value.BasisTargetSequence, Body: value.Body,
-		MentionedAgentIds: value.MentionedAgentIDs, State: state, ResolutionAction: action,
+		MentionedPrincipals: mentions, State: state, ResolutionAction: action,
 		CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt),
 	}
 	if value.ResultKind == executionapp.ResultMessage {
@@ -202,6 +216,27 @@ func Principal(value authoritydomain.Principal) (*spacev1.Principal, error) {
 	default:
 		return nil, internalError()
 	}
+}
+
+func Principals(values []authoritydomain.Principal) ([]*spacev1.Principal, error) {
+	result := make([]*spacev1.Principal, 0, len(values))
+	seen := make(map[authoritydomain.Principal]struct{}, len(values))
+	for _, value := range values {
+		value.OrganizationID = ""
+		if _, exists := seen[value]; exists {
+			return nil, internalError()
+		}
+		seen[value] = struct{}{}
+		principal, err := Principal(value)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, principal)
+	}
+	if len(result) > maxMentions {
+		return nil, internalError()
+	}
+	return result, nil
 }
 
 func HeldDraftState(value string) inboxv1.HeldDraftState {

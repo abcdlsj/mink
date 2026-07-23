@@ -3,13 +3,16 @@ package collaboration
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	sharedauthentication "github.com/abcdlsj/sumi/internal/authentication"
 	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
@@ -18,6 +21,32 @@ type spaceMutationIDs struct {
 	requestID string
 	actor     PrincipalRef
 	spaceID   string
+}
+
+type messageAuthentication struct {
+	actor   PrincipalRef
+	runtime authorityapp.RuntimeAuthentication
+}
+
+func (s *Service) authenticateMessage(ctx context.Context, header http.Header, mutation bool) (messageAuthentication, error) {
+	resolved, err := sharedauthentication.Resolve(ctx, s.store, header, mutation, s.origin, s.now())
+	if err != nil {
+		switch {
+		case errors.Is(err, sharedauthentication.ErrSameOrigin):
+			return messageAuthentication{}, connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))
+		case errors.Is(err, sharedauthentication.ErrUnavailable):
+			return messageAuthentication{}, connect.NewError(connect.CodeUnavailable, errors.New("message authentication is unavailable"))
+		default:
+			return messageAuthentication{}, connect.NewError(connect.CodeUnauthenticated, errors.New("message actor authentication invalid"))
+		}
+	}
+	if human, ok := resolved.Human(); ok {
+		return messageAuthentication{actor: human}, nil
+	}
+	if agent, ok := resolved.Agent(); ok {
+		return messageAuthentication{actor: agent.Principal, runtime: agent}, nil
+	}
+	return messageAuthentication{}, connect.NewError(connect.CodeUnauthenticated, errors.New("message actor authentication invalid"))
 }
 
 func (s *Service) memberParams(ctx context.Context, requestIDValue, spaceIDValue string, memberValue *spacev1.Principal) (ChangeMemberCommand, error) {
@@ -75,6 +104,18 @@ func principalParams(value *spacev1.Principal, organizationID string) (Principal
 		return PrincipalRef{}, err
 	}
 	return PrincipalRef{Kind: kind, ID: id, OrganizationID: organizationID}, nil
+}
+
+func principalListParams(values []*spacev1.Principal, organizationID string) ([]PrincipalRef, error) {
+	principals := make([]PrincipalRef, 0, len(values))
+	for _, value := range values {
+		principal, err := principalParams(value, organizationID)
+		if err != nil {
+			return nil, err
+		}
+		principals = append(principals, principal)
+	}
+	return principals, nil
 }
 
 func targetParams(value *spacev1.MessageTarget) (MessageTargetRef, error) {

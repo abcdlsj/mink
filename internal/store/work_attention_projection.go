@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-const humanInboxLimit = 100
+const workAttentionLimit = 100
 
-// HumanInboxItem is deliberately metadata-only. Bodies, message targets,
+// WorkAttentionItem is deliberately metadata-only. Bodies, message targets,
 // runtime credentials, and replay bases remain private to the Agent runtime.
-type HumanInboxItem struct {
+type WorkAttentionItem struct {
 	WorkID     string
 	SpaceID    string
 	AgentID    string
@@ -21,14 +21,14 @@ type HumanInboxItem struct {
 	UpdatedAt  time.Time
 }
 
-type HumanInboxQuery struct {
+type WorkAttentionQuery struct {
 	Human Principal
 	Limit uint32
 	Now   time.Time
 }
 
-func (s *Store) ListHumanInboxItems(ctx context.Context, params HumanInboxQuery) ([]HumanInboxItem, error) {
-	if params.Limit > humanInboxLimit || params.Now.IsZero() || params.Human.Kind != "human" || !params.Human.Valid() {
+func (s *Store) ListWorkAttentionItems(ctx context.Context, params WorkAttentionQuery) ([]WorkAttentionItem, error) {
+	if params.Limit > workAttentionLimit || params.Now.IsZero() || params.Human.Kind != "human" || !params.Human.Valid() {
 		return nil, ErrPermissionDenied
 	}
 	limit := params.Limit
@@ -37,13 +37,13 @@ func (s *Store) ListHumanInboxItems(ctx context.Context, params HumanInboxQuery)
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return nil, fmt.Errorf("begin Human Inbox projection: %w", err)
+		return nil, fmt.Errorf("begin Work Attention projection: %w", err)
 	}
 	defer tx.Rollback()
 	if err := validatePrincipalInOrganization(ctx, tx, params.Human, params.Human.OrganizationID); err != nil {
 		return nil, ErrPermissionDenied
 	}
-	items := make([]HumanInboxItem, 0, limit)
+	items := make([]WorkAttentionItem, 0, limit)
 	if err := appendHumanWorkAttention(ctx, tx, params, &items, limit); err != nil {
 		return nil, err
 	}
@@ -53,12 +53,12 @@ func (s *Store) ListHumanInboxItems(ctx context.Context, params HumanInboxQuery)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit Human Inbox projection: %w", err)
+		return nil, fmt.Errorf("commit Work Attention projection: %w", err)
 	}
 	return items, nil
 }
 
-func appendHumanWorkAttention(ctx context.Context, tx *sql.Tx, params HumanInboxQuery, items *[]HumanInboxItem, limit uint32) error {
+func appendHumanWorkAttention(ctx context.Context, tx *sql.Tx, params WorkAttentionQuery, items *[]WorkAttentionItem, limit uint32) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT w.id, w.source_space_id, COALESCE((
 			SELECT wa.agent_id FROM work_assignments wa
@@ -73,12 +73,12 @@ func appendHumanWorkAttention(ctx context.Context, tx *sql.Tx, params HumanInbox
 	}
 	defer rows.Close()
 	for rows.Next() && len(*items) < int(limit) {
-		var item HumanInboxItem
+		var item WorkAttentionItem
 		var updated int64
 		if err := rows.Scan(&item.WorkID, &item.SpaceID, &item.AgentID, &item.Status, &updated); err != nil {
 			return fmt.Errorf("scan Human work attention: %w", err)
 		}
-		if !humanInboxReadable(ctx, tx, params.Human, item.WorkID, item.SpaceID, params.Now) {
+		if !workAttentionReadable(ctx, tx, params.Human, item.WorkID, item.SpaceID, params.Now) {
 			continue
 		}
 		item.Kind, item.ReasonCode, item.UpdatedAt = "work_approval", "pending_approval", timeFromUnixNano(updated)
@@ -87,16 +87,16 @@ func appendHumanWorkAttention(ctx context.Context, tx *sql.Tx, params HumanInbox
 	return rows.Err()
 }
 
-func appendHumanAgentExceptions(ctx context.Context, tx *sql.Tx, params HumanInboxQuery, items *[]HumanInboxItem, limit uint32) error {
+func appendHumanAgentExceptions(ctx context.Context, tx *sql.Tx, params WorkAttentionQuery, items *[]WorkAttentionItem, limit uint32) error {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT DISTINCT w.id, w.source_space_id, i.agent_id, i.state,
+		SELECT DISTINCT w.id, w.source_space_id, i.recipient_id, i.state,
 			CASE WHEN d.id IS NOT NULL THEN 'held_draft' ELSE 'claimed' END,
 			COALESCE(d.updated_at, i.claimed_at, i.created_at)
-		FROM agent_inbox_items i
-		JOIN work_assignments wa ON wa.agent_id = i.agent_id AND wa.ended_at IS NULL
+		FROM inbox_items i
+		JOIN work_assignments wa ON wa.agent_id = i.recipient_id AND wa.ended_at IS NULL
 		JOIN works w ON w.id = wa.work_id AND w.source_space_id = i.space_id
 		LEFT JOIN agent_held_drafts d ON d.inbox_item_id = i.id AND d.state = 'held'
-		WHERE i.state = 'claimed' OR d.id IS NOT NULL
+		WHERE i.recipient_kind = 'agent' AND (i.state = 'claimed' OR d.id IS NOT NULL)
 		ORDER BY COALESCE(d.updated_at, i.claimed_at, i.created_at) DESC, i.id DESC
 	`)
 	if err != nil {
@@ -104,12 +104,12 @@ func appendHumanAgentExceptions(ctx context.Context, tx *sql.Tx, params HumanInb
 	}
 	defer rows.Close()
 	for rows.Next() && len(*items) < int(limit) {
-		var item HumanInboxItem
+		var item WorkAttentionItem
 		var updated int64
 		if err := rows.Scan(&item.WorkID, &item.SpaceID, &item.AgentID, &item.Status, &item.ReasonCode, &updated); err != nil {
 			return fmt.Errorf("scan Human Agent exception: %w", err)
 		}
-		if !humanInboxReadable(ctx, tx, params.Human, item.WorkID, item.SpaceID, params.Now) {
+		if !workAttentionReadable(ctx, tx, params.Human, item.WorkID, item.SpaceID, params.Now) {
 			continue
 		}
 		item.Kind, item.UpdatedAt = "agent_exception", timeFromUnixNano(updated)
@@ -118,7 +118,7 @@ func appendHumanAgentExceptions(ctx context.Context, tx *sql.Tx, params HumanInb
 	return rows.Err()
 }
 
-func humanInboxReadable(ctx context.Context, tx *sql.Tx, human Principal, workID, spaceID string, now time.Time) bool {
+func workAttentionReadable(ctx context.Context, tx *sql.Tx, human Principal, workID, spaceID string, now time.Time) bool {
 	if workID == "" || spaceID == "" {
 		return false
 	}

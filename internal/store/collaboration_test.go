@@ -154,6 +154,9 @@ func TestMessageTargetSequencesThreadIsolationCursorReplayAndRestart(t *testing.
 			Target: MessageTarget{Kind: MessageTargetSpace, ID: group.ID},
 			Body:   fmt.Sprintf("main-%02d", index), Now: now.Add(time.Duration(index+20) * time.Second),
 		}
+		if index == 0 {
+			mainParams[index].MentionedPrincipals = []Principal{owner}
+		}
 		threadParams[index] = SendMessageParams{
 			RequestID: uuid.NewString(), Actor: owner,
 			Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID},
@@ -196,10 +199,13 @@ func TestMessageTargetSequencesThreadIsolationCursorReplayAndRestart(t *testing.
 	auditsBeforeReplay := auditCount(t, database, owner.OrganizationID)
 	replayed, err := database.SendMessage(context.Background(), SendMessageParams{
 		RequestID: mainParams[0].RequestID, Actor: owner, Target: mainParams[0].Target,
-		Body: mainParams[0].Body, Now: now.Add(72 * time.Hour),
+		Body: mainParams[0].Body, MentionedPrincipals: mainParams[0].MentionedPrincipals, Now: now.Add(72 * time.Hour),
 	})
 	if err != nil || replayed.ID != mainResults[0].ID || replayed.TargetSequence != mainResults[0].TargetSequence {
 		t.Fatalf("message replay = %+v, %v", replayed, err)
+	}
+	if len(replayed.MentionedPrincipals) != 1 || replayed.MentionedPrincipals[0] != owner {
+		t.Fatalf("message replay mention lost canonical organization: %+v", replayed.MentionedPrincipals)
 	}
 	if auditCount(t, database, owner.OrganizationID) != auditsBeforeReplay {
 		t.Fatal("message replay duplicated audit")

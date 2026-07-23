@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	sharedauthentication "github.com/abcdlsj/sumi/internal/authentication"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
-	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
@@ -26,6 +27,7 @@ const (
 )
 
 type inboxStore interface {
+	sharedauthentication.Authenticator
 	GetInboxNotice(context.Context, executionapp.InboxNoticeQuery) (bool, error)
 	ListInboxItems(context.Context, executionapp.ListInboxItemsQuery) ([]executionapp.InboxItem, error)
 	ClaimInboxItem(context.Context, executionapp.ClaimInboxItemCommand) (executionapp.InboxItem, error)
@@ -39,14 +41,15 @@ type inboxStore interface {
 }
 
 type Service struct {
-	store inboxStore
-	now   func() time.Time
+	store  inboxStore
+	origin string
+	now    func() time.Time
 }
 
 var _ inboxv1connect.InboxServiceHandler = (*Service)(nil)
 
-func New(database inboxStore) *Service {
-	return &Service{store: database, now: time.Now}
+func New(database inboxStore, browserOrigin string) *Service {
+	return &Service{store: database, origin: browserOrigin, now: time.Now}
 }
 
 func Procedures() []string {
@@ -64,8 +67,8 @@ func Procedures() []string {
 	}
 }
 
-func (s *Service) GetInboxNotice(ctx context.Context, _ *connect.Request[inboxv1.GetInboxNoticeRequest]) (*connect.Response[inboxv1.GetInboxNoticeResponse], error) {
-	authentication, err := authentication(ctx)
+func (s *Service) GetInboxNotice(ctx context.Context, request *connect.Request[inboxv1.GetInboxNoticeRequest]) (*connect.Response[inboxv1.GetInboxNoticeResponse], error) {
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,7 @@ func (s *Service) GetInboxNotice(ctx context.Context, _ *connect.Request[inboxv1
 }
 
 func (s *Service) ListInboxItems(ctx context.Context, request *connect.Request[inboxv1.ListInboxItemsRequest]) (*connect.Response[inboxv1.ListInboxItemsResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +106,11 @@ func (s *Service) ListInboxItems(ctx context.Context, request *connect.Request[i
 }
 
 func (s *Service) ClaimInboxItem(ctx context.Context, request *connect.Request[inboxv1.ClaimInboxItemRequest]) (*connect.Response[inboxv1.ClaimInboxItemResponse], error) {
-	authentication, requestID, itemID, err := itemMutationParams(ctx, request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), true)
+	if err != nil {
+		return nil, err
+	}
+	requestID, itemID, err := itemMutationParams(request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +128,7 @@ func (s *Service) ClaimInboxItem(ctx context.Context, request *connect.Request[i
 }
 
 func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[inboxv1.ObserveTargetRequest]) (*connect.Response[inboxv1.ObserveTargetResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), true)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +165,11 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 }
 
 func (s *Service) CompleteInboxItem(ctx context.Context, request *connect.Request[inboxv1.CompleteInboxItemRequest]) (*connect.Response[inboxv1.CompleteInboxItemResponse], error) {
-	authentication, requestID, itemID, err := itemMutationParams(ctx, request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), true)
+	if err != nil {
+		return nil, err
+	}
+	requestID, itemID, err := itemMutationParams(request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +187,7 @@ func (s *Service) CompleteInboxItem(ctx context.Context, request *connect.Reques
 }
 
 func (s *Service) SetSpaceMute(ctx context.Context, request *connect.Request[inboxv1.SetSpaceMuteRequest]) (*connect.Response[inboxv1.SetSpaceMuteResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), true)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +211,7 @@ func (s *Service) SetSpaceMute(ctx context.Context, request *connect.Request[inb
 }
 
 func (s *Service) SetThreadFollow(ctx context.Context, request *connect.Request[inboxv1.SetThreadFollowRequest]) (*connect.Response[inboxv1.SetThreadFollowResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.authentication(ctx, http.Header(request.Header()), true)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +235,11 @@ func (s *Service) SetThreadFollow(ctx context.Context, request *connect.Request[
 }
 
 func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[inboxv1.SendInboxReplyRequest]) (*connect.Response[inboxv1.SendInboxReplyResponse], error) {
-	authentication, requestID, itemID, err := itemMutationParams(ctx, request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
+	authentication, err := s.agentAuthentication(ctx, http.Header(request.Header()), true)
+	if err != nil {
+		return nil, err
+	}
+	requestID, itemID, err := itemMutationParams(request.Msg.GetRequestId(), request.Msg.GetInboxItemId())
 	if err != nil {
 		return nil, err
 	}
@@ -234,14 +249,14 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 	if err := messagecodec.ValidateBody(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := messagecodec.MentionedAgentIDs(request.Msg.GetMentionedAgentIds())
+	mentions, err := messagecodec.MentionedPrincipals(request.Msg.GetMentionedPrincipals())
 	if err != nil {
 		return nil, err
 	}
 	result, err := s.store.SendInboxReply(ctx, executionapp.SendInboxReplyCommand{
 		RequestID: requestID, Authentication: authentication, InboxItemID: itemID,
 		BasisTargetSequence: request.Msg.GetBasisTargetSequence(), Body: request.Msg.GetBody(),
-		MentionedAgentIDs: mentions, Now: s.now(),
+		MentionedPrincipals: mentions, Now: s.now(),
 	})
 	if err := serviceError(err); err != nil {
 		return nil, err
@@ -273,7 +288,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 }
 
 func (s *Service) ListHeldDrafts(ctx context.Context, request *connect.Request[inboxv1.ListHeldDraftsRequest]) (*connect.Response[inboxv1.ListHeldDraftsResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.agentAuthentication(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +316,7 @@ func (s *Service) ListHeldDrafts(ctx context.Context, request *connect.Request[i
 }
 
 func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request[inboxv1.ResolveHeldDraftRequest]) (*connect.Response[inboxv1.ResolveHeldDraftResponse], error) {
-	authentication, err := authentication(ctx)
+	authentication, err := s.agentAuthentication(ctx, http.Header(request.Header()), true)
 	if err != nil {
 		return nil, err
 	}
@@ -368,28 +383,53 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	return connect.NewResponse(response), nil
 }
 
-func authentication(ctx context.Context) (authorityapp.RuntimeAuthentication, error) {
-	principal, proof, err := runtimeauth.Subject(ctx)
+func (s *Service) authentication(ctx context.Context, header http.Header, mutation bool) (executionapp.InboxAuthentication, error) {
+	resolved, err := sharedauthentication.Resolve(ctx, s.store, header, mutation, s.origin, s.now())
 	if err != nil {
-		return authorityapp.RuntimeAuthentication{}, err
+		return executionapp.InboxAuthentication{}, authenticationError(err)
 	}
-	return authorityapp.RuntimeAuthentication{Principal: principal, Proof: proof}, nil
+	if human, ok := resolved.Human(); ok {
+		return executionapp.HumanInboxAuthentication(human), nil
+	}
+	if agent, ok := resolved.Agent(); ok {
+		return executionapp.AgentInboxAuthentication(agent), nil
+	}
+	return executionapp.InboxAuthentication{}, connect.NewError(connect.CodeUnauthenticated, errors.New("inbox actor authentication invalid"))
 }
 
-func itemMutationParams(ctx context.Context, requestIDValue, itemIDValue string) (authorityapp.RuntimeAuthentication, string, string, error) {
-	authentication, err := authentication(ctx)
+func (s *Service) agentAuthentication(ctx context.Context, header http.Header, mutation bool) (authorityapp.RuntimeAuthentication, error) {
+	resolved, err := sharedauthentication.Resolve(ctx, s.store, header, mutation, s.origin, s.now())
 	if err != nil {
-		return authorityapp.RuntimeAuthentication{}, "", "", err
+		return authorityapp.RuntimeAuthentication{}, authenticationError(err)
 	}
+	agent, ok := resolved.Agent()
+	if !ok {
+		return authorityapp.RuntimeAuthentication{}, connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication required"))
+	}
+	return agent, nil
+}
+
+func authenticationError(err error) error {
+	switch {
+	case errors.Is(err, sharedauthentication.ErrSameOrigin):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))
+	case errors.Is(err, sharedauthentication.ErrUnavailable):
+		return connect.NewError(connect.CodeUnavailable, errors.New("inbox authentication is unavailable"))
+	default:
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("inbox actor authentication invalid"))
+	}
+}
+
+func itemMutationParams(requestIDValue, itemIDValue string) (string, string, error) {
 	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
 	if err != nil {
-		return authorityapp.RuntimeAuthentication{}, "", "", err
+		return "", "", err
 	}
 	itemID, err := connectid.CanonicalID(itemIDValue, "inbox item id")
 	if err != nil {
-		return authorityapp.RuntimeAuthentication{}, "", "", err
+		return "", "", err
 	}
-	return authentication, requestID, itemID, nil
+	return requestID, itemID, nil
 }
 
 func listParams(after uint64, requestedLimit uint32) (uint64, uint32, error) {
@@ -433,7 +473,7 @@ func serviceError(err error) error {
 	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication invalid"))
 	case errors.Is(err, authoritydomain.ErrPermissionDenied), errors.Is(err, executionapp.ErrInboxAccessLost):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("agent inbox action denied"))
+		return connect.NewError(connect.CodePermissionDenied, errors.New("inbox action denied"))
 	case errors.Is(err, executionapp.ErrInboxItemNotFound), errors.Is(err, executionapp.ErrHeldDraftNotFound),
 		errors.Is(err, collaborationapp.ErrSpaceNotFound), errors.Is(err, collaborationapp.ErrThreadNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
@@ -448,7 +488,7 @@ func serviceError(err error) error {
 		errors.Is(err, collaborationapp.ErrInvalidMention), errors.Is(err, executionapp.ErrInvalidDraftResolution):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:
-		return connect.NewError(connect.CodeInternal, errors.New("agent inbox operation failed"))
+		return connect.NewError(connect.CodeInternal, errors.New("inbox operation failed"))
 	}
 }
 
@@ -457,8 +497,12 @@ func inboxItemMessage(item executionapp.InboxItem) (*inboxv1.InboxItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	recipient, err := messagecodec.Principal(item.Recipient)
+	if err != nil {
+		return nil, err
+	}
 	result := &inboxv1.InboxItem{
-		Sequence: item.Sequence, Id: item.ID, AgentId: item.AgentID, SpaceId: item.SpaceID,
+		Sequence: item.Sequence, Id: item.ID, Recipient: recipient, SpaceId: item.SpaceID,
 		Target: target, TriggerMessageId: item.TriggerMessageID,
 		TriggerTargetSequence: item.TriggerTargetSequence, Reason: inboxReasonMessage(item.Reason),
 		State: inboxStateMessage(item.State), Completion: inboxCompletionMessage(item.Completion),

@@ -1,4 +1,4 @@
-package humaninbox
+package workattention
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestListHumanInboxItemsUsesBrowserHumanAndReturnsOnlyProjection(t *testing.T) {
+func TestListWorkAttentionItemsUsesBrowserHumanAndReturnsOnlyProjection(t *testing.T) {
 	now := time.Date(2026, 7, 23, 18, 0, 0, 0, time.UTC)
 	human := store.Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}
 	backend := &testStore{
 		browser: human,
-		items: []store.HumanInboxItem{{
+		items: []store.WorkAttentionItem{{
 			WorkID: "work-id", SpaceID: "space-id", AgentID: "agent-id", Kind: "agent_exception", Status: "claimed", ReasonCode: "held_draft", UpdatedAt: now,
 		}},
 	}
 	service := New(backend, "http://127.0.0.1:18080")
 	service.now = func() time.Time { return now }
-	request := connect.NewRequest(&inboxv1.ListHumanInboxItemsRequest{Limit: 30})
+	request := connect.NewRequest(&inboxv1.ListWorkAttentionItemsRequest{Limit: 30})
 	request.Header().Add("Cookie", authority.BrowserSessionCookieName+"="+strings.Repeat("b", 43))
-	response, err := service.ListHumanInboxItems(browserContext(t, "http://127.0.0.1:18080"), request)
+	response, err := service.ListWorkAttentionItems(browserContext(t, "http://127.0.0.1:18080"), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,27 +47,27 @@ func TestListHumanInboxItemsUsesBrowserHumanAndReturnsOnlyProjection(t *testing.
 	}
 }
 
-func TestListHumanInboxItemsRejectsNonBrowserAndKeepsBackendFailuresQuiet(t *testing.T) {
+func TestListWorkAttentionItemsRejectsNonBrowserAndKeepsBackendFailuresQuiet(t *testing.T) {
 	now := time.Date(2026, 7, 23, 18, 0, 0, 0, time.UTC)
 	backend := &testStore{browser: store.Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}}
 	service := New(backend, "http://127.0.0.1:18080")
 	service.now = func() time.Time { return now }
 	for _, name := range []string{"missing browser session", "bearer"} {
 		t.Run(name, func(t *testing.T) {
-			request := connect.NewRequest(&inboxv1.ListHumanInboxItemsRequest{})
+			request := connect.NewRequest(&inboxv1.ListWorkAttentionItemsRequest{})
 			if name == "bearer" {
 				request.Header().Set("Authorization", "Bearer "+strings.Repeat("r", 43))
 			}
-			_, err := service.ListHumanInboxItems(browserContext(t, "http://127.0.0.1:18080"), request)
+			_, err := service.ListWorkAttentionItems(browserContext(t, "http://127.0.0.1:18080"), request)
 			if connect.CodeOf(err) != connect.CodeUnauthenticated || len(backend.queries) != 0 {
 				t.Fatalf("error/queries = %v/%+v", err, backend.queries)
 			}
 		})
 	}
 	backend.err = errors.New("sqlite private body and runtime basis")
-	request := connect.NewRequest(&inboxv1.ListHumanInboxItemsRequest{})
+	request := connect.NewRequest(&inboxv1.ListWorkAttentionItemsRequest{})
 	request.Header().Add("Cookie", authority.BrowserSessionCookieName+"="+strings.Repeat("b", 43))
-	_, err := service.ListHumanInboxItems(browserContext(t, "http://127.0.0.1:18080"), request)
+	_, err := service.ListWorkAttentionItems(browserContext(t, "http://127.0.0.1:18080"), request)
 	if connect.CodeOf(err) != connect.CodeInternal || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "basis") {
 		t.Fatalf("quiet backend error = %v", err)
 	}
@@ -75,9 +75,9 @@ func TestListHumanInboxItemsRejectsNonBrowserAndKeepsBackendFailuresQuiet(t *tes
 
 type testStore struct {
 	browser store.Principal
-	items   []store.HumanInboxItem
+	items   []store.WorkAttentionItem
 	err     error
-	queries []store.HumanInboxQuery
+	queries []store.WorkAttentionQuery
 }
 
 func (s *testStore) AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error) {
@@ -92,7 +92,7 @@ func (s *testStore) AuthenticateBrowserSession(context.Context, string, time.Tim
 	return s.browser, nil
 }
 
-func (s *testStore) ListHumanInboxItems(_ context.Context, query store.HumanInboxQuery) ([]store.HumanInboxItem, error) {
+func (s *testStore) ListWorkAttentionItems(_ context.Context, query store.WorkAttentionQuery) ([]store.WorkAttentionItem, error) {
 	s.queries = append(s.queries, query)
 	return s.items, s.err
 }

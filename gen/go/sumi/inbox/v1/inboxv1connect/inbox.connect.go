@@ -23,8 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// InboxServiceName is the fully-qualified name of the InboxService service.
 	InboxServiceName = "sumi.inbox.v1.InboxService"
-	// HumanInboxServiceName is the fully-qualified name of the HumanInboxService service.
-	HumanInboxServiceName = "sumi.inbox.v1.HumanInboxService"
+	// WorkAttentionServiceName is the fully-qualified name of the WorkAttentionService service.
+	WorkAttentionServiceName = "sumi.inbox.v1.WorkAttentionService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -65,9 +65,9 @@ const (
 	// InboxServiceResolveHeldDraftProcedure is the fully-qualified name of the InboxService's
 	// ResolveHeldDraft RPC.
 	InboxServiceResolveHeldDraftProcedure = "/sumi.inbox.v1.InboxService/ResolveHeldDraft"
-	// HumanInboxServiceListHumanInboxItemsProcedure is the fully-qualified name of the
-	// HumanInboxService's ListHumanInboxItems RPC.
-	HumanInboxServiceListHumanInboxItemsProcedure = "/sumi.inbox.v1.HumanInboxService/ListHumanInboxItems"
+	// WorkAttentionServiceListWorkAttentionItemsProcedure is the fully-qualified name of the
+	// WorkAttentionService's ListWorkAttentionItems RPC.
+	WorkAttentionServiceListWorkAttentionItemsProcedure = "/sumi.inbox.v1.WorkAttentionService/ListWorkAttentionItems"
 )
 
 // InboxServiceClient is a client for the sumi.inbox.v1.InboxService service.
@@ -374,72 +374,73 @@ func (UnimplementedInboxServiceHandler) ResolveHeldDraft(context.Context, *conne
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.inbox.v1.InboxService.ResolveHeldDraft is not implemented"))
 }
 
-// HumanInboxServiceClient is a client for the sumi.inbox.v1.HumanInboxService service.
-type HumanInboxServiceClient interface {
-	ListHumanInboxItems(context.Context, *connect.Request[v1.ListHumanInboxItemsRequest]) (*connect.Response[v1.ListHumanInboxItemsResponse], error)
+// WorkAttentionServiceClient is a client for the sumi.inbox.v1.WorkAttentionService service.
+type WorkAttentionServiceClient interface {
+	ListWorkAttentionItems(context.Context, *connect.Request[v1.ListWorkAttentionItemsRequest]) (*connect.Response[v1.ListWorkAttentionItemsResponse], error)
 }
 
-// NewHumanInboxServiceClient constructs a client for the sumi.inbox.v1.HumanInboxService service.
-// By default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped
-// responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
-// connect.WithGRPC() or connect.WithGRPCWeb() options.
+// NewWorkAttentionServiceClient constructs a client for the sumi.inbox.v1.WorkAttentionService
+// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
+// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
+// the connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewHumanInboxServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HumanInboxServiceClient {
+func NewWorkAttentionServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) WorkAttentionServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	humanInboxServiceMethods := v1.File_sumi_inbox_v1_inbox_proto.Services().ByName("HumanInboxService").Methods()
-	return &humanInboxServiceClient{
-		listHumanInboxItems: connect.NewClient[v1.ListHumanInboxItemsRequest, v1.ListHumanInboxItemsResponse](
+	workAttentionServiceMethods := v1.File_sumi_inbox_v1_inbox_proto.Services().ByName("WorkAttentionService").Methods()
+	return &workAttentionServiceClient{
+		listWorkAttentionItems: connect.NewClient[v1.ListWorkAttentionItemsRequest, v1.ListWorkAttentionItemsResponse](
 			httpClient,
-			baseURL+HumanInboxServiceListHumanInboxItemsProcedure,
-			connect.WithSchema(humanInboxServiceMethods.ByName("ListHumanInboxItems")),
+			baseURL+WorkAttentionServiceListWorkAttentionItemsProcedure,
+			connect.WithSchema(workAttentionServiceMethods.ByName("ListWorkAttentionItems")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// humanInboxServiceClient implements HumanInboxServiceClient.
-type humanInboxServiceClient struct {
-	listHumanInboxItems *connect.Client[v1.ListHumanInboxItemsRequest, v1.ListHumanInboxItemsResponse]
+// workAttentionServiceClient implements WorkAttentionServiceClient.
+type workAttentionServiceClient struct {
+	listWorkAttentionItems *connect.Client[v1.ListWorkAttentionItemsRequest, v1.ListWorkAttentionItemsResponse]
 }
 
-// ListHumanInboxItems calls sumi.inbox.v1.HumanInboxService.ListHumanInboxItems.
-func (c *humanInboxServiceClient) ListHumanInboxItems(ctx context.Context, req *connect.Request[v1.ListHumanInboxItemsRequest]) (*connect.Response[v1.ListHumanInboxItemsResponse], error) {
-	return c.listHumanInboxItems.CallUnary(ctx, req)
+// ListWorkAttentionItems calls sumi.inbox.v1.WorkAttentionService.ListWorkAttentionItems.
+func (c *workAttentionServiceClient) ListWorkAttentionItems(ctx context.Context, req *connect.Request[v1.ListWorkAttentionItemsRequest]) (*connect.Response[v1.ListWorkAttentionItemsResponse], error) {
+	return c.listWorkAttentionItems.CallUnary(ctx, req)
 }
 
-// HumanInboxServiceHandler is an implementation of the sumi.inbox.v1.HumanInboxService service.
-type HumanInboxServiceHandler interface {
-	ListHumanInboxItems(context.Context, *connect.Request[v1.ListHumanInboxItemsRequest]) (*connect.Response[v1.ListHumanInboxItemsResponse], error)
+// WorkAttentionServiceHandler is an implementation of the sumi.inbox.v1.WorkAttentionService
+// service.
+type WorkAttentionServiceHandler interface {
+	ListWorkAttentionItems(context.Context, *connect.Request[v1.ListWorkAttentionItemsRequest]) (*connect.Response[v1.ListWorkAttentionItemsResponse], error)
 }
 
-// NewHumanInboxServiceHandler builds an HTTP handler from the service implementation. It returns
+// NewWorkAttentionServiceHandler builds an HTTP handler from the service implementation. It returns
 // the path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewHumanInboxServiceHandler(svc HumanInboxServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	humanInboxServiceMethods := v1.File_sumi_inbox_v1_inbox_proto.Services().ByName("HumanInboxService").Methods()
-	humanInboxServiceListHumanInboxItemsHandler := connect.NewUnaryHandler(
-		HumanInboxServiceListHumanInboxItemsProcedure,
-		svc.ListHumanInboxItems,
-		connect.WithSchema(humanInboxServiceMethods.ByName("ListHumanInboxItems")),
+func NewWorkAttentionServiceHandler(svc WorkAttentionServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	workAttentionServiceMethods := v1.File_sumi_inbox_v1_inbox_proto.Services().ByName("WorkAttentionService").Methods()
+	workAttentionServiceListWorkAttentionItemsHandler := connect.NewUnaryHandler(
+		WorkAttentionServiceListWorkAttentionItemsProcedure,
+		svc.ListWorkAttentionItems,
+		connect.WithSchema(workAttentionServiceMethods.ByName("ListWorkAttentionItems")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/sumi.inbox.v1.HumanInboxService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/sumi.inbox.v1.WorkAttentionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case HumanInboxServiceListHumanInboxItemsProcedure:
-			humanInboxServiceListHumanInboxItemsHandler.ServeHTTP(w, r)
+		case WorkAttentionServiceListWorkAttentionItemsProcedure:
+			workAttentionServiceListWorkAttentionItemsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedHumanInboxServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedHumanInboxServiceHandler struct{}
+// UnimplementedWorkAttentionServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedWorkAttentionServiceHandler struct{}
 
-func (UnimplementedHumanInboxServiceHandler) ListHumanInboxItems(context.Context, *connect.Request[v1.ListHumanInboxItemsRequest]) (*connect.Response[v1.ListHumanInboxItemsResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.inbox.v1.HumanInboxService.ListHumanInboxItems is not implemented"))
+func (UnimplementedWorkAttentionServiceHandler) ListWorkAttentionItems(context.Context, *connect.Request[v1.ListWorkAttentionItemsRequest]) (*connect.Response[v1.ListWorkAttentionItemsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.inbox.v1.WorkAttentionService.ListWorkAttentionItems is not implemented"))
 }

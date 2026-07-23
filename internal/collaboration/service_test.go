@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +40,7 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 		t.Fatal(err)
 	}
 
-	service := New(database)
+	service := New(database, "")
 	service.now = func() time.Time { return now.Add(time.Minute) }
 	path, handler := spacev1connect.NewCollaborationServiceHandler(service, connect.WithInterceptors(authority.NewInterceptor(database)))
 	mux := http.NewServeMux()
@@ -101,17 +100,18 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 
 	rootRequestID := uuid.NewString()
 	rootResponse, err := client.SendMessage(context.Background(), authenticatedRequest(credential, &spacev1.SendMessageRequest{
-		RequestId:         rootRequestID,
-		Target:            &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: group.GetId()}},
-		Body:              "# root\n\nMarkdown body",
-		MentionedAgentIds: []string{agent.ID},
+		RequestId:           rootRequestID,
+		Target:              &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: group.GetId()}},
+		Body:                "# root\n\nMarkdown body",
+		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: agent.ID}},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := rootResponse.Msg.GetMessage()
 	if root.GetRequestId() != rootRequestID || root.GetTargetSequence() != 1 || root.GetThreadRootMessageId() != "" ||
-		!reflect.DeepEqual(root.GetMentionedAgentIds(), []string{agent.ID}) {
+		len(root.GetMentionedPrincipals()) != 1 || root.GetMentionedPrincipals()[0].GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT ||
+		root.GetMentionedPrincipals()[0].GetId() != agent.ID {
 		t.Fatalf("root response = %+v", root)
 	}
 	replyResponse, err := client.SendMessage(context.Background(), authenticatedRequest(credential, &spacev1.SendMessageRequest{

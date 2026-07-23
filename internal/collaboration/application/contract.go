@@ -3,6 +3,7 @@ package application
 import (
 	"time"
 
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 )
@@ -35,15 +36,15 @@ type MessageTarget struct {
 }
 
 type Message struct {
-	ID                string
-	RequestID         string
-	SpaceID           string
-	Target            MessageTarget
-	TargetSequence    uint64
-	Author            authoritydomain.Principal
-	Body              string
-	MentionedAgentIDs []string
-	CreatedAt         time.Time
+	ID                  string
+	RequestID           string
+	SpaceID             string
+	Target              MessageTarget
+	TargetSequence      uint64
+	Author              authoritydomain.Principal
+	Body                string
+	MentionedPrincipals []authoritydomain.Principal
+	CreatedAt           time.Time
 }
 
 type MutationReceipt struct {
@@ -92,28 +93,32 @@ type ChangeSpaceArchiveCommand struct {
 }
 
 type SendMessageCommand struct {
-	RequestID         string
-	Actor             authoritydomain.Principal
-	Target            MessageTarget
-	Body              string
-	MentionedAgentIDs []string
-	Now               time.Time
+	RequestID           string
+	Actor               authoritydomain.Principal
+	Runtime             authorityapp.RuntimeAuthentication
+	Target              MessageTarget
+	Body                string
+	MentionedPrincipals []authoritydomain.Principal
+	Now                 time.Time
 }
 
 type GetMessageQuery struct {
 	Actor     authoritydomain.Principal
+	Runtime   authorityapp.RuntimeAuthentication
 	MessageID string
 	Now       time.Time
 }
 
 type GetThreadQuery struct {
 	Actor    authoritydomain.Principal
+	Runtime  authorityapp.RuntimeAuthentication
 	ThreadID string
 	Now      time.Time
 }
 
 type ListMessagesQuery struct {
 	Actor         authoritydomain.Principal
+	Runtime       authorityapp.RuntimeAuthentication
 	Target        MessageTarget
 	AfterSequence uint64
 	Limit         uint32

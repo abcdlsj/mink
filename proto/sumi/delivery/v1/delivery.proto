@@ -145,7 +145,7 @@ message CompleteRunRequest {
   uint64 fence = 5;
   RunOutcome outcome = 6;
   string body = 7;
-  repeated string mentioned_agent_ids = 8;
+  repeated sumi.space.v1.Principal mentioned_principals = 8;
 }
 
 message CompleteRunResponse {

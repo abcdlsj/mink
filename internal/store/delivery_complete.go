@@ -106,25 +106,25 @@ type runCompletionFacts struct {
 	space    Space
 }
 
-func validateRunCompletionInput(params CompleteRunParams) ([]string, [sha256.Size]byte, error) {
+func validateRunCompletionInput(params CompleteRunParams) ([]Principal, [sha256.Size]byte, error) {
 	if err := execution.ValidateOutcome(params.Outcome); err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
 	if err := validateMessageBody(params.Body); err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
-	mentions, err := canonicalMentionIDs(params.MentionedAgentIDs)
+	mentions, err := canonicalMentionPrincipals(params.MentionedPrincipals)
 	if err != nil {
 		return nil, [sha256.Size]byte{}, err
 	}
 	fingerprint, err := inboxFingerprint(struct {
-		OutboxEventID string   `json:"outbox_event_id"`
-		RunID         string   `json:"run_id"`
-		LaunchID      string   `json:"launch_id"`
-		Fence         uint64   `json:"fence"`
-		Outcome       string   `json:"outcome"`
-		Body          string   `json:"body"`
-		Mentions      []string `json:"mentioned_agent_ids,omitempty"`
+		OutboxEventID string      `json:"outbox_event_id"`
+		RunID         string      `json:"run_id"`
+		LaunchID      string      `json:"launch_id"`
+		Fence         uint64      `json:"fence"`
+		Outcome       string      `json:"outcome"`
+		Body          string      `json:"body"`
+		Mentions      []Principal `json:"mentioned_principals,omitempty"`
 	}{params.OutboxEventID, params.RunID, params.LaunchID, params.Fence, string(params.Outcome), params.Body, mentions})
 	if err != nil {
 		return nil, [sha256.Size]byte{}, err

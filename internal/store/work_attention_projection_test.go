@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
+func TestListWorkAttentionItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 	fixture := openWorkQueryFixture(t)
 	work := fixture.createWork(t, "approval requires attention", fixture.now.Add(time.Second))
 	if _, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{
@@ -33,10 +33,10 @@ func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 	}
 	inboxID := uuid.NewString()
 	if _, err := fixture.database.db.Exec(`
-		INSERT INTO agent_inbox_items(
-			id, agent_id, space_id, target_kind, target_id, trigger_message_id,
+		INSERT INTO inbox_items(
+			id, recipient_kind, recipient_id, space_id, target_kind, target_id, trigger_message_id,
 			trigger_target_sequence, reason, state, claimed_at, created_at
-		) VALUES(?, ?, ?, 'space', ?, ?, ?, 'mention', 'claimed', ?, ?)
+		) VALUES(?, 'agent', ?, ?, 'space', ?, ?, ?, 'mention', 'claimed', ?, ?)
 	`, inboxID, agentID, fixture.space.ID, fixture.space.ID, fixture.message.ID, fixture.message.TargetSequence, unixNano(fixture.now.Add(4*time.Second)), unixNano(fixture.now.Add(4*time.Second))); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ownerItems, err := fixture.database.ListHumanInboxItems(context.Background(), HumanInboxQuery{
+	ownerItems, err := fixture.database.ListWorkAttentionItems(context.Background(), WorkAttentionQuery{
 		Human: fixture.owner,
 		Limit: 2,
 		Now:   fixture.now.Add(6 * time.Second),
@@ -69,7 +69,7 @@ func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 	}
 
 	member := fixture.createMember(t, "attention-member")
-	if items, err := fixture.database.ListHumanInboxItems(context.Background(), HumanInboxQuery{Human: member, Now: fixture.now.Add(7 * time.Second)}); err != nil || len(items) != 0 {
+	if items, err := fixture.database.ListWorkAttentionItems(context.Background(), WorkAttentionQuery{Human: member, Now: fixture.now.Add(7 * time.Second)}); err != nil || len(items) != 0 {
 		t.Fatalf("ungranted member attention = %+v, %v", items, err)
 	}
 	if _, err := fixture.database.IssueGrant(context.Background(), IssueGrantParams{
@@ -103,7 +103,7 @@ func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err := fixture.database.ListHumanInboxItems(context.Background(), HumanInboxQuery{Human: member, Now: fixture.now.Add(11 * time.Second)})
+	items, err := fixture.database.ListWorkAttentionItems(context.Background(), WorkAttentionQuery{Human: member, Now: fixture.now.Add(11 * time.Second)})
 	if err != nil || len(items) != 2 || items[0].WorkID != work.ID || items[1].WorkID != work.ID {
 		t.Fatalf("authorized member attention = %+v, %v", items, err)
 	}
@@ -116,7 +116,7 @@ func TestListHumanInboxItemsRechecksWorkAndSpaceAccess(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListHumanInboxItems(context.Background(), HumanInboxQuery{Human: member, Now: fixture.now.Add(13 * time.Second)})
+	items, err = fixture.database.ListWorkAttentionItems(context.Background(), WorkAttentionQuery{Human: member, Now: fixture.now.Add(13 * time.Second)})
 	if err != nil || len(items) != 0 {
 		t.Fatalf("removed member attention = %+v, %v", items, err)
 	}

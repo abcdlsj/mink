@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/http"
 
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
@@ -162,10 +163,11 @@ func (s *Service) UnarchiveSpace(ctx context.Context, request *connect.Request[s
 }
 
 func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spacev1.SendMessageRequest]) (*connect.Response[spacev1.SendMessageResponse], error) {
-	actor, err := authority.Subject(ctx)
+	authentication, err := s.authenticateMessage(ctx, http.Header(request.Header()), true)
 	if err != nil {
 		return nil, err
 	}
+	actor := authentication.actor
 	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
@@ -177,10 +179,14 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 	if err := messageBodyValid(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
+	mentions, err := principalListParams(request.Msg.GetMentionedPrincipals(), actor.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
 	message, err := s.sendMessage(ctx, SendMessageCommand{
 		RequestID: requestID,
-		Actor:     actor,
-		Target:    target, Body: request.Msg.GetBody(), MentionedAgentIDs: request.Msg.GetMentionedAgentIds(), Now: s.now(),
+		Actor:     actor, Runtime: authentication.runtime,
+		Target: target, Body: request.Msg.GetBody(), MentionedPrincipals: mentions, Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
@@ -189,7 +195,7 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 }
 
 func (s *Service) GetMessage(ctx context.Context, request *connect.Request[spacev1.GetMessageRequest]) (*connect.Response[spacev1.GetMessageResponse], error) {
-	actor, err := authority.Subject(ctx)
+	authentication, err := s.authenticateMessage(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +203,7 @@ func (s *Service) GetMessage(ctx context.Context, request *connect.Request[space
 	if err != nil {
 		return nil, err
 	}
-	message, err := s.store.GetMessage(ctx, collaborationapp.GetMessageQuery{Actor: actor, MessageID: messageID, Now: s.now()})
+	message, err := s.store.GetMessage(ctx, collaborationapp.GetMessageQuery{Actor: authentication.actor, Runtime: authentication.runtime, MessageID: messageID, Now: s.now()})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
@@ -205,7 +211,7 @@ func (s *Service) GetMessage(ctx context.Context, request *connect.Request[space
 }
 
 func (s *Service) GetThread(ctx context.Context, request *connect.Request[spacev1.GetThreadRequest]) (*connect.Response[spacev1.GetThreadResponse], error) {
-	actor, err := authority.Subject(ctx)
+	authentication, err := s.authenticateMessage(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +219,7 @@ func (s *Service) GetThread(ctx context.Context, request *connect.Request[spacev
 	if err != nil {
 		return nil, err
 	}
-	thread, err := s.store.GetThread(ctx, collaborationapp.GetThreadQuery{Actor: actor, ThreadID: threadID, Now: s.now()})
+	thread, err := s.store.GetThread(ctx, collaborationapp.GetThreadQuery{Actor: authentication.actor, Runtime: authentication.runtime, ThreadID: threadID, Now: s.now()})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
@@ -221,7 +227,7 @@ func (s *Service) GetThread(ctx context.Context, request *connect.Request[spacev
 }
 
 func (s *Service) ListMessages(ctx context.Context, request *connect.Request[spacev1.ListMessagesRequest]) (*connect.Response[spacev1.ListMessagesResponse], error) {
-	actor, err := authority.Subject(ctx)
+	authentication, err := s.authenticateMessage(ctx, http.Header(request.Header()), false)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +246,8 @@ func (s *Service) ListMessages(ctx context.Context, request *connect.Request[spa
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("message limit must be at most 200"))
 	}
 	messages, err := s.store.ListMessages(ctx, collaborationapp.ListMessagesQuery{
-		Actor: actor, Target: target, AfterSequence: request.Msg.GetAfterSequence(), Limit: limit, Now: s.now(),
+		Actor: authentication.actor, Runtime: authentication.runtime, Target: target,
+		AfterSequence: request.Msg.GetAfterSequence(), Limit: limit, Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err

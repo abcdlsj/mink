@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 )
@@ -12,6 +13,8 @@ func collaborationError(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
+		return connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication invalid"))
 	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("collaboration action denied"))
 	case errors.Is(err, collaborationapp.ErrSpaceNotFound), errors.Is(err, collaborationapp.ErrMessageNotFound), errors.Is(err, collaborationapp.ErrThreadNotFound),

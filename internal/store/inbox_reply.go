@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []string, requestID string, fingerprint [sha256.Size]byte, now time.Time) (SendInboxReplyResult, error) {
+func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []Principal, requestID string, fingerprint [sha256.Size]byte, now time.Time) (SendInboxReplyResult, error) {
 	head, err := targetHead(ctx, tx, target)
 	if err != nil {
 		return SendInboxReplyResult{}, err
@@ -35,7 +35,7 @@ func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal
 	return SendInboxReplyResult{Kind: InboxResultMessage, Message: &message, CommittedAt: now.UTC()}, nil
 }
 
-func createHeldDraft(ctx context.Context, tx *sql.Tx, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []string, now time.Time) (HeldDraft, error) {
+func createHeldDraft(ctx context.Context, tx *sql.Tx, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []Principal, now time.Time) (HeldDraft, error) {
 	spaceID, err := resolveReadableTargetSpace(ctx, tx, target)
 	if err != nil {
 		return HeldDraft{}, err
@@ -47,11 +47,11 @@ func createHeldDraft(ctx context.Context, tx *sql.Tx, item InboxItem, predecesso
 			basis_target_sequence, body, held_reason, state, created_at, updated_at
 		)
 		VALUES(?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, 'target_advanced', 'held', ?, ?)
-	`, draftID, item.AgentID, item.ID, predecessorDraftID, spaceID, target.Kind, target.ID, basis, body, unixNano(now), unixNano(now)); err != nil {
+	`, draftID, item.Recipient.ID, item.ID, predecessorDraftID, spaceID, target.Kind, target.ID, basis, body, unixNano(now), unixNano(now)); err != nil {
 		return HeldDraft{}, fmt.Errorf("persist held draft: %w", err)
 	}
-	for ordinal, agentID := range mentions {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_held_draft_mentions(draft_id, agent_id, ordinal) VALUES(?, ?, ?)`, draftID, agentID, ordinal); err != nil {
+	for ordinal, mention := range mentions {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_held_draft_mentions(draft_id, principal_kind, principal_id, ordinal) VALUES(?, ?, ?, ?)`, draftID, mention.Kind, mention.ID, ordinal); err != nil {
 			return HeldDraft{}, fmt.Errorf("persist held draft mention: %w", err)
 		}
 	}
@@ -59,40 +59,42 @@ func createHeldDraft(ctx context.Context, tx *sql.Tx, item InboxItem, predecesso
 	if err != nil {
 		return HeldDraft{}, fmt.Errorf("read held draft: %w", err)
 	}
-	draft.MentionedAgentIDs = append([]string(nil), mentions...)
+	draft.MentionedPrincipals = append([]Principal(nil), mentions...)
 	return draft, nil
 }
 
-func canonicalMentionIDs(agentIDs []string) ([]string, error) {
-	if len(agentIDs) > maxMentionCount {
+func canonicalMentionPrincipals(principals []Principal) ([]Principal, error) {
+	if len(principals) > maxMentionCount {
 		return nil, ErrInvalidMention
 	}
-	seen := make(map[string]struct{}, len(agentIDs))
-	canonical := make([]string, 0, len(agentIDs))
-	for _, agentID := range agentIDs {
-		parsed, err := uuid.Parse(agentID)
-		if err != nil || parsed.String() != agentID {
+	seen := make(map[Principal]struct{}, len(principals))
+	canonical := make([]Principal, 0, len(principals))
+	for _, principal := range principals {
+		parsed, err := uuid.Parse(principal.ID)
+		if err != nil || parsed.String() != principal.ID ||
+			(principal.Kind != PrincipalHuman && principal.Kind != PrincipalAgent) {
 			return nil, ErrInvalidMention
 		}
-		if _, exists := seen[agentID]; exists {
+		principal.OrganizationID = ""
+		if _, exists := seen[principal]; exists {
 			return nil, ErrInvalidMention
 		}
-		seen[agentID] = struct{}{}
-		canonical = append(canonical, agentID)
+		seen[principal] = struct{}{}
+		canonical = append(canonical, principal)
 	}
 	return canonical, nil
 }
 
-func validateMentionMembers(ctx context.Context, tx *sql.Tx, spaceID string, agentIDs []string) error {
-	for _, agentID := range agentIDs {
+func validateMentionMembers(ctx context.Context, tx *sql.Tx, spaceID string, principals []Principal) error {
+	for _, principal := range principals {
 		var member bool
 		if err := tx.QueryRowContext(ctx, `
 			SELECT EXISTS(
 				SELECT 1 FROM space_memberships
-				WHERE space_id = ? AND principal_kind = 'agent' AND principal_id = ?
+				WHERE space_id = ? AND principal_kind = ? AND principal_id = ?
 			)
-		`, spaceID, agentID).Scan(&member); err != nil {
-			return fmt.Errorf("check mentioned agent membership: %w", err)
+		`, spaceID, principal.Kind, principal.ID).Scan(&member); err != nil {
+			return fmt.Errorf("check mentioned principal membership: %w", err)
 		}
 		if !member {
 			return ErrInvalidMention

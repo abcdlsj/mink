@@ -33,16 +33,16 @@ type MessageTargetView struct {
 }
 
 type MessageView struct {
-	ID                string
-	RequestID         string
-	SpaceID           string
-	Target            MessageTargetView
-	TargetSequence    uint64
-	AuthorKind        authoritydomain.PrincipalKind
-	AuthorID          string
-	Body              string
-	MentionedAgentIDs []string
-	CreatedAt         time.Time
+	ID                  string
+	RequestID           string
+	SpaceID             string
+	Target              MessageTargetView
+	TargetSequence      uint64
+	AuthorKind          authoritydomain.PrincipalKind
+	AuthorID            string
+	Body                string
+	MentionedPrincipals []authoritydomain.Principal
+	CreatedAt           time.Time
 }
 
 type HeldDraftView struct {
@@ -55,7 +55,7 @@ type HeldDraftView struct {
 	Target              MessageTargetView
 	BasisTargetSequence uint64
 	Body                string
-	MentionedAgentIDs   []string
+	MentionedPrincipals []authoritydomain.Principal
 	HeldReason          string
 	State               string
 	ResolutionAction    string
@@ -115,7 +115,7 @@ func mapMessage(value *collaborationapp.Message) *MessageView {
 		ID: value.ID, RequestID: value.RequestID, SpaceID: value.SpaceID,
 		Target: MessageTargetView{Kind: string(value.Target.Kind), ID: value.Target.ID}, TargetSequence: value.TargetSequence,
 		AuthorKind: value.Author.Kind, AuthorID: value.Author.ID, Body: value.Body,
-		MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), CreatedAt: value.CreatedAt,
+		MentionedPrincipals: append([]authoritydomain.Principal(nil), value.MentionedPrincipals...), CreatedAt: value.CreatedAt,
 	}
 }
 
@@ -127,7 +127,7 @@ func mapHeldDraft(value *executionapp.HeldDraft) *HeldDraftView {
 		Sequence: value.Sequence, ID: value.ID, AgentID: value.AgentID, InboxItemID: value.InboxItemID,
 		PredecessorDraftID: value.PredecessorDraftID, SpaceID: value.SpaceID,
 		Target: MessageTargetView{Kind: string(value.Target.Kind), ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
-		Body: value.Body, MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), HeldReason: value.HeldReason,
+		Body: value.Body, MentionedPrincipals: append([]authoritydomain.Principal(nil), value.MentionedPrincipals...), HeldReason: value.HeldReason,
 		State: value.State, ResolutionAction: value.ResolutionAction, ResultKind: value.ResultKind, ResultID: value.ResultID,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}
@@ -145,7 +145,7 @@ func collaborationMessage(value MessageView) collaborationapp.Message {
 		ID: value.ID, RequestID: value.RequestID, SpaceID: value.SpaceID,
 		Target: collaborationapp.MessageTarget{Kind: collaborationdomain.MessageTargetKind(value.Target.Kind), ID: value.Target.ID}, TargetSequence: value.TargetSequence,
 		Author: authoritydomain.Principal{Kind: value.AuthorKind, ID: value.AuthorID}, Body: value.Body,
-		MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), CreatedAt: value.CreatedAt,
+		MentionedPrincipals: append([]authoritydomain.Principal(nil), value.MentionedPrincipals...), CreatedAt: value.CreatedAt,
 	}
 }
 
@@ -154,7 +154,7 @@ func executionHeldDraft(value HeldDraftView) executionapp.HeldDraft {
 		Sequence: value.Sequence, ID: value.ID, AgentID: value.AgentID, InboxItemID: value.InboxItemID,
 		PredecessorDraftID: value.PredecessorDraftID, SpaceID: value.SpaceID,
 		Target: collaborationapp.MessageTarget{Kind: collaborationdomain.MessageTargetKind(value.Target.Kind), ID: value.Target.ID}, BasisTargetSequence: value.BasisTargetSequence,
-		Body: value.Body, MentionedAgentIDs: append([]string(nil), value.MentionedAgentIDs...), HeldReason: value.HeldReason,
+		Body: value.Body, MentionedPrincipals: append([]authoritydomain.Principal(nil), value.MentionedPrincipals...), HeldReason: value.HeldReason,
 		State: value.State, ResolutionAction: value.ResolutionAction, ResultKind: value.ResultKind, ResultID: value.ResultID,
 		CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
 	}

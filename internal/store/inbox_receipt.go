@@ -9,26 +9,42 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 )
 
-func (s *Store) beginInboxTransaction(ctx context.Context, authentication AgentRuntimeAuthentication, now time.Time) (*sql.Tx, AgentRuntimeAuthentication, error) {
+func (s *Store) beginInboxTransaction(ctx context.Context, authentication InboxAuthentication, now time.Time) (*sql.Tx, InboxAuthentication, error) {
 	if !authentication.Valid() {
-		return nil, AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
+		return nil, InboxAuthentication{}, ErrPermissionDenied
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, AgentRuntimeAuthentication{}, fmt.Errorf("begin agent inbox transaction: %w", err)
+		return nil, InboxAuthentication{}, fmt.Errorf("begin inbox transaction: %w", err)
 	}
-	current, err := requireAgentRuntimeSession(ctx, tx, authentication.Proof, now)
-	if err != nil {
+	if authentication.Principal.Kind == PrincipalHuman {
+		if err := validatePrincipalInOrganization(ctx, tx, authentication.Principal, authentication.Principal.OrganizationID); err != nil {
+			tx.Rollback()
+			return nil, InboxAuthentication{}, ErrPermissionDenied
+		}
+		return tx, authentication, nil
+	}
+	current, err := requireAgentRuntimeSession(ctx, tx, authentication.Runtime.Proof, now)
+	if err != nil || current.Principal != authentication.Principal {
 		tx.Rollback()
+		if err != nil {
+			return nil, InboxAuthentication{}, err
+		}
+		return nil, InboxAuthentication{}, ErrAgentRuntimeUnauthenticated
+	}
+	return tx, executionapp.AgentInboxAuthentication(current), nil
+}
+
+func (s *Store) beginAgentInboxTransaction(ctx context.Context, authentication AgentRuntimeAuthentication, now time.Time) (*sql.Tx, AgentRuntimeAuthentication, error) {
+	tx, current, err := s.beginInboxTransaction(ctx, executionapp.AgentInboxAuthentication(authentication), now)
+	if err != nil {
 		return nil, AgentRuntimeAuthentication{}, err
 	}
-	if current.Principal != authentication.Principal {
-		tx.Rollback()
-		return nil, AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
-	}
-	return tx, current, nil
+	return tx, current.Runtime, nil
 }
 
 func inboxFingerprint(value any) ([sha256.Size]byte, error) {
@@ -40,26 +56,31 @@ func inboxFingerprint(value any) ([sha256.Size]byte, error) {
 }
 
 func readInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte) ([]byte, bool, error) {
-	var storedAgentID, storedOperation string
+	return readPrincipalInboxRequestReceipt(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fingerprint)
+}
+
+func readPrincipalInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte) ([]byte, bool, error) {
+	var storedKind PrincipalKind
+	var storedID, storedOperation string
 	var storedFingerprint, snapshot []byte
 	err := tx.QueryRowContext(ctx, `
-		SELECT agent_id, operation, payload_fingerprint, response_snapshot
-		FROM agent_requests WHERE request_id = ?
-	`, requestID).Scan(&storedAgentID, &storedOperation, &storedFingerprint, &snapshot)
+		SELECT actor_kind, actor_id, operation, payload_fingerprint, response_snapshot
+		FROM inbox_requests WHERE request_id = ?
+	`, requestID).Scan(&storedKind, &storedID, &storedOperation, &storedFingerprint, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("read inbox request receipt: %w", err)
 	}
-	if storedAgentID != agentID || storedOperation != operation || !bytes.Equal(storedFingerprint, fingerprint[:]) {
+	if storedKind != actor.Kind || storedID != actor.ID || storedOperation != operation || !bytes.Equal(storedFingerprint, fingerprint[:]) {
 		return nil, false, ErrInboxRequestConflict
 	}
 	return snapshot, true, nil
 }
 
-func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, current InboxItem) (InboxItem, bool, error) {
-	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte, current InboxItem) (InboxItem, bool, error) {
+	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fingerprint)
 	if err != nil || !found {
 		return InboxItem{}, found, err
 	}
@@ -67,14 +88,14 @@ func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID, agentID,
 	if err := decodeInboxRequestReceipt(snapshot, &receipt); err != nil {
 		return InboxItem{}, false, err
 	}
-	if err := validateInboxItemReceipt(ctx, tx, agentID, current, receipt.Item); err != nil {
+	if err := validateInboxItemReceipt(ctx, tx, actor, current, receipt.Item); err != nil {
 		return InboxItem{}, false, err
 	}
 	return receipt.Item, true, nil
 }
 
-func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte) (InboxPreferenceResult, bool, error) {
-	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte) (InboxPreferenceResult, bool, error) {
+	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fingerprint)
 	if err != nil || !found {
 		return InboxPreferenceResult{}, found, err
 	}
@@ -114,7 +135,7 @@ func replayInboxResolveRequest(ctx context.Context, tx *sql.Tx, requestID, agent
 	if receipt.Action != DraftResolutionRetry && receipt.Action != DraftResolutionCancel && receipt.Action != DraftResolutionRetarget {
 		return ResolveHeldDraftResult{}, false, ErrInboxIntegrity
 	}
-	if err := validateInboxItemReceipt(ctx, tx, agentID, item, receipt.InboxItem); err != nil {
+	if err := validateInboxItemReceipt(ctx, tx, Principal{Kind: PrincipalAgent, ID: agentID}, item, receipt.InboxItem); err != nil {
 		return ResolveHeldDraftResult{}, false, err
 	}
 	result := ResolveHeldDraftResult{Action: receipt.Action, InboxItem: receipt.InboxItem, CommittedAt: receipt.CommittedAt}
@@ -208,7 +229,7 @@ func newInboxMessageReference(message Message) inboxMessageReference {
 		SpaceID:        message.SpaceID,
 		Target:         message.Target,
 		TargetSequence: message.TargetSequence,
-		MentionCount:   len(message.MentionedAgentIDs),
+		MentionCount:   len(message.MentionedPrincipals),
 		CreatedAt:      message.CreatedAt,
 	}
 }
@@ -223,7 +244,7 @@ func newInboxHeldDraftReceipt(draft HeldDraft) inboxHeldDraftReceipt {
 		SpaceID:             draft.SpaceID,
 		Target:              draft.Target,
 		BasisTargetSequence: draft.BasisTargetSequence,
-		MentionCount:        len(draft.MentionedAgentIDs),
+		MentionCount:        len(draft.MentionedPrincipals),
 		HeldReason:          draft.HeldReason,
 		State:               draft.State,
 		ResolutionAction:    draft.ResolutionAction,
@@ -286,8 +307,11 @@ func rehydrateInboxMessage(ctx context.Context, tx *sql.Tx, requestID, agentID s
 	if len(mentions) != reference.MentionCount {
 		return Message{}, ErrInboxIntegrity
 	}
+	for index := range mentions {
+		mentions[index].OrganizationID = organizationID
+	}
 	message.Author.OrganizationID = organizationID
-	message.MentionedAgentIDs = mentions
+	message.MentionedPrincipals = mentions
 	return message, nil
 }
 
@@ -317,12 +341,13 @@ func rehydrateInboxHeldDraft(ctx context.Context, tx *sql.Tx, agentID string, re
 	draft.ResultKind = receipt.ResultKind
 	draft.ResultID = receipt.ResultID
 	draft.UpdatedAt = receipt.UpdatedAt
-	draft.MentionedAgentIDs = mentions
+	draft.MentionedPrincipals = mentions
 	return draft, nil
 }
 
-func validateInboxItemReceipt(ctx context.Context, tx *sql.Tx, agentID string, current, snapshot InboxItem) error {
-	if current.ID != snapshot.ID || current.AgentID != agentID || snapshot.AgentID != agentID ||
+func validateInboxItemReceipt(ctx context.Context, tx *sql.Tx, actor Principal, current, snapshot InboxItem) error {
+	if current.ID != snapshot.ID || current.Recipient.Kind != actor.Kind || current.Recipient.ID != actor.ID ||
+		snapshot.Recipient.Kind != actor.Kind || snapshot.Recipient.ID != actor.ID ||
 		current.Sequence != snapshot.Sequence || current.SpaceID != snapshot.SpaceID || current.Target != snapshot.Target ||
 		current.TriggerMessageID != snapshot.TriggerMessageID || current.TriggerTargetSequence != snapshot.TriggerTargetSequence ||
 		current.Reason != snapshot.Reason || !current.CreatedAt.Equal(snapshot.CreatedAt) {
@@ -342,14 +367,18 @@ func validateInboxItemReceipt(ctx context.Context, tx *sql.Tx, agentID string, c
 }
 
 func persistInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, response any, now time.Time) error {
+	return persistPrincipalInboxRequest(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fingerprint, response, now)
+}
+
+func persistPrincipalInboxRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte, response any, now time.Time) error {
 	snapshot, err := json.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("encode inbox response snapshot: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO agent_requests(request_id, agent_id, operation, payload_fingerprint, response_snapshot, committed_at)
-		VALUES(?, ?, ?, ?, ?, ?)
-	`, requestID, agentID, operation, fingerprint[:], snapshot, unixNano(now)); err != nil {
+		INSERT INTO inbox_requests(request_id, actor_kind, actor_id, operation, payload_fingerprint, response_snapshot, committed_at)
+		VALUES(?, ?, ?, ?, ?, ?, ?)
+	`, requestID, actor.Kind, actor.ID, operation, fingerprint[:], snapshot, unixNano(now)); err != nil {
 		return fmt.Errorf("persist inbox request receipt: %w", err)
 	}
 	return nil
