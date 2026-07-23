@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
 
 func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
@@ -665,50 +664,4 @@ func readWorkFactCounts(t *testing.T, database *Store) workFactCounts {
 		}
 	}
 	return counts
-}
-
-func TestWorkMigrationDownDropsWorkFactsAndRestoresGrantSchema(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	var version int
-	if err := database.db.QueryRow(`SELECT version_id FROM goose_db_version WHERE is_applied = 1 ORDER BY version_id DESC LIMIT 1`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 19 {
-		t.Fatalf("migration version = %d", version)
-	}
-	if _, err := database.db.Exec(`UPDATE work_constraints SET body = 'changed' WHERE 1 = 0`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`SELECT 1 FROM works LIMIT 1`); err != nil {
-		t.Fatal(err)
-	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`SELECT 1 FROM works LIMIT 1`); err == nil {
-		t.Fatal("works table survived down migration")
-	}
-	if _, err := database.db.Exec(`INSERT INTO grants(id, organization_id, subject_kind, subject_id, issuer_kind, issuer_id, capability, scope_kind, scope_id, parent_grant_id, created_at, updated_at) VALUES(?, ?, 'human', ?, 'system', '', 'organization.admin', 'work', ?, '', ?, ?)`, uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), 1, 1); err == nil {
-		t.Fatal("down migration still accepts work scope")
-	}
 }

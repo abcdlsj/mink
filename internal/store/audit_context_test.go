@@ -2,93 +2,12 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
-
-func TestOpenUpgradesVersionSixAuditWithoutContext(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := configure(database); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if err := goose.UpTo(database, "migrations", 6); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	organizationID := uuid.NewString()
-	humanID := uuid.NewString()
-	grantID := uuid.NewString()
-	now := time.Now()
-	stamp := unixNano(now)
-	credentialHash := sha256.Sum256([]byte("legacy-bootstrap-credential"))
-	if _, err := database.Exec(`
-		INSERT INTO organizations(singleton, id, name, bootstrap_human_id, created_at)
-		VALUES(1, ?, 'Sumi', ?, ?)
-	`, organizationID, humanID, stamp); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`
-		INSERT INTO humans(id, organization_id, name, role, status, credential_hash, created_at, updated_at)
-		VALUES(?, ?, 'Owner', 'owner', 'active', ?, ?, ?)
-	`, humanID, organizationID, credentialHash[:], stamp, stamp); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`
-		INSERT INTO grants(
-			id, organization_id, subject_kind, subject_id, issuer_kind, issuer_id,
-			capability, scope_kind, scope_id, parent_grant_id, created_at, updated_at
-		)
-		VALUES(?, ?, 'human', ?, 'system', '', ?, 'organization', ?, '', ?, ?)
-	`, grantID, organizationID, humanID, CapabilityOrganizationAdmin, organizationID, stamp, stamp); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if _, err := database.Exec(`
-		INSERT INTO audit_events(
-			id, organization_id, actor_kind, actor_id, action, target_kind,
-			target_id, request_id, outcome, reason_code, occurred_at
-		) VALUES(?, ?, 'system', '', 'organization.bootstrap', 'organization', ?, '', 'committed', '', ?)
-	`, uuid.NewString(), organizationID, organizationID, stamp); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	current, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer current.Close()
-	events, err := current.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, event := range events {
-		if event.ContextKind != "" || event.ContextID != "" {
-			t.Fatalf("legacy audit context = %q/%q", event.ContextKind, event.ContextID)
-		}
-	}
-}
 
 func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "server.db"))

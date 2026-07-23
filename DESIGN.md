@@ -331,7 +331,7 @@ Host CLI 是稳定的可观察入口，成功输出和错误输出遵循统一�
 
 Sumi 只有一个协作事实中心。它保存 Human、Agent、Space、Work、Artifact、权限与审计等稳定事实，并向 Web、Desktop、CLI 和 Computer 提供一致语义。
 
-当前版本使用 SQLite 保存中央事实。可靠性要求包括事务、恢复、备份、磁盘耗尽与损坏时 fail closed；这些是数据正确性的基本要求，不是未来规模优化。
+当前版本使用 SQLite 保存中央事实。MVP 只支持新建数据库：`internal/store/schema.sql` 一次性创建完整最终 schema，已有 Goose/历史 schema 不升级、不搬运，启动时 fail closed 并要求重新初始化。可靠性要求包括事务、恢复、备份、磁盘耗尽与损坏时 fail closed；这些是数据正确性的基本要求，不是未来规模优化。
 
 Computer daemon 主动连接中心，不要求暴露公网入站端口。它负责在本机提供 Runtime、Workspace、Secret 和 Sandbox，并执行被授权的工作。
 
@@ -451,7 +451,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - C1 checkpoint③ 冻结后，移除了 Computer Host 测试 stub 中未使用的 heartbeat 计数 accessor；它不改变 daemon、协议或测试覆盖的产品语义，专门收口 staticcheck U1000。
 - Driver owner 的 bounded queue 合同未改；修正的是测试并发编排：首个执行被阻塞时，第二个 Submit 必须在独立 goroutine 入队，第三个才验证 `ErrQueueFull`，释放后两个已接受请求必须收口。该回归防止测试自身死锁掩盖真实队列行为。
 - Driver `RunInput` 在 contract 边界统一限制 UTF-8、单项、集合与总量预算：host policy、work goal、memory index、retrieved source 和 current input 都不能无界进入 Prompt；短 memory index 与按需来源读取由 typed contract 强制，不依赖 assembler 或 adapter 自觉。该变更只收紧非法/超限输入，不改变 Driver、权限或 Server facts。
-- `sumi-computer` pairing 成功后的 identity 已由持久 State 作为唯一后续来源；删除不会被读取的本地 registration key 回写，保留 legacy key import 的实际使用路径，消除静态检查噪声而不改变 pairing 或 daemon 合同。
+- `sumi-computer` pairing 成功后的 identity 由持久 State 作为唯一后续来源；启动只能走 pairing attempt，已删除旧 registration key 文件导入路径。
 - `internal/driver/executor` 作为 Computer Host 与 Driver 的替换边界：它只将 authoritative Execution 组装为 typed RunInput，经单 Owner 获得 TurnResult 后映射 Completion；它不解析 CLI、不选择 provider，也不拥有 Server、权限或 Prompt 事实。
 - Computer Host 只会把 `ObserveTarget` 返回的唯一精确 trigger 交给 Executor：Delivery 的 target、space、message ID 和 target sequence 必须同时匹配，body 必须是非空、合法且在 Driver 预算内的 UTF-8。缺失、重复、target 不一致或超预算 trigger 会在 Accept、Claim 与 worker/process 之前 fail closed；accepted Run 使用 Server 固化的 basis sequence，重启恢复也重新取得同一权威 trigger。该边界仅补齐 C3 的事实输入，不选择 Driver 或启动 External runtime。
 - C3 已将 External Driver 的 runner、trusted-local provider、SecretRef、Computer daemon 与 Completion 真实贯通。production CLI 只在完整 External 配置且 Agent Driver 精确匹配时启用 Executor；未配置时保持真 nil，Native Delivery 不会因 typed-nil interface 崩溃，也不会被错误接受。
@@ -482,14 +482,14 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - Computer：Computer、Pairing、Placement 和 Computer 生命周期事实。
 - Artifact：Artifact family/version、ACL、Provenance、完整性状态以及 Blob 元数据；Blob 内容仍由独立 Artifact Blob backend 保存。
 - Knowledge：索引 generation、dirty source、projection 和 rebuild 状态；它是受权限约束的 read model，不拥有源事实。
-- Platform：SQLite 连接、迁移、时钟、ID 和事务基础设施。
+- Platform：SQLite 连接、一次性 schema 初始化、时钟、ID 和事务基础设施。
 - Audit：append-only 中央事实。业务上下文通过显式 audit writer 写入，Audit API 负责受权限保护的读取。
 
 一个 SQLite 数据库可以承载全部上下文，一个显式事务也可以跨上下文写入，但跨上下文写入必须由明确的 application command 编排，不能由任意 Store helper 隐式穿透。Message 写入 Inbox projection、Work 创建其 team Space、Run completion 产生 Message/HeldDraft 仍需保持原子性；这些是当前已存在的事务边界，不因目录拆分而改变。
 
-Transport adapter 只依赖上下文 application API 或调用方定义的窄接口。SQLite query、scan、authorization、projection 和 replay helper 归属于事实所有者；共享的 SQLite 包只负责连接、迁移和事务基础设施。Computer 本地 State SQLite 与 Server SQLite 继续保持独立边界。
+Transport adapter 只依赖上下文 application API 或调用方定义的窄接口。SQLite query、scan、authorization、projection 和 replay helper 归属于事实所有者；共享的 SQLite 包只负责连接、一次性 schema 初始化和事务基础设施。Computer 本地 State SQLite 与 Server SQLite 继续保持独立边界。
 
-当前单包 SQLite 实现按文件族落实所有权：`authority/agent/grant/browser_session` 属于 Authority，`collaboration/space/message` 属于 Collaboration，`work_*` 属于 Work，`agent_runtime_session/inbox_*/delivery_*` 属于 Execution，`computer/placement` 属于 Computer，`artifact_*` 属于 Artifact，`knowledge` 属于 Knowledge，`audit` 属于 Audit，`store/time/migration` 属于 Platform。跨上下文原子写仍由拥有完整业务命令的 Store 入口编排；显式的 Agent、Computer existence lookup 只读取对应身份事实，不接受动态表名或任意 SQL 目标。
+当前单包 SQLite 实现按文件族落实所有权：`authority/agent/grant/browser_session` 属于 Authority，`collaboration/space/message` 属于 Collaboration，`work_*` 属于 Work，`agent_runtime_session/inbox_*/delivery_*` 属于 Execution，`computer/placement` 属于 Computer，`artifact_*` 属于 Artifact，`knowledge` 属于 Knowledge，`audit` 属于 Audit，`store/time/schema` 属于 Platform。跨上下文原子写仍由拥有完整业务命令的 Store 入口编排；显式的 Agent、Computer existence lookup 只读取对应身份事实，不接受动态表名或任意 SQL 目标。
 
 Transport 实现按 `service / handler / request / response / errors` 职责组织。Collaboration、Computer、Grant、Placement 与 Delivery 的 Service 只保留依赖和生命周期；Delivery 的 active Delivery/Run/Launch 与 completion result 组合不变量由独立校验阶段处理，协议映射不再同时承担跨事实一致性判断。本轮不改变 proto、状态机、权限、replay、SQLite schema 或事务边界。
 
@@ -552,7 +552,7 @@ Store 继续拥有 registration key hash、pairing token hash、pairing/recovery
 
 实现边界已经落实：Computer 与 Placement Connect transport、request/response mapping、error mapping 和 persistence port 只依赖各自 domain/application contract，不再 import Store。Store 通过 alias 兼容尚未迁移的调用方，并在 transaction 前使用 Placement domain 重验 acknowledgement 组合。原 `computer/app` 实际只负责 `sumi-computer` 命令装配，已改名为 `computer/cli`，避免与 Server application contract 混淆。
 
-验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。既有 Computer migration、pairing lost-response/cross-version replay、Sandbox declaration revision、Placement permission/request replay/generation/acknowledgement 与 Audit 测试全部保留并通过。边界扫描确认 Computer 与 Placement 生产代码不再 import `internal/store` 或使用对应 Store contract/error。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
+验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Go 全量、Web 64/64、全仓 race 与 production Web/Go build 均成功。Computer pairing lost-response、Sandbox declaration revision、Placement permission/request replay/generation/acknowledgement 与 Audit 测试全部保留并通过。边界扫描确认 Computer 与 Placement 生产代码不再 import `internal/store` 或使用对应 Store contract/error。未运行需要外部 Server 和 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。
 
 遗留风险：Authority runtime、Agent、Audit、Artifact、Collaboration 与 Execution 仍有调用通过 Store compatibility alias 使用其他上下文值或错误；后续应按 transport/application 边界逐个迁移，不能一次性复制所有 Store entity。Computer 本地 State SQLite、Server SQLite 与 Host proto client 仍是刻意保留的独立边界。
 
@@ -571,3 +571,9 @@ Application command 统一使用语义化 `...Command`，mutation 显式携带 `
 验证完成：`mise run format`、`mise run generate`、`mise run lint`、`mise run test`、`go test -race ./...` 与 `mise run build` 全部通过；Web 64/64 单测通过，76 个 Go package 被 `./...` 覆盖，production Web/Go build 成功。`git diff --check` 通过，`proto/`、`gen/`、`web/` 无 diff，`CLAUDE.md` 仍指向 `AGENTS.md`。边界扫描确认生产代码只有 composition root `internal/server/server.go` import `internal/store`，所有 SQL 只存在于 Server Store 和独立的 Computer State SQLite。
 
 未运行需要外部 Server 与 owner credential 的 Playwright E2E，因为本轮未改变浏览器行为或公开协议。遗留风险仅是 Store 为持久化实现和既有 Store 级测试保留 compatibility alias；它们不再被业务 transport 消费，后续只有在真实拆分 persistence package 时才值得删除，不能为消除 alias 破坏当前跨上下文事务。
+
+## 25. 2026-07-23 SQLite MVP schema 收口
+
+Server SQLite 的 MVP 只接受 `schema.sql` 建立的最终 schema。新库以 `system_metadata.schema_version = "1"` 作为完成标记；空库只执行这一次初始化，带对象但缺少该标记的历史 Goose schema 一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证该标记，避免把完整性正常的旧库误判为可运行的新库。
+
+Computer 初始身份也只走有时效的 pairing token：CLI 不再接受或导入 `--registration-key-file`。自动化端到端 seed 必须经 owner 创建 pairing、Host 消费 token 和后续 identity recovery，不能用旧注册 key 伪造流程。该收口不改变已有 pairing、registration-key hash、placement 或 runtime 的服务端事实合同。

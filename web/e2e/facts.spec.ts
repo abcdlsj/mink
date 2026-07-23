@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { chmod, mkdtemp, mkdir, open, rm, writeFile } from "node:fs/promises";
@@ -10,15 +10,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { AgentService, Driver } from "../src/gen/sumi/agent/v1/agent_pb";
-import {
-  Architecture,
-  ComputerService,
-  OperatingSystem,
-} from "../src/gen/sumi/computer/v1/computer_pb";
-import {
-  AcknowledgementResult,
-  PlacementService,
-} from "../src/gen/sumi/placement/v1/placement_pb";
+import { ComputerService } from "../src/gen/sumi/computer/v1/computer_pb";
+import { PlacementService } from "../src/gen/sumi/placement/v1/placement_pb";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -36,9 +29,8 @@ const ownerTransport = createConnectTransport({
   interceptors: [ownerAuthorization],
 });
 const ownerAgentClient = createClient(AgentService, ownerTransport);
+const ownerComputerClient = createClient(ComputerService, ownerTransport);
 const ownerPlacementClient = createClient(PlacementService, ownerTransport);
-const computerClient = createClient(ComputerService, transport);
-const placementClient = createClient(PlacementService, transport);
 
 type Seed = Awaited<ReturnType<typeof seedFacts>>;
 let seed: Seed;
@@ -75,7 +67,6 @@ test("real facts move from pending to active after sumi-computer ack", async ({
   await page.getByRole("button", { name: "Refresh Agents" }).click();
 
   await expect(agentRegion(page).locator(".state-chip.active")).toBeVisible();
-  await expect(agentRegion(page)).not.toContainText(seed.registrationKey);
   await expect(page.locator("body")).not.toContainText(seed.hostRoot);
 });
 
@@ -116,15 +107,14 @@ for (const viewport of [
     await page.getByRole("button", { name: "Agents" }).focus();
     await page.keyboard.press("Enter");
     const agentNav = agentsNavigation(page);
-    await expect(agentNav.getByText(seed.failedAgentName)).toBeVisible();
+    await expect(agentNav.getByText(seed.pendingAgentName)).toBeVisible();
     await agentNav
-      .getByRole("button", { name: new RegExp(seed.failedAgentName) })
+      .getByRole("button", { name: new RegExp(seed.pendingAgentName) })
       .focus();
     await page.keyboard.press("Enter");
     await expect(
-      agentRegion(page).getByText("workspace_io_error"),
+      agentRegion(page).locator(".state-chip.active"),
     ).toBeVisible();
-    await expect(agentRegion(page)).not.toContainText(seed.registrationKey);
     await page.getByRole("button", { name: "Computers" }).click();
     const computerNav = computersNavigation(page);
     await expect(computerNav.getByText(seed.computerName)).toBeVisible();
@@ -166,55 +156,38 @@ test("browser handoff reaches Collaboration and logout revokes it immediately", 
 
 async function seedFacts() {
   const suffix = randomUUID().slice(0, 8);
-  const registrationKey = `${randomUUID()}${randomUUID()}`;
+  const pairingToken = randomBytes(32).toString("base64url");
   const computerName = `e2e-host-${suffix}`;
-  const registered = await computerClient.registerComputer({
-    registrationKey,
-    name: computerName,
-    os: OperatingSystem.MACOS,
-    arch: Architecture.ARM64,
+  await ownerComputerClient.createComputerPairing({
+    requestId: randomUUID(),
+    pairingToken,
+    expiresAt: {
+      seconds: BigInt(Math.floor(Date.now() / 1000) + 600),
+      nanos: 0,
+    },
   });
-  if (!registered.computer) throw new Error("Computer seed failed");
+  const hostRoot = await mkdtemp(join(tmpdir(), "sumi-web-e2e-"));
+  const tokenFile = join(hostRoot, "pairing.token");
+  await writeFile(tokenFile, pairingToken, { mode: 0o600 });
+  await chmod(tokenFile, 0o600);
+  await mkdir(join(hostRoot, "data-root"), { recursive: true, mode: 0o700 });
+  await pairHost(hostRoot, tokenFile, computerName);
+  const computers = await ownerComputerClient.listComputers({});
+  if (computers.computers.length !== 1) throw new Error("Computer seed failed");
+  const computer = computers.computers[0];
   const pendingAgentName = `pending-${suffix}`;
   const pendingAgent = await createSeedAgent(pendingAgentName);
   await ownerPlacementClient.setAgentPlacement({
     requestId: randomUUID(),
     agentId: pendingAgent.id,
-    computerId: registered.computer.id,
+    computerId: computer.id,
   });
-
-  const failedAgentName = `failed-${suffix}`;
-  const failedAgent = await createSeedAgent(failedAgentName);
-  const failedPlacement = await ownerPlacementClient.setAgentPlacement({
-    requestId: randomUUID(),
-    agentId: failedAgent.id,
-    computerId: registered.computer.id,
-  });
-  if (!failedPlacement.placement)
-    throw new Error("Failed placement seed failed");
-  await placementClient.acknowledgeAgentPlacement({
-    computerId: registered.computer.id,
-    registrationKey,
-    agentId: failedAgent.id,
-    generation: failedPlacement.placement.generation,
-    result: AcknowledgementResult.FAILED,
-    errorCode: "workspace_io_error",
-  });
-
-  const hostRoot = await mkdtemp(join(tmpdir(), "sumi-web-e2e-"));
-  const keyFile = join(hostRoot, "computer.key");
-  await writeFile(keyFile, registrationKey, { mode: 0o600 });
-  await chmod(keyFile, 0o600);
-  await mkdir(join(hostRoot, "data-root"), { recursive: true, mode: 0o700 });
 
   return {
-    registrationKey,
-    computerId: registered.computer.id,
+    computerId: computer.id,
     computerName,
     pendingAgentName,
-    failedAgentName,
     hostRoot,
-    keyFile,
   };
 }
 
@@ -327,10 +300,35 @@ async function runHost(current: Seed) {
       baseURL,
       "--data-root",
       join(current.hostRoot, "data-root"),
-      "--registration-key-file",
-      current.keyFile,
       "--name",
       current.computerName,
+      "--once",
+    ],
+    { cwd: repoRoot },
+  );
+}
+
+async function pairHost(
+  hostRoot: string,
+  tokenFile: string,
+  computerName: string,
+) {
+  await run(
+    "mise",
+    [
+      "exec",
+      "--",
+      "go",
+      "run",
+      "./cmd/sumi-computer",
+      "--server",
+      baseURL,
+      "--data-root",
+      join(hostRoot, "data-root"),
+      "--pairing-token-file",
+      tokenFile,
+      "--name",
+      computerName,
       "--once",
     ],
     { cwd: repoRoot },

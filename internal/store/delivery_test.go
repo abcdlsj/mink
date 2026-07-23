@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -12,141 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
-
-func TestDeliveryMigrationBackfillsEligibleInboxItems(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := configure(database); err != nil {
-		t.Fatal(err)
-	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.UpTo(database, "migrations", 11); err != nil {
-		t.Fatal(err)
-	}
-	legacy := &Store{db: database}
-	now := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)
-	bootstrap, err := legacy.EnsureAuthority(context.Background(), runtimeTestToken(231), now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	agent, err := legacy.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "backfill-agent", Driver: "native", Now: now.Add(time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	group, err := legacy.CreateGroup(context.Background(), CreateGroupParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "Backfill", Now: now.Add(2 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := legacy.AddMember(context.Background(), ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: owner, SpaceID: group.ID,
-		Member: Principal{Kind: "agent", ID: agent.ID}, Now: now.Add(3 * time.Second),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := legacy.IssueGrant(context.Background(), IssueGrantParams{
-		RequestID: uuid.NewString(), Actor: owner,
-		Subject:    Principal{Kind: "agent", ID: agent.ID, OrganizationID: owner.OrganizationID},
-		Capability: CapabilitySpaceRead, Scope: Scope{Kind: "space", ID: group.ID},
-		ParentGrantID: bootstrap.RootGrant.ID, Now: now.Add(4 * time.Second),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	message, err := legacy.SendMessage(context.Background(), SendMessageParams{
-		RequestID: uuid.NewString(), Actor: owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: group.ID}, Body: "backfill trigger", Now: now.Add(5 * time.Second),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	itemIDs := []string{uuid.NewString(), uuid.NewString(), uuid.NewString()}
-	states := []string{InboxStateUnread, InboxStateClaimed, InboxStateDone}
-	for index, itemID := range itemIDs {
-		var claimedAt, doneAt any
-		completion := ""
-		if states[index] == InboxStateClaimed {
-			claimedAt = unixNano(now.Add(5 * time.Second))
-		}
-		if states[index] == InboxStateDone {
-			doneAt = unixNano(now.Add(6 * time.Second))
-			completion = InboxCompletionSilent
-		}
-		messageID := message.ID
-		sequence := message.TargetSequence
-		if index > 0 {
-			created, err := legacy.SendMessage(context.Background(), SendMessageParams{
-				RequestID: uuid.NewString(), Actor: owner,
-				Target: message.Target, Body: "backfill trigger " + states[index], Now: now.Add(time.Duration(6+index) * time.Second),
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			messageID = created.ID
-			sequence = created.TargetSequence
-		}
-		if _, err := database.Exec(`
-			INSERT INTO agent_inbox_items(
-				id, agent_id, space_id, target_kind, target_id, trigger_message_id,
-				trigger_target_sequence, reason, state, claimed_at, done_at, completion, created_at
-			)
-			VALUES(?, ?, ?, 'space', ?, ?, ?, 'mention', ?, ?, ?, ?, ?)
-		`, itemID, agent.ID, group.ID, group.ID, messageID, sequence, states[index],
-			claimedAt, doneAt, completion, unixNano(now.Add(time.Duration(10+index)*time.Second))); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := goose.Up(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	rows, err := database.Query(`SELECT id, inbox_item_id, state FROM deliveries ORDER BY sequence`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got [][3]string
-	for rows.Next() {
-		var row [3]string
-		if err := rows.Scan(&row[0], &row[1], &row[2]); err != nil {
-			t.Fatal(err)
-		}
-		got = append(got, row)
-	}
-	rows.Close()
-	want := [][3]string{
-		{itemIDs[0], itemIDs[0], DeliveryStateAvailable},
-		{itemIDs[1], itemIDs[1], DeliveryStateAvailable},
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("backfilled deliveries = %+v, want %+v", got, want)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	var reopenedID string
-	if err := reopened.db.QueryRow(`SELECT id FROM deliveries WHERE inbox_item_id = ?`, itemIDs[0]).Scan(&reopenedID); err != nil {
-		t.Fatal(err)
-	}
-	if reopenedID != itemIDs[0] {
-		t.Fatalf("reopened delivery id = %q", reopenedID)
-	}
-	assertForeignKeysClean(t, reopened.db)
-}
 
 func TestDeliveryAttentionCursorAndOneActiveRun(t *testing.T) {
 	fixture := openDeliveryFixture(t)

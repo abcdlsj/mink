@@ -141,7 +141,7 @@ func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Co
 	params.SandboxCapability = capability
 	tokenHash := computerPairingTokenHash(params.PairingToken)
 	keyHash := registrationKeyHash(params.RegistrationKey)
-	fingerprint, err := legacyComputerPairingPayloadFingerprint(keyHash[:], params.Name, params.OS, params.Arch)
+	fingerprint, err := computerPairingPayloadFingerprint(keyHash[:], params.Name, params.OS, params.Arch)
 	if err != nil {
 		return Computer{}, err
 	}
@@ -264,7 +264,7 @@ func (s *Store) PairComputer(ctx context.Context, params PairComputerParams) (Co
 	return computer, nil
 }
 
-func legacyComputerPairingPayloadFingerprint(registrationKeyHash []byte, name string, operatingSystem computerdomain.OperatingSystem, architecture computerdomain.Architecture) ([sha256.Size]byte, error) {
+func computerPairingPayloadFingerprint(registrationKeyHash []byte, name string, operatingSystem computerdomain.OperatingSystem, architecture computerdomain.Architecture) ([sha256.Size]byte, error) {
 	return computerPairingFingerprint(struct {
 		RegistrationKeyHash []byte                         `json:"registration_key_hash"`
 		Name                string                         `json:"name"`

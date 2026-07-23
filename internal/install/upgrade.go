@@ -261,9 +261,9 @@ func sqliteIntegrity(path string) error {
 	if err := database.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil || result != "ok" {
 		return errors.New("candidate Server database integrity probe failed")
 	}
-	var migrations int
-	if err := database.QueryRow("SELECT count(*) FROM goose_db_version WHERE is_applied = 1").Scan(&migrations); err != nil || migrations == 0 {
-		return errors.New("candidate Server migration probe failed")
+	var schemaVersion string
+	if err := database.QueryRow("SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&schemaVersion); err != nil || schemaVersion != "1" {
+		return errors.New("candidate Server schema probe failed")
 	}
 	return nil
 }

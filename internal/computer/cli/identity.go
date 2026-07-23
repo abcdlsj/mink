@@ -78,25 +78,7 @@ func resolveComputerIdentity(
 		identity, err := requireComputerIdentity(ctx, state, "paired computer identity was not persisted")
 		return identity, nil, err
 	}
-	if config.registrationKeyFile == "" {
-		return computerstate.Identity{}, nil, errors.New("computer pairing is required")
-	}
-	key, err := computerhost.ReadRegistrationKey(config.registrationKeyFile)
-	if err != nil {
-		return computerstate.Identity{}, nil, err
-	}
-	result, err := computerhost.New(hostConfig(config, state, key, osName, arch)).SyncOnce(ctx)
-	if err != nil {
-		return computerstate.Identity{}, nil, err
-	}
-	identity, err = requireComputerIdentity(ctx, state, "legacy computer identity was not persisted")
-	if err != nil {
-		return computerstate.Identity{}, nil, err
-	}
-	if identity.ComputerID != result.ComputerID {
-		return computerstate.Identity{}, nil, errors.New("legacy computer identity does not match synchronized computer")
-	}
-	return identity, &result, nil
+	return computerstate.Identity{}, nil, errors.New("computer pairing is required")
 }
 
 func requireComputerIdentity(ctx context.Context, state *computerstate.State, missing string) (computerstate.Identity, error) {

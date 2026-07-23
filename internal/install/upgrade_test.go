@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,49 @@ import (
 	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/osservice"
 )
+
+func TestSQLiteIntegrityRequiresFinalSchemaMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE system_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '1');
+	`); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqliteIntegrity(path); err != nil {
+		t.Fatalf("final schema marker rejected: %v", err)
+	}
+}
+
+func TestSQLiteIntegrityRejectsLegacyGooseSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE goose_db_version (id INTEGER PRIMARY KEY, version_id INTEGER NOT NULL, is_applied BOOLEAN NOT NULL, tstamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+		INSERT INTO goose_db_version(version_id, is_applied) VALUES (19, TRUE);
+		CREATE TABLE system_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+	`); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqliteIntegrity(path); err == nil {
+		t.Fatal("legacy Goose schema passed final schema probe")
+	}
+}
 
 func TestUpgradeSwitchesVersionAndNeverTouchesCASWorkspaceOrComputerState(t *testing.T) {
 	manager, services := testManager(t)

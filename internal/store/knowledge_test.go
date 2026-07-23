@@ -14,7 +14,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -928,67 +927,6 @@ func knowledgeDirtyCount(t *testing.T, database *Store, sourceID string) int {
 		t.Fatal(err)
 	}
 	return count
-}
-
-func TestKnowledgeMigrationDownUpRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	if err := configure(database); err != nil {
-		t.Fatal(err)
-	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Up(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	var keyExists bool
-	if err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'knowledge_cursor_keys')`).Scan(&keyExists); err != nil {
-		t.Fatal(err)
-	}
-	if keyExists {
-		t.Fatal("knowledge cursor key survived migration down")
-	}
-	if err := goose.Down(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	var exists bool
-	if err := database.QueryRow(`SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'knowledge_fts')`).Scan(&exists); err != nil {
-		t.Fatal(err)
-	}
-	if exists {
-		t.Fatal("knowledge FTS survived migration down")
-	}
-	if err := goose.Up(database, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
-	var cursorKey []byte
-	if err := reopened.db.QueryRow(`SELECT key FROM knowledge_cursor_keys WHERE singleton = 1`).Scan(&cursorKey); err != nil || len(cursorKey) != 32 {
-		t.Fatalf("knowledge cursor key after migration round-trip = %d bytes, %v", len(cursorKey), err)
-	}
-	available, err := reopened.KnowledgeFTSAvailable(context.Background())
-	if err != nil || !available {
-		t.Fatalf("knowledge FTS after migration round-trip = %t, %v", available, err)
-	}
 }
 
 func openKnowledgeStore(t *testing.T) *Store {

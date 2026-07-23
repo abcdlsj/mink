@@ -2,15 +2,12 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
 
 func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *testing.T) {
@@ -187,115 +184,6 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	restarted, err := database.SetAgentPlacement(context.Background(), placeParams)
 	if err != nil || restarted != placed {
 		t.Fatalf("placement restart replay = %+v, %v", restarted, err)
-	}
-}
-
-func TestOpenUpgradesVersionSevenAuthorityReceiptsAndAuditSequence(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := configure(database); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if err := goose.UpTo(database, "migrations", 7); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	now := time.Date(2026, 7, 20, 16, 0, 0, 123456789, time.UTC)
-	stamp := unixNano(now)
-	organizationID, humanID, grantID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	agentID, requestID, auditID := uuid.NewString(), uuid.NewString(), uuid.NewString()
-	credentialHash := sha256.Sum256([]byte("legacy-owner-credential"))
-	legacyFingerprint := sha256.Sum256([]byte("legacy-anonymous-agent-receipt"))
-	statements := []struct {
-		query string
-		args  []any
-	}{
-		{`INSERT INTO organizations(singleton, id, name, bootstrap_human_id, created_at) VALUES(1, ?, 'Sumi', ?, ?)`, []any{organizationID, humanID, stamp}},
-		{`INSERT INTO humans(id, organization_id, name, role, status, credential_hash, created_at, updated_at) VALUES(?, ?, 'Owner', 'owner', 'active', ?, ?, ?)`, []any{humanID, organizationID, credentialHash[:], stamp, stamp}},
-		{`INSERT INTO grants(id, organization_id, subject_kind, subject_id, issuer_kind, issuer_id, capability, scope_kind, scope_id, parent_grant_id, created_at, updated_at) VALUES(?, ?, 'human', ?, 'system', '', ?, 'organization', ?, '', ?, ?)`, []any{grantID, organizationID, humanID, CapabilityOrganizationAdmin, organizationID, stamp, stamp}},
-		{`INSERT INTO agents(id, name, description, driver, created_at, updated_at) VALUES(?, 'legacy-agent', 'legacy', 'native', ?, ?)`, []any{agentID, stamp, stamp}},
-		{`INSERT INTO agent_create_requests(request_id, agent_id, payload_fingerprint) VALUES(?, ?, ?)`, []any{requestID, agentID, legacyFingerprint[:]}},
-		{`INSERT INTO audit_events(sequence, id, organization_id, actor_kind, actor_id, action, target_kind, target_id, request_id, outcome, reason_code, occurred_at, context_kind, context_id) VALUES(41, ?, ?, 'system', '', 'organization.bootstrap', 'organization', ?, '', 'committed', '', ?, '', '')`, []any{auditID, organizationID, organizationID, stamp}},
-	}
-	for _, statement := range statements {
-		if _, err := database.Exec(statement.query, statement.args...); err != nil {
-			database.Close()
-			t.Fatal(err)
-		}
-	}
-	if err := database.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	current, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var actorKind, actorID string
-	var storedFingerprint []byte
-	if err := current.db.QueryRow(`SELECT actor_kind, actor_id, payload_fingerprint FROM agent_create_requests WHERE request_id = ?`, requestID).Scan(&actorKind, &actorID, &storedFingerprint); err != nil {
-		current.Close()
-		t.Fatal(err)
-	}
-	if actorKind != "system" || actorID != "" || string(storedFingerprint) != string(legacyFingerprint[:]) {
-		current.Close()
-		t.Fatalf("legacy receipt = %q/%q/%x", actorKind, actorID, storedFingerprint)
-	}
-	owner := Principal{Kind: "human", ID: humanID, OrganizationID: organizationID}
-	if _, err := current.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: requestID, Actor: owner, Name: "legacy-agent", Description: "legacy", Driver: "native", Now: now.Add(time.Second),
-	}); !errors.Is(err, ErrAgentRequestConflict) {
-		current.Close()
-		t.Fatalf("legacy receipt replay error = %v", err)
-	}
-	computerID := uuid.NewString()
-	tx, err := current.db.BeginTx(context.Background(), nil)
-	if err != nil {
-		current.Close()
-		t.Fatal(err)
-	}
-	if err := appendAuditEvent(context.Background(), tx, AppendAuditParams{
-		OrganizationID: organizationID, Actor: owner, Action: AuditAgentPlace,
-		TargetKind: "agent", TargetID: agentID, ContextKind: "computer", ContextID: computerID,
-		RequestID: uuid.NewString(), Outcome: "committed", Now: now.Add(2 * time.Second),
-	}); err != nil {
-		tx.Rollback()
-		current.Close()
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		current.Close()
-		t.Fatal(err)
-	}
-	events, err := current.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
-	if err != nil {
-		current.Close()
-		t.Fatal(err)
-	}
-	if len(events) != 2 || events[0].Sequence != 41 || events[0].ID != auditID || events[1].Sequence != 42 || events[1].ContextKind != "computer" {
-		current.Close()
-		t.Fatalf("migrated audit events = %+v", events)
-	}
-	if err := current.Close(); err != nil {
-		t.Fatal(err)
-	}
-	restarted, err := Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer restarted.Close()
-	restartedEvents, err := restarted.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 100})
-	if err != nil || len(restartedEvents) != 2 || restartedEvents[1].Sequence != 42 {
-		t.Fatalf("restart audit events = %+v, %v", restartedEvents, err)
 	}
 }
 

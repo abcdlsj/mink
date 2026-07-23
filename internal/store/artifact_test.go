@@ -18,7 +18,6 @@ import (
 
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 )
 
 func TestArtifactHumanPublishVersionsReplayFetchAndRestart(t *testing.T) {
@@ -873,45 +872,6 @@ func TestArtifactReconcileIterationErrorDoesNotTouchBlobOrInventory(t *testing.T
 	}
 	if len(entries) != 0 {
 		t.Fatalf("iteration error quarantined blobs: %v", entries)
-	}
-}
-
-func TestArtifactMigrationDownRemovesOnlyArtifactFacts(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer database.Close()
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	if err := goose.Down(database.db, "migrations"); err != nil {
-		t.Fatal(err)
-	}
-	for _, table := range []string{"artifact_blobs", "artifacts", "artifact_versions", "artifact_version_executions", "artifact_version_sources", "artifact_grants", "artifact_requests"} {
-		if _, err := database.db.Exec(`SELECT 1 FROM ` + table + ` LIMIT 1`); err == nil {
-			t.Fatalf("%s survived artifact down migration", table)
-		}
-	}
-	if _, err := database.db.Exec(`SELECT 1 FROM works LIMIT 1`); err != nil {
-		t.Fatalf("work facts disappeared after artifact down: %v", err)
-	}
-	var version int
-	if err := database.db.QueryRow(`SELECT version_id FROM goose_db_version WHERE is_applied = 1 ORDER BY version_id DESC LIMIT 1`).Scan(&version); err != nil {
-		t.Fatal(err)
-	}
-	if version != 15 {
-		t.Fatalf("version after artifact down = %d", version)
 	}
 }
 

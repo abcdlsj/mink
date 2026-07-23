@@ -16,17 +16,16 @@ import (
 )
 
 type commandConfig struct {
-	serverURL           string
-	serverEndpoint      endpoint.Endpoint
-	httpClient          *http.Client
-	dataRoot            string
-	configPath          string
-	registrationKeyFile string
-	pairingTokenFile    string
-	resetPairing        bool
-	name                string
-	once                bool
-	external            externalRuntimeConfig
+	serverURL        string
+	serverEndpoint   endpoint.Endpoint
+	httpClient       *http.Client
+	dataRoot         string
+	configPath       string
+	pairingTokenFile string
+	resetPairing     bool
+	name             string
+	once             bool
+	external         externalRuntimeConfig
 }
 
 func parseConfig(args []string, stderr io.Writer, defaultRoot, hostname string) (commandConfig, error) {
@@ -35,7 +34,6 @@ func parseConfig(args []string, stderr io.Writer, defaultRoot, hostname string) 
 	serverURL := flags.String("server", "http://127.0.0.1:8080", "Sumi Server URL")
 	serverPin := flags.String("server-pin", "", "sha256/base64url Server SPKI pin")
 	dataRoot := flags.String("data-root", defaultRoot, "Computer data root")
-	registrationKeyFile := flags.String("registration-key-file", "", "legacy 0600 registration key file")
 	pairingTokenFile := flags.String("pairing-token-file", "", "0600 pairing token file, or - for stdin")
 	resetPairing := flags.Bool("reset-pairing-attempt", false, "Replace a definitively invalid unpaired attempt using a new --pairing-token-file")
 	name := flags.String("name", hostname, "Computer display name")
@@ -100,7 +98,7 @@ func parseConfig(args []string, stderr io.Writer, defaultRoot, hostname string) 
 	}
 	return commandConfig{
 		serverURL: serverEndpoint.Origin, serverEndpoint: serverEndpoint, httpClient: httpClient,
-		dataRoot: layout.Root, configPath: layout.Config, registrationKeyFile: *registrationKeyFile,
+		dataRoot: layout.Root, configPath: layout.Config,
 		pairingTokenFile: *pairingTokenFile, resetPairing: *resetPairing, name: *name, once: *once,
 		external: externalRuntimeConfig{
 			enabled: externalConfigured, driver: *driverKind, executable: *executable,

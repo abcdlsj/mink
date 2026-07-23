@@ -4,21 +4,20 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"embed"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 
+	_ "embed"
 	"github.com/google/uuid"
-	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
 )
 
-//go:embed migrations/*.sql
-var migrations embed.FS
+//go:embed schema.sql
+var schema string
 
-var migrationMutex sync.Mutex
+var schemaMutex sync.Mutex
 
 type Store struct {
 	db                   *sql.DB
@@ -55,7 +54,7 @@ func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error)
 		closeDB(db)
 		return nil, err
 	}
-	if err := migrate(db); err != nil {
+	if err := initializeSchema(context.Background(), db); err != nil {
 		closeDB(db)
 		return nil, err
 	}
@@ -167,15 +166,52 @@ func initializeSQLiteWAL(db *sql.DB) error {
 	return nil
 }
 
-func migrate(db *sql.DB) error {
-	migrationMutex.Lock()
-	defer migrationMutex.Unlock()
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return fmt.Errorf("configure migrations: %w", err)
+func initializeSchema(ctx context.Context, db *sql.DB) error {
+	schemaMutex.Lock()
+	defer schemaMutex.Unlock()
+
+	var objects int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type IN ('table', 'index', 'trigger', 'view')
+		  AND name NOT LIKE 'sqlite_%'
+	`).Scan(&objects); err != nil {
+		return fmt.Errorf("inspect sqlite schema: %w", err)
 	}
-	if err := goose.Up(db, "migrations"); err != nil {
-		return fmt.Errorf("migrate sqlite: %w", err)
+	if objects != 0 {
+		var marker string
+		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "1" {
+			return fmt.Errorf("legacy sqlite schema is unsupported (%d existing objects); initialize a new database", objects)
+		}
+		return validateSchema(ctx, db)
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sqlite schema initialization: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, schema); err != nil {
+		return fmt.Errorf("initialize sqlite schema: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite schema initialization: %w", err)
+	}
+	return nil
+}
+
+func validateSchema(ctx context.Context, db *sql.DB) error {
+	var objects int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table' AND name IN ('system_metadata', 'knowledge_cursor_keys')
+	`).Scan(&objects); err != nil {
+		return fmt.Errorf("inspect sqlite schema: %w", err)
+	}
+	if objects != 2 {
+		return fmt.Errorf("sqlite schema is incomplete")
 	}
 	return nil
 }
