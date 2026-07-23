@@ -32,6 +32,7 @@ type Work struct {
 	OrganizationID       string
 	RootWorkID           string
 	ParentWorkID         string
+	parentWorkIDNull     bool
 	SourceMessageID      string
 	SourceSpaceID        string
 	SourceTarget         MessageTarget
@@ -82,6 +83,7 @@ type WorkCreateParams struct {
 
 type WorkReadParams struct {
 	Actor  Principal
+	Agent  AgentRuntimeAuthentication
 	WorkID string
 	Now    time.Time
 }
@@ -89,6 +91,22 @@ type WorkReadParams struct {
 type ListWorksParams struct {
 	Actor Principal
 	Now   time.Time
+}
+
+// ListWorkPageParams is the bounded, cursor-based read contract used by the
+// public Work API. ListWorks deliberately remains unchanged for existing
+// internal callers.
+type ListWorkPageParams struct {
+	Actor  Principal
+	Agent  AgentRuntimeAuthentication
+	Cursor string
+	Limit  uint32
+	Now    time.Time
+}
+
+type WorkPage struct {
+	Works      []Work
+	NextCursor string
 }
 
 type WorkAssignment struct {
@@ -161,6 +179,18 @@ type WorkApproval struct {
 	DecidedAt        *time.Time
 }
 
+type WorkCriterionResult struct {
+	Sequence       uint64
+	ID             string
+	WorkID         string
+	OrganizationID string
+	CriterionID    string
+	Verdict        string
+	Evidence       string
+	Actor          Principal
+	OccurredAt     time.Time
+}
+
 type WorkEvent struct {
 	Sequence       uint64
 	ID             string
@@ -174,6 +204,14 @@ type WorkEvent struct {
 	ReferenceID    string
 	Reason         string
 	OccurredAt     time.Time
+}
+
+type WorkDetail struct {
+	Work
+	Assignments      []WorkAssignment
+	Approvals        []WorkApproval
+	CriterionResults []WorkCriterionResult
+	Events           []WorkEvent
 }
 
 const (
@@ -259,7 +297,7 @@ func validateWorkCreateParams(params WorkCreateParams) error {
 }
 
 func workSelect() string {
-	return `SELECT id, organization_id, root_work_id, COALESCE(parent_work_id, ''),
+	return `SELECT id, organization_id, root_work_id, parent_work_id,
         source_message_id, source_space_id, source_target_kind, source_target_id,
         source_target_sequence, team_space_id, goal, state, blocking_reason, result,
         creator_kind, creator_id, created_at, updated_at, state_changed_at,
@@ -269,14 +307,17 @@ func workSelect() string {
 func scanWork(row scanner) (Work, error) {
 	var work Work
 	var sourceSequence, created, updated, stateChanged int64
+	var parent sql.NullString
 	var completed, failed, cancelled sql.NullInt64
-	if err := row.Scan(&work.ID, &work.OrganizationID, &work.RootWorkID, &work.ParentWorkID,
+	if err := row.Scan(&work.ID, &work.OrganizationID, &work.RootWorkID, &parent,
 		&work.SourceMessageID, &work.SourceSpaceID, &work.SourceTarget.Kind, &work.SourceTarget.ID,
 		&sourceSequence, &work.TeamSpaceID, &work.Goal, &work.State, &work.BlockingReason, &work.Result,
 		&work.Creator.Kind, &work.Creator.ID, &created, &updated, &stateChanged,
 		&completed, &failed, &cancelled); err != nil {
 		return Work{}, err
 	}
+	work.ParentWorkID = parent.String
+	work.parentWorkIDNull = !parent.Valid
 	work.Creator.OrganizationID = work.OrganizationID
 	work.SourceTargetSequence = uint64(sourceSequence)
 	work.CreatedAt, work.UpdatedAt, work.StateChangedAt = timeFromUnixNano(created), timeFromUnixNano(updated), timeFromUnixNano(stateChanged)
@@ -303,6 +344,11 @@ const (
 	workRowsConstraints = "constraints"
 	workRowsCriteria    = "acceptance_criteria"
 	workRowsCompletion  = "completion_criteria"
+	workRowsAssignments = "assignments"
+	workRowsApprovals   = "approvals"
+	workRowsResults     = "criterion_results"
+	workRowsEvents      = "events"
+	workRowsPage        = "page"
 )
 
 type workRowsErrorContextKey struct{}
