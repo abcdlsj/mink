@@ -432,6 +432,186 @@ func (x *InboxItem) GetSpaceId() string {
 	return ""
 }
 
+type HumanInboxItem struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	WorkId        string                 `protobuf:"bytes,1,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
+	SpaceId       string                 `protobuf:"bytes,2,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	AgentId       string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Kind          string                 `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	ReasonCode    string                 `protobuf:"bytes,6,opt,name=reason_code,json=reasonCode,proto3" json:"reason_code,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HumanInboxItem) Reset() {
+	*x = HumanInboxItem{}
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HumanInboxItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HumanInboxItem) ProtoMessage() {}
+
+func (x *HumanInboxItem) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HumanInboxItem.ProtoReflect.Descriptor instead.
+func (*HumanInboxItem) Descriptor() ([]byte, []int) {
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *HumanInboxItem) GetWorkId() string {
+	if x != nil {
+		return x.WorkId
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetSpaceId() string {
+	if x != nil {
+		return x.SpaceId
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetReasonCode() string {
+	if x != nil {
+		return x.ReasonCode
+	}
+	return ""
+}
+
+func (x *HumanInboxItem) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type ListHumanInboxItemsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Limit         uint32                 `protobuf:"varint,1,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListHumanInboxItemsRequest) Reset() {
+	*x = ListHumanInboxItemsRequest{}
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListHumanInboxItemsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListHumanInboxItemsRequest) ProtoMessage() {}
+
+func (x *ListHumanInboxItemsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListHumanInboxItemsRequest.ProtoReflect.Descriptor instead.
+func (*ListHumanInboxItemsRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListHumanInboxItemsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListHumanInboxItemsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Items         []*HumanInboxItem      `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListHumanInboxItemsResponse) Reset() {
+	*x = ListHumanInboxItemsResponse{}
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListHumanInboxItemsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListHumanInboxItemsResponse) ProtoMessage() {}
+
+func (x *ListHumanInboxItemsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListHumanInboxItemsResponse.ProtoReflect.Descriptor instead.
+func (*ListHumanInboxItemsResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ListHumanInboxItemsResponse) GetItems() []*HumanInboxItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
 type HeldDraft struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	Sequence            uint64                 `protobuf:"varint,1,opt,name=sequence,proto3" json:"sequence,omitempty"`
@@ -458,7 +638,7 @@ type HeldDraft struct {
 
 func (x *HeldDraft) Reset() {
 	*x = HeldDraft{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[1]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -470,7 +650,7 @@ func (x *HeldDraft) String() string {
 func (*HeldDraft) ProtoMessage() {}
 
 func (x *HeldDraft) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[1]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -483,7 +663,7 @@ func (x *HeldDraft) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeldDraft.ProtoReflect.Descriptor instead.
 func (*HeldDraft) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{1}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *HeldDraft) GetSequence() uint64 {
@@ -626,7 +806,7 @@ type GetInboxNoticeRequest struct {
 
 func (x *GetInboxNoticeRequest) Reset() {
 	*x = GetInboxNoticeRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[2]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +818,7 @@ func (x *GetInboxNoticeRequest) String() string {
 func (*GetInboxNoticeRequest) ProtoMessage() {}
 
 func (x *GetInboxNoticeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[2]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +831,7 @@ func (x *GetInboxNoticeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInboxNoticeRequest.ProtoReflect.Descriptor instead.
 func (*GetInboxNoticeRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{2}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{5}
 }
 
 type GetInboxNoticeResponse struct {
@@ -663,7 +843,7 @@ type GetInboxNoticeResponse struct {
 
 func (x *GetInboxNoticeResponse) Reset() {
 	*x = GetInboxNoticeResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[3]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +855,7 @@ func (x *GetInboxNoticeResponse) String() string {
 func (*GetInboxNoticeResponse) ProtoMessage() {}
 
 func (x *GetInboxNoticeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[3]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -688,7 +868,7 @@ func (x *GetInboxNoticeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInboxNoticeResponse.ProtoReflect.Descriptor instead.
 func (*GetInboxNoticeResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{3}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetInboxNoticeResponse) GetHasUnread() bool {
@@ -708,7 +888,7 @@ type ListInboxItemsRequest struct {
 
 func (x *ListInboxItemsRequest) Reset() {
 	*x = ListInboxItemsRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[4]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -720,7 +900,7 @@ func (x *ListInboxItemsRequest) String() string {
 func (*ListInboxItemsRequest) ProtoMessage() {}
 
 func (x *ListInboxItemsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[4]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -733,7 +913,7 @@ func (x *ListInboxItemsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInboxItemsRequest.ProtoReflect.Descriptor instead.
 func (*ListInboxItemsRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{4}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListInboxItemsRequest) GetAfterSequence() uint64 {
@@ -759,7 +939,7 @@ type ListInboxItemsResponse struct {
 
 func (x *ListInboxItemsResponse) Reset() {
 	*x = ListInboxItemsResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[5]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -771,7 +951,7 @@ func (x *ListInboxItemsResponse) String() string {
 func (*ListInboxItemsResponse) ProtoMessage() {}
 
 func (x *ListInboxItemsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[5]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -784,7 +964,7 @@ func (x *ListInboxItemsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListInboxItemsResponse.ProtoReflect.Descriptor instead.
 func (*ListInboxItemsResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{5}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListInboxItemsResponse) GetItems() []*InboxItem {
@@ -804,7 +984,7 @@ type ClaimInboxItemRequest struct {
 
 func (x *ClaimInboxItemRequest) Reset() {
 	*x = ClaimInboxItemRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[6]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -816,7 +996,7 @@ func (x *ClaimInboxItemRequest) String() string {
 func (*ClaimInboxItemRequest) ProtoMessage() {}
 
 func (x *ClaimInboxItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[6]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -829,7 +1009,7 @@ func (x *ClaimInboxItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClaimInboxItemRequest.ProtoReflect.Descriptor instead.
 func (*ClaimInboxItemRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{6}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ClaimInboxItemRequest) GetRequestId() string {
@@ -855,7 +1035,7 @@ type ClaimInboxItemResponse struct {
 
 func (x *ClaimInboxItemResponse) Reset() {
 	*x = ClaimInboxItemResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[7]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +1047,7 @@ func (x *ClaimInboxItemResponse) String() string {
 func (*ClaimInboxItemResponse) ProtoMessage() {}
 
 func (x *ClaimInboxItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[7]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +1060,7 @@ func (x *ClaimInboxItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClaimInboxItemResponse.ProtoReflect.Descriptor instead.
 func (*ClaimInboxItemResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{7}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ClaimInboxItemResponse) GetItem() *InboxItem {
@@ -900,7 +1080,7 @@ type ObserveTargetRequest struct {
 
 func (x *ObserveTargetRequest) Reset() {
 	*x = ObserveTargetRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[8]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -912,7 +1092,7 @@ func (x *ObserveTargetRequest) String() string {
 func (*ObserveTargetRequest) ProtoMessage() {}
 
 func (x *ObserveTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[8]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -925,7 +1105,7 @@ func (x *ObserveTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ObserveTargetRequest.ProtoReflect.Descriptor instead.
 func (*ObserveTargetRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{8}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ObserveTargetRequest) GetTarget() *v1.MessageTarget {
@@ -954,7 +1134,7 @@ type ObserveTargetResponse struct {
 
 func (x *ObserveTargetResponse) Reset() {
 	*x = ObserveTargetResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[9]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -966,7 +1146,7 @@ func (x *ObserveTargetResponse) String() string {
 func (*ObserveTargetResponse) ProtoMessage() {}
 
 func (x *ObserveTargetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[9]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -979,7 +1159,7 @@ func (x *ObserveTargetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ObserveTargetResponse.ProtoReflect.Descriptor instead.
 func (*ObserveTargetResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{9}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ObserveTargetResponse) GetTarget() *v1.MessageTarget {
@@ -1020,7 +1200,7 @@ type CompleteInboxItemRequest struct {
 
 func (x *CompleteInboxItemRequest) Reset() {
 	*x = CompleteInboxItemRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[10]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1032,7 +1212,7 @@ func (x *CompleteInboxItemRequest) String() string {
 func (*CompleteInboxItemRequest) ProtoMessage() {}
 
 func (x *CompleteInboxItemRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[10]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1045,7 +1225,7 @@ func (x *CompleteInboxItemRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteInboxItemRequest.ProtoReflect.Descriptor instead.
 func (*CompleteInboxItemRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{10}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CompleteInboxItemRequest) GetRequestId() string {
@@ -1071,7 +1251,7 @@ type CompleteInboxItemResponse struct {
 
 func (x *CompleteInboxItemResponse) Reset() {
 	*x = CompleteInboxItemResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[11]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1083,7 +1263,7 @@ func (x *CompleteInboxItemResponse) String() string {
 func (*CompleteInboxItemResponse) ProtoMessage() {}
 
 func (x *CompleteInboxItemResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[11]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1096,7 +1276,7 @@ func (x *CompleteInboxItemResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteInboxItemResponse.ProtoReflect.Descriptor instead.
 func (*CompleteInboxItemResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{11}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CompleteInboxItemResponse) GetItem() *InboxItem {
@@ -1117,7 +1297,7 @@ type SetSpaceMuteRequest struct {
 
 func (x *SetSpaceMuteRequest) Reset() {
 	*x = SetSpaceMuteRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[12]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1129,7 +1309,7 @@ func (x *SetSpaceMuteRequest) String() string {
 func (*SetSpaceMuteRequest) ProtoMessage() {}
 
 func (x *SetSpaceMuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[12]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1142,7 +1322,7 @@ func (x *SetSpaceMuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSpaceMuteRequest.ProtoReflect.Descriptor instead.
 func (*SetSpaceMuteRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{12}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *SetSpaceMuteRequest) GetRequestId() string {
@@ -1176,7 +1356,7 @@ type SetSpaceMuteResponse struct {
 
 func (x *SetSpaceMuteResponse) Reset() {
 	*x = SetSpaceMuteResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[13]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1188,7 +1368,7 @@ func (x *SetSpaceMuteResponse) String() string {
 func (*SetSpaceMuteResponse) ProtoMessage() {}
 
 func (x *SetSpaceMuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[13]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1201,7 +1381,7 @@ func (x *SetSpaceMuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSpaceMuteResponse.ProtoReflect.Descriptor instead.
 func (*SetSpaceMuteResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{13}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *SetSpaceMuteResponse) GetMuted() bool {
@@ -1229,7 +1409,7 @@ type SetThreadFollowRequest struct {
 
 func (x *SetThreadFollowRequest) Reset() {
 	*x = SetThreadFollowRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[14]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1241,7 +1421,7 @@ func (x *SetThreadFollowRequest) String() string {
 func (*SetThreadFollowRequest) ProtoMessage() {}
 
 func (x *SetThreadFollowRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[14]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1254,7 +1434,7 @@ func (x *SetThreadFollowRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetThreadFollowRequest.ProtoReflect.Descriptor instead.
 func (*SetThreadFollowRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{14}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *SetThreadFollowRequest) GetRequestId() string {
@@ -1288,7 +1468,7 @@ type SetThreadFollowResponse struct {
 
 func (x *SetThreadFollowResponse) Reset() {
 	*x = SetThreadFollowResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[15]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1300,7 +1480,7 @@ func (x *SetThreadFollowResponse) String() string {
 func (*SetThreadFollowResponse) ProtoMessage() {}
 
 func (x *SetThreadFollowResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[15]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1313,7 +1493,7 @@ func (x *SetThreadFollowResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetThreadFollowResponse.ProtoReflect.Descriptor instead.
 func (*SetThreadFollowResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{15}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *SetThreadFollowResponse) GetFollowed() bool {
@@ -1343,7 +1523,7 @@ type SendInboxReplyRequest struct {
 
 func (x *SendInboxReplyRequest) Reset() {
 	*x = SendInboxReplyRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[16]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1355,7 +1535,7 @@ func (x *SendInboxReplyRequest) String() string {
 func (*SendInboxReplyRequest) ProtoMessage() {}
 
 func (x *SendInboxReplyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[16]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1368,7 +1548,7 @@ func (x *SendInboxReplyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendInboxReplyRequest.ProtoReflect.Descriptor instead.
 func (*SendInboxReplyRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{16}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SendInboxReplyRequest) GetRequestId() string {
@@ -1420,7 +1600,7 @@ type SendInboxReplyResponse struct {
 
 func (x *SendInboxReplyResponse) Reset() {
 	*x = SendInboxReplyResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[17]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1612,7 @@ func (x *SendInboxReplyResponse) String() string {
 func (*SendInboxReplyResponse) ProtoMessage() {}
 
 func (x *SendInboxReplyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[17]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1445,7 +1625,7 @@ func (x *SendInboxReplyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendInboxReplyResponse.ProtoReflect.Descriptor instead.
 func (*SendInboxReplyResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{17}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SendInboxReplyResponse) GetResult() isSendInboxReplyResponse_Result {
@@ -1506,7 +1686,7 @@ type ListHeldDraftsRequest struct {
 
 func (x *ListHeldDraftsRequest) Reset() {
 	*x = ListHeldDraftsRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[18]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1518,7 +1698,7 @@ func (x *ListHeldDraftsRequest) String() string {
 func (*ListHeldDraftsRequest) ProtoMessage() {}
 
 func (x *ListHeldDraftsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[18]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1531,7 +1711,7 @@ func (x *ListHeldDraftsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHeldDraftsRequest.ProtoReflect.Descriptor instead.
 func (*ListHeldDraftsRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{18}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListHeldDraftsRequest) GetAfterSequence() uint64 {
@@ -1558,7 +1738,7 @@ type ListHeldDraftsResponse struct {
 
 func (x *ListHeldDraftsResponse) Reset() {
 	*x = ListHeldDraftsResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[19]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1750,7 @@ func (x *ListHeldDraftsResponse) String() string {
 func (*ListHeldDraftsResponse) ProtoMessage() {}
 
 func (x *ListHeldDraftsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[19]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1763,7 @@ func (x *ListHeldDraftsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListHeldDraftsResponse.ProtoReflect.Descriptor instead.
 func (*ListHeldDraftsResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{19}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListHeldDraftsResponse) GetDrafts() []*HeldDraft {
@@ -1613,7 +1793,7 @@ type ResolveHeldDraftRequest struct {
 
 func (x *ResolveHeldDraftRequest) Reset() {
 	*x = ResolveHeldDraftRequest{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[20]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1625,7 +1805,7 @@ func (x *ResolveHeldDraftRequest) String() string {
 func (*ResolveHeldDraftRequest) ProtoMessage() {}
 
 func (x *ResolveHeldDraftRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[20]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1638,7 +1818,7 @@ func (x *ResolveHeldDraftRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveHeldDraftRequest.ProtoReflect.Descriptor instead.
 func (*ResolveHeldDraftRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{20}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ResolveHeldDraftRequest) GetRequestId() string {
@@ -1692,7 +1872,7 @@ type ResolveHeldDraftResponse struct {
 
 func (x *ResolveHeldDraftResponse) Reset() {
 	*x = ResolveHeldDraftResponse{}
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[21]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1704,7 +1884,7 @@ func (x *ResolveHeldDraftResponse) String() string {
 func (*ResolveHeldDraftResponse) ProtoMessage() {}
 
 func (x *ResolveHeldDraftResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[21]
+	mi := &file_sumi_inbox_v1_inbox_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1717,7 +1897,7 @@ func (x *ResolveHeldDraftResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveHeldDraftResponse.ProtoReflect.Descriptor instead.
 func (*ResolveHeldDraftResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{21}
+	return file_sumi_inbox_v1_inbox_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ResolveHeldDraftResponse) GetAction() DraftResolutionAction {
@@ -1805,7 +1985,21 @@ const file_sumi_inbox_v1_inbox_proto_rawDesc = "" +
 	"completion\x129\n" +
 	"\n" +
 	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x19\n" +
-	"\bspace_id\x18\r \x01(\tR\aspaceId\"\xc3\x05\n" +
+	"\bspace_id\x18\r \x01(\tR\aspaceId\"\xe7\x01\n" +
+	"\x0eHumanInboxItem\x12\x17\n" +
+	"\awork_id\x18\x01 \x01(\tR\x06workId\x12\x19\n" +
+	"\bspace_id\x18\x02 \x01(\tR\aspaceId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1f\n" +
+	"\vreason_code\x18\x06 \x01(\tR\n" +
+	"reasonCode\x129\n" +
+	"\n" +
+	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"2\n" +
+	"\x1aListHumanInboxItemsRequest\x12\x14\n" +
+	"\x05limit\x18\x01 \x01(\rR\x05limit\"R\n" +
+	"\x1bListHumanInboxItemsResponse\x123\n" +
+	"\x05items\x18\x01 \x03(\v2\x1d.sumi.inbox.v1.HumanInboxItemR\x05items\"\xc3\x05\n" +
 	"\tHeldDraft\x12\x1a\n" +
 	"\bsequence\x18\x01 \x01(\x04R\bsequence\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\"\n" +
@@ -1946,7 +2140,9 @@ const file_sumi_inbox_v1_inbox_proto_rawDesc = "" +
 	"\x0fSetThreadFollow\x12%.sumi.inbox.v1.SetThreadFollowRequest\x1a&.sumi.inbox.v1.SetThreadFollowResponse\x12]\n" +
 	"\x0eSendInboxReply\x12$.sumi.inbox.v1.SendInboxReplyRequest\x1a%.sumi.inbox.v1.SendInboxReplyResponse\x12]\n" +
 	"\x0eListHeldDrafts\x12$.sumi.inbox.v1.ListHeldDraftsRequest\x1a%.sumi.inbox.v1.ListHeldDraftsResponse\x12c\n" +
-	"\x10ResolveHeldDraft\x12&.sumi.inbox.v1.ResolveHeldDraftRequest\x1a'.sumi.inbox.v1.ResolveHeldDraftResponseB6Z4github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1;inboxv1b\x06proto3"
+	"\x10ResolveHeldDraft\x12&.sumi.inbox.v1.ResolveHeldDraftRequest\x1a'.sumi.inbox.v1.ResolveHeldDraftResponse2\x81\x01\n" +
+	"\x11HumanInboxService\x12l\n" +
+	"\x13ListHumanInboxItems\x12).sumi.inbox.v1.ListHumanInboxItemsRequest\x1a*.sumi.inbox.v1.ListHumanInboxItemsResponseB6Z4github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1;inboxv1b\x06proto3"
 
 var (
 	file_sumi_inbox_v1_inbox_proto_rawDescOnce sync.Once
@@ -1961,97 +2157,104 @@ func file_sumi_inbox_v1_inbox_proto_rawDescGZIP() []byte {
 }
 
 var file_sumi_inbox_v1_inbox_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_sumi_inbox_v1_inbox_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_sumi_inbox_v1_inbox_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_sumi_inbox_v1_inbox_proto_goTypes = []any{
-	(InboxReason)(0),                  // 0: sumi.inbox.v1.InboxReason
-	(InboxState)(0),                   // 1: sumi.inbox.v1.InboxState
-	(InboxCompletion)(0),              // 2: sumi.inbox.v1.InboxCompletion
-	(HeldDraftState)(0),               // 3: sumi.inbox.v1.HeldDraftState
-	(DraftResolutionAction)(0),        // 4: sumi.inbox.v1.DraftResolutionAction
-	(*InboxItem)(nil),                 // 5: sumi.inbox.v1.InboxItem
-	(*HeldDraft)(nil),                 // 6: sumi.inbox.v1.HeldDraft
-	(*GetInboxNoticeRequest)(nil),     // 7: sumi.inbox.v1.GetInboxNoticeRequest
-	(*GetInboxNoticeResponse)(nil),    // 8: sumi.inbox.v1.GetInboxNoticeResponse
-	(*ListInboxItemsRequest)(nil),     // 9: sumi.inbox.v1.ListInboxItemsRequest
-	(*ListInboxItemsResponse)(nil),    // 10: sumi.inbox.v1.ListInboxItemsResponse
-	(*ClaimInboxItemRequest)(nil),     // 11: sumi.inbox.v1.ClaimInboxItemRequest
-	(*ClaimInboxItemResponse)(nil),    // 12: sumi.inbox.v1.ClaimInboxItemResponse
-	(*ObserveTargetRequest)(nil),      // 13: sumi.inbox.v1.ObserveTargetRequest
-	(*ObserveTargetResponse)(nil),     // 14: sumi.inbox.v1.ObserveTargetResponse
-	(*CompleteInboxItemRequest)(nil),  // 15: sumi.inbox.v1.CompleteInboxItemRequest
-	(*CompleteInboxItemResponse)(nil), // 16: sumi.inbox.v1.CompleteInboxItemResponse
-	(*SetSpaceMuteRequest)(nil),       // 17: sumi.inbox.v1.SetSpaceMuteRequest
-	(*SetSpaceMuteResponse)(nil),      // 18: sumi.inbox.v1.SetSpaceMuteResponse
-	(*SetThreadFollowRequest)(nil),    // 19: sumi.inbox.v1.SetThreadFollowRequest
-	(*SetThreadFollowResponse)(nil),   // 20: sumi.inbox.v1.SetThreadFollowResponse
-	(*SendInboxReplyRequest)(nil),     // 21: sumi.inbox.v1.SendInboxReplyRequest
-	(*SendInboxReplyResponse)(nil),    // 22: sumi.inbox.v1.SendInboxReplyResponse
-	(*ListHeldDraftsRequest)(nil),     // 23: sumi.inbox.v1.ListHeldDraftsRequest
-	(*ListHeldDraftsResponse)(nil),    // 24: sumi.inbox.v1.ListHeldDraftsResponse
-	(*ResolveHeldDraftRequest)(nil),   // 25: sumi.inbox.v1.ResolveHeldDraftRequest
-	(*ResolveHeldDraftResponse)(nil),  // 26: sumi.inbox.v1.ResolveHeldDraftResponse
-	(*v1.MessageTarget)(nil),          // 27: sumi.space.v1.MessageTarget
-	(*timestamppb.Timestamp)(nil),     // 28: google.protobuf.Timestamp
-	(*v1.Message)(nil),                // 29: sumi.space.v1.Message
+	(InboxReason)(0),                    // 0: sumi.inbox.v1.InboxReason
+	(InboxState)(0),                     // 1: sumi.inbox.v1.InboxState
+	(InboxCompletion)(0),                // 2: sumi.inbox.v1.InboxCompletion
+	(HeldDraftState)(0),                 // 3: sumi.inbox.v1.HeldDraftState
+	(DraftResolutionAction)(0),          // 4: sumi.inbox.v1.DraftResolutionAction
+	(*InboxItem)(nil),                   // 5: sumi.inbox.v1.InboxItem
+	(*HumanInboxItem)(nil),              // 6: sumi.inbox.v1.HumanInboxItem
+	(*ListHumanInboxItemsRequest)(nil),  // 7: sumi.inbox.v1.ListHumanInboxItemsRequest
+	(*ListHumanInboxItemsResponse)(nil), // 8: sumi.inbox.v1.ListHumanInboxItemsResponse
+	(*HeldDraft)(nil),                   // 9: sumi.inbox.v1.HeldDraft
+	(*GetInboxNoticeRequest)(nil),       // 10: sumi.inbox.v1.GetInboxNoticeRequest
+	(*GetInboxNoticeResponse)(nil),      // 11: sumi.inbox.v1.GetInboxNoticeResponse
+	(*ListInboxItemsRequest)(nil),       // 12: sumi.inbox.v1.ListInboxItemsRequest
+	(*ListInboxItemsResponse)(nil),      // 13: sumi.inbox.v1.ListInboxItemsResponse
+	(*ClaimInboxItemRequest)(nil),       // 14: sumi.inbox.v1.ClaimInboxItemRequest
+	(*ClaimInboxItemResponse)(nil),      // 15: sumi.inbox.v1.ClaimInboxItemResponse
+	(*ObserveTargetRequest)(nil),        // 16: sumi.inbox.v1.ObserveTargetRequest
+	(*ObserveTargetResponse)(nil),       // 17: sumi.inbox.v1.ObserveTargetResponse
+	(*CompleteInboxItemRequest)(nil),    // 18: sumi.inbox.v1.CompleteInboxItemRequest
+	(*CompleteInboxItemResponse)(nil),   // 19: sumi.inbox.v1.CompleteInboxItemResponse
+	(*SetSpaceMuteRequest)(nil),         // 20: sumi.inbox.v1.SetSpaceMuteRequest
+	(*SetSpaceMuteResponse)(nil),        // 21: sumi.inbox.v1.SetSpaceMuteResponse
+	(*SetThreadFollowRequest)(nil),      // 22: sumi.inbox.v1.SetThreadFollowRequest
+	(*SetThreadFollowResponse)(nil),     // 23: sumi.inbox.v1.SetThreadFollowResponse
+	(*SendInboxReplyRequest)(nil),       // 24: sumi.inbox.v1.SendInboxReplyRequest
+	(*SendInboxReplyResponse)(nil),      // 25: sumi.inbox.v1.SendInboxReplyResponse
+	(*ListHeldDraftsRequest)(nil),       // 26: sumi.inbox.v1.ListHeldDraftsRequest
+	(*ListHeldDraftsResponse)(nil),      // 27: sumi.inbox.v1.ListHeldDraftsResponse
+	(*ResolveHeldDraftRequest)(nil),     // 28: sumi.inbox.v1.ResolveHeldDraftRequest
+	(*ResolveHeldDraftResponse)(nil),    // 29: sumi.inbox.v1.ResolveHeldDraftResponse
+	(*v1.MessageTarget)(nil),            // 30: sumi.space.v1.MessageTarget
+	(*timestamppb.Timestamp)(nil),       // 31: google.protobuf.Timestamp
+	(*v1.Message)(nil),                  // 32: sumi.space.v1.Message
 }
 var file_sumi_inbox_v1_inbox_proto_depIdxs = []int32{
-	27, // 0: sumi.inbox.v1.InboxItem.target:type_name -> sumi.space.v1.MessageTarget
+	30, // 0: sumi.inbox.v1.InboxItem.target:type_name -> sumi.space.v1.MessageTarget
 	0,  // 1: sumi.inbox.v1.InboxItem.reason:type_name -> sumi.inbox.v1.InboxReason
 	1,  // 2: sumi.inbox.v1.InboxItem.state:type_name -> sumi.inbox.v1.InboxState
-	28, // 3: sumi.inbox.v1.InboxItem.claimed_at:type_name -> google.protobuf.Timestamp
-	28, // 4: sumi.inbox.v1.InboxItem.done_at:type_name -> google.protobuf.Timestamp
+	31, // 3: sumi.inbox.v1.InboxItem.claimed_at:type_name -> google.protobuf.Timestamp
+	31, // 4: sumi.inbox.v1.InboxItem.done_at:type_name -> google.protobuf.Timestamp
 	2,  // 5: sumi.inbox.v1.InboxItem.completion:type_name -> sumi.inbox.v1.InboxCompletion
-	28, // 6: sumi.inbox.v1.InboxItem.created_at:type_name -> google.protobuf.Timestamp
-	27, // 7: sumi.inbox.v1.HeldDraft.target:type_name -> sumi.space.v1.MessageTarget
-	3,  // 8: sumi.inbox.v1.HeldDraft.state:type_name -> sumi.inbox.v1.HeldDraftState
-	4,  // 9: sumi.inbox.v1.HeldDraft.resolution_action:type_name -> sumi.inbox.v1.DraftResolutionAction
-	28, // 10: sumi.inbox.v1.HeldDraft.created_at:type_name -> google.protobuf.Timestamp
-	28, // 11: sumi.inbox.v1.HeldDraft.updated_at:type_name -> google.protobuf.Timestamp
-	5,  // 12: sumi.inbox.v1.ListInboxItemsResponse.items:type_name -> sumi.inbox.v1.InboxItem
-	5,  // 13: sumi.inbox.v1.ClaimInboxItemResponse.item:type_name -> sumi.inbox.v1.InboxItem
-	27, // 14: sumi.inbox.v1.ObserveTargetRequest.target:type_name -> sumi.space.v1.MessageTarget
-	27, // 15: sumi.inbox.v1.ObserveTargetResponse.target:type_name -> sumi.space.v1.MessageTarget
-	29, // 16: sumi.inbox.v1.ObserveTargetResponse.messages:type_name -> sumi.space.v1.Message
-	28, // 17: sumi.inbox.v1.ObserveTargetResponse.observed_at:type_name -> google.protobuf.Timestamp
-	5,  // 18: sumi.inbox.v1.CompleteInboxItemResponse.item:type_name -> sumi.inbox.v1.InboxItem
-	28, // 19: sumi.inbox.v1.SetSpaceMuteResponse.committed_at:type_name -> google.protobuf.Timestamp
-	28, // 20: sumi.inbox.v1.SetThreadFollowResponse.committed_at:type_name -> google.protobuf.Timestamp
-	29, // 21: sumi.inbox.v1.SendInboxReplyResponse.message:type_name -> sumi.space.v1.Message
-	6,  // 22: sumi.inbox.v1.SendInboxReplyResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
-	28, // 23: sumi.inbox.v1.SendInboxReplyResponse.committed_at:type_name -> google.protobuf.Timestamp
-	6,  // 24: sumi.inbox.v1.ListHeldDraftsResponse.drafts:type_name -> sumi.inbox.v1.HeldDraft
-	4,  // 25: sumi.inbox.v1.ResolveHeldDraftRequest.action:type_name -> sumi.inbox.v1.DraftResolutionAction
-	27, // 26: sumi.inbox.v1.ResolveHeldDraftRequest.target:type_name -> sumi.space.v1.MessageTarget
-	4,  // 27: sumi.inbox.v1.ResolveHeldDraftResponse.action:type_name -> sumi.inbox.v1.DraftResolutionAction
-	29, // 28: sumi.inbox.v1.ResolveHeldDraftResponse.message:type_name -> sumi.space.v1.Message
-	6,  // 29: sumi.inbox.v1.ResolveHeldDraftResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
-	5,  // 30: sumi.inbox.v1.ResolveHeldDraftResponse.item:type_name -> sumi.inbox.v1.InboxItem
-	28, // 31: sumi.inbox.v1.ResolveHeldDraftResponse.committed_at:type_name -> google.protobuf.Timestamp
-	7,  // 32: sumi.inbox.v1.InboxService.GetInboxNotice:input_type -> sumi.inbox.v1.GetInboxNoticeRequest
-	9,  // 33: sumi.inbox.v1.InboxService.ListInboxItems:input_type -> sumi.inbox.v1.ListInboxItemsRequest
-	11, // 34: sumi.inbox.v1.InboxService.ClaimInboxItem:input_type -> sumi.inbox.v1.ClaimInboxItemRequest
-	13, // 35: sumi.inbox.v1.InboxService.ObserveTarget:input_type -> sumi.inbox.v1.ObserveTargetRequest
-	15, // 36: sumi.inbox.v1.InboxService.CompleteInboxItem:input_type -> sumi.inbox.v1.CompleteInboxItemRequest
-	17, // 37: sumi.inbox.v1.InboxService.SetSpaceMute:input_type -> sumi.inbox.v1.SetSpaceMuteRequest
-	19, // 38: sumi.inbox.v1.InboxService.SetThreadFollow:input_type -> sumi.inbox.v1.SetThreadFollowRequest
-	21, // 39: sumi.inbox.v1.InboxService.SendInboxReply:input_type -> sumi.inbox.v1.SendInboxReplyRequest
-	23, // 40: sumi.inbox.v1.InboxService.ListHeldDrafts:input_type -> sumi.inbox.v1.ListHeldDraftsRequest
-	25, // 41: sumi.inbox.v1.InboxService.ResolveHeldDraft:input_type -> sumi.inbox.v1.ResolveHeldDraftRequest
-	8,  // 42: sumi.inbox.v1.InboxService.GetInboxNotice:output_type -> sumi.inbox.v1.GetInboxNoticeResponse
-	10, // 43: sumi.inbox.v1.InboxService.ListInboxItems:output_type -> sumi.inbox.v1.ListInboxItemsResponse
-	12, // 44: sumi.inbox.v1.InboxService.ClaimInboxItem:output_type -> sumi.inbox.v1.ClaimInboxItemResponse
-	14, // 45: sumi.inbox.v1.InboxService.ObserveTarget:output_type -> sumi.inbox.v1.ObserveTargetResponse
-	16, // 46: sumi.inbox.v1.InboxService.CompleteInboxItem:output_type -> sumi.inbox.v1.CompleteInboxItemResponse
-	18, // 47: sumi.inbox.v1.InboxService.SetSpaceMute:output_type -> sumi.inbox.v1.SetSpaceMuteResponse
-	20, // 48: sumi.inbox.v1.InboxService.SetThreadFollow:output_type -> sumi.inbox.v1.SetThreadFollowResponse
-	22, // 49: sumi.inbox.v1.InboxService.SendInboxReply:output_type -> sumi.inbox.v1.SendInboxReplyResponse
-	24, // 50: sumi.inbox.v1.InboxService.ListHeldDrafts:output_type -> sumi.inbox.v1.ListHeldDraftsResponse
-	26, // 51: sumi.inbox.v1.InboxService.ResolveHeldDraft:output_type -> sumi.inbox.v1.ResolveHeldDraftResponse
-	42, // [42:52] is the sub-list for method output_type
-	32, // [32:42] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	31, // 6: sumi.inbox.v1.InboxItem.created_at:type_name -> google.protobuf.Timestamp
+	31, // 7: sumi.inbox.v1.HumanInboxItem.updated_at:type_name -> google.protobuf.Timestamp
+	6,  // 8: sumi.inbox.v1.ListHumanInboxItemsResponse.items:type_name -> sumi.inbox.v1.HumanInboxItem
+	30, // 9: sumi.inbox.v1.HeldDraft.target:type_name -> sumi.space.v1.MessageTarget
+	3,  // 10: sumi.inbox.v1.HeldDraft.state:type_name -> sumi.inbox.v1.HeldDraftState
+	4,  // 11: sumi.inbox.v1.HeldDraft.resolution_action:type_name -> sumi.inbox.v1.DraftResolutionAction
+	31, // 12: sumi.inbox.v1.HeldDraft.created_at:type_name -> google.protobuf.Timestamp
+	31, // 13: sumi.inbox.v1.HeldDraft.updated_at:type_name -> google.protobuf.Timestamp
+	5,  // 14: sumi.inbox.v1.ListInboxItemsResponse.items:type_name -> sumi.inbox.v1.InboxItem
+	5,  // 15: sumi.inbox.v1.ClaimInboxItemResponse.item:type_name -> sumi.inbox.v1.InboxItem
+	30, // 16: sumi.inbox.v1.ObserveTargetRequest.target:type_name -> sumi.space.v1.MessageTarget
+	30, // 17: sumi.inbox.v1.ObserveTargetResponse.target:type_name -> sumi.space.v1.MessageTarget
+	32, // 18: sumi.inbox.v1.ObserveTargetResponse.messages:type_name -> sumi.space.v1.Message
+	31, // 19: sumi.inbox.v1.ObserveTargetResponse.observed_at:type_name -> google.protobuf.Timestamp
+	5,  // 20: sumi.inbox.v1.CompleteInboxItemResponse.item:type_name -> sumi.inbox.v1.InboxItem
+	31, // 21: sumi.inbox.v1.SetSpaceMuteResponse.committed_at:type_name -> google.protobuf.Timestamp
+	31, // 22: sumi.inbox.v1.SetThreadFollowResponse.committed_at:type_name -> google.protobuf.Timestamp
+	32, // 23: sumi.inbox.v1.SendInboxReplyResponse.message:type_name -> sumi.space.v1.Message
+	9,  // 24: sumi.inbox.v1.SendInboxReplyResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
+	31, // 25: sumi.inbox.v1.SendInboxReplyResponse.committed_at:type_name -> google.protobuf.Timestamp
+	9,  // 26: sumi.inbox.v1.ListHeldDraftsResponse.drafts:type_name -> sumi.inbox.v1.HeldDraft
+	4,  // 27: sumi.inbox.v1.ResolveHeldDraftRequest.action:type_name -> sumi.inbox.v1.DraftResolutionAction
+	30, // 28: sumi.inbox.v1.ResolveHeldDraftRequest.target:type_name -> sumi.space.v1.MessageTarget
+	4,  // 29: sumi.inbox.v1.ResolveHeldDraftResponse.action:type_name -> sumi.inbox.v1.DraftResolutionAction
+	32, // 30: sumi.inbox.v1.ResolveHeldDraftResponse.message:type_name -> sumi.space.v1.Message
+	9,  // 31: sumi.inbox.v1.ResolveHeldDraftResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
+	5,  // 32: sumi.inbox.v1.ResolveHeldDraftResponse.item:type_name -> sumi.inbox.v1.InboxItem
+	31, // 33: sumi.inbox.v1.ResolveHeldDraftResponse.committed_at:type_name -> google.protobuf.Timestamp
+	10, // 34: sumi.inbox.v1.InboxService.GetInboxNotice:input_type -> sumi.inbox.v1.GetInboxNoticeRequest
+	12, // 35: sumi.inbox.v1.InboxService.ListInboxItems:input_type -> sumi.inbox.v1.ListInboxItemsRequest
+	14, // 36: sumi.inbox.v1.InboxService.ClaimInboxItem:input_type -> sumi.inbox.v1.ClaimInboxItemRequest
+	16, // 37: sumi.inbox.v1.InboxService.ObserveTarget:input_type -> sumi.inbox.v1.ObserveTargetRequest
+	18, // 38: sumi.inbox.v1.InboxService.CompleteInboxItem:input_type -> sumi.inbox.v1.CompleteInboxItemRequest
+	20, // 39: sumi.inbox.v1.InboxService.SetSpaceMute:input_type -> sumi.inbox.v1.SetSpaceMuteRequest
+	22, // 40: sumi.inbox.v1.InboxService.SetThreadFollow:input_type -> sumi.inbox.v1.SetThreadFollowRequest
+	24, // 41: sumi.inbox.v1.InboxService.SendInboxReply:input_type -> sumi.inbox.v1.SendInboxReplyRequest
+	26, // 42: sumi.inbox.v1.InboxService.ListHeldDrafts:input_type -> sumi.inbox.v1.ListHeldDraftsRequest
+	28, // 43: sumi.inbox.v1.InboxService.ResolveHeldDraft:input_type -> sumi.inbox.v1.ResolveHeldDraftRequest
+	7,  // 44: sumi.inbox.v1.HumanInboxService.ListHumanInboxItems:input_type -> sumi.inbox.v1.ListHumanInboxItemsRequest
+	11, // 45: sumi.inbox.v1.InboxService.GetInboxNotice:output_type -> sumi.inbox.v1.GetInboxNoticeResponse
+	13, // 46: sumi.inbox.v1.InboxService.ListInboxItems:output_type -> sumi.inbox.v1.ListInboxItemsResponse
+	15, // 47: sumi.inbox.v1.InboxService.ClaimInboxItem:output_type -> sumi.inbox.v1.ClaimInboxItemResponse
+	17, // 48: sumi.inbox.v1.InboxService.ObserveTarget:output_type -> sumi.inbox.v1.ObserveTargetResponse
+	19, // 49: sumi.inbox.v1.InboxService.CompleteInboxItem:output_type -> sumi.inbox.v1.CompleteInboxItemResponse
+	21, // 50: sumi.inbox.v1.InboxService.SetSpaceMute:output_type -> sumi.inbox.v1.SetSpaceMuteResponse
+	23, // 51: sumi.inbox.v1.InboxService.SetThreadFollow:output_type -> sumi.inbox.v1.SetThreadFollowResponse
+	25, // 52: sumi.inbox.v1.InboxService.SendInboxReply:output_type -> sumi.inbox.v1.SendInboxReplyResponse
+	27, // 53: sumi.inbox.v1.InboxService.ListHeldDrafts:output_type -> sumi.inbox.v1.ListHeldDraftsResponse
+	29, // 54: sumi.inbox.v1.InboxService.ResolveHeldDraft:output_type -> sumi.inbox.v1.ResolveHeldDraftResponse
+	8,  // 55: sumi.inbox.v1.HumanInboxService.ListHumanInboxItems:output_type -> sumi.inbox.v1.ListHumanInboxItemsResponse
+	45, // [45:56] is the sub-list for method output_type
+	34, // [34:45] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_sumi_inbox_v1_inbox_proto_init() }
@@ -2059,15 +2262,15 @@ func file_sumi_inbox_v1_inbox_proto_init() {
 	if File_sumi_inbox_v1_inbox_proto != nil {
 		return
 	}
-	file_sumi_inbox_v1_inbox_proto_msgTypes[1].OneofWrappers = []any{
+	file_sumi_inbox_v1_inbox_proto_msgTypes[4].OneofWrappers = []any{
 		(*HeldDraft_ResultMessageId)(nil),
 		(*HeldDraft_ResultHeldDraftId)(nil),
 	}
-	file_sumi_inbox_v1_inbox_proto_msgTypes[17].OneofWrappers = []any{
+	file_sumi_inbox_v1_inbox_proto_msgTypes[20].OneofWrappers = []any{
 		(*SendInboxReplyResponse_Message)(nil),
 		(*SendInboxReplyResponse_HeldDraft)(nil),
 	}
-	file_sumi_inbox_v1_inbox_proto_msgTypes[21].OneofWrappers = []any{
+	file_sumi_inbox_v1_inbox_proto_msgTypes[24].OneofWrappers = []any{
 		(*ResolveHeldDraftResponse_Message)(nil),
 		(*ResolveHeldDraftResponse_HeldDraft)(nil),
 	}
@@ -2077,9 +2280,9 @@ func file_sumi_inbox_v1_inbox_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_inbox_v1_inbox_proto_rawDesc), len(file_sumi_inbox_v1_inbox_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   22,
+			NumMessages:   25,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_sumi_inbox_v1_inbox_proto_goTypes,
 		DependencyIndexes: file_sumi_inbox_v1_inbox_proto_depIdxs,

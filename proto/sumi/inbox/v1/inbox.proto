@@ -20,6 +20,12 @@ service InboxService {
   rpc ResolveHeldDraft(ResolveHeldDraftRequest) returns (ResolveHeldDraftResponse);
 }
 
+// HumanInboxService is a browser-only, read-only projection. It intentionally
+// does not share the Agent runtime mutation surface of InboxService.
+service HumanInboxService {
+  rpc ListHumanInboxItems(ListHumanInboxItemsRequest) returns (ListHumanInboxItemsResponse);
+}
+
 enum InboxReason {
   INBOX_REASON_UNSPECIFIED = 0;
   INBOX_REASON_DM = 1;
@@ -72,6 +78,24 @@ message InboxItem {
   InboxCompletion completion = 11;
   google.protobuf.Timestamp created_at = 12;
   string space_id = 13;
+}
+
+message HumanInboxItem {
+  string work_id = 1;
+  string space_id = 2;
+  string agent_id = 3;
+  string kind = 4;
+  string status = 5;
+  string reason_code = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message ListHumanInboxItemsRequest {
+  uint32 limit = 1;
+}
+
+message ListHumanInboxItemsResponse {
+  repeated HumanInboxItem items = 1;
 }
 
 message HeldDraft {

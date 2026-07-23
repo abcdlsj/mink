@@ -1,7 +1,5 @@
 import { useState } from "react";
 import {
-  Archive,
-  FileStack,
   LogOut,
   MessageSquare,
   PanelLeftOpen,
@@ -21,26 +19,15 @@ import type { useSpaces } from "../hooks/useSpaces";
 import type { Message, Space } from "../gen/sumi/space/v1/space_pb";
 import { ConversationTimeline } from "./ConversationTimeline";
 import { MessageComposer } from "./MessageComposer";
+import { WorkInbox } from "./WorkInbox";
+import { ArtifactWorkspace } from "./ArtifactWorkspace";
+import { AuthorityWorkspace } from "./AuthorityWorkspace";
 
-type View = "chat" | "work" | "artifacts";
+type View = "chat" | "work" | "artifacts" | "authority";
 type Bootstrap = ReturnType<typeof useBootstrap>;
 type Session = ReturnType<typeof useSession>;
 type Spaces = ReturnType<typeof useSpaces>;
 type Conversation = ReturnType<typeof useConversation>;
-
-const viewCopy: Record<
-  Exclude<View, "chat">,
-  { title: string; detail: string }
-> = {
-  work: {
-    title: "No work in this Space",
-    detail: "Work begins only after an explicit commitment.",
-  },
-  artifacts: {
-    title: "No artifacts published",
-    detail: "Versioned results will remain linked to their source work.",
-  },
-};
 
 export function ConversationWorkspace({
   bootstrap,
@@ -156,7 +143,7 @@ export function ConversationWorkspace({
       </header>
 
       <div className="tab-strip" role="tablist" aria-label="Conversation views">
-        {(["chat", "work", "artifacts"] as const).map((item) => (
+        {(["chat", "work", "artifacts", "authority"] as const).map((item) => (
           <button
             className={view === item ? "selected" : ""}
             type="button"
@@ -325,18 +312,9 @@ function renderContent({
     );
   }
   if (view !== "chat") {
-    const empty = viewCopy[view];
-    return (
-      <div className="timeline">
-        <div className="empty-state">
-          <span className="empty-icon">
-            {view === "work" ? <Archive size={30} /> : <FileStack size={30} />}
-          </span>
-          <h2>{empty.title}</h2>
-          <p>{empty.detail}</p>
-        </div>
-      </div>
-    );
+    if (view === "work") return <WorkInbox />;
+    if (view === "artifacts") return <ArtifactWorkspace />;
+    if (view === "authority") return <AuthorityWorkspace />;
   }
   const state = conversation.conversation;
   if (!state.data && state.status === "loading") {

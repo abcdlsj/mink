@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/inbox/v1/inbox.proto.
  */
 export const file_sumi_inbox_v1_inbox: GenFile = /*@__PURE__*/
-  fileDesc("ChlzdW1pL2luYm94L3YxL2luYm94LnByb3RvEg1zdW1pLmluYm94LnYxIs8DCglJbmJveEl0ZW0SEAoIc2VxdWVuY2UYASABKAQSCgoCaWQYAiABKAkSEAoIYWdlbnRfaWQYAyABKAkSLAoGdGFyZ2V0GAQgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0EhoKEnRyaWdnZXJfbWVzc2FnZV9pZBgFIAEoCRIfChd0cmlnZ2VyX3RhcmdldF9zZXF1ZW5jZRgGIAEoBBIqCgZyZWFzb24YByABKA4yGi5zdW1pLmluYm94LnYxLkluYm94UmVhc29uEigKBXN0YXRlGAggASgOMhkuc3VtaS5pbmJveC52MS5JbmJveFN0YXRlEi4KCmNsYWltZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB2RvbmVfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKCmNvbXBsZXRpb24YCyABKA4yHi5zdW1pLmluYm94LnYxLkluYm94Q29tcGxldGlvbhIuCgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghzcGFjZV9pZBgNIAEoCSKCBAoJSGVsZERyYWZ0EhAKCHNlcXVlbmNlGAEgASgEEgoKAmlkGAIgASgJEhUKDWluYm94X2l0ZW1faWQYAyABKAkSHAoUcHJlZGVjZXNzb3JfZHJhZnRfaWQYBCABKAkSLAoGdGFyZ2V0GAUgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0Eh0KFWJhc2lzX3RhcmdldF9zZXF1ZW5jZRgGIAEoBBIMCgRib2R5GAcgASgJEhsKE21lbnRpb25lZF9hZ2VudF9pZHMYCCADKAkSLAoFc3RhdGUYCSABKA4yHS5zdW1pLmluYm94LnYxLkhlbGREcmFmdFN0YXRlEj8KEXJlc29sdXRpb25fYWN0aW9uGAogASgOMiQuc3VtaS5pbmJveC52MS5EcmFmdFJlc29sdXRpb25BY3Rpb24SGwoRcmVzdWx0X21lc3NhZ2VfaWQYCyABKAlIABIeChRyZXN1bHRfaGVsZF9kcmFmdF9pZBgMIAEoCUgAEi4KCmNyZWF0ZWRfYXQYDSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYDiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCHNwYWNlX2lkGA8gASgJQgwKCnJlc3VsdF9yZWYiFwoVR2V0SW5ib3hOb3RpY2VSZXF1ZXN0IiwKFkdldEluYm94Tm90aWNlUmVzcG9uc2USEgoKaGFzX3VucmVhZBgBIAEoCCI+ChVMaXN0SW5ib3hJdGVtc1JlcXVlc3QSFgoOYWZ0ZXJfc2VxdWVuY2UYASABKAQSDQoFbGltaXQYAiABKA0iQQoWTGlzdEluYm94SXRlbXNSZXNwb25zZRInCgVpdGVtcxgBIAMoCzIYLnN1bWkuaW5ib3gudjEuSW5ib3hJdGVtIkIKFUNsYWltSW5ib3hJdGVtUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhUKDWluYm94X2l0ZW1faWQYAiABKAkiQAoWQ2xhaW1JbmJveEl0ZW1SZXNwb25zZRImCgRpdGVtGAEgASgLMhguc3VtaS5pbmJveC52MS5JbmJveEl0ZW0iUwoUT2JzZXJ2ZVRhcmdldFJlcXVlc3QSLAoGdGFyZ2V0GAEgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0Eg0KBWxpbWl0GAIgASgNIrcBChVPYnNlcnZlVGFyZ2V0UmVzcG9uc2USLAoGdGFyZ2V0GAEgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0EhUKDWhlYWRfc2VxdWVuY2UYAiABKAQSKAoIbWVzc2FnZXMYAyADKAsyFi5zdW1pLnNwYWNlLnYxLk1lc3NhZ2USLwoLb2JzZXJ2ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIkUKGENvbXBsZXRlSW5ib3hJdGVtUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhUKDWluYm94X2l0ZW1faWQYAiABKAkiQwoZQ29tcGxldGVJbmJveEl0ZW1SZXNwb25zZRImCgRpdGVtGAEgASgLMhguc3VtaS5pbmJveC52MS5JbmJveEl0ZW0iSgoTU2V0U3BhY2VNdXRlUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhAKCHNwYWNlX2lkGAIgASgJEg0KBW11dGVkGAMgASgIIlcKFFNldFNwYWNlTXV0ZVJlc3BvbnNlEg0KBW11dGVkGAEgASgIEjAKDGNvbW1pdHRlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiXgoWU2V0VGhyZWFkRm9sbG93UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEh4KFnRocmVhZF9yb290X21lc3NhZ2VfaWQYAiABKAkSEAoIZm9sbG93ZWQYAyABKAgiXQoXU2V0VGhyZWFkRm9sbG93UmVzcG9uc2USEAoIZm9sbG93ZWQYASABKAgSMAoMY29tbWl0dGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKMAQoVU2VuZEluYm94UmVwbHlSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNaW5ib3hfaXRlbV9pZBgCIAEoCRIdChViYXNpc190YXJnZXRfc2VxdWVuY2UYAyABKAQSDAoEYm9keRgEIAEoCRIbChNtZW50aW9uZWRfYWdlbnRfaWRzGAUgAygJIq8BChZTZW5kSW5ib3hSZXBseVJlc3BvbnNlEikKB21lc3NhZ2UYASABKAsyFi5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VIABIuCgpoZWxkX2RyYWZ0GAIgASgLMhguc3VtaS5pbmJveC52MS5IZWxkRHJhZnRIABIwCgxjb21taXR0ZWRfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQggKBnJlc3VsdCI+ChVMaXN0SGVsZERyYWZ0c1JlcXVlc3QSFgoOYWZ0ZXJfc2VxdWVuY2UYASABKAQSDQoFbGltaXQYAiABKA0iWQoWTGlzdEhlbGREcmFmdHNSZXNwb25zZRIoCgZkcmFmdHMYASADKAsyGC5zdW1pLmluYm94LnYxLkhlbGREcmFmdBIVCg1uZXh0X3NlcXVlbmNlGAIgASgEIscBChdSZXNvbHZlSGVsZERyYWZ0UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhUKDWhlbGRfZHJhZnRfaWQYAiABKAkSNAoGYWN0aW9uGAMgASgOMiQuc3VtaS5pbmJveC52MS5EcmFmdFJlc29sdXRpb25BY3Rpb24SLAoGdGFyZ2V0GAQgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0Eh0KFWJhc2lzX3RhcmdldF9zZXF1ZW5jZRgFIAEoBCKPAgoYUmVzb2x2ZUhlbGREcmFmdFJlc3BvbnNlEjQKBmFjdGlvbhgBIAEoDjIkLnN1bWkuaW5ib3gudjEuRHJhZnRSZXNvbHV0aW9uQWN0aW9uEikKB21lc3NhZ2UYAiABKAsyFi5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VIABIuCgpoZWxkX2RyYWZ0GAMgASgLMhguc3VtaS5pbmJveC52MS5IZWxkRHJhZnRIABImCgRpdGVtGAQgASgLMhguc3VtaS5pbmJveC52MS5JbmJveEl0ZW0SMAoMY29tbWl0dGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIICgZyZXN1bHQqegoLSW5ib3hSZWFzb24SHAoYSU5CT1hfUkVBU09OX1VOU1BFQ0lGSUVEEAASEwoPSU5CT1hfUkVBU09OX0RNEAESGAoUSU5CT1hfUkVBU09OX01FTlRJT04QAhIeChpJTkJPWF9SRUFTT05fVEhSRUFEX0ZPTExPVxADKnAKCkluYm94U3RhdGUSGwoXSU5CT1hfU1RBVEVfVU5TUEVDSUZJRUQQABIWChJJTkJPWF9TVEFURV9VTlJFQUQQARIXChNJTkJPWF9TVEFURV9DTEFJTUVEEAISFAoQSU5CT1hfU1RBVEVfRE9ORRADKq0BCg9JbmJveENvbXBsZXRpb24SIAocSU5CT1hfQ09NUExFVElPTl9VTlNQRUNJRklFRBAAEhkKFUlOQk9YX0NPTVBMRVRJT05fU0VOVBABEh4KGklOQk9YX0NPTVBMRVRJT05fQ0FOQ0VMTEVEEAISGwoXSU5CT1hfQ09NUExFVElPTl9TSUxFTlQQAxIgChxJTkJPWF9DT01QTEVUSU9OX0FDQ0VTU19MT1NUEAQqygEKDkhlbGREcmFmdFN0YXRlEiAKHEhFTERfRFJBRlRfU1RBVEVfVU5TUEVDSUZJRUQQABIZChVIRUxEX0RSQUZUX1NUQVRFX0hFTEQQARIZChVIRUxEX0RSQUZUX1NUQVRFX1NFTlQQAhIeChpIRUxEX0RSQUZUX1NUQVRFX0NBTkNFTExFRBADEh8KG0hFTERfRFJBRlRfU1RBVEVfU1VQRVJTRURFRBAEEh8KG0hFTERfRFJBRlRfU1RBVEVfUkVUQVJHRVRFRBAFKq0BChVEcmFmdFJlc29sdXRpb25BY3Rpb24SJwojRFJBRlRfUkVTT0xVVElPTl9BQ1RJT05fVU5TUEVDSUZJRUQQABIhCh1EUkFGVF9SRVNPTFVUSU9OX0FDVElPTl9SRVRSWRABEiIKHkRSQUZUX1JFU09MVVRJT05fQUNUSU9OX0NBTkNFTBACEiQKIERSQUZUX1JFU09MVVRJT05fQUNUSU9OX1JFVEFSR0VUEAMyzQcKDEluYm94U2VydmljZRJdCg5HZXRJbmJveE5vdGljZRIkLnN1bWkuaW5ib3gudjEuR2V0SW5ib3hOb3RpY2VSZXF1ZXN0GiUuc3VtaS5pbmJveC52MS5HZXRJbmJveE5vdGljZVJlc3BvbnNlEl0KDkxpc3RJbmJveEl0ZW1zEiQuc3VtaS5pbmJveC52MS5MaXN0SW5ib3hJdGVtc1JlcXVlc3QaJS5zdW1pLmluYm94LnYxLkxpc3RJbmJveEl0ZW1zUmVzcG9uc2USXQoOQ2xhaW1JbmJveEl0ZW0SJC5zdW1pLmluYm94LnYxLkNsYWltSW5ib3hJdGVtUmVxdWVzdBolLnN1bWkuaW5ib3gudjEuQ2xhaW1JbmJveEl0ZW1SZXNwb25zZRJaCg1PYnNlcnZlVGFyZ2V0EiMuc3VtaS5pbmJveC52MS5PYnNlcnZlVGFyZ2V0UmVxdWVzdBokLnN1bWkuaW5ib3gudjEuT2JzZXJ2ZVRhcmdldFJlc3BvbnNlEmYKEUNvbXBsZXRlSW5ib3hJdGVtEicuc3VtaS5pbmJveC52MS5Db21wbGV0ZUluYm94SXRlbVJlcXVlc3QaKC5zdW1pLmluYm94LnYxLkNvbXBsZXRlSW5ib3hJdGVtUmVzcG9uc2USVwoMU2V0U3BhY2VNdXRlEiIuc3VtaS5pbmJveC52MS5TZXRTcGFjZU11dGVSZXF1ZXN0GiMuc3VtaS5pbmJveC52MS5TZXRTcGFjZU11dGVSZXNwb25zZRJgCg9TZXRUaHJlYWRGb2xsb3cSJS5zdW1pLmluYm94LnYxLlNldFRocmVhZEZvbGxvd1JlcXVlc3QaJi5zdW1pLmluYm94LnYxLlNldFRocmVhZEZvbGxvd1Jlc3BvbnNlEl0KDlNlbmRJbmJveFJlcGx5EiQuc3VtaS5pbmJveC52MS5TZW5kSW5ib3hSZXBseVJlcXVlc3QaJS5zdW1pLmluYm94LnYxLlNlbmRJbmJveFJlcGx5UmVzcG9uc2USXQoOTGlzdEhlbGREcmFmdHMSJC5zdW1pLmluYm94LnYxLkxpc3RIZWxkRHJhZnRzUmVxdWVzdBolLnN1bWkuaW5ib3gudjEuTGlzdEhlbGREcmFmdHNSZXNwb25zZRJjChBSZXNvbHZlSGVsZERyYWZ0EiYuc3VtaS5pbmJveC52MS5SZXNvbHZlSGVsZERyYWZ0UmVxdWVzdBonLnN1bWkuaW5ib3gudjEuUmVzb2x2ZUhlbGREcmFmdFJlc3BvbnNlQjZaNGdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2luYm94L3YxO2luYm94djFiBnByb3RvMw", [file_google_protobuf_timestamp, file_sumi_space_v1_space]);
+  fileDesc("ChlzdW1pL2luYm94L3YxL2luYm94LnByb3RvEg1zdW1pLmluYm94LnYxIs8DCglJbmJveEl0ZW0SEAoIc2VxdWVuY2UYASABKAQSCgoCaWQYAiABKAkSEAoIYWdlbnRfaWQYAyABKAkSLAoGdGFyZ2V0GAQgASgLMhwuc3VtaS5zcGFjZS52MS5NZXNzYWdlVGFyZ2V0EhoKEnRyaWdnZXJfbWVzc2FnZV9pZBgFIAEoCRIfChd0cmlnZ2VyX3RhcmdldF9zZXF1ZW5jZRgGIAEoBBIqCgZyZWFzb24YByABKA4yGi5zdW1pLmluYm94LnYxLkluYm94UmVhc29uEigKBXN0YXRlGAggASgOMhkuc3VtaS5pbmJveC52MS5JbmJveFN0YXRlEi4KCmNsYWltZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB2RvbmVfYXQYCiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjIKCmNvbXBsZXRpb24YCyABKA4yHi5zdW1pLmluYm94LnYxLkluYm94Q29tcGxldGlvbhIuCgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghzcGFjZV9pZBgNIAEoCSKoAQoOSHVtYW5JbmJveEl0ZW0SDwoHd29ya19pZBgBIAEoCRIQCghzcGFjZV9pZBgCIAEoCRIQCghhZ2VudF9pZBgDIAEoCRIMCgRraW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRITCgtyZWFzb25fY29kZRgGIAEoCRIuCgp1cGRhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIrChpMaXN0SHVtYW5JbmJveEl0ZW1zUmVxdWVzdBINCgVsaW1pdBgBIAEoDSJLChtMaXN0SHVtYW5JbmJveEl0ZW1zUmVzcG9uc2USLAoFaXRlbXMYASADKAsyHS5zdW1pLmluYm94LnYxLkh1bWFuSW5ib3hJdGVtIoIECglIZWxkRHJhZnQSEAoIc2VxdWVuY2UYASABKAQSCgoCaWQYAiABKAkSFQoNaW5ib3hfaXRlbV9pZBgDIAEoCRIcChRwcmVkZWNlc3Nvcl9kcmFmdF9pZBgEIAEoCRIsCgZ0YXJnZXQYBSABKAsyHC5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VUYXJnZXQSHQoVYmFzaXNfdGFyZ2V0X3NlcXVlbmNlGAYgASgEEgwKBGJvZHkYByABKAkSGwoTbWVudGlvbmVkX2FnZW50X2lkcxgIIAMoCRIsCgVzdGF0ZRgJIAEoDjIdLnN1bWkuaW5ib3gudjEuSGVsZERyYWZ0U3RhdGUSPwoRcmVzb2x1dGlvbl9hY3Rpb24YCiABKA4yJC5zdW1pLmluYm94LnYxLkRyYWZ0UmVzb2x1dGlvbkFjdGlvbhIbChFyZXN1bHRfbWVzc2FnZV9pZBgLIAEoCUgAEh4KFHJlc3VsdF9oZWxkX2RyYWZ0X2lkGAwgASgJSAASLgoKY3JlYXRlZF9hdBgNIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgOIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEAoIc3BhY2VfaWQYDyABKAlCDAoKcmVzdWx0X3JlZiIXChVHZXRJbmJveE5vdGljZVJlcXVlc3QiLAoWR2V0SW5ib3hOb3RpY2VSZXNwb25zZRISCgpoYXNfdW5yZWFkGAEgASgIIj4KFUxpc3RJbmJveEl0ZW1zUmVxdWVzdBIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBINCgVsaW1pdBgCIAEoDSJBChZMaXN0SW5ib3hJdGVtc1Jlc3BvbnNlEicKBWl0ZW1zGAEgAygLMhguc3VtaS5pbmJveC52MS5JbmJveEl0ZW0iQgoVQ2xhaW1JbmJveEl0ZW1SZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNaW5ib3hfaXRlbV9pZBgCIAEoCSJAChZDbGFpbUluYm94SXRlbVJlc3BvbnNlEiYKBGl0ZW0YASABKAsyGC5zdW1pLmluYm94LnYxLkluYm94SXRlbSJTChRPYnNlcnZlVGFyZ2V0UmVxdWVzdBIsCgZ0YXJnZXQYASABKAsyHC5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VUYXJnZXQSDQoFbGltaXQYAiABKA0itwEKFU9ic2VydmVUYXJnZXRSZXNwb25zZRIsCgZ0YXJnZXQYASABKAsyHC5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VUYXJnZXQSFQoNaGVhZF9zZXF1ZW5jZRgCIAEoBBIoCghtZXNzYWdlcxgDIAMoCzIWLnN1bWkuc3BhY2UudjEuTWVzc2FnZRIvCgtvYnNlcnZlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiRQoYQ29tcGxldGVJbmJveEl0ZW1SZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNaW5ib3hfaXRlbV9pZBgCIAEoCSJDChlDb21wbGV0ZUluYm94SXRlbVJlc3BvbnNlEiYKBGl0ZW0YASABKAsyGC5zdW1pLmluYm94LnYxLkluYm94SXRlbSJKChNTZXRTcGFjZU11dGVSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEAoIc3BhY2VfaWQYAiABKAkSDQoFbXV0ZWQYAyABKAgiVwoUU2V0U3BhY2VNdXRlUmVzcG9uc2USDQoFbXV0ZWQYASABKAgSMAoMY29tbWl0dGVkX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJeChZTZXRUaHJlYWRGb2xsb3dSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSHgoWdGhyZWFkX3Jvb3RfbWVzc2FnZV9pZBgCIAEoCRIQCghmb2xsb3dlZBgDIAEoCCJdChdTZXRUaHJlYWRGb2xsb3dSZXNwb25zZRIQCghmb2xsb3dlZBgBIAEoCBIwCgxjb21taXR0ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIowBChVTZW5kSW5ib3hSZXBseVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIVCg1pbmJveF9pdGVtX2lkGAIgASgJEh0KFWJhc2lzX3RhcmdldF9zZXF1ZW5jZRgDIAEoBBIMCgRib2R5GAQgASgJEhsKE21lbnRpb25lZF9hZ2VudF9pZHMYBSADKAkirwEKFlNlbmRJbmJveFJlcGx5UmVzcG9uc2USKQoHbWVzc2FnZRgBIAEoCzIWLnN1bWkuc3BhY2UudjEuTWVzc2FnZUgAEi4KCmhlbGRfZHJhZnQYAiABKAsyGC5zdW1pLmluYm94LnYxLkhlbGREcmFmdEgAEjAKDGNvbW1pdHRlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCAoGcmVzdWx0Ij4KFUxpc3RIZWxkRHJhZnRzUmVxdWVzdBIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBINCgVsaW1pdBgCIAEoDSJZChZMaXN0SGVsZERyYWZ0c1Jlc3BvbnNlEigKBmRyYWZ0cxgBIAMoCzIYLnN1bWkuaW5ib3gudjEuSGVsZERyYWZ0EhUKDW5leHRfc2VxdWVuY2UYAiABKAQixwEKF1Jlc29sdmVIZWxkRHJhZnRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSFQoNaGVsZF9kcmFmdF9pZBgCIAEoCRI0CgZhY3Rpb24YAyABKA4yJC5zdW1pLmluYm94LnYxLkRyYWZ0UmVzb2x1dGlvbkFjdGlvbhIsCgZ0YXJnZXQYBCABKAsyHC5zdW1pLnNwYWNlLnYxLk1lc3NhZ2VUYXJnZXQSHQoVYmFzaXNfdGFyZ2V0X3NlcXVlbmNlGAUgASgEIo8CChhSZXNvbHZlSGVsZERyYWZ0UmVzcG9uc2USNAoGYWN0aW9uGAEgASgOMiQuc3VtaS5pbmJveC52MS5EcmFmdFJlc29sdXRpb25BY3Rpb24SKQoHbWVzc2FnZRgCIAEoCzIWLnN1bWkuc3BhY2UudjEuTWVzc2FnZUgAEi4KCmhlbGRfZHJhZnQYAyABKAsyGC5zdW1pLmluYm94LnYxLkhlbGREcmFmdEgAEiYKBGl0ZW0YBCABKAsyGC5zdW1pLmluYm94LnYxLkluYm94SXRlbRIwCgxjb21taXR0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQggKBnJlc3VsdCp6CgtJbmJveFJlYXNvbhIcChhJTkJPWF9SRUFTT05fVU5TUEVDSUZJRUQQABITCg9JTkJPWF9SRUFTT05fRE0QARIYChRJTkJPWF9SRUFTT05fTUVOVElPThACEh4KGklOQk9YX1JFQVNPTl9USFJFQURfRk9MTE9XEAMqcAoKSW5ib3hTdGF0ZRIbChdJTkJPWF9TVEFURV9VTlNQRUNJRklFRBAAEhYKEklOQk9YX1NUQVRFX1VOUkVBRBABEhcKE0lOQk9YX1NUQVRFX0NMQUlNRUQQAhIUChBJTkJPWF9TVEFURV9ET05FEAMqrQEKD0luYm94Q29tcGxldGlvbhIgChxJTkJPWF9DT01QTEVUSU9OX1VOU1BFQ0lGSUVEEAASGQoVSU5CT1hfQ09NUExFVElPTl9TRU5UEAESHgoaSU5CT1hfQ09NUExFVElPTl9DQU5DRUxMRUQQAhIbChdJTkJPWF9DT01QTEVUSU9OX1NJTEVOVBADEiAKHElOQk9YX0NPTVBMRVRJT05fQUNDRVNTX0xPU1QQBCrKAQoOSGVsZERyYWZ0U3RhdGUSIAocSEVMRF9EUkFGVF9TVEFURV9VTlNQRUNJRklFRBAAEhkKFUhFTERfRFJBRlRfU1RBVEVfSEVMRBABEhkKFUhFTERfRFJBRlRfU1RBVEVfU0VOVBACEh4KGkhFTERfRFJBRlRfU1RBVEVfQ0FOQ0VMTEVEEAMSHwobSEVMRF9EUkFGVF9TVEFURV9TVVBFUlNFREVEEAQSHwobSEVMRF9EUkFGVF9TVEFURV9SRVRBUkdFVEVEEAUqrQEKFURyYWZ0UmVzb2x1dGlvbkFjdGlvbhInCiNEUkFGVF9SRVNPTFVUSU9OX0FDVElPTl9VTlNQRUNJRklFRBAAEiEKHURSQUZUX1JFU09MVVRJT05fQUNUSU9OX1JFVFJZEAESIgoeRFJBRlRfUkVTT0xVVElPTl9BQ1RJT05fQ0FOQ0VMEAISJAogRFJBRlRfUkVTT0xVVElPTl9BQ1RJT05fUkVUQVJHRVQQAzLNBwoMSW5ib3hTZXJ2aWNlEl0KDkdldEluYm94Tm90aWNlEiQuc3VtaS5pbmJveC52MS5HZXRJbmJveE5vdGljZVJlcXVlc3QaJS5zdW1pLmluYm94LnYxLkdldEluYm94Tm90aWNlUmVzcG9uc2USXQoOTGlzdEluYm94SXRlbXMSJC5zdW1pLmluYm94LnYxLkxpc3RJbmJveEl0ZW1zUmVxdWVzdBolLnN1bWkuaW5ib3gudjEuTGlzdEluYm94SXRlbXNSZXNwb25zZRJdCg5DbGFpbUluYm94SXRlbRIkLnN1bWkuaW5ib3gudjEuQ2xhaW1JbmJveEl0ZW1SZXF1ZXN0GiUuc3VtaS5pbmJveC52MS5DbGFpbUluYm94SXRlbVJlc3BvbnNlEloKDU9ic2VydmVUYXJnZXQSIy5zdW1pLmluYm94LnYxLk9ic2VydmVUYXJnZXRSZXF1ZXN0GiQuc3VtaS5pbmJveC52MS5PYnNlcnZlVGFyZ2V0UmVzcG9uc2USZgoRQ29tcGxldGVJbmJveEl0ZW0SJy5zdW1pLmluYm94LnYxLkNvbXBsZXRlSW5ib3hJdGVtUmVxdWVzdBooLnN1bWkuaW5ib3gudjEuQ29tcGxldGVJbmJveEl0ZW1SZXNwb25zZRJXCgxTZXRTcGFjZU11dGUSIi5zdW1pLmluYm94LnYxLlNldFNwYWNlTXV0ZVJlcXVlc3QaIy5zdW1pLmluYm94LnYxLlNldFNwYWNlTXV0ZVJlc3BvbnNlEmAKD1NldFRocmVhZEZvbGxvdxIlLnN1bWkuaW5ib3gudjEuU2V0VGhyZWFkRm9sbG93UmVxdWVzdBomLnN1bWkuaW5ib3gudjEuU2V0VGhyZWFkRm9sbG93UmVzcG9uc2USXQoOU2VuZEluYm94UmVwbHkSJC5zdW1pLmluYm94LnYxLlNlbmRJbmJveFJlcGx5UmVxdWVzdBolLnN1bWkuaW5ib3gudjEuU2VuZEluYm94UmVwbHlSZXNwb25zZRJdCg5MaXN0SGVsZERyYWZ0cxIkLnN1bWkuaW5ib3gudjEuTGlzdEhlbGREcmFmdHNSZXF1ZXN0GiUuc3VtaS5pbmJveC52MS5MaXN0SGVsZERyYWZ0c1Jlc3BvbnNlEmMKEFJlc29sdmVIZWxkRHJhZnQSJi5zdW1pLmluYm94LnYxLlJlc29sdmVIZWxkRHJhZnRSZXF1ZXN0Gicuc3VtaS5pbmJveC52MS5SZXNvbHZlSGVsZERyYWZ0UmVzcG9uc2UygQEKEUh1bWFuSW5ib3hTZXJ2aWNlEmwKE0xpc3RIdW1hbkluYm94SXRlbXMSKS5zdW1pLmluYm94LnYxLkxpc3RIdW1hbkluYm94SXRlbXNSZXF1ZXN0Giouc3VtaS5pbmJveC52MS5MaXN0SHVtYW5JbmJveEl0ZW1zUmVzcG9uc2VCNlo0Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvaW5ib3gvdjE7aW5ib3h2MWIGcHJvdG8z", [file_google_protobuf_timestamp, file_sumi_space_v1_space]);
 
 /**
  * @generated from message sumi.inbox.v1.InboxItem
@@ -92,6 +92,87 @@ export type InboxItem = Message<"sumi.inbox.v1.InboxItem"> & {
  */
 export const InboxItemSchema: GenMessage<InboxItem> = /*@__PURE__*/
   messageDesc(file_sumi_inbox_v1_inbox, 0);
+
+/**
+ * @generated from message sumi.inbox.v1.HumanInboxItem
+ */
+export type HumanInboxItem = Message<"sumi.inbox.v1.HumanInboxItem"> & {
+  /**
+   * @generated from field: string work_id = 1;
+   */
+  workId: string;
+
+  /**
+   * @generated from field: string space_id = 2;
+   */
+  spaceId: string;
+
+  /**
+   * @generated from field: string agent_id = 3;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string status = 5;
+   */
+  status: string;
+
+  /**
+   * @generated from field: string reason_code = 6;
+   */
+  reasonCode: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 7;
+   */
+  updatedAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.inbox.v1.HumanInboxItem.
+ * Use `create(HumanInboxItemSchema)` to create a new message.
+ */
+export const HumanInboxItemSchema: GenMessage<HumanInboxItem> = /*@__PURE__*/
+  messageDesc(file_sumi_inbox_v1_inbox, 1);
+
+/**
+ * @generated from message sumi.inbox.v1.ListHumanInboxItemsRequest
+ */
+export type ListHumanInboxItemsRequest = Message<"sumi.inbox.v1.ListHumanInboxItemsRequest"> & {
+  /**
+   * @generated from field: uint32 limit = 1;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message sumi.inbox.v1.ListHumanInboxItemsRequest.
+ * Use `create(ListHumanInboxItemsRequestSchema)` to create a new message.
+ */
+export const ListHumanInboxItemsRequestSchema: GenMessage<ListHumanInboxItemsRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_inbox_v1_inbox, 2);
+
+/**
+ * @generated from message sumi.inbox.v1.ListHumanInboxItemsResponse
+ */
+export type ListHumanInboxItemsResponse = Message<"sumi.inbox.v1.ListHumanInboxItemsResponse"> & {
+  /**
+   * @generated from field: repeated sumi.inbox.v1.HumanInboxItem items = 1;
+   */
+  items: HumanInboxItem[];
+};
+
+/**
+ * Describes the message sumi.inbox.v1.ListHumanInboxItemsResponse.
+ * Use `create(ListHumanInboxItemsResponseSchema)` to create a new message.
+ */
+export const ListHumanInboxItemsResponseSchema: GenMessage<ListHumanInboxItemsResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_inbox_v1_inbox, 3);
 
 /**
  * @generated from message sumi.inbox.v1.HeldDraft
@@ -185,7 +266,7 @@ export type HeldDraft = Message<"sumi.inbox.v1.HeldDraft"> & {
  * Use `create(HeldDraftSchema)` to create a new message.
  */
 export const HeldDraftSchema: GenMessage<HeldDraft> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 1);
+  messageDesc(file_sumi_inbox_v1_inbox, 4);
 
 /**
  * @generated from message sumi.inbox.v1.GetInboxNoticeRequest
@@ -198,7 +279,7 @@ export type GetInboxNoticeRequest = Message<"sumi.inbox.v1.GetInboxNoticeRequest
  * Use `create(GetInboxNoticeRequestSchema)` to create a new message.
  */
 export const GetInboxNoticeRequestSchema: GenMessage<GetInboxNoticeRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 2);
+  messageDesc(file_sumi_inbox_v1_inbox, 5);
 
 /**
  * @generated from message sumi.inbox.v1.GetInboxNoticeResponse
@@ -215,7 +296,7 @@ export type GetInboxNoticeResponse = Message<"sumi.inbox.v1.GetInboxNoticeRespon
  * Use `create(GetInboxNoticeResponseSchema)` to create a new message.
  */
 export const GetInboxNoticeResponseSchema: GenMessage<GetInboxNoticeResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 3);
+  messageDesc(file_sumi_inbox_v1_inbox, 6);
 
 /**
  * @generated from message sumi.inbox.v1.ListInboxItemsRequest
@@ -237,7 +318,7 @@ export type ListInboxItemsRequest = Message<"sumi.inbox.v1.ListInboxItemsRequest
  * Use `create(ListInboxItemsRequestSchema)` to create a new message.
  */
 export const ListInboxItemsRequestSchema: GenMessage<ListInboxItemsRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 4);
+  messageDesc(file_sumi_inbox_v1_inbox, 7);
 
 /**
  * @generated from message sumi.inbox.v1.ListInboxItemsResponse
@@ -254,7 +335,7 @@ export type ListInboxItemsResponse = Message<"sumi.inbox.v1.ListInboxItemsRespon
  * Use `create(ListInboxItemsResponseSchema)` to create a new message.
  */
 export const ListInboxItemsResponseSchema: GenMessage<ListInboxItemsResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 5);
+  messageDesc(file_sumi_inbox_v1_inbox, 8);
 
 /**
  * @generated from message sumi.inbox.v1.ClaimInboxItemRequest
@@ -276,7 +357,7 @@ export type ClaimInboxItemRequest = Message<"sumi.inbox.v1.ClaimInboxItemRequest
  * Use `create(ClaimInboxItemRequestSchema)` to create a new message.
  */
 export const ClaimInboxItemRequestSchema: GenMessage<ClaimInboxItemRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 6);
+  messageDesc(file_sumi_inbox_v1_inbox, 9);
 
 /**
  * @generated from message sumi.inbox.v1.ClaimInboxItemResponse
@@ -293,7 +374,7 @@ export type ClaimInboxItemResponse = Message<"sumi.inbox.v1.ClaimInboxItemRespon
  * Use `create(ClaimInboxItemResponseSchema)` to create a new message.
  */
 export const ClaimInboxItemResponseSchema: GenMessage<ClaimInboxItemResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 7);
+  messageDesc(file_sumi_inbox_v1_inbox, 10);
 
 /**
  * @generated from message sumi.inbox.v1.ObserveTargetRequest
@@ -315,7 +396,7 @@ export type ObserveTargetRequest = Message<"sumi.inbox.v1.ObserveTargetRequest">
  * Use `create(ObserveTargetRequestSchema)` to create a new message.
  */
 export const ObserveTargetRequestSchema: GenMessage<ObserveTargetRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 8);
+  messageDesc(file_sumi_inbox_v1_inbox, 11);
 
 /**
  * @generated from message sumi.inbox.v1.ObserveTargetResponse
@@ -347,7 +428,7 @@ export type ObserveTargetResponse = Message<"sumi.inbox.v1.ObserveTargetResponse
  * Use `create(ObserveTargetResponseSchema)` to create a new message.
  */
 export const ObserveTargetResponseSchema: GenMessage<ObserveTargetResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 9);
+  messageDesc(file_sumi_inbox_v1_inbox, 12);
 
 /**
  * @generated from message sumi.inbox.v1.CompleteInboxItemRequest
@@ -369,7 +450,7 @@ export type CompleteInboxItemRequest = Message<"sumi.inbox.v1.CompleteInboxItemR
  * Use `create(CompleteInboxItemRequestSchema)` to create a new message.
  */
 export const CompleteInboxItemRequestSchema: GenMessage<CompleteInboxItemRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 10);
+  messageDesc(file_sumi_inbox_v1_inbox, 13);
 
 /**
  * @generated from message sumi.inbox.v1.CompleteInboxItemResponse
@@ -386,7 +467,7 @@ export type CompleteInboxItemResponse = Message<"sumi.inbox.v1.CompleteInboxItem
  * Use `create(CompleteInboxItemResponseSchema)` to create a new message.
  */
 export const CompleteInboxItemResponseSchema: GenMessage<CompleteInboxItemResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 11);
+  messageDesc(file_sumi_inbox_v1_inbox, 14);
 
 /**
  * @generated from message sumi.inbox.v1.SetSpaceMuteRequest
@@ -413,7 +494,7 @@ export type SetSpaceMuteRequest = Message<"sumi.inbox.v1.SetSpaceMuteRequest"> &
  * Use `create(SetSpaceMuteRequestSchema)` to create a new message.
  */
 export const SetSpaceMuteRequestSchema: GenMessage<SetSpaceMuteRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 12);
+  messageDesc(file_sumi_inbox_v1_inbox, 15);
 
 /**
  * @generated from message sumi.inbox.v1.SetSpaceMuteResponse
@@ -435,7 +516,7 @@ export type SetSpaceMuteResponse = Message<"sumi.inbox.v1.SetSpaceMuteResponse">
  * Use `create(SetSpaceMuteResponseSchema)` to create a new message.
  */
 export const SetSpaceMuteResponseSchema: GenMessage<SetSpaceMuteResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 13);
+  messageDesc(file_sumi_inbox_v1_inbox, 16);
 
 /**
  * @generated from message sumi.inbox.v1.SetThreadFollowRequest
@@ -462,7 +543,7 @@ export type SetThreadFollowRequest = Message<"sumi.inbox.v1.SetThreadFollowReque
  * Use `create(SetThreadFollowRequestSchema)` to create a new message.
  */
 export const SetThreadFollowRequestSchema: GenMessage<SetThreadFollowRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 14);
+  messageDesc(file_sumi_inbox_v1_inbox, 17);
 
 /**
  * @generated from message sumi.inbox.v1.SetThreadFollowResponse
@@ -484,7 +565,7 @@ export type SetThreadFollowResponse = Message<"sumi.inbox.v1.SetThreadFollowResp
  * Use `create(SetThreadFollowResponseSchema)` to create a new message.
  */
 export const SetThreadFollowResponseSchema: GenMessage<SetThreadFollowResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 15);
+  messageDesc(file_sumi_inbox_v1_inbox, 18);
 
 /**
  * @generated from message sumi.inbox.v1.SendInboxReplyRequest
@@ -521,7 +602,7 @@ export type SendInboxReplyRequest = Message<"sumi.inbox.v1.SendInboxReplyRequest
  * Use `create(SendInboxReplyRequestSchema)` to create a new message.
  */
 export const SendInboxReplyRequestSchema: GenMessage<SendInboxReplyRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 16);
+  messageDesc(file_sumi_inbox_v1_inbox, 19);
 
 /**
  * @generated from message sumi.inbox.v1.SendInboxReplyResponse
@@ -555,7 +636,7 @@ export type SendInboxReplyResponse = Message<"sumi.inbox.v1.SendInboxReplyRespon
  * Use `create(SendInboxReplyResponseSchema)` to create a new message.
  */
 export const SendInboxReplyResponseSchema: GenMessage<SendInboxReplyResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 17);
+  messageDesc(file_sumi_inbox_v1_inbox, 20);
 
 /**
  * @generated from message sumi.inbox.v1.ListHeldDraftsRequest
@@ -577,7 +658,7 @@ export type ListHeldDraftsRequest = Message<"sumi.inbox.v1.ListHeldDraftsRequest
  * Use `create(ListHeldDraftsRequestSchema)` to create a new message.
  */
 export const ListHeldDraftsRequestSchema: GenMessage<ListHeldDraftsRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 18);
+  messageDesc(file_sumi_inbox_v1_inbox, 21);
 
 /**
  * @generated from message sumi.inbox.v1.ListHeldDraftsResponse
@@ -599,7 +680,7 @@ export type ListHeldDraftsResponse = Message<"sumi.inbox.v1.ListHeldDraftsRespon
  * Use `create(ListHeldDraftsResponseSchema)` to create a new message.
  */
 export const ListHeldDraftsResponseSchema: GenMessage<ListHeldDraftsResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 19);
+  messageDesc(file_sumi_inbox_v1_inbox, 22);
 
 /**
  * @generated from message sumi.inbox.v1.ResolveHeldDraftRequest
@@ -636,7 +717,7 @@ export type ResolveHeldDraftRequest = Message<"sumi.inbox.v1.ResolveHeldDraftReq
  * Use `create(ResolveHeldDraftRequestSchema)` to create a new message.
  */
 export const ResolveHeldDraftRequestSchema: GenMessage<ResolveHeldDraftRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 20);
+  messageDesc(file_sumi_inbox_v1_inbox, 23);
 
 /**
  * @generated from message sumi.inbox.v1.ResolveHeldDraftResponse
@@ -680,7 +761,7 @@ export type ResolveHeldDraftResponse = Message<"sumi.inbox.v1.ResolveHeldDraftRe
  * Use `create(ResolveHeldDraftResponseSchema)` to create a new message.
  */
 export const ResolveHeldDraftResponseSchema: GenMessage<ResolveHeldDraftResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_inbox_v1_inbox, 21);
+  messageDesc(file_sumi_inbox_v1_inbox, 24);
 
 /**
  * @generated from enum sumi.inbox.v1.InboxReason
@@ -938,4 +1019,22 @@ export const InboxService: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_sumi_inbox_v1_inbox, 0);
+
+/**
+ * HumanInboxService is a browser-only, read-only projection. It intentionally
+ * does not share the Agent runtime mutation surface of InboxService.
+ *
+ * @generated from service sumi.inbox.v1.HumanInboxService
+ */
+export const HumanInboxService: GenService<{
+  /**
+   * @generated from rpc sumi.inbox.v1.HumanInboxService.ListHumanInboxItems
+   */
+  listHumanInboxItems: {
+    methodKind: "unary";
+    input: typeof ListHumanInboxItemsRequestSchema;
+    output: typeof ListHumanInboxItemsResponseSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_sumi_inbox_v1_inbox, 1);
 

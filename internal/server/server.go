@@ -34,6 +34,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/execution/inbox"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
+	"github.com/abcdlsj/sumi/internal/humaninbox"
 	knowledgeindex "github.com/abcdlsj/sumi/internal/knowledge"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
@@ -141,6 +142,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	inboxAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, inbox.Procedures()...))
 	inboxPath, inboxHandler := inboxv1connect.NewInboxServiceHandler(inbox.New(database), inboxAuthorization)
 	mux.Handle(inboxPath, inboxHandler)
+	humanInboxPath, humanInboxHandler := inboxv1connect.NewHumanInboxServiceHandler(humaninbox.New(database, config.BrowserOrigin))
+	mux.Handle(humanInboxPath, humanInboxHandler)
 	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
 	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
 	mux.Handle(deliveryPath, deliveryHandler)
