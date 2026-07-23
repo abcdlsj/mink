@@ -32,7 +32,12 @@ const ownerAgentClient = createClient(
 );
 
 test.describe.configure({ mode: "serial" });
-test.use({ trace: "off", video: "off", screenshot: "only-on-failure" });
+test.use({
+  trace: "off",
+  video: "off",
+  screenshot: "only-on-failure",
+  colorScheme: "light",
+});
 
 test.beforeAll(async () => {
   const owner = await readOwnerCredential();
@@ -175,6 +180,15 @@ test("real page creates canonical DM and Group, sends main/Thread messages, mana
   expect(await hasPageOverflow(page)).toBe(false);
   await page.screenshot({
     path: "../test-results/sumi-collaboration-1440x900.png",
+    fullPage: true,
+  });
+
+  await page.getByRole("button", { name: "Use dark theme" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await hasPageOverflow(page)).toBe(false);
+  await settleMotion(page);
+  await page.screenshot({
+    path: "../test-results/sumi-collaboration-dark-1440x900.png",
     fullPage: true,
   });
 
@@ -442,6 +456,7 @@ async function hasPageOverflow(page: Page) {
 }
 
 async function settleMotion(page: Page) {
+  await page.mouse.move(0, 0);
   await page.evaluate(async () => {
     await Promise.all(
       document

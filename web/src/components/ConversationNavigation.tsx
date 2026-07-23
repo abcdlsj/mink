@@ -11,6 +11,7 @@ import type { useBootstrap } from "../hooks/useBootstrap";
 import type { SpacesState, useSpaces } from "../hooks/useSpaces";
 import { SpaceKind, type Space } from "../gen/sumi/space/v1/space_pb";
 import { CreateSpaceForm } from "./CreateSpaceForm";
+import { IconButton } from "./IconButton";
 import { useState, type ReactNode } from "react";
 
 type Bootstrap = ReturnType<typeof useBootstrap>;
@@ -46,15 +47,13 @@ export function ConversationNavigation({
           <span className="eyebrow">Workspace</span>
           <strong>{spaces.data?.organization.name || "Sumi"}</strong>
         </div>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label="Collapse navigation"
-          title="Collapse navigation"
+        <IconButton
+          label="Collapse navigation"
+          tooltipPlacement="left"
           onClick={onClose}
         >
           <PanelLeftClose size={18} />
-        </button>
+        </IconButton>
       </header>
       <div className="conversation-nav-toolbar">
         <span>
@@ -63,28 +62,25 @@ export function ConversationNavigation({
             : "Collaboration"}
         </span>
         <div>
-          <button
-            className="icon-button compact"
-            type="button"
-            aria-label="Refresh conversations"
-            title="Refresh conversations"
+          <IconButton
+            className="compact"
+            label="Refresh conversations"
             onClick={() => void spaces.refresh()}
             disabled={
               spaces.status === "loading" || spaces.status === "refreshing"
             }
           >
             <RotateCw size={15} />
-          </button>
-          <button
-            className="icon-button compact"
-            type="button"
-            aria-label="Create conversation"
-            title={permissionTitle(spaces)}
+          </IconButton>
+          <IconButton
+            className="compact"
+            label="Create conversation"
+            tooltip={permissionTitle(spaces)}
             onClick={() => setCreating(true)}
             disabled={!canCreate || creating}
           >
             <Plus size={16} />
-          </button>
+          </IconButton>
         </div>
       </div>
       {creating && spaces.data && currentHumanId && (

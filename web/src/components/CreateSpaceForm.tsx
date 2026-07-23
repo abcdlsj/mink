@@ -9,6 +9,7 @@ import {
   principalForHuman,
   type DirectorySnapshot,
 } from "../lib/collaboration";
+import { IconButton } from "./IconButton";
 
 type Mode = "dm" | "group";
 
@@ -79,15 +80,15 @@ export function CreateSpaceForm({
     <section className="create-space-panel" aria-label="Create conversation">
       <header>
         <strong>New conversation</strong>
-        <button
-          className="icon-button compact"
-          type="button"
-          aria-label="Close create conversation"
+        <IconButton
+          className="compact"
+          label="Close create conversation"
+          tooltipPlacement="left"
           onClick={onClose}
           disabled={pending}
         >
           <X size={16} />
-        </button>
+        </IconButton>
       </header>
       <div
         className="create-space-modes"

@@ -6,6 +6,7 @@ import { ConversationNavigation } from "./components/ConversationNavigation";
 import { ConversationWorkspace } from "./components/ConversationWorkspace";
 import { SpaceContext } from "./components/SpaceContext";
 import { ThreadPane } from "./components/ThreadPane";
+import { IconButton } from "./components/IconButton";
 import {
   AgentsNavigation,
   ComputersNavigation,
@@ -306,28 +307,26 @@ export default function App() {
           ) : (
             <>
               <header className="context-header">
-                <button
-                  className="icon-button compact-context-back"
-                  type="button"
-                  aria-label="Back to conversation"
-                  title="Back to conversation"
+                <IconButton
+                  className="compact-context-back"
+                  label="Back to conversation"
+                  tooltipPlacement="right"
                   onClick={() => setCompactContextOpen(false)}
                 >
                   <ArrowLeft size={18} />
-                </button>
+                </IconButton>
                 <div>
                   <span className="eyebrow">Current Space</span>
                   <strong>Context</strong>
                 </div>
-                <button
-                  className="icon-button desktop-context-close"
-                  type="button"
-                  aria-label="Close context"
-                  title="Close context"
+                <IconButton
+                  className="desktop-context-close"
+                  label="Close context"
+                  tooltipPlacement="left"
                   onClick={() => setContextOpen(false)}
                 >
                   <PanelRightClose size={18} />
-                </button>
+                </IconButton>
               </header>
               <div className="context-content context-empty">
                 <p>Select a Space to inspect members and state.</p>

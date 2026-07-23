@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function settleMotion(page: Page) {
+  await page.mouse.move(0, 0);
   await page.evaluate(async () => {
     await Promise.all(
       document
@@ -73,6 +74,54 @@ test("offline bootstrap offers retry", async ({ page }) => {
     fullPage: true,
   });
   releaseRetry();
+});
+
+test("icon tooltips work by pointer and keyboard while dark theme persists", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/");
+
+  const chat = page.getByRole("button", { name: "Chat" });
+  await chat.hover();
+  await expect
+    .poll(() =>
+      chat.evaluate((element) => getComputedStyle(element, "::after").opacity),
+    )
+    .toBe("1");
+  expect(
+    await chat.evaluate(
+      (element) => getComputedStyle(element, "::after").content,
+    ),
+  ).toContain("Chat");
+
+  await page.mouse.move(500, 500);
+  await page.keyboard.press("Tab");
+  await expect(chat).toBeFocused();
+  await expect
+    .poll(() =>
+      chat.evaluate((element) => getComputedStyle(element, "::after").opacity),
+    )
+    .toBe("1");
+
+  await page.getByRole("button", { name: "Use dark theme" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await page.evaluate(() => localStorage.getItem("sumi.theme"))).toBe(
+    "dark",
+  );
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(
+    page.getByRole("button", { name: "Use light theme" }),
+  ).toBeVisible();
+  expect(await hasPageOverflow(page)).toBe(false);
+
+  await settleMotion(page);
+  await page.screenshot({
+    path: "../test-results/sumi-dark-1024x768.png",
+    fullPage: true,
+  });
 });
 
 for (const width of [900, 1023]) {

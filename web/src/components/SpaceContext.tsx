@@ -22,6 +22,7 @@ import {
   type DirectorySnapshot,
   type PermissionState,
 } from "../lib/collaboration";
+import { IconButton } from "./IconButton";
 
 export function SpaceContext({
   conversation,
@@ -146,28 +147,28 @@ export function SpaceContext({
   return (
     <>
       <header className="context-header">
-        <button
-          className="icon-button compact-context-back"
-          type="button"
-          aria-label="Back to conversation"
+        <IconButton
+          className="compact-context-back"
+          label="Back to conversation"
+          tooltipPlacement="right"
           onClick={onClose}
         >
           <ArrowLeft size={18} />
-        </button>
+        </IconButton>
         <div>
           <span className="eyebrow">Current Space</span>
           <strong>
             {conversation.space.name || (group ? "Group" : "Direct message")}
           </strong>
         </div>
-        <button
-          className="icon-button desktop-context-close"
-          type="button"
-          aria-label="Close context"
+        <IconButton
+          className="desktop-context-close"
+          label="Close context"
+          tooltipPlacement="left"
           onClick={onClose}
         >
           <X size={18} />
-        </button>
+        </IconButton>
       </header>
       <div className="context-content space-context">
         <section>
@@ -190,11 +191,11 @@ export function SpaceContext({
                     </span>
                   </div>
                   {group && principal.id !== currentHumanId && (
-                    <button
-                      className="icon-button compact"
-                      type="button"
-                      aria-label={`Remove ${principalName(principal, directory)}`}
-                      title="Server will enforce owner and last-Human rules"
+                    <IconButton
+                      className="compact"
+                      label={`Remove ${principalName(principal, directory)}`}
+                      tooltip="Server enforces owner and last-Human rules"
+                      tooltipPlacement="left"
                       onClick={() => void remove(principal)}
                       disabled={
                         pending !== undefined ||
@@ -202,7 +203,7 @@ export function SpaceContext({
                       }
                     >
                       <UserMinus size={15} />
-                    </button>
+                    </IconButton>
                   )}
                 </li>
               );

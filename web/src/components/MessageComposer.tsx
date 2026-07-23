@@ -4,6 +4,7 @@ import {
   PayloadRequestLifecycle,
   collaborationErrorMessage,
 } from "../lib/collaboration";
+import { IconButton } from "./IconButton";
 
 export function MessageComposer({
   targetKey,
@@ -82,16 +83,16 @@ export function MessageComposer({
               ? "Message kept for retry"
               : "⌘/Ctrl + Enter"}
         </span>
-        <button
-          className="icon-button compact send-button"
-          type="button"
-          aria-label={error ? "Retry message" : "Send message"}
-          title={error ? "Retry with the same request ID" : "Send message"}
+        <IconButton
+          className="compact send-button"
+          label={error ? "Retry message" : "Send message"}
+          tooltip={error ? "Retry with the same request ID" : "Send message"}
+          tooltipPlacement="top"
           disabled={pending || !!disabledReason || body.trim().length === 0}
           onClick={() => void send()}
         >
           {error ? <RotateCw size={16} /> : <Send size={17} />}
-        </button>
+        </IconButton>
       </div>
     </footer>
   );

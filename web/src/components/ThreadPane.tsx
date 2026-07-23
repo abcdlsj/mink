@@ -2,6 +2,7 @@ import { ArrowLeft, MessageSquareText, RotateCw, X } from "lucide-react";
 import type { DirectorySnapshot, ThreadSnapshot } from "../lib/collaboration";
 import { authorName } from "./ConversationTimeline";
 import { MessageComposer } from "./MessageComposer";
+import { IconButton } from "./IconButton";
 
 export function ThreadPane({
   snapshot,
@@ -29,14 +30,14 @@ export function ThreadPane({
   return (
     <>
       <header className="context-header">
-        <button
-          className="icon-button compact-context-back"
-          type="button"
-          aria-label="Back to conversation"
+        <IconButton
+          className="compact-context-back"
+          label="Back to conversation"
+          tooltipPlacement="right"
           onClick={onClose}
         >
           <ArrowLeft size={18} />
-        </button>
+        </IconButton>
         <div>
           <span className="eyebrow">Thread</span>
           <strong>
@@ -45,14 +46,14 @@ export function ThreadPane({
               : "Loading thread"}
           </strong>
         </div>
-        <button
-          className={`icon-button ${compact ? "" : "desktop-context-close"}`}
-          type="button"
-          aria-label="Close thread"
+        <IconButton
+          className={compact ? "" : "desktop-context-close"}
+          label="Close thread"
+          tooltipPlacement="left"
           onClick={onClose}
         >
           <X size={18} />
-        </button>
+        </IconButton>
       </header>
       {status === "idle" ||
       status === "loading" ||

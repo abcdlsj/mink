@@ -1,8 +1,9 @@
-import { MessageSquareText, RotateCw } from "lucide-react";
+import { MessageSquareMore, MessageSquareText, RotateCw } from "lucide-react";
 import type { Agent } from "../gen/sumi/agent/v1/agent_pb";
 import type { Human } from "../gen/sumi/organization/v1/organization_pb";
 import { PrincipalKind, type Message } from "../gen/sumi/space/v1/space_pb";
 import type { ConversationSnapshot } from "../lib/collaboration";
+import { IconButton } from "./IconButton";
 
 export function ConversationTimeline({
   snapshot,
@@ -59,9 +60,15 @@ export function ConversationTimeline({
                   <time>{formatMessageTime(message)}</time>
                 </header>
                 <p>{message.body}</p>
-                <button type="button" onClick={() => onOpenThread(message)}>
-                  Open thread
-                </button>
+                <IconButton
+                  className="compact message-thread-action"
+                  label="Open thread"
+                  tooltip="Open message thread"
+                  tooltipPlacement="left"
+                  onClick={() => onOpenThread(message)}
+                >
+                  <MessageSquareMore size={15} />
+                </IconButton>
               </article>
             </li>
           ))}

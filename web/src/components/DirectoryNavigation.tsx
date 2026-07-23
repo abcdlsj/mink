@@ -9,6 +9,7 @@ import {
   operatingSystemLabel,
   placementStateLabel,
 } from "../lib/format";
+import { IconButton } from "./IconButton";
 
 export function AgentsNavigation({
   state,
@@ -115,15 +116,13 @@ function DirectoryNavigation({
           <span className="eyebrow">{eyebrow}</span>
           <strong>{title}</strong>
         </div>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label="Collapse navigation"
-          title="Collapse navigation"
+        <IconButton
+          label="Collapse navigation"
+          tooltipPlacement="left"
           onClick={onClose}
         >
           <PanelLeftClose size={18} />
-        </button>
+        </IconButton>
       </header>
       <div className="directory-toolbar">
         <span className="directory-count">
@@ -131,16 +130,14 @@ function DirectoryNavigation({
             ? `${state.data?.agents.length ?? 0} identities`
             : `${state.data?.computers.length ?? 0} registered`}
         </span>
-        <button
-          className="icon-button compact"
-          type="button"
-          aria-label={`Refresh ${title}`}
-          title={`Refresh ${title}`}
+        <IconButton
+          className="compact"
+          label={`Refresh ${title}`}
           disabled={state.status === "refreshing" || pending}
           onClick={onRefresh}
         >
           <RotateCw size={15} />
-        </button>
+        </IconButton>
       </div>
       <div className="directory-list">
         {(state.status === "loading" || state.status === "retrying") &&

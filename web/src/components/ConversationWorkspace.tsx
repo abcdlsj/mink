@@ -5,7 +5,6 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   RotateCw,
-  Search,
   Server,
   ShieldCheck,
   UserRound,
@@ -22,6 +21,7 @@ import { MessageComposer } from "./MessageComposer";
 import { WorkInbox } from "./WorkInbox";
 import { ArtifactWorkspace } from "./ArtifactWorkspace";
 import { AuthorityWorkspace } from "./AuthorityWorkspace";
+import { IconButton } from "./IconButton";
 
 type View = "chat" | "work" | "artifacts" | "authority";
 type Bootstrap = ReturnType<typeof useBootstrap>;
@@ -63,49 +63,38 @@ export function ConversationWorkspace({
       <header className="topbar">
         <div className="topbar-leading">
           {!navigationOpen && (
-            <button
-              className="icon-button"
-              type="button"
-              aria-label="Open navigation"
-              title="Open navigation"
+            <IconButton
+              label="Open navigation"
+              tooltipPlacement="right"
               onClick={onOpenNavigation}
             >
               <PanelLeftOpen size={18} />
-            </button>
+            </IconButton>
           )}
-          <label className="search-field">
-            <Search size={17} />
-            <input
-              type="search"
-              placeholder="Search is not available yet"
-              disabled
-            />
-          </label>
+          <span className="topbar-product">Sumi</span>
         </div>
         <div className="topbar-actions">
           <SessionIndicator session={session} />
           <ServerIndicator bootstrap={bootstrap} />
-          <button
-            className="icon-button compact-context-trigger"
-            type="button"
-            aria-label="Open context"
-            title="Open context"
+          <IconButton
+            className="compact-context-trigger"
+            label="Open context"
+            tooltipPlacement="left"
             onClick={onOpenContext}
             disabled={!snapshot}
           >
             <PanelRightOpen size={18} />
-          </button>
+          </IconButton>
           {!contextOpen && (
-            <button
-              className="icon-button desktop-context-trigger"
-              type="button"
-              aria-label="Open context"
-              title="Open context"
+            <IconButton
+              className="desktop-context-trigger"
+              label="Open context"
+              tooltipPlacement="left"
               onClick={onOpenContext}
               disabled={!snapshot}
             >
               <PanelRightOpen size={18} />
-            </button>
+            </IconButton>
           )}
         </div>
       </header>
@@ -128,16 +117,15 @@ export function ConversationWorkspace({
             </span>
           )}
           {visibleSpace && authenticated && (
-            <button
-              className="icon-button compact"
-              type="button"
-              aria-label="Refresh conversation"
-              title="Refresh conversation"
+            <IconButton
+              className="compact"
+              label="Refresh conversation"
+              tooltipPlacement="left"
               onClick={() => void conversation.refresh()}
               disabled={conversation.conversation.status === "refreshing"}
             >
               <RotateCw size={16} />
-            </button>
+            </IconButton>
           )}
         </div>
       </header>
@@ -421,16 +409,16 @@ function SessionIndicator({ session }: { session: Session }) {
     <div className="session-control">
       <UserRound size={15} aria-hidden="true" />
       <span className="session-name">{session.human.name}</span>
-      <button
-        className="icon-button compact"
-        type="button"
-        aria-label="Log out"
-        title="Log out browser session"
+      <IconButton
+        className="compact"
+        label="Log out"
+        tooltip="Log out browser session"
+        tooltipPlacement="left"
         onClick={session.logout}
         disabled={session.status === "logging-out"}
       >
         <LogOut size={15} />
-      </button>
+      </IconButton>
     </div>
   );
 }
