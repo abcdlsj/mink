@@ -176,14 +176,16 @@ func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
 func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
 	fixture := openWorkQueryFixture(t)
 	root := fixture.createWork(t, "tuple-root", fixture.now.Add(time.Second))
-	sameCreatedAt := fixture.now.Add(2 * time.Second)
-	parentA := fixture.createChildWork(t, root.ID, "tuple-parent-a", sameCreatedAt)
-	parentB := fixture.createChildWork(t, root.ID, "tuple-parent-b", sameCreatedAt)
+	parentA := fixture.createChildWork(t, root.ID, "tuple-parent-a", fixture.now.Add(2*time.Second))
+	parentB := fixture.createChildWork(t, root.ID, "tuple-parent-b", fixture.now.Add(2*time.Second))
+	childAEarly := fixture.createChildWork(t, parentA.ID, "tuple-child-a-early", fixture.now.Add(3*time.Second))
+	sameCreatedAt := fixture.now.Add(4 * time.Second)
 	childAFirst := fixture.createChildWork(t, parentA.ID, "tuple-child-a-first", sameCreatedAt)
 	childASecond := fixture.createChildWork(t, parentA.ID, "tuple-child-a-second", sameCreatedAt)
+	childALater := fixture.createChildWork(t, parentA.ID, "tuple-child-a-later", fixture.now.Add(5*time.Second))
 	childB := fixture.createChildWork(t, parentB.ID, "tuple-child-b", sameCreatedAt)
 	otherRoot := fixture.createWork(t, "tuple-other-root", sameCreatedAt)
-	works := []Work{root, parentA, parentB, childAFirst, childASecond, childB, otherRoot}
+	works := []Work{root, parentA, parentB, childAEarly, childAFirst, childASecond, childALater, childB, otherRoot}
 	sort.Slice(works, func(left, right int) bool {
 		if works[left].RootWorkID != works[right].RootWorkID {
 			return works[left].RootWorkID < works[right].RootWorkID
@@ -344,6 +346,8 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 	partialWithoutID.Principal.ID = ""
 	partialWithoutOrganization := authentication
 	partialWithoutOrganization.Principal.OrganizationID = ""
+	wrongOrganization := authentication
+	wrongOrganization.Principal.OrganizationID = uuid.NewString()
 	invalid := []struct {
 		name   string
 		params WorkReadParams
@@ -359,6 +363,7 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 		{name: "partial runtime missing kind", params: WorkReadParams{Agent: partialWithoutKind, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
 		{name: "partial runtime missing id", params: WorkReadParams{Agent: partialWithoutID, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
 		{name: "partial runtime missing organization", params: WorkReadParams{Agent: partialWithoutOrganization, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+		{name: "runtime wrong organization", params: WorkReadParams{Agent: wrongOrganization, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
 		{name: "human plus runtime", params: WorkReadParams{Actor: owner, Agent: authentication, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
 		{name: "agent plus same runtime", params: WorkReadParams{Actor: agent, Agent: authentication, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
 	}
