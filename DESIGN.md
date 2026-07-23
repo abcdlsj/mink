@@ -274,6 +274,10 @@ Agent 只加载当前行动需要的有界上下文。需要回忆其他 Space �
 
 长期记忆不能覆盖原始事实，也不能绕过 Space、Work 或 Artifact 的访问控制。
 
+Knowledge 不是第四套事实库，而是 Message、Work 与 ArtifactVersion 的可重建 Search Projection。Source 仍由各自上下文拥有；源事实 mutation 在同一事务中追加单调 Dirty Source，Knowledge 只保存搜索正文、source tuple、revision 与 applied sequence。投影缺失、损坏或尚未完成首次构建时状态为 `degraded`，可用时为 `ready`；没有可被产品依赖的 generation、rebuilding 或修复进度。
+
+Search 的公开合同只有 `query + limit -> results + status`。Result 只返回稳定 citation 与有界 snippet，不提供 cursor，也不把 SQLite row、generation 或重建术语暴露给调用方。每个候选返回前都重新读取 authoritative source 与 revision，并按当前 Human 或 current Agent runtime 重验 Space、Work、Artifact 权限；投影陈旧、来源消失或访问被撤销时静默丢弃该候选，投影损坏时返回空结果与 `degraded`，绝不返回旧正文。UI 只表达“可搜索”或“搜索暂不可用”，不展示内部修复状态。
+
 ## 8. 权限与治理
 
 权限与角色分离。角色描述“适合做什么”，grant 决定“允许做什么”。
@@ -489,7 +493,7 @@ Sumi 的核心衡量不是消息数、Agent 数或 Work 数，而是：
 - Execution：Inbox、Delivery、Run、Launch、Lease、Completion 和运行期回执。
 - Computer：Computer、Pairing、Placement 和 Computer 生命周期事实。
 - Artifact：Artifact family/version、ACL、Provenance、完整性状态以及 Blob 元数据；Blob 内容仍由独立 Artifact Blob backend 保存。
-- Knowledge：索引 generation、dirty source、projection 和 rebuild 状态；它是受权限约束的 read model，不拥有源事实。
+- Knowledge：单一 search projection、dirty source 与 `ready / degraded + applied sequence`；它是受权限约束的可重建 read model，不拥有源事实。
 - Platform：SQLite 连接、一次性 schema 初始化、时钟、ID 和事务基础设施。
 - Audit：append-only 中央事实。业务上下文通过显式 audit writer 写入，Audit API 负责受权限保护的读取。
 
@@ -582,7 +586,7 @@ Application command 统一使用语义化 `...Command`，mutation 显式携带 `
 
 ## 25. 2026-07-23 SQLite MVP schema 收口
 
-Server SQLite 的 MVP 只接受当前 `schema.sql` 建立的最终 schema。加入 local auth identity/password credential 后，新库以 `system_metadata.schema_version = "2"` 作为完成标记；空库只执行这一次初始化，旧 `"1"`、带对象但缺少当前标记的历史 Goose schema或缺少 local auth tables 的残缺库一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证当前标记，避免把完整性正常但语义过期的旧库误判为可运行的新库。
+Server SQLite 的 MVP 只接受当前 `schema.sql` 建立的最终 schema。Knowledge 收口为单一 projection 后，新库以 `system_metadata.schema_version = "3"` 作为完成标记；空库只执行这一次初始化，旧 `"1" / "2"`、带对象但缺少当前标记的历史 Goose schema、仍含 Knowledge generation tables 或缺少当前 local auth / Knowledge state tables 的残缺库一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证当前标记，避免把完整性正常但语义过期的旧库误判为可运行的新库。
 
 Computer 初始身份也只走有时效的 pairing token：CLI 不再接受或导入 `--registration-key-file`。自动化端到端 seed 必须经 owner 创建 pairing、Host 消费 token 和后续 identity recovery，不能用旧注册 key 伪造流程。该收口不改变已有 pairing、registration-key hash、placement 或 runtime 的服务端事实合同。
 
@@ -595,3 +599,15 @@ Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.sys
 验证完成：focused Driver/Executor/Computer/production external-driver tests、`go test ./...`、`mise run test`（Go 全量与 Web 102/102）、`mise run lint`、`mise run build`、Go format 与 `git diff --check` 均通过。External Driver blackbox 通过全量 Go 测试证明新增首 section 不破坏现有 JSONL adapter；未运行需要独立 Server 与 owner credential 的 Playwright，因为本轮未改变浏览器协议或交互。
 
 残余边界：Prompt 只能指导 provider 行为，不能证明模型一定服从或代替身份、权限、freshness、fence、Secret、receipt 与 Audit 的 Host enforcement；结构化 section 也不能单独消灭 Prompt injection。后续若改变六层合同必须显式升级 `SystemContractVersion` 并补 provider 级行为评估，不能静默改写同一版本。
+
+## 27. 2026-07-24 Knowledge 单一搜索投影
+
+旧实现把 MVP 搜索当成在线索引平台：公开 API 暴露 cursor 与 rebuilding，Store 同时维护 generation metadata、generation progress、blue/green projection、加密 Knowledge cursor、repair/discard/activate 生命周期和 fault-injection 状态。复杂度并非来自检索或权限本身，而是把“派生数据可重建”错误扩成了多代发布协议；结果是一个只有 Search 的功能需要五组代际表、十余个生命周期方法和大量实现耦合测试，UI 也被迫理解内部修复状态。
+
+当前模型冻结为一条链：authoritative Source mutation 与 Dirty Source 同事务提交；Reconciler 按 sequence 读取当前 Source，在单事务内替换 projection、推进 `applied_sequence` 并清理已确认 dirty；首次启动、状态降级或确定性派生损坏时，从所有 authoritative Source 单事务重建 projection。旧 dirty 的 revision 已过时时只推进 checkpoint，不允许旧正文覆盖当前事实。Search 始终重新读取当前 Source/revision 并重验 ACL，因此 projection 只负责召回，不负责事实、权限或 freshness。
+
+本轮删除 Knowledge generation、rebuilding、cursor/pagination 与 repair/discard/activate API；保留 Work 自己的 opaque cursor 与持久 AEAD key，不把不同领域的 cursor 误合并。公开状态只剩 `ready / degraded`，schema marker 升至 v3。明确接受的 residual 是：重建期间 Knowledge 暂不可用；SQLite 单事务重建可能短时占用写锁。对当前单机 MVP，这比在旧 generation 可见时提供搜索更诚实，也显著减少模型、API、存储、Reconciler、测试和 UI 心智负担。
+
+同口径的 Knowledge Store/cursor、Reconciler、Server、proto 及其测试从 5,384 行降到 2,319 行；全 diff 为 867 insertions / 4,007 deletions。保留的测试 oracle 覆盖三类 Source、dirty 原子性与单调 sequence、当前 revision、Human/Agent authentication、runtime replacement、Space/Work/Artifact ACL 撤销、disabled Human、派生损坏 fail closed、重建/重启、输入与 snippet 预算、Work cursor 持久性/防篡改及 cursor key fail closed，不以删安全测试换行数。
+
+验证完成：`mise run generate`、focused Store/Knowledge/Server/Install、独立 `TestSumiComputerTwoProcessMigrationBlackbox`、两次 full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`、fresh Server Playwright 20/20 与 `git diff --check` 均通过。实现中较早一次 full Go 曾触发既有 C1 两进程迁移 15 秒时序失败；最终该用例独立与 full suite 均通过，当前没有它由本轮 Knowledge 变更造成的因果证据，但不宣称测试从未失败。E2E 临时 Server 已停止，含 owner credential 与 SQLite 的临时 root 已删除。

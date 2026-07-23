@@ -18,7 +18,7 @@ enum KnowledgeSourceKind {
 enum KnowledgeIndexStatus {
   KNOWLEDGE_INDEX_STATUS_UNSPECIFIED = 0;
   KNOWLEDGE_INDEX_STATUS_READY = 1;
-  KNOWLEDGE_INDEX_STATUS_REBUILDING = 2;
+  reserved 2;
   KNOWLEDGE_INDEX_STATUS_DEGRADED = 3;
 }
 
@@ -50,12 +50,12 @@ message KnowledgeResult {
 
 message SearchKnowledgeRequest {
   string query = 1;
-  string cursor = 2;
+  reserved 2;
   uint32 limit = 3;
 }
 
 message SearchKnowledgeResponse {
   repeated KnowledgeResult results = 1;
-  string next_cursor = 2;
+  reserved 2;
   KnowledgeIndexStatus status = 3;
 }

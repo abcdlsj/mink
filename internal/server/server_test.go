@@ -86,7 +86,7 @@ func TestServesProductionWeb(t *testing.T) {
 	}
 }
 
-func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *testing.T) {
+func TestKnowledgeSearchProjectionSurvivesServerReopenAndCloseFailsControlled(t *testing.T) {
 	dataRoot := t.TempDir()
 	app, err := New(context.Background(), Config{DataRoot: dataRoot})
 	if err != nil {
@@ -106,7 +106,7 @@ func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *tes
 	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	peerCredential := strings.Repeat("p", 43)
 	if _, err := app.store.CreateHuman(context.Background(), store.CreateHumanParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "Knowledge Cursor Peer", Role: "member", Credential: peerCredential, Now: time.Now(),
+		RequestID: uuid.NewString(), Actor: owner, Name: "Knowledge Search Peer", Role: "member", Credential: peerCredential, Now: time.Now(),
 	}); err != nil {
 		app.Close()
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *tes
 		t.Fatal(err)
 	}
 	messageIDs := make(map[string]struct{}, 2)
-	for _, body := range []string{"transport cursor alpha", "transport cursor beta"} {
+	for _, body := range []string{"transport search alpha", "transport search beta"} {
 		message, err := app.store.SendMessage(context.Background(), store.SendMessageParams{
 			RequestID: uuid.NewString(), Actor: owner, Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: space.ID}, Body: body, Now: time.Now(),
 		})
@@ -129,15 +129,18 @@ func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *tes
 		}
 		messageIDs[message.ID] = struct{}{}
 	}
-	activateServerKnowledgeGeneration(t, app.store)
+	if err := app.store.RebuildKnowledgeIndex(context.Background()); err != nil {
+		app.Close()
+		t.Fatal(err)
+	}
 
 	httpServer := httptest.NewServer(app.Handler())
 	client := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, clientAuthorization(credential))
-	first, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Limit: 1}))
-	if err != nil || len(first.Msg.GetResults()) != 1 || first.Msg.GetNextCursor() == "" {
+	first, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search", Limit: 1}))
+	if err != nil || len(first.Msg.GetResults()) != 1 {
 		httpServer.Close()
 		app.Close()
-		t.Fatalf("first knowledge page = %+v, %v", first, err)
+		t.Fatalf("first knowledge search = %+v, %v", first, err)
 	}
 	firstID := first.Msg.GetResults()[0].GetCitation().GetMessage().GetMessageId()
 	if _, ok := messageIDs[firstID]; !ok {
@@ -145,33 +148,12 @@ func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *tes
 		app.Close()
 		t.Fatalf("first citation = %q", firstID)
 	}
-	cursor := first.Msg.GetNextCursor()
 	peerClient := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, clientAuthorization(peerCredential))
-	for name, call := range map[string]func() error{
-		"oversize": func() error {
-			_, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Cursor: strings.Repeat("x", 2049), Limit: 1}))
-			return err
-		},
-		"version or tamper": func() error {
-			mutated := "A" + cursor[1:]
-			if mutated == cursor {
-				mutated = "B" + cursor[1:]
-			}
-			_, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Cursor: mutated, Limit: 1}))
-			return err
-		},
-		"query binding": func() error {
-			_, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "different query", Cursor: cursor, Limit: 1}))
-			return err
-		},
-		"principal binding": func() error {
-			_, err := peerClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Cursor: cursor, Limit: 1}))
-			return err
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			assertKnowledgeConnectError(t, call(), connect.CodeFailedPrecondition, "cursor unavailable")
-		})
+	peerOutput, err := peerClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search"}))
+	if err != nil || len(peerOutput.Msg.GetResults()) != 0 {
+		httpServer.Close()
+		app.Close()
+		t.Fatalf("non-member search = %+v, %v", peerOutput, err)
 	}
 	httpServer.Close()
 	if err := app.Close(); err != nil {
@@ -184,65 +166,26 @@ func TestKnowledgeSearchCursorSurvivesServerReopenAndCloseFailsControlled(t *tes
 	}
 	reopenedHTTP := httptest.NewServer(reopened.Handler())
 	reopenedClient := knowledgev1connect.NewKnowledgeServiceClient(reopenedHTTP.Client(), reopenedHTTP.URL, clientAuthorization(credential))
-	second, err := reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Cursor: cursor, Limit: 1}))
-	if err != nil || len(second.Msg.GetResults()) != 1 || second.Msg.GetNextCursor() != "" {
+	second, err := reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search", Limit: 1}))
+	if err != nil || len(second.Msg.GetResults()) != 1 {
 		reopenedHTTP.Close()
 		reopened.Close()
-		t.Fatalf("reopened knowledge page = %+v, %v", second, err)
+		t.Fatalf("reopened knowledge search = %+v, %v", second, err)
 	}
 	secondID := second.Msg.GetResults()[0].GetCitation().GetMessage().GetMessageId()
-	if _, ok := messageIDs[secondID]; !ok || secondID == firstID {
+	if _, ok := messageIDs[secondID]; !ok {
 		reopenedHTTP.Close()
 		reopened.Close()
 		t.Fatalf("reopened citations = first:%q second:%q", firstID, secondID)
 	}
 
-	reopened.knowledge.Close()
-	newFirst, err := reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor", Limit: 1}))
-	if err != nil || newFirst.Msg.GetNextCursor() == "" {
-		reopenedHTTP.Close()
-		reopened.Close()
-		t.Fatalf("generation cursor page = %+v, %v", newFirst, err)
-	}
-	activateServerKnowledgeGeneration(t, reopened.store)
-	_, err = reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{
-		Query: "transport cursor", Cursor: newFirst.Msg.GetNextCursor(), Limit: 1,
-	}))
-	assertKnowledgeConnectError(t, err, connect.CodeFailedPrecondition, "cursor unavailable")
-
 	if err := reopened.Close(); err != nil {
 		reopenedHTTP.Close()
 		t.Fatal(err)
 	}
-	_, err = reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport cursor"}))
+	_, err = reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search"}))
 	assertKnowledgeConnectError(t, err, connect.CodeInternal, "knowledge service unavailable")
 	reopenedHTTP.Close()
-}
-
-func activateServerKnowledgeGeneration(t *testing.T, database *store.Store) {
-	t.Helper()
-	metadata, err := database.KnowledgeIndexMetadata(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if metadata.NextGeneration != 0 {
-		if _, err := database.DiscardKnowledgeGeneration(context.Background(), metadata.NextGeneration); err != nil {
-			t.Fatal(err)
-		}
-	}
-	rebuilding, err := database.StartKnowledgeRebuild(context.Background(), time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := database.BuildKnowledgeGenerationSnapshot(context.Background(), rebuilding.NextGeneration); err != nil {
-		t.Fatal(err)
-	}
-	if err := database.CompleteKnowledgeGeneration(context.Background(), rebuilding.NextGeneration); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.ActivateKnowledgeGeneration(context.Background(), rebuilding.NextGeneration); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestKnowledgeRunnerDrainsConcurrentFactsAndServerReopens(t *testing.T) {
@@ -364,32 +307,26 @@ func waitForKnowledgeRunnerDrain(t *testing.T, dataRoot string) {
 	deadline := time.Now().Add(5 * time.Second)
 	var last string
 	for time.Now().Before(deadline) {
-		var activeGeneration, nextGeneration, maximum, applied, messageRows, workRows, artifactRows, generations uint64
+		var applied, dirty, messageRows, workRows, artifactRows uint64
 		var status string
-		err := database.QueryRow(`SELECT active_generation, next_generation, status FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&activeGeneration, &nextGeneration, &status)
-		if err == nil && activeGeneration != 0 && nextGeneration == 0 && status == store.KnowledgeIndexReady {
-			err = database.QueryRow(`SELECT COALESCE(MAX(sequence), 0) FROM knowledge_dirty_sources`).Scan(&maximum)
+		err := database.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
+		if err == nil && status == store.KnowledgeIndexReady {
+			err = database.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources`).Scan(&dirty)
 			if err == nil {
-				err = database.QueryRow(`SELECT applied_sequence FROM knowledge_generation_progress WHERE generation = ?`, activeGeneration).Scan(&applied)
+				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'message'`).Scan(&messageRows)
 			}
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ? AND source_kind = 'message'`, activeGeneration).Scan(&messageRows)
+				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'work'`).Scan(&workRows)
 			}
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ? AND source_kind = 'work'`, activeGeneration).Scan(&workRows)
+				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'artifact_version'`).Scan(&artifactRows)
 			}
-			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ? AND source_kind = 'artifact_version'`, activeGeneration).Scan(&artifactRows)
-			}
-			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_index_generations`).Scan(&generations)
-			}
-			if err == nil && applied == maximum && messageRows != 0 && workRows != 0 && artifactRows != 0 && generations == 1 {
+			if err == nil && dirty == 0 && messageRows != 0 && workRows != 0 && artifactRows != 0 {
 				return
 			}
-			last = fmt.Sprintf("active=%d next=%d status=%s maximum=%d applied=%d message=%d work=%d artifact=%d generations=%d err=%v", activeGeneration, nextGeneration, status, maximum, applied, messageRows, workRows, artifactRows, generations, err)
+			last = fmt.Sprintf("status=%s applied=%d dirty=%d message=%d work=%d artifact=%d err=%v", status, applied, dirty, messageRows, workRows, artifactRows, err)
 		} else {
-			last = fmt.Sprintf("metadata active=%d next=%d status=%s err=%v", activeGeneration, nextGeneration, status, err)
+			last = fmt.Sprintf("state applied=%d status=%s err=%v", applied, status, err)
 		}
 		time.Sleep(time.Millisecond)
 	}
@@ -405,10 +342,10 @@ func waitForKnowledgeRunnerReady(t *testing.T, dataRoot string) {
 	defer database.Close()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		var activeGeneration uint64
+		var applied uint64
 		var status string
-		err := database.QueryRow(`SELECT active_generation, status FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&activeGeneration, &status)
-		if err == nil && activeGeneration != 0 && status == store.KnowledgeIndexReady {
+		err := database.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
+		if err == nil && status == store.KnowledgeIndexReady {
 			return
 		}
 		time.Sleep(time.Millisecond)

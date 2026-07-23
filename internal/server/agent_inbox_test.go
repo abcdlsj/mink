@@ -698,13 +698,13 @@ func waitForKnowledgeMessages(t *testing.T, database *sql.DB) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		var activeGeneration, messageCount, projectedCount uint64
+		var applied, messageCount, projectedCount uint64
 		var status string
-		err := database.QueryRow(`SELECT active_generation, status FROM knowledge_index_metadata WHERE singleton = 1`).Scan(&activeGeneration, &status)
-		if err == nil && activeGeneration != 0 && status == store.KnowledgeIndexReady {
+		err := database.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
+		if err == nil && status == store.KnowledgeIndexReady {
 			err = database.QueryRow(`SELECT count(*) FROM messages`).Scan(&messageCount)
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE generation = ? AND source_kind = 'message'`, activeGeneration).Scan(&projectedCount)
+				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'message'`).Scan(&projectedCount)
 			}
 			if err == nil && projectedCount == messageCount {
 				return

@@ -23,7 +23,7 @@ func TestWorkCursorSealsBindsAndSurvivesReopen(t *testing.T) {
 	principal := Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}
 	binding := WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(principal), OrganizationID: principal.OrganizationID}
 	seek := WorkCursorSeekKey{RootWorkID: uuid.NewString(), ParentWorkID: uuid.NewString(), CreatedAt: time.Date(2026, time.July, 23, 8, 0, 0, 123, time.UTC), ID: uuid.NewString()}
-	first.knowledgeCursorCodec.random = bytes.NewReader(bytes.Repeat([]byte{5}, first.knowledgeCursorCodec.aead.NonceSize()))
+	first.cursorCodec.random = bytes.NewReader(bytes.Repeat([]byte{5}, first.cursorCodec.aead.NonceSize()))
 	cursor, err := first.SealWorkCursor(binding, seek)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestWorkCursorSealsBindsAndSurvivesReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plaintext := append([]byte{workCursorTokenVersion}, bytes.Repeat([]byte{5}, first.knowledgeCursorCodec.aead.NonceSize())...)
+	plaintext := append([]byte{workCursorTokenVersion}, bytes.Repeat([]byte{5}, first.cursorCodec.aead.NonceSize())...)
 	plaintext = append(plaintext, payload...)
 	if err := workCursorTokenConfidential(base64.RawURLEncoding.EncodeToString(plaintext), binding, seek); err == nil {
 		t.Fatal("confidentiality oracle accepted plaintext payload")
@@ -55,9 +55,6 @@ func TestWorkCursorSealsBindsAndSurvivesReopen(t *testing.T) {
 	}
 	if _, err := second.OpenWorkCursor(cursor, WorkCursorBinding{PrincipalFingerprint: binding.PrincipalFingerprint, OrganizationID: uuid.NewString()}); !errors.Is(err, ErrWorkCursorUnavailable) {
 		t.Fatalf("organization-mismatched cursor error = %v", err)
-	}
-	if _, err := second.OpenKnowledgeCursor(cursor, KnowledgeCursorBinding{}); !errors.Is(err, ErrKnowledgeCursorUnavailable) {
-		t.Fatalf("work cursor opened as knowledge cursor: %v", err)
 	}
 }
 

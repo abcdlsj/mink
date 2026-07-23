@@ -15,9 +15,8 @@ type Reconciler struct {
 	healthWake  time.Duration
 	stepTimeout time.Duration
 	backoffMax  time.Duration
-	lastHealth  time.Time
 	backoff     time.Duration
-	startup     bool
+	lastHealth  time.Time
 	failed      bool
 
 	cancel context.CancelFunc
@@ -26,18 +25,12 @@ type Reconciler struct {
 }
 
 type knowledgeStore interface {
-	KnowledgeIndexMetadata(context.Context) (store.KnowledgeIndexMetadata, error)
-	StartKnowledgeRebuild(context.Context, time.Time) (store.KnowledgeIndexMetadata, error)
-	KnowledgeGenerationProgress(context.Context, uint64) (store.KnowledgeGenerationProgress, error)
-	BuildKnowledgeGenerationSnapshot(context.Context, uint64) error
-	NextKnowledgeDirtySource(context.Context, uint64) (store.KnowledgeDirtySource, bool, error)
+	KnowledgeIndexState(context.Context) (store.KnowledgeIndexState, error)
+	RebuildKnowledgeIndex(context.Context) error
+	NextKnowledgeDirtySource(context.Context) (store.KnowledgeDirtySource, bool, error)
 	ReadKnowledgeSourceDocument(context.Context, store.KnowledgeSource) (store.KnowledgeSourceDocument, bool, error)
-	ApplyKnowledgeProjection(context.Context, uint64, uint64, store.KnowledgeSourceDocument) (bool, error)
-	CompleteKnowledgeGeneration(context.Context, uint64) error
-	ActivateKnowledgeGeneration(context.Context, uint64) (store.KnowledgeIndexMetadata, error)
-	DiscardKnowledgeGeneration(context.Context, uint64) (store.KnowledgeIndexMetadata, error)
+	ApplyKnowledgeProjection(context.Context, uint64, store.KnowledgeSourceDocument) (bool, error)
 	CheckKnowledgeIndexHealth(context.Context) (store.KnowledgeIndexHealth, error)
-	RepairKnowledgeFTS(context.Context) error
 }
 
 func New(database *store.Store) *Reconciler {
@@ -48,7 +41,6 @@ func (r *Reconciler) Start(ctx context.Context) {
 	r.once.Do(func() {
 		ctx, r.cancel = context.WithCancel(ctx)
 		r.done = make(chan struct{})
-		r.startup = true
 		go func() {
 			defer close(r.done)
 			r.run(ctx)
@@ -65,10 +57,7 @@ func (r *Reconciler) Close() {
 }
 
 func (r *Reconciler) run(ctx context.Context) {
-	for {
-		if ctx.Err() != nil {
-			return
-		}
+	for ctx.Err() == nil {
 		stepContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.stepTimeout)
 		progressed := r.step(stepContext)
 		cancel()
@@ -99,122 +88,52 @@ func (r *Reconciler) run(ctx context.Context) {
 
 func (r *Reconciler) step(ctx context.Context) bool {
 	r.failed = false
-	metadata, err := r.store.KnowledgeIndexMetadata(ctx)
+	state, err := r.store.KnowledgeIndexState(ctx)
 	if err != nil {
 		return r.fail()
 	}
-	if r.startup {
-		if metadata.NextGeneration != 0 {
-			if !r.discard(ctx, metadata.NextGeneration) {
-				return false
-			}
-			r.startup = false
-			return true
+	if state.Status != store.KnowledgeIndexReady {
+		if r.store.RebuildKnowledgeIndex(ctx) != nil {
+			return r.fail()
 		}
-		r.startup = false
+		r.lastHealth = r.now()
+		return true
 	}
-	if r.healthDue() {
-		if !r.health(ctx) {
-			return false
-		}
-		metadata, err = r.store.KnowledgeIndexMetadata(ctx)
+	dirty, found, err := r.store.NextKnowledgeDirtySource(ctx)
+	if err != nil {
+		return r.fail()
+	}
+	if found {
+		document, exists, err := r.store.ReadKnowledgeSourceDocument(ctx, dirty.Source)
 		if err != nil {
 			return r.fail()
 		}
-	}
-	if metadata.NextGeneration != 0 {
-		return r.reconcileNext(ctx, metadata)
-	}
-	if metadata.ActiveGeneration != 0 {
-		return r.project(ctx, metadata.ActiveGeneration)
-	}
-	if _, err := r.store.StartKnowledgeRebuild(ctx, r.now()); err != nil {
-		return r.fail()
-	}
-	return true
-}
-
-func (r *Reconciler) reconcileNext(ctx context.Context, metadata store.KnowledgeIndexMetadata) bool {
-	progress, err := r.store.KnowledgeGenerationProgress(ctx, metadata.NextGeneration)
-	if err != nil {
-		return r.discard(ctx, metadata.NextGeneration)
-	}
-	if progress.SnapshotHighWater == 0 {
-		if err := r.store.BuildKnowledgeGenerationSnapshot(ctx, metadata.NextGeneration); err != nil {
-			return r.discard(ctx, metadata.NextGeneration)
+		if !exists {
+			document.Source = dirty.Source
+			document.Revision = dirty.Revision
 		}
-		if err := r.store.CompleteKnowledgeGeneration(ctx, metadata.NextGeneration); err != nil {
-			return r.fail()
-		}
-		if _, err := r.store.ActivateKnowledgeGeneration(ctx, metadata.NextGeneration); err != nil {
+		_, err = r.store.ApplyKnowledgeProjection(ctx, dirty.Sequence, document)
+		if err != nil {
 			return r.fail()
 		}
 		return true
 	}
-	if r.project(ctx, metadata.NextGeneration) {
-		return true
-	}
-	if err := r.store.CompleteKnowledgeGeneration(ctx, metadata.NextGeneration); err != nil {
-		return r.fail()
-	}
-	if r.project(ctx, metadata.NextGeneration) {
-		return true
-	}
-	if _, err := r.store.ActivateKnowledgeGeneration(ctx, metadata.NextGeneration); err != nil {
-		return r.fail()
-	}
-	return true
-}
-
-func (r *Reconciler) project(ctx context.Context, generation uint64) bool {
-	dirty, found, err := r.store.NextKnowledgeDirtySource(ctx, generation)
-	if err != nil {
-		return r.fail()
-	}
-	if !found {
+	if !r.lastHealth.IsZero() && r.now().Sub(r.lastHealth) < r.healthWake {
 		return false
 	}
-	document, exists, err := r.store.ReadKnowledgeSourceDocument(ctx, dirty.Source)
-	if err != nil {
-		return r.fail()
-	}
-	if !exists {
-		document.Source = dirty.Source
-		document.Revision = dirty.Revision
-	}
-	_, err = r.store.ApplyKnowledgeProjection(ctx, generation, dirty.Sequence, document)
-	if err != nil {
-		r.health(ctx)
-		return r.fail()
-	}
-	return true
-}
-
-func (r *Reconciler) discard(ctx context.Context, generation uint64) bool {
-	if _, err := r.store.DiscardKnowledgeGeneration(ctx, generation); err != nil {
-		return r.fail()
-	}
-	return true
-}
-
-func (r *Reconciler) healthDue() bool {
-	return r.lastHealth.IsZero() || r.now().Sub(r.lastHealth) >= r.healthWake
-}
-
-func (r *Reconciler) health(ctx context.Context) bool {
 	health, err := r.store.CheckKnowledgeIndexHealth(ctx)
 	if err != nil {
 		return r.fail()
 	}
-	if health != store.KnowledgeIndexCorrupt {
+	if health == store.KnowledgeIndexCorrupt {
+		if r.store.RebuildKnowledgeIndex(ctx) != nil {
+			return r.fail()
+		}
 		r.lastHealth = r.now()
 		return true
 	}
-	if err := r.store.RepairKnowledgeFTS(ctx); err != nil {
-		return r.fail()
-	}
 	r.lastHealth = r.now()
-	return true
+	return false
 }
 
 func (r *Reconciler) fail() bool {

@@ -78,7 +78,6 @@ type KnowledgeIndexStatus int32
 const (
 	KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_UNSPECIFIED KnowledgeIndexStatus = 0
 	KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_READY       KnowledgeIndexStatus = 1
-	KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_REBUILDING  KnowledgeIndexStatus = 2
 	KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_DEGRADED    KnowledgeIndexStatus = 3
 )
 
@@ -87,13 +86,11 @@ var (
 	KnowledgeIndexStatus_name = map[int32]string{
 		0: "KNOWLEDGE_INDEX_STATUS_UNSPECIFIED",
 		1: "KNOWLEDGE_INDEX_STATUS_READY",
-		2: "KNOWLEDGE_INDEX_STATUS_REBUILDING",
 		3: "KNOWLEDGE_INDEX_STATUS_DEGRADED",
 	}
 	KnowledgeIndexStatus_value = map[string]int32{
 		"KNOWLEDGE_INDEX_STATUS_UNSPECIFIED": 0,
 		"KNOWLEDGE_INDEX_STATUS_READY":       1,
-		"KNOWLEDGE_INDEX_STATUS_REBUILDING":  2,
 		"KNOWLEDGE_INDEX_STATUS_DEGRADED":    3,
 	}
 )
@@ -418,7 +415,6 @@ func (x *KnowledgeResult) GetSnippet() string {
 type SearchKnowledgeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Query         string                 `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	Limit         uint32                 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -461,13 +457,6 @@ func (x *SearchKnowledgeRequest) GetQuery() string {
 	return ""
 }
 
-func (x *SearchKnowledgeRequest) GetCursor() string {
-	if x != nil {
-		return x.Cursor
-	}
-	return ""
-}
-
 func (x *SearchKnowledgeRequest) GetLimit() uint32 {
 	if x != nil {
 		return x.Limit
@@ -478,7 +467,6 @@ func (x *SearchKnowledgeRequest) GetLimit() uint32 {
 type SearchKnowledgeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Results       []*KnowledgeResult     `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
-	NextCursor    string                 `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	Status        KnowledgeIndexStatus   `protobuf:"varint,3,opt,name=status,proto3,enum=sumi.knowledge.v1.KnowledgeIndexStatus" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -521,13 +509,6 @@ func (x *SearchKnowledgeResponse) GetResults() []*KnowledgeResult {
 	return nil
 }
 
-func (x *SearchKnowledgeResponse) GetNextCursor() string {
-	if x != nil {
-		return x.NextCursor
-	}
-	return ""
-}
-
 func (x *SearchKnowledgeResponse) GetStatus() KnowledgeIndexStatus {
 	if x != nil {
 		return x.Status
@@ -556,26 +537,22 @@ const file_sumi_knowledge_v1_knowledge_proto_rawDesc = "" +
 	"\x06source\"m\n" +
 	"\x0fKnowledgeResult\x12@\n" +
 	"\bcitation\x18\x01 \x01(\v2$.sumi.knowledge.v1.KnowledgeCitationR\bcitation\x12\x18\n" +
-	"\asnippet\x18\x02 \x01(\tR\asnippet\"\\\n" +
+	"\asnippet\x18\x02 \x01(\tR\asnippet\"J\n" +
 	"\x16SearchKnowledgeRequest\x12\x14\n" +
-	"\x05query\x18\x01 \x01(\tR\x05query\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x14\n" +
-	"\x05limit\x18\x03 \x01(\rR\x05limit\"\xb9\x01\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limitJ\x04\b\x02\x10\x03\"\x9e\x01\n" +
 	"\x17SearchKnowledgeResponse\x12<\n" +
-	"\aresults\x18\x01 \x03(\v2\".sumi.knowledge.v1.KnowledgeResultR\aresults\x12\x1f\n" +
-	"\vnext_cursor\x18\x02 \x01(\tR\n" +
-	"nextCursor\x12?\n" +
-	"\x06status\x18\x03 \x01(\x0e2'.sumi.knowledge.v1.KnowledgeIndexStatusR\x06status*\xab\x01\n" +
+	"\aresults\x18\x01 \x03(\v2\".sumi.knowledge.v1.KnowledgeResultR\aresults\x12?\n" +
+	"\x06status\x18\x03 \x01(\x0e2'.sumi.knowledge.v1.KnowledgeIndexStatusR\x06statusJ\x04\b\x02\x10\x03*\xab\x01\n" +
 	"\x13KnowledgeSourceKind\x12%\n" +
 	"!KNOWLEDGE_SOURCE_KIND_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dKNOWLEDGE_SOURCE_KIND_MESSAGE\x10\x01\x12\x1e\n" +
 	"\x1aKNOWLEDGE_SOURCE_KIND_WORK\x10\x02\x12*\n" +
-	"&KNOWLEDGE_SOURCE_KIND_ARTIFACT_VERSION\x10\x03*\xac\x01\n" +
+	"&KNOWLEDGE_SOURCE_KIND_ARTIFACT_VERSION\x10\x03*\x8b\x01\n" +
 	"\x14KnowledgeIndexStatus\x12&\n" +
 	"\"KNOWLEDGE_INDEX_STATUS_UNSPECIFIED\x10\x00\x12 \n" +
-	"\x1cKNOWLEDGE_INDEX_STATUS_READY\x10\x01\x12%\n" +
-	"!KNOWLEDGE_INDEX_STATUS_REBUILDING\x10\x02\x12#\n" +
-	"\x1fKNOWLEDGE_INDEX_STATUS_DEGRADED\x10\x032|\n" +
+	"\x1cKNOWLEDGE_INDEX_STATUS_READY\x10\x01\x12#\n" +
+	"\x1fKNOWLEDGE_INDEX_STATUS_DEGRADED\x10\x03\"\x04\b\x02\x10\x022|\n" +
 	"\x10KnowledgeService\x12h\n" +
 	"\x0fSearchKnowledge\x12).sumi.knowledge.v1.SearchKnowledgeRequest\x1a*.sumi.knowledge.v1.SearchKnowledgeResponseB>Z<github.com/abcdlsj/sumi/gen/go/sumi/knowledge/v1;knowledgev1b\x06proto3"
 

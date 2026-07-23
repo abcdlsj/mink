@@ -484,7 +484,7 @@ CREATE TABLE humans (
     updated_at INTEGER NOT NULL,
     UNIQUE (organization_id, name)
 );
-CREATE TABLE knowledge_cursor_keys (
+CREATE TABLE work_cursor_keys (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     key BLOB NOT NULL CHECK (length(key) = 32)
 );
@@ -504,36 +504,22 @@ CREATE VIRTUAL TABLE knowledge_fts USING fts5(
     source_kind UNINDEXED,
     source_id UNINDEXED,
     source_version UNINDEXED,
-    generation UNINDEXED,
     revision UNINDEXED,
     body
 );
-CREATE TABLE knowledge_generation_progress (
-    generation INTEGER PRIMARY KEY REFERENCES knowledge_index_generations(generation) ON DELETE RESTRICT,
-    snapshot_high_water INTEGER NOT NULL CHECK (snapshot_high_water >= 0),
-    applied_sequence INTEGER NOT NULL CHECK (applied_sequence >= snapshot_high_water)
-);
-CREATE TABLE knowledge_index_generations (
-    generation INTEGER PRIMARY KEY CHECK (generation > 0),
-    state TEXT NOT NULL CHECK (state IN ('building', 'complete', 'corrupt')),
-    created_at INTEGER NOT NULL
-);
-CREATE TABLE knowledge_index_metadata (
+CREATE TABLE knowledge_index_state (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-    active_generation INTEGER NOT NULL DEFAULT 0 CHECK (active_generation >= 0),
-    next_generation INTEGER NOT NULL DEFAULT 0 CHECK (next_generation >= 0),
-    status TEXT NOT NULL CHECK (status IN ('ready', 'rebuilding', 'degraded')),
-    CHECK (next_generation = 0 OR next_generation > active_generation)
+    applied_sequence INTEGER NOT NULL DEFAULT 0 CHECK (applied_sequence >= 0),
+    status TEXT NOT NULL CHECK (status IN ('ready', 'degraded'))
 );
-INSERT INTO knowledge_index_metadata(singleton, status) VALUES(1, 'degraded');
+INSERT INTO knowledge_index_state(singleton, status) VALUES(1, 'degraded');
 CREATE TABLE knowledge_projection_rows (
-    generation INTEGER NOT NULL REFERENCES knowledge_index_generations(generation) ON DELETE RESTRICT,
     source_kind TEXT NOT NULL CHECK (source_kind IN ('message', 'work', 'artifact_version')),
     source_id TEXT NOT NULL CHECK (length(source_id) = 36),
     source_version INTEGER NOT NULL CHECK (source_version >= 0),
     revision BLOB NOT NULL CHECK (length(revision) = 32),
     fts_rowid INTEGER NOT NULL UNIQUE,
-    PRIMARY KEY (generation, source_kind, source_id, source_version),
+    PRIMARY KEY (source_kind, source_id, source_version),
     CHECK (
         (source_kind IN ('message', 'work') AND source_version = 0)
         OR (source_kind = 'artifact_version' AND source_version >= 1)
@@ -655,7 +641,7 @@ CREATE TABLE system_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO system_metadata(key, value) VALUES('schema_version', '2');
+INSERT INTO system_metadata(key, value) VALUES('schema_version', '3');
 CREATE TABLE threads (
     id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE RESTRICT,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
@@ -865,8 +851,8 @@ ON deliveries(id, agent_id);
 CREATE INDEX grants_subject_capability_scope
 ON grants(organization_id, subject_kind, subject_id, capability, scope_kind, scope_id);
 CREATE INDEX knowledge_dirty_sources_sequence ON knowledge_dirty_sources(sequence);
-CREATE INDEX knowledge_projection_rows_generation_source
-ON knowledge_projection_rows(generation, source_kind, source_id, source_version);
+CREATE INDEX knowledge_projection_rows_source
+ON knowledge_projection_rows(source_kind, source_id, source_version);
 CREATE INDEX message_mentions_principal_message
 ON message_mentions(principal_kind, principal_id, message_id);
 CREATE UNIQUE INDEX messages_inbox_trigger

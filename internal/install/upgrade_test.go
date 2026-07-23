@@ -21,7 +21,7 @@ func TestSQLiteIntegrityRequiresFinalSchemaMarker(t *testing.T) {
 	}
 	if _, err := database.Exec(`
 		CREATE TABLE system_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '2');
+		INSERT INTO system_metadata(key, value) VALUES ('schema_version', '3');
 	`); err != nil {
 		database.Close()
 		t.Fatal(err)

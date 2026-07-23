@@ -28,7 +28,7 @@ func TestKnowledgeTransportUsesSharedAuthenticationResolver(t *testing.T) {
 	backend := &testKnowledgeBackend{
 		humans: map[string]authoritydomain.Principal{humanToken: human, ambiguousToken: human},
 		agents: map[string]authorityapp.RuntimeAuthentication{agentToken: agent, ambiguousToken: agent},
-		page:   store.KnowledgeSearchPage{Status: store.KnowledgeIndexReady},
+		page:   store.KnowledgeSearchOutput{Status: store.KnowledgeIndexReady},
 	}
 	service := newKnowledgeService(backend, "http://127.0.0.1:18080")
 	service.now = func() time.Time { return now }
@@ -42,7 +42,7 @@ func TestKnowledgeTransportUsesSharedAuthenticationResolver(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			backend.searches = nil
-			request := knowledgeRequest("search", "", 7, test.token)
+			request := knowledgeRequest("search", 7, test.token)
 			if _, err := service.SearchKnowledge(context.Background(), request); err != nil {
 				t.Fatal(err)
 			}
@@ -88,15 +88,15 @@ func TestKnowledgeTransportMapsResultsAndErrorsQuietly(t *testing.T) {
 	backend := &testKnowledgeBackend{humans: map[string]authoritydomain.Principal{token: human}}
 	service := newKnowledgeService(backend, "")
 	service.now = func() time.Time { return time.Date(2026, 7, 23, 8, 30, 0, 0, time.UTC) }
-	backend.page = store.KnowledgeSearchPage{
+	backend.page = store.KnowledgeSearchOutput{
 		Results: []store.KnowledgeSearchResult{
 			{Source: store.KnowledgeSource{Kind: store.KnowledgeSourceMessage, ID: "message-id"}, Snippet: "message snippet"},
 			{Source: store.KnowledgeSource{Kind: store.KnowledgeSourceWork, ID: "work-id"}, Snippet: "work snippet"},
 			{Source: store.KnowledgeSource{Kind: store.KnowledgeSourceArtifactVersion, ID: "artifact-id", Version: 9}, Snippet: "artifact snippet"},
 		},
-		NextCursor: "sealed-cursor", Status: store.KnowledgeIndexReady,
+		Status: store.KnowledgeIndexReady,
 	}
-	response, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", "", 3, token))
+	response, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", 3, token))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,19 +104,18 @@ func TestKnowledgeTransportMapsResultsAndErrorsQuietly(t *testing.T) {
 	if len(results) != 3 || results[0].GetCitation().GetMessage().GetMessageId() != "message-id" || results[0].GetSnippet() != "message snippet" ||
 		results[1].GetCitation().GetWork().GetWorkId() != "work-id" || results[1].GetSnippet() != "work snippet" ||
 		results[2].GetCitation().GetArtifactVersion().GetArtifactId() != "artifact-id" || results[2].GetCitation().GetArtifactVersion().GetVersion() != 9 ||
-		results[2].GetSnippet() != "artifact snippet" || response.Msg.GetNextCursor() != "sealed-cursor" ||
+		results[2].GetSnippet() != "artifact snippet" ||
 		response.Msg.GetStatus() != knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_READY {
 		t.Fatalf("knowledge response = %+v", response.Msg)
 	}
 
 	for status, want := range map[string]knowledgev1.KnowledgeIndexStatus{
-		store.KnowledgeIndexReady:      knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_READY,
-		store.KnowledgeIndexRebuilding: knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_REBUILDING,
-		store.KnowledgeIndexDegraded:   knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_DEGRADED,
+		store.KnowledgeIndexReady:    knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_READY,
+		store.KnowledgeIndexDegraded: knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_DEGRADED,
 	} {
 		t.Run("status "+status, func(t *testing.T) {
-			backend.page = store.KnowledgeSearchPage{Status: status}
-			response, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", "", 0, token))
+			backend.page = store.KnowledgeSearchOutput{Status: status}
+			response, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", 0, token))
 			if err != nil || response.Msg.GetStatus() != want {
 				t.Fatalf("status response = %+v, %v", response, err)
 			}
@@ -130,12 +129,6 @@ func TestKnowledgeTransportMapsResultsAndErrorsQuietly(t *testing.T) {
 		message string
 	}{
 		"invalid":              {err: store.ErrKnowledgeSearchInvalid, code: connect.CodeInvalidArgument, message: "knowledge search input is invalid"},
-		"cursor open":          {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
-		"cursor version":       {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
-		"cursor tamper":        {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
-		"cursor binding":       {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
-		"cursor generation":    {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
-		"cursor seek":          {err: store.ErrKnowledgeSearchCursorUnavailable, code: connect.CodeFailedPrecondition, message: "cursor unavailable"},
 		"store authentication": {err: store.ErrKnowledgeSearchUnauthenticated, code: connect.CodeUnauthenticated, message: "knowledge authentication invalid"},
 		"canceled":             {err: context.Canceled, code: connect.CodeCanceled, message: "knowledge search canceled"},
 		"deadline":             {err: context.DeadlineExceeded, code: connect.CodeDeadlineExceeded, message: "knowledge search deadline exceeded"},
@@ -143,7 +136,7 @@ func TestKnowledgeTransportMapsResultsAndErrorsQuietly(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			backend.searchErr = test.err
-			_, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", "", 0, token))
+			_, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", 0, token))
 			assertKnowledgeConnectError(t, err, test.code, test.message)
 			if strings.Contains(err.Error(), private) {
 				t.Fatalf("private backend detail leaked: %v", err)
@@ -153,20 +146,20 @@ func TestKnowledgeTransportMapsResultsAndErrorsQuietly(t *testing.T) {
 	backend.searchErr = nil
 	backend.authErr = errors.New(private)
 	backend.searches = nil
-	_, err = service.SearchKnowledge(context.Background(), knowledgeRequest("search", "", 0, token))
+	_, err = service.SearchKnowledge(context.Background(), knowledgeRequest("search", 0, token))
 	assertKnowledgeConnectError(t, err, connect.CodeInternal, "knowledge service unavailable")
 	if strings.Contains(err.Error(), private) || len(backend.searches) != 0 {
 		t.Fatalf("authentication backend failure leaked or searched: %v, %+v", err, backend.searches)
 	}
 	backend.authErr = nil
 
-	for name, page := range map[string]store.KnowledgeSearchPage{
+	for name, page := range map[string]store.KnowledgeSearchOutput{
 		"unknown status": {Status: "future"},
 		"unknown source": {Status: store.KnowledgeIndexReady, Results: []store.KnowledgeSearchResult{{Source: store.KnowledgeSource{Kind: "future", ID: private}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			backend.page = page
-			_, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", "", 0, token))
+			_, err := service.SearchKnowledge(context.Background(), knowledgeRequest("search", 0, token))
 			assertKnowledgeConnectError(t, err, connect.CodeInternal, "knowledge service unavailable")
 			if strings.Contains(err.Error(), private) {
 				t.Fatalf("private projection detail leaked: %v", err)
@@ -200,7 +193,7 @@ func TestKnowledgeHTTPAcceptsHumanBrowserAndCurrentRuntime(t *testing.T) {
 		runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
 		session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
 		runtimeSearch := knowledgev1connect.NewKnowledgeServiceClient(api.http.Client(), api.http.URL)
-		if _, err := runtimeSearch.SearchKnowledge(context.Background(), knowledgeRequest("knowledge", "", 0, session.GetToken())); err != nil {
+		if _, err := runtimeSearch.SearchKnowledge(context.Background(), knowledgeRequest("knowledge", 0, session.GetToken())); err != nil {
 			t.Fatalf("runtime search: %v", err)
 		}
 	})
@@ -237,7 +230,7 @@ type testKnowledgeBackend struct {
 	agents    map[string]authorityapp.RuntimeAuthentication
 	browsers  map[string]authoritydomain.Principal
 	authErr   error
-	page      store.KnowledgeSearchPage
+	page      store.KnowledgeSearchOutput
 	searchErr error
 	searches  []store.KnowledgeSearchParams
 }
@@ -272,13 +265,13 @@ func (b *testKnowledgeBackend) AuthenticateBrowserSession(_ context.Context, tok
 	return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 }
 
-func (b *testKnowledgeBackend) SearchKnowledge(_ context.Context, params store.KnowledgeSearchParams) (store.KnowledgeSearchPage, error) {
+func (b *testKnowledgeBackend) SearchKnowledge(_ context.Context, params store.KnowledgeSearchParams) (store.KnowledgeSearchOutput, error) {
 	b.searches = append(b.searches, params)
 	return b.page, b.searchErr
 }
 
-func knowledgeRequest(query, cursor string, limit uint32, token string) *connect.Request[knowledgev1.SearchKnowledgeRequest] {
-	request := connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: query, Cursor: cursor, Limit: limit})
+func knowledgeRequest(query string, limit uint32, token string) *connect.Request[knowledgev1.SearchKnowledgeRequest] {
+	request := connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: query, Limit: limit})
 	if token != "" {
 		request.Header().Set("Authorization", "Bearer "+token)
 	}

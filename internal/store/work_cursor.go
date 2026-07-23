@@ -62,14 +62,14 @@ func (s *Store) SealWorkCursor(binding WorkCursorBinding, seek WorkCursorSeekKey
 	if err != nil {
 		return "", ErrWorkCursorUnavailable
 	}
-	nonce := make([]byte, s.knowledgeCursorCodec.aead.NonceSize())
-	if _, err := io.ReadFull(s.knowledgeCursorCodec.random, nonce); err != nil {
+	nonce := make([]byte, s.cursorCodec.aead.NonceSize())
+	if _, err := io.ReadFull(s.cursorCodec.random, nonce); err != nil {
 		return "", ErrWorkCursorUnavailable
 	}
 	raw := make([]byte, 1+len(nonce))
 	raw[0] = workCursorTokenVersion
 	copy(raw[1:], nonce)
-	raw = s.knowledgeCursorCodec.aead.Seal(raw, nonce, payload, []byte(workCursorAAD))
+	raw = s.cursorCodec.aead.Seal(raw, nonce, payload, []byte(workCursorAAD))
 	token := base64.RawURLEncoding.EncodeToString(raw)
 	if len(token) > workCursorTokenMax {
 		return "", ErrWorkCursorUnavailable
@@ -82,11 +82,11 @@ func (s *Store) OpenWorkCursor(token string, binding WorkCursorBinding) (WorkCur
 		return WorkCursorSeekKey{}, ErrWorkCursorUnavailable
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(raw) < 1+s.knowledgeCursorCodec.aead.NonceSize()+s.knowledgeCursorCodec.aead.Overhead() || raw[0] != workCursorTokenVersion {
+	if err != nil || len(raw) < 1+s.cursorCodec.aead.NonceSize()+s.cursorCodec.aead.Overhead() || raw[0] != workCursorTokenVersion {
 		return WorkCursorSeekKey{}, ErrWorkCursorUnavailable
 	}
-	nonce := raw[1 : 1+s.knowledgeCursorCodec.aead.NonceSize()]
-	payload, err := s.knowledgeCursorCodec.aead.Open(nil, nonce, raw[1+s.knowledgeCursorCodec.aead.NonceSize():], []byte(workCursorAAD))
+	nonce := raw[1 : 1+s.cursorCodec.aead.NonceSize()]
+	payload, err := s.cursorCodec.aead.Open(nil, nonce, raw[1+s.cursorCodec.aead.NonceSize():], []byte(workCursorAAD))
 	if err != nil {
 		return WorkCursorSeekKey{}, ErrWorkCursorUnavailable
 	}

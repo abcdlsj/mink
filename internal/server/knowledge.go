@@ -14,7 +14,7 @@ import (
 
 type knowledgeStore interface {
 	sharedauthentication.Authenticator
-	SearchKnowledge(context.Context, store.KnowledgeSearchParams) (store.KnowledgeSearchPage, error)
+	SearchKnowledge(context.Context, store.KnowledgeSearchParams) (store.KnowledgeSearchOutput, error)
 }
 
 type knowledgeService struct {
@@ -36,7 +36,7 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, request *connect
 		return nil, knowledgeAuthenticationError(err)
 	}
 	params := store.KnowledgeSearchParams{
-		Query: request.Msg.GetQuery(), Cursor: request.Msg.GetCursor(), Limit: request.Msg.GetLimit(), Now: now,
+		Query: request.Msg.GetQuery(), Limit: request.Msg.GetLimit(), Now: now,
 	}
 	if human, ok := authentication.Human(); ok {
 		params.Human = human
@@ -45,11 +45,11 @@ func (s *knowledgeService) SearchKnowledge(ctx context.Context, request *connect
 	} else {
 		return nil, knowledgeInternalError()
 	}
-	page, err := s.store.SearchKnowledge(ctx, params)
+	output, err := s.store.SearchKnowledge(ctx, params)
 	if err != nil {
 		return nil, knowledgeServiceError(err)
 	}
-	response, err := knowledgeResponse(page)
+	response, err := knowledgeResponse(output)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +75,6 @@ func knowledgeServiceError(err error) error {
 		return connect.NewError(connect.CodeDeadlineExceeded, errors.New("knowledge search deadline exceeded"))
 	case errors.Is(err, store.ErrKnowledgeSearchInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("knowledge search input is invalid"))
-	case errors.Is(err, store.ErrKnowledgeSearchCursorUnavailable):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("cursor unavailable"))
 	case errors.Is(err, store.ErrKnowledgeSearchUnauthenticated):
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("knowledge authentication invalid"))
 	default:
@@ -88,20 +86,20 @@ func knowledgeInternalError() error {
 	return connect.NewError(connect.CodeInternal, errors.New("knowledge service unavailable"))
 }
 
-func knowledgeResponse(page store.KnowledgeSearchPage) (*knowledgev1.SearchKnowledgeResponse, error) {
-	status, err := knowledgeStatus(page.Status)
+func knowledgeResponse(output store.KnowledgeSearchOutput) (*knowledgev1.SearchKnowledgeResponse, error) {
+	status, err := knowledgeStatus(output.Status)
 	if err != nil {
 		return nil, err
 	}
-	results := make([]*knowledgev1.KnowledgeResult, 0, len(page.Results))
-	for _, result := range page.Results {
+	results := make([]*knowledgev1.KnowledgeResult, 0, len(output.Results))
+	for _, result := range output.Results {
 		citation, err := knowledgeCitation(result.Source)
 		if err != nil {
 			return nil, err
 		}
 		results = append(results, &knowledgev1.KnowledgeResult{Citation: citation, Snippet: result.Snippet})
 	}
-	return &knowledgev1.SearchKnowledgeResponse{Results: results, NextCursor: page.NextCursor, Status: status}, nil
+	return &knowledgev1.SearchKnowledgeResponse{Results: results, Status: status}, nil
 }
 
 func knowledgeCitation(source store.KnowledgeSource) (*knowledgev1.KnowledgeCitation, error) {
@@ -127,8 +125,6 @@ func knowledgeStatus(status string) (knowledgev1.KnowledgeIndexStatus, error) {
 	switch status {
 	case store.KnowledgeIndexReady:
 		return knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_READY, nil
-	case store.KnowledgeIndexRebuilding:
-		return knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_REBUILDING, nil
 	case store.KnowledgeIndexDegraded:
 		return knowledgev1.KnowledgeIndexStatus_KNOWLEDGE_INDEX_STATUS_DEGRADED, nil
 	default:

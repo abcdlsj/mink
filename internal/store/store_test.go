@@ -49,6 +49,32 @@ func TestOpenRejectsExistingSchemaWithoutFinalMarker(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsPreviousFinalSchemaMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`UPDATE system_metadata SET value = '2' WHERE key = 'schema_version'`); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if store, err := Open(path); err == nil {
+		store.Close()
+		t.Fatal("Open succeeded for the previous final schema marker")
+	}
+}
+
 func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {

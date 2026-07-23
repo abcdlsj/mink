@@ -20,8 +20,8 @@ var schema string
 var schemaMutex sync.Mutex
 
 type Store struct {
-	db                   *sql.DB
-	knowledgeCursorCodec knowledgeCursorCodec
+	db          *sql.DB
+	cursorCodec cursorCodec
 }
 
 func Open(path string) (*Store, error) {
@@ -58,22 +58,22 @@ func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error)
 		closeDB(db)
 		return nil, err
 	}
-	key, err := bootstrapKnowledgeCursorKey(context.Background(), db, random)
+	key, err := bootstrapCursorKey(context.Background(), db, random)
 	if err != nil {
 		closeDB(db)
 		return nil, err
 	}
-	cursorCodec, err := newKnowledgeCursorCodec(key, random)
+	cursorCodec, err := newCursorCodec(key, random)
 	if err != nil {
 		closeDB(db)
-		return nil, fmt.Errorf("initialize knowledge cursor codec: %w", ErrKnowledgeCursorKeyUnavailable)
+		return nil, fmt.Errorf("initialize cursor codec: %w", ErrCursorKeyUnavailable)
 	}
 	if err := secureSQLiteFiles(path); err != nil {
 		closeDB(db)
 		return nil, err
 	}
 
-	return &Store{db: db, knowledgeCursorCodec: cursorCodec}, nil
+	return &Store{db: db, cursorCodec: cursorCodec}, nil
 }
 
 func secureSQLiteFile(path string) error {
@@ -181,7 +181,7 @@ func initializeSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if objects != 0 {
 		var marker string
-		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "2" {
+		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "3" {
 			return fmt.Errorf("legacy sqlite schema is unsupported (%d existing objects); initialize a new database", objects)
 		}
 		return validateSchema(ctx, db)
@@ -207,13 +207,14 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		SELECT COUNT(*)
 		FROM sqlite_master
 		WHERE type = 'table' AND name IN (
-			'system_metadata', 'knowledge_cursor_keys',
+			'system_metadata', 'work_cursor_keys', 'knowledge_dirty_sources',
+			'knowledge_fts', 'knowledge_index_state', 'knowledge_projection_rows',
 			'auth_identities', 'local_password_credentials'
 		)
 	`).Scan(&objects); err != nil {
 		return fmt.Errorf("inspect sqlite schema: %w", err)
 	}
-	if objects != 4 {
+	if objects != 8 {
 		return fmt.Errorf("sqlite schema is incomplete")
 	}
 	return nil
