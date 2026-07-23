@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -16,10 +17,12 @@ func TestGetWorkDetailRestoresCurrentFactsAfterRestart(t *testing.T) {
 	fixture := openWorkQueryFixture(t)
 	work := fixture.createWork(t, "detail recovery", fixture.now.Add(time.Second))
 	first, second := fixture.createPlacedAgents(t, 2)
-	if _, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: first, Now: fixture.now.Add(2 * time.Second)}); err != nil {
+	firstAssignment, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: first, Now: fixture.now.Add(2 * time.Second)})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: second, Now: fixture.now.Add(3 * time.Second)}); err != nil {
+	secondAssignment, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: second, Now: fixture.now.Add(3 * time.Second)})
+	if err != nil {
 		t.Fatal(err)
 	}
 	criterion := work.AcceptanceCriteria[0]
@@ -29,7 +32,8 @@ func TestGetWorkDetailRestoresCurrentFactsAfterRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Question: "continue?", Now: fixture.now.Add(5 * time.Second)}); err != nil {
+	approval, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Question: "continue?", Now: fixture.now.Add(5 * time.Second)})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.database.Close(); err != nil {
@@ -44,11 +48,29 @@ func TestGetWorkDetailRestoresCurrentFactsAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.State != WorkStateWaitingApproval || len(detail.Constraints) != 1 || len(detail.AcceptanceCriteria) != 1 || len(detail.Assignments) != 2 || len(detail.Approvals) != 1 || len(detail.CriterionResults) != 1 || len(detail.Events) < 7 {
+	if detail.State != WorkStateWaitingApproval || len(detail.Constraints) != 1 || len(detail.AcceptanceCriteria) != 1 || len(detail.Assignments) != 2 || len(detail.Approvals) != 1 || len(detail.CriterionResults) != 1 || len(detail.Events) != 8 {
 		t.Fatalf("restarted detail is incomplete: %+v", detail)
 	}
 	if detail.Assignments[0].EndedAt == nil || detail.Assignments[1].EndedAt != nil || detail.Approvals[0].Status != "pending" || detail.CriterionResults[0].Evidence != "evidence" {
 		t.Fatalf("restarted detail lost current/history facts: %+v", detail)
+	}
+	expectedEvents := []struct {
+		kind, referenceKind, referenceID, from, to string
+	}{
+		{kind: "created"},
+		{kind: "assignment.started", referenceKind: "assignment", referenceID: firstAssignment.ID},
+		{kind: "assignment.ended", referenceKind: "assignment", referenceID: firstAssignment.ID},
+		{kind: "assignment.started", referenceKind: "assignment", referenceID: secondAssignment.ID},
+		{kind: "acceptance.recorded", referenceKind: "criterion_result", referenceID: detail.CriterionResults[0].ID},
+		{kind: "state.transitioned", from: WorkStateOpen, to: WorkStateBlocked},
+		{kind: "approval.requested", referenceKind: "approval", referenceID: approval.ID},
+		{kind: "state.transitioned", referenceKind: "approval", referenceID: approval.ID, from: WorkStateBlocked, to: WorkStateWaitingApproval},
+	}
+	for index, want := range expectedEvents {
+		got := detail.Events[index]
+		if got.Sequence != uint64(index+1) || got.Kind != want.kind || got.ReferenceKind != want.referenceKind || got.ReferenceID != want.referenceID || got.FromState != want.from || got.ToState != want.to {
+			t.Fatalf("event %d = %+v, want %+v", index, got, want)
+		}
 	}
 }
 
@@ -139,6 +161,85 @@ func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
 	if stringsContain(first.NextCursor, targetID) || stringsContain(first.NextCursor, ordered[0]) {
 		t.Fatal("sealed continuation cursor leaked work id")
 	}
+
+	exact400 := openWorkQueryFixture(t)
+	for index := 0; index < workPageCandidateScan; index++ {
+		exact400.createWork(t, fmt.Sprintf("exact-400-%03d", index), exact400.now.Add(time.Duration(index+1)*time.Nanosecond))
+	}
+	hiddenMember := exact400.createMember(t, "exact-400-hidden")
+	page, err := exact400.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: hiddenMember, Limit: 200, Now: exact400.now.Add(time.Minute)})
+	if err != nil || len(page.Works) != 0 || page.NextCursor != "" {
+		t.Fatalf("exact 400 hidden page = %+v, %v", page, err)
+	}
+}
+
+func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
+	fixture := openWorkQueryFixture(t)
+	root := fixture.createWork(t, "tuple-root", fixture.now.Add(time.Second))
+	sameCreatedAt := fixture.now.Add(2 * time.Second)
+	parentA := fixture.createChildWork(t, root.ID, "tuple-parent-a", sameCreatedAt)
+	parentB := fixture.createChildWork(t, root.ID, "tuple-parent-b", sameCreatedAt)
+	childAFirst := fixture.createChildWork(t, parentA.ID, "tuple-child-a-first", sameCreatedAt)
+	childASecond := fixture.createChildWork(t, parentA.ID, "tuple-child-a-second", sameCreatedAt)
+	childB := fixture.createChildWork(t, parentB.ID, "tuple-child-b", sameCreatedAt)
+	otherRoot := fixture.createWork(t, "tuple-other-root", sameCreatedAt)
+	works := []Work{root, parentA, parentB, childAFirst, childASecond, childB, otherRoot}
+	sort.Slice(works, func(left, right int) bool {
+		if works[left].RootWorkID != works[right].RootWorkID {
+			return works[left].RootWorkID < works[right].RootWorkID
+		}
+		leftRoot, rightRoot := works[left].ParentWorkID == "", works[right].ParentWorkID == ""
+		if leftRoot != rightRoot {
+			return leftRoot
+		}
+		if works[left].ParentWorkID != works[right].ParentWorkID {
+			return works[left].ParentWorkID < works[right].ParentWorkID
+		}
+		if works[left].CreatedAt != works[right].CreatedAt {
+			return works[left].CreatedAt.Before(works[right].CreatedAt)
+		}
+		return works[left].ID < works[right].ID
+	})
+	for _, limit := range []uint32{1, 2} {
+		t.Run(fmt.Sprintf("limit-%d", limit), func(t *testing.T) {
+			cursor := ""
+			got := make([]string, 0, len(works))
+			seen := map[string]bool{}
+			checkedRootCursor := false
+			for {
+				page, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: fixture.owner, Cursor: cursor, Limit: limit, Now: fixture.now.Add(3 * time.Second)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, work := range page.Works {
+					if seen[work.ID] {
+						t.Fatalf("duplicate work %s", work.ID)
+					}
+					seen[work.ID] = true
+					got = append(got, work.ID)
+				}
+				if len(page.Works) > 0 && page.Works[len(page.Works)-1].ParentWorkID == "" && page.NextCursor != "" {
+					seek, err := fixture.database.OpenWorkCursor(page.NextCursor, WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(fixture.owner), OrganizationID: fixture.owner.OrganizationID})
+					if err != nil || !seek.ParentIsNull {
+						t.Fatalf("root continuation seek = %+v, %v", seek, err)
+					}
+					checkedRootCursor = true
+				}
+				if page.NextCursor == "" {
+					break
+				}
+				cursor = page.NextCursor
+			}
+			if (limit == 1 && !checkedRootCursor) || len(got) != len(works) {
+				t.Fatalf("hierarchy pages = %v, root cursor=%t", got, checkedRootCursor)
+			}
+			for index, work := range works {
+				if got[index] != work.ID {
+					t.Fatalf("work %d = %s, want %s", index, got[index], work.ID)
+				}
+			}
+		})
+	}
 }
 
 func TestListWorkPageFailsClosedOnCandidateIterationError(t *testing.T) {
@@ -211,14 +312,93 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeFixture.database.GetWorkDetail(context.Background(), WorkReadParams{Agent: authentication, WorkID: runtimeWork.ID, Now: runtimeFixture.now.Add(5 * time.Second)}); err != nil {
+	readers := []struct {
+		name string
+		read func(WorkReadParams) error
+	}{
+		{name: "detail", read: func(params WorkReadParams) error {
+			_, err := runtimeFixture.database.GetWorkDetail(context.Background(), params)
+			return err
+		}},
+		{name: "page", read: func(params WorkReadParams) error {
+			_, err := runtimeFixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: params.Actor, Agent: params.Agent, Now: params.Now})
+			return err
+		}},
+	}
+	now := runtimeFixture.now.Add(5 * time.Second)
+	for _, reader := range readers {
+		t.Run(reader.name+" valid human", func(t *testing.T) {
+			if err := reader.read(WorkReadParams{Actor: owner, WorkID: runtimeWork.ID, Now: now}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		t.Run(reader.name+" valid runtime", func(t *testing.T) {
+			if err := reader.read(WorkReadParams{Agent: authentication, WorkID: runtimeWork.ID, Now: now}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+	partialWithoutKind := authentication
+	partialWithoutKind.Principal.Kind = ""
+	partialWithoutID := authentication
+	partialWithoutID.Principal.ID = ""
+	partialWithoutOrganization := authentication
+	partialWithoutOrganization.Principal.OrganizationID = ""
+	invalid := []struct {
+		name   string
+		params WorkReadParams
+		want   error
+	}{
+		{name: "direct agent", params: WorkReadParams{Actor: agent, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "system actor", params: WorkReadParams{Actor: Principal{Kind: "system", OrganizationID: owner.OrganizationID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "unknown actor", params: WorkReadParams{Actor: Principal{Kind: "unknown", ID: uuid.NewString(), OrganizationID: owner.OrganizationID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "missing human", params: WorkReadParams{Actor: Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: owner.OrganizationID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "partial human missing kind", params: WorkReadParams{Actor: Principal{ID: owner.ID, OrganizationID: owner.OrganizationID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "partial human missing id", params: WorkReadParams{Actor: Principal{Kind: "human", OrganizationID: owner.OrganizationID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "partial human missing organization", params: WorkReadParams{Actor: Principal{Kind: "human", ID: owner.ID}, WorkID: runtimeWork.ID, Now: now}, want: ErrPermissionDenied},
+		{name: "partial runtime missing kind", params: WorkReadParams{Agent: partialWithoutKind, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+		{name: "partial runtime missing id", params: WorkReadParams{Agent: partialWithoutID, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+		{name: "partial runtime missing organization", params: WorkReadParams{Agent: partialWithoutOrganization, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+		{name: "human plus runtime", params: WorkReadParams{Actor: owner, Agent: authentication, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+		{name: "agent plus same runtime", params: WorkReadParams{Actor: agent, Agent: authentication, WorkID: runtimeWork.ID, Now: now}, want: ErrAgentRuntimeUnauthenticated},
+	}
+	for _, reader := range readers {
+		for _, test := range invalid {
+			t.Run(reader.name+" "+test.name, func(t *testing.T) {
+				if err := reader.read(test.params); !errors.Is(err, test.want) {
+					t.Fatalf("error = %v, want %v", err, test.want)
+				}
+			})
+		}
+		expired := WorkReadParams{Agent: authentication, WorkID: runtimeWork.ID, Now: runtimeFixture.now.Add(14 * time.Minute)}
+		t.Run(reader.name+" expired runtime", func(t *testing.T) {
+			if err := reader.read(expired); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+	replacementToken := runtimeTestToken(178)
+	createRuntimeSession(t, runtimeFixture, replacementToken, runtimeFixture.now.Add(6*time.Second))
+	for _, reader := range readers {
+		t.Run(reader.name+" stale runtime", func(t *testing.T) {
+			if err := reader.read(WorkReadParams{Agent: authentication, WorkID: runtimeWork.ID, Now: runtimeFixture.now.Add(7 * time.Second)}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+	replacement, err := runtimeFixture.database.AuthenticateAgentRuntimeSession(context.Background(), replacementToken, runtimeFixture.now.Add(7*time.Second))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runtimeFixture.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{Proof: authentication.Proof, ComputerID: runtimeFixture.computer.ID, RegistrationKey: runtimeFixture.registrationKey, Now: runtimeFixture.now.Add(6 * time.Second)}); err != nil {
+	if err := runtimeFixture.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{Proof: replacement.Proof, ComputerID: runtimeFixture.computer.ID, RegistrationKey: runtimeFixture.registrationKey, Now: runtimeFixture.now.Add(8 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtimeFixture.database.GetWorkDetail(context.Background(), WorkReadParams{Agent: authentication, WorkID: runtimeWork.ID, Now: runtimeFixture.now.Add(7 * time.Second)}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
-		t.Fatalf("stale runtime error = %v", err)
+	for _, reader := range readers {
+		t.Run(reader.name+" revoked runtime", func(t *testing.T) {
+			if err := reader.read(WorkReadParams{Agent: replacement, WorkID: runtimeWork.ID, Now: runtimeFixture.now.Add(9 * time.Second)}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
@@ -263,8 +443,12 @@ func openWorkQueryFixture(t *testing.T) *workQueryFixture {
 }
 
 func (fixture *workQueryFixture) createWork(t *testing.T, goal string, now time.Time) Work {
+	return fixture.createChildWork(t, "", goal, now)
+}
+
+func (fixture *workQueryFixture) createChildWork(t *testing.T, parentWorkID, goal string, now time.Time) Work {
 	t.Helper()
-	work, err := fixture.database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: fixture.owner, SourceMessageID: fixture.message.ID, SourceSpaceID: fixture.space.ID, SourceTarget: fixture.message.Target, SourceTargetSequence: fixture.message.TargetSequence, Goal: goal, Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now})
+	work, err := fixture.database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: fixture.owner, ParentWorkID: parentWorkID, SourceMessageID: fixture.message.ID, SourceSpaceID: fixture.space.ID, SourceTarget: fixture.message.Target, SourceTargetSequence: fixture.message.TargetSequence, Goal: goal, Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}

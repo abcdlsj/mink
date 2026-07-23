@@ -182,33 +182,43 @@ func (s *Store) beginWorkReadTransaction(ctx context.Context, supplied Principal
 	if err != nil {
 		return nil, Principal{}, fmt.Errorf("begin work read: %w", err)
 	}
-	actor := supplied
+	humanProvided := supplied.Kind != "" || supplied.ID != "" || supplied.OrganizationID != ""
 	runtimeProvided := runtime.Principal.Kind != "" || runtime.Principal.ID != "" || runtime.Principal.OrganizationID != "" || runtime.Proof.Valid()
-	if runtimeProvided {
-		if !runtime.Valid() || now.IsZero() {
-			tx.Rollback()
-			return nil, Principal{}, ErrAgentRuntimeUnauthenticated
-		}
-		current, err := requireAgentRuntimeSession(ctx, tx, runtime.Proof, now)
-		if err != nil {
-			tx.Rollback()
-			return nil, Principal{}, err
-		}
-		if current.Principal != runtime.Principal || (supplied.ID != "" && supplied != current.Principal) {
-			tx.Rollback()
-			return nil, Principal{}, ErrAgentRuntimeUnauthenticated
-		}
-		actor = current.Principal
-	}
-	if !actor.Valid() || now.IsZero() {
+	if now.IsZero() || humanProvided == runtimeProvided {
 		tx.Rollback()
+		if runtimeProvided {
+			return nil, Principal{}, ErrAgentRuntimeUnauthenticated
+		}
 		return nil, Principal{}, ErrPermissionDenied
 	}
-	if err := validatePrincipalInOrganization(ctx, tx, actor, actor.OrganizationID); err != nil {
+	if humanProvided {
+		if supplied.Kind != "human" || !supplied.Valid() {
+			tx.Rollback()
+			return nil, Principal{}, ErrPermissionDenied
+		}
+		if err := validatePrincipalInOrganization(ctx, tx, supplied, supplied.OrganizationID); err != nil {
+			tx.Rollback()
+			if errors.Is(err, ErrPrincipalNotFound) || errors.Is(err, ErrInvalidPrincipal) {
+				return nil, Principal{}, ErrPermissionDenied
+			}
+			return nil, Principal{}, err
+		}
+		return tx, supplied, nil
+	}
+	if !runtime.Valid() {
+		tx.Rollback()
+		return nil, Principal{}, ErrAgentRuntimeUnauthenticated
+	}
+	current, err := requireAgentRuntimeSession(ctx, tx, runtime.Proof, now)
+	if err != nil {
 		tx.Rollback()
 		return nil, Principal{}, err
 	}
-	return tx, actor, nil
+	if current.Principal != runtime.Principal {
+		tx.Rollback()
+		return nil, Principal{}, ErrAgentRuntimeUnauthenticated
+	}
+	return tx, current.Principal, nil
 }
 
 func listWorkPageCandidates(ctx context.Context, tx *sql.Tx, organizationID string, after *WorkCursorSeekKey) ([]Work, error) {

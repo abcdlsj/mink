@@ -1,7 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -19,13 +22,21 @@ func TestWorkCursorSealsBindsAndSurvivesReopen(t *testing.T) {
 	}
 	principal := Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}
 	binding := WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(principal), OrganizationID: principal.OrganizationID}
-	seek := WorkCursorSeekKey{RootWorkID: uuid.NewString(), ParentIsNull: true, CreatedAt: time.Date(2026, time.July, 23, 8, 0, 0, 123, time.UTC), ID: uuid.NewString()}
+	seek := WorkCursorSeekKey{RootWorkID: uuid.NewString(), ParentWorkID: uuid.NewString(), CreatedAt: time.Date(2026, time.July, 23, 8, 0, 0, 123, time.UTC), ID: uuid.NewString()}
+	first.knowledgeCursorCodec.random = bytes.NewReader(bytes.Repeat([]byte{5}, first.knowledgeCursorCodec.aead.NonceSize()))
 	cursor, err := first.SealWorkCursor(binding, seek)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(cursor, seek.RootWorkID) || strings.Contains(cursor, seek.ID) {
-		t.Fatal("sealed work cursor exposed a work identifier")
+	assertWorkCursorConfidential(t, cursor, binding, seek)
+	payload, err := marshalWorkCursor(binding, seek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := append([]byte{workCursorTokenVersion}, bytes.Repeat([]byte{5}, first.knowledgeCursorCodec.aead.NonceSize())...)
+	plaintext = append(plaintext, payload...)
+	if err := workCursorTokenConfidential(base64.RawURLEncoding.EncodeToString(plaintext), binding, seek); err == nil {
+		t.Fatal("confidentiality oracle accepted plaintext payload")
 	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
@@ -48,6 +59,33 @@ func TestWorkCursorSealsBindsAndSurvivesReopen(t *testing.T) {
 	if _, err := second.OpenKnowledgeCursor(cursor, KnowledgeCursorBinding{}); !errors.Is(err, ErrKnowledgeCursorUnavailable) {
 		t.Fatalf("work cursor opened as knowledge cursor: %v", err)
 	}
+}
+
+func assertWorkCursorConfidential(t *testing.T, token string, binding WorkCursorBinding, seek WorkCursorSeekKey) {
+	t.Helper()
+	if err := workCursorTokenConfidential(token, binding, seek); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func workCursorTokenConfidential(token string, binding WorkCursorBinding, seek WorkCursorSeekKey) error {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return err
+	}
+	payload, err := marshalWorkCursor(binding, seek)
+	if err != nil {
+		return err
+	}
+	timestamp := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestamp, uint64(seek.CreatedAt.UnixNano()))
+	values := [][]byte{binding.PrincipalFingerprint[:], []byte(binding.OrganizationID), []byte(seek.RootWorkID), []byte(seek.ParentWorkID), timestamp, []byte(seek.ID), payload}
+	for _, value := range values {
+		if bytes.Contains(raw, value) {
+			return errors.New("work cursor raw token exposes payload")
+		}
+	}
+	return nil
 }
 
 func TestWorkCursorRejectsTamperAndOversize(t *testing.T) {
