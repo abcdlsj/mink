@@ -631,3 +631,21 @@ Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.sys
 权限、幂等、replay、transaction rollback、rows iteration、cursor、runtime replacement、Secret、fail-closed、跨重启、outbox 和 E2E 测试全部保留。Computer State 的 `Outbox` read method虽然没有生产调用，但承担 Host/State 跨包持久 outbox oracle，删除会迫使测试绕过 API 读 SQLite 或只验证易产生假阳性的最终结果，因此明确保留。全仓 dead-code analysis 在包含 tests 时为零；不包含 tests 时仅报告该有意保留的 Outbox inspection path。
 
 验证完成：touched package focused tests、uncached full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`（Web/Go/Desktop）、dead-code analysis 与 `git diff --check` 全部通过。代码与测试 diff（不含本文记录）删除 255 行、增加 103 行，净减少 152 行；proto、schema、Web 与公开行为零变更，因此不重复运行依赖外部 Server/owner credential 的 Playwright，完整黑盒留给最终单一基线任务。
+
+## 30. 2026-07-24 一期最终单一基线
+
+一期实现收敛为一条连续、无并列候选的提交链：
+
+`f90f315 → 2ebe825 → 04ec5bf → 469659d → 0e46482 → 49d5862 → 463014f → 8c0e0f4`
+
+链上依次包含 authoritative 一期 baseline、UI 信息密度、本地身份、Human/Agent Message Inbox parity、Sumi system prompt、Knowledge 简化、application port 收口与代码/测试清理。每个提交的 parent 均为前一提交；最终验证从 `8c0e0f41ac0a7054d41e992b9a627e7c9f7e3088` 开始，不再 cherry-pick、重排或合并其他候选。
+
+最终门禁全部通过：`mise run generate` 且生成后工作树无变化；`mise run test` 覆盖 Go 全量与 Web 102/102；`mise run lint`；`mise run build` 覆盖 production Web、Go 与 Wails Desktop；Playwright E2E 的 TypeScript 以 strict、Bundler resolution 独立检查通过。Computer 黑盒显式覆盖 two-process migration、external driver delivery 与 external driver failure matrix，三项同轮通过。
+
+使用全新 data root 启动 Server 后，Playwright 20/20 通过；停止 Server，再以同一 data root 重启，Playwright 再次 20/20 通过。重启后 SQLite `integrity_check=ok`、schema marker 为 v3、Knowledge 为 `ready:12`，并保留以下非零事实：1 Human、6 Agents、10 Spaces、8 Messages、4 Works、4 Work Approvals、2 Computers、4 Agent Placements、56 Audit Events。这证明本地身份、Message/Inbox、Work/Approval、Computer/Placement、Knowledge 与 Audit 不只在 fresh 路径可用，也能跨 Server restart 恢复。
+
+验证过程中，首次 uncached full Go 曾命中既有 `TestSumiComputerTwoProcessMigrationBlackbox` 的 15 秒时序失败。该用例随后独立连续运行三次均通过，后续 `mise run test` 全量通过，Computer 三项黑盒再次同轮通过；现有证据闭合为时序 flaky，但保留真实失败历史，不宣称测试从未失败。
+
+本期接受且未在最终基线临时扩展的 residual 仍为：未在真实 Linux user session 执行 systemd E2E；未执行 Linux build/xvfb；Wails 尚无 programmatic cross-origin native preflight；Work Attention 超过 100 项的分页后补；`work.manage` 无公开 Agent 签发路径沿用既有 P2 backlog；Knowledge rebuild 期间暂不可用，SQLite 单事务重建可能短时占用写锁。这些是已知平台或 MVP 边界，不是本次最终验证发现的新回归。
+
+验证结束后 Server 已停止，验证端口无监听；包含 owner credential、SQLite 与临时事实的 data root 已删除。最终基线保持 clean、未 push，等待 Human 统一验收。
