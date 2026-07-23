@@ -1,15 +1,19 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { artifactClient } from "../api/clients";
 import {
   FetchArtifactMetadataSchema,
   FetchArtifactRequestSchema,
   FetchArtifactResponseSchema,
   GetArtifactRequestSchema,
+  GetArtifactResponseSchema,
   GrantArtifactRequestSchema,
+  GrantArtifactResponseSchema,
   ListArtifactsRequestSchema,
+  ListArtifactsResponseSchema,
   RevokeArtifactGrantRequestSchema,
+  RevokeArtifactGrantResponseSchema,
   type FetchArtifactResponse,
 } from "../gen/sumi/artifact/v1/artifact_pb";
 import {
@@ -20,64 +24,105 @@ import {
   revokeArtifactGrant,
 } from "./artifact";
 
-vi.mock("../api/clients", () => ({
-  artifactClient: {
-    listArtifacts: vi.fn(),
-    getArtifact: vi.fn(),
-    grantArtifact: vi.fn(),
-    revokeArtifactGrant: vi.fn(),
-    fetchArtifact: vi.fn(),
-  },
-}));
-
-beforeEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
 
 describe("artifact transport", () => {
-  it("forwards generated requests, opaque keyset, request IDs, and signal unchanged", () => {
+  it("keeps all five generated RPC request, response, and error identities", async () => {
     const controller = new AbortController();
+
     const listRequest = create(ListArtifactsRequestSchema, {
-      owningWorkId: "work-1",
+      owningWorkId: "work-list",
       afterArtifactId: "opaque-server-keyset",
       limit: 17,
     });
-    const getRequest = create(GetArtifactRequestSchema, {
-      artifactId: "artifact-1",
+    const listResponse = create(ListArtifactsResponseSchema, {
+      nextArtifactId: "next-opaque-keyset",
     });
+    const listResult = Promise.resolve(listResponse);
+    const listSpy = vi
+      .spyOn(artifactClient, "listArtifacts")
+      .mockReturnValueOnce(listResult);
+    const listed = listArtifacts(listRequest, controller.signal);
+    expect(listed).toBe(listResult);
+    await expect(listed).resolves.toBe(listResponse);
+    expect(listSpy).toHaveBeenCalledWith(listRequest, {
+      signal: controller.signal,
+    });
+    const listError = new ConnectError("list artifacts", Code.Unavailable);
+    const listFailure = Promise.reject(listError);
+    listSpy.mockReturnValueOnce(listFailure);
+    const listedFailure = listArtifacts(listRequest, controller.signal);
+    expect(listedFailure).toBe(listFailure);
+    await expect(listedFailure).rejects.toBe(listError);
+
+    const getRequest = create(GetArtifactRequestSchema, {
+      artifactId: "artifact-get",
+    });
+    const getResponse = create(GetArtifactResponseSchema);
+    const getResult = Promise.resolve(getResponse);
+    const getSpy = vi
+      .spyOn(artifactClient, "getArtifact")
+      .mockReturnValueOnce(getResult);
+    const gotten = getArtifact(getRequest, controller.signal);
+    expect(gotten).toBe(getResult);
+    await expect(gotten).resolves.toBe(getResponse);
+    expect(getSpy).toHaveBeenCalledWith(getRequest, {
+      signal: controller.signal,
+    });
+    const getError = new ConnectError("get artifact", Code.NotFound);
+    const getFailure = Promise.reject(getError);
+    getSpy.mockReturnValueOnce(getFailure);
+    const gottenFailure = getArtifact(getRequest, controller.signal);
+    expect(gottenFailure).toBe(getFailure);
+    await expect(gottenFailure).rejects.toBe(getError);
+
     const grantRequest = create(GrantArtifactRequestSchema, {
       requestId: "grant-request-id",
-      artifactId: "artifact-1",
+      artifactId: "artifact-grant",
     });
+    const grantResponse = create(GrantArtifactResponseSchema);
+    const grantResult = Promise.resolve(grantResponse);
+    const grantSpy = vi
+      .spyOn(artifactClient, "grantArtifact")
+      .mockReturnValueOnce(grantResult);
+    const granted = grantArtifact(grantRequest);
+    expect(granted).toBe(grantResult);
+    await expect(granted).resolves.toBe(grantResponse);
+    expect(grantSpy).toHaveBeenCalledWith(grantRequest);
+    const grantError = new ConnectError(
+      "grant artifact",
+      Code.PermissionDenied,
+    );
+    const grantFailure = Promise.reject(grantError);
+    grantSpy.mockReturnValueOnce(grantFailure);
+    const grantedFailure = grantArtifact(grantRequest);
+    expect(grantedFailure).toBe(grantFailure);
+    await expect(grantedFailure).rejects.toBe(grantError);
+
     const revokeRequest = create(RevokeArtifactGrantRequestSchema, {
       requestId: "revoke-request-id",
-      grantId: "grant-1",
+      grantId: "grant-revoke",
     });
+    const revokeResponse = create(RevokeArtifactGrantResponseSchema);
+    const revokeResult = Promise.resolve(revokeResponse);
+    const revokeSpy = vi
+      .spyOn(artifactClient, "revokeArtifactGrant")
+      .mockReturnValueOnce(revokeResult);
+    const revoked = revokeArtifactGrant(revokeRequest);
+    expect(revoked).toBe(revokeResult);
+    await expect(revoked).resolves.toBe(revokeResponse);
+    expect(revokeSpy).toHaveBeenCalledWith(revokeRequest);
+    const revokeError = new ConnectError("revoke artifact grant", Code.Aborted);
+    const revokeFailure = Promise.reject(revokeError);
+    revokeSpy.mockReturnValueOnce(revokeFailure);
+    const revokedFailure = revokeArtifactGrant(revokeRequest);
+    expect(revokedFailure).toBe(revokeFailure);
+    await expect(revokedFailure).rejects.toBe(revokeError);
+
     const fetchRequest = create(FetchArtifactRequestSchema, {
-      artifactId: "artifact-1",
+      artifactId: "artifact-fetch",
       version: 9n,
     });
-
-    listArtifacts(listRequest, controller.signal);
-    getArtifact(getRequest, controller.signal);
-    grantArtifact(grantRequest);
-    revokeArtifactGrant(revokeRequest);
-    fetchArtifact(fetchRequest, controller.signal);
-
-    expect(artifactClient.listArtifacts).toHaveBeenCalledWith(listRequest, {
-      signal: controller.signal,
-    });
-    expect(artifactClient.getArtifact).toHaveBeenCalledWith(getRequest, {
-      signal: controller.signal,
-    });
-    expect(artifactClient.grantArtifact).toHaveBeenCalledWith(grantRequest);
-    expect(artifactClient.revokeArtifactGrant).toHaveBeenCalledWith(
-      revokeRequest,
-    );
-    expect(artifactClient.fetchArtifact).toHaveBeenCalledWith(fetchRequest, {
-      signal: controller.signal,
-    });
-  });
-
-  it("returns the typed fetch iterable without buffering or changing frame order", async () => {
     const metadata = create(FetchArtifactResponseSchema, {
       payload: {
         case: "metadata",
@@ -97,88 +142,55 @@ describe("artifact transport", () => {
         yield secondChunk;
       },
     };
-    vi.mocked(artifactClient.fetchArtifact).mockReturnValueOnce(stream);
-    const request = create(FetchArtifactRequestSchema, {
-      artifactId: "artifact-1",
-      version: 9n,
-    });
-
-    const result = fetchArtifact(request);
-
-    expect(result).toBe(stream);
+    const fetchSpy = vi
+      .spyOn(artifactClient, "fetchArtifact")
+      .mockReturnValueOnce(stream);
+    const fetched = fetchArtifact(fetchRequest, controller.signal);
+    expect(fetched).toBe(stream);
     const frames: FetchArtifactResponse[] = [];
-    for await (const frame of result) frames.push(frame);
+    for await (const frame of fetched) frames.push(frame);
     expect(frames).toEqual([metadata, firstChunk, secondChunk]);
-  });
-
-  it("keeps terminal stream errors typed and forwards caller abort", async () => {
-    const controller = new AbortController();
-    const error = new ConnectError("stream unavailable", Code.Unavailable);
-    const stream: AsyncIterable<FetchArtifactResponse> = {
-      async *[Symbol.asyncIterator]() {
-        yield create(FetchArtifactResponseSchema, {
-          payload: {
-            case: "metadata",
-            value: create(FetchArtifactMetadataSchema),
-          },
-        });
-        throw error;
-      },
-    };
-    vi.mocked(artifactClient.fetchArtifact).mockReturnValueOnce(stream);
-    const request = create(FetchArtifactRequestSchema, {
-      artifactId: "artifact-1",
-      version: 9n,
-    });
-
-    const result = fetchArtifact(request, controller.signal);
-    const iterator = result[Symbol.asyncIterator]();
-    await expect(iterator.next()).resolves.toMatchObject({ done: false });
-    await expect(iterator.next()).rejects.toBe(error);
-    expect(artifactClient.fetchArtifact).toHaveBeenCalledWith(request, {
+    expect(fetchSpy).toHaveBeenCalledWith(fetchRequest, {
       signal: controller.signal,
     });
-  });
-
-  it("does not replace a cancellation error from the generated stream", async () => {
-    const controller = new AbortController();
-    const error = new DOMException("cancelled", "AbortError");
-    const stream: AsyncIterable<FetchArtifactResponse> = {
+    const fetchError = new ConnectError("fetch artifact", Code.Internal);
+    const failedStream: AsyncIterable<FetchArtifactResponse> = {
       async *[Symbol.asyncIterator]() {
-        if (controller.signal.aborted) throw error;
+        yield metadata;
+        throw fetchError;
       },
     };
-    vi.mocked(artifactClient.fetchArtifact).mockReturnValueOnce(stream);
+    fetchSpy.mockReturnValueOnce(failedStream);
+    const fetchedFailure = fetchArtifact(fetchRequest, controller.signal);
+    expect(fetchedFailure).toBe(failedStream);
+    const iterator = fetchedFailure[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toMatchObject({ done: false });
+    await expect(iterator.next()).rejects.toBe(fetchError);
+  });
+
+  it("preserves caller abort through the real generated fetch client surface", async () => {
+    const controller = new AbortController();
     const request = create(FetchArtifactRequestSchema, {
-      artifactId: "artifact-1",
-      version: 9n,
+      artifactId: "artifact-abort",
+      version: 10n,
     });
+    const abortError = new DOMException("cancelled", "AbortError");
+    const stream: AsyncIterable<FetchArtifactResponse> = {
+      async *[Symbol.asyncIterator]() {
+        if (controller.signal.aborted) throw abortError;
+      },
+    };
+    const fetchSpy = vi
+      .spyOn(artifactClient, "fetchArtifact")
+      .mockReturnValueOnce(stream);
     controller.abort();
 
     const iterator = fetchArtifact(request, controller.signal)[
       Symbol.asyncIterator
     ]();
-    await expect(iterator.next()).rejects.toBe(error);
-    expect(artifactClient.fetchArtifact).toHaveBeenCalledWith(request, {
+    await expect(iterator.next()).rejects.toBe(abortError);
+    expect(fetchSpy).toHaveBeenCalledWith(request, {
       signal: controller.signal,
     });
-  });
-
-  it.each([
-    Code.Unauthenticated,
-    Code.PermissionDenied,
-    Code.NotFound,
-    Code.Aborted,
-    Code.Unavailable,
-  ])("keeps %s mutation errors unchanged", async (code) => {
-    const error = new ConnectError("current artifact fact", code);
-    vi.mocked(artifactClient.grantArtifact).mockRejectedValueOnce(error);
-    const request = create(GrantArtifactRequestSchema, {
-      requestId: "caller-request-id",
-      artifactId: "artifact-1",
-    });
-
-    await expect(grantArtifact(request)).rejects.toBe(error);
-    expect(artifactClient.grantArtifact).toHaveBeenCalledWith(request);
   });
 });
