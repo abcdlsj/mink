@@ -84,6 +84,42 @@ func TestBundleRejectsTraversalSymlinkUnknownPlatformAndExtraFiles(t *testing.T)
 	}
 }
 
+func TestCopyToRejectsVerifiedSourceReplacementAndRemovesVersionRoot(t *testing.T) {
+	bundleRoot := fixtureBundle(t)
+	bundle, err := Open(bundleRoot, runtime.GOOS, runtime.GOARCH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := false
+	beforeCopy := func(path string) error {
+		if replaced || path != "bin/sumi" {
+			return nil
+		}
+		replacement := filepath.Join(bundleRoot, "bin", "replacement")
+		if err := os.WriteFile(replacement, []byte("different binary"), 0o700); err != nil {
+			return err
+		}
+		if err := os.Rename(replacement, filepath.Join(bundleRoot, "bin", "sumi")); err != nil {
+			return err
+		}
+		replaced = true
+		return nil
+	}
+	destination := filepath.Join(t.TempDir(), "versions", "1.0.0")
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := bundle.copyTo(destination, beforeCopy); err == nil {
+		t.Fatal("source replacement produced an activatable installed release")
+	}
+	if !replaced {
+		t.Fatal("source replacement oracle did not run")
+	}
+	if _, err := os.Lstat(destination); !os.IsNotExist(err) {
+		t.Fatalf("failed installed release remains: %v", err)
+	}
+}
+
 func fixtureBundle(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

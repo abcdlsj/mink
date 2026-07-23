@@ -124,6 +124,10 @@ func (bundle Bundle) Verify() error {
 }
 
 func (bundle Bundle) CopyTo(destination string) error {
+	return bundle.copyTo(destination, nil)
+}
+
+func (bundle Bundle) copyTo(destination string, beforeCopy func(string) error) error {
 	if err := bundle.Verify(); err != nil {
 		return err
 	}
@@ -140,6 +144,11 @@ func (bundle Bundle) CopyTo(destination string) error {
 		}
 	}()
 	for _, file := range bundle.Manifest.Files {
+		if beforeCopy != nil {
+			if err := beforeCopy(file.Path); err != nil {
+				return err
+			}
+		}
 		source := filepath.Join(bundle.Root, filepath.FromSlash(file.Path))
 		target := filepath.Join(destination, filepath.FromSlash(file.Path))
 		if err := copyRegular(source, target, file.Path == "bin/sumi"); err != nil {
@@ -156,6 +165,9 @@ func (bundle Bundle) CopyTo(destination string) error {
 	}
 	if err := syncDirectory(destination); err != nil {
 		return err
+	}
+	if _, err := Open(destination, bundle.Manifest.OS, bundle.Manifest.Arch); err != nil {
+		return errors.New("installed release copy does not match manifest")
 	}
 	cleanup = false
 	return nil
