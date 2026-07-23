@@ -2,10 +2,12 @@ package osservice
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type recordedCommand struct {
@@ -20,10 +22,59 @@ type recordingRunner struct {
 
 func (runner *recordingRunner) Run(_ context.Context, executable string, args ...string) error {
 	runner.commands = append(runner.commands, recordedCommand{executable: executable, args: append([]string(nil), args...)})
+	if executable == "/bin/launchctl" && len(args) > 0 && args[0] == "print" {
+		return errLaunchdNotLoaded
+	}
 	if runner.fail {
 		return os.ErrNotExist
 	}
 	return nil
+}
+
+type launchdRestartRunner struct {
+	commands       []recordedCommand
+	loadedChecks   int
+	loadedUntil    int
+	bootstrapError error
+	probeError     error
+}
+
+func (runner *launchdRestartRunner) Run(_ context.Context, executable string, args ...string) error {
+	runner.commands = append(runner.commands, recordedCommand{executable: executable, args: append([]string(nil), args...)})
+	if executable != "/bin/launchctl" || len(args) == 0 {
+		return nil
+	}
+	switch args[0] {
+	case "print":
+		runner.loadedChecks++
+		if runner.loadedChecks <= runner.loadedUntil {
+			return nil
+		}
+		if runner.probeError != nil {
+			return runner.probeError
+		}
+		return errLaunchdNotLoaded
+	case "bootstrap":
+		return runner.bootstrapError
+	default:
+		return nil
+	}
+}
+
+type virtualClock struct {
+	now   time.Time
+	waits []time.Duration
+}
+
+func (clock *virtualClock) wait(ctx context.Context, delay time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		clock.waits = append(clock.waits, delay)
+		clock.now = clock.now.Add(delay)
+		return nil
+	}
 }
 
 func TestCurrentUserServiceCommandOraclesContainNoSudo(t *testing.T) {
@@ -74,6 +125,72 @@ func TestCurrentUserServiceCommandOraclesContainNoSudo(t *testing.T) {
 	}
 }
 
+func TestDarwinRestartWaitsWhileInactiveJobRemainsLoadedBeforeBootstrap(t *testing.T) {
+	runner := &launchdRestartRunner{loadedUntil: 2}
+	manager, clock := newDarwinRestartManager(t, runner)
+	if err := manager.Restart(context.Background(), Server); err != nil {
+		t.Fatal(err)
+	}
+	if len(clock.waits) != 1 || clock.waits[0] != 25*time.Millisecond {
+		t.Fatalf("restart waits = %v", clock.waits)
+	}
+	assertRecordedCommand(t, runner.commands, "/bin/launchctl", "bootout", manager.domainTarget(Server))
+	assertRecordedCommand(t, runner.commands, "/bin/launchctl", "bootstrap", "gui/501", manager.unitPath(Server))
+	assertRecordedCommand(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
+func TestDarwinRestartFailsClosedWhenLoadedProbeFails(t *testing.T) {
+	probeError := errors.New("launchd probe failed")
+	runner := &launchdRestartRunner{loadedUntil: 1, probeError: probeError}
+	manager, _ := newDarwinRestartManager(t, runner)
+	err := manager.Restart(context.Background(), Server)
+	if !errors.Is(err, probeError) {
+		t.Fatalf("restart error = %v", err)
+	}
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "bootstrap", "gui/501", manager.unitPath(Server))
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
+func TestDarwinRestartStartsWhenServiceIsAlreadyAbsent(t *testing.T) {
+	runner := &launchdRestartRunner{}
+	manager, clock := newDarwinRestartManager(t, runner)
+	if err := manager.Restart(context.Background(), Server); err != nil {
+		t.Fatal(err)
+	}
+	if len(clock.waits) != 0 {
+		t.Fatalf("restart waits = %v", clock.waits)
+	}
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "bootout", manager.domainTarget(Server))
+	assertRecordedCommand(t, runner.commands, "/bin/launchctl", "bootstrap", "gui/501", manager.unitPath(Server))
+	assertRecordedCommand(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
+func TestDarwinRestartTimesOutWithoutBootstrapWhileServiceRemainsLoaded(t *testing.T) {
+	runner := &launchdRestartRunner{loadedUntil: 100}
+	manager, clock := newDarwinRestartManager(t, runner)
+	manager.launchdRemovalTimeout = 100 * time.Millisecond
+	err := manager.Restart(context.Background(), Server)
+	if err == nil || err.Error() != "current-user service removal timed out" {
+		t.Fatalf("restart error = %v", err)
+	}
+	if len(clock.waits) != 4 || clock.now.Sub(time.Unix(0, 0)) != 100*time.Millisecond {
+		t.Fatalf("restart waits = %v, now = %v", clock.waits, clock.now)
+	}
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "bootstrap", "gui/501", manager.unitPath(Server))
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
+func TestDarwinRestartReturnsStartFailureAfterRemoval(t *testing.T) {
+	startError := errors.New("bootstrap failed")
+	runner := &launchdRestartRunner{bootstrapError: startError}
+	manager, _ := newDarwinRestartManager(t, runner)
+	err := manager.Restart(context.Background(), Server)
+	if !errors.Is(err, startError) {
+		t.Fatalf("restart error = %v", err)
+	}
+	assertCommandNotRecorded(t, runner.commands, "/bin/launchctl", "kickstart", "-k", manager.domainTarget(Server))
+}
+
 func TestServiceRejectsRootAndSymlinkUnit(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "home")
 	if _, err := NewManager("darwin", home, 0, &recordingRunner{}); err == nil {
@@ -118,6 +235,23 @@ func TestSystemdInstallEnablesAndUninstallDisablesUserUnits(t *testing.T) {
 	}
 }
 
+func newDarwinRestartManager(t *testing.T, runner Runner) (*Manager, *virtualClock) {
+	t.Helper()
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewManager("darwin", home, 501, runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.Configure(filepath.Join(home, ".sumi"))
+	clock := &virtualClock{now: time.Unix(0, 0)}
+	manager.now = func() time.Time { return clock.now }
+	manager.wait = clock.wait
+	return manager, clock
+}
+
 func assertRecordedCommand(t *testing.T, commands []recordedCommand, executable string, arguments ...string) {
 	t.Helper()
 	for _, command := range commands {
@@ -126,4 +260,13 @@ func assertRecordedCommand(t *testing.T, commands []recordedCommand, executable 
 		}
 	}
 	t.Fatalf("command not recorded: %s %v", executable, arguments)
+}
+
+func assertCommandNotRecorded(t *testing.T, commands []recordedCommand, executable string, arguments ...string) {
+	t.Helper()
+	for _, command := range commands {
+		if command.executable == executable && strings.Join(command.args, "\x00") == strings.Join(arguments, "\x00") {
+			t.Fatalf("command unexpectedly recorded: %s %v", executable, arguments)
+		}
+	}
 }

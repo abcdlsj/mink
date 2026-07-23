@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Component string
@@ -18,6 +19,8 @@ const (
 	Server   Component = "server"
 	Computer Component = "computer"
 )
+
+var errLaunchdNotLoaded = errors.New("launchd service is not loaded")
 
 type InstallConfig struct {
 	Binary   string
@@ -30,12 +33,16 @@ type Runner interface {
 }
 
 type Manager struct {
-	goos       string
-	home       string
-	uid        int
-	runner     Runner
-	labels     map[Component]string
-	configHome string
+	goos                       string
+	home                       string
+	uid                        int
+	runner                     Runner
+	labels                     map[Component]string
+	configHome                 string
+	now                        func() time.Time
+	wait                       func(context.Context, time.Duration) error
+	launchdRemovalTimeout      time.Duration
+	launchdRemovalPollInterval time.Duration
 }
 
 func New() (*Manager, error) {
@@ -66,7 +73,11 @@ func NewManager(goos, home string, uid int, runner Runner) (*Manager, error) {
 			return nil, errors.New("xdg config home must be absolute")
 		}
 	}
-	return &Manager{goos: goos, home: home, uid: uid, runner: runner, labels: map[Component]string{}, configHome: configHome}, nil
+	return &Manager{
+		goos: goos, home: home, uid: uid, runner: runner, labels: map[Component]string{}, configHome: configHome,
+		now: time.Now, wait: waitForContext,
+		launchdRemovalTimeout: 10 * time.Second, launchdRemovalPollInterval: 25 * time.Millisecond,
+	}, nil
 }
 
 func (manager *Manager) Install(ctx context.Context, config InstallConfig) error {
@@ -108,10 +119,36 @@ func (manager *Manager) Restart(ctx context.Context, component Component) error 
 		return err
 	}
 	if manager.goos == "darwin" {
-		_ = manager.stopLaunchd(ctx, component)
+		if err := manager.stopLaunchd(ctx, component); err != nil {
+			return err
+		}
+		if err := manager.waitForLaunchdRemoval(ctx, component); err != nil {
+			return err
+		}
 		return manager.startLaunchd(ctx, component)
 	}
 	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "restart", manager.unitName(component))
+}
+
+func (manager *Manager) waitForLaunchdRemoval(ctx context.Context, component Component) error {
+	deadline := manager.now().Add(manager.launchdRemovalTimeout)
+	for {
+		loaded, err := manager.launchdLoaded(ctx, component)
+		if err != nil {
+			return err
+		}
+		if !loaded {
+			return nil
+		}
+		remaining := deadline.Sub(manager.now())
+		if remaining <= 0 {
+			return errors.New("current-user service removal timed out")
+		}
+		delay := min(manager.launchdRemovalPollInterval, remaining)
+		if err := manager.wait(ctx, delay); err != nil {
+			return err
+		}
+	}
 }
 
 func (manager *Manager) Running(ctx context.Context, component Component) bool {
@@ -119,9 +156,21 @@ func (manager *Manager) Running(ctx context.Context, component Component) bool {
 		return false
 	}
 	if manager.goos == "darwin" {
-		return manager.runner.Run(ctx, "/bin/launchctl", "print", manager.domainTarget(component)) == nil
+		loaded, err := manager.launchdLoaded(ctx, component)
+		return err == nil && loaded
 	}
 	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "is-active", "--quiet", manager.unitName(component)) == nil
+}
+
+func (manager *Manager) launchdLoaded(ctx context.Context, component Component) (bool, error) {
+	err := manager.runner.Run(ctx, "/bin/launchctl", "print", manager.domainTarget(component))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, errLaunchdNotLoaded) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (manager *Manager) Uninstall(ctx context.Context) error {
@@ -265,7 +314,23 @@ func (commandRunner) Run(ctx context.Context, executable string, args ...string)
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Env = os.Environ()
 	if err := command.Run(); err != nil {
+		var exitError *exec.ExitError
+		if executable == "/bin/launchctl" && len(args) > 0 && args[0] == "print" &&
+			errors.As(err, &exitError) && exitError.ExitCode() == 113 {
+			return errLaunchdNotLoaded
+		}
 		return errors.New("current-user service command failed")
 	}
 	return nil
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
