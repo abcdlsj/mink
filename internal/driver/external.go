@@ -1,12 +1,10 @@
 package driver
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 )
 
 type CommandRunner interface {
@@ -117,26 +115,4 @@ func parseWireLine(line []byte) (wireLine, error) {
 	default:
 		return wireLine{}, fmt.Errorf("unsupported external driver message type %q", message.Type)
 	}
-}
-
-type JSONLRunner struct {
-	Command func(context.Context, []byte) (string, error)
-}
-
-func (r JSONLRunner) Run(ctx context.Context, _ Command, input []byte, emit func([]byte) error) error {
-	if r.Command == nil {
-		return errors.New("jsonl command is required")
-	}
-	output, err := r.Command(ctx, input)
-	if err != nil {
-		return err
-	}
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	scanner.Buffer(make([]byte, 64*1024), 512*1024)
-	for scanner.Scan() {
-		if err := emit(scanner.Bytes()); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
 }

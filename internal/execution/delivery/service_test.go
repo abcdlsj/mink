@@ -19,6 +19,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
@@ -603,7 +604,7 @@ func (f *serviceFixture) advance() {
 func (f *serviceFixture) observe(t *testing.T, target store.MessageTarget) {
 	t.Helper()
 	if _, err := f.database.ObserveTarget(context.Background(), store.ObserveTargetParams{
-		Authentication: store.AgentInboxAuthentication(f.authentication), Target: target, Limit: 200, Now: f.current,
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: target, Limit: 200, Now: f.current,
 	}); err != nil {
 		t.Fatal(err)
 	}

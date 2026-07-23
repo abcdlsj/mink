@@ -43,10 +43,6 @@ func UnknownSandboxCapability() SandboxCapability {
 	return computerdomain.UnknownSandboxCapability()
 }
 
-func TrustedLocalSandboxCapability() SandboxCapability {
-	return computerdomain.TrustedLocalSandboxCapability()
-}
-
 func ValidSandboxCapability(capability SandboxCapability) bool {
 	return capability.Valid()
 }

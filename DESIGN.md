@@ -621,3 +621,13 @@ Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.sys
 该边界没有引入 Repository、UnitOfWork、事件总线、泛型 command envelope、第二套 entity 或为了目录对称而增加的空层。Store compatibility alias 只用于渐进迁移和既有 Store 级测试，不构成产品事实所有权；无真实调用方的通用 authentication/list contract 也不进入 application API。Work 顶层 parent 的空字符串继续对应数据库 NULL，既有写入校验不允许持久化非 NULL 空 parent ID。
 
 本轮不改变 proto、SQLite schema、产品事实、排序、权限、Audit、transaction、replay、Work cursor 或 Knowledge projection/rebuild 行为。focused Work、Work Attention、Knowledge、Server 与 Store 测试、uncached full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`（Web/Go/Desktop）与 `git diff --check` 全部通过；生产依赖扫描确认只有 composition root import Store。由于浏览器协议、页面与交互零 diff，不重复运行依赖外部 Server/owner credential 的 Playwright；最终单一基线任务仍会执行完整黑盒。
+
+## 29. 2026-07-24 无生产语义代码与重复测试清理
+
+清理以可达性和独立 oracle 为准，不以文件大小或覆盖率数字为目标。Work 原有 `GetWork` 与 `ListWorks` 是没有生产调用的第二套 read path，分别与 canonical `GetWorkDetail`、有界 `ListWorkPage` 重复 SQL transaction、当前权限检查和 parts 装载；本轮删除旧 path，原 rollback/iteration 测试改走真实 application port，未删除故障 oracle。
+
+仅供测试使用的 Bearer interceptor shortcut、runtime gate path accessor、Store-owned Inbox authentication/Sandbox capability constructor，以及 Driver `Native`/`JSONLRunner` fake 不再留在 production surface。Driver fake 移入 `_test.go`；Store 测试直接使用事实所有者的 application/domain constructor。Inbox 在 Human/Agent parity 后已由 Service 内共享 authentication 处理，旧 runtime-only `Procedures` allowlist 和逐项镜像 generated RPC 的测试已失去生产对应，因此一并删除；Delivery 的 runtime-only allowlist 仍在生产使用并保留完整性测试。
+
+权限、幂等、replay、transaction rollback、rows iteration、cursor、runtime replacement、Secret、fail-closed、跨重启、outbox 和 E2E 测试全部保留。Computer State 的 `Outbox` read method虽然没有生产调用，但承担 Host/State 跨包持久 outbox oracle，删除会迫使测试绕过 API 读 SQLite 或只验证易产生假阳性的最终结果，因此明确保留。全仓 dead-code analysis 在包含 tests 时为零；不包含 tests 时仅报告该有意保留的 Outbox inspection path。
+
+验证完成：touched package focused tests、uncached full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`（Web/Go/Desktop）、dead-code analysis 与 `git diff --check` 全部通过。代码与测试 diff（不含本文记录）删除 255 行、增加 103 行，净减少 152 行；proto、schema、Web 与公开行为零变更，因此不重复运行依赖外部 Server/owner credential 的 Playwright，完整黑盒留给最终单一基线任务。

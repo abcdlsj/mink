@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +35,7 @@ func TestDeliveryAttentionCursorAndOneActiveRun(t *testing.T) {
 		t.Fatalf("item state after failed accept = %q", item.State)
 	}
 	observed, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func TestDeliveryAttentionCursorAndOneActiveRun(t *testing.T) {
 	}
 	second := fixture.createTrigger(t, "second", 6)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: second.Item.Target, Limit: 20, Now: fixture.at(7),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: second.Item.Target, Limit: 20, Now: fixture.at(7),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +298,7 @@ func TestRunReplayRequiresCurrentAuthorization(t *testing.T) {
 		fixture := openDeliveryFixture(t)
 		trigger := fixture.createTrigger(t, "accept authorization", 1)
 		if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-			Authentication: AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
+			Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -604,7 +605,7 @@ func TestRunCompleteHeldReplayAfterDraftResolution(t *testing.T) {
 		t.Fatalf("held completion item = %+v", item)
 	}
 	observed, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: held.HeldDraft.Target, Limit: 20, Now: fixture.at(8),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: held.HeldDraft.Target, Limit: 20, Now: fixture.at(8),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -666,7 +667,7 @@ func TestDeliveryCurrentGrantFailClosed(t *testing.T) {
 	fixture := openInboxFixture(t)
 	trigger := createDeliveryTrigger(t, fixture, "grant", 1)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: trigger.Item.Target, Limit: 20, Now: fixture.at(2),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -839,7 +840,7 @@ func (f *deliveryFixture) acceptTrigger(t *testing.T, body string, second int) R
 	t.Helper()
 	trigger := f.createTrigger(t, body, second)
 	if _, err := f.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(f.authentication), Target: trigger.Item.Target, Limit: 200, Now: f.at(second + 1),
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: trigger.Item.Target, Limit: 200, Now: f.at(second + 1),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -965,7 +966,7 @@ func TestDeliverySchemaRejectsInvalidLifecycleFacts(t *testing.T) {
 	first := fixture.createTrigger(t, "schema first", 1)
 	second := fixture.createTrigger(t, "schema second", 2)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1041,7 +1042,7 @@ func TestDeliveryConcurrentAcceptHasOneWinner(t *testing.T) {
 	first := fixture.createTrigger(t, "concurrent first", 1)
 	second := fixture.createTrigger(t, "concurrent second", 2)
 	if _, err := fixture.database.ObserveTarget(context.Background(), ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: first.Item.Target, Limit: 200, Now: fixture.at(3),
 	}); err != nil {
 		t.Fatal(err)
 	}

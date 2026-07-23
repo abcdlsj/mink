@@ -54,14 +54,6 @@ type InboxNoticeParams = executionapp.InboxNoticeQuery
 
 type InboxAuthentication = executionapp.InboxAuthentication
 
-func HumanInboxAuthentication(principal Principal) InboxAuthentication {
-	return executionapp.HumanInboxAuthentication(principal)
-}
-
-func AgentInboxAuthentication(authentication AgentRuntimeAuthentication) InboxAuthentication {
-	return executionapp.AgentInboxAuthentication(authentication)
-}
-
 type ListInboxItemsParams = executionapp.ListInboxItemsQuery
 
 type ClaimInboxItemParams = executionapp.ClaimInboxItemCommand

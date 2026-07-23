@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"reflect"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
-	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
 	"github.com/google/uuid"
@@ -26,9 +24,7 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	fixture := openServiceFixture(t)
 	service := New(fixture.database, "")
 	service.now = func() time.Time { return fixture.current }
-	path, handler := inboxv1connect.NewInboxServiceHandler(service, connect.WithInterceptors(
-		runtimeauth.NewProcedureInterceptor(fixture.database, Procedures()...),
-	))
+	path, handler := inboxv1connect.NewInboxServiceHandler(service)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	server := httptest.NewServer(mux)
@@ -191,24 +187,6 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	replayedComplete, err := client.CompleteInboxItem(context.Background(), runtimeRequest(fixture.token, completeRequest))
 	if err != nil || !proto.Equal(completed.Msg, replayedComplete.Msg) {
 		t.Fatalf("complete replay = %+v, %v", replayedComplete, err)
-	}
-}
-
-func TestInboxProceduresCoverGeneratedService(t *testing.T) {
-	want := []string{
-		inboxv1connect.InboxServiceGetInboxNoticeProcedure,
-		inboxv1connect.InboxServiceListInboxItemsProcedure,
-		inboxv1connect.InboxServiceClaimInboxItemProcedure,
-		inboxv1connect.InboxServiceObserveTargetProcedure,
-		inboxv1connect.InboxServiceCompleteInboxItemProcedure,
-		inboxv1connect.InboxServiceSetSpaceMuteProcedure,
-		inboxv1connect.InboxServiceSetThreadFollowProcedure,
-		inboxv1connect.InboxServiceSendInboxReplyProcedure,
-		inboxv1connect.InboxServiceListHeldDraftsProcedure,
-		inboxv1connect.InboxServiceResolveHeldDraftProcedure,
-	}
-	if !reflect.DeepEqual(Procedures(), want) {
-		t.Fatalf("procedures = %v, want %v", Procedures(), want)
 	}
 }
 

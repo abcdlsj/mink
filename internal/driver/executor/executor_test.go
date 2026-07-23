@@ -7,8 +7,16 @@ import (
 	"github.com/abcdlsj/sumi/internal/driver"
 )
 
+type testEngine struct {
+	execute func(context.Context, driver.Command, driver.EventSink) (driver.TurnResult, error)
+}
+
+func (e testEngine) Execute(ctx context.Context, command driver.Command, events driver.EventSink) (driver.TurnResult, error) {
+	return e.execute(ctx, command, events)
+}
+
 func TestExecutorBuildsPromptAndMapsCompletion(t *testing.T) {
-	executor, err := New(driver.KindCodex, driver.Native{ExecuteFunc: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
+	executor, err := New(driver.KindCodex, testEngine{execute: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
 		if command.Input == nil || command.Input.CurrentInput != "trigger" || command.Input.Target.SpaceID != "space-1" {
 			t.Fatalf("input = %+v", command.Input)
 		}

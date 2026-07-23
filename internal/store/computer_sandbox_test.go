@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/google/uuid"
 )
 
@@ -42,7 +43,7 @@ func TestComputerSandboxDeclarationsUseCommitOrderedMonotonicRevision(t *testing
 			defer group.Done()
 			capability := UnknownSandboxCapability()
 			if index%2 == 0 {
-				capability = TrustedLocalSandboxCapability()
+				capability = computerdomain.TrustedLocalSandboxCapability()
 			}
 			updated, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
 				ComputerID: computer.ID, RegistrationKey: params.RegistrationKey,
@@ -98,13 +99,13 @@ func TestComputerPairingReplaysOriginalSandboxDeclarationAfterCurrentFactAdvance
 	}
 	params := PairComputerParams{
 		RequestID: uuid.NewString(), PairingToken: token, RegistrationKey: "sandbox-pairing-computer-key",
-		Name: "Pairing host", OS: "macos", Arch: "arm64", SandboxCapability: TrustedLocalSandboxCapability(), Now: now,
+		Name: "Pairing host", OS: "macos", Arch: "arm64", SandboxCapability: computerdomain.TrustedLocalSandboxCapability(), Now: now,
 	}
 	first, err := database.PairComputer(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.SandboxDeclarationRevision != 1 || first.SandboxCapability != TrustedLocalSandboxCapability() {
+	if first.SandboxDeclarationRevision != 1 || first.SandboxCapability != computerdomain.TrustedLocalSandboxCapability() {
 		t.Fatalf("first declaration = %+v revision %d", first.SandboxCapability, first.SandboxDeclarationRevision)
 	}
 	current, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
@@ -139,12 +140,12 @@ func TestInvalidSandboxDeclarationDoesNotMutateComputer(t *testing.T) {
 	now := time.Now().UTC()
 	computer, err := database.RegisterComputer(context.Background(), RegisterComputerParams{
 		RegistrationKey: "invalid-sandbox-key", Name: "Invalid host", OS: "linux", Arch: "amd64",
-		SandboxCapability: TrustedLocalSandboxCapability(), Now: now,
+		SandboxCapability: computerdomain.TrustedLocalSandboxCapability(), Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := TrustedLocalSandboxCapability()
+	invalid := computerdomain.TrustedLocalSandboxCapability()
 	invalid.NetworkIsolation = "unknown"
 	if _, err := database.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
 		ComputerID: computer.ID, RegistrationKey: "invalid-sandbox-key",

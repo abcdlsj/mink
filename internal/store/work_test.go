@@ -255,10 +255,11 @@ func TestWorkTransitionKnowledgeDirtyFailurePreservesWorkFacts(t *testing.T) {
 	if _, err := database.db.Exec(`DROP TRIGGER fail_work_dirty`); err != nil {
 		t.Fatal(err)
 	}
-	current, err := database.GetWork(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(5 * time.Second)})
+	detail, err := database.GetWorkDetail(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(5 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	current := detail.Work
 	if current.State != updated.State || knowledgeWorkRevision(current) != beforeRevision || knowledgeDirtyCount(t, database, work.ID) != beforeDirty {
 		t.Fatalf("failed transition changed work facts: current=%+v before state=%s revision=%x dirty=%d", current, updated.State, beforeRevision, beforeDirty)
 	}
@@ -354,7 +355,7 @@ func TestWorkPartsIterationErrorsRejectIncompleteWorkAndRollbackCreate(t *testin
 				}
 				return rows.Err()
 			}))
-			if _, err := database.GetWork(contextWithIterationError, WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(3 * time.Second)}); err == nil || !strings.Contains(err.Error(), "forced "+source+" iteration error") {
+			if _, err := database.GetWorkDetail(contextWithIterationError, WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(3 * time.Second)}); err == nil || !strings.Contains(err.Error(), "forced "+source+" iteration error") {
 				t.Fatalf("get work with %s iteration error = %v", source, err)
 			}
 			before := readWorkFactCounts(t, database)
@@ -407,10 +408,11 @@ func TestWorkCompletionCriteriaIterationErrorRollsBackTransition(t *testing.T) {
 	if _, err := database.TransitionWork(contextWithIterationError, TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: work.ID, ToState: WorkStateCompleted, Result: "done", CriterionResults: results, Now: now.Add(3 * time.Second)}); err == nil || !strings.Contains(err.Error(), "forced completion criteria iteration error") {
 		t.Fatalf("complete work with criteria iteration error = %v", err)
 	}
-	current, err := database.GetWork(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(4 * time.Second)})
+	detail, err := database.GetWorkDetail(context.Background(), WorkReadParams{Actor: owner, WorkID: work.ID, Now: now.Add(4 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
+	current := detail.Work
 	if current.State != WorkStateOpen || current.CompletedAt != nil {
 		t.Fatalf("criteria iteration error completed work: %+v", current)
 	}

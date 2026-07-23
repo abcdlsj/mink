@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 )
 
@@ -70,7 +71,7 @@ func TestComputerSandboxCapabilityRoundTripAndInvalidRequestIsZeroWrite(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if current.SandboxDeclarationRevision != 3 || !current.LastSeenAt.Equal(now.Add(2*time.Minute)) || current.SandboxCapability != store.TrustedLocalSandboxCapability() {
+	if current.SandboxDeclarationRevision != 3 || !current.LastSeenAt.Equal(now.Add(2*time.Minute)) || current.SandboxCapability != computerdomain.TrustedLocalSandboxCapability() {
 		t.Fatalf("invalid request mutated current fact: %+v", current)
 	}
 }

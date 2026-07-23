@@ -11,7 +11,7 @@ import (
 )
 
 func TestComputerExecutorFiltersDriverAndMapsCompletion(t *testing.T) {
-	executor, err := NewComputerExecutor(driver.KindCodex, driver.Native{ExecuteFunc: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
+	executor, err := NewComputerExecutor(driver.KindCodex, testEngine{execute: func(_ context.Context, command driver.Command, _ driver.EventSink) (driver.TurnResult, error) {
 		if command.Input == nil || command.Input.CurrentInput != "trigger" || command.Input.Target.SpaceID != "space-1" {
 			t.Fatalf("input = %+v", command.Input)
 		}
@@ -48,7 +48,7 @@ func TestComputerExecutorFiltersDriverAndMapsCompletion(t *testing.T) {
 }
 
 func TestComputerExecutorRejectsNativeConfiguration(t *testing.T) {
-	_, err := NewComputerExecutor(driver.KindNative, driver.Native{}, "host policy", func(context.Context, string) (driver.Kind, error) {
+	_, err := NewComputerExecutor(driver.KindNative, nil, "host policy", func(context.Context, string) (driver.Kind, error) {
 		return driver.KindNative, nil
 	})
 	if err == nil {

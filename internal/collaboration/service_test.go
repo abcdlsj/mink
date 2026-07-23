@@ -42,7 +42,7 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 
 	service := New(database, "")
 	service.now = func() time.Time { return now.Add(time.Minute) }
-	path, handler := spacev1connect.NewCollaborationServiceHandler(service, connect.WithInterceptors(authority.NewInterceptor(database)))
+	path, handler := spacev1connect.NewCollaborationServiceHandler(service, connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{})))
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	server := httptest.NewServer(mux)

@@ -58,7 +58,7 @@ func TestMaintenanceBlocksRunsAndReleasesCleanly(t *testing.T) {
 
 func TestInheritedMaintenancePortableFlockSemantics(t *testing.T) {
 	dataRoot, runtimeRoot := leaseRoots(t)
-	gatePath, err := GatePath(dataRoot, runtimeRoot)
+	gatePath, _, err := lockPaths(dataRoot, runtimeRoot, ComponentServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestInheritedMaintenancePortableFlockSemantics(t *testing.T) {
 
 func TestLifecycleRejectsUnsafeLockPath(t *testing.T) {
 	dataRoot, runtimeRoot := leaseRoots(t)
-	gatePath, err := GatePath(dataRoot, runtimeRoot)
+	gatePath, _, err := lockPaths(dataRoot, runtimeRoot, ComponentServer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestAcquireRunRejectsUnheldInheritedGateWithSharedHolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer shared.Close()
-	gatePath, err := GatePath(dataRoot, runtimeRoot)
+	gatePath, _, err := lockPaths(dataRoot, runtimeRoot, ComponentServer)
 	if err != nil {
 		t.Fatal(err)
 	}

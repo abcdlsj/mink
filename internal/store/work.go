@@ -33,12 +33,6 @@ type WorkText = workapp.Text
 type WorkCriterion = workapp.Criterion
 type WorkCreateParams = workapp.CreateCommand
 type WorkReadParams = workapp.ReadQuery
-
-type ListWorksParams struct {
-	Actor Principal
-	Now   time.Time
-}
-
 type ListWorkPageParams = workapp.ListQuery
 type WorkPage = workapp.Page
 type WorkAssignment = workapp.Assignment

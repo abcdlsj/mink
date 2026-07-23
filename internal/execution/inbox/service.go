@@ -52,21 +52,6 @@ func New(database inboxStore, browserOrigin string) *Service {
 	return &Service{store: database, origin: browserOrigin, now: time.Now}
 }
 
-func Procedures() []string {
-	return []string{
-		inboxv1connect.InboxServiceGetInboxNoticeProcedure,
-		inboxv1connect.InboxServiceListInboxItemsProcedure,
-		inboxv1connect.InboxServiceClaimInboxItemProcedure,
-		inboxv1connect.InboxServiceObserveTargetProcedure,
-		inboxv1connect.InboxServiceCompleteInboxItemProcedure,
-		inboxv1connect.InboxServiceSetSpaceMuteProcedure,
-		inboxv1connect.InboxServiceSetThreadFollowProcedure,
-		inboxv1connect.InboxServiceSendInboxReplyProcedure,
-		inboxv1connect.InboxServiceListHeldDraftsProcedure,
-		inboxv1connect.InboxServiceResolveHeldDraftProcedure,
-	}
-}
-
 func (s *Service) GetInboxNotice(ctx context.Context, request *connect.Request[inboxv1.GetInboxNoticeRequest]) (*connect.Response[inboxv1.GetInboxNoticeResponse], error) {
 	authentication, err := s.authentication(ctx, http.Header(request.Header()), false)
 	if err != nil {

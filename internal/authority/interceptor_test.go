@@ -24,7 +24,7 @@ func TestInterceptorAuthenticatesActiveHumanWithoutCredentialLeak(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := NewInterceptor(database)
+	interceptor := NewBrowserInterceptor(database, database, BrowserInterceptorConfig{})
 	wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
 		subject, err := Subject(ctx)
 		if err != nil {

@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,6 +13,32 @@ import (
 	"time"
 	"unicode/utf8"
 )
+
+type testEngine struct {
+	execute func(context.Context, Command, EventSink) (TurnResult, error)
+}
+
+func (e testEngine) Execute(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
+	return e.execute(ctx, command, events)
+}
+
+type testJSONLRunner struct {
+	Command func(context.Context, []byte) (string, error)
+}
+
+func (r testJSONLRunner) Run(ctx context.Context, _ Command, input []byte, emit func([]byte) error) error {
+	output, err := r.Command(ctx, input)
+	if err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		if err := emit(scanner.Bytes()); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
 
 func TestPromptUsesStableSectionOrderAndNoSecretField(t *testing.T) {
 	input := testInput()
@@ -159,7 +186,7 @@ func TestPromptRejectsUnboundedContext(t *testing.T) {
 func TestOwnerSerializesCommandsAndNumbersEvents(t *testing.T) {
 	var mu sync.Mutex
 	var commands []CommandKind
-	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
 		mu.Lock()
 		commands = append(commands, command.Kind)
 		mu.Unlock()
@@ -205,7 +232,7 @@ func TestOwnerRejectsCommandsAboveBoundedQueue(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var startedOnce sync.Once
-	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(ctx context.Context, command Command, events EventSink) (TurnResult, error) {
 		startedOnce.Do(func() { close(started) })
 		select {
 		case <-release:
@@ -260,7 +287,7 @@ func TestOwnerSkipsCancelledQueuedCommandAndContinues(t *testing.T) {
 	release := make(chan struct{})
 	var mu sync.Mutex
 	var commands []string
-	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
 		mu.Lock()
 		commands = append(commands, command.Text)
 		mu.Unlock()
@@ -326,7 +353,7 @@ func TestOwnerSkipsCancelledQueuedCommandAndContinues(t *testing.T) {
 
 func TestOwnerCancelsRunningCommandAndContinues(t *testing.T) {
 	started := make(chan struct{})
-	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
 		if command.Text == "cancel" {
 			close(started)
 			<-ctx.Done()
@@ -364,7 +391,7 @@ func TestOwnerCloseCancelsRunningAndQueuedCommands(t *testing.T) {
 	started := make(chan struct{})
 	var mu sync.Mutex
 	var commands []string
-	engine := Native{ExecuteFunc: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(ctx context.Context, command Command, _ EventSink) (TurnResult, error) {
 		mu.Lock()
 		commands = append(commands, command.Text)
 		mu.Unlock()
@@ -417,7 +444,7 @@ func TestOwnerCloseCancelsRunningAndQueuedCommands(t *testing.T) {
 }
 
 func TestOwnerDoesNotDependOnEventConsumerForResult(t *testing.T) {
-	engine := Native{ExecuteFunc: func(_ context.Context, _ Command, events EventSink) (TurnResult, error) {
+	engine := testEngine{execute: func(_ context.Context, _ Command, events EventSink) (TurnResult, error) {
 		if err := events.Publish(Event{Kind: EventStarted}); err != nil {
 			return TurnResult{}, err
 		}
@@ -444,7 +471,7 @@ func TestOwnerDoesNotDependOnEventConsumerForResult(t *testing.T) {
 
 func TestExternalNormalizesJSONLEventsAndResult(t *testing.T) {
 	var received []byte
-	runner := JSONLRunner{Command: func(_ context.Context, input []byte) (string, error) {
+	runner := testJSONLRunner{Command: func(_ context.Context, input []byte) (string, error) {
 		received = append([]byte(nil), input...)
 		return "{\"type\":\"event\",\"kind\":\"started\"}\n{\"type\":\"result\",\"result\":{\"outcome\":\"succeeded\",\"body\":\"done\"}}\n", nil
 	}}
@@ -464,7 +491,7 @@ func TestExternalNormalizesJSONLEventsAndResult(t *testing.T) {
 }
 
 func TestExternalRejectsMalformedJSONL(t *testing.T) {
-	driver := External{Kind: KindClaude, Runner: JSONLRunner{Command: func(context.Context, []byte) (string, error) {
+	driver := External{Kind: KindClaude, Runner: testJSONLRunner{Command: func(context.Context, []byte) (string, error) {
 		return "{\"type\":\"unknown\"}\n", nil
 	}}}
 	input := testInput()

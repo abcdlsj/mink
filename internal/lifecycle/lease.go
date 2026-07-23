@@ -161,11 +161,6 @@ func AcquireInheritedMaintenance(dataRoot, runtimeRoot string, inherited *os.Fil
 	return &Lease{gate: inherited}, nil
 }
 
-func GatePath(dataRoot, runtimeRoot string) (string, error) {
-	gate, _, err := lockPaths(dataRoot, runtimeRoot, ComponentServer)
-	return gate, err
-}
-
 func (lease *Lease) File() *os.File {
 	if lease == nil {
 		return nil

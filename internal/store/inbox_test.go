@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/google/uuid"
 )
 
@@ -30,7 +31,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	claim := fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(3))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: claim.ID, Now: fixture.at(4),
 	}); err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(7))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(8),
 	}); err != nil {
 		t.Fatal(err)
@@ -66,13 +67,13 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(11))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(12),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(13),
 	}); err != nil {
 		t.Fatal(err)
@@ -108,7 +109,7 @@ func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
 	}
 	fixture.issueAgentGrant(t, dm.ID, CapabilitySpaceRead, fixture.at(19))
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		SpaceID: dm.ID, Muted: true, Now: fixture.at(20),
 	}); err != nil {
 		t.Fatal(err)
@@ -150,7 +151,7 @@ func TestHumanInboxParityMentionMuteFollowSelfSuppressionAccessLossAndDM(t *test
 			t.Fatal(err)
 		}
 	}
-	authentication := HumanInboxAuthentication(human)
+	authentication := executionapp.HumanInboxAuthentication(human)
 	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "human mention",
@@ -308,7 +309,7 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("claim replay changed: %+v != %+v", claimed, replayedClaim)
 	}
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(5),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(5),
 	})
 	if err != nil || observed.Head != trigger.TargetSequence {
 		t.Fatalf("observe = %+v, %v", observed, err)
@@ -339,7 +340,7 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("held request messages = %d, %v", sentWithHeldRequest, err)
 	}
 	observed, err = fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(9),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(9),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +370,7 @@ func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
 		t.Fatalf("held replay after item done = %+v, %v", replayedHeldAfterDone, err)
 	}
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: sendRequest, Authentication: AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(13),
+		RequestID: sendRequest, Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(13),
 	}); !errors.Is(err, ErrInboxRequestConflict) {
 		t.Fatalf("cross-operation request reuse error = %v", err)
 	}
@@ -529,7 +530,7 @@ func TestHeldDraftRetryStaleCreatesCanonicalSuccessor(t *testing.T) {
 	ctx := context.Background()
 	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(7),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(7),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -588,7 +589,7 @@ func TestHeldDraftRetargetFreshPublishesCanonicalMessage(t *testing.T) {
 	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
 	targetGroup := fixture.createAgentGroup(t, "Retarget fresh", 7)
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		Target:         MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID}, Limit: 20, Now: fixture.at(10),
 	})
 	if err != nil || observed.Head != 0 {
@@ -638,7 +639,7 @@ func TestHeldDraftRetargetStaleCreatesCanonicalSuccessor(t *testing.T) {
 		t.Fatal(err)
 	}
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: target, Limit: 20, Now: fixture.at(11),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: target, Limit: 20, Now: fixture.at(11),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -748,19 +749,19 @@ func TestInboxAccessLossClosesItemsWithoutResurrection(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err := fixture.database.ListInboxItems(ctx, ListInboxItemsParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Limit: 1, Now: fixture.at(8),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Limit: 1, Now: fixture.at(8),
 	})
 	if err != nil || len(items) != 1 || items[0].SpaceID != secondGroup.ID {
 		t.Fatalf("items after access loss = %+v, %v", items, err)
 	}
 	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(9))
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		InboxItemID: items[0].ID, Now: fixture.at(10),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	notice, err := fixture.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: AgentInboxAuthentication(fixture.authentication), Now: fixture.at(11)})
+	notice, err := fixture.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Now: fixture.at(11)})
 	if err != nil || notice {
 		t.Fatalf("notice after access loss = %v, %v", notice, err)
 	}
@@ -792,7 +793,7 @@ func TestInboxSiblingAdvanceDoesNotHoldReply(t *testing.T) {
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -825,7 +826,7 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -852,7 +853,7 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	}
 	runtimeRequest := uuid.NewString()
 	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: runtimeRequest, Authentication: AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(8),
+		RequestID: runtimeRequest, Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(8),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
 		t.Fatalf("revoked runtime completion error = %v", err)
 	}
@@ -872,7 +873,7 @@ func TestHeldDraftDoesNotResurrectAfterAccessLoss(t *testing.T) {
 	item := fixture.listItems(t, 1, fixture.at(2))[0]
 	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
 	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1049,7 +1050,7 @@ func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(2),
 	}); err != nil {
 		t.Fatal(err)
@@ -1061,13 +1062,13 @@ func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.SetThreadFollow(ctx, SetThreadFollowParams{
-		RequestID: uuid.NewString(), Authentication: AgentInboxAuthentication(fixture.authentication),
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
 		ThreadID: root.ID, Followed: true, Now: fixture.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(fixture.authentication), Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
+		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
 		Limit: 10, Now: fixture.at(5),
 	}); err != nil {
 		t.Fatal(err)
@@ -1202,7 +1203,7 @@ func (f *inboxFixture) makeHeldDraft(t *testing.T, space Space, start int) (Inbo
 	}
 	f.claim(t, item.ID, uuid.NewString(), f.at(start+2))
 	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(start + 3),
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(start + 3),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1263,7 +1264,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 	}
 	f.claim(t, item.ID, uuid.NewString(), f.at(start+2))
 	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 200, Now: f.at(start + 3),
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 200, Now: f.at(start + 3),
 	})
 	if err != nil {
 		return SendInboxReplyParams{}, SendInboxReplyResult{}, err
@@ -1286,7 +1287,7 @@ func (f *inboxFixture) sendInboxReply(t *testing.T, body string, mentions []stri
 func (f *inboxFixture) listItems(t *testing.T, limit uint32, now time.Time) []InboxItem {
 	t.Helper()
 	items, err := f.database.ListInboxItems(context.Background(), ListInboxItemsParams{
-		Authentication: AgentInboxAuthentication(f.authentication), Limit: limit, Now: now,
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Limit: limit, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1297,7 +1298,7 @@ func (f *inboxFixture) listItems(t *testing.T, limit uint32, now time.Time) []In
 func (f *inboxFixture) claim(t *testing.T, itemID, requestID string, now time.Time) InboxItem {
 	t.Helper()
 	item, err := f.database.ClaimInboxItem(context.Background(), ClaimInboxItemParams{
-		RequestID: requestID, Authentication: AgentInboxAuthentication(f.authentication), InboxItemID: itemID, Now: now,
+		RequestID: requestID, Authentication: executionapp.AgentInboxAuthentication(f.authentication), InboxItemID: itemID, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)

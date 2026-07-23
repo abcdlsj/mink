@@ -33,18 +33,6 @@ const BrowserSessionCookieName = "sumi_browser_session"
 
 var browserSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
-func NewInterceptor(authenticator humanAuthenticator) connect.Interceptor {
-	return newInterceptor(authenticator, nil, BrowserInterceptorConfig{})
-}
-
-func NewProcedureInterceptor(authenticator humanAuthenticator, procedures ...string) connect.Interceptor {
-	protected := make(map[string]struct{}, len(procedures))
-	for _, procedure := range procedures {
-		protected[procedure] = struct{}{}
-	}
-	return newInterceptor(authenticator, protected, BrowserInterceptorConfig{})
-}
-
 func NewBrowserInterceptor(authenticator humanAuthenticator, sessions browserSessionAuthenticator, config BrowserInterceptorConfig) connect.Interceptor {
 	protected := procedureSet(config.ProtectedProcedures)
 	if len(config.ProtectedProcedures) == 0 {
