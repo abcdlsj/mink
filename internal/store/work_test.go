@@ -430,6 +430,187 @@ func TestWorkCompletionCriteriaIterationErrorRollsBackTransition(t *testing.T) {
 	}
 }
 
+func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "server.db")
+	database, owner, _, _, now := openCollaborationFixture(t, path)
+	space, err := database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: owner, Name: "replay now", Now: now})
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	source, err := database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: space.ID}, Body: "replay source", Now: now.Add(time.Second)})
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: owner, Name: "replay agent", Description: "agent", Driver: "native", Now: now.Add(2 * time.Second)})
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	computerID := uuid.NewString()
+	if _, err := database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, zeroblob(32), 'computer', 'linux', 'amd64', ?, ?)`, computerID, unixNano(now), unixNano(now)); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+
+	create := WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: source.ID, SourceSpaceID: source.SpaceID, SourceTarget: source.Target, SourceTargetSequence: source.TargetSequence, Goal: "replay durable work", Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now.Add(3 * time.Second)}
+	created, err := database.CreateWork(context.Background(), create)
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	create.Now = now.Add(30 * time.Second)
+	if replay, err := database.CreateWork(context.Background(), create); err != nil || replay.ID != created.ID {
+		database.Close()
+		t.Fatalf("create same-process replay = %+v, %v", replay, err)
+	}
+	changedCreate := create
+	changedCreate.Goal = "changed goal"
+	if _, err := database.CreateWork(context.Background(), changedCreate); !errors.Is(err, ErrWorkRequestConflict) {
+		database.Close()
+		t.Fatalf("create changed payload = %v", err)
+	}
+
+	assign := AssignWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, Role: WorkAssignmentCoordinator, AgentID: agent.ID, Now: now.Add(4 * time.Second)}
+	assignment, err := database.AssignWork(context.Background(), assign)
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	assign.Now = now.Add(40 * time.Second)
+	if replay, err := database.AssignWork(context.Background(), assign); err != nil || replay.ID != assignment.ID {
+		database.Close()
+		t.Fatalf("assign same-process replay = %+v, %v", replay, err)
+	}
+	changedAssign := assign
+	changedAssign.Role = WorkAssignmentContributor
+	if _, err := database.AssignWork(context.Background(), changedAssign); !errors.Is(err, ErrWorkRequestConflict) {
+		database.Close()
+		t.Fatalf("assign changed payload = %v", err)
+	}
+
+	transition := TransitionWorkParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, ToState: WorkStateBlocked, Reason: "needs review", CriterionResults: []WorkCriterionResultInput{{CriterionID: created.AcceptanceCriteria[0].ID, Verdict: "passed", Evidence: "evidence"}}, Now: now.Add(5 * time.Second)}
+	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	transition.Now = now.Add(50 * time.Second)
+	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
+		database.Close()
+		t.Fatalf("transition same-process replay = %v", err)
+	}
+	changedTransition := transition
+	changedTransition.Reason = "changed reason"
+	if _, err := database.TransitionWork(context.Background(), changedTransition); !errors.Is(err, ErrWorkRequestConflict) {
+		database.Close()
+		t.Fatalf("transition changed payload = %v", err)
+	}
+
+	request := RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: owner, WorkID: created.ID, Question: "approve?", Now: now.Add(6 * time.Second)}
+	pending, err := database.RequestWorkApproval(context.Background(), request)
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	request.Now = now.Add(60 * time.Second)
+	if replay, err := database.RequestWorkApproval(context.Background(), request); err != nil || replay.ID != pending.ID || replay.Status != "pending" {
+		database.Close()
+		t.Fatalf("request approval same-process replay = %+v, %v", replay, err)
+	}
+	changedRequest := request
+	changedRequest.Question = "changed question"
+	if _, err := database.RequestWorkApproval(context.Background(), changedRequest); !errors.Is(err, ErrWorkRequestConflict) {
+		database.Close()
+		t.Fatalf("request approval changed payload = %v", err)
+	}
+
+	resolve := ResolveWorkApprovalParams{RequestID: uuid.NewString(), Actor: owner, ApprovalID: pending.ID, Decision: "rejected", Note: "needs changes", Now: now.Add(7 * time.Second)}
+	resolved, err := database.ResolveWorkApproval(context.Background(), resolve)
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	resolve.Now = now.Add(70 * time.Second)
+	if replay, err := database.ResolveWorkApproval(context.Background(), resolve); err != nil || replay.ID != resolved.ID || replay.Status != "rejected" {
+		database.Close()
+		t.Fatalf("resolve approval same-process replay = %+v, %v", replay, err)
+	}
+	changedResolve := resolve
+	changedResolve.Note = "changed note"
+	if _, err := database.ResolveWorkApproval(context.Background(), changedResolve); !errors.Is(err, ErrWorkRequestConflict) {
+		database.Close()
+		t.Fatalf("resolve approval changed payload = %v", err)
+	}
+
+	before := readWorkReplayFactCounts(t, database, created.ID)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	create.Now = now.Add(80 * time.Second)
+	assign.Now = now.Add(81 * time.Second)
+	transition.Now = now.Add(82 * time.Second)
+	request.Now = now.Add(83 * time.Second)
+	resolve.Now = now.Add(84 * time.Second)
+	if replay, err := database.CreateWork(context.Background(), create); err != nil || replay.ID != created.ID {
+		t.Fatalf("create reopen replay = %+v, %v", replay, err)
+	}
+	if replay, err := database.AssignWork(context.Background(), assign); err != nil || replay.ID != assignment.ID {
+		t.Fatalf("assign reopen replay = %+v, %v", replay, err)
+	}
+	if _, err := database.TransitionWork(context.Background(), transition); err != nil {
+		t.Fatalf("transition reopen replay = %v", err)
+	}
+	if replay, err := database.RequestWorkApproval(context.Background(), request); err != nil || replay.ID != pending.ID {
+		t.Fatalf("request approval reopen replay = %+v, %v", replay, err)
+	}
+	if replay, err := database.ResolveWorkApproval(context.Background(), resolve); err != nil || replay.ID != resolved.ID {
+		t.Fatalf("resolve approval reopen replay = %+v, %v", replay, err)
+	}
+	if after := readWorkReplayFactCounts(t, database, created.ID); after != before {
+		t.Fatalf("replay duplicated durable facts: before=%+v after=%+v", before, after)
+	}
+}
+
+type workReplayFactCounts struct {
+	works, assignments, approvals, results, events, receipts, dirty int
+}
+
+func readWorkReplayFactCounts(t *testing.T, database *Store, workID string) workReplayFactCounts {
+	t.Helper()
+	var counts workReplayFactCounts
+	for _, item := range []struct {
+		query string
+		into  *int
+	}{
+		{`SELECT count(*) FROM works`, &counts.works},
+		{`SELECT count(*) FROM work_assignments WHERE work_id = ?`, &counts.assignments},
+		{`SELECT count(*) FROM work_approvals WHERE work_id = ?`, &counts.approvals},
+		{`SELECT count(*) FROM work_acceptance_results WHERE work_id = ?`, &counts.results},
+		{`SELECT count(*) FROM work_events WHERE work_id = ?`, &counts.events},
+		{`SELECT count(*) FROM work_requests`, &counts.receipts},
+		{`SELECT count(*) FROM knowledge_dirty_sources WHERE source_kind = 'work' AND source_id = ?`, &counts.dirty},
+	} {
+		args := []any{}
+		if strings.Contains(item.query, "?") {
+			args = append(args, workID)
+		}
+		if err := database.db.QueryRow(item.query, args...).Scan(item.into); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return counts
+}
+
 type workFactCounts struct {
 	works, spaces, events, receipts, dirty int
 }

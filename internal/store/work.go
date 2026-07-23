@@ -230,6 +230,26 @@ func workFingerprint(value any) ([sha256.Size]byte, error) {
 	return sha256.Sum256(payload), nil
 }
 
+func workCreateFingerprint(params WorkCreateParams) ([sha256.Size]byte, error) {
+	params.Now = time.Time{}
+	return workFingerprint(params)
+}
+
+func workTransitionFingerprint(params TransitionWorkParams) ([sha256.Size]byte, error) {
+	params.Now = time.Time{}
+	return workFingerprint(params)
+}
+
+func workApprovalRequestFingerprint(params RequestWorkApprovalParams) ([sha256.Size]byte, error) {
+	params.Now = time.Time{}
+	return workFingerprint(params)
+}
+
+func workApprovalResolveFingerprint(params ResolveWorkApprovalParams) ([sha256.Size]byte, error) {
+	params.Now = time.Time{}
+	return workFingerprint(params)
+}
+
 type workReceipt struct {
 	ActorKind                                PrincipalKind
 	ActorID, Operation, ResultKind, ResultID string
@@ -445,7 +465,7 @@ func (s *Store) CreateWork(ctx context.Context, params WorkCreateParams) (Work, 
 	if err := validateWorkCreateParams(params); err != nil {
 		return Work{}, err
 	}
-	fingerprint, err := workFingerprint(params)
+	fingerprint, err := workCreateFingerprint(params)
 	if err != nil {
 		return Work{}, err
 	}

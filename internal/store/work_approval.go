@@ -13,7 +13,7 @@ func (s *Store) RequestWorkApproval(ctx context.Context, params RequestWorkAppro
 	if err := validateWorkText(params.Question, 20000); err != nil {
 		return WorkApproval{}, err
 	}
-	fingerprint, err := workFingerprint(params)
+	fingerprint, err := workApprovalRequestFingerprint(params)
 	if err != nil {
 		return WorkApproval{}, err
 	}
@@ -103,7 +103,7 @@ func (s *Store) ResolveWorkApproval(ctx context.Context, params ResolveWorkAppro
 	if params.Decision == "rejected" && validateWorkText(params.Note, 20000) != nil {
 		return WorkApproval{}, ErrWorkInvalid
 	}
-	fingerprint, err := workFingerprint(params)
+	fingerprint, err := workApprovalResolveFingerprint(params)
 	if err != nil {
 		return WorkApproval{}, err
 	}

@@ -14,7 +14,7 @@ func (s *Store) TransitionWork(ctx context.Context, params TransitionWorkParams)
 	if params.ToState == WorkStateWaitingApproval || params.ToState == "" {
 		return Work{}, ErrWorkTransitionInvalid
 	}
-	fingerprint, err := workFingerprint(params)
+	fingerprint, err := workTransitionFingerprint(params)
 	if err != nil {
 		return Work{}, err
 	}
