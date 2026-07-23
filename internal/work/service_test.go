@@ -191,14 +191,21 @@ func TestServiceErrorsRemainQuietAndCursorIsFixed(t *testing.T) {
 		code    connect.Code
 		message string
 	}{
-		"cursor":     {store.ErrWorkCursorUnavailable, connect.CodeFailedPrecondition, "cursor unavailable"},
-		"backend":    {errors.New("sqlite /private/work secret"), connect.CodeInternal, "work service unavailable"},
-		"conflict":   {store.ErrWorkRequestConflict, connect.CodeAlreadyExists, "work request conflicts with committed request"},
-		"transition": {store.ErrWorkTransitionInvalid, connect.CodeFailedPrecondition, "work state conflict"},
+		"canceled":         {context.Canceled, connect.CodeCanceled, "work request canceled"},
+		"deadline":         {context.DeadlineExceeded, connect.CodeDeadlineExceeded, "work request deadline exceeded"},
+		"cursor":           {store.ErrWorkCursorUnavailable, connect.CodeFailedPrecondition, "cursor unavailable"},
+		"backend":          {errors.New("sqlite /private/work secret"), connect.CodeInternal, "work service unavailable"},
+		"runtime":          {authorityapp.ErrRuntimeUnauthenticated, connect.CodeUnauthenticated, "work authentication invalid"},
+		"work not found":   {store.ErrWorkNotFound, connect.CodeNotFound, "work fact not found"},
+		"approval missing": {store.ErrWorkApprovalNotFound, connect.CodeNotFound, "work fact not found"},
+		"permission":       {store.ErrPermissionDenied, connect.CodePermissionDenied, "work action denied"},
+		"conflict":         {store.ErrWorkRequestConflict, connect.CodeAlreadyExists, "work request conflicts with committed request"},
+		"transition":       {store.ErrWorkTransitionInvalid, connect.CodeFailedPrecondition, "work state conflict"},
+		"invalid":          {store.ErrWorkInvalid, connect.CodeInvalidArgument, "work input is invalid"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := serviceError(test.err)
-			if connect.CodeOf(err) != test.code || !strings.Contains(err.Error(), test.message) || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
+			if connect.CodeOf(err) != test.code || err.Error() != test.code.String()+": "+test.message || strings.Contains(err.Error(), "sqlite") || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("error = %v", err)
 			}
 		})

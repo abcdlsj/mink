@@ -14,6 +14,7 @@ import (
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
@@ -25,6 +26,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	_ "modernc.org/sqlite"
 )
 
@@ -121,6 +123,21 @@ func TestWorkHTTPReplayConflictAndRestartDetail(t *testing.T) {
 	changedApproval.Question = "changed"
 	_, err = client.RequestApproval(context.Background(), connect.NewRequest(changedApproval))
 	assertConnectCode(t, err, connect.CodeAlreadyExists)
+	expectedDetailResponse, err := client.GetWork(context.Background(), connect.NewRequest(&workv1.GetWorkRequest{WorkId: created.Msg.GetWork().GetId()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedDetail := expectedDetailResponse.Msg.GetDetail()
+	assertWorkRestartDetail(t, expectedDetail, create, created.Msg.GetWork(), firstAssignment.Msg.GetAssignment(), secondAssignment.Msg.GetAssignment(), pending.Msg.GetApproval(), transitioned.Msg.GetWork())
+	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), credential, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDetail, err := api.app.store.GetWorkDetail(context.Background(), store.WorkReadParams{Actor: store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}, WorkID: created.Msg.GetWork().GetId(), Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertWorkDetailMatchesStore(t, expectedDetail, canonicalDetail)
 
 	api.close(t)
 	api = openFactsAPI(t, dataRoot)
@@ -131,6 +148,9 @@ func TestWorkHTTPReplayConflictAndRestartDetail(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored := detail.Msg.GetDetail()
+	if !proto.Equal(restored, expectedDetail) {
+		t.Fatalf("restart detail differs from canonical detail:\nrestored=%+v\ncanonical=%+v", restored, expectedDetail)
+	}
 	assertWorkRestartDetail(t, restored, create, created.Msg.GetWork(), firstAssignment.Msg.GetAssignment(), secondAssignment.Msg.GetAssignment(), pending.Msg.GetApproval(), transitioned.Msg.GetWork())
 	page, err := client.ListWorks(context.Background(), connect.NewRequest(&workv1.ListWorksRequest{Limit: 1}))
 	if err != nil || len(page.Msg.GetWorks()) != 1 || page.Msg.GetWorks()[0].GetId() != created.Msg.GetWork().GetId() {
@@ -427,4 +447,128 @@ func assertWorkAssignmentProjection(t *testing.T, actual, expected *workv1.WorkA
 	if actual.GetEndedAt() != nil || actual.GetEndReason() != "" {
 		t.Fatalf("active assignment projection = %+v", actual)
 	}
+}
+
+func assertWorkDetailMatchesStore(t *testing.T, actual *workv1.WorkDetail, expected store.WorkDetail) {
+	t.Helper()
+	canonical := workDetailFromStoreForTest(t, expected)
+	if !proto.Equal(actual, canonical) {
+		t.Fatalf("public detail differs from Store canonical fact:\npublic=%+v\nstore=%+v", actual, canonical)
+	}
+}
+
+func workDetailFromStoreForTest(t *testing.T, value store.WorkDetail) *workv1.WorkDetail {
+	t.Helper()
+	result := &workv1.WorkDetail{Work: workFromStoreForTest(t, value.Work)}
+	for _, item := range value.Constraints {
+		result.Constraints = append(result.Constraints, &workv1.WorkText{Id: item.ID, Ordinal: item.Ordinal, Body: item.Body, CreatedAt: timestamppb.New(item.CreatedAt)})
+	}
+	for _, item := range value.AcceptanceCriteria {
+		result.AcceptanceCriteria = append(result.AcceptanceCriteria, &workv1.WorkCriterion{Id: item.ID, Ordinal: item.Ordinal, Body: item.Body, CreatedAt: timestamppb.New(item.CreatedAt)})
+	}
+	for _, item := range value.Assignments {
+		assignment := &workv1.WorkAssignment{Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, Role: assignmentRoleFromStoreForTest(t, item.Role), AgentId: item.AgentID, HolderComputerId: item.HolderComputerID, HolderPlacementGeneration: item.HolderPlacementGeneration, AssignedBy: principalFromStoreForTest(t, item.AssignedBy), AssignedAt: timestamppb.New(item.AssignedAt), EndReason: item.EndReason}
+		if item.EndedAt != nil {
+			assignment.EndedAt = timestamppb.New(*item.EndedAt)
+		}
+		result.Assignments = append(result.Assignments, assignment)
+	}
+	for _, item := range value.Approvals {
+		approval := &workv1.WorkApproval{Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, Status: approvalStatusFromStoreForTest(t, item.Status), Question: item.Question, RequestedBy: principalFromStoreForTest(t, item.RequestedBy), RequestedAt: timestamppb.New(item.RequestedAt), DecidedByHumanId: item.DecidedByHumanID, DecisionNote: item.DecisionNote}
+		if item.DecidedAt != nil {
+			approval.DecidedAt = timestamppb.New(*item.DecidedAt)
+		}
+		result.Approvals = append(result.Approvals, approval)
+	}
+	for _, item := range value.CriterionResults {
+		result.CriterionResults = append(result.CriterionResults, &workv1.WorkCriterionResult{Sequence: item.Sequence, Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, CriterionId: item.CriterionID, Verdict: criterionVerdictFromStoreForTest(t, item.Verdict), Evidence: item.Evidence, Actor: principalFromStoreForTest(t, item.Actor), OccurredAt: timestamppb.New(item.OccurredAt)})
+	}
+	for _, item := range value.Events {
+		result.Events = append(result.Events, &workv1.WorkEvent{Sequence: item.Sequence, Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, Kind: item.Kind, Actor: principalFromStoreForTest(t, item.Actor), FromState: workStateFromStoreForTest(t, item.FromState), ToState: workStateFromStoreForTest(t, item.ToState), ReferenceKind: item.ReferenceKind, ReferenceId: item.ReferenceID, Reason: item.Reason, OccurredAt: timestamppb.New(item.OccurredAt)})
+	}
+	return result
+}
+
+func workFromStoreForTest(t *testing.T, item store.Work) *workv1.Work {
+	t.Helper()
+	result := &workv1.Work{Id: item.ID, OrganizationId: item.OrganizationID, RootWorkId: item.RootWorkID, ParentWorkId: item.ParentWorkID, SourceMessageId: item.SourceMessageID, SourceSpaceId: item.SourceSpaceID, SourceTarget: targetFromStoreForTest(t, item.SourceTarget), SourceTargetSequence: item.SourceTargetSequence, TeamSpaceId: item.TeamSpaceID, Goal: item.Goal, State: workStateFromStoreForTest(t, item.State), BlockingReason: item.BlockingReason, Result: item.Result, Creator: principalFromStoreForTest(t, item.Creator), CreatedAt: timestamppb.New(item.CreatedAt), UpdatedAt: timestamppb.New(item.UpdatedAt), StateChangedAt: timestamppb.New(item.StateChangedAt)}
+	if item.CompletedAt != nil {
+		result.CompletedAt = timestamppb.New(*item.CompletedAt)
+	}
+	if item.FailedAt != nil {
+		result.FailedAt = timestamppb.New(*item.FailedAt)
+	}
+	if item.CancelledAt != nil {
+		result.CancelledAt = timestamppb.New(*item.CancelledAt)
+	}
+	return result
+}
+
+func targetFromStoreForTest(t *testing.T, value store.MessageTarget) *spacev1.MessageTarget {
+	t.Helper()
+	switch value.Kind {
+	case store.MessageTargetSpace:
+		return &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: value.ID}}
+	case store.MessageTargetThread:
+		return &spacev1.MessageTarget{Target: &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: value.ID}}
+	default:
+		t.Fatalf("unexpected Store target kind %q", value.Kind)
+		return nil
+	}
+}
+
+func principalFromStoreForTest(t *testing.T, value store.Principal) *grantv1.Principal {
+	t.Helper()
+	result := &grantv1.Principal{Id: value.ID}
+	switch value.Kind {
+	case "human":
+		result.Kind = grantv1.PrincipalKind_PRINCIPAL_KIND_HUMAN
+	case "agent":
+		result.Kind = grantv1.PrincipalKind_PRINCIPAL_KIND_AGENT
+	case "system":
+		result.Kind = grantv1.PrincipalKind_PRINCIPAL_KIND_SYSTEM
+	default:
+		t.Fatalf("unexpected Store principal kind %q", value.Kind)
+	}
+	return result
+}
+
+func workStateFromStoreForTest(t *testing.T, value string) workv1.WorkState {
+	t.Helper()
+	states := map[string]workv1.WorkState{"": workv1.WorkState_WORK_STATE_UNSPECIFIED, store.WorkStateOpen: workv1.WorkState_WORK_STATE_OPEN, store.WorkStateBlocked: workv1.WorkState_WORK_STATE_BLOCKED, store.WorkStateWaitingApproval: workv1.WorkState_WORK_STATE_WAITING_APPROVAL, store.WorkStateCompleted: workv1.WorkState_WORK_STATE_COMPLETED, store.WorkStateFailed: workv1.WorkState_WORK_STATE_FAILED, store.WorkStateCancelled: workv1.WorkState_WORK_STATE_CANCELLED}
+	result, ok := states[value]
+	if !ok {
+		t.Fatalf("unexpected Store work state %q", value)
+	}
+	return result
+}
+
+func assignmentRoleFromStoreForTest(t *testing.T, value string) workv1.WorkAssignmentRole {
+	t.Helper()
+	roles := map[string]workv1.WorkAssignmentRole{store.WorkAssignmentCoordinator: workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR, store.WorkAssignmentContributor: workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_CONTRIBUTOR}
+	result, ok := roles[value]
+	if !ok {
+		t.Fatalf("unexpected Store assignment role %q", value)
+	}
+	return result
+}
+
+func approvalStatusFromStoreForTest(t *testing.T, value string) workv1.WorkApprovalStatus {
+	t.Helper()
+	statuses := map[string]workv1.WorkApprovalStatus{"pending": workv1.WorkApprovalStatus_WORK_APPROVAL_STATUS_PENDING, "approved": workv1.WorkApprovalStatus_WORK_APPROVAL_STATUS_APPROVED, "rejected": workv1.WorkApprovalStatus_WORK_APPROVAL_STATUS_REJECTED, "cancelled": workv1.WorkApprovalStatus_WORK_APPROVAL_STATUS_CANCELLED}
+	result, ok := statuses[value]
+	if !ok {
+		t.Fatalf("unexpected Store approval status %q", value)
+	}
+	return result
+}
+
+func criterionVerdictFromStoreForTest(t *testing.T, value string) workv1.WorkCriterionVerdict {
+	t.Helper()
+	verdicts := map[string]workv1.WorkCriterionVerdict{"passed": workv1.WorkCriterionVerdict_WORK_CRITERION_VERDICT_PASSED, "failed": workv1.WorkCriterionVerdict_WORK_CRITERION_VERDICT_FAILED}
+	result, ok := verdicts[value]
+	if !ok {
+		t.Fatalf("unexpected Store criterion verdict %q", value)
+	}
+	return result
 }
