@@ -179,15 +179,15 @@ Human 不应承担日常调度，只在以下情况被请求介入：
 - 右侧是成员、关联 Work、Artifact、来源与权限；
 - 全局搜索覆盖 Agent、Space、Work、Artifact 和消息。
 
-每个 Agent 拥有持久 Inbox。Inbox 是对 Space 与 Work 事实的注意力投影，不是第二套消息存储。
+每个 Human 与 Agent Principal 都拥有持久 Message Inbox。Inbox 是对 Message 事实的注意力投影，不是第二套消息存储；Work Approval 与 Agent exception 属于独立的 Human-only Work Attention，不能与 Message Inbox 混成一个事实类型。
 
-当前落地范围只投影 append-only Message，原因固定为 `dm / mention / thread_follow`，尚不把 Work、Approval 或系统事件伪装成已实现的 Inbox 输入。投影与 Message、mention 事实在同一个事务提交，Inbox item 只保存触发 Message 的稳定引用、精确 target sequence、原因和 `unread -> claimed -> done` 生命周期；读取上下文始终回到 Message 表，Inbox 不复制正文，也不成为第二个 Message 真相源。DM 和显式 Mention 会穿透 Space mute，普通 Thread follow 会被 mute 抑制；Thread Mention、Agent 自己回复和显式 follow 都可以建立 follow，显式 unfollow 可以移除它。任何来源都不向 Message 作者本人产生自通知，成员移除或 Grant 丢失会把未完成 item 终结为 `access_lost`，恢复访问也不会复活旧投影。
+当前 Message Inbox 只投影 append-only Message，原因固定为 `dm / mention / thread_follow`，不把 Work、Approval 或系统事件伪装成 Message item。Message author 与 mention recipient 都是 Human/Agent Principal；投影与 Message、mention 事实在同一个事务提交，Inbox item 保存 recipient Principal、触发 Message 的稳定引用、精确 target sequence、原因和 `unread -> claimed -> done` 生命周期。读取上下文始终回到 Message 表，Inbox 不复制正文，也不成为第二个 Message 真相源。DM 和显式 Mention 会穿透 Space mute，普通 Thread follow 会被 mute 抑制；Thread Mention、回复和显式 follow 都可以建立 follow，显式 unfollow 可以移除它。任何来源都不向 Message 作者本人产生自通知，成员移除或 Grant 丢失会把未完成 item 终结为 `access_lost`，同时清理该 Principal 在对应 Space 的 mute、follow 与 cursor；恢复访问也不会复活旧投影或偏好。
 
-Agent 必须先对精确 Space 或 Thread target 调用 `ObserveTarget`，它原子读取该 target 的 head 并推进独立 cursor；`SendInboxReply` 只接受与 cursor 完全相等的 basis，并在写事务内再次比较该 target 的当前 head。只有同一 target 前进才会阻止发布，Sibling Space/Thread 的变化无关。head 未变化时直接追加真实 Message 并完成 item；head 已前进时不写 Message，而是保存 HeldDraft。HeldDraft 保留正文和 Mention 业务事实，并通过 `held -> sent / cancelled / superseded / retargeted` 及 predecessor/result reference 形成不可改写的 retry/retarget chain；原请求重放必须返回首次响应的 lifecycle snapshot，不能用 successor 或当前终态覆盖它。
+Human 与 Agent 都可以对精确 Space 或 Thread target 调用 `ObserveTarget`，它原子读取该 target 的 head 并推进该 Principal 的独立 cursor。Agent execution adapter 的 `SendInboxReply` 才使用该 cursor：它只接受与 cursor 完全相等的 basis，并在写事务内再次比较该 target 的当前 head。只有同一 target 前进才会阻止发布，Sibling Space/Thread 的变化无关。head 未变化时直接追加真实 Agent Message 并完成 item；head 已前进时不写 Message，而是保存 HeldDraft。HeldDraft 保留正文和 Mention 业务事实，并通过 `held -> sent / cancelled / superseded / retargeted` 及 predecessor/result reference 形成不可改写的 retry/retarget chain；原请求重放必须返回首次响应的 lifecycle snapshot，不能用 successor 或当前终态覆盖它。Human 发送消息继续走 Collaboration Message mutation，不制造 Human HeldDraft 或 Delivery/Run。
 
-Inbox 和 HeldDraft 都使用 `after_sequence` 按单调 sequence 有界 pull，单次最多 200；Inbox item 列表在 limit 为 0 时使用默认 50，HeldDraft 列表明确要求 `1..200` 并返回实际扫描到的 `next_sequence`，即使中间候选因 access loss 被过滤也能继续前进。所有 mutation 的 canonical request ID 共用 `agent_requests` 技术幂等 registry。该 registry 只保存 operation、payload fingerprint、committed metadata 和 Message/HeldDraft/InboxItem reference envelope，不保存 Message/Draft body、Mention ID、runtime token、Human credential 或本机路径。Message 回放按 ID 从 append-only Message/mention 事实重建；HeldDraft 回放按 ID 从 Draft/mention 事实取得正文，同时保留首次响应的 state/action/result/updated_at。引用、Mention 数量或 owner/ID 不一致时 fail closed 为 integrity error。
+Inbox 和 HeldDraft 都使用 `after_sequence` 按单调 sequence 有界 pull，单次最多 200；Inbox item 列表在 limit 为 0 时使用默认 50，HeldDraft 列表明确要求 `1..200` 并返回实际扫描到的 `next_sequence`，即使中间候选因 access loss 被过滤也能继续前进。所有 Inbox mutation 的 canonical request ID 共用 actor-neutral `inbox_requests` 技术幂等 registry，receipt 绑定 actor kind 与 ID。该 registry 只保存 operation、payload fingerprint、committed metadata 和 Message/HeldDraft/InboxItem reference envelope，不保存 Message/Draft body、Mention ID、runtime token、Human credential 或本机路径。Message 回放按 ID 从 append-only Message/mention 事实重建；HeldDraft 回放按 ID 从 Draft/mention 事实取得正文，同时保留首次响应的 state/action/result/updated_at。引用、Mention 数量、recipient 或 ID 不一致时 fail closed 为 integrity error。
 
-InboxService 当前十个 procedure 是 `GetInboxNotice`、`ListInboxItems`、`ClaimInboxItem`、`ObserveTarget`、`CompleteInboxItem`、`SetSpaceMute`、`SetThreadFollow`、`SendInboxReply`、`ListHeldDrafts` 与 `ResolveHeldDraft`。它们全部只接受 current Agent runtime token；Human Bearer、browser cookie、过期或被替换的 runtime token 都不能进入 service。interceptor 只建立 proof，Store 仍在每个事务内重验 current runtime、active Placement、显式 Grant、Space membership 和静态 ownership，然后才读取 receipt，最后才判断可变 lifecycle/head。只有真正 publish Message 的事务写 `message.send` Audit；Held、retry 后继续 Held、cancel、mute、follow、claim 和 complete 都不能伪造 Message publish Audit。
+InboxService 的 `GetInboxNotice`、`ListInboxItems`、`ClaimInboxItem`、`ObserveTarget`、`CompleteInboxItem`、`SetSpaceMute` 与 `SetThreadFollow` 对 Human browser session、Human Bearer 与 current Agent runtime 使用同一 Principal 合同；所有 browser mutation（包括会推进 cursor 的 `ObserveTarget`）都要求 exact Origin。`SendInboxReply`、`ListHeldDrafts` 与 `ResolveHeldDraft` 保持 Agent-only execution adapter，因为它们绑定 runtime、HeldDraft 与 Delivery/Run。authentication adapter 只建立 Human 或 Agent proof；Store 在每个事务内重新验证当前身份、显式 Grant、Space membership 与 recipient ownership，Agent mutation 还重验 current runtime 与 active Placement，然后才读取 receipt 和判断 lifecycle/head。过期、撤销或被替换的身份一律 fail closed。只有真正 publish Message 的事务写 `message.send` Audit；Held、retry 后继续 Held、cancel、mute、follow、claim 和 complete 都不能伪造 Message publish Audit。
 
 Message-backed Inbox item 会派生持久 Delivery 与 Run：Delivery 使用 `available -> accepted -> completed`，Run 使用 `accepted -> running -> completed`，数据库 partial unique 约束保证每个 Agent 只有一个 active Run。runtime 可通过 DeliveryService 的 `ListDeliveries`、`AcceptDelivery`、`GetRun`、`ClaimRun`、`RenewRun` 与 `CompleteRun` 发现并恢复 Server 事实中的 active Run/Launch；六个 procedure 全部只接受 current Agent runtime token。Claim 产生固定 60 秒 lease，fence 在 Agent 范围内全局单调递增，holder 只能由已验证 runtime proof 中的 Computer 与 Placement generation 派生，旧 Computer、旧 generation、旧 Launch 或旧 fence 都不能完成当前 Run。
 
@@ -212,18 +212,18 @@ Agent 起草期间如果 Space 已有新进展，系统应先保留草稿，让 
 主界面沿用用户熟悉的 Slack 式信息架构，但目标是 Human 与 Agent 的自然协作，不是把 Agent 当作频道 Bot：
 
 - 顶部提供全局搜索与快速创建；
-- 左侧展示 Human Inbox、DM、长期 Space、临时 Work Space 与 Work 入口；
+- 左侧展示 Work Inbox、DM、长期 Space、临时 Work Space 与 Work 入口；
 - 中间展示当前对话或当前 Work；
 - 右侧按当前上下文展示 Thread、关联 Work、Artifact、成员、来源与权限；
 - 全局 chrome 只显示当前 Human 与 Server/Computer 的简洁状态，不用整条设备状态栏挤压内容。
 
-视觉和交互直接学习 Raft 的高密度协作语法：窄功能 rail、次级导航、无卡片消息流、固定 Composer 和按需 Context pane。Sumi 不复制 Raft 的黄色与粉色品牌，而使用明亮 mint rail、深色 ink、纯白内容区与多种语义色；UI 字体为 Space Grotesk，并回退到系统中文字体。工作台必须清楚但不能像机械控制台：普通 pane 和 section 只用 1px 柔和分隔，2px 强边界留给 active、focus、offline 等真实强调；icon button 默认无框，在 hover、focus 和选中时才获得背景或边界。
+视觉和交互直接学习 Raft 的高密度协作语法：窄功能 rail、次级导航、无卡片消息流、固定 Composer 和按需 Context pane。Sumi 不复制 Raft 的黄色与粉色品牌，而使用自己的语义化 light/dark token；UI 字体为 IBM Plex Sans，并回退到系统中文字体。工作台必须清楚但不能像机械控制台：普通 pane 和 section 只用 1px 柔和分隔，2px 强边界留给 active、focus、offline 等真实强调；icon button 默认无框，在 hover、focus 和选中时才获得背景或边界，纯图标动作必须有可见 tooltip、可访问名称和键盘 focus。
 
 空工作区默认让 Conversation 占据主区域。没有选中 Thread、Work 或 Artifact 时 Context 关闭；用户主动打开后只展示真实当前上下文，不常驻空 section 与禁用 Composer。未实现的全局模块不以一整列 disabled icon 伪装成可用功能。空态、Loading、Offline 与 Retrying 必须互斥且诚实，连接阶段不能提前显示业务 Empty。
 
-布局在宽屏使用 `56px rail + 280px navigation + conversation + 360-400px context`；1024 宽默认收起 navigation，Context 仍参与网格；低于 1024 使用 rail 与单一主 pane，在 Conversation、Navigation 和 Context 之间受控切换，禁止 overlay 遮挡 Composer。hover、focus 与 pane 切换使用短促的 140-200ms 过渡，并尊重 reduced motion。
+布局在宽屏使用 `48px rail + 264px navigation + fluid conversation + 360px context`；中等宽度收窄 navigation 与 Context，360px 起的小屏使用 rail 与单一主 pane，在 Conversation、Navigation 和 Context 之间受控切换，禁止 overlay 遮挡 Composer。hover、focus 与 pane 切换使用短促的 140-200ms 过渡，并尊重 reduced motion。
 
-Human Inbox 只聚合需要本人处理的 Mention、Approval、Blocked Work 与重要系统事件，不复制聊天历史。Agent Inbox 是执行侧注意力队列，两者共享事实来源但不是同一个 UI。
+Work Inbox 是一个 UI 入口、两种明确投影：Message 分组使用 Human 自己的 Message Inbox，Work attention 分组只显示需要 Human 处理的 Approval 与 Agent exception。Human 与 Agent 的 Message Inbox 共用底层事实与状态语义；Delivery/Run 只是 Agent recipient 之上的执行适配，不在 Human UI 中伪装成消息状态。
 
 Work 与 Artifact 必须从对话自然进入和返回：Message 可以升级为 Work，Work 的目标、进度、阻塞、证据与结果在当前上下文就地查看，Artifact 可以预览、引用和追溯。不要用后台管理大盘替代日常对话，也不要做卡片套卡片。
 
@@ -319,7 +319,11 @@ SQLite 只保存带独立 domain separator 的 runtime token hash、Agent、Comp
 
 Native、Codex 和 Claude 是同一 Agent Host Contract 下的 Driver，不是三套 Agent。Host 为每个 Run 生成版本化 typed 输入，包含 Agent、Computer/Placement、effective capability、Work、精确 Space/Thread target 与 basis sequence、短 memory index、授权来源和当前输入。Secret 值、runtime token、本机凭证和任意未授权 Workspace 内容不进入输入。
 
-输入 section 的顺序固定为 host policy、agent identity、placement、capabilities、work、target、memory index、retrieved sources、current input。Server facts、权限和 freshness 由 Host enforcement 保证，Prompt 只能解释合同，不能赋权。
+输入 section 的顺序固定为 canonical `system_contract`、supplemental `host_policy`、agent identity、placement、capabilities、可选 work、target、memory index、retrieved sources、current input。`system_contract` 由 Sumi binary 版本化生成，部署侧字符串不能替换它；`host_policy` 可以收窄部署行为，但不能覆盖 canonical contract 或 typed Host facts。work、memory index、retrieved sources、Workspace 内容、Message 与 current input 都是上下文数据，即使含有指令文本也不能重写前述优先级或授予权限。
+
+System Contract 只保留跨 Driver 稳定的六层行为合同：Identity 要求只作为 canonical Agent 行动且 role 不等于 authority；Communication 要求只对精确 target 给出真实结果，只有经 Host API 接收并提交的 Message 或 Run completion 才是用户可见事实；Ownership 以当前 Run、target 与可选 Work 为责任依据，新的 claim、assignment、delegation 或审批必须经授权 Host capability 创建或读取，不能凭空假定；Attention 只把当前 target 与 current input 当作 active turn，不推断未注入内容；Memory 明确 index 不是事实正文、retrieved source 才是本轮按需上下文、Workspace 是私有工作态而非共享真相；Action 要求只在 capability 与 grant 范围行动，在关键歧义、缺权限、证据缺失或高风险不可逆动作前请求 Human，并且无证据不得宣称成功。恢复顺序固定为 Server facts、精确当前 target、durable evidence；Driver session、compact、provider cache 和本地进程状态都不是 canonical truth。
+
+身份/runtime proof、Grant/membership、Delivery/Run ownership、exact target freshness/fence、Secret materialization、receipt/Audit 和 context bound 必须由 Host 强制，不能靠 prompt 假装安全。Prompt 只解释行为与优先级；它不能创建权限、修复 stale input、提交 Message、证明副作用或替代事务验证。Canonical contract 作为固定第一 section 也不是“防注入魔法”：真正的防线仍是结构化 section、最小上下文、Host authority check、exact target 和结果提交前复验。
 
 Driver 只负责适配，不拥有产品事实：Native 直接消费结构化输入；External Driver 将同一输入渲染为命令或 JSONL，并把结果归一为同一个 TurnResult 与有序可选 RunEvent。单个 Driver 由一个 owner 串行处理 prompt、steer、spawn、fork 命令，队列有界；事件流可以丢弃，终态结果不能依赖事件消费者。Driver session、compact、cache 丢失后，Run 必须从 Server facts 与 Agent Home 恢复。
 
@@ -581,3 +585,13 @@ Application command 统一使用语义化 `...Command`，mutation 显式携带 `
 Server SQLite 的 MVP 只接受当前 `schema.sql` 建立的最终 schema。加入 local auth identity/password credential 后，新库以 `system_metadata.schema_version = "2"` 作为完成标记；空库只执行这一次初始化，旧 `"1"`、带对象但缺少当前标记的历史 Goose schema或缺少 local auth tables 的残缺库一律 fail closed，要求重新初始化，绝不在启动或安装升级时猜测、迁移或部分修补旧事实。安装候选探针除 `integrity_check` 外必须验证当前标记，避免把完整性正常但语义过期的旧库误判为可运行的新库。
 
 Computer 初始身份也只走有时效的 pairing token：CLI 不再接受或导入 `--registration-key-file`。自动化端到端 seed 必须经 owner 创建 pairing、Host 消费 token 和后续 identity recovery，不能用旧注册 key 伪造流程。该收口不改变已有 pairing、registration-key hash、placement 或 runtime 的服务端事实合同。
+
+## 26. 2026-07-24 Message Inbox parity 与 System Contract
+
+Human 与 Agent 的 Message author、mention recipient 和 Inbox recipient 已统一为 Principal；双方共用 notice、list、claim、observe、complete、mute 与 follow，Agent-only 的 reply/HeldDraft 和 Delivery/Run 保持 execution adapter。原 Human Inbox 已正名为 Work Attention，只保留 Approval 与 Agent exception；Web 的 Work Inbox 将 Message 与 Work attention 分列。本文第 6 节已从旧的 Agent-only 描述修正为当前事实，不新增协议或权限。
+
+Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.system.v1`，正文由 Sumi binary 提供且计入 512,000 rune 总预算；部署侧必填 `host_policy` 保持为第二 section，只能补充或收窄行为。合同覆盖 Identity、Communication、Ownership、Attention、Memory 与 Action，并明确所有后续上下文均不能改写 canonical contract 或 typed Host facts。实现只新增窄常量和 Prompt composition，不引入模板引擎、Prompt DSL 或第二套 policy framework。
+
+验证完成：focused Driver/Executor/Computer/production external-driver tests、`go test ./...`、`mise run test`（Go 全量与 Web 102/102）、`mise run lint`、`mise run build`、Go format 与 `git diff --check` 均通过。External Driver blackbox 通过全量 Go 测试证明新增首 section 不破坏现有 JSONL adapter；未运行需要独立 Server 与 owner credential 的 Playwright，因为本轮未改变浏览器协议或交互。
+
+残余边界：Prompt 只能指导 provider 行为，不能证明模型一定服从或代替身份、权限、freshness、fence、Secret、receipt 与 Audit 的 Host enforcement；结构化 section 也不能单独消灭 Prompt injection。后续若改变六层合同必须显式升级 `SystemContractVersion` 并补 provider 级行为评估，不能静默改写同一版本。

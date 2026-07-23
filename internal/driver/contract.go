@@ -11,16 +11,17 @@ import (
 const ContractVersion = "sumi.run.v1"
 
 const (
-	maxHostPolicyRunes    = 20_000
-	maxWorkGoalRunes      = 20_000
-	maxMemoryIndexEntries = 100
-	maxMemoryEntryRunes   = 2_000
-	maxMemoryIndexRunes   = 20_000
-	maxSources            = 20
-	maxSourceTextRunes    = 20_000
-	maxSourceRunes        = 100_000
-	maxCurrentInputRunes  = 400_000
-	maxContextRunes       = 512_000
+	maxSystemContractRunes = 4_000
+	maxHostPolicyRunes     = 20_000
+	maxWorkGoalRunes       = 20_000
+	maxMemoryIndexEntries  = 100
+	maxMemoryEntryRunes    = 2_000
+	maxMemoryIndexRunes    = 20_000
+	maxSources             = 20
+	maxSourceTextRunes     = 20_000
+	maxSourceRunes         = 100_000
+	maxCurrentInputRunes   = 400_000
+	maxContextRunes        = 512_000
 
 	KindNative Kind = "native"
 	KindCodex  Kind = "codex"
@@ -113,6 +114,7 @@ func (input RunInput) Prompt() (Prompt, error) {
 		return Prompt{}, err
 	}
 	sections := []Section{
+		{Name: "system_contract", Text: systemContractText, Source: SystemContractVersion},
 		{Name: "host_policy", Text: input.HostPolicy, Source: "host"},
 		{Name: "agent_identity", Text: input.AgentID, Source: "server"},
 		{Name: "placement", Text: placementText(input), Source: "server"},
@@ -137,6 +139,10 @@ func (input RunInput) Prompt() (Prompt, error) {
 }
 
 func (input RunInput) validate() error {
+	systemContractRunes, err := requiredText("system contract", systemContractText, maxSystemContractRunes)
+	if err != nil {
+		return err
+	}
 	if err := required("agent id", input.AgentID); err != nil {
 		return err
 	}
@@ -219,7 +225,7 @@ func (input RunInput) validate() error {
 			return errors.New("retrieved sources are too large")
 		}
 	}
-	if hostPolicyRunes+workGoalRunes+memoryRunes+sourceRunes+currentInputRunes > maxContextRunes {
+	if systemContractRunes+hostPolicyRunes+workGoalRunes+memoryRunes+sourceRunes+currentInputRunes > maxContextRunes {
 		return errors.New("run context is too large")
 	}
 	return nil
