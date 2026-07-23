@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/store"
+	knowledgeapp "github.com/abcdlsj/sumi/internal/knowledge/application"
 )
 
 type Reconciler struct {
@@ -25,15 +25,15 @@ type Reconciler struct {
 }
 
 type knowledgeStore interface {
-	KnowledgeIndexState(context.Context) (store.KnowledgeIndexState, error)
+	KnowledgeIndexState(context.Context) (knowledgeapp.IndexState, error)
 	RebuildKnowledgeIndex(context.Context) error
-	NextKnowledgeDirtySource(context.Context) (store.KnowledgeDirtySource, bool, error)
-	ReadKnowledgeSourceDocument(context.Context, store.KnowledgeSource) (store.KnowledgeSourceDocument, bool, error)
-	ApplyKnowledgeProjection(context.Context, uint64, store.KnowledgeSourceDocument) (bool, error)
-	CheckKnowledgeIndexHealth(context.Context) (store.KnowledgeIndexHealth, error)
+	NextKnowledgeDirtySource(context.Context) (knowledgeapp.DirtySource, bool, error)
+	ReadKnowledgeSourceDocument(context.Context, knowledgeapp.Source) (knowledgeapp.SourceDocument, bool, error)
+	ApplyKnowledgeProjection(context.Context, uint64, knowledgeapp.SourceDocument) (bool, error)
+	CheckKnowledgeIndexHealth(context.Context) (knowledgeapp.IndexHealth, error)
 }
 
-func New(database *store.Store) *Reconciler {
+func New(database knowledgeStore) *Reconciler {
 	return &Reconciler{store: database, now: time.Now, wake: 100 * time.Millisecond, healthWake: time.Minute, stepTimeout: 5 * time.Second, backoffMax: 5 * time.Second}
 }
 
@@ -92,7 +92,7 @@ func (r *Reconciler) step(ctx context.Context) bool {
 	if err != nil {
 		return r.fail()
 	}
-	if state.Status != store.KnowledgeIndexReady {
+	if state.Status != knowledgeapp.IndexReady {
 		if r.store.RebuildKnowledgeIndex(ctx) != nil {
 			return r.fail()
 		}
@@ -125,7 +125,7 @@ func (r *Reconciler) step(ctx context.Context) bool {
 	if err != nil {
 		return r.fail()
 	}
-	if health == store.KnowledgeIndexCorrupt {
+	if health == knowledgeapp.IndexCorrupt {
 		if r.store.RebuildKnowledgeIndex(ctx) != nil {
 			return r.fail()
 		}

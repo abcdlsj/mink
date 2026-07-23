@@ -5,27 +5,14 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 )
 
 const workAttentionLimit = 100
 
-// WorkAttentionItem is deliberately metadata-only. Bodies, message targets,
-// runtime credentials, and replay bases remain private to the Agent runtime.
-type WorkAttentionItem struct {
-	WorkID     string
-	SpaceID    string
-	AgentID    string
-	Kind       string
-	Status     string
-	ReasonCode string
-	UpdatedAt  time.Time
-}
-
-type WorkAttentionQuery struct {
-	Human Principal
-	Limit uint32
-	Now   time.Time
-}
+type WorkAttentionItem = workapp.AttentionItem
+type WorkAttentionQuery = workapp.AttentionQuery
 
 func (s *Store) ListWorkAttentionItems(ctx context.Context, params WorkAttentionQuery) ([]WorkAttentionItem, error) {
 	if params.Limit > workAttentionLimit || params.Now.IsZero() || params.Human.Kind != "human" || !params.Human.Valid() {

@@ -611,3 +611,13 @@ Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.sys
 同口径的 Knowledge Store/cursor、Reconciler、Server、proto 及其测试从 5,384 行降到 2,319 行；全 diff 为 867 insertions / 4,007 deletions。保留的测试 oracle 覆盖三类 Source、dirty 原子性与单调 sequence、当前 revision、Human/Agent authentication、runtime replacement、Space/Work/Artifact ACL 撤销、disabled Human、派生损坏 fail closed、重建/重启、输入与 snippet 预算、Work cursor 持久性/防篡改及 cursor key fail closed，不以删安全测试换行数。
 
 验证完成：`mise run generate`、focused Store/Knowledge/Server/Install、独立 `TestSumiComputerTwoProcessMigrationBlackbox`、两次 full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`、fresh Server Playwright 20/20 与 `git diff --check` 均通过。实现中较早一次 full Go 曾触发既有 C1 两进程迁移 15 秒时序失败；最终该用例独立与 full suite 均通过，当前没有它由本轮 Knowledge 变更造成的因果证据，但不宣称测试从未失败。E2E 临时 Server 已停止，含 owner credential 与 SQLite 的临时 root 已删除。
+
+## 28. 2026-07-24 Work 与 Knowledge application port 收口
+
+本轮处理的真实 smell 不是“缺少设计模式”，而是依赖方向倒置：Work、Work Attention 与 Knowledge 的 transport 或 lifecycle 直接 import SQLite Store，导致业务 fact、command/query、状态和稳定 error 由 persistence package 反向定义。新增功能若照此扩展，会继续把 SQL adapter 的类型表面传播到业务入口，并让替换边界、测试边界和 bounded context 所有权失真。
+
+采用的模式仅是已有架构决策所需的 Ports & Adapters：Work application 拥有 Work、Assignment、Approval、Event、Attention metadata、command/query/result 与稳定 error；Knowledge application 拥有 Source、dirty sequence、index state/health、Search query/result 与稳定 error。Connect transport 和 Knowledge Reconciler 只依赖这些窄合同；Store 通过兼容 alias 实现 port，并继续独占 SQL、transaction、current ACL/runtime revalidation、replay、cursor、projection 与 rebuild。`internal/server/server.go` 是唯一允许直接构造并 import Store 的 composition root。
+
+该边界没有引入 Repository、UnitOfWork、事件总线、泛型 command envelope、第二套 entity 或为了目录对称而增加的空层。Store compatibility alias 只用于渐进迁移和既有 Store 级测试，不构成产品事实所有权；无真实调用方的通用 authentication/list contract 也不进入 application API。Work 顶层 parent 的空字符串继续对应数据库 NULL，既有写入校验不允许持久化非 NULL 空 parent ID。
+
+本轮不改变 proto、SQLite schema、产品事实、排序、权限、Audit、transaction、replay、Work cursor 或 Knowledge projection/rebuild 行为。focused Work、Work Attention、Knowledge、Server 与 Store 测试、uncached full Go、`mise run test`（Web 102/102）、`mise run lint`、`mise run build`（Web/Go/Desktop）与 `git diff --check` 全部通过；生产依赖扫描确认只有 composition root import Store。由于浏览器协议、页面与交互零 diff，不重复运行依赖外部 Server/owner credential 的 Playwright；最终单一基线任务仍会执行完整黑盒。

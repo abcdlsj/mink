@@ -12,207 +12,45 @@ import (
 	"time"
 	"unicode/utf8"
 
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 	"github.com/google/uuid"
 )
 
 const (
-	WorkStateOpen            = "open"
-	WorkStateBlocked         = "blocked"
-	WorkStateWaitingApproval = "waiting_approval"
-	WorkStateCompleted       = "completed"
-	WorkStateFailed          = "failed"
-	WorkStateCancelled       = "cancelled"
+	WorkStateOpen            = workapp.StateOpen
+	WorkStateBlocked         = workapp.StateBlocked
+	WorkStateWaitingApproval = workapp.StateWaitingApproval
+	WorkStateCompleted       = workapp.StateCompleted
+	WorkStateFailed          = workapp.StateFailed
+	WorkStateCancelled       = workapp.StateCancelled
 
-	WorkAssignmentCoordinator = "coordinator"
-	WorkAssignmentContributor = "contributor"
+	WorkAssignmentCoordinator = workapp.AssignmentCoordinator
+	WorkAssignmentContributor = workapp.AssignmentContributor
 )
 
-type Work struct {
-	ID                   string
-	OrganizationID       string
-	RootWorkID           string
-	ParentWorkID         string
-	parentWorkIDNull     bool
-	SourceMessageID      string
-	SourceSpaceID        string
-	SourceTarget         MessageTarget
-	SourceTargetSequence uint64
-	TeamSpaceID          string
-	Goal                 string
-	State                string
-	BlockingReason       string
-	Result               string
-	Creator              Principal
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	StateChangedAt       time.Time
-	CompletedAt          *time.Time
-	FailedAt             *time.Time
-	CancelledAt          *time.Time
-	Constraints          []WorkText
-	AcceptanceCriteria   []WorkCriterion
-}
-
-type WorkText struct {
-	ID        string
-	Ordinal   uint32
-	Body      string
-	CreatedAt time.Time
-}
-
-type WorkCriterion struct {
-	ID        string
-	Ordinal   uint32
-	Body      string
-	CreatedAt time.Time
-}
-
-type WorkCreateParams struct {
-	RequestID            string
-	Actor                Principal
-	ParentWorkID         string
-	SourceMessageID      string
-	SourceSpaceID        string
-	SourceTarget         MessageTarget
-	SourceTargetSequence uint64
-	Goal                 string
-	Constraints          []string
-	AcceptanceCriteria   []string
-	Now                  time.Time
-}
-
-type WorkReadParams struct {
-	Actor  Principal
-	Agent  AgentRuntimeAuthentication
-	WorkID string
-	Now    time.Time
-}
+type Work = workapp.Work
+type WorkText = workapp.Text
+type WorkCriterion = workapp.Criterion
+type WorkCreateParams = workapp.CreateCommand
+type WorkReadParams = workapp.ReadQuery
 
 type ListWorksParams struct {
 	Actor Principal
 	Now   time.Time
 }
 
-// ListWorkPageParams is the bounded, cursor-based read contract used by the
-// public Work API. ListWorks deliberately remains unchanged for existing
-// internal callers.
-type ListWorkPageParams struct {
-	Actor  Principal
-	Agent  AgentRuntimeAuthentication
-	Cursor string
-	Limit  uint32
-	Now    time.Time
-}
-
-type WorkPage struct {
-	Works      []Work
-	NextCursor string
-}
-
-type WorkAssignment struct {
-	ID                        string
-	WorkID                    string
-	OrganizationID            string
-	Role                      string
-	AgentID                   string
-	HolderComputerID          string
-	HolderPlacementGeneration uint64
-	AssignedBy                Principal
-	AssignedAt                time.Time
-	EndedAt                   *time.Time
-	EndReason                 string
-}
-
-type AssignWorkParams struct {
-	RequestID string
-	Actor     Principal
-	WorkID    string
-	Role      string
-	AgentID   string
-	Now       time.Time
-}
-
-type WorkCriterionResultInput struct {
-	CriterionID string
-	Verdict     string
-	Evidence    string
-}
-
-type TransitionWorkParams struct {
-	RequestID        string
-	Actor            Principal
-	WorkID           string
-	ToState          string
-	Reason           string
-	Result           string
-	CriterionResults []WorkCriterionResultInput
-	Now              time.Time
-}
-
-type RequestWorkApprovalParams struct {
-	RequestID string
-	Actor     Principal
-	WorkID    string
-	Question  string
-	Now       time.Time
-}
-
-type ResolveWorkApprovalParams struct {
-	RequestID  string
-	Actor      Principal
-	ApprovalID string
-	Decision   string
-	Note       string
-	Now        time.Time
-}
-
-type WorkApproval struct {
-	ID               string
-	WorkID           string
-	OrganizationID   string
-	Status           string
-	Question         string
-	RequestedBy      Principal
-	RequestedAt      time.Time
-	DecidedByHumanID string
-	DecisionNote     string
-	DecidedAt        *time.Time
-}
-
-type WorkCriterionResult struct {
-	Sequence       uint64
-	ID             string
-	WorkID         string
-	OrganizationID string
-	CriterionID    string
-	Verdict        string
-	Evidence       string
-	Actor          Principal
-	OccurredAt     time.Time
-}
-
-type WorkEvent struct {
-	Sequence       uint64
-	ID             string
-	WorkID         string
-	OrganizationID string
-	Kind           string
-	Actor          Principal
-	FromState      string
-	ToState        string
-	ReferenceKind  string
-	ReferenceID    string
-	Reason         string
-	OccurredAt     time.Time
-}
-
-type WorkDetail struct {
-	Work
-	Assignments      []WorkAssignment
-	Approvals        []WorkApproval
-	CriterionResults []WorkCriterionResult
-	Events           []WorkEvent
-}
+type ListWorkPageParams = workapp.ListQuery
+type WorkPage = workapp.Page
+type WorkAssignment = workapp.Assignment
+type AssignWorkParams = workapp.AssignCommand
+type WorkCriterionResultInput = workapp.CriterionResultInput
+type TransitionWorkParams = workapp.TransitionCommand
+type RequestWorkApprovalParams = workapp.RequestApprovalCommand
+type ResolveWorkApprovalParams = workapp.ResolveApprovalCommand
+type WorkApproval = workapp.Approval
+type WorkCriterionResult = workapp.CriterionResult
+type WorkEvent = workapp.Event
+type WorkDetail = workapp.Detail
 
 const (
 	workRequestCreate          = "work.create"
@@ -337,7 +175,6 @@ func scanWork(row scanner) (Work, error) {
 		return Work{}, err
 	}
 	work.ParentWorkID = parent.String
-	work.parentWorkIDNull = !parent.Valid
 	work.Creator.OrganizationID = work.OrganizationID
 	work.SourceTargetSequence = uint64(sourceSequence)
 	work.CreatedAt, work.UpdatedAt, work.StateChangedAt = timeFromUnixNano(created), timeFromUnixNano(updated), timeFromUnixNano(stateChanged)

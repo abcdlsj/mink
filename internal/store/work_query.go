@@ -267,7 +267,7 @@ func workPageAfterArgs(after WorkCursorSeekKey) []any {
 func workCursorSeek(work Work) WorkCursorSeekKey {
 	return WorkCursorSeekKey{
 		RootWorkID: work.RootWorkID, ParentWorkID: work.ParentWorkID,
-		ParentIsNull: work.parentWorkIDNull, CreatedAt: work.CreatedAt, ID: work.ID,
+		ParentIsNull: work.ParentWorkID == "", CreatedAt: work.CreatedAt, ID: work.ID,
 	}
 }
 

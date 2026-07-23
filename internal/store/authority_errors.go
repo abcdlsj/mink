@@ -7,6 +7,7 @@ import (
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 )
 
 var (
@@ -31,14 +32,14 @@ var (
 	ErrBrowserSessionInvalid    = authorityapp.ErrBrowserSessionInvalid
 	ErrLocalAccountInvalid      = authorityapp.ErrLocalAccountInvalid
 	ErrLocalAccountSetupDone    = authorityapp.ErrLocalAccountSetupDone
-	ErrWorkNotFound             = errors.New("work not found")
-	ErrWorkRequestConflict      = errors.New("work request conflict")
-	ErrWorkInvalid              = errors.New("work invalid")
-	ErrWorkTransitionInvalid    = errors.New("invalid work transition")
-	ErrWorkTerminal             = errors.New("work is terminal")
-	ErrWorkAcceptanceIncomplete = errors.New("work acceptance criteria incomplete")
-	ErrWorkApprovalNotFound     = errors.New("work approval not found")
-	ErrWorkApprovalConflict     = errors.New("work approval conflict")
-	ErrWorkAssignmentConflict   = errors.New("work assignment conflict")
-	ErrWorkPlacementInvalid     = errors.New("work assignment placement invalid")
+	ErrWorkNotFound             = workapp.ErrNotFound
+	ErrWorkRequestConflict      = workapp.ErrRequestConflict
+	ErrWorkInvalid              = workapp.ErrInvalid
+	ErrWorkTransitionInvalid    = workapp.ErrTransitionInvalid
+	ErrWorkTerminal             = workapp.ErrTerminal
+	ErrWorkAcceptanceIncomplete = workapp.ErrAcceptanceIncomplete
+	ErrWorkApprovalNotFound     = workapp.ErrApprovalNotFound
+	ErrWorkApprovalConflict     = workapp.ErrApprovalConflict
+	ErrWorkAssignmentConflict   = workapp.ErrAssignmentConflict
+	ErrWorkPlacementInvalid     = workapp.ErrPlacementInvalid
 )

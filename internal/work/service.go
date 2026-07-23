@@ -13,20 +13,23 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/work/v1/workv1connect"
 	sharedauthentication "github.com/abcdlsj/sumi/internal/authentication"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
-	"github.com/abcdlsj/sumi/internal/store"
+	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type workStore interface {
 	sharedauthentication.Authenticator
-	GetWorkDetail(context.Context, store.WorkReadParams) (store.WorkDetail, error)
-	ListWorkPage(context.Context, store.ListWorkPageParams) (store.WorkPage, error)
-	CreateWork(context.Context, store.WorkCreateParams) (store.Work, error)
-	AssignWork(context.Context, store.AssignWorkParams) (store.WorkAssignment, error)
-	TransitionWork(context.Context, store.TransitionWorkParams) (store.Work, error)
-	RequestWorkApproval(context.Context, store.RequestWorkApprovalParams) (store.WorkApproval, error)
-	ResolveWorkApproval(context.Context, store.ResolveWorkApprovalParams) (store.WorkApproval, error)
+	GetWorkDetail(context.Context, workapp.ReadQuery) (workapp.Detail, error)
+	ListWorkPage(context.Context, workapp.ListQuery) (workapp.Page, error)
+	CreateWork(context.Context, workapp.CreateCommand) (workapp.Work, error)
+	AssignWork(context.Context, workapp.AssignCommand) (workapp.Assignment, error)
+	TransitionWork(context.Context, workapp.TransitionCommand) (workapp.Work, error)
+	RequestWorkApproval(context.Context, workapp.RequestApprovalCommand) (workapp.Approval, error)
+	ResolveWorkApproval(context.Context, workapp.ResolveApprovalCommand) (workapp.Approval, error)
 }
 
 type Service struct {
@@ -46,7 +49,7 @@ func (s *Service) ListWorks(ctx context.Context, request *connect.Request[workv1
 	if err != nil {
 		return nil, err
 	}
-	page, err := s.store.ListWorkPage(ctx, store.ListWorkPageParams{
+	page, err := s.store.ListWorkPage(ctx, workapp.ListQuery{
 		Actor: identity.human, Agent: identity.agent, Cursor: request.Msg.GetCursor(), Limit: request.Msg.GetLimit(), Now: now,
 	})
 	if err != nil {
@@ -72,7 +75,7 @@ func (s *Service) GetWork(ctx context.Context, request *connect.Request[workv1.G
 	if err != nil {
 		return nil, err
 	}
-	detail, err := s.store.GetWorkDetail(ctx, store.WorkReadParams{Actor: identity.human, Agent: identity.agent, WorkID: workID, Now: now})
+	detail, err := s.store.GetWorkDetail(ctx, workapp.ReadQuery{Actor: identity.human, Agent: identity.agent, WorkID: workID, Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -116,7 +119,7 @@ func (s *Service) AssignWork(ctx context.Context, request *connect.Request[workv
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := s.store.AssignWork(ctx, store.AssignWorkParams{RequestID: requestID, Actor: actor, WorkID: workID, Role: role, AgentID: agentID, Now: now})
+	assignment, err := s.store.AssignWork(ctx, workapp.AssignCommand{RequestID: requestID, Actor: actor, WorkID: workID, Role: role, AgentID: agentID, Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -144,7 +147,7 @@ func (s *Service) TransitionWork(ctx context.Context, request *connect.Request[w
 	if err != nil {
 		return nil, err
 	}
-	item, err := s.store.TransitionWork(ctx, store.TransitionWorkParams{RequestID: requestID, Actor: actor, WorkID: workID, ToState: state, Reason: request.Msg.GetReason(), Result: request.Msg.GetResult(), CriterionResults: results, Now: now})
+	item, err := s.store.TransitionWork(ctx, workapp.TransitionCommand{RequestID: requestID, Actor: actor, WorkID: workID, ToState: state, Reason: request.Msg.GetReason(), Result: request.Msg.GetResult(), CriterionResults: results, Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -164,7 +167,7 @@ func (s *Service) RequestApproval(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	approval, err := s.store.RequestWorkApproval(ctx, store.RequestWorkApprovalParams{RequestID: requestID, Actor: actor, WorkID: workID, Question: request.Msg.GetQuestion(), Now: now})
+	approval, err := s.store.RequestWorkApproval(ctx, workapp.RequestApprovalCommand{RequestID: requestID, Actor: actor, WorkID: workID, Question: request.Msg.GetQuestion(), Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -188,7 +191,7 @@ func (s *Service) ResolveApproval(ctx context.Context, request *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	approval, err := s.store.ResolveWorkApproval(ctx, store.ResolveWorkApprovalParams{RequestID: requestID, Actor: actor, ApprovalID: approvalID, Decision: decision, Note: request.Msg.GetNote(), Now: now})
+	approval, err := s.store.ResolveWorkApproval(ctx, workapp.ResolveApprovalCommand{RequestID: requestID, Actor: actor, ApprovalID: approvalID, Decision: decision, Note: request.Msg.GetNote(), Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -200,8 +203,8 @@ func (s *Service) ResolveApproval(ctx context.Context, request *connect.Request[
 }
 
 type identity struct {
-	human store.Principal
-	agent store.AgentRuntimeAuthentication
+	human authoritydomain.Principal
+	agent authorityapp.RuntimeAuthentication
 }
 
 func (s *Service) resolve(ctx context.Context, header http.Header, mutation bool) (identity, time.Time, error) {
@@ -219,10 +222,10 @@ func (s *Service) resolve(ctx context.Context, header http.Header, mutation bool
 	return identity{}, time.Time{}, internalError()
 }
 
-func (s *Service) mutationActor(ctx context.Context, header http.Header) (store.Principal, time.Time, error) {
+func (s *Service) mutationActor(ctx context.Context, header http.Header) (authoritydomain.Principal, time.Time, error) {
 	resolved, now, err := s.resolve(ctx, header, true)
 	if err != nil {
-		return store.Principal{}, time.Time{}, err
+		return authoritydomain.Principal{}, time.Time{}, err
 	}
 	if resolved.human.Valid() {
 		return resolved.human, now, nil
@@ -230,34 +233,34 @@ func (s *Service) mutationActor(ctx context.Context, header http.Header) (store.
 	if resolved.agent.Principal.Valid() {
 		return resolved.agent.Principal, now, nil
 	}
-	return store.Principal{}, time.Time{}, internalError()
+	return authoritydomain.Principal{}, time.Time{}, internalError()
 }
 
-func createParams(request *workv1.CreateWorkRequest, actor store.Principal, now time.Time) (store.WorkCreateParams, error) {
+func createParams(request *workv1.CreateWorkRequest, actor authoritydomain.Principal, now time.Time) (workapp.CreateCommand, error) {
 	requestID, err := connectid.CanonicalID(request.GetRequestId(), "request id")
 	if err != nil {
-		return store.WorkCreateParams{}, err
+		return workapp.CreateCommand{}, err
 	}
 	parentID := ""
 	if request.GetParentWorkId() != "" {
 		parentID, err = connectid.CanonicalID(request.GetParentWorkId(), "parent work id")
 		if err != nil {
-			return store.WorkCreateParams{}, err
+			return workapp.CreateCommand{}, err
 		}
 	}
 	messageID, err := connectid.CanonicalID(request.GetSourceMessageId(), "source message id")
 	if err != nil {
-		return store.WorkCreateParams{}, err
+		return workapp.CreateCommand{}, err
 	}
 	spaceID, err := connectid.CanonicalID(request.GetSourceSpaceId(), "source space id")
 	if err != nil {
-		return store.WorkCreateParams{}, err
+		return workapp.CreateCommand{}, err
 	}
 	target, err := messageTarget(request.GetSourceTarget())
 	if err != nil {
-		return store.WorkCreateParams{}, err
+		return workapp.CreateCommand{}, err
 	}
-	return store.WorkCreateParams{RequestID: requestID, Actor: actor, ParentWorkID: parentID, SourceMessageID: messageID, SourceSpaceID: spaceID, SourceTarget: target, SourceTargetSequence: request.GetSourceTargetSequence(), Goal: request.GetGoal(), Constraints: request.GetConstraints(), AcceptanceCriteria: request.GetAcceptanceCriteria(), Now: now}, nil
+	return workapp.CreateCommand{RequestID: requestID, Actor: actor, ParentWorkID: parentID, SourceMessageID: messageID, SourceSpaceID: spaceID, SourceTarget: target, SourceTargetSequence: request.GetSourceTargetSequence(), Goal: request.GetGoal(), Constraints: request.GetConstraints(), AcceptanceCriteria: request.GetAcceptanceCriteria(), Now: now}, nil
 }
 
 func mutationIDs(requestIDValue, itemValue, itemName, extraValue, extraName string) (string, string, string, error) {
@@ -279,30 +282,30 @@ func mutationIDs(requestIDValue, itemValue, itemName, extraValue, extraName stri
 	return requestID, itemID, extraID, nil
 }
 
-func messageTarget(value *spacev1.MessageTarget) (store.MessageTarget, error) {
+func messageTarget(value *spacev1.MessageTarget) (collaborationapp.MessageTarget, error) {
 	if value == nil {
-		return store.MessageTarget{}, invalidArgument()
+		return collaborationapp.MessageTarget{}, invalidArgument()
 	}
 	switch target := value.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
 		id, err := connectid.CanonicalID(target.SpaceId, "source target space id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return collaborationapp.MessageTarget{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetSpace, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetSpace, ID: id}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
 		id, err := connectid.CanonicalID(target.ThreadRootMessageId, "source target thread id")
 		if err != nil {
-			return store.MessageTarget{}, err
+			return collaborationapp.MessageTarget{}, err
 		}
-		return store.MessageTarget{Kind: store.MessageTargetThread, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetThread, ID: id}, nil
 	default:
-		return store.MessageTarget{}, invalidArgument()
+		return collaborationapp.MessageTarget{}, invalidArgument()
 	}
 }
 
-func criterionResults(values []*workv1.WorkCriterionResultInput) ([]store.WorkCriterionResultInput, error) {
-	result := make([]store.WorkCriterionResultInput, 0, len(values))
+func criterionResults(values []*workv1.WorkCriterionResultInput) ([]workapp.CriterionResultInput, error) {
+	result := make([]workapp.CriterionResultInput, 0, len(values))
 	for _, value := range values {
 		if value == nil {
 			return nil, invalidArgument()
@@ -315,12 +318,12 @@ func criterionResults(values []*workv1.WorkCriterionResultInput) ([]store.WorkCr
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, store.WorkCriterionResultInput{CriterionID: criterionID, Verdict: verdict, Evidence: value.GetEvidence()})
+		result = append(result, workapp.CriterionResultInput{CriterionID: criterionID, Verdict: verdict, Evidence: value.GetEvidence()})
 	}
 	return result, nil
 }
 
-func workMessage(value store.Work) (*workv1.Work, error) {
+func workMessage(value workapp.Work) (*workv1.Work, error) {
 	state, err := workStateMessage(value.State)
 	if err != nil {
 		return nil, err
@@ -346,7 +349,7 @@ func workMessage(value store.Work) (*workv1.Work, error) {
 	return message, nil
 }
 
-func detailMessage(value store.WorkDetail) (*workv1.WorkDetail, error) {
+func detailMessage(value workapp.Detail) (*workv1.WorkDetail, error) {
 	work, err := workMessage(value.Work)
 	if err != nil {
 		return nil, err
@@ -389,7 +392,7 @@ func detailMessage(value store.WorkDetail) (*workv1.WorkDetail, error) {
 	return result, nil
 }
 
-func assignmentMessage(value store.WorkAssignment) (*workv1.WorkAssignment, error) {
+func assignmentMessage(value workapp.Assignment) (*workv1.WorkAssignment, error) {
 	role, err := assignmentRoleMessage(value.Role)
 	if err != nil {
 		return nil, err
@@ -405,7 +408,7 @@ func assignmentMessage(value store.WorkAssignment) (*workv1.WorkAssignment, erro
 	return message, nil
 }
 
-func approvalMessage(value store.WorkApproval) (*workv1.WorkApproval, error) {
+func approvalMessage(value workapp.Approval) (*workv1.WorkApproval, error) {
 	status, err := approvalStatusMessage(value.Status)
 	if err != nil {
 		return nil, err
@@ -421,7 +424,7 @@ func approvalMessage(value store.WorkApproval) (*workv1.WorkApproval, error) {
 	return message, nil
 }
 
-func criterionResultMessage(value store.WorkCriterionResult) (*workv1.WorkCriterionResult, error) {
+func criterionResultMessage(value workapp.CriterionResult) (*workv1.WorkCriterionResult, error) {
 	verdict, err := criterionVerdictMessage(value.Verdict)
 	if err != nil {
 		return nil, err
@@ -433,7 +436,7 @@ func criterionResultMessage(value store.WorkCriterionResult) (*workv1.WorkCriter
 	return &workv1.WorkCriterionResult{Sequence: value.Sequence, Id: value.ID, WorkId: value.WorkID, OrganizationId: value.OrganizationID, CriterionId: value.CriterionID, Verdict: verdict, Evidence: value.Evidence, Actor: actor, OccurredAt: timestamppb.New(value.OccurredAt)}, nil
 }
 
-func eventMessage(value store.WorkEvent) (*workv1.WorkEvent, error) {
+func eventMessage(value workapp.Event) (*workv1.WorkEvent, error) {
 	actor, err := principalMessage(value.Actor)
 	if err != nil {
 		return nil, err
@@ -449,17 +452,17 @@ func eventMessage(value store.WorkEvent) (*workv1.WorkEvent, error) {
 	return &workv1.WorkEvent{Sequence: value.Sequence, Id: value.ID, WorkId: value.WorkID, OrganizationId: value.OrganizationID, Kind: value.Kind, Actor: actor, FromState: from, ToState: to, ReferenceKind: value.ReferenceKind, ReferenceId: value.ReferenceID, Reason: value.Reason, OccurredAt: timestamppb.New(value.OccurredAt)}, nil
 }
 
-func messageTargetMessage(value store.MessageTarget) (*spacev1.MessageTarget, error) {
-	if value.Kind == store.MessageTargetSpace {
+func messageTargetMessage(value collaborationapp.MessageTarget) (*spacev1.MessageTarget, error) {
+	if value.Kind == collaborationdomain.TargetSpace {
 		return &spacev1.MessageTarget{Target: &spacev1.MessageTarget_SpaceId{SpaceId: value.ID}}, nil
 	}
-	if value.Kind == store.MessageTargetThread {
+	if value.Kind == collaborationdomain.TargetThread {
 		return &spacev1.MessageTarget{Target: &spacev1.MessageTarget_ThreadRootMessageId{ThreadRootMessageId: value.ID}}, nil
 	}
 	return nil, internalError()
 }
 
-func principalMessage(value store.Principal) (*grantv1.Principal, error) {
+func principalMessage(value authoritydomain.Principal) (*grantv1.Principal, error) {
 	kind := grantv1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 	switch value.Kind {
 	case "human":
@@ -477,15 +480,15 @@ func principalMessage(value store.Principal) (*grantv1.Principal, error) {
 func workStateValue(value workv1.WorkState) (string, error) {
 	switch value {
 	case workv1.WorkState_WORK_STATE_OPEN:
-		return store.WorkStateOpen, nil
+		return workapp.StateOpen, nil
 	case workv1.WorkState_WORK_STATE_BLOCKED:
-		return store.WorkStateBlocked, nil
+		return workapp.StateBlocked, nil
 	case workv1.WorkState_WORK_STATE_COMPLETED:
-		return store.WorkStateCompleted, nil
+		return workapp.StateCompleted, nil
 	case workv1.WorkState_WORK_STATE_FAILED:
-		return store.WorkStateFailed, nil
+		return workapp.StateFailed, nil
 	case workv1.WorkState_WORK_STATE_CANCELLED:
-		return store.WorkStateCancelled, nil
+		return workapp.StateCancelled, nil
 	default:
 		return "", invalidArgument()
 	}
@@ -494,17 +497,17 @@ func workStateMessage(value string) (workv1.WorkState, error) {
 	switch value {
 	case "":
 		return workv1.WorkState_WORK_STATE_UNSPECIFIED, nil
-	case store.WorkStateOpen:
+	case workapp.StateOpen:
 		return workv1.WorkState_WORK_STATE_OPEN, nil
-	case store.WorkStateBlocked:
+	case workapp.StateBlocked:
 		return workv1.WorkState_WORK_STATE_BLOCKED, nil
-	case store.WorkStateWaitingApproval:
+	case workapp.StateWaitingApproval:
 		return workv1.WorkState_WORK_STATE_WAITING_APPROVAL, nil
-	case store.WorkStateCompleted:
+	case workapp.StateCompleted:
 		return workv1.WorkState_WORK_STATE_COMPLETED, nil
-	case store.WorkStateFailed:
+	case workapp.StateFailed:
 		return workv1.WorkState_WORK_STATE_FAILED, nil
-	case store.WorkStateCancelled:
+	case workapp.StateCancelled:
 		return workv1.WorkState_WORK_STATE_CANCELLED, nil
 	default:
 		return workv1.WorkState_WORK_STATE_UNSPECIFIED, internalError()
@@ -513,18 +516,18 @@ func workStateMessage(value string) (workv1.WorkState, error) {
 func assignmentRoleValue(value workv1.WorkAssignmentRole) (string, error) {
 	switch value {
 	case workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR:
-		return store.WorkAssignmentCoordinator, nil
+		return workapp.AssignmentCoordinator, nil
 	case workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_CONTRIBUTOR:
-		return store.WorkAssignmentContributor, nil
+		return workapp.AssignmentContributor, nil
 	default:
 		return "", invalidArgument()
 	}
 }
 func assignmentRoleMessage(value string) (workv1.WorkAssignmentRole, error) {
 	switch value {
-	case store.WorkAssignmentCoordinator:
+	case workapp.AssignmentCoordinator:
 		return workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR, nil
-	case store.WorkAssignmentContributor:
+	case workapp.AssignmentContributor:
 		return workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_CONTRIBUTOR, nil
 	default:
 		return workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_UNSPECIFIED, internalError()
@@ -598,19 +601,19 @@ func serviceError(err error) error {
 		return connect.NewError(connect.CodeCanceled, errors.New("work request canceled"))
 	case errors.Is(err, context.DeadlineExceeded):
 		return connect.NewError(connect.CodeDeadlineExceeded, errors.New("work request deadline exceeded"))
-	case errors.Is(err, store.ErrWorkCursorUnavailable):
+	case errors.Is(err, workapp.ErrCursorUnavailable):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("cursor unavailable"))
 	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("work authentication invalid"))
-	case errors.Is(err, store.ErrWorkNotFound), errors.Is(err, store.ErrWorkApprovalNotFound):
+	case errors.Is(err, workapp.ErrNotFound), errors.Is(err, workapp.ErrApprovalNotFound):
 		return connect.NewError(connect.CodeNotFound, errors.New("work fact not found"))
-	case errors.Is(err, store.ErrPermissionDenied):
+	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("work action denied"))
-	case errors.Is(err, store.ErrWorkRequestConflict):
+	case errors.Is(err, workapp.ErrRequestConflict):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("work request conflicts with committed request"))
-	case errors.Is(err, store.ErrWorkTransitionInvalid), errors.Is(err, store.ErrWorkTerminal), errors.Is(err, store.ErrWorkAcceptanceIncomplete), errors.Is(err, store.ErrWorkApprovalConflict), errors.Is(err, store.ErrWorkAssignmentConflict), errors.Is(err, store.ErrWorkPlacementInvalid):
+	case errors.Is(err, workapp.ErrTransitionInvalid), errors.Is(err, workapp.ErrTerminal), errors.Is(err, workapp.ErrAcceptanceIncomplete), errors.Is(err, workapp.ErrApprovalConflict), errors.Is(err, workapp.ErrAssignmentConflict), errors.Is(err, workapp.ErrPlacementInvalid):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("work state conflict"))
-	case errors.Is(err, store.ErrWorkInvalid):
+	case errors.Is(err, workapp.ErrInvalid):
 		return invalidArgument()
 	default:
 		return internalError()

@@ -10,13 +10,13 @@ import (
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	sharedauthentication "github.com/abcdlsj/sumi/internal/authentication"
-	"github.com/abcdlsj/sumi/internal/store"
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type storeReader interface {
 	sharedauthentication.Authenticator
-	ListWorkAttentionItems(context.Context, store.WorkAttentionQuery) ([]store.WorkAttentionItem, error)
+	ListWorkAttentionItems(context.Context, workapp.AttentionQuery) ([]workapp.AttentionItem, error)
 }
 
 type Service struct {
@@ -40,7 +40,7 @@ func (s *Service) ListWorkAttentionItems(ctx context.Context, request *connect.R
 	if !ok || !human.Valid() {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human session is required"))
 	}
-	items, err := s.store.ListWorkAttentionItems(ctx, store.WorkAttentionQuery{Human: human, Limit: request.Msg.GetLimit(), Now: s.now()})
+	items, err := s.store.ListWorkAttentionItems(ctx, workapp.AttentionQuery{Human: human, Limit: request.Msg.GetLimit(), Now: s.now()})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, errors.New("work attention projection is unavailable"))
 	}

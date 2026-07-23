@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	workapp "github.com/abcdlsj/sumi/internal/work/application"
 	"github.com/google/uuid"
 )
 
@@ -25,7 +26,7 @@ const (
 	workCursorIDTag           = 7
 )
 
-var ErrWorkCursorUnavailable = errors.New("work cursor unavailable")
+var ErrWorkCursorUnavailable = workapp.ErrCursorUnavailable
 
 type WorkCursorBinding struct {
 	PrincipalFingerprint [sha256.Size]byte

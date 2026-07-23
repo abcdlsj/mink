@@ -12,18 +12,19 @@ import (
 	"time"
 	"unicode/utf8"
 
+	knowledgeapp "github.com/abcdlsj/sumi/internal/knowledge/application"
 	"github.com/google/uuid"
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
 const (
-	KnowledgeSourceMessage         = "message"
-	KnowledgeSourceWork            = "work"
-	KnowledgeSourceArtifactVersion = "artifact_version"
+	KnowledgeSourceMessage         = knowledgeapp.SourceMessage
+	KnowledgeSourceWork            = knowledgeapp.SourceWork
+	KnowledgeSourceArtifactVersion = knowledgeapp.SourceArtifactVersion
 
-	KnowledgeIndexReady    = "ready"
-	KnowledgeIndexDegraded = "degraded"
+	KnowledgeIndexReady    = knowledgeapp.IndexReady
+	KnowledgeIndexDegraded = knowledgeapp.IndexDegraded
 
 	knowledgeFTSSchema = `CREATE VIRTUAL TABLE knowledge_fts USING fts5(
 		source_kind UNINDEXED,
@@ -43,61 +44,27 @@ const (
 	knowledgeSearchAggregateMaxBytes = 16 << 10
 )
 
-type KnowledgeSource struct {
-	Kind    string
-	ID      string
-	Version uint64
-}
-
-type KnowledgeDirtySource struct {
-	Sequence uint64
-	Source   KnowledgeSource
-	Revision [sha256.Size]byte
-	Enqueued time.Time
-}
-
-type KnowledgeIndexState struct {
-	AppliedSequence uint64
-	Status          string
-}
-
-type KnowledgeIndexHealth uint8
+type KnowledgeSource = knowledgeapp.Source
+type KnowledgeDirtySource = knowledgeapp.DirtySource
+type KnowledgeIndexState = knowledgeapp.IndexState
+type KnowledgeIndexHealth = knowledgeapp.IndexHealth
 
 const (
-	KnowledgeIndexHealthy KnowledgeIndexHealth = iota
-	KnowledgeIndexLagging
-	KnowledgeIndexCorrupt
+	KnowledgeIndexHealthy = knowledgeapp.IndexHealthy
+	KnowledgeIndexLagging = knowledgeapp.IndexLagging
+	KnowledgeIndexCorrupt = knowledgeapp.IndexCorrupt
 )
 
 var errKnowledgeProjectionInvariant = errors.New("knowledge projection invariant violated")
 
-type KnowledgeSourceDocument struct {
-	Source   KnowledgeSource
-	Revision [sha256.Size]byte
-	Body     string
-}
-
-type KnowledgeSearchParams struct {
-	Human Principal
-	Agent AgentRuntimeAuthentication
-	Query string
-	Limit uint32
-	Now   time.Time
-}
-
-type KnowledgeSearchResult struct {
-	Source  KnowledgeSource
-	Snippet string
-}
-
-type KnowledgeSearchOutput struct {
-	Results []KnowledgeSearchResult
-	Status  string
-}
+type KnowledgeSourceDocument = knowledgeapp.SourceDocument
+type KnowledgeSearchParams = knowledgeapp.SearchQuery
+type KnowledgeSearchResult = knowledgeapp.SearchResult
+type KnowledgeSearchOutput = knowledgeapp.SearchOutput
 
 var (
-	ErrKnowledgeSearchInvalid         = errors.New("knowledge search input is invalid")
-	ErrKnowledgeSearchUnauthenticated = errors.New("knowledge search authentication is invalid")
+	ErrKnowledgeSearchInvalid         = knowledgeapp.ErrSearchInvalid
+	ErrKnowledgeSearchUnauthenticated = knowledgeapp.ErrSearchUnauthenticated
 	errKnowledgeSearchCorrupt         = errors.New("knowledge search index is corrupt")
 )
 
