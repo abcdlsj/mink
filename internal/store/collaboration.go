@@ -50,33 +50,33 @@ func collaborationFingerprint(value any) ([sha256.Size]byte, error) {
 	return sha256.Sum256(payload), nil
 }
 
-func readCollaborationReceipt(ctx context.Context, tx *sql.Tx, requestID, operation string, fingerprint [sha256.Size]byte) (collaborationReceipt, bool, error) {
+func readCollaborationReceipt(ctx context.Context, tx *sql.Tx, requestID, operation string, fp [sha256.Size]byte) (collaborationReceipt, bool, error) {
 	var receipt collaborationReceipt
-	var storedFingerprint []byte
+	var sfp []byte
 	var committedAt int64
 	err := tx.QueryRowContext(ctx, `
 		SELECT operation, result_id, payload_fingerprint, committed_at
 		FROM collaboration_requests
 		WHERE request_id = ?
-	`, requestID).Scan(&receipt.Operation, &receipt.ResultID, &storedFingerprint, &committedAt)
+	`, requestID).Scan(&receipt.Operation, &receipt.ResultID, &sfp, &committedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return collaborationReceipt{}, false, nil
 	}
 	if err != nil {
 		return collaborationReceipt{}, false, fmt.Errorf("read collaboration request receipt: %w", err)
 	}
-	if receipt.Operation != operation || !bytes.Equal(storedFingerprint, fingerprint[:]) {
+	if receipt.Operation != operation || !bytes.Equal(sfp, fp[:]) {
 		return collaborationReceipt{}, false, ErrCollaborationRequestConflict
 	}
 	receipt.CommittedAt = timeFromUnixNano(committedAt)
 	return receipt, true, nil
 }
 
-func persistCollaborationReceipt(ctx context.Context, tx *sql.Tx, requestID, operation string, fingerprint [sha256.Size]byte, resultID string, now time.Time) error {
+func persistCollaborationReceipt(ctx context.Context, tx *sql.Tx, requestID, operation string, fp [sha256.Size]byte, resultID string, now time.Time) error {
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO collaboration_requests(request_id, operation, payload_fingerprint, result_id, committed_at)
 		VALUES(?, ?, ?, ?, ?)
-	`, requestID, operation, fingerprint[:], resultID, unixNano(now)); err != nil {
+	`, requestID, operation, fp[:], resultID, unixNano(now)); err != nil {
 		return fmt.Errorf("persist collaboration request receipt: %w", err)
 	}
 	return nil

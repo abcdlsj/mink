@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []Principal, requestID string, fingerprint [sha256.Size]byte, now time.Time) (SendInboxReplyResult, error) {
+func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal, item InboxItem, predecessorDraftID string, target MessageTarget, basis uint64, body string, mentions []Principal, requestID string, fp [sha256.Size]byte, now time.Time) (SendInboxReplyResult, error) {
 	head, err := targetHead(ctx, tx, target)
 	if err != nil {
 		return SendInboxReplyResult{}, err
@@ -25,7 +25,7 @@ func sendOrHoldInboxReplyTx(ctx context.Context, tx *sql.Tx, principal Principal
 		}
 		return SendInboxReplyResult{Kind: InboxResultHeldDraft, HeldDraft: &draft, CommittedAt: now.UTC()}, nil
 	}
-	message, _, err := publishMessageTx(ctx, tx, principal, target, body, mentions, requestID, fingerprint, now)
+	message, _, err := publishMessageTx(ctx, tx, principal, target, body, mentions, requestID, fp, now)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}

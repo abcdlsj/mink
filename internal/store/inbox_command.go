@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams) (InboxItem, error) {
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		InboxItemID string `json:"inbox_item_id"`
 	}{params.InboxItemID})
 	if err != nil {
@@ -24,7 +24,7 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fingerprint, item); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fp, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -39,7 +39,7 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationClaimInboxItem, fp, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -49,7 +49,7 @@ func (s *Store) ClaimInboxItem(ctx context.Context, params ClaimInboxItemParams)
 }
 
 func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemParams) (InboxItem, error) {
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		InboxItemID string `json:"inbox_item_id"`
 	}{params.InboxItemID})
 	if err != nil {
@@ -67,7 +67,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 	if err := requireInboxItemAccess(ctx, tx, authentication.Principal, item, params.Now); err != nil {
 		return InboxItem{}, err
 	}
-	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fingerprint, item); err != nil {
+	if replay, found, err := replayInboxItemRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fp, item); err != nil {
 		return InboxItem{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -89,7 +89,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 	if err != nil {
 		return InboxItem{}, err
 	}
-	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fingerprint, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationCompleteInboxItem, fp, inboxItemRequestReceipt{Item: item}, params.Now); err != nil {
 		return InboxItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -99,7 +99,7 @@ func (s *Store) CompleteInboxItem(ctx context.Context, params CompleteInboxItemP
 }
 
 func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (InboxPreferenceResult, error) {
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		SpaceID string `json:"space_id"`
 		Muted   bool   `json:"muted"`
 	}{params.SpaceID, params.Muted})
@@ -114,7 +114,7 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 	if _, err := requireInboxReadableTarget(ctx, tx, authentication.Principal, MessageTarget{Kind: MessageTargetSpace, ID: params.SpaceID}, params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fingerprint); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fp); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -131,7 +131,7 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 		return InboxPreferenceResult{}, fmt.Errorf("persist space mute: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Muted, CommittedAt: params.Now.UTC()}
-	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetSpaceMute, fp, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -141,7 +141,7 @@ func (s *Store) SetSpaceMute(ctx context.Context, params SetSpaceMuteParams) (In
 }
 
 func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParams) (InboxPreferenceResult, error) {
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		ThreadID string `json:"thread_id"`
 		Followed bool   `json:"followed"`
 	}{params.ThreadID, params.Followed})
@@ -158,7 +158,7 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 	if err != nil {
 		return InboxPreferenceResult{}, err
 	}
-	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fingerprint); err != nil {
+	if replay, found, err := replayInboxPreferenceRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fp); err != nil {
 		return InboxPreferenceResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -172,7 +172,7 @@ func (s *Store) SetThreadFollow(ctx context.Context, params SetThreadFollowParam
 		return InboxPreferenceResult{}, fmt.Errorf("persist thread follow: %w", err)
 	}
 	result := InboxPreferenceResult{Enabled: params.Followed, CommittedAt: params.Now.UTC()}
-	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fingerprint, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
+	if err := persistPrincipalInboxRequest(ctx, tx, params.RequestID, authentication.Principal, operationSetThreadFollow, fp, inboxPreferenceRequestReceipt(result), params.Now); err != nil {
 		return InboxPreferenceResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -189,7 +189,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err := validateMessageBody(params.Body); err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		InboxItemID string      `json:"inbox_item_id"`
 		Basis       uint64      `json:"basis_target_sequence"`
 		Body        string      `json:"body"`
@@ -211,7 +211,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	if replay, found, err := replayInboxSendRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, item); err != nil {
+	if replay, found, err := replayInboxSendRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fp, item); err != nil {
 		return SendInboxReplyResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -237,7 +237,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err := requireObservedBasis(ctx, tx, authentication.Principal, item.Target, params.BasisTargetSequence); err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	result, err := sendOrHoldInboxReplyTx(ctx, tx, authentication.Principal, item, "", item.Target, params.BasisTargetSequence, params.Body, mentions, params.RequestID, fingerprint, params.Now)
+	result, err := sendOrHoldInboxReplyTx(ctx, tx, authentication.Principal, item, "", item.Target, params.BasisTargetSequence, params.Body, mentions, params.RequestID, fp, params.Now)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
@@ -245,7 +245,7 @@ func (s *Store) SendInboxReply(ctx context.Context, params SendInboxReplyParams)
 	if err != nil {
 		return SendInboxReplyResult{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fingerprint, receipt, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationSendInboxReply, fp, receipt, params.Now); err != nil {
 		return SendInboxReplyResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -266,7 +266,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 	if params.Action != DraftResolutionCancel {
 		fingerprintBasis = params.BasisTargetSequence
 	}
-	fingerprint, err := inboxFingerprint(struct {
+	fp, err := inboxFingerprint(struct {
 		HeldDraftID string        `json:"held_draft_id"`
 		Action      string        `json:"action"`
 		Target      MessageTarget `json:"target,omitempty"`
@@ -302,7 +302,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 			return ResolveHeldDraftResult{}, err
 		}
 	}
-	if replay, found, err := replayInboxResolveRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, draft, item); err != nil {
+	if replay, found, err := replayInboxResolveRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fp, draft, item); err != nil {
 		return ResolveHeldDraftResult{}, err
 	} else if found {
 		return commitInboxReplay(tx, replay)
@@ -317,7 +317,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 	if params.Action == DraftResolutionCancel {
 		result, err = cancelHeldDraft(ctx, tx, draft, item, params)
 	} else {
-		result, err = sendHeldDraft(ctx, tx, authentication, draft, item, targetSpace, target, fingerprint, params)
+		result, err = sendHeldDraft(ctx, tx, authentication, draft, item, targetSpace, target, fp, params)
 	}
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
@@ -326,7 +326,7 @@ func (s *Store) ResolveHeldDraft(ctx context.Context, params ResolveHeldDraftPar
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
-	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fingerprint, receipt, params.Now); err != nil {
+	if err := persistInboxRequest(ctx, tx, params.RequestID, authentication.Principal.ID, operationResolveHeldDraft, fp, receipt, params.Now); err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
 	if err := tx.Commit(); err != nil {

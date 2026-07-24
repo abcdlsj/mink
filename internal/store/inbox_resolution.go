@@ -25,7 +25,7 @@ func cancelHeldDraft(ctx context.Context, tx *sql.Tx, draft HeldDraft, item Inbo
 	}, nil
 }
 
-func sendHeldDraft(ctx context.Context, tx *sql.Tx, authentication AgentRuntimeAuthentication, draft HeldDraft, item InboxItem, targetSpace Space, target MessageTarget, fingerprint [sha256.Size]byte, params ResolveHeldDraftParams) (ResolveHeldDraftResult, error) {
+func sendHeldDraft(ctx context.Context, tx *sql.Tx, authentication AgentRuntimeAuthentication, draft HeldDraft, item InboxItem, targetSpace Space, target MessageTarget, fp [sha256.Size]byte, params ResolveHeldDraftParams) (ResolveHeldDraftResult, error) {
 	if targetSpace.ArchivedAt != nil {
 		return ResolveHeldDraftResult{}, ErrSpaceArchived
 	}
@@ -43,7 +43,7 @@ func sendHeldDraft(ctx context.Context, tx *sql.Tx, authentication AgentRuntimeA
 	if err := validateMentionMembers(ctx, tx, space, mentions); err != nil {
 		return ResolveHeldDraftResult{}, err
 	}
-	sendResult, err := sendOrHoldInboxReplyTx(ctx, tx, authentication.Principal, item, draft.ID, target, params.BasisTargetSequence, draft.Body, mentions, params.RequestID, fingerprint, params.Now)
+	sendResult, err := sendOrHoldInboxReplyTx(ctx, tx, authentication.Principal, item, draft.ID, target, params.BasisTargetSequence, draft.Body, mentions, params.RequestID, fp, params.Now)
 	if err != nil {
 		return ResolveHeldDraftResult{}, err
 	}

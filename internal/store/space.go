@@ -37,7 +37,7 @@ func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, err
 	if err != nil {
 		return Space{}, err
 	}
-	fingerprint, err := collaborationFingerprint(struct {
+	fp, err := collaborationFingerprint(struct {
 		ActorKind PrincipalKind `json:"actor_kind"`
 		ActorID   string        `json:"actor_id"`
 		PeerKind  PrincipalKind `json:"peer_kind"`
@@ -51,7 +51,7 @@ func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, err
 		return Space{}, fmt.Errorf("begin dm creation: %w", err)
 	}
 	defer tx.Rollback()
-	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fingerprint); err != nil {
+	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fp); err != nil {
 		return Space{}, err
 	} else if found {
 		return commitSpaceReplay(tx, receipt.ResultID)
@@ -70,7 +70,7 @@ func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, err
 
 	space, err := scanSpace(tx.QueryRowContext(ctx, spaceSelect+` WHERE organization_id = ? AND dm_key = ?`, params.Actor.OrganizationID, dmKey))
 	if err == nil {
-		if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fingerprint, space.ID, params.Now); err != nil {
+		if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fp, space.ID, params.Now); err != nil {
 			return Space{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -98,7 +98,7 @@ func (s *Store) CreateDM(ctx context.Context, params CreateDMParams) (Space, err
 			return Space{}, fmt.Errorf("persist dm membership: %w", err)
 		}
 	}
-	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fingerprint, spaceID, params.Now); err != nil {
+	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateDM, fp, spaceID, params.Now); err != nil {
 		return Space{}, err
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
@@ -121,7 +121,7 @@ func (s *Store) CreateGroup(ctx context.Context, params CreateGroupParams) (Spac
 	if err := validateSpaceName(params.Name); err != nil {
 		return Space{}, err
 	}
-	fingerprint, err := collaborationFingerprint(struct {
+	fp, err := collaborationFingerprint(struct {
 		ActorKind PrincipalKind `json:"actor_kind"`
 		ActorID   string        `json:"actor_id"`
 		Name      string        `json:"name"`
@@ -134,7 +134,7 @@ func (s *Store) CreateGroup(ctx context.Context, params CreateGroupParams) (Spac
 		return Space{}, fmt.Errorf("begin group creation: %w", err)
 	}
 	defer tx.Rollback()
-	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationCreateGroup, fingerprint); err != nil {
+	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationCreateGroup, fp); err != nil {
 		return Space{}, err
 	} else if found {
 		return commitSpaceReplay(tx, receipt.ResultID)
@@ -165,7 +165,7 @@ func (s *Store) CreateGroup(ctx context.Context, params CreateGroupParams) (Spac
 	`, spaceID, params.Actor.ID, stamp); err != nil {
 		return Space{}, fmt.Errorf("persist group creator membership: %w", err)
 	}
-	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateGroup, fingerprint, spaceID, params.Now); err != nil {
+	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operationCreateGroup, fp, spaceID, params.Now); err != nil {
 		return Space{}, err
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
@@ -276,7 +276,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 	operation := string(change)
 	action := change.auditAction()
 	adding := change == membershipAdd
-	fingerprint, err := collaborationFingerprint(struct {
+	fp, err := collaborationFingerprint(struct {
 		ActorKind  PrincipalKind `json:"actor_kind"`
 		ActorID    string        `json:"actor_id"`
 		SpaceID    string        `json:"space_id"`
@@ -291,7 +291,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 		return MutationReceipt{}, fmt.Errorf("begin membership change: %w", err)
 	}
 	defer tx.Rollback()
-	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operation, fingerprint); err != nil {
+	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operation, fp); err != nil {
 		return MutationReceipt{}, err
 	} else if found {
 		return commitMutationReplay(tx, params.RequestID, receipt)
@@ -361,7 +361,7 @@ func (s *Store) changeMember(ctx context.Context, params ChangeMemberParams, cha
 			return MutationReceipt{}, err
 		}
 	}
-	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operation, fingerprint, params.SpaceID, params.Now); err != nil {
+	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operation, fp, params.SpaceID, params.Now); err != nil {
 		return MutationReceipt{}, err
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{
@@ -462,7 +462,7 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 	operation := string(change)
 	action := change.auditAction()
 	archiving := change == spaceArchive
-	fingerprint, err := collaborationFingerprint(struct {
+	fp, err := collaborationFingerprint(struct {
 		ActorKind PrincipalKind `json:"actor_kind"`
 		ActorID   string        `json:"actor_id"`
 		SpaceID   string        `json:"space_id"`
@@ -475,7 +475,7 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 		return MutationReceipt{}, fmt.Errorf("begin space archive change: %w", err)
 	}
 	defer tx.Rollback()
-	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operation, fingerprint); err != nil {
+	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operation, fp); err != nil {
 		return MutationReceipt{}, err
 	} else if found {
 		return commitMutationReplay(tx, params.RequestID, receipt)
@@ -503,7 +503,7 @@ func (s *Store) changeSpaceArchive(ctx context.Context, params ChangeSpaceArchiv
 			return MutationReceipt{}, fmt.Errorf("persist space archive change: %w", err)
 		}
 	}
-	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operation, fingerprint, space.ID, params.Now); err != nil {
+	if err := persistCollaborationReceipt(ctx, tx, params.RequestID, operation, fp, space.ID, params.Now); err != nil {
 		return MutationReceipt{}, err
 	}
 	if !alreadyDesired {

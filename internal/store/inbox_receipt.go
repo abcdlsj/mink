@@ -55,32 +55,32 @@ func inboxFingerprint(value any) ([sha256.Size]byte, error) {
 	return sha256.Sum256(payload), nil
 }
 
-func readInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte) ([]byte, bool, error) {
-	return readPrincipalInboxRequestReceipt(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fingerprint)
+func readInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fp [sha256.Size]byte) ([]byte, bool, error) {
+	return readPrincipalInboxRequestReceipt(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fp)
 }
 
-func readPrincipalInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte) ([]byte, bool, error) {
+func readPrincipalInboxRequestReceipt(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fp [sha256.Size]byte) ([]byte, bool, error) {
 	var storedKind PrincipalKind
 	var storedID, storedOperation string
-	var storedFingerprint, snapshot []byte
+	var sfp, snapshot []byte
 	err := tx.QueryRowContext(ctx, `
 		SELECT actor_kind, actor_id, operation, payload_fingerprint, response_snapshot
 		FROM inbox_requests WHERE request_id = ?
-	`, requestID).Scan(&storedKind, &storedID, &storedOperation, &storedFingerprint, &snapshot)
+	`, requestID).Scan(&storedKind, &storedID, &storedOperation, &sfp, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("read inbox request receipt: %w", err)
 	}
-	if storedKind != actor.Kind || storedID != actor.ID || storedOperation != operation || !bytes.Equal(storedFingerprint, fingerprint[:]) {
+	if storedKind != actor.Kind || storedID != actor.ID || storedOperation != operation || !bytes.Equal(sfp, fp[:]) {
 		return nil, false, ErrInboxRequestConflict
 	}
 	return snapshot, true, nil
 }
 
-func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte, current InboxItem) (InboxItem, bool, error) {
-	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fingerprint)
+func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fp [sha256.Size]byte, current InboxItem) (InboxItem, bool, error) {
+	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fp)
 	if err != nil || !found {
 		return InboxItem{}, found, err
 	}
@@ -94,8 +94,8 @@ func replayInboxItemRequest(ctx context.Context, tx *sql.Tx, requestID string, a
 	return receipt.Item, true, nil
 }
 
-func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte) (InboxPreferenceResult, bool, error) {
-	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fingerprint)
+func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fp [sha256.Size]byte) (InboxPreferenceResult, bool, error) {
+	snapshot, found, err := readPrincipalInboxRequestReceipt(ctx, tx, requestID, actor, operation, fp)
 	if err != nil || !found {
 		return InboxPreferenceResult{}, found, err
 	}
@@ -106,8 +106,8 @@ func replayInboxPreferenceRequest(ctx context.Context, tx *sql.Tx, requestID str
 	return InboxPreferenceResult(receipt), true, nil
 }
 
-func replayInboxSendRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, item InboxItem) (SendInboxReplyResult, bool, error) {
-	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+func replayInboxSendRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fp [sha256.Size]byte, item InboxItem) (SendInboxReplyResult, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fp)
 	if err != nil || !found {
 		return SendInboxReplyResult{}, found, err
 	}
@@ -123,8 +123,8 @@ func replayInboxSendRequest(ctx context.Context, tx *sql.Tx, requestID, agentID,
 	return result, true, nil
 }
 
-func replayInboxResolveRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, source HeldDraft, item InboxItem) (ResolveHeldDraftResult, bool, error) {
-	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fingerprint)
+func replayInboxResolveRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fp [sha256.Size]byte, source HeldDraft, item InboxItem) (ResolveHeldDraftResult, bool, error) {
+	snapshot, found, err := readInboxRequestReceipt(ctx, tx, requestID, agentID, operation, fp)
 	if err != nil || !found {
 		return ResolveHeldDraftResult{}, found, err
 	}
@@ -366,11 +366,11 @@ func validateInboxItemReceipt(ctx context.Context, tx *sql.Tx, actor Principal, 
 	return nil
 }
 
-func persistInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fingerprint [sha256.Size]byte, response any, now time.Time) error {
-	return persistPrincipalInboxRequest(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fingerprint, response, now)
+func persistInboxRequest(ctx context.Context, tx *sql.Tx, requestID, agentID, operation string, fp [sha256.Size]byte, response any, now time.Time) error {
+	return persistPrincipalInboxRequest(ctx, tx, requestID, Principal{Kind: PrincipalAgent, ID: agentID}, operation, fp, response, now)
 }
 
-func persistPrincipalInboxRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fingerprint [sha256.Size]byte, response any, now time.Time) error {
+func persistPrincipalInboxRequest(ctx context.Context, tx *sql.Tx, requestID string, actor Principal, operation string, fp [sha256.Size]byte, response any, now time.Time) error {
 	snapshot, err := json.Marshal(response)
 	if err != nil {
 		return fmt.Errorf("encode inbox response snapshot: %w", err)
@@ -378,7 +378,7 @@ func persistPrincipalInboxRequest(ctx context.Context, tx *sql.Tx, requestID str
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO inbox_requests(request_id, actor_kind, actor_id, operation, payload_fingerprint, response_snapshot, committed_at)
 		VALUES(?, ?, ?, ?, ?, ?, ?)
-	`, requestID, actor.Kind, actor.ID, operation, fingerprint[:], snapshot, unixNano(now)); err != nil {
+	`, requestID, actor.Kind, actor.ID, operation, fp[:], snapshot, unixNano(now)); err != nil {
 		return fmt.Errorf("persist inbox request receipt: %w", err)
 	}
 	return nil
