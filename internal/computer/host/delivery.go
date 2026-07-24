@@ -17,7 +17,7 @@ import (
 )
 
 func (d *Daemon) deliveryLoop(ctx context.Context, identity computerstate.Identity) {
-	d.periodicLoop(ctx, d.config.DeliveryInterval, func(ctx context.Context) error {
+	d.periodicLoop(ctx, d.config.DeliveryInterval, d.deliveryLogger, "delivery.dispatch", func(ctx context.Context) error {
 		return d.dispatchDeliveries(ctx, identity)
 	})
 }
@@ -84,12 +84,14 @@ func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Ident
 		if err != nil {
 			return err
 		}
+		d.deliveryLogger.Info("delivery observed", "event", "delivery.observed", "agent_id", session.AgentID, "delivery_id", delivery.GetId(), "space_id", delivery.GetSpaceId(), "trigger_sequence", delivery.GetTriggerTargetSequence(), "observed_head", trigger.observedHead)
 		run, err = d.acceptDelivery(ctx, session, delivery)
 		if err != nil {
 			return err
 		}
 		launch = nil
 		observedBeforeAccept = true
+		d.deliveryLogger.Info("delivery accepted", "event", "delivery.accepted", "agent_id", session.AgentID, "delivery_id", delivery.GetId(), "run_id", run.GetId(), "basis_sequence", run.GetBasisTargetSequence())
 	}
 	if run == nil || delivery == nil {
 		return nil
@@ -98,6 +100,9 @@ func (d *Daemon) dispatchAgent(ctx context.Context, identity computerstate.Ident
 		trigger, err = d.observeDelivery(ctx, session, delivery)
 		if err != nil {
 			return err
+		}
+		if launch != nil {
+			d.deliveryLogger.Info("run claimed", "event", "delivery.run.claimed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "placement_generation", session.PlacementGeneration, "expires_at", launch.GetExpiresAt().AsTime())
 		}
 	}
 	if run.GetBasisTargetSequence() == 0 || (observedBeforeAccept && run.GetBasisTargetSequence() != trigger.observedHead) {

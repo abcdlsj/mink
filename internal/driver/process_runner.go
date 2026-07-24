@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/sandbox"
 )
 
@@ -24,6 +25,7 @@ type ProcessRunner struct {
 	Timeout          time.Duration
 	TerminationGrace time.Duration
 	MaxOutputBytes   int64
+	Logger           *observability.Logger
 }
 
 func (r ProcessRunner) Validate() error {
@@ -40,6 +42,9 @@ func (r ProcessRunner) Run(ctx context.Context, command Command, input []byte, e
 	if command.Kind != CommandPrompt || command.Input == nil {
 		return errors.New("external driver command binding is required")
 	}
+	logger := observability.CategoryLogger(r.Logger, observability.ComponentComputer, observability.CategoryDriver)
+	started := time.Now()
+	logger.Info("external driver process starting", "event", "driver.process.starting", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "fence", command.Input.Fence, "executable", filepath.Base(r.Path), "arguments", len(r.Args), "secret_refs", len(r.Secrets), "timeout", r.Timeout, "output_limit", r.MaxOutputBytes)
 	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
 	stdoutReader, stdoutWriter := io.Pipe()
@@ -56,8 +61,10 @@ func (r ProcessRunner) Run(ctx context.Context, command Command, input []byte, e
 		_ = stderrWriter.Close()
 		_ = stdoutReader.Close()
 		_ = stderrReader.Close()
+		logger.Error("external driver process failed to start", "event", "driver.process.start.failed", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "err", err)
 		return fmt.Errorf("start external driver: %w", err)
 	}
+	logger.Info("external driver process started", "event", "driver.process.started", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID)
 	var closeReadersOnce sync.Once
 	closeReaders := func() {
 		closeReadersOnce.Do(func() {
@@ -128,20 +135,26 @@ func (r ProcessRunner) Run(ctx context.Context, command Command, input []byte, e
 		}
 	}
 	if failure != nil {
+		logger.Warn("external driver process interrupted", "event", "driver.process.interrupted", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started), "err", failure)
 		return failure
 	}
 	if stdoutErr != nil {
+		logger.Warn("external driver stdout handling failed", "event", "driver.stdout.failed", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started), "err", stdoutErr)
 		return stdoutErr
 	}
 	if stderrErr != nil {
+		logger.Warn("external driver stderr handling failed", "event", "driver.stderr.failed", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started), "err", stderrErr)
 		return stderrErr
 	}
 	if contextErr != nil {
+		logger.Warn("external driver context ended", "event", "driver.context.ended", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started), "err", contextErr)
 		return contextErr
 	}
 	if waitErr != nil {
+		logger.Warn("external driver process exited unsuccessfully", "event", "driver.process.exit.failed", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started), "err", waitErr)
 		return errors.New("external driver process failed")
 	}
+	logger.Info("external driver process exited", "event", "driver.process.exited", "agent_id", command.Input.AgentID, "run_id", command.Input.RunID, "launch_id", command.Input.LaunchID, "duration", time.Since(started))
 	return nil
 }
 

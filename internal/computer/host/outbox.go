@@ -12,13 +12,16 @@ import (
 )
 
 func (d *Daemon) outboxLoop(ctx context.Context) {
-	d.periodicLoop(ctx, d.config.OutboxInterval, d.dispatchOutbox)
+	d.periodicLoop(ctx, d.config.OutboxInterval, d.outboxLogger, "outbox.dispatch", d.dispatchOutbox)
 }
 
 func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 	events, err := d.config.State.PendingOutbox(ctx, 100)
 	if err != nil {
 		return fmt.Errorf("list outbox events: %w", err)
+	}
+	if len(events) > 0 {
+		d.outboxLogger.Debug("outbox batch loaded", "event", "outbox.batch.loaded", "count", len(events))
 	}
 	var dispatchErrors []error
 	for _, event := range events {
@@ -40,6 +43,8 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 		if completeErr == nil && response != nil && validateCompleteResponse(response.Msg, event) == nil {
 			if err := d.config.State.AckOutbox(ctx, event.OutboxEventID); err != nil {
 				dispatchErrors = append(dispatchErrors, fmt.Errorf("ack outbox event %q: %w", event.OutboxEventID, err))
+			} else {
+				d.outboxLogger.Info("run completion delivered", "event", "outbox.completion.acknowledged", "outbox_event_id", event.OutboxEventID, "agent_id", event.AgentID, "run_id", event.RunID, "launch_id", event.LaunchID, "fence", event.Fence, "attempt", event.Attempts+1)
 			}
 			continue
 		}
@@ -52,6 +57,8 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 		if code == connect.CodeFailedPrecondition || code == connect.CodeAlreadyExists {
 			if err := d.config.State.TombstoneOutbox(ctx, event.OutboxEventID, code.String()); err != nil {
 				dispatchErrors = append(dispatchErrors, fmt.Errorf("tombstone outbox event %q: %w", event.OutboxEventID, err))
+			} else {
+				d.outboxLogger.Warn("stale run completion tombstoned", "event", "outbox.completion.tombstoned", "outbox_event_id", event.OutboxEventID, "run_id", event.RunID, "launch_id", event.LaunchID, "fence", event.Fence, "code", code.String())
 			}
 		} else {
 			dispatchErrors = append(dispatchErrors, fmt.Errorf("complete outbox event %q: %w", event.OutboxEventID, completeErr))

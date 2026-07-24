@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/abcdlsj/sumi/internal/userdirs"
 )
@@ -31,6 +31,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) er
 }
 
 func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer) error {
+	logger := observability.New(observability.ComponentServer, stderr)
+	lifecycleLogger := observability.CategoryLogger(logger, observability.ComponentServer, observability.CategoryLifecycle)
+	authorityLogger := observability.CategoryLogger(logger, observability.ComponentServer, observability.CategoryAuthority)
 	defaultRoot, err := home.DefaultRoot()
 	if err != nil {
 		return err
@@ -61,6 +64,7 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 		return err
 	}
 	defer lease.Close()
+	lifecycleLogger.Info("server runtime lease acquired", "event", "server.lease.acquired")
 	resolvedOrigin, err := resolveBrowserOrigin(*listen, *browserOrigin)
 	if err != nil {
 		return err
@@ -80,9 +84,11 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 		}
 		defer migration.Close()
 		credentialPath = migration.CredentialPath
+		authorityLogger.Info("owner credential migration prepared", "event", "authority.credential_migration.prepared")
 	}
+	lifecycleLogger.Info("server starting", "event", "server.starting", "listen", *listen, "browser_enabled", resolvedOrigin != "", "web_enabled", *webRoot != "")
 	app, err := server.New(ctx, server.Config{
-		DataRoot: layout.Root, WebRoot: *webRoot, BootstrapCredentialFile: credentialPath, BrowserOrigin: resolvedOrigin,
+		DataRoot: layout.Root, WebRoot: *webRoot, BootstrapCredentialFile: credentialPath, BrowserOrigin: resolvedOrigin, Logger: logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
@@ -92,8 +98,15 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 			_ = app.Close()
 			return err
 		}
+		authorityLogger.Info("owner credential migration committed", "event", "authority.credential_migration.committed")
 	}
-	defer app.Close()
+	defer func() {
+		if err := app.Close(); err != nil {
+			lifecycleLogger.Error("server resources failed to close", "event", "server.close.failed", "err", err)
+			return
+		}
+		lifecycleLogger.Info("server stopped", "event", "server.stopped")
+	}()
 
 	httpServer := &http.Server{
 		Addr:              *listen,
@@ -101,21 +114,27 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	serveErrors := make(chan error, 1)
-	logger := log.New(stderr, "", log.LstdFlags)
 	go func() {
-		logger.Printf("Sumi Server listening on http://%s", *listen)
+		lifecycleLogger.Info("server listening", "event", "server.listening", "listen", *listen)
 		serveErrors <- httpServer.ListenAndServe()
 	}()
 
 	select {
 	case <-ctx.Done():
+		lifecycleLogger.Info("server shutdown requested", "event", "server.shutdown.requested", "reason", context.Cause(ctx))
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return httpServer.Shutdown(shutdownCtx)
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			lifecycleLogger.Error("server graceful shutdown failed", "event", "server.shutdown.failed", "err", err)
+			return err
+		}
+		lifecycleLogger.Info("server graceful shutdown completed", "event", "server.shutdown.completed")
+		return nil
 	case err := <-serveErrors:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
+		lifecycleLogger.Error("server listener stopped unexpectedly", "event", "server.serve.failed", "err", err)
 		return err
 	}
 }

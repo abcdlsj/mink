@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -21,7 +22,17 @@ func PurgeCategories() []string {
 	}
 }
 
-func (manager *Manager) Uninstall(ctx context.Context, purge bool) error {
+func (manager *Manager) Uninstall(ctx context.Context, purge bool) (returnErr error) {
+	logger := manager.logger()
+	started := time.Now()
+	logger.Info("uninstall started", "event", "install.uninstall.started", "purge_data", purge)
+	defer func() {
+		if returnErr != nil {
+			logger.Error("uninstall failed", "event", "install.uninstall.failed", "purge_data", purge, "duration", time.Since(started), "err", returnErr)
+			return
+		}
+		logger.Info("uninstall completed", "event", "install.uninstall.completed", "purge_data", purge, "duration", time.Since(started))
+	}()
 	lock, err := acquireInstallLock(manager.Layout)
 	if err != nil {
 		return err
@@ -30,6 +41,7 @@ func (manager *Manager) Uninstall(ctx context.Context, purge bool) error {
 	if err := manager.stopServices(ctx); err != nil {
 		return err
 	}
+	logger.Info("services stopped for uninstall", "event", "install.uninstall.services_stopped")
 	maintenance, err := manager.acquireMaintenanceAfterServiceStop(ctx)
 	if err != nil {
 		return err
@@ -38,9 +50,11 @@ func (manager *Manager) Uninstall(ctx context.Context, purge bool) error {
 	if err := manager.Services.Uninstall(ctx); err != nil {
 		return errors.New("remove current-user services")
 	}
+	logger.Info("current-user services removed", "event", "install.uninstall.services_removed")
 	if err := removeSafeTree(manager.Layout.InstallRoot); err != nil {
 		return err
 	}
+	logger.Info("installation payload removed", "event", "install.uninstall.payload_removed")
 	if purge {
 		credential, err := prepareCredentialPurge(manager.Layout.StateRoot)
 		if err != nil {
@@ -50,7 +64,11 @@ func (manager *Manager) Uninstall(ctx context.Context, purge bool) error {
 		if err := purgeDataRoot(manager.Layout.DataRoot); err != nil {
 			return err
 		}
-		return credential.remove()
+		if err := credential.remove(); err != nil {
+			return err
+		}
+		logger.Warn("persistent data purged", "event", "install.uninstall.data_purged")
+		return nil
 	}
 	return nil
 }

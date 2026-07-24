@@ -103,7 +103,7 @@ func TestOncePairsFromPrivateTokenFileAndPersistsIdentity(t *testing.T) {
 	if err := RunContext(context.Background(), args, bytes.NewReader(nil), &stderr); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(stderr.Bytes(), []byte(" synchronized 0 assignments")) {
+	if !bytes.Contains(stderr.Bytes(), []byte("event=placement.sync.completed")) || !bytes.Contains(stderr.Bytes(), []byte("assignments=0")) {
 		t.Fatalf("RunContext() stderr = %q", stderr.String())
 	}
 	if bytes.Contains(stderr.Bytes(), []byte(replacementToken)) || bytes.Contains(stderr.Bytes(), []byte(tokenPath)) {

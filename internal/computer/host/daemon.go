@@ -21,6 +21,7 @@ import (
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
+	"github.com/abcdlsj/sumi/internal/observability"
 )
 
 type Executor interface {
@@ -75,6 +76,7 @@ type DaemonConfig struct {
 	BackoffMax         time.Duration
 	Now                func() time.Time
 	RetryJitter        func(time.Duration) time.Duration
+	Logger             *observability.Logger
 }
 
 type computerDaemonClient interface {
@@ -125,6 +127,14 @@ type Daemon struct {
 	workersWG sync.WaitGroup
 
 	persistOutbox func(context.Context, computerstate.OutboxEvent) error
+
+	lifecycleLogger *observability.Logger
+	transportLogger *observability.Logger
+	placementLogger *observability.Logger
+	runtimeLogger   *observability.Logger
+	deliveryLogger  *observability.Logger
+	driverLogger    *observability.Logger
+	outboxLogger    *observability.Logger
 }
 
 func NewDaemon(config DaemonConfig) *Daemon {
@@ -134,13 +144,20 @@ func NewDaemon(config DaemonConfig) *Daemon {
 	}
 	setDaemonDefaults(&config)
 	return &Daemon{
-		config:     config,
-		computers:  computerv1connect.NewComputerServiceClient(client, config.ServerURL),
-		placements: placementv1connect.NewPlacementServiceClient(client, config.ServerURL),
-		runtimes:   runtimev1connect.NewAgentRuntimeServiceClient(client, config.ServerURL),
-		inbox:      inboxv1connect.NewInboxServiceClient(client, config.ServerURL),
-		deliveries: deliveryv1connect.NewDeliveryServiceClient(client, config.ServerURL),
-		workers:    make(map[string]runWorker),
+		config:          config,
+		computers:       computerv1connect.NewComputerServiceClient(client, config.ServerURL),
+		placements:      placementv1connect.NewPlacementServiceClient(client, config.ServerURL),
+		runtimes:        runtimev1connect.NewAgentRuntimeServiceClient(client, config.ServerURL),
+		inbox:           inboxv1connect.NewInboxServiceClient(client, config.ServerURL),
+		deliveries:      deliveryv1connect.NewDeliveryServiceClient(client, config.ServerURL),
+		workers:         make(map[string]runWorker),
+		lifecycleLogger: observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryLifecycle),
+		transportLogger: observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryTransport),
+		placementLogger: observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryPlacement),
+		runtimeLogger:   observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryRuntime),
+		deliveryLogger:  observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryDelivery),
+		driverLogger:    observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryDriver),
+		outboxLogger:    observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryOutbox),
 	}
 }
 
@@ -155,6 +172,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if !found || identity.ServerURL != d.config.ServerURL {
 		return errors.New("computer identity is unavailable for this Server")
 	}
+	d.lifecycleLogger.Info("computer daemon started", "event", "computer.daemon.started", "computer_id", identity.ComputerID, "server_origin", identity.ServerURL, "executor_enabled", d.config.Executor != nil)
 	var loops sync.WaitGroup
 	loops.Add(3)
 	go func() {
@@ -170,9 +188,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.outboxLoop(ctx)
 	}()
 	<-ctx.Done()
+	d.lifecycleLogger.Info("computer daemon shutdown requested", "event", "computer.daemon.shutdown.requested", "reason", context.Cause(ctx))
 	d.stopAllWorkers()
 	loops.Wait()
 	d.workersWG.Wait()
+	d.lifecycleLogger.Info("computer daemon stopped", "event", "computer.daemon.stopped", "computer_id", identity.ComputerID)
 	return nil
 }
 

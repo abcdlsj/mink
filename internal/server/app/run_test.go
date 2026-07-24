@@ -147,7 +147,7 @@ func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
 		}, &stdout, &stderr)
 	}()
 	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(stderr.String(), "Sumi Server listening on http://127.0.0.1:0") && time.Now().Before(deadline) {
+	for !strings.Contains(stderr.String(), "event=server.listening listen=127.0.0.1:0") && time.Now().Before(deadline) {
 		select {
 		case err := <-done:
 			t.Fatalf("server exited before listening: %v", err)
@@ -155,7 +155,7 @@ func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	if !strings.Contains(stderr.String(), "Sumi Server listening on http://127.0.0.1:0") {
+	if !strings.Contains(stderr.String(), "event=server.listening listen=127.0.0.1:0") {
 		t.Fatalf("server did not start: %q", stderr.String())
 	}
 	cancel()
@@ -194,10 +194,10 @@ func TestRunServerMigratesLegacyCredentialBeforeListening(t *testing.T) {
 		done <- RunServer(ctx, []string{"--listen", "127.0.0.1:0", "--data-root", dataRoot, "--web-root", ""}, io.Discard, &stderr)
 	}()
 	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(stderr.String(), "Sumi Server listening") && time.Now().Before(deadline) {
+	for !strings.Contains(stderr.String(), "event=server.listening") && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !strings.Contains(stderr.String(), "Sumi Server listening") {
+	if !strings.Contains(stderr.String(), "event=server.listening") {
 		t.Fatalf("server did not listen after migration: %q", stderr.String())
 	}
 	cancel()

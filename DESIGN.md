@@ -649,3 +649,19 @@ Driver Prompt 新增固定第一 section `system_contract`，版本为 `sumi.sys
 本期接受且未在最终基线临时扩展的 residual 仍为：未在真实 Linux user session 执行 systemd E2E；未执行 Linux build/xvfb；Wails 尚无 programmatic cross-origin native preflight；Work Attention 超过 100 项的分页后补；`work.manage` 无公开 Agent 签发路径沿用既有 P2 backlog；Knowledge rebuild 期间暂不可用，SQLite 单事务重建可能短时占用写锁。这些是已知平台或 MVP 边界，不是本次最终验证发现的新回归。
 
 验证结束后 Server 已停止，验证端口无监听；包含 owner credential、SQLite 与临时事实的 data root 已删除。最终基线保持 clean、未 push，等待 Human 统一验收。
+
+## 31. 2026-07-24 核心运行日志合同
+
+Sumi 使用 `github.com/charmbracelet/log` 作为唯一核心运行日志库。日志是面向 Human 运维与故障定位的结构化运行证据，不是 Message、Work、Audit 或持久状态的替代品；安全相关事实仍以中央 Audit 为准，CLI 的成功/错误输出合同也不由日志改写。
+
+每条核心日志必须同时具备稳定 `component`、`category` 与 `event`。`component` 区分 `server / computer / installer`；`category` 只使用 `lifecycle / transport / authority / artifact / knowledge / placement / runtime / delivery / driver / outbox / install`；`event` 表达具体阶段或状态变化。关联字段使用 canonical ID、generation、fence、attempt、duration、status 与 count，不能把自然语言消息当成机器分类。
+
+级别语义冻结为：Debug 记录成功的周期探测、HTTP 请求和无状态变化的轮询；Info 记录进程启动/停止、身份恢复、Placement/Runtime/Delivery/Run/Driver/Upgrade 的真实状态迁移；Warn 记录可重试失败、backoff、失联、过期、reconcile 与 recovery；Error 只记录当前操作已失败或需要 Human 处理的终止结果。周期任务必须在首次失败及退避变化时记录 Warn，并在恢复时记录 Info，不能静默吞错，也不能每秒重复同一成功消息。
+
+日志正文禁止包含 credential、pairing token、runtime token、browser session、Authorization/header、Secret、消息正文、Prompt、Artifact 内容、Driver stdout/stderr 原文或完整请求体。错误只记录已被业务边界净化的 error，路径仅在确实用于本机诊断时记录。HTTP 日志只记录方法、规范化 path、status、duration 与响应字节数，不记录 query 或 body。默认使用适合 `~/.sumi/logs/*.log` 阅读的 text formatter；`SUMI_LOG_LEVEL=debug|info|warn|error` 调整详细度，`SUMI_LOG_FORMAT=text|json|logfmt` 选择格式，非法配置回退安全默认并产生分类 Warn。测试与机器消费不依赖颜色表达语义。
+
+实现覆盖 Server 生命周期、HTTP transport、Authority bootstrap、Artifact reconcile 与 Knowledge reconcile；Computer 的 heartbeat、Placement、Runtime、Delivery、Driver 和 Outbox；以及 Install、Upgrade、Recovery、Uninstall。原先 Knowledge 与 Computer 周期循环中被吞掉的失败现在会记录首次失败、backoff 变化与恢复；达到 backoff 上限后，相同错误降为 Debug，避免用重复 Warn 掩盖新故障。
+
+最终验证完成：`mise run generate`、`mise run test`（Go 全量与 Web 102/102）、`mise run lint`、`mise run build`（production Web、Go 与 Wails Desktop）、Computer two-process migration / external driver delivery / external driver failure matrix 三项黑盒及 `git diff --check` 全部通过。fresh Server 以 `SUMI_LOG_LEVEL=debug SUMI_LOG_FORMAT=json` 启动，全部 15 条日志均可解析且具备 `component/category/event`，lifecycle、authority、artifact、knowledge 和 transport 均有真实事件；`/auth/<token>?<query>` 只记录为 `/auth/:token`，探针 token、query、body 与 owner credential 均未出现在日志中。Server 与 Computer 黑盒进程已停止；含 credential 与 SQLite 的临时 root 已移出可运行路径并送入废纸篓。
+
+实现中较早一次 `mise run test` 有两个 Server app 测试仍绑定旧自由文本 `Sumi Server listening`，因等待 15 秒超时失败；Computer CLI 也有一处同类旧文本 oracle。这是测试合同未跟随日志升级，不是 Server 或 Computer 启动失败。它们已改为匹配稳定 `event` 和字段，focused 与最终 full suite 均通过；保留这段失败历史，不宣称首轮全绿。本轮不改变 proto、SQLite schema、产品事实、权限、Audit、transaction、replay、lease 或 fence 语义；未重复运行无日志交互变更的 Playwright。

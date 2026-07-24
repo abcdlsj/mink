@@ -14,6 +14,7 @@ import (
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/driver"
 	driverexecutor "github.com/abcdlsj/sumi/internal/driver/executor"
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/sandbox"
 	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 )
@@ -36,6 +37,7 @@ type externalRuntimeConfig struct {
 	timeout          time.Duration
 	terminationGrace time.Duration
 	outputLimit      int64
+	logger           *observability.Logger
 }
 
 func externalExecutor(serverURL, dataRoot string, client *http.Client, config externalRuntimeConfig) (*driverexecutor.ComputerExecutor, error) {
@@ -79,7 +81,7 @@ func newExternalExecutor(config externalRuntimeConfig, provider sandbox.Provider
 	}
 	runner := driver.ProcessRunner{
 		Path: config.executable, Args: config.args, Secrets: config.secrets, Provider: provider, Timeout: config.timeout,
-		TerminationGrace: config.terminationGrace, MaxOutputBytes: config.outputLimit,
+		TerminationGrace: config.terminationGrace, MaxOutputBytes: config.outputLimit, Logger: config.logger,
 	}
 	if err := runner.Validate(); err != nil {
 		return nil, err

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
-	"log"
 	"time"
 
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
+	"github.com/abcdlsj/sumi/internal/observability"
 )
 
 func resolveComputerIdentity(
@@ -100,7 +100,7 @@ func synchronizeOnce(
 	initial *computerhost.SyncResult,
 	osName computerv1.OperatingSystem,
 	arch computerv1.Architecture,
-	stderr io.Writer,
+	logger *observability.Logger,
 ) error {
 	result := initial
 	if result == nil {
@@ -110,7 +110,9 @@ func synchronizeOnce(
 		}
 		result = &synchronized
 	}
-	log.New(stderr, "", log.LstdFlags).Printf("Computer %s synchronized %d assignments", result.ComputerID, result.Assignments)
+	observability.CategoryLogger(logger, observability.ComponentComputer, observability.CategoryPlacement).Info(
+		"computer assignments synchronized", "event", "placement.sync.completed", "computer_id", result.ComputerID, "assignments", result.Assignments,
+	)
 	return nil
 }
 

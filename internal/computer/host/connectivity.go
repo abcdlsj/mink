@@ -12,6 +12,7 @@ import (
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
 )
@@ -31,21 +32,23 @@ func (d *Daemon) connectivitySupervisor(ctx context.Context, identity computerst
 }
 
 func (d *Daemon) heartbeatLoop(ctx context.Context, identity computerstate.Identity) {
-	d.periodicLoop(ctx, d.config.HeartbeatInterval, func(ctx context.Context) error {
+	d.periodicLoop(ctx, d.config.HeartbeatInterval, d.transportLogger, "computer.heartbeat", func(ctx context.Context) error {
 		return d.heartbeat(ctx, identity)
 	})
 }
 
 func (d *Daemon) snapshotLoop(ctx context.Context, identity computerstate.Identity) {
-	d.periodicLoop(ctx, d.config.SnapshotInterval, func(ctx context.Context) error {
+	d.periodicLoop(ctx, d.config.SnapshotInterval, d.placementLogger, "placement.sync", func(ctx context.Context) error {
 		return d.syncPlacements(ctx, identity)
 	})
 }
 
-func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, operation func(context.Context) error) {
+func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, logger *observability.Logger, event string, operation func(context.Context) error) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	var failures uint
+	var lastDelay time.Duration
+	var lastError string
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,10 +63,25 @@ func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, opera
 			}
 			delay := interval
 			if err == nil {
+				if failures > 0 {
+					logger.Info("periodic operation recovered", "event", event+".recovered", "failed_attempts", failures)
+				}
 				failures = 0
+				lastDelay = 0
+				lastError = ""
+				logger.Debug("periodic operation completed", "event", event+".completed", "next_in", interval)
 			} else {
 				failures++
 				delay = retryDelay(failures, interval, d.config.BackoffMax, d.config.RetryJitter)
+				failure := err.Error()
+				fields := []any{"event", event + ".failed", "err", err, "attempt", failures, "retry_in", delay}
+				if failures == 1 || delay != lastDelay || failure != lastError {
+					logger.Warn("periodic operation failed; retry scheduled", fields...)
+				} else {
+					logger.Debug("periodic operation remains unavailable", fields...)
+				}
+				lastDelay = delay
+				lastError = failure
 			}
 			timer.Reset(delay)
 		}
@@ -100,6 +118,7 @@ func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Iden
 		return errors.New("list computer placements returned no response")
 	}
 	placements := response.Msg.GetPlacements()
+	d.placementLogger.Debug("placement snapshot received", "event", "placement.snapshot.received", "computer_id", identity.ComputerID, "count", len(placements))
 	seen := make(map[string]struct{}, len(placements))
 	for _, placement := range placements {
 		if err := validatePlacement(placement, identity.ComputerID); err != nil {
@@ -151,6 +170,8 @@ func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Iden
 		}
 		if err := d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementGeneration); err != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("delete stale runtime session for agent %q: %w", session.AgentID, err))
+		} else {
+			d.runtimeLogger.Info("stale runtime session removed", "event", "runtime.session.removed", "agent_id", session.AgentID, "computer_id", session.ComputerID, "placement_generation", session.PlacementGeneration, "reason", "placement_changed")
 		}
 		d.stopWorkerBinding(session.AgentID, session.PlacementGeneration)
 	}
@@ -175,6 +196,7 @@ func validatePlacement(placement *placementv1.AgentPlacement, computerID string)
 }
 
 func (d *Daemon) provisionPlacement(ctx context.Context, identity computerstate.Identity, placement *placementv1.AgentPlacement) (*placementv1.AgentPlacement, error) {
+	d.placementLogger.Info("placement provisioning started", "event", "placement.provision.started", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "generation", placement.GetGeneration())
 	_, provisionErr := workspace.Provision(d.config.DataRoot, placement.GetAgentId())
 	result := placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE
 	errorCode := ""
@@ -194,7 +216,9 @@ func (d *Daemon) provisionPlacement(ctx context.Context, identity computerstate.
 	if response == nil {
 		return nil, errors.New("acknowledge placement returned no response")
 	}
-	return response.Msg.GetPlacement(), nil
+	acknowledged := response.Msg.GetPlacement()
+	d.placementLogger.Info("placement provisioning acknowledged", "event", "placement.provision.acknowledged", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "generation", placement.GetGeneration(), "state", acknowledged.GetState().String(), "error_code", errorCode)
+	return acknowledged, nil
 }
 
 func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Identity, agentID string, generation uint64) error {
@@ -214,7 +238,11 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		response, renewErr := d.runtimes.RenewAgentRuntimeSession(rpcCtx, request)
 		cancel()
 		if renewErr == nil && response != nil {
-			return d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now)
+			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now); err != nil {
+				return err
+			}
+			d.runtimeLogger.Info("runtime session renewed", "event", "runtime.session.renewed", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+			return nil
 		}
 		if renewErr == nil {
 			return errors.New("renew runtime session returned no response")
@@ -225,6 +253,7 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		if err := d.config.State.DeleteRuntimeSession(ctx, agentID, identity.ComputerID, generation); err != nil {
 			return fmt.Errorf("delete rejected runtime session for agent %q: %w", agentID, err)
 		}
+		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation)
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	response, err := d.runtimes.CreateAgentRuntimeSession(rpcCtx, connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
@@ -238,7 +267,11 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 	if response == nil {
 		return errors.New("create runtime session returned no response")
 	}
-	return d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now)
+	if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now); err != nil {
+		return err
+	}
+	d.runtimeLogger.Info("runtime session created", "event", "runtime.session.created", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+	return nil
 }
 
 func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, generation uint64, updatedAt time.Time) error {

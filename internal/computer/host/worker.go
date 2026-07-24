@@ -14,23 +14,28 @@ import (
 )
 
 func (d *Daemon) startWorker(parent context.Context, session computerstate.RuntimeSession, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch, trigger triggerContext) {
-	if validateLaunch(launch, run.GetId(), session.AgentID, session.ComputerID, session.PlacementGeneration) != nil {
+	if err := validateLaunch(launch, run.GetId(), session.AgentID, session.ComputerID, session.PlacementGeneration); err != nil {
+		d.driverLogger.Warn("worker rejected invalid launch", "event", "driver.worker.launch.invalid", "agent_id", session.AgentID, "run_id", run.GetId(), "err", err)
 		return
 	}
 	completed, err := d.config.State.HasOutboxCompletion(parent, run.GetId(), launch.GetId(), launch.GetFence())
 	if err != nil {
+		d.outboxLogger.Warn("worker could not inspect completion state", "event", "outbox.completion.inspect.failed", "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "err", err)
 		return
 	}
 	if completed {
+		d.outboxLogger.Debug("worker skipped durable completion", "event", "outbox.completion.already_stored", "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 		return
 	}
 	d.workersMu.Lock()
 	if existing, found := d.workers[run.GetId()]; found {
 		if existing.launchID == launch.GetId() && existing.fence == launch.GetFence() {
 			d.workersMu.Unlock()
+			d.driverLogger.Debug("worker already running", "event", "driver.worker.duplicate_ignored", "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 			return
 		}
 		existing.cancel()
+		d.driverLogger.Warn("worker replaced by newer launch", "event", "driver.worker.replaced", "run_id", run.GetId(), "old_launch_id", existing.launchID, "old_fence", existing.fence, "launch_id", launch.GetId(), "fence", launch.GetFence())
 	}
 	ctx, cancel := context.WithCancel(parent)
 	leaseExpiry := &atomic.Int64{}
@@ -41,6 +46,7 @@ func (d *Daemon) startWorker(parent context.Context, session computerstate.Runti
 	}
 	d.workersWG.Add(1)
 	d.workersMu.Unlock()
+	d.driverLogger.Info("worker started", "event", "driver.worker.started", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "placement_generation", session.PlacementGeneration, "lease_expires_at", launch.GetExpiresAt().AsTime())
 	go func() {
 		defer d.workersWG.Done()
 		d.runLeaseWatchdog(ctx, session, delivery, run, launch, trigger, leaseExpiry)
@@ -51,12 +57,14 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 	defer d.removeWorker(run.GetId(), launch.GetId(), launch.GetFence())
 	workspacePath, err := workspace.Provision(d.config.DataRoot, session.AgentID)
 	if err != nil {
+		d.driverLogger.Error("worker workspace provisioning failed", "event", "driver.workspace.provision.failed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "err", err)
 		return
 	}
 	result := make(chan struct {
 		completion Completion
 		err        error
 	}, 1)
+	executionStarted := d.config.Now()
 	go func() {
 		completion, executeErr := d.config.Executor.Execute(ctx, Execution{
 			AgentID: session.AgentID, ComputerID: session.ComputerID, DeliveryID: delivery.GetId(), RunID: run.GetId(),
@@ -101,23 +109,40 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 		}
 		remaining := expiresAt.Sub(d.config.Now())
 		if remaining <= 0 {
+			d.driverLogger.Warn("worker lease expired", "event", "driver.worker.lease_expired", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 			return
 		}
 		expiry := time.NewTimer(remaining)
 		select {
 		case <-ctx.Done():
 			expiry.Stop()
+			d.driverLogger.Info("worker canceled", "event", "driver.worker.canceled", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "reason", context.Cause(ctx))
 			return
 		case <-expiry.C:
 			if updatedExpiry := time.Unix(0, leaseExpiry.Load()); updatedExpiry.After(d.config.Now()) {
 				continue
 			}
+			d.driverLogger.Warn("worker lease watchdog expired", "event", "driver.worker.lease_expired", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 			return
 		case executionResult := <-result:
 			expiry.Stop()
-			if ctx.Err() != nil || !expiresAt.After(d.config.Now()) || executionResult.err != nil || validateCompletion(executionResult.completion) != nil {
+			if ctx.Err() != nil {
+				d.driverLogger.Info("driver execution canceled", "event", "driver.execution.canceled", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "duration", d.config.Now().Sub(executionStarted), "reason", context.Cause(ctx))
 				return
 			}
+			if !expiresAt.After(d.config.Now()) {
+				d.driverLogger.Warn("driver execution finished after lease expiry", "event", "driver.execution.stale", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "duration", d.config.Now().Sub(executionStarted))
+				return
+			}
+			if executionResult.err != nil {
+				d.driverLogger.Warn("driver execution failed", "event", "driver.execution.failed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "duration", d.config.Now().Sub(executionStarted), "err", executionResult.err)
+				return
+			}
+			if err := validateCompletion(executionResult.completion); err != nil {
+				d.driverLogger.Warn("driver returned invalid completion", "event", "driver.completion.invalid", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "err", err)
+				return
+			}
+			d.driverLogger.Info("driver execution completed", "event", "driver.execution.completed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "duration", d.config.Now().Sub(executionStarted), "outcome", outcomeName(executionResult.completion.Outcome), "mentioned_agents", len(executionResult.completion.MentionedAgentIDs))
 			event := computerstate.OutboxEvent{
 				OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: session.AgentID,
 				PlacementGeneration: session.PlacementGeneration, RunID: run.GetId(), LaunchID: launch.GetId(),
@@ -128,32 +153,50 @@ func (d *Daemon) runLeaseWatchdog(ctx context.Context, session computerstate.Run
 			pendingEvent = &event
 			result = nil
 			status := d.tryEnqueueCompletion(ctx, expiresAt, run.GetId(), launch.GetId(), launch.GetFence(), event)
-			if status != enqueueNeedsRetry {
+			if status == enqueueStored {
+				d.outboxLogger.Info("run completion stored in outbox", "event", "outbox.completion.stored", "outbox_event_id", event.OutboxEventID, "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 				return
 			}
+			if status == enqueueStale {
+				d.outboxLogger.Warn("run completion became stale before persistence", "event", "outbox.completion.stale", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
+				return
+			}
+			d.outboxLogger.Warn("run completion persistence failed; retry scheduled", "event", "outbox.completion.store.failed", "outbox_event_id", event.OutboxEventID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "attempt", enqueueFailures+1)
 			if !scheduleEnqueueRetry() {
+				d.outboxLogger.Error("run completion could not be persisted before lease expiry", "event", "outbox.completion.store.exhausted", "outbox_event_id", event.OutboxEventID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 				return
 			}
 		case <-enqueueRetry:
 			expiry.Stop()
 			enqueueRetry = nil
 			status := d.tryEnqueueCompletion(ctx, expiresAt, run.GetId(), launch.GetId(), launch.GetFence(), *pendingEvent)
-			if status != enqueueNeedsRetry {
+			if status == enqueueStored {
+				d.outboxLogger.Info("run completion stored in outbox", "event", "outbox.completion.stored", "outbox_event_id", pendingEvent.OutboxEventID, "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "attempt", enqueueFailures+1)
 				return
 			}
+			if status == enqueueStale {
+				d.outboxLogger.Warn("run completion became stale before retry", "event", "outbox.completion.stale", "outbox_event_id", pendingEvent.OutboxEventID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
+				return
+			}
+			d.outboxLogger.Warn("run completion persistence retry failed", "event", "outbox.completion.store.failed", "outbox_event_id", pendingEvent.OutboxEventID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "attempt", enqueueFailures+1)
 			if !scheduleEnqueueRetry() {
+				d.outboxLogger.Error("run completion could not be persisted before lease expiry", "event", "outbox.completion.store.exhausted", "outbox_event_id", pendingEvent.OutboxEventID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence())
 				return
 			}
 		case <-renew.C:
 			expiry.Stop()
 			currentSession, found, err := d.config.State.RuntimeSession(ctx, session.AgentID)
 			if err != nil || !found || currentSession.ComputerID != session.ComputerID || currentSession.PlacementGeneration != session.PlacementGeneration {
+				d.runtimeLogger.Warn("worker runtime binding lost", "event", "runtime.binding.lost", "agent_id", session.AgentID, "run_id", run.GetId(), "placement_generation", session.PlacementGeneration, "err", err)
 				return
 			}
 			updated, err := d.renewRun(ctx, currentSession, run.GetId(), launch.GetId(), launch.GetFence(), expiresAt)
 			if err == nil {
 				expiresAt = updated
 				leaseExpiry.Store(updated.UnixNano())
+				d.deliveryLogger.Debug("run lease renewed", "event", "delivery.run.renewed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "expires_at", updated)
+			} else {
+				d.deliveryLogger.Warn("run lease renewal failed", "event", "delivery.run.renew.failed", "agent_id", session.AgentID, "run_id", run.GetId(), "launch_id", launch.GetId(), "fence", launch.GetFence(), "err", err)
 			}
 		}
 	}
@@ -202,6 +245,7 @@ func (d *Daemon) stopWorkerBinding(agentID string, generation uint64) {
 		if worker.agentID == agentID && worker.generation == generation {
 			worker.cancel()
 			delete(d.workers, runID)
+			d.driverLogger.Info("worker stopped for runtime binding", "event", "driver.worker.binding_stopped", "agent_id", agentID, "run_id", runID, "placement_generation", generation)
 		}
 	}
 }
@@ -214,6 +258,7 @@ func (d *Daemon) reconcileWorkers(active map[string]uint64) {
 		if !current || generation != worker.generation {
 			worker.cancel()
 			delete(d.workers, runID)
+			d.driverLogger.Info("worker stopped for placement change", "event", "driver.worker.placement_stopped", "agent_id", worker.agentID, "run_id", runID, "placement_generation", worker.generation)
 		}
 	}
 }
@@ -224,6 +269,7 @@ func (d *Daemon) stopAllWorkers() {
 	for runID, worker := range d.workers {
 		worker.cancel()
 		delete(d.workers, runID)
+		d.driverLogger.Info("worker stopped during daemon shutdown", "event", "driver.worker.shutdown_stopped", "agent_id", worker.agentID, "run_id", runID, "launch_id", worker.launchID, "fence", worker.fence)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	clicontract "github.com/abcdlsj/sumi/internal/cli/contract"
 	installcore "github.com/abcdlsj/sumi/internal/install"
+	"github.com/abcdlsj/sumi/internal/observability"
 )
 
 type installer interface {
@@ -46,6 +47,9 @@ func runInstallCommand(ctx context.Context, command string, args []string, stdin
 	manager, err := newInstaller(*dataRoot)
 	if err != nil {
 		return installError("install environment is unsafe", "INSTALL_UNSAFE", "use a supported non-root current-user session")
+	}
+	if configurable, ok := manager.(interface{ SetLogger(*observability.Logger) }); ok {
+		configurable.SetLogger(observability.New(observability.ComponentInstaller, stderr))
 	}
 	if command == "uninstall" && *purge {
 		if err := confirmPurge(stdin, stdout, *yes); err != nil {

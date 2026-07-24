@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"io"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/abcdlsj/sumi/internal/observability"
 	serverapp "github.com/abcdlsj/sumi/internal/server/app"
 )
 
@@ -15,7 +15,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := runContext(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		log.Fatal(err)
+		observability.CategoryLogger(observability.New(observability.ComponentServer, os.Stderr), observability.ComponentServer, observability.CategoryLifecycle).Error("server process failed", "event", "server.process.failed", "err", err)
+		os.Exit(1)
 	}
 }
 

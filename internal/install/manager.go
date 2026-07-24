@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/abcdlsj/sumi/internal/lifecycle"
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/osservice"
 	"github.com/abcdlsj/sumi/internal/releasebundle"
 )
@@ -34,6 +36,7 @@ type Manager struct {
 	GOOS     string
 	GOARCH   string
 	Before   func(string) error
+	Logger   *observability.Logger
 }
 
 func New(dataRoot string) (*Manager, error) {
@@ -46,10 +49,28 @@ func New(dataRoot string) (*Manager, error) {
 		return nil, err
 	}
 	services.Configure(layout.DataRoot)
-	return &Manager{Layout: layout, Services: services, Prober: processProber{}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}, nil
+	return &Manager{Layout: layout, Services: services, Prober: processProber{}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Logger: observability.Discard(observability.ComponentInstaller)}, nil
 }
 
-func (manager *Manager) Install(ctx context.Context, bundleRoot string) error {
+func (manager *Manager) SetLogger(logger *observability.Logger) {
+	manager.Logger = logger
+}
+
+func (manager *Manager) logger() *observability.Logger {
+	return observability.CategoryLogger(manager.Logger, observability.ComponentInstaller, observability.CategoryInstall)
+}
+
+func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnErr error) {
+	logger := manager.logger()
+	started := time.Now()
+	logger.Info("installation started", "event", "install.started")
+	defer func() {
+		if returnErr != nil {
+			logger.Error("installation failed", "event", "install.failed", "duration", time.Since(started), "err", returnErr)
+			return
+		}
+		logger.Info("installation completed", "event", "install.completed", "duration", time.Since(started))
+	}()
 	lock, err := acquireInstallLock(manager.Layout)
 	if err != nil {
 		return err
@@ -67,10 +88,12 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) error {
 	if err != nil {
 		return err
 	}
+	logger.Info("release bundle verified", "event", "install.bundle.verified", "release_version", bundle.Manifest.ReleaseVersion, "operating_system", manager.GOOS, "architecture", manager.GOARCH)
 	versionRoot := manager.Layout.VersionRoot(bundle.Manifest.ReleaseVersion)
 	if err := bundle.CopyTo(versionRoot); err != nil {
 		return err
 	}
+	logger.Info("release payload copied", "event", "install.release.copied", "release_version", bundle.Manifest.ReleaseVersion)
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -85,6 +108,7 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) error {
 		_ = os.Remove(manager.Layout.ActiveManifest)
 		return err
 	}
+	logger.Info("current-user services installed", "event", "install.services.installed", "release_version", bundle.Manifest.ReleaseVersion)
 	cleanup = false
 	return nil
 }

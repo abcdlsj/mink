@@ -29,7 +29,17 @@ var (
 	serviceMaintenanceSleep = sleepWithContext
 )
 
-func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
+func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) (returnErr error) {
+	logger := manager.logger()
+	started := time.Now()
+	logger.Info("upgrade started", "event", "install.upgrade.started")
+	defer func() {
+		if returnErr != nil {
+			logger.Error("upgrade failed", "event", "install.upgrade.failed", "duration", time.Since(started), "err", returnErr)
+			return
+		}
+		logger.Info("upgrade completed", "event", "install.upgrade.completed", "duration", time.Since(started))
+	}()
 	lock, err := acquireInstallLock(manager.Layout)
 	if err != nil {
 		return err
@@ -39,6 +49,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if err != nil {
 		return errors.New("load active install before upgrade")
 	}
+	logger.Info("active release loaded", "event", "install.upgrade.active_loaded", "release_version", oldActive.Release.ReleaseVersion)
 	bundle, err := releasebundle.Open(bundleRoot, manager.GOOS, manager.GOARCH)
 	if err != nil {
 		return err
@@ -46,13 +57,16 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if bundle.Manifest.ReleaseVersion == oldActive.Release.ReleaseVersion {
 		return errors.New("upgrade release version is already active")
 	}
+	logger.Info("candidate release verified", "event", "install.upgrade.candidate_verified", "from_version", oldActive.Release.ReleaseVersion, "to_version", bundle.Manifest.ReleaseVersion, "operating_system", manager.GOOS, "architecture", manager.GOARCH)
 	if err := manager.stopServices(ctx); err != nil {
 		return err
 	}
+	logger.Info("services stopped for upgrade", "event", "install.upgrade.services_stopped", "from_version", oldActive.Release.ReleaseVersion)
 	maintenance, err := manager.acquireMaintenanceAfterServiceStop(ctx)
 	if err != nil {
 		return err
 	}
+	logger.Info("maintenance lease acquired", "event", "install.upgrade.maintenance_acquired")
 	if err := manager.hook("after-stop"); err != nil {
 		maintenance.Close()
 		if startErr := manager.startServices(ctx); startErr != nil {
@@ -68,6 +82,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 		}
 		return err
 	}
+	logger.Info("restore point created", "event", "install.upgrade.restore_point.created", "release_version", oldActive.Release.ReleaseVersion)
 	if err := manager.hook("after-snapshot"); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, "", maintenance, err)
 	}
@@ -76,6 +91,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if err := bundle.CopyTo(candidateRoot); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, "", maintenance, err)
 	}
+	logger.Info("candidate release copied", "event", "install.upgrade.candidate_copied", "release_version", candidateVersion)
 	if err := manager.hook("after-copy"); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, maintenance, err)
 	}
@@ -85,6 +101,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if err := manager.Prober.Probe(ctx, manager.Layout.Binary(candidateVersion), manager.Layout.WebRoot(candidateVersion), manager.Layout.DataRoot, maintenance); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, maintenance, err)
 	}
+	logger.Info("candidate release probe passed", "event", "install.upgrade.candidate_probe.passed", "release_version", candidateVersion)
 	if err := manager.hook("after-candidate-probe"); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, maintenance, err)
 	}
@@ -97,6 +114,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 	if err := manager.Services.Install(ctx, manager.serviceConfig(candidateVersion)); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, maintenance, err)
 	}
+	logger.Info("active release switched", "event", "install.upgrade.switched", "from_version", oldActive.Release.ReleaseVersion, "to_version", candidateVersion)
 	if err := manager.hook("after-switch"); err != nil {
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, maintenance, err)
 	}
@@ -111,6 +129,7 @@ func (manager *Manager) Upgrade(ctx context.Context, bundleRoot string) error {
 		}
 		return manager.recoverUpgrade(ctx, point, oldActive, candidateVersion, recoveryLease, err)
 	}
+	logger.Info("services started after upgrade", "event", "install.upgrade.services_started", "release_version", candidateVersion)
 	if err := point.Cleanup(); err != nil {
 		return err
 	}
@@ -152,11 +171,14 @@ func sleepWithContext(ctx context.Context, duration time.Duration) error {
 }
 
 func (manager *Manager) recoverUpgrade(ctx context.Context, point *restorePoint, oldActive ActiveManifest, candidateVersion string, maintenance *lifecycle.Lease, cause error) error {
+	logger := manager.logger()
+	logger.Warn("upgrade recovery started", "event", "install.upgrade.recovery.started", "active_version", oldActive.Release.ReleaseVersion, "candidate_version", candidateVersion, "cause", cause)
 	fail := func() error {
 		if maintenance != nil {
 			_ = maintenance.Close()
 		}
 		_ = manager.stopServices(ctx)
+		logger.Error("upgrade recovery could not be proven", "event", "install.upgrade.recovery.unproven", "active_version", oldActive.Release.ReleaseVersion, "candidate_version", candidateVersion)
 		return ErrRestoreUnproven
 	}
 	if err := manager.hook("before-restore"); err != nil {
@@ -197,6 +219,7 @@ func (manager *Manager) recoverUpgrade(ctx context.Context, point *restorePoint,
 	if err := point.Cleanup(); err != nil {
 		return ErrRestoreUnproven
 	}
+	logger.Info("upgrade recovery completed", "event", "install.upgrade.recovery.completed", "restored_version", oldActive.Release.ReleaseVersion, "discarded_candidate_version", candidateVersion)
 	return cause
 }
 

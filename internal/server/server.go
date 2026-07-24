@@ -35,6 +35,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
 	knowledgeindex "github.com/abcdlsj/sumi/internal/knowledge"
+	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/organization"
 	"github.com/abcdlsj/sumi/internal/placement"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -54,9 +55,14 @@ type Config struct {
 	WebRoot                 string
 	BootstrapCredentialFile string
 	BrowserOrigin           string
+	Logger                  *observability.Logger
 }
 
 func New(ctx context.Context, config Config) (*Server, error) {
+	lifecycleLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryLifecycle)
+	authorityLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryAuthority)
+	artifactLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryArtifact)
+	knowledgeLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryKnowledge)
 	if err := authority.ValidateBrowserOrigin(config.BrowserOrigin); err != nil {
 		return nil, err
 	}
@@ -68,6 +74,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	lifecycleLogger.Info("server database opened", "event", "server.database.opened")
 	serverID, err := database.ServerID(ctx)
 	if err != nil {
 		database.Close()
@@ -91,6 +98,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		database.Close()
 		return nil, err
 	}
+	authorityLogger.Info("bootstrap authority ready", "event", "authority.bootstrap.ready", "server_id", serverID, "existing", authorityExists)
 	blobs, err := artifactblob.OpenLocal(layout.Artifacts)
 	if err != nil {
 		database.Close()
@@ -101,10 +109,12 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		database.Close()
 		return nil, err
 	}
-	if _, err := artifacts.Reconcile(ctx, time.Now()); err != nil {
+	reconcileResult, err := artifacts.Reconcile(ctx, time.Now())
+	if err != nil {
 		database.Close()
 		return nil, err
 	}
+	artifactLogger.Info("artifact inventory reconciled", "event", "artifact.inventory.reconciled", "ready", reconcileResult.Ready, "missing", reconcileResult.Missing, "corrupt", reconcileResult.Corrupt, "quarantined", reconcileResult.Quarantined, "deleted", reconcileResult.Deleted)
 
 	mux := http.NewServeMux()
 	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
@@ -187,8 +197,11 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		return nil, err
 	}
 
-	runner := knowledgeindex.New(database)
+	handler = observability.HTTPMiddleware(config.Logger, handler)
+	runner := knowledgeindex.NewWithLogger(database, config.Logger)
 	runner.Start(ctx)
+	knowledgeLogger.Info("knowledge reconciler started", "event", "knowledge.reconciler.started")
+	lifecycleLogger.Info("server initialized", "event", "server.initialized", "server_id", serverID, "browser_enabled", config.BrowserOrigin != "", "web_enabled", config.WebRoot != "")
 	return &Server{handler: handler, store: database, knowledge: runner}, nil
 }
 
