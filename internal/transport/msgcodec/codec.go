@@ -1,4 +1,4 @@
-package messagecodec
+package msgcodec
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	idpkg "github.com/abcdlsj/sumi/internal/transport/id"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -42,11 +42,11 @@ func MentionedPrincipals(values []*spacev1.Principal) ([]authoritydomain.Princip
 		if value == nil {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("mentioned principal is required"))
 		}
-		id, err := connectid.CanonicalID(value.GetId(), "mentioned principal id")
+		cid, err := idpkg.CanonicalID(value.GetId(), "mentioned principal id")
 		if err != nil {
 			return nil, err
 		}
-		principal := authoritydomain.Principal{ID: id}
+		principal := authoritydomain.Principal{ID: cid}
 		switch value.GetKind() {
 		case spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN:
 			principal.Kind = authoritydomain.PrincipalHuman
@@ -70,17 +70,17 @@ func ParseTarget(value *spacev1.MessageTarget) (collaborationapp.MessageTarget, 
 	}
 	switch target := value.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
-		id, err := connectid.CanonicalID(target.SpaceId, "space id")
+		cid, err := idpkg.CanonicalID(target.SpaceId, "space id")
 		if err != nil {
 			return collaborationapp.MessageTarget{}, err
 		}
-		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetSpace, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetSpace, ID: cid}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
-		id, err := connectid.CanonicalID(target.ThreadRootMessageId, "thread root message id")
+		cid, err := idpkg.CanonicalID(target.ThreadRootMessageId, "thread root message id")
 		if err != nil {
 			return collaborationapp.MessageTarget{}, err
 		}
-		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetThread, ID: id}, nil
+		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetThread, ID: cid}, nil
 	default:
 		return collaborationapp.MessageTarget{}, connect.NewError(connect.CodeInvalidArgument, errors.New("message target is invalid"))
 	}

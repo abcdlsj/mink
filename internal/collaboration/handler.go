@@ -12,7 +12,7 @@ import (
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 // ── Space ────────────────────────────────────────────────────
@@ -22,7 +22,7 @@ func (s *Service) CreateDM(ctx context.Context, req *connect.Request[spacev1.Cre
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +44,7 @@ func (s *Service) CreateGroup(ctx context.Context, req *connect.Request[spacev1.
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (s *Service) GetSpace(ctx context.Context, req *connect.Request[spacev1.Get
 	if err != nil {
 		return nil, err
 	}
-	spaceID, err := connectid.CanonicalID(req.Msg.GetSpaceId(), "space id")
+	spaceID, err := id.CanonicalID(req.Msg.GetSpaceId(), "space id")
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (s *Service) ListMembers(ctx context.Context, req *connect.Request[spacev1.
 	if err != nil {
 		return nil, err
 	}
-	spaceID, err := connectid.CanonicalID(req.Msg.GetSpaceId(), "space id")
+	spaceID, err := id.CanonicalID(req.Msg.GetSpaceId(), "space id")
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (s *Service) SendMessage(ctx context.Context, req *connect.Request[spacev1.
 		return nil, err
 	}
 	actor := auth.actor
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (s *Service) GetMessage(ctx context.Context, req *connect.Request[spacev1.G
 	if err != nil {
 		return nil, err
 	}
-	messageID, err := connectid.CanonicalID(req.Msg.GetMessageId(), "message id")
+	messageID, err := id.CanonicalID(req.Msg.GetMessageId(), "message id")
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +227,7 @@ func (s *Service) GetThread(ctx context.Context, req *connect.Request[spacev1.Ge
 	if err != nil {
 		return nil, err
 	}
-	threadID, err := connectid.CanonicalID(req.Msg.GetThreadRootMessageId(), "thread root message id")
+	threadID, err := id.CanonicalID(req.Msg.GetThreadRootMessageId(), "thread root message id")
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +277,7 @@ func buildMsgRunProof(p *grantv1.RunProof) (*authorityapp.RunProof, error) {
 	if p == nil {
 		return nil, nil
 	}
-	id, err := connectid.CanonicalID(p.GetRunId(), "run id")
+	id, err := id.CanonicalID(p.GetRunId(), "run id")
 	if err != nil || p.GetAttempt() == 0 || p.GetFence() == 0 {
 		return nil, servicesvc.InvalArg("run proof is invalid")
 	}

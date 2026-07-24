@@ -7,7 +7,7 @@ import (
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 var (
@@ -102,7 +102,7 @@ func parsePrincipal(principal *grantv1.Principal, orgID string, allowSystem bool
 	if kind == "" {
 		return authoritydomain.Principal{}, servicesvc.InvalArg("principal kind is invalid")
 	}
-	id, err := connectid.CanonicalID(principal.GetId(), "principal id")
+	id, err := id.CanonicalID(principal.GetId(), "principal id")
 	if err != nil {
 		return authoritydomain.Principal{}, err
 	}
@@ -117,7 +117,7 @@ func parseScope(scope *grantv1.Scope, orgID string) (authoritydomain.Scope, erro
 	if !ok {
 		return authoritydomain.Scope{}, servicesvc.InvalArg("scope kind is invalid")
 	}
-	id, err := connectid.CanonicalID(scope.GetId(), "scope id")
+	id, err := id.CanonicalID(scope.GetId(), "scope id")
 	if err != nil {
 		return authoritydomain.Scope{}, err
 	}

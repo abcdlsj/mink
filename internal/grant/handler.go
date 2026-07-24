@@ -11,7 +11,7 @@ import (
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 func (s *Service) IssueGrant(ctx context.Context, req *connect.Request[grantv1.IssueGrantRequest]) (*connect.Response[grantv1.IssueGrantResponse], error) {
@@ -19,7 +19,7 @@ func (s *Service) IssueGrant(ctx context.Context, req *connect.Request[grantv1.I
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (s *Service) IssueGrant(ctx context.Context, req *connect.Request[grantv1.I
 	if err != nil {
 		return nil, err
 	}
-	parentID, err := connectid.CanonicalID(req.Msg.GetParentGrantId(), "parent grant id")
+	parentID, err := id.CanonicalID(req.Msg.GetParentGrantId(), "parent grant id")
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +62,11 @@ func (s *Service) RevokeGrant(ctx context.Context, req *connect.Request[grantv1.
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	grantID, err := connectid.CanonicalID(req.Msg.GetGrantId(), "grant id")
+	grantID, err := id.CanonicalID(req.Msg.GetGrantId(), "grant id")
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (s *Service) GetGrant(ctx context.Context, req *connect.Request[grantv1.Get
 	if err := s.requireAdmin(ctx, actor); err != nil {
 		return nil, err
 	}
-	id, err := connectid.CanonicalID(req.Msg.GetGrantId(), "grant id")
+	id, err := id.CanonicalID(req.Msg.GetGrantId(), "grant id")
 	if err != nil {
 		return nil, err
 	}

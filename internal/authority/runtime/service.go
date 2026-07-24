@@ -14,7 +14,7 @@ import (
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 const sessionTTL = 10 * time.Minute
@@ -79,7 +79,7 @@ func (s *Service) RenewSession(ctx context.Context, req *connect.Request[runtime
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	computerID, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *Service) RevokeSession(ctx context.Context, req *connect.Request[runtim
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	computerID, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +133,11 @@ func (s *Service) randomToken() (string, error) {
 }
 
 func sessionBinding(computerValue, agentValue string, rev uint64) (string, string, uint64, error) {
-	computerID, err := connectid.CanonicalID(computerValue, "computer id")
+	computerID, err := id.CanonicalID(computerValue, "computer id")
 	if err != nil {
 		return "", "", 0, err
 	}
-	agentID, err := connectid.CanonicalID(agentValue, "agent id")
+	agentID, err := id.CanonicalID(agentValue, "agent id")
 	if err != nil {
 		return "", "", 0, err
 	}

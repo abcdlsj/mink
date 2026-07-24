@@ -17,7 +17,7 @@ import (
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 	workapp "github.com/abcdlsj/sumi/internal/work/application"
 )
 
@@ -82,7 +82,7 @@ func (s *Service) GetWork(ctx context.Context, req *connect.Request[workv1.GetWo
 	if err != nil {
 		return nil, err
 	}
-	workID, err := connectid.CanonicalID(req.Msg.GetWorkId(), "work id")
+	workID, err := id.CanonicalID(req.Msg.GetWorkId(), "work id")
 	if err != nil {
 		return nil, err
 	}
@@ -296,22 +296,22 @@ func pickActor(ident identity) authoritydomain.Principal {
 // ── Params ───────────────────────────────────────────────────
 
 func buildCreateParams(msg *workv1.CreateWorkRequest, actor authoritydomain.Principal, now time.Time) (workapp.CreateCommand, error) {
-	requestID, err := connectid.CanonicalID(msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(msg.GetRequestId(), "request id")
 	if err != nil {
 		return workapp.CreateCommand{}, err
 	}
 	parentID := ""
 	if msg.GetParentWorkId() != "" {
-		parentID, err = connectid.CanonicalID(msg.GetParentWorkId(), "parent work id")
+		parentID, err = id.CanonicalID(msg.GetParentWorkId(), "parent work id")
 		if err != nil {
 			return workapp.CreateCommand{}, err
 		}
 	}
-	messageID, err := connectid.CanonicalID(msg.GetSourceMessageId(), "source message id")
+	messageID, err := id.CanonicalID(msg.GetSourceMessageId(), "source message id")
 	if err != nil {
 		return workapp.CreateCommand{}, err
 	}
-	spaceID, err := connectid.CanonicalID(msg.GetSourceSpaceId(), "source space id")
+	spaceID, err := id.CanonicalID(msg.GetSourceSpaceId(), "source space id")
 	if err != nil {
 		return workapp.CreateCommand{}, err
 	}
@@ -332,7 +332,7 @@ func buildRunProof(p *grantv1.RunProof) (*authorityapp.RunProof, error) {
 	if p == nil {
 		return nil, nil
 	}
-	id, err := connectid.CanonicalID(p.GetRunId(), "run id")
+	id, err := id.CanonicalID(p.GetRunId(), "run id")
 	if err != nil || p.GetAttempt() == 0 || p.GetFence() == 0 {
 		return nil, servicesvc.InvalArg("work input is invalid")
 	}
@@ -340,18 +340,18 @@ func buildRunProof(p *grantv1.RunProof) (*authorityapp.RunProof, error) {
 }
 
 func parseIDs(requestIDValue, itemValue, itemName, extraValue, extraName string) (string, string, string, error) {
-	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
+	requestID, err := id.CanonicalID(requestIDValue, "request id")
 	if err != nil {
 		return "", "", "", err
 	}
-	itemID, err := connectid.CanonicalID(itemValue, itemName)
+	itemID, err := id.CanonicalID(itemValue, itemName)
 	if err != nil {
 		return "", "", "", err
 	}
 	if extraName == "" {
 		return requestID, itemID, "", nil
 	}
-	extraID, err := connectid.CanonicalID(extraValue, extraName)
+	extraID, err := id.CanonicalID(extraValue, extraName)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -364,13 +364,13 @@ func parseMsgTarget(v *spacev1.MessageTarget) (collaborationapp.MessageTarget, e
 	}
 	switch t := v.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
-		id, err := connectid.CanonicalID(t.SpaceId, "source target space id")
+		id, err := id.CanonicalID(t.SpaceId, "source target space id")
 		if err != nil {
 			return collaborationapp.MessageTarget{}, err
 		}
 		return collaborationapp.MessageTarget{Kind: collaborationdomain.TargetSpace, ID: id}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
-		id, err := connectid.CanonicalID(t.ThreadRootMessageId, "source target thread id")
+		id, err := id.CanonicalID(t.ThreadRootMessageId, "source target thread id")
 		if err != nil {
 			return collaborationapp.MessageTarget{}, err
 		}
@@ -386,7 +386,7 @@ func buildCriterionResults(values []*workv1.WorkCriterionResultInput) ([]workapp
 		if v == nil {
 			return nil, servicesvc.InvalArg("work input is invalid")
 		}
-		criterionID, err := connectid.CanonicalID(v.GetCriterionId(), "criterion id")
+		criterionID, err := id.CanonicalID(v.GetCriterionId(), "criterion id")
 		if err != nil {
 			return nil, err
 		}

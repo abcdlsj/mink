@@ -1,4 +1,4 @@
-package connectid
+package id
 
 import (
 	"errors"

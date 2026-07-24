@@ -5,7 +5,7 @@ import (
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	executiondomain "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
+	"github.com/abcdlsj/sumi/internal/transport/msgcodec"
 )
 
 var stateToRunProto = map[string]runv1.RunState{

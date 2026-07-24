@@ -12,7 +12,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -45,7 +45,7 @@ func (s *Service) CreateHuman(ctx context.Context, request *connect.Request[orga
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (s *Service) GetHuman(ctx context.Context, request *connect.Request[organiz
 	if err != nil {
 		return nil, err
 	}
-	id, err := connectid.CanonicalID(request.Msg.GetHumanId(), "human id")
+	id, err := id.CanonicalID(request.Msg.GetHumanId(), "human id")
 	if err != nil {
 		return nil, err
 	}
@@ -116,11 +116,11 @@ func (s *Service) SetHumanStatus(ctx context.Context, request *connect.Request[o
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	humanID, err := connectid.CanonicalID(request.Msg.GetHumanId(), "human id")
+	humanID, err := id.CanonicalID(request.Msg.GetHumanId(), "human id")
 	if err != nil {
 		return nil, err
 	}

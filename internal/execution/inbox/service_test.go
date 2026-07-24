@@ -17,8 +17,9 @@ import (
 	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/store"
-	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
+	"github.com/abcdlsj/sumi/internal/transport/msgcodec"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
@@ -204,7 +205,7 @@ func TestInboxServiceErrorCodes(t *testing.T) {
 		connect.CodeInternal:           errors.New("unexpected"),
 	}
 	for want, input := range tests {
-		if got := connectCode(serviceError(input)); got != want {
+		if got := connectCode(servicesvc.ServiceErr(input)); got != want {
 			t.Fatalf("error %v code = %v, want %v", input, got, want)
 		}
 	}

@@ -16,7 +16,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -62,11 +62,11 @@ func (s *Service) UpdateAgentProfile(ctx context.Context, req *connect.Request[a
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	agentID, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +103,11 @@ func (s *Service) UpdateAgentRuntimeSpec(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	agentID, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (s *Service) UpdateAgentRuntimeSpec(ctx context.Context, req *connect.Reque
 }
 
 func (s *Service) GetAgentRuntimeSpec(ctx context.Context, req *connect.Request[agentv1.GetAgentRuntimeSpecRequest]) (*connect.Response[agentv1.GetAgentRuntimeSpecResponse], error) {
-	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	agentID, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (s *Service) GetAgentRuntimeSpec(ctx context.Context, req *connect.Request[
 }
 
 func (s *Service) GetAgent(ctx context.Context, req *connect.Request[agentv1.GetAgentRequest]) (*connect.Response[agentv1.GetAgentResponse], error) {
-	id, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	id, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (s *Service) ListAgents(ctx context.Context, _ *connect.Request[agentv1.Lis
 // ── Params ───────────────────────────────────────────────────
 
 func buildCreateParams(msg *agentv1.CreateAgentRequest, now time.Time) (agentapp.CreateCommand, error) {
-	requestID, err := connectid.CanonicalID(msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(msg.GetRequestId(), "request id")
 	if err != nil {
 		return agentapp.CreateCommand{}, err
 	}

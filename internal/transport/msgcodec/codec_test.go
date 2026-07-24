@@ -1,4 +1,4 @@
-package messagecodec
+package msgcodec
 
 import (
 	"testing"

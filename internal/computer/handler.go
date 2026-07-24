@@ -9,7 +9,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -18,7 +18,7 @@ func (s *Service) CreateComputerPairing(ctx context.Context, req *connect.Reques
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (s *Service) CreateComputerPairing(ctx context.Context, req *connect.Reques
 }
 
 func (s *Service) RegisterComputer(ctx context.Context, req *connect.Request[computerv1.RegisterComputerRequest]) (*connect.Response[computerv1.RegisterComputerResponse], error) {
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *Service) RegisterComputer(ctx context.Context, req *connect.Request[com
 }
 
 func (s *Service) HeartbeatComputer(ctx context.Context, req *connect.Request[computerv1.HeartbeatComputerRequest]) (*connect.Response[computerv1.HeartbeatComputerResponse], error) {
-	id, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	id, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (s *Service) HeartbeatComputer(ctx context.Context, req *connect.Request[co
 }
 
 func (s *Service) GetComputer(ctx context.Context, req *connect.Request[computerv1.GetComputerRequest]) (*connect.Response[computerv1.GetComputerResponse], error) {
-	id, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	id, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -120,15 +120,15 @@ func (s *Service) EnqueueCredentialDelivery(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	computerID, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	agentID, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -159,13 +159,13 @@ func (s *Service) ListCredentialDeliveries(ctx context.Context, req *connect.Req
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
+	agentID, err := id.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
 	computerID := ""
 	if req.Msg.GetComputerId() != "" {
-		computerID, err = connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+		computerID, err = id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +184,7 @@ func (s *Service) ListCredentialDeliveries(ctx context.Context, req *connect.Req
 }
 
 func (s *Service) ClaimCredentialDelivery(ctx context.Context, req *connect.Request[computerv1.ClaimCredentialDeliveryRequest]) (*connect.Response[computerv1.ClaimCredentialDeliveryResponse], error) {
-	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	computerID, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
@@ -204,11 +204,11 @@ func (s *Service) ClaimCredentialDelivery(ctx context.Context, req *connect.Requ
 }
 
 func (s *Service) CompleteCredentialDelivery(ctx context.Context, req *connect.Request[computerv1.CompleteCredentialDeliveryRequest]) (*connect.Response[computerv1.CompleteCredentialDeliveryResponse], error) {
-	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
+	computerID, err := id.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
-	deliveryID, err := connectid.CanonicalID(req.Msg.GetDeliveryId(), "delivery id")
+	deliveryID, err := id.CanonicalID(req.Msg.GetDeliveryId(), "delivery id")
 	if err != nil {
 		return nil, err
 	}

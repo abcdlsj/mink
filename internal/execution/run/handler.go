@@ -8,8 +8,8 @@ import (
 	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
-	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
+	"github.com/abcdlsj/sumi/internal/transport/id"
+	"github.com/abcdlsj/sumi/internal/transport/msgcodec"
 )
 
 func (s *Service) ListRuns(ctx context.Context, req *connect.Request[runv1.ListRunsRequest]) (*connect.Response[runv1.ListRunsResponse], error) {
@@ -45,7 +45,7 @@ func (s *Service) GetRun(ctx context.Context, req *connect.Request[runv1.GetRunR
 	if err != nil {
 		return nil, err
 	}
-	runID, err := connectid.CanonicalID(req.Msg.GetRunId(), "run id")
+	runID, err := id.CanonicalID(req.Msg.GetRunId(), "run id")
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (s *Service) CompleteRun(ctx context.Context, req *connect.Request[runv1.Co
 	if err != nil {
 		return nil, err
 	}
-	outboxEventID, err := connectid.CanonicalID(req.Msg.GetOutboxEventId(), "outbox event id")
+	outboxEventID, err := id.CanonicalID(req.Msg.GetOutboxEventId(), "outbox event id")
 	if err != nil {
 		return nil, err
 	}

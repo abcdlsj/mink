@@ -9,7 +9,7 @@ import (
 	runtimeauth "github.com/abcdlsj/sumi/internal/authority/runtime"
 	executiondomain "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 func auth(ctx context.Context) (authorityapp.RuntimeAuthentication, error) {
@@ -25,11 +25,11 @@ func mutationIDs(ctx context.Context, requestIDValue, runIDValue string) (author
 	if err != nil {
 		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
-	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
+	requestID, err := id.CanonicalID(requestIDValue, "request id")
 	if err != nil {
 		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}
-	runID, err := connectid.CanonicalID(runIDValue, "run id")
+	runID, err := id.CanonicalID(runIDValue, "run id")
 	if err != nil {
 		return authorityapp.RuntimeAuthentication{}, "", "", err
 	}

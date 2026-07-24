@@ -14,7 +14,7 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 )
 
 type spaceMutationIDs struct {
@@ -79,11 +79,11 @@ func (s *Service) spaceMutationIDs(ctx context.Context, requestIDValue, spaceIDV
 	if err != nil {
 		return spaceMutationIDs{}, err
 	}
-	requestID, err := connectid.CanonicalID(requestIDValue, "request id")
+	requestID, err := id.CanonicalID(requestIDValue, "request id")
 	if err != nil {
 		return spaceMutationIDs{}, err
 	}
-	spaceID, err := connectid.CanonicalID(spaceIDValue, "space id")
+	spaceID, err := id.CanonicalID(spaceIDValue, "space id")
 	if err != nil {
 		return spaceMutationIDs{}, err
 	}
@@ -98,7 +98,7 @@ func parsePrincipal(v *spacev1.Principal, orgID string) (PrincipalRef, error) {
 	if !ok {
 		return PrincipalRef{}, servicesvc.InvalArg("principal kind is invalid")
 	}
-	id, err := connectid.CanonicalID(v.GetId(), "principal id")
+	id, err := id.CanonicalID(v.GetId(), "principal id")
 	if err != nil {
 		return PrincipalRef{}, err
 	}
@@ -123,13 +123,13 @@ func parseTarget(v *spacev1.MessageTarget) (MessageTargetRef, error) {
 	}
 	switch t := v.GetTarget().(type) {
 	case *spacev1.MessageTarget_SpaceId:
-		id, err := connectid.CanonicalID(t.SpaceId, "space id")
+		id, err := id.CanonicalID(t.SpaceId, "space id")
 		if err != nil {
 			return MessageTargetRef{}, err
 		}
 		return MessageTargetRef{Kind: TargetSpace, ID: id}, nil
 	case *spacev1.MessageTarget_ThreadRootMessageId:
-		id, err := connectid.CanonicalID(t.ThreadRootMessageId, "thread root message id")
+		id, err := id.CanonicalID(t.ThreadRootMessageId, "thread root message id")
 		if err != nil {
 			return MessageTargetRef{}, err
 		}

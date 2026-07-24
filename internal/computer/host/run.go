@@ -13,7 +13,7 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	computerruntime "github.com/abcdlsj/sumi/internal/computer/runtime"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
-	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
+	"github.com/abcdlsj/sumi/internal/transport/msgcodec"
 	"google.golang.org/protobuf/proto"
 )
 

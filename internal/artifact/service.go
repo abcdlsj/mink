@@ -15,7 +15,7 @@ import (
 	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
-	"github.com/abcdlsj/sumi/internal/transport/connectid"
+	"github.com/abcdlsj/sumi/internal/transport/id"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -116,14 +116,14 @@ func (s *Service) ListArtifacts(ctx context.Context, req *connect.Request[artifa
 	}
 	workID := ""
 	if req.Msg.GetOwningWorkId() != "" {
-		workID, err = connectid.CanonicalID(req.Msg.GetOwningWorkId(), "owning work id")
+		workID, err = id.CanonicalID(req.Msg.GetOwningWorkId(), "owning work id")
 		if err != nil {
 			return nil, err
 		}
 	}
 	afterID := ""
 	if req.Msg.GetAfterArtifactId() != "" {
-		afterID, err = connectid.CanonicalID(req.Msg.GetAfterArtifactId(), "artifact cursor")
+		afterID, err = id.CanonicalID(req.Msg.GetAfterArtifactId(), "artifact cursor")
 		if err != nil {
 			return nil, err
 		}
@@ -161,11 +161,11 @@ func (s *Service) GrantArtifact(ctx context.Context, req *connect.Request[artifa
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	artifactID, err := connectid.CanonicalID(req.Msg.GetArtifactId(), "artifact id")
+	artifactID, err := id.CanonicalID(req.Msg.GetArtifactId(), "artifact id")
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func (s *Service) GrantArtifact(ctx context.Context, req *connect.Request[artifa
 	if err != nil {
 		return nil, err
 	}
-	targetID, err := connectid.CanonicalID(targetValue, "artifact grant target id")
+	targetID, err := id.CanonicalID(targetValue, "artifact grant target id")
 	if err != nil {
 		return nil, err
 	}
@@ -197,11 +197,11 @@ func (s *Service) RevokeArtifactGrant(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	grantID, err := connectid.CanonicalID(req.Msg.GetGrantId(), "artifact grant id")
+	grantID, err := id.CanonicalID(req.Msg.GetGrantId(), "artifact grant id")
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func (s *Service) readParams(ctx context.Context, header http.Header, artifactID
 	if err != nil {
 		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
-	artifactID, err := connectid.CanonicalID(artifactIDValue, "artifact id")
+	artifactID, err := id.CanonicalID(artifactIDValue, "artifact id")
 	if err != nil {
 		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
@@ -326,18 +326,18 @@ func (r *publishReader) Read(buf []byte) (int, error) {
 // ── Params ───────────────────────────────────────────────────
 
 func buildPublishParams(auth artifactapp.Authentication, meta *artifactv1.PublishArtifactMetadata, content io.Reader, now time.Time) (artifactapp.PublishCommand, error) {
-	requestID, err := connectid.CanonicalID(meta.GetRequestId(), "request id")
+	requestID, err := id.CanonicalID(meta.GetRequestId(), "request id")
 	if err != nil {
 		return artifactapp.PublishCommand{}, err
 	}
 	artifactID := ""
 	if meta.GetArtifactId() != "" {
-		artifactID, err = connectid.CanonicalID(meta.GetArtifactId(), "artifact id")
+		artifactID, err = id.CanonicalID(meta.GetArtifactId(), "artifact id")
 		if err != nil {
 			return artifactapp.PublishCommand{}, err
 		}
 	}
-	workID, err := connectid.CanonicalID(meta.GetOwningWorkId(), "owning work id")
+	workID, err := id.CanonicalID(meta.GetOwningWorkId(), "owning work id")
 	if err != nil {
 		return artifactapp.PublishCommand{}, err
 	}
@@ -360,7 +360,7 @@ func buildPublishParams(auth artifactapp.Authentication, meta *artifactv1.Publis
 	}
 	if meta.GetExecution() != nil {
 		exec := meta.GetExecution()
-		runID, err := connectid.CanonicalID(exec.GetRunId(), "run id")
+		runID, err := id.CanonicalID(exec.GetRunId(), "run id")
 		if err != nil {
 			return artifactapp.PublishCommand{}, err
 		}
@@ -381,7 +381,7 @@ func buildPublishParams(auth artifactapp.Authentication, meta *artifactv1.Publis
 		}
 		switch v := src.GetSource().(type) {
 		case *artifactv1.ArtifactSourceInput_MessageId:
-			msgID, err := connectid.CanonicalID(v.MessageId, "artifact source message id")
+			msgID, err := id.CanonicalID(v.MessageId, "artifact source message id")
 			if err != nil {
 				return artifactapp.PublishCommand{}, err
 			}
@@ -390,7 +390,7 @@ func buildPublishParams(auth artifactapp.Authentication, meta *artifactv1.Publis
 			if v.ArtifactVersion == nil {
 				return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact version source is required")
 			}
-			aid, err := connectid.CanonicalID(v.ArtifactVersion.GetArtifactId(), "source artifact id")
+			aid, err := id.CanonicalID(v.ArtifactVersion.GetArtifactId(), "source artifact id")
 			if err != nil {
 				return artifactapp.PublishCommand{}, err
 			}
