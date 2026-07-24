@@ -48,8 +48,8 @@ type Service struct {
 
 var _ inboxv1connect.InboxServiceHandler = (*Service)(nil)
 
-func New(database inboxStore, browserOrigin string) *Service {
-	return &Service{store: database, origin: browserOrigin, now: time.Now}
+func New(db inboxStore, browserOrigin string) *Service {
+	return &Service{store: db, origin: browserOrigin, now: time.Now}
 }
 
 func (s *Service) GetInboxNotice(ctx context.Context, request *connect.Request[inboxv1.GetInboxNoticeRequest]) (*connect.Response[inboxv1.GetInboxNoticeResponse], error) {

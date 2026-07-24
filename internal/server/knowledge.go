@@ -25,8 +25,8 @@ type knowledgeService struct {
 
 var _ knowledgev1connect.KnowledgeServiceHandler = (*knowledgeService)(nil)
 
-func newKnowledgeService(database knowledgeStore, origin string) *knowledgeService {
-	return &knowledgeService{store: database, origin: origin, now: time.Now}
+func newKnowledgeService(db knowledgeStore, origin string) *knowledgeService {
+	return &knowledgeService{store: db, origin: origin, now: time.Now}
 }
 
 func (s *knowledgeService) SearchKnowledge(ctx context.Context, request *connect.Request[knowledgev1.SearchKnowledgeRequest]) (*connect.Response[knowledgev1.SearchKnowledgeResponse], error) {
