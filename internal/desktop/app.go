@@ -8,16 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/authority/websession"
 	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/osservice"
-	serverapp "github.com/abcdlsj/sumi/internal/server/app"
-	"github.com/abcdlsj/sumi/internal/userdirs"
 )
 
 const DefaultOrigin = "http://127.0.0.1:8080"
@@ -36,15 +32,11 @@ type httpClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type handoffFn func(context.Context, endpoint.Endpoint, string) (serverapp.BrowserHandoff, error)
-
 type config struct {
 	dataRoot       string
-	credentialFile string
 	endpoint       endpoint.Endpoint
 	services       svcCtrl
 	client         httpClient
-	requestHandoff handoffFn
 	startupTimeout time.Duration
 	pollInterval   time.Duration
 }
@@ -74,10 +66,6 @@ func New(shell Shell) (*App, error) {
 	if err != nil {
 		return nil, errors.New("resolve Desktop data root")
 	}
-	userLayout, err := userdirs.Ensure()
-	if err != nil {
-		return nil, errors.New("resolve Desktop user state")
-	}
 	serverEndpoint, err := endpoint.Parse(DefaultOrigin, "")
 	if err != nil {
 		return nil, errors.New("resolve Desktop Server endpoint")
@@ -92,16 +80,14 @@ func New(shell Shell) (*App, error) {
 		return nil, errors.New("create Desktop Server transport")
 	}
 	return newApp(shell, config{
-		dataRoot: dataRoot, credentialFile: userLayout.HumanCredential,
-		endpoint: serverEndpoint, services: services, client: client,
-		requestHandoff: serverapp.RequestBrowserHandoff,
+		dataRoot: dataRoot, endpoint: serverEndpoint, services: services, client: client,
 		startupTimeout: 15 * time.Second, pollInterval: 50 * time.Millisecond,
 	})
 }
 
 func newApp(shell Shell, cfg config) (*App, error) {
-	if shell == nil || cfg.services == nil || cfg.client == nil || cfg.requestHandoff == nil ||
-		cfg.dataRoot == "" || cfg.credentialFile == "" || cfg.startupTimeout <= 0 || cfg.pollInterval <= 0 ||
+	if shell == nil || cfg.services == nil || cfg.client == nil ||
+		cfg.dataRoot == "" || cfg.startupTimeout <= 0 || cfg.pollInterval <= 0 ||
 		cfg.endpoint.Identity.Kind != endpoint.IdentityLiteralLoopback {
 		return nil, errors.New("desktop configuration is invalid")
 	}
@@ -147,14 +133,7 @@ func (app *App) open(ctx context.Context) error {
 	if err := app.ensureSvc(ctx, osservice.Computer); err != nil {
 		return err
 	}
-	handoff, err := app.config.requestHandoff(ctx, app.config.endpoint, app.config.credentialFile)
-	if err != nil {
-		return errors.New("request Desktop browser handoff")
-	}
-	if err := validateHandoff(app.config.endpoint, handoff); err != nil {
-		return err
-	}
-	script, err := locationReplaceScript(handoff.URL.String())
+	script, err := locationReplaceScript(app.config.endpoint.Origin + "/")
 	if err != nil {
 		return err
 	}
@@ -210,27 +189,6 @@ func (app *App) fail(ctx context.Context) {
 	app.state = stateFailed
 	app.mu.Unlock()
 	app.shell.ExecJS(ctx, StartupFailureScript())
-}
-
-func validateHandoff(ep endpoint.Endpoint, handoff serverapp.BrowserHandoff) error {
-	u := handoff.URL
-	if u == nil || handoff.ExpiresAt.IsZero() || u.Scheme+"://"+u.Host != ep.Origin ||
-		u.RawQuery != "" || u.Fragment != "" || u.EscapedPath() != u.Path {
-		return errors.New("desktop browser handoff is unsafe")
-	}
-	token, found := strings.CutPrefix(u.Path, websession.CreateHandoffPath+"/")
-	if !found || len(token) != 43 || strings.Contains(token, "/") {
-		return errors.New("desktop browser handoff is unsafe")
-	}
-	for _, r := range token {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
-			return errors.New("desktop browser handoff is unsafe")
-		}
-	}
-	if u.User != nil {
-		return errors.New("desktop browser handoff is unsafe")
-	}
-	return nil
 }
 
 func locationReplaceScript(rawURL string) (string, error) {

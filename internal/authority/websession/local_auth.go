@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/abcdlsj/sumi/internal/authority"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/google/uuid"
 )
 
@@ -21,9 +21,8 @@ type localStatusResponse struct {
 }
 
 type localSetupRequest struct {
-	Username            string `json:"username"`
-	Password            string `json:"password"`
-	BootstrapCredential string `json:"bootstrap_credential"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type localLoginRequest struct {
@@ -37,7 +36,7 @@ func (s *Service) localStatus(response http.ResponseWriter, request *http.Reques
 		writeStatus(response, http.StatusUnauthorized)
 		return
 	}
-	required, err := s.store.LocalAccountSetupRequired(request.Context())
+	required, err := s.store.FirstOwnerRegistrationRequired(request.Context())
 	if err != nil {
 		writeStatus(response, http.StatusInternalServerError)
 		return
@@ -56,12 +55,12 @@ func (s *Service) localSetup(response http.ResponseWriter, request *http.Request
 		writeStatus(response, http.StatusBadRequest)
 		return
 	}
-	username, usernameOK := normalizeLocalUsername(input.Username)
-	if !usernameOK || !validNewPassword(input.Password) || !authority.ValidCredential(input.BootstrapCredential) {
+	username, usernameOK := localauth.NormalizeUsername(input.Username)
+	if !usernameOK || !localauth.ValidNewPassword(input.Password) {
 		writeStatus(response, http.StatusBadRequest)
 		return
 	}
-	required, err := s.store.LocalAccountSetupRequired(request.Context())
+	required, err := s.store.FirstOwnerRegistrationRequired(request.Context())
 	if err != nil {
 		writeStatus(response, http.StatusInternalServerError)
 		return
@@ -70,21 +69,12 @@ func (s *Service) localSetup(response http.ResponseWriter, request *http.Request
 		writeStatus(response, http.StatusConflict)
 		return
 	}
-	bootstrapHuman, err := s.store.AuthenticateHuman(request.Context(), input.BootstrapCredential)
-	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-		writeStatus(response, http.StatusUnauthorized)
-		return
-	}
-	if err != nil {
-		writeStatus(response, http.StatusInternalServerError)
-		return
-	}
 	if !s.acquirePasswordSlot() {
 		writeStatus(response, http.StatusTooManyRequests)
 		return
 	}
 	defer s.releasePasswordSlot()
-	digest, err := hashLocalPassword(s.random, input.Password, s.passwordParameters)
+	digest, err := localauth.HashPassword(s.random, input.Password, s.passwordParameters)
 	if err != nil {
 		writeStatus(response, http.StatusInternalServerError)
 		return
@@ -95,31 +85,22 @@ func (s *Service) localSetup(response http.ResponseWriter, request *http.Request
 		return
 	}
 	now := s.now()
-	principal, err := s.store.BindBootstrapLocalAccount(request.Context(), authorityapp.BindBootstrapLocalAccountCommand{
-		RequestID: uuid.NewString(), BootstrapHuman: bootstrapHuman,
+	expiresAt := now.Add(s.sessionTTL)
+	bootstrap, err := s.store.RegisterFirstOwner(request.Context(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
 		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: username},
-		Password: digest, SessionToken: sessionToken, Now: now, SessionExpiresAt: now.Add(s.sessionTTL),
+		Password: digest, SessionToken: sessionToken, Now: now, SessionExpiresAt: expiresAt,
 	})
-	if errors.Is(err, authorityapp.ErrLocalAccountSetupDone) {
+	if errors.Is(err, authorityapp.ErrRegistrationClosed) {
 		writeStatus(response, http.StatusConflict)
-		return
-	}
-	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-		writeStatus(response, http.StatusUnauthorized)
 		return
 	}
 	if err != nil {
 		writeStatus(response, http.StatusInternalServerError)
 		return
 	}
-	human, err := s.store.GetHuman(request.Context(), principal.ID)
-	if err != nil || human.Status != "active" {
-		writeStatus(response, http.StatusInternalServerError)
-		return
-	}
-	expiresAt := now.Add(s.sessionTTL)
 	http.SetCookie(response, s.sessionCookie(sessionToken, expiresAt, int(s.sessionTTL.Seconds())))
-	writeJSON(response, http.StatusCreated, sessionResponse{Human: sessionHuman{ID: human.ID, Name: human.Name}})
+	writeJSON(response, http.StatusCreated, sessionResponse{Human: sessionHuman{ID: bootstrap.Human.ID, Name: bootstrap.Human.Name}})
 }
 
 func (s *Service) localLogin(response http.ResponseWriter, request *http.Request) {
@@ -133,7 +114,7 @@ func (s *Service) localLogin(response http.ResponseWriter, request *http.Request
 		writeStatus(response, http.StatusBadRequest)
 		return
 	}
-	username, usernameOK := normalizeLocalUsername(input.Username)
+	username, usernameOK := localauth.NormalizeUsername(input.Username)
 	guardKey := username
 	if !usernameOK {
 		guardKey = "_invalid"
@@ -149,14 +130,14 @@ func (s *Service) localLogin(response http.ResponseWriter, request *http.Request
 	}
 	defer s.releasePasswordSlot()
 	if !usernameOK {
-		verifyDummyPassword(input.Password, s.passwordParameters)
+		localauth.VerifyDummyPassword(input.Password, s.passwordParameters)
 		s.loginFailures.failed(guardKey, now)
 		writeStatus(response, http.StatusUnauthorized)
 		return
 	}
 	account, err := s.store.GetLocalAccount(request.Context(), username)
 	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-		verifyDummyPassword(input.Password, s.passwordParameters)
+		localauth.VerifyDummyPassword(input.Password, s.passwordParameters)
 		s.loginFailures.failed(guardKey, now)
 		writeStatus(response, http.StatusUnauthorized)
 		return
@@ -165,7 +146,7 @@ func (s *Service) localLogin(response http.ResponseWriter, request *http.Request
 		writeStatus(response, http.StatusInternalServerError)
 		return
 	}
-	if !verifyLocalPassword(input.Password, account.Password) {
+	if !localauth.VerifyPassword(input.Password, account.Password) {
 		s.loginFailures.failed(guardKey, now)
 		writeStatus(response, http.StatusUnauthorized)
 		return

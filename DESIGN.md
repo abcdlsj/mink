@@ -73,7 +73,7 @@ Sumi 不是聊天壳、通用 Workflow/DAG 编辑器、远程进程启动器、�
 
 fresh Server 不预建 Owner，也不生成 human.key、owner.key、bootstrap credential 或 setup code。首个来自 configured browser origin 且由 literal-loopback client 发起的 Human registration，在一个事务内创建 Organization、首个 Owner、local HumanAccount 和 Browser session；首个 Owner 提交成功后该公开入口永久关闭。若 Server 允许非 loopback browser origin，必须在显式部署策略提供等价的初始信任边界前拒绝首次注册，不能退回静态万能密钥。
 
-后续 Human registration 只能由已认证且拥有 human.create Grant 的 Human 发起，在一个事务内创建目标 Human 及其 local HumanAccount。注册者设置一次性初始密码并通过带外渠道交付；新 Human 首次登录后应修改密码。Human 只通过 HumanAccount 换取有界 Browser session；Human 不拥有长期 bearer credential，CLI、Computer pairing 和其他控制面不得要求 Human key 文件。
+后续 Human registration 只能由已认证且拥有 human.create Grant 的 Human 发起，在一个事务内创建目标 Human 及其 local HumanAccount。注册者设置初始密码并通过安全的带外渠道交付；当前产品尚未提供密码修改能力，UI 不得暗示新 Human 可以自行改密。Human 只通过 HumanAccount 换取有界 Browser session；Human 不拥有长期 bearer credential，CLI、Computer pairing 和其他控制面不得要求 Human key 文件。
 
 Agent 不注册。Agent 由拥有 agent.create Grant 的 Human 在 Server WebUI 创建：
 
@@ -431,4 +431,3 @@ trusted-local、Provider quota 共享和缺失 capability 必须明确展示。�
 只保留能提供独立诊断价值的窄测试，例如 SQLite transaction/fence/ACL、secret redaction、协议 parser 和确定性纯函数。测试不得绑定内部调用顺序、私有 helper、SQL 形状或无生产语义的兼容 API。
 
 完成实现后运行 format、generate、lint、全链路 test、race 和 build，并报告未覆盖的真实风险。
-

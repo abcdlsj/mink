@@ -15,7 +15,7 @@ var (
 	ErrAuthorityMismatch        = errors.New("authority bootstrap mismatch")
 	ErrHumanNotFound            = organizationapp.ErrHumanNotFound
 	ErrHumanNameExists          = organizationapp.ErrHumanNameExists
-	ErrHumanCredentialExists    = organizationapp.ErrHumanCredentialExists
+	ErrHumanAccountExists       = organizationapp.ErrHumanAccountExists
 	ErrHumanRequestConflict     = organizationapp.ErrHumanRequestConflict
 	ErrHumanStatusConflict      = organizationapp.ErrHumanStatusConflict
 	ErrGrantNotFound            = grantapp.ErrNotFound
@@ -28,10 +28,9 @@ var (
 	ErrParentGrantInvalid       = grantapp.ErrParentInvalid
 	ErrGrantExpansion           = grantapp.ErrExpansion
 	ErrLastOwner                = grantapp.ErrLastOwner
-	ErrBrowserHandoffInvalid    = authorityapp.ErrBrowserHandoffInvalid
 	ErrBrowserSessionInvalid    = authorityapp.ErrBrowserSessionInvalid
 	ErrLocalAccountInvalid      = authorityapp.ErrLocalAccountInvalid
-	ErrLocalAccountSetupDone    = authorityapp.ErrLocalAccountSetupDone
+	ErrRegistrationClosed       = authorityapp.ErrRegistrationClosed
 	ErrWorkNotFound             = workapp.ErrNotFound
 	ErrWorkRequestConflict      = workapp.ErrRequestConflict
 	ErrWorkInvalid              = workapp.ErrInvalid

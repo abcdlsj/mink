@@ -2,6 +2,7 @@ package organization
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"strings"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"connectrpc.com/connect"
 	organizationv1 "github.com/abcdlsj/sumi/gen/go/sumi/organization/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
 	"github.com/abcdlsj/sumi/internal/transport/id"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -57,14 +60,29 @@ func (s *Service) CreateHuman(ctx context.Context, request *connect.Request[orga
 	if !ok {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("human role must be owner or member"))
 	}
-	if !authority.ValidCredential(request.Msg.GetCredential()) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("human credential must be a high-entropy base64url value"))
+	username, ok := localauth.NormalizeUsername(request.Msg.GetUsername())
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("username must contain 3 to 32 lowercase letters, digits, dots, underscores, or hyphens"))
 	}
-	human, err := s.store.CreateHuman(ctx, organizationapp.CreateHumanCommand{RequestID: requestID, Actor: subject, Name: name, Role: role, Credential: request.Msg.GetCredential(), Now: s.now()})
+	if !localauth.ValidNewPassword(request.Msg.GetInitialPassword()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("initial password must contain 12 to 256 characters"))
+	}
+	digest, err := localauth.HashPassword(rand.Reader, request.Msg.GetInitialPassword(), localauth.DefaultPasswordParameters())
+	if err != nil {
+		if errors.Is(err, authorityapp.ErrLocalAccountInvalid) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("initial password is invalid"))
+		}
+		return nil, connect.NewError(connect.CodeInternal, errors.New("hash initial password"))
+	}
+	human, err := s.store.CreateHuman(ctx, organizationapp.CreateHumanCommand{
+		RequestID: requestID, Actor: subject, Name: name, Role: role,
+		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: username},
+		Password: digest, Now: s.now(),
+	})
 	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("human creation denied"))
 	}
-	if errors.Is(err, organizationapp.ErrHumanRequestConflict) || errors.Is(err, organizationapp.ErrHumanNameExists) || errors.Is(err, organizationapp.ErrHumanCredentialExists) {
+	if errors.Is(err, organizationapp.ErrHumanRequestConflict) || errors.Is(err, organizationapp.ErrHumanNameExists) || errors.Is(err, organizationapp.ErrHumanAccountExists) {
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("human request conflicts with an existing identity"))
 	}
 	if err != nil {

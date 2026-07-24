@@ -147,7 +147,7 @@ func initSchema(ctx context.Context, db *sql.DB) error {
 		var marker string
 		if err := db.QueryRowContext(ctx,
 			"SELECT value FROM system_metadata WHERE key = 'schema_version'",
-		).Scan(&marker); err != nil || marker != "next-greenfield-1" {
+		).Scan(&marker); err != nil || marker != "next-greenfield-2" {
 			return fmt.Errorf("sqlite schema is incompatible; initialize a new database")
 		}
 		return validateSchema(ctx, db)
@@ -174,12 +174,12 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		WHERE type = 'table' AND name IN (
 			'system_metadata', 'work_cursor_keys', 'knowledge_dirty_sources',
 			'knowledge_fts', 'knowledge_index_state', 'knowledge_projection_rows',
-			'auth_identities', 'local_password_credentials'
+			'auth_identities', 'local_password_credentials', 'browser_sessions'
 		)
 	`).Scan(&objects); err != nil {
 		return fmt.Errorf("inspect sqlite schema: %w", err)
 	}
-	if objects != 8 {
+	if objects != 9 {
 		return fmt.Errorf("sqlite schema is incomplete")
 	}
 	return nil

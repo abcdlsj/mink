@@ -96,20 +96,6 @@ type RevokeRuntimeSessionCommand struct {
 	Now             time.Time
 }
 
-type CreateBrowserHandoffCommand struct {
-	Human     authoritydomain.Principal
-	Token     string
-	Now       time.Time
-	ExpiresAt time.Time
-}
-
-type ConsumeBrowserHandoffCommand struct {
-	HandoffToken     string
-	SessionToken     string
-	Now              time.Time
-	SessionExpiresAt time.Time
-}
-
 type AuthenticationIdentity struct {
 	Provider string
 	Subject  string
@@ -130,9 +116,9 @@ type LocalAccount struct {
 	Password PasswordDigest
 }
 
-type BindBootstrapLocalAccountCommand struct {
+type RegisterFirstOwnerCommand struct {
 	RequestID        string
-	BootstrapHuman   authoritydomain.Principal
+	Name             string
 	Identity         AuthenticationIdentity
 	Password         PasswordDigest
 	SessionToken     string

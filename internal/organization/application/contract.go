@@ -3,6 +3,7 @@ package application
 import (
 	"time"
 
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 )
 
@@ -24,12 +25,13 @@ type Human struct {
 }
 
 type CreateHumanCommand struct {
-	RequestID  string
-	Actor      authoritydomain.Principal
-	Name       string
-	Role       string
-	Credential string
-	Now        time.Time
+	RequestID string
+	Actor     authoritydomain.Principal
+	Name      string
+	Role      string
+	Identity  authorityapp.AuthenticationIdentity
+	Password  authorityapp.PasswordDigest
+	Now       time.Time
 }
 
 type SetHumanStatusCommand struct {

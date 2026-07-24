@@ -42,7 +42,6 @@ npm test --prefix web
 [tasks."test:e2e"]
 description = "Run browser release validation against a supplied Sumi Server"
 run = '''
-: "${PLAYWRIGHT_OWNER_KEY_FILE:?set PLAYWRIGHT_OWNER_KEY_FILE to the 0600 owner credential file}"
 npm run test:e2e --prefix web
 '''
 
@@ -70,25 +69,12 @@ bin/sumi-package --version "$SUMI_VERSION" --os "$(go env GOOS)" --arch "$(go en
 '''
 
 [tasks.clean]
-description = "Remove old database, locks, and credentials for a fresh start"
+description = "Remove old database and locks for a fresh start"
 run = '''
 echo "=== Cleaning stale Sumi state ==="
 rm -f "$HOME/.sumi/data/server.db" "$HOME/.sumi/data/server.db-shm" "$HOME/.sumi/data/server.db-wal"
 rm -f "$HOME/Library/Caches/Sumi/runtime/"*.server.lock
-rm -f "$HOME/Library/Application Support/Sumi/credentials/human.key"
 echo "Done. Run 'mise run dev' to start fresh."
-'''
-
-[tasks.setup-key]
-description = "Print the bootstrap setup code for first-time WebUI login"
-run = '''
-KEY_FILE="$HOME/Library/Application Support/Sumi/credentials/human.key"
-if [ -f "$KEY_FILE" ]; then
-  echo "Setup code: $(cat "$KEY_FILE")"
-else
-  echo "No setup key found. Start the server first with 'mise run dev'."
-  exit 1
-fi
 '''
 
 [tasks."dev:server"]

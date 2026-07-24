@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"regexp"
@@ -14,59 +13,50 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
+	"github.com/abcdlsj/sumi/internal/store"
 )
 
 const (
-	CreateHandoffPath = "/auth/browser-handoffs"
-	SessionPath       = "/auth/session"
-	LogoutPath        = "/auth/logout"
-	LocalStatusPath   = "/auth/local"
-	LocalSetupPath    = "/auth/local/setup"
-	LocalLoginPath    = "/auth/local/login"
+	SessionPath     = "/auth/session"
+	LogoutPath      = "/auth/logout"
+	LocalStatusPath = "/auth/local"
+	LocalSetupPath  = "/auth/local/setup"
+	LocalLoginPath  = "/auth/local/login"
 )
 
 var opaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 type sessionStore interface {
-	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
-	CreateBrowserHandoff(context.Context, authorityapp.CreateBrowserHandoffCommand) error
-	ConsumeBrowserHandoff(context.Context, authorityapp.ConsumeBrowserHandoffCommand) (authoritydomain.Principal, error)
 	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 	RevokeBrowserSession(context.Context, string, time.Time) error
 	GetHuman(context.Context, string) (organizationapp.Human, error)
-	LocalAccountSetupRequired(context.Context) (bool, error)
-	BindBootstrapLocalAccount(context.Context, authorityapp.BindBootstrapLocalAccountCommand) (authoritydomain.Principal, error)
+	FirstOwnerRegistrationRequired(context.Context) (bool, error)
+	RegisterFirstOwner(context.Context, authorityapp.RegisterFirstOwnerCommand) (store.AuthorityBootstrap, error)
 	GetLocalAccount(context.Context, string) (authorityapp.LocalAccount, error)
 	CreateBrowserSession(context.Context, authorityapp.CreateBrowserSessionCommand) error
 }
 
 type Config struct {
 	Origin             string
-	HandoffTTL         time.Duration
 	SessionTTL         time.Duration
 	Now                func() time.Time
 	Random             io.Reader
-	passwordParameters passwordParameters
+	passwordParameters localauth.PasswordParameters
 }
 
 type Service struct {
 	store              sessionStore
 	origin             string
 	secure             bool
-	handoffTTL         time.Duration
 	sessionTTL         time.Duration
 	now                func() time.Time
 	random             io.Reader
-	passwordParameters passwordParameters
+	passwordParameters localauth.PasswordParameters
 	loginFailures      *loginFailureGuard
 	passwordSlots      chan struct{}
 	handler            http.Handler
-}
-
-type handoffResponse struct {
-	Path      string    `json:"path"`
-	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type sessionResponse struct {
@@ -83,13 +73,10 @@ func New(database sessionStore, config Config) (*Service, error) {
 	if err != nil || config.Origin == "" {
 		return nil, authority.ErrBrowserOriginInvalid
 	}
-	if config.HandoffTTL == 0 {
-		config.HandoffTTL = time.Minute
-	}
 	if config.SessionTTL == 0 {
 		config.SessionTTL = 12 * time.Hour
 	}
-	if config.HandoffTTL <= 0 || config.HandoffTTL > time.Minute || config.SessionTTL <= 0 || config.SessionTTL > 12*time.Hour {
+	if config.SessionTTL <= 0 || config.SessionTTL > 12*time.Hour {
 		return nil, authorityapp.ErrBrowserSessionInvalid
 	}
 	if config.Now == nil {
@@ -98,23 +85,21 @@ func New(database sessionStore, config Config) (*Service, error) {
 	if config.Random == nil {
 		config.Random = rand.Reader
 	}
-	if config.passwordParameters == (passwordParameters{}) {
-		config.passwordParameters = defaultPasswordParameters()
+	if config.passwordParameters == (localauth.PasswordParameters{}) {
+		config.passwordParameters = localauth.DefaultPasswordParameters()
 	}
-	if !config.passwordParameters.valid() {
+	if !config.passwordParameters.Valid() {
 		return nil, authorityapp.ErrLocalAccountInvalid
 	}
 	service := &Service{
 		store: database, origin: config.Origin, secure: secure,
-		handoffTTL: config.HandoffTTL, sessionTTL: config.SessionTTL,
-		now: config.Now, random: config.Random,
+		sessionTTL: config.SessionTTL,
+		now:        config.Now, random: config.Random,
 		passwordParameters: config.passwordParameters,
 		loginFailures:      newLoginFailureGuard(),
 		passwordSlots:      make(chan struct{}, 2),
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST "+CreateHandoffPath, service.createHandoff)
-	mux.HandleFunc("GET "+CreateHandoffPath+"/{token}", service.consumeHandoff)
 	mux.HandleFunc("GET "+SessionPath, service.getSession)
 	mux.HandleFunc("POST "+LogoutPath, service.logout)
 	mux.HandleFunc("GET "+LocalStatusPath, service.localStatus)
@@ -126,69 +111,6 @@ func New(database sessionStore, config Config) (*Service, error) {
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
-}
-
-func (s *Service) createHandoff(w http.ResponseWriter, r *http.Request) {
-	noStore(w)
-	if !validAuthRequest(r) || r.URL.RawQuery != "" || !emptyBody(r) {
-		writeStatus(w, http.StatusBadRequest)
-		return
-	}
-	credential, ok := authority.BearerCredential(r.Header)
-	if !ok {
-		writeStatus(w, http.StatusUnauthorized)
-		return
-	}
-	principal, err := s.store.AuthenticateHuman(r.Context(), credential)
-	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-		writeStatus(w, http.StatusUnauthorized)
-		return
-	}
-	if err != nil {
-		writeStatus(w, http.StatusInternalServerError)
-		return
-	}
-	token, err := s.randomToken()
-	if err != nil {
-		writeStatus(w, http.StatusInternalServerError)
-		return
-	}
-	now := s.now()
-	expiresAt := now.Add(s.handoffTTL)
-	if err := s.store.CreateBrowserHandoff(r.Context(), authorityapp.CreateBrowserHandoffCommand{
-		Human: principal, Token: token, Now: now, ExpiresAt: expiresAt,
-	}); err != nil {
-		if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-			writeStatus(w, http.StatusUnauthorized)
-			return
-		}
-		writeStatus(w, http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(handoffResponse{Path: CreateHandoffPath + "/" + token, ExpiresAt: expiresAt})
-}
-
-func (s *Service) consumeHandoff(w http.ResponseWriter, r *http.Request) {
-	noStore(w)
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	if validAuthRequest(r) && r.URL.RawQuery == "" {
-		handoff := r.PathValue("token")
-		if opaqueTokenPattern.MatchString(handoff) {
-			session, err := s.randomToken()
-			if err == nil {
-				now := s.now()
-				_, err = s.store.ConsumeBrowserHandoff(r.Context(), authorityapp.ConsumeBrowserHandoffCommand{
-					HandoffToken: handoff, SessionToken: session, Now: now, SessionExpiresAt: now.Add(s.sessionTTL),
-				})
-				if err == nil {
-					http.SetCookie(w, s.sessionCookie(session, now.Add(s.sessionTTL), int(s.sessionTTL.Seconds())))
-				}
-			}
-		}
-	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Service) getSession(w http.ResponseWriter, r *http.Request) {
@@ -274,8 +196,4 @@ func noStore(w http.ResponseWriter) {
 
 func writeStatus(w http.ResponseWriter, status int) {
 	w.WriteHeader(status)
-}
-
-func emptyBody(r *http.Request) bool {
-	return r.ContentLength == 0 && len(r.TransferEncoding) == 0
 }

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/authority"
-	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/observability"
@@ -20,9 +19,6 @@ import (
 )
 
 func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	if len(args) > 0 && args[0] == "auth" {
-		return RunAuth(ctx, args[1:], stdout, stderr)
-	}
 	return RunServer(ctx, args, stdout, stderr)
 }
 
@@ -38,7 +34,6 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 	listen := flags.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	dataRoot := flags.String("data-root", defaultRoot, "Sumi data root")
 	webRoot := flags.String("web-root", "web/dist", "Production Web root")
-	ownerKeyFile := flags.String("owner-key-file", "", "0600 bootstrap owner credential file")
 	browserOrigin := flags.String("browser-origin", "", "loopback browser origin")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -64,19 +59,9 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 	if err != nil {
 		return err
 	}
-	explicitOwnerKey := false
-	flags.Visit(func(visited *flag.Flag) {
-		if visited.Name == "owner-key-file" {
-			explicitOwnerKey = true
-		}
-	})
-	credentialPath := *ownerKeyFile
-	if !explicitOwnerKey {
-		credentialPath = userLayout.HumanCredential
-	}
 	lifecycleLogger.Info("server starting", "event", "server.starting", "listen", *listen, "browser_enabled", resolvedOrigin != "", "web_enabled", *webRoot != "")
 	app, err := server.New(ctx, server.Config{
-		DataRoot: layout.Root, WebRoot: *webRoot, BootstrapCredentialFile: credentialPath, BrowserOrigin: resolvedOrigin, Logger: logger,
+		DataRoot: layout.Root, WebRoot: *webRoot, BrowserOrigin: resolvedOrigin, Logger: logger,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
@@ -118,30 +103,6 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 		lifecycleLogger.Error("server listener stopped unexpectedly", "event", "server.serve.failed", "err", err)
 		return err
 	}
-}
-
-func RunAuth(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	flags := flag.NewFlagSet("sumi-server auth", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	serverURL := flags.String("server", "http://127.0.0.1:8080", "loopback Sumi Server origin")
-	serverPin := flags.String("server-pin", "", "sha256/base64url Server SPKI pin")
-	humanKeyFile := flags.String("human-key-file", "", "0600 Human credential file")
-	if err := flags.Parse(args); err != nil {
-		return err
-	}
-	if flags.NArg() != 0 || *humanKeyFile == "" {
-		return errors.New("auth requires --human-key-file and no positional arguments")
-	}
-	serverEndpoint, err := endpoint.Parse(*serverURL, *serverPin)
-	if err != nil {
-		return errors.New("auth Server endpoint is unsafe")
-	}
-	handoff, err := RequestBrowserHandoff(ctx, serverEndpoint, *humanKeyFile)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(stdout, handoff.URL.String())
-	return err
 }
 
 func resolveBrowserOrigin(listen, explicit string) (string, error) {

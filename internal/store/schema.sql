@@ -384,15 +384,6 @@ CREATE TABLE audit_events (
         OR (context_kind IN ('space', 'thread', 'computer') AND length(context_id) = 36)
     )
 );
-CREATE TABLE browser_handoffs (
-    token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
-    human_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT,
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    consumed_at INTEGER,
-    CHECK (expires_at > created_at),
-    CHECK (consumed_at IS NULL OR (consumed_at >= created_at AND consumed_at <= expires_at))
-);
 CREATE TABLE browser_sessions (
     token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
     human_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT,
@@ -587,7 +578,6 @@ CREATE TABLE humans (
     name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
     role TEXT NOT NULL CHECK (role IN ('owner', 'member')),
     status TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
-    credential_hash BLOB NOT NULL UNIQUE CHECK (length(credential_hash) = 32),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     UNIQUE (organization_id, name)
@@ -764,7 +754,7 @@ CREATE TABLE system_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO system_metadata(key, value) VALUES('schema_version', 'next-greenfield-1');
+INSERT INTO system_metadata(key, value) VALUES('schema_version', 'next-greenfield-2');
 CREATE TABLE threads (
     id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE RESTRICT,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
@@ -960,8 +950,6 @@ CREATE INDEX artifacts_organization_work_created
 ON artifacts(organization_id, owning_work_id, created_at, id);
 CREATE INDEX audit_events_organization_sequence
 ON audit_events(organization_id, sequence);
-CREATE INDEX browser_handoffs_expires_at
-ON browser_handoffs(expires_at);
 CREATE INDEX browser_sessions_human_active
 ON browser_sessions(human_id, expires_at)
 WHERE revoked_at IS NULL;

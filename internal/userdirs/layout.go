@@ -9,10 +9,8 @@ import (
 )
 
 type Layout struct {
-	StateRoot       string
-	Credentials     string
-	HumanCredential string
-	Runtime         string
+	StateRoot string
+	Runtime   string
 }
 
 func Ensure() (Layout, error) {
@@ -24,7 +22,7 @@ func Ensure() (Layout, error) {
 	if err != nil {
 		return Layout{}, err
 	}
-	for _, path := range []string{layout.StateRoot, layout.Credentials, layout.Runtime} {
+	for _, path := range []string{layout.StateRoot, layout.Runtime} {
 		if err := ensurePrivateDirectory(path); err != nil {
 			return Layout{}, err
 		}
@@ -62,11 +60,7 @@ func resolve(home, goos string, getenv func(string) string) (Layout, error) {
 	default:
 		return Layout{}, fmt.Errorf("unsupported operating system %q", goos)
 	}
-	credentials := filepath.Join(stateRoot, "credentials")
-	return Layout{
-		StateRoot: stateRoot, Credentials: credentials,
-		HumanCredential: filepath.Join(credentials, "human.key"), Runtime: runtimeRoot,
-	}, nil
+	return Layout{StateRoot: stateRoot, Runtime: runtimeRoot}, nil
 }
 
 func ensurePrivateDirectory(path string) error {

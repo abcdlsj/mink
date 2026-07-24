@@ -53,7 +53,8 @@ message CreateHumanRequest {
   string request_id = 1;
   string name = 2;
   HumanRole role = 3;
-  string credential = 4;
+  string username = 4;
+  string initial_password = 5;
 }
 
 message CreateHumanResponse {

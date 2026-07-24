@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	organizationapp "github.com/abcdlsj/sumi/internal/organization/application"
@@ -79,91 +80,6 @@ func (s *Store) AuthorityExists(ctx context.Context) (bool, error) {
 	return count > 0, nil
 }
 
-func (s *Store) EnsureAuthority(ctx context.Context, credential string, now time.Time) (AuthorityBootstrap, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return AuthorityBootstrap{}, fmt.Errorf("begin authority bootstrap: %w", err)
-	}
-	defer tx.Rollback()
-
-	bootstrap, err := readAuthorityBootstrap(ctx, tx)
-	if err == nil {
-		if err := verifyBootstrapCredential(ctx, tx, bootstrap.Human.ID, credential); err != nil {
-			return AuthorityBootstrap{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return AuthorityBootstrap{}, fmt.Errorf("commit authority verification: %w", err)
-		}
-		return bootstrap, nil
-	}
-	if !errors.Is(err, ErrAuthorityNotBootstrapped) {
-		return AuthorityBootstrap{}, err
-	}
-
-	organizationID := uuid.NewString()
-	humanID := uuid.NewString()
-	grantID := uuid.NewString()
-	stamp := unixNano(now)
-	keyHash := sha256.Sum256([]byte(credential))
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO organizations(singleton, id, name, bootstrap_human_id, created_at)
-		VALUES(1, ?, 'Sumi', ?, ?)
-	`, organizationID, humanID, stamp); err != nil {
-		return AuthorityBootstrap{}, fmt.Errorf("persist organization bootstrap: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO humans(id, organization_id, name, role, status, credential_hash, created_at, updated_at)
-		VALUES(?, ?, 'Owner', 'owner', 'active', ?, ?, ?)
-	`, humanID, organizationID, keyHash[:], stamp, stamp); err != nil {
-		return AuthorityBootstrap{}, fmt.Errorf("persist bootstrap human: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO grants(
-			id, organization_id, subject_kind, subject_id, issuer_kind, issuer_id,
-			capability, scope_kind, scope_id, parent_grant_id, created_at, updated_at
-		)
-		VALUES(?, ?, 'human', ?, 'system', '', ?, 'organization', ?, '', ?, ?)
-	`, grantID, organizationID, humanID, CapabilityOrganizationAdmin, organizationID, stamp, stamp); err != nil {
-		return AuthorityBootstrap{}, fmt.Errorf("persist bootstrap grant: %w", err)
-	}
-	system := Principal{Kind: "system", OrganizationID: organizationID}
-	for _, event := range []AppendAuditParams{
-		{OrganizationID: organizationID, Actor: system, Action: AuditOrganizationBootstrap, TargetKind: "organization", TargetID: organizationID, Outcome: "committed", Now: now},
-		{OrganizationID: organizationID, Actor: system, Action: AuditHumanCreate, TargetKind: "human", TargetID: humanID, Outcome: "committed", Now: now},
-		{OrganizationID: organizationID, Actor: system, Action: AuditGrantIssue, TargetKind: "grant", TargetID: grantID, Outcome: "committed", Now: now},
-	} {
-		if err := appendAuditEvent(ctx, tx, event); err != nil {
-			return AuthorityBootstrap{}, err
-		}
-	}
-	bootstrap, err = readAuthorityBootstrap(ctx, tx)
-	if err != nil {
-		return AuthorityBootstrap{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return AuthorityBootstrap{}, fmt.Errorf("commit authority bootstrap: %w", err)
-	}
-	return bootstrap, nil
-}
-
-func (s *Store) AuthenticateHuman(ctx context.Context, credential string) (Principal, error) {
-	keyHash := sha256.Sum256([]byte(credential))
-	var principal Principal
-	var status string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT 'human', id, organization_id, status
-		FROM humans
-		WHERE credential_hash = ?
-	`, keyHash[:]).Scan(&principal.Kind, &principal.ID, &principal.OrganizationID, &status)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && status != "active") {
-		return Principal{}, ErrPermissionDenied
-	}
-	if err != nil {
-		return Principal{}, fmt.Errorf("authenticate human: %w", err)
-	}
-	return principal, nil
-}
-
 func (s *Store) GetOrganization(ctx context.Context) (Organization, error) {
 	return scanOrganization(s.db.QueryRowContext(ctx, `
 		SELECT id, name, bootstrap_human_id, created_at
@@ -204,10 +120,10 @@ func (s *Store) ListHumans(ctx context.Context, organizationID string) ([]Human,
 
 func (s *Store) CreateHuman(ctx context.Context, params CreateHumanParams) (Human, error) {
 	fingerprint, err := authorityFingerprint(struct {
-		Name       string `json:"name"`
-		Role       string `json:"role"`
-		Credential string `json:"credential"`
-	}{params.Name, params.Role, params.Credential})
+		Name     string                              `json:"name"`
+		Role     string                              `json:"role"`
+		Identity authorityapp.AuthenticationIdentity `json:"identity"`
+	}{params.Name, params.Role, params.Identity})
 	if err != nil {
 		return Human{}, err
 	}
@@ -227,18 +143,17 @@ func (s *Store) CreateHuman(ctx context.Context, params CreateHumanParams) (Huma
 
 	id := uuid.NewString()
 	stamp := unixNano(params.Now)
-	keyHash := sha256.Sum256([]byte(params.Credential))
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO humans(id, organization_id, name, role, status, credential_hash, created_at, updated_at)
-		VALUES(?, ?, ?, ?, 'active', ?, ?, ?)
-	`, id, params.Actor.OrganizationID, params.Name, params.Role, keyHash[:], stamp, stamp); err != nil {
+		INSERT INTO humans(id, organization_id, name, role, status, created_at, updated_at)
+		VALUES(?, ?, ?, ?, 'active', ?, ?)
+	`, id, params.Actor.OrganizationID, params.Name, params.Role, stamp, stamp); err != nil {
 		if isUniqueConstraint(err, "humans.organization_id, humans.name") {
 			return Human{}, ErrHumanNameExists
 		}
-		if isUniqueConstraint(err, "humans.credential_hash") {
-			return Human{}, ErrHumanCredentialExists
-		}
 		return Human{}, fmt.Errorf("persist human: %w", err)
+	}
+	if err := insertLocalAccount(ctx, tx, id, params.Identity, params.Password, params.Now); err != nil {
+		return Human{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO human_create_requests(request_id, human_id, payload_fingerprint)
@@ -247,6 +162,9 @@ func (s *Store) CreateHuman(ctx context.Context, params CreateHumanParams) (Huma
 		return Human{}, fmt.Errorf("persist human creation request: %w", err)
 	}
 	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditHumanCreate, TargetKind: "human", TargetID: id, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
+		return Human{}, err
+	}
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditAuthIdentityBind, TargetKind: "human", TargetID: id, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
 		return Human{}, err
 	}
 	human, err := scanHuman(tx.QueryRowContext(ctx, humanSelect+" WHERE id = ?", id))
@@ -348,18 +266,6 @@ func readAuthorityBootstrap(ctx context.Context, tx *sql.Tx) (AuthorityBootstrap
 		return AuthorityBootstrap{}, ErrAuthorityMismatch
 	}
 	return AuthorityBootstrap{Organization: organization, Human: human, RootGrant: grant}, nil
-}
-
-func verifyBootstrapCredential(ctx context.Context, tx *sql.Tx, humanID, credential string) error {
-	keyHash := sha256.Sum256([]byte(credential))
-	var matches bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM humans WHERE id = ? AND credential_hash = ?)", humanID, keyHash[:]).Scan(&matches); err != nil {
-		return fmt.Errorf("verify bootstrap credential: %w", err)
-	}
-	if !matches {
-		return ErrAuthorityMismatch
-	}
-	return nil
 }
 
 const humanSelect = `SELECT id, organization_id, name, role, status, created_at, updated_at FROM humans`

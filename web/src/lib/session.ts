@@ -6,7 +6,6 @@ export type BrowserHuman = {
 export type LocalSetupInput = {
   username: string;
   password: string;
-  ownerSetupCode: string;
 };
 
 export type LocalLoginInput = {
@@ -76,7 +75,6 @@ export async function setupLocalAccount(
   return submitLocalAuth("/auth/local/setup", {
     username: input.username,
     password: input.password,
-    bootstrap_credential: input.ownerSetupCode,
   });
 }
 
@@ -119,16 +117,14 @@ function localAuthFailure(path: string, status: number): LocalAuthError {
   if (status === 401) {
     return new LocalAuthError(
       "invalid_credentials",
-      path.endsWith("/setup")
-        ? "The Owner setup code was not accepted."
-        : "Username or password is incorrect.",
+      "Username or password is incorrect.",
     );
   }
   if (status === 400) {
     return new LocalAuthError(
       "invalid_input",
       path.endsWith("/setup")
-        ? "Setup was rejected. Check the username, 12–256 character password, and complete Owner setup code."
+        ? "Setup was rejected. Check the username and 12–256 character password."
         : "Sign-in input was rejected. Check the username and password.",
     );
   }

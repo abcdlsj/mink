@@ -21,7 +21,6 @@ var (
 var browserSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 
 type Authenticator interface {
-	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
 	AuthenticateAgentRuntimeSession(context.Context, string, time.Time) (authorityapp.RuntimeAuthentication, error)
 	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 }
@@ -72,22 +71,12 @@ func Resolve(ctx context.Context, authenticator Authenticator, header http.Heade
 		if !ok {
 			return nil, ErrUnauthenticated
 		}
-		agent, agentErr := authenticator.AuthenticateAgentRuntimeSession(ctx, credential, now)
-		if agentErr != nil && !errors.Is(agentErr, authorityapp.ErrRuntimeUnauthenticated) {
+		agent, err := authenticator.AuthenticateAgentRuntimeSession(ctx, credential, now)
+		if err != nil && !errors.Is(err, authorityapp.ErrRuntimeUnauthenticated) {
 			return nil, ErrUnavailable
 		}
-		human, humanErr := authenticator.AuthenticateHuman(ctx, credential)
-		if humanErr != nil && !errors.Is(humanErr, authoritydomain.ErrPermissionDenied) {
-			return nil, ErrUnavailable
-		}
-		if agentErr == nil && humanErr == nil {
-			return nil, ErrUnauthenticated
-		}
-		if agentErr == nil {
+		if err == nil {
 			return agentResult(agent), nil
-		}
-		if humanErr == nil {
-			return humanResult(human), nil
 		}
 		return nil, ErrUnauthenticated
 	}

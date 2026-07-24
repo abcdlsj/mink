@@ -13,10 +13,6 @@ import (
 
 type subjectKey struct{}
 
-type humanAuthenticator interface {
-	AuthenticateHuman(context.Context, string) (authoritydomain.Principal, error)
-}
-
 type browserSessionAuthenticator interface {
 	AuthenticateBrowserSession(context.Context, string, time.Time) (authoritydomain.Principal, error)
 }
@@ -44,15 +40,15 @@ var browserSessionPattern = func() func(string) bool {
 	}
 }()
 
-func NewBrowserInterceptor(authenticator humanAuthenticator, sessions browserSessionAuthenticator, config BrowserInterceptorConfig) connect.Interceptor {
+func NewBrowserInterceptor(sessions browserSessionAuthenticator, config BrowserInterceptorConfig) connect.Interceptor {
 	protected := procedureSet(config.ProtectedProcedures)
 	if len(config.ProtectedProcedures) == 0 {
 		protected = nil
 	}
-	return newInterceptor(authenticator, protected, config, sessions)
+	return newInterceptor(protected, config, sessions)
 }
 
-func newInterceptor(authenticator humanAuthenticator, protected map[string]struct{}, config BrowserInterceptorConfig, sessions ...browserSessionAuthenticator) connect.Interceptor {
+func newInterceptor(protected map[string]struct{}, config BrowserInterceptorConfig, sessions browserSessionAuthenticator) connect.Interceptor {
 	reads := procedureSet(config.BrowserReadProcedures)
 	now := config.Now
 	if now == nil {
@@ -65,7 +61,7 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 					return next(ctx, req)
 				}
 			}
-			subject, err := authenticateRequest(ctx, req, authenticator, sessions, config.Origin, reads, now())
+			subject, err := authenticateRequest(ctx, req, sessions, config.Origin, reads, now())
 			if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human authentication invalid"))
 			}
@@ -81,15 +77,11 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 	})
 }
 
-func authenticateRequest(ctx context.Context, req connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (authoritydomain.Principal, error) {
+func authenticateRequest(ctx context.Context, req connect.AnyRequest, sessions browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (authoritydomain.Principal, error) {
 	if len(req.Header().Values("Authorization")) > 0 {
-		credential, ok := BearerCredential(req.Header())
-		if !ok {
-			return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
-		}
-		return authenticator.AuthenticateHuman(ctx, credential)
+		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
-	if len(sessions) != 1 || origin == "" || !BrowserRequestAllowed(ctx) {
+	if sessions == nil || origin == "" || !BrowserRequestAllowed(ctx) {
 		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
 	if _, read := browserReads[req.Spec().Procedure]; !read {
@@ -102,7 +94,7 @@ func authenticateRequest(ctx context.Context, req connect.AnyRequest, authentica
 	if !ok {
 		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
-	return sessions[0].AuthenticateBrowserSession(ctx, token, now)
+	return sessions.AuthenticateBrowserSession(ctx, token, now)
 }
 
 func BearerCredential(header http.Header) (string, bool) {
@@ -140,8 +132,20 @@ func Subject(ctx context.Context) (authoritydomain.Principal, error) {
 
 func bearerCredential(header string) (string, bool) {
 	prefix, credential, ok := strings.Cut(header, " ")
-	if !ok || prefix != "Bearer" || !ValidCredential(credential) || strings.Contains(credential, " ") {
+	if !ok || prefix != "Bearer" || !validBearerToken(credential) || strings.Contains(credential, " ") {
 		return "", false
 	}
 	return credential, true
+}
+
+func validBearerToken(s string) bool {
+	if len(s) < 43 || len(s) > 128 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }

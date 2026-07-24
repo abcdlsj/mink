@@ -51,16 +51,14 @@ type Server struct {
 }
 
 type Config struct {
-	DataRoot                string
-	WebRoot                 string
-	BootstrapCredentialFile string
-	BrowserOrigin           string
-	Logger                  *observability.Logger
+	DataRoot      string
+	WebRoot       string
+	BrowserOrigin string
+	Logger        *observability.Logger
 }
 
 func New(ctx context.Context, config Config) (*Server, error) {
 	lifecycleLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryLifecycle)
-	authorityLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryAuthority)
 	artifactLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryArtifact)
 	knowledgeLogger := observability.CategoryLogger(config.Logger, observability.ComponentServer, observability.CategoryKnowledge)
 	if err := authority.ValidateBrowserOrigin(config.BrowserOrigin); err != nil {
@@ -80,25 +78,6 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		database.Close()
 		return nil, err
 	}
-	authorityExists, err := database.AuthorityExists(ctx)
-	if err != nil {
-		database.Close()
-		return nil, err
-	}
-	credentialPath := config.BootstrapCredentialFile
-	if credentialPath == "" {
-		credentialPath = layout.BootstrapCredential
-	}
-	credential, err := authority.EnsureBootstrapCredential(credentialPath, authorityExists)
-	if err != nil {
-		database.Close()
-		return nil, err
-	}
-	if _, err := database.EnsureAuthority(ctx, credential, time.Now()); err != nil {
-		database.Close()
-		return nil, err
-	}
-	authorityLogger.Info("bootstrap authority ready", "event", "authority.bootstrap.ready", "server_id", serverID, "existing", authorityExists)
 	blobs, err := artifactblob.OpenLocal(layout.Artifacts)
 	if err != nil {
 		database.Close()
@@ -117,12 +96,12 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	artifactLogger.Info("artifact inventory reconciled", "event", "artifact.inventory.reconciled", "ready", reconcileResult.Ready, "missing", reconcileResult.Missing, "corrupt", reconcileResult.Corrupt, "quarantined", reconcileResult.Quarantined, "deleted", reconcileResult.Deleted)
 
 	mux := http.NewServeMux()
-	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+	authorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, authority.BrowserInterceptorConfig{
 		Origin: config.BrowserOrigin, BrowserReadProcedures: humanReadProcedures(),
 	}))
 	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
 	mux.Handle(systemPath, systemHandler)
-	computerMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+	computerMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, authority.BrowserInterceptorConfig{
 		Origin: config.BrowserOrigin,
 		ProtectedProcedures: []string{
 			computerv1connect.ComputerServiceCreateComputerPairingProcedure,
@@ -133,7 +112,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}))
 	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database), computerMutationAuthorization)
 	mux.Handle(computerPath, computerHandler)
-	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, authority.BrowserInterceptorConfig{
 		Origin: config.BrowserOrigin,
 		ProtectedProcedures: []string{
 			agentv1connect.AgentServiceCreateAgentProcedure,
@@ -143,7 +122,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	}))
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(agent.New(database), agentMutationAuthorization)
 	mux.Handle(agentPath, agentHandler)
-	placementMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+	placementMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, authority.BrowserInterceptorConfig{
 		Origin:              config.BrowserOrigin,
 		ProtectedProcedures: []string{placementv1connect.PlacementServiceSetAgentPlacementProcedure},
 	}))
@@ -177,7 +156,7 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(grantPath, grantHandler)
 	auditPath, auditHandler := auditv1connect.NewAuditServiceHandler(audit.New(database), authorization)
 	mux.Handle(auditPath, auditHandler)
-	collaborationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
+	collaborationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, authority.BrowserInterceptorConfig{
 		Origin:                config.BrowserOrigin,
 		ProtectedProcedures:   collaborationBrowserProcedures(),
 		BrowserReadProcedures: collaborationBrowserReadProcedures(),

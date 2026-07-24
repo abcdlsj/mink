@@ -3,9 +3,7 @@ import { KeyRound, LogIn, ShieldCheck, UserRound } from "lucide-react";
 import type { useSession } from "../hooks/useSession";
 
 type Session = ReturnType<typeof useSession>;
-type FieldErrors = Partial<
-  Record<"username" | "password" | "ownerSetupCode", string>
->;
+type FieldErrors = Partial<Record<"username" | "password", string>>;
 
 export function LocalAuthPanel({ session }: { session: Session }) {
   const setupRequired =
@@ -17,19 +15,15 @@ export function LocalAuthPanel({ session }: { session: Session }) {
     session.status === "unauthenticated" ? session.authError : undefined;
   const [username, setUsername] = useState(setupRequired ? "owner" : "");
   const [password, setPassword] = useState("");
-  const [ownerSetupCode, setOwnerSetupCode] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const invalid = validateLocalAuth(
-      { username, password, ownerSetupCode },
-      setupRequired,
-    );
+    const invalid = validateLocalAuth({ username, password }, setupRequired);
     setFieldErrors(invalid);
     if (Object.keys(invalid).length > 0) return;
     if (setupRequired) {
-      void session.setup({ username, password, ownerSetupCode });
+      void session.setup({ username, password });
     } else {
       void session.login({ username, password });
     }
@@ -56,7 +50,7 @@ export function LocalAuthPanel({ session }: { session: Session }) {
           </h2>
           <p>
             {setupRequired
-              ? "Join this Sumi as its first Human. The one-time setup code proves you may claim the first Owner account."
+              ? "Create the first Owner account for this Sumi."
               : "Sign in as a Sumi Human. Your password never leaves this Server."}
           </p>
           <dl className="local-auth-facts">
@@ -146,46 +140,6 @@ export function LocalAuthPanel({ session }: { session: Session }) {
             )}
           </label>
 
-          {setupRequired && (
-            <label>
-              <span>Owner setup code</span>
-              <span
-                className={`auth-input-frame ${fieldErrors.ownerSetupCode ? "invalid" : ""}`}
-              >
-                <ShieldCheck size={16} aria-hidden="true" />
-                <input
-                  name="ownerSetupCode"
-                  aria-label="Owner setup code"
-                  aria-describedby="setup-code-rule setup-code-error"
-                  aria-invalid={!!fieldErrors.ownerSetupCode}
-                  type="password"
-                  autoComplete="off"
-                  value={ownerSetupCode}
-                  onChange={(event) =>
-                    edit(
-                      "ownerSetupCode",
-                      setOwnerSetupCode,
-                    )(event.target.value)
-                  }
-                  minLength={43}
-                  maxLength={128}
-                  disabled={pending}
-                  required
-                />
-              </span>
-              <small id="setup-code-rule">
-                Use the one-time code provided when this Sumi Server was
-                created. It is verified once and never becomes an account
-                credential.
-              </small>
-              {fieldErrors.ownerSetupCode && (
-                <small className="auth-field-error" id="setup-code-error">
-                  {fieldErrors.ownerSetupCode}
-                </small>
-              )}
-            </label>
-          )}
-
           {error && (
             <p className="local-auth-error" role="alert">
               {error}
@@ -216,7 +170,6 @@ function validateLocalAuth(
   input: {
     username: string;
     password: string;
-    ownerSetupCode: string;
   },
   setupRequired: boolean,
 ): FieldErrors {
@@ -235,10 +188,6 @@ function validateLocalAuth(
     ) {
       errors.password = "Use 12–256 characters with at least one non-space.";
     }
-  }
-  if (setupRequired && !/^[A-Za-z0-9_-]{43,128}$/.test(input.ownerSetupCode)) {
-    errors.ownerSetupCode =
-      "Paste the complete 43–128 character Owner setup code.";
   }
   return errors;
 }

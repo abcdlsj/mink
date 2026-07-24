@@ -361,13 +361,14 @@ func (x *GetOrganizationResponse) GetOrganization() *Organization {
 }
 
 type CreateHumanRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Role          HumanRole              `protobuf:"varint,3,opt,name=role,proto3,enum=sumi.organization.v1.HumanRole" json:"role,omitempty"`
-	Credential    string                 `protobuf:"bytes,4,opt,name=credential,proto3" json:"credential,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RequestId       string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Role            HumanRole              `protobuf:"varint,3,opt,name=role,proto3,enum=sumi.organization.v1.HumanRole" json:"role,omitempty"`
+	Username        string                 `protobuf:"bytes,4,opt,name=username,proto3" json:"username,omitempty"`
+	InitialPassword string                 `protobuf:"bytes,5,opt,name=initial_password,json=initialPassword,proto3" json:"initial_password,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CreateHumanRequest) Reset() {
@@ -421,9 +422,16 @@ func (x *CreateHumanRequest) GetRole() HumanRole {
 	return HumanRole_HUMAN_ROLE_UNSPECIFIED
 }
 
-func (x *CreateHumanRequest) GetCredential() string {
+func (x *CreateHumanRequest) GetUsername() string {
 	if x != nil {
-		return x.Credential
+		return x.Username
+	}
+	return ""
+}
+
+func (x *CreateHumanRequest) GetInitialPassword() string {
+	if x != nil {
+		return x.InitialPassword
 	}
 	return ""
 }
@@ -767,15 +775,14 @@ const file_sumi_organization_v1_organization_proto_rawDesc = "" +
 	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x18\n" +
 	"\x16GetOrganizationRequest\"a\n" +
 	"\x17GetOrganizationResponse\x12F\n" +
-	"\forganization\x18\x01 \x01(\v2\".sumi.organization.v1.OrganizationR\forganization\"\x9c\x01\n" +
+	"\forganization\x18\x01 \x01(\v2\".sumi.organization.v1.OrganizationR\forganization\"\xc3\x01\n" +
 	"\x12CreateHumanRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x123\n" +
-	"\x04role\x18\x03 \x01(\x0e2\x1f.sumi.organization.v1.HumanRoleR\x04role\x12\x1e\n" +
-	"\n" +
-	"credential\x18\x04 \x01(\tR\n" +
-	"credential\"H\n" +
+	"\x04role\x18\x03 \x01(\x0e2\x1f.sumi.organization.v1.HumanRoleR\x04role\x12\x1a\n" +
+	"\busername\x18\x04 \x01(\tR\busername\x12)\n" +
+	"\x10initial_password\x18\x05 \x01(\tR\x0finitialPassword\"H\n" +
 	"\x13CreateHumanResponse\x121\n" +
 	"\x05human\x18\x01 \x01(\v2\x1b.sumi.organization.v1.HumanR\x05human\",\n" +
 	"\x0fGetHumanRequest\x12\x19\n" +

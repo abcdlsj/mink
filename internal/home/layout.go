@@ -10,15 +10,14 @@ import (
 )
 
 type Layout struct {
-	Root                string
-	Config              string
-	Data                string
-	Artifacts           string
-	Agents              string
-	Cache               string
-	Logs                string
-	Database            string
-	BootstrapCredential string
+	Root      string
+	Config    string
+	Data      string
+	Artifacts string
+	Agents    string
+	Cache     string
+	Logs      string
+	Database  string
 }
 
 func Ensure(root string) (Layout, error) {
@@ -27,15 +26,14 @@ func Ensure(root string) (Layout, error) {
 	}
 
 	layout := Layout{
-		Root:                root,
-		Config:              filepath.Join(root, "config.toml"),
-		Data:                filepath.Join(root, "data"),
-		Artifacts:           filepath.Join(root, "data", "artifacts"),
-		Agents:              filepath.Join(root, "agents"),
-		Cache:               filepath.Join(root, "cache"),
-		Logs:                filepath.Join(root, "logs"),
-		Database:            filepath.Join(root, "data", "server.db"),
-		BootstrapCredential: filepath.Join(root, "owner.key"),
+		Root:      root,
+		Config:    filepath.Join(root, "config.toml"),
+		Data:      filepath.Join(root, "data"),
+		Artifacts: filepath.Join(root, "data", "artifacts"),
+		Agents:    filepath.Join(root, "agents"),
+		Cache:     filepath.Join(root, "cache"),
+		Logs:      filepath.Join(root, "logs"),
+		Database:  filepath.Join(root, "data", "server.db"),
 	}
 
 	for _, dir := range []string{layout.Root, layout.Data, layout.Artifacts, layout.Agents, layout.Cache, layout.Logs} {

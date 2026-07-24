@@ -18,9 +18,9 @@ func (e *Error) Error() string {
 
 func Run(args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return &Error{Message: "a command is required", Code: "MISSING_COMMAND", NextAction: "use 'sumi server', 'sumi computer', 'sumi auth', 'sumi doctor', or an install command"}
+		return &Error{Message: "a command is required", Code: "MISSING_COMMAND", NextAction: "use 'sumi server', 'sumi computer', 'sumi doctor', or an install command"}
 	}
-	return &Error{Message: fmt.Sprintf("unsupported command %q", args[0]), Code: "INVALID_COMMAND", NextAction: "use 'sumi server', 'sumi computer', 'sumi auth', 'sumi doctor', or an install command"}
+	return &Error{Message: fmt.Sprintf("unsupported command %q", args[0]), Code: "INVALID_COMMAND", NextAction: "use 'sumi server', 'sumi computer', 'sumi doctor', or an install command"}
 }
 
 func FormatError(output io.Writer, err error) {
