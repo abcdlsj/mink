@@ -4,7 +4,6 @@ node = "22"
 "go:github.com/bufbuild/buf/cmd/buf" = "1.72.0"
 "go:github.com/wailsapp/wails/v2/cmd/wails" = "2.12.0"
 "go:honnef.co/go/tools/cmd/staticcheck" = "0.6.1"
-buf = "latest"
 
 [tasks.install]
 description = "Install Go and Web dependencies"
