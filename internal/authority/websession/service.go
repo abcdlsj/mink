@@ -124,121 +124,121 @@ func New(database sessionStore, config Config) (*Service, error) {
 	return service, nil
 }
 
-func (s *Service) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	s.handler.ServeHTTP(response, request)
+func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.handler.ServeHTTP(w, r)
 }
 
-func (s *Service) createHandoff(response http.ResponseWriter, request *http.Request) {
-	noStore(response)
-	if !validAuthRequest(request) || request.URL.RawQuery != "" || !emptyBody(request) {
-		writeStatus(response, http.StatusBadRequest)
+func (s *Service) createHandoff(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if !validAuthRequest(r) || r.URL.RawQuery != "" || !emptyBody(r) {
+		writeStatus(w, http.StatusBadRequest)
 		return
 	}
-	credential, ok := authority.BearerCredential(request.Header)
+	credential, ok := authority.BearerCredential(r.Header)
 	if !ok {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	principal, err := s.store.AuthenticateHuman(request.Context(), credential)
+	principal, err := s.store.AuthenticateHuman(r.Context(), credential)
 	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
 	if err != nil {
-		writeStatus(response, http.StatusInternalServerError)
+		writeStatus(w, http.StatusInternalServerError)
 		return
 	}
 	token, err := s.randomToken()
 	if err != nil {
-		writeStatus(response, http.StatusInternalServerError)
+		writeStatus(w, http.StatusInternalServerError)
 		return
 	}
 	now := s.now()
 	expiresAt := now.Add(s.handoffTTL)
-	if err := s.store.CreateBrowserHandoff(request.Context(), authorityapp.CreateBrowserHandoffCommand{
+	if err := s.store.CreateBrowserHandoff(r.Context(), authorityapp.CreateBrowserHandoffCommand{
 		Human: principal, Token: token, Now: now, ExpiresAt: expiresAt,
 	}); err != nil {
 		if errors.Is(err, authoritydomain.ErrPermissionDenied) {
-			writeStatus(response, http.StatusUnauthorized)
+			writeStatus(w, http.StatusUnauthorized)
 			return
 		}
-		writeStatus(response, http.StatusInternalServerError)
+		writeStatus(w, http.StatusInternalServerError)
 		return
 	}
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(response).Encode(handoffResponse{Path: CreateHandoffPath + "/" + token, ExpiresAt: expiresAt})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(handoffResponse{Path: CreateHandoffPath + "/" + token, ExpiresAt: expiresAt})
 }
 
-func (s *Service) consumeHandoff(response http.ResponseWriter, request *http.Request) {
-	noStore(response)
-	response.Header().Set("Referrer-Policy", "no-referrer")
-	if validAuthRequest(request) && request.URL.RawQuery == "" {
-		handoff := request.PathValue("token")
+func (s *Service) consumeHandoff(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if validAuthRequest(r) && r.URL.RawQuery == "" {
+		handoff := r.PathValue("token")
 		if opaqueTokenPattern.MatchString(handoff) {
 			session, err := s.randomToken()
 			if err == nil {
 				now := s.now()
-				_, err = s.store.ConsumeBrowserHandoff(request.Context(), authorityapp.ConsumeBrowserHandoffCommand{
+				_, err = s.store.ConsumeBrowserHandoff(r.Context(), authorityapp.ConsumeBrowserHandoffCommand{
 					HandoffToken: handoff, SessionToken: session, Now: now, SessionExpiresAt: now.Add(s.sessionTTL),
 				})
 				if err == nil {
-					http.SetCookie(response, s.sessionCookie(session, now.Add(s.sessionTTL), int(s.sessionTTL.Seconds())))
+					http.SetCookie(w, s.sessionCookie(session, now.Add(s.sessionTTL), int(s.sessionTTL.Seconds())))
 				}
 			}
 		}
 	}
-	http.Redirect(response, request, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Service) getSession(response http.ResponseWriter, request *http.Request) {
-	noStore(response)
-	if !validAuthRequest(request) || request.URL.RawQuery != "" || len(request.Header.Values("Authorization")) != 0 {
-		writeStatus(response, http.StatusUnauthorized)
+func (s *Service) getSession(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if !validAuthRequest(r) || r.URL.RawQuery != "" || len(r.Header.Values("Authorization")) != 0 {
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	token, ok := sessionToken(request)
+	token, ok := sessionToken(r)
 	if !ok {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	principal, err := s.store.AuthenticateBrowserSession(request.Context(), token, s.now())
+	principal, err := s.store.AuthenticateBrowserSession(r.Context(), token, s.now())
 	if err != nil {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	human, err := s.store.GetHuman(request.Context(), principal.ID)
+	human, err := s.store.GetHuman(r.Context(), principal.ID)
 	if err != nil || human.Status != "active" {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	response.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(response).Encode(sessionResponse{Human: sessionHuman{ID: human.ID, Name: human.Name}})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sessionResponse{Human: sessionHuman{ID: human.ID, Name: human.Name}})
 }
 
-func (s *Service) logout(response http.ResponseWriter, request *http.Request) {
-	noStore(response)
-	if len(request.Header.Values("Authorization")) != 0 {
-		writeStatus(response, http.StatusUnauthorized)
+func (s *Service) logout(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	if len(r.Header.Values("Authorization")) != 0 {
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	if !validAuthRequest(request) || request.URL.RawQuery != "" || request.Header.Get("Origin") != s.origin || len(request.Header.Values("Origin")) != 1 {
-		writeStatus(response, http.StatusForbidden)
+	if !validAuthRequest(r) || r.URL.RawQuery != "" || r.Header.Get("Origin") != s.origin || len(r.Header.Values("Origin")) != 1 {
+		writeStatus(w, http.StatusForbidden)
 		return
 	}
-	token, ok := sessionToken(request)
+	token, ok := sessionToken(r)
 	if !ok {
-		writeStatus(response, http.StatusUnauthorized)
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
 	now := s.now()
-	if err := s.store.RevokeBrowserSession(request.Context(), token, now); err != nil {
-		http.SetCookie(response, s.sessionCookie("", time.Unix(1, 0), -1))
-		writeStatus(response, http.StatusUnauthorized)
+	if err := s.store.RevokeBrowserSession(r.Context(), token, now); err != nil {
+		http.SetCookie(w, s.sessionCookie("", time.Unix(1, 0), -1))
+		writeStatus(w, http.StatusUnauthorized)
 		return
 	}
-	http.SetCookie(response, s.sessionCookie("", time.Unix(1, 0), -1))
-	response.WriteHeader(http.StatusNoContent)
+	http.SetCookie(w, s.sessionCookie("", time.Unix(1, 0), -1))
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Service) randomToken() (string, error) {
@@ -256,26 +256,26 @@ func (s *Service) sessionCookie(value string, expires time.Time, maxAge int) *ht
 	}
 }
 
-func validAuthRequest(request *http.Request) bool {
-	return authority.BrowserRequestAllowed(request.Context())
+func validAuthRequest(r *http.Request) bool {
+	return authority.BrowserRequestAllowed(r.Context())
 }
 
-func sessionToken(request *http.Request) (string, bool) {
-	cookies := request.CookiesNamed(authority.BrowserSessionCookieName)
+func sessionToken(r *http.Request) (string, bool) {
+	cookies := r.CookiesNamed(authority.BrowserSessionCookieName)
 	if len(cookies) != 1 || !opaqueTokenPattern.MatchString(cookies[0].Value) {
 		return "", false
 	}
 	return cookies[0].Value, true
 }
 
-func noStore(response http.ResponseWriter) {
-	response.Header().Set("Cache-Control", "no-store")
+func noStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
 }
 
-func writeStatus(response http.ResponseWriter, status int) {
-	response.WriteHeader(status)
+func writeStatus(w http.ResponseWriter, status int) {
+	w.WriteHeader(status)
 }
 
-func emptyBody(request *http.Request) bool {
-	return request.ContentLength == 0 && len(request.TransferEncoding) == 0
+func emptyBody(r *http.Request) bool {
+	return r.ContentLength == 0 && len(r.TransferEncoding) == 0
 }
