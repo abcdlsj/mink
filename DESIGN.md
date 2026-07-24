@@ -666,11 +666,11 @@ Sumi 使用 `github.com/charmbracelet/log` 作为唯一核心运行日志库。�
 
 实现中较早一次 `mise run test` 有两个 Server app 测试仍绑定旧自由文本 `Sumi Server listening`，因等待 15 秒超时失败；Computer CLI 也有一处同类旧文本 oracle。这是测试合同未跟随日志升级，不是 Server 或 Computer 启动失败。它们已改为匹配稳定 `event` 和字段，focused 与最终 full suite 均通过；保留这段失败历史，不宣称首轮全绿。本轮不改变 proto、SQLite schema、产品事实、权限、Audit、transaction、replay、lease 或 fence 语义；未重复运行无日志交互变更的 Playwright。
 
-## 32. 2026-07-24 Collaboration shell 与首次连接
+## 32. 2026-07-24 首次连接与 IM 视觉收口
 
-Web 的视觉结构采用 Discord-like 的协作语法，而不是复制 Discord 品牌：深浅分层的全局 rail、会话导航、主内容与 context 四层表面；Space、DM、Human、Agent 和在线状态是主要识别物；选中、未读与可操作状态使用紧凑圆角 affordance。界面继续 Conversation-first，Work 只以消息锚点、thread 和安静状态摘要出现，不增加项目管理式常驻导航。去掉网格纸与机械控制台隐喻，主时间线不漂浮在无意义的大面积留白中。Light、dark、360px 响应式、键盘 focus、tooltip 与 reduced-motion 仍是硬合同。
+Web 继续使用 Quiet Operations Desk 的 `48px rail + 264px navigation + fluid conversation + 360px context` 骨架，不引入 Discord 式深色社群 rail 或身份服务器隐喻。视觉目标是克制、温和、可信的协作 IM：会话目录以轻量选中态和清楚的对象图标建立方位；消息流使用 Human/Agent 可区分的圆形头像、舒适正文节奏与只在 hover/focus 出现的 Thread 动作；Composer 是主行动锚点，空态、认证和管理页使用同一套层级、圆角和状态反馈。Light、dark、360px 响应式、键盘 focus、tooltip 与 reduced-motion 仍是硬合同。
 
-Local Owner setup 是“加入这台 Sumi”的 welcome flow。Username 必须明确显示服务端同一规则：3–32 位，只允许 ASCII 字母、数字、点、下划线和连字符；password 为 12–256 个 Unicode 字符；Owner setup key 为 canonical base64url credential。浏览器在提交前提供字段级反馈，400 响应映射回同一组可操作规则；Server 仍是权威校验。UI 不显示、记录或持久化 setup key，也不读取失败响应 body。
+Local Owner setup 是首次加入 Sumi 的 welcome flow。Username 必须明确显示服务端同一规则：3–32 位，只允许 ASCII 字母、数字、点、下划线和连字符；password 为 12–256 个 Unicode 字符；Owner setup key 为 canonical base64url credential。浏览器在提交前提供字段级反馈，400 响应映射回同一组可操作规则；Server 仍是权威校验。UI 不显示、记录或持久化 setup key，也不读取失败响应 body。
 
 Computer 首次连接采用三步引导：创建一次性 pairing、下载 pairing bundle、复制本地启动命令并等待 Computer 出现在目录。浏览器生成 canonical UUID、32-byte random base64url token 与 10 分钟 UTC expiry，通过当前 authenticated Human session 调用 `CreateComputerPairing`。下载文件名固定为 `sumi-computer-pairing.json`，内容复用 `pairing.Bundle` v1 schema；token 只进入内存中的 bundle 和下载文件，不进入页面、命令、URL、日志、localStorage 或 shell history。复制命令必须先把下载文件收紧到 0600，再依次执行 `sumi computer pair join --file ...` 与 `sumi computer start`。
 

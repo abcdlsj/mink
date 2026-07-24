@@ -44,13 +44,16 @@ export function ConversationTimeline({
       {snapshot.messages.length === 0 ? (
         <div className="empty-state compact-empty">
           <MessageSquareText size={28} />
-          <h2>No messages yet</h2>
-          <p>Send the first message in this Space.</p>
+          <h2>Start the conversation</h2>
+          <p>Messages, decisions, and shared work will stay together here.</p>
         </div>
       ) : (
         <ol className="message-list" aria-label="Messages">
           {snapshot.messages.map((message) => (
-            <li className="message-row" key={message.id}>
+            <li
+              className={`message-row message-${authorKind(message)}`}
+              key={message.id}
+            >
               <div className="message-avatar" aria-hidden="true">
                 {authorName(message, humans, agents).slice(0, 1).toUpperCase()}
               </div>
@@ -81,6 +84,10 @@ export function ConversationTimeline({
       )}
     </div>
   );
+}
+
+function authorKind(message: Message) {
+  return message.author?.kind === PrincipalKind.AGENT ? "agent" : "human";
 }
 
 export function authorName(

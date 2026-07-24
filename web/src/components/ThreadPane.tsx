@@ -1,4 +1,5 @@
 import { ArrowLeft, MessageSquareText, RotateCw, X } from "lucide-react";
+import { PrincipalKind, type Message } from "../gen/sumi/space/v1/space_pb";
 import type { DirectorySnapshot, ThreadSnapshot } from "../lib/collaboration";
 import { authorName } from "./ConversationTimeline";
 import { MessageComposer } from "./MessageComposer";
@@ -86,11 +87,20 @@ export function ThreadPane({
                 )}
               </div>
             )}
-            <article className="thread-root">
-              <strong>
-                {authorName(snapshot.root, directory.humans, directory.agents)}
-              </strong>
-              <p>{snapshot.root.body}</p>
+            <article
+              className={`thread-root thread-${threadAuthorKind(snapshot.root)}`}
+            >
+              <ThreadAvatar message={snapshot.root} directory={directory} />
+              <div>
+                <strong>
+                  {authorName(
+                    snapshot.root,
+                    directory.humans,
+                    directory.agents,
+                  )}
+                </strong>
+                <p>{snapshot.root.body}</p>
+              </div>
             </article>
             {snapshot.replies.length === 0 ? (
               <div className="thread-empty">
@@ -100,11 +110,17 @@ export function ThreadPane({
             ) : (
               <ol className="thread-reply-list" aria-label="Thread replies">
                 {snapshot.replies.map((reply) => (
-                  <li key={reply.id}>
-                    <strong>
-                      {authorName(reply, directory.humans, directory.agents)}
-                    </strong>
-                    <p>{reply.body}</p>
+                  <li
+                    className={`thread-reply thread-${threadAuthorKind(reply)}`}
+                    key={reply.id}
+                  >
+                    <ThreadAvatar message={reply} directory={directory} />
+                    <div>
+                      <strong>
+                        {authorName(reply, directory.humans, directory.agents)}
+                      </strong>
+                      <p>{reply.body}</p>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -127,4 +143,24 @@ export function ThreadPane({
       )}
     </>
   );
+}
+
+function ThreadAvatar({
+  message,
+  directory,
+}: {
+  message: Message;
+  directory: DirectorySnapshot;
+}) {
+  return (
+    <span className="thread-avatar" aria-hidden="true">
+      {authorName(message, directory.humans, directory.agents)
+        .slice(0, 1)
+        .toUpperCase()}
+    </span>
+  );
+}
+
+function threadAuthorKind(message: Message) {
+  return message.author?.kind === PrincipalKind.AGENT ? "agent" : "human";
 }
