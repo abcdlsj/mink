@@ -1,120 +1,119 @@
 package run
 
 import (
-	"errors"
-
-	"connectrpc.com/connect"
 	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	executiondomain "github.com/abcdlsj/sumi/internal/execution/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func runMessage(value executionapp.Run) (*runv1.Run, error) {
-	if err := executiondomain.ValidateRun(executionRun(value)); err != nil {
-		return nil, internalError()
+var stateToRunProto = map[string]runv1.RunState{
+	"queued":     runv1.RunState_RUN_STATE_QUEUED,
+	"running":    runv1.RunState_RUN_STATE_RUNNING,
+	"succeeded":  runv1.RunState_RUN_STATE_SUCCEEDED,
+	"failed":     runv1.RunState_RUN_STATE_FAILED,
+	"cancelled":  runv1.RunState_RUN_STATE_CANCELLED,
+}
+
+func runToProto(v executionapp.Run) (*runv1.Run, error) {
+	if err := executiondomain.ValidateRun(toExecRun(v)); err != nil {
+		return nil, servicesvc.ErrInternal
 	}
-	target, err := messagecodec.Target(value.Target)
+	target, err := messagecodec.Target(v.Target)
 	if err != nil {
 		return nil, err
 	}
-	message := &runv1.Run{
-		Sequence: value.Sequence, Id: value.ID, AgentId: value.AgentID, InboxItemId: value.InboxItemID,
-		TriggerMessageId: value.TriggerMessageID, SpaceId: value.SpaceID, Target: target,
-		TriggerTargetSequence: value.TriggerTargetSequence, InputBasisTargetSequence: value.InputBasisTargetSequence,
-		Attempt: value.Attempt, LeaseHolderComputerId: value.LeaseHolderComputerID, Fence: value.Fence,
-		PlacementDesiredRevision: value.PlacementDesiredRevision,
-		Usage:                    &runv1.RunUsage{InputUnits: value.Usage.InputUnits, OutputUnits: value.Usage.OutputUnits},
-		ErrorCode:                value.ErrorCode, CreatedAt: timestamppb.New(value.CreatedAt),
+	state, ok := stateToRunProto[v.State]
+	if !ok {
+		return nil, servicesvc.ErrInternal
 	}
-	switch value.State {
-	case executionappStateQueued:
-		message.State = runv1.RunState_RUN_STATE_QUEUED
-	case executionappStateRunning:
-		message.State = runv1.RunState_RUN_STATE_RUNNING
-	case executionappStateSucceeded:
-		message.State = runv1.RunState_RUN_STATE_SUCCEEDED
-	case executionappStateFailed:
-		message.State = runv1.RunState_RUN_STATE_FAILED
-	case executionappStateCancelled:
-		message.State = runv1.RunState_RUN_STATE_CANCELLED
-	default:
-		return nil, internalError()
+	msg := &runv1.Run{
+		Sequence: v.Sequence, Id: v.ID, AgentId: v.AgentID,
+		InboxItemId: v.InboxItemID, TriggerMessageId: v.TriggerMessageID,
+		SpaceId: v.SpaceID, Target: target,
+		TriggerTargetSequence:       v.TriggerTargetSequence,
+		InputBasisTargetSequence:    v.InputBasisTargetSequence,
+		Attempt:                     v.Attempt,
+		LeaseHolderComputerId:       v.LeaseHolderComputerID,
+		Fence:                       v.Fence,
+		PlacementDesiredRevision:    v.PlacementDesiredRevision,
+		State: state,
+		Usage: &runv1.RunUsage{
+			InputUnits: v.Usage.InputUnits, OutputUnits: v.Usage.OutputUnits,
+		},
+		ErrorCode: v.ErrorCode,
+		CreatedAt: servicesvc.Ts(v.CreatedAt),
 	}
-	switch value.ResultKind {
+	switch v.ResultKind {
 	case "":
 	case executionapp.ResultMessage:
-		message.ResultRef = &runv1.Run_ResultMessageId{ResultMessageId: value.ResultID}
+		msg.ResultRef = &runv1.Run_ResultMessageId{ResultMessageId: v.ResultID}
 	case executionapp.ResultHeldDraft:
-		message.ResultRef = &runv1.Run_ResultHeldDraftId{ResultHeldDraftId: value.ResultID}
+		msg.ResultRef = &runv1.Run_ResultHeldDraftId{ResultHeldDraftId: v.ResultID}
 	default:
-		return nil, internalError()
+		return nil, servicesvc.ErrInternal
 	}
-	if value.LeaseExpiresAt != nil {
-		message.LeaseExpiresAt = timestamppb.New(*value.LeaseExpiresAt)
+	if v.LeaseExpiresAt != nil {
+		msg.LeaseExpiresAt = servicesvc.Ts(*v.LeaseExpiresAt)
 	}
-	if value.StartedAt != nil {
-		message.StartedAt = timestamppb.New(*value.StartedAt)
+	if v.StartedAt != nil {
+		msg.StartedAt = servicesvc.Ts(*v.StartedAt)
 	}
-	if value.CompletedAt != nil {
-		message.CompletedAt = timestamppb.New(*value.CompletedAt)
+	if v.CompletedAt != nil {
+		msg.CompletedAt = servicesvc.Ts(*v.CompletedAt)
 	}
-	if value.CancelledAt != nil {
-		message.CancelledAt = timestamppb.New(*value.CancelledAt)
+	if v.CancelledAt != nil {
+		msg.CancelledAt = servicesvc.Ts(*v.CancelledAt)
 	}
-	return message, nil
+	return msg, nil
 }
 
-const (
-	executionappStateQueued    = "queued"
-	executionappStateRunning   = "running"
-	executionappStateSucceeded = "succeeded"
-	executionappStateFailed    = "failed"
-	executionappStateCancelled = "cancelled"
-)
-
-func executionRun(value executionapp.Run) executiondomain.Run {
+func toExecRun(v executionapp.Run) executiondomain.Run {
 	return executiondomain.Run{
-		State: executiondomain.RunState(value.State), InputBasisTargetSequence: value.InputBasisTargetSequence,
-		Attempt: value.Attempt, LeaseHolderComputerID: value.LeaseHolderComputerID, LeaseExpiresAt: value.LeaseExpiresAt,
-		Fence: value.Fence, PlacementDesiredRevision: value.PlacementDesiredRevision,
-		ResultKind: executiondomain.ResultKind(value.ResultKind), ResultID: value.ResultID, ErrorCode: value.ErrorCode,
-		StartedAt: value.StartedAt, CompletedAt: value.CompletedAt, CancelledAt: value.CancelledAt,
+		State:                   executiondomain.RunState(v.State),
+		InputBasisTargetSequence: v.InputBasisTargetSequence,
+		Attempt:                 v.Attempt,
+		LeaseHolderComputerID:   v.LeaseHolderComputerID,
+		LeaseExpiresAt:          v.LeaseExpiresAt,
+		Fence:                   v.Fence,
+		PlacementDesiredRevision: v.PlacementDesiredRevision,
+		ResultKind:              executiondomain.ResultKind(v.ResultKind),
+		ResultID:                v.ResultID,
+		ErrorCode:               v.ErrorCode,
+		StartedAt:               v.StartedAt,
+		CompletedAt:             v.CompletedAt,
+		CancelledAt:             v.CancelledAt,
 	}
 }
 
-func completeResponse(value executionapp.CompleteRunResult) (*runv1.CompleteRunResponse, error) {
-	run, err := runMessage(value.Run)
-	if err != nil || value.CommittedAt.IsZero() {
-		return nil, internalError()
+func completeResponse(v executionapp.CompleteRunResult) (*runv1.CompleteRunResponse, error) {
+	run, err := runToProto(v.Run)
+	if err != nil || v.CommittedAt.IsZero() {
+		return nil, servicesvc.ErrInternal
 	}
-	response := &runv1.CompleteRunResponse{Run: run, CommittedAt: timestamppb.New(value.CommittedAt)}
-	switch value.Kind {
+	resp := &runv1.CompleteRunResponse{Run: run, CommittedAt: servicesvc.Ts(v.CommittedAt)}
+	switch v.Kind {
 	case executionapp.ResultMessage:
-		if value.Message == nil || value.HeldDraft != nil {
-			return nil, internalError()
+		if v.Message == nil || v.HeldDraft != nil {
+			return nil, servicesvc.ErrInternal
 		}
-		message, err := messagecodec.Message(*value.Message)
+		msg, err := messagecodec.Message(*v.Message)
 		if err != nil {
 			return nil, err
 		}
-		response.Result = &runv1.CompleteRunResponse_Message{Message: message}
+		resp.Result = &runv1.CompleteRunResponse_Message{Message: msg}
 	case executionapp.ResultHeldDraft:
-		if value.Message != nil || value.HeldDraft == nil {
-			return nil, internalError()
+		if v.Message != nil || v.HeldDraft == nil {
+			return nil, servicesvc.ErrInternal
 		}
-		draft, err := messagecodec.HeldDraft(*value.HeldDraft)
+		draft, err := messagecodec.HeldDraft(*v.HeldDraft)
 		if err != nil {
 			return nil, err
 		}
-		response.Result = &runv1.CompleteRunResponse_HeldDraft{HeldDraft: draft}
+		resp.Result = &runv1.CompleteRunResponse_HeldDraft{HeldDraft: draft}
 	default:
-		return nil, internalError()
+		return nil, servicesvc.ErrInternal
 	}
-	return response, nil
-}
-
-func internalError() error {
-	return connect.NewError(connect.CodeInternal, errors.New("agent run operation failed"))
+	return resp, nil
 }

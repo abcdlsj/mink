@@ -35,16 +35,16 @@ func TestCapabilityMapping(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(string(test.domain), func(t *testing.T) {
-			domain, ok := capabilityName(test.proto)
+			domain, ok := capName(test.proto)
 			if !ok || domain != test.domain {
-				t.Fatalf("capabilityName(%v) = %q, %v", test.proto, domain, ok)
+				t.Fatalf("capName(%v) = %q, %v", test.proto, domain, ok)
 			}
-			if proto := capabilityValue(test.domain); proto != test.proto {
-				t.Fatalf("capabilityValue(%q) = %v", test.domain, proto)
+			if proto := capValue(test.domain); proto != test.proto {
+				t.Fatalf("capValue(%q) = %v", test.domain, proto)
 			}
 		})
 	}
-	if _, ok := capabilityName(grantv1.Capability_CAPABILITY_UNSPECIFIED); ok {
+	if _, ok := capName(grantv1.Capability_CAPABILITY_UNSPECIFIED); ok {
 		t.Fatal("unspecified capability mapped to a domain capability")
 	}
 }

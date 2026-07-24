@@ -2,272 +2,263 @@ package computer
 
 import (
 	"encoding/base64"
-	"errors"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
-	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 )
 
-func credentialKindName(value computerv1.CredentialKind) (string, bool) {
-	switch value {
-	case computerv1.CredentialKind_CREDENTIAL_KIND_OPENAI:
-		return "openai", true
-	case computerv1.CredentialKind_CREDENTIAL_KIND_ANTHROPIC:
-		return "anthropic", true
-	case computerv1.CredentialKind_CREDENTIAL_KIND_CODEX_ADAPTER:
-		return "codex_adapter", true
-	case computerv1.CredentialKind_CREDENTIAL_KIND_CLAUDE_ADAPTER:
-		return "claude_adapter", true
-	default:
-		return "", false
-	}
+var credKindMap = map[computerv1.CredentialKind]string{
+	computerv1.CredentialKind_CREDENTIAL_KIND_OPENAI:         "openai",
+	computerv1.CredentialKind_CREDENTIAL_KIND_ANTHROPIC:      "anthropic",
+	computerv1.CredentialKind_CREDENTIAL_KIND_CODEX_ADAPTER:  "codex_adapter",
+	computerv1.CredentialKind_CREDENTIAL_KIND_CLAUDE_ADAPTER: "claude_adapter",
 }
 
-func sealedCredential(value *computerv1.SealedCredential) (computerapp.SealedCredential, error) {
-	if value == nil || value.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 ||
-		value.GetKeyId() == "" || len(value.GetEphemeralPublicKey()) != 32 || len(value.GetNonce()) != 24 ||
-		len(value.GetCiphertext()) < 17 || len(value.GetCiphertext()) > 65552 {
-		return computerapp.SealedCredential{}, connect.NewError(connect.CodeInvalidArgument, errors.New("sealed credential is invalid"))
+func credKindFromProto(kind computerv1.CredentialKind) (string, bool) {
+	v, ok := credKindMap[kind]
+	return v, ok
+}
+
+var osFromProto = map[computerv1.OperatingSystem]computerdomain.OperatingSystem{
+	computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS: computerdomain.OperatingSystemMacOS,
+	computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX: computerdomain.OperatingSystemLinux,
+}
+
+var archFromProto = map[computerv1.Architecture]computerdomain.Architecture{
+	computerv1.Architecture_ARCHITECTURE_ARM64: computerdomain.ArchitectureARM64,
+	computerv1.Architecture_ARCHITECTURE_AMD64: computerdomain.ArchitectureAMD64,
+}
+
+func parseSealedCredential(v *computerv1.SealedCredential) (computerapp.SealedCredential, error) {
+	if v == nil ||
+		v.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 ||
+		v.GetKeyId() == "" || len(v.GetEphemeralPublicKey()) != 32 ||
+		len(v.GetNonce()) != 24 || len(v.GetCiphertext()) < 17 || len(v.GetCiphertext()) > 65552 {
+		return computerapp.SealedCredential{}, servicesvc.InvalArg("sealed credential is invalid")
 	}
 	return computerapp.SealedCredential{
-		Algorithm: "x25519_xchacha20_poly1305", KeyID: value.GetKeyId(),
-		EphemeralPublicKey: append([]byte(nil), value.GetEphemeralPublicKey()...),
-		Nonce:              append([]byte(nil), value.GetNonce()...), Ciphertext: append([]byte(nil), value.GetCiphertext()...),
+		Algorithm: "x25519_xchacha20_poly1305", KeyID: v.GetKeyId(),
+		EphemeralPublicKey: append([]byte(nil), v.GetEphemeralPublicKey()...),
+		Nonce:              append([]byte(nil), v.GetNonce()...),
+		Ciphertext:         append([]byte(nil), v.GetCiphertext()...),
 	}, nil
 }
 
-func credentialCompletionValid(handle, errorCode string) bool {
+func completionValid(handle, errorCode string) bool {
 	succeeded := len(handle) >= 16 && len(handle) <= 255 && errorCode == ""
-	failed := handle == "" && (errorCode == "key_unavailable" || errorCode == "decrypt_failed" || errorCode == "store_unavailable" || errorCode == "binding_failed")
+	failed := handle == "" && (errorCode == "key_unavailable" || errorCode == "decrypt_failed" ||
+		errorCode == "store_unavailable" || errorCode == "binding_failed")
 	return succeeded || failed
 }
 
 func pairingTokenValid(token string) error {
 	decoded, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != token {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("pairing token is invalid"))
+		return servicesvc.InvalArg("pairing token is invalid")
 	}
 	return nil
 }
 
-func pairParams(request *computerv1.RegisterComputerRequest, now time.Time) (computerapp.PairCommand, error) {
-	requestID := request.GetRequestId()
+func pairParams(msg *computerv1.RegisterComputerRequest, now time.Time) (computerapp.PairCommand, error) {
+	requestID := msg.GetRequestId()
 	if requestID == "" {
-		return computerapp.PairCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("request id is required"))
+		return computerapp.PairCommand{}, servicesvc.InvalArg("request id is required")
 	}
-	if err := pairingTokenValid(request.GetPairingToken()); err != nil {
+	if err := pairingTokenValid(msg.GetPairingToken()); err != nil {
 		return computerapp.PairCommand{}, err
 	}
-	if err := registrationKeyValid(request.GetRegistrationKey()); err != nil {
+	if err := registrationKeyValid(msg.GetRegistrationKey()); err != nil {
 		return computerapp.PairCommand{}, err
 	}
-	if err := displayNameValid(request.GetName()); err != nil {
+	if err := validateName(msg.GetName()); err != nil {
 		return computerapp.PairCommand{}, err
 	}
-	os, ok := operatingSystem(request.GetOs())
+	os, ok := osFromProto[msg.GetOs()]
 	if !ok {
-		return computerapp.PairCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("operating system must be macos or linux"))
+		return computerapp.PairCommand{}, servicesvc.InvalArg("operating system must be macos or linux")
 	}
-	arch, ok := architecture(request.GetArch())
+	arch, ok := archFromProto[msg.GetArch()]
 	if !ok {
-		return computerapp.PairCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("architecture must be arm64 or amd64"))
+		return computerapp.PairCommand{}, servicesvc.InvalArg("architecture must be arm64 or amd64")
 	}
-	inventory, err := capabilityInventory(request.GetCapabilityInventory())
+	inventory, err := parseCapabilityInventory(msg.GetCapabilityInventory())
 	if err != nil {
 		return computerapp.PairCommand{}, err
 	}
 	return computerapp.PairCommand{
-		RequestID: requestID, PairingToken: request.GetPairingToken(),
-		RegistrationKey: request.GetRegistrationKey(), Name: request.GetName(), OS: os, Arch: arch,
+		RequestID: requestID, PairingToken: msg.GetPairingToken(),
+		RegistrationKey: msg.GetRegistrationKey(), Name: msg.GetName(),
+		OS: os, Arch: arch,
 		CapabilityInventory: inventory, Now: now,
 	}, nil
 }
 
 func registrationKeyValid(key string) error {
 	if key == "" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("registration key is required"))
+		return servicesvc.InvalArg("registration key is required")
 	}
 	if len(key) > 256 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("registration key is too long"))
+		return servicesvc.InvalArg("registration key is too long")
 	}
 	return nil
 }
 
-func displayNameValid(name string) error {
+func validateName(name string) error {
 	if !utf8.ValidString(name) || name != strings.TrimSpace(name) {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("computer name is invalid"))
+		return servicesvc.InvalArg("computer name is invalid")
 	}
-	size := utf8.RuneCountInString(name)
-	if size < 1 || size > 100 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("computer name must contain 1 to 100 characters"))
+	n := utf8.RuneCountInString(name)
+	if n < 1 || n > 100 {
+		return servicesvc.InvalArg("computer name must contain 1 to 100 characters")
 	}
-	for _, character := range name {
-		if unicode.IsControl(character) {
-			return connect.NewError(connect.CodeInvalidArgument, errors.New("computer name is invalid"))
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return servicesvc.InvalArg("computer name is invalid")
 		}
 	}
 	return nil
 }
 
-func operatingSystem(value computerv1.OperatingSystem) (computerdomain.OperatingSystem, bool) {
-	switch value {
-	case computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS:
-		return computerdomain.OperatingSystemMacOS, true
-	case computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX:
-		return computerdomain.OperatingSystemLinux, true
-	default:
-		return "", false
+func parseCapabilityInventory(v *computerv1.CapabilityInventoryDeclaration) (computerdomain.CapabilityInventory, error) {
+	if v == nil || v.GetCredentialDelivery() == nil {
+		return computerdomain.CapabilityInventory{}, invCap()
 	}
-}
-
-func architecture(value computerv1.Architecture) (computerdomain.Architecture, bool) {
-	switch value {
-	case computerv1.Architecture_ARCHITECTURE_ARM64:
-		return computerdomain.ArchitectureARM64, true
-	case computerv1.Architecture_ARCHITECTURE_AMD64:
-		return computerdomain.ArchitectureAMD64, true
-	default:
-		return "", false
+	inv := computerdomain.CapabilityInventory{
+		Engines:   make([]computerdomain.EngineCapability, 0, len(v.GetEngines())),
+		Sandboxes: make([]computerdomain.SandboxCapability, 0, len(v.GetSandboxes())),
 	}
-}
-
-func capabilityInventory(value *computerv1.CapabilityInventoryDeclaration) (computerdomain.CapabilityInventory, error) {
-	if value == nil || value.GetCredentialDelivery() == nil {
-		return computerdomain.CapabilityInventory{}, invalidCapabilityInventory()
-	}
-	inventory := computerdomain.CapabilityInventory{
-		Engines:   make([]computerdomain.EngineCapability, 0, len(value.GetEngines())),
-		Sandboxes: make([]computerdomain.SandboxCapability, 0, len(value.GetSandboxes())),
-	}
-	for _, value := range value.GetEngines() {
-		engine, err := engineCapability(value)
+	for _, e := range v.GetEngines() {
+		engine, err := parseEngineCap(e)
 		if err != nil {
 			return computerdomain.CapabilityInventory{}, err
 		}
-		inventory.Engines = append(inventory.Engines, engine)
+		inv.Engines = append(inv.Engines, engine)
 	}
-	for _, value := range value.GetSandboxes() {
-		sandbox, err := sandboxCapability(value)
+	for _, s := range v.GetSandboxes() {
+		sb, err := parseSandboxCap(s)
 		if err != nil {
 			return computerdomain.CapabilityInventory{}, err
 		}
-		inventory.Sandboxes = append(inventory.Sandboxes, sandbox)
+		inv.Sandboxes = append(inv.Sandboxes, sb)
 	}
-	credential, err := credentialDeliveryCapability(value.GetCredentialDelivery())
+	cred, err := parseCredDeliveryCap(v.GetCredentialDelivery())
 	if err != nil {
 		return computerdomain.CapabilityInventory{}, err
 	}
-	inventory.CredentialDelivery = credential
-	if !inventory.ValidDeclaration() {
-		return computerdomain.CapabilityInventory{}, invalidCapabilityInventory()
+	inv.CredentialDelivery = cred
+	if !inv.ValidDeclaration() {
+		return computerdomain.CapabilityInventory{}, invCap()
 	}
-	return inventory, nil
+	return inv, nil
 }
 
-func engineCapability(value *computerv1.EngineCapability) (computerdomain.EngineCapability, error) {
-	if value == nil {
-		return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+func parseEngineCap(v *computerv1.EngineCapability) (computerdomain.EngineCapability, error) {
+	if v == nil {
+		return computerdomain.EngineCapability{}, invCap()
 	}
-	engine := computerdomain.EngineCapability{
-		Version: value.GetVersion(), ProtocolVersion: value.GetProtocolVersion(),
-		SupportsToolCalls: value.GetSupportsToolCalls(), SupportsCancel: value.GetSupportsCancel(),
+	e := computerdomain.EngineCapability{
+		Version: v.GetVersion(), ProtocolVersion: v.GetProtocolVersion(),
+		SupportsToolCalls: v.GetSupportsToolCalls(), SupportsCancel: v.GetSupportsCancel(),
 	}
-	switch value.GetEngine() {
+	switch v.GetEngine() {
 	case agentv1.EngineKind_ENGINE_KIND_BUILTIN:
-		engine.Kind = computerdomain.EngineBuiltin
+		e.Kind = computerdomain.EngineBuiltin
 	case agentv1.EngineKind_ENGINE_KIND_CODEX_ADAPTER:
-		engine.Kind = computerdomain.EngineCodexAdapter
+		e.Kind = computerdomain.EngineCodexAdapter
 	case agentv1.EngineKind_ENGINE_KIND_CLAUDE_ADAPTER:
-		engine.Kind = computerdomain.EngineClaudeAdapter
+		e.Kind = computerdomain.EngineClaudeAdapter
 	default:
-		return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+		return computerdomain.EngineCapability{}, invCap()
 	}
-	switch value.GetHealth() {
+	switch v.GetHealth() {
 	case computerv1.CapabilityHealth_CAPABILITY_HEALTH_HEALTHY:
-		engine.Healthy = true
+		e.Healthy = true
 	case computerv1.CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE:
 	default:
-		return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+		return computerdomain.EngineCapability{}, invCap()
 	}
-	seenProtocols := make(map[agentv1.ProviderProtocol]struct{}, len(value.GetProviderProtocols()))
-	for _, protocol := range value.GetProviderProtocols() {
-		if _, duplicate := seenProtocols[protocol]; duplicate {
-			return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+	seen := make(map[agentv1.ProviderProtocol]struct{}, len(v.GetProviderProtocols()))
+	for _, pp := range v.GetProviderProtocols() {
+		if _, dup := seen[pp]; dup {
+			return computerdomain.EngineCapability{}, invCap()
 		}
-		seenProtocols[protocol] = struct{}{}
-		switch protocol {
+		seen[pp] = struct{}{}
+		switch pp {
 		case agentv1.ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES:
-			engine.OpenAIResponses = true
+			e.OpenAIResponses = true
 		case agentv1.ProviderProtocol_PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES:
-			engine.AnthropicMessages = true
+			e.AnthropicMessages = true
 		default:
-			return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+			return computerdomain.EngineCapability{}, invCap()
 		}
 	}
-	if !engine.Valid() {
-		return computerdomain.EngineCapability{}, invalidCapabilityInventory()
+	if !e.Valid() {
+		return computerdomain.EngineCapability{}, invCap()
 	}
-	return engine, nil
+	return e, nil
 }
 
-func sandboxCapability(value *computerv1.SandboxCapability) (computerdomain.SandboxCapability, error) {
-	if value == nil {
-		return computerdomain.SandboxCapability{}, invalidCapabilityInventory()
+func parseSandboxCap(v *computerv1.SandboxCapability) (computerdomain.SandboxCapability, error) {
+	if v == nil {
+		return computerdomain.SandboxCapability{}, invCap()
 	}
-	if value.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL &&
-		value.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL &&
-		value.GetWorkspaceAccess() == computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE &&
-		value.GetProcessControl() == computerv1.SandboxProcessControl_SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP &&
-		value.GetFilesystemIsolation() == computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE &&
-		value.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE &&
-		value.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT &&
-		value.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE {
+	if v.GetProvider() == computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL &&
+		v.GetIsolation() == computerv1.SandboxIsolation_SANDBOX_ISOLATION_TRUSTED_LOCAL &&
+		v.GetWorkspaceAccess() == computerv1.SandboxWorkspaceAccess_SANDBOX_WORKSPACE_ACCESS_DIRECT_READ_WRITE &&
+		v.GetProcessControl() == computerv1.SandboxProcessControl_SANDBOX_PROCESS_CONTROL_CONTEXT_PROCESS_GROUP &&
+		v.GetFilesystemIsolation() == computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE &&
+		v.GetNetworkIsolation() == computerv1.SandboxNetworkIsolation_SANDBOX_NETWORK_ISOLATION_NONE &&
+		v.GetSecretMaterialization() == computerv1.SandboxSecretMaterialization_SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT &&
+		v.GetDaemonCrashCleanup() == computerv1.SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_NONE {
 		return computerdomain.TrustedLocalSandboxCapability(), nil
 	}
-	return computerdomain.SandboxCapability{}, invalidCapabilityInventory()
+	return computerdomain.SandboxCapability{}, invCap()
 }
 
-func credentialDeliveryCapability(value *computerv1.CredentialDeliveryCapability) (computerdomain.CredentialDeliveryCapability, error) {
-	if value == nil {
-		return computerdomain.CredentialDeliveryCapability{}, invalidCapabilityInventory()
+func parseCredDeliveryCap(v *computerv1.CredentialDeliveryCapability) (computerdomain.CredentialDeliveryCapability, error) {
+	if v == nil {
+		return computerdomain.CredentialDeliveryCapability{}, invCap()
 	}
-	if value.GetHealth() == computerv1.CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE {
-		if value.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED ||
-			value.GetStore() != computerv1.CredentialStore_CREDENTIAL_STORE_UNSPECIFIED || value.GetKeyId() != "" || len(value.GetPublicKey()) != 0 {
-			return computerdomain.CredentialDeliveryCapability{}, invalidCapabilityInventory()
+	if v.GetHealth() == computerv1.CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE {
+		if v.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED ||
+			v.GetStore() != computerv1.CredentialStore_CREDENTIAL_STORE_UNSPECIFIED ||
+			v.GetKeyId() != "" || len(v.GetPublicKey()) != 0 {
+			return computerdomain.CredentialDeliveryCapability{}, invCap()
 		}
 		return computerdomain.CredentialDeliveryCapability{}, nil
 	}
-	if value.GetHealth() != computerv1.CapabilityHealth_CAPABILITY_HEALTH_HEALTHY ||
-		value.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 || len(value.GetPublicKey()) != 32 {
-		return computerdomain.CredentialDeliveryCapability{}, invalidCapabilityInventory()
+	if v.GetHealth() != computerv1.CapabilityHealth_CAPABILITY_HEALTH_HEALTHY ||
+		v.GetAlgorithm() != computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 ||
+		len(v.GetPublicKey()) != 32 {
+		return computerdomain.CredentialDeliveryCapability{}, invCap()
 	}
 	store := ""
-	switch value.GetStore() {
+	switch v.GetStore() {
 	case computerv1.CredentialStore_CREDENTIAL_STORE_MACOS_KEYCHAIN:
 		store = "macos_keychain"
 	case computerv1.CredentialStore_CREDENTIAL_STORE_LINUX_SECRET_SERVICE:
 		store = "linux_secret_service"
 	default:
-		return computerdomain.CredentialDeliveryCapability{}, invalidCapabilityInventory()
+		return computerdomain.CredentialDeliveryCapability{}, invCap()
 	}
-	capability := computerdomain.CredentialDeliveryCapability{
-		Healthy: true, Algorithm: "x25519_xchacha20_poly1305", Store: store, KeyID: value.GetKeyId(),
-		PublicKey: base64.RawURLEncoding.EncodeToString(value.GetPublicKey()),
+	cap := computerdomain.CredentialDeliveryCapability{
+		Healthy: true, Algorithm: "x25519_xchacha20_poly1305",
+		Store: store, KeyID: v.GetKeyId(),
+		PublicKey: base64.RawURLEncoding.EncodeToString(v.GetPublicKey()),
 	}
-	if !capability.Valid() {
-		return computerdomain.CredentialDeliveryCapability{}, invalidCapabilityInventory()
+	if !cap.Valid() {
+		return computerdomain.CredentialDeliveryCapability{}, invCap()
 	}
-	return capability, nil
+	return cap, nil
 }
 
-func invalidCapabilityInventory() error {
-	return connect.NewError(connect.CodeInvalidArgument, errors.New("capability inventory is invalid"))
+func invCap() error {
+	return servicesvc.InvalArg("capability inventory is invalid")
 }

@@ -8,13 +8,16 @@ import (
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	placementapp "github.com/abcdlsj/sumi/internal/placement/application"
 	placementdomain "github.com/abcdlsj/sumi/internal/placement/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 )
 
-func placementError(err error) error {
+func placementErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, placementapp.ErrAgentNotFound), errors.Is(err, computerapp.ErrNotFound), errors.Is(err, placementapp.ErrNotFound):
+	case errors.Is(err, placementapp.ErrAgentNotFound),
+		errors.Is(err, computerapp.ErrNotFound),
+		errors.Is(err, placementapp.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
 	case errors.Is(err, placementapp.ErrRuntimeSpecMissing):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent runtime spec is not configured"))
@@ -26,7 +29,8 @@ func placementError(err error) error {
 		return connect.NewError(connect.CodePermissionDenied, errors.New("agent placement denied"))
 	case errors.Is(err, placementapp.ErrRequestConflict):
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different placement data"))
-	case errors.Is(err, placementapp.ErrStale), errors.Is(err, placementapp.ErrConflict):
+	case errors.Is(err, placementapp.ErrStale),
+		errors.Is(err, placementapp.ErrConflict):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, placementdomain.ErrReadyWithErrorCode):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("ready acknowledgement cannot include an error code"))
@@ -35,6 +39,6 @@ func placementError(err error) error {
 	case errors.Is(err, placementdomain.ErrAcknowledgementStateInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be ready or failed"))
 	default:
-		return connect.NewError(connect.CodeInternal, err)
+		return servicesvc.ErrInternal
 	}
 }
