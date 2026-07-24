@@ -39,6 +39,7 @@ Sumi 不是聊天壳、通用 Workflow/DAG 编辑器、远程进程启动器、�
 | 术语 | 唯一含义 |
 | --- | --- |
 | Human | 注册到 Server、可以参与协作的自然人身份 |
+| HumanAccount | Human 用于登录 Server 的认证身份；当前实现为 Server 本地 username/password |
 | Computer | 独立注册的执行节点身份，不参与 Space 或 Work |
 | Agent | Server 创建的长期协作 Principal，不是进程或模型 session |
 | AgentProfile | Agent 的版本化 role、mission、instructions 和展示信息 |
@@ -64,13 +65,15 @@ Sumi 不是聊天壳、通用 Workflow/DAG 编辑器、远程进程启动器、�
 
 注册只属于 Human 和 Computer：
 
-- Human registration 建立 Server 协作身份；
+- Human registration 原子建立 Server 协作身份和 HumanAccount；不存在先创建 Human、再分发另一把 Human key、最后绑定账号的第二阶段；
 - Computer pairing/registration 建立执行节点身份；
 - 两者没有父子、所有权或生命周期依赖；
 - 授权 pairing 的 Human 只作为 Audit actor；该 Human 被 disable 不能使 Computer 自动失效；
 - Computer 是否有效只由自身 credential、显式 revoke 和 Organization policy 决定。
 
-fresh Server 的首个 Owner setup 必须提交一次性高熵 Owner setup code，防止任意浏览器抢占 Owner。该 code 只证明本次初始交接，不是 Human credential；WebUI 不暴露 bootstrap credential、human.key 或 owner.key 等内部载体，也不显示、记录或持久化 setup code。
+fresh Server 不预建 Owner，也不生成 human.key、owner.key、bootstrap credential 或 setup code。首个来自 configured browser origin 且由 literal-loopback client 发起的 Human registration，在一个事务内创建 Organization、首个 Owner、local HumanAccount 和 Browser session；首个 Owner 提交成功后该公开入口永久关闭。若 Server 允许非 loopback browser origin，必须在显式部署策略提供等价的初始信任边界前拒绝首次注册，不能退回静态万能密钥。
+
+后续 Human registration 只能由已认证且拥有 human.create Grant 的 Human 发起，在一个事务内创建目标 Human 及其 local HumanAccount。注册者设置一次性初始密码并通过带外渠道交付；新 Human 首次登录后应修改密码。Human 只通过 HumanAccount 换取有界 Browser session；Human 不拥有长期 bearer credential，CLI、Computer pairing 和其他控制面不得要求 Human key 文件。
 
 Agent 不注册。Agent 由拥有 agent.create Grant 的 Human 在 Server WebUI 创建：
 
@@ -327,7 +330,7 @@ Agent 的每个 Server mutation 都重新检查 current runtime identity、Place
 - query 返回面向 WebUI 或 daemon 的稳定 projection；
 - transport 不拥有业务类型和权限规则。
 
-application package 拥有 domain type、command/query、result、稳定 error 和使用方需要的窄 port。SQLite adapter 实现这些 port；除 composition root 外，生产代码不能直接依赖具体 Store。禁止为了目录对称创建 Repository、UnitOfWork、事件总线或泛型 command framework。
+application package 拥有 domain type、command/query、result、稳定 error 和使用方需要的窄 port。SQLite adapter 实现这些 port；除 composition root 外，生产代码不能直接依赖具体 Store。
 
 持久化只有三个边界：
 
@@ -337,7 +340,6 @@ application package 拥有 domain type、command/query、result、稳定 error �
 
 两个 SQLite 不共享 schema、transaction 或 persistence type。Workspace、cache、Provider session 和 raw credential 不进入 Server SQLite。
 
-默认不引入 Active Record 或通用 ORM。ORM 只能减少部分 SQL 样板，不能解决 transaction、fence、ACL、幂等和领域边界，反而容易把 persistence model 泄漏到 application。允许使用薄的 type-safe SQL generator，但 SQL、row mapping 和 transaction 必须留在 Store adapter。
 
 发布稳定 schema 之前允许直接删除错误表和重建开发数据，不编写兼容迁移保护错误模型；正式发布后才为真实用户数据维护单向 migration。
 
@@ -384,32 +386,7 @@ trusted-local、Provider quota 共享和缺失 capability 必须明确展示。�
 
 ## 13. 代码组织
 
-代码按真实所有权和替换边界组织：
-
-~~~text
-internal/
-  agent/                 Agent、AgentProfile、RuntimeSpec、Placement
-  authority/             Grant 与 Audit application contract
-  collaboration/         Space、Message、Inbox
-  work/                  Work
-  artifact/              Artifact metadata 与 blob port
-  knowledge/             可重建搜索投影
-  execution/             Run 与 runtime identity contract
-  computer/
-    daemon/              connectivity、reconcile、run intake、outbox
-    runtime/             RuntimeSupervisor 与 RuntimeSlot
-    state/               Computer State SQLite
-  engine/builtin/        ContextAssembler 与 Agent Core
-  provider/              model API adapters
-  adapter/codex/         Codex External Adapter
-  adapter/claude/        Claude External Adapter
-  tool/                  ToolGateway
-  sandbox/               execution providers
-  store/                 Server SQLite adapter
-  server/                composition root
-~~~
-
-目录名称可以随实现调整，但依赖方向不能反转：
+代码按真实所有权和替换边界组织，但依赖方向不能反转：
 
 - transport、daemon 和 adapter 依赖 application contract；
 - application 不依赖 Store、CLI、Web 或 generated transport；
@@ -455,17 +432,3 @@ internal/
 
 完成实现后运行 format、generate、lint、全链路 test、race 和 build，并报告未覆盖的真实风险。
 
-## 16. 不可破坏的约束
-
-- Server WebUI 是 Agent 创建和持久配置的唯一入口；
-- Computer 与 Human 是独立注册身份，Agent 不注册；
-- Computer daemon 启动一次后自动声明能力并持续 reconcile；
-- 一个 Computer 上不设置固定 Agent 数量上限，Idle Agent 必须懒加载；
-- 不同 Agent 不存在架构性串行或共享可变执行状态；
-- 每个 Agent 拥有独立 RuntimeSlot、Workspace、session、journal、cancellation 和 CredentialBinding；
-- trusted-local 不提供跨 Workspace 的 Host 文件系统隔离；
-- Builtin Core、Provider 与 External Adapter 是三个不同边界；
-- Run 是唯一执行事实，旧 revision、attempt 或 fence 不能提交结果；
-- role、runtime identity、Placement 和 capability 都不能代替 Grant；
-- 跨 Agent/Computer 成果交换通过 Artifact，不通过 Workspace；
-- 现有代码、schema、API 或测试与本设计冲突时可以直接删除，不建立兼容双轨。
