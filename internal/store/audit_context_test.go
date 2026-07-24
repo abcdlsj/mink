@@ -10,19 +10,19 @@ import (
 )
 
 func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Now()
-	bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+	bootstrap, err := db.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	spaceID := uuid.NewString()
 	memberID := uuid.NewString()
-	tx, err := database.db.BeginTx(context.Background(), nil)
+	tx, err := db.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{
+	events, err := db.ListAuditEvents(context.Background(), ListAuditEventsParams{
 		OrganizationID: bootstrap.Organization.ID, AfterSequence: 3, Limit: 100,
 	})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
 		events[0].ContextKind != "space" || events[0].ContextID != spaceID {
 		t.Fatalf("audit context round trip = %+v", events)
 	}
-	if _, err := database.db.Exec(`
+	if _, err := db.db.Exec(`
 		INSERT INTO audit_events(
 			id, organization_id, actor_kind, actor_id, action, target_kind, target_id,
 			request_id, outcome, reason_code, occurred_at, context_kind, context_id
@@ -62,7 +62,7 @@ func TestAuditContextRoundTripAndPairConstraint(t *testing.T) {
 	`, uuid.NewString(), bootstrap.Organization.ID, bootstrap.Human.ID, memberID, unixNano(now)); err == nil {
 		t.Fatal("audit accepted context kind without context id")
 	}
-	invalidTx, err := database.db.BeginTx(context.Background(), nil)
+	invalidTx, err := db.db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,232 +14,232 @@ import (
 )
 
 func TestInboxAttentionMentionFollowMuteAndDM(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
 
-	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	root, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "root",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items := fixture.listItems(t, 10, fixture.at(2))
+	items := f.listItems(t, 10, f.at(2))
 	if len(items) != 1 || items[0].Reason != InboxReasonMention || items[0].TriggerMessageID != root.ID {
 		t.Fatalf("mention items = %+v", items)
 	}
-	claim := fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(3))
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		InboxItemID: claim.ID, Now: fixture.at(4),
+	claim := f.claim(t, items[0].ID, uuid.NewString(), f.at(3))
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		InboxItemID: claim.ID, Now: f.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "thread mention",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(5),
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items = fixture.listItems(t, 10, fixture.at(6))
+	items = f.listItems(t, 10, f.at(6))
 	if len(items) != 1 || items[0].Reason != InboxReasonMention {
 		t.Fatalf("thread mention items = %+v", items)
 	}
-	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(7))
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		InboxItemID: items[0].ID, Now: fixture.at(8),
+	f.claim(t, items[0].ID, uuid.NewString(), f.at(7))
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		InboxItemID: items[0].ID, Now: f.at(8),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "followed", Now: fixture.at(9),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "followed", Now: f.at(9),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items = fixture.listItems(t, 10, fixture.at(10))
+	items = f.listItems(t, 10, f.at(10))
 	if len(items) != 1 || items[0].Reason != InboxReasonThreadFollow {
 		t.Fatalf("follow items = %+v", items)
 	}
-	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(11))
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		InboxItemID: items[0].ID, Now: fixture.at(12),
+	f.claim(t, items[0].ID, uuid.NewString(), f.at(11))
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		InboxItemID: items[0].ID, Now: f.at(12),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(13),
+	if _, err := f.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		SpaceID: f.group.ID, Muted: true, Now: f.at(13),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted ordinary", Now: fixture.at(14),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted ordinary", Now: f.at(14),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if items := fixture.listItems(t, 10, fixture.at(15)); len(items) != 0 {
+	if items := f.listItems(t, 10, f.at(15)); len(items) != 0 {
 		t.Fatalf("muted ordinary items = %+v", items)
 	}
-	mentioned, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
+	mentioned, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted mention",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(16),
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(16),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items = fixture.listItems(t, 10, fixture.at(17))
-	if len(items) != 1 || items[0].Reason != InboxReasonMention || !reflect.DeepEqual(mentioned.MentionedPrincipals, agentPrincipals(fixture.owner.OrganizationID, fixture.agentID)) {
+	items = f.listItems(t, 10, f.at(17))
+	if len(items) != 1 || items[0].Reason != InboxReasonMention || !reflect.DeepEqual(mentioned.MentionedPrincipals, agentPrincipals(f.owner.OrganizationID, f.agentID)) {
 		t.Fatalf("muted mention = %+v, items = %+v", mentioned, items)
 	}
 
-	dm, err := fixture.database.CreateDM(ctx, CreateDMParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Peer: Principal{Kind: "agent", ID: fixture.agentID, OrganizationID: fixture.owner.OrganizationID}, Now: fixture.at(18),
+	dm, err := f.database.CreateDM(ctx, CreateDMParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Peer: Principal{Kind: "agent", ID: f.agentID, OrganizationID: f.owner.OrganizationID}, Now: f.at(18),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.issueAgentGrant(t, dm.ID, CapabilitySpaceRead, fixture.at(19))
-	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		SpaceID: dm.ID, Muted: true, Now: fixture.at(20),
+	f.issueAgentGrant(t, dm.ID, CapabilitySpaceRead, f.at(19))
+	if _, err := f.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		SpaceID: dm.ID, Muted: true, Now: f.at(20),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	dmMessage, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "dm pierces mute", Now: fixture.at(21),
+	dmMessage, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "dm pierces mute", Now: f.at(21),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items = fixture.listItems(t, 10, fixture.at(22))
+	items = f.listItems(t, 10, f.at(22))
 	if len(items) != 2 || items[1].Reason != InboxReasonDM || items[1].TriggerMessageID != dmMessage.ID {
 		t.Fatalf("dm items = %+v", items)
 	}
 }
 
 func TestHumanInboxParityMentionMuteFollowSelfSuppressionAccessLossAndDM(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	humanRecord, err := fixture.database.CreateHuman(ctx, CreateHumanParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Name: "Inbox Human", Role: "member",
-		Credential: "inbox-human-credential-abcdefghijklmnopqrstuvwxyz", Now: fixture.at(40),
+	humanRecord, err := f.database.CreateHuman(ctx, CreateHumanParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Name: "Inbox Human", Role: "member",
+		Credential: "inbox-human-credential-abcdefghijklmnopqrstuvwxyz", Now: f.at(40),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	human := Principal{Kind: PrincipalHuman, ID: humanRecord.ID, OrganizationID: fixture.owner.OrganizationID}
-	if _, err := fixture.database.AddMember(ctx, ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(41),
+	human := Principal{Kind: PrincipalHuman, ID: humanRecord.ID, OrganizationID: f.owner.OrganizationID}
+	if _, err := f.database.AddMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID, Member: human, Now: f.at(41),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	for index, capability := range []Capability{CapabilitySpaceRead, CapabilityMessageSend} {
-		if _, err := fixture.database.IssueGrant(ctx, IssueGrantParams{
-			RequestID: uuid.NewString(), Actor: fixture.owner, Subject: human, Capability: capability,
-			Scope: Scope{Kind: "space", ID: fixture.group.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.at(42 + index),
+		if _, err := f.database.IssueGrant(ctx, IssueGrantParams{
+			RequestID: uuid.NewString(), Actor: f.owner, Subject: human, Capability: capability,
+			Scope: Scope{Kind: "space", ID: f.group.ID}, ParentGrantID: f.rootGrant.ID, Now: f.at(42 + index),
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	authentication := executionapp.HumanInboxAuthentication(human)
-	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "human mention",
-		MentionedPrincipals: []Principal{human}, Now: fixture.at(44),
+	root, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "human mention",
+		MentionedPrincipals: []Principal{human}, Now: f.at(44),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err := fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(45)})
+	items, err := f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(45)})
 	if err != nil || len(items) != 1 || items[0].Recipient != human || items[0].Reason != InboxReasonMention {
 		t.Fatalf("human mention items = %+v, %v", items, err)
 	}
 	var runs int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM runs WHERE inbox_item_id = ?`, items[0].ID).Scan(&runs); err != nil || runs != 0 {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM runs WHERE inbox_item_id = ?`, items[0].ID).Scan(&runs); err != nil || runs != 0 {
 		t.Fatalf("human inbox runs = %d, %v", runs, err)
 	}
-	claimed, err := fixture.database.ClaimInboxItem(ctx, ClaimInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: items[0].ID, Now: fixture.at(46),
+	claimed, err := f.database.ClaimInboxItem(ctx, ClaimInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: items[0].ID, Now: f.at(46),
 	})
 	if err != nil || claimed.State != InboxStateClaimed {
 		t.Fatalf("human claim = %+v, %v", claimed, err)
 	}
-	if _, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: authentication, Target: claimed.Target, Limit: 20, Now: fixture.at(47),
+	if _, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: authentication, Target: claimed.Target, Limit: 20, Now: f.at(47),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: claimed.ID, Now: fixture.at(48),
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: claimed.ID, Now: f.at(48),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "create thread", Now: fixture.at(49),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "create thread", Now: f.at(49),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetThreadFollow(ctx, SetThreadFollowParams{
-		RequestID: uuid.NewString(), Authentication: authentication, ThreadID: root.ID, Followed: true, Now: fixture.at(50),
+	if _, err := f.database.SetThreadFollow(ctx, SetThreadFollowParams{
+		RequestID: uuid.NewString(), Authentication: authentication, ThreadID: root.ID, Followed: true, Now: f.at(50),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(51),
+	if _, err := f.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: f.group.ID, Muted: true, Now: f.at(51),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted follow", Now: fixture.at(52),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted follow", Now: f.at(52),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(53)})
+	items, err = f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(53)})
 	if err != nil || len(items) != 0 {
 		t.Fatalf("muted human follow items = %+v, %v", items, err)
 	}
-	mentioned, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
+	mentioned, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "muted explicit mention",
-		MentionedPrincipals: []Principal{human}, Now: fixture.at(54),
+		MentionedPrincipals: []Principal{human}, Now: f.at(54),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(55)})
+	items, err = f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(55)})
 	if err != nil || len(items) != 1 || items[0].TriggerMessageID != mentioned.ID || items[0].Reason != InboxReasonMention {
 		t.Fatalf("muted human mention items = %+v, %v", items, err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
 		RequestID: uuid.NewString(), Actor: human,
 		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "self mention",
-		MentionedPrincipals: []Principal{human}, Now: fixture.at(56),
+		MentionedPrincipals: []Principal{human}, Now: f.at(56),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(57)})
+	items, err = f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(57)})
 	if err != nil || len(items) != 1 {
 		t.Fatalf("human self notification = %+v, %v", items, err)
 	}
-	if _, err := fixture.database.RemoveMember(ctx, ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(58),
+	if _, err := f.database.RemoveMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID, Member: human, Now: f.at(58),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	var completion string
-	if err := fixture.database.db.QueryRow(`
+	if err := f.database.db.QueryRow(`
 		SELECT completion FROM inbox_items
 		WHERE recipient_kind = 'human' AND recipient_id = ? AND trigger_message_id = ?
 	`, human.ID, mentioned.ID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
@@ -247,177 +247,177 @@ func TestHumanInboxParityMentionMuteFollowSelfSuppressionAccessLossAndDM(t *test
 	}
 	for _, table := range []string{"principal_space_mutes", "principal_thread_follows", "principal_target_cursors"} {
 		var count int
-		if err := fixture.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'human' AND principal_id = ?`, human.ID).Scan(&count); err != nil || count != 0 {
+		if err := f.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'human' AND principal_id = ?`, human.ID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("human %s rows = %d, %v", table, count, err)
 		}
 	}
-	if _, err := fixture.database.AddMember(ctx, ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: human, Now: fixture.at(59),
+	if _, err := f.database.AddMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID, Member: human, Now: f.at(59),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(60)})
+	items, err = f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(60)})
 	if err != nil || len(items) != 0 {
 		t.Fatalf("restored human items resurrected = %+v, %v", items, err)
 	}
-	dm, err := fixture.database.CreateDM(ctx, CreateDMParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Peer: human, Now: fixture.at(61),
+	dm, err := f.database.CreateDM(ctx, CreateDMParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Peer: human, Now: f.at(61),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.IssueGrant(ctx, IssueGrantParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Subject: human, Capability: CapabilitySpaceRead,
-		Scope: Scope{Kind: "space", ID: dm.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.at(62),
+	if _, err := f.database.IssueGrant(ctx, IssueGrantParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Subject: human, Capability: CapabilitySpaceRead,
+		Scope: Scope{Kind: "space", ID: dm.ID}, ParentGrantID: f.rootGrant.ID, Now: f.at(62),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: dm.ID, Muted: true, Now: fixture.at(63),
+	if _, err := f.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: authentication, SpaceID: dm.ID, Muted: true, Now: f.at(63),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	dmMessage, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "muted dm", Now: fixture.at(64),
+	dmMessage, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: dm.ID}, Body: "muted dm", Now: f.at(64),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	items, err = fixture.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: fixture.at(65)})
+	items, err = f.database.ListInboxItems(ctx, ListInboxItemsParams{Authentication: authentication, Limit: 20, Now: f.at(65)})
 	if err != nil || len(items) != 1 || items[0].Reason != InboxReasonDM || items[0].TriggerMessageID != dmMessage.ID {
 		t.Fatalf("muted human dm items = %+v, %v", items, err)
 	}
 }
 
 func TestInboxExactFreshnessHeldDraftAndCanonicalReplay(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	trigger, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	trigger, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "trigger",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	item := fixture.listItems(t, 1, fixture.at(2))[0]
+	item := f.listItems(t, 1, f.at(2))[0]
 	claimRequest := uuid.NewString()
-	claimed := fixture.claim(t, item.ID, claimRequest, fixture.at(3))
-	replayedClaim := fixture.claim(t, item.ID, claimRequest, fixture.at(4))
+	claimed := f.claim(t, item.ID, claimRequest, f.at(3))
+	replayedClaim := f.claim(t, item.ID, claimRequest, f.at(4))
 	if !reflect.DeepEqual(claimed, replayedClaim) {
 		t.Fatalf("claim replay changed: %+v != %+v", claimed, replayedClaim)
 	}
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(5),
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(5),
 	})
 	if err != nil || observed.Head != trigger.TargetSequence {
 		t.Fatalf("observe = %+v, %v", observed, err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Target: item.Target,
-		Body: "advanced exact target", Now: fixture.at(6),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Target: item.Target,
+		Body: "advanced exact target", Now: f.at(6),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	sendRequest := uuid.NewString()
-	held, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(7),
+	held, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: sendRequest, Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(7),
 	})
 	if err != nil || held.Kind != InboxResultHeldDraft || held.HeldDraft == nil {
 		t.Fatalf("held reply = %+v, %v", held, err)
 	}
-	replayedHeld, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(8),
+	replayedHeld, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: sendRequest, Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: "agent result", MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(8),
 	})
 	if err != nil || !reflect.DeepEqual(held, replayedHeld) {
 		t.Fatalf("held replay = %+v, %v", replayedHeld, err)
 	}
 	var sentWithHeldRequest int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM messages WHERE request_id = ?`, sendRequest).Scan(&sentWithHeldRequest); err != nil || sentWithHeldRequest != 0 {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM messages WHERE request_id = ?`, sendRequest).Scan(&sentWithHeldRequest); err != nil || sentWithHeldRequest != 0 {
 		t.Fatalf("held request messages = %d, %v", sentWithHeldRequest, err)
 	}
-	observed, err = fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(9),
+	observed, err = f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(9),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	resolveRequest := uuid.NewString()
-	resolved, err := fixture.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
-		RequestID: resolveRequest, Authentication: fixture.authentication,
+	resolved, err := f.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
+		RequestID: resolveRequest, Authentication: f.authentication,
 		HeldDraftID: held.HeldDraft.ID, Action: DraftResolutionRetry,
-		BasisTargetSequence: observed.Head, Now: fixture.at(10),
+		BasisTargetSequence: observed.Head, Now: f.at(10),
 	})
 	if err != nil || resolved.Kind != InboxResultMessage || resolved.Message == nil || resolved.InboxItem.Completion != InboxCompletionSent {
 		t.Fatalf("resolved = %+v, %v", resolved, err)
 	}
-	replayedResolved, err := fixture.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
-		RequestID: resolveRequest, Authentication: fixture.authentication,
+	replayedResolved, err := f.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
+		RequestID: resolveRequest, Authentication: f.authentication,
 		HeldDraftID: held.HeldDraft.ID, Action: DraftResolutionRetry,
-		BasisTargetSequence: observed.Head, Now: fixture.at(11),
+		BasisTargetSequence: observed.Head, Now: f.at(11),
 	})
 	if err != nil || !reflect.DeepEqual(resolved, replayedResolved) {
 		t.Fatalf("resolve replay = %+v, %v", replayedResolved, err)
 	}
-	replayedHeldAfterDone, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: sendRequest, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: trigger.TargetSequence, Body: "agent result", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(12),
+	replayedHeldAfterDone, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: sendRequest, Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: trigger.TargetSequence, Body: "agent result", MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(12),
 	})
 	if err != nil || !reflect.DeepEqual(held, replayedHeldAfterDone) {
 		t.Fatalf("held replay after item done = %+v, %v", replayedHeldAfterDone, err)
 	}
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: sendRequest, Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(13),
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: sendRequest, Authentication: executionapp.AgentInboxAuthentication(f.authentication), InboxItemID: item.ID, Now: f.at(13),
 	}); !errors.Is(err, ErrInboxRequestConflict) {
 		t.Fatalf("cross-operation request reuse error = %v", err)
 	}
-	items := fixture.listItems(t, 10, fixture.at(14))
+	items := f.listItems(t, 10, f.at(14))
 	if len(items) != 0 {
 		t.Fatalf("completed item remained pending: %+v", items)
 	}
 }
 
 func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) {
-	fixture := openInboxFixture(t)
-	mentionedAgentID := fixture.createMentionMember(t, "receipt-mentioned", fixture.at(1))
+	f := openInboxFixture(t)
+	mentionedAgentID := f.createMentionMember(t, "receipt-mentioned", f.at(1))
 	freshBody := "fresh-receipt-body-6b71c7"
 	heldBody := "held-receipt-body-e2a194"
 
-	if _, _, err := fixture.sendInboxReply(t, freshBody, []string{mentionedAgentID}, false, 2); err != nil {
+	if _, _, err := f.sendInboxReply(t, freshBody, []string{mentionedAgentID}, false, 2); err != nil {
 		t.Fatal(err)
 	}
-	_, heldResult, err := fixture.sendInboxReply(t, heldBody, []string{mentionedAgentID}, true, 10)
+	_, heldResult, err := f.sendInboxReply(t, heldBody, []string{mentionedAgentID}, true, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.ResolveHeldDraft(context.Background(), ResolveHeldDraftParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
-		HeldDraftID: heldResult.HeldDraft.ID, Action: DraftResolutionCancel, Now: fixture.at(20),
+	if _, err := f.database.ResolveHeldDraft(context.Background(), ResolveHeldDraftParams{
+		RequestID: uuid.NewString(), Authentication: f.authentication,
+		HeldDraftID: heldResult.HeldDraft.ID, Action: DraftResolutionCancel, Now: f.at(20),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	var messageBodies, draftBodies, messageMentions, draftMentions int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM messages WHERE body = ?`, freshBody).Scan(&messageBodies); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM messages WHERE body = ?`, freshBody).Scan(&messageBodies); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_drafts WHERE body = ?`, heldBody).Scan(&draftBodies); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM agent_held_drafts WHERE body = ?`, heldBody).Scan(&draftBodies); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM message_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&messageMentions); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM message_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&messageMentions); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM agent_held_draft_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&draftMentions); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM agent_held_draft_mentions WHERE principal_kind = 'agent' AND principal_id = ?`, mentionedAgentID).Scan(&draftMentions); err != nil {
 		t.Fatal(err)
 	}
 	if messageBodies != 1 || draftBodies != 1 || messageMentions != 1 || draftMentions != 1 {
 		t.Fatalf("business facts = message bodies %d, draft bodies %d, message mentions %d, draft mentions %d", messageBodies, draftBodies, messageMentions, draftMentions)
 	}
 
-	rows, err := fixture.database.db.Query(`SELECT response_snapshot FROM inbox_requests`)
+	rows, err := f.database.db.Query(`SELECT response_snapshot FROM inbox_requests`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,10 +450,10 @@ func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) 
 		t.Fatalf("agent request receipts = %d, want 5", count)
 	}
 	var agentAuditCount, messageSendAuditCount int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ?`, fixture.agentID).Scan(&agentAuditCount); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ?`, f.agentID).Scan(&agentAuditCount); err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ? AND action = ?`, fixture.agentID, AuditMessageSend).Scan(&messageSendAuditCount); err != nil {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM audit_events WHERE actor_kind = 'agent' AND actor_id = ? AND action = ?`, f.agentID, AuditMessageSend).Scan(&messageSendAuditCount); err != nil {
 		t.Fatal(err)
 	}
 	if agentAuditCount != 1 || messageSendAuditCount != 1 {
@@ -463,248 +463,248 @@ func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) 
 
 func TestInboxRequestReplayFailsClosedOnBrokenBusinessFacts(t *testing.T) {
 	t.Run("message missing", func(t *testing.T) {
-		fixture := openInboxFixture(t)
-		params, result, err := fixture.sendInboxReply(t, "missing-message-body", nil, false, 1)
+		f := openInboxFixture(t)
+		params, result, err := f.sendInboxReply(t, "missing-message-body", nil, false, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.database.db.Exec(`DELETE FROM messages WHERE id = ?`, result.Message.ID); err != nil {
+		if _, err := f.database.db.Exec(`DELETE FROM messages WHERE id = ?`, result.Message.ID); err != nil {
 			t.Fatal(err)
 		}
-		params.Now = fixture.at(20)
-		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+		params.Now = f.at(20)
+		if _, err := f.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
 			t.Fatalf("missing message replay error = %v", err)
 		}
 	})
 
 	t.Run("message mentions missing", func(t *testing.T) {
-		fixture := openInboxFixture(t)
-		mentionedAgentID := fixture.createMentionMember(t, "missing-mention", fixture.at(1))
-		params, result, err := fixture.sendInboxReply(t, "missing-mention-body", []string{mentionedAgentID}, false, 2)
+		f := openInboxFixture(t)
+		mentionedAgentID := f.createMentionMember(t, "missing-mention", f.at(1))
+		params, result, err := f.sendInboxReply(t, "missing-mention-body", []string{mentionedAgentID}, false, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.database.db.Exec(`DELETE FROM message_mentions WHERE message_id = ?`, result.Message.ID); err != nil {
+		if _, err := f.database.db.Exec(`DELETE FROM message_mentions WHERE message_id = ?`, result.Message.ID); err != nil {
 			t.Fatal(err)
 		}
-		params.Now = fixture.at(20)
-		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+		params.Now = f.at(20)
+		if _, err := f.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
 			t.Fatalf("missing message mentions replay error = %v", err)
 		}
 	})
 
 	t.Run("message owner mismatch", func(t *testing.T) {
-		fixture := openInboxFixture(t)
-		otherAgentID := fixture.createMentionMember(t, "wrong-owner", fixture.at(1))
-		params, result, err := fixture.sendInboxReply(t, "wrong-owner-body", nil, false, 2)
+		f := openInboxFixture(t)
+		otherAgentID := f.createMentionMember(t, "wrong-owner", f.at(1))
+		params, result, err := f.sendInboxReply(t, "wrong-owner-body", nil, false, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.database.db.Exec(`UPDATE messages SET author_id = ? WHERE id = ?`, otherAgentID, result.Message.ID); err != nil {
+		if _, err := f.database.db.Exec(`UPDATE messages SET author_id = ? WHERE id = ?`, otherAgentID, result.Message.ID); err != nil {
 			t.Fatal(err)
 		}
-		params.Now = fixture.at(20)
-		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+		params.Now = f.at(20)
+		if _, err := f.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
 			t.Fatalf("message owner mismatch replay error = %v", err)
 		}
 	})
 
 	t.Run("held draft missing", func(t *testing.T) {
-		fixture := openInboxFixture(t)
-		params, result, err := fixture.sendInboxReply(t, "missing-draft-body", nil, true, 1)
+		f := openInboxFixture(t)
+		params, result, err := f.sendInboxReply(t, "missing-draft-body", nil, true, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixture.database.db.Exec(`DELETE FROM agent_held_drafts WHERE id = ?`, result.HeldDraft.ID); err != nil {
+		if _, err := f.database.db.Exec(`DELETE FROM agent_held_drafts WHERE id = ?`, result.HeldDraft.ID); err != nil {
 			t.Fatal(err)
 		}
-		params.Now = fixture.at(20)
-		if _, err := fixture.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
+		params.Now = f.at(20)
+		if _, err := f.database.SendInboxReply(context.Background(), params); !errors.Is(err, ErrInboxIntegrity) {
 			t.Fatalf("missing held draft replay error = %v", err)
 		}
 	})
 }
 
 func TestHeldDraftRetryStaleCreatesCanonicalSuccessor(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(7),
+	item, original := f.makeHeldDraft(t, f.group, 1)
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(7),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Target: item.Target,
-		Body: "advance again", Now: fixture.at(8),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Target: item.Target,
+		Body: "advance again", Now: f.at(8),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	requestID := uuid.NewString()
 	params := ResolveHeldDraftParams{
-		RequestID: requestID, Authentication: fixture.authentication,
+		RequestID: requestID, Authentication: f.authentication,
 		HeldDraftID: original.ID, Action: DraftResolutionRetry,
-		BasisTargetSequence: observed.Head, Now: fixture.at(9),
+		BasisTargetSequence: observed.Head, Now: f.at(9),
 	}
-	result, err := fixture.database.ResolveHeldDraft(ctx, params)
+	result, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || result.Kind != InboxResultHeldDraft || result.HeldDraft == nil || result.InboxItem.State != InboxStateClaimed {
 		t.Fatalf("stale retry = %+v, %v", result, err)
 	}
 	if result.HeldDraft.PredecessorDraftID != original.ID || result.HeldDraft.Sequence <= original.Sequence {
 		t.Fatalf("successor = %+v, original = %+v", result.HeldDraft, original)
 	}
-	resolvedOriginal := readHeldDraft(t, fixture.database, original.ID)
+	resolvedOriginal := readHeldDraft(t, f.database, original.ID)
 	if resolvedOriginal.State != HeldDraftStateSuperseded || resolvedOriginal.ResolutionAction != DraftResolutionRetry || resolvedOriginal.ResultKind != InboxResultHeldDraft || resolvedOriginal.ResultID != result.HeldDraft.ID {
 		t.Fatalf("resolved original = %+v", resolvedOriginal)
 	}
-	params.Now = fixture.at(10)
-	replayed, err := fixture.database.ResolveHeldDraft(ctx, params)
+	params.Now = f.at(10)
+	replayed, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || !reflect.DeepEqual(result, replayed) {
 		t.Fatalf("stale retry replay = %+v, %v", replayed, err)
 	}
-	if _, err := fixture.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication,
-		HeldDraftID: result.HeldDraft.ID, Action: DraftResolutionCancel, Now: fixture.at(11),
+	if _, err := f.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
+		RequestID: uuid.NewString(), Authentication: f.authentication,
+		HeldDraftID: result.HeldDraft.ID, Action: DraftResolutionCancel, Now: f.at(11),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	params.Now = fixture.at(12)
-	replayedAfterSuccessorTerminal, err := fixture.database.ResolveHeldDraft(ctx, params)
+	params.Now = f.at(12)
+	replayedAfterSuccessorTerminal, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || !reflect.DeepEqual(result, replayedAfterSuccessorTerminal) {
 		t.Fatalf("stale retry replay after successor terminal = %+v, %v", replayedAfterSuccessorTerminal, err)
 	}
 	secondRequest := uuid.NewString()
 	params.RequestID = secondRequest
-	params.Now = fixture.at(13)
-	if _, err := fixture.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
+	params.Now = f.at(13)
+	if _, err := f.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
 		t.Fatalf("second stale retry error = %v", err)
 	}
-	assertAgentRequestCount(t, fixture.database, secondRequest, 0)
+	assertAgentRequestCount(t, f.database, secondRequest, 0)
 }
 
 func TestHeldDraftRetargetFreshPublishesCanonicalMessage(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
-	targetGroup := fixture.createAgentGroup(t, "Retarget fresh", 7)
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		Target:         MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID}, Limit: 20, Now: fixture.at(10),
+	item, original := f.makeHeldDraft(t, f.group, 1)
+	targetGroup := f.createAgentGroup(t, "Retarget fresh", 7)
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		Target:         MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID}, Limit: 20, Now: f.at(10),
 	})
 	if err != nil || observed.Head != 0 {
 		t.Fatalf("retarget observe = %+v, %v", observed, err)
 	}
 	requestID := uuid.NewString()
 	params := ResolveHeldDraftParams{
-		RequestID: requestID, Authentication: fixture.authentication,
+		RequestID: requestID, Authentication: f.authentication,
 		HeldDraftID: original.ID, Action: DraftResolutionRetarget,
 		Target:              MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID},
-		BasisTargetSequence: observed.Head, Now: fixture.at(11),
+		BasisTargetSequence: observed.Head, Now: f.at(11),
 	}
-	result, err := fixture.database.ResolveHeldDraft(ctx, params)
+	result, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || result.Kind != InboxResultMessage || result.Message == nil || result.Message.SpaceID != targetGroup.ID || result.InboxItem.State != InboxStateDone {
 		t.Fatalf("fresh retarget = %+v, %v", result, err)
 	}
-	resolvedOriginal := readHeldDraft(t, fixture.database, original.ID)
+	resolvedOriginal := readHeldDraft(t, f.database, original.ID)
 	if resolvedOriginal.State != HeldDraftStateRetargeted || resolvedOriginal.ResolutionAction != DraftResolutionRetarget || resolvedOriginal.ResultKind != InboxResultMessage || resolvedOriginal.ResultID != result.Message.ID {
 		t.Fatalf("resolved original = %+v", resolvedOriginal)
 	}
-	params.Now = fixture.at(12)
-	replayed, err := fixture.database.ResolveHeldDraft(ctx, params)
+	params.Now = f.at(12)
+	replayed, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || !reflect.DeepEqual(result, replayed) {
 		t.Fatalf("fresh retarget replay = %+v, %v", replayed, err)
 	}
 	secondRequest := uuid.NewString()
 	params.RequestID = secondRequest
-	params.Now = fixture.at(13)
-	if _, err := fixture.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
+	params.Now = f.at(13)
+	if _, err := f.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
 		t.Fatalf("second fresh retarget error = %v", err)
 	}
-	assertAgentRequestCount(t, fixture.database, secondRequest, 0)
-	if current := readInboxItem(t, fixture.database, item.ID); current.Completion != InboxCompletionSent {
+	assertAgentRequestCount(t, f.database, secondRequest, 0)
+	if current := readInboxItem(t, f.database, item.ID); current.Completion != InboxCompletionSent {
 		t.Fatalf("retargeted item = %+v", current)
 	}
 }
 
 func TestHeldDraftRetargetStaleCreatesCanonicalSuccessor(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	item, original := fixture.makeHeldDraft(t, fixture.group, 1)
-	targetGroup := fixture.createAgentGroup(t, "Retarget stale", 7)
+	item, original := f.makeHeldDraft(t, f.group, 1)
+	targetGroup := f.createAgentGroup(t, "Retarget stale", 7)
 	target := MessageTarget{Kind: MessageTargetSpace, ID: targetGroup.ID}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Target: target, Body: "target root", Now: fixture.at(10),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Target: target, Body: "target root", Now: f.at(10),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: target, Limit: 20, Now: fixture.at(11),
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: target, Limit: 20, Now: f.at(11),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Target: target, Body: "target advanced", Now: fixture.at(12),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Target: target, Body: "target advanced", Now: f.at(12),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	requestID := uuid.NewString()
 	params := ResolveHeldDraftParams{
-		RequestID: requestID, Authentication: fixture.authentication,
+		RequestID: requestID, Authentication: f.authentication,
 		HeldDraftID: original.ID, Action: DraftResolutionRetarget, Target: target,
-		BasisTargetSequence: observed.Head, Now: fixture.at(13),
+		BasisTargetSequence: observed.Head, Now: f.at(13),
 	}
-	result, err := fixture.database.ResolveHeldDraft(ctx, params)
+	result, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || result.Kind != InboxResultHeldDraft || result.HeldDraft == nil || result.HeldDraft.Target != target || result.InboxItem.State != InboxStateClaimed {
 		t.Fatalf("stale retarget = %+v, %v", result, err)
 	}
-	resolvedOriginal := readHeldDraft(t, fixture.database, original.ID)
+	resolvedOriginal := readHeldDraft(t, f.database, original.ID)
 	if resolvedOriginal.State != HeldDraftStateRetargeted || resolvedOriginal.ResolutionAction != DraftResolutionRetarget || resolvedOriginal.ResultKind != InboxResultHeldDraft || resolvedOriginal.ResultID != result.HeldDraft.ID {
 		t.Fatalf("resolved original = %+v", resolvedOriginal)
 	}
-	params.Now = fixture.at(14)
-	replayed, err := fixture.database.ResolveHeldDraft(ctx, params)
+	params.Now = f.at(14)
+	replayed, err := f.database.ResolveHeldDraft(ctx, params)
 	if err != nil || !reflect.DeepEqual(result, replayed) {
 		t.Fatalf("stale retarget replay = %+v, %v", replayed, err)
 	}
 	secondRequest := uuid.NewString()
 	params.RequestID = secondRequest
-	params.Now = fixture.at(15)
-	if _, err := fixture.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
+	params.Now = f.at(15)
+	if _, err := f.database.ResolveHeldDraft(ctx, params); !errors.Is(err, ErrHeldDraftNotHeld) {
 		t.Fatalf("second stale retarget error = %v", err)
 	}
-	assertAgentRequestCount(t, fixture.database, secondRequest, 0)
-	if current := readInboxItem(t, fixture.database, item.ID); current.State != InboxStateClaimed {
+	assertAgentRequestCount(t, f.database, secondRequest, 0)
+	if current := readInboxItem(t, f.database, item.ID); current.State != InboxStateClaimed {
 		t.Fatalf("stale retarget item = %+v", current)
 	}
 }
 
 func TestHeldDraftListCursorLimitAndAccessLossFill(t *testing.T) {
-	fixture := openInboxFixture(t)
-	_, inaccessible := fixture.makeHeldDraft(t, fixture.group, 1)
-	secondGroup := fixture.createAgentGroup(t, "Held list", 7)
-	_, visible := fixture.makeHeldDraft(t, secondGroup, 10)
-	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: fixture.readGrant.ID, Now: fixture.at(16),
+	f := openInboxFixture(t)
+	_, inaccessible := f.makeHeldDraft(t, f.group, 1)
+	secondGroup := f.createAgentGroup(t, "Held list", 7)
+	_, visible := f.makeHeldDraft(t, secondGroup, 10)
+	if _, err := f.database.RevokeGrant(context.Background(), RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: f.owner, GrantID: f.readGrant.ID, Now: f.at(16),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := fixture.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
-		Authentication: fixture.authentication, Limit: 1, Now: fixture.at(17),
+	result, err := f.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
+		Authentication: f.authentication, Limit: 1, Now: f.at(17),
 	})
 	if err != nil || len(result.Drafts) != 1 || result.Drafts[0].ID != visible.ID || result.NextSequence != visible.Sequence || result.NextSequence <= inaccessible.Sequence {
 		t.Fatalf("bounded held list = %+v, %v", result, err)
 	}
-	next, err := fixture.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
-		Authentication: fixture.authentication, AfterSequence: result.NextSequence, Limit: 1, Now: fixture.at(18),
+	next, err := f.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
+		Authentication: f.authentication, AfterSequence: result.NextSequence, Limit: 1, Now: f.at(18),
 	})
 	if err != nil || len(next.Drafts) != 0 || next.NextSequence != result.NextSequence {
 		t.Fatalf("held list next page = %+v, %v", next, err)
 	}
 	for _, limit := range []uint32{0, maxInboxListLimit + 1} {
-		if _, err := fixture.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
-			Authentication: fixture.authentication, Limit: limit, Now: fixture.at(19),
+		if _, err := f.database.ListHeldDrafts(context.Background(), ListHeldDraftsParams{
+			Authentication: f.authentication, Limit: limit, Now: f.at(19),
 		}); !errors.Is(err, ErrInvalidInboxLimit) {
 			t.Fatalf("limit %d error = %v", limit, err)
 		}
@@ -712,101 +712,101 @@ func TestHeldDraftListCursorLimitAndAccessLossFill(t *testing.T) {
 }
 
 func TestInboxAccessLossClosesItemsWithoutResurrection(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
 	for index := 0; index < 2; index++ {
-		if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-			RequestID: uuid.NewString(), Actor: fixture.owner,
-			Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "pending",
-			MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(index + 1),
+		if _, err := f.database.SendMessage(ctx, SendMessageParams{
+			RequestID: uuid.NewString(), Actor: f.owner,
+			Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "pending",
+			MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(index + 1),
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	secondGroup, err := fixture.database.CreateGroup(ctx, CreateGroupParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Name: "Still readable", Now: fixture.at(3),
+	secondGroup, err := f.database.CreateGroup(ctx, CreateGroupParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Name: "Still readable", Now: f.at(3),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.AddMember(ctx, ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: secondGroup.ID,
-		Member: Principal{Kind: "agent", ID: fixture.agentID}, Now: fixture.at(4),
+	if _, err := f.database.AddMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: secondGroup.ID,
+		Member: Principal{Kind: "agent", ID: f.agentID}, Now: f.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	fixture.issueAgentGrant(t, secondGroup.ID, CapabilitySpaceRead, fixture.at(5))
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
+	f.issueAgentGrant(t, secondGroup.ID, CapabilitySpaceRead, f.at(5))
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
 		Target: MessageTarget{Kind: MessageTargetSpace, ID: secondGroup.ID}, Body: "still visible",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(6),
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(6),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.RevokeGrant(ctx, RevokeGrantParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: fixture.readGrant.ID, Now: fixture.at(7),
+	if _, err := f.database.RevokeGrant(ctx, RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: f.owner, GrantID: f.readGrant.ID, Now: f.at(7),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	items, err := fixture.database.ListInboxItems(ctx, ListInboxItemsParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Limit: 1, Now: fixture.at(8),
+	items, err := f.database.ListInboxItems(ctx, ListInboxItemsParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Limit: 1, Now: f.at(8),
 	})
 	if err != nil || len(items) != 1 || items[0].SpaceID != secondGroup.ID {
 		t.Fatalf("items after access loss = %+v, %v", items, err)
 	}
-	fixture.claim(t, items[0].ID, uuid.NewString(), fixture.at(9))
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		InboxItemID: items[0].ID, Now: fixture.at(10),
+	f.claim(t, items[0].ID, uuid.NewString(), f.at(9))
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		InboxItemID: items[0].ID, Now: f.at(10),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	notice, err := fixture.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Now: fixture.at(11)})
+	notice, err := f.database.GetInboxNotice(ctx, InboxNoticeParams{Authentication: executionapp.AgentInboxAuthentication(f.authentication), Now: f.at(11)})
 	if err != nil || notice {
 		t.Fatalf("notice after access loss = %v, %v", notice, err)
 	}
 	var closed int
-	if err := fixture.database.db.QueryRow(`
+	if err := f.database.db.QueryRow(`
 		SELECT count(*) FROM inbox_items
 		WHERE recipient_kind = 'agent' AND recipient_id = ? AND state = 'done' AND completion = 'access_lost'
-	`, fixture.agentID).Scan(&closed); err != nil || closed != 2 {
+	`, f.agentID).Scan(&closed); err != nil || closed != 2 {
 		t.Fatalf("access-lost items = %d, %v", closed, err)
 	}
-	fixture.readGrant = fixture.issueAgentGrant(t, fixture.group.ID, CapabilitySpaceRead, fixture.at(12))
-	items = fixture.listItems(t, 10, fixture.at(13))
+	f.readGrant = f.issueAgentGrant(t, f.group.ID, CapabilitySpaceRead, f.at(12))
+	items = f.listItems(t, 10, f.at(13))
 	if len(items) != 0 {
 		t.Fatalf("access-lost items resurrected: %+v", items)
 	}
 }
 
 func TestInboxSiblingAdvanceDoesNotHoldReply(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	root, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "root",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	item := fixture.listItems(t, 1, fixture.at(2))[0]
-	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+	item := f.listItems(t, 1, f.at(2))[0]
+	f.claim(t, item.ID, uuid.NewString(), f.at(3))
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "sibling thread", Now: fixture.at(5),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "sibling thread", Now: f.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "root reply", Now: fixture.at(6),
+	result, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: uuid.NewString(), Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: "root reply", Now: f.at(6),
 	})
 	if err != nil || result.Kind != InboxResultMessage || result.Message == nil {
 		t.Fatalf("sibling advance reply = %+v, %v", result, err)
@@ -814,129 +814,129 @@ func TestInboxSiblingAdvanceDoesNotHoldReply(t *testing.T) {
 }
 
 func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "trigger",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	item := fixture.listItems(t, 1, fixture.at(2))[0]
-	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+	item := f.listItems(t, 1, f.at(2))[0]
+	f.claim(t, item.ID, uuid.NewString(), f.at(3))
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.ArchiveSpace(ctx, ChangeSpaceArchiveParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Now: fixture.at(5),
+	if _, err := f.database.ArchiveSpace(ctx, ChangeSpaceArchiveParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID, Now: f.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	requestID := uuid.NewString()
-	if _, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: requestID, Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "must fail", Now: fixture.at(6),
+	if _, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: requestID, Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: "must fail", Now: f.at(6),
 	}); !errors.Is(err, ErrSpaceArchived) {
 		t.Fatalf("archived send error = %v", err)
 	}
-	assertInboxRequestWrites(t, fixture.database, requestID, 0, 0)
+	assertInboxRequestWrites(t, f.database, requestID, 0, 0)
 
-	if err := fixture.database.RevokeAgentRuntimeSession(ctx, RevokeAgentRuntimeSessionParams{
-		Proof: fixture.authentication.Proof, ComputerID: fixture.authentication.Proof.ComputerID(),
-		RegistrationKey: "computer-registration-key", Now: fixture.at(7),
+	if err := f.database.RevokeAgentRuntimeSession(ctx, RevokeAgentRuntimeSessionParams{
+		Proof: f.authentication.Proof, ComputerID: f.authentication.Proof.ComputerID(),
+		RegistrationKey: "computer-registration-key", Now: f.at(7),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	runtimeRequest := uuid.NewString()
-	if _, err := fixture.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
-		RequestID: runtimeRequest, Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), InboxItemID: item.ID, Now: fixture.at(8),
+	if _, err := f.database.CompleteInboxItem(ctx, CompleteInboxItemParams{
+		RequestID: runtimeRequest, Authentication: executionapp.AgentInboxAuthentication(f.authentication), InboxItemID: item.ID, Now: f.at(8),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
 		t.Fatalf("revoked runtime completion error = %v", err)
 	}
-	assertInboxRequestWrites(t, fixture.database, runtimeRequest, 0, 0)
+	assertInboxRequestWrites(t, f.database, runtimeRequest, 0, 0)
 }
 
 func TestHeldDraftDoesNotResurrectAfterAccessLoss(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "trigger",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "trigger",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	item := fixture.listItems(t, 1, fixture.at(2))[0]
-	fixture.claim(t, item.ID, uuid.NewString(), fixture.at(3))
-	observed, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: item.Target, Limit: 20, Now: fixture.at(4),
+	item := f.listItems(t, 1, f.at(2))[0]
+	f.claim(t, item.ID, uuid.NewString(), f.at(3))
+	observed, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: item.Target, Limit: 20, Now: f.at(4),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: item.Target, Body: "advance", Now: fixture.at(5),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: item.Target, Body: "advance", Now: f.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	held, err := fixture.database.SendInboxReply(ctx, SendInboxReplyParams{
-		RequestID: uuid.NewString(), Authentication: fixture.authentication, InboxItemID: item.ID,
-		BasisTargetSequence: observed.Head, Body: "held", Now: fixture.at(6),
+	held, err := f.database.SendInboxReply(ctx, SendInboxReplyParams{
+		RequestID: uuid.NewString(), Authentication: f.authentication, InboxItemID: item.ID,
+		BasisTargetSequence: observed.Head, Body: "held", Now: f.at(6),
 	})
 	if err != nil || held.HeldDraft == nil {
 		t.Fatalf("held = %+v, %v", held, err)
 	}
-	if _, err := fixture.database.RevokeGrant(ctx, RevokeGrantParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: fixture.readGrant.ID, Now: fixture.at(7),
+	if _, err := f.database.RevokeGrant(ctx, RevokeGrantParams{
+		RequestID: uuid.NewString(), Actor: f.owner, GrantID: f.readGrant.ID, Now: f.at(7),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	drafts, err := fixture.database.ListHeldDrafts(ctx, ListHeldDraftsParams{
-		Authentication: fixture.authentication, Limit: 10, Now: fixture.at(8),
+	drafts, err := f.database.ListHeldDrafts(ctx, ListHeldDraftsParams{
+		Authentication: f.authentication, Limit: 10, Now: f.at(8),
 	})
 	if err != nil || len(drafts.Drafts) != 0 || drafts.NextSequence != held.HeldDraft.Sequence {
 		t.Fatalf("drafts after access loss = %+v, %v", drafts, err)
 	}
-	fixture.readGrant = fixture.issueAgentGrant(t, fixture.group.ID, CapabilitySpaceRead, fixture.at(9))
-	drafts, err = fixture.database.ListHeldDrafts(ctx, ListHeldDraftsParams{
-		Authentication: fixture.authentication, Limit: 10, Now: fixture.at(10),
+	f.readGrant = f.issueAgentGrant(t, f.group.ID, CapabilitySpaceRead, f.at(9))
+	drafts, err = f.database.ListHeldDrafts(ctx, ListHeldDraftsParams{
+		Authentication: f.authentication, Limit: 10, Now: f.at(10),
 	})
 	if err != nil || len(drafts.Drafts) != 0 || drafts.NextSequence != held.HeldDraft.Sequence {
 		t.Fatalf("drafts after restored access = %+v, %v", drafts, err)
 	}
 	resolveRequest := uuid.NewString()
-	if _, err := fixture.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
-		RequestID: resolveRequest, Authentication: fixture.authentication,
-		HeldDraftID: held.HeldDraft.ID, Action: DraftResolutionCancel, Now: fixture.at(11),
+	if _, err := f.database.ResolveHeldDraft(ctx, ResolveHeldDraftParams{
+		RequestID: resolveRequest, Authentication: f.authentication,
+		HeldDraftID: held.HeldDraft.ID, Action: DraftResolutionCancel, Now: f.at(11),
 	}); !errors.Is(err, ErrInboxItemNotClaimed) {
 		t.Fatalf("access-lost draft resolution error = %v", err)
 	}
-	assertInboxRequestWrites(t, fixture.database, resolveRequest, 0, 1)
+	assertInboxRequestWrites(t, f.database, resolveRequest, 0, 1)
 }
 
 func TestInboxMentionValidationRejectsInvalidSets(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	nonmemberAgent, err := fixture.database.CreateAgent(ctx, testCreateAgentParams(fixture.owner, "outside", fixture.at(1)))
+	nonmemberAgent, err := f.database.CreateAgent(ctx, testCreateAgentParams(f.owner, "outside", f.at(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	nonmember := nonmemberAgent.ID
 	for name, mentions := range map[string][]string{
-		"duplicate": {fixture.agentID, fixture.agentID},
+		"duplicate": {f.agentID, f.agentID},
 		"nonmember": {nonmember},
 		"invalid":   {"not-a-uuid"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-				RequestID: uuid.NewString(), Actor: fixture.owner,
-				Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
-				Body:   "invalid mention", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, mentions...), Now: fixture.at(2),
+			if _, err := f.database.SendMessage(ctx, SendMessageParams{
+				RequestID: uuid.NewString(), Actor: f.owner,
+				Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID},
+				Body:   "invalid mention", MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, mentions...), Now: f.at(2),
 			}); !errors.Is(err, ErrInvalidMention) {
 				t.Fatalf("error = %v", err)
 			}
@@ -946,55 +946,55 @@ func TestInboxMentionValidationRejectsInvalidSets(t *testing.T) {
 	for index := range tooMany {
 		tooMany[index] = uuid.NewString()
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
-		Body:   "too many", MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, tooMany...), Now: fixture.at(3),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID},
+		Body:   "too many", MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, tooMany...), Now: f.at(3),
 	}); !errors.Is(err, ErrInvalidMention) {
 		t.Fatalf("too-many error = %v", err)
 	}
 	var messages int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM messages WHERE space_id = ?`, fixture.group.ID).Scan(&messages); err != nil || messages != 0 {
+	if err := f.database.db.QueryRow(`SELECT count(*) FROM messages WHERE space_id = ?`, f.group.ID).Scan(&messages); err != nil || messages != 0 {
 		t.Fatalf("invalid mention messages = %d, %v", messages, err)
 	}
 }
 
 func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	message, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "valid",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	message, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "valid",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := fixture.database.CreateAgent(ctx, testCreateAgentParams(fixture.owner, "second", fixture.at(2)))
+	second, err := f.database.CreateAgent(ctx, testCreateAgentParams(f.owner, "second", f.at(2)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	secondAgent := second.ID
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 0)`, message.ID, secondAgent)
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 64)`, message.ID, secondAgent)
-	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 1)`, uuid.NewString(), secondAgent)
-	assertExecFails(t, fixture.database, `
+	assertExecFails(t, f.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 0)`, message.ID, secondAgent)
+	assertExecFails(t, f.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 64)`, message.ID, secondAgent)
+	assertExecFails(t, f.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 1)`, uuid.NewString(), secondAgent)
+	assertExecFails(t, f.database, `
 		UPDATE inbox_items SET trigger_target_sequence = trigger_target_sequence + 1
 		WHERE recipient_kind = 'agent' AND recipient_id = ? AND trigger_message_id = ?
-	`, fixture.agentID, message.ID)
-	assertExecFails(t, fixture.database, `
+	`, f.agentID, message.ID)
+	assertExecFails(t, f.database, `
 		UPDATE inbox_items SET state = 'done', completion = '', done_at = ?
 		WHERE recipient_kind = 'agent' AND recipient_id = ? AND trigger_message_id = ?
-	`, unixNano(fixture.at(3)), fixture.agentID, message.ID)
-	item := fixture.listItems(t, 1, fixture.at(4))[0]
+	`, unixNano(f.at(3)), f.agentID, message.ID)
+	item := f.listItems(t, 1, f.at(4))[0]
 	draftID := uuid.NewString()
-	if _, err := fixture.database.db.Exec(`
+	if _, err := f.database.db.Exec(`
 		INSERT INTO agent_held_drafts(
 			id, agent_id, inbox_item_id, space_id, target_kind, target_id,
 			basis_target_sequence, body, held_reason, state, created_at, updated_at
 		) VALUES(?, ?, ?, ?, ?, ?, ?, 'held', 'target_advanced', 'held', ?, ?)
-	`, draftID, fixture.agentID, item.ID, item.SpaceID, item.Target.Kind, item.Target.ID,
-		item.TriggerTargetSequence, unixNano(fixture.at(5)), unixNano(fixture.at(5))); err != nil {
+	`, draftID, f.agentID, item.ID, item.SpaceID, item.Target.Kind, item.Target.ID,
+		item.TriggerTargetSequence, unixNano(f.at(5)), unixNano(f.at(5))); err != nil {
 		t.Fatal(err)
 	}
 	for name, values := range map[string][]string{
@@ -1003,7 +1003,7 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 		"retargeted retry":    {HeldDraftStateRetargeted, DraftResolutionRetry, InboxResultMessage},
 	} {
 		t.Run(name, func(t *testing.T) {
-			assertExecFails(t, fixture.database, `
+			assertExecFails(t, f.database, `
 				UPDATE agent_held_drafts
 				SET state = ?, resolution_action = ?, result_kind = ?, result_id = ?
 				WHERE id = ?
@@ -1012,19 +1012,19 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 	}
 	var planID, parentID, unused int
 	var detail string
-	if err := fixture.database.db.QueryRow(`
+	if err := f.database.db.QueryRow(`
 		EXPLAIN QUERY PLAN
 		SELECT sequence, id FROM agent_held_drafts
 		WHERE agent_id = ? AND state = 'held' AND sequence > ?
 		ORDER BY sequence
 		LIMIT ?
-	`, fixture.agentID, 0, 10).Scan(&planID, &parentID, &unused, &detail); err != nil {
+	`, f.agentID, 0, 10).Scan(&planID, &parentID, &unused, &detail); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(detail, "agent_held_drafts_agent_state_sequence") || !strings.Contains(detail, "sequence>?") {
 		t.Fatalf("held draft list query plan = %q", detail)
 	}
-	rows, err := fixture.database.db.Query(`PRAGMA foreign_key_check`)
+	rows, err := f.database.db.Query(`PRAGMA foreign_key_check`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1035,54 +1035,54 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 }
 
 func TestInboxMembershipRemovalTerminalizesProjection(t *testing.T) {
-	fixture := openInboxFixture(t)
+	f := openInboxFixture(t)
 	ctx := context.Background()
-	root, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "root",
-		MentionedPrincipals: agentPrincipals(fixture.owner.OrganizationID, fixture.agentID), Now: fixture.at(1),
+	root, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "root",
+		MentionedPrincipals: agentPrincipals(f.owner.OrganizationID, f.agentID), Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetSpaceMute(ctx, SetSpaceMuteParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		SpaceID: fixture.group.ID, Muted: true, Now: fixture.at(2),
+	if _, err := f.database.SetSpaceMute(ctx, SetSpaceMuteParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		SpaceID: f.group.ID, Muted: true, Now: f.at(2),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SendMessage(ctx, SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "create thread", Now: fixture.at(3),
+	if _, err := f.database.SendMessage(ctx, SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: MessageTarget{Kind: MessageTargetThread, ID: root.ID}, Body: "create thread", Now: f.at(3),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetThreadFollow(ctx, SetThreadFollowParams{
-		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(fixture.authentication),
-		ThreadID: root.ID, Followed: true, Now: fixture.at(4),
+	if _, err := f.database.SetThreadFollow(ctx, SetThreadFollowParams{
+		RequestID: uuid.NewString(), Authentication: executionapp.AgentInboxAuthentication(f.authentication),
+		ThreadID: root.ID, Followed: true, Now: f.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.ObserveTarget(ctx, ObserveTargetParams{
-		Authentication: executionapp.AgentInboxAuthentication(fixture.authentication), Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID},
-		Limit: 10, Now: fixture.at(5),
+	if _, err := f.database.ObserveTarget(ctx, ObserveTargetParams{
+		Authentication: executionapp.AgentInboxAuthentication(f.authentication), Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID},
+		Limit: 10, Now: f.at(5),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.RemoveMember(ctx, ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID,
-		Member: Principal{Kind: "agent", ID: fixture.agentID}, Now: fixture.at(6),
+	if _, err := f.database.RemoveMember(ctx, ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID,
+		Member: Principal{Kind: "agent", ID: f.agentID}, Now: f.at(6),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, table := range []string{"principal_space_mutes", "principal_thread_follows", "principal_target_cursors"} {
 		var count int
-		if err := fixture.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'agent' AND principal_id = ?`, fixture.agentID).Scan(&count); err != nil || count != 0 {
+		if err := f.database.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE principal_kind = 'agent' AND principal_id = ?`, f.agentID).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s rows = %d, %v", table, count, err)
 		}
 	}
 	var completion string
-	if err := fixture.database.db.QueryRow(`SELECT completion FROM inbox_items WHERE trigger_message_id = ? AND recipient_kind = 'agent' AND recipient_id = ?`, root.ID, fixture.agentID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
+	if err := f.database.db.QueryRow(`SELECT completion FROM inbox_items WHERE trigger_message_id = ? AND recipient_kind = 'agent' AND recipient_id = ?`, root.ID, f.agentID).Scan(&completion); err != nil || completion != InboxCompletionAccessLost {
 		t.Fatalf("removed item completion = %q, %v", completion, err)
 	}
 }
@@ -1123,20 +1123,20 @@ func openInboxFixture(t *testing.T) *inboxFixture {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	fixture := &inboxFixture{
+	f := &inboxFixture{
 		database: runtimeFixture.database, owner: owner, rootGrant: bootstrap.RootGrant,
 		agentID: runtimeFixture.agentID, group: group, now: runtimeFixture.now.Add(10 * time.Second),
 	}
-	fixture.readGrant = fixture.issueAgentGrant(t, group.ID, CapabilitySpaceRead, runtimeFixture.now.Add(3*time.Second))
-	fixture.issueAgentGrant(t, group.ID, CapabilityMessageSend, runtimeFixture.now.Add(4*time.Second))
+	f.readGrant = f.issueAgentGrant(t, group.ID, CapabilitySpaceRead, runtimeFixture.now.Add(3*time.Second))
+	f.issueAgentGrant(t, group.ID, CapabilityMessageSend, runtimeFixture.now.Add(4*time.Second))
 	token := rtToken(42)
 	createRuntimeSession(t, runtimeFixture, token, runtimeFixture.now.Add(5*time.Second))
-	authentication, err := fixture.database.AuthenticateAgentRuntimeSession(context.Background(), token, runtimeFixture.now.Add(6*time.Second))
+	authentication, err := f.database.AuthenticateAgentRuntimeSession(context.Background(), token, runtimeFixture.now.Add(6*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.authentication = authentication
-	return fixture
+	f.authentication = authentication
+	return f
 }
 
 func (f *inboxFixture) at(seconds int) time.Time {

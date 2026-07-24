@@ -16,17 +16,17 @@ import (
 )
 
 func TestBrowserHandoffHTTPIsSingleUseAndDoesNotClearExistingSession(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := database.EnsureAuthority(context.Background(), credential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := browserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := browserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 
 	create := request(t, handler, http.MethodPost, CreateHandoffPath, "127.0.0.1:42000", map[string]string{"Authorization": "Bearer " + credential})
 	if create.Code != http.StatusCreated || create.Header().Get("Cache-Control") != "no-store" {
@@ -91,17 +91,17 @@ func TestBrowserHandoffHTTPIsSingleUseAndDoesNotClearExistingSession(t *testing.
 }
 
 func TestBrowserSessionLogoutRequiresExactOriginAndClearsCookie(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := database.EnsureAuthority(context.Background(), credential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := browserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := browserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 	session := createSession(t, handler, credential)
 	duplicate := map[string]string{"Cookie": session.Name + "=" + session.Value + "; " + session.Name + "=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
 	status := request(t, handler, http.MethodGet, SessionPath, "127.0.0.1:42000", duplicate)
@@ -151,17 +151,17 @@ func TestBrowserSessionTTLIsBounded(t *testing.T) {
 }
 
 func TestBrowserEndpointsRejectNonLoopbackHostPeerAndQuery(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := database.EnsureAuthority(context.Background(), credential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := browserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := browserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 	for _, test := range []struct {
 		path   string
 		remote string
@@ -212,9 +212,9 @@ func (unreadableBody) Close() error {
 	return nil
 }
 
-func browserHandler(t *testing.T, database *store.Store, origin string, now func() time.Time) http.Handler {
+func browserHandler(t *testing.T, db *store.Store, origin string, now func() time.Time) http.Handler {
 	t.Helper()
-	service, err := New(database, Config{Origin: origin, Now: now})
+	service, err := New(db, Config{Origin: origin, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}

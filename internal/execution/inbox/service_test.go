@@ -24,9 +24,9 @@ import (
 )
 
 func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
-	fixture := openServiceFixture(t)
-	service := New(fixture.database, "")
-	service.now = func() time.Time { return fixture.current }
+	f := openServiceFixture(t)
+	service := New(f.database, "")
+	service.now = func() time.Time { return f.current }
 	path, handler := inboxv1connect.NewInboxServiceHandler(service)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
@@ -37,99 +37,99 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	if _, err := client.GetInboxNotice(context.Background(), connect.NewRequest(&inboxv1.GetInboxNoticeRequest{})); connectCode(err) != connect.CodeUnauthenticated {
 		t.Fatalf("unauthenticated notice code = %v, error = %v", connectCode(err), err)
 	}
-	notice, err := client.GetInboxNotice(context.Background(), runtimeRequest(fixture.token, &inboxv1.GetInboxNoticeRequest{}))
+	notice, err := client.GetInboxNotice(context.Background(), runtimeRequest(f.token, &inboxv1.GetInboxNoticeRequest{}))
 	if err != nil || !notice.Msg.GetHasUnread() {
 		t.Fatalf("notice = %+v, %v", notice, err)
 	}
-	listed, err := client.ListInboxItems(context.Background(), runtimeRequest(fixture.token, &inboxv1.ListInboxItemsRequest{Limit: 1}))
+	listed, err := client.ListInboxItems(context.Background(), runtimeRequest(f.token, &inboxv1.ListInboxItemsRequest{Limit: 1}))
 	if err != nil || len(listed.Msg.GetItems()) != 1 {
 		t.Fatalf("items = %+v, %v", listed, err)
 	}
 	item := listed.Msg.GetItems()[0]
-	if item.GetRecipient().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT || item.GetRecipient().GetId() != fixture.agent.ID ||
-		item.GetReason() != inboxv1.InboxReason_INBOX_REASON_MENTION || item.GetSpaceId() != fixture.group.ID {
+	if item.GetRecipient().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT || item.GetRecipient().GetId() != f.agent.ID ||
+		item.GetReason() != inboxv1.InboxReason_INBOX_REASON_MENTION || item.GetSpaceId() != f.group.ID {
 		t.Fatalf("item mapping = %+v", item)
 	}
-	muteRequest := &inboxv1.SetSpaceMuteRequest{RequestId: uuid.NewString(), SpaceId: fixture.group.ID, Muted: true}
-	muted, err := client.SetSpaceMute(context.Background(), runtimeRequest(fixture.token, muteRequest))
+	muteRequest := &inboxv1.SetSpaceMuteRequest{RequestId: uuid.NewString(), SpaceId: f.group.ID, Muted: true}
+	muted, err := client.SetSpaceMute(context.Background(), runtimeRequest(f.token, muteRequest))
 	if err != nil || !muted.Msg.GetMuted() {
 		t.Fatalf("mute = %+v, %v", muted, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedMute, err := client.SetSpaceMute(context.Background(), runtimeRequest(fixture.token, muteRequest))
+	f.current = f.current.Add(time.Second)
+	replayedMute, err := client.SetSpaceMute(context.Background(), runtimeRequest(f.token, muteRequest))
 	if err != nil || !proto.Equal(muted.Msg, replayedMute.Msg) {
 		t.Fatalf("mute replay = %+v, %v", replayedMute, err)
 	}
 	followRequest := &inboxv1.SetThreadFollowRequest{
-		RequestId: uuid.NewString(), ThreadRootMessageId: fixture.trigger.ID, Followed: true,
+		RequestId: uuid.NewString(), ThreadRootMessageId: f.trigger.ID, Followed: true,
 	}
-	followed, err := client.SetThreadFollow(context.Background(), runtimeRequest(fixture.token, followRequest))
+	followed, err := client.SetThreadFollow(context.Background(), runtimeRequest(f.token, followRequest))
 	if err != nil || !followed.Msg.GetFollowed() {
 		t.Fatalf("follow = %+v, %v", followed, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedFollow, err := client.SetThreadFollow(context.Background(), runtimeRequest(fixture.token, followRequest))
+	f.current = f.current.Add(time.Second)
+	replayedFollow, err := client.SetThreadFollow(context.Background(), runtimeRequest(f.token, followRequest))
 	if err != nil || !proto.Equal(followed.Msg, replayedFollow.Msg) {
 		t.Fatalf("follow replay = %+v, %v", replayedFollow, err)
 	}
 	claimRequestID := uuid.NewString()
 	claimRequest := &inboxv1.ClaimInboxItemRequest{RequestId: claimRequestID, InboxItemId: item.GetId()}
-	claimed, err := client.ClaimInboxItem(context.Background(), runtimeRequest(fixture.token, claimRequest))
+	claimed, err := client.ClaimInboxItem(context.Background(), runtimeRequest(f.token, claimRequest))
 	if err != nil || claimed.Msg.GetItem().GetState() != inboxv1.InboxState_INBOX_STATE_CLAIMED {
 		t.Fatalf("claim = %+v, %v", claimed, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedClaim, err := client.ClaimInboxItem(context.Background(), runtimeRequest(fixture.token, claimRequest))
+	f.current = f.current.Add(time.Second)
+	replayedClaim, err := client.ClaimInboxItem(context.Background(), runtimeRequest(f.token, claimRequest))
 	if err != nil || !proto.Equal(claimed.Msg, replayedClaim.Msg) {
 		t.Fatalf("claim replay = %+v, %v", replayedClaim, err)
 	}
-	if _, err := client.CompleteInboxItem(context.Background(), runtimeRequest(fixture.token, &inboxv1.CompleteInboxItemRequest{
+	if _, err := client.CompleteInboxItem(context.Background(), runtimeRequest(f.token, &inboxv1.CompleteInboxItemRequest{
 		RequestId: claimRequestID, InboxItemId: item.GetId(),
 	})); connectCode(err) != connect.CodeAlreadyExists {
 		t.Fatalf("cross-operation request code = %v, error = %v", connectCode(err), err)
 	}
-	observed, err := client.ObserveTarget(context.Background(), runtimeRequest(fixture.token, &inboxv1.ObserveTargetRequest{
+	observed, err := client.ObserveTarget(context.Background(), runtimeRequest(f.token, &inboxv1.ObserveTargetRequest{
 		Target: item.GetTarget(), Limit: 20,
 	}))
 	if err != nil || observed.Msg.GetHeadSequence() != item.GetTriggerTargetSequence() || len(observed.Msg.GetMessages()) != 1 ||
 		len(observed.Msg.GetMessages()[0].GetMentionedPrincipals()) != 1 ||
-		observed.Msg.GetMessages()[0].GetMentionedPrincipals()[0].GetId() != fixture.agent.ID {
+		observed.Msg.GetMessages()[0].GetMentionedPrincipals()[0].GetId() != f.agent.ID {
 		t.Fatalf("observe = %+v, %v", observed, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	if _, err := fixture.database.SendMessage(context.Background(), store.SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: fixture.group.ID},
-		Body:   "advance", Now: fixture.current,
+	f.current = f.current.Add(time.Second)
+	if _, err := f.database.SendMessage(context.Background(), store.SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: f.group.ID},
+		Body:   "advance", Now: f.current,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
+	f.current = f.current.Add(time.Second)
 	sendRequestID := uuid.NewString()
 	sendRequest := &inboxv1.SendInboxReplyRequest{
 		RequestId: sendRequestID, InboxItemId: item.GetId(), BasisTargetSequence: observed.Msg.GetHeadSequence(),
-		Body: "held response", MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: fixture.agent.ID}},
+		Body: "held response", MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT, Id: f.agent.ID}},
 	}
-	held, err := client.SendInboxReply(context.Background(), runtimeRequest(fixture.token, sendRequest))
+	held, err := client.SendInboxReply(context.Background(), runtimeRequest(f.token, sendRequest))
 	if err != nil || held.Msg.GetHeldDraft() == nil || held.Msg.GetMessage() != nil {
 		t.Fatalf("held send = %+v, %v", held, err)
 	}
 	if held.Msg.GetHeldDraft().GetSequence() == 0 || held.Msg.GetHeldDraft().GetBasisTargetSequence() != observed.Msg.GetHeadSequence() ||
 		len(held.Msg.GetHeldDraft().GetMentionedPrincipals()) != 1 ||
-		held.Msg.GetHeldDraft().GetMentionedPrincipals()[0].GetId() != fixture.agent.ID {
+		held.Msg.GetHeldDraft().GetMentionedPrincipals()[0].GetId() != f.agent.ID {
 		t.Fatalf("held mapping = %+v", held.Msg.GetHeldDraft())
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedHeld, err := client.SendInboxReply(context.Background(), runtimeRequest(fixture.token, sendRequest))
+	f.current = f.current.Add(time.Second)
+	replayedHeld, err := client.SendInboxReply(context.Background(), runtimeRequest(f.token, sendRequest))
 	if err != nil || !proto.Equal(held.Msg, replayedHeld.Msg) {
 		t.Fatalf("held replay = %+v, %v", replayedHeld, err)
 	}
-	drafts, err := client.ListHeldDrafts(context.Background(), runtimeRequest(fixture.token, &inboxv1.ListHeldDraftsRequest{Limit: 1}))
+	drafts, err := client.ListHeldDrafts(context.Background(), runtimeRequest(f.token, &inboxv1.ListHeldDraftsRequest{Limit: 1}))
 	if err != nil || len(drafts.Msg.GetDrafts()) != 1 || drafts.Msg.GetNextSequence() != held.Msg.GetHeldDraft().GetSequence() {
 		t.Fatalf("held list = %+v, %v", drafts, err)
 	}
 	for _, limit := range []uint32{0, 201} {
-		if _, err := client.ListHeldDrafts(context.Background(), runtimeRequest(fixture.token, &inboxv1.ListHeldDraftsRequest{Limit: limit})); connectCode(err) != connect.CodeInvalidArgument {
+		if _, err := client.ListHeldDrafts(context.Background(), runtimeRequest(f.token, &inboxv1.ListHeldDraftsRequest{Limit: limit})); connectCode(err) != connect.CodeInvalidArgument {
 			t.Fatalf("held limit %d code = %v, error = %v", limit, connectCode(err), err)
 		}
 	}
@@ -138,31 +138,31 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 		RequestId: resolveRequestID, HeldDraftId: held.Msg.GetHeldDraft().GetId(),
 		Action: inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL,
 	}
-	resolved, err := client.ResolveHeldDraft(context.Background(), runtimeRequest(fixture.token, resolveRequest))
+	resolved, err := client.ResolveHeldDraft(context.Background(), runtimeRequest(f.token, resolveRequest))
 	if err != nil || resolved.Msg.GetAction() != inboxv1.DraftResolutionAction_DRAFT_RESOLUTION_ACTION_CANCEL ||
 		resolved.Msg.GetItem().GetCompletion() != inboxv1.InboxCompletion_INBOX_COMPLETION_CANCELLED || resolved.Msg.GetResult() != nil {
 		t.Fatalf("resolve cancel = %+v, %v", resolved, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedResolved, err := client.ResolveHeldDraft(context.Background(), runtimeRequest(fixture.token, resolveRequest))
+	f.current = f.current.Add(time.Second)
+	replayedResolved, err := client.ResolveHeldDraft(context.Background(), runtimeRequest(f.token, resolveRequest))
 	if err != nil || !proto.Equal(resolved.Msg, replayedResolved.Msg) {
 		t.Fatalf("resolve replay = %+v, %v", replayedResolved, err)
 	}
-	if _, err := client.ClaimInboxItem(context.Background(), runtimeRequest(fixture.token, &inboxv1.ClaimInboxItemRequest{
+	if _, err := client.ClaimInboxItem(context.Background(), runtimeRequest(f.token, &inboxv1.ClaimInboxItemRequest{
 		RequestId: uuid.NewString(), InboxItemId: item.GetId(),
 	})); connectCode(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("terminal claim code = %v, error = %v", connectCode(err), err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	secondTrigger, err := fixture.database.SendMessage(context.Background(), store.SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner,
-		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: fixture.group.ID}, Body: "complete silently",
-		MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: fixture.agent.ID, OrganizationID: fixture.owner.OrganizationID}}, Now: fixture.current,
+	f.current = f.current.Add(time.Second)
+	secondTrigger, err := f.database.SendMessage(context.Background(), store.SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner,
+		Target: store.MessageTarget{Kind: store.MessageTargetSpace, ID: f.group.ID}, Body: "complete silently",
+		MentionedPrincipals: []store.Principal{{Kind: store.PrincipalAgent, ID: f.agent.ID, OrganizationID: f.owner.OrganizationID}}, Now: f.current,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondList, err := client.ListInboxItems(context.Background(), runtimeRequest(fixture.token, &inboxv1.ListInboxItemsRequest{Limit: 20}))
+	secondList, err := client.ListInboxItems(context.Background(), runtimeRequest(f.token, &inboxv1.ListInboxItemsRequest{Limit: 20}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,18 +176,18 @@ func TestInboxServiceRuntimeAuthReplayErrorsAndHeldDraftMapping(t *testing.T) {
 	if secondItem == nil {
 		t.Fatal("second inbox item not found")
 	}
-	if _, err := client.ClaimInboxItem(context.Background(), runtimeRequest(fixture.token, &inboxv1.ClaimInboxItemRequest{
+	if _, err := client.ClaimInboxItem(context.Background(), runtimeRequest(f.token, &inboxv1.ClaimInboxItemRequest{
 		RequestId: uuid.NewString(), InboxItemId: secondItem.GetId(),
 	})); err != nil {
 		t.Fatal(err)
 	}
 	completeRequest := &inboxv1.CompleteInboxItemRequest{RequestId: uuid.NewString(), InboxItemId: secondItem.GetId()}
-	completed, err := client.CompleteInboxItem(context.Background(), runtimeRequest(fixture.token, completeRequest))
+	completed, err := client.CompleteInboxItem(context.Background(), runtimeRequest(f.token, completeRequest))
 	if err != nil || completed.Msg.GetItem().GetCompletion() != inboxv1.InboxCompletion_INBOX_COMPLETION_SILENT {
 		t.Fatalf("complete = %+v, %v", completed, err)
 	}
-	fixture.current = fixture.current.Add(time.Second)
-	replayedComplete, err := client.CompleteInboxItem(context.Background(), runtimeRequest(fixture.token, completeRequest))
+	f.current = f.current.Add(time.Second)
+	replayedComplete, err := client.CompleteInboxItem(context.Background(), runtimeRequest(f.token, completeRequest))
 	if err != nil || !proto.Equal(completed.Msg, replayedComplete.Msg) {
 		t.Fatalf("complete replay = %+v, %v", replayedComplete, err)
 	}

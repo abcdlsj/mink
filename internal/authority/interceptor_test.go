@@ -14,17 +14,17 @@ import (
 )
 
 func TestInterceptorAuthenticatesActiveHumanWithoutCredentialLeak(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	bootstrap, err := database.EnsureAuthority(context.Background(), credential, time.Now())
+	bootstrap, err := db.EnsureAuthority(context.Background(), credential, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	interceptor := NewBrowserInterceptor(database, database, BrowserInterceptorConfig{})
+	interceptor := NewBrowserInterceptor(db, db, BrowserInterceptorConfig{})
 	wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
 		subject, err := Subject(ctx)
 		if err != nil {

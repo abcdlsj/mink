@@ -18,7 +18,7 @@ import (
 
 func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := Open(path)
+	db, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T)
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			results[index], errorsByIndex[index] = database.EnsureAuthority(context.Background(), credential, now)
+			results[index], errorsByIndex[index] = db.EnsureAuthority(context.Background(), credential, now)
 		}(index)
 	}
 	wait.Wait()
@@ -44,40 +44,40 @@ func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T)
 			t.Fatalf("bootstrap %d returned a different identity", index)
 		}
 	}
-	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: results[0].Organization.ID, Limit: 100})
+	events, err := db.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: results[0].Organization.ID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 3 || events[0].Sequence != 1 || events[2].Sequence != 3 {
 		t.Fatalf("bootstrap audit events = %+v", events)
 	}
-	if _, err := database.EnsureAuthority(context.Background(), "different-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", now); !errors.Is(err, ErrAuthorityMismatch) {
+	if _, err := db.EnsureAuthority(context.Background(), "different-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", now); !errors.Is(err, ErrAuthorityMismatch) {
 		t.Fatalf("mismatched credential error = %v", err)
 	}
 	var storedHash []byte
-	if err := database.db.QueryRow("SELECT credential_hash FROM humans WHERE id = ?", results[0].Human.ID).Scan(&storedHash); err != nil {
+	if err := db.db.QueryRow("SELECT credential_hash FROM humans WHERE id = ?", results[0].Human.ID).Scan(&storedHash); err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Contains(storedHash, []byte(credential)) || len(storedHash) != 32 {
 		t.Fatalf("stored credential hash = %x", storedHash)
 	}
-	if err := database.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	database, err = Open(path)
+	db, err = Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
-	restarted, err := database.EnsureAuthority(context.Background(), credential, now.Add(time.Hour))
+	defer db.Close()
+	restarted, err := db.EnsureAuthority(context.Background(), credential, now.Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if restarted.Organization.ID != results[0].Organization.ID || restarted.Human.ID != results[0].Human.ID || restarted.RootGrant.ID != results[0].RootGrant.ID {
 		t.Fatalf("authority changed across restart: %+v", restarted)
 	}
-	events, err = database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: restarted.Organization.ID, Limit: 100})
+	events, err = db.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: restarted.Organization.ID, Limit: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,21 +87,21 @@ func TestAuthorityBootstrapConcurrencyRestartAndCredentialMismatch(t *testing.T)
 }
 
 func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+	bootstrap, err := db.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 
-	secondOwner := createTestHuman(t, database, owner, "Second Owner", "owner", "second-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(time.Second))
-	member := createTestHuman(t, database, owner, "Member", "member", "member-credential-abcdefghijklmnopqrstuvwxyz-012345", now.Add(2*time.Second))
-	adminGrant := issueTestGrant(t, database, IssueGrantParams{
+	secondOwner := createTestHuman(t, db, owner, "Second Owner", "owner", "second-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(time.Second))
+	member := createTestHuman(t, db, owner, "Member", "member", "member-credential-abcdefghijklmnopqrstuvwxyz-012345", now.Add(2*time.Second))
+	adminGrant := issueTestGrant(t, db, IssueGrantParams{
 		RequestID:     uuid.NewString(),
 		Actor:         owner,
 		Subject:       Principal{Kind: "human", ID: secondOwner.ID},
@@ -111,7 +111,7 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 		Now:           now.Add(3 * time.Second),
 	})
 	secondOwnerPrincipal := Principal{Kind: "human", ID: secondOwner.ID, OrganizationID: bootstrap.Organization.ID}
-	messageGrant := issueTestGrant(t, database, IssueGrantParams{
+	messageGrant := issueTestGrant(t, db, IssueGrantParams{
 		RequestID:     uuid.NewString(),
 		Actor:         secondOwnerPrincipal,
 		Subject:       Principal{Kind: "human", ID: member.ID},
@@ -121,7 +121,7 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 		Now:           now.Add(4 * time.Second),
 	})
 	memberPrincipal := Principal{Kind: "human", ID: member.ID, OrganizationID: bootstrap.Organization.ID}
-	allowed, err := database.CheckPermission(context.Background(), CheckPermissionParams{
+	allowed, err := db.CheckPermission(context.Background(), CheckPermissionParams{
 		Subject: memberPrincipal, Capability: CapabilityMessageSend,
 		Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, Now: now.Add(5 * time.Second),
 	})
@@ -130,47 +130,47 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 	}
 
 	revokeRequest := uuid.NewString()
-	revoked, err := database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: revokeRequest, Actor: owner, GrantID: adminGrant.ID, Now: now.Add(6 * time.Second)})
+	revoked, err := db.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: revokeRequest, Actor: owner, GrantID: adminGrant.ID, Now: now.Add(6 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if revoked.RevokedAt == nil {
 		t.Fatal("admin grant was not revoked")
 	}
-	allowed, err = database.CheckPermission(context.Background(), CheckPermissionParams{
+	allowed, err = db.CheckPermission(context.Background(), CheckPermissionParams{
 		Subject: memberPrincipal, Capability: CapabilityMessageSend,
 		Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, Now: now.Add(7 * time.Second),
 	})
 	if err != nil || allowed {
 		t.Fatalf("descendant permission after parent revoke = %v, %v", allowed, err)
 	}
-	eventsBeforeReplay := auditCount(t, database, bootstrap.Organization.ID)
-	replayed, err := database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: revokeRequest, Actor: owner, GrantID: adminGrant.ID, Now: now.Add(8 * time.Second)})
+	eventsBeforeReplay := auditCount(t, db, bootstrap.Organization.ID)
+	replayed, err := db.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: revokeRequest, Actor: owner, GrantID: adminGrant.ID, Now: now.Add(8 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayed.UpdatedAt != revoked.UpdatedAt || auditCount(t, database, bootstrap.Organization.ID) != eventsBeforeReplay {
+	if replayed.UpdatedAt != revoked.UpdatedAt || auditCount(t, db, bootstrap.Organization.ID) != eventsBeforeReplay {
 		t.Fatal("replayed revoke changed the grant or audit")
 	}
 
-	_, err = database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: owner, GrantID: bootstrap.RootGrant.ID, Now: now.Add(9 * time.Second)})
+	_, err = db.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: owner, GrantID: bootstrap.RootGrant.ID, Now: now.Add(9 * time.Second)})
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("last root revoke error = %v", err)
 	}
-	root, err := database.GetGrant(context.Background(), grantapp.GetQuery{GrantID: bootstrap.RootGrant.ID})
+	root, err := db.GetGrant(context.Background(), grantapp.GetQuery{GrantID: bootstrap.RootGrant.ID})
 	if err != nil || root.RevokedAt != nil {
 		t.Fatalf("last root changed: %+v, %v", root, err)
 	}
-	latest := latestAudit(t, database, bootstrap.Organization.ID)
+	latest := latestAudit(t, db, bootstrap.Organization.ID)
 	if latest.Outcome != "denied" || latest.ReasonCode != "last_owner" || latest.Action != AuditGrantRevoke {
 		t.Fatalf("last-owner audit = %+v", latest)
 	}
 
-	updated, err := database.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: owner, HumanID: secondOwner.ID, Status: "disabled", Now: now.Add(10 * time.Second)})
+	updated, err := db.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: owner, HumanID: secondOwner.ID, Status: "disabled", Now: now.Add(10 * time.Second)})
 	if err != nil || updated.Status != "disabled" {
 		t.Fatalf("disable second owner = %+v, %v", updated, err)
 	}
-	_, err = database.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: owner, HumanID: bootstrap.Human.ID, Status: "disabled", Now: now.Add(11 * time.Second)})
+	_, err = db.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: owner, HumanID: bootstrap.Human.ID, Status: "disabled", Now: now.Add(11 * time.Second)})
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("disable last owner error = %v", err)
 	}
@@ -182,37 +182,37 @@ func TestAuthorityGrantChainReceiptsAndLastOwner(t *testing.T) {
 func TestAuthorityRecoverableOwnerIterationErrorsFailClosed(t *testing.T) {
 	for _, operation := range []string{"revoke grant", "disable human"} {
 		t.Run(operation, func(t *testing.T) {
-			database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+			db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer database.Close()
+			defer db.Close()
 			now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-			bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+			bootstrap, err := db.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
 			if err != nil {
 				t.Fatal(err)
 			}
 			owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-			target := createTestHuman(t, database, owner, "Target Owner", "owner", "target-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(time.Second))
-			createTestHuman(t, database, owner, "Spare Owner", "owner", "spare-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(2*time.Second))
-			targetGrant := issueTestGrant(t, database, IssueGrantParams{
+			target := createTestHuman(t, db, owner, "Target Owner", "owner", "target-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(time.Second))
+			createTestHuman(t, db, owner, "Spare Owner", "owner", "spare-owner-credential-abcdefghijklmnopqrstuvwxyz", now.Add(2*time.Second))
+			targetGrant := issueTestGrant(t, db, IssueGrantParams{
 				RequestID: uuid.NewString(), Actor: owner,
 				Subject: Principal{Kind: "human", ID: target.ID}, Capability: CapabilityOrganizationAdmin,
 				Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, ParentGrantID: bootstrap.RootGrant.ID,
 				Now: now.Add(3 * time.Second),
 			})
-			auditsBefore := auditCount(t, database, bootstrap.Organization.ID)
+			auditsBefore := auditCount(t, db, bootstrap.Organization.ID)
 			ctx, probe, cancel := recoverableOwnerCancellationContext()
 			defer cancel()
 			requestID := uuid.NewString()
 
 			switch operation {
 			case "revoke grant":
-				_, err = database.RevokeGrant(ctx, RevokeGrantParams{
+				_, err = db.RevokeGrant(ctx, RevokeGrantParams{
 					RequestID: requestID, Actor: owner, GrantID: targetGrant.ID, Now: now.Add(4 * time.Second),
 				})
 			case "disable human":
-				_, err = database.SetHumanStatus(ctx, SetHumanStatusParams{
+				_, err = db.SetHumanStatus(ctx, SetHumanStatusParams{
 					RequestID: requestID, Actor: owner, HumanID: target.ID, Status: "disabled", Now: now.Add(4 * time.Second),
 				})
 			}
@@ -222,29 +222,29 @@ func TestAuthorityRecoverableOwnerIterationErrorsFailClosed(t *testing.T) {
 			if probe.scanned != 1 || !probe.cancellationObserved {
 				t.Fatalf("%s probe = %+v", operation, probe)
 			}
-			if got := auditCount(t, database, bootstrap.Organization.ID); got != auditsBefore {
+			if got := auditCount(t, db, bootstrap.Organization.ID); got != auditsBefore {
 				t.Fatalf("%s audit count = %d, want %d", operation, got, auditsBefore)
 			}
 
 			var receipts int
 			switch operation {
 			case "revoke grant":
-				grant, getErr := database.GetGrant(context.Background(), grantapp.GetQuery{GrantID: targetGrant.ID})
+				grant, getErr := db.GetGrant(context.Background(), grantapp.GetQuery{GrantID: targetGrant.ID})
 				if getErr != nil || grant.RevokedAt != nil {
 					t.Fatalf("grant changed after iteration error: %+v, %v", grant, getErr)
 				}
-				if err := database.db.QueryRow(`SELECT count(*) FROM grant_revoke_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
+				if err := db.db.QueryRow(`SELECT count(*) FROM grant_revoke_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
 					t.Fatal(err)
 				}
 			case "disable human":
 				var status string
-				if err := database.db.QueryRow(`SELECT status FROM humans WHERE id = ?`, target.ID).Scan(&status); err != nil {
+				if err := db.db.QueryRow(`SELECT status FROM humans WHERE id = ?`, target.ID).Scan(&status); err != nil {
 					t.Fatal(err)
 				}
 				if status != "active" {
 					t.Fatalf("human status after iteration error = %q", status)
 				}
-				if err := database.db.QueryRow(`SELECT count(*) FROM human_status_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
+				if err := db.db.QueryRow(`SELECT count(*) FROM human_status_requests WHERE request_id = ?`, requestID).Scan(&receipts); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -263,7 +263,7 @@ type recoverableOwnerCancellationProbe struct {
 func recoverableOwnerCancellationContext() (context.Context, *recoverableOwnerCancellationProbe, context.CancelFunc) {
 	queryContext, cancel := context.WithCancel(context.Background())
 	probe := &recoverableOwnerCancellationProbe{}
-	ctx := context.WithValue(queryContext, recoverableOwnerAfterScanContextKey{}, recoverableOwnerAfterScanFunc(func(scanned int, rows *sql.Rows) {
+	ctx := context.WithValue(queryContext, ownerAfterScanKey{}, ownerAfterScanFn(func(scanned int, rows *sql.Rows) {
 		probe.scanned = scanned
 		if scanned == 1 {
 			cancel()
@@ -278,26 +278,26 @@ func recoverableOwnerCancellationContext() (context.Context, *recoverableOwnerCa
 }
 
 func TestAuthorityDeniedMutationOnlyAppendsDeniedAudit(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+	bootstrap, err := db.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	member := createTestHuman(t, database, owner, "No Grants", "member", "no-grants-credential-abcdefghijklmnopqrstuvwxyz-0123", now.Add(time.Second))
+	member := createTestHuman(t, db, owner, "No Grants", "member", "no-grants-credential-abcdefghijklmnopqrstuvwxyz-0123", now.Add(time.Second))
 	memberPrincipal := Principal{Kind: "human", ID: member.ID, OrganizationID: bootstrap.Organization.ID}
-	humansBefore, err := database.ListHumans(context.Background(), bootstrap.Organization.ID)
+	humansBefore, err := db.ListHumans(context.Background(), bootstrap.Organization.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	auditBefore := auditCount(t, database, bootstrap.Organization.ID)
+	auditBefore := auditCount(t, db, bootstrap.Organization.ID)
 
-	_, err = database.CreateHuman(context.Background(), CreateHumanParams{
+	_, err = db.CreateHuman(context.Background(), CreateHumanParams{
 		RequestID:  uuid.NewString(),
 		Actor:      memberPrincipal,
 		Name:       "Denied Human",
@@ -308,42 +308,42 @@ func TestAuthorityDeniedMutationOnlyAppendsDeniedAudit(t *testing.T) {
 	if !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("denied create error = %v", err)
 	}
-	humansAfter, err := database.ListHumans(context.Background(), bootstrap.Organization.ID)
+	humansAfter, err := db.ListHumans(context.Background(), bootstrap.Organization.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(humansAfter) != len(humansBefore) {
 		t.Fatalf("denied create changed humans from %d to %d", len(humansBefore), len(humansAfter))
 	}
-	if got := auditCount(t, database, bootstrap.Organization.ID); got != auditBefore+1 {
+	if got := auditCount(t, db, bootstrap.Organization.ID); got != auditBefore+1 {
 		t.Fatalf("denied audit count = %d, want %d", got, auditBefore+1)
 	}
-	latest := latestAudit(t, database, bootstrap.Organization.ID)
+	latest := latestAudit(t, db, bootstrap.Organization.ID)
 	if latest.Actor.ID != member.ID || latest.Outcome != "denied" || latest.ReasonCode != "permission_missing" || latest.Action != AuditHumanCreate {
 		t.Fatalf("denied audit = %+v", latest)
 	}
 }
 
 func TestAuthorityCreateAndIssueRequestConflicts(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	bootstrap, err := database.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
+	bootstrap, err := db.EnsureAuthority(context.Background(), "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	requestID := uuid.NewString()
 	params := CreateHumanParams{RequestID: requestID, Actor: owner, Name: "Idempotent", Role: "member", Credential: "idempotent-credential-abcdefghijklmnopqrstuvwxyz-0123", Now: now.Add(time.Second)}
-	first, err := database.CreateHuman(context.Background(), params)
+	first, err := db.CreateHuman(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	params.Now = now.Add(time.Hour)
-	second, err := database.CreateHuman(context.Background(), params)
+	second, err := db.CreateHuman(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,18 +351,18 @@ func TestAuthorityCreateAndIssueRequestConflicts(t *testing.T) {
 		t.Fatalf("human replay changed fact: %+v / %+v", first, second)
 	}
 	params.Name = "Different"
-	if _, err := database.CreateHuman(context.Background(), params); !errors.Is(err, ErrHumanRequestConflict) {
+	if _, err := db.CreateHuman(context.Background(), params); !errors.Is(err, ErrHumanRequestConflict) {
 		t.Fatalf("human conflict error = %v", err)
 	}
 
 	grantRequest := uuid.NewString()
 	grantParams := IssueGrantParams{RequestID: grantRequest, Actor: owner, Subject: Principal{Kind: "human", ID: first.ID}, Capability: CapabilitySpaceRead, Scope: Scope{Kind: "organization", ID: bootstrap.Organization.ID}, ParentGrantID: bootstrap.RootGrant.ID, Now: now.Add(2 * time.Second)}
-	firstGrant, err := database.IssueGrant(context.Background(), grantParams)
+	firstGrant, err := db.IssueGrant(context.Background(), grantParams)
 	if err != nil {
 		t.Fatal(err)
 	}
 	grantParams.Now = now.Add(time.Hour)
-	secondGrant, err := database.IssueGrant(context.Background(), grantParams)
+	secondGrant, err := db.IssueGrant(context.Background(), grantParams)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,41 +370,41 @@ func TestAuthorityCreateAndIssueRequestConflicts(t *testing.T) {
 		t.Fatalf("grant replay changed fact: %+v / %+v", firstGrant, secondGrant)
 	}
 	grantParams.Capability = CapabilityMessageSend
-	if _, err := database.IssueGrant(context.Background(), grantParams); !errors.Is(err, ErrGrantRequestConflict) {
+	if _, err := db.IssueGrant(context.Background(), grantParams); !errors.Is(err, ErrGrantRequestConflict) {
 		t.Fatalf("grant conflict error = %v", err)
 	}
 }
 
-func createTestHuman(t *testing.T, database *Store, actor Principal, name, role, credential string, now time.Time) Human {
+func createTestHuman(t *testing.T, db *Store, actor Principal, name, role, credential string, now time.Time) Human {
 	t.Helper()
-	human, err := database.CreateHuman(context.Background(), CreateHumanParams{RequestID: uuid.NewString(), Actor: actor, Name: name, Role: role, Credential: credential, Now: now})
+	human, err := db.CreateHuman(context.Background(), CreateHumanParams{RequestID: uuid.NewString(), Actor: actor, Name: name, Role: role, Credential: credential, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return human
 }
 
-func issueTestGrant(t *testing.T, database *Store, params IssueGrantParams) Grant {
+func issueTestGrant(t *testing.T, db *Store, params IssueGrantParams) Grant {
 	t.Helper()
-	grant, err := database.IssueGrant(context.Background(), params)
+	grant, err := db.IssueGrant(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return grant
 }
 
-func auditCount(t *testing.T, database *Store, organizationID string) int {
+func auditCount(t *testing.T, db *Store, organizationID string) int {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
+	events, err := db.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return len(events)
 }
 
-func latestAudit(t *testing.T, database *Store, organizationID string) AuditEvent {
+func latestAudit(t *testing.T, db *Store, organizationID string) AuditEvent {
 	t.Helper()
-	events, err := database.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
+	events, err := db.ListAuditEvents(context.Background(), ListAuditEventsParams{OrganizationID: organizationID, Limit: 1000})
 	if err != nil {
 		t.Fatal(err)
 	}

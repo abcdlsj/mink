@@ -299,27 +299,27 @@ func TestKnowledgeRunnerDrainsConcurrentFactsAndServerReopens(t *testing.T) {
 
 func waitForKnowledgeRunnerDrain(t *testing.T, dataRoot string) {
 	t.Helper()
-	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
+	db, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	deadline := time.Now().Add(5 * time.Second)
 	var last string
 	for time.Now().Before(deadline) {
 		var applied, dirty, messageRows, workRows, artifactRows uint64
 		var status string
-		err := database.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
+		err := db.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
 		if err == nil && status == store.KnowledgeIndexReady {
-			err = database.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources`).Scan(&dirty)
+			err = db.QueryRow(`SELECT count(*) FROM knowledge_dirty_sources`).Scan(&dirty)
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'message'`).Scan(&messageRows)
+				err = db.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'message'`).Scan(&messageRows)
 			}
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'work'`).Scan(&workRows)
+				err = db.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'work'`).Scan(&workRows)
 			}
 			if err == nil {
-				err = database.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'artifact_version'`).Scan(&artifactRows)
+				err = db.QueryRow(`SELECT count(*) FROM knowledge_fts WHERE source_kind = 'artifact_version'`).Scan(&artifactRows)
 			}
 			if err == nil && dirty == 0 && messageRows != 0 && workRows != 0 && artifactRows != 0 {
 				return
@@ -335,16 +335,16 @@ func waitForKnowledgeRunnerDrain(t *testing.T, dataRoot string) {
 
 func waitForKnowledgeRunnerReady(t *testing.T, dataRoot string) {
 	t.Helper()
-	database, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
+	db, err := sql.Open("sqlite", filepath.Join(dataRoot, "data", "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		var applied uint64
 		var status string
-		err := database.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
+		err := db.QueryRow(`SELECT applied_sequence, status FROM knowledge_index_state WHERE singleton = 1`).Scan(&applied, &status)
 		if err == nil && status == store.KnowledgeIndexReady {
 			return
 		}

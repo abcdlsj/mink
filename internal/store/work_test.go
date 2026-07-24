@@ -20,12 +20,12 @@ func TestAgentWorkMutationsRejectStaleRunProofWithoutFacts(t *testing.T) {
 	}{
 		{
 			name: "create",
-			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
-				_, err := fixture.database.CreateWork(context.Background(), WorkCreateParams{
-					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
-					Agent: fixture.authentication, Run: proof,
-					SourceMessageID: fixture.source.ID, SourceSpaceID: fixture.source.SpaceID,
-					SourceTarget: fixture.source.Target, SourceTargetSequence: fixture.source.TargetSequence,
+			mutate: func(f *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := f.database.CreateWork(context.Background(), WorkCreateParams{
+					RequestID: uuid.NewString(), Actor: f.authentication.Principal,
+					Agent: f.authentication, Run: proof,
+					SourceMessageID: f.source.ID, SourceSpaceID: f.source.SpaceID,
+					SourceTarget: f.source.Target, SourceTargetSequence: f.source.TargetSequence,
 					Goal: "stale create", AcceptanceCriteria: []string{"never committed"}, Now: now,
 				})
 				return err
@@ -33,21 +33,21 @@ func TestAgentWorkMutationsRejectStaleRunProofWithoutFacts(t *testing.T) {
 		},
 		{
 			name: "assign",
-			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
-				_, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{
-					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
-					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
-					Role: WorkAssignmentContributor, AgentID: fixture.agentID, Now: now,
+			mutate: func(f *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := f.database.AssignWork(context.Background(), AssignWorkParams{
+					RequestID: uuid.NewString(), Actor: f.authentication.Principal,
+					Agent: f.authentication, Run: proof, WorkID: f.work.ID,
+					Role: WorkAssignmentContributor, AgentID: f.agentID, Now: now,
 				})
 				return err
 			},
 		},
 		{
 			name: "transition",
-			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
-				_, err := fixture.database.TransitionWork(context.Background(), TransitionWorkParams{
-					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
-					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
+			mutate: func(f *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := f.database.TransitionWork(context.Background(), TransitionWorkParams{
+					RequestID: uuid.NewString(), Actor: f.authentication.Principal,
+					Agent: f.authentication, Run: proof, WorkID: f.work.ID,
 					ToState: WorkStateBlocked, Reason: "stale run", Now: now,
 				})
 				return err
@@ -55,10 +55,10 @@ func TestAgentWorkMutationsRejectStaleRunProofWithoutFacts(t *testing.T) {
 		},
 		{
 			name: "request approval",
-			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
-				_, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{
-					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
-					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
+			mutate: func(f *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := f.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{
+					RequestID: uuid.NewString(), Actor: f.authentication.Principal,
+					Agent: f.authentication, Run: proof, WorkID: f.work.ID,
 					Question: "approve stale run?", Now: now,
 				})
 				return err
@@ -67,24 +67,24 @@ func TestAgentWorkMutationsRejectStaleRunProofWithoutFacts(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fixture := openArtifactFixture(t)
-			fixture.issueAgentWorkGrant(t, CapabilityWorkManage, fixture.at(1))
-			queued := fixture.acceptTrigger(t, "work through a Run", 2)
-			running := fixture.claimRun(t, queued, 4)
+			f := openArtifactFixture(t)
+			f.issueAgentWorkGrant(t, CapabilityWorkManage, f.at(1))
+			queued := f.acceptTrigger(t, "work through a Run", 2)
+			running := f.claimRun(t, queued, 4)
 			proof := &authorityapp.RunProof{RunID: running.ID, Attempt: running.Attempt, Fence: running.Fence}
-			if _, err := fixture.database.CancelRun(context.Background(), CancelRunParams{
-				RequestID: uuid.NewString(), Authentication: fixture.authentication,
-				RunID: running.ID, Attempt: running.Attempt, Fence: running.Fence, Now: fixture.at(5),
+			if _, err := f.database.CancelRun(context.Background(), CancelRunParams{
+				RequestID: uuid.NewString(), Authentication: f.authentication,
+				RunID: running.ID, Attempt: running.Attempt, Fence: running.Fence, Now: f.at(5),
 			}); err != nil {
 				t.Fatal(err)
 			}
-			before := readWorkReplayFactCounts(t, fixture.database, fixture.work.ID)
-			if err := test.mutate(fixture, proof, fixture.at(6)); !errors.Is(err, ErrRunNotRunning) {
+			before := readWorkReplayFactCounts(t, f.database, f.work.ID)
+			if err := test.mutate(f, proof, f.at(6)); !errors.Is(err, ErrRunNotRunning) {
 				t.Fatalf("stale Run proof error = %v", err)
 			}
-			assertWorkReplayFactCountsUnchanged(t, fixture.database, fixture.work.ID, "stale Run proof", before)
-			stored, err := fixture.database.GetWorkDetail(context.Background(), WorkReadParams{
-				Actor: fixture.owner, WorkID: fixture.work.ID, Now: fixture.at(7),
+			assertWorkReplayFactCountsUnchanged(t, f.database, f.work.ID, "stale Run proof", before)
+			stored, err := f.database.GetWorkDetail(context.Background(), WorkReadParams{
+				Actor: f.owner, WorkID: f.work.ID, Now: f.at(7),
 			})
 			if err != nil {
 				t.Fatal(err)

@@ -14,37 +14,37 @@ import (
 )
 
 func TestGetWorkDetailRestoresCurrentFactsAfterRestart(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
-	work := fixture.createWork(t, "detail recovery", fixture.now.Add(time.Second))
-	first, second := fixture.createPlacedAgents(t, 2)
-	firstAssignment, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: first, Now: fixture.now.Add(2 * time.Second)})
+	f := openWorkQueryFixture(t)
+	work := f.createWork(t, "detail recovery", f.now.Add(time.Second))
+	first, second := f.createPlacedAgents(t, 2)
+	firstAssignment, err := f.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: first, Now: f.now.Add(2 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondAssignment, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: second, Now: fixture.now.Add(3 * time.Second)})
+	secondAssignment, err := f.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, Role: WorkAssignmentCoordinator, AgentID: second, Now: f.now.Add(3 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	criterion := work.AcceptanceCriteria[0]
-	if _, err := fixture.database.TransitionWork(context.Background(), TransitionWorkParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, ToState: WorkStateBlocked, Reason: "needs approval",
-		CriterionResults: []WorkCriterionResultInput{{CriterionID: criterion.ID, Verdict: "passed", Evidence: "evidence"}}, Now: fixture.now.Add(4 * time.Second),
+	if _, err := f.database.TransitionWork(context.Background(), TransitionWorkParams{
+		RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, ToState: WorkStateBlocked, Reason: "needs approval",
+		CriterionResults: []WorkCriterionResultInput{{CriterionID: criterion.ID, Verdict: "passed", Evidence: "evidence"}}, Now: f.now.Add(4 * time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	approval, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Question: "continue?", Now: fixture.now.Add(5 * time.Second)})
+	approval, err := f.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, Question: "continue?", Now: f.now.Add(5 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.Close(); err != nil {
+	if err := f.database.Close(); err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := Open(fixture.path)
+	restarted, err := Open(f.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.database = restarted
-	detail, err := restarted.GetWorkDetail(context.Background(), WorkReadParams{Actor: fixture.owner, WorkID: work.ID, Now: fixture.now.Add(6 * time.Second)})
+	f.database = restarted
+	detail, err := restarted.GetWorkDetail(context.Background(), WorkReadParams{Actor: f.owner, WorkID: work.ID, Now: f.now.Add(6 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,13 +75,13 @@ func TestGetWorkDetailRestoresCurrentFactsAfterRestart(t *testing.T) {
 }
 
 func TestGetWorkDetailFailsClosedForEveryCollectionIterationError(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
-	work := fixture.createWork(t, "iteration", fixture.now.Add(time.Second))
-	agent, _ := fixture.createPlacedAgents(t, 1)
-	if _, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Role: WorkAssignmentContributor, AgentID: agent, Now: fixture.now.Add(2 * time.Second)}); err != nil {
+	f := openWorkQueryFixture(t)
+	work := f.createWork(t, "iteration", f.now.Add(time.Second))
+	agent, _ := f.createPlacedAgents(t, 1)
+	if _, err := f.database.AssignWork(context.Background(), AssignWorkParams{RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, Role: WorkAssignmentContributor, AgentID: agent, Now: f.now.Add(2 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: work.ID, Question: "approve?", Now: fixture.now.Add(3 * time.Second)}); err != nil {
+	if _, err := f.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{RequestID: uuid.NewString(), Actor: f.owner, WorkID: work.ID, Question: "approve?", Now: f.now.Add(3 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	for _, source := range []string{workRowsConstraints, workRowsCriteria, workRowsAssignments, workRowsApprovals, workRowsResults, workRowsEvents} {
@@ -92,7 +92,7 @@ func TestGetWorkDetailFailsClosedForEveryCollectionIterationError(t *testing.T) 
 				}
 				return nil
 			}))
-			detail, err := fixture.database.GetWorkDetail(ctx, WorkReadParams{Actor: fixture.owner, WorkID: work.ID, Now: fixture.now.Add(4 * time.Second)})
+			detail, err := f.database.GetWorkDetail(ctx, WorkReadParams{Actor: f.owner, WorkID: work.ID, Now: f.now.Add(4 * time.Second)})
 			if err == nil || detail.Work.ID != "" || !stringsContain(err.Error(), "forced "+source+" iterator error") {
 				t.Fatalf("%s detail/error = %+v, %v", source, detail, err)
 			}
@@ -101,16 +101,16 @@ func TestGetWorkDetailFailsClosedForEveryCollectionIterationError(t *testing.T) 
 }
 
 func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
+	f := openWorkQueryFixture(t)
 	works := make([]Work, 0, workPageCandidateScan+1)
 	for index := 0; index < workPageCandidateScan+1; index++ {
-		works = append(works, fixture.createWork(t, fmt.Sprintf("page-%03d", index), fixture.now.Add(time.Duration(index+1)*time.Nanosecond)))
+		works = append(works, f.createWork(t, fmt.Sprintf("page-%03d", index), f.now.Add(time.Duration(index+1)*time.Nanosecond)))
 	}
 	ownerPage := WorkPage{}
 	cursor := ""
 	seen := map[string]bool{}
 	for {
-		page, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: fixture.owner, Cursor: cursor, Limit: 200, Now: fixture.now.Add(time.Minute)})
+		page, err := f.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: f.owner, Cursor: cursor, Limit: 200, Now: f.now.Add(time.Minute)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -133,7 +133,7 @@ func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
 	ordered := make([]string, 0, len(seen))
 	cursor = ""
 	for {
-		page, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: fixture.owner, Cursor: cursor, Limit: 200, Now: fixture.now.Add(2 * time.Minute)})
+		page, err := f.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: f.owner, Cursor: cursor, Limit: 200, Now: f.now.Add(2 * time.Minute)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,16 +145,16 @@ func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
 		}
 		cursor = page.NextCursor
 	}
-	member := fixture.createMember(t, "page-member")
+	member := f.createMember(t, "page-member")
 	targetID := ordered[workPageCandidateScan]
-	if _, err := fixture.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: fixture.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: targetID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.now.Add(3 * time.Minute)}); err != nil {
+	if _, err := f.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: f.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: targetID}, ParentGrantID: f.rootGrant.ID, Now: f.now.Add(3 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	first, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: member, Limit: 200, Now: fixture.now.Add(4 * time.Minute)})
+	first, err := f.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: member, Limit: 200, Now: f.now.Add(4 * time.Minute)})
 	if err != nil || len(first.Works) != 0 || first.NextCursor == "" {
 		t.Fatalf("hidden first window = %+v, %v", first, err)
 	}
-	second, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: member, Cursor: first.NextCursor, Limit: 200, Now: fixture.now.Add(4*time.Minute + time.Nanosecond)})
+	second, err := f.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: member, Cursor: first.NextCursor, Limit: 200, Now: f.now.Add(4*time.Minute + time.Nanosecond)})
 	if err != nil || len(second.Works) != 1 || second.Works[0].ID != targetID || second.NextCursor != "" {
 		t.Fatalf("continued member window = %+v, %v", second, err)
 	}
@@ -174,17 +174,17 @@ func TestListWorkPageIsBoundedStableAndDoesNotExposeHiddenWorks(t *testing.T) {
 }
 
 func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
-	root := fixture.createWork(t, "tuple-root", fixture.now.Add(time.Second))
-	parentA := fixture.createChildWork(t, root.ID, "tuple-parent-a", fixture.now.Add(2*time.Second))
-	parentB := fixture.createChildWork(t, root.ID, "tuple-parent-b", fixture.now.Add(2*time.Second))
-	childAEarly := fixture.createChildWork(t, parentA.ID, "tuple-child-a-early", fixture.now.Add(3*time.Second))
-	sameCreatedAt := fixture.now.Add(4 * time.Second)
-	childAFirst := fixture.createChildWork(t, parentA.ID, "tuple-child-a-first", sameCreatedAt)
-	childASecond := fixture.createChildWork(t, parentA.ID, "tuple-child-a-second", sameCreatedAt)
-	childALater := fixture.createChildWork(t, parentA.ID, "tuple-child-a-later", fixture.now.Add(5*time.Second))
-	childB := fixture.createChildWork(t, parentB.ID, "tuple-child-b", sameCreatedAt)
-	otherRoot := fixture.createWork(t, "tuple-other-root", sameCreatedAt)
+	f := openWorkQueryFixture(t)
+	root := f.createWork(t, "tuple-root", f.now.Add(time.Second))
+	parentA := f.createChildWork(t, root.ID, "tuple-parent-a", f.now.Add(2*time.Second))
+	parentB := f.createChildWork(t, root.ID, "tuple-parent-b", f.now.Add(2*time.Second))
+	childAEarly := f.createChildWork(t, parentA.ID, "tuple-child-a-early", f.now.Add(3*time.Second))
+	sameCreatedAt := f.now.Add(4 * time.Second)
+	childAFirst := f.createChildWork(t, parentA.ID, "tuple-child-a-first", sameCreatedAt)
+	childASecond := f.createChildWork(t, parentA.ID, "tuple-child-a-second", sameCreatedAt)
+	childALater := f.createChildWork(t, parentA.ID, "tuple-child-a-later", f.now.Add(5*time.Second))
+	childB := f.createChildWork(t, parentB.ID, "tuple-child-b", sameCreatedAt)
+	otherRoot := f.createWork(t, "tuple-other-root", sameCreatedAt)
 	works := []Work{root, parentA, parentB, childAEarly, childAFirst, childASecond, childALater, childB, otherRoot}
 	sort.Slice(works, func(left, right int) bool {
 		if works[left].RootWorkID != works[right].RootWorkID {
@@ -209,7 +209,7 @@ func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
 			seen := map[string]bool{}
 			checkedRootCursor := false
 			for {
-				page, err := fixture.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: fixture.owner, Cursor: cursor, Limit: limit, Now: fixture.now.Add(3 * time.Second)})
+				page, err := f.database.ListWorkPage(context.Background(), ListWorkPageParams{Actor: f.owner, Cursor: cursor, Limit: limit, Now: f.now.Add(3 * time.Second)})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -221,7 +221,7 @@ func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
 					got = append(got, work.ID)
 				}
 				if len(page.Works) > 0 && page.Works[len(page.Works)-1].ParentWorkID == "" && page.NextCursor != "" {
-					seek, err := fixture.database.OpenWorkCursor(page.NextCursor, WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(fixture.owner), OrganizationID: fixture.owner.OrganizationID})
+					seek, err := f.database.OpenWorkCursor(page.NextCursor, WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(f.owner), OrganizationID: f.owner.OrganizationID})
 					if err != nil || !seek.ParentIsNull {
 						t.Fatalf("root continuation seek = %+v, %v", seek, err)
 					}
@@ -245,44 +245,44 @@ func TestListWorkPageFollowsFullHierarchyTuple(t *testing.T) {
 }
 
 func TestListWorkPageFailsClosedOnCandidateIterationError(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
-	fixture.createWork(t, "page iterator", fixture.now.Add(time.Second))
+	f := openWorkQueryFixture(t)
+	f.createWork(t, "page iterator", f.now.Add(time.Second))
 	ctx := context.WithValue(context.Background(), workRowsErrorContextKey{}, workRowsErrorFunc(func(source string, _ *sql.Rows) error {
 		if source == workRowsPage {
 			return errors.New("forced page iterator error")
 		}
 		return nil
 	}))
-	page, err := fixture.database.ListWorkPage(ctx, ListWorkPageParams{Actor: fixture.owner, Now: fixture.now.Add(2 * time.Second)})
+	page, err := f.database.ListWorkPage(ctx, ListWorkPageParams{Actor: f.owner, Now: f.now.Add(2 * time.Second)})
 	if err == nil || page.NextCursor != "" || len(page.Works) != 0 || !stringsContain(err.Error(), "forced page iterator error") {
 		t.Fatalf("page/error = %+v, %v", page, err)
 	}
 }
 
 func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
-	fixture := openWorkQueryFixture(t)
-	work := fixture.createWork(t, "authorization", fixture.now.Add(time.Second))
-	member := fixture.createMember(t, "disabled-reader")
-	readGrant, err := fixture.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: fixture.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: work.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.now.Add(2 * time.Second)})
+	f := openWorkQueryFixture(t)
+	work := f.createWork(t, "authorization", f.now.Add(time.Second))
+	member := f.createMember(t, "disabled-reader")
+	readGrant, err := f.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: f.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: work.ID}, ParentGrantID: f.rootGrant.ID, Now: f.now.Add(2 * time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: fixture.now.Add(3 * time.Second)}); err != nil {
+	if _, err := f.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: f.now.Add(3 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: readGrant.ID, Now: fixture.now.Add(4 * time.Second)}); err != nil {
+	if _, err := f.database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: f.owner, GrantID: readGrant.ID, Now: f.now.Add(4 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: fixture.now.Add(5 * time.Second)}); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := f.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: f.now.Add(5 * time.Second)}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("revoked reader error = %v", err)
 	}
-	if _, err := fixture.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: fixture.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: work.ID}, ParentGrantID: fixture.rootGrant.ID, Now: fixture.now.Add(6 * time.Second)}); err != nil {
+	if _, err := f.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: f.owner, Subject: member, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: work.ID}, ParentGrantID: f.rootGrant.ID, Now: f.now.Add(6 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: fixture.owner, HumanID: member.ID, Status: "disabled", Now: fixture.now.Add(7 * time.Second)}); err != nil {
+	if _, err := f.database.SetHumanStatus(context.Background(), SetHumanStatusParams{RequestID: uuid.NewString(), Actor: f.owner, HumanID: member.ID, Status: "disabled", Now: f.now.Add(7 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: fixture.now.Add(8 * time.Second)}); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := f.database.GetWorkDetail(context.Background(), WorkReadParams{Actor: member, WorkID: work.ID, Now: f.now.Add(8 * time.Second)}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("disabled reader error = %v", err)
 	}
 
@@ -424,54 +424,54 @@ func openWorkQueryFixture(t *testing.T) *workQueryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture := &workQueryFixture{path: path, database: database, now: time.Date(2026, time.July, 23, 9, 0, 0, 0, time.UTC)}
+	f := &workQueryFixture{path: path, database: database, now: time.Date(2026, time.July, 23, 9, 0, 0, 0, time.UTC)}
 	t.Cleanup(func() {
-		if fixture.database != nil {
-			_ = fixture.database.Close()
+		if f.database != nil {
+			_ = f.database.Close()
 		}
 	})
-	bootstrap, err := database.EnsureAuthority(context.Background(), "work-query-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", fixture.now)
+	bootstrap, err := database.EnsureAuthority(context.Background(), "work-query-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", f.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.owner = Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	fixture.rootGrant = bootstrap.RootGrant
-	fixture.space, err = database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: fixture.owner, Name: "work query source", Now: fixture.now})
+	f.owner = Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	f.rootGrant = bootstrap.RootGrant
+	f.space, err = database.CreateGroup(context.Background(), CreateGroupParams{RequestID: uuid.NewString(), Actor: f.owner, Name: "work query source", Now: f.now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fixture.message, err = database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: fixture.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.space.ID}, Body: "work query source", Now: fixture.now.Add(time.Nanosecond)})
+	f.message, err = database.SendMessage(context.Background(), SendMessageParams{RequestID: uuid.NewString(), Actor: f.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: f.space.ID}, Body: "work query source", Now: f.now.Add(time.Nanosecond)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return fixture
+	return f
 }
 
-func (fixture *workQueryFixture) createWork(t *testing.T, goal string, now time.Time) Work {
-	return fixture.createChildWork(t, "", goal, now)
+func (f *workQueryFixture) createWork(t *testing.T, goal string, now time.Time) Work {
+	return f.createChildWork(t, "", goal, now)
 }
 
-func (fixture *workQueryFixture) createChildWork(t *testing.T, parentWorkID, goal string, now time.Time) Work {
+func (f *workQueryFixture) createChildWork(t *testing.T, parentWorkID, goal string, now time.Time) Work {
 	t.Helper()
-	work, err := fixture.database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: fixture.owner, ParentWorkID: parentWorkID, SourceMessageID: fixture.message.ID, SourceSpaceID: fixture.space.ID, SourceTarget: fixture.message.Target, SourceTargetSequence: fixture.message.TargetSequence, Goal: goal, Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now})
+	work, err := f.database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: f.owner, ParentWorkID: parentWorkID, SourceMessageID: f.message.ID, SourceSpaceID: f.space.ID, SourceTarget: f.message.Target, SourceTargetSequence: f.message.TargetSequence, Goal: goal, Constraints: []string{"constraint"}, AcceptanceCriteria: []string{"criterion"}, Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return work
 }
 
-func (fixture *workQueryFixture) createPlacedAgents(t *testing.T, count int) (string, string) {
+func (f *workQueryFixture) createPlacedAgents(t *testing.T, count int) (string, string) {
 	t.Helper()
 	ids := make([]string, count)
 	for index := range ids {
-		agent, err := fixture.database.CreateAgent(context.Background(), testCreateAgentParams(fixture.owner, fmt.Sprintf("work-query-agent-%d-%s", index, uuid.NewString()[:8]), fixture.now.Add(time.Duration(index+1)*time.Second)))
+		agent, err := f.database.CreateAgent(context.Background(), testCreateAgentParams(f.owner, fmt.Sprintf("work-query-agent-%d-%s", index, uuid.NewString()[:8]), f.now.Add(time.Duration(index+1)*time.Second)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		configureTestRuntimeSpec(t, fixture.database, fixture.owner, agent.ID, fixture.now.Add(time.Duration(index+1)*time.Second))
-		computer := pairTestComputer(t, fixture.database, fixture.owner, "work-query-computer-"+uuid.NewString(), testCapabilityInventory("test", true), fixture.now)
+		configureTestRuntimeSpec(t, f.database, f.owner, agent.ID, f.now.Add(time.Duration(index+1)*time.Second))
+		computer := pairTestComputer(t, f.database, f.owner, "work-query-computer-"+uuid.NewString(), testCapabilityInventory("test", true), f.now)
 		computerID := computer.ID
-		if _, err := fixture.database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(fixture.now), unixNano(fixture.now)); err != nil {
+		if _, err := f.database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(f.now), unixNano(f.now)); err != nil {
 			t.Fatal(err)
 		}
 		ids[index] = agent.ID
@@ -482,13 +482,13 @@ func (fixture *workQueryFixture) createPlacedAgents(t *testing.T, count int) (st
 	return ids[0], ids[1]
 }
 
-func (fixture *workQueryFixture) createMember(t *testing.T, name string) Principal {
+func (f *workQueryFixture) createMember(t *testing.T, name string) Principal {
 	t.Helper()
-	human, err := fixture.database.CreateHuman(context.Background(), CreateHumanParams{RequestID: uuid.NewString(), Actor: fixture.owner, Name: name + "-" + uuid.NewString()[:8], Role: "member", Credential: name + "-credential-abcdefghijklmnopqrstuvwxyz", Now: fixture.now.Add(time.Second)})
+	human, err := f.database.CreateHuman(context.Background(), CreateHumanParams{RequestID: uuid.NewString(), Actor: f.owner, Name: name + "-" + uuid.NewString()[:8], Role: "member", Credential: name + "-credential-abcdefghijklmnopqrstuvwxyz", Now: f.now.Add(time.Second)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Principal{Kind: "human", ID: human.ID, OrganizationID: fixture.owner.OrganizationID}
+	return Principal{Kind: "human", ID: human.ID, OrganizationID: f.owner.OrganizationID}
 }
 
 func stringsContain(value, want string) bool {

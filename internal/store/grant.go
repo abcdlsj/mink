@@ -14,14 +14,14 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant, error) {
-	if !params.Capability.Valid() || (params.Subject.Kind != authoritydomain.PrincipalHuman && params.Subject.Kind != authoritydomain.PrincipalAgent) {
+func (s *Store) IssueGrant(ctx context.Context, p IssueGrantParams) (Grant, error) {
+	if !p.Capability.Valid() || (p.Subject.Kind != authoritydomain.PrincipalHuman && p.Subject.Kind != authoritydomain.PrincipalAgent) {
 		return Grant{}, ErrGrantInvalid
 	}
-	if !params.Capability.AllowsScope(params.Scope.Kind) {
+	if !p.Capability.AllowsScope(p.Scope.Kind) {
 		return Grant{}, ErrGrantInvalid
 	}
-	fingerprint, err := authorityFingerprint(struct {
+	fp, err := authorityFingerprint(struct {
 		SubjectKind PrincipalKind `json:"subject_kind"`
 		SubjectID   string        `json:"subject_id"`
 		Capability  Capability    `json:"capability"`
@@ -29,7 +29,7 @@ func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant,
 		ScopeID     string        `json:"scope_id"`
 		ParentGrant string        `json:"parent_grant_id"`
 		ExpiresAt   int64         `json:"expires_at"`
-	}{params.Subject.Kind, params.Subject.ID, params.Capability, params.Scope.Kind, params.Scope.ID, params.ParentGrantID, optionalUnixNano(params.ExpiresAt)})
+	}{p.Subject.Kind, p.Subject.ID, p.Capability, p.Scope.Kind, p.Scope.ID, p.ParentGrantID, optionalUnixNano(p.ExpiresAt)})
 	if err != nil {
 		return Grant{}, err
 	}
@@ -38,77 +38,77 @@ func (s *Store) IssueGrant(ctx context.Context, params IssueGrantParams) (Grant,
 		return Grant{}, fmt.Errorf("begin grant issue: %w", err)
 	}
 	defer tx.Rollback()
-	if grant, found, err := replayGrantRequest(ctx, tx, "grant_issue_requests", params.RequestID, fingerprint, ErrGrantRequestConflict); err != nil || found {
-		return commitGrantReplay(tx, grant, found, err)
+	if g, found, err := replayGrantRequest(ctx, tx, "grant_issue_requests", p.RequestID, fp, ErrGrantRequestConflict); err != nil || found {
+		return commitGrantReplay(tx, g, found, err)
 	}
-	organizationScope := Scope{Kind: "organization", ID: params.Actor.OrganizationID}
-	if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityGrantIssue, organizationScope, params.Now, ""); err != nil {
+	orgScope := Scope{Kind: "organization", ID: p.Actor.OrganizationID}
+	if reason, err := requireGrant(ctx, tx, p.Actor, CapabilityGrantIssue, orgScope, p.Now, ""); err != nil {
 		return Grant{}, err
 	} else if reason != "" {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, reason, params.Now)
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, reason, p.Now)
 	}
-	if err := validateGrantSubject(ctx, tx, params.Actor.OrganizationID, params.Subject); err != nil {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "subject_invalid", params.Now)
+	if err := validateGrantSubject(ctx, tx, p.Actor.OrganizationID, p.Subject); err != nil {
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "subject_invalid", p.Now)
 	}
-	if err := validateGrantScope(ctx, tx, params.Actor.OrganizationID, params.Scope); err != nil {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "scope_invalid", params.Now)
+	if err := validateGrantScope(ctx, tx, p.Actor.OrganizationID, p.Scope); err != nil {
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "scope_invalid", p.Now)
 	}
-	parent, err := grantByID(ctx, tx, params.ParentGrantID)
-	if err != nil || parent.OrganizationID != params.Actor.OrganizationID || parent.Subject.Kind != params.Actor.Kind || parent.Subject.ID != params.Actor.ID {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "parent_invalid", params.Now)
+	parent, err := grantByID(ctx, tx, p.ParentGrantID)
+	if err != nil || parent.OrganizationID != p.Actor.OrganizationID || parent.Subject.Kind != p.Actor.Kind || parent.Subject.ID != p.Actor.ID {
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "parent_invalid", p.Now)
 	}
-	grants, err := loadOrganizationGrants(ctx, tx, params.Actor.OrganizationID)
+	gs, err := loadOrganizationGrants(ctx, tx, p.Actor.OrganizationID)
 	if err != nil {
 		return Grant{}, err
 	}
-	if !grantEffective(ctx, tx, parent.ID, grants, params.Now, "", map[string]bool{}) {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "parent_inactive", params.Now)
+	if !grantEffective(ctx, tx, parent.ID, gs, p.Now, "", map[string]bool{}) {
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "parent_inactive", p.Now)
 	}
-	if !grantAllows(parent, params.Capability, params.Scope) || exceedsExpiry(parent.ExpiresAt, params.ExpiresAt, params.Now) {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "grant_expansion", params.Now)
+	if !grantAllows(parent, p.Capability, p.Scope) || exceedsExpiry(parent.ExpiresAt, p.ExpiresAt, p.Now) {
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "grant_expansion", p.Now)
 	}
-	if params.Capability == CapabilityOrganizationAdmin {
-		if params.Subject.Kind != "human" || !humanIsOwner(ctx, tx, params.Subject.ID) {
-			return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantIssue, "grant", "", params.RequestID, "admin_subject_invalid", params.Now)
+	if p.Capability == CapabilityOrganizationAdmin {
+		if p.Subject.Kind != "human" || !humanIsOwner(ctx, tx, p.Subject.ID) {
+			return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantIssue, "grant", "", p.RequestID, "admin_subject_invalid", p.Now)
 		}
 	}
 
 	id := uuid.NewString()
-	stamp := unixNano(params.Now)
+	stamp := unixNano(p.Now)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO grants(
 			id, organization_id, subject_kind, subject_id, issuer_kind, issuer_id,
 			capability, scope_kind, scope_id, parent_grant_id, expires_at, created_at, updated_at
 		)
 		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, params.Actor.OrganizationID, params.Subject.Kind, params.Subject.ID, params.Actor.Kind,
-		params.Actor.ID, params.Capability, params.Scope.Kind, params.Scope.ID, parent.ID,
-		nullableUnixNano(params.ExpiresAt), stamp, stamp); err != nil {
+	`, id, p.Actor.OrganizationID, p.Subject.Kind, p.Subject.ID, p.Actor.Kind,
+		p.Actor.ID, p.Capability, p.Scope.Kind, p.Scope.ID, parent.ID,
+		nullableUnixNano(p.ExpiresAt), stamp, stamp); err != nil {
 		return Grant{}, fmt.Errorf("persist grant: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO grant_issue_requests(request_id, grant_id, payload_fingerprint)
 		VALUES(?, ?, ?)
-	`, params.RequestID, id, fingerprint[:]); err != nil {
+	`, p.RequestID, id, fp[:]); err != nil {
 		return Grant{}, fmt.Errorf("persist grant issue request: %w", err)
 	}
-	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditGrantIssue, TargetKind: "grant", TargetID: id, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: p.Actor.OrganizationID, Actor: p.Actor, Action: AuditGrantIssue, TargetKind: "grant", TargetID: id, RequestID: p.RequestID, Outcome: "committed", Now: p.Now}); err != nil {
 		return Grant{}, err
 	}
-	grant, err := grantByID(ctx, tx, id)
+	g, err := grantByID(ctx, tx, id)
 	if err != nil {
 		return Grant{}, fmt.Errorf("read issued grant: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Grant{}, fmt.Errorf("commit grant issue: %w", err)
 	}
-	return grant, nil
+	return g, nil
 }
 
-func (s *Store) RevokeGrant(ctx context.Context, params RevokeGrantParams) (Grant, error) {
-	fingerprint, err := authorityFingerprint(struct {
+func (s *Store) RevokeGrant(ctx context.Context, p RevokeGrantParams) (Grant, error) {
+	fp, err := authorityFingerprint(struct {
 		GrantID string `json:"grant_id"`
-	}{params.GrantID})
+	}{p.GrantID})
 	if err != nil {
 		return Grant{}, err
 	}
@@ -117,57 +117,57 @@ func (s *Store) RevokeGrant(ctx context.Context, params RevokeGrantParams) (Gran
 		return Grant{}, fmt.Errorf("begin grant revoke: %w", err)
 	}
 	defer tx.Rollback()
-	if grant, found, err := replayGrantRequest(ctx, tx, "grant_revoke_requests", params.RequestID, fingerprint, ErrGrantRevokeConflict); err != nil || found {
-		return commitGrantReplay(tx, grant, found, err)
+	if g, found, err := replayGrantRequest(ctx, tx, "grant_revoke_requests", p.RequestID, fp, ErrGrantRevokeConflict); err != nil || found {
+		return commitGrantReplay(tx, g, found, err)
 	}
-	organizationScope := Scope{Kind: "organization", ID: params.Actor.OrganizationID}
-	if reason, err := requireGrant(ctx, tx, params.Actor, CapabilityGrantRevoke, organizationScope, params.Now, ""); err != nil {
+	orgScope := Scope{Kind: "organization", ID: p.Actor.OrganizationID}
+	if reason, err := requireGrant(ctx, tx, p.Actor, CapabilityGrantRevoke, orgScope, p.Now, ""); err != nil {
 		return Grant{}, err
 	} else if reason != "" {
-		return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantRevoke, "grant", params.GrantID, params.RequestID, reason, params.Now)
+		return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantRevoke, "grant", p.GrantID, p.RequestID, reason, p.Now)
 	}
-	grant, err := grantByID(ctx, tx, params.GrantID)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && grant.OrganizationID != params.Actor.OrganizationID) {
+	g, err := grantByID(ctx, tx, p.GrantID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && g.OrganizationID != p.Actor.OrganizationID) {
 		return Grant{}, ErrGrantNotFound
 	}
 	if err != nil {
 		return Grant{}, fmt.Errorf("read grant for revoke: %w", err)
 	}
-	if grant.RevokedAt != nil {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO grant_revoke_requests(request_id, grant_id, payload_fingerprint) VALUES(?, ?, ?)`, params.RequestID, grant.ID, fingerprint[:]); err != nil {
+	if g.RevokedAt != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO grant_revoke_requests(request_id, grant_id, payload_fingerprint) VALUES(?, ?, ?)`, p.RequestID, g.ID, fp[:]); err != nil {
 			return Grant{}, fmt.Errorf("persist idempotent grant revoke request: %w", err)
 		}
 		if err := tx.Commit(); err != nil {
 			return Grant{}, fmt.Errorf("commit idempotent grant revoke: %w", err)
 		}
-		return grant, nil
+		return g, nil
 	}
-	if grant.Capability == CapabilityOrganizationAdmin && grant.Subject.Kind == "human" {
-		recoverable, err := hasRecoverableOwner(ctx, tx, params.Now, "", grant.ID)
+	if g.Capability == CapabilityOrganizationAdmin && g.Subject.Kind == "human" {
+		ok, err := hasRecoverableOwner(ctx, tx, p.Now, "", g.ID)
 		if err != nil {
 			return Grant{}, err
 		}
-		if !recoverable {
-			return Grant{}, commitDenied(ctx, tx, params.Actor, AuditGrantRevoke, "grant", grant.ID, params.RequestID, "last_owner", params.Now)
+		if !ok {
+			return Grant{}, commitDenied(ctx, tx, p.Actor, AuditGrantRevoke, "grant", g.ID, p.RequestID, "last_owner", p.Now)
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE grants SET revoked_at = ?, updated_at = max(updated_at, ?) WHERE id = ?", unixNano(params.Now), unixNano(params.Now), grant.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE grants SET revoked_at = ?, updated_at = max(updated_at, ?) WHERE id = ?", unixNano(p.Now), unixNano(p.Now), g.ID); err != nil {
 		return Grant{}, fmt.Errorf("persist grant revoke: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO grant_revoke_requests(request_id, grant_id, payload_fingerprint) VALUES(?, ?, ?)`, params.RequestID, grant.ID, fingerprint[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO grant_revoke_requests(request_id, grant_id, payload_fingerprint) VALUES(?, ?, ?)`, p.RequestID, g.ID, fp[:]); err != nil {
 		return Grant{}, fmt.Errorf("persist grant revoke request: %w", err)
 	}
-	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: params.Actor.OrganizationID, Actor: params.Actor, Action: AuditGrantRevoke, TargetKind: "grant", TargetID: grant.ID, RequestID: params.RequestID, Outcome: "committed", Now: params.Now}); err != nil {
+	if err := appendAuditEvent(ctx, tx, AppendAuditParams{OrganizationID: p.Actor.OrganizationID, Actor: p.Actor, Action: AuditGrantRevoke, TargetKind: "grant", TargetID: g.ID, RequestID: p.RequestID, Outcome: "committed", Now: p.Now}); err != nil {
 		return Grant{}, err
 	}
-	grant, err = grantByID(ctx, tx, grant.ID)
+	g, err = grantByID(ctx, tx, g.ID)
 	if err != nil {
 		return Grant{}, fmt.Errorf("read revoked grant: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Grant{}, fmt.Errorf("commit grant revoke: %w", err)
 	}
-	return grant, nil
+	return g, nil
 }
 
 func (s *Store) GetGrant(ctx context.Context, query grantapp.GetQuery) (Grant, error) {
@@ -203,13 +203,13 @@ func (s *Store) ListGrants(ctx context.Context, query grantapp.ListQuery) ([]Gra
 
 type CheckPermissionParams = grantapp.PermissionQuery
 
-func (s *Store) CheckPermission(ctx context.Context, params CheckPermissionParams) (bool, error) {
+func (s *Store) CheckPermission(ctx context.Context, p CheckPermissionParams) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, fmt.Errorf("begin permission check: %w", err)
 	}
 	defer tx.Rollback()
-	reason, err := requireGrant(ctx, tx, params.Subject, params.Capability, params.Scope, params.Now, "")
+	reason, err := requireGrant(ctx, tx, p.Subject, p.Capability, p.Scope, p.Now, "")
 	if err != nil {
 		return false, err
 	}
@@ -242,44 +242,44 @@ func requireGrant(ctx context.Context, tx *sql.Tx, subject Principal, capability
 	return "permission_missing", nil
 }
 
-func loadOrganizationGrants(ctx context.Context, tx *sql.Tx, organizationID string) (map[string]Grant, error) {
-	rows, err := tx.QueryContext(ctx, grantSelect+" WHERE organization_id = ?", organizationID)
+func loadOrganizationGrants(ctx context.Context, tx *sql.Tx, orgID string) (map[string]Grant, error) {
+	rows, err := tx.QueryContext(ctx, grantSelect+" WHERE organization_id = ?", orgID)
 	if err != nil {
 		return nil, fmt.Errorf("load organization grants: %w", err)
 	}
 	defer rows.Close()
-	grants := make(map[string]Grant)
+	gs := make(map[string]Grant)
 	for rows.Next() {
-		grant, err := scanGrant(rows)
+		g, err := scanGrant(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan organization grant: %w", err)
 		}
-		grants[grant.ID] = grant
+		gs[g.ID] = g
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate organization grants: %w", err)
 	}
-	return grants, nil
+	return gs, nil
 }
 
-func grantEffective(ctx context.Context, tx *sql.Tx, id string, grants map[string]Grant, now time.Time, excludedGrantID string, visiting map[string]bool) bool {
-	grant, ok := grants[id]
-	if !ok || id == excludedGrantID || visiting[id] || grant.RevokedAt != nil || (grant.ExpiresAt != nil && !grant.ExpiresAt.After(now)) {
+func grantEffective(ctx context.Context, tx *sql.Tx, id string, gs map[string]Grant, now time.Time, excludedGrantID string, visiting map[string]bool) bool {
+	g, ok := gs[id]
+	if !ok || id == excludedGrantID || visiting[id] || g.RevokedAt != nil || (g.ExpiresAt != nil && !g.ExpiresAt.After(now)) {
 		return false
 	}
-	active, err := principalActive(ctx, tx, grant.Subject)
+	active, err := principalActive(ctx, tx, g.Subject)
 	if err != nil || !active {
 		return false
 	}
-	if grant.ParentGrantID == "" {
-		return grant.Issuer.Kind == "system" && grant.Capability == CapabilityOrganizationAdmin && grant.Scope.Kind == "organization" && grant.Scope.ID == grant.OrganizationID
+	if g.ParentGrantID == "" {
+		return g.Issuer.Kind == "system" && g.Capability == CapabilityOrganizationAdmin && g.Scope.Kind == "organization" && g.Scope.ID == g.OrganizationID
 	}
-	parent, ok := grants[grant.ParentGrantID]
-	if !ok || parent.Subject.Kind != grant.Issuer.Kind || parent.Subject.ID != grant.Issuer.ID || !grantAllows(parent, grant.Capability, grant.Scope) {
+	parent, ok := gs[g.ParentGrantID]
+	if !ok || parent.Subject.Kind != g.Issuer.Kind || parent.Subject.ID != g.Issuer.ID || !grantAllows(parent, g.Capability, g.Scope) {
 		return false
 	}
 	visiting[id] = true
-	effective := grantEffective(ctx, tx, parent.ID, grants, now, excludedGrantID, visiting)
+	effective := grantEffective(ctx, tx, parent.ID, gs, now, excludedGrantID, visiting)
 	delete(visiting, id)
 	return effective
 }
@@ -308,9 +308,9 @@ func principalActive(ctx context.Context, tx *sql.Tx, principal Principal) (bool
 	}
 }
 
-func validateGrantSubject(ctx context.Context, tx *sql.Tx, organizationID string, subject Principal) error {
-	subject.OrganizationID = organizationID
-	active, err := principalActive(ctx, tx, subject)
+func validateGrantSubject(ctx context.Context, tx *sql.Tx, orgID string, sub Principal) error {
+	sub.OrganizationID = orgID
+	active, err := principalActive(ctx, tx, sub)
 	if err != nil {
 		return err
 	}
@@ -350,30 +350,30 @@ func validateGrantScope(ctx context.Context, tx *sql.Tx, organizationID string, 
 	return nil
 }
 
-type recoverableOwnerAfterScanContextKey struct{}
+type ownerAfterScanKey struct{}
 
-type recoverableOwnerAfterScanFunc func(int, *sql.Rows)
+type ownerAfterScanFn func(int, *sql.Rows)
 
-func recoverableOwnerAfterScan(ctx context.Context, scanned int, rows *sql.Rows) {
-	if apply, ok := ctx.Value(recoverableOwnerAfterScanContextKey{}).(recoverableOwnerAfterScanFunc); ok {
-		apply(scanned, rows)
+func recoverableOwnerAfterScan(ctx context.Context, n int, rows *sql.Rows) {
+	if apply, ok := ctx.Value(ownerAfterScanKey{}).(ownerAfterScanFn); ok {
+		apply(n, rows)
 	}
 }
 
-func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, excludedHumanID, excludedGrantID string) (bool, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT id, organization_id FROM humans WHERE role = 'owner' AND status = 'active' AND id != ?", excludedHumanID)
+func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, exHumanID, exGrantID string) (bool, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT id, organization_id FROM humans WHERE role = 'owner' AND status = 'active' AND id != ?", exHumanID)
 	if err != nil {
 		return false, fmt.Errorf("list recoverable owners: %w", err)
 	}
 	var owners []Principal
 	for rows.Next() {
-		var owner Principal
-		owner.Kind = authoritydomain.PrincipalHuman
-		if err := rows.Scan(&owner.ID, &owner.OrganizationID); err != nil {
+		var o Principal
+		o.Kind = authoritydomain.PrincipalHuman
+		if err := rows.Scan(&o.ID, &o.OrganizationID); err != nil {
 			rows.Close()
 			return false, fmt.Errorf("scan recoverable owner: %w", err)
 		}
-		owners = append(owners, owner)
+		owners = append(owners, o)
 		recoverableOwnerAfterScan(ctx, len(owners), rows)
 	}
 	if err := rows.Err(); err != nil {
@@ -383,8 +383,8 @@ func hasRecoverableOwner(ctx context.Context, tx *sql.Tx, now time.Time, exclude
 	if err := rows.Close(); err != nil {
 		return false, err
 	}
-	for _, owner := range owners {
-		reason, err := requireGrant(ctx, tx, owner, CapabilityOrganizationAdmin, Scope{Kind: "organization", ID: owner.OrganizationID}, now, excludedGrantID)
+	for _, o := range owners {
+		reason, err := requireGrant(ctx, tx, o, CapabilityOrganizationAdmin, Scope{Kind: "organization", ID: o.OrganizationID}, now, exGrantID)
 		if err != nil {
 			return false, err
 		}
@@ -403,14 +403,14 @@ func humanIsOwner(ctx context.Context, tx *sql.Tx, id string) bool {
 	return owner
 }
 
-func exceedsExpiry(parent, child *time.Time, now time.Time) bool {
-	if child != nil && !child.After(now) {
+func exceedsExpiry(p, c *time.Time, now time.Time) bool {
+	if c != nil && !c.After(now) {
 		return true
 	}
-	if parent == nil {
+	if p == nil {
 		return false
 	}
-	return child == nil || child.After(*parent)
+	return c == nil || c.After(*p)
 }
 
 func nullableUnixNano(value *time.Time) any {
@@ -461,24 +461,24 @@ func scanGrant(row scanner) (Grant, error) {
 	return grant, nil
 }
 
-func replayGrantRequest(ctx context.Context, tx *sql.Tx, table, requestID string, fingerprint [sha256.Size]byte, conflict error) (Grant, bool, error) {
-	var grantID string
+func replayGrantRequest(ctx context.Context, tx *sql.Tx, table, requestID string, fp [sha256.Size]byte, conflict error) (Grant, bool, error) {
+	var gid string
 	var stored []byte
-	err := tx.QueryRowContext(ctx, "SELECT grant_id, payload_fingerprint FROM "+table+" WHERE request_id = ?", requestID).Scan(&grantID, &stored)
+	err := tx.QueryRowContext(ctx, "SELECT grant_id, payload_fingerprint FROM "+table+" WHERE request_id = ?", requestID).Scan(&gid, &stored)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Grant{}, false, nil
 	}
 	if err != nil {
 		return Grant{}, false, fmt.Errorf("read grant request receipt: %w", err)
 	}
-	if !bytes.Equal(stored, fingerprint[:]) {
+	if !bytes.Equal(stored, fp[:]) {
 		return Grant{}, false, conflict
 	}
-	grant, err := grantByID(ctx, tx, grantID)
+	g, err := grantByID(ctx, tx, gid)
 	if err != nil {
 		return Grant{}, false, fmt.Errorf("read grant request result: %w", err)
 	}
-	return grant, true, nil
+	return g, true, nil
 }
 
 func commitGrantReplay(tx *sql.Tx, grant Grant, found bool, err error) (Grant, error) {

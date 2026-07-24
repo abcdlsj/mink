@@ -19,17 +19,17 @@ import (
 func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
 	root := t.TempDir()
 	databasePath := filepath.Join(root, "server.db")
-	database, err := store.Open(databasePath)
+	db, err := store.Open(databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
 	bootstrapCredential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
 	password := "correct horse battery staple"
-	if _, err := database.EnsureAuthority(context.Background(), bootstrapCredential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), bootstrapCredential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := localBrowserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 
 	status := request(t, handler, http.MethodGet, LocalStatusPath, "127.0.0.1:42000", nil)
 	if status.Code != http.StatusOK || status.Header().Get("Cache-Control") != "no-store" || status.Body.String() != "{\"setup_required\":true}\n" {
@@ -89,7 +89,7 @@ func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
 		t.Fatalf("login = %d %s %v", login.Code, login.Body.String(), login.Result().Cookies())
 	}
 
-	if err := database.Close(); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{databasePath, databasePath + "-wal", databasePath + "-shm"} {
@@ -107,17 +107,17 @@ func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
 }
 
 func TestLocalAuthMutationsRequireExactOriginAndBoundedJSON(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := database.EnsureAuthority(context.Background(), credential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := localBrowserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 	payload := map[string]any{"username": "owner", "password": "correct horse battery staple", "bootstrap_credential": credential}
 	for _, origin := range []string{"", "http://localhost:8080", "http://127.0.0.1:8080/"} {
 		response := localJSONRequest(t, handler, LocalSetupPath, origin, payload, nil)
@@ -147,17 +147,17 @@ func TestLocalAuthMutationsRequireExactOriginAndBoundedJSON(t *testing.T) {
 }
 
 func TestLocalLoginRateLimitIsBoundedAndRecovers(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
 	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := database.EnsureAuthority(context.Background(), credential, now); err != nil {
+	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
 		t.Fatal(err)
 	}
-	handler := localBrowserHandler(t, database, "http://127.0.0.1:8080", func() time.Time { return now })
+	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 	credentials := map[string]any{"username": "missing", "password": "incorrect password value"}
 	for attempt := 0; attempt < loginFailureLimit; attempt++ {
 		response := localJSONRequest(t, handler, LocalLoginPath, "http://127.0.0.1:8080", credentials, nil)
@@ -194,9 +194,9 @@ func TestPasswordDerivationConcurrencyIsBounded(t *testing.T) {
 	service.releasePasswordSlot()
 }
 
-func localBrowserHandler(t *testing.T, database *store.Store, origin string, now func() time.Time) http.Handler {
+func localBrowserHandler(t *testing.T, db *store.Store, origin string, now func() time.Time) http.Handler {
 	t.Helper()
-	service, err := New(database, Config{
+	service, err := New(db, Config{
 		Origin: origin, Now: now,
 		passwordParameters: passwordParameters{memory: 8192, iterations: 1, parallelism: 1},
 	})

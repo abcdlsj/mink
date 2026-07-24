@@ -86,15 +86,15 @@ func workCursorTokenConfidential(token string, binding WorkCursorBinding, seek W
 }
 
 func TestWorkCursorRejectsTamperAndOversize(t *testing.T) {
-	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer db.Close()
 	principal := Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}
 	binding := WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(principal), OrganizationID: principal.OrganizationID}
 	seek := WorkCursorSeekKey{RootWorkID: uuid.NewString(), ParentWorkID: uuid.NewString(), CreatedAt: time.Now().UTC(), ID: uuid.NewString()}
-	cursor, err := database.SealWorkCursor(binding, seek)
+	cursor, err := db.SealWorkCursor(binding, seek)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,28 +104,28 @@ func TestWorkCursorRejectsTamperAndOversize(t *testing.T) {
 		replacement = 'B'
 	}
 	mutated := cursor[:index] + string(replacement) + cursor[index+1:]
-	if _, err := database.OpenWorkCursor(mutated, binding); !errors.Is(err, ErrWorkCursorUnavailable) {
+	if _, err := db.OpenWorkCursor(mutated, binding); !errors.Is(err, ErrWorkCursorUnavailable) {
 		t.Fatalf("tampered cursor error = %v", err)
 	}
-	if _, err := database.OpenWorkCursor(strings.Repeat("a", 2049), binding); !errors.Is(err, ErrWorkCursorUnavailable) {
+	if _, err := db.OpenWorkCursor(strings.Repeat("a", 2049), binding); !errors.Is(err, ErrWorkCursorUnavailable) {
 		t.Fatalf("oversized cursor error = %v", err)
 	}
 }
 
 func TestWorkCursorRejectsInvalidTuple(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.db")
-	database, err := Open(path)
+	db, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
-	bootstrap, err := database.EnsureAuthority(context.Background(), "work-cursor-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", time.Now().UTC())
+	defer db.Close()
+	bootstrap, err := db.EnsureAuthority(context.Background(), "work-cursor-bootstrap-credential-abcdefghijklmnopqrstuvwxyz", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
 	principal := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	binding := WorkCursorBinding{PrincipalFingerprint: workCursorPrincipalFingerprint(principal), OrganizationID: principal.OrganizationID}
-	if _, err := database.SealWorkCursor(binding, WorkCursorSeekKey{RootWorkID: "not-a-uuid", ParentIsNull: true, CreatedAt: time.Now(), ID: uuid.NewString()}); !errors.Is(err, ErrWorkCursorUnavailable) {
+	if _, err := db.SealWorkCursor(binding, WorkCursorSeekKey{RootWorkID: "not-a-uuid", ParentIsNull: true, CreatedAt: time.Now(), ID: uuid.NewString()}); !errors.Is(err, ErrWorkCursorUnavailable) {
 		t.Fatalf("invalid tuple seal error = %v", err)
 	}
 }

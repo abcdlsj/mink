@@ -188,54 +188,54 @@ func TestKnowledgeSearchFailsClosedOnDerivedCorruption(t *testing.T) {
 }
 
 func TestKnowledgeSearchRechecksCurrentRuntimeAndSpaceAccess(t *testing.T) {
-	fixture := openRunFixture(t)
-	message, err := fixture.database.SendMessage(context.Background(), SendMessageParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "runtime searchable", Now: fixture.at(1),
+	f := openRunFixture(t)
+	message, err := f.database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: f.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: f.group.ID}, Body: "runtime searchable", Now: f.at(1),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.RebuildKnowledgeIndex(context.Background()); err != nil {
+	if err := f.database.RebuildKnowledgeIndex(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	output, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "runtime", Now: fixture.at(3)})
+	output, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "runtime", Now: f.at(3)})
 	if err != nil || len(output.Results) != 1 || output.Results[0].Source.ID != message.ID {
 		t.Fatalf("runtime search = %+v, %v", output, err)
 	}
-	if _, err := fixture.database.RemoveMember(context.Background(), ChangeMemberParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, SpaceID: fixture.group.ID, Member: Principal{Kind: "agent", ID: fixture.agentID}, Now: fixture.at(4),
+	if _, err := f.database.RemoveMember(context.Background(), ChangeMemberParams{
+		RequestID: uuid.NewString(), Actor: f.owner, SpaceID: f.group.ID, Member: Principal{Kind: "agent", ID: f.agentID}, Now: f.at(4),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	output, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "runtime", Now: fixture.at(5)})
+	output, err = f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "runtime", Now: f.at(5)})
 	if err != nil || len(output.Results) != 0 {
 		t.Fatalf("removed member search = %+v, %v", output, err)
 	}
-	stale := fixture.authentication
-	rotated := rotateRunRuntime(t, fixture, 91, fixture.at(6))
-	if _, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: stale, Query: "runtime", Now: fixture.at(8)}); !errors.Is(err, ErrKnowledgeSearchUnauthenticated) {
+	stale := f.authentication
+	rotated := rotateRunRuntime(t, f, 91, f.at(6))
+	if _, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: stale, Query: "runtime", Now: f.at(8)}); !errors.Is(err, ErrKnowledgeSearchUnauthenticated) {
 		t.Fatalf("stale runtime error = %v", err)
 	}
-	if _, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: rotated, Query: "runtime", Now: fixture.at(8)}); err != nil {
+	if _, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: rotated, Query: "runtime", Now: f.at(8)}); err != nil {
 		t.Fatalf("current runtime search = %v", err)
 	}
 }
 
 func TestKnowledgeSearchUsesAllSourceKindsAndIsReadOnly(t *testing.T) {
-	fixture := openArtifactFixture(t)
-	published, err := fixture.artifacts.Publish(context.Background(), fixture.humanPublishParams(uuid.NewString(), "artifact search content", fixture.at(1)))
+	f := openArtifactFixture(t)
+	published, err := f.artifacts.Publish(context.Background(), f.humanPublishParams(uuid.NewString(), "artifact search content", f.at(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.RebuildKnowledgeIndex(context.Background()); err != nil {
+	if err := f.database.RebuildKnowledgeIndex(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	before := knowledgeMutationCounts(t, fixture.database)
-	output, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: "artifact", Now: fixture.at(3)})
+	before := knowledgeMutationCounts(t, f.database)
+	output, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: f.owner, Query: "artifact", Now: f.at(3)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after := knowledgeMutationCounts(t, fixture.database); after != before {
+	if after := knowledgeMutationCounts(t, f.database); after != before {
 		t.Fatalf("search mutated facts: before=%+v after=%+v", before, after)
 	}
 	found := make(map[KnowledgeSource]KnowledgeSearchResult, len(output.Results))
@@ -243,8 +243,8 @@ func TestKnowledgeSearchUsesAllSourceKindsAndIsReadOnly(t *testing.T) {
 		found[result.Source] = result
 	}
 	for _, source := range []KnowledgeSource{
-		{Kind: KnowledgeSourceMessage, ID: fixture.source.ID},
-		{Kind: KnowledgeSourceWork, ID: fixture.work.ID},
+		{Kind: KnowledgeSourceMessage, ID: f.source.ID},
+		{Kind: KnowledgeSourceWork, ID: f.work.ID},
 		{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version},
 	} {
 		if _, ok := found[source]; !ok {
@@ -254,75 +254,75 @@ func TestKnowledgeSearchUsesAllSourceKindsAndIsReadOnly(t *testing.T) {
 }
 
 func TestKnowledgeSearchDropsStaleProjectionUntilDirtyIsApplied(t *testing.T) {
-	fixture := openArtifactFixture(t)
-	if err := fixture.database.RebuildKnowledgeIndex(context.Background()); err != nil {
+	f := openArtifactFixture(t)
+	if err := f.database.RebuildKnowledgeIndex(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.database.TransitionWork(context.Background(), TransitionWorkParams{
-		RequestID: uuid.NewString(), Actor: fixture.owner, WorkID: fixture.work.ID,
-		ToState: WorkStateBlocked, Reason: "projection revision changed", Now: fixture.at(1),
+	if _, err := f.database.TransitionWork(context.Background(), TransitionWorkParams{
+		RequestID: uuid.NewString(), Actor: f.owner, WorkID: f.work.ID,
+		ToState: WorkStateBlocked, Reason: "projection revision changed", Now: f.at(1),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	output, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: "produce", Now: fixture.at(2)})
+	output, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: f.owner, Query: "produce", Now: f.at(2)})
 	if err != nil || len(output.Results) != 0 {
 		t.Fatalf("stale projection search = %+v, %v", output, err)
 	}
-	dirty, found, err := fixture.database.NextKnowledgeDirtySource(context.Background())
+	dirty, found, err := f.database.NextKnowledgeDirtySource(context.Background())
 	if err != nil || !found {
 		t.Fatalf("next dirty = %+v, %t, %v", dirty, found, err)
 	}
-	document, found, err := fixture.database.ReadKnowledgeSourceDocument(context.Background(), dirty.Source)
+	document, found, err := f.database.ReadKnowledgeSourceDocument(context.Background(), dirty.Source)
 	if err != nil || !found {
 		t.Fatalf("current source = %+v, %t, %v", document, found, err)
 	}
-	if applied, err := fixture.database.ApplyKnowledgeProjection(context.Background(), dirty.Sequence, document); err != nil || !applied {
+	if applied, err := f.database.ApplyKnowledgeProjection(context.Background(), dirty.Sequence, document); err != nil || !applied {
 		t.Fatalf("apply dirty = %t, %v", applied, err)
 	}
-	output, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: fixture.owner, Query: "produce", Now: fixture.at(3)})
-	if err != nil || len(output.Results) != 1 || output.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceWork, ID: fixture.work.ID}) {
+	output, err = f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Human: f.owner, Query: "produce", Now: f.at(3)})
+	if err != nil || len(output.Results) != 1 || output.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceWork, ID: f.work.ID}) {
 		t.Fatalf("current projection search = %+v, %v", output, err)
 	}
 }
 
 func TestKnowledgeSearchRechecksWorkAndArtifactGrants(t *testing.T) {
-	fixture := openArtifactFixture(t)
-	publish := fixture.humanPublishParams(uuid.NewString(), "artifact revocable search", fixture.at(1))
+	f := openArtifactFixture(t)
+	publish := f.humanPublishParams(uuid.NewString(), "artifact revocable search", f.at(1))
 	publish.Summary = "revocable artifact"
-	published, err := fixture.artifacts.Publish(context.Background(), publish)
+	published, err := f.artifacts.Publish(context.Background(), publish)
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifactGrant, err := fixture.artifacts.Grant(context.Background(), GrantArtifactParams{
-		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner}, ArtifactID: published.Artifact.ID,
-		TargetKind: ArtifactGrantTargetAgent, TargetID: fixture.agentID, Capability: ArtifactGrantRead, Now: fixture.at(2),
+	artifactGrant, err := f.artifacts.Grant(context.Background(), GrantArtifactParams{
+		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: f.owner}, ArtifactID: published.Artifact.ID,
+		TargetKind: ArtifactGrantTargetAgent, TargetID: f.agentID, Capability: ArtifactGrantRead, Now: f.at(2),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.database.RebuildKnowledgeIndex(context.Background()); err != nil {
+	if err := f.database.RebuildKnowledgeIndex(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	output, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "revocable", Now: fixture.at(4)})
+	output, err := f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "revocable", Now: f.at(4)})
 	if err != nil || len(output.Results) != 1 || output.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceArtifactVersion, ID: published.Artifact.ID, Version: published.Version.Version}) {
 		t.Fatalf("granted artifact search = %+v, %v", output, err)
 	}
-	if _, err := fixture.artifacts.RevokeGrant(context.Background(), RevokeArtifactGrantParams{RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner}, GrantID: artifactGrant.ID, Now: fixture.at(5)}); err != nil {
+	if _, err := f.artifacts.RevokeGrant(context.Background(), RevokeArtifactGrantParams{RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: f.owner}, GrantID: artifactGrant.ID, Now: f.at(5)}); err != nil {
 		t.Fatal(err)
 	}
-	output, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "revocable", Now: fixture.at(6)})
+	output, err = f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "revocable", Now: f.at(6)})
 	if err != nil || len(output.Results) != 0 {
 		t.Fatalf("revoked artifact search = %+v, %v", output, err)
 	}
-	workGrant := fixture.issueAgentWorkGrant(t, CapabilityWorkRead, fixture.at(7))
-	output, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "produce", Now: fixture.at(8)})
-	if err != nil || len(output.Results) != 1 || output.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceWork, ID: fixture.work.ID}) {
+	workGrant := f.issueAgentWorkGrant(t, CapabilityWorkRead, f.at(7))
+	output, err = f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "produce", Now: f.at(8)})
+	if err != nil || len(output.Results) != 1 || output.Results[0].Source != (KnowledgeSource{Kind: KnowledgeSourceWork, ID: f.work.ID}) {
 		t.Fatalf("granted work search = %+v, %v", output, err)
 	}
-	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: fixture.owner, GrantID: workGrant.ID, Now: fixture.at(9)}); err != nil {
+	if _, err := f.database.RevokeGrant(context.Background(), RevokeGrantParams{RequestID: uuid.NewString(), Actor: f.owner, GrantID: workGrant.ID, Now: f.at(9)}); err != nil {
 		t.Fatal(err)
 	}
-	output, err = fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: fixture.authentication, Query: "produce", Now: fixture.at(10)})
+	output, err = f.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: f.authentication, Query: "produce", Now: f.at(10)})
 	if err != nil || len(output.Results) != 0 {
 		t.Fatalf("revoked work search = %+v, %v", output, err)
 	}

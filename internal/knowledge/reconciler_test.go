@@ -13,19 +13,19 @@ import (
 )
 
 func TestReconcilerBuildsOnceAndDrainsDurableDirtySources(t *testing.T) {
-	database, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "server.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
-	reconciler := New(database)
+	defer db.Close()
+	reconciler := New(db)
 	reconciler.wake = time.Millisecond
 	reconciler.backoffMax = 8 * time.Millisecond
 	reconciler.Start(context.Background())
 	defer reconciler.Close()
 
-	waitKnowledgeState(t, database, store.KnowledgeIndexReady)
-	entry, err := database.EnqueueKnowledgeDirtySource(context.Background(), store.KnowledgeSource{
+	waitKnowledgeState(t, db, store.KnowledgeIndexReady)
+	entry, err := db.EnqueueKnowledgeDirtySource(context.Background(), store.KnowledgeSource{
 		Kind: store.KnowledgeSourceMessage, ID: uuid.NewString(),
 	}, [32]byte{1}, time.Now())
 	if err != nil {
@@ -33,8 +33,8 @@ func TestReconcilerBuildsOnceAndDrainsDurableDirtySources(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		state, stateErr := database.KnowledgeIndexState(context.Background())
-		_, found, dirtyErr := database.NextKnowledgeDirtySource(context.Background())
+		state, stateErr := db.KnowledgeIndexState(context.Background())
+		_, found, dirtyErr := db.NextKnowledgeDirtySource(context.Background())
 		if stateErr == nil && dirtyErr == nil && state.AppliedSequence == entry.Sequence && !found {
 			return
 		}
@@ -88,11 +88,11 @@ func TestPersistentStateFailuresUseBoundedBackoff(t *testing.T) {
 	}
 }
 
-func waitKnowledgeState(t *testing.T, database *store.Store, status string) {
+func waitKnowledgeState(t *testing.T, db *store.Store, status string) {
 	t.Helper()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		state, err := database.KnowledgeIndexState(context.Background())
+		state, err := db.KnowledgeIndexState(context.Background())
 		if err == nil && state.Status == status {
 			return
 		}

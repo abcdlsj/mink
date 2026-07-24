@@ -21,26 +21,26 @@ import (
 )
 
 func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
-	fixture := openRuntimeServiceFixture(t)
-	client := fixture.client(t, NewService(fixture.database, Config{Now: func() time.Time { return fixture.now }}))
+	f := openRuntimeServiceFixture(t)
+	client := f.client(t, NewService(f.database, Config{Now: func() time.Time { return f.now }}))
 
 	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentId: fixture.agent.ID, PlacementDesiredRevision: fixture.placement.DesiredRevision,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
+		AgentId: f.agent.ID, PlacementDesiredRevision: f.placement.DesiredRevision,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	first := created.Msg.GetSession()
-	if first.GetAgentId() != fixture.agent.ID || first.GetComputerId() != fixture.computer.ID || first.GetPlacementDesiredRevision() != 1 {
+	if first.GetAgentId() != f.agent.ID || first.GetComputerId() != f.computer.ID || first.GetPlacementDesiredRevision() != 1 {
 		t.Fatalf("created binding = agent:%q computer:%q desired_revision:%d", first.GetAgentId(), first.GetComputerId(), first.GetPlacementDesiredRevision())
 	}
-	if len(first.GetToken()) != 43 || !first.GetExpiresAt().AsTime().Equal(fixture.now.Add(10*time.Minute)) {
+	if len(first.GetToken()) != 43 || !first.GetExpiresAt().AsTime().Equal(f.now.Add(10*time.Minute)) {
 		t.Fatalf("created token_length:%d expires:%s", len(first.GetToken()), first.GetExpiresAt().AsTime())
 	}
 
 	renewRequest := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	renewRequest.Header().Set("Authorization", "Bearer "+first.GetToken())
 	renewed, err := client.RenewAgentRuntimeSession(context.Background(), renewRequest)
@@ -53,7 +53,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	}
 
 	replay := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	replay.Header().Set("Authorization", "Bearer "+first.GetToken())
 	_, err = client.RenewAgentRuntimeSession(context.Background(), replay)
@@ -63,7 +63,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	}
 
 	wrongKey := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: "wrong-registration-key",
+		ComputerId: f.computer.ID, RegistrationKey: "wrong-registration-key",
 	})
 	wrongKey.Header().Set("Authorization", "Bearer "+second.GetToken())
 	_, err = client.RenewAgentRuntimeSession(context.Background(), wrongKey)
@@ -73,7 +73,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	}
 
 	revoke := connect.NewRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	revoke.Header().Set("Authorization", "Bearer "+second.GetToken())
 	if _, err := client.RevokeAgentRuntimeSession(context.Background(), revoke); err != nil {
@@ -84,12 +84,12 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 }
 
 func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) {
-	fixture := openRuntimeServiceFixture(t)
-	client := fixture.client(t, NewService(fixture.database, Config{Now: func() time.Time { return fixture.now }}))
+	f := openRuntimeServiceFixture(t)
+	client := f.client(t, NewService(f.database, Config{Now: func() time.Time { return f.now }}))
 
 	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentId: fixture.agent.ID, PlacementDesiredRevision: fixture.placement.DesiredRevision,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
+		AgentId: f.agent.ID, PlacementDesiredRevision: f.placement.DesiredRevision,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -97,20 +97,20 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 	token := created.Msg.GetSession().GetToken()
 
 	missing := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	_, err = client.RenewAgentRuntimeSession(context.Background(), missing)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
 	human := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
-	human.Header().Set("Authorization", "Bearer "+fixture.humanCredential)
+	human.Header().Set("Authorization", "Bearer "+f.humanCredential)
 	_, err = client.RenewAgentRuntimeSession(context.Background(), human)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
 	duplicate := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	duplicate.Header().Add("Authorization", "Bearer "+token)
 	duplicate.Header().Add("Authorization", "Bearer "+token)
@@ -119,28 +119,28 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 }
 
 func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
-	fixture := openRuntimeServiceFixture(t)
+	f := openRuntimeServiceFixture(t)
 	firstToken := runtimeAuthTestToken(31)
-	if _, err := fixture.database.CreateAgentRuntimeSession(context.Background(), store.CreateAgentRuntimeSessionParams{
-		ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentID: fixture.agent.ID, PlacementDesiredRevision: 1, Token: firstToken,
-		Now: fixture.now, ExpiresAt: fixture.now.Add(10 * time.Minute),
+	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), store.CreateAgentRuntimeSessionParams{
+		ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
+		AgentID: f.agent.ID, PlacementDesiredRevision: 1, Token: firstToken,
+		Now: f.now, ExpiresAt: f.now.Add(10 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	consumer := &replacementConsumer{
-		t: t, database: fixture.database, computerID: fixture.computer.ID,
-		registrationKey: fixture.registrationKey, agentID: fixture.agent.ID, now: fixture.now.Add(time.Second),
+		t: t, database: f.database, computerID: f.computer.ID,
+		registrationKey: f.registrationKey, agentID: f.agent.ID, now: f.now.Add(time.Second),
 	}
 	_, handler := runtimev1connect.NewAgentRuntimeServiceHandler(consumer, connect.WithInterceptors(
-		newProcInterceptor(fixture.database, func() time.Time { return fixture.now.Add(time.Second) }, runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure),
+		newProcInterceptor(f.database, func() time.Time { return f.now.Add(time.Second) }, runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure),
 	))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
 	client := runtimev1connect.NewAgentRuntimeServiceClient(httpServer.Client(), httpServer.URL)
 	request := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
-		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
+		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	request.Header().Set("Authorization", "Bearer "+firstToken)
 	if _, err := client.RenewAgentRuntimeSession(context.Background(), request); err != nil {
