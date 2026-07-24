@@ -52,16 +52,16 @@ func New(dataRoot string) (*Manager, error) {
 	return &Manager{Layout: layout, Services: services, Prober: processProber{}, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Logger: observability.Discard(observability.ComponentInstaller)}, nil
 }
 
-func (manager *Manager) SetLogger(logger *observability.Logger) {
-	manager.Logger = logger
+func (m *Manager) SetLogger(logger *observability.Logger) {
+	m.Logger = logger
 }
 
-func (manager *Manager) logger() *observability.Logger {
-	return observability.CategoryLogger(manager.Logger, observability.ComponentInstaller, observability.CategoryInstall)
+func (m *Manager) logger() *observability.Logger {
+	return observability.CategoryLogger(m.Logger, observability.ComponentInstaller, observability.CategoryInstall)
 }
 
-func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnErr error) {
-	logger := manager.logger()
+func (m *Manager) Install(ctx context.Context, bundleRoot string) (returnErr error) {
+	logger := m.logger()
 	started := time.Now()
 	logger.Info("installation started", "event", "install.started")
 	defer func() {
@@ -71,12 +71,12 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnE
 		}
 		logger.Info("installation completed", "event", "install.completed", "duration", time.Since(started))
 	}()
-	lock, err := acquireInstallLock(manager.Layout)
+	lock, err := acquireInstallLock(m.Layout)
 	if err != nil {
 		return err
 	}
 	defer lock.Close()
-	if info, err := os.Lstat(manager.Layout.ActiveManifest); err == nil {
+	if info, err := os.Lstat(m.Layout.ActiveManifest); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return errors.New("active install manifest is unsafe")
 		}
@@ -84,12 +84,12 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnE
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return errors.New("inspect active install manifest")
 	}
-	bundle, err := releasebundle.Open(bundleRoot, manager.GOOS, manager.GOARCH)
+	bundle, err := releasebundle.Open(bundleRoot, m.GOOS, m.GOARCH)
 	if err != nil {
 		return err
 	}
-	logger.Info("release bundle verified", "event", "install.bundle.verified", "release_version", bundle.Manifest.ReleaseVersion, "operating_system", manager.GOOS, "architecture", manager.GOARCH)
-	versionRoot := manager.Layout.VersionRoot(bundle.Manifest.ReleaseVersion)
+	logger.Info("release bundle verified", "event", "install.bundle.verified", "release_version", bundle.Manifest.ReleaseVersion, "operating_system", m.GOOS, "architecture", m.GOARCH)
+	versionRoot := m.Layout.VersionRoot(bundle.Manifest.ReleaseVersion)
 	if err := bundle.CopyTo(versionRoot); err != nil {
 		return err
 	}
@@ -100,12 +100,12 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnE
 			_ = os.RemoveAll(versionRoot)
 		}
 	}()
-	if err := SaveActive(manager.Layout, bundle.Manifest); err != nil {
+	if err := SaveActive(m.Layout, bundle.Manifest); err != nil {
 		return err
 	}
-	if err := manager.Services.Install(ctx, manager.serviceConfig(bundle.Manifest.ReleaseVersion)); err != nil {
-		_ = manager.Services.Uninstall(ctx)
-		_ = os.Remove(manager.Layout.ActiveManifest)
+	if err := m.Services.Install(ctx, m.serviceConfig(bundle.Manifest.ReleaseVersion)); err != nil {
+		_ = m.Services.Uninstall(ctx)
+		_ = os.Remove(m.Layout.ActiveManifest)
 		return err
 	}
 	logger.Info("current-user services installed", "event", "install.services.installed", "release_version", bundle.Manifest.ReleaseVersion)
@@ -113,17 +113,17 @@ func (manager *Manager) Install(ctx context.Context, bundleRoot string) (returnE
 	return nil
 }
 
-func (manager *Manager) Active() (ActiveManifest, error) {
-	return LoadActive(manager.Layout)
+func (m *Manager) Active() (ActiveManifest, error) {
+	return LoadActive(m.Layout)
 }
 
-func (manager *Manager) serviceConfig(version string) osservice.InstallConfig {
-	return osservice.InstallConfig{Binary: manager.Layout.Binary(version), WebRoot: manager.Layout.WebRoot(version), DataRoot: manager.Layout.DataRoot}
+func (m *Manager) serviceConfig(version string) osservice.InstallConfig {
+	return osservice.InstallConfig{Binary: m.Layout.Binary(version), WebRoot: m.Layout.WebRoot(version), DataRoot: m.Layout.DataRoot}
 }
 
-func (manager *Manager) hook(stage string) error {
-	if manager.Before == nil {
+func (m *Manager) hook(stage string) error {
+	if m.Before == nil {
 		return nil
 	}
-	return manager.Before(stage)
+	return m.Before(stage)
 }

@@ -60,8 +60,8 @@ func New(dataRoot string) (*Doctor, error) {
 	}, nil
 }
 
-func (doctor *Doctor) Run(ctx context.Context) Report {
-	if info, err := os.Lstat(doctor.Layout.RestoreRoot); err == nil {
+func (d *Doctor) Run(ctx context.Context) Report {
+	if info, err := os.Lstat(d.Layout.RestoreRoot); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return Report{Code: "INSTALL_UNSAFE", Result: ResultError}
 		}
@@ -69,38 +69,38 @@ func (doctor *Doctor) Run(ctx context.Context) Report {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Report{Code: "INSTALL_UNSAFE", Result: ResultError}
 	}
-	dataRootInfo, err := os.Lstat(doctor.Layout.DataRoot)
-	if err != nil || dataRootInfo.Mode()&os.ModeSymlink != 0 || !dataRootInfo.IsDir() {
+	dirInfo, err := os.Lstat(d.Layout.DataRoot)
+	if err != nil || dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
 		return Report{Code: "HOME_INVALID", Result: ResultError}
 	}
-	active, err := install.LoadActive(doctor.Layout)
+	active, err := install.LoadActive(d.Layout)
 	if err != nil {
 		return Report{Code: "NOT_INSTALLED", Result: ResultError}
 	}
-	if _, err := configfile.Load(filepath.Join(doctor.Layout.DataRoot, "config.toml")); err != nil {
+	if _, err := configfile.Load(filepath.Join(d.Layout.DataRoot, "config.toml")); err != nil {
 		return Report{Code: "CONFIG_INVALID", Result: ResultError}
 	}
-	if _, err := releasebundle.Open(doctor.Layout.VersionRoot(active.Release.ReleaseVersion), doctor.GOOS, doctor.GOARCH); err != nil {
+	if _, err := releasebundle.Open(d.Layout.VersionRoot(active.Release.ReleaseVersion), d.GOOS, d.GOARCH); err != nil {
 		return Report{Code: "BUNDLE_INVALID", Result: ResultError}
 	}
-	serverRunning := doctor.Services.Running(ctx, osservice.Server)
-	computerRunning := doctor.Services.Running(ctx, osservice.Computer)
-	if !serverRunning || !computerRunning {
+	svr := d.Services.Running(ctx, osservice.Server)
+	cmptr := d.Services.Running(ctx, osservice.Computer)
+	if !svr || !cmptr {
 		return Report{Code: "SERVICE_STOPPED", Result: ResultWarning}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/healthz", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:8080/healthz", nil)
 	if err != nil {
 		return Report{Code: "SERVER_UNHEALTHY", Result: ResultError}
 	}
-	response, err := doctor.Client.Do(request)
-	if err != nil || response.StatusCode != http.StatusNoContent {
-		if response != nil {
-			response.Body.Close()
+	resp, err := d.Client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusNoContent {
+		if resp != nil {
+			resp.Body.Close()
 		}
 		return Report{Code: "SERVER_UNHEALTHY", Result: ResultError}
 	}
-	response.Body.Close()
-	paired, err := computerPaired(filepath.Join(doctor.Layout.DataRoot, "data", "computer", "state.db"))
+	resp.Body.Close()
+	paired, err := computerPaired(filepath.Join(d.Layout.DataRoot, "data", "computer", "state.db"))
 	if err != nil {
 		return Report{Code: "COMPUTER_STATE_INVALID", Result: ResultError}
 	}
@@ -110,8 +110,8 @@ func (doctor *Doctor) Run(ctx context.Context) Report {
 	return Report{Code: "OK", Result: ResultOK}
 }
 
-func (report Report) JSON() ([]byte, error) {
-	return json.Marshal(report)
+func (r Report) JSON() ([]byte, error) {
+	return json.Marshal(r)
 }
 
 func computerPaired(path string) (bool, error) {
@@ -122,13 +122,13 @@ func computerPaired(path string) (bool, error) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return false, errors.New("computer state is unsafe")
 	}
-	database, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return false, err
 	}
-	defer database.Close()
+	defer db.Close()
 	var count int
-	if err := database.QueryRow("SELECT count(*) FROM computer_identity").Scan(&count); err != nil {
+	if err := db.QueryRow("SELECT count(*) FROM computer_identity").Scan(&count); err != nil {
 		return false, err
 	}
 	return count == 1, nil

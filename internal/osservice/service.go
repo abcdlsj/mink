@@ -80,90 +80,90 @@ func NewManager(goos, home string, uid int, runner Runner) (*Manager, error) {
 	}, nil
 }
 
-func (manager *Manager) Install(ctx context.Context, config InstallConfig) error {
+func (m *Manager) Install(ctx context.Context, config InstallConfig) error {
 	if err := validateInstallConfig(config); err != nil {
 		return err
 	}
-	manager.setLabels(config.DataRoot)
-	if manager.goos == "darwin" {
-		return manager.installLaunchd(ctx, config)
+	m.setLabels(config.DataRoot)
+	if m.goos == "darwin" {
+		return m.installLaunchd(ctx, config)
 	}
-	return manager.installSystemd(ctx, config)
+	return m.installSystemd(ctx, config)
 }
 
-func (manager *Manager) Start(ctx context.Context, component Component) error {
-	if err := manager.requireComponent(component); err != nil {
+func (m *Manager) Start(ctx context.Context, component Component) error {
+	if err := m.requireComponent(component); err != nil {
 		return err
 	}
-	if manager.goos == "darwin" {
-		return manager.startLaunchd(ctx, component)
+	if m.goos == "darwin" {
+		return m.startLaunchd(ctx, component)
 	}
-	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "start", manager.unitName(component))
+	return m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "start", m.unitName(component))
 }
 
-func (manager *Manager) Stop(ctx context.Context, component Component) error {
-	if err := manager.requireComponent(component); err != nil {
+func (m *Manager) Stop(ctx context.Context, component Component) error {
+	if err := m.requireComponent(component); err != nil {
 		return err
 	}
-	if manager.goos == "darwin" {
-		return manager.stopLaunchd(ctx, component)
+	if m.goos == "darwin" {
+		return m.stopLaunchd(ctx, component)
 	}
-	if !manager.Running(ctx, component) {
+	if !m.Running(ctx, component) {
 		return nil
 	}
-	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "stop", manager.unitName(component))
+	return m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "stop", m.unitName(component))
 }
 
-func (manager *Manager) Restart(ctx context.Context, component Component) error {
-	if err := manager.requireComponent(component); err != nil {
+func (m *Manager) Restart(ctx context.Context, component Component) error {
+	if err := m.requireComponent(component); err != nil {
 		return err
 	}
-	if manager.goos == "darwin" {
-		if err := manager.stopLaunchd(ctx, component); err != nil {
+	if m.goos == "darwin" {
+		if err := m.stopLaunchd(ctx, component); err != nil {
 			return err
 		}
-		if err := manager.waitForLaunchdRemoval(ctx, component); err != nil {
+		if err := m.waitForLaunchdRemoval(ctx, component); err != nil {
 			return err
 		}
-		return manager.startLaunchd(ctx, component)
+		return m.startLaunchd(ctx, component)
 	}
-	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "restart", manager.unitName(component))
+	return m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "restart", m.unitName(component))
 }
 
-func (manager *Manager) waitForLaunchdRemoval(ctx context.Context, component Component) error {
-	deadline := manager.now().Add(manager.launchdRemovalTimeout)
+func (m *Manager) waitForLaunchdRemoval(ctx context.Context, component Component) error {
+	deadline := m.now().Add(m.launchdRemovalTimeout)
 	for {
-		loaded, err := manager.launchdLoaded(ctx, component)
+		loaded, err := m.launchdLoaded(ctx, component)
 		if err != nil {
 			return err
 		}
 		if !loaded {
 			return nil
 		}
-		remaining := deadline.Sub(manager.now())
+		remaining := deadline.Sub(m.now())
 		if remaining <= 0 {
 			return errors.New("current-user service removal timed out")
 		}
-		delay := min(manager.launchdRemovalPollInterval, remaining)
-		if err := manager.wait(ctx, delay); err != nil {
+		delay := min(m.launchdRemovalPollInterval, remaining)
+		if err := m.wait(ctx, delay); err != nil {
 			return err
 		}
 	}
 }
 
-func (manager *Manager) Running(ctx context.Context, component Component) bool {
-	if manager.requireComponent(component) != nil {
+func (m *Manager) Running(ctx context.Context, component Component) bool {
+	if m.requireComponent(component) != nil {
 		return false
 	}
-	if manager.goos == "darwin" {
-		loaded, err := manager.launchdLoaded(ctx, component)
+	if m.goos == "darwin" {
+		loaded, err := m.launchdLoaded(ctx, component)
 		return err == nil && loaded
 	}
-	return manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "is-active", "--quiet", manager.unitName(component)) == nil
+	return m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "is-active", "--quiet", m.unitName(component)) == nil
 }
 
-func (manager *Manager) launchdLoaded(ctx context.Context, component Component) (bool, error) {
-	err := manager.runner.Run(ctx, "/bin/launchctl", "print", manager.domainTarget(component))
+func (m *Manager) launchdLoaded(ctx context.Context, component Component) (bool, error) {
+	err := m.runner.Run(ctx, "/bin/launchctl", "print", m.domainTarget(component))
 	if err == nil {
 		return true, nil
 	}
@@ -173,66 +173,66 @@ func (manager *Manager) launchdLoaded(ctx context.Context, component Component) 
 	return false, err
 }
 
-func (manager *Manager) Uninstall(ctx context.Context) error {
+func (m *Manager) Uninstall(ctx context.Context) error {
 	var failures []error
 	for _, component := range []Component{Computer, Server} {
-		if err := manager.Stop(ctx, component); err != nil {
+		if err := m.Stop(ctx, component); err != nil {
 			failures = append(failures, err)
 		}
-		if manager.goos == "linux" {
-			if err := manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "disable", manager.unitName(component)); err != nil {
+		if m.goos == "linux" {
+			if err := m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "disable", m.unitName(component)); err != nil {
 				failures = append(failures, err)
 			}
 		}
-		if err := removeUnit(manager.unitPath(component)); err != nil {
+		if err := removeUnit(m.unitPath(component)); err != nil {
 			failures = append(failures, err)
 		}
 	}
-	if manager.goos == "linux" {
-		if err := manager.runner.Run(ctx, "/usr/bin/systemctl", "--user", "daemon-reload"); err != nil {
+	if m.goos == "linux" {
+		if err := m.runner.Run(ctx, "/usr/bin/systemctl", "--user", "daemon-reload"); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
 }
 
-func (manager *Manager) Configure(dataRoot string) {
-	manager.setLabels(dataRoot)
+func (m *Manager) Configure(dataRoot string) {
+	m.setLabels(dataRoot)
 }
 
-func (manager *Manager) UnitPaths() []string {
-	return []string{manager.unitPath(Server), manager.unitPath(Computer)}
+func (m *Manager) UnitPaths() []string {
+	return []string{m.unitPath(Server), m.unitPath(Computer)}
 }
 
-func (manager *Manager) setLabels(dataRoot string) {
+func (m *Manager) setLabels(dataRoot string) {
 	digest := sha256.Sum256([]byte(filepath.Clean(dataRoot)))
 	suffix := hex.EncodeToString(digest[:6])
-	manager.labels[Server] = "com.sumi.server." + suffix
-	manager.labels[Computer] = "com.sumi.computer." + suffix
+	m.labels[Server] = "com.sumi.server." + suffix
+	m.labels[Computer] = "com.sumi.computer." + suffix
 }
 
-func (manager *Manager) requireComponent(component Component) error {
+func (m *Manager) requireComponent(component Component) error {
 	if component != Server && component != Computer {
 		return errors.New("service component is invalid")
 	}
-	if manager.labels[component] == "" {
+	if m.labels[component] == "" {
 		return errors.New("service data root is not configured")
 	}
 	return nil
 }
 
-func (manager *Manager) unitName(component Component) string {
-	if manager.goos == "darwin" {
-		return manager.labels[component] + ".plist"
+func (m *Manager) unitName(component Component) string {
+	if m.goos == "darwin" {
+		return m.labels[component] + ".plist"
 	}
-	return "sumi-" + string(component) + "-" + strings.TrimPrefix(manager.labels[component], "com.sumi."+string(component)+".") + ".service"
+	return "sumi-" + string(component) + "-" + strings.TrimPrefix(m.labels[component], "com.sumi."+string(component)+".") + ".service"
 }
 
-func (manager *Manager) unitPath(component Component) string {
-	if manager.goos == "darwin" {
-		return filepath.Join(manager.home, "Library", "LaunchAgents", manager.unitName(component))
+func (m *Manager) unitPath(component Component) string {
+	if m.goos == "darwin" {
+		return filepath.Join(m.home, "Library", "LaunchAgents", m.unitName(component))
 	}
-	return filepath.Join(manager.configHome, "systemd", "user", manager.unitName(component))
+	return filepath.Join(m.configHome, "systemd", "user", m.unitName(component))
 }
 
 func validateInstallConfig(config InstallConfig) error {

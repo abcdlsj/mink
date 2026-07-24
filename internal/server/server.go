@@ -186,8 +186,8 @@ func New(ctx context.Context, config Config) (*Server, error) {
 		collaboration.New(database, config.BrowserOrigin), collaborationAuthorization,
 	)
 	mux.Handle(collaborationPath, collaborationHandler)
-	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) {
-		response.WriteHeader(http.StatusNoContent)
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
 	})
 	if config.BrowserOrigin != "" {
 		browserSessions, err := websession.New(database, websession.Config{Origin: config.BrowserOrigin})
