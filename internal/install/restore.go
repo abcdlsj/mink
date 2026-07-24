@@ -192,111 +192,111 @@ func restoreTarget(layout Layout, name string) string {
 	}
 }
 
-func copyNewWithHash(source, target string) (string, int64, error) {
-	sourceFile, info, err := openRegularNoFollow(source)
+func copyNewWithHash(srcPath, dstPath string) (string, int64, error) {
+	src, info, err := openRegularNoFollow(srcPath)
 	if err != nil {
 		return "", 0, err
 	}
-	defer sourceFile.Close()
-	targetFile, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	defer src.Close()
+	dst, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", 0, err
 	}
 	failed := true
 	defer func() {
-		targetFile.Close()
+		dst.Close()
 		if failed {
-			_ = os.Remove(target)
+			os.Remove(dstPath)
 		}
 	}()
 	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(targetFile, hash), sourceFile)
-	if err != nil || written != info.Size() {
+	n, err := io.Copy(io.MultiWriter(dst, hash), src)
+	if err != nil || n != info.Size() {
 		return "", 0, errors.New("copy restore source")
 	}
-	if err := targetFile.Sync(); err != nil {
+	if err := dst.Sync(); err != nil {
 		return "", 0, err
 	}
-	if err := targetFile.Close(); err != nil {
+	if err := dst.Close(); err != nil {
 		return "", 0, err
 	}
 	failed = false
-	return hex.EncodeToString(hash.Sum(nil)), written, nil
+	return hex.EncodeToString(hash.Sum(nil)), n, nil
 }
 
-func copyAtomic(source, target string) error {
-	sourceFile, info, err := openRegularNoFollow(source)
+func copyAtomic(srcPath, dstPath string) error {
+	src, info, err := openRegularNoFollow(srcPath)
 	if err != nil {
 		return err
 	}
-	defer sourceFile.Close()
-	if err := ensurePrivateDirectory(filepath.Dir(target)); err != nil {
+	defer src.Close()
+	if err := ensurePrivateDirectory(filepath.Dir(dstPath)); err != nil {
 		return err
 	}
-	if targetInfo, err := os.Lstat(target); err == nil && (targetInfo.Mode()&os.ModeSymlink != 0 || !targetInfo.Mode().IsRegular()) {
+	if ti, err := os.Lstat(dstPath); err == nil && (ti.Mode()&os.ModeSymlink != 0 || !ti.Mode().IsRegular()) {
 		return errors.New("restore target is unsafe")
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(target), ".sumi-restore-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(dstPath), ".sumi-restore-*.tmp")
 	if err != nil {
 		return err
 	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
 		return err
 	}
-	written, err := io.Copy(temporary, sourceFile)
-	if err != nil || written != info.Size() {
-		temporary.Close()
+	n, err := io.Copy(tmp, src)
+	if err != nil || n != info.Size() {
+		tmp.Close()
 		return errors.New("restore copy is incomplete")
 	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
 		return err
 	}
-	if err := temporary.Close(); err != nil {
+	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, target); err != nil {
+	if err := os.Rename(tmpPath, dstPath); err != nil {
 		return err
 	}
-	directory, err := os.Open(filepath.Dir(target))
+	dir, err := os.Open(filepath.Dir(dstPath))
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
-	return directory.Sync()
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func hashSecureFile(path string) (string, int64, error) {
-	file, info, err := openRegularNoFollow(path)
+	f, info, err := openRegularNoFollow(path)
 	if err != nil {
 		return "", 0, err
 	}
-	defer file.Close()
+	defer f.Close()
 	hash := sha256.New()
-	written, err := io.Copy(hash, file)
-	if err != nil || written != info.Size() {
+	n, err := io.Copy(hash, f)
+	if err != nil || n != info.Size() {
 		return "", 0, errors.New("hash restore file")
 	}
-	return hex.EncodeToString(hash.Sum(nil)), written, nil
+	return hex.EncodeToString(hash.Sum(nil)), n, nil
 }
 
 func openRegularNoFollow(path string) (*os.File, os.FileInfo, error) {
-	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, nil, err
 	}
-	file := os.NewFile(uintptr(descriptor), path)
-	info, err := file.Stat()
+	f := os.NewFile(uintptr(fd), path)
+	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		file.Close()
+		f.Close()
 		return nil, nil, errors.New("file is not regular")
 	}
-	return file, info, nil
+	return f, info, nil
 }
 
 func removeRegularIfPresent(path string) error {
@@ -310,12 +310,12 @@ func removeRegularIfPresent(path string) error {
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	directory, err := os.Open(filepath.Dir(path))
+	dir, err := os.Open(filepath.Dir(path))
 	if err != nil {
 		return err
 	}
-	defer directory.Close()
-	return directory.Sync()
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func removeSafeTree(root string) error {

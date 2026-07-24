@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -31,7 +30,19 @@ type BrowserInterceptorConfig struct {
 
 const BrowserSessionCookieName = "sumi_browser_session"
 
-var browserSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+var browserSessionPattern = func() func(string) bool {
+	return func(s string) bool {
+		if len(s) != 43 {
+			return false
+		}
+		for _, r := range s {
+			if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+				return false
+			}
+		}
+		return true
+	}
+}()
 
 func NewBrowserInterceptor(authenticator humanAuthenticator, sessions browserSessionAuthenticator, config BrowserInterceptorConfig) connect.Interceptor {
 	protected := procedureSet(config.ProtectedProcedures)
@@ -48,13 +59,13 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 		now = time.Now
 	}
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			if protected != nil {
-				if _, ok := protected[request.Spec().Procedure]; !ok {
-					return next(ctx, request)
+				if _, ok := protected[req.Spec().Procedure]; !ok {
+					return next(ctx, req)
 				}
 			}
-			subject, err := authenticateRequest(ctx, request, authenticator, sessions, config.Origin, reads, now())
+			subject, err := authenticateRequest(ctx, req, authenticator, sessions, config.Origin, reads, now())
 			if errors.Is(err, authoritydomain.ErrPermissionDenied) {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("human authentication invalid"))
 			}
@@ -65,14 +76,14 @@ func newInterceptor(authenticator humanAuthenticator, protected map[string]struc
 				}
 				return nil, connect.NewError(connect.CodeInternal, errors.New("authenticate human"))
 			}
-			return next(context.WithValue(ctx, subjectKey{}, subject), request)
+			return next(context.WithValue(ctx, subjectKey{}, subject), req)
 		}
 	})
 }
 
-func authenticateRequest(ctx context.Context, request connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (authoritydomain.Principal, error) {
-	if len(request.Header().Values("Authorization")) > 0 {
-		credential, ok := BearerCredential(request.Header())
+func authenticateRequest(ctx context.Context, req connect.AnyRequest, authenticator humanAuthenticator, sessions []browserSessionAuthenticator, origin string, browserReads map[string]struct{}, now time.Time) (authoritydomain.Principal, error) {
+	if len(req.Header().Values("Authorization")) > 0 {
+		credential, ok := BearerCredential(req.Header())
 		if !ok {
 			return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 		}
@@ -81,13 +92,13 @@ func authenticateRequest(ctx context.Context, request connect.AnyRequest, authen
 	if len(sessions) != 1 || origin == "" || !BrowserRequestAllowed(ctx) {
 		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
-	if _, read := browserReads[request.Spec().Procedure]; !read {
-		origins := request.Header().Values("Origin")
+	if _, read := browserReads[req.Spec().Procedure]; !read {
+		origins := req.Header().Values("Origin")
 		if len(origins) != 1 || origins[0] != origin {
 			return authoritydomain.Principal{}, connect.NewError(connect.CodePermissionDenied, errors.New("same-origin browser request required"))
 		}
 	}
-	token, ok := browserSessionCookie(request.Header())
+	token, ok := browserSessionCookie(req.Header())
 	if !ok {
 		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
 	}
@@ -103,9 +114,9 @@ func BearerCredential(header http.Header) (string, bool) {
 }
 
 func browserSessionCookie(header http.Header) (string, bool) {
-	request := http.Request{Header: header}
-	cookies := request.CookiesNamed(BrowserSessionCookieName)
-	if len(cookies) != 1 || !browserSessionPattern.MatchString(cookies[0].Value) {
+	req := http.Request{Header: header}
+	cookies := req.CookiesNamed(BrowserSessionCookieName)
+	if len(cookies) != 1 || !browserSessionPattern(cookies[0].Value) {
 		return "", false
 	}
 	return cookies[0].Value, true

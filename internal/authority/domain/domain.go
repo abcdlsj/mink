@@ -106,17 +106,27 @@ var validCap = func() map[Capability]bool {
 
 func (c Capability) Valid() bool { return validCap[c] }
 
+var capScopeMap = map[Capability][]ScopeKind{
+	CapabilityWorkCreate:          {ScopeOrganization},
+	CapabilityWorkRead:            {ScopeOrganization, ScopeWork},
+	CapabilityWorkManage:          {ScopeOrganization, ScopeWork},
+	CapabilityWorkApprove:         {ScopeOrganization, ScopeWork},
+}
+
 func (c Capability) AllowsScope(kind ScopeKind) bool {
 	if !c.Valid() {
 		return false
 	}
-	switch c {
-	case CapabilityWorkCreate:
-		return kind == ScopeOrganization
-	case CapabilityWorkRead, CapabilityWorkManage, CapabilityWorkApprove:
-		return kind == ScopeOrganization || kind == ScopeWork
+	allowed, restricted := capScopeMap[c]
+	if !restricted {
+		return true // unrestricted capabilities allow any scope
 	}
-	return true
+	for _, s := range allowed {
+		if s == kind {
+			return true
+		}
+	}
+	return false
 }
 
 var (

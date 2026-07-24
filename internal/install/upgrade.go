@@ -320,46 +320,46 @@ func waitForHealth(ctx context.Context, url string) error {
 }
 
 func sqliteIntegrity(path string) error {
-	database, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return errors.New("open candidate Server database")
 	}
-	defer database.Close()
+	defer db.Close()
 	var result string
-	if err := database.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil || result != "ok" {
+	if err := db.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil || result != "ok" {
 		return errors.New("candidate Server database integrity probe failed")
 	}
 	var schemaVersion string
-	if err := database.QueryRow("SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&schemaVersion); err != nil || schemaVersion != "3" {
+	if err := db.QueryRow("SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&schemaVersion); err != nil || schemaVersion != "3" {
 		return errors.New("candidate Server schema probe failed")
 	}
 	return nil
 }
 
-func replaceEnvironment(environment []string, key, value string) []string {
+func replaceEnvironment(env []string, key, value string) []string {
 	prefix := key + "="
-	result := make([]string, 0, len(environment)+1)
-	for _, item := range environment {
+	out := make([]string, 0, len(env)+1)
+	for _, item := range env {
 		if len(item) < len(prefix) || item[:len(prefix)] != prefix {
-			result = append(result, item)
+			out = append(out, item)
 		}
 	}
-	return append(result, prefix+value)
+	return append(out, prefix+value)
 }
 
 type limitedBuffer struct {
 	bytes.Buffer
 }
 
-func (buffer *limitedBuffer) Write(payload []byte) (int, error) {
+func (b *limitedBuffer) Write(payload []byte) (int, error) {
 	const limit = 64 << 10
-	accepted := len(payload)
-	if buffer.Len() < limit {
-		remaining := limit - buffer.Len()
+	n := len(payload)
+	if b.Len() < limit {
+		remaining := limit - b.Len()
 		if len(payload) > remaining {
 			payload = payload[:remaining]
 		}
-		_, _ = buffer.Buffer.Write(payload)
+		_, _ = b.Buffer.Write(payload)
 	}
-	return accepted, nil
+	return n, nil
 }
