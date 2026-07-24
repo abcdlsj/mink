@@ -7,6 +7,7 @@
 package spacev1
 
 import (
+	v1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -1483,6 +1484,7 @@ type SendMessageRequest struct {
 	RunId               string                 `protobuf:"bytes,5,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAttempt          uint64                 `protobuf:"varint,6,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	RunFence            uint64                 `protobuf:"varint,7,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
+	RunProof            *v1.RunProof           `protobuf:"bytes,8,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1564,6 +1566,13 @@ func (x *SendMessageRequest) GetRunFence() uint64 {
 		return x.RunFence
 	}
 	return 0
+}
+
+func (x *SendMessageRequest) GetRunProof() *v1.RunProof {
+	if x != nil {
+		return x.RunProof
+	}
+	return nil
 }
 
 type SendMessageResponse struct {
@@ -1894,7 +1903,7 @@ var File_sumi_space_v1_space_proto protoreflect.FileDescriptor
 
 const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"\n" +
-	"\x19sumi/space/v1/space.proto\x12\rsumi.space.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"M\n" +
+	"\x19sumi/space/v1/space.proto\x12\rsumi.space.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19sumi/grant/v1/grant.proto\"M\n" +
 	"\tPrincipal\x120\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1c.sumi.space.v1.PrincipalKindR\x04kind\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"\xb5\x02\n" +
@@ -1987,7 +1996,7 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
 	"\bspace_id\x18\x02 \x01(\tR\aspaceId\"R\n" +
 	"\x16UnarchiveSpaceResponse\x128\n" +
-	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"\x9f\x02\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"\xd5\x02\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x124\n" +
@@ -1997,7 +2006,8 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"\x06run_id\x18\x05 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\x06 \x01(\x04R\n" +
 	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\a \x01(\x04R\brunFence\"G\n" +
+	"\trun_fence\x18\a \x01(\x04R\brunFence\x124\n" +
+	"\trun_proof\x18\b \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"G\n" +
 	"\x13SendMessageResponse\x120\n" +
 	"\amessage\x18\x01 \x01(\v2\x16.sumi.space.v1.MessageR\amessage\"2\n" +
 	"\x11GetMessageRequest\x12\x1d\n" +
@@ -2091,6 +2101,7 @@ var file_sumi_space_v1_space_proto_goTypes = []any{
 	(*ListMessagesRequest)(nil),    // 33: sumi.space.v1.ListMessagesRequest
 	(*ListMessagesResponse)(nil),   // 34: sumi.space.v1.ListMessagesResponse
 	(*timestamppb.Timestamp)(nil),  // 35: google.protobuf.Timestamp
+	(*v1.RunProof)(nil),            // 36: sumi.grant.v1.RunProof
 }
 var file_sumi_space_v1_space_proto_depIdxs = []int32{
 	0,  // 0: sumi.space.v1.Principal.kind:type_name -> sumi.space.v1.PrincipalKind
@@ -2119,42 +2130,43 @@ var file_sumi_space_v1_space_proto_depIdxs = []int32{
 	8,  // 23: sumi.space.v1.UnarchiveSpaceResponse.receipt:type_name -> sumi.space.v1.MutationReceipt
 	6,  // 24: sumi.space.v1.SendMessageRequest.target:type_name -> sumi.space.v1.MessageTarget
 	2,  // 25: sumi.space.v1.SendMessageRequest.mentioned_principals:type_name -> sumi.space.v1.Principal
-	7,  // 26: sumi.space.v1.SendMessageResponse.message:type_name -> sumi.space.v1.Message
-	7,  // 27: sumi.space.v1.GetMessageResponse.message:type_name -> sumi.space.v1.Message
-	5,  // 28: sumi.space.v1.GetThreadResponse.thread:type_name -> sumi.space.v1.Thread
-	6,  // 29: sumi.space.v1.ListMessagesRequest.target:type_name -> sumi.space.v1.MessageTarget
-	7,  // 30: sumi.space.v1.ListMessagesResponse.messages:type_name -> sumi.space.v1.Message
-	9,  // 31: sumi.space.v1.CollaborationService.CreateDM:input_type -> sumi.space.v1.CreateDMRequest
-	10, // 32: sumi.space.v1.CollaborationService.CreateGroup:input_type -> sumi.space.v1.CreateGroupRequest
-	13, // 33: sumi.space.v1.CollaborationService.GetSpace:input_type -> sumi.space.v1.GetSpaceRequest
-	15, // 34: sumi.space.v1.CollaborationService.ListSpaces:input_type -> sumi.space.v1.ListSpacesRequest
-	17, // 35: sumi.space.v1.CollaborationService.AddMember:input_type -> sumi.space.v1.AddMemberRequest
-	18, // 36: sumi.space.v1.CollaborationService.RemoveMember:input_type -> sumi.space.v1.RemoveMemberRequest
-	21, // 37: sumi.space.v1.CollaborationService.ListMembers:input_type -> sumi.space.v1.ListMembersRequest
-	23, // 38: sumi.space.v1.CollaborationService.ArchiveSpace:input_type -> sumi.space.v1.ArchiveSpaceRequest
-	25, // 39: sumi.space.v1.CollaborationService.UnarchiveSpace:input_type -> sumi.space.v1.UnarchiveSpaceRequest
-	27, // 40: sumi.space.v1.CollaborationService.SendMessage:input_type -> sumi.space.v1.SendMessageRequest
-	29, // 41: sumi.space.v1.CollaborationService.GetMessage:input_type -> sumi.space.v1.GetMessageRequest
-	31, // 42: sumi.space.v1.CollaborationService.GetThread:input_type -> sumi.space.v1.GetThreadRequest
-	33, // 43: sumi.space.v1.CollaborationService.ListMessages:input_type -> sumi.space.v1.ListMessagesRequest
-	11, // 44: sumi.space.v1.CollaborationService.CreateDM:output_type -> sumi.space.v1.CreateDMResponse
-	12, // 45: sumi.space.v1.CollaborationService.CreateGroup:output_type -> sumi.space.v1.CreateGroupResponse
-	14, // 46: sumi.space.v1.CollaborationService.GetSpace:output_type -> sumi.space.v1.GetSpaceResponse
-	16, // 47: sumi.space.v1.CollaborationService.ListSpaces:output_type -> sumi.space.v1.ListSpacesResponse
-	19, // 48: sumi.space.v1.CollaborationService.AddMember:output_type -> sumi.space.v1.AddMemberResponse
-	20, // 49: sumi.space.v1.CollaborationService.RemoveMember:output_type -> sumi.space.v1.RemoveMemberResponse
-	22, // 50: sumi.space.v1.CollaborationService.ListMembers:output_type -> sumi.space.v1.ListMembersResponse
-	24, // 51: sumi.space.v1.CollaborationService.ArchiveSpace:output_type -> sumi.space.v1.ArchiveSpaceResponse
-	26, // 52: sumi.space.v1.CollaborationService.UnarchiveSpace:output_type -> sumi.space.v1.UnarchiveSpaceResponse
-	28, // 53: sumi.space.v1.CollaborationService.SendMessage:output_type -> sumi.space.v1.SendMessageResponse
-	30, // 54: sumi.space.v1.CollaborationService.GetMessage:output_type -> sumi.space.v1.GetMessageResponse
-	32, // 55: sumi.space.v1.CollaborationService.GetThread:output_type -> sumi.space.v1.GetThreadResponse
-	34, // 56: sumi.space.v1.CollaborationService.ListMessages:output_type -> sumi.space.v1.ListMessagesResponse
-	44, // [44:57] is the sub-list for method output_type
-	31, // [31:44] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	36, // 26: sumi.space.v1.SendMessageRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	7,  // 27: sumi.space.v1.SendMessageResponse.message:type_name -> sumi.space.v1.Message
+	7,  // 28: sumi.space.v1.GetMessageResponse.message:type_name -> sumi.space.v1.Message
+	5,  // 29: sumi.space.v1.GetThreadResponse.thread:type_name -> sumi.space.v1.Thread
+	6,  // 30: sumi.space.v1.ListMessagesRequest.target:type_name -> sumi.space.v1.MessageTarget
+	7,  // 31: sumi.space.v1.ListMessagesResponse.messages:type_name -> sumi.space.v1.Message
+	9,  // 32: sumi.space.v1.CollaborationService.CreateDM:input_type -> sumi.space.v1.CreateDMRequest
+	10, // 33: sumi.space.v1.CollaborationService.CreateGroup:input_type -> sumi.space.v1.CreateGroupRequest
+	13, // 34: sumi.space.v1.CollaborationService.GetSpace:input_type -> sumi.space.v1.GetSpaceRequest
+	15, // 35: sumi.space.v1.CollaborationService.ListSpaces:input_type -> sumi.space.v1.ListSpacesRequest
+	17, // 36: sumi.space.v1.CollaborationService.AddMember:input_type -> sumi.space.v1.AddMemberRequest
+	18, // 37: sumi.space.v1.CollaborationService.RemoveMember:input_type -> sumi.space.v1.RemoveMemberRequest
+	21, // 38: sumi.space.v1.CollaborationService.ListMembers:input_type -> sumi.space.v1.ListMembersRequest
+	23, // 39: sumi.space.v1.CollaborationService.ArchiveSpace:input_type -> sumi.space.v1.ArchiveSpaceRequest
+	25, // 40: sumi.space.v1.CollaborationService.UnarchiveSpace:input_type -> sumi.space.v1.UnarchiveSpaceRequest
+	27, // 41: sumi.space.v1.CollaborationService.SendMessage:input_type -> sumi.space.v1.SendMessageRequest
+	29, // 42: sumi.space.v1.CollaborationService.GetMessage:input_type -> sumi.space.v1.GetMessageRequest
+	31, // 43: sumi.space.v1.CollaborationService.GetThread:input_type -> sumi.space.v1.GetThreadRequest
+	33, // 44: sumi.space.v1.CollaborationService.ListMessages:input_type -> sumi.space.v1.ListMessagesRequest
+	11, // 45: sumi.space.v1.CollaborationService.CreateDM:output_type -> sumi.space.v1.CreateDMResponse
+	12, // 46: sumi.space.v1.CollaborationService.CreateGroup:output_type -> sumi.space.v1.CreateGroupResponse
+	14, // 47: sumi.space.v1.CollaborationService.GetSpace:output_type -> sumi.space.v1.GetSpaceResponse
+	16, // 48: sumi.space.v1.CollaborationService.ListSpaces:output_type -> sumi.space.v1.ListSpacesResponse
+	19, // 49: sumi.space.v1.CollaborationService.AddMember:output_type -> sumi.space.v1.AddMemberResponse
+	20, // 50: sumi.space.v1.CollaborationService.RemoveMember:output_type -> sumi.space.v1.RemoveMemberResponse
+	22, // 51: sumi.space.v1.CollaborationService.ListMembers:output_type -> sumi.space.v1.ListMembersResponse
+	24, // 52: sumi.space.v1.CollaborationService.ArchiveSpace:output_type -> sumi.space.v1.ArchiveSpaceResponse
+	26, // 53: sumi.space.v1.CollaborationService.UnarchiveSpace:output_type -> sumi.space.v1.UnarchiveSpaceResponse
+	28, // 54: sumi.space.v1.CollaborationService.SendMessage:output_type -> sumi.space.v1.SendMessageResponse
+	30, // 55: sumi.space.v1.CollaborationService.GetMessage:output_type -> sumi.space.v1.GetMessageResponse
+	32, // 56: sumi.space.v1.CollaborationService.GetThread:output_type -> sumi.space.v1.GetThreadResponse
+	34, // 57: sumi.space.v1.CollaborationService.ListMessages:output_type -> sumi.space.v1.ListMessagesResponse
+	45, // [45:58] is the sub-list for method output_type
+	32, // [32:45] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_sumi_space_v1_space_proto_init() }

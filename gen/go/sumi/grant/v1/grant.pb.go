@@ -339,6 +339,68 @@ func (x *Scope) GetId() string {
 	return ""
 }
 
+// RunProof is a shared claim used by execution-triggered mutations.
+// It verifies the caller holds an active Run lease.
+type RunProof struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Attempt       uint64                 `protobuf:"varint,2,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Fence         uint64                 `protobuf:"varint,3,opt,name=fence,proto3" json:"fence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunProof) Reset() {
+	*x = RunProof{}
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunProof) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunProof) ProtoMessage() {}
+
+func (x *RunProof) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunProof.ProtoReflect.Descriptor instead.
+func (*RunProof) Descriptor() ([]byte, []int) {
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *RunProof) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *RunProof) GetAttempt() uint64 {
+	if x != nil {
+		return x.Attempt
+	}
+	return 0
+}
+
+func (x *RunProof) GetFence() uint64 {
+	if x != nil {
+		return x.Fence
+	}
+	return 0
+}
+
 type Grant struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	Id             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -358,7 +420,7 @@ type Grant struct {
 
 func (x *Grant) Reset() {
 	*x = Grant{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[2]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +432,7 @@ func (x *Grant) String() string {
 func (*Grant) ProtoMessage() {}
 
 func (x *Grant) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[2]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +445,7 @@ func (x *Grant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Grant.ProtoReflect.Descriptor instead.
 func (*Grant) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{2}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Grant) GetId() string {
@@ -477,7 +539,7 @@ type IssueGrantRequest struct {
 
 func (x *IssueGrantRequest) Reset() {
 	*x = IssueGrantRequest{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[3]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -489,7 +551,7 @@ func (x *IssueGrantRequest) String() string {
 func (*IssueGrantRequest) ProtoMessage() {}
 
 func (x *IssueGrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[3]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -502,7 +564,7 @@ func (x *IssueGrantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueGrantRequest.ProtoReflect.Descriptor instead.
 func (*IssueGrantRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{3}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *IssueGrantRequest) GetRequestId() string {
@@ -556,7 +618,7 @@ type IssueGrantResponse struct {
 
 func (x *IssueGrantResponse) Reset() {
 	*x = IssueGrantResponse{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[4]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +630,7 @@ func (x *IssueGrantResponse) String() string {
 func (*IssueGrantResponse) ProtoMessage() {}
 
 func (x *IssueGrantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[4]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +643,7 @@ func (x *IssueGrantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IssueGrantResponse.ProtoReflect.Descriptor instead.
 func (*IssueGrantResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{4}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *IssueGrantResponse) GetGrant() *Grant {
@@ -601,7 +663,7 @@ type RevokeGrantRequest struct {
 
 func (x *RevokeGrantRequest) Reset() {
 	*x = RevokeGrantRequest{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[5]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -613,7 +675,7 @@ func (x *RevokeGrantRequest) String() string {
 func (*RevokeGrantRequest) ProtoMessage() {}
 
 func (x *RevokeGrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[5]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -626,7 +688,7 @@ func (x *RevokeGrantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeGrantRequest.ProtoReflect.Descriptor instead.
 func (*RevokeGrantRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{5}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RevokeGrantRequest) GetRequestId() string {
@@ -652,7 +714,7 @@ type RevokeGrantResponse struct {
 
 func (x *RevokeGrantResponse) Reset() {
 	*x = RevokeGrantResponse{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[6]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +726,7 @@ func (x *RevokeGrantResponse) String() string {
 func (*RevokeGrantResponse) ProtoMessage() {}
 
 func (x *RevokeGrantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[6]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +739,7 @@ func (x *RevokeGrantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevokeGrantResponse.ProtoReflect.Descriptor instead.
 func (*RevokeGrantResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{6}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RevokeGrantResponse) GetGrant() *Grant {
@@ -696,7 +758,7 @@ type GetGrantRequest struct {
 
 func (x *GetGrantRequest) Reset() {
 	*x = GetGrantRequest{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[7]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -708,7 +770,7 @@ func (x *GetGrantRequest) String() string {
 func (*GetGrantRequest) ProtoMessage() {}
 
 func (x *GetGrantRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[7]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -721,7 +783,7 @@ func (x *GetGrantRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGrantRequest.ProtoReflect.Descriptor instead.
 func (*GetGrantRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{7}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *GetGrantRequest) GetGrantId() string {
@@ -740,7 +802,7 @@ type GetGrantResponse struct {
 
 func (x *GetGrantResponse) Reset() {
 	*x = GetGrantResponse{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[8]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -752,7 +814,7 @@ func (x *GetGrantResponse) String() string {
 func (*GetGrantResponse) ProtoMessage() {}
 
 func (x *GetGrantResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[8]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -765,7 +827,7 @@ func (x *GetGrantResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetGrantResponse.ProtoReflect.Descriptor instead.
 func (*GetGrantResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{8}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetGrantResponse) GetGrant() *Grant {
@@ -783,7 +845,7 @@ type ListGrantsRequest struct {
 
 func (x *ListGrantsRequest) Reset() {
 	*x = ListGrantsRequest{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[9]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -795,7 +857,7 @@ func (x *ListGrantsRequest) String() string {
 func (*ListGrantsRequest) ProtoMessage() {}
 
 func (x *ListGrantsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[9]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -808,7 +870,7 @@ func (x *ListGrantsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGrantsRequest.ProtoReflect.Descriptor instead.
 func (*ListGrantsRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{9}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{10}
 }
 
 type ListGrantsResponse struct {
@@ -820,7 +882,7 @@ type ListGrantsResponse struct {
 
 func (x *ListGrantsResponse) Reset() {
 	*x = ListGrantsResponse{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[10]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -832,7 +894,7 @@ func (x *ListGrantsResponse) String() string {
 func (*ListGrantsResponse) ProtoMessage() {}
 
 func (x *ListGrantsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[10]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -845,7 +907,7 @@ func (x *ListGrantsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGrantsResponse.ProtoReflect.Descriptor instead.
 func (*ListGrantsResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{10}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListGrantsResponse) GetGrants() []*Grant {
@@ -866,7 +928,7 @@ type CheckPermissionRequest struct {
 
 func (x *CheckPermissionRequest) Reset() {
 	*x = CheckPermissionRequest{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[11]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -878,7 +940,7 @@ func (x *CheckPermissionRequest) String() string {
 func (*CheckPermissionRequest) ProtoMessage() {}
 
 func (x *CheckPermissionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[11]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -891,7 +953,7 @@ func (x *CheckPermissionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckPermissionRequest.ProtoReflect.Descriptor instead.
 func (*CheckPermissionRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{11}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CheckPermissionRequest) GetSubject() *Principal {
@@ -924,7 +986,7 @@ type CheckPermissionResponse struct {
 
 func (x *CheckPermissionResponse) Reset() {
 	*x = CheckPermissionResponse{}
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[12]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +998,7 @@ func (x *CheckPermissionResponse) String() string {
 func (*CheckPermissionResponse) ProtoMessage() {}
 
 func (x *CheckPermissionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_grant_v1_grant_proto_msgTypes[12]
+	mi := &file_sumi_grant_v1_grant_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1011,7 @@ func (x *CheckPermissionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckPermissionResponse.ProtoReflect.Descriptor instead.
 func (*CheckPermissionResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{12}
+	return file_sumi_grant_v1_grant_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CheckPermissionResponse) GetAllowed() bool {
@@ -969,7 +1031,11 @@ const file_sumi_grant_v1_grant_proto_rawDesc = "" +
 	"\x02id\x18\x02 \x01(\tR\x02id\"E\n" +
 	"\x05Scope\x12,\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x18.sumi.grant.v1.ScopeKindR\x04kind\x12\x0e\n" +
-	"\x02id\x18\x02 \x01(\tR\x02id\"\xa1\x04\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\"Q\n" +
+	"\bRunProof\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x18\n" +
+	"\aattempt\x18\x02 \x01(\x04R\aattempt\x12\x14\n" +
+	"\x05fence\x18\x03 \x01(\x04R\x05fence\"\xa1\x04\n" +
 	"\x05Grant\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0forganization_id\x18\x02 \x01(\tR\x0eorganizationId\x122\n" +
@@ -1081,25 +1147,26 @@ func file_sumi_grant_v1_grant_proto_rawDescGZIP() []byte {
 }
 
 var file_sumi_grant_v1_grant_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_sumi_grant_v1_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_sumi_grant_v1_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_sumi_grant_v1_grant_proto_goTypes = []any{
 	(PrincipalKind)(0),              // 0: sumi.grant.v1.PrincipalKind
 	(Capability)(0),                 // 1: sumi.grant.v1.Capability
 	(ScopeKind)(0),                  // 2: sumi.grant.v1.ScopeKind
 	(*Principal)(nil),               // 3: sumi.grant.v1.Principal
 	(*Scope)(nil),                   // 4: sumi.grant.v1.Scope
-	(*Grant)(nil),                   // 5: sumi.grant.v1.Grant
-	(*IssueGrantRequest)(nil),       // 6: sumi.grant.v1.IssueGrantRequest
-	(*IssueGrantResponse)(nil),      // 7: sumi.grant.v1.IssueGrantResponse
-	(*RevokeGrantRequest)(nil),      // 8: sumi.grant.v1.RevokeGrantRequest
-	(*RevokeGrantResponse)(nil),     // 9: sumi.grant.v1.RevokeGrantResponse
-	(*GetGrantRequest)(nil),         // 10: sumi.grant.v1.GetGrantRequest
-	(*GetGrantResponse)(nil),        // 11: sumi.grant.v1.GetGrantResponse
-	(*ListGrantsRequest)(nil),       // 12: sumi.grant.v1.ListGrantsRequest
-	(*ListGrantsResponse)(nil),      // 13: sumi.grant.v1.ListGrantsResponse
-	(*CheckPermissionRequest)(nil),  // 14: sumi.grant.v1.CheckPermissionRequest
-	(*CheckPermissionResponse)(nil), // 15: sumi.grant.v1.CheckPermissionResponse
-	(*timestamppb.Timestamp)(nil),   // 16: google.protobuf.Timestamp
+	(*RunProof)(nil),                // 5: sumi.grant.v1.RunProof
+	(*Grant)(nil),                   // 6: sumi.grant.v1.Grant
+	(*IssueGrantRequest)(nil),       // 7: sumi.grant.v1.IssueGrantRequest
+	(*IssueGrantResponse)(nil),      // 8: sumi.grant.v1.IssueGrantResponse
+	(*RevokeGrantRequest)(nil),      // 9: sumi.grant.v1.RevokeGrantRequest
+	(*RevokeGrantResponse)(nil),     // 10: sumi.grant.v1.RevokeGrantResponse
+	(*GetGrantRequest)(nil),         // 11: sumi.grant.v1.GetGrantRequest
+	(*GetGrantResponse)(nil),        // 12: sumi.grant.v1.GetGrantResponse
+	(*ListGrantsRequest)(nil),       // 13: sumi.grant.v1.ListGrantsRequest
+	(*ListGrantsResponse)(nil),      // 14: sumi.grant.v1.ListGrantsResponse
+	(*CheckPermissionRequest)(nil),  // 15: sumi.grant.v1.CheckPermissionRequest
+	(*CheckPermissionResponse)(nil), // 16: sumi.grant.v1.CheckPermissionResponse
+	(*timestamppb.Timestamp)(nil),   // 17: google.protobuf.Timestamp
 }
 var file_sumi_grant_v1_grant_proto_depIdxs = []int32{
 	0,  // 0: sumi.grant.v1.Principal.kind:type_name -> sumi.grant.v1.PrincipalKind
@@ -1108,31 +1175,31 @@ var file_sumi_grant_v1_grant_proto_depIdxs = []int32{
 	3,  // 3: sumi.grant.v1.Grant.issuer:type_name -> sumi.grant.v1.Principal
 	1,  // 4: sumi.grant.v1.Grant.capability:type_name -> sumi.grant.v1.Capability
 	4,  // 5: sumi.grant.v1.Grant.scope:type_name -> sumi.grant.v1.Scope
-	16, // 6: sumi.grant.v1.Grant.expires_at:type_name -> google.protobuf.Timestamp
-	16, // 7: sumi.grant.v1.Grant.revoked_at:type_name -> google.protobuf.Timestamp
-	16, // 8: sumi.grant.v1.Grant.created_at:type_name -> google.protobuf.Timestamp
-	16, // 9: sumi.grant.v1.Grant.updated_at:type_name -> google.protobuf.Timestamp
+	17, // 6: sumi.grant.v1.Grant.expires_at:type_name -> google.protobuf.Timestamp
+	17, // 7: sumi.grant.v1.Grant.revoked_at:type_name -> google.protobuf.Timestamp
+	17, // 8: sumi.grant.v1.Grant.created_at:type_name -> google.protobuf.Timestamp
+	17, // 9: sumi.grant.v1.Grant.updated_at:type_name -> google.protobuf.Timestamp
 	3,  // 10: sumi.grant.v1.IssueGrantRequest.subject:type_name -> sumi.grant.v1.Principal
 	1,  // 11: sumi.grant.v1.IssueGrantRequest.capability:type_name -> sumi.grant.v1.Capability
 	4,  // 12: sumi.grant.v1.IssueGrantRequest.scope:type_name -> sumi.grant.v1.Scope
-	16, // 13: sumi.grant.v1.IssueGrantRequest.expires_at:type_name -> google.protobuf.Timestamp
-	5,  // 14: sumi.grant.v1.IssueGrantResponse.grant:type_name -> sumi.grant.v1.Grant
-	5,  // 15: sumi.grant.v1.RevokeGrantResponse.grant:type_name -> sumi.grant.v1.Grant
-	5,  // 16: sumi.grant.v1.GetGrantResponse.grant:type_name -> sumi.grant.v1.Grant
-	5,  // 17: sumi.grant.v1.ListGrantsResponse.grants:type_name -> sumi.grant.v1.Grant
+	17, // 13: sumi.grant.v1.IssueGrantRequest.expires_at:type_name -> google.protobuf.Timestamp
+	6,  // 14: sumi.grant.v1.IssueGrantResponse.grant:type_name -> sumi.grant.v1.Grant
+	6,  // 15: sumi.grant.v1.RevokeGrantResponse.grant:type_name -> sumi.grant.v1.Grant
+	6,  // 16: sumi.grant.v1.GetGrantResponse.grant:type_name -> sumi.grant.v1.Grant
+	6,  // 17: sumi.grant.v1.ListGrantsResponse.grants:type_name -> sumi.grant.v1.Grant
 	3,  // 18: sumi.grant.v1.CheckPermissionRequest.subject:type_name -> sumi.grant.v1.Principal
 	1,  // 19: sumi.grant.v1.CheckPermissionRequest.capability:type_name -> sumi.grant.v1.Capability
 	4,  // 20: sumi.grant.v1.CheckPermissionRequest.scope:type_name -> sumi.grant.v1.Scope
-	6,  // 21: sumi.grant.v1.GrantService.IssueGrant:input_type -> sumi.grant.v1.IssueGrantRequest
-	8,  // 22: sumi.grant.v1.GrantService.RevokeGrant:input_type -> sumi.grant.v1.RevokeGrantRequest
-	10, // 23: sumi.grant.v1.GrantService.GetGrant:input_type -> sumi.grant.v1.GetGrantRequest
-	12, // 24: sumi.grant.v1.GrantService.ListGrants:input_type -> sumi.grant.v1.ListGrantsRequest
-	14, // 25: sumi.grant.v1.GrantService.CheckPermission:input_type -> sumi.grant.v1.CheckPermissionRequest
-	7,  // 26: sumi.grant.v1.GrantService.IssueGrant:output_type -> sumi.grant.v1.IssueGrantResponse
-	9,  // 27: sumi.grant.v1.GrantService.RevokeGrant:output_type -> sumi.grant.v1.RevokeGrantResponse
-	11, // 28: sumi.grant.v1.GrantService.GetGrant:output_type -> sumi.grant.v1.GetGrantResponse
-	13, // 29: sumi.grant.v1.GrantService.ListGrants:output_type -> sumi.grant.v1.ListGrantsResponse
-	15, // 30: sumi.grant.v1.GrantService.CheckPermission:output_type -> sumi.grant.v1.CheckPermissionResponse
+	7,  // 21: sumi.grant.v1.GrantService.IssueGrant:input_type -> sumi.grant.v1.IssueGrantRequest
+	9,  // 22: sumi.grant.v1.GrantService.RevokeGrant:input_type -> sumi.grant.v1.RevokeGrantRequest
+	11, // 23: sumi.grant.v1.GrantService.GetGrant:input_type -> sumi.grant.v1.GetGrantRequest
+	13, // 24: sumi.grant.v1.GrantService.ListGrants:input_type -> sumi.grant.v1.ListGrantsRequest
+	15, // 25: sumi.grant.v1.GrantService.CheckPermission:input_type -> sumi.grant.v1.CheckPermissionRequest
+	8,  // 26: sumi.grant.v1.GrantService.IssueGrant:output_type -> sumi.grant.v1.IssueGrantResponse
+	10, // 27: sumi.grant.v1.GrantService.RevokeGrant:output_type -> sumi.grant.v1.RevokeGrantResponse
+	12, // 28: sumi.grant.v1.GrantService.GetGrant:output_type -> sumi.grant.v1.GetGrantResponse
+	14, // 29: sumi.grant.v1.GrantService.ListGrants:output_type -> sumi.grant.v1.ListGrantsResponse
+	16, // 30: sumi.grant.v1.GrantService.CheckPermission:output_type -> sumi.grant.v1.CheckPermissionResponse
 	26, // [26:31] is the sub-list for method output_type
 	21, // [21:26] is the sub-list for method input_type
 	21, // [21:21] is the sub-list for extension type_name
@@ -1151,7 +1218,7 @@ func file_sumi_grant_v1_grant_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_grant_v1_grant_proto_rawDesc), len(file_sumi_grant_v1_grant_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

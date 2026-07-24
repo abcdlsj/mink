@@ -1397,6 +1397,7 @@ type CreateWorkRequest struct {
 	RunId                string                 `protobuf:"bytes,10,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAttempt           uint64                 `protobuf:"varint,11,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	RunFence             uint64                 `protobuf:"varint,12,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
+	RunProof             *v11.RunProof          `protobuf:"bytes,13,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1515,6 +1516,13 @@ func (x *CreateWorkRequest) GetRunFence() uint64 {
 	return 0
 }
 
+func (x *CreateWorkRequest) GetRunProof() *v11.RunProof {
+	if x != nil {
+		return x.RunProof
+	}
+	return nil
+}
+
 type CreateWorkResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Work          *Work                  `protobuf:"bytes,1,opt,name=work,proto3" json:"work,omitempty"`
@@ -1568,6 +1576,7 @@ type AssignWorkRequest struct {
 	RunId         string                 `protobuf:"bytes,5,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAttempt    uint64                 `protobuf:"varint,6,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	RunFence      uint64                 `protobuf:"varint,7,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
+	RunProof      *v11.RunProof          `protobuf:"bytes,8,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1649,6 +1658,13 @@ func (x *AssignWorkRequest) GetRunFence() uint64 {
 		return x.RunFence
 	}
 	return 0
+}
+
+func (x *AssignWorkRequest) GetRunProof() *v11.RunProof {
+	if x != nil {
+		return x.RunProof
+	}
+	return nil
 }
 
 type AssignWorkResponse struct {
@@ -1766,6 +1782,7 @@ type TransitionWorkRequest struct {
 	RunId            string                      `protobuf:"bytes,7,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAttempt       uint64                      `protobuf:"varint,8,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	RunFence         uint64                      `protobuf:"varint,9,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
+	RunProof         *v11.RunProof               `protobuf:"bytes,10,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1863,6 +1880,13 @@ func (x *TransitionWorkRequest) GetRunFence() uint64 {
 	return 0
 }
 
+func (x *TransitionWorkRequest) GetRunProof() *v11.RunProof {
+	if x != nil {
+		return x.RunProof
+	}
+	return nil
+}
+
 type TransitionWorkResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Work          *Work                  `protobuf:"bytes,1,opt,name=work,proto3" json:"work,omitempty"`
@@ -1915,6 +1939,7 @@ type RequestApprovalRequest struct {
 	RunId         string                 `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	RunAttempt    uint64                 `protobuf:"varint,5,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
 	RunFence      uint64                 `protobuf:"varint,6,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
+	RunProof      *v11.RunProof          `protobuf:"bytes,7,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1989,6 +2014,13 @@ func (x *RequestApprovalRequest) GetRunFence() uint64 {
 		return x.RunFence
 	}
 	return 0
+}
+
+func (x *RequestApprovalRequest) GetRunProof() *v11.RunProof {
+	if x != nil {
+		return x.RunProof
+	}
+	return nil
 }
 
 type RequestApprovalResponse struct {
@@ -2264,7 +2296,7 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x0eGetWorkRequest\x12\x17\n" +
 	"\awork_id\x18\x01 \x01(\tR\x06workId\"C\n" +
 	"\x0fGetWorkResponse\x120\n" +
-	"\x06detail\x18\x01 \x01(\v2\x18.sumi.work.v1.WorkDetailR\x06detail\"\xe1\x03\n" +
+	"\x06detail\x18\x01 \x01(\v2\x18.sumi.work.v1.WorkDetailR\x06detail\"\x97\x04\n" +
 	"\x11CreateWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12$\n" +
@@ -2280,9 +2312,10 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	" \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\v \x01(\x04R\n" +
 	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\f \x01(\x04R\brunFence\"<\n" +
+	"\trun_fence\x18\f \x01(\x04R\brunFence\x124\n" +
+	"\trun_proof\x18\r \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"<\n" +
 	"\x12CreateWorkResponse\x12&\n" +
-	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xf1\x01\n" +
+	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xa7\x02\n" +
 	"\x11AssignWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -2292,7 +2325,8 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x06run_id\x18\x05 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\x06 \x01(\x04R\n" +
 	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\a \x01(\x04R\brunFence\"R\n" +
+	"\trun_fence\x18\a \x01(\x04R\brunFence\x124\n" +
+	"\trun_proof\x18\b \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"R\n" +
 	"\x12AssignWorkResponse\x12<\n" +
 	"\n" +
 	"assignment\x18\x01 \x01(\v2\x1c.sumi.work.v1.WorkAssignmentR\n" +
@@ -2300,7 +2334,7 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x18WorkCriterionResultInput\x12!\n" +
 	"\fcriterion_id\x18\x01 \x01(\tR\vcriterionId\x12<\n" +
 	"\averdict\x18\x02 \x01(\x0e2\".sumi.work.v1.WorkCriterionVerdictR\averdict\x12\x1a\n" +
-	"\bevidence\x18\x03 \x01(\tR\bevidence\"\xdd\x02\n" +
+	"\bevidence\x18\x03 \x01(\tR\bevidence\"\x93\x03\n" +
 	"\x15TransitionWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -2312,9 +2346,11 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x06run_id\x18\a \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\b \x01(\x04R\n" +
 	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\t \x01(\x04R\brunFence\"@\n" +
+	"\trun_fence\x18\t \x01(\x04R\brunFence\x124\n" +
+	"\trun_proof\x18\n" +
+	" \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"@\n" +
 	"\x16TransitionWorkResponse\x12&\n" +
-	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xc1\x01\n" +
+	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xf7\x01\n" +
 	"\x16RequestApprovalRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -2323,7 +2359,8 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x1f\n" +
 	"\vrun_attempt\x18\x05 \x01(\x04R\n" +
 	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\x06 \x01(\x04R\brunFence\"Q\n" +
+	"\trun_fence\x18\x06 \x01(\x04R\brunFence\x124\n" +
+	"\trun_proof\x18\a \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"Q\n" +
 	"\x17RequestApprovalResponse\x126\n" +
 	"\bapproval\x18\x01 \x01(\v2\x1a.sumi.work.v1.WorkApprovalR\bapproval\"\xac\x01\n" +
 	"\x16ResolveApprovalRequest\x12\x1d\n" +
@@ -2418,6 +2455,7 @@ var file_sumi_work_v1_work_proto_goTypes = []any{
 	(*timestamppb.Timestamp)(nil),    // 28: google.protobuf.Timestamp
 	(*v1.MessageTarget)(nil),         // 29: sumi.space.v1.MessageTarget
 	(*v11.Principal)(nil),            // 30: sumi.grant.v1.Principal
+	(*v11.RunProof)(nil),             // 31: sumi.grant.v1.RunProof
 }
 var file_sumi_work_v1_work_proto_depIdxs = []int32{
 	28, // 0: sumi.work.v1.WorkText.created_at:type_name -> google.protobuf.Timestamp
@@ -2456,35 +2494,39 @@ var file_sumi_work_v1_work_proto_depIdxs = []int32{
 	7,  // 33: sumi.work.v1.ListWorksResponse.works:type_name -> sumi.work.v1.Work
 	12, // 34: sumi.work.v1.GetWorkResponse.detail:type_name -> sumi.work.v1.WorkDetail
 	29, // 35: sumi.work.v1.CreateWorkRequest.source_target:type_name -> sumi.space.v1.MessageTarget
-	7,  // 36: sumi.work.v1.CreateWorkResponse.work:type_name -> sumi.work.v1.Work
-	1,  // 37: sumi.work.v1.AssignWorkRequest.role:type_name -> sumi.work.v1.WorkAssignmentRole
-	8,  // 38: sumi.work.v1.AssignWorkResponse.assignment:type_name -> sumi.work.v1.WorkAssignment
-	4,  // 39: sumi.work.v1.WorkCriterionResultInput.verdict:type_name -> sumi.work.v1.WorkCriterionVerdict
-	0,  // 40: sumi.work.v1.TransitionWorkRequest.to_state:type_name -> sumi.work.v1.WorkState
-	21, // 41: sumi.work.v1.TransitionWorkRequest.criterion_results:type_name -> sumi.work.v1.WorkCriterionResultInput
-	7,  // 42: sumi.work.v1.TransitionWorkResponse.work:type_name -> sumi.work.v1.Work
-	9,  // 43: sumi.work.v1.RequestApprovalResponse.approval:type_name -> sumi.work.v1.WorkApproval
-	3,  // 44: sumi.work.v1.ResolveApprovalRequest.decision:type_name -> sumi.work.v1.WorkApprovalDecision
-	9,  // 45: sumi.work.v1.ResolveApprovalResponse.approval:type_name -> sumi.work.v1.WorkApproval
-	13, // 46: sumi.work.v1.WorkService.ListWorks:input_type -> sumi.work.v1.ListWorksRequest
-	15, // 47: sumi.work.v1.WorkService.GetWork:input_type -> sumi.work.v1.GetWorkRequest
-	17, // 48: sumi.work.v1.WorkService.CreateWork:input_type -> sumi.work.v1.CreateWorkRequest
-	19, // 49: sumi.work.v1.WorkService.AssignWork:input_type -> sumi.work.v1.AssignWorkRequest
-	22, // 50: sumi.work.v1.WorkService.TransitionWork:input_type -> sumi.work.v1.TransitionWorkRequest
-	24, // 51: sumi.work.v1.WorkService.RequestApproval:input_type -> sumi.work.v1.RequestApprovalRequest
-	26, // 52: sumi.work.v1.WorkService.ResolveApproval:input_type -> sumi.work.v1.ResolveApprovalRequest
-	14, // 53: sumi.work.v1.WorkService.ListWorks:output_type -> sumi.work.v1.ListWorksResponse
-	16, // 54: sumi.work.v1.WorkService.GetWork:output_type -> sumi.work.v1.GetWorkResponse
-	18, // 55: sumi.work.v1.WorkService.CreateWork:output_type -> sumi.work.v1.CreateWorkResponse
-	20, // 56: sumi.work.v1.WorkService.AssignWork:output_type -> sumi.work.v1.AssignWorkResponse
-	23, // 57: sumi.work.v1.WorkService.TransitionWork:output_type -> sumi.work.v1.TransitionWorkResponse
-	25, // 58: sumi.work.v1.WorkService.RequestApproval:output_type -> sumi.work.v1.RequestApprovalResponse
-	27, // 59: sumi.work.v1.WorkService.ResolveApproval:output_type -> sumi.work.v1.ResolveApprovalResponse
-	53, // [53:60] is the sub-list for method output_type
-	46, // [46:53] is the sub-list for method input_type
-	46, // [46:46] is the sub-list for extension type_name
-	46, // [46:46] is the sub-list for extension extendee
-	0,  // [0:46] is the sub-list for field type_name
+	31, // 36: sumi.work.v1.CreateWorkRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	7,  // 37: sumi.work.v1.CreateWorkResponse.work:type_name -> sumi.work.v1.Work
+	1,  // 38: sumi.work.v1.AssignWorkRequest.role:type_name -> sumi.work.v1.WorkAssignmentRole
+	31, // 39: sumi.work.v1.AssignWorkRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	8,  // 40: sumi.work.v1.AssignWorkResponse.assignment:type_name -> sumi.work.v1.WorkAssignment
+	4,  // 41: sumi.work.v1.WorkCriterionResultInput.verdict:type_name -> sumi.work.v1.WorkCriterionVerdict
+	0,  // 42: sumi.work.v1.TransitionWorkRequest.to_state:type_name -> sumi.work.v1.WorkState
+	21, // 43: sumi.work.v1.TransitionWorkRequest.criterion_results:type_name -> sumi.work.v1.WorkCriterionResultInput
+	31, // 44: sumi.work.v1.TransitionWorkRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	7,  // 45: sumi.work.v1.TransitionWorkResponse.work:type_name -> sumi.work.v1.Work
+	31, // 46: sumi.work.v1.RequestApprovalRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	9,  // 47: sumi.work.v1.RequestApprovalResponse.approval:type_name -> sumi.work.v1.WorkApproval
+	3,  // 48: sumi.work.v1.ResolveApprovalRequest.decision:type_name -> sumi.work.v1.WorkApprovalDecision
+	9,  // 49: sumi.work.v1.ResolveApprovalResponse.approval:type_name -> sumi.work.v1.WorkApproval
+	13, // 50: sumi.work.v1.WorkService.ListWorks:input_type -> sumi.work.v1.ListWorksRequest
+	15, // 51: sumi.work.v1.WorkService.GetWork:input_type -> sumi.work.v1.GetWorkRequest
+	17, // 52: sumi.work.v1.WorkService.CreateWork:input_type -> sumi.work.v1.CreateWorkRequest
+	19, // 53: sumi.work.v1.WorkService.AssignWork:input_type -> sumi.work.v1.AssignWorkRequest
+	22, // 54: sumi.work.v1.WorkService.TransitionWork:input_type -> sumi.work.v1.TransitionWorkRequest
+	24, // 55: sumi.work.v1.WorkService.RequestApproval:input_type -> sumi.work.v1.RequestApprovalRequest
+	26, // 56: sumi.work.v1.WorkService.ResolveApproval:input_type -> sumi.work.v1.ResolveApprovalRequest
+	14, // 57: sumi.work.v1.WorkService.ListWorks:output_type -> sumi.work.v1.ListWorksResponse
+	16, // 58: sumi.work.v1.WorkService.GetWork:output_type -> sumi.work.v1.GetWorkResponse
+	18, // 59: sumi.work.v1.WorkService.CreateWork:output_type -> sumi.work.v1.CreateWorkResponse
+	20, // 60: sumi.work.v1.WorkService.AssignWork:output_type -> sumi.work.v1.AssignWorkResponse
+	23, // 61: sumi.work.v1.WorkService.TransitionWork:output_type -> sumi.work.v1.TransitionWorkResponse
+	25, // 62: sumi.work.v1.WorkService.RequestApproval:output_type -> sumi.work.v1.RequestApprovalResponse
+	27, // 63: sumi.work.v1.WorkService.ResolveApproval:output_type -> sumi.work.v1.ResolveApprovalResponse
+	57, // [57:64] is the sub-list for method output_type
+	50, // [50:57] is the sub-list for method input_type
+	50, // [50:50] is the sub-list for extension type_name
+	50, // [50:50] is the sub-list for extension extendee
+	0,  // [0:50] is the sub-list for field type_name
 }
 
 func init() { file_sumi_work_v1_work_proto_init() }

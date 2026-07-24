@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/grant/v1/grant.proto.
  */
 export const file_sumi_grant_v1_grant: GenFile = /*@__PURE__*/
-  fileDesc("ChlzdW1pL2dyYW50L3YxL2dyYW50LnByb3RvEg1zdW1pLmdyYW50LnYxIkMKCVByaW5jaXBhbBIqCgRraW5kGAEgASgOMhwuc3VtaS5ncmFudC52MS5QcmluY2lwYWxLaW5kEgoKAmlkGAIgASgJIjsKBVNjb3BlEiYKBGtpbmQYASABKA4yGC5zdW1pLmdyYW50LnYxLlNjb3BlS2luZBIKCgJpZBgCIAEoCSKuAwoFR3JhbnQSCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgJEikKB3N1YmplY3QYAyABKAsyGC5zdW1pLmdyYW50LnYxLlByaW5jaXBhbBIoCgZpc3N1ZXIYBCABKAsyGC5zdW1pLmdyYW50LnYxLlByaW5jaXBhbBItCgpjYXBhYmlsaXR5GAUgASgOMhkuc3VtaS5ncmFudC52MS5DYXBhYmlsaXR5EiMKBXNjb3BlGAYgASgLMhQuc3VtaS5ncmFudC52MS5TY29wZRIXCg9wYXJlbnRfZ3JhbnRfaWQYByABKAkSLgoKZXhwaXJlc19hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKcmV2b2tlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi7wEKEUlzc3VlR3JhbnRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSKQoHc3ViamVjdBgCIAEoCzIYLnN1bWkuZ3JhbnQudjEuUHJpbmNpcGFsEi0KCmNhcGFiaWxpdHkYAyABKA4yGS5zdW1pLmdyYW50LnYxLkNhcGFiaWxpdHkSIwoFc2NvcGUYBCABKAsyFC5zdW1pLmdyYW50LnYxLlNjb3BlEhcKD3BhcmVudF9ncmFudF9pZBgFIAEoCRIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI5ChJJc3N1ZUdyYW50UmVzcG9uc2USIwoFZ3JhbnQYASABKAsyFC5zdW1pLmdyYW50LnYxLkdyYW50IjoKElJldm9rZUdyYW50UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhAKCGdyYW50X2lkGAIgASgJIjoKE1Jldm9rZUdyYW50UmVzcG9uc2USIwoFZ3JhbnQYASABKAsyFC5zdW1pLmdyYW50LnYxLkdyYW50IiMKD0dldEdyYW50UmVxdWVzdBIQCghncmFudF9pZBgBIAEoCSI3ChBHZXRHcmFudFJlc3BvbnNlEiMKBWdyYW50GAEgASgLMhQuc3VtaS5ncmFudC52MS5HcmFudCITChFMaXN0R3JhbnRzUmVxdWVzdCI6ChJMaXN0R3JhbnRzUmVzcG9uc2USJAoGZ3JhbnRzGAEgAygLMhQuc3VtaS5ncmFudC52MS5HcmFudCKXAQoWQ2hlY2tQZXJtaXNzaW9uUmVxdWVzdBIpCgdzdWJqZWN0GAEgASgLMhguc3VtaS5ncmFudC52MS5QcmluY2lwYWwSLQoKY2FwYWJpbGl0eRgCIAEoDjIZLnN1bWkuZ3JhbnQudjEuQ2FwYWJpbGl0eRIjCgVzY29wZRgDIAEoCzIULnN1bWkuZ3JhbnQudjEuU2NvcGUiKgoXQ2hlY2tQZXJtaXNzaW9uUmVzcG9uc2USDwoHYWxsb3dlZBgBIAEoCCp+Cg1QcmluY2lwYWxLaW5kEh4KGlBSSU5DSVBBTF9LSU5EX1VOU1BFQ0lGSUVEEAASGQoVUFJJTkNJUEFMX0tJTkRfU1lTVEVNEAESGAoUUFJJTkNJUEFMX0tJTkRfSFVNQU4QAhIYChRQUklOQ0lQQUxfS0lORF9BR0VOVBADKoMFCgpDYXBhYmlsaXR5EhoKFkNBUEFCSUxJVFlfVU5TUEVDSUZJRUQQABIhCh1DQVBBQklMSVRZX09SR0FOSVpBVElPTl9BRE1JThABEhsKF0NBUEFCSUxJVFlfSFVNQU5fQ1JFQVRFEAISGgoWQ0FQQUJJTElUWV9HUkFOVF9JU1NVRRADEhsKF0NBUEFCSUxJVFlfR1JBTlRfUkVWT0tFEAQSGQoVQ0FQQUJJTElUWV9BVURJVF9SRUFEEAUSGwoXQ0FQQUJJTElUWV9BR0VOVF9DUkVBVEUQBhIaChZDQVBBQklMSVRZX0FHRU5UX1BMQUNFEAcSGwoXQ0FQQUJJTElUWV9TUEFDRV9DUkVBVEUQCBIZChVDQVBBQklMSVRZX1NQQUNFX1JFQUQQCRIjCh9DQVBBQklMSVRZX1NQQUNFX01FTUJFUlNfTUFOQUdFEAoSHAoYQ0FQQUJJTElUWV9TUEFDRV9BUkNISVZFEAsSGwoXQ0FQQUJJTElUWV9NRVNTQUdFX1NFTkQQDBIaChZDQVBBQklMSVRZX1JVTl9FWEVDVVRFEA0SHAoYQ0FQQUJJTElUWV9DT01QVVRFUl9QQUlSEA4SIwofQ0FQQUJJTElUWV9BR0VOVF9QUk9GSUxFX1VQREFURRAPEiYKIkNBUEFCSUxJVFlfQUdFTlRfUlVOVElNRV9DT05GSUdVUkUQEBIaChZDQVBBQklMSVRZX1dPUktfQ1JFQVRFEBESGAoUQ0FQQUJJTElUWV9XT1JLX1JFQUQQEhIaChZDQVBBQklMSVRZX1dPUktfTUFOQUdFEBMSGwoXQ0FQQUJJTElUWV9XT1JLX0FQUFJPVkUQFCqeAQoJU2NvcGVLaW5kEhoKFlNDT1BFX0tJTkRfVU5TUEVDSUZJRUQQABIbChdTQ09QRV9LSU5EX09SR0FOSVpBVElPThABEhQKEFNDT1BFX0tJTkRfQUdFTlQQAhIXChNTQ09QRV9LSU5EX0NPTVBVVEVSEAMSFAoQU0NPUEVfS0lORF9TUEFDRRAEEhMKD1NDT1BFX0tJTkRfV09SSxAFMrkDCgxHcmFudFNlcnZpY2USUQoKSXNzdWVHcmFudBIgLnN1bWkuZ3JhbnQudjEuSXNzdWVHcmFudFJlcXVlc3QaIS5zdW1pLmdyYW50LnYxLklzc3VlR3JhbnRSZXNwb25zZRJUCgtSZXZva2VHcmFudBIhLnN1bWkuZ3JhbnQudjEuUmV2b2tlR3JhbnRSZXF1ZXN0GiIuc3VtaS5ncmFudC52MS5SZXZva2VHcmFudFJlc3BvbnNlEksKCEdldEdyYW50Eh4uc3VtaS5ncmFudC52MS5HZXRHcmFudFJlcXVlc3QaHy5zdW1pLmdyYW50LnYxLkdldEdyYW50UmVzcG9uc2USUQoKTGlzdEdyYW50cxIgLnN1bWkuZ3JhbnQudjEuTGlzdEdyYW50c1JlcXVlc3QaIS5zdW1pLmdyYW50LnYxLkxpc3RHcmFudHNSZXNwb25zZRJgCg9DaGVja1Blcm1pc3Npb24SJS5zdW1pLmdyYW50LnYxLkNoZWNrUGVybWlzc2lvblJlcXVlc3QaJi5zdW1pLmdyYW50LnYxLkNoZWNrUGVybWlzc2lvblJlc3BvbnNlQjZaNGdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2dyYW50L3YxO2dyYW50djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChlzdW1pL2dyYW50L3YxL2dyYW50LnByb3RvEg1zdW1pLmdyYW50LnYxIkMKCVByaW5jaXBhbBIqCgRraW5kGAEgASgOMhwuc3VtaS5ncmFudC52MS5QcmluY2lwYWxLaW5kEgoKAmlkGAIgASgJIjsKBVNjb3BlEiYKBGtpbmQYASABKA4yGC5zdW1pLmdyYW50LnYxLlNjb3BlS2luZBIKCgJpZBgCIAEoCSI6CghSdW5Qcm9vZhIOCgZydW5faWQYASABKAkSDwoHYXR0ZW1wdBgCIAEoBBINCgVmZW5jZRgDIAEoBCKuAwoFR3JhbnQSCgoCaWQYASABKAkSFwoPb3JnYW5pemF0aW9uX2lkGAIgASgJEikKB3N1YmplY3QYAyABKAsyGC5zdW1pLmdyYW50LnYxLlByaW5jaXBhbBIoCgZpc3N1ZXIYBCABKAsyGC5zdW1pLmdyYW50LnYxLlByaW5jaXBhbBItCgpjYXBhYmlsaXR5GAUgASgOMhkuc3VtaS5ncmFudC52MS5DYXBhYmlsaXR5EiMKBXNjb3BlGAYgASgLMhQuc3VtaS5ncmFudC52MS5TY29wZRIXCg9wYXJlbnRfZ3JhbnRfaWQYByABKAkSLgoKZXhwaXJlc19hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKcmV2b2tlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgLIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi7wEKEUlzc3VlR3JhbnRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSKQoHc3ViamVjdBgCIAEoCzIYLnN1bWkuZ3JhbnQudjEuUHJpbmNpcGFsEi0KCmNhcGFiaWxpdHkYAyABKA4yGS5zdW1pLmdyYW50LnYxLkNhcGFiaWxpdHkSIwoFc2NvcGUYBCABKAsyFC5zdW1pLmdyYW50LnYxLlNjb3BlEhcKD3BhcmVudF9ncmFudF9pZBgFIAEoCRIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI5ChJJc3N1ZUdyYW50UmVzcG9uc2USIwoFZ3JhbnQYASABKAsyFC5zdW1pLmdyYW50LnYxLkdyYW50IjoKElJldm9rZUdyYW50UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhAKCGdyYW50X2lkGAIgASgJIjoKE1Jldm9rZUdyYW50UmVzcG9uc2USIwoFZ3JhbnQYASABKAsyFC5zdW1pLmdyYW50LnYxLkdyYW50IiMKD0dldEdyYW50UmVxdWVzdBIQCghncmFudF9pZBgBIAEoCSI3ChBHZXRHcmFudFJlc3BvbnNlEiMKBWdyYW50GAEgASgLMhQuc3VtaS5ncmFudC52MS5HcmFudCITChFMaXN0R3JhbnRzUmVxdWVzdCI6ChJMaXN0R3JhbnRzUmVzcG9uc2USJAoGZ3JhbnRzGAEgAygLMhQuc3VtaS5ncmFudC52MS5HcmFudCKXAQoWQ2hlY2tQZXJtaXNzaW9uUmVxdWVzdBIpCgdzdWJqZWN0GAEgASgLMhguc3VtaS5ncmFudC52MS5QcmluY2lwYWwSLQoKY2FwYWJpbGl0eRgCIAEoDjIZLnN1bWkuZ3JhbnQudjEuQ2FwYWJpbGl0eRIjCgVzY29wZRgDIAEoCzIULnN1bWkuZ3JhbnQudjEuU2NvcGUiKgoXQ2hlY2tQZXJtaXNzaW9uUmVzcG9uc2USDwoHYWxsb3dlZBgBIAEoCCp+Cg1QcmluY2lwYWxLaW5kEh4KGlBSSU5DSVBBTF9LSU5EX1VOU1BFQ0lGSUVEEAASGQoVUFJJTkNJUEFMX0tJTkRfU1lTVEVNEAESGAoUUFJJTkNJUEFMX0tJTkRfSFVNQU4QAhIYChRQUklOQ0lQQUxfS0lORF9BR0VOVBADKoMFCgpDYXBhYmlsaXR5EhoKFkNBUEFCSUxJVFlfVU5TUEVDSUZJRUQQABIhCh1DQVBBQklMSVRZX09SR0FOSVpBVElPTl9BRE1JThABEhsKF0NBUEFCSUxJVFlfSFVNQU5fQ1JFQVRFEAISGgoWQ0FQQUJJTElUWV9HUkFOVF9JU1NVRRADEhsKF0NBUEFCSUxJVFlfR1JBTlRfUkVWT0tFEAQSGQoVQ0FQQUJJTElUWV9BVURJVF9SRUFEEAUSGwoXQ0FQQUJJTElUWV9BR0VOVF9DUkVBVEUQBhIaChZDQVBBQklMSVRZX0FHRU5UX1BMQUNFEAcSGwoXQ0FQQUJJTElUWV9TUEFDRV9DUkVBVEUQCBIZChVDQVBBQklMSVRZX1NQQUNFX1JFQUQQCRIjCh9DQVBBQklMSVRZX1NQQUNFX01FTUJFUlNfTUFOQUdFEAoSHAoYQ0FQQUJJTElUWV9TUEFDRV9BUkNISVZFEAsSGwoXQ0FQQUJJTElUWV9NRVNTQUdFX1NFTkQQDBIaChZDQVBBQklMSVRZX1JVTl9FWEVDVVRFEA0SHAoYQ0FQQUJJTElUWV9DT01QVVRFUl9QQUlSEA4SIwofQ0FQQUJJTElUWV9BR0VOVF9QUk9GSUxFX1VQREFURRAPEiYKIkNBUEFCSUxJVFlfQUdFTlRfUlVOVElNRV9DT05GSUdVUkUQEBIaChZDQVBBQklMSVRZX1dPUktfQ1JFQVRFEBESGAoUQ0FQQUJJTElUWV9XT1JLX1JFQUQQEhIaChZDQVBBQklMSVRZX1dPUktfTUFOQUdFEBMSGwoXQ0FQQUJJTElUWV9XT1JLX0FQUFJPVkUQFCqeAQoJU2NvcGVLaW5kEhoKFlNDT1BFX0tJTkRfVU5TUEVDSUZJRUQQABIbChdTQ09QRV9LSU5EX09SR0FOSVpBVElPThABEhQKEFNDT1BFX0tJTkRfQUdFTlQQAhIXChNTQ09QRV9LSU5EX0NPTVBVVEVSEAMSFAoQU0NPUEVfS0lORF9TUEFDRRAEEhMKD1NDT1BFX0tJTkRfV09SSxAFMrkDCgxHcmFudFNlcnZpY2USUQoKSXNzdWVHcmFudBIgLnN1bWkuZ3JhbnQudjEuSXNzdWVHcmFudFJlcXVlc3QaIS5zdW1pLmdyYW50LnYxLklzc3VlR3JhbnRSZXNwb25zZRJUCgtSZXZva2VHcmFudBIhLnN1bWkuZ3JhbnQudjEuUmV2b2tlR3JhbnRSZXF1ZXN0GiIuc3VtaS5ncmFudC52MS5SZXZva2VHcmFudFJlc3BvbnNlEksKCEdldEdyYW50Eh4uc3VtaS5ncmFudC52MS5HZXRHcmFudFJlcXVlc3QaHy5zdW1pLmdyYW50LnYxLkdldEdyYW50UmVzcG9uc2USUQoKTGlzdEdyYW50cxIgLnN1bWkuZ3JhbnQudjEuTGlzdEdyYW50c1JlcXVlc3QaIS5zdW1pLmdyYW50LnYxLkxpc3RHcmFudHNSZXNwb25zZRJgCg9DaGVja1Blcm1pc3Npb24SJS5zdW1pLmdyYW50LnYxLkNoZWNrUGVybWlzc2lvblJlcXVlc3QaJi5zdW1pLmdyYW50LnYxLkNoZWNrUGVybWlzc2lvblJlc3BvbnNlQjZaNGdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2dyYW50L3YxO2dyYW50djFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message sumi.grant.v1.Principal
@@ -57,6 +57,36 @@ export type Scope = Message<"sumi.grant.v1.Scope"> & {
  */
 export const ScopeSchema: GenMessage<Scope> = /*@__PURE__*/
   messageDesc(file_sumi_grant_v1_grant, 1);
+
+/**
+ * RunProof is a shared claim used by execution-triggered mutations.
+ * It verifies the caller holds an active Run lease.
+ *
+ * @generated from message sumi.grant.v1.RunProof
+ */
+export type RunProof = Message<"sumi.grant.v1.RunProof"> & {
+  /**
+   * @generated from field: string run_id = 1;
+   */
+  runId: string;
+
+  /**
+   * @generated from field: uint64 attempt = 2;
+   */
+  attempt: bigint;
+
+  /**
+   * @generated from field: uint64 fence = 3;
+   */
+  fence: bigint;
+};
+
+/**
+ * Describes the message sumi.grant.v1.RunProof.
+ * Use `create(RunProofSchema)` to create a new message.
+ */
+export const RunProofSchema: GenMessage<RunProof> = /*@__PURE__*/
+  messageDesc(file_sumi_grant_v1_grant, 2);
 
 /**
  * @generated from message sumi.grant.v1.Grant
@@ -123,7 +153,7 @@ export type Grant = Message<"sumi.grant.v1.Grant"> & {
  * Use `create(GrantSchema)` to create a new message.
  */
 export const GrantSchema: GenMessage<Grant> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 2);
+  messageDesc(file_sumi_grant_v1_grant, 3);
 
 /**
  * @generated from message sumi.grant.v1.IssueGrantRequest
@@ -165,7 +195,7 @@ export type IssueGrantRequest = Message<"sumi.grant.v1.IssueGrantRequest"> & {
  * Use `create(IssueGrantRequestSchema)` to create a new message.
  */
 export const IssueGrantRequestSchema: GenMessage<IssueGrantRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 3);
+  messageDesc(file_sumi_grant_v1_grant, 4);
 
 /**
  * @generated from message sumi.grant.v1.IssueGrantResponse
@@ -182,7 +212,7 @@ export type IssueGrantResponse = Message<"sumi.grant.v1.IssueGrantResponse"> & {
  * Use `create(IssueGrantResponseSchema)` to create a new message.
  */
 export const IssueGrantResponseSchema: GenMessage<IssueGrantResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 4);
+  messageDesc(file_sumi_grant_v1_grant, 5);
 
 /**
  * @generated from message sumi.grant.v1.RevokeGrantRequest
@@ -204,7 +234,7 @@ export type RevokeGrantRequest = Message<"sumi.grant.v1.RevokeGrantRequest"> & {
  * Use `create(RevokeGrantRequestSchema)` to create a new message.
  */
 export const RevokeGrantRequestSchema: GenMessage<RevokeGrantRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 5);
+  messageDesc(file_sumi_grant_v1_grant, 6);
 
 /**
  * @generated from message sumi.grant.v1.RevokeGrantResponse
@@ -221,7 +251,7 @@ export type RevokeGrantResponse = Message<"sumi.grant.v1.RevokeGrantResponse"> &
  * Use `create(RevokeGrantResponseSchema)` to create a new message.
  */
 export const RevokeGrantResponseSchema: GenMessage<RevokeGrantResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 6);
+  messageDesc(file_sumi_grant_v1_grant, 7);
 
 /**
  * @generated from message sumi.grant.v1.GetGrantRequest
@@ -238,7 +268,7 @@ export type GetGrantRequest = Message<"sumi.grant.v1.GetGrantRequest"> & {
  * Use `create(GetGrantRequestSchema)` to create a new message.
  */
 export const GetGrantRequestSchema: GenMessage<GetGrantRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 7);
+  messageDesc(file_sumi_grant_v1_grant, 8);
 
 /**
  * @generated from message sumi.grant.v1.GetGrantResponse
@@ -255,7 +285,7 @@ export type GetGrantResponse = Message<"sumi.grant.v1.GetGrantResponse"> & {
  * Use `create(GetGrantResponseSchema)` to create a new message.
  */
 export const GetGrantResponseSchema: GenMessage<GetGrantResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 8);
+  messageDesc(file_sumi_grant_v1_grant, 9);
 
 /**
  * @generated from message sumi.grant.v1.ListGrantsRequest
@@ -268,7 +298,7 @@ export type ListGrantsRequest = Message<"sumi.grant.v1.ListGrantsRequest"> & {
  * Use `create(ListGrantsRequestSchema)` to create a new message.
  */
 export const ListGrantsRequestSchema: GenMessage<ListGrantsRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 9);
+  messageDesc(file_sumi_grant_v1_grant, 10);
 
 /**
  * @generated from message sumi.grant.v1.ListGrantsResponse
@@ -285,7 +315,7 @@ export type ListGrantsResponse = Message<"sumi.grant.v1.ListGrantsResponse"> & {
  * Use `create(ListGrantsResponseSchema)` to create a new message.
  */
 export const ListGrantsResponseSchema: GenMessage<ListGrantsResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 10);
+  messageDesc(file_sumi_grant_v1_grant, 11);
 
 /**
  * @generated from message sumi.grant.v1.CheckPermissionRequest
@@ -312,7 +342,7 @@ export type CheckPermissionRequest = Message<"sumi.grant.v1.CheckPermissionReque
  * Use `create(CheckPermissionRequestSchema)` to create a new message.
  */
 export const CheckPermissionRequestSchema: GenMessage<CheckPermissionRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 11);
+  messageDesc(file_sumi_grant_v1_grant, 12);
 
 /**
  * @generated from message sumi.grant.v1.CheckPermissionResponse
@@ -329,7 +359,7 @@ export type CheckPermissionResponse = Message<"sumi.grant.v1.CheckPermissionResp
  * Use `create(CheckPermissionResponseSchema)` to create a new message.
  */
 export const CheckPermissionResponseSchema: GenMessage<CheckPermissionResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_grant_v1_grant, 12);
+  messageDesc(file_sumi_grant_v1_grant, 13);
 
 /**
  * @generated from enum sumi.grant.v1.PrincipalKind

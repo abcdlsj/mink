@@ -5,7 +5,6 @@ package sumi.work.v1;
 import "google/protobuf/timestamp.proto";
 import "sumi/grant/v1/grant.proto";
 import "sumi/space/v1/space.proto";
-import "sumi/grant/v1/grant.proto";
 
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/work/v1;workv1";
 
