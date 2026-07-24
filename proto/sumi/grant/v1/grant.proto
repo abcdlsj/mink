@@ -64,6 +64,14 @@ message Scope {
   string id = 2;
 }
 
+// RunProof is a shared claim used by execution-triggered mutations.
+// It verifies the caller holds an active Run lease.
+message RunProof {
+  string run_id = 1;
+  uint64 attempt = 2;
+  uint64 fence = 3;
+}
+
 message Grant {
   string id = 1;
   string organization_id = 2;

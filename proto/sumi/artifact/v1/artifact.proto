@@ -87,7 +87,7 @@ message ArtifactGrant {
   string artifact_id = 2;
   string organization_id = 3;
   ArtifactGrantTarget target = 4;
-  reserved 5;
+  reserved 5; // removed: capability_name (string)
   ArtifactCapability capability = 6;
   sumi.grant.v1.Principal granted_by = 7;
   google.protobuf.Timestamp granted_at = 8;
@@ -166,7 +166,7 @@ message GrantArtifactRequest {
   string request_id = 1;
   string artifact_id = 2;
   ArtifactGrantTarget target = 3;
-  reserved 4;
+  reserved 4; // removed: capability_name (string)
   ArtifactCapability capability = 5;
 }
 

@@ -5,6 +5,7 @@ package sumi.work.v1;
 import "google/protobuf/timestamp.proto";
 import "sumi/grant/v1/grant.proto";
 import "sumi/space/v1/space.proto";
+import "sumi/grant/v1/grant.proto";
 
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/work/v1;workv1";
 
@@ -186,6 +187,7 @@ message CreateWorkRequest {
   string run_id = 10;
   uint64 run_attempt = 11;
   uint64 run_fence = 12;
+  sumi.grant.v1.RunProof run_proof = 13;
 }
 
 message CreateWorkResponse {
@@ -200,6 +202,7 @@ message AssignWorkRequest {
   string run_id = 5;
   uint64 run_attempt = 6;
   uint64 run_fence = 7;
+  sumi.grant.v1.RunProof run_proof = 8;
 }
 
 message AssignWorkResponse {
@@ -222,6 +225,7 @@ message TransitionWorkRequest {
   string run_id = 7;
   uint64 run_attempt = 8;
   uint64 run_fence = 9;
+  sumi.grant.v1.RunProof run_proof = 10;
 }
 
 message TransitionWorkResponse {
@@ -235,6 +239,7 @@ message RequestApprovalRequest {
   string run_id = 4;
   uint64 run_attempt = 5;
   uint64 run_fence = 6;
+  sumi.grant.v1.RunProof run_proof = 7;
 }
 
 message RequestApprovalResponse {
