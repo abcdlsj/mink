@@ -9,6 +9,6 @@ type Service struct {
 	now   func() time.Time
 }
 
-func New(database placementStore) *Service {
-	return &Service{store: database, now: time.Now}
+func New(db placementStore) *Service {
+	return &Service{store: db, now: time.Now}
 }

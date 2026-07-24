@@ -40,13 +40,13 @@ type knowledgeStore interface {
 	CheckKnowledgeIndexHealth(context.Context) (knowledgeapp.IndexHealth, error)
 }
 
-func New(database knowledgeStore) *Reconciler {
-	return NewWithLogger(database, nil)
+func New(db knowledgeStore) *Reconciler {
+	return NewWithLogger(db, nil)
 }
 
-func NewWithLogger(database knowledgeStore, logger *observability.Logger) *Reconciler {
+func NewWithLogger(db knowledgeStore, logger *observability.Logger) *Reconciler {
 	return &Reconciler{
-		store: database, now: time.Now, wake: 100 * time.Millisecond, healthWake: time.Minute,
+		store: db, now: time.Now, wake: 100 * time.Millisecond, healthWake: time.Minute,
 		stepTimeout: 5 * time.Second, backoffMax: 5 * time.Second,
 		logger: observability.CategoryLogger(logger, observability.ComponentServer, observability.CategoryKnowledge),
 	}

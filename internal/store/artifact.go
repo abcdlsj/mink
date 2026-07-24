@@ -50,12 +50,12 @@ type ArtifactStore struct {
 	quarantineRetention time.Duration
 }
 
-func NewArtifactStore(database *Store, blobs ArtifactBlobStore, maxBlobSize int64) (*ArtifactStore, error) {
-	if database == nil || blobs == nil || maxBlobSize <= 0 || maxBlobSize > ArtifactMaxBlobSize {
+func NewArtifactStore(db *Store, blobs ArtifactBlobStore, maxBlobSize int64) (*ArtifactStore, error) {
+	if db == nil || blobs == nil || maxBlobSize <= 0 || maxBlobSize > ArtifactMaxBlobSize {
 		return nil, ErrArtifactInvalid
 	}
 	return &ArtifactStore{
-		database: database, blobs: blobs, maxBlobSize: maxBlobSize,
+		database: db, blobs: blobs, maxBlobSize: maxBlobSize,
 		quarantineRetention: 24 * time.Hour,
 	}, nil
 }

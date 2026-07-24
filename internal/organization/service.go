@@ -21,8 +21,8 @@ type Service struct {
 	now   func() time.Time
 }
 
-func New(database organizationStore) *Service {
-	return &Service{store: database, now: time.Now}
+func New(db organizationStore) *Service {
+	return &Service{store: db, now: time.Now}
 }
 
 func (s *Service) GetOrganization(ctx context.Context, _ *connect.Request[organizationv1.GetOrganizationRequest]) (*connect.Response[organizationv1.GetOrganizationResponse], error) {

@@ -20,6 +20,6 @@ type Service struct {
 
 var _ spacev1connect.CollaborationServiceHandler = (*Service)(nil)
 
-func New(database collaborationStore, browserOrigin string) *Service {
-	return &Service{store: database, origin: browserOrigin, now: time.Now}
+func New(db collaborationStore, browserOrigin string) *Service {
+	return &Service{store: db, origin: browserOrigin, now: time.Now}
 }

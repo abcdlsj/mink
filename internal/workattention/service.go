@@ -27,8 +27,8 @@ type Service struct {
 
 var _ inboxv1connect.WorkAttentionServiceHandler = (*Service)(nil)
 
-func New(database storeReader, browserOrigin string) *Service {
-	return &Service{store: database, origin: browserOrigin, now: time.Now}
+func New(db storeReader, browserOrigin string) *Service {
+	return &Service{store: db, origin: browserOrigin, now: time.Now}
 }
 
 func (s *Service) ListWorkAttentionItems(ctx context.Context, request *connect.Request[inboxv1.ListWorkAttentionItemsRequest]) (*connect.Response[inboxv1.ListWorkAttentionItemsResponse], error) {
