@@ -287,7 +287,7 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 	}
 
 	runtimeFixture := openAgentRuntimeFixture(t)
-	bootstrap, err := runtimeFixture.database.EnsureAuthority(context.Background(), runtimeTestToken(250), runtimeFixture.now)
+	bootstrap, err := runtimeFixture.database.EnsureAuthority(context.Background(), rtToken(250), runtimeFixture.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 	if _, err := runtimeFixture.database.IssueGrant(context.Background(), IssueGrantParams{RequestID: uuid.NewString(), Actor: owner, Subject: agent, Capability: CapabilityWorkRead, Scope: Scope{Kind: "work", ID: runtimeWork.ID}, ParentGrantID: bootstrap.RootGrant.ID, Now: runtimeFixture.now.Add(3 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
-	token := runtimeTestToken(177)
+	token := rtToken(177)
 	createRuntimeSession(t, runtimeFixture, token, runtimeFixture.now.Add(4*time.Second))
 	authentication, err := runtimeFixture.database.AuthenticateAgentRuntimeSession(context.Background(), token, runtimeFixture.now.Add(5*time.Second))
 	if err != nil {
@@ -382,7 +382,7 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 			}
 		})
 	}
-	replacementToken := runtimeTestToken(178)
+	replacementToken := rtToken(178)
 	createRuntimeSession(t, runtimeFixture, replacementToken, runtimeFixture.now.Add(6*time.Second))
 	for _, reader := range readers {
 		t.Run(reader.name+" stale runtime", func(t *testing.T) {

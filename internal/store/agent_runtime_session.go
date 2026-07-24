@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
@@ -17,7 +16,17 @@ const (
 	agentRuntimeSessionTTL        = 10 * time.Minute
 )
 
-var agentRuntimeTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+func validRuntimeToken(s string) bool {
+	if len(s) != 43 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
 
 type AgentRuntimeSession = authorityapp.RuntimeSession
 
@@ -73,7 +82,7 @@ func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgen
 }
 
 func (s *Store) AuthenticateAgentRuntimeSession(ctx context.Context, token string, now time.Time) (AgentRuntimeAuthentication, error) {
-	if !agentRuntimeTokenPattern.MatchString(token) || now.IsZero() {
+	if !validRuntimeToken(token) || now.IsZero() {
 		return AgentRuntimeAuthentication{}, ErrAgentRuntimeUnauthenticated
 	}
 	hash := agentRuntimeTokenHash(token)
@@ -280,13 +289,13 @@ func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntime
 func validAgentRuntimeSession(agentID, computerID string, desiredRevision uint64, token string, now, expiresAt time.Time) bool {
 	lifetime := expiresAt.Sub(now)
 	return agentID != "" && computerID != "" && desiredRevision > 0 &&
-		agentRuntimeTokenPattern.MatchString(token) && !now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
+		validRuntimeToken(token) && !now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 
 func validAgentRuntimeRenewal(params RenewAgentRuntimeSessionParams) bool {
 	lifetime := params.ExpiresAt.Sub(params.Now)
 	return validAgentRuntimeProof(params.Proof) && params.ComputerID != "" && params.RegistrationKey != "" &&
-		agentRuntimeTokenPattern.MatchString(params.Token) && !params.Now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
+		validRuntimeToken(params.Token) && !params.Now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 
 func validAgentRuntimeProof(proof AgentRuntimeProof) bool {

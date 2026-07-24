@@ -6,13 +6,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 )
 
-var browserOpaqueTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+func validBrowserToken(s string) bool {
+	if len(s) != 43 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
 
 const (
 	browserHandoffHashDomain = "sumi-browser-handoff-v1\x00"
@@ -24,42 +33,42 @@ type CreateBrowserHandoffParams = authorityapp.CreateBrowserHandoffCommand
 type ConsumeBrowserHandoffParams = authorityapp.ConsumeBrowserHandoffCommand
 
 func (s *Store) CreateBrowserHandoff(ctx context.Context, params CreateBrowserHandoffParams) error {
-	if params.Human.Kind != "human" || params.Human.ID == "" || params.Human.OrganizationID == "" || !params.ExpiresAt.After(params.Now) || !browserOpaqueTokenPattern.MatchString(params.Token) {
+	if params.Human.Kind != "human" || params.Human.ID == "" || params.Human.OrganizationID == "" || !params.ExpiresAt.After(params.Now) || !validBrowserToken(params.Token) {
 		return ErrBrowserSessionInvalid
 	}
-	hash := browserTokenHash(browserHandoffHashDomain, params.Token)
-	result, err := s.db.ExecContext(ctx, `
+	h := browserTokenHash(browserHandoffHashDomain, params.Token)
+	r, err := s.db.ExecContext(ctx, `
 		INSERT INTO browser_handoffs(token_hash, human_id, created_at, expires_at)
 		SELECT ?, id, ?, ?
 		FROM humans
 		WHERE id = ? AND organization_id = ? AND status = 'active'
-	`, hash[:], unixNano(params.Now), unixNano(params.ExpiresAt), params.Human.ID, params.Human.OrganizationID)
+	`, h[:], unixNano(params.Now), unixNano(params.ExpiresAt), params.Human.ID, params.Human.OrganizationID)
 	if err != nil {
 		return fmt.Errorf("persist browser handoff: %w", err)
 	}
-	created, err := result.RowsAffected()
+	n, err := r.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("count browser handoff: %w", err)
 	}
-	if created != 1 {
+	if n != 1 {
 		return ErrPermissionDenied
 	}
 	return nil
 }
 
 func (s *Store) ConsumeBrowserHandoff(ctx context.Context, params ConsumeBrowserHandoffParams) (Principal, error) {
-	if !params.SessionExpiresAt.After(params.Now) || !browserOpaqueTokenPattern.MatchString(params.HandoffToken) || !browserOpaqueTokenPattern.MatchString(params.SessionToken) {
+	if !params.SessionExpiresAt.After(params.Now) || !validBrowserToken(params.HandoffToken) || !validBrowserToken(params.SessionToken) {
 		return Principal{}, ErrBrowserSessionInvalid
 	}
-	handoffHash := browserTokenHash(browserHandoffHashDomain, params.HandoffToken)
-	sessionHash := browserTokenHash(browserSessionHashDomain, params.SessionToken)
+	hh := browserTokenHash(browserHandoffHashDomain, params.HandoffToken)
+	sh := browserTokenHash(browserSessionHashDomain, params.SessionToken)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Principal{}, fmt.Errorf("begin browser handoff consumption: %w", err)
 	}
 	defer tx.Rollback()
 
-	var principal Principal
+	var p Principal
 	err = tx.QueryRowContext(ctx, `
 		SELECT 'human', h.id, h.organization_id
 		FROM browser_handoffs bh
@@ -68,46 +77,46 @@ func (s *Store) ConsumeBrowserHandoff(ctx context.Context, params ConsumeBrowser
 		  AND bh.consumed_at IS NULL
 		  AND bh.expires_at > ?
 		  AND h.status = 'active'
-	`, handoffHash[:], unixNano(params.Now)).Scan(&principal.Kind, &principal.ID, &principal.OrganizationID)
+	`, hh[:], unixNano(params.Now)).Scan(&p.Kind, &p.ID, &p.OrganizationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Principal{}, ErrBrowserHandoffInvalid
 	}
 	if err != nil {
 		return Principal{}, fmt.Errorf("read browser handoff: %w", err)
 	}
-	result, err := tx.ExecContext(ctx, `
+	r, err := tx.ExecContext(ctx, `
 		UPDATE browser_handoffs
 		SET consumed_at = ?
 		WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
-	`, unixNano(params.Now), handoffHash[:], unixNano(params.Now))
+	`, unixNano(params.Now), hh[:], unixNano(params.Now))
 	if err != nil {
 		return Principal{}, fmt.Errorf("consume browser handoff: %w", err)
 	}
-	consumed, err := result.RowsAffected()
+	n, err := r.RowsAffected()
 	if err != nil {
 		return Principal{}, fmt.Errorf("count browser handoff consumption: %w", err)
 	}
-	if consumed != 1 {
+	if n != 1 {
 		return Principal{}, ErrBrowserHandoffInvalid
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO browser_sessions(token_hash, human_id, created_at, expires_at)
 		VALUES(?, ?, ?, ?)
-	`, sessionHash[:], principal.ID, unixNano(params.Now), unixNano(params.SessionExpiresAt)); err != nil {
+	`, sh[:], p.ID, unixNano(params.Now), unixNano(params.SessionExpiresAt)); err != nil {
 		return Principal{}, fmt.Errorf("persist browser session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Principal{}, fmt.Errorf("commit browser handoff consumption: %w", err)
 	}
-	return principal, nil
+	return p, nil
 }
 
 func (s *Store) AuthenticateBrowserSession(ctx context.Context, token string, now time.Time) (Principal, error) {
-	if !browserOpaqueTokenPattern.MatchString(token) {
+	if !validBrowserToken(token) {
 		return Principal{}, ErrPermissionDenied
 	}
-	hash := browserTokenHash(browserSessionHashDomain, token)
-	var principal Principal
+	h := browserTokenHash(browserSessionHashDomain, token)
+	var p Principal
 	err := s.db.QueryRowContext(ctx, `
 		SELECT 'human', h.id, h.organization_id
 		FROM browser_sessions bs
@@ -116,34 +125,34 @@ func (s *Store) AuthenticateBrowserSession(ctx context.Context, token string, no
 		  AND bs.revoked_at IS NULL
 		  AND bs.expires_at > ?
 		  AND h.status = 'active'
-	`, hash[:], unixNano(now)).Scan(&principal.Kind, &principal.ID, &principal.OrganizationID)
+	`, h[:], unixNano(now)).Scan(&p.Kind, &p.ID, &p.OrganizationID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Principal{}, ErrPermissionDenied
 	}
 	if err != nil {
 		return Principal{}, fmt.Errorf("authenticate browser session: %w", err)
 	}
-	return principal, nil
+	return p, nil
 }
 
 func (s *Store) RevokeBrowserSession(ctx context.Context, token string, now time.Time) error {
-	if !browserOpaqueTokenPattern.MatchString(token) {
+	if !validBrowserToken(token) {
 		return ErrPermissionDenied
 	}
-	hash := browserTokenHash(browserSessionHashDomain, token)
-	result, err := s.db.ExecContext(ctx, `
+	h := browserTokenHash(browserSessionHashDomain, token)
+	r, err := s.db.ExecContext(ctx, `
 		UPDATE browser_sessions
 		SET revoked_at = ?
 		WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
-	`, unixNano(now), hash[:], unixNano(now))
+	`, unixNano(now), h[:], unixNano(now))
 	if err != nil {
 		return fmt.Errorf("revoke browser session: %w", err)
 	}
-	revoked, err := result.RowsAffected()
+	n, err := r.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("count browser session revocation: %w", err)
 	}
-	if revoked != 1 {
+	if n != 1 {
 		return ErrPermissionDenied
 	}
 	return nil

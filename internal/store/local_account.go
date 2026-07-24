@@ -142,7 +142,7 @@ func (s *Store) GetLocalAccount(ctx context.Context, subject string) (authoritya
 
 func (s *Store) CreateBrowserSession(ctx context.Context, command authorityapp.CreateBrowserSessionCommand) error {
 	if command.Human.Kind != authoritydomain.PrincipalHuman || command.Human.ID == "" || command.Human.OrganizationID == "" ||
-		!browserOpaqueTokenPattern.MatchString(command.Token) || !command.ExpiresAt.After(command.Now) {
+		!validBrowserToken(command.Token) || !command.ExpiresAt.After(command.Now) {
 		return ErrBrowserSessionInvalid
 	}
 	hash := browserTokenHash(browserSessionHashDomain, command.Token)
@@ -175,7 +175,7 @@ func validBootstrapLocalAccountCommand(command authorityapp.BindBootstrapLocalAc
 		command.Identity.Provider == localIdentityProvider &&
 		len(command.Identity.Subject) >= 3 && len(command.Identity.Subject) <= 32 &&
 		validPasswordDigest(command.Password) &&
-		browserOpaqueTokenPattern.MatchString(command.SessionToken) &&
+		validBrowserToken(command.SessionToken) &&
 		command.SessionExpiresAt.After(command.Now)
 }
 

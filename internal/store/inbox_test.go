@@ -426,8 +426,8 @@ func TestInboxRequestReceiptsExcludeBusinessContentAndCredentials(t *testing.T) 
 		freshBody,
 		heldBody,
 		mentionedAgentID,
-		runtimeTestToken(42),
-		runtimeTestToken(250),
+		rtToken(42),
+		rtToken(250),
 		"computer-registration-key",
 	}
 	count := 0
@@ -1106,7 +1106,7 @@ func openInboxFixture(t *testing.T) *inboxFixture {
 			t.Error(err)
 		}
 	})
-	bootstrap, err := runtimeFixture.database.EnsureAuthority(context.Background(), runtimeTestToken(250), runtimeFixture.now)
+	bootstrap, err := runtimeFixture.database.EnsureAuthority(context.Background(), rtToken(250), runtimeFixture.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1129,7 +1129,7 @@ func openInboxFixture(t *testing.T) *inboxFixture {
 	}
 	fixture.readGrant = fixture.issueAgentGrant(t, group.ID, CapabilitySpaceRead, runtimeFixture.now.Add(3*time.Second))
 	fixture.issueAgentGrant(t, group.ID, CapabilityMessageSend, runtimeFixture.now.Add(4*time.Second))
-	token := runtimeTestToken(42)
+	token := rtToken(42)
 	createRuntimeSession(t, runtimeFixture, token, runtimeFixture.now.Add(5*time.Second))
 	authentication, err := fixture.database.AuthenticateAgentRuntimeSession(context.Background(), token, runtimeFixture.now.Add(6*time.Second))
 	if err != nil {
