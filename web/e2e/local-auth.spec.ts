@@ -20,10 +20,12 @@ test("one-time local setup, logout, failed login, and successful login form one 
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /Set up local access|Sign in to Sumi/ }),
+    page.getByRole("heading", {
+      name: /Create your local account|Welcome back/,
+    }),
   ).toBeVisible();
   const setupHeading = page.getByRole("heading", {
-    name: "Set up local access",
+    name: "Create your local account",
   });
   if (await setupHeading.isVisible()) {
     await settleMotion(page);
@@ -34,10 +36,10 @@ test("one-time local setup, logout, failed login, and successful login form one 
     await page.getByLabel("Username").fill(localUsername);
     await page.getByLabel("Password").fill(localPassword);
     await page.getByLabel("Owner setup key").fill(await readOwnerCredential());
-    await page.getByRole("button", { name: "Create local account" }).click();
+    await page.getByRole("button", { name: "Join Sumi" }).click();
   } else {
     await expect(
-      page.getByRole("heading", { name: "Sign in to Sumi" }),
+      page.getByRole("heading", { name: "Welcome back" }),
     ).toBeVisible();
     await signIn(page, localPassword);
   }
@@ -51,7 +53,7 @@ test("one-time local setup, logout, failed login, and successful login form one 
 
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(
-    page.getByRole("heading", { name: "Sign in to Sumi" }),
+    page.getByRole("heading", { name: "Welcome back" }),
   ).toBeVisible();
   await signIn(page, "incorrect password value");
   await expect(page.getByRole("alert")).toHaveText(

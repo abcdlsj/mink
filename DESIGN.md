@@ -665,3 +665,13 @@ Sumi 使用 `github.com/charmbracelet/log` 作为唯一核心运行日志库。�
 最终验证完成：`mise run generate`、`mise run test`（Go 全量与 Web 102/102）、`mise run lint`、`mise run build`（production Web、Go 与 Wails Desktop）、Computer two-process migration / external driver delivery / external driver failure matrix 三项黑盒及 `git diff --check` 全部通过。fresh Server 以 `SUMI_LOG_LEVEL=debug SUMI_LOG_FORMAT=json` 启动，全部 15 条日志均可解析且具备 `component/category/event`，lifecycle、authority、artifact、knowledge 和 transport 均有真实事件；`/auth/<token>?<query>` 只记录为 `/auth/:token`，探针 token、query、body 与 owner credential 均未出现在日志中。Server 与 Computer 黑盒进程已停止；含 credential 与 SQLite 的临时 root 已移出可运行路径并送入废纸篓。
 
 实现中较早一次 `mise run test` 有两个 Server app 测试仍绑定旧自由文本 `Sumi Server listening`，因等待 15 秒超时失败；Computer CLI 也有一处同类旧文本 oracle。这是测试合同未跟随日志升级，不是 Server 或 Computer 启动失败。它们已改为匹配稳定 `event` 和字段，focused 与最终 full suite 均通过；保留这段失败历史，不宣称首轮全绿。本轮不改变 proto、SQLite schema、产品事实、权限、Audit、transaction、replay、lease 或 fence 语义；未重复运行无日志交互变更的 Playwright。
+
+## 32. 2026-07-24 Collaboration shell 与首次连接
+
+Web 的视觉结构采用 Discord-like 的协作语法，而不是复制 Discord 品牌：深浅分层的全局 rail、会话导航、主内容与 context 四层表面；Space、DM、Human、Agent 和在线状态是主要识别物；选中、未读与可操作状态使用紧凑圆角 affordance。界面继续 Conversation-first，Work 只以消息锚点、thread 和安静状态摘要出现，不增加项目管理式常驻导航。去掉网格纸与机械控制台隐喻，主时间线不漂浮在无意义的大面积留白中。Light、dark、360px 响应式、键盘 focus、tooltip 与 reduced-motion 仍是硬合同。
+
+Local Owner setup 是“加入这台 Sumi”的 welcome flow。Username 必须明确显示服务端同一规则：3–32 位，只允许 ASCII 字母、数字、点、下划线和连字符；password 为 12–256 个 Unicode 字符；Owner setup key 为 canonical base64url credential。浏览器在提交前提供字段级反馈，400 响应映射回同一组可操作规则；Server 仍是权威校验。UI 不显示、记录或持久化 setup key，也不读取失败响应 body。
+
+Computer 首次连接采用三步引导：创建一次性 pairing、下载 pairing bundle、复制本地启动命令并等待 Computer 出现在目录。浏览器生成 canonical UUID、32-byte random base64url token 与 10 分钟 UTC expiry，通过当前 authenticated Human session 调用 `CreateComputerPairing`。下载文件名固定为 `sumi-computer-pairing.json`，内容复用 `pairing.Bundle` v1 schema；token 只进入内存中的 bundle 和下载文件，不进入页面、命令、URL、日志、localStorage 或 shell history。复制命令必须先把下载文件收紧到 0600，再依次执行 `sumi computer pair join --file ...` 与 `sumi computer start`。
+
+浏览器只能为安全 endpoint 生成 bundle：literal loopback HTTP 使用 `literal-loopback`，系统可信 HTTPS 使用 `system-trust`；raw remote HTTP、hostname loopback HTTP、带 userinfo/path/query/fragment 的 origin 一律 fail closed，并给出改用 literal `127.0.0.1` 或可信 HTTPS 的操作说明。不得为了远程 demo 放宽 Server/Computer endpoint 合同。第三步提供显式 Computer facts 刷新；注册完成与否仍以 Server 的 Computer 列表为准，不能用前端本地状态伪造成功。

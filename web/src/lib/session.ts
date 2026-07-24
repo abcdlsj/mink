@@ -19,6 +19,7 @@ export type LocalAuthErrorCode =
   | "rate_limited"
   | "setup_complete"
   | "invalid_input"
+  | "invalid_origin"
   | "unavailable";
 
 export class LocalAuthError extends Error {
@@ -123,10 +124,18 @@ function localAuthFailure(path: string, status: number): LocalAuthError {
         : "Username or password is incorrect.",
     );
   }
-  if (status === 400 || status === 403) {
+  if (status === 400) {
     return new LocalAuthError(
       "invalid_input",
-      "Check the fields and submit from this local Sumi window.",
+      path.endsWith("/setup")
+        ? "Setup was rejected. Check the username, 12–256 character password, and complete Owner setup key."
+        : "Sign-in input was rejected. Check the username and password.",
+    );
+  }
+  if (status === 403) {
+    return new LocalAuthError(
+      "invalid_origin",
+      "Open Sumi from its configured Server address, then try again.",
     );
   }
   return new LocalAuthError(

@@ -22,7 +22,7 @@ for (const viewport of [
     await page.goto("/");
     await expect(
       page.getByRole("heading", {
-        name: /Set up local access|Sign in to Sumi/,
+        name: /Create your local account|Welcome back/,
       }),
     ).toBeVisible();
     await expect(page.getByText(/Server [a-f0-9]{8}/)).toBeVisible();
@@ -32,7 +32,7 @@ for (const viewport of [
     await expect(
       page.getByRole("button", { name: "Open context" }),
     ).toBeDisabled();
-    await expect(page.getByTestId("main-composer")).toBeVisible();
+    await expect(page.getByTestId("main-composer")).toHaveCount(0);
     await expect(page.getByTestId("thread-composer")).toHaveCount(0);
     expect(await hasPageOverflow(page)).toBe(false);
 

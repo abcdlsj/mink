@@ -62,7 +62,10 @@ export function ConversationWorkspace({
     session.status === "authenticated" || session.status === "logging-out";
 
   return (
-    <section className="conversation workspace-main" aria-label="Conversation">
+    <section
+      className={`conversation workspace-main ${authenticated ? "" : "session-gate"}`}
+      aria-label="Conversation"
+    >
       <header className="topbar">
         <div className="topbar-leading">
           {!navigationOpen && (
@@ -162,7 +165,7 @@ export function ConversationWorkspace({
         },
       })}
 
-      {view === "chat" && snapshot ? (
+      {authenticated && view === "chat" && snapshot ? (
         <MessageComposer
           key={snapshot.space.id}
           targetKey={`space:${snapshot.space.id}`}
@@ -174,23 +177,19 @@ export function ConversationWorkspace({
           )}
           onSend={conversation.sendMain}
         />
-      ) : (
+      ) : authenticated ? (
         <footer
           className="composer disabled-composer"
           data-testid="main-composer"
         >
           <textarea
             aria-label="Message"
-            placeholder={
-              authenticated
-                ? "Select an active Space to send a message"
-                : "Authenticate to begin a conversation"
-            }
+            placeholder="Select an active Space to send a message"
             disabled
             rows={1}
           />
         </footer>
-      )}
+      ) : null}
     </section>
   );
 }

@@ -147,7 +147,9 @@ test("browser handoff reaches Collaboration and logout revokes it immediately", 
 
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(
-    page.getByRole("heading", { name: /Set up local access|Sign in to Sumi/ }),
+    page.getByRole("heading", {
+      name: /Create your local account|Welcome back/,
+    }),
   ).toBeVisible();
   expect(await collaborationStatus(page)).toBe(401);
 

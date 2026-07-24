@@ -63,6 +63,16 @@ export default function App() {
   }, [facts.data, selectedAgent, selectedComputer]);
 
   useEffect(() => {
+    if (
+      module === "computers" &&
+      facts.data?.computers.length === 0 &&
+      window.innerWidth < 1024
+    ) {
+      setNavigationOpen(false);
+    }
+  }, [facts.data, module]);
+
+  useEffect(() => {
     if (!spaces.data || !selectedSpace) return;
     const visible = spaces.data.spaces.find(
       (space) => space.id === selectedSpace.id,
@@ -275,8 +285,10 @@ export default function App() {
           selected={selectedComputer}
           facts={facts}
           bootstrap={bootstrap}
+          session={session}
           navigationOpen={navigationOpen}
           onOpenNavigation={() => setNavigationOpen(true)}
+          onSignIn={() => selectModule("conversation")}
         />
       )}
 

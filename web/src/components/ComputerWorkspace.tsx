@@ -2,6 +2,7 @@ import { MonitorCog } from "lucide-react";
 import type { useBootstrap } from "../hooks/useBootstrap";
 import { useComputerDetail } from "../hooks/useDetails";
 import type { useFacts } from "../hooks/useFacts";
+import type { useSession } from "../hooks/useSession";
 import type { Computer } from "../gen/sumi/computer/v1/computer_pb";
 import {
   architectureLabel,
@@ -13,53 +14,80 @@ import {
 import {
   Fact,
   InlineNotice,
-  ManagementEmpty,
   ManagementError,
   ManagementLoading,
 } from "./ManagementFeedback";
 import { ManagementWorkspace } from "./ManagementWorkspace";
+import { ComputerOnboarding } from "./ComputerOnboarding";
 
 type Bootstrap = ReturnType<typeof useBootstrap>;
 type Facts = ReturnType<typeof useFacts>;
+type Session = ReturnType<typeof useSession>;
 
 export function ComputerWorkspace({
   selected,
   facts,
   bootstrap,
+  session,
   navigationOpen,
   onOpenNavigation,
+  onSignIn,
 }: {
   selected?: string;
   facts: Facts;
   bootstrap: Bootstrap;
+  session: Session;
   navigationOpen: boolean;
   onOpenNavigation: () => void;
+  onSignIn: () => void;
 }) {
   const computer = facts.data?.computers.find((item) => item.id === selected);
   return (
     <ManagementWorkspace
       label="Computers"
-      title={computer?.name ?? "Computer details"}
+      title={
+        computer
+          ? computer.name
+          : facts.data?.computers.length === 0
+            ? "Connect a Computer"
+            : "Computer details"
+      }
       summary={
         computer
           ? `${operatingSystemLabel(computer.os)} · ${architectureLabel(computer.arch)}`
-          : "Select a registered Computer from the directory."
+          : facts.data?.computers.length === 0
+            ? "Pair a Mac or Linux execution node with this Sumi."
+            : "Select a registered Computer from the directory."
       }
       bootstrap={bootstrap}
       navigationOpen={navigationOpen}
       onOpenNavigation={onOpenNavigation}
     >
       {computer ? (
-        <ComputerDetail computer={computer} facts={facts} />
+        <div className="computer-workspace-content">
+          <ComputerOnboarding
+            authenticated={
+              session.status === "authenticated" ||
+              session.status === "logging-out"
+            }
+            compact
+            onSignIn={onSignIn}
+            onRefresh={facts.refresh}
+          />
+          <ComputerDetail computer={computer} facts={facts} />
+        </div>
       ) : facts.status === "loading" || facts.status === "retrying" ? (
         <ManagementLoading label="Loading Computers" />
       ) : facts.status === "error" ? (
         <ManagementError message={facts.error} onRetry={facts.retry} />
       ) : (
-        <ManagementEmpty
-          icon={<MonitorCog size={30} strokeWidth={1.6} />}
-          title="Select a Computer"
-          detail="Choose a Computer to inspect its real capabilities and placements."
+        <ComputerOnboarding
+          authenticated={
+            session.status === "authenticated" ||
+            session.status === "logging-out"
+          }
+          onSignIn={onSignIn}
+          onRefresh={facts.refresh}
         />
       )}
     </ManagementWorkspace>

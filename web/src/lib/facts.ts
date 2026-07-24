@@ -1,4 +1,5 @@
 import { Code, ConnectError } from "@connectrpc/connect";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   AgentService,
   type Agent,
@@ -50,6 +51,18 @@ export async function getComputer(computerId: string): Promise<Computer> {
   const response = await computerClient.getComputer({ computerId });
   if (!response.computer) throw new Error("Computer response was empty");
   return response.computer;
+}
+
+export async function createComputerPairing(input: {
+  requestId: string;
+  pairingToken: string;
+  expiresAt: Date;
+}): Promise<void> {
+  await computerClient.createComputerPairing({
+    requestId: input.requestId,
+    pairingToken: input.pairingToken,
+    expiresAt: timestampFromDate(input.expiresAt),
+  });
 }
 
 export async function createAgent(input: {

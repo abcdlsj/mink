@@ -38,6 +38,7 @@ import {
 import { getBootstrap } from "./lib/bootstrap";
 import {
   createAgent,
+  createComputerPairing,
   getAgentDetail,
   getComputer,
   loadFacts,
@@ -67,6 +68,7 @@ vi.mock("./lib/facts", () => ({
   getAgentDetail: vi.fn(),
   getComputer: vi.fn(),
   createAgent: vi.fn(),
+  createComputerPairing: vi.fn(),
   setAgentPlacement: vi.fn(),
   factErrorMessage: (error: unknown, action: string) =>
     error instanceof Error ? error.message : `Could not ${action}.`,
@@ -103,6 +105,7 @@ const mockedLoadFacts = vi.mocked(loadFacts);
 const mockedGetAgentDetail = vi.mocked(getAgentDetail);
 const mockedGetComputer = vi.mocked(getComputer);
 const mockedCreateAgent = vi.mocked(createAgent);
+const mockedCreateComputerPairing = vi.mocked(createComputerPairing);
 const mockedSetPlacement = vi.mocked(setAgentPlacement);
 const mockedGetSession = vi.mocked(getSession);
 const mockedGetLocalSetupRequired = vi.mocked(getLocalSetupRequired);
@@ -127,6 +130,7 @@ beforeEach(() => {
   mockedLoadFacts.mockResolvedValue(emptyFacts());
   mockedGetAgentDetail.mockRejectedValue(new Error("Agent detail unavailable"));
   mockedGetComputer.mockRejectedValue(new Error("Computer detail unavailable"));
+  mockedCreateComputerPairing.mockResolvedValue();
   mockedGetSession.mockResolvedValue({
     id: "33333333-3333-4333-8333-333333333333",
     name: "Owner",
@@ -197,10 +201,10 @@ describe("App", () => {
 
     render(<App />);
 
-    expect(await screen.findByText("Sign in to Sumi")).toBeInTheDocument();
+    expect(await screen.findByText("Welcome back")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Continue as a Sumi Human. Your password stays on this Server.",
+        "Sign in as a Sumi Human. Your password never leaves this Server.",
       ),
     ).toBeInTheDocument();
     expect(
@@ -208,7 +212,7 @@ describe("App", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
-    expect(screen.queryByText("Sign in to Sumi")).not.toBeInTheDocument();
+    expect(screen.queryByText("Welcome back")).not.toBeInTheDocument();
   });
 
   it("completes one-time local Owner setup without exposing the setup key", async () => {
@@ -225,8 +229,30 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Set up local access" }),
+      await screen.findByRole("heading", { name: "Create your local account" }),
     ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Username"), {
+      target: { value: "not valid" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "short" },
+    });
+    fireEvent.change(screen.getByLabelText("Owner setup key"), {
+      target: { value: "too-short" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join Sumi" }));
+
+    expect(
+      screen.getByText("Enter a valid 3–32 character username."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Use 12–256 characters with at least one non-space."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Paste the complete 43–128 character Owner setup key."),
+    ).toBeInTheDocument();
+    expect(mockedSetupLocalAccount).not.toHaveBeenCalled();
+
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "iris" },
     });
@@ -236,9 +262,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Owner setup key"), {
       target: { value: "A".repeat(43) },
     });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create local account" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Join Sumi" }));
 
     expect(mockedSetupLocalAccount).toHaveBeenCalledWith({
       username: "iris",
@@ -271,7 +295,7 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "Sign in to Sumi" }),
+      await screen.findByRole("heading", { name: "Welcome back" }),
     ).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Username"), {
       target: { value: "owner" },
@@ -325,7 +349,7 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Log out" }));
-    expect(await screen.findByText("Sign in to Sumi")).toBeInTheDocument();
+    expect(await screen.findByText("Welcome back")).toBeInTheDocument();
     expect(mockedLogoutSession).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Agents" }));
     expect(await screen.findByText("release-coordinator")).toBeInTheDocument();
@@ -370,6 +394,41 @@ describe("App", () => {
     expect(screen.getByText("No agents yet")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Computers" }));
     expect(screen.getByText("No computers registered")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Connect your first Computer" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Copy Computer pairing command" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/sumi computer pair join --file/),
+    ).toBeInTheDocument();
+  });
+
+  it("opens Computer onboarding instead of trapping a compact empty directory", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    try {
+      render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Computers" }));
+
+      expect(
+        await screen.findByRole("heading", {
+          name: "Connect your first Computer",
+        }),
+      ).toBeVisible();
+      await waitFor(() =>
+        expect(screen.getByRole("main")).toHaveClass("navigation-collapsed"),
+      );
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
   });
 
   it("retries an initial facts error", async () => {

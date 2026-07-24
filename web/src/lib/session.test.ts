@@ -161,7 +161,9 @@ describe("browser session", () => {
         new Response("sensitive server detail", { status: 401 }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 429 }))
-      .mockResolvedValueOnce(new Response(null, { status: 409 }));
+      .mockResolvedValueOnce(new Response(null, { status: 409 }))
+      .mockResolvedValueOnce(new Response(null, { status: 400 }))
+      .mockResolvedValueOnce(new Response(null, { status: 403 }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(
@@ -177,5 +179,15 @@ describe("browser session", () => {
         bootstrapCredential: "A".repeat(43),
       }),
     ).rejects.toThrow("Local setup is already complete");
+    await expect(
+      setupLocalAccount({
+        username: "owner",
+        password: "short",
+        bootstrapCredential: "A".repeat(43),
+      }),
+    ).rejects.toThrow("12–256 character password");
+    await expect(
+      loginLocalAccount({ username: "owner", password: "wrong password" }),
+    ).rejects.toThrow("configured Server address");
   });
 });
