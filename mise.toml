@@ -69,6 +69,28 @@ go build -o bin/sumi-package ./cmd/sumi-package
 bin/sumi-package --version "$SUMI_VERSION" --os "$(go env GOOS)" --arch "$(go env GOARCH)" --binary bin/sumi --web web/dist --out "$SUMI_BUNDLE_OUT"
 '''
 
+[tasks.clean]
+description = "Remove old database, locks, and credentials for a fresh start"
+run = '''
+echo "=== Cleaning stale Sumi state ==="
+rm -f "$HOME/.sumi/data/server.db" "$HOME/.sumi/data/server.db-shm" "$HOME/.sumi/data/server.db-wal"
+rm -f "$HOME/Library/Caches/Sumi/runtime/"*.server.lock
+rm -f "$HOME/Library/Application Support/Sumi/credentials/human.key"
+echo "Done. Run 'mise run dev' to start fresh."
+'''
+
+[tasks.setup-key]
+description = "Print the bootstrap setup code for first-time WebUI login"
+run = '''
+KEY_FILE="$HOME/Library/Application Support/Sumi/credentials/human.key"
+if [ -f "$KEY_FILE" ]; then
+  echo "Setup code: $(cat "$KEY_FILE")"
+else
+  echo "No setup key found. Start the server first with 'mise run dev'."
+  exit 1
+fi
+'''
+
 [tasks."dev:server"]
 description = "Run the local Sumi Server"
 run = "go run ./cmd/sumi-server --data-root ${SUMI_DATA_ROOT:-$HOME/.sumi}"
