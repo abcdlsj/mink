@@ -134,7 +134,7 @@ func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
 		registrationKey: fixture.registrationKey, agentID: fixture.agent.ID, now: fixture.now.Add(time.Second),
 	}
 	_, handler := runtimev1connect.NewAgentRuntimeServiceHandler(consumer, connect.WithInterceptors(
-		newProcedureInterceptor(fixture.database, func() time.Time { return fixture.now.Add(time.Second) }, runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure),
+		newProcInterceptor(fixture.database, func() time.Time { return fixture.now.Add(time.Second) }, runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure),
 	))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
@@ -312,7 +312,7 @@ func completeRuntimeServiceCredential(
 
 func (f *runtimeServiceFixture) client(t *testing.T, service runtimev1connect.AgentRuntimeServiceHandler) runtimev1connect.AgentRuntimeServiceClient {
 	t.Helper()
-	interceptor := newProcedureInterceptor(
+	interceptor := newProcInterceptor(
 		f.database,
 		func() time.Time { return f.now },
 		runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,

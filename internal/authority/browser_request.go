@@ -13,14 +13,14 @@ var ErrBrowserOriginInvalid = errors.New("browser origin must be a loopback HTTP
 type browserRequestKey struct{}
 
 func BrowserRequestMiddleware(origin string, next http.Handler) (http.Handler, error) {
-	parsed, err := parseBrowserOrigin(origin)
+	u, err := parseBrowserOrigin(origin)
 	if err != nil {
 		return nil, err
 	}
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		allowed := parsed != nil && requestMatchesBrowserOrigin(request, parsed)
-		ctx := context.WithValue(request.Context(), browserRequestKey{}, allowed)
-		next.ServeHTTP(response, request.WithContext(ctx))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowed := u != nil && requestMatchesBrowserOrigin(r, u)
+		ctx := context.WithValue(r.Context(), browserRequestKey{}, allowed)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	}), nil
 }
 
@@ -63,14 +63,14 @@ func parseBrowserOrigin(origin string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func requestMatchesBrowserOrigin(request *http.Request, origin *url.URL) bool {
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
+func requestMatchesBrowserOrigin(r *http.Request, origin *url.URL) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return false
 	}
 	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() || request.Host != origin.Host {
+	if ip == nil || !ip.IsLoopback() || r.Host != origin.Host {
 		return false
 	}
-	return (request.TLS != nil) == (origin.Scheme == "https")
+	return (r.TLS != nil) == (origin.Scheme == "https")
 }

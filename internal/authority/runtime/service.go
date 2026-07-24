@@ -13,8 +13,8 @@ import (
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const sessionTTL = 10 * time.Minute
@@ -46,79 +46,79 @@ func NewService(database sessionStore, config Config) *Service {
 	return &Service{store: database, now: config.Now, random: config.Random}
 }
 
-func (s *Service) CreateAgentRuntimeSession(ctx context.Context, request *connect.Request[runtimev1.CreateAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.CreateAgentRuntimeSessionResponse], error) {
+func (s *Service) CreateAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.CreateAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.CreateAgentRuntimeSessionResponse], error) {
 	computerID, agentID, desiredRevision, err := sessionBinding(
-		request.Msg.GetComputerId(), request.Msg.GetAgentId(), request.Msg.GetPlacementDesiredRevision(),
+		req.Msg.GetComputerId(), req.Msg.GetAgentId(), req.Msg.GetPlacementDesiredRevision(),
 	)
 	if err != nil {
 		return nil, err
 	}
-	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+	if err := regKeyValid(req.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
 	token, err := s.randomToken()
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("generate agent runtime session"))
+		return nil, servicesvc.ErrInternal
 	}
 	now := s.now()
 	session, err := s.store.CreateAgentRuntimeSession(ctx, authorityapp.CreateRuntimeSessionCommand{
-		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
+		ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(),
 		AgentID: agentID, PlacementDesiredRevision: desiredRevision,
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
 	})
-	if err := createError(err); err != nil {
+	if err := createErr(err); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&runtimev1.CreateAgentRuntimeSessionResponse{
-		Session: sessionMessage(session, token),
+		Session: sessionToProto(session, token),
 	}), nil
 }
 
-func (s *Service) RenewAgentRuntimeSession(ctx context.Context, request *connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RenewAgentRuntimeSessionResponse], error) {
+func (s *Service) RenewAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RenewAgentRuntimeSessionResponse], error) {
 	_, proof, err := Subject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
-	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+	if err := regKeyValid(req.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
 	token, err := s.randomToken()
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("generate agent runtime session"))
+		return nil, servicesvc.ErrInternal
 	}
 	now := s.now()
 	session, err := s.store.RenewAgentRuntimeSession(ctx, authorityapp.RenewRuntimeSessionCommand{
-		Proof: proof, ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
+		Proof: proof, ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(),
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
 	})
-	if err := renewError(err); err != nil {
+	if err := renewErr(err); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&runtimev1.RenewAgentRuntimeSessionResponse{
-		Session: sessionMessage(session, token),
+		Session: sessionToProto(session, token),
 	}), nil
 }
 
-func (s *Service) RevokeAgentRuntimeSession(ctx context.Context, request *connect.Request[runtimev1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RevokeAgentRuntimeSessionResponse], error) {
+func (s *Service) RevokeAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RevokeAgentRuntimeSessionResponse], error) {
 	_, proof, err := Subject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	computerID, err := connectid.CanonicalID(req.Msg.GetComputerId(), "computer id")
 	if err != nil {
 		return nil, err
 	}
-	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+	if err := regKeyValid(req.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
 	err = s.store.RevokeAgentRuntimeSession(ctx, authorityapp.RevokeRuntimeSessionCommand{
-		Proof: proof, ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(), Now: s.now(),
+		Proof: proof, ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(), Now: s.now(),
 	})
-	if err := renewError(err); err != nil {
+	if err := renewErr(err); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&runtimev1.RevokeAgentRuntimeSessionResponse{}), nil
@@ -147,17 +147,17 @@ func sessionBinding(computerValue, agentValue string, desiredRevision uint64) (s
 	return computerID, agentID, desiredRevision, nil
 }
 
-func registrationKeyValid(key string) error {
-	if key == "" {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("registration key is required"))
-	}
-	if len(key) > 256 {
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("registration key is too long"))
+func regKeyValid(key string) error {
+	switch {
+	case key == "":
+		return servicesvc.InvalArg("registration key is required")
+	case len(key) > 256:
+		return servicesvc.InvalArg("registration key is too long")
 	}
 	return nil
 }
 
-func createError(err error) error {
+func createErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -168,31 +168,34 @@ func createError(err error) error {
 	case errors.Is(err, authorityapp.ErrRuntimeBinding):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent runtime binding unavailable"))
 	case errors.Is(err, authorityapp.ErrRuntimeInvalid):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("agent runtime session invalid"))
+		return servicesvc.InvalArg("agent runtime session invalid")
 	default:
-		return connect.NewError(connect.CodeInternal, errors.New("create agent runtime session"))
+		return servicesvc.ErrInternal
 	}
 }
 
-func renewError(err error) error {
+func renewErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
-		return unauthenticated()
-	case errors.Is(err, computerapp.ErrNotFound), errors.Is(err, computerapp.ErrRegistrationKeyMismatch), errors.Is(err, authorityapp.ErrRuntimeBinding):
+		return unauth()
+	case errors.Is(err, computerapp.ErrNotFound),
+		errors.Is(err, computerapp.ErrRegistrationKeyMismatch),
+		errors.Is(err, authorityapp.ErrRuntimeBinding):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match agent runtime session"))
 	case errors.Is(err, authorityapp.ErrRuntimeInvalid):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("agent runtime session invalid"))
+		return servicesvc.InvalArg("agent runtime session invalid")
 	default:
-		return connect.NewError(connect.CodeInternal, errors.New("change agent runtime session"))
+		return servicesvc.ErrInternal
 	}
 }
 
-func sessionMessage(session authorityapp.RuntimeSession, token string) *runtimev1.AgentRuntimeSession {
+func sessionToProto(s authorityapp.RuntimeSession, token string) *runtimev1.AgentRuntimeSession {
 	return &runtimev1.AgentRuntimeSession{
-		AgentId: session.AgentID, ComputerId: session.ComputerID,
-		PlacementDesiredRevision: session.PlacementDesiredRevision,
-		Token:                    token, ExpiresAt: timestamppb.New(session.ExpiresAt),
+		AgentId: s.AgentID, ComputerId: s.ComputerID,
+		PlacementDesiredRevision: s.PlacementDesiredRevision,
+		Token:    token,
+		ExpiresAt: servicesvc.Ts(s.ExpiresAt),
 	}
 }

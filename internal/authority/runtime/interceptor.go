@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"errors"
-	"regexp"
 	"strings"
 	"time"
 
@@ -18,44 +17,54 @@ type sessionAuthenticator interface {
 	AuthenticateAgentRuntimeSession(context.Context, string, time.Time) (authorityapp.RuntimeAuthentication, error)
 }
 
-var runtimeTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-
-func NewProcedureInterceptor(authenticator sessionAuthenticator, procedures ...string) connect.Interceptor {
-	return newProcedureInterceptor(authenticator, time.Now, procedures...)
+func validRuntimeToken(s string) bool {
+	if len(s) != 43 {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
-func newProcedureInterceptor(authenticator sessionAuthenticator, now func() time.Time, procedures ...string) connect.Interceptor {
+func NewProcedureInterceptor(authenticator sessionAuthenticator, procedures ...string) connect.Interceptor {
+	return newProcInterceptor(authenticator, time.Now, procedures...)
+}
+
+func newProcInterceptor(authenticator sessionAuthenticator, now func() time.Time, procedures ...string) connect.Interceptor {
 	protected := make(map[string]struct{}, len(procedures))
-	for _, procedure := range procedures {
-		protected[procedure] = struct{}{}
+	for _, p := range procedures {
+		protected[p] = struct{}{}
 	}
 	return connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			if _, ok := protected[request.Spec().Procedure]; !ok {
-				return next(ctx, request)
+		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			if _, ok := protected[req.Spec().Procedure]; !ok {
+				return next(ctx, req)
 			}
-			token, ok := bearerToken(request.Header().Values("Authorization"))
+			token, ok := bearerToken(req.Header().Values("Authorization"))
 			if !ok {
-				return nil, unauthenticated()
+				return nil, unauth()
 			}
-			authentication, err := authenticator.AuthenticateAgentRuntimeSession(ctx, token, now())
+			auth, err := authenticator.AuthenticateAgentRuntimeSession(ctx, token, now())
 			if errors.Is(err, authorityapp.ErrRuntimeUnauthenticated) {
-				return nil, unauthenticated()
+				return nil, unauth()
 			}
 			if err != nil {
 				return nil, connect.NewError(connect.CodeInternal, errors.New("authenticate agent runtime session"))
 			}
-			return next(context.WithValue(ctx, subjectKey{}, authentication), request)
+			return next(context.WithValue(ctx, subjectKey{}, auth), req)
 		}
 	})
 }
 
 func Subject(ctx context.Context) (authoritydomain.Principal, authorityapp.RuntimeProof, error) {
-	authentication, ok := ctx.Value(subjectKey{}).(authorityapp.RuntimeAuthentication)
-	if !ok || !authentication.Valid() {
-		return authoritydomain.Principal{}, authorityapp.RuntimeProof{}, unauthenticated()
+	a, ok := ctx.Value(subjectKey{}).(authorityapp.RuntimeAuthentication)
+	if !ok || !a.Valid() {
+		return authoritydomain.Principal{}, authorityapp.RuntimeProof{}, unauth()
 	}
-	return authentication.Principal, authentication.Proof, nil
+	return a.Principal, a.Proof, nil
 }
 
 func bearerToken(values []string) (string, bool) {
@@ -63,12 +72,12 @@ func bearerToken(values []string) (string, bool) {
 		return "", false
 	}
 	prefix, token, ok := strings.Cut(values[0], " ")
-	if !ok || prefix != "Bearer" || !runtimeTokenPattern.MatchString(token) {
+	if !ok || prefix != "Bearer" || !validRuntimeToken(token) {
 		return "", false
 	}
 	return token, true
 }
 
-func unauthenticated() error {
+func unauth() error {
 	return connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication invalid"))
 }

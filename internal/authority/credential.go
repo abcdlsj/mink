@@ -7,16 +7,28 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"syscall"
 )
 
-var credentialPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43,128}$`)
+const minCredLen = 43
+const maxCredLen = 128
+
+func validCred(s string) bool {
+	if n := len(s); n < minCredLen || n > maxCredLen {
+		return false
+	}
+	for _, r := range s {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
 
 func EnsureBootstrapCredential(path string, authorityExists bool) (string, error) {
-	credential, err := ReadCredentialFile(path)
+	cred, err := ReadCredentialFile(path)
 	if err == nil {
-		return credential, nil
+		return cred, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		return "", err
@@ -24,28 +36,27 @@ func EnsureBootstrapCredential(path string, authorityExists bool) (string, error
 	if authorityExists {
 		return "", fmt.Errorf("bootstrap credential missing: %w", os.ErrNotExist)
 	}
-
-	random := make([]byte, 32)
-	if _, err := rand.Read(random); err != nil {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("generate bootstrap credential: %w", err)
 	}
-	credential = base64.RawURLEncoding.EncodeToString(random)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	cred = base64.RawURLEncoding.EncodeToString(buf)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
 		return ReadCredentialFile(path)
 	}
 	if err != nil {
 		return "", fmt.Errorf("create bootstrap credential: %w", err)
 	}
-	if _, err := file.WriteString(credential); err != nil {
-		file.Close()
+	if _, err := f.WriteString(cred); err != nil {
+		f.Close()
 		return "", fmt.Errorf("write bootstrap credential: %w", err)
 	}
-	if err := file.Sync(); err != nil {
-		file.Close()
+	if err := f.Sync(); err != nil {
+		f.Close()
 		return "", fmt.Errorf("sync bootstrap credential: %w", err)
 	}
-	if err := file.Close(); err != nil {
+	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("close bootstrap credential: %w", err)
 	}
 	return ReadCredentialFile(path)
@@ -56,13 +67,13 @@ func ReadCredentialFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	file := os.NewFile(uintptr(fd), path)
-	if file == nil {
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
 		syscall.Close(fd)
 		return "", fmt.Errorf("open credential file")
 	}
-	defer file.Close()
-	info, err := file.Stat()
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return "", fmt.Errorf("inspect credential file: %w", err)
 	}
@@ -72,17 +83,17 @@ func ReadCredentialFile(path string) (string, error) {
 	if info.Mode().Perm() != 0o600 {
 		return "", fmt.Errorf("credential file mode is %o, want 600", info.Mode().Perm())
 	}
-	payload, err := io.ReadAll(io.LimitReader(file, 129))
+	payload, err := io.ReadAll(io.LimitReader(f, maxCredLen+1))
 	if err != nil {
 		return "", fmt.Errorf("read credential file: %w", err)
 	}
-	credential := string(payload)
-	if !credentialPattern.MatchString(credential) {
+	cred := string(payload)
+	if !validCred(cred) {
 		return "", fmt.Errorf("credential file does not contain a high-entropy credential")
 	}
-	return credential, nil
+	return cred, nil
 }
 
-func ValidCredential(credential string) bool {
-	return credentialPattern.MatchString(credential)
+func ValidCredential(cred string) bool {
+	return validCred(cred)
 }
