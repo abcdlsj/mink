@@ -18,59 +18,59 @@ func NewOpenAIResponses(config HTTPConfig) (*OpenAIResponses, error) {
 	return &OpenAIResponses{config: config}, nil
 }
 
-func (client *OpenAIResponses) Complete(ctx context.Context, request Request) (Response, error) {
-	input := make([]openAIInput, 0, len(request.Messages))
-	for _, message := range request.Messages {
-		switch message.Role {
+func (c *OpenAIResponses) Complete(ctx context.Context, r Request) (Response, error) {
+	input := make([]openAIInput, 0, len(r.Messages))
+	for _, m := range r.Messages {
+		switch m.Role {
 		case RoleUser:
-			input = append(input, openAIInput{Role: string(message.Role), Content: message.Text})
+			input = append(input, openAIInput{Role: string(m.Role), Content: m.Text})
 		case RoleAssistant:
-			if message.Text != "" {
-				input = append(input, openAIInput{Role: string(message.Role), Content: message.Text})
+			if m.Text != "" {
+				input = append(input, openAIInput{Role: string(m.Role), Content: m.Text})
 			}
-			for _, call := range message.ToolCalls {
+			for _, call := range m.ToolCalls {
 				input = append(input, openAIInput{
 					Type: "function_call", CallID: call.ID, Name: call.Name, Arguments: string(call.Arguments),
 				})
 			}
 		case RoleTool:
-			input = append(input, openAIInput{Type: "function_call_output", CallID: message.ToolCallID, Output: message.Text})
+			input = append(input, openAIInput{Type: "function_call_output", CallID: m.ToolCallID, Output: m.Text})
 		default:
 			return Response{}, errors.New("OpenAI request message role is invalid")
 		}
 	}
-	tools := make([]openAITool, 0, len(request.Tools))
-	for _, tool := range request.Tools {
-		tools = append(tools, openAITool{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.Schema, Strict: true})
+	tools := make([]openAITool, 0, len(r.Tools))
+	for _, t := range r.Tools {
+		tools = append(tools, openAITool{Type: "function", Name: t.Name, Description: t.Description, Parameters: t.Schema, Strict: true})
 	}
-	payload := openAIRequest{Model: client.config.Model, Instructions: request.System, Input: input, Tools: tools}
+	payload := openAIRequest{Model: c.config.Model, Instructions: r.System, Input: input, Tools: tools}
 	var wire openAIResponse
-	if err := postJSON(ctx, client.config.Client, endpointWithDefaultPath(client.config.Endpoint, "/v1/responses"), map[string]string{
-		"Authorization": "Bearer " + client.config.APIKey,
+	if err := postJSON(ctx, c.config.Client, endpointWithDefaultPath(c.config.Endpoint, "/v1/responses"), map[string]string{
+		"Authorization": "Bearer " + c.config.APIKey,
 	}, payload, &wire); err != nil {
 		return Response{}, err
 	}
-	result := Response{ID: wire.ID, Usage: Usage{InputUnits: wire.Usage.InputTokens, OutputUnits: wire.Usage.OutputTokens}}
-	for _, output := range wire.Output {
-		switch output.Type {
+	out := Response{ID: wire.ID, Usage: Usage{InputUnits: wire.Usage.InputTokens, OutputUnits: wire.Usage.OutputTokens}}
+	for _, o := range wire.Output {
+		switch o.Type {
 		case "message":
-			for _, content := range output.Content {
-				if content.Type == "output_text" {
-					result.Text += content.Text
+			for _, ct := range o.Content {
+				if ct.Type == "output_text" {
+					out.Text += ct.Text
 				}
 			}
 		case "function_call":
-			arguments := json.RawMessage(output.Arguments)
-			if !json.Valid(arguments) {
-				return Response{}, fmt.Errorf("OpenAI tool call %q returned invalid arguments", output.Name)
+			args := json.RawMessage(o.Arguments)
+			if !json.Valid(args) {
+				return Response{}, fmt.Errorf("OpenAI tool call %q returned invalid arguments", o.Name)
 			}
-			result.ToolCalls = append(result.ToolCalls, ToolCall{ID: output.CallID, Name: output.Name, Arguments: arguments})
+			out.ToolCalls = append(out.ToolCalls, ToolCall{ID: o.CallID, Name: o.Name, Arguments: args})
 		}
 	}
-	if err := result.Validate(); err != nil {
+	if err := out.Validate(); err != nil {
 		return Response{}, err
 	}
-	return result, nil
+	return out, nil
 }
 
 type openAIRequest struct {

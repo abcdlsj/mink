@@ -31,57 +31,57 @@ func NewCore(assembler engine.ContextAssembler, model provider.Client, gateway *
 	return &Core{assembler: assembler, provider: model, gateway: gateway, timeout: timeout, maxOutput: maxOutput}, nil
 }
 
-func (core *Core) Execute(ctx context.Context, execution computerruntime.Execution) (computerruntime.Completion, error) {
-	runInput, err := core.assembler.Build(execution)
+func (c *Core) Execute(ctx context.Context, exec computerruntime.Execution) (computerruntime.Completion, error) {
+	in, err := c.assembler.Build(exec)
 	if err != nil {
 		return computerruntime.Completion{}, err
 	}
-	prompt, err := runInput.Prompt()
+	prompt, err := in.Prompt()
 	if err != nil {
 		return computerruntime.Completion{}, err
 	}
-	runContext := tool.RunContext{
-		AgentID: execution.AgentID, ComputerID: execution.ComputerID, RunID: execution.RunID,
-		Attempt: execution.Attempt, Fence: execution.Fence, PlacementDesiredRevision: execution.PlacementDesiredRevision,
+	rctx := tool.RunContext{
+		AgentID: exec.AgentID, ComputerID: exec.ComputerID, RunID: exec.RunID,
+		Attempt: exec.Attempt, Fence: exec.Fence, PlacementDesiredRevision: exec.PlacementDesiredRevision,
 	}
-	defer core.gateway.Finish(runContext)
-	request := provider.Request{
+	defer c.gateway.Finish(rctx)
+	req := provider.Request{
 		System:   engine.SystemContract + "\n\n" + prompt.Sections[1].Text,
 		Messages: []provider.Message{{Role: provider.RoleUser, Text: contextText(prompt.Sections[2:])}},
-		Tools:    core.gateway.Definitions(),
+		Tools:    c.gateway.Definitions(),
 	}
-	runCtx, cancel := context.WithTimeout(ctx, core.timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	var usage computerruntime.Usage
 	for range maxModelTurns {
-		response, err := core.provider.Complete(runCtx, request)
+		resp, err := c.provider.Complete(ctx, req)
 		if err != nil {
 			return computerruntime.Completion{}, err
 		}
-		usage.InputUnits += response.Usage.InputUnits
-		usage.OutputUnits += response.Usage.OutputUnits
-		if len(response.ToolCalls) == 0 {
-			if strings.TrimSpace(response.Text) == "" {
+		usage.InputUnits += resp.Usage.InputUnits
+		usage.OutputUnits += resp.Usage.OutputUnits
+		if len(resp.ToolCalls) == 0 {
+			if strings.TrimSpace(resp.Text) == "" {
 				return computerruntime.Completion{}, errors.New("provider returned an empty final response")
 			}
-			if uint64(len(response.Text)) > core.maxOutput {
+			if uint64(len(resp.Text)) > c.maxOutput {
 				return computerruntime.Completion{}, errors.New("provider final response exceeds output bound")
 			}
-			return computerruntime.Completion{Outcome: computerruntime.OutcomeSucceeded, Body: response.Text, Usage: usage}, nil
+			return computerruntime.Completion{Outcome: computerruntime.OutcomeSucceeded, Body: resp.Text, Usage: usage}, nil
 		}
-		request.Messages = append(request.Messages, provider.Message{Role: provider.RoleAssistant, Text: response.Text, ToolCalls: response.ToolCalls})
-		for _, call := range response.ToolCalls {
-			result, executeErr := core.gateway.Execute(runCtx, runContext, call)
-			if executeErr != nil {
-				result, _ = json.Marshal(map[string]any{"ok": false, "error": stableToolError(executeErr)})
+		req.Messages = append(req.Messages, provider.Message{Role: provider.RoleAssistant, Text: resp.Text, ToolCalls: resp.ToolCalls})
+		for _, call := range resp.ToolCalls {
+			result, err := c.gateway.Execute(ctx, rctx, call)
+			if err != nil {
+				result, _ = json.Marshal(map[string]any{"ok": false, "error": stableToolError(err)})
 			}
-			request.Messages = append(request.Messages, provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Text: string(result)})
+			req.Messages = append(req.Messages, provider.Message{Role: provider.RoleTool, ToolCallID: call.ID, Text: string(result)})
 		}
 	}
 	return computerruntime.Completion{}, errors.New("builtin model loop exceeded turn limit")
 }
 
-func (core *Core) Close() error { return nil }
+func (c *Core) Close() error { return nil }
 
 func contextText(sections []engine.Section) string {
 	var builder strings.Builder

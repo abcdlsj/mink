@@ -101,28 +101,28 @@ func NewGateway(config Config) (*Gateway, error) {
 	}, nil
 }
 
-func (gateway *Gateway) Definitions() []provider.Tool {
-	definitions := make([]provider.Tool, 0, len(gateway.tools))
-	for _, definition := range gateway.tools {
-		definitions = append(definitions, provider.Tool{Name: definition.Name, Description: definition.Description, Schema: append(json.RawMessage(nil), definition.Schema...)})
+func (g *Gateway) Definitions() []provider.Tool {
+	out := make([]provider.Tool, 0, len(g.tools))
+	for _, d := range g.tools {
+		out = append(out, provider.Tool{Name: d.Name, Description: d.Description, Schema: append(json.RawMessage(nil), d.Schema...)})
 	}
-	sort.Slice(definitions, func(left, right int) bool { return definitions[left].Name < definitions[right].Name })
-	return definitions
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
-func (gateway *Gateway) Execute(ctx context.Context, run RunContext, call provider.ToolCall) (json.RawMessage, error) {
-	if !run.Valid() || call.ID == "" || call.Name == "" || len(call.Arguments) == 0 || len(call.Arguments) > gateway.maxArguments || !json.Valid(call.Arguments) {
+func (g *Gateway) Execute(ctx context.Context, run RunContext, call provider.ToolCall) (json.RawMessage, error) {
+	if !run.Valid() || call.ID == "" || call.Name == "" || len(call.Arguments) == 0 || len(call.Arguments) > g.maxArguments || !json.Valid(call.Arguments) {
 		return nil, ErrInvalidCall
 	}
-	definition, found := gateway.tools[call.Name]
+	d, found := g.tools[call.Name]
 	if !found {
 		return nil, ErrDenied
 	}
-	if err := definition.Validate(call.Arguments); err != nil {
+	if err := d.Validate(call.Arguments); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidCall, err)
 	}
 	hash := sha256.Sum256(append([]byte(call.Name+"\x00"), call.Arguments...))
-	stored, found, err := gateway.store.Load(ctx, run, call.ID)
+	stored, found, err := g.store.Load(ctx, run, call.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load tool result: %w", err)
 	}
@@ -132,46 +132,46 @@ func (gateway *Gateway) Execute(ctx context.Context, run RunContext, call provid
 		}
 		return append(json.RawMessage(nil), stored.Result...), nil
 	}
-	if err := gateway.consumeBudget(run); err != nil {
+	if err := g.consumeBudget(run); err != nil {
 		return nil, err
 	}
-	if err := gateway.authorizer.Authorize(ctx, run, definition.Capability, definition.Scope); err != nil {
+	if err := g.authorizer.Authorize(ctx, run, d.Capability, d.Scope); err != nil {
 		return nil, ErrDenied
 	}
-	toolContext, cancel := context.WithTimeout(ctx, gateway.timeout)
+	toolCtx, cancel := context.WithTimeout(ctx, g.timeout)
 	defer cancel()
 	call.Arguments = append(json.RawMessage(nil), call.Arguments...)
-	result, err := definition.Execute(toolContext, run, call)
+	result, err := d.Execute(toolCtx, run, call)
 	if err != nil {
 		return nil, fmt.Errorf("execute tool: %w", err)
 	}
-	if len(result) == 0 || len(result) > gateway.maxResult || !json.Valid(result) {
+	if len(result) == 0 || len(result) > g.maxResult || !json.Valid(result) {
 		return nil, errors.New("tool result is invalid or exceeds its bound")
 	}
 	record := StoredResult{RequestHash: hash, Result: append(json.RawMessage(nil), result...)}
-	if err := gateway.store.Save(ctx, run, call.ID, record); err != nil {
+	if err := g.store.Save(ctx, run, call.ID, record); err != nil {
 		return nil, fmt.Errorf("persist tool result: %w", err)
 	}
 	return append(json.RawMessage(nil), result...), nil
 }
 
-func (gateway *Gateway) Finish(run RunContext) {
+func (g *Gateway) Finish(run RunContext) {
 	if !run.Valid() {
 		return
 	}
-	gateway.mu.Lock()
-	delete(gateway.calls, budgetKey(run))
-	gateway.mu.Unlock()
+	g.mu.Lock()
+	delete(g.calls, budgetKey(run))
+	g.mu.Unlock()
 }
 
-func (gateway *Gateway) consumeBudget(run RunContext) error {
+func (g *Gateway) consumeBudget(run RunContext) error {
 	key := budgetKey(run)
-	gateway.mu.Lock()
-	defer gateway.mu.Unlock()
-	if gateway.calls[key] >= gateway.maxCalls {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.calls[key] >= g.maxCalls {
 		return ErrBudgetExceeded
 	}
-	gateway.calls[key]++
+	g.calls[key]++
 	return nil
 }
 

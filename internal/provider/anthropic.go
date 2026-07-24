@@ -17,54 +17,54 @@ func NewAnthropicMessages(config HTTPConfig) (*AnthropicMessages, error) {
 	return &AnthropicMessages{config: config}, nil
 }
 
-func (client *AnthropicMessages) Complete(ctx context.Context, request Request) (Response, error) {
-	messages := make([]anthropicMessage, 0, len(request.Messages))
-	for _, message := range request.Messages {
-		switch message.Role {
+func (c *AnthropicMessages) Complete(ctx context.Context, r Request) (Response, error) {
+	msgs := make([]anthropicMessage, 0, len(r.Messages))
+	for _, m := range r.Messages {
+		switch m.Role {
 		case RoleUser:
-			messages = append(messages, anthropicMessage{Role: string(message.Role), Content: []anthropicContent{{Type: "text", Text: message.Text}}})
+			msgs = append(msgs, anthropicMessage{Role: string(m.Role), Content: []anthropicContent{{Type: "text", Text: m.Text}}})
 		case RoleAssistant:
-			content := make([]anthropicContent, 0, 1+len(message.ToolCalls))
-			if message.Text != "" {
-				content = append(content, anthropicContent{Type: "text", Text: message.Text})
+			content := make([]anthropicContent, 0, 1+len(m.ToolCalls))
+			if m.Text != "" {
+				content = append(content, anthropicContent{Type: "text", Text: m.Text})
 			}
-			for _, call := range message.ToolCalls {
+			for _, call := range m.ToolCalls {
 				content = append(content, anthropicContent{Type: "tool_use", ID: call.ID, Name: call.Name, Input: call.Arguments})
 			}
 			if len(content) == 0 {
 				return Response{}, errors.New("anthropic assistant continuation is empty")
 			}
-			messages = append(messages, anthropicMessage{Role: "assistant", Content: content})
+			msgs = append(msgs, anthropicMessage{Role: "assistant", Content: content})
 		case RoleTool:
-			messages = append(messages, anthropicMessage{Role: "user", Content: []anthropicContent{{Type: "tool_result", ToolUseID: message.ToolCallID, Content: message.Text}}})
+			msgs = append(msgs, anthropicMessage{Role: "user", Content: []anthropicContent{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Text}}})
 		default:
 			return Response{}, errors.New("anthropic request message role is invalid")
 		}
 	}
-	tools := make([]anthropicTool, 0, len(request.Tools))
-	for _, tool := range request.Tools {
-		tools = append(tools, anthropicTool{Name: tool.Name, Description: tool.Description, InputSchema: tool.Schema})
+	tools := make([]anthropicTool, 0, len(r.Tools))
+	for _, t := range r.Tools {
+		tools = append(tools, anthropicTool{Name: t.Name, Description: t.Description, InputSchema: t.Schema})
 	}
-	payload := anthropicRequest{Model: client.config.Model, MaxTokens: 8192, System: request.System, Messages: messages, Tools: tools}
+	payload := anthropicRequest{Model: c.config.Model, MaxTokens: 8192, System: r.System, Messages: msgs, Tools: tools}
 	var wire anthropicResponse
-	if err := postJSON(ctx, client.config.Client, endpointWithDefaultPath(client.config.Endpoint, "/v1/messages"), map[string]string{
-		"x-api-key": client.config.APIKey, "anthropic-version": "2023-06-01",
+	if err := postJSON(ctx, c.config.Client, endpointWithDefaultPath(c.config.Endpoint, "/v1/messages"), map[string]string{
+		"x-api-key": c.config.APIKey, "anthropic-version": "2023-06-01",
 	}, payload, &wire); err != nil {
 		return Response{}, err
 	}
-	result := Response{ID: wire.ID, Usage: Usage{InputUnits: wire.Usage.InputTokens, OutputUnits: wire.Usage.OutputTokens}}
-	for _, content := range wire.Content {
-		switch content.Type {
+	out := Response{ID: wire.ID, Usage: Usage{InputUnits: wire.Usage.InputTokens, OutputUnits: wire.Usage.OutputTokens}}
+	for _, ct := range wire.Content {
+		switch ct.Type {
 		case "text":
-			result.Text += content.Text
+			out.Text += ct.Text
 		case "tool_use":
-			result.ToolCalls = append(result.ToolCalls, ToolCall{ID: content.ID, Name: content.Name, Arguments: content.Input})
+			out.ToolCalls = append(out.ToolCalls, ToolCall{ID: ct.ID, Name: ct.Name, Arguments: ct.Input})
 		}
 	}
-	if err := result.Validate(); err != nil {
+	if err := out.Validate(); err != nil {
 		return Response{}, err
 	}
-	return result, nil
+	return out, nil
 }
 
 type anthropicRequest struct {
