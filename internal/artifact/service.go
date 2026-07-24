@@ -12,11 +12,9 @@ import (
 	"connectrpc.com/connect"
 	artifactv1 "github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
-	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
-	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
-	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -38,35 +36,37 @@ type Service struct {
 
 var _ artifactv1connect.ArtifactServiceHandler = (*Service)(nil)
 
-func New(artifacts artifactStore, authentication authenticator, browserOrigin string) *Service {
+func New(artifacts artifactStore, authenticator authenticator, browserOrigin string) *Service {
 	return &Service{
 		store: artifacts,
 		authentication: authenticationResolver{
-			authenticator: authentication,
+			authenticator: authenticator,
 			origin:        browserOrigin,
 		},
 		now: time.Now,
 	}
 }
 
+// ── Handlers ─────────────────────────────────────────────────
+
 func (s *Service) PublishArtifact(ctx context.Context, stream *connect.ClientStream[artifactv1.PublishArtifactRequest]) (*connect.Response[artifactv1.PublishArtifactResponse], error) {
 	now := s.now()
-	authentication, err := s.authentication.resolve(ctx, stream.RequestHeader(), true, now)
+	auth, err := s.authentication.resolve(ctx, stream.RequestHeader(), true, now)
 	if err != nil {
 		return nil, err
 	}
 	if !stream.Receive() {
 		if stream.Err() != nil {
-			return nil, internalError()
+			return nil, servicesvc.ErrInternal
 		}
-		return nil, invalidArgument("artifact metadata is required")
+		return nil, servicesvc.InvalArg("artifact metadata is required")
 	}
-	metadata := stream.Msg().GetMetadata()
-	if metadata == nil {
-		return nil, invalidArgument("artifact metadata must be the first frame")
+	meta := stream.Msg().GetMetadata()
+	if meta == nil {
+		return nil, servicesvc.InvalArg("artifact metadata must be the first frame")
 	}
 	content := &publishReader{stream: stream}
-	params, err := publishParams(authentication, metadata, content, now)
+	params, err := buildPublishParams(auth, meta, content, now)
 	if err != nil {
 		return nil, err
 	}
@@ -74,14 +74,14 @@ func (s *Service) PublishArtifact(ctx context.Context, stream *connect.ClientStr
 	if content.serviceError != nil {
 		return nil, content.serviceError
 	}
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	artifact, err := artifactMessage(result.Artifact, false)
+	artifact, err := artifactToProto(result.Artifact, false)
 	if err != nil {
 		return nil, err
 	}
-	version, err := publishedVersionMessage(result.Version)
+	version, err := versionToProto(result.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -90,85 +90,86 @@ func (s *Service) PublishArtifact(ctx context.Context, stream *connect.ClientStr
 	}), nil
 }
 
-func (s *Service) GetArtifact(ctx context.Context, request *connect.Request[artifactv1.GetArtifactRequest]) (*connect.Response[artifactv1.GetArtifactResponse], error) {
-	authentication, artifactID, version, now, err := s.readParams(ctx, request.Header(), request.Msg.GetArtifactId(), request.Msg.GetVersion())
+func (s *Service) GetArtifact(ctx context.Context, req *connect.Request[artifactv1.GetArtifactRequest]) (*connect.Response[artifactv1.GetArtifactResponse], error) {
+	auth, artifactID, version, now, err := s.readParams(ctx, req.Header(), req.Msg.GetArtifactId(), req.Msg.GetVersion())
 	if err != nil {
 		return nil, err
 	}
 	view, err := s.store.Get(ctx, artifactapp.GetQuery{
-		Authentication: authentication, ArtifactID: artifactID, Version: version, Now: now,
+		Authentication: auth, ArtifactID: artifactID, Version: version, Now: now,
 	})
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	message, err := artifactViewMessage(view)
+	msg, err := viewToProto(view)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&artifactv1.GetArtifactResponse{View: message}), nil
+	return connect.NewResponse(&artifactv1.GetArtifactResponse{View: msg}), nil
 }
 
-func (s *Service) ListArtifacts(ctx context.Context, request *connect.Request[artifactv1.ListArtifactsRequest]) (*connect.Response[artifactv1.ListArtifactsResponse], error) {
+func (s *Service) ListArtifacts(ctx context.Context, req *connect.Request[artifactv1.ListArtifactsRequest]) (*connect.Response[artifactv1.ListArtifactsResponse], error) {
 	now := s.now()
-	authentication, err := s.authentication.resolve(ctx, request.Header(), false, now)
+	auth, err := s.authentication.resolve(ctx, req.Header(), false, now)
 	if err != nil {
 		return nil, err
 	}
 	workID := ""
-	if request.Msg.GetOwningWorkId() != "" {
-		workID, err = connectid.CanonicalID(request.Msg.GetOwningWorkId(), "owning work id")
+	if req.Msg.GetOwningWorkId() != "" {
+		workID, err = connectid.CanonicalID(req.Msg.GetOwningWorkId(), "owning work id")
 		if err != nil {
 			return nil, err
 		}
 	}
 	afterID := ""
-	if request.Msg.GetAfterArtifactId() != "" {
-		afterID, err = connectid.CanonicalID(request.Msg.GetAfterArtifactId(), "artifact cursor")
+	if req.Msg.GetAfterArtifactId() != "" {
+		afterID, err = connectid.CanonicalID(req.Msg.GetAfterArtifactId(), "artifact cursor")
 		if err != nil {
 			return nil, err
 		}
 	}
-	limit := request.Msg.GetLimit()
+	limit := req.Msg.GetLimit()
 	if limit == 0 {
 		limit = 50
 	}
 	if limit > 200 {
-		return nil, invalidArgument("artifact list limit must be at most 200")
+		return nil, servicesvc.InvalArg("artifact list limit must be at most 200")
 	}
 	result, err := s.store.List(ctx, artifactapp.ListQuery{
-		Authentication: authentication, OwningWorkID: workID, AfterArtifactID: afterID, Limit: limit, Now: now,
+		Authentication: auth, OwningWorkID: workID, AfterArtifactID: afterID, Limit: limit, Now: now,
 	})
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	response := &artifactv1.ListArtifactsResponse{
-		Views: make([]*artifactv1.ArtifactView, 0, len(result.Views)), NextArtifactId: result.NextArtifactID,
+	resp := &artifactv1.ListArtifactsResponse{
+		Views: make([]*artifactv1.ArtifactView, 0, len(result.Views)),
+		NextArtifactId: result.NextArtifactID,
 	}
-	for _, view := range result.Views {
-		message, err := artifactViewMessage(view)
+	for _, v := range result.Views {
+		msg, err := viewToProto(v)
 		if err != nil {
 			return nil, err
 		}
-		response.Views = append(response.Views, message)
+		resp.Views = append(resp.Views, msg)
 	}
-	return connect.NewResponse(response), nil
+	return connect.NewResponse(resp), nil
 }
 
-func (s *Service) GrantArtifact(ctx context.Context, request *connect.Request[artifactv1.GrantArtifactRequest]) (*connect.Response[artifactv1.GrantArtifactResponse], error) {
+func (s *Service) GrantArtifact(ctx context.Context, req *connect.Request[artifactv1.GrantArtifactRequest]) (*connect.Response[artifactv1.GrantArtifactResponse], error) {
 	now := s.now()
-	authentication, err := s.authentication.resolve(ctx, request.Header(), true, now)
+	auth, err := s.authentication.resolve(ctx, req.Header(), true, now)
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	artifactID, err := connectid.CanonicalID(request.Msg.GetArtifactId(), "artifact id")
+	artifactID, err := connectid.CanonicalID(req.Msg.GetArtifactId(), "artifact id")
 	if err != nil {
 		return nil, err
 	}
-	targetKind, targetValue, capability, err := artifactGrantParams(request.Msg.GetTarget(), request.Msg.GetCapability())
+	targetKind, targetValue, capability, err := grantTargetParams(req.Msg.GetTarget(), req.Msg.GetCapability())
 	if err != nil {
 		return nil, err
 	}
@@ -177,95 +178,97 @@ func (s *Service) GrantArtifact(ctx context.Context, request *connect.Request[ar
 		return nil, err
 	}
 	grant, err := s.store.Grant(ctx, artifactapp.GrantCommand{
-		RequestID: requestID, Authentication: authentication, ArtifactID: artifactID,
+		RequestID: requestID, Authentication: auth, ArtifactID: artifactID,
 		TargetKind: targetKind, TargetID: targetID, Capability: capability, Now: now,
 	})
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	message, err := artifactGrantMessage(grant)
+	msg, err := grantToProto(grant)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&artifactv1.GrantArtifactResponse{Grant: message}), nil
+	return connect.NewResponse(&artifactv1.GrantArtifactResponse{Grant: msg}), nil
 }
 
-func (s *Service) RevokeArtifactGrant(ctx context.Context, request *connect.Request[artifactv1.RevokeArtifactGrantRequest]) (*connect.Response[artifactv1.RevokeArtifactGrantResponse], error) {
+func (s *Service) RevokeArtifactGrant(ctx context.Context, req *connect.Request[artifactv1.RevokeArtifactGrantRequest]) (*connect.Response[artifactv1.RevokeArtifactGrantResponse], error) {
 	now := s.now()
-	authentication, err := s.authentication.resolve(ctx, request.Header(), true, now)
+	auth, err := s.authentication.resolve(ctx, req.Header(), true, now)
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	grantID, err := connectid.CanonicalID(request.Msg.GetGrantId(), "artifact grant id")
+	grantID, err := connectid.CanonicalID(req.Msg.GetGrantId(), "artifact grant id")
 	if err != nil {
 		return nil, err
 	}
 	grant, err := s.store.RevokeGrant(ctx, artifactapp.RevokeGrantCommand{
-		RequestID: requestID, Authentication: authentication, GrantID: grantID, Now: now,
+		RequestID: requestID, Authentication: auth, GrantID: grantID, Now: now,
 	})
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	message, err := artifactGrantMessage(grant)
+	msg, err := grantToProto(grant)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&artifactv1.RevokeArtifactGrantResponse{Grant: message}), nil
+	return connect.NewResponse(&artifactv1.RevokeArtifactGrantResponse{Grant: msg}), nil
 }
 
-func (s *Service) FetchArtifact(ctx context.Context, request *connect.Request[artifactv1.FetchArtifactRequest], stream *connect.ServerStream[artifactv1.FetchArtifactResponse]) error {
-	authentication, artifactID, version, now, err := s.readParams(ctx, request.Header(), request.Msg.GetArtifactId(), request.Msg.GetVersion())
+func (s *Service) FetchArtifact(ctx context.Context, req *connect.Request[artifactv1.FetchArtifactRequest], stream *connect.ServerStream[artifactv1.FetchArtifactResponse]) error {
+	auth, artifactID, version, now, err := s.readParams(ctx, req.Header(), req.Msg.GetArtifactId(), req.Msg.GetVersion())
 	if err != nil {
 		return err
 	}
 	result, err := s.store.Fetch(ctx, artifactapp.FetchQuery{
-		Authentication: authentication, ArtifactID: artifactID, Version: version, Now: now,
+		Authentication: auth, ArtifactID: artifactID, Version: version, Now: now,
 	})
-	if err := serviceError(err); err != nil {
+	if err := servicesvc.ServiceErr(err); err != nil {
 		return err
 	}
 	defer result.Content.Close()
-	artifact, err := artifactMessage(result.Artifact, result.Artifact.OwningWorkID == "")
+
+	artifact, err := artifactToProto(result.Artifact, result.Artifact.OwningWorkID == "")
 	if err != nil {
 		return err
 	}
-	versionMessage, err := versionViewMessage(result.Version)
+	versionMsg, err := versionViewToProto(result.Version)
 	if err != nil {
 		return err
 	}
 	if err := stream.Send(&artifactv1.FetchArtifactResponse{Payload: &artifactv1.FetchArtifactResponse_Metadata{
-		Metadata: &artifactv1.FetchArtifactMetadata{View: &artifactv1.ArtifactView{Artifact: artifact, Version: versionMessage}},
+		Metadata: &artifactv1.FetchArtifactMetadata{
+			View: &artifactv1.ArtifactView{Artifact: artifact, Version: versionMsg},
+		},
 	}}); err != nil {
 		return err
 	}
-	buffer := make([]byte, artifactblob.MaxChunkSize)
+	buf := make([]byte, artifactblob.MaxChunkSize)
 	for {
-		read, readErr := result.Content.Read(buffer)
-		if read > 0 {
-			chunk := append([]byte(nil), buffer[:read]...)
-			if err := stream.Send(&artifactv1.FetchArtifactResponse{Payload: &artifactv1.FetchArtifactResponse_Chunk{Chunk: chunk}}); err != nil {
+		n, readErr := result.Content.Read(buf)
+		if n > 0 {
+			chunk := append([]byte(nil), buf[:n]...)
+			if err := stream.Send(&artifactv1.FetchArtifactResponse{
+				Payload: &artifactv1.FetchArtifactResponse_Chunk{Chunk: chunk},
+			}); err != nil {
 				return err
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
 			return nil
 		}
-		if readErr != nil {
-			return internalError()
-		}
-		if read == 0 {
-			return internalError()
+		if readErr != nil || n == 0 {
+			return servicesvc.ErrInternal
 		}
 	}
 }
 
 func (s *Service) readParams(ctx context.Context, header http.Header, artifactIDValue string, versionValue uint64) (artifactapp.Authentication, string, uint64, time.Time, error) {
 	now := s.now()
-	authentication, err := s.authentication.resolve(ctx, header, false, now)
+	auth, err := s.authentication.resolve(ctx, header, false, now)
 	if err != nil {
 		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
@@ -273,12 +276,14 @@ func (s *Service) readParams(ctx context.Context, header http.Header, artifactID
 	if err != nil {
 		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
-	version, err := artifactVersionParam(versionValue)
+	v, err := parseVersion(versionValue)
 	if err != nil {
 		return artifactapp.Authentication{}, "", 0, time.Time{}, err
 	}
-	return authentication, artifactID, version, now, nil
+	return auth, artifactID, v, now, nil
 }
+
+// ── Streaming reader ─────────────────────────────────────────
 
 type publishReader struct {
 	stream       *connect.ClientStream[artifactv1.PublishArtifactRequest]
@@ -287,26 +292,26 @@ type publishReader struct {
 	serviceError error
 }
 
-func (r *publishReader) Read(buffer []byte) (int, error) {
+func (r *publishReader) Read(buf []byte) (int, error) {
 	if len(r.pending) > 0 {
-		read := copy(buffer, r.pending)
-		r.pending = r.pending[read:]
-		return read, nil
+		n := copy(buf, r.pending)
+		r.pending = r.pending[n:]
+		return n, nil
 	}
 	if !r.stream.Receive() {
 		if r.stream.Err() != nil {
-			r.serviceError = internalError()
+			r.serviceError = servicesvc.ErrInternal
 			return 0, errors.New("receive artifact content")
 		}
 		return 0, io.EOF
 	}
 	payload, ok := r.stream.Msg().GetPayload().(*artifactv1.PublishArtifactRequest_Chunk)
 	if !ok || len(payload.Chunk) == 0 {
-		r.serviceError = invalidArgument("artifact content frames must be non-empty chunks")
+		r.serviceError = servicesvc.InvalArg("artifact content frames must be non-empty chunks")
 		return 0, errors.New("invalid artifact content frame")
 	}
 	if len(payload.Chunk) > artifactblob.MaxChunkSize {
-		r.serviceError = invalidArgument("artifact content chunk exceeds 64 KiB")
+		r.serviceError = servicesvc.InvalArg("artifact content chunk exceeds 64 KiB")
 		return 0, errors.New("artifact content chunk exceeds limit")
 	}
 	if r.total+int64(len(payload.Chunk)) > artifactblob.MaxBlobSize {
@@ -315,342 +320,289 @@ func (r *publishReader) Read(buffer []byte) (int, error) {
 	}
 	r.total += int64(len(payload.Chunk))
 	r.pending = payload.Chunk
-	return r.Read(buffer)
+	return r.Read(buf)
 }
 
-func publishParams(authentication artifactapp.Authentication, metadata *artifactv1.PublishArtifactMetadata, content io.Reader, now time.Time) (artifactapp.PublishCommand, error) {
-	requestID, err := connectid.CanonicalID(metadata.GetRequestId(), "request id")
+// ── Params ───────────────────────────────────────────────────
+
+func buildPublishParams(auth artifactapp.Authentication, meta *artifactv1.PublishArtifactMetadata, content io.Reader, now time.Time) (artifactapp.PublishCommand, error) {
+	requestID, err := connectid.CanonicalID(meta.GetRequestId(), "request id")
 	if err != nil {
 		return artifactapp.PublishCommand{}, err
 	}
 	artifactID := ""
-	if metadata.GetArtifactId() != "" {
-		artifactID, err = connectid.CanonicalID(metadata.GetArtifactId(), "artifact id")
+	if meta.GetArtifactId() != "" {
+		artifactID, err = connectid.CanonicalID(meta.GetArtifactId(), "artifact id")
 		if err != nil {
 			return artifactapp.PublishCommand{}, err
 		}
 	}
-	workID, err := connectid.CanonicalID(metadata.GetOwningWorkId(), "owning work id")
+	workID, err := connectid.CanonicalID(meta.GetOwningWorkId(), "owning work id")
 	if err != nil {
 		return artifactapp.PublishCommand{}, err
 	}
-	if metadata.GetDeclaredSize() < 0 || metadata.GetDeclaredSize() > artifactblob.MaxBlobSize {
-		return artifactapp.PublishCommand{}, invalidArgument("declared artifact size is invalid")
+	if meta.GetDeclaredSize() < 0 || meta.GetDeclaredSize() > artifactblob.MaxBlobSize {
+		return artifactapp.PublishCommand{}, servicesvc.InvalArg("declared artifact size is invalid")
 	}
-	if len(metadata.GetDeclaredDigest()) != sha256.Size {
-		return artifactapp.PublishCommand{}, invalidArgument("declared artifact digest must be 32 bytes")
+	digest := meta.GetDeclaredDigest()
+	if len(digest) != sha256.Size {
+		return artifactapp.PublishCommand{}, servicesvc.InvalArg("declared artifact digest must be 32 bytes")
 	}
 	var expectedDigest [sha256.Size]byte
-	copy(expectedDigest[:], metadata.GetDeclaredDigest())
-	expectedSize := metadata.GetDeclaredSize()
+	copy(expectedDigest[:], digest)
+	expectedSize := meta.GetDeclaredSize()
+
 	params := artifactapp.PublishCommand{
-		RequestID: requestID, Authentication: authentication, ArtifactID: artifactID,
-		OwningWorkID: workID, Name: metadata.GetName(), MediaType: metadata.GetMediaType(),
-		Summary: metadata.GetSummary(), ExpectedDigest: &expectedDigest, ExpectedSize: &expectedSize,
+		RequestID: requestID, Authentication: auth, ArtifactID: artifactID,
+		OwningWorkID: workID, Name: meta.GetName(), MediaType: meta.GetMediaType(),
+		Summary: meta.GetSummary(), ExpectedDigest: &expectedDigest, ExpectedSize: &expectedSize,
 		Content: content, Now: now,
 	}
-	if metadata.GetExecution() != nil {
-		execution := metadata.GetExecution()
-		runID, err := connectid.CanonicalID(execution.GetRunId(), "run id")
+	if meta.GetExecution() != nil {
+		exec := meta.GetExecution()
+		runID, err := connectid.CanonicalID(exec.GetRunId(), "run id")
 		if err != nil {
 			return artifactapp.PublishCommand{}, err
 		}
-		if execution.GetAttempt() == 0 || execution.GetAttempt() > math.MaxInt64 {
-			return artifactapp.PublishCommand{}, invalidArgument("artifact execution attempt is invalid")
+		if exec.GetAttempt() == 0 || exec.GetAttempt() > math.MaxInt64 {
+			return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact execution attempt is invalid")
 		}
-		if execution.GetFence() == 0 || execution.GetFence() > math.MaxInt64 {
-			return artifactapp.PublishCommand{}, invalidArgument("artifact execution fence is invalid")
+		if exec.GetFence() == 0 || exec.GetFence() > math.MaxInt64 {
+			return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact execution fence is invalid")
 		}
 		params.Execution = &artifactapp.ExecutionInput{
-			RunID: runID, Attempt: execution.GetAttempt(), Fence: execution.GetFence(),
+			RunID: runID, Attempt: exec.GetAttempt(), Fence: exec.GetFence(),
 		}
 	}
-	params.Sources = make([]artifactapp.SourceInput, 0, len(metadata.GetSources()))
-	for _, source := range metadata.GetSources() {
-		if source == nil {
-			return artifactapp.PublishCommand{}, invalidArgument("artifact source is invalid")
+	params.Sources = make([]artifactapp.SourceInput, 0, len(meta.GetSources()))
+	for _, src := range meta.GetSources() {
+		if src == nil {
+			return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact source is invalid")
 		}
-		switch value := source.GetSource().(type) {
+		switch v := src.GetSource().(type) {
 		case *artifactv1.ArtifactSourceInput_MessageId:
-			messageID, err := connectid.CanonicalID(value.MessageId, "artifact source message id")
+			msgID, err := connectid.CanonicalID(v.MessageId, "artifact source message id")
 			if err != nil {
 				return artifactapp.PublishCommand{}, err
 			}
-			params.Sources = append(params.Sources, artifactapp.SourceInput{Kind: artifactapp.SourceMessage, MessageID: messageID})
+			params.Sources = append(params.Sources, artifactapp.SourceInput{Kind: artifactapp.SourceMessage, MessageID: msgID})
 		case *artifactv1.ArtifactSourceInput_ArtifactVersion:
-			if value.ArtifactVersion == nil {
-				return artifactapp.PublishCommand{}, invalidArgument("artifact version source is required")
+			if v.ArtifactVersion == nil {
+				return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact version source is required")
 			}
-			artifactID, err := connectid.CanonicalID(value.ArtifactVersion.GetArtifactId(), "source artifact id")
+			aid, err := connectid.CanonicalID(v.ArtifactVersion.GetArtifactId(), "source artifact id")
 			if err != nil {
 				return artifactapp.PublishCommand{}, err
 			}
-			version, err := requiredArtifactVersionParam(value.ArtifactVersion.GetVersion())
+			ver, err := requireVersion(v.ArtifactVersion.GetVersion())
 			if err != nil {
 				return artifactapp.PublishCommand{}, err
 			}
 			params.Sources = append(params.Sources, artifactapp.SourceInput{
-				Kind: artifactapp.SourceVersion, ArtifactID: artifactID, ArtifactVersion: version,
+				Kind: artifactapp.SourceVersion, ArtifactID: aid, ArtifactVersion: ver,
 			})
 		default:
-			return artifactapp.PublishCommand{}, invalidArgument("artifact source is invalid")
+			return artifactapp.PublishCommand{}, servicesvc.InvalArg("artifact source is invalid")
 		}
 	}
 	return params, nil
 }
 
-func artifactGrantParams(target *artifactv1.ArtifactGrantTarget, capability artifactv1.ArtifactCapability) (string, string, string, error) {
-	targetKind := ""
-	targetID := ""
+func grantTargetParams(target *artifactv1.ArtifactGrantTarget, capability artifactv1.ArtifactCapability) (string, string, string, error) {
 	if target == nil {
-		return "", "", "", invalidArgument("artifact grant target is required")
+		return "", "", "", servicesvc.InvalArg("artifact grant target is required")
 	}
-	switch value := target.GetTarget().(type) {
+	var targetKind, targetID string
+	switch v := target.GetTarget().(type) {
 	case *artifactv1.ArtifactGrantTarget_AgentId:
-		targetKind = artifactapp.GrantTargetAgent
-		targetID = value.AgentId
+		targetKind, targetID = servicesvc.GrantTargetAgent, v.AgentId
 	case *artifactv1.ArtifactGrantTarget_SpaceId:
-		targetKind = artifactapp.GrantTargetSpace
-		targetID = value.SpaceId
+		targetKind, targetID = servicesvc.GrantTargetSpace, v.SpaceId
 	case *artifactv1.ArtifactGrantTarget_WorkId:
-		targetKind = artifactapp.GrantTargetWork
-		targetID = value.WorkId
+		targetKind, targetID = servicesvc.GrantTargetWork, v.WorkId
 	default:
-		return "", "", "", invalidArgument("artifact grant target is invalid")
+		return "", "", "", servicesvc.InvalArg("artifact grant target is invalid")
 	}
-	capabilityName := ""
+	var capName string
 	switch capability {
 	case artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ:
-		capabilityName = artifactapp.GrantRead
+		capName = servicesvc.GrantRead
 	case artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_MANAGE:
-		capabilityName = artifactapp.GrantManage
+		capName = servicesvc.GrantManage
 	default:
-		return "", "", "", invalidArgument("artifact capability is invalid")
+		return "", "", "", servicesvc.InvalArg("artifact capability is invalid")
 	}
-	return targetKind, targetID, capabilityName, nil
+	return targetKind, targetID, capName, nil
 }
 
-func artifactVersionParam(value uint64) (uint64, error) {
-	if value > math.MaxInt64 {
-		return 0, invalidArgument("artifact version is too large")
+func parseVersion(v uint64) (uint64, error) {
+	if v > math.MaxInt64 {
+		return 0, servicesvc.InvalArg("artifact version is too large")
 	}
-	return value, nil
+	return v, nil
 }
 
-func requiredArtifactVersionParam(value uint64) (uint64, error) {
-	if value == 0 {
-		return 0, invalidArgument("artifact version is required")
+func requireVersion(v uint64) (uint64, error) {
+	if v == 0 {
+		return 0, servicesvc.InvalArg("artifact version is required")
 	}
-	return artifactVersionParam(value)
+	return parseVersion(v)
 }
 
-func artifactViewMessage(value artifactapp.View) (*artifactv1.ArtifactView, error) {
-	artifact, err := artifactMessage(value.Artifact, value.OwningWorkRestricted)
+// ── Proto converters ─────────────────────────────────────────
+
+func viewToProto(v artifactapp.View) (*artifactv1.ArtifactView, error) {
+	artifact, err := artifactToProto(v.Artifact, v.OwningWorkRestricted)
 	if err != nil {
 		return nil, err
 	}
-	version, err := versionViewMessage(value.Version)
+	version, err := versionViewToProto(v.Version)
 	if err != nil {
 		return nil, err
 	}
 	return &artifactv1.ArtifactView{Artifact: artifact, Version: version}, nil
 }
 
-func artifactMessage(value artifactapp.Artifact, owningWorkRestricted bool) (*artifactv1.Artifact, error) {
-	creator, err := principalMessage(value.Creator)
+func artifactToProto(a artifactapp.Artifact, restricted bool) (*artifactv1.Artifact, error) {
+	creator, err := servicesvc.ToPrincipal(a.Creator)
 	if err != nil {
 		return nil, err
 	}
 	return &artifactv1.Artifact{
-		Id: value.ID, OrganizationId: value.OrganizationID, OwningWorkId: value.OwningWorkID,
-		OwningWorkRestricted: owningWorkRestricted, Name: value.Name, MediaType: value.MediaType,
-		Creator: creator, CreatedAt: timestamppb.New(value.CreatedAt),
+		Id: a.ID, OrganizationId: a.OrganizationID, OwningWorkId: a.OwningWorkID,
+		OwningWorkRestricted: restricted, Name: a.Name, MediaType: a.MediaType,
+		Creator: creator, CreatedAt: servicesvc.Ts(a.CreatedAt),
 	}, nil
 }
 
-func versionViewMessage(value artifactapp.VersionView) (*artifactv1.ArtifactVersion, error) {
-	author, err := principalMessage(value.Author)
+func versionViewToProto(v artifactapp.VersionView) (*artifactv1.ArtifactVersion, error) {
+	author, err := servicesvc.ToPrincipal(v.Author)
 	if err != nil {
 		return nil, err
 	}
-	message := &artifactv1.ArtifactVersion{
-		ArtifactId: value.ArtifactID, OrganizationId: value.OrganizationID, Version: value.Version,
-		Digest: append([]byte(nil), value.Digest[:]...), Size: value.Size, Summary: value.Summary,
-		Author: author, CreatedAt: timestamppb.New(value.CreatedAt),
-	}
-	message.IntegrityState, err = integrityStateMessage(value.IntegrityState)
+	state, err := servicesvc.IntegToProto(v.IntegrityState)
 	if err != nil {
 		return nil, err
 	}
-	if value.Execution != nil {
-		message.Execution = &artifactv1.ArtifactExecution{
-			Restricted: value.Execution.Restricted, RunId: value.Execution.RunID,
-			Attempt: value.Execution.Attempt, AgentId: value.Execution.AgentID,
-			ComputerId: value.Execution.ComputerID, PlacementDesiredRevision: value.Execution.PlacementDesiredRevision,
-			Fence: value.Execution.Fence,
+	msg := &artifactv1.ArtifactVersion{
+		ArtifactId: v.ArtifactID, OrganizationId: v.OrganizationID, Version: v.Version,
+		Digest: append([]byte(nil), v.Digest[:]...), Size: v.Size, Summary: v.Summary,
+		Author: author, IntegrityState: state,
+		CreatedAt: servicesvc.Ts(v.CreatedAt),
+	}
+	if v.Execution != nil {
+		msg.Execution = &artifactv1.ArtifactExecution{
+			Restricted: v.Execution.Restricted, RunId: v.Execution.RunID,
+			Attempt: v.Execution.Attempt, AgentId: v.Execution.AgentID,
+			ComputerId: v.Execution.ComputerID, PlacementDesiredRevision: v.Execution.PlacementDesiredRevision,
+			Fence: v.Execution.Fence,
 		}
 	}
-	message.Sources = make([]*artifactv1.ArtifactSource, 0, len(value.Sources))
-	for _, source := range value.Sources {
-		message.Sources = append(message.Sources, sourceViewMessage(source))
+	msg.Sources = make([]*artifactv1.ArtifactSource, 0, len(v.Sources))
+	for _, src := range v.Sources {
+		msg.Sources = append(msg.Sources, sourceViewToProto(src))
 	}
-	return message, nil
+	return msg, nil
 }
 
-func publishedVersionMessage(value artifactapp.Version) (*artifactv1.ArtifactVersion, error) {
-	author, err := principalMessage(value.Author)
+func versionToProto(v artifactapp.Version) (*artifactv1.ArtifactVersion, error) {
+	author, err := servicesvc.ToPrincipal(v.Author)
 	if err != nil {
 		return nil, err
 	}
-	message := &artifactv1.ArtifactVersion{
-		ArtifactId: value.ArtifactID, OrganizationId: value.OrganizationID, Version: value.Version,
-		Digest: append([]byte(nil), value.Digest[:]...), Size: value.Size, Summary: value.Summary,
-		Author: author, CreatedAt: timestamppb.New(value.CreatedAt),
-	}
-	message.IntegrityState, err = integrityStateMessage(value.IntegrityState)
+	state, err := servicesvc.IntegToProto(v.IntegrityState)
 	if err != nil {
 		return nil, err
 	}
-	if value.Execution != nil {
-		message.Execution = &artifactv1.ArtifactExecution{
-			RunId: value.Execution.RunID, Attempt: value.Execution.Attempt,
-			AgentId: value.Execution.AgentID, ComputerId: value.Execution.ComputerID,
-			PlacementDesiredRevision: value.Execution.PlacementDesiredRevision, Fence: value.Execution.Fence,
+	msg := &artifactv1.ArtifactVersion{
+		ArtifactId: v.ArtifactID, OrganizationId: v.OrganizationID, Version: v.Version,
+		Digest: append([]byte(nil), v.Digest[:]...), Size: v.Size, Summary: v.Summary,
+		Author: author, IntegrityState: state,
+		CreatedAt: servicesvc.Ts(v.CreatedAt),
+	}
+	if v.Execution != nil {
+		msg.Execution = &artifactv1.ArtifactExecution{
+			RunId: v.Execution.RunID, Attempt: v.Execution.Attempt,
+			AgentId: v.Execution.AgentID, ComputerId: v.Execution.ComputerID,
+			PlacementDesiredRevision: v.Execution.PlacementDesiredRevision, Fence: v.Execution.Fence,
 		}
 	}
-	message.Sources = make([]*artifactv1.ArtifactSource, 0, len(value.Sources))
-	for _, source := range value.Sources {
-		message.Sources = append(message.Sources, sourceMessage(source))
+	msg.Sources = make([]*artifactv1.ArtifactSource, 0, len(v.Sources))
+	for _, src := range v.Sources {
+		msg.Sources = append(msg.Sources, sourceToProto(src))
 	}
-	return message, nil
+	return msg, nil
 }
 
-func sourceViewMessage(value artifactapp.SourceView) *artifactv1.ArtifactSource {
-	message := &artifactv1.ArtifactSource{Restricted: value.Restricted}
-	if value.Restricted {
-		return message
+func sourceViewToProto(v artifactapp.SourceView) *artifactv1.ArtifactSource {
+	msg := &artifactv1.ArtifactSource{Restricted: v.Restricted}
+	if !v.Restricted {
+		switch v.Kind {
+		case artifactapp.SourceMessage:
+			msg.Source = &artifactv1.ArtifactSource_MessageId{MessageId: v.MessageID}
+		case artifactapp.SourceVersion:
+			msg.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
+				ArtifactId: v.ArtifactID, Version: v.ArtifactVersion,
+			}}
+		}
 	}
-	if value.Kind == artifactapp.SourceMessage {
-		message.Source = &artifactv1.ArtifactSource_MessageId{MessageId: value.MessageID}
-	} else if value.Kind == artifactapp.SourceVersion {
-		message.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
-			ArtifactId: value.ArtifactID, Version: value.ArtifactVersion,
+	return msg
+}
+
+func sourceToProto(v artifactapp.Source) *artifactv1.ArtifactSource {
+	msg := &artifactv1.ArtifactSource{}
+	switch v.Kind {
+	case artifactapp.SourceMessage:
+		msg.Source = &artifactv1.ArtifactSource_MessageId{MessageId: v.MessageID}
+	case artifactapp.SourceVersion:
+		msg.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
+			ArtifactId: v.ArtifactID, Version: v.ArtifactVersion,
 		}}
 	}
-	return message
+	return msg
 }
 
-func sourceMessage(value artifactapp.Source) *artifactv1.ArtifactSource {
-	message := &artifactv1.ArtifactSource{}
-	if value.Kind == artifactapp.SourceMessage {
-		message.Source = &artifactv1.ArtifactSource_MessageId{MessageId: value.MessageID}
-	} else if value.Kind == artifactapp.SourceVersion {
-		message.Source = &artifactv1.ArtifactSource_ArtifactVersion{ArtifactVersion: &artifactv1.ArtifactVersionRef{
-			ArtifactId: value.ArtifactID, Version: value.ArtifactVersion,
-		}}
-	}
-	return message
-}
-
-func artifactGrantMessage(value artifactapp.Grant) (*artifactv1.ArtifactGrant, error) {
-	grantedBy, err := principalMessage(value.GrantedBy)
+func grantToProto(g artifactapp.Grant) (*artifactv1.ArtifactGrant, error) {
+	grantedBy, err := servicesvc.ToPrincipal(g.GrantedBy)
 	if err != nil {
 		return nil, err
 	}
-	message := &artifactv1.ArtifactGrant{
-		Id: value.ID, ArtifactId: value.ArtifactID, OrganizationId: value.OrganizationID,
-		Target: &artifactv1.ArtifactGrantTarget{}, GrantedBy: grantedBy, GrantedAt: timestamppb.New(value.GrantedAt),
+	msg := &artifactv1.ArtifactGrant{
+		Id: g.ID, ArtifactId: g.ArtifactID, OrganizationId: g.OrganizationID,
+		Target: &artifactv1.ArtifactGrantTarget{}, GrantedBy: grantedBy,
+		GrantedAt: servicesvc.Ts(g.GrantedAt),
 	}
-	switch value.TargetKind {
-	case artifactapp.GrantTargetAgent:
-		message.Target.Target = &artifactv1.ArtifactGrantTarget_AgentId{AgentId: value.TargetID}
-	case artifactapp.GrantTargetSpace:
-		message.Target.Target = &artifactv1.ArtifactGrantTarget_SpaceId{SpaceId: value.TargetID}
-	case artifactapp.GrantTargetWork:
-		message.Target.Target = &artifactv1.ArtifactGrantTarget_WorkId{WorkId: value.TargetID}
+	switch g.TargetKind {
+	case servicesvc.GrantTargetAgent:
+		msg.Target.Target = &artifactv1.ArtifactGrantTarget_AgentId{AgentId: g.TargetID}
+	case servicesvc.GrantTargetSpace:
+		msg.Target.Target = &artifactv1.ArtifactGrantTarget_SpaceId{SpaceId: g.TargetID}
+	case servicesvc.GrantTargetWork:
+		msg.Target.Target = &artifactv1.ArtifactGrantTarget_WorkId{WorkId: g.TargetID}
 	default:
-		return nil, internalError()
+		return nil, servicesvc.ErrInternal
 	}
-	switch value.Capability {
-	case artifactapp.GrantRead:
-		message.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ
-	case artifactapp.GrantManage:
-		message.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_MANAGE
+	switch g.Capability {
+	case servicesvc.GrantRead:
+		msg.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ
+	case servicesvc.GrantManage:
+		msg.Capability = artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_MANAGE
 	default:
-		return nil, internalError()
+		return nil, servicesvc.ErrInternal
 	}
-	if value.RevokedAt != nil {
-		if value.RevokedBy == nil {
-			return nil, internalError()
+	if g.RevokedAt != nil {
+		if g.RevokedBy == nil {
+			return nil, servicesvc.ErrInternal
 		}
-		message.RevokedBy, err = principalMessage(*value.RevokedBy)
+		msg.RevokedBy, err = servicesvc.ToPrincipal(*g.RevokedBy)
 		if err != nil {
 			return nil, err
 		}
-		message.RevokedAt = timestamppb.New(*value.RevokedAt)
-	} else if value.RevokedBy != nil {
-		return nil, internalError()
+		msg.RevokedAt = servicesvc.Ts(*g.RevokedAt)
+	} else if g.RevokedBy != nil {
+		return nil, servicesvc.ErrInternal
 	}
-	return message, nil
+	return msg, nil
 }
 
-func principalMessage(value authoritydomain.Principal) (*grantv1.Principal, error) {
-	kind := grantv1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
-	switch value.Kind {
-	case authoritydomain.PrincipalHuman:
-		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	case authoritydomain.PrincipalAgent:
-		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_AGENT
-	case authoritydomain.PrincipalSystem:
-		kind = grantv1.PrincipalKind_PRINCIPAL_KIND_SYSTEM
-	default:
-		return nil, internalError()
-	}
-	return &grantv1.Principal{Kind: kind, Id: value.ID}, nil
-}
-
-func integrityStateMessage(value string) (artifactv1.ArtifactIntegrityState, error) {
-	switch value {
-	case "ready":
-		return artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_READY, nil
-	case "missing":
-		return artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_MISSING, nil
-	case "corrupt":
-		return artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_CORRUPT, nil
-	default:
-		return artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_UNSPECIFIED, internalError()
-	}
-}
-
-func invalidArgument(message string) error {
-	return connect.NewError(connect.CodeInvalidArgument, errors.New(message))
-}
-
-func serviceError(err error) error {
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, context.Canceled):
-		return connect.NewError(connect.CodeCanceled, errors.New("artifact request canceled"))
-	case errors.Is(err, context.DeadlineExceeded):
-		return connect.NewError(connect.CodeDeadlineExceeded, errors.New("artifact request deadline exceeded"))
-	case errors.Is(err, authorityapp.ErrRuntimeUnauthenticated):
-		return unauthenticated()
-	case errors.Is(err, authoritydomain.ErrPermissionDenied):
-		return connect.NewError(connect.CodePermissionDenied, errors.New("artifact action denied"))
-	case errors.Is(err, artifactapp.ErrNotFound), errors.Is(err, artifactapp.ErrVersionNotFound), errors.Is(err, artifactapp.ErrGrantNotFound):
-		return connect.NewError(connect.CodeNotFound, errors.New("artifact fact not found"))
-	case errors.Is(err, artifactapp.ErrRequestConflict):
-		return connect.NewError(connect.CodeAlreadyExists, errors.New("artifact request conflicts with committed request"))
-	case errors.Is(err, artifactapp.ErrCursorUnavailable):
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("artifact cursor is unavailable"))
-	case errors.Is(err, artifactapp.ErrInvalid):
-		return invalidArgument("artifact input is invalid")
-	case errors.Is(err, artifactapp.ErrIntegrity):
-		return connect.NewError(connect.CodeDataLoss, errors.New("artifact content integrity failure"))
-	case errors.Is(err, artifactapp.ErrBlobUnavailable):
-		return connect.NewError(connect.CodeUnavailable, errors.New("artifact content unavailable"))
-	default:
-		return internalError()
-	}
-}
+var _ artifactv1connect.ArtifactServiceHandler = (*Service)(nil)

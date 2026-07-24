@@ -10,7 +10,7 @@ import (
 	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 )
 
-func collaborationError(err error) error {
+func collabErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -18,17 +18,29 @@ func collaborationError(err error) error {
 		return connect.NewError(connect.CodeUnauthenticated, errors.New("agent runtime authentication invalid"))
 	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("collaboration action denied"))
-	case errors.Is(err, collaborationapp.ErrSpaceNotFound), errors.Is(err, collaborationapp.ErrMessageNotFound), errors.Is(err, collaborationapp.ErrThreadNotFound),
-		errors.Is(err, collaborationapp.ErrMembershipNotFound), errors.Is(err, authoritydomain.ErrPrincipalNotFound):
+	case errors.Is(err, collaborationapp.ErrSpaceNotFound),
+		errors.Is(err, collaborationapp.ErrMessageNotFound),
+		errors.Is(err, collaborationapp.ErrThreadNotFound),
+		errors.Is(err, collaborationapp.ErrMembershipNotFound),
+		errors.Is(err, authoritydomain.ErrPrincipalNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
-	case errors.Is(err, collaborationapp.ErrRequestConflict), errors.Is(err, collaborationapp.ErrMembershipExists):
+	case errors.Is(err, collaborationapp.ErrRequestConflict),
+		errors.Is(err, collaborationapp.ErrMembershipExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
-	case errors.Is(err, collaborationapp.ErrSpaceArchived), errors.Is(err, collaborationapp.ErrDMImmutable), errors.Is(err, collaborationapp.ErrLastActiveHumanMember),
-		errors.Is(err, collaborationapp.ErrInvalidMessageTarget), errors.Is(err, executionapp.ErrRunNotFound), errors.Is(err, executionapp.ErrRunNotRunning),
-		errors.Is(err, executionapp.ErrRunLeaseStale), errors.Is(err, executionapp.ErrRunLeaseExpired):
+	case errors.Is(err, collaborationapp.ErrSpaceArchived),
+		errors.Is(err, collaborationapp.ErrDMImmutable),
+		errors.Is(err, collaborationapp.ErrLastActiveHumanMember),
+		errors.Is(err, collaborationapp.ErrInvalidMessageTarget),
+		errors.Is(err, executionapp.ErrRunNotFound),
+		errors.Is(err, executionapp.ErrRunNotRunning),
+		errors.Is(err, executionapp.ErrRunLeaseStale),
+		errors.Is(err, executionapp.ErrRunLeaseExpired):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, collaborationapp.ErrDMRequiresDistinctPrincipals), errors.Is(err, collaborationapp.ErrInvalidSpaceName),
-		errors.Is(err, collaborationapp.ErrInvalidPrincipal), errors.Is(err, collaborationapp.ErrInvalidMessageBody), errors.Is(err, collaborationapp.ErrInvalidMessageLimit),
+	case errors.Is(err, collaborationapp.ErrDMRequiresDistinctPrincipals),
+		errors.Is(err, collaborationapp.ErrInvalidSpaceName),
+		errors.Is(err, collaborationapp.ErrInvalidPrincipal),
+		errors.Is(err, collaborationapp.ErrInvalidMessageBody),
+		errors.Is(err, collaborationapp.ErrInvalidMessageLimit),
 		errors.Is(err, collaborationapp.ErrInvalidMention):
 		return connect.NewError(connect.CodeInvalidArgument, err)
 	default:

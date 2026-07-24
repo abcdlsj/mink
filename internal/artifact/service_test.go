@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/store"
 )
 
@@ -55,7 +56,7 @@ func TestAuthenticationResolverRejectsAmbiguousIdentities(t *testing.T) {
 
 func TestServiceErrorDoesNotExposeBackendDetails(t *testing.T) {
 	backend := fmt.Errorf("sqlite /private/path leaked-secret")
-	err := serviceError(backend)
+	err := servicesvc.ServiceErr(backend)
 	if connect.CodeOf(err) != connect.CodeInternal || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("quiet service error = %v", err)
 	}

@@ -15,70 +15,73 @@ import (
 	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 	"github.com/abcdlsj/sumi/internal/authority"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var agentHandle = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
+var agentHandleRE = regexp.MustCompile(`^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$`)
 
 type Service struct {
 	store agentStore
 	now   func() time.Time
 }
 
-func New(database agentStore) *Service {
-	return &Service{store: database, now: time.Now}
+func New(db agentStore) *Service {
+	return &Service{store: db, now: time.Now}
 }
 
-func (s *Service) CreateAgent(ctx context.Context, request *connect.Request[agentv1.CreateAgentRequest]) (*connect.Response[agentv1.CreateAgentResponse], error) {
+// ── Handlers ─────────────────────────────────────────────────
+
+func (s *Service) CreateAgent(ctx context.Context, req *connect.Request[agentv1.CreateAgentRequest]) (*connect.Response[agentv1.CreateAgentResponse], error) {
 	actor, err := authority.Subject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	params, err := createParams(request.Msg, s.now())
+	params, err := buildCreateParams(req.Msg, s.now())
 	if err != nil {
 		return nil, err
 	}
 	params.Actor = actor
 	agent, err := s.store.CreateAgent(ctx, params)
-	if errors.Is(err, agentapp.ErrRequestConflict) {
+	switch {
+	case errors.Is(err, agentapp.ErrRequestConflict):
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different agent data"))
-	}
-	if errors.Is(err, agentapp.ErrHandleExists) {
+	case errors.Is(err, agentapp.ErrHandleExists):
 		return nil, connect.NewError(connect.CodeAlreadyExists, errors.New("agent handle already exists"))
-	}
-	if errors.Is(err, authoritydomain.ErrPermissionDenied) {
+	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent creation denied"))
+	case err != nil:
+		return nil, servicesvc.ErrInternal
 	}
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&agentv1.CreateAgentResponse{Agent: agentMessage(agent)}), nil
+	return connect.NewResponse(&agentv1.CreateAgentResponse{Agent: agentToProto(agent)}), nil
 }
 
-func (s *Service) UpdateAgentProfile(ctx context.Context, request *connect.Request[agentv1.UpdateAgentProfileRequest]) (*connect.Response[agentv1.UpdateAgentProfileResponse], error) {
+func (s *Service) UpdateAgentProfile(ctx context.Context, req *connect.Request[agentv1.UpdateAgentProfileRequest]) (*connect.Response[agentv1.UpdateAgentProfileResponse], error) {
 	actor, err := authority.Subject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
-	if request.Msg.GetExpectedRevision() == 0 || request.Msg.GetExpectedRevision() > math.MaxInt64 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("expected profile revision must be a positive integer"))
+	rev := req.Msg.GetExpectedRevision()
+	if rev == 0 || rev > math.MaxInt64 {
+		return nil, servicesvc.InvalArg("expected profile revision must be a positive integer")
 	}
-	profile, err := profileFields(request.Msg.GetDisplayName(), request.Msg.GetRole(), request.Msg.GetMission(), request.Msg.GetInstructions())
+	profile, err := validateProfile(req.Msg.GetDisplayName(), req.Msg.GetRole(), req.Msg.GetMission(), req.Msg.GetInstructions())
 	if err != nil {
 		return nil, err
 	}
 	agent, err := s.store.UpdateAgentProfile(ctx, agentapp.UpdateProfileCommand{
-		RequestID: requestID, Actor: actor, AgentID: agentID, ExpectedRevision: request.Msg.GetExpectedRevision(),
-		DisplayName: profile.DisplayName, Role: profile.Role, Mission: profile.Mission, Instructions: profile.Instructions, Now: s.now(),
+		RequestID: requestID, Actor: actor, AgentID: agentID, ExpectedRevision: rev,
+		DisplayName: profile.DisplayName, Role: profile.Role, Mission: profile.Mission,
+		Instructions: profile.Instructions, Now: s.now(),
 	})
 	switch {
 	case errors.Is(err, agentapp.ErrNotFound):
@@ -90,35 +93,36 @@ func (s *Service) UpdateAgentProfile(ctx context.Context, request *connect.Reque
 	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent profile update denied"))
 	case err != nil:
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, servicesvc.ErrInternal
 	}
-	return connect.NewResponse(&agentv1.UpdateAgentProfileResponse{Agent: agentMessage(agent)}), nil
+	return connect.NewResponse(&agentv1.UpdateAgentProfileResponse{Agent: agentToProto(agent)}), nil
 }
 
-func (s *Service) UpdateAgentRuntimeSpec(ctx context.Context, request *connect.Request[agentv1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[agentv1.UpdateAgentRuntimeSpecResponse], error) {
+func (s *Service) UpdateAgentRuntimeSpec(ctx context.Context, req *connect.Request[agentv1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[agentv1.UpdateAgentRuntimeSpecResponse], error) {
 	actor, err := authority.Subject(ctx)
 	if err != nil {
 		return nil, err
 	}
-	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	requestID, err := connectid.CanonicalID(req.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
-	if request.Msg.GetExpectedRevision() > math.MaxInt64 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("expected runtime spec revision is too large"))
+	rev := req.Msg.GetExpectedRevision()
+	if rev > math.MaxInt64 {
+		return nil, servicesvc.InvalArg("expected runtime spec revision is too large")
 	}
-	params, err := runtimeSpecParams(request.Msg)
+	params, err := buildSpecParams(req.Msg)
 	if err != nil {
 		return nil, err
 	}
 	params.RequestID = requestID
 	params.Actor = actor
 	params.AgentID = agentID
-	params.ExpectedRevision = request.Msg.GetExpectedRevision()
+	params.ExpectedRevision = rev
 	params.Now = s.now()
 	spec, err := s.store.UpdateAgentRuntimeSpec(ctx, params)
 	switch {
@@ -131,13 +135,13 @@ func (s *Service) UpdateAgentRuntimeSpec(ctx context.Context, request *connect.R
 	case errors.Is(err, authoritydomain.ErrPermissionDenied):
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("agent runtime configuration denied"))
 	case err != nil:
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, servicesvc.ErrInternal
 	}
-	return connect.NewResponse(&agentv1.UpdateAgentRuntimeSpecResponse{RuntimeSpec: runtimeSpecMessage(spec)}), nil
+	return connect.NewResponse(&agentv1.UpdateAgentRuntimeSpecResponse{RuntimeSpec: specToProto(spec)}), nil
 }
 
-func (s *Service) GetAgentRuntimeSpec(ctx context.Context, request *connect.Request[agentv1.GetAgentRuntimeSpecRequest]) (*connect.Response[agentv1.GetAgentRuntimeSpecResponse], error) {
-	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+func (s *Service) GetAgentRuntimeSpec(ctx context.Context, req *connect.Request[agentv1.GetAgentRuntimeSpecRequest]) (*connect.Response[agentv1.GetAgentRuntimeSpecResponse], error) {
+	agentID, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
@@ -148,116 +152,119 @@ func (s *Service) GetAgentRuntimeSpec(ctx context.Context, request *connect.Requ
 	case errors.Is(err, agentapp.ErrRuntimeSpecMissing):
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("agent runtime spec is not configured"))
 	case err != nil:
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, servicesvc.ErrInternal
 	}
-	return connect.NewResponse(&agentv1.GetAgentRuntimeSpecResponse{RuntimeSpec: runtimeSpecMessage(spec)}), nil
+	return connect.NewResponse(&agentv1.GetAgentRuntimeSpecResponse{RuntimeSpec: specToProto(spec)}), nil
 }
 
-func (s *Service) GetAgent(ctx context.Context, request *connect.Request[agentv1.GetAgentRequest]) (*connect.Response[agentv1.GetAgentResponse], error) {
-	id, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+func (s *Service) GetAgent(ctx context.Context, req *connect.Request[agentv1.GetAgentRequest]) (*connect.Response[agentv1.GetAgentResponse], error) {
+	id, err := connectid.CanonicalID(req.Msg.GetAgentId(), "agent id")
 	if err != nil {
 		return nil, err
 	}
 	agent, err := s.store.GetAgent(ctx, id)
-	if errors.Is(err, agentapp.ErrNotFound) {
+	switch {
+	case errors.Is(err, agentapp.ErrNotFound):
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("agent not found"))
+	case err != nil:
+		return nil, servicesvc.ErrInternal
 	}
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
-	}
-	return connect.NewResponse(&agentv1.GetAgentResponse{Agent: agentMessage(agent)}), nil
+	return connect.NewResponse(&agentv1.GetAgentResponse{Agent: agentToProto(agent)}), nil
 }
 
 func (s *Service) ListAgents(ctx context.Context, _ *connect.Request[agentv1.ListAgentsRequest]) (*connect.Response[agentv1.ListAgentsResponse], error) {
 	agents, err := s.store.ListAgents(ctx)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, servicesvc.ErrInternal
 	}
-	response := &agentv1.ListAgentsResponse{Agents: make([]*agentv1.Agent, 0, len(agents))}
-	for _, agent := range agents {
-		response.Agents = append(response.Agents, agentMessage(agent))
+	resp := &agentv1.ListAgentsResponse{Agents: make([]*agentv1.Agent, 0, len(agents))}
+	for _, a := range agents {
+		resp.Agents = append(resp.Agents, agentToProto(a))
 	}
-	return connect.NewResponse(response), nil
+	return connect.NewResponse(resp), nil
 }
 
-func createParams(request *agentv1.CreateAgentRequest, now time.Time) (agentapp.CreateCommand, error) {
-	requestID, err := connectid.CanonicalID(request.GetRequestId(), "request id")
+// ── Params ───────────────────────────────────────────────────
+
+func buildCreateParams(msg *agentv1.CreateAgentRequest, now time.Time) (agentapp.CreateCommand, error) {
+	requestID, err := connectid.CanonicalID(msg.GetRequestId(), "request id")
 	if err != nil {
 		return agentapp.CreateCommand{}, err
 	}
-	if !agentHandle.MatchString(request.GetHandle()) || len(request.GetHandle()) > 32 {
-		return agentapp.CreateCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("agent handle must contain 1 to 32 lowercase letters, digits, hyphens, or underscores"))
+	handle := msg.GetHandle()
+	if !agentHandleRE.MatchString(handle) || len(handle) > 32 {
+		return agentapp.CreateCommand{}, servicesvc.InvalArg("agent handle must contain 1 to 32 lowercase letters, digits, hyphens, or underscores")
 	}
-	profile, err := profileFields(request.GetDisplayName(), request.GetRole(), request.GetMission(), request.GetInstructions())
+	profile, err := validateProfile(msg.GetDisplayName(), msg.GetRole(), msg.GetMission(), msg.GetInstructions())
 	if err != nil {
 		return agentapp.CreateCommand{}, err
 	}
 	return agentapp.CreateCommand{
-		RequestID: requestID, Handle: request.GetHandle(), DisplayName: profile.DisplayName,
-		Role: profile.Role, Mission: profile.Mission, Instructions: profile.Instructions, Now: now,
+		RequestID: requestID, Handle: handle,
+		DisplayName: profile.DisplayName, Role: profile.Role, Mission: profile.Mission,
+		Instructions: profile.Instructions, Now: now,
 	}, nil
 }
 
-func profileFields(displayName, role, mission, instructions string) (agentapp.Profile, error) {
-	fields := []struct {
+func validateProfile(displayName, role, mission, instructions string) (agentapp.Profile, error) {
+	type field struct {
 		name    string
 		value   string
-		minimum int
-		maximum int
-	}{
+		min, max int
+	}
+	for _, f := range []field{
 		{"display name", displayName, 1, 100},
 		{"role", role, 1, 200},
 		{"mission", mission, 1, 2000},
 		{"instructions", instructions, 0, 20000},
-	}
-	for _, field := range fields {
-		if !utf8.ValidString(field.value) {
-			return agentapp.Profile{}, connect.NewError(connect.CodeInvalidArgument, errors.New(field.name+" must be valid UTF-8"))
+	} {
+		if !utf8.ValidString(f.value) {
+			return agentapp.Profile{}, servicesvc.InvalArg(f.name + " must be valid UTF-8")
 		}
-		length := utf8.RuneCountInString(field.value)
-		if length < field.minimum || length > field.maximum {
-			return agentapp.Profile{}, connect.NewError(connect.CodeInvalidArgument, errors.New(field.name+" length is invalid"))
+		n := utf8.RuneCountInString(f.value)
+		if n < f.min || n > f.max {
+			return agentapp.Profile{}, servicesvc.InvalArg(f.name + " length is invalid")
 		}
 	}
 	return agentapp.Profile{DisplayName: displayName, Role: role, Mission: mission, Instructions: instructions}, nil
 }
 
-func runtimeSpecParams(request *agentv1.UpdateAgentRuntimeSpecRequest) (agentapp.UpdateRuntimeSpecCommand, error) {
-	engine, ok := engineKind(request.GetEngine())
+func buildSpecParams(msg *agentv1.UpdateAgentRuntimeSpecRequest) (agentapp.UpdateRuntimeSpecCommand, error) {
+	engine, ok := servicesvc.EngineFromProto(msg.GetEngine())
 	if !ok {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("runtime engine must be builtin, Codex adapter, or Claude adapter"))
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("runtime engine must be builtin, Codex adapter, or Claude adapter")
 	}
-	providerProtocol, providerKnown := providerProtocolName(request.GetProviderProtocol())
-	endpoint := request.GetProviderEndpoint()
-	model := request.GetModel()
+	providerProtocol, _ := servicesvc.ProvFromProto(msg.GetProviderProtocol())
+	endpoint := msg.GetProviderEndpoint()
+	model := msg.GetModel()
 	if !utf8.ValidString(model) || utf8.RuneCountInString(model) > 255 {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("runtime model must contain at most 255 characters"))
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("runtime model must contain at most 255 characters")
 	}
 	if engine == agentapp.EngineBuiltin {
-		if !providerKnown || providerProtocol == "" || model == "" || !validProviderEndpoint(endpoint) {
-			return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("builtin runtime requires a supported provider protocol, HTTPS endpoint, and model"))
+		if providerProtocol == "" || model == "" || !validEndpoint(endpoint) {
+			return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("builtin runtime requires a supported provider protocol, HTTPS endpoint, and model")
 		}
-	} else if request.GetProviderProtocol() != agentv1.ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED || endpoint != "" {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("external adapters cannot contain builtin provider configuration"))
+	} else if msg.GetProviderProtocol() != agentv1.ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED || endpoint != "" {
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("external adapters cannot contain builtin provider configuration")
 	}
-	binding := request.GetCredentialBindingHandle()
-	if !validOpaqueHandle(binding) {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("credential binding handle is invalid"))
+	binding := msg.GetCredentialBindingHandle()
+	if !validHandle(binding) {
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("credential binding handle is invalid")
 	}
-	if request.GetSandboxProvider() != agentv1.RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("runtime sandbox provider must be trusted-local"))
+	if msg.GetSandboxProvider() != agentv1.RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL {
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("runtime sandbox provider must be trusted-local")
 	}
-	seconds := request.GetMaxRunDurationSeconds()
+	seconds := msg.GetMaxRunDurationSeconds()
 	if seconds == 0 || seconds > 3600 {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("max run duration must be between 1 and 3600 seconds"))
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("max run duration must be between 1 and 3600 seconds")
 	}
-	outputBytes := request.GetMaxOutputBytes()
+	outputBytes := msg.GetMaxOutputBytes()
 	if outputBytes < 1024 || outputBytes > 64<<20 {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("max output bytes must be between 1024 and 67108864"))
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("max output bytes must be between 1024 and 67108864")
 	}
-	tools := request.GetToolPolicy()
+	tools := msg.GetToolPolicy()
 	if tools == nil {
-		return agentapp.UpdateRuntimeSpecCommand{}, connect.NewError(connect.CodeInvalidArgument, errors.New("runtime tool policy is required"))
+		return agentapp.UpdateRuntimeSpecCommand{}, servicesvc.InvalArg("runtime tool policy is required")
 	}
 	return agentapp.UpdateRuntimeSpecCommand{
 		Engine: engine, ProviderProtocol: providerProtocol, ProviderEndpoint: endpoint, Model: model,
@@ -267,86 +274,54 @@ func runtimeSpecParams(request *agentv1.UpdateAgentRuntimeSpecRequest) (agentapp
 	}, nil
 }
 
-func engineKind(value agentv1.EngineKind) (agentapp.EngineKind, bool) {
-	switch value {
-	case agentv1.EngineKind_ENGINE_KIND_BUILTIN:
-		return agentapp.EngineBuiltin, true
-	case agentv1.EngineKind_ENGINE_KIND_CODEX_ADAPTER:
-		return agentapp.EngineCodexAdapter, true
-	case agentv1.EngineKind_ENGINE_KIND_CLAUDE_ADAPTER:
-		return agentapp.EngineClaudeAdapter, true
-	default:
-		return "", false
-	}
+func validEndpoint(v string) bool {
+	u, err := url.Parse(v)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.RawQuery == "" && u.Fragment == ""
 }
 
-func providerProtocolName(value agentv1.ProviderProtocol) (agentapp.ProviderProtocol, bool) {
-	switch value {
-	case agentv1.ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED:
-		return "", true
-	case agentv1.ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES:
-		return agentapp.ProviderOpenAIResponses, true
-	case agentv1.ProviderProtocol_PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES:
-		return agentapp.ProviderAnthropicMessages, true
-	default:
-		return "", false
-	}
-}
-
-func validProviderEndpoint(value string) bool {
-	parsed, err := url.Parse(value)
-	return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == ""
-}
-
-func validOpaqueHandle(value string) bool {
-	if !utf8.ValidString(value) || utf8.RuneCountInString(value) < 16 || utf8.RuneCountInString(value) > 255 {
+func validHandle(v string) bool {
+	if !utf8.ValidString(v) || utf8.RuneCountInString(v) < 16 || utf8.RuneCountInString(v) > 255 {
 		return false
 	}
-	for _, character := range value {
-		if unicode.IsControl(character) {
+	for _, r := range v {
+		if unicode.IsControl(r) {
 			return false
 		}
 	}
 	return true
 }
 
-func agentMessage(agent agentapp.Agent) *agentv1.Agent {
+// ── Proto converters ─────────────────────────────────────────
+
+func agentToProto(a agentapp.Agent) *agentv1.Agent {
 	return &agentv1.Agent{
-		Id: agent.ID, Handle: agent.Handle, Profile: &agentv1.AgentProfile{
-			AgentId: agent.Profile.AgentID, Revision: agent.Profile.Revision, DisplayName: agent.Profile.DisplayName,
-			Role: agent.Profile.Role, Mission: agent.Profile.Mission, Instructions: agent.Profile.Instructions,
-			CreatedAt: timestamppb.New(agent.Profile.CreatedAt),
+		Id: a.ID, Handle: a.Handle,
+		Profile: &agentv1.AgentProfile{
+			AgentId: a.Profile.AgentID, Revision: a.Profile.Revision,
+			DisplayName: a.Profile.DisplayName, Role: a.Profile.Role,
+			Mission: a.Profile.Mission, Instructions: a.Profile.Instructions,
+			CreatedAt: timestamppb.New(a.Profile.CreatedAt),
 		},
-		CreatedAt: timestamppb.New(agent.CreatedAt), UpdatedAt: timestamppb.New(agent.UpdatedAt),
+		CreatedAt: servicesvc.Ts(a.CreatedAt),
+		UpdatedAt: servicesvc.Ts(a.UpdatedAt),
 	}
 }
 
-func runtimeSpecMessage(spec agentapp.RuntimeSpec) *agentv1.AgentRuntimeSpec {
-	engine := agentv1.EngineKind_ENGINE_KIND_UNSPECIFIED
-	switch spec.Engine {
-	case agentapp.EngineBuiltin:
-		engine = agentv1.EngineKind_ENGINE_KIND_BUILTIN
-	case agentapp.EngineCodexAdapter:
-		engine = agentv1.EngineKind_ENGINE_KIND_CODEX_ADAPTER
-	case agentapp.EngineClaudeAdapter:
-		engine = agentv1.EngineKind_ENGINE_KIND_CLAUDE_ADAPTER
-	}
-	protocol := agentv1.ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED
-	switch spec.ProviderProtocol {
-	case agentapp.ProviderOpenAIResponses:
-		protocol = agentv1.ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES
-	case agentapp.ProviderAnthropicMessages:
-		protocol = agentv1.ProviderProtocol_PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES
-	}
+func specToProto(spec agentapp.RuntimeSpec) *agentv1.AgentRuntimeSpec {
 	return &agentv1.AgentRuntimeSpec{
-		AgentId: spec.AgentID, Revision: spec.Revision, Engine: engine, ProviderProtocol: protocol,
-		ProviderEndpoint: spec.ProviderEndpoint, Model: spec.Model, CredentialBindingHandle: spec.CredentialBindingHandle,
-		SandboxProvider:       agentv1.RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL,
-		MaxRunDurationSeconds: uint32(spec.MaxRunDuration / time.Second), MaxOutputBytes: spec.MaxOutputBytes,
+		AgentId: spec.AgentID, Revision: spec.Revision,
+		Engine:              servicesvc.EngineToProto(spec.Engine),
+		ProviderProtocol:    servicesvc.ProvToProto(spec.ProviderProtocol),
+		ProviderEndpoint:    spec.ProviderEndpoint,
+		Model:               spec.Model,
+		CredentialBindingHandle: spec.CredentialBindingHandle,
+		SandboxProvider:         agentv1.RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL,
+		MaxRunDurationSeconds:   uint32(spec.MaxRunDuration / time.Second),
+		MaxOutputBytes:          spec.MaxOutputBytes,
 		ToolPolicy: &agentv1.RuntimeToolPolicy{
 			Message: spec.ToolPolicy.Message, Work: spec.ToolPolicy.Work,
 			Artifact: spec.ToolPolicy.Artifact, Knowledge: spec.ToolPolicy.Knowledge,
 		},
-		CreatedAt: timestamppb.New(spec.CreatedAt),
+		CreatedAt: servicesvc.Ts(spec.CreatedAt),
 	}
 }

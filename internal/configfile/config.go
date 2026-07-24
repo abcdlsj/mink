@@ -46,23 +46,23 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	var config Config
-	decoder := toml.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&config); err != nil {
+	var cfg Config
+	dec := toml.NewDecoder(bytes.NewReader(payload))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, errors.New("sumi config is invalid")
 	}
-	if err := validate(config); err != nil {
+	if err := validate(cfg); err != nil {
 		return Config{}, err
 	}
-	return config, nil
+	return cfg, nil
 }
 
-func Save(path string, config Config) error {
-	if err := validate(config); err != nil {
+func Save(path string, cfg Config) error {
+	if err := validate(cfg); err != nil {
 		return err
 	}
-	payload, err := toml.Marshal(config)
+	payload, err := toml.Marshal(cfg)
 	if err != nil {
 		return errors.New("encode Sumi config")
 	}
@@ -70,55 +70,55 @@ func Save(path string, config Config) error {
 		return errors.New("sumi config is too large")
 	}
 	parent := filepath.Dir(path)
-	if err := secureDirectory(parent); err != nil {
+	if err := secureDir(parent); err != nil {
 		return err
 	}
-	if err := validateDestination(path); err != nil {
+	if err := checkDest(path); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(parent, ".config-*.tmp")
+	tmp, err := os.CreateTemp(parent, ".config-*.tmp")
 	if err != nil {
 		return errors.New("create temporary Sumi config")
 	}
-	temporaryPath := temporary.Name()
-	removeTemporary := true
+	tmpPath := tmp.Name()
+	remove := true
 	defer func() {
-		temporary.Close()
-		if removeTemporary {
-			_ = os.Remove(temporaryPath)
+		tmp.Close()
+		if remove {
+			os.Remove(tmpPath)
 		}
 	}()
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		return errors.New("secure temporary Sumi config")
 	}
-	if _, err := temporary.Write(payload); err != nil {
+	if _, err := tmp.Write(payload); err != nil {
 		return errors.New("write temporary Sumi config")
 	}
-	if err := temporary.Sync(); err != nil {
+	if err := tmp.Sync(); err != nil {
 		return errors.New("sync temporary Sumi config")
 	}
-	if err := temporary.Close(); err != nil {
+	if err := tmp.Close(); err != nil {
 		return errors.New("close temporary Sumi config")
 	}
-	if err := validateDestination(path); err != nil {
+	if err := checkDest(path); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := os.Rename(tmpPath, path); err != nil {
 		return errors.New("publish Sumi config")
 	}
-	removeTemporary = false
-	if err := syncDirectory(parent); err != nil {
+	remove = false
+	if err := syncDir(parent); err != nil {
 		return errors.New("sync Sumi config directory")
 	}
 	return nil
 }
 
-func validate(config Config) error {
-	if config.Version != Version {
-		return fmt.Errorf("unsupported sumi config version %d", config.Version)
+func validate(cfg Config) error {
+	if cfg.Version != Version {
+		return fmt.Errorf("unsupported sumi config version %d", cfg.Version)
 	}
-	for _, value := range []string{config.Server.Origin, config.Server.Identity, config.Server.SPKIPin} {
-		if len(value) > 2048 || strings.ContainsRune(value, 0) {
+	for _, v := range []string{cfg.Server.Origin, cfg.Server.Identity, cfg.Server.SPKIPin} {
+		if len(v) > 2048 || strings.ContainsRune(v, 0) {
 			return errors.New("sumi config is invalid")
 		}
 	}
@@ -126,20 +126,20 @@ func validate(config Config) error {
 }
 
 func readSecure(path string) ([]byte, error) {
-	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		if errors.Is(err, unix.ENOENT) {
 			return nil, os.ErrNotExist
 		}
 		return nil, errors.New("open Sumi config")
 	}
-	file := os.NewFile(uintptr(descriptor), path)
-	defer file.Close()
-	info, err := file.Stat()
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		return nil, errors.New("sumi config is unsafe")
 	}
-	payload, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
+	payload, err := io.ReadAll(io.LimitReader(f, (64<<10)+1))
 	if err != nil {
 		return nil, errors.New("read Sumi config")
 	}
@@ -149,7 +149,7 @@ func readSecure(path string) ([]byte, error) {
 	return payload, nil
 }
 
-func secureDirectory(path string) error {
+func secureDir(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0o700 {
 		return errors.New("sumi config directory is unsafe")
@@ -157,7 +157,7 @@ func secureDirectory(path string) error {
 	return nil
 }
 
-func validateDestination(path string) error {
+func checkDest(path string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -168,12 +168,12 @@ func validateDestination(path string) error {
 	return nil
 }
 
-func syncDirectory(path string) error {
-	descriptor, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+func syncDir(path string) error {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
-	directory := os.NewFile(uintptr(descriptor), path)
-	defer directory.Close()
-	return directory.Sync()
+	dir := os.NewFile(uintptr(fd), path)
+	defer dir.Close()
+	return dir.Sync()
 }

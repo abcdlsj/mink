@@ -5,70 +5,85 @@ import (
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/abcdlsj/sumi/internal/servicesvc"
 )
 
-func principalMessage(principal authoritydomain.Principal) *spacev1.Principal {
-	return &spacev1.Principal{Kind: principalKind(principal.Kind), Id: principal.ID}
+var kindToProto = map[collaborationdomain.SpaceKind]spacev1.SpaceKind{
+	collaborationdomain.SpaceDM:    spacev1.SpaceKind_SPACE_KIND_DM,
+	collaborationdomain.SpaceGroup: spacev1.SpaceKind_SPACE_KIND_GROUP,
 }
 
-func spaceMessage(space collaborationapp.Space) *spacev1.Space {
-	kind := spacev1.SpaceKind_SPACE_KIND_UNSPECIFIED
-	if space.Kind == collaborationdomain.SpaceDM {
-		kind = spacev1.SpaceKind_SPACE_KIND_DM
-	} else if space.Kind == collaborationdomain.SpaceGroup {
-		kind = spacev1.SpaceKind_SPACE_KIND_GROUP
-	}
-	message := &spacev1.Space{
-		Id: space.ID, OrganizationId: space.OrganizationID, Kind: kind, Name: space.Name,
-		CreatedAt: timestamppb.New(space.CreatedAt), UpdatedAt: timestamppb.New(space.UpdatedAt),
-	}
-	if space.ArchivedAt != nil {
-		message.ArchivedAt = timestamppb.New(*space.ArchivedAt)
-	}
-	return message
+var kindToDomain = map[spacev1.PrincipalKind]authoritydomain.PrincipalKind{
+	spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN: authoritydomain.PrincipalHuman,
+	spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT: authoritydomain.PrincipalAgent,
 }
 
-func membershipMessage(membership collaborationapp.Membership) *spacev1.Membership {
+func principalToSpaceProto(p authoritydomain.Principal) *spacev1.Principal {
+	return &spacev1.Principal{Kind: principalKindToProto(p.Kind), Id: p.ID}
+}
+
+func spaceToProto(s collaborationapp.Space) *spacev1.Space {
+	msg := &spacev1.Space{
+		Id: s.ID, OrganizationId: s.OrganizationID,
+		Kind:      kindToProto[s.Kind],
+		Name:      s.Name,
+		CreatedAt: servicesvc.Ts(s.CreatedAt),
+		UpdatedAt: servicesvc.Ts(s.UpdatedAt),
+	}
+	if s.ArchivedAt != nil {
+		msg.ArchivedAt = servicesvc.Ts(*s.ArchivedAt)
+	}
+	return msg
+}
+
+func membershipToProto(m collaborationapp.Membership) *spacev1.Membership {
 	return &spacev1.Membership{
-		SpaceId: membership.SpaceID, Principal: principalMessage(membership.Principal), JoinedAt: timestamppb.New(membership.JoinedAt),
+		SpaceId:   m.SpaceID,
+		Principal: principalToSpaceProto(m.Principal),
+		JoinedAt:  servicesvc.Ts(m.JoinedAt),
 	}
 }
 
-func threadMessage(thread collaborationapp.Thread) *spacev1.Thread {
-	return &spacev1.Thread{Id: thread.ID, SpaceId: thread.SpaceID, CreatedAt: timestamppb.New(thread.CreatedAt)}
+func threadToProto(t collaborationapp.Thread) *spacev1.Thread {
+	return &spacev1.Thread{
+		Id: t.ID, SpaceId: t.SpaceID, CreatedAt: servicesvc.Ts(t.CreatedAt),
+	}
 }
 
-func messageMessage(message collaborationapp.Message) *spacev1.Message {
-	result := &spacev1.Message{
-		Id: message.ID, RequestId: message.RequestID, SpaceId: message.SpaceID,
-		TargetSequence: message.TargetSequence, Author: principalMessage(message.Author), Body: message.Body,
-		CreatedAt: timestamppb.New(message.CreatedAt), MentionedPrincipals: principalMessages(message.MentionedPrincipals),
+func msgToProto(m collaborationapp.Message) *spacev1.Message {
+	msg := &spacev1.Message{
+		Id: m.ID, RequestId: m.RequestID, SpaceId: m.SpaceID,
+		TargetSequence: m.TargetSequence, Author: principalToSpaceProto(m.Author),
+		Body: m.Body, CreatedAt: servicesvc.Ts(m.CreatedAt),
+		MentionedPrincipals: principalsToProto(m.MentionedPrincipals),
 	}
-	if message.Target.Kind == collaborationdomain.TargetThread {
-		result.ThreadRootMessageId = message.Target.ID
+	if m.Target.Kind == collaborationdomain.TargetThread {
+		msg.ThreadRootMessageId = m.Target.ID
 	}
-	return result
+	return msg
 }
 
-func principalMessages(principals []authoritydomain.Principal) []*spacev1.Principal {
+func principalsToProto(principals []authoritydomain.Principal) []*spacev1.Principal {
 	result := make([]*spacev1.Principal, 0, len(principals))
-	for _, principal := range principals {
-		result = append(result, principalMessage(principal))
+	for _, p := range principals {
+		result = append(result, principalToSpaceProto(p))
 	}
 	return result
 }
 
-func receiptSnapshotMessage(receipt ReceiptSnapshot) *spacev1.MutationReceipt {
-	return &spacev1.MutationReceipt{RequestId: receipt.RequestID, CommittedAt: timestamppb.New(receipt.CommittedAt)}
+func receiptToProto(r ReceiptSnapshot) *spacev1.MutationReceipt {
+	return &spacev1.MutationReceipt{
+		RequestId: r.RequestID, CommittedAt: servicesvc.Ts(r.CommittedAt),
+	}
 }
 
-func principalKind(kind authoritydomain.PrincipalKind) spacev1.PrincipalKind {
-	if kind == authoritydomain.PrincipalHuman {
+func principalKindToProto(kind authoritydomain.PrincipalKind) spacev1.PrincipalKind {
+	switch kind {
+	case authoritydomain.PrincipalHuman:
 		return spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN
-	}
-	if kind == authoritydomain.PrincipalAgent {
+	case authoritydomain.PrincipalAgent:
 		return spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT
+	default:
+		return spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 	}
-	return spacev1.PrincipalKind_PRINCIPAL_KIND_UNSPECIFIED
 }

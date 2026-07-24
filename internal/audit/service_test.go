@@ -12,7 +12,7 @@ import (
 func TestEventMessagePreservesAgentTargetAndSpaceContext(t *testing.T) {
 	spaceID := uuid.NewString()
 	agentID := uuid.NewString()
-	event := eventMessage(store.AuditEvent{
+	event := eventToProto(store.AuditEvent{
 		Sequence:       9,
 		ID:             uuid.NewString(),
 		OrganizationID: uuid.NewString(),

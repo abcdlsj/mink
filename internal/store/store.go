@@ -17,7 +17,7 @@ import (
 //go:embed schema.sql
 var schema string
 
-var schemaMutex sync.Mutex
+var schemaMu sync.Mutex
 
 type Store struct {
 	db          *sql.DB
@@ -25,15 +25,15 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	return openWithRandomReader(path, rand.Reader)
+	return openWithRand(path, rand.Reader)
 }
 
-func openWithRandomReader(path string, random io.Reader) (*Store, error) {
-	return openWithOptions(path, random, (*sql.DB).Close)
+func openWithRand(path string, random io.Reader) (*Store, error) {
+	return openWithOpts(path, random, (*sql.DB).Close)
 }
 
-func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error) (*Store, error) {
-	if err := secureSQLiteFile(path); err != nil {
+func openWithOpts(path string, random io.Reader, closeDB func(*sql.DB) error) (*Store, error) {
+	if err := secureFile(path); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", path)
@@ -42,19 +42,19 @@ func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error)
 	}
 	db.SetMaxOpenConns(1)
 
-	if err := configure(db); err != nil {
+	if err := configureDB(db); err != nil {
 		closeDB(db)
 		return nil, err
 	}
-	if err := initializeSQLiteWAL(db); err != nil {
+	if err := initWAL(db); err != nil {
 		closeDB(db)
 		return nil, err
 	}
-	if err := secureSQLiteFiles(path); err != nil {
+	if err := secureDBFiles(path); err != nil {
 		closeDB(db)
 		return nil, err
 	}
-	if err := initializeSchema(context.Background(), db); err != nil {
+	if err := initSchema(context.Background(), db); err != nil {
 		closeDB(db)
 		return nil, err
 	}
@@ -68,53 +68,11 @@ func openWithOptions(path string, random io.Reader, closeDB func(*sql.DB) error)
 		closeDB(db)
 		return nil, fmt.Errorf("initialize cursor codec: %w", ErrCursorKeyUnavailable)
 	}
-	if err := secureSQLiteFiles(path); err != nil {
+	if err := secureDBFiles(path); err != nil {
 		closeDB(db)
 		return nil, err
 	}
-
 	return &Store{db: db, cursorCodec: cursorCodec}, nil
-}
-
-func secureSQLiteFile(path string) error {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return fmt.Errorf("secure sqlite: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("secure sqlite: %w", err)
-	}
-	return secureSQLitePath(path)
-}
-
-func secureSQLiteFiles(path string) error {
-	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
-		if err := secureSQLitePath(candidate); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func secureSQLitePath(path string) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("secure sqlite: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("secure sqlite: %s is not a regular file", path)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return fmt.Errorf("secure sqlite: %w", err)
-	}
-	info, err = os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("secure sqlite: %w", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		return fmt.Errorf("secure sqlite: %s has unsafe permissions", path)
-	}
-	return nil
 }
 
 func (s *Store) Close() error {
@@ -129,12 +87,16 @@ func (s *Store) ServerID(ctx context.Context) (string, error) {
 	defer tx.Rollback()
 
 	candidate := uuid.NewString()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO system_metadata(key, value) VALUES('server_id', ?) ON CONFLICT(key) DO NOTHING", candidate); err != nil {
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO system_metadata(key, value) VALUES('server_id', ?) ON CONFLICT(key) DO NOTHING",
+		candidate,
+	); err != nil {
 		return "", fmt.Errorf("persist server identity: %w", err)
 	}
-
 	var id string
-	if err := tx.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'server_id'").Scan(&id); err != nil {
+	if err := tx.QueryRowContext(ctx,
+		"SELECT value FROM system_metadata WHERE key = 'server_id'",
+	).Scan(&id); err != nil {
 		return "", fmt.Errorf("read server identity: %w", err)
 	}
 	if _, err := uuid.Parse(id); err != nil {
@@ -146,29 +108,31 @@ func (s *Store) ServerID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-func configure(db *sql.DB) error {
-	for _, statement := range []string{
+// ── Setup helpers ────────────────────────────────────────────
+
+func configureDB(db *sql.DB) error {
+	for _, stmt := range []string{
 		"PRAGMA busy_timeout = 5000",
 		"PRAGMA journal_mode = WAL",
 		"PRAGMA foreign_keys = ON",
 	} {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("configure sqlite: %w", err)
 		}
 	}
 	return nil
 }
 
-func initializeSQLiteWAL(db *sql.DB) error {
+func initWAL(db *sql.DB) error {
 	if _, err := db.Exec(`PRAGMA user_version = user_version`); err != nil {
 		return fmt.Errorf("initialize sqlite WAL: %w", err)
 	}
 	return nil
 }
 
-func initializeSchema(ctx context.Context, db *sql.DB) error {
-	schemaMutex.Lock()
-	defer schemaMutex.Unlock()
+func initSchema(ctx context.Context, db *sql.DB) error {
+	schemaMu.Lock()
+	defer schemaMu.Unlock()
 
 	var objects int
 	if err := db.QueryRowContext(ctx, `
@@ -181,12 +145,13 @@ func initializeSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if objects != 0 {
 		var marker string
-		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "next-greenfield-1" {
+		if err := db.QueryRowContext(ctx,
+			"SELECT value FROM system_metadata WHERE key = 'schema_version'",
+		).Scan(&marker); err != nil || marker != "next-greenfield-1" {
 			return fmt.Errorf("sqlite schema is incompatible; initialize a new database")
 		}
 		return validateSchema(ctx, db)
 	}
-
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin sqlite schema initialization: %w", err)
@@ -216,6 +181,49 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if objects != 8 {
 		return fmt.Errorf("sqlite schema is incomplete")
+	}
+	return nil
+}
+
+// ── File security ────────────────────────────────────────────
+
+func secureFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("secure sqlite: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("secure sqlite: %w", err)
+	}
+	return securePath(path)
+}
+
+func secureDBFiles(path string) error {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := securePath(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func securePath(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("secure sqlite: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("secure sqlite: %s is not a regular file", path)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("secure sqlite: %w", err)
+	}
+	info, err = os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("secure sqlite: %w", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		return fmt.Errorf("secure sqlite: %s has unsafe permissions", path)
 	}
 	return nil
 }
