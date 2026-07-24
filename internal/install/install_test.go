@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -78,7 +79,7 @@ func TestInstallCreatesVersionAndActiveManifestWithoutChangingFiveEntries(t *tes
 		t.Fatal(err)
 	}
 	active, err := manager.Active()
-	if err != nil || active.Release.ReleaseVersion != "1.0.0" {
+	if err != nil || active.Release.ReleaseVersion != "1.0.0" || active.DataRoot != manager.Layout.DataRoot {
 		t.Fatalf("active = %+v, %v", active, err)
 	}
 	if services.installed.Binary != manager.Layout.Binary("1.0.0") || services.installed.WebRoot != manager.Layout.WebRoot("1.0.0") {
@@ -94,6 +95,33 @@ func TestInstallCreatesVersionAndActiveManifestWithoutChangingFiveEntries(t *tes
 	}
 	if strings.Join(names, ",") != "agents,cache,config.toml,data,logs" {
 		t.Fatalf("data root entries = %v", names)
+	}
+}
+
+func TestLegacyActiveManifestWithoutDataRootStillLoads(t *testing.T) {
+	manager, _ := testManager(t)
+	if err := manager.Install(context.Background(), testBundle(t, "1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(manager.Layout.ActiveManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy map[string]any
+	if err := json.Unmarshal(payload, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	delete(legacy, "data_root")
+	payload, err = json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(manager.Layout.ActiveManifest, append(payload, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	active, err := manager.Active()
+	if err != nil || active.DataRoot != "" || active.Release.ReleaseVersion != "1.0.0" {
+		t.Fatalf("legacy active = %+v, %v", active, err)
 	}
 }
 

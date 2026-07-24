@@ -4,7 +4,7 @@ import type { useSession } from "../hooks/useSession";
 
 type Session = ReturnType<typeof useSession>;
 type FieldErrors = Partial<
-  Record<"username" | "password" | "bootstrapCredential", string>
+  Record<"username" | "password" | "ownerSetupCode", string>
 >;
 
 export function LocalAuthPanel({ session }: { session: Session }) {
@@ -17,19 +17,19 @@ export function LocalAuthPanel({ session }: { session: Session }) {
     session.status === "unauthenticated" ? session.authError : undefined;
   const [username, setUsername] = useState(setupRequired ? "owner" : "");
   const [password, setPassword] = useState("");
-  const [bootstrapCredential, setBootstrapCredential] = useState("");
+  const [ownerSetupCode, setOwnerSetupCode] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const invalid = validateLocalAuth(
-      { username, password, bootstrapCredential },
+      { username, password, ownerSetupCode },
       setupRequired,
     );
     setFieldErrors(invalid);
     if (Object.keys(invalid).length > 0) return;
     if (setupRequired) {
-      void session.setup({ username, password, bootstrapCredential });
+      void session.setup({ username, password, ownerSetupCode });
     } else {
       void session.login({ username, password });
     }
@@ -56,7 +56,7 @@ export function LocalAuthPanel({ session }: { session: Session }) {
           </h2>
           <p>
             {setupRequired
-              ? "Join this Sumi as its first Human. The Owner setup key is used once, then stays out of your account."
+              ? "Join this Sumi as its first Human. The one-time setup code proves you may claim the first Owner account."
               : "Sign in as a Sumi Human. Your password never leaves this Server."}
           </p>
           <dl className="local-auth-facts">
@@ -148,23 +148,23 @@ export function LocalAuthPanel({ session }: { session: Session }) {
 
           {setupRequired && (
             <label>
-              <span>Owner setup key</span>
+              <span>Owner setup code</span>
               <span
-                className={`auth-input-frame ${fieldErrors.bootstrapCredential ? "invalid" : ""}`}
+                className={`auth-input-frame ${fieldErrors.ownerSetupCode ? "invalid" : ""}`}
               >
                 <ShieldCheck size={16} aria-hidden="true" />
                 <input
-                  name="bootstrapCredential"
-                  aria-label="Owner setup key"
-                  aria-describedby="setup-key-rule setup-key-error"
-                  aria-invalid={!!fieldErrors.bootstrapCredential}
+                  name="ownerSetupCode"
+                  aria-label="Owner setup code"
+                  aria-describedby="setup-code-rule setup-code-error"
+                  aria-invalid={!!fieldErrors.ownerSetupCode}
                   type="password"
                   autoComplete="off"
-                  value={bootstrapCredential}
+                  value={ownerSetupCode}
                   onChange={(event) =>
                     edit(
-                      "bootstrapCredential",
-                      setBootstrapCredential,
+                      "ownerSetupCode",
+                      setOwnerSetupCode,
                     )(event.target.value)
                   }
                   minLength={43}
@@ -173,13 +173,14 @@ export function LocalAuthPanel({ session }: { session: Session }) {
                   required
                 />
               </span>
-              <small id="setup-key-rule">
-                Paste the credential from human.key (or owner.key). Sumi
-                verifies it once and never stores it with this account.
+              <small id="setup-code-rule">
+                Use the one-time code provided when this Sumi Server was
+                created. It is verified once and never becomes an account
+                credential.
               </small>
-              {fieldErrors.bootstrapCredential && (
-                <small className="auth-field-error" id="setup-key-error">
-                  {fieldErrors.bootstrapCredential}
+              {fieldErrors.ownerSetupCode && (
+                <small className="auth-field-error" id="setup-code-error">
+                  {fieldErrors.ownerSetupCode}
                 </small>
               )}
             </label>
@@ -215,7 +216,7 @@ function validateLocalAuth(
   input: {
     username: string;
     password: string;
-    bootstrapCredential: string;
+    ownerSetupCode: string;
   },
   setupRequired: boolean,
 ): FieldErrors {
@@ -235,12 +236,9 @@ function validateLocalAuth(
       errors.password = "Use 12–256 characters with at least one non-space.";
     }
   }
-  if (
-    setupRequired &&
-    !/^[A-Za-z0-9_-]{43,128}$/.test(input.bootstrapCredential)
-  ) {
-    errors.bootstrapCredential =
-      "Paste the complete 43–128 character Owner setup key.";
+  if (setupRequired && !/^[A-Za-z0-9_-]{43,128}$/.test(input.ownerSetupCode)) {
+    errors.ownerSetupCode =
+      "Paste the complete 43–128 character Owner setup code.";
   }
   return errors;
 }

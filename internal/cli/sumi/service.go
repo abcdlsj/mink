@@ -5,9 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	clicontract "github.com/abcdlsj/sumi/internal/cli/contract"
+	computercli "github.com/abcdlsj/sumi/internal/computer/cli"
 	"github.com/abcdlsj/sumi/internal/home"
+	installcore "github.com/abcdlsj/sumi/internal/install"
 	"github.com/abcdlsj/sumi/internal/osservice"
 )
 
@@ -21,6 +25,38 @@ type serviceController interface {
 
 var newServiceController = func() (serviceController, error) {
 	return osservice.New()
+}
+
+var joinComputerPairingCode = computercli.JoinPairingCode
+
+var installedServiceDataRoot = func(fallback string) (string, error) {
+	layout, err := installcore.Inspect(fallback)
+	if err != nil {
+		return "", err
+	}
+	active, err := installcore.LoadActive(layout)
+	if err != nil {
+		return "", err
+	}
+	if active.DataRoot == "" {
+		return fallback, nil
+	}
+	return active.DataRoot, nil
+}
+
+var computerInstallReady = func(dataRoot string) error {
+	layout, err := installcore.Inspect(dataRoot)
+	if err != nil {
+		return err
+	}
+	active, err := installcore.LoadActive(layout)
+	if err != nil {
+		return err
+	}
+	if active.DataRoot != "" && active.DataRoot != filepath.Clean(dataRoot) {
+		return fmt.Errorf("active install uses a different data root")
+	}
+	return nil
 }
 
 func isServiceAction(action string) bool {
@@ -43,11 +79,40 @@ func runService(ctx context.Context, rawComponent string, args []string, stdout,
 	flags := flag.NewFlagSet("sumi "+rawComponent+" "+args[0], flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	dataRoot := flags.String("data-root", defaultRoot, "Sumi data root")
+	var pairingCode string
+	var computerName string
+	if rawComponent == string(osservice.Computer) && args[0] == "start" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			return serviceError("Computer name is unavailable", "COMPUTER_NAME_INVALID", "provide --name")
+		}
+		computerName = hostname
+		flags.StringVar(&pairingCode, "pairing-code", "", "one-time Sumi connection code")
+		flags.StringVar(&computerName, "name", hostname, "Computer display name")
+	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
 		return serviceError("service arguments are invalid", "INVALID_ARGUMENT", "remove positional arguments")
+	}
+	nameConfigured := false
+	dataRootConfigured := false
+	flags.Visit(func(visited *flag.Flag) {
+		switch visited.Name {
+		case "name":
+			nameConfigured = true
+		case "data-root":
+			dataRootConfigured = true
+		}
+	})
+	if !dataRootConfigured {
+		if installedRoot, err := installedServiceDataRoot(*dataRoot); err == nil {
+			*dataRoot = installedRoot
+		}
+	}
+	if pairingCode == "" && nameConfigured {
+		return serviceError("Computer name requires a pairing code", "INVALID_ARGUMENT", "remove --name or provide --pairing-code")
 	}
 	component := osservice.Component(rawComponent)
 	controller, err := newServiceController()
@@ -56,8 +121,21 @@ func runService(ctx context.Context, rawComponent string, args []string, stdout,
 	}
 	controller.Configure(*dataRoot)
 	action := args[0]
+	paired := false
 	switch action {
 	case "start":
+		if pairingCode != "" {
+			if err := computerInstallReady(*dataRoot); err != nil {
+				return serviceError("Sumi is not installed for this user", "INSTALL_REQUIRED", "install Sumi, then retry the same connection command")
+			}
+			if controller.Running(ctx, component) {
+				return serviceError("Computer runtime is active", "RUNTIME_ACTIVE", "stop the running Computer before pairing")
+			}
+			if err := joinComputerPairingCode(ctx, pairingCode, *dataRoot, computerName); err != nil {
+				return err
+			}
+			paired = true
+		}
 		err = controller.Start(ctx, component)
 	case "stop":
 		err = controller.Stop(ctx, component)
@@ -74,6 +152,10 @@ func runService(ctx context.Context, rawComponent string, args []string, stdout,
 	}
 	if err != nil {
 		return serviceError("current-user service command failed", "SERVICE_COMMAND_FAILED", "inspect 'sumi "+rawComponent+" status' and retry")
+	}
+	if paired {
+		_, err = fmt.Fprintln(stdout, "Computer paired and service started.")
+		return err
 	}
 	completed := map[string]string{"start": "started", "stop": "stopped", "restart": "restarted"}[action]
 	_, err = fmt.Fprintf(stdout, "%s service %s.\n", titleComponent(component), completed)

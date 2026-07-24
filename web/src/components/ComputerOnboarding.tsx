@@ -2,7 +2,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import {
   Check,
   Clipboard,
-  Download,
+  KeyRound,
   Laptop,
   LockKeyhole,
   RefreshCw,
@@ -10,10 +10,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
-  computerPairingCommand,
-  computerPairingFilename,
-  downloadComputerPairingBundle,
   getPairingEndpoint,
+  maskedComputerPairingCommand,
   prepareComputerPairing,
   UnsafePairingOriginError,
 } from "../lib/computerPairing";
@@ -22,7 +20,7 @@ import { createComputerPairing } from "../lib/facts";
 type PairingState =
   | { status: "ready" }
   | { status: "creating" }
-  | { status: "downloaded"; expiresAt: Date }
+  | { status: "created"; expiresAt: Date; command: string }
   | { status: "error"; message: string };
 
 export function ComputerOnboarding({
@@ -48,32 +46,37 @@ export function ComputerOnboarding({
         message:
           error instanceof Error
             ? error.message
-            : "This Sumi address cannot create a safe pairing bundle.",
+            : "This Sumi address cannot create a safe connection command.",
       };
     }
   }, []);
 
-  const createBundle = async () => {
+  const createCommand = async () => {
     setCopied(false);
     setState({ status: "creating" });
     try {
       const prepared = prepareComputerPairing(location.origin);
       await createComputerPairing(prepared);
-      downloadComputerPairingBundle(prepared.bundle);
-      setState({ status: "downloaded", expiresAt: prepared.expiresAt });
+      setState({
+        status: "created",
+        expiresAt: prepared.expiresAt,
+        command: prepared.command,
+      });
     } catch (error) {
       setState({ status: "error", message: pairingError(error) });
     }
   };
 
   const copyCommand = async () => {
+    if (state.status !== "created") return;
     try {
-      await navigator.clipboard.writeText(computerPairingCommand);
+      await navigator.clipboard.writeText(state.command);
       setCopied(true);
     } catch {
       setState({
         status: "error",
-        message: "Could not copy. Select the command and copy it manually.",
+        message:
+          "Could not copy the private command. Allow clipboard access, then create a new command.",
       });
     }
   };
@@ -102,15 +105,15 @@ export function ComputerOnboarding({
       </header>
 
       <ol className="pairing-steps">
-        <li className={state.status === "downloaded" ? "complete" : "active"}>
+        <li className={state.status === "created" ? "complete" : "active"}>
           <span className="pairing-step-number">
-            {state.status === "downloaded" ? <Check size={15} /> : "1"}
+            {state.status === "created" ? <Check size={15} /> : "1"}
           </span>
           <div>
-            <strong>Create a one-time pairing file</strong>
+            <strong>Create a one-time connection command</strong>
             <p>
-              It expires in 10 minutes and downloads as{" "}
-              <code>{computerPairingFilename}</code>.
+              It expires in 10 minutes. The target Mac or Linux machine must
+              already have the <code>sumi</code> CLI installed.
             </p>
             {!authenticated ? (
               <button
@@ -129,36 +132,37 @@ export function ComputerOnboarding({
               <button
                 className="primary-action"
                 type="button"
-                onClick={() => void createBundle()}
+                onClick={() => void createCommand()}
                 disabled={state.status === "creating"}
               >
-                <Download size={16} />
+                <KeyRound size={16} />
                 {state.status === "creating"
-                  ? "Creating secure bundle"
-                  : state.status === "downloaded"
-                    ? "Create a new pairing file"
-                    : "Create & download pairing file"}
+                  ? "Creating connection command"
+                  : state.status === "created"
+                    ? "Create a new command"
+                    : "Create connection command"}
               </button>
             )}
           </div>
         </li>
 
-        <li className={state.status === "downloaded" ? "active" : ""}>
+        <li className={state.status === "created" ? "active" : ""}>
           <span className="pairing-step-number">2</span>
           <div>
             <strong>Run this on the Computer</strong>
             <p>
-              The command locks down the downloaded file before Sumi reads it.
-              No pairing token is placed in shell history.
+              One command validates the Server, pairs this machine, and starts
+              the current-user Computer service. The short-lived code will be
+              present in shell history.
             </p>
             <div className="pairing-command">
               <TerminalSquare size={17} aria-hidden="true" />
-              <code>{computerPairingCommand}</code>
+              <code>{maskedComputerPairingCommand}</code>
               <button
                 type="button"
                 aria-label="Copy Computer pairing command"
                 onClick={() => void copyCommand()}
-                disabled={state.status !== "downloaded"}
+                disabled={state.status !== "created"}
               >
                 {copied ? <Check size={16} /> : <Clipboard size={16} />}
                 <span>{copied ? "Copied" : "Copy"}</span>
@@ -172,7 +176,7 @@ export function ComputerOnboarding({
           <div>
             <strong>Confirm it appears here</strong>
             <p>
-              Keep <code>sumi computer start</code> running, then refresh the
+              After the command reports that the service started, refresh the
               directory. The Server list—not this page—confirms registration.
             </p>
             <button
@@ -188,9 +192,9 @@ export function ComputerOnboarding({
       </ol>
 
       <div className="pairing-status" aria-live="polite">
-        {state.status === "downloaded" && (
+        {state.status === "created" && (
           <p>
-            Pairing file downloaded. Use it before{" "}
+            Connection command ready. Use it before{" "}
             <strong>
               {state.expiresAt.toLocaleTimeString([], {
                 hour: "2-digit",
@@ -229,10 +233,10 @@ function pairingError(error: unknown): string {
     return "Your Human session cannot create pairing. Sign in again, then retry.";
   }
   if (connectError.code === Code.InvalidArgument) {
-    return "The pairing request was rejected. Create a new pairing file.";
+    return "The pairing request was rejected. Create a new connection command.";
   }
   if (connectError.code === Code.Unavailable) {
     return "The Server is unavailable. Check the connection and retry.";
   }
-  return "Could not create a pairing file. Retry when the Server is available.";
+  return "Could not create a connection command. Retry when the Server is available.";
 }

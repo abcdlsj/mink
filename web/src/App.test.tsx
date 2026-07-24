@@ -215,7 +215,7 @@ describe("App", () => {
     expect(screen.queryByText("Welcome back")).not.toBeInTheDocument();
   });
 
-  it("completes one-time local Owner setup without exposing the setup key", async () => {
+  it("completes one-time local Owner setup without exposing the setup code", async () => {
     mockedGetSession.mockResolvedValueOnce(undefined);
     mockedGetLocalSetupRequired.mockResolvedValueOnce(true);
     let finishSetup!: (human: { id: string; name: string }) => void;
@@ -237,7 +237,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "short" },
     });
-    fireEvent.change(screen.getByLabelText("Owner setup key"), {
+    fireEvent.change(screen.getByLabelText("Owner setup code"), {
       target: { value: "too-short" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Join Sumi" }));
@@ -249,7 +249,7 @@ describe("App", () => {
       screen.getByText("Use 12–256 characters with at least one non-space."),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Paste the complete 43–128 character Owner setup key."),
+      screen.getByText("Paste the complete 43–128 character Owner setup code."),
     ).toBeInTheDocument();
     expect(mockedSetupLocalAccount).not.toHaveBeenCalled();
 
@@ -259,7 +259,7 @@ describe("App", () => {
     fireEvent.change(screen.getByLabelText("Password"), {
       target: { value: "correct horse battery staple" },
     });
-    fireEvent.change(screen.getByLabelText("Owner setup key"), {
+    fireEvent.change(screen.getByLabelText("Owner setup code"), {
       target: { value: "A".repeat(43) },
     });
     fireEvent.click(screen.getByRole("button", { name: "Join Sumi" }));
@@ -267,7 +267,7 @@ describe("App", () => {
     expect(mockedSetupLocalAccount).toHaveBeenCalledWith({
       username: "iris",
       password: "correct horse battery staple",
-      bootstrapCredential: "A".repeat(43),
+      ownerSetupCode: "A".repeat(43),
     });
     expect(
       screen.getByRole("button", { name: "Creating local account" }),
@@ -401,7 +401,7 @@ describe("App", () => {
       screen.getByRole("button", { name: "Copy Computer pairing command" }),
     ).toBeDisabled();
     expect(
-      screen.getByText(/sumi computer pair join --file/),
+      screen.getByText(/sumi computer start --pairing-code/),
     ).toBeInTheDocument();
   });
 

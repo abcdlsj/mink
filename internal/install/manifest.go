@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/abcdlsj/sumi/internal/releasebundle"
 	"golang.org/x/sys/unix"
@@ -15,8 +16,9 @@ import (
 const activeManifestVersion = 1
 
 type ActiveManifest struct {
-	Version int                    `json:"version"`
-	Release releasebundle.Manifest `json:"release"`
+	Version  int                    `json:"version"`
+	DataRoot string                 `json:"data_root,omitempty"`
+	Release  releasebundle.Manifest `json:"release"`
 }
 
 func LoadActive(layout Layout) (ActiveManifest, error) {
@@ -28,7 +30,7 @@ func LoadActive(layout Layout) (ActiveManifest, error) {
 }
 
 func SaveActive(layout Layout, release releasebundle.Manifest) error {
-	manifest := ActiveManifest{Version: activeManifestVersion, Release: release}
+	manifest := ActiveManifest{Version: activeManifestVersion, DataRoot: layout.DataRoot, Release: release}
 	if _, err := decodeActive(mustJSON(manifest)); err != nil {
 		return err
 	}
@@ -52,6 +54,9 @@ func decodeActive(payload []byte) (ActiveManifest, error) {
 		return ActiveManifest{}, errors.New("active install manifest is invalid")
 	}
 	if manifest.Version != activeManifestVersion || releasebundle.ValidateManifest(manifest.Release) != nil {
+		return ActiveManifest{}, errors.New("active install manifest is invalid")
+	}
+	if manifest.DataRoot != "" && (!filepath.IsAbs(manifest.DataRoot) || filepath.Clean(manifest.DataRoot) != manifest.DataRoot || strings.ContainsRune(manifest.DataRoot, 0)) {
 		return ActiveManifest{}, errors.New("active install manifest is invalid")
 	}
 	return manifest, nil
