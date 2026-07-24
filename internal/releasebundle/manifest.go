@@ -69,49 +69,49 @@ func Open(root, expectedOS, expectedArch string) (Bundle, error) {
 	return bundle, nil
 }
 
-func (bundle Bundle) Verify() error {
+func (b Bundle) Verify() error {
 	want := map[string]File{}
-	for _, file := range bundle.Manifest.Files {
-		want[file.Path] = file
-		path := filepath.Join(bundle.Root, filepath.FromSlash(file.Path))
-		info, err := os.Lstat(path)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() != file.Size {
+	for _, f := range b.Manifest.Files {
+		want[f.Path] = f
+		p := filepath.Join(b.Root, filepath.FromSlash(f.Path))
+		info, err := os.Lstat(p)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() != f.Size {
 			return errors.New("release bundle file is missing or unsafe")
 		}
-		if file.Path == "bin/sumi" && info.Mode().Perm()&0o111 == 0 {
+		if f.Path == "bin/sumi" && info.Mode().Perm()&0o111 == 0 {
 			return errors.New("release bundle executable is not executable")
 		}
-		digest, err := hashNoFollow(path)
-		if err != nil || !strings.EqualFold(digest, file.SHA256) {
+		digest, err := hashNoFollow(p)
+		if err != nil || !strings.EqualFold(digest, f.SHA256) {
 			return errors.New("release bundle file hash does not match manifest")
 		}
 	}
 	seen := map[string]bool{"manifest.json": true}
-	err := filepath.WalkDir(bundle.Root, func(path string, entry fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(b.Root, func(p string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if path == bundle.Root {
+		if p == b.Root {
 			return nil
 		}
-		relative, err := filepath.Rel(bundle.Root, path)
+		rel, err := filepath.Rel(b.Root, p)
 		if err != nil {
 			return err
 		}
-		relative = filepath.ToSlash(relative)
+		rel = filepath.ToSlash(rel)
 		if entry.Type()&os.ModeSymlink != 0 {
 			return errors.New("release bundle contains a symlink")
 		}
 		if entry.IsDir() {
 			return nil
 		}
-		if relative == "manifest.json" {
+		if rel == "manifest.json" {
 			return nil
 		}
-		if _, ok := want[relative]; !ok {
+		if _, ok := want[rel]; !ok {
 			return errors.New("release bundle contains an unmanifested file")
 		}
-		seen[relative] = true
+		seen[rel] = true
 		return nil
 	})
 	if err != nil {
@@ -123,15 +123,15 @@ func (bundle Bundle) Verify() error {
 	return nil
 }
 
-func (bundle Bundle) CopyTo(destination string) error {
-	return bundle.copyTo(destination, nil)
+func (b Bundle) CopyTo(dst string) error {
+	return b.copyTo(dst, nil)
 }
 
-func (bundle Bundle) copyTo(destination string, beforeCopy func(string) error) error {
-	if err := bundle.Verify(); err != nil {
+func (b Bundle) copyTo(dst string, beforeCopy func(string) error) error {
+	if err := b.Verify(); err != nil {
 		return err
 	}
-	if err := os.Mkdir(destination, 0o700); err != nil {
+	if err := os.Mkdir(dst, 0o700); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return errors.New("installed release version already exists")
 		}
@@ -140,33 +140,33 @@ func (bundle Bundle) copyTo(destination string, beforeCopy func(string) error) e
 	cleanup := true
 	defer func() {
 		if cleanup {
-			_ = os.RemoveAll(destination)
+			os.RemoveAll(dst)
 		}
 	}()
-	for _, file := range bundle.Manifest.Files {
+	for _, f := range b.Manifest.Files {
 		if beforeCopy != nil {
-			if err := beforeCopy(file.Path); err != nil {
+			if err := beforeCopy(f.Path); err != nil {
 				return err
 			}
 		}
-		source := filepath.Join(bundle.Root, filepath.FromSlash(file.Path))
-		target := filepath.Join(destination, filepath.FromSlash(file.Path))
-		if err := copyRegular(source, target, file.Path == "bin/sumi"); err != nil {
+		src := filepath.Join(b.Root, filepath.FromSlash(f.Path))
+		targ := filepath.Join(dst, filepath.FromSlash(f.Path))
+		if err := copyRegular(src, targ, f.Path == "bin/sumi"); err != nil {
 			return err
 		}
 	}
-	payload, err := json.MarshalIndent(bundle.Manifest, "", "  ")
+	payload, err := json.MarshalIndent(b.Manifest, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	if err := writeNew(filepath.Join(destination, "manifest.json"), payload, 0o600); err != nil {
+	if err := writeNew(filepath.Join(dst, "manifest.json"), payload, 0o600); err != nil {
 		return err
 	}
-	if err := syncDirectory(destination); err != nil {
+	if err := syncDirectory(dst); err != nil {
 		return err
 	}
-	if _, err := Open(destination, bundle.Manifest.OS, bundle.Manifest.Arch); err != nil {
+	if _, err := Open(dst, b.Manifest.OS, b.Manifest.Arch); err != nil {
 		return errors.New("installed release copy does not match manifest")
 	}
 	cleanup = false

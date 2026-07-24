@@ -61,18 +61,18 @@ func New(server endpoint.Endpoint, expiresAt time.Time) (Bundle, error) {
 	return bundle, nil
 }
 
-func (bundle Bundle) Endpoint() (endpoint.Endpoint, error) {
-	if err := validateBundle(bundle); err != nil {
+func (b Bundle) Endpoint() (endpoint.Endpoint, error) {
+	if err := validateBundle(b); err != nil {
 		return endpoint.Endpoint{}, err
 	}
-	return endpoint.FromIdentity(bundle.ServerOrigin, endpoint.Identity{Kind: bundle.ServerIdentity.Kind, SPKIPin: bundle.ServerIdentity.SPKIPin})
+	return endpoint.FromIdentity(b.ServerOrigin, endpoint.Identity{Kind: b.ServerIdentity.Kind, SPKIPin: b.ServerIdentity.SPKIPin})
 }
 
-func (bundle Bundle) ValidateAt(now time.Time) error {
-	if _, err := bundle.Endpoint(); err != nil {
+func (b Bundle) ValidateAt(now time.Time) error {
+	if _, err := b.Endpoint(); err != nil {
 		return err
 	}
-	if !now.Before(bundle.ExpiresAt) {
+	if !now.Before(b.ExpiresAt) {
 		return errors.New("pairing bundle is expired")
 	}
 	return nil
@@ -208,43 +208,43 @@ func Open(path string) (*Opened, error) {
 	return &Opened{Bundle: bundle, path: path, file: file}, nil
 }
 
-func (opened *Opened) Remove() error {
-	if opened == nil || opened.file == nil {
+func (o *Opened) Remove() error {
+	if o == nil || o.file == nil {
 		return errors.New("pairing bundle is not open")
 	}
-	openedInfo, err := opened.file.Stat()
+	openedInfo, err := o.file.Stat()
 	if err != nil {
 		return errors.New("inspect open pairing bundle")
 	}
-	pathInfo, err := os.Lstat(opened.path)
+	pathInfo, err := os.Lstat(o.path)
 	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(openedInfo, pathInfo) {
 		return errors.New("pairing bundle changed while open")
 	}
-	if err := unix.Unlink(opened.path); err != nil {
+	if err := unix.Unlink(o.path); err != nil {
 		return errors.New("remove pairing bundle")
 	}
-	if err := syncDirectory(filepath.Dir(opened.path)); err != nil {
+	if err := syncDirectory(filepath.Dir(o.path)); err != nil {
 		return errors.New("sync pairing bundle directory")
 	}
-	return opened.Close()
+	return o.Close()
 }
 
-func (opened *Opened) Discard(now time.Time) error {
-	if opened == nil {
+func (o *Opened) Discard(now time.Time) error {
+	if o == nil {
 		return errors.New("pairing bundle is not open")
 	}
-	if now.Before(opened.Bundle.ExpiresAt) {
+	if now.Before(o.Bundle.ExpiresAt) {
 		return ErrStillValid
 	}
-	return opened.Remove()
+	return o.Remove()
 }
 
-func (opened *Opened) Close() error {
-	if opened == nil || opened.file == nil {
+func (o *Opened) Close() error {
+	if o == nil || o.file == nil {
 		return nil
 	}
-	err := opened.file.Close()
-	opened.file = nil
+	err := o.file.Close()
+	o.file = nil
 	return err
 }
 

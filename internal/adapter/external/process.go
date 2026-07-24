@@ -38,46 +38,46 @@ type ProcessRunner struct {
 	Logger           *observability.Logger
 }
 
-func (runner ProcessRunner) Validate() error {
-	if !filepath.IsAbs(runner.Path) {
+func (r ProcessRunner) Validate() error {
+	if !filepath.IsAbs(r.Path) {
 		return errors.New("external adapter executable path must be absolute")
 	}
-	info, err := os.Stat(runner.Path)
+	info, err := os.Stat(r.Path)
 	if err != nil {
 		return fmt.Errorf("stat external adapter executable: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return errors.New("external adapter executable is invalid")
 	}
-	if runner.Timeout <= 0 || runner.TerminationGrace <= 0 || runner.MaxOutputBytes <= 0 || runner.Sandbox == nil {
+	if r.Timeout <= 0 || r.TerminationGrace <= 0 || r.MaxOutputBytes <= 0 || r.Sandbox == nil {
 		return errors.New("external adapter sandbox and runtime bounds are required")
 	}
-	for _, argument := range runner.Args {
-		if strings.IndexByte(argument, 0) >= 0 {
+	for _, arg := range r.Args {
+		if strings.IndexByte(arg, 0) >= 0 {
 			return errors.New("external adapter argument contains NUL")
 		}
 	}
 	return nil
 }
 
-func (runner ProcessRunner) Run(ctx context.Context, binding Binding, input []byte, emit func([]byte) error) error {
-	if err := runner.Validate(); err != nil {
+func (r ProcessRunner) Run(ctx context.Context, binding Binding, input []byte, emit func([]byte) error) error {
+	if err := r.Validate(); err != nil {
 		return err
 	}
 	if emit == nil || binding.AgentID == "" || binding.ComputerID == "" || binding.RunID == "" || binding.Attempt == 0 || binding.Fence == 0 || binding.PlacementDesiredRevision == 0 || binding.Workspace == "" {
 		return errors.New("external adapter run binding is incomplete")
 	}
-	logger := observability.CategoryLogger(runner.Logger, observability.ComponentComputer, observability.CategoryEngine)
+	logger := observability.CategoryLogger(r.Logger, observability.ComponentComputer, observability.CategoryEngine)
 	started := time.Now()
-	logger.Info("external adapter process starting", "event", "adapter.process.starting", "agent_id", binding.AgentID, "run_id", binding.RunID, "attempt", binding.Attempt, "fence", binding.Fence, "executable", filepath.Base(runner.Path), "arguments", len(runner.Args), "secret_refs", len(runner.Secrets), "timeout", runner.Timeout, "output_limit", runner.MaxOutputBytes)
-	runCtx, cancel := context.WithTimeout(ctx, runner.Timeout)
+	logger.Info("external adapter process starting", "event", "adapter.process.starting", "agent_id", binding.AgentID, "run_id", binding.RunID, "attempt", binding.Attempt, "fence", binding.Fence, "executable", filepath.Base(r.Path), "arguments", len(r.Args), "secret_refs", len(r.Secrets), "timeout", r.Timeout, "output_limit", r.MaxOutputBytes)
+	runCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
 	stdoutReader, stdoutWriter := io.Pipe()
 	stderrReader, stderrWriter := io.Pipe()
-	process, err := runner.Sandbox.Start(runCtx, sandbox.Request{
+	process, err := r.Sandbox.Start(runCtx, sandbox.Request{
 		AgentID: binding.AgentID, ComputerID: binding.ComputerID, RunID: binding.RunID,
 		Attempt: binding.Attempt, Fence: binding.Fence, PlacementDesiredRevision: binding.PlacementDesiredRevision,
-		Workspace: binding.Workspace, Command: append([]string{runner.Path}, runner.Args...), Secrets: runner.Secrets,
+		Workspace: binding.Workspace, Command: append([]string{r.Path}, r.Args...), Secrets: r.Secrets,
 		Stdin: bytes.NewReader(input), Stdout: stdoutWriter, Stderr: stderrWriter,
 	})
 	if err != nil {
@@ -90,9 +90,9 @@ func (runner ProcessRunner) Run(ctx context.Context, binding Binding, input []by
 	var closeOnce sync.Once
 	closeReaders := func() { closeOnce.Do(func() { stdoutReader.Close(); stderrReader.Close() }) }
 	stdoutDone := make(chan error, 1)
-	go func() { stdoutDone <- emitJSONLLines(stdoutReader, runner.MaxOutputBytes, emit) }()
+	go func() { stdoutDone <- emitJSONLLines(stdoutReader, r.MaxOutputBytes, emit) }()
 	stderrDone := make(chan error, 1)
-	go func() { stderrDone <- drainBounded(stderrReader, runner.MaxOutputBytes) }()
+	go func() { stderrDone <- drainBounded(stderrReader, r.MaxOutputBytes) }()
 	waitDone := make(chan error, 1)
 	go func() {
 		waitErr := process.Wait()
