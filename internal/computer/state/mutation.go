@@ -28,10 +28,10 @@ func (s *State) BeginMutation(ctx context.Context, attempt MutationAttempt) (Mut
 	var payloadHash []byte
 	var createdAt int64
 	err = tx.QueryRowContext(ctx, `
-		SELECT request_id, payload_hash, run_id, launch_id, fence, created_at
+		SELECT request_id, payload_hash, run_id, attempt, fence, created_at
 		FROM mutation_attempts
 		WHERE operation = ? AND subject_id = ? AND status = 'pending'
-	`, attempt.Operation, attempt.SubjectID).Scan(&existing.RequestID, &payloadHash, &existing.RunID, &existing.LaunchID, &existing.Fence, &createdAt)
+	`, attempt.Operation, attempt.SubjectID).Scan(&existing.RequestID, &payloadHash, &existing.RunID, &existing.Attempt, &existing.Fence, &createdAt)
 	if err == nil {
 		existing.Operation = attempt.Operation
 		existing.SubjectID = attempt.SubjectID
@@ -54,9 +54,9 @@ func (s *State) BeginMutation(ctx context.Context, attempt MutationAttempt) (Mut
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO mutation_attempts(
-			request_id, operation, subject_id, payload_hash, status, run_id, launch_id, fence, created_at
+			request_id, operation, subject_id, payload_hash, status, run_id, attempt, fence, created_at
 		) VALUES(?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-	`, attempt.RequestID, attempt.Operation, attempt.SubjectID, attempt.PayloadHash[:], attempt.RunID, attempt.LaunchID, attempt.Fence, unixNano(attempt.CreatedAt))
+	`, attempt.RequestID, attempt.Operation, attempt.SubjectID, attempt.PayloadHash[:], attempt.RunID, attempt.Attempt, attempt.Fence, unixNano(attempt.CreatedAt))
 	if err != nil {
 		return MutationAttempt{}, fmt.Errorf("begin mutation attempt: %w", err)
 	}
@@ -69,7 +69,7 @@ func (s *State) BeginMutation(ctx context.Context, attempt MutationAttempt) (Mut
 	return attempt, nil
 }
 
-func (s *State) CompleteMutation(ctx context.Context, requestID string, status MutationStatus, responseLaunchID string, responseFence uint64, responseExpiresAt *time.Time, completedAt time.Time) error {
+func (s *State) CompleteMutation(ctx context.Context, requestID string, status MutationStatus, responseAttempt, responseFence uint64, responseExpiresAt *time.Time, completedAt time.Time) error {
 	if !validID(requestID) || (status != MutationSucceeded && status != MutationFailed) || completedAt.IsZero() {
 		return errors.New("mutation completion is invalid")
 	}
@@ -79,9 +79,9 @@ func (s *State) CompleteMutation(ctx context.Context, requestID string, status M
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE mutation_attempts
-		SET status = ?, response_launch_id = ?, response_fence = ?, response_expires_at = ?, completed_at = ?
+		SET status = ?, response_attempt = ?, response_fence = ?, response_expires_at = ?, completed_at = ?
 		WHERE request_id = ? AND status = 'pending'
-	`, status, responseLaunchID, responseFence, expiresAt, unixNano(completedAt), requestID)
+	`, status, responseAttempt, responseFence, expiresAt, unixNano(completedAt), requestID)
 	if err != nil {
 		return fmt.Errorf("complete mutation attempt: %w", err)
 	}
@@ -94,8 +94,8 @@ func (s *State) CompleteMutation(ctx context.Context, requestID string, status M
 
 func (s *State) MutationAttempts(ctx context.Context, operation MutationOperation, subjectID string) ([]MutationAttempt, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT request_id, operation, subject_id, payload_hash, status, run_id, launch_id, fence,
-		       response_launch_id, response_fence, response_expires_at, created_at, completed_at
+		SELECT request_id, operation, subject_id, payload_hash, status, run_id, attempt, fence,
+		       response_attempt, response_fence, response_expires_at, created_at, completed_at
 		FROM mutation_attempts
 		WHERE operation = ? AND subject_id = ?
 		ORDER BY created_at, request_id
@@ -110,7 +110,7 @@ func (s *State) MutationAttempts(ctx context.Context, operation MutationOperatio
 		var payloadHash []byte
 		var responseExpiresAt, completedAt sql.NullInt64
 		var createdAt int64
-		if err := rows.Scan(&attempt.RequestID, &attempt.Operation, &attempt.SubjectID, &payloadHash, &attempt.Status, &attempt.RunID, &attempt.LaunchID, &attempt.Fence, &attempt.ResponseLaunchID, &attempt.ResponseFence, &responseExpiresAt, &createdAt, &completedAt); err != nil {
+		if err := rows.Scan(&attempt.RequestID, &attempt.Operation, &attempt.SubjectID, &payloadHash, &attempt.Status, &attempt.RunID, &attempt.Attempt, &attempt.Fence, &attempt.ResponseAttempt, &attempt.ResponseFence, &responseExpiresAt, &createdAt, &completedAt); err != nil {
 			return nil, fmt.Errorf("scan mutation attempt: %w", err)
 		}
 		if len(payloadHash) != sha256.Size {
@@ -137,5 +137,5 @@ func (s *State) MutationAttempts(ctx context.Context, operation MutationOperatio
 func samePendingMutation(left, right MutationAttempt) bool {
 	return left.Operation == right.Operation && left.SubjectID == right.SubjectID &&
 		left.PayloadHash == right.PayloadHash && left.RunID == right.RunID &&
-		left.LaunchID == right.LaunchID && left.Fence == right.Fence
+		left.Attempt == right.Attempt && left.Fence == right.Fence
 }

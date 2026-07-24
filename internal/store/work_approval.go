@@ -22,6 +22,14 @@ func (s *Store) RequestWorkApproval(ctx context.Context, params RequestWorkAppro
 		return WorkApproval{}, err
 	}
 	defer tx.Rollback()
+	actor, err := recheckMessageActor(ctx, tx, params.Actor, params.Agent, params.Now)
+	if err != nil {
+		return WorkApproval{}, err
+	}
+	params.Actor = actor
+	if _, _, err := requireToolRun(ctx, tx, params.Agent, params.Run, params.Now); err != nil {
+		return WorkApproval{}, err
+	}
 	if receipt, found, err := readWorkReceipt(ctx, tx, params.RequestID, workRequestApprovalRequest, params.Actor, fingerprint); err != nil || found {
 		if err != nil {
 			return WorkApproval{}, err

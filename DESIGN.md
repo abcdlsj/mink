@@ -270,6 +270,8 @@ BYOK 从 WebUI 配置：
 
 raw credential 不进入 Prompt、日志、Audit、Server 可读数据库字段、Computer journal、durable outbox、Workspace 或 scratch。迁移到另一台 Computer 必须重新 binding；无法安全交付和保存时，WebUI 必须拒绝配置，不能降级为明文。
 
+创建或迁移 Placement 时，Server 必须在同一事务验证当前 RuntimeSpec 引用的 CredentialBinding 精确绑定该 Agent、目标 Computer 和 Engine 所需 credential kind；任一字段不匹配都以稳定前置条件错误拒绝，不能把无效配置推迟到 Computer 启动 Engine 时才发现。
+
 ## 8. 协作模型
 
 ### Space、Message 与 Inbox

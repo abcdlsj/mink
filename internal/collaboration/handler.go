@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 )
@@ -183,15 +184,30 @@ func (s *Service) SendMessage(ctx context.Context, request *connect.Request[spac
 	if err != nil {
 		return nil, err
 	}
+	run, err := messageRunProof(request.Msg.GetRunId(), request.Msg.GetRunAttempt(), request.Msg.GetRunFence())
+	if err != nil {
+		return nil, err
+	}
 	message, err := s.sendMessage(ctx, SendMessageCommand{
 		RequestID: requestID,
-		Actor:     actor, Runtime: authentication.runtime,
+		Actor:     actor, Runtime: authentication.runtime, Run: run,
 		Target: target, Body: request.Msg.GetBody(), MentionedPrincipals: mentions, Now: s.now(),
 	})
 	if err := collaborationError(err); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&spacev1.SendMessageResponse{Message: messageMessage(message)}), nil
+}
+
+func messageRunProof(runID string, attempt, fence uint64) (*authorityapp.RunProof, error) {
+	if runID == "" && attempt == 0 && fence == 0 {
+		return nil, nil
+	}
+	id, err := connectid.CanonicalID(runID, "run id")
+	if err != nil || attempt == 0 || fence == 0 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("run proof is invalid"))
+	}
+	return &authorityapp.RunProof{RunID: id, Attempt: attempt, Fence: fence}, nil
 }
 
 func (s *Service) GetMessage(ctx context.Context, request *connect.Request[spacev1.GetMessageRequest]) (*connect.Response[spacev1.GetMessageResponse], error) {

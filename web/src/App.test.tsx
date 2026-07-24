@@ -13,11 +13,37 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { CreateAgentForm } from "./components/CreateAgentForm";
-import { AgentSchema, Driver, type Agent } from "./gen/sumi/agent/v1/agent_pb";
+import {
+  AgentProfileSchema,
+  AgentRuntimeSpecSchema,
+  AgentSchema,
+  EngineKind,
+  ProviderProtocol,
+  RuntimeSandboxProvider,
+  type Agent,
+} from "./gen/sumi/agent/v1/agent_pb";
 import {
   Architecture,
+  CapabilityHealth,
+  CapabilityInventorySchema,
   ComputerSchema,
+  CredentialDeliveryAlgorithm,
+  CredentialDeliveryCapabilitySchema,
+  CredentialDeliverySchema,
+  CredentialDeliveryState,
+  CredentialKind,
+  CredentialStore,
+  EngineCapabilitySchema,
   OperatingSystem,
+  SandboxCapabilitySchema,
+  SandboxDaemonCrashCleanup,
+  SandboxFilesystemIsolation,
+  SandboxIsolation,
+  SandboxNetworkIsolation,
+  SandboxProcessControl,
+  SandboxProvider,
+  SandboxSecretMaterialization,
+  SandboxWorkspaceAccess,
   type Computer,
 } from "./gen/sumi/computer/v1/computer_pb";
 import {
@@ -39,10 +65,15 @@ import { getBootstrap } from "./lib/bootstrap";
 import {
   createAgent,
   createComputerPairing,
+  enqueueCredentialDelivery,
   getAgentDetail,
+  getAgentRuntimeSpec,
   getComputer,
+  listCredentialDeliveries,
   loadFacts,
   setAgentPlacement,
+  updateAgentRuntimeSpec,
+  waitForCredentialDelivery,
   type FactsSnapshot,
 } from "./lib/facts";
 import {
@@ -69,7 +100,12 @@ vi.mock("./lib/facts", () => ({
   getComputer: vi.fn(),
   createAgent: vi.fn(),
   createComputerPairing: vi.fn(),
+  getAgentRuntimeSpec: vi.fn(),
+  updateAgentRuntimeSpec: vi.fn(),
   setAgentPlacement: vi.fn(),
+  enqueueCredentialDelivery: vi.fn(),
+  listCredentialDeliveries: vi.fn(),
+  waitForCredentialDelivery: vi.fn(),
   factErrorMessage: (error: unknown, action: string) =>
     error instanceof Error ? error.message : `Could not ${action}.`,
 }));
@@ -106,7 +142,12 @@ const mockedGetAgentDetail = vi.mocked(getAgentDetail);
 const mockedGetComputer = vi.mocked(getComputer);
 const mockedCreateAgent = vi.mocked(createAgent);
 const mockedCreateComputerPairing = vi.mocked(createComputerPairing);
-const mockedSetPlacement = vi.mocked(setAgentPlacement);
+const mockedGetAgentRuntimeSpec = vi.mocked(getAgentRuntimeSpec);
+const mockedUpdateAgentRuntimeSpec = vi.mocked(updateAgentRuntimeSpec);
+const mockedSetAgentPlacement = vi.mocked(setAgentPlacement);
+const mockedEnqueueCredentialDelivery = vi.mocked(enqueueCredentialDelivery);
+const mockedListCredentialDeliveries = vi.mocked(listCredentialDeliveries);
+const mockedWaitForCredentialDelivery = vi.mocked(waitForCredentialDelivery);
 const mockedGetSession = vi.mocked(getSession);
 const mockedGetLocalSetupRequired = vi.mocked(getLocalSetupRequired);
 const mockedLoginLocalAccount = vi.mocked(loginLocalAccount);
@@ -131,6 +172,8 @@ beforeEach(() => {
   mockedGetAgentDetail.mockRejectedValue(new Error("Agent detail unavailable"));
   mockedGetComputer.mockRejectedValue(new Error("Computer detail unavailable"));
   mockedCreateComputerPairing.mockResolvedValue();
+  mockedGetAgentRuntimeSpec.mockResolvedValue(undefined);
+  mockedListCredentialDeliveries.mockResolvedValue([]);
   mockedGetSession.mockResolvedValue({
     id: "33333333-3333-4333-8333-333333333333",
     name: "Owner",
@@ -181,10 +224,13 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows the persistent server identity", async () => {
+  it("keeps server identity accessible without persistent copy", async () => {
     render(<App />);
 
-    expect(await screen.findByText("Server 7ba1a702")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Server 7ba1a702 · v0.1.0"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Server 7ba1a702/)).not.toBeInTheDocument();
     expect(
       await screen.findByText("No conversation selected"),
     ).toBeInTheDocument();
@@ -280,7 +326,9 @@ describe("App", () => {
         name: "Owner",
       }),
     );
-    expect(await screen.findByText("Owner")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Signed in as Owner"),
+    ).toBeInTheDocument();
   });
 
   it("signs in locally and keeps authentication errors actionable", async () => {
@@ -313,7 +361,9 @@ describe("App", () => {
     });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
-    expect(await screen.findByText("Owner")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Signed in as Owner"),
+    ).toBeInTheDocument();
   });
 
   it("does not report an unknown or failed session as signed out", async () => {
@@ -326,10 +376,16 @@ describe("App", () => {
     );
 
     const first = render(<App />);
-    expect(await screen.findByText("Checking session")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Checking session"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
     expect(screen.queryByText("Human signed out")).not.toBeInTheDocument();
     await act(async () => resolveSession(undefined));
-    expect(await screen.findByText("Human signed out")).toBeInTheDocument();
+    expect(
+      await screen.findByLabelText("Human signed out"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Human signed out")).not.toBeInTheDocument();
     first.unmount();
 
     mockedGetSession.mockRejectedValueOnce(new Error("session unavailable"));
@@ -517,15 +573,58 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "Computers" }));
     expect(await screen.findByText("Registered Computer")).toBeInTheDocument();
     expect(mockedGetComputer).toHaveBeenCalledWith(facts.computers[0].id);
+
+    const filesystemBoundary = screen
+      .getByText("Host filesystem isolation")
+      .closest("div");
+    const networkBoundary = screen
+      .getByText("Network isolation")
+      .closest("div");
+    expect(filesystemBoundary).not.toBeNull();
+    expect(networkBoundary).not.toBeNull();
+    expect(within(filesystemBoundary!).getByText("none")).toBeInTheDocument();
+    expect(within(networkBoundary!).getByText("none")).toBeInTheDocument();
   });
 
-  it("keeps Agent management read-only while preserving placement facts", async () => {
+  it("configures Agent runtime with browser-sealed BYOK and exact placement", async () => {
     const facts = readyFacts();
     mockedLoadFacts.mockResolvedValue(facts);
     mockedGetAgentDetail.mockResolvedValue({
       agent: facts.agents[0],
       placement: facts.placements[0],
     });
+    const delivery = create(CredentialDeliverySchema, {
+      id: "44444444-4444-4444-8444-444444444444",
+      requestId: "55555555-5555-4555-8555-555555555555",
+      computerId: facts.computers[0].id,
+      agentId: facts.agents[0].id,
+      credentialKind: CredentialKind.OPENAI,
+      state: CredentialDeliveryState.SUCCEEDED,
+      bindingHandle: "binding-handle-0001",
+    });
+    const runtimeSpec = create(AgentRuntimeSpecSchema, {
+      agentId: facts.agents[0].id,
+      revision: 1n,
+      engine: EngineKind.BUILTIN,
+      providerProtocol: ProviderProtocol.OPENAI_RESPONSES,
+      providerEndpoint: "https://api.openai.com",
+      model: "gpt-test",
+      credentialBindingHandle: delivery.bindingHandle,
+      sandboxProvider: RuntimeSandboxProvider.TRUSTED_LOCAL,
+      maxRunDurationSeconds: 900,
+      maxOutputBytes: 8n << 20n,
+      toolPolicy: {},
+    });
+    const configuredPlacement = create(AgentPlacementSchema, {
+      ...facts.placements[0],
+      runtimeSpec,
+      desiredRevision: 2n,
+      state: PlacementState.PENDING,
+    });
+    mockedEnqueueCredentialDelivery.mockResolvedValue(delivery);
+    mockedWaitForCredentialDelivery.mockResolvedValue(delivery);
+    mockedUpdateAgentRuntimeSpec.mockResolvedValue(runtimeSpec);
+    mockedSetAgentPlacement.mockResolvedValue(configuredPlacement);
 
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
@@ -535,19 +634,76 @@ describe("App", () => {
     });
     const workspace = screen.getByRole("region", { name: "Agents" });
     expect(
+      (await within(workspace).findAllByText("Build host")).length,
+    ).toBeGreaterThan(0);
+    expect(
       within(navigation).queryByRole("button", { name: "Create Agent" }),
     ).not.toBeInTheDocument();
-    expect(
-      await within(workspace).findByText("Build host"),
-    ).toBeInTheDocument();
-    expect(
-      within(workspace).getByText(
-        "Placement changes are not available in this read-only view.",
+    await waitFor(() =>
+      expect(within(workspace).getByLabelText("Runtime Engine")).toHaveValue(
+        EngineKind.BUILTIN.toString(),
       ),
-    ).toBeInTheDocument();
+    );
+    fireEvent.change(within(workspace).getByLabelText("Provider model"), {
+      target: { value: "gpt-test" },
+    });
+    fireEvent.change(within(workspace).getByLabelText("BYOK credential"), {
+      target: { value: "sk-browser-only" },
+    });
+    fireEvent.click(
+      within(workspace).getByRole("button", { name: "Configure runtime" }),
+    );
+
+    await waitFor(() =>
+      expect(mockedEnqueueCredentialDelivery).toHaveBeenCalledTimes(1),
+    );
     expect(
-      within(workspace).queryByRole("button", { name: /placement/i }),
+      screen.queryByDisplayValue("sk-browser-only"),
     ).not.toBeInTheDocument();
+    expect(mockedUpdateAgentRuntimeSpec).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: facts.agents[0].id,
+        expectedRevision: 0n,
+        credentialBindingHandle: delivery.bindingHandle,
+        engine: EngineKind.BUILTIN,
+      }),
+    );
+    expect(mockedSetAgentPlacement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: facts.agents[0].id,
+        computerId: facts.computers[0].id,
+      }),
+    );
+    expect(
+      await within(workspace).findByText(/desired revision 2 is pending/),
+    ).toBeInTheDocument();
+  });
+
+  it("selects the placed Computer when Agent detail arrives after facts", async () => {
+    const facts = readyFacts();
+    const placedComputer = create(ComputerSchema, {
+      ...makeComputer(),
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Placed host",
+    });
+    mockedLoadFacts.mockResolvedValue({
+      agents: facts.agents,
+      computers: [facts.computers[0], placedComputer],
+      placements: [],
+    });
+    mockedGetAgentDetail.mockResolvedValue({
+      agent: facts.agents[0],
+      placement: makePlacement(facts.agents[0].id, placedComputer.id),
+    });
+
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Agents" }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Runtime Computer")).toHaveValue(
+        placedComputer.id,
+      ),
+    );
   });
 
   it("loads a real Space snapshot and sends main and first Thread messages", async () => {
@@ -676,54 +832,52 @@ describe("App", () => {
 });
 
 describe("direct Agent mutation contract", () => {
-  it("reuses one canonical placement request ID across a retry lifecycle", async () => {
-    const computer = makeComputer();
+  it("submits identity and profile without runtime configuration", async () => {
     const agent = makeAgent("recovery-agent");
-    const placement = makePlacement(agent.id, computer.id);
     mockedCreateAgent.mockResolvedValue(agent);
-    mockedSetPlacement
-      .mockRejectedValueOnce(new Error("Computer no longer exists"))
-      .mockResolvedValueOnce(placement);
+    const finished = vi.fn();
 
     render(
       <CreateAgentForm
-        computers={[computer]}
         onAgentCreated={() => {}}
-        onPlacementChanged={() => {}}
-        onFinished={() => {}}
+        onFinished={finished}
         onCancel={() => {}}
       />,
     );
     const form = screen
       .getByRole("heading", { name: "New Agent identity" })
       .closest("form")!;
-    fireEvent.change(within(form).getByLabelText(/^Name/), {
-      target: { value: agent.name },
+    fireEvent.change(within(form).getByLabelText(/^Handle/), {
+      target: { value: agent.handle },
     });
-    fireEvent.change(within(form).getByLabelText(/^Optional Computer/), {
-      target: { value: computer.id },
+    fireEvent.change(within(form).getByLabelText(/^Display name/), {
+      target: { value: agent.profile?.displayName },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Role/), {
+      target: { value: agent.profile?.role },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Mission/), {
+      target: { value: agent.profile?.mission },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Instructions/), {
+      target: { value: agent.profile?.instructions },
     });
     fireEvent.submit(form);
 
-    expect(
-      await screen.findByText("Agent created, placement failed"),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry placement" }));
-
-    await waitFor(() => expect(mockedSetPlacement).toHaveBeenCalledTimes(2));
-    const first = mockedSetPlacement.mock.calls[0][0];
-    const second = mockedSetPlacement.mock.calls[1][0];
-    expect(first).toEqual({
+    await waitFor(() => expect(mockedCreateAgent).toHaveBeenCalledOnce());
+    const input = mockedCreateAgent.mock.calls[0][0];
+    expect(input).toEqual({
       requestId: expect.any(String),
-      agentId: agent.id,
-      computerId: computer.id,
+      handle: agent.handle,
+      displayName: agent.profile?.displayName,
+      role: agent.profile?.role,
+      mission: agent.profile?.mission,
+      instructions: agent.profile?.instructions,
     });
-    expect(first.requestId).toMatch(
+    expect(input.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    expect(second.requestId).toBe(first.requestId);
-    expect(second.agentId).toBe(first.agentId);
-    expect(second.computerId).toBe(first.computerId);
+    expect(finished).toHaveBeenCalledWith(agent.id);
   });
 });
 
@@ -832,9 +986,19 @@ function makeAgent(name = "release-coordinator"): Agent {
       name === "release-coordinator"
         ? "11111111-1111-4111-8111-111111111111"
         : crypto.randomUUID(),
-    name,
-    description: "Coordinates durable releases",
-    driver: Driver.CODEX,
+    handle: name,
+    profile: create(AgentProfileSchema, {
+      agentId:
+        name === "release-coordinator"
+          ? "11111111-1111-4111-8111-111111111111"
+          : "33333333-3333-4333-8333-333333333333",
+      revision: 1n,
+      displayName: name,
+      role: "release coordinator",
+      mission: "Coordinates durable releases",
+      instructions: "Keep evidence explicit.",
+      createdAt: timestampFromDate(new Date("2026-07-20T10:00:00Z")),
+    }),
     createdAt: timestampFromDate(new Date("2026-07-20T10:00:00Z")),
     updatedAt: timestampFromDate(new Date("2026-07-20T10:00:00Z")),
   });
@@ -848,6 +1012,39 @@ function makeComputer(): Computer {
     arch: Architecture.AMD64,
     createdAt: timestampFromDate(new Date("2026-07-20T10:00:00Z")),
     lastSeenAt: timestampFromDate(new Date("2026-07-20T10:05:00Z")),
+    capabilityInventory: create(CapabilityInventorySchema, {
+      revision: 1n,
+      engines: [
+        create(EngineCapabilitySchema, {
+          engine: EngineKind.BUILTIN,
+          version: "0.1.0",
+          protocolVersion: 1,
+          supportsCancel: true,
+          providerProtocols: [ProviderProtocol.OPENAI_RESPONSES],
+          health: CapabilityHealth.HEALTHY,
+        }),
+      ],
+      sandboxes: [
+        create(SandboxCapabilitySchema, {
+          provider: SandboxProvider.TRUSTED_LOCAL,
+          isolation: SandboxIsolation.TRUSTED_LOCAL,
+          workspaceAccess: SandboxWorkspaceAccess.DIRECT_READ_WRITE,
+          processControl: SandboxProcessControl.CONTEXT_PROCESS_GROUP,
+          filesystemIsolation: SandboxFilesystemIsolation.NONE,
+          networkIsolation: SandboxNetworkIsolation.NONE,
+          secretMaterialization:
+            SandboxSecretMaterialization.EPHEMERAL_ENVIRONMENT,
+          daemonCrashCleanup: SandboxDaemonCrashCleanup.NONE,
+        }),
+      ],
+      credentialDelivery: create(CredentialDeliveryCapabilitySchema, {
+        health: CapabilityHealth.HEALTHY,
+        algorithm: CredentialDeliveryAlgorithm.X25519_XCHACHA20_POLY1305,
+        store: CredentialStore.LINUX_SECRET_SERVICE,
+        keyId: "credential-key-0001",
+        publicKey: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+      }),
+    }),
   });
 }
 
@@ -855,7 +1052,7 @@ function makePlacement(agentId: string, computerId: string): AgentPlacement {
   return create(AgentPlacementSchema, {
     agentId,
     computerId,
-    generation: 1n,
+    desiredRevision: 1n,
     state: PlacementState.PENDING,
     createdAt: timestampFromDate(new Date("2026-07-20T10:01:00Z")),
     updatedAt: timestampFromDate(new Date("2026-07-20T10:01:00Z")),

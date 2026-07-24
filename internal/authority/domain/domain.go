@@ -61,24 +61,26 @@ func (scope Scope) Valid() bool {
 type Capability string
 
 const (
-	CapabilityOrganizationAdmin Capability = "organization.admin"
-	CapabilityHumanCreate       Capability = "human.create"
-	CapabilityGrantIssue        Capability = "grant.issue"
-	CapabilityGrantRevoke       Capability = "grant.revoke"
-	CapabilityAuditRead         Capability = "audit.read"
-	CapabilityAgentCreate       Capability = "agent.create"
-	CapabilityAgentPlace        Capability = "agent.place"
-	CapabilitySpaceCreate       Capability = "space.create"
-	CapabilitySpaceRead         Capability = "space.read"
-	CapabilitySpaceMembers      Capability = "space.members.manage"
-	CapabilitySpaceArchive      Capability = "space.archive"
-	CapabilityMessageSend       Capability = "message.send"
-	CapabilityRunExecute        Capability = "run.execute"
-	CapabilityComputerPair      Capability = "computer.pair"
-	CapabilityWorkCreate        Capability = "work.create"
-	CapabilityWorkRead          Capability = "work.read"
-	CapabilityWorkManage        Capability = "work.manage"
-	CapabilityWorkApprove       Capability = "work.approve"
+	CapabilityOrganizationAdmin     Capability = "organization.admin"
+	CapabilityHumanCreate           Capability = "human.create"
+	CapabilityGrantIssue            Capability = "grant.issue"
+	CapabilityGrantRevoke           Capability = "grant.revoke"
+	CapabilityAuditRead             Capability = "audit.read"
+	CapabilityAgentCreate           Capability = "agent.create"
+	CapabilityAgentProfileUpdate    Capability = "agent.profile.update"
+	CapabilityAgentRuntimeConfigure Capability = "agent.runtime.configure"
+	CapabilityAgentPlace            Capability = "agent.place"
+	CapabilitySpaceCreate           Capability = "space.create"
+	CapabilitySpaceRead             Capability = "space.read"
+	CapabilitySpaceMembers          Capability = "space.members.manage"
+	CapabilitySpaceArchive          Capability = "space.archive"
+	CapabilityMessageSend           Capability = "message.send"
+	CapabilityRunExecute            Capability = "run.execute"
+	CapabilityComputerPair          Capability = "computer.pair"
+	CapabilityWorkCreate            Capability = "work.create"
+	CapabilityWorkRead              Capability = "work.read"
+	CapabilityWorkManage            Capability = "work.manage"
+	CapabilityWorkApprove           Capability = "work.approve"
 )
 
 func (capability Capability) Valid() bool {
@@ -89,6 +91,8 @@ func (capability Capability) Valid() bool {
 		CapabilityGrantRevoke,
 		CapabilityAuditRead,
 		CapabilityAgentCreate,
+		CapabilityAgentProfileUpdate,
+		CapabilityAgentRuntimeConfigure,
 		CapabilityAgentPlace,
 		CapabilitySpaceCreate,
 		CapabilitySpaceRead,

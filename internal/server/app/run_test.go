@@ -16,10 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/abcdlsj/sumi/internal/authority/websession"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
-	servercore "github.com/abcdlsj/sumi/internal/server"
 	"github.com/abcdlsj/sumi/internal/userdirs"
 )
 
@@ -169,82 +167,6 @@ func TestRunServerStopsWhenContextIsCanceled(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("RunServer() stdout = %q", stdout.String())
-	}
-}
-
-func TestRunServerMigratesLegacyCredentialBeforeListening(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	dataRoot := filepath.Join(t.TempDir(), "sumi")
-	legacy, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-	legacyPath := filepath.Join(dataRoot, "owner.key")
-	legacyCredential, err := os.ReadFile(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	var stderr lockedBuffer
-	done := make(chan error, 1)
-	go func() {
-		done <- RunServer(ctx, []string{"--listen", "127.0.0.1:0", "--data-root", dataRoot, "--web-root", ""}, io.Discard, &stderr)
-	}()
-	deadline := time.Now().Add(15 * time.Second)
-	for !strings.Contains(stderr.String(), "event=server.listening") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if !strings.Contains(stderr.String(), "event=server.listening") {
-		t.Fatalf("server did not listen after migration: %q", stderr.String())
-	}
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(legacyPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy credential remains: %v", err)
-	}
-	userLayout, err := userdirs.Ensure()
-	if err != nil {
-		t.Fatal(err)
-	}
-	currentCredential, err := os.ReadFile(userLayout.HumanCredential)
-	if err != nil || !bytes.Equal(currentCredential, legacyCredential) {
-		t.Fatalf("migrated credential mismatch: %v", err)
-	}
-}
-
-func TestRunServerClosesInitializedServerWhenCredentialFinalizeFails(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	dataRoot := filepath.Join(t.TempDir(), "sumi")
-	legacy, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-	previous := finalizeCredentialMigration
-	finalizeCredentialMigration = func(*authority.CredentialMigration) error { return errors.New("injected finalize failure") }
-	t.Cleanup(func() { finalizeCredentialMigration = previous })
-	var stderr bytes.Buffer
-	err = RunServer(context.Background(), []string{"--listen", "127.0.0.1:0", "--data-root", dataRoot, "--web-root", ""}, io.Discard, &stderr)
-	if err == nil || strings.Contains(stderr.String(), "listening") {
-		t.Fatalf("finalize failure = %v, stderr %q", err, stderr.String())
-	}
-	userLayout, err := userdirs.Ensure()
-	if err != nil {
-		t.Fatal(err)
-	}
-	reopened, err := servercore.New(context.Background(), servercore.Config{DataRoot: dataRoot, BootstrapCredentialFile: userLayout.HumanCredential})
-	if err != nil {
-		t.Fatalf("initialized Server was not closed: %v", err)
-	}
-	if err := reopened.Close(); err != nil {
-		t.Fatal(err)
 	}
 }
 

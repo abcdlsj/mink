@@ -48,6 +48,18 @@ const (
 	// ComputerServiceListComputersProcedure is the fully-qualified name of the ComputerService's
 	// ListComputers RPC.
 	ComputerServiceListComputersProcedure = "/sumi.computer.v1.ComputerService/ListComputers"
+	// ComputerServiceEnqueueCredentialDeliveryProcedure is the fully-qualified name of the
+	// ComputerService's EnqueueCredentialDelivery RPC.
+	ComputerServiceEnqueueCredentialDeliveryProcedure = "/sumi.computer.v1.ComputerService/EnqueueCredentialDelivery"
+	// ComputerServiceListCredentialDeliveriesProcedure is the fully-qualified name of the
+	// ComputerService's ListCredentialDeliveries RPC.
+	ComputerServiceListCredentialDeliveriesProcedure = "/sumi.computer.v1.ComputerService/ListCredentialDeliveries"
+	// ComputerServiceClaimCredentialDeliveryProcedure is the fully-qualified name of the
+	// ComputerService's ClaimCredentialDelivery RPC.
+	ComputerServiceClaimCredentialDeliveryProcedure = "/sumi.computer.v1.ComputerService/ClaimCredentialDelivery"
+	// ComputerServiceCompleteCredentialDeliveryProcedure is the fully-qualified name of the
+	// ComputerService's CompleteCredentialDelivery RPC.
+	ComputerServiceCompleteCredentialDeliveryProcedure = "/sumi.computer.v1.ComputerService/CompleteCredentialDelivery"
 )
 
 // ComputerServiceClient is a client for the sumi.computer.v1.ComputerService service.
@@ -57,6 +69,10 @@ type ComputerServiceClient interface {
 	HeartbeatComputer(context.Context, *connect.Request[v1.HeartbeatComputerRequest]) (*connect.Response[v1.HeartbeatComputerResponse], error)
 	GetComputer(context.Context, *connect.Request[v1.GetComputerRequest]) (*connect.Response[v1.GetComputerResponse], error)
 	ListComputers(context.Context, *connect.Request[v1.ListComputersRequest]) (*connect.Response[v1.ListComputersResponse], error)
+	EnqueueCredentialDelivery(context.Context, *connect.Request[v1.EnqueueCredentialDeliveryRequest]) (*connect.Response[v1.EnqueueCredentialDeliveryResponse], error)
+	ListCredentialDeliveries(context.Context, *connect.Request[v1.ListCredentialDeliveriesRequest]) (*connect.Response[v1.ListCredentialDeliveriesResponse], error)
+	ClaimCredentialDelivery(context.Context, *connect.Request[v1.ClaimCredentialDeliveryRequest]) (*connect.Response[v1.ClaimCredentialDeliveryResponse], error)
+	CompleteCredentialDelivery(context.Context, *connect.Request[v1.CompleteCredentialDeliveryRequest]) (*connect.Response[v1.CompleteCredentialDeliveryResponse], error)
 }
 
 // NewComputerServiceClient constructs a client for the sumi.computer.v1.ComputerService service. By
@@ -100,16 +116,44 @@ func NewComputerServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			connect.WithSchema(computerServiceMethods.ByName("ListComputers")),
 			connect.WithClientOptions(opts...),
 		),
+		enqueueCredentialDelivery: connect.NewClient[v1.EnqueueCredentialDeliveryRequest, v1.EnqueueCredentialDeliveryResponse](
+			httpClient,
+			baseURL+ComputerServiceEnqueueCredentialDeliveryProcedure,
+			connect.WithSchema(computerServiceMethods.ByName("EnqueueCredentialDelivery")),
+			connect.WithClientOptions(opts...),
+		),
+		listCredentialDeliveries: connect.NewClient[v1.ListCredentialDeliveriesRequest, v1.ListCredentialDeliveriesResponse](
+			httpClient,
+			baseURL+ComputerServiceListCredentialDeliveriesProcedure,
+			connect.WithSchema(computerServiceMethods.ByName("ListCredentialDeliveries")),
+			connect.WithClientOptions(opts...),
+		),
+		claimCredentialDelivery: connect.NewClient[v1.ClaimCredentialDeliveryRequest, v1.ClaimCredentialDeliveryResponse](
+			httpClient,
+			baseURL+ComputerServiceClaimCredentialDeliveryProcedure,
+			connect.WithSchema(computerServiceMethods.ByName("ClaimCredentialDelivery")),
+			connect.WithClientOptions(opts...),
+		),
+		completeCredentialDelivery: connect.NewClient[v1.CompleteCredentialDeliveryRequest, v1.CompleteCredentialDeliveryResponse](
+			httpClient,
+			baseURL+ComputerServiceCompleteCredentialDeliveryProcedure,
+			connect.WithSchema(computerServiceMethods.ByName("CompleteCredentialDelivery")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // computerServiceClient implements ComputerServiceClient.
 type computerServiceClient struct {
-	createComputerPairing *connect.Client[v1.CreateComputerPairingRequest, v1.CreateComputerPairingResponse]
-	registerComputer      *connect.Client[v1.RegisterComputerRequest, v1.RegisterComputerResponse]
-	heartbeatComputer     *connect.Client[v1.HeartbeatComputerRequest, v1.HeartbeatComputerResponse]
-	getComputer           *connect.Client[v1.GetComputerRequest, v1.GetComputerResponse]
-	listComputers         *connect.Client[v1.ListComputersRequest, v1.ListComputersResponse]
+	createComputerPairing      *connect.Client[v1.CreateComputerPairingRequest, v1.CreateComputerPairingResponse]
+	registerComputer           *connect.Client[v1.RegisterComputerRequest, v1.RegisterComputerResponse]
+	heartbeatComputer          *connect.Client[v1.HeartbeatComputerRequest, v1.HeartbeatComputerResponse]
+	getComputer                *connect.Client[v1.GetComputerRequest, v1.GetComputerResponse]
+	listComputers              *connect.Client[v1.ListComputersRequest, v1.ListComputersResponse]
+	enqueueCredentialDelivery  *connect.Client[v1.EnqueueCredentialDeliveryRequest, v1.EnqueueCredentialDeliveryResponse]
+	listCredentialDeliveries   *connect.Client[v1.ListCredentialDeliveriesRequest, v1.ListCredentialDeliveriesResponse]
+	claimCredentialDelivery    *connect.Client[v1.ClaimCredentialDeliveryRequest, v1.ClaimCredentialDeliveryResponse]
+	completeCredentialDelivery *connect.Client[v1.CompleteCredentialDeliveryRequest, v1.CompleteCredentialDeliveryResponse]
 }
 
 // CreateComputerPairing calls sumi.computer.v1.ComputerService.CreateComputerPairing.
@@ -137,6 +181,26 @@ func (c *computerServiceClient) ListComputers(ctx context.Context, req *connect.
 	return c.listComputers.CallUnary(ctx, req)
 }
 
+// EnqueueCredentialDelivery calls sumi.computer.v1.ComputerService.EnqueueCredentialDelivery.
+func (c *computerServiceClient) EnqueueCredentialDelivery(ctx context.Context, req *connect.Request[v1.EnqueueCredentialDeliveryRequest]) (*connect.Response[v1.EnqueueCredentialDeliveryResponse], error) {
+	return c.enqueueCredentialDelivery.CallUnary(ctx, req)
+}
+
+// ListCredentialDeliveries calls sumi.computer.v1.ComputerService.ListCredentialDeliveries.
+func (c *computerServiceClient) ListCredentialDeliveries(ctx context.Context, req *connect.Request[v1.ListCredentialDeliveriesRequest]) (*connect.Response[v1.ListCredentialDeliveriesResponse], error) {
+	return c.listCredentialDeliveries.CallUnary(ctx, req)
+}
+
+// ClaimCredentialDelivery calls sumi.computer.v1.ComputerService.ClaimCredentialDelivery.
+func (c *computerServiceClient) ClaimCredentialDelivery(ctx context.Context, req *connect.Request[v1.ClaimCredentialDeliveryRequest]) (*connect.Response[v1.ClaimCredentialDeliveryResponse], error) {
+	return c.claimCredentialDelivery.CallUnary(ctx, req)
+}
+
+// CompleteCredentialDelivery calls sumi.computer.v1.ComputerService.CompleteCredentialDelivery.
+func (c *computerServiceClient) CompleteCredentialDelivery(ctx context.Context, req *connect.Request[v1.CompleteCredentialDeliveryRequest]) (*connect.Response[v1.CompleteCredentialDeliveryResponse], error) {
+	return c.completeCredentialDelivery.CallUnary(ctx, req)
+}
+
 // ComputerServiceHandler is an implementation of the sumi.computer.v1.ComputerService service.
 type ComputerServiceHandler interface {
 	CreateComputerPairing(context.Context, *connect.Request[v1.CreateComputerPairingRequest]) (*connect.Response[v1.CreateComputerPairingResponse], error)
@@ -144,6 +208,10 @@ type ComputerServiceHandler interface {
 	HeartbeatComputer(context.Context, *connect.Request[v1.HeartbeatComputerRequest]) (*connect.Response[v1.HeartbeatComputerResponse], error)
 	GetComputer(context.Context, *connect.Request[v1.GetComputerRequest]) (*connect.Response[v1.GetComputerResponse], error)
 	ListComputers(context.Context, *connect.Request[v1.ListComputersRequest]) (*connect.Response[v1.ListComputersResponse], error)
+	EnqueueCredentialDelivery(context.Context, *connect.Request[v1.EnqueueCredentialDeliveryRequest]) (*connect.Response[v1.EnqueueCredentialDeliveryResponse], error)
+	ListCredentialDeliveries(context.Context, *connect.Request[v1.ListCredentialDeliveriesRequest]) (*connect.Response[v1.ListCredentialDeliveriesResponse], error)
+	ClaimCredentialDelivery(context.Context, *connect.Request[v1.ClaimCredentialDeliveryRequest]) (*connect.Response[v1.ClaimCredentialDeliveryResponse], error)
+	CompleteCredentialDelivery(context.Context, *connect.Request[v1.CompleteCredentialDeliveryRequest]) (*connect.Response[v1.CompleteCredentialDeliveryResponse], error)
 }
 
 // NewComputerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -183,6 +251,30 @@ func NewComputerServiceHandler(svc ComputerServiceHandler, opts ...connect.Handl
 		connect.WithSchema(computerServiceMethods.ByName("ListComputers")),
 		connect.WithHandlerOptions(opts...),
 	)
+	computerServiceEnqueueCredentialDeliveryHandler := connect.NewUnaryHandler(
+		ComputerServiceEnqueueCredentialDeliveryProcedure,
+		svc.EnqueueCredentialDelivery,
+		connect.WithSchema(computerServiceMethods.ByName("EnqueueCredentialDelivery")),
+		connect.WithHandlerOptions(opts...),
+	)
+	computerServiceListCredentialDeliveriesHandler := connect.NewUnaryHandler(
+		ComputerServiceListCredentialDeliveriesProcedure,
+		svc.ListCredentialDeliveries,
+		connect.WithSchema(computerServiceMethods.ByName("ListCredentialDeliveries")),
+		connect.WithHandlerOptions(opts...),
+	)
+	computerServiceClaimCredentialDeliveryHandler := connect.NewUnaryHandler(
+		ComputerServiceClaimCredentialDeliveryProcedure,
+		svc.ClaimCredentialDelivery,
+		connect.WithSchema(computerServiceMethods.ByName("ClaimCredentialDelivery")),
+		connect.WithHandlerOptions(opts...),
+	)
+	computerServiceCompleteCredentialDeliveryHandler := connect.NewUnaryHandler(
+		ComputerServiceCompleteCredentialDeliveryProcedure,
+		svc.CompleteCredentialDelivery,
+		connect.WithSchema(computerServiceMethods.ByName("CompleteCredentialDelivery")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/sumi.computer.v1.ComputerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ComputerServiceCreateComputerPairingProcedure:
@@ -195,6 +287,14 @@ func NewComputerServiceHandler(svc ComputerServiceHandler, opts ...connect.Handl
 			computerServiceGetComputerHandler.ServeHTTP(w, r)
 		case ComputerServiceListComputersProcedure:
 			computerServiceListComputersHandler.ServeHTTP(w, r)
+		case ComputerServiceEnqueueCredentialDeliveryProcedure:
+			computerServiceEnqueueCredentialDeliveryHandler.ServeHTTP(w, r)
+		case ComputerServiceListCredentialDeliveriesProcedure:
+			computerServiceListCredentialDeliveriesHandler.ServeHTTP(w, r)
+		case ComputerServiceClaimCredentialDeliveryProcedure:
+			computerServiceClaimCredentialDeliveryHandler.ServeHTTP(w, r)
+		case ComputerServiceCompleteCredentialDeliveryProcedure:
+			computerServiceCompleteCredentialDeliveryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -222,4 +322,20 @@ func (UnimplementedComputerServiceHandler) GetComputer(context.Context, *connect
 
 func (UnimplementedComputerServiceHandler) ListComputers(context.Context, *connect.Request[v1.ListComputersRequest]) (*connect.Response[v1.ListComputersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.ListComputers is not implemented"))
+}
+
+func (UnimplementedComputerServiceHandler) EnqueueCredentialDelivery(context.Context, *connect.Request[v1.EnqueueCredentialDeliveryRequest]) (*connect.Response[v1.EnqueueCredentialDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.EnqueueCredentialDelivery is not implemented"))
+}
+
+func (UnimplementedComputerServiceHandler) ListCredentialDeliveries(context.Context, *connect.Request[v1.ListCredentialDeliveriesRequest]) (*connect.Response[v1.ListCredentialDeliveriesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.ListCredentialDeliveries is not implemented"))
+}
+
+func (UnimplementedComputerServiceHandler) ClaimCredentialDelivery(context.Context, *connect.Request[v1.ClaimCredentialDeliveryRequest]) (*connect.Response[v1.ClaimCredentialDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.ClaimCredentialDelivery is not implemented"))
+}
+
+func (UnimplementedComputerServiceHandler) CompleteCredentialDelivery(context.Context, *connect.Request[v1.CompleteCredentialDeliveryRequest]) (*connect.Response[v1.CompleteCredentialDeliveryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.computer.v1.ComputerService.CompleteCredentialDelivery is not implemented"))
 }

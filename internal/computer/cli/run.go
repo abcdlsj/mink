@@ -7,8 +7,11 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/abcdlsj/sumi/internal/computer/enginefactory"
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
+	computerruntime "github.com/abcdlsj/sumi/internal/computer/runtime"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
+	"github.com/abcdlsj/sumi/internal/credential"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
 	"github.com/abcdlsj/sumi/internal/observability"
@@ -19,7 +22,6 @@ func RunContext(ctx context.Context, args []string, stdin io.Reader, stderr io.W
 	logger := observability.New(observability.ComponentComputer, stderr)
 	lifecycleLogger := observability.CategoryLogger(logger, observability.ComponentComputer, observability.CategoryLifecycle)
 	runtimeLogger := observability.CategoryLogger(logger, observability.ComponentComputer, observability.CategoryRuntime)
-	driverLogger := observability.CategoryLogger(logger, observability.ComponentComputer, observability.CategoryDriver)
 	defaultRoot, err := home.DefaultRoot()
 	if err != nil {
 		return err
@@ -56,28 +58,47 @@ func RunContext(ctx context.Context, args []string, stdin io.Reader, stderr io.W
 		}
 	}()
 	lifecycleLogger.Info("computer state opened", "event", "computer.state.opened")
-	identity, initialSync, err := resolveComputerIdentity(ctx, config, stdin, state, osName, arch)
+	discovery := enginefactory.Discover()
+	manager, err := credentialManager(ctx, state)
+	if err != nil {
+		return err
+	}
+	inventory, err := discovery.Inventory(manager)
+	if err != nil {
+		return err
+	}
+	identity, initialSync, err := resolveComputerIdentity(ctx, config, stdin, state, osName, arch, inventory)
 	if err != nil {
 		return err
 	}
 	runtimeLogger.Info("computer identity ready", "event", "computer.identity.ready", "computer_id", identity.ComputerID, "server_origin", identity.ServerURL)
 	if config.once {
-		return synchronizeOnce(ctx, config, state, identity, initialSync, osName, arch, logger)
+		return synchronizeOnce(ctx, config, state, identity, initialSync, osName, arch, inventory, logger)
 	}
-	config.external.logger = logger
-	executor, err := externalExecutor(config.serverURL, config.dataRoot, config.httpClient, config.external)
+	factory, err := enginefactory.New(enginefactory.Config{
+		Discovery: discovery, CredentialManager: manager, State: state, HTTPClient: config.httpClient, Logger: logger,
+		ServerURL: config.serverURL,
+	})
 	if err != nil {
 		return err
 	}
-	if executor != nil {
-		driverLogger.Info("external driver configured", "event", "driver.configured", "driver", config.external.driver)
-		defer func() {
-			if err := executor.Close(); err != nil {
-				driverLogger.Error("external driver failed to close", "event", "driver.close.failed", "driver", config.external.driver, "err", err)
-			}
-		}()
+	supervisor, err := computerruntime.NewSupervisor(factory)
+	if err != nil {
+		return err
 	}
-	daemonConfig := newDaemonConfig(config.serverURL, config.dataRoot, config.httpClient, state, executor)
+	defer supervisor.Close()
+	daemonConfig := computerhost.DaemonConfig{
+		ServerURL: config.serverURL, DataRoot: config.dataRoot, HTTPClient: config.httpClient, State: state,
+		RuntimeSupervisor: supervisor, CredentialManager: manager, CapabilityInventory: inventory,
+	}
 	daemonConfig.Logger = logger
 	return computerhost.NewDaemon(daemonConfig).Run(ctx)
+}
+
+func credentialManager(ctx context.Context, state *computerstate.State) (*credential.Manager, error) {
+	facility, available := credential.CurrentFacility()
+	if !available {
+		return nil, nil
+	}
+	return credential.NewManager(ctx, state, facility, nil, nil)
 }

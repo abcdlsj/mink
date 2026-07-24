@@ -4,12 +4,14 @@ import type { Computer } from "../gen/sumi/computer/v1/computer_pb";
 import type { AgentPlacement } from "../gen/sumi/placement/v1/placement_pb";
 import type { FactsState } from "../hooks/useFacts";
 import {
+  agentDisplayName,
   architectureLabel,
-  driverLabel,
+  engineKindLabel,
   operatingSystemLabel,
   placementStateLabel,
 } from "../lib/format";
 import { IconButton } from "./IconButton";
+import { PixelAvatar } from "./PixelAvatar";
 
 export function AgentsNavigation({
   state,
@@ -187,6 +189,7 @@ function AgentRow({
   onSelect: () => void;
 }) {
   const state = placementStateLabel(placement?.state);
+  const name = agentDisplayName(agent);
   return (
     <button
       className={`directory-row ${selected ? "selected" : ""}`}
@@ -194,12 +197,19 @@ function AgentRow({
       aria-current={selected ? "true" : undefined}
       onClick={onSelect}
     >
-      <span className="directory-row-leading agent-monogram">
-        {agent.name.slice(0, 1).toUpperCase()}
-      </span>
+      <PixelAvatar
+        className="directory-avatar"
+        seed={agent.id}
+        kind="agent"
+        size="sm"
+      />
       <span className="directory-row-copy">
-        <strong>{agent.name}</strong>
-        <small>{driverLabel(agent.driver)}</small>
+        <strong>{name}</strong>
+        <small>
+          {placement
+            ? engineKindLabel(placement.runtimeSpec?.engine)
+            : (agent.profile?.role ?? `@${agent.handle}`)}
+        </small>
       </span>
       <span className={`state-chip ${state}`}>{state}</span>
     </button>

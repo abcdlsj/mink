@@ -47,8 +47,8 @@ func NewService(database sessionStore, config Config) *Service {
 }
 
 func (s *Service) CreateAgentRuntimeSession(ctx context.Context, request *connect.Request[runtimev1.CreateAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.CreateAgentRuntimeSessionResponse], error) {
-	computerID, agentID, generation, err := sessionBinding(
-		request.Msg.GetComputerId(), request.Msg.GetAgentId(), request.Msg.GetPlacementGeneration(),
+	computerID, agentID, desiredRevision, err := sessionBinding(
+		request.Msg.GetComputerId(), request.Msg.GetAgentId(), request.Msg.GetPlacementDesiredRevision(),
 	)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func (s *Service) CreateAgentRuntimeSession(ctx context.Context, request *connec
 	now := s.now()
 	session, err := s.store.CreateAgentRuntimeSession(ctx, authorityapp.CreateRuntimeSessionCommand{
 		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(),
-		AgentID: agentID, PlacementGeneration: generation,
+		AgentID: agentID, PlacementDesiredRevision: desiredRevision,
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
 	})
 	if err := createError(err); err != nil {
@@ -132,7 +132,7 @@ func (s *Service) randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(payload), nil
 }
 
-func sessionBinding(computerValue, agentValue string, generation uint64) (string, string, uint64, error) {
+func sessionBinding(computerValue, agentValue string, desiredRevision uint64) (string, string, uint64, error) {
 	computerID, err := connectid.CanonicalID(computerValue, "computer id")
 	if err != nil {
 		return "", "", 0, err
@@ -141,10 +141,10 @@ func sessionBinding(computerValue, agentValue string, generation uint64) (string
 	if err != nil {
 		return "", "", 0, err
 	}
-	if generation == 0 || generation > math.MaxInt64 {
-		return "", "", 0, connect.NewError(connect.CodeInvalidArgument, errors.New("placement generation must be a positive integer"))
+	if desiredRevision == 0 || desiredRevision > math.MaxInt64 {
+		return "", "", 0, connect.NewError(connect.CodeInvalidArgument, errors.New("placement desired revision must be a positive integer"))
 	}
-	return computerID, agentID, generation, nil
+	return computerID, agentID, desiredRevision, nil
 }
 
 func registrationKeyValid(key string) error {
@@ -192,7 +192,7 @@ func renewError(err error) error {
 func sessionMessage(session authorityapp.RuntimeSession, token string) *runtimev1.AgentRuntimeSession {
 	return &runtimev1.AgentRuntimeSession{
 		AgentId: session.AgentID, ComputerId: session.ComputerID,
-		PlacementGeneration: session.PlacementGeneration,
-		Token:               token, ExpiresAt: timestamppb.New(session.ExpiresAt),
+		PlacementDesiredRevision: session.PlacementDesiredRevision,
+		Token:                    token, ExpiresAt: timestamppb.New(session.ExpiresAt),
 	}
 }

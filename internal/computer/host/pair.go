@@ -86,18 +86,13 @@ func (h *Host) PairOnce(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	sandboxCapability, err := TrustedLocalSandboxCapability()
+	inventory, err := h.capabilityInventory()
 	if err != nil {
 		return "", err
 	}
 	response, err := h.computers.RegisterComputer(ctx, connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey:   attempt.RegistrationKey,
-		Name:              attempt.Name,
-		Os:                operatingSystem,
-		Arch:              architecture,
-		RequestId:         attempt.RequestID,
-		PairingToken:      attempt.PairingToken,
-		SandboxCapability: sandboxCapability,
+		RegistrationKey: attempt.RegistrationKey, Name: attempt.Name, Os: operatingSystem, Arch: architecture,
+		RequestId: attempt.RequestID, PairingToken: attempt.PairingToken, CapabilityInventory: inventory,
 	}))
 	if err != nil {
 		return "", connect.NewError(connect.CodeOf(err), errors.New("pair computer request failed"))

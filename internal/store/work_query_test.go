@@ -464,15 +464,14 @@ func (fixture *workQueryFixture) createPlacedAgents(t *testing.T, count int) (st
 	t.Helper()
 	ids := make([]string, count)
 	for index := range ids {
-		agent, err := fixture.database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: fixture.owner, Name: fmt.Sprintf("work-query-agent-%d-%s", index, uuid.NewString()[:8]), Description: "work query agent", Driver: "native", Now: fixture.now.Add(time.Duration(index+1) * time.Second)})
+		agent, err := fixture.database.CreateAgent(context.Background(), testCreateAgentParams(fixture.owner, fmt.Sprintf("work-query-agent-%d-%s", index, uuid.NewString()[:8]), fixture.now.Add(time.Duration(index+1)*time.Second)))
 		if err != nil {
 			t.Fatal(err)
 		}
-		computerID := uuid.NewString()
-		if _, err := fixture.database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, randomblob(32), ?, 'linux', 'amd64', ?, ?)`, computerID, "work-query-computer", unixNano(fixture.now), unixNano(fixture.now)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := fixture.database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(fixture.now), unixNano(fixture.now)); err != nil {
+		configureTestRuntimeSpec(t, fixture.database, fixture.owner, agent.ID, fixture.now.Add(time.Duration(index+1)*time.Second))
+		computer := pairTestComputer(t, fixture.database, fixture.owner, "work-query-computer-"+uuid.NewString(), testCapabilityInventory("test", true), fixture.now)
+		computerID := computer.ID
+		if _, err := fixture.database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(fixture.now), unixNano(fixture.now)); err != nil {
 			t.Fatal(err)
 		}
 		ids[index] = agent.ID

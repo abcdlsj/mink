@@ -401,17 +401,16 @@ func (x *ArtifactView) GetVersion() *ArtifactVersion {
 }
 
 type ArtifactExecution struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	Restricted          bool                   `protobuf:"varint,1,opt,name=restricted,proto3" json:"restricted,omitempty"`
-	DeliveryId          string                 `protobuf:"bytes,2,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
-	RunId               string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	LaunchId            string                 `protobuf:"bytes,4,opt,name=launch_id,json=launchId,proto3" json:"launch_id,omitempty"`
-	AgentId             string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	ComputerId          string                 `protobuf:"bytes,6,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	PlacementGeneration uint64                 `protobuf:"varint,7,opt,name=placement_generation,json=placementGeneration,proto3" json:"placement_generation,omitempty"`
-	Fence               uint64                 `protobuf:"varint,8,opt,name=fence,proto3" json:"fence,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Restricted               bool                   `protobuf:"varint,1,opt,name=restricted,proto3" json:"restricted,omitempty"`
+	RunId                    string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Attempt                  uint64                 `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	AgentId                  string                 `protobuf:"bytes,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ComputerId               string                 `protobuf:"bytes,5,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	PlacementDesiredRevision uint64                 `protobuf:"varint,6,opt,name=placement_desired_revision,json=placementDesiredRevision,proto3" json:"placement_desired_revision,omitempty"`
+	Fence                    uint64                 `protobuf:"varint,7,opt,name=fence,proto3" json:"fence,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ArtifactExecution) Reset() {
@@ -451,13 +450,6 @@ func (x *ArtifactExecution) GetRestricted() bool {
 	return false
 }
 
-func (x *ArtifactExecution) GetDeliveryId() string {
-	if x != nil {
-		return x.DeliveryId
-	}
-	return ""
-}
-
 func (x *ArtifactExecution) GetRunId() string {
 	if x != nil {
 		return x.RunId
@@ -465,11 +457,11 @@ func (x *ArtifactExecution) GetRunId() string {
 	return ""
 }
 
-func (x *ArtifactExecution) GetLaunchId() string {
+func (x *ArtifactExecution) GetAttempt() uint64 {
 	if x != nil {
-		return x.LaunchId
+		return x.Attempt
 	}
-	return ""
+	return 0
 }
 
 func (x *ArtifactExecution) GetAgentId() string {
@@ -486,9 +478,9 @@ func (x *ArtifactExecution) GetComputerId() string {
 	return ""
 }
 
-func (x *ArtifactExecution) GetPlacementGeneration() uint64 {
+func (x *ArtifactExecution) GetPlacementDesiredRevision() uint64 {
 	if x != nil {
-		return x.PlacementGeneration
+		return x.PlacementDesiredRevision
 	}
 	return 0
 }
@@ -850,10 +842,9 @@ func (*ArtifactGrantTarget_WorkId) isArtifactGrantTarget_Target() {}
 
 type ArtifactExecutionInput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	DeliveryId    string                 `protobuf:"bytes,1,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
-	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	LaunchId      string                 `protobuf:"bytes,3,opt,name=launch_id,json=launchId,proto3" json:"launch_id,omitempty"`
-	Fence         uint64                 `protobuf:"varint,4,opt,name=fence,proto3" json:"fence,omitempty"`
+	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Attempt       uint64                 `protobuf:"varint,2,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Fence         uint64                 `protobuf:"varint,3,opt,name=fence,proto3" json:"fence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -888,13 +879,6 @@ func (*ArtifactExecutionInput) Descriptor() ([]byte, []int) {
 	return file_sumi_artifact_v1_artifact_proto_rawDescGZIP(), []int{8}
 }
 
-func (x *ArtifactExecutionInput) GetDeliveryId() string {
-	if x != nil {
-		return x.DeliveryId
-	}
-	return ""
-}
-
 func (x *ArtifactExecutionInput) GetRunId() string {
 	if x != nil {
 		return x.RunId
@@ -902,11 +886,11 @@ func (x *ArtifactExecutionInput) GetRunId() string {
 	return ""
 }
 
-func (x *ArtifactExecutionInput) GetLaunchId() string {
+func (x *ArtifactExecutionInput) GetAttempt() uint64 {
 	if x != nil {
-		return x.LaunchId
+		return x.Attempt
 	}
-	return ""
+	return 0
 }
 
 func (x *ArtifactExecutionInput) GetFence() uint64 {
@@ -1883,20 +1867,18 @@ const file_sumi_artifact_v1_artifact_proto_rawDesc = "" +
 	"\asources\x18\v \x03(\v2 .sumi.artifact.v1.ArtifactSourceR\asources\"\x83\x01\n" +
 	"\fArtifactView\x126\n" +
 	"\bartifact\x18\x01 \x01(\v2\x1a.sumi.artifact.v1.ArtifactR\bartifact\x12;\n" +
-	"\aversion\x18\x02 \x01(\v2!.sumi.artifact.v1.ArtifactVersionR\aversion\"\x8d\x02\n" +
+	"\aversion\x18\x02 \x01(\v2!.sumi.artifact.v1.ArtifactVersionR\aversion\"\xf4\x01\n" +
 	"\x11ArtifactExecution\x12\x1e\n" +
 	"\n" +
 	"restricted\x18\x01 \x01(\bR\n" +
-	"restricted\x12\x1f\n" +
-	"\vdelivery_id\x18\x02 \x01(\tR\n" +
-	"deliveryId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x1b\n" +
-	"\tlaunch_id\x18\x04 \x01(\tR\blaunchId\x12\x19\n" +
-	"\bagent_id\x18\x05 \x01(\tR\aagentId\x12\x1f\n" +
-	"\vcomputer_id\x18\x06 \x01(\tR\n" +
-	"computerId\x121\n" +
-	"\x14placement_generation\x18\a \x01(\x04R\x13placementGeneration\x12\x14\n" +
-	"\x05fence\x18\b \x01(\x04R\x05fence\"\xae\x01\n" +
+	"restricted\x12\x15\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x18\n" +
+	"\aattempt\x18\x03 \x01(\x04R\aattempt\x12\x19\n" +
+	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12\x1f\n" +
+	"\vcomputer_id\x18\x05 \x01(\tR\n" +
+	"computerId\x12<\n" +
+	"\x1aplacement_desired_revision\x18\x06 \x01(\x04R\x18placementDesiredRevision\x12\x14\n" +
+	"\x05fence\x18\a \x01(\x04R\x05fence\"\xae\x01\n" +
 	"\x0eArtifactSource\x12\x1e\n" +
 	"\n" +
 	"restricted\x18\x01 \x01(\bR\n" +
@@ -1931,13 +1913,11 @@ const file_sumi_artifact_v1_artifact_proto_rawDesc = "" +
 	"\bagent_id\x18\x01 \x01(\tH\x00R\aagentId\x12\x1b\n" +
 	"\bspace_id\x18\x02 \x01(\tH\x00R\aspaceId\x12\x19\n" +
 	"\awork_id\x18\x03 \x01(\tH\x00R\x06workIdB\b\n" +
-	"\x06target\"\x83\x01\n" +
-	"\x16ArtifactExecutionInput\x12\x1f\n" +
-	"\vdelivery_id\x18\x01 \x01(\tR\n" +
-	"deliveryId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x1b\n" +
-	"\tlaunch_id\x18\x03 \x01(\tR\blaunchId\x12\x14\n" +
-	"\x05fence\x18\x04 \x01(\x04R\x05fence\"\x93\x01\n" +
+	"\x06target\"_\n" +
+	"\x16ArtifactExecutionInput\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x18\n" +
+	"\aattempt\x18\x02 \x01(\x04R\aattempt\x12\x14\n" +
+	"\x05fence\x18\x03 \x01(\x04R\x05fence\"\x93\x01\n" +
 	"\x13ArtifactSourceInput\x12\x1f\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tH\x00R\tmessageId\x12Q\n" +

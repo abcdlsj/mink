@@ -164,9 +164,9 @@ func TestHumanInboxParityMentionMuteFollowSelfSuppressionAccessLossAndDM(t *test
 	if err != nil || len(items) != 1 || items[0].Recipient != human || items[0].Reason != InboxReasonMention {
 		t.Fatalf("human mention items = %+v, %v", items, err)
 	}
-	var deliveries int
-	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM deliveries WHERE inbox_item_id = ?`, items[0].ID).Scan(&deliveries); err != nil || deliveries != 0 {
-		t.Fatalf("human delivery adapters = %d, %v", deliveries, err)
+	var runs int
+	if err := fixture.database.db.QueryRow(`SELECT count(*) FROM runs WHERE inbox_item_id = ?`, items[0].ID).Scan(&runs); err != nil || runs != 0 {
+		t.Fatalf("human inbox runs = %d, %v", runs, err)
 	}
 	claimed, err := fixture.database.ClaimInboxItem(ctx, ClaimInboxItemParams{
 		RequestID: uuid.NewString(), Authentication: authentication, InboxItemID: items[0].ID, Now: fixture.at(46),
@@ -922,13 +922,11 @@ func TestHeldDraftDoesNotResurrectAfterAccessLoss(t *testing.T) {
 func TestInboxMentionValidationRejectsInvalidSets(t *testing.T) {
 	fixture := openInboxFixture(t)
 	ctx := context.Background()
-	nonmember := uuid.NewString()
-	if _, err := fixture.database.db.Exec(`
-		INSERT INTO agents(id, name, description, driver, created_at, updated_at)
-		VALUES(?, 'outside', '', 'native', ?, ?)
-	`, nonmember, unixNano(fixture.at(1)), unixNano(fixture.at(1))); err != nil {
+	nonmemberAgent, err := fixture.database.CreateAgent(ctx, testCreateAgentParams(fixture.owner, "outside", fixture.at(1)))
+	if err != nil {
 		t.Fatal(err)
 	}
+	nonmember := nonmemberAgent.ID
 	for name, mentions := range map[string][]string{
 		"duplicate": {fixture.agentID, fixture.agentID},
 		"nonmember": {nonmember},
@@ -972,13 +970,11 @@ func TestInboxSchemaRejectsBrokenMentionAndTriggerFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondAgent := uuid.NewString()
-	if _, err := fixture.database.db.Exec(`
-		INSERT INTO agents(id, name, description, driver, created_at, updated_at)
-		VALUES(?, 'second', '', 'native', ?, ?)
-	`, secondAgent, unixNano(fixture.at(2)), unixNano(fixture.at(2))); err != nil {
+	second, err := fixture.database.CreateAgent(ctx, testCreateAgentParams(fixture.owner, "second", fixture.at(2)))
+	if err != nil {
 		t.Fatal(err)
 	}
+	secondAgent := second.ID
 	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 0)`, message.ID, secondAgent)
 	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 64)`, message.ID, secondAgent)
 	assertExecFails(t, fixture.database, `INSERT INTO message_mentions(message_id, principal_kind, principal_id, ordinal) VALUES(?, 'agent', ?, 1)`, uuid.NewString(), secondAgent)
@@ -1226,9 +1222,7 @@ func (f *inboxFixture) makeHeldDraft(t *testing.T, space Space, start int) (Inbo
 
 func (f *inboxFixture) createMentionMember(t *testing.T, name string, now time.Time) string {
 	t.Helper()
-	agent, err := f.database.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: f.owner, Name: name, Driver: "native", Now: now,
-	})
+	agent, err := f.database.CreateAgent(context.Background(), testCreateAgentParams(f.owner, name, now))
 	if err != nil {
 		t.Fatal(err)
 	}

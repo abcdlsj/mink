@@ -18,6 +18,8 @@ func TestCapabilityMapping(t *testing.T) {
 		{grantv1.Capability_CAPABILITY_GRANT_REVOKE, authoritydomain.CapabilityGrantRevoke},
 		{grantv1.Capability_CAPABILITY_AUDIT_READ, authoritydomain.CapabilityAuditRead},
 		{grantv1.Capability_CAPABILITY_AGENT_CREATE, authoritydomain.CapabilityAgentCreate},
+		{grantv1.Capability_CAPABILITY_AGENT_PROFILE_UPDATE, authoritydomain.CapabilityAgentProfileUpdate},
+		{grantv1.Capability_CAPABILITY_AGENT_RUNTIME_CONFIGURE, authoritydomain.CapabilityAgentRuntimeConfigure},
 		{grantv1.Capability_CAPABILITY_AGENT_PLACE, authoritydomain.CapabilityAgentPlace},
 		{grantv1.Capability_CAPABILITY_SPACE_CREATE, authoritydomain.CapabilitySpaceCreate},
 		{grantv1.Capability_CAPABILITY_SPACE_READ, authoritydomain.CapabilitySpaceRead},
@@ -26,6 +28,10 @@ func TestCapabilityMapping(t *testing.T) {
 		{grantv1.Capability_CAPABILITY_MESSAGE_SEND, authoritydomain.CapabilityMessageSend},
 		{grantv1.Capability_CAPABILITY_RUN_EXECUTE, authoritydomain.CapabilityRunExecute},
 		{grantv1.Capability_CAPABILITY_COMPUTER_PAIR, authoritydomain.CapabilityComputerPair},
+		{grantv1.Capability_CAPABILITY_WORK_CREATE, authoritydomain.CapabilityWorkCreate},
+		{grantv1.Capability_CAPABILITY_WORK_READ, authoritydomain.CapabilityWorkRead},
+		{grantv1.Capability_CAPABILITY_WORK_MANAGE, authoritydomain.CapabilityWorkManage},
+		{grantv1.Capability_CAPABILITY_WORK_APPROVE, authoritydomain.CapabilityWorkApprove},
 	}
 	for _, test := range tests {
 		t.Run(string(test.domain), func(t *testing.T) {
@@ -40,8 +46,5 @@ func TestCapabilityMapping(t *testing.T) {
 	}
 	if _, ok := capabilityName(grantv1.Capability_CAPABILITY_UNSPECIFIED); ok {
 		t.Fatal("unspecified capability mapped to a domain capability")
-	}
-	if value := capabilityValue(authoritydomain.CapabilityWorkCreate); value != grantv1.Capability_CAPABILITY_UNSPECIFIED {
-		t.Fatalf("internal capability leaked through proto mapping: %v", value)
 	}
 }

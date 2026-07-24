@@ -145,7 +145,7 @@ func projectMessageAttention(ctx context.Context, tx *sql.Tx, message Message, m
 		item.Recipient.OrganizationID = recipient.OrganizationID
 		trigger := EligibleInboxTrigger{Item: item, Message: message}
 		if recipient.Kind == PrincipalAgent {
-			if _, err := ensureDeliveryTx(ctx, tx, trigger); err != nil {
+			if _, err := ensureRunTx(ctx, tx, trigger); err != nil {
 				return nil, err
 			}
 		}

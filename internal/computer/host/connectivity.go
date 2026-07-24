@@ -11,10 +11,12 @@ import (
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
+	computerruntime "github.com/abcdlsj/sumi/internal/computer/runtime"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/observability"
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 func (d *Daemon) connectivitySupervisor(ctx context.Context, identity computerstate.Identity) {
@@ -89,20 +91,27 @@ func (d *Daemon) periodicLoop(ctx context.Context, interval time.Duration, logge
 }
 
 func (d *Daemon) heartbeat(ctx context.Context, identity computerstate.Identity) error {
-	sandboxCapability, err := TrustedLocalSandboxCapability()
+	inventory, err := d.capabilityInventory()
 	if err != nil {
-		return fmt.Errorf("build heartbeat sandbox capability: %w", err)
+		return fmt.Errorf("build heartbeat capability inventory: %w", err)
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	defer cancel()
 	_, err = d.computers.HeartbeatComputer(rpcCtx, connect.NewRequest(&computerv1.HeartbeatComputerRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
-		SandboxCapability: sandboxCapability,
+		CapabilityInventory: inventory,
 	}))
 	if err != nil {
 		return fmt.Errorf("heartbeat computer: %w", err)
 	}
 	return nil
+}
+
+func (d *Daemon) capabilityInventory() (*computerv1.CapabilityInventoryDeclaration, error) {
+	if d.config.CapabilityInventory != nil {
+		return proto.Clone(d.config.CapabilityInventory).(*computerv1.CapabilityInventoryDeclaration), nil
+	}
+	return CapabilityInventory()
 }
 
 func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Identity) error {
@@ -129,13 +138,12 @@ func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Iden
 		}
 		seen[placement.GetAgentId()] = struct{}{}
 	}
-	active := make(map[string]uint64)
+	ready := make(map[string]uint64)
 	for _, placement := range placements {
-		if placement.GetState() == placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
-			active[placement.GetAgentId()] = placement.GetGeneration()
+		if placement.GetState() == placementv1.PlacementState_PLACEMENT_STATE_READY {
+			ready[placement.GetAgentId()] = placement.GetDesiredRevision()
 		}
 	}
-	d.reconcileWorkers(active)
 	var syncErrors []error
 	for _, placement := range placements {
 		switch placement.GetState() {
@@ -145,41 +153,50 @@ func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Iden
 				syncErrors = append(syncErrors, err)
 				continue
 			}
-		case placementv1.PlacementState_PLACEMENT_STATE_ACTIVE:
+		case placementv1.PlacementState_PLACEMENT_STATE_READY:
 		case placementv1.PlacementState_PLACEMENT_STATE_FAILED:
 		}
 		if err := validatePlacement(placement, identity.ComputerID); err != nil {
 			syncErrors = append(syncErrors, err)
 			continue
 		}
-		if placement.GetState() == placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
-			active[placement.GetAgentId()] = placement.GetGeneration()
-			if err := d.ensureRuntime(ctx, identity, placement.GetAgentId(), placement.GetGeneration()); err != nil {
+		if placement.GetState() == placementv1.PlacementState_PLACEMENT_STATE_READY {
+			ready[placement.GetAgentId()] = placement.GetDesiredRevision()
+			if err := d.reconcileRuntimeSlot(placement); err != nil {
+				syncErrors = append(syncErrors, err)
+				continue
+			}
+			if err := d.ensureRuntime(ctx, identity, placement.GetAgentId(), placement.GetDesiredRevision()); err != nil {
 				syncErrors = append(syncErrors, err)
 			}
 		}
 	}
+	d.config.RuntimeSupervisor.RemoveExcept(ready)
 	sessions, err := d.config.State.RuntimeSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("list local runtime sessions: %w", err)
 	}
 	for _, session := range sessions {
-		generation, current := active[session.AgentID]
-		if current && generation == session.PlacementGeneration && session.ComputerID == identity.ComputerID {
+		desiredRevision, current := ready[session.AgentID]
+		if current && desiredRevision == session.PlacementDesiredRevision && session.ComputerID == identity.ComputerID {
 			continue
 		}
-		if err := d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementGeneration); err != nil {
+		if err := d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementDesiredRevision); err != nil {
 			syncErrors = append(syncErrors, fmt.Errorf("delete stale runtime session for agent %q: %w", session.AgentID, err))
 		} else {
-			d.runtimeLogger.Info("stale runtime session removed", "event", "runtime.session.removed", "agent_id", session.AgentID, "computer_id", session.ComputerID, "placement_generation", session.PlacementGeneration, "reason", "placement_changed")
+			d.runtimeLogger.Info("stale runtime session removed", "event", "runtime.session.removed", "agent_id", session.AgentID, "computer_id", session.ComputerID, "placement_desired_revision", session.PlacementDesiredRevision, "reason", "placement_changed")
 		}
-		d.stopWorkerBinding(session.AgentID, session.PlacementGeneration)
+		d.config.RuntimeSupervisor.Stop(session.AgentID, session.PlacementDesiredRevision)
 	}
 	return errors.Join(syncErrors...)
 }
 
 func validatePlacement(placement *placementv1.AgentPlacement, computerID string) error {
-	if placement == nil || placement.GetComputerId() != computerID || placement.GetGeneration() == 0 {
+	if placement == nil || placement.GetComputerId() != computerID || placement.GetDesiredRevision() == 0 ||
+		placement.GetAgentProfileRevision() == 0 || placement.GetAgentProfile() == nil ||
+		placement.GetAgentProfile().GetAgentId() != placement.GetAgentId() ||
+		placement.GetAgentProfile().GetRevision() != placement.GetAgentProfileRevision() || placement.GetRuntimeSpec() == nil ||
+		placement.GetRuntimeSpec().GetAgentId() != placement.GetAgentId() || placement.GetRuntimeSpec().GetRevision() == 0 {
 		return errors.New("placement binding is invalid")
 	}
 	if _, err := uuid.Parse(placement.GetAgentId()); err != nil {
@@ -187,7 +204,7 @@ func validatePlacement(placement *placementv1.AgentPlacement, computerID string)
 	}
 	switch placement.GetState() {
 	case placementv1.PlacementState_PLACEMENT_STATE_PENDING,
-		placementv1.PlacementState_PLACEMENT_STATE_ACTIVE,
+		placementv1.PlacementState_PLACEMENT_STATE_READY,
 		placementv1.PlacementState_PLACEMENT_STATE_FAILED:
 		return nil
 	default:
@@ -196,19 +213,23 @@ func validatePlacement(placement *placementv1.AgentPlacement, computerID string)
 }
 
 func (d *Daemon) provisionPlacement(ctx context.Context, identity computerstate.Identity, placement *placementv1.AgentPlacement) (*placementv1.AgentPlacement, error) {
-	d.placementLogger.Info("placement provisioning started", "event", "placement.provision.started", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "generation", placement.GetGeneration())
-	_, provisionErr := workspace.Provision(d.config.DataRoot, placement.GetAgentId())
-	result := placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE
+	d.placementLogger.Info("placement provisioning started", "event", "placement.provision.started", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "desired_revision", placement.GetDesiredRevision())
+	provisionErr := d.reconcileRuntimeSlot(placement)
+	result := placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY
 	errorCode := ""
 	if provisionErr != nil {
 		result = placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED
-		errorCode = workspace.ErrorCode(provisionErr)
+		if _, ok := provisionErr.(*workspace.ProvisionError); ok {
+			errorCode = workspace.ErrorCode(provisionErr)
+		} else {
+			errorCode = computerruntime.ErrorCode(provisionErr)
+		}
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	defer cancel()
 	response, err := d.placements.AcknowledgeAgentPlacement(rpcCtx, connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
-		AgentId: placement.GetAgentId(), Generation: placement.GetGeneration(), Result: result, ErrorCode: errorCode,
+		AgentId: placement.GetAgentId(), DesiredRevision: placement.GetDesiredRevision(), Result: result, ErrorCode: errorCode,
 	}))
 	if err != nil {
 		return nil, fmt.Errorf("acknowledge placement for agent %q: %w", placement.GetAgentId(), err)
@@ -217,20 +238,32 @@ func (d *Daemon) provisionPlacement(ctx context.Context, identity computerstate.
 		return nil, errors.New("acknowledge placement returned no response")
 	}
 	acknowledged := response.Msg.GetPlacement()
-	d.placementLogger.Info("placement provisioning acknowledged", "event", "placement.provision.acknowledged", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "generation", placement.GetGeneration(), "state", acknowledged.GetState().String(), "error_code", errorCode)
+	d.placementLogger.Info("placement provisioning acknowledged", "event", "placement.provision.acknowledged", "agent_id", placement.GetAgentId(), "computer_id", identity.ComputerID, "desired_revision", placement.GetDesiredRevision(), "state", acknowledged.GetState().String(), "error_code", errorCode)
 	return acknowledged, nil
 }
 
-func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Identity, agentID string, generation uint64) error {
+func (d *Daemon) reconcileRuntimeSlot(placement *placementv1.AgentPlacement) error {
+	layout, err := workspace.ProvisionLayout(d.config.DataRoot, placement.GetAgentId())
+	if err != nil {
+		return err
+	}
+	return d.config.RuntimeSupervisor.Reconcile(computerruntime.SlotConfig{
+		AgentID: placement.GetAgentId(), ComputerID: placement.GetComputerId(), PlacementDesiredRevision: placement.GetDesiredRevision(),
+		AgentProfile: placement.GetAgentProfile(), RuntimeSpec: placement.GetRuntimeSpec(), Workspace: layout.Workspace, Home: layout.Home,
+		Temp: layout.Temp, Cache: layout.Cache,
+	})
+}
+
+func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Identity, agentID string, desiredRevision uint64) error {
 	now := d.config.Now()
 	session, found, err := d.config.State.RuntimeSession(ctx, agentID)
 	if err != nil {
 		return fmt.Errorf("read runtime session for agent %q: %w", agentID, err)
 	}
-	if found && session.ComputerID == identity.ComputerID && session.PlacementGeneration == generation && session.ExpiresAt.After(now.Add(d.config.RuntimeRenewBefore)) {
+	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == desiredRevision && session.ExpiresAt.After(now.Add(d.config.RuntimeRenewBefore)) {
 		return nil
 	}
-	if found && session.ComputerID == identity.ComputerID && session.PlacementGeneration == generation {
+	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == desiredRevision {
 		rpcCtx, cancel := d.rpcContext(ctx)
 		request := runtimeRequest(session.Token, &runtimev1.RenewAgentRuntimeSessionRequest{
 			ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
@@ -238,10 +271,10 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		response, renewErr := d.runtimes.RenewAgentRuntimeSession(rpcCtx, request)
 		cancel()
 		if renewErr == nil && response != nil {
-			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now); err != nil {
+			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, desiredRevision, now); err != nil {
 				return err
 			}
-			d.runtimeLogger.Info("runtime session renewed", "event", "runtime.session.renewed", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+			d.runtimeLogger.Info("runtime session renewed", "event", "runtime.session.renewed", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
 			return nil
 		}
 		if renewErr == nil {
@@ -250,15 +283,15 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		if connect.CodeOf(renewErr) != connect.CodeUnauthenticated {
 			return fmt.Errorf("renew runtime session for agent %q: %w", agentID, renewErr)
 		}
-		if err := d.config.State.DeleteRuntimeSession(ctx, agentID, identity.ComputerID, generation); err != nil {
+		if err := d.config.State.DeleteRuntimeSession(ctx, agentID, identity.ComputerID, desiredRevision); err != nil {
 			return fmt.Errorf("delete rejected runtime session for agent %q: %w", agentID, err)
 		}
-		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation)
+		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision)
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	response, err := d.runtimes.CreateAgentRuntimeSession(rpcCtx, connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
-		AgentId: agentID, PlacementGeneration: generation,
+		AgentId: agentID, PlacementDesiredRevision: desiredRevision,
 	}))
 	cancel()
 	if err != nil {
@@ -267,23 +300,23 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 	if response == nil {
 		return errors.New("create runtime session returned no response")
 	}
-	if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, generation, now); err != nil {
+	if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, desiredRevision, now); err != nil {
 		return err
 	}
-	d.runtimeLogger.Info("runtime session created", "event", "runtime.session.created", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_generation", generation, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+	d.runtimeLogger.Info("runtime session created", "event", "runtime.session.created", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
 	return nil
 }
 
-func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, generation uint64, updatedAt time.Time) error {
+func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, desiredRevision uint64, updatedAt time.Time) error {
 	if session == nil || session.GetAgentId() != agentID || session.GetComputerId() != computerID ||
-		session.GetPlacementGeneration() != generation || session.GetExpiresAt() == nil ||
+		session.GetPlacementDesiredRevision() != desiredRevision || session.GetExpiresAt() == nil ||
 		session.GetExpiresAt().CheckValid() != nil || !session.GetExpiresAt().AsTime().After(updatedAt) ||
 		!canonicalSecret(session.GetToken()) {
 		return errors.New("runtime session response is invalid")
 	}
 	if err := d.config.State.SaveRuntimeSession(ctx, computerstate.RuntimeSession{
 		AgentID: session.GetAgentId(), ComputerID: session.GetComputerId(),
-		PlacementGeneration: session.GetPlacementGeneration(), Token: session.GetToken(),
+		PlacementDesiredRevision: session.GetPlacementDesiredRevision(), Token: session.GetToken(),
 		ExpiresAt: session.GetExpiresAt().AsTime(), UpdatedAt: updatedAt,
 	}); err != nil {
 		return fmt.Errorf("save runtime session for agent %q: %w", agentID, err)

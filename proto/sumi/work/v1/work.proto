@@ -98,7 +98,7 @@ message WorkAssignment {
   WorkAssignmentRole role = 4;
   string agent_id = 5;
   string holder_computer_id = 6;
-  uint64 holder_placement_generation = 7;
+  uint64 holder_placement_desired_revision = 7;
   sumi.grant.v1.Principal assigned_by = 8;
   google.protobuf.Timestamp assigned_at = 9;
   google.protobuf.Timestamp ended_at = 10;
@@ -183,6 +183,9 @@ message CreateWorkRequest {
   string goal = 7;
   repeated string constraints = 8;
   repeated string acceptance_criteria = 9;
+  string run_id = 10;
+  uint64 run_attempt = 11;
+  uint64 run_fence = 12;
 }
 
 message CreateWorkResponse {
@@ -194,6 +197,9 @@ message AssignWorkRequest {
   string work_id = 2;
   WorkAssignmentRole role = 3;
   string agent_id = 4;
+  string run_id = 5;
+  uint64 run_attempt = 6;
+  uint64 run_fence = 7;
 }
 
 message AssignWorkResponse {
@@ -213,6 +219,9 @@ message TransitionWorkRequest {
   string reason = 4;
   string result = 5;
   repeated WorkCriterionResultInput criterion_results = 6;
+  string run_id = 7;
+  uint64 run_attempt = 8;
+  uint64 run_fence = 9;
 }
 
 message TransitionWorkResponse {
@@ -223,6 +232,9 @@ message RequestApprovalRequest {
   string request_id = 1;
   string work_id = 2;
   string question = 3;
+  string run_id = 4;
+  uint64 run_attempt = 5;
+  uint64 run_fence = 6;
 }
 
 message RequestApprovalResponse {

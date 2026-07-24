@@ -45,35 +45,16 @@ func (s *Service) CreateComputerPairing(ctx context.Context, request *connect.Re
 }
 
 func (s *Service) RegisterComputer(ctx context.Context, request *connect.Request[computerv1.RegisterComputerRequest]) (*connect.Response[computerv1.RegisterComputerResponse], error) {
-	params, err := registerParams(request.Msg, s.now())
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
 	if err != nil {
 		return nil, err
 	}
-	var computer computerapp.Computer
-	if request.Msg.GetPairingToken() == "" {
-		computer, err = s.store.RecoverComputer(ctx, params)
-	} else {
-		requestID, idErr := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
-		if idErr != nil {
-			return nil, idErr
-		}
-		if err := pairingTokenValid(request.Msg.GetPairingToken()); err != nil {
-			return nil, err
-		}
-		computer, err = s.store.PairComputer(ctx, computerapp.PairCommand{
-			RequestID:         requestID,
-			PairingToken:      request.Msg.GetPairingToken(),
-			RegistrationKey:   params.RegistrationKey,
-			Name:              params.Name,
-			OS:                params.OS,
-			Arch:              params.Arch,
-			SandboxCapability: params.SandboxCapability,
-			Now:               params.Now,
-		})
+	request.Msg.RequestId = requestID
+	params, err := pairParams(request.Msg, s.now())
+	if err != nil {
+		return nil, err
 	}
-	if errors.Is(err, computerapp.ErrNotFound) {
-		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
-	}
+	computer, err := s.store.PairComputer(ctx, params)
 	if err := pairingError(err); err != nil {
 		return nil, err
 	}
@@ -88,13 +69,13 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	capability, err := sandboxCapability(request.Msg.GetSandboxCapability())
+	inventory, err := capabilityInventory(request.Msg.GetCapabilityInventory())
 	if err != nil {
 		return nil, err
 	}
 	computer, err := s.store.HeartbeatComputer(ctx, computerapp.HeartbeatCommand{
 		ComputerID: id, RegistrationKey: request.Msg.GetRegistrationKey(),
-		SandboxCapability: capability, Now: s.now(),
+		CapabilityInventory: inventory, Now: s.now(),
 	})
 	if errors.Is(err, computerapp.ErrNotFound) {
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("computer not found"))
@@ -102,8 +83,8 @@ func (s *Service) HeartbeatComputer(ctx context.Context, request *connect.Reques
 	if errors.Is(err, computerapp.ErrRegistrationKeyMismatch) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
 	}
-	if errors.Is(err, computerapp.ErrSandboxCapabilityInvalid) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("sandbox capability is invalid"))
+	if errors.Is(err, computerapp.ErrCapabilityInventoryInvalid) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("capability inventory is invalid"))
 	}
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
@@ -137,4 +118,134 @@ func (s *Service) ListComputers(ctx context.Context, _ *connect.Request[computer
 		response.Computers = append(response.Computers, computerMessage(computer, now))
 	}
 	return connect.NewResponse(response), nil
+}
+
+func (s *Service) EnqueueCredentialDelivery(ctx context.Context, request *connect.Request[computerv1.EnqueueCredentialDeliveryRequest]) (*connect.Response[computerv1.EnqueueCredentialDeliveryResponse], error) {
+	actor, err := authority.Subject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	requestID, err := connectid.CanonicalID(request.Msg.GetRequestId(), "request id")
+	if err != nil {
+		return nil, err
+	}
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	if err != nil {
+		return nil, err
+	}
+	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	if err != nil {
+		return nil, err
+	}
+	credentialKind, ok := credentialKindName(request.Msg.GetCredentialKind())
+	if !ok {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("credential kind is invalid"))
+	}
+	sealed, err := sealedCredential(request.Msg.GetSealedCredential())
+	if err != nil {
+		return nil, err
+	}
+	expiresAt := request.Msg.GetExpiresAt()
+	if expiresAt == nil || expiresAt.CheckValid() != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("credential delivery expiry is invalid"))
+	}
+	delivery, err := s.store.EnqueueCredentialDelivery(ctx, computerapp.EnqueueCredentialDeliveryCommand{
+		RequestID: requestID, Actor: actor, ComputerID: computerID, AgentID: agentID,
+		CredentialKind: credentialKind, Sealed: sealed, ExpiresAt: expiresAt.AsTime(), Now: s.now(),
+	})
+	if mapped := credentialDeliveryError(err); mapped != nil {
+		return nil, mapped
+	}
+	return connect.NewResponse(&computerv1.EnqueueCredentialDeliveryResponse{Delivery: credentialDeliveryMessage(delivery)}), nil
+}
+
+func (s *Service) ListCredentialDeliveries(ctx context.Context, request *connect.Request[computerv1.ListCredentialDeliveriesRequest]) (*connect.Response[computerv1.ListCredentialDeliveriesResponse], error) {
+	actor, err := authority.Subject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	agentID, err := connectid.CanonicalID(request.Msg.GetAgentId(), "agent id")
+	if err != nil {
+		return nil, err
+	}
+	computerID := ""
+	if request.Msg.GetComputerId() != "" {
+		computerID, err = connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+		if err != nil {
+			return nil, err
+		}
+	}
+	deliveries, err := s.store.ListCredentialDeliveries(ctx, computerapp.ListCredentialDeliveriesQuery{
+		Actor: actor, ComputerID: computerID, AgentID: agentID, Now: s.now(),
+	})
+	if mapped := credentialDeliveryError(err); mapped != nil {
+		return nil, mapped
+	}
+	response := &computerv1.ListCredentialDeliveriesResponse{Deliveries: make([]*computerv1.CredentialDelivery, 0, len(deliveries))}
+	for _, delivery := range deliveries {
+		response.Deliveries = append(response.Deliveries, credentialDeliveryMessage(delivery))
+	}
+	return connect.NewResponse(response), nil
+}
+
+func (s *Service) ClaimCredentialDelivery(ctx context.Context, request *connect.Request[computerv1.ClaimCredentialDeliveryRequest]) (*connect.Response[computerv1.ClaimCredentialDeliveryResponse], error) {
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	if err != nil {
+		return nil, err
+	}
+	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+		return nil, err
+	}
+	delivery, err := s.store.ClaimCredentialDelivery(ctx, computerapp.ClaimCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(), Now: s.now(),
+	})
+	if errors.Is(err, computerapp.ErrNotFound) {
+		return connect.NewResponse(&computerv1.ClaimCredentialDeliveryResponse{}), nil
+	}
+	if mapped := credentialDeliveryError(err); mapped != nil {
+		return nil, mapped
+	}
+	return connect.NewResponse(&computerv1.ClaimCredentialDeliveryResponse{Delivery: credentialDeliveryMessage(delivery)}), nil
+}
+
+func (s *Service) CompleteCredentialDelivery(ctx context.Context, request *connect.Request[computerv1.CompleteCredentialDeliveryRequest]) (*connect.Response[computerv1.CompleteCredentialDeliveryResponse], error) {
+	computerID, err := connectid.CanonicalID(request.Msg.GetComputerId(), "computer id")
+	if err != nil {
+		return nil, err
+	}
+	deliveryID, err := connectid.CanonicalID(request.Msg.GetDeliveryId(), "delivery id")
+	if err != nil {
+		return nil, err
+	}
+	if err := registrationKeyValid(request.Msg.GetRegistrationKey()); err != nil {
+		return nil, err
+	}
+	if !credentialCompletionValid(request.Msg.GetBindingHandle(), request.Msg.GetErrorCode()) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("credential delivery completion is invalid"))
+	}
+	delivery, err := s.store.CompleteCredentialDelivery(ctx, computerapp.CompleteCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: request.Msg.GetRegistrationKey(), DeliveryID: deliveryID,
+		BindingHandle: request.Msg.GetBindingHandle(), ErrorCode: request.Msg.GetErrorCode(), Now: s.now(),
+	})
+	if mapped := credentialDeliveryError(err); mapped != nil {
+		return nil, mapped
+	}
+	return connect.NewResponse(&computerv1.CompleteCredentialDeliveryResponse{Delivery: credentialDeliveryMessage(delivery)}), nil
+}
+
+func credentialDeliveryError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, computerapp.ErrNotFound):
+		return connect.NewError(connect.CodeNotFound, errors.New("credential delivery not found"))
+	case errors.Is(err, computerapp.ErrRegistrationKeyMismatch), errors.Is(err, computerapp.ErrCredentialDeliveryDenied):
+		return connect.NewError(connect.CodePermissionDenied, errors.New("credential delivery is not authorized"))
+	case errors.Is(err, computerapp.ErrCredentialDeliveryInvalid):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("credential delivery is invalid"))
+	case errors.Is(err, computerapp.ErrCredentialDeliveryConflict):
+		return connect.NewError(connect.CodeAlreadyExists, errors.New("credential delivery conflicts with current facts"))
+	default:
+		return connect.NewError(connect.CodeInternal, errors.New("credential delivery failed"))
+	}
 }

@@ -6,13 +6,15 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv1";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { AgentProfile, AgentRuntimeSpec } from "../../agent/v1/agent_pb";
+import { file_sumi_agent_v1_agent } from "../../agent/v1/agent_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file sumi/placement/v1/placement.proto.
  */
 export const file_sumi_placement_v1_placement: GenFile = /*@__PURE__*/
-  fileDesc("CiFzdW1pL3BsYWNlbWVudC92MS9wbGFjZW1lbnQucHJvdG8SEXN1bWkucGxhY2VtZW50LnYxIvEBCg5BZ2VudFBsYWNlbWVudBIQCghhZ2VudF9pZBgBIAEoCRITCgtjb21wdXRlcl9pZBgCIAEoCRISCgpnZW5lcmF0aW9uGAMgASgEEjAKBXN0YXRlGAQgASgOMiEuc3VtaS5wbGFjZW1lbnQudjEuUGxhY2VtZW50U3RhdGUSEgoKZXJyb3JfY29kZRgFIAEoCRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJVChhTZXRBZ2VudFBsYWNlbWVudFJlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkSEwoLY29tcHV0ZXJfaWQYAiABKAkSEgoKcmVxdWVzdF9pZBgDIAEoCSJRChlTZXRBZ2VudFBsYWNlbWVudFJlc3BvbnNlEjQKCXBsYWNlbWVudBgBIAEoCzIhLnN1bWkucGxhY2VtZW50LnYxLkFnZW50UGxhY2VtZW50IiwKGEdldEFnZW50UGxhY2VtZW50UmVxdWVzdBIQCghhZ2VudF9pZBgBIAEoCSJRChlHZXRBZ2VudFBsYWNlbWVudFJlc3BvbnNlEjQKCXBsYWNlbWVudBgBIAEoCzIhLnN1bWkucGxhY2VtZW50LnYxLkFnZW50UGxhY2VtZW50IhwKGkxpc3RBZ2VudFBsYWNlbWVudHNSZXF1ZXN0IlQKG0xpc3RBZ2VudFBsYWNlbWVudHNSZXNwb25zZRI1CgpwbGFjZW1lbnRzGAEgAygLMiEuc3VtaS5wbGFjZW1lbnQudjEuQWdlbnRQbGFjZW1lbnQiTwoeTGlzdENvbXB1dGVyQXNzaWdubWVudHNSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiWQofTGlzdENvbXB1dGVyQXNzaWdubWVudHNSZXNwb25zZRI2Cgthc3NpZ25tZW50cxgBIAMoCzIhLnN1bWkucGxhY2VtZW50LnYxLkFnZW50UGxhY2VtZW50Ik4KHUxpc3RDb21wdXRlclBsYWNlbWVudHNSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiVwoeTGlzdENvbXB1dGVyUGxhY2VtZW50c1Jlc3BvbnNlEjUKCnBsYWNlbWVudHMYASADKAsyIS5zdW1pLnBsYWNlbWVudC52MS5BZ2VudFBsYWNlbWVudCLFAQogQWNrbm93bGVkZ2VBZ2VudFBsYWNlbWVudFJlcXVlc3QSEwoLY29tcHV0ZXJfaWQYASABKAkSGAoQcmVnaXN0cmF0aW9uX2tleRgCIAEoCRIQCghhZ2VudF9pZBgDIAEoCRISCgpnZW5lcmF0aW9uGAQgASgEEjgKBnJlc3VsdBgFIAEoDjIoLnN1bWkucGxhY2VtZW50LnYxLkFja25vd2xlZGdlbWVudFJlc3VsdBISCgplcnJvcl9jb2RlGAYgASgJIlkKIUFja25vd2xlZGdlQWdlbnRQbGFjZW1lbnRSZXNwb25zZRI0CglwbGFjZW1lbnQYASABKAsyIS5zdW1pLnBsYWNlbWVudC52MS5BZ2VudFBsYWNlbWVudCqGAQoOUGxhY2VtZW50U3RhdGUSHwobUExBQ0VNRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASGwoXUExBQ0VNRU5UX1NUQVRFX1BFTkRJTkcQARIaChZQTEFDRU1FTlRfU1RBVEVfQUNUSVZFEAISGgoWUExBQ0VNRU5UX1NUQVRFX0ZBSUxFRBADKoUBChVBY2tub3dsZWRnZW1lbnRSZXN1bHQSJgoiQUNLTk9XTEVER0VNRU5UX1JFU1VMVF9VTlNQRUNJRklFRBAAEiEKHUFDS05PV0xFREdFTUVOVF9SRVNVTFRfQUNUSVZFEAESIQodQUNLTk9XTEVER0VNRU5UX1JFU1VMVF9GQUlMRUQQAjLzBQoQUGxhY2VtZW50U2VydmljZRJuChFTZXRBZ2VudFBsYWNlbWVudBIrLnN1bWkucGxhY2VtZW50LnYxLlNldEFnZW50UGxhY2VtZW50UmVxdWVzdBosLnN1bWkucGxhY2VtZW50LnYxLlNldEFnZW50UGxhY2VtZW50UmVzcG9uc2USbgoRR2V0QWdlbnRQbGFjZW1lbnQSKy5zdW1pLnBsYWNlbWVudC52MS5HZXRBZ2VudFBsYWNlbWVudFJlcXVlc3QaLC5zdW1pLnBsYWNlbWVudC52MS5HZXRBZ2VudFBsYWNlbWVudFJlc3BvbnNlEnQKE0xpc3RBZ2VudFBsYWNlbWVudHMSLS5zdW1pLnBsYWNlbWVudC52MS5MaXN0QWdlbnRQbGFjZW1lbnRzUmVxdWVzdBouLnN1bWkucGxhY2VtZW50LnYxLkxpc3RBZ2VudFBsYWNlbWVudHNSZXNwb25zZRKAAQoXTGlzdENvbXB1dGVyQXNzaWdubWVudHMSMS5zdW1pLnBsYWNlbWVudC52MS5MaXN0Q29tcHV0ZXJBc3NpZ25tZW50c1JlcXVlc3QaMi5zdW1pLnBsYWNlbWVudC52MS5MaXN0Q29tcHV0ZXJBc3NpZ25tZW50c1Jlc3BvbnNlEn0KFkxpc3RDb21wdXRlclBsYWNlbWVudHMSMC5zdW1pLnBsYWNlbWVudC52MS5MaXN0Q29tcHV0ZXJQbGFjZW1lbnRzUmVxdWVzdBoxLnN1bWkucGxhY2VtZW50LnYxLkxpc3RDb21wdXRlclBsYWNlbWVudHNSZXNwb25zZRKGAQoZQWNrbm93bGVkZ2VBZ2VudFBsYWNlbWVudBIzLnN1bWkucGxhY2VtZW50LnYxLkFja25vd2xlZGdlQWdlbnRQbGFjZW1lbnRSZXF1ZXN0GjQuc3VtaS5wbGFjZW1lbnQudjEuQWNrbm93bGVkZ2VBZ2VudFBsYWNlbWVudFJlc3BvbnNlQj5aPGdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL3BsYWNlbWVudC92MTtwbGFjZW1lbnR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("CiFzdW1pL3BsYWNlbWVudC92MS9wbGFjZW1lbnQucHJvdG8SEXN1bWkucGxhY2VtZW50LnYxIoIDCg5BZ2VudFBsYWNlbWVudBIQCghhZ2VudF9pZBgBIAEoCRITCgtjb21wdXRlcl9pZBgCIAEoCRIeChZhZ2VudF9wcm9maWxlX3JldmlzaW9uGAMgASgEEjUKDHJ1bnRpbWVfc3BlYxgEIAEoCzIfLnN1bWkuYWdlbnQudjEuQWdlbnRSdW50aW1lU3BlYxIYChBkZXNpcmVkX3JldmlzaW9uGAUgASgEEjAKBXN0YXRlGAYgASgOMiEuc3VtaS5wbGFjZW1lbnQudjEuUGxhY2VtZW50U3RhdGUSEgoKZXJyb3JfY29kZRgHIAEoCRIuCgpjcmVhdGVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIyCg1hZ2VudF9wcm9maWxlGAogASgLMhsuc3VtaS5hZ2VudC52MS5BZ2VudFByb2ZpbGUiVQoYU2V0QWdlbnRQbGFjZW1lbnRSZXF1ZXN0EhAKCGFnZW50X2lkGAEgASgJEhMKC2NvbXB1dGVyX2lkGAIgASgJEhIKCnJlcXVlc3RfaWQYAyABKAkiUQoZU2V0QWdlbnRQbGFjZW1lbnRSZXNwb25zZRI0CglwbGFjZW1lbnQYASABKAsyIS5zdW1pLnBsYWNlbWVudC52MS5BZ2VudFBsYWNlbWVudCIsChhHZXRBZ2VudFBsYWNlbWVudFJlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkiUQoZR2V0QWdlbnRQbGFjZW1lbnRSZXNwb25zZRI0CglwbGFjZW1lbnQYASABKAsyIS5zdW1pLnBsYWNlbWVudC52MS5BZ2VudFBsYWNlbWVudCIcChpMaXN0QWdlbnRQbGFjZW1lbnRzUmVxdWVzdCJUChtMaXN0QWdlbnRQbGFjZW1lbnRzUmVzcG9uc2USNQoKcGxhY2VtZW50cxgBIAMoCzIhLnN1bWkucGxhY2VtZW50LnYxLkFnZW50UGxhY2VtZW50Ik8KHkxpc3RDb21wdXRlckFzc2lnbm1lbnRzUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIlkKH0xpc3RDb21wdXRlckFzc2lnbm1lbnRzUmVzcG9uc2USNgoLYXNzaWdubWVudHMYASADKAsyIS5zdW1pLnBsYWNlbWVudC52MS5BZ2VudFBsYWNlbWVudCJOCh1MaXN0Q29tcHV0ZXJQbGFjZW1lbnRzUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIlcKHkxpc3RDb21wdXRlclBsYWNlbWVudHNSZXNwb25zZRI1CgpwbGFjZW1lbnRzGAEgAygLMiEuc3VtaS5wbGFjZW1lbnQudjEuQWdlbnRQbGFjZW1lbnQiywEKIEFja25vd2xlZGdlQWdlbnRQbGFjZW1lbnRSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkSEAoIYWdlbnRfaWQYAyABKAkSGAoQZGVzaXJlZF9yZXZpc2lvbhgEIAEoBBI4CgZyZXN1bHQYBSABKA4yKC5zdW1pLnBsYWNlbWVudC52MS5BY2tub3dsZWRnZW1lbnRSZXN1bHQSEgoKZXJyb3JfY29kZRgGIAEoCSJZCiFBY2tub3dsZWRnZUFnZW50UGxhY2VtZW50UmVzcG9uc2USNAoJcGxhY2VtZW50GAEgASgLMiEuc3VtaS5wbGFjZW1lbnQudjEuQWdlbnRQbGFjZW1lbnQqhQEKDlBsYWNlbWVudFN0YXRlEh8KG1BMQUNFTUVOVF9TVEFURV9VTlNQRUNJRklFRBAAEhsKF1BMQUNFTUVOVF9TVEFURV9QRU5ESU5HEAESGQoVUExBQ0VNRU5UX1NUQVRFX1JFQURZEAISGgoWUExBQ0VNRU5UX1NUQVRFX0ZBSUxFRBADKoQBChVBY2tub3dsZWRnZW1lbnRSZXN1bHQSJgoiQUNLTk9XTEVER0VNRU5UX1JFU1VMVF9VTlNQRUNJRklFRBAAEiAKHEFDS05PV0xFREdFTUVOVF9SRVNVTFRfUkVBRFkQARIhCh1BQ0tOT1dMRURHRU1FTlRfUkVTVUxUX0ZBSUxFRBACMvMFChBQbGFjZW1lbnRTZXJ2aWNlEm4KEVNldEFnZW50UGxhY2VtZW50Eisuc3VtaS5wbGFjZW1lbnQudjEuU2V0QWdlbnRQbGFjZW1lbnRSZXF1ZXN0Giwuc3VtaS5wbGFjZW1lbnQudjEuU2V0QWdlbnRQbGFjZW1lbnRSZXNwb25zZRJuChFHZXRBZ2VudFBsYWNlbWVudBIrLnN1bWkucGxhY2VtZW50LnYxLkdldEFnZW50UGxhY2VtZW50UmVxdWVzdBosLnN1bWkucGxhY2VtZW50LnYxLkdldEFnZW50UGxhY2VtZW50UmVzcG9uc2USdAoTTGlzdEFnZW50UGxhY2VtZW50cxItLnN1bWkucGxhY2VtZW50LnYxLkxpc3RBZ2VudFBsYWNlbWVudHNSZXF1ZXN0Gi4uc3VtaS5wbGFjZW1lbnQudjEuTGlzdEFnZW50UGxhY2VtZW50c1Jlc3BvbnNlEoABChdMaXN0Q29tcHV0ZXJBc3NpZ25tZW50cxIxLnN1bWkucGxhY2VtZW50LnYxLkxpc3RDb21wdXRlckFzc2lnbm1lbnRzUmVxdWVzdBoyLnN1bWkucGxhY2VtZW50LnYxLkxpc3RDb21wdXRlckFzc2lnbm1lbnRzUmVzcG9uc2USfQoWTGlzdENvbXB1dGVyUGxhY2VtZW50cxIwLnN1bWkucGxhY2VtZW50LnYxLkxpc3RDb21wdXRlclBsYWNlbWVudHNSZXF1ZXN0GjEuc3VtaS5wbGFjZW1lbnQudjEuTGlzdENvbXB1dGVyUGxhY2VtZW50c1Jlc3BvbnNlEoYBChlBY2tub3dsZWRnZUFnZW50UGxhY2VtZW50EjMuc3VtaS5wbGFjZW1lbnQudjEuQWNrbm93bGVkZ2VBZ2VudFBsYWNlbWVudFJlcXVlc3QaNC5zdW1pLnBsYWNlbWVudC52MS5BY2tub3dsZWRnZUFnZW50UGxhY2VtZW50UmVzcG9uc2VCPlo8Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvcGxhY2VtZW50L3YxO3BsYWNlbWVudHYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_sumi_agent_v1_agent]);
 
 /**
  * @generated from message sumi.placement.v1.AgentPlacement
@@ -29,29 +31,44 @@ export type AgentPlacement = Message<"sumi.placement.v1.AgentPlacement"> & {
   computerId: string;
 
   /**
-   * @generated from field: uint64 generation = 3;
+   * @generated from field: uint64 agent_profile_revision = 3;
    */
-  generation: bigint;
+  agentProfileRevision: bigint;
 
   /**
-   * @generated from field: sumi.placement.v1.PlacementState state = 4;
+   * @generated from field: sumi.agent.v1.AgentRuntimeSpec runtime_spec = 4;
+   */
+  runtimeSpec?: AgentRuntimeSpec;
+
+  /**
+   * @generated from field: uint64 desired_revision = 5;
+   */
+  desiredRevision: bigint;
+
+  /**
+   * @generated from field: sumi.placement.v1.PlacementState state = 6;
    */
   state: PlacementState;
 
   /**
-   * @generated from field: string error_code = 5;
+   * @generated from field: string error_code = 7;
    */
   errorCode: string;
 
   /**
-   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   * @generated from field: google.protobuf.Timestamp created_at = 8;
    */
   createdAt?: Timestamp;
 
   /**
-   * @generated from field: google.protobuf.Timestamp updated_at = 7;
+   * @generated from field: google.protobuf.Timestamp updated_at = 9;
    */
   updatedAt?: Timestamp;
+
+  /**
+   * @generated from field: sumi.agent.v1.AgentProfile agent_profile = 10;
+   */
+  agentProfile?: AgentProfile;
 };
 
 /**
@@ -267,9 +284,9 @@ export type AcknowledgeAgentPlacementRequest = Message<"sumi.placement.v1.Acknow
   agentId: string;
 
   /**
-   * @generated from field: uint64 generation = 4;
+   * @generated from field: uint64 desired_revision = 4;
    */
-  generation: bigint;
+  desiredRevision: bigint;
 
   /**
    * @generated from field: sumi.placement.v1.AcknowledgementResult result = 5;
@@ -321,9 +338,9 @@ export enum PlacementState {
   PENDING = 1,
 
   /**
-   * @generated from enum value: PLACEMENT_STATE_ACTIVE = 2;
+   * @generated from enum value: PLACEMENT_STATE_READY = 2;
    */
-  ACTIVE = 2,
+  READY = 2,
 
   /**
    * @generated from enum value: PLACEMENT_STATE_FAILED = 3;
@@ -347,9 +364,9 @@ export enum AcknowledgementResult {
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: ACKNOWLEDGEMENT_RESULT_ACTIVE = 1;
+   * @generated from enum value: ACKNOWLEDGEMENT_RESULT_READY = 1;
    */
-  ACTIVE = 1,
+  READY = 1,
 
   /**
    * @generated from enum value: ACKNOWLEDGEMENT_RESULT_FAILED = 2;

@@ -332,8 +332,8 @@ func TestTrustedLocalRejectsUnsafeRequestsWithoutScratch(t *testing.T) {
 
 func validRequest(workspace string) sandbox.Request {
 	return sandbox.Request{
-		AgentID: uuid.NewString(), ComputerID: uuid.NewString(), DeliveryID: uuid.NewString(),
-		RunID: uuid.NewString(), LaunchID: uuid.NewString(), Fence: 1, PlacementGeneration: 1,
+		AgentID: uuid.NewString(), ComputerID: uuid.NewString(),
+		RunID: uuid.NewString(), Attempt: 1, Fence: 1, PlacementDesiredRevision: 1,
 		Workspace: workspace, Command: []string{"/bin/true"},
 	}
 }

@@ -25,7 +25,6 @@ import (
 	"github.com/abcdlsj/sumi/internal/workspace"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -48,6 +47,9 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	saveHostTestIdentity(t, localState, computerstate.Identity{
+		ServerURL: api.http.URL, ComputerID: computerID, RegistrationKey: key, PairedAt: time.Now(),
+	})
 	config := hostConfig(api.http.URL, computerRoot, key)
 	config.State = localState
 	host := New(config)
@@ -55,21 +57,22 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ComputerID != computerID || result.Assignments != 1 || result.Active != 1 || result.Failed != 0 {
+	if result.ComputerID != computerID || result.Assignments != 1 || result.Ready != 1 || result.Failed != 0 {
 		t.Fatalf("sync result = %+v", result)
 	}
 	computers, err := api.ownerComputers.ListComputers(context.Background(), connect.NewRequest(&computerv1.ListComputersRequest{}))
-	if err != nil || len(computers.Msg.GetComputers()) != 1 || !proto.Equal(computers.Msg.GetComputers()[0].GetSandboxCapability(), mustTrustedLocalSandboxCapability(t)) {
-		t.Fatalf("registered sandbox declaration = %+v, %v", computers.Msg.GetComputers(), err)
+	if err != nil || len(computers.Msg.GetComputers()) != 1 {
+		t.Fatalf("registered capability inventory = %+v, %v", computers.Msg.GetComputers(), err)
 	}
+	assertCapabilityInventory(t, computers.Msg.GetComputers()[0].GetCapabilityInventory())
 	assertWorkspaceState(t, workspacePath, marker)
 	placement := getHostPlacement(t, api, agentID)
-	if placement.GetGeneration() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
+	if placement.GetDesiredRevision() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_READY {
 		t.Fatalf("placement = %v", placement)
 	}
 	identity, found, err := localState.Identity(context.Background())
 	if err != nil || !found || identity.ComputerID != computerID || identity.RegistrationKey != key {
-		t.Fatalf("imported legacy identity = %+v, %v, %v", identity, found, err)
+		t.Fatalf("persisted identity = %+v, %v, %v", identity, found, err)
 	}
 	if err := localState.Close(); err != nil {
 		t.Fatal(err)
@@ -82,38 +85,39 @@ func TestSyncOnceReusesWorkspaceAfterProvisionBeforeAckCrash(t *testing.T) {
 	importRestartConfig.State = localState
 	importRestart, err := New(importRestartConfig).SyncOnce(context.Background())
 	if err != nil || importRestart.ComputerID != computerID || importRestart.Assignments != 0 {
-		t.Fatalf("legacy identity restart = %+v, %v", importRestart, err)
+		t.Fatalf("persisted identity restart = %+v, %v", importRestart, err)
 	}
 	if err := localState.Close(); err != nil {
 		t.Fatal(err)
-	}
-	api.close(t)
-
-	api = openHostTestServer(t, serverRoot)
-	restarted := New(hostConfig(api.http.URL, computerRoot, key))
-	result, err = restarted.SyncOnce(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ComputerID != computerID || result.Assignments != 0 {
-		t.Fatalf("restart sync result = %+v", result)
-	}
-	placement = getHostPlacement(t, api, agentID)
-	if placement.GetGeneration() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
-		t.Fatalf("restart placement = %v", placement)
 	}
 	assertWorkspaceState(t, workspacePath, marker)
 	api.close(t)
 	assertServerFilesExcludePath(t, serverRoot, computerRoot)
 }
 
-func mustTrustedLocalSandboxCapability(t *testing.T) *computerv1.SandboxCapability {
+func assertCapabilityInventory(t *testing.T, inventory *computerv1.CapabilityInventory) {
 	t.Helper()
-	capability, err := TrustedLocalSandboxCapability()
+	if inventory == nil || inventory.GetRevision() == 0 || len(inventory.GetEngines()) != 3 || len(inventory.GetSandboxes()) != 1 {
+		t.Fatalf("capability inventory = %+v", inventory)
+	}
+	if inventory.GetEngines()[0].GetEngine() != agentv1.EngineKind_ENGINE_KIND_BUILTIN ||
+		inventory.GetEngines()[0].GetHealth() != computerv1.CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE ||
+		inventory.GetCredentialDelivery().GetHealth() != computerv1.CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE {
+		t.Fatalf("builtin capability = %+v", inventory.GetEngines()[0])
+	}
+	if sandbox := inventory.GetSandboxes()[0]; sandbox.GetProvider() != computerv1.SandboxProvider_SANDBOX_PROVIDER_TRUSTED_LOCAL ||
+		sandbox.GetFilesystemIsolation() != computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE {
+		t.Fatalf("trusted-local capability = %+v", sandbox)
+	}
+}
+
+func mustHostCapabilityInventory(t *testing.T) *computerv1.CapabilityInventoryDeclaration {
+	t.Helper()
+	inventory, err := CapabilityInventory()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return capability
+	return inventory
 }
 
 func TestSyncOnceAcknowledgesStableProvisionFailure(t *testing.T) {
@@ -125,13 +129,23 @@ func TestSyncOnceAcknowledgesStableProvisionFailure(t *testing.T) {
 	key := "host-failure-registration-key"
 	api := openHostTestServer(t, serverRoot)
 	defer api.close(t)
-	agentID, _ := createPendingAssignment(t, api, key, "host-failure-agent")
+	agentID, computerID := createPendingAssignment(t, api, key, "host-failure-agent")
 
-	result, err := New(hostConfig(api.http.URL, computerRoot, key)).SyncOnce(context.Background())
+	state, err := computerstate.Open(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	saveHostTestIdentity(t, state, computerstate.Identity{
+		ServerURL: api.http.URL, ComputerID: computerID, RegistrationKey: key, PairedAt: time.Now(),
+	})
+	config := hostConfig(api.http.URL, computerRoot, key)
+	config.State = state
+	result, err := New(config).SyncOnce(context.Background())
 	if err == nil {
 		t.Fatal("SyncOnce error = nil")
 	}
-	if result.Assignments != 1 || result.Active != 0 || result.Failed != 1 {
+	if result.Assignments != 1 || result.Ready != 0 || result.Failed != 1 {
 		t.Fatalf("sync result = %+v", result)
 	}
 	placement := getHostPlacement(t, api, agentID)
@@ -193,9 +207,8 @@ func (api *hostTestServer) close(t *testing.T) {
 func createPendingAssignment(t *testing.T, api *hostTestServer, key, agentName string) (string, string) {
 	t.Helper()
 	agent, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(),
-		Name:      agentName,
-		Driver:    agentv1.Driver_DRIVER_NATIVE,
+		RequestId: uuid.NewString(), Handle: agentName, DisplayName: agentName,
+		Role: "worker", Mission: "Exercise computer host behavior",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -210,19 +223,70 @@ func createPendingAssignment(t *testing.T, api *hostTestServer, key, agentName s
 	})); err != nil {
 		t.Fatal(err)
 	}
+	inventory := mustHostCapabilityInventory(t)
+	for _, engine := range inventory.GetEngines() {
+		if engine.GetEngine() == agentv1.EngineKind_ENGINE_KIND_BUILTIN {
+			engine.Health = computerv1.CapabilityHealth_CAPABILITY_HEALTH_HEALTHY
+			engine.SupportsToolCalls = true
+			engine.SupportsCancel = true
+			engine.ProviderProtocols = []agentv1.ProviderProtocol{agentv1.ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES}
+		}
+	}
+	inventory.CredentialDelivery = &computerv1.CredentialDeliveryCapability{
+		Health:    computerv1.CapabilityHealth_CAPABILITY_HEALTH_HEALTHY,
+		Algorithm: computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305,
+		Store:     computerv1.CredentialStore_CREDENTIAL_STORE_LINUX_SECRET_SERVICE,
+		KeyId:     "host-test-key", PublicKey: make([]byte, 32),
+	}
 	computer, err := api.computers.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
-		RegistrationKey: key,
-		Name:            "Host test computer",
-		Os:              computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
-		Arch:            computerv1.Architecture_ARCHITECTURE_AMD64,
-		RequestId:       uuid.NewString(),
-		PairingToken:    token,
+		RegistrationKey:     key,
+		Name:                "Host test computer",
+		Os:                  computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX,
+		Arch:                computerv1.Architecture_ARCHITECTURE_AMD64,
+		RequestId:           uuid.NewString(),
+		PairingToken:        token,
+		CapabilityInventory: inventory,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	agentID := agent.Msg.GetAgent().GetId()
 	computerID := computer.Msg.GetComputer().GetId()
+	delivery, err := api.ownerComputers.EnqueueCredentialDelivery(context.Background(), connect.NewRequest(&computerv1.EnqueueCredentialDeliveryRequest{
+		RequestId: uuid.NewString(), ComputerId: computerID, AgentId: agentID,
+		CredentialKind: computerv1.CredentialKind_CREDENTIAL_KIND_OPENAI,
+		SealedCredential: &computerv1.SealedCredential{
+			Algorithm: computerv1.CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305,
+			KeyId:     "host-test-key", EphemeralPublicKey: make([]byte, 32), Nonce: make([]byte, 24), Ciphertext: make([]byte, 17),
+		},
+		ExpiresAt: timestamppb.New(time.Now().Add(5 * time.Minute)),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := api.computers.ClaimCredentialDelivery(context.Background(), connect.NewRequest(&computerv1.ClaimCredentialDeliveryRequest{
+		ComputerId: computerID, RegistrationKey: key,
+	}))
+	if err != nil || claimed.Msg.GetDelivery().GetId() != delivery.Msg.GetDelivery().GetId() {
+		t.Fatalf("credential claim = %+v, %v", claimed, err)
+	}
+	bindingHandle := "cred_host_test_" + agentID
+	completed, err := api.computers.CompleteCredentialDelivery(context.Background(), connect.NewRequest(&computerv1.CompleteCredentialDeliveryRequest{
+		ComputerId: computerID, RegistrationKey: key, DeliveryId: delivery.Msg.GetDelivery().GetId(), BindingHandle: bindingHandle,
+	}))
+	if err != nil || completed.Msg.GetDelivery().GetState() != computerv1.CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_SUCCEEDED {
+		t.Fatalf("credential completion = %+v, %v", completed, err)
+	}
+	if _, err := api.agents.UpdateAgentRuntimeSpec(context.Background(), connect.NewRequest(&agentv1.UpdateAgentRuntimeSpecRequest{
+		RequestId: uuid.NewString(), AgentId: agentID, Engine: agentv1.EngineKind_ENGINE_KIND_BUILTIN,
+		ProviderProtocol: agentv1.ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES,
+		ProviderEndpoint: "https://provider.invalid/v1", Model: "test-model", CredentialBindingHandle: bindingHandle,
+		SandboxProvider:       agentv1.RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL,
+		MaxRunDurationSeconds: 120, MaxOutputBytes: 1 << 20,
+		ToolPolicy: &agentv1.RuntimeToolPolicy{Message: true},
+	})); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId:  uuid.NewString(),
 		AgentId:    agentID,
@@ -240,6 +304,23 @@ func clientAuthorization(credential string) connect.Option {
 			return next(ctx, request)
 		}
 	}))
+}
+
+func saveHostTestIdentity(t *testing.T, state *computerstate.State, identity computerstate.Identity) {
+	t.Helper()
+	rawToken := make([]byte, 32)
+	if _, err := rand.Read(rawToken); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SavePairingAttempt(context.Background(), computerstate.PairingAttempt{
+		ServerURL: identity.ServerURL, PairingToken: base64.RawURLEncoding.EncodeToString(rawToken),
+		RequestID: uuid.NewString(), RegistrationKey: identity.RegistrationKey, CreatedAt: identity.PairedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.CompletePairing(context.Background(), identity); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func getHostPlacement(t *testing.T, api *hostTestServer, agentID string) *placementv1.AgentPlacement {

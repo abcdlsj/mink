@@ -4,6 +4,7 @@ import type { DirectorySnapshot, ThreadSnapshot } from "../lib/collaboration";
 import { authorName } from "./ConversationTimeline";
 import { MessageComposer } from "./MessageComposer";
 import { IconButton } from "./IconButton";
+import { PixelAvatar } from "./PixelAvatar";
 
 export function ThreadPane({
   snapshot,
@@ -153,14 +154,15 @@ function ThreadAvatar({
   directory: DirectorySnapshot;
 }) {
   return (
-    <span className="thread-avatar" aria-hidden="true">
-      {authorName(message, directory.humans, directory.agents)
-        .slice(0, 1)
-        .toUpperCase()}
-    </span>
+    <PixelAvatar
+      className="thread-avatar"
+      seed={message.author?.id ?? message.id}
+      kind={threadAuthorKind(message)}
+      size="sm"
+    />
   );
 }
 
-function threadAuthorKind(message: Message) {
+function threadAuthorKind(message: Message): "agent" | "human" {
   return message.author?.kind === PrincipalKind.AGENT ? "agent" : "human";
 }

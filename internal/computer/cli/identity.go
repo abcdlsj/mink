@@ -19,6 +19,7 @@ func resolveComputerIdentity(
 	state *computerstate.State,
 	osName computerv1.OperatingSystem,
 	arch computerv1.Architecture,
+	inventory *computerv1.CapabilityInventoryDeclaration,
 ) (computerstate.Identity, *computerhost.SyncResult, error) {
 	identity, found, err := state.Identity(ctx)
 	if err != nil {
@@ -30,7 +31,7 @@ func resolveComputerIdentity(
 		}
 		return identity, nil, nil
 	}
-	host := computerhost.New(hostConfig(config, state, "", osName, arch))
+	host := computerhost.New(hostConfig(config, state, "", osName, arch, inventory))
 	attempt, attemptFound, err := state.PairingAttempt(ctx)
 	if err != nil {
 		return computerstate.Identity{}, nil, err
@@ -100,11 +101,12 @@ func synchronizeOnce(
 	initial *computerhost.SyncResult,
 	osName computerv1.OperatingSystem,
 	arch computerv1.Architecture,
+	inventory *computerv1.CapabilityInventoryDeclaration,
 	logger *observability.Logger,
 ) error {
 	result := initial
 	if result == nil {
-		synchronized, err := computerhost.New(hostConfig(config, state, identity.RegistrationKey, osName, arch)).SyncOnce(ctx)
+		synchronized, err := computerhost.New(hostConfig(config, state, identity.RegistrationKey, osName, arch, inventory)).SyncOnce(ctx)
 		if err != nil {
 			return err
 		}
@@ -122,9 +124,10 @@ func hostConfig(
 	registrationKey string,
 	osName computerv1.OperatingSystem,
 	arch computerv1.Architecture,
+	inventory *computerv1.CapabilityInventoryDeclaration,
 ) computerhost.Config {
 	return computerhost.Config{
 		ServerURL: config.serverURL, DataRoot: config.dataRoot, RegistrationKey: registrationKey,
-		Name: config.name, OS: osName, Arch: arch, State: state, HTTPClient: config.httpClient,
+		Name: config.name, OS: osName, Arch: arch, State: state, HTTPClient: config.httpClient, CapabilityInventory: inventory,
 	}
 }

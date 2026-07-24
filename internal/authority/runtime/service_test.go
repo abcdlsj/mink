@@ -13,6 +13,9 @@ import (
 	"connectrpc.com/connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 )
@@ -23,14 +26,14 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 
 	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentId: fixture.agent.ID, PlacementGeneration: fixture.placement.Generation,
+		AgentId: fixture.agent.ID, PlacementDesiredRevision: fixture.placement.DesiredRevision,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	first := created.Msg.GetSession()
-	if first.GetAgentId() != fixture.agent.ID || first.GetComputerId() != fixture.computer.ID || first.GetPlacementGeneration() != 1 {
-		t.Fatalf("created binding = agent:%q computer:%q generation:%d", first.GetAgentId(), first.GetComputerId(), first.GetPlacementGeneration())
+	if first.GetAgentId() != fixture.agent.ID || first.GetComputerId() != fixture.computer.ID || first.GetPlacementDesiredRevision() != 1 {
+		t.Fatalf("created binding = agent:%q computer:%q desired_revision:%d", first.GetAgentId(), first.GetComputerId(), first.GetPlacementDesiredRevision())
 	}
 	if len(first.GetToken()) != 43 || !first.GetExpiresAt().AsTime().Equal(fixture.now.Add(10*time.Minute)) {
 		t.Fatalf("created token_length:%d expires:%s", len(first.GetToken()), first.GetExpiresAt().AsTime())
@@ -86,7 +89,7 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 
 	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentId: fixture.agent.ID, PlacementGeneration: fixture.placement.Generation,
+		AgentId: fixture.agent.ID, PlacementDesiredRevision: fixture.placement.DesiredRevision,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +123,7 @@ func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
 	firstToken := runtimeAuthTestToken(31)
 	if _, err := fixture.database.CreateAgentRuntimeSession(context.Background(), store.CreateAgentRuntimeSessionParams{
 		ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentID: fixture.agent.ID, PlacementGeneration: 1, Token: firstToken,
+		AgentID: fixture.agent.ID, PlacementDesiredRevision: 1, Token: firstToken,
 		Now: fixture.now, ExpiresAt: fixture.now.Add(10 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
@@ -169,7 +172,7 @@ func (c *replacementConsumer) RenewAgentRuntimeSession(ctx context.Context, _ *c
 	}
 	if _, err := c.database.CreateAgentRuntimeSession(ctx, store.CreateAgentRuntimeSessionParams{
 		ComputerID: c.computerID, RegistrationKey: c.registrationKey,
-		AgentID: c.agentID, PlacementGeneration: 1, Token: runtimeAuthTestToken(32),
+		AgentID: c.agentID, PlacementDesiredRevision: 1, Token: runtimeAuthTestToken(32),
 		Now: c.now, ExpiresAt: c.now.Add(10 * time.Minute),
 	}); err != nil {
 		c.t.Fatal(err)
@@ -209,20 +212,45 @@ func openRuntimeServiceFixture(t *testing.T) *runtimeServiceFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	registrationKey := "runtime-service-computer-key"
-	computer, err := database.RegisterComputer(context.Background(), store.RegisterComputerParams{
-		RegistrationKey: registrationKey, Name: "runtime-host", OS: "linux", Arch: "arm64", Now: now,
+	pairingToken := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	if _, err := database.CreateComputerPairing(context.Background(), store.CreateComputerPairingParams{
+		RequestID: uuid.NewString(), Actor: owner, Token: pairingToken, ExpiresAt: now.Add(time.Minute), Now: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inventory := computerdomain.TrustedLocalCapabilityInventory(computerdomain.EngineCapability{
+		Kind: computerdomain.EngineBuiltin, Version: "test", ProtocolVersion: 1,
+		SupportsToolCalls: true, SupportsCancel: true, OpenAIResponses: true, Healthy: true,
+	})
+	inventory.CredentialDelivery = computerdomain.CredentialDeliveryCapability{
+		Healthy: true, Algorithm: "x25519_xchacha20_poly1305", Store: "linux_secret_service",
+		KeyID: "runtime-service-key", PublicKey: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+	}
+	computer, err := database.PairComputer(context.Background(), store.PairComputerParams{
+		RequestID: uuid.NewString(), PairingToken: pairingToken,
+		RegistrationKey: registrationKey, Name: "runtime-host", OS: "linux", Arch: "arm64",
+		CapabilityInventory: inventory, Now: now,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	agent, err := database.CreateAgent(context.Background(), store.CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: store.Principal{
-			Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID,
-		},
-		Name: "runtime-agent", Driver: "native", Now: now.Add(time.Second),
+		RequestID: uuid.NewString(), Actor: owner,
+		Handle: "runtime-agent", DisplayName: "Runtime Agent", Role: "worker", Mission: "Exercise runtime identity", Now: now.Add(time.Second),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	bindingHandle := completeRuntimeServiceCredential(t, database, owner, computer.ID, registrationKey, agent.ID, now.Add(time.Second))
+	if _, err := database.UpdateAgentRuntimeSpec(context.Background(), store.UpdateAgentRuntimeSpecParams{
+		RequestID: uuid.NewString(), Actor: owner,
+		AgentID: agent.ID, Engine: agentapp.EngineBuiltin, ProviderProtocol: agentapp.ProviderOpenAIResponses,
+		ProviderEndpoint: "https://provider.invalid/v1", Model: "test-model", CredentialBindingHandle: bindingHandle,
+		SandboxProvider: "trusted_local", MaxRunDuration: 2 * time.Minute, MaxOutputBytes: 1 << 20,
+		ToolPolicy: agentapp.ToolPolicy{Message: true}, Now: now.Add(time.Second),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	placement, err := database.SetAgentPlacement(context.Background(), store.SetAgentPlacementParams{
@@ -236,7 +264,7 @@ func openRuntimeServiceFixture(t *testing.T) *runtimeServiceFixture {
 	}
 	placement, err = database.AcknowledgeAgentPlacement(context.Background(), store.AcknowledgePlacementParams{
 		ComputerID: computer.ID, RegistrationKey: registrationKey,
-		AgentID: agent.ID, Generation: placement.Generation, State: "active", Now: now.Add(3 * time.Second),
+		AgentID: agent.ID, DesiredRevision: placement.DesiredRevision, State: "ready", Now: now.Add(3 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -245,6 +273,41 @@ func openRuntimeServiceFixture(t *testing.T) *runtimeServiceFixture {
 		database: database, computer: computer, agent: agent, placement: placement,
 		registrationKey: registrationKey, humanCredential: humanCredential, now: now.Add(4 * time.Second),
 	}
+}
+
+func completeRuntimeServiceCredential(
+	t *testing.T,
+	database *store.Store,
+	owner store.Principal,
+	computerID, registrationKey, agentID string,
+	now time.Time,
+) string {
+	t.Helper()
+	delivery, err := database.EnqueueCredentialDelivery(context.Background(), computerapp.EnqueueCredentialDeliveryCommand{
+		RequestID: uuid.NewString(), Actor: owner, ComputerID: computerID, AgentID: agentID, CredentialKind: "openai",
+		Sealed: computerapp.SealedCredential{
+			Algorithm: "x25519_xchacha20_poly1305", KeyID: "runtime-service-key",
+			EphemeralPublicKey: make([]byte, 32), Nonce: make([]byte, 24), Ciphertext: make([]byte, 17),
+		},
+		ExpiresAt: now.Add(5 * time.Minute), Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimCredentialDelivery(context.Background(), computerapp.ClaimCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: registrationKey, Now: now,
+	})
+	if err != nil || claimed.ID != delivery.ID {
+		t.Fatalf("credential claim = %+v, %v", claimed, err)
+	}
+	handle := "cred_runtime_service_" + agentID
+	completed, err := database.CompleteCredentialDelivery(context.Background(), computerapp.CompleteCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: registrationKey, DeliveryID: delivery.ID, BindingHandle: handle, Now: now,
+	})
+	if err != nil || completed.State != computerapp.CredentialDeliverySucceeded {
+		t.Fatalf("credential completion = %+v, %v", completed, err)
+	}
+	return handle
 }
 
 func (f *runtimeServiceFixture) client(t *testing.T, service runtimev1connect.AgentRuntimeServiceHandler) runtimev1connect.AgentRuntimeServiceClient {

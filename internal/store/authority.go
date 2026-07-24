@@ -17,26 +17,28 @@ import (
 )
 
 const (
-	PrincipalHuman              = authoritydomain.PrincipalHuman
-	PrincipalAgent              = authoritydomain.PrincipalAgent
-	CapabilityOrganizationAdmin = authoritydomain.CapabilityOrganizationAdmin
-	CapabilityHumanCreate       = authoritydomain.CapabilityHumanCreate
-	CapabilityGrantIssue        = authoritydomain.CapabilityGrantIssue
-	CapabilityGrantRevoke       = authoritydomain.CapabilityGrantRevoke
-	CapabilityAuditRead         = authoritydomain.CapabilityAuditRead
-	CapabilityAgentCreate       = authoritydomain.CapabilityAgentCreate
-	CapabilityAgentPlace        = authoritydomain.CapabilityAgentPlace
-	CapabilitySpaceCreate       = authoritydomain.CapabilitySpaceCreate
-	CapabilitySpaceRead         = authoritydomain.CapabilitySpaceRead
-	CapabilitySpaceMembers      = authoritydomain.CapabilitySpaceMembers
-	CapabilitySpaceArchive      = authoritydomain.CapabilitySpaceArchive
-	CapabilityMessageSend       = authoritydomain.CapabilityMessageSend
-	CapabilityRunExecute        = authoritydomain.CapabilityRunExecute
-	CapabilityComputerPair      = authoritydomain.CapabilityComputerPair
-	CapabilityWorkCreate        = authoritydomain.CapabilityWorkCreate
-	CapabilityWorkRead          = authoritydomain.CapabilityWorkRead
-	CapabilityWorkManage        = authoritydomain.CapabilityWorkManage
-	CapabilityWorkApprove       = authoritydomain.CapabilityWorkApprove
+	PrincipalHuman                  = authoritydomain.PrincipalHuman
+	PrincipalAgent                  = authoritydomain.PrincipalAgent
+	CapabilityOrganizationAdmin     = authoritydomain.CapabilityOrganizationAdmin
+	CapabilityHumanCreate           = authoritydomain.CapabilityHumanCreate
+	CapabilityGrantIssue            = authoritydomain.CapabilityGrantIssue
+	CapabilityGrantRevoke           = authoritydomain.CapabilityGrantRevoke
+	CapabilityAuditRead             = authoritydomain.CapabilityAuditRead
+	CapabilityAgentCreate           = authoritydomain.CapabilityAgentCreate
+	CapabilityAgentProfileUpdate    = authoritydomain.CapabilityAgentProfileUpdate
+	CapabilityAgentRuntimeConfigure = authoritydomain.CapabilityAgentRuntimeConfigure
+	CapabilityAgentPlace            = authoritydomain.CapabilityAgentPlace
+	CapabilitySpaceCreate           = authoritydomain.CapabilitySpaceCreate
+	CapabilitySpaceRead             = authoritydomain.CapabilitySpaceRead
+	CapabilitySpaceMembers          = authoritydomain.CapabilitySpaceMembers
+	CapabilitySpaceArchive          = authoritydomain.CapabilitySpaceArchive
+	CapabilityMessageSend           = authoritydomain.CapabilityMessageSend
+	CapabilityRunExecute            = authoritydomain.CapabilityRunExecute
+	CapabilityComputerPair          = authoritydomain.CapabilityComputerPair
+	CapabilityWorkCreate            = authoritydomain.CapabilityWorkCreate
+	CapabilityWorkRead              = authoritydomain.CapabilityWorkRead
+	CapabilityWorkManage            = authoritydomain.CapabilityWorkManage
+	CapabilityWorkApprove           = authoritydomain.CapabilityWorkApprove
 )
 
 type Organization = organizationapp.Organization

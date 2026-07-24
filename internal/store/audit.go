@@ -16,6 +16,8 @@ const (
 	AuditGrantIssue            = auditapp.ActionGrantIssue
 	AuditGrantRevoke           = auditapp.ActionGrantRevoke
 	AuditAgentCreate           = auditapp.ActionAgentCreate
+	AuditAgentProfileUpdate    = auditapp.ActionAgentProfileUpdate
+	AuditAgentRuntimeConfigure = auditapp.ActionAgentRuntimeConfigure
 	AuditAgentPlace            = auditapp.ActionAgentPlace
 	AuditSpaceCreate           = auditapp.ActionSpaceCreate
 	AuditSpaceMemberAdd        = auditapp.ActionSpaceMemberAdd
@@ -24,8 +26,9 @@ const (
 	AuditSpaceUnarchive        = auditapp.ActionSpaceUnarchive
 	AuditThreadCreate          = auditapp.ActionThreadCreate
 	AuditMessageSend           = auditapp.ActionMessageSend
-	AuditRunAccept             = auditapp.ActionRunAccept
-	AuditRunLaunch             = auditapp.ActionRunLaunch
+	AuditRunClaim              = auditapp.ActionRunClaim
+	AuditRunRenew              = auditapp.ActionRunRenew
+	AuditRunCancel             = auditapp.ActionRunCancel
 	AuditRunComplete           = auditapp.ActionRunComplete
 	AuditComputerPairPrepare   = auditapp.ActionComputerPairPrepare
 	AuditComputerPair          = auditapp.ActionComputerPair

@@ -10,7 +10,7 @@ import (
 )
 
 func (s *State) EnqueueOutbox(ctx context.Context, event OutboxEvent) error {
-	if !validID(event.OutboxEventID) || !validID(event.RequestID) || !validID(event.AgentID) || !validID(event.RunID) || !validID(event.LaunchID) || event.PlacementGeneration == 0 || event.Fence == 0 || (event.Outcome != CompletionSucceeded && event.Outcome != CompletionFailed) || event.CreatedAt.IsZero() || ValidateCompletionPayload(event.Body, event.MentionedAgentIDs) != nil {
+	if !validID(event.OutboxEventID) || !validID(event.RequestID) || !validID(event.AgentID) || !validID(event.RunID) || event.Attempt == 0 || event.PlacementDesiredRevision == 0 || event.Fence == 0 || (event.Outcome != CompletionSucceeded && event.Outcome != CompletionFailed) || (event.Outcome == CompletionSucceeded && event.ErrorCode != "") || (event.Outcome == CompletionFailed && event.ErrorCode == "") || len(event.ErrorCode) > 255 || event.CreatedAt.IsZero() || ValidateCompletionPayload(event.Body, event.MentionedAgentIDs) != nil {
 		return errors.New("outbox event is invalid")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -33,10 +33,10 @@ func (s *State) EnqueueOutbox(ctx context.Context, event OutboxEvent) error {
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO outbox_events(
-			outbox_event_id, request_id, agent_id, placement_generation, run_id, launch_id,
-			fence, outcome, body, state, created_at
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
-	`, event.OutboxEventID, event.RequestID, event.AgentID, event.PlacementGeneration, event.RunID, event.LaunchID, event.Fence, event.Outcome, event.Body, unixNano(event.CreatedAt)); err != nil {
+			outbox_event_id, request_id, agent_id, placement_desired_revision, run_id, attempt,
+			fence, outcome, error_code, body, usage_input_units, usage_output_units, state, created_at
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+	`, event.OutboxEventID, event.RequestID, event.AgentID, event.PlacementDesiredRevision, event.RunID, event.Attempt, event.Fence, event.Outcome, event.ErrorCode, event.Body, event.UsageInputUnits, event.UsageOutputUnits, unixNano(event.CreatedAt)); err != nil {
 		return fmt.Errorf("persist outbox event: %w", err)
 	}
 	for ordinal, agentID := range event.MentionedAgentIDs {
@@ -83,14 +83,15 @@ func outboxCollision(ctx context.Context, tx *sql.Tx, candidate OutboxEvent) (Ou
 	var event OutboxEvent
 	var createdAt int64
 	err := tx.QueryRowContext(ctx, `
-		SELECT sequence, outbox_event_id, request_id, agent_id, placement_generation, run_id, launch_id,
-		       fence, outcome, body, state, rejection_code, created_at, attempts
+		SELECT sequence, outbox_event_id, request_id, agent_id, placement_desired_revision, run_id, attempt,
+		       fence, outcome, error_code, body, usage_input_units, usage_output_units, state, rejection_code, created_at, attempts
 		FROM outbox_events
-		WHERE outbox_event_id = ? OR request_id = ? OR (run_id = ? AND launch_id = ? AND fence = ?)
+		WHERE outbox_event_id = ? OR request_id = ? OR (run_id = ? AND attempt = ? AND fence = ?)
 		LIMIT 1
-	`, candidate.OutboxEventID, candidate.RequestID, candidate.RunID, candidate.LaunchID, candidate.Fence).Scan(
-		&event.Sequence, &event.OutboxEventID, &event.RequestID, &event.AgentID, &event.PlacementGeneration,
-		&event.RunID, &event.LaunchID, &event.Fence, &event.Outcome, &event.Body, &event.State,
+	`, candidate.OutboxEventID, candidate.RequestID, candidate.RunID, candidate.Attempt, candidate.Fence).Scan(
+		&event.Sequence, &event.OutboxEventID, &event.RequestID, &event.AgentID, &event.PlacementDesiredRevision,
+		&event.RunID, &event.Attempt, &event.Fence, &event.Outcome, &event.ErrorCode, &event.Body,
+		&event.UsageInputUnits, &event.UsageOutputUnits, &event.State,
 		&event.RejectionCode, &createdAt, &event.Attempts,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -120,9 +121,10 @@ func outboxCollision(ctx context.Context, tx *sql.Tx, candidate OutboxEvent) (Ou
 
 func sameOutboxEvent(existing, candidate OutboxEvent) bool {
 	if existing.OutboxEventID != candidate.OutboxEventID || existing.RequestID != candidate.RequestID ||
-		existing.AgentID != candidate.AgentID || existing.PlacementGeneration != candidate.PlacementGeneration ||
-		existing.RunID != candidate.RunID || existing.LaunchID != candidate.LaunchID || existing.Fence != candidate.Fence ||
-		existing.Outcome != candidate.Outcome || existing.Body != candidate.Body || existing.State != OutboxPending ||
+		existing.AgentID != candidate.AgentID || existing.PlacementDesiredRevision != candidate.PlacementDesiredRevision ||
+		existing.RunID != candidate.RunID || existing.Attempt != candidate.Attempt || existing.Fence != candidate.Fence ||
+		existing.Outcome != candidate.Outcome || existing.ErrorCode != candidate.ErrorCode || existing.Body != candidate.Body ||
+		existing.UsageInputUnits != candidate.UsageInputUnits || existing.UsageOutputUnits != candidate.UsageOutputUnits || existing.State != OutboxPending ||
 		existing.RejectionCode != "" || !existing.CreatedAt.Equal(candidate.CreatedAt) ||
 		len(existing.MentionedAgentIDs) != len(candidate.MentionedAgentIDs) {
 		return false
@@ -200,8 +202,8 @@ func (s *State) AckOutbox(ctx context.Context, eventID string) error {
 
 func (s *State) Outbox(ctx context.Context) ([]OutboxEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT sequence, outbox_event_id, request_id, agent_id, placement_generation, run_id, launch_id,
-		       fence, outcome, body, state, rejection_code, created_at, last_attempt_at, attempts
+		SELECT sequence, outbox_event_id, request_id, agent_id, placement_desired_revision, run_id, attempt,
+		       fence, outcome, error_code, body, usage_input_units, usage_output_units, state, rejection_code, created_at, last_attempt_at, attempts
 		FROM outbox_events ORDER BY sequence
 	`)
 	if err != nil {
@@ -212,7 +214,7 @@ func (s *State) Outbox(ctx context.Context) ([]OutboxEvent, error) {
 		var event OutboxEvent
 		var createdAt int64
 		var lastAttemptAt sql.NullInt64
-		if err := rows.Scan(&event.Sequence, &event.OutboxEventID, &event.RequestID, &event.AgentID, &event.PlacementGeneration, &event.RunID, &event.LaunchID, &event.Fence, &event.Outcome, &event.Body, &event.State, &event.RejectionCode, &createdAt, &lastAttemptAt, &event.Attempts); err != nil {
+		if err := rows.Scan(&event.Sequence, &event.OutboxEventID, &event.RequestID, &event.AgentID, &event.PlacementDesiredRevision, &event.RunID, &event.Attempt, &event.Fence, &event.Outcome, &event.ErrorCode, &event.Body, &event.UsageInputUnits, &event.UsageOutputUnits, &event.State, &event.RejectionCode, &createdAt, &lastAttemptAt, &event.Attempts); err != nil {
 			return nil, fmt.Errorf("scan outbox event: %w", err)
 		}
 		event.CreatedAt = fromUnixNano(createdAt)
@@ -245,16 +247,17 @@ func (s *State) PendingOutbox(ctx context.Context, limit uint32) ([]OutboxEvent,
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		WITH pending AS (
-			SELECT sequence, outbox_event_id, request_id, agent_id, placement_generation, run_id, launch_id,
-			       fence, outcome, body, state, rejection_code, created_at, last_attempt_at, attempts
+			SELECT sequence, outbox_event_id, request_id, agent_id, placement_desired_revision, run_id, attempt,
+			       fence, outcome, error_code, body, usage_input_units, usage_output_units, state, rejection_code, created_at, last_attempt_at, attempts
 			FROM outbox_events
 			WHERE state = 'pending'
 			ORDER BY sequence
 			LIMIT ?
 		)
 		SELECT pending.sequence, pending.outbox_event_id, pending.request_id, pending.agent_id,
-		       pending.placement_generation, pending.run_id, pending.launch_id, pending.fence,
-		       pending.outcome, pending.body, pending.state, pending.rejection_code, pending.created_at,
+		       pending.placement_desired_revision, pending.run_id, pending.attempt, pending.fence,
+		       pending.outcome, pending.error_code, pending.body, pending.usage_input_units, pending.usage_output_units,
+		       pending.state, pending.rejection_code, pending.created_at,
 		       pending.last_attempt_at, pending.attempts, outbox_mentions.agent_id
 		FROM pending
 		LEFT JOIN outbox_mentions ON outbox_mentions.outbox_event_id = pending.outbox_event_id
@@ -272,8 +275,9 @@ func (s *State) PendingOutbox(ctx context.Context, limit uint32) ([]OutboxEvent,
 		var mentionedAgentID sql.NullString
 		if err := rows.Scan(
 			&event.Sequence, &event.OutboxEventID, &event.RequestID, &event.AgentID,
-			&event.PlacementGeneration, &event.RunID, &event.LaunchID, &event.Fence,
-			&event.Outcome, &event.Body, &event.State, &event.RejectionCode, &createdAt,
+			&event.PlacementDesiredRevision, &event.RunID, &event.Attempt, &event.Fence,
+			&event.Outcome, &event.ErrorCode, &event.Body, &event.UsageInputUnits, &event.UsageOutputUnits,
+			&event.State, &event.RejectionCode, &createdAt,
 			&lastAttemptAt, &event.Attempts, &mentionedAgentID,
 		); err != nil {
 			return nil, fmt.Errorf("scan pending outbox event: %w", err)
@@ -297,17 +301,17 @@ func (s *State) PendingOutbox(ctx context.Context, limit uint32) ([]OutboxEvent,
 	return events, nil
 }
 
-func (s *State) HasOutboxCompletion(ctx context.Context, runID, launchID string, fence uint64) (bool, error) {
-	if !validID(runID) || !validID(launchID) || fence == 0 {
+func (s *State) HasOutboxCompletion(ctx context.Context, runID string, attempt, fence uint64) (bool, error) {
+	if !validID(runID) || attempt == 0 || fence == 0 {
 		return false, errors.New("outbox completion binding is invalid")
 	}
 	var found bool
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM outbox_events
-			WHERE run_id = ? AND launch_id = ? AND fence = ?
+			WHERE run_id = ? AND attempt = ? AND fence = ?
 		)
-	`, runID, launchID, fence).Scan(&found); err != nil {
+	`, runID, attempt, fence).Scan(&found); err != nil {
 		return false, fmt.Errorf("check outbox completion: %w", err)
 	}
 	return found, nil

@@ -11,25 +11,6 @@ import (
 	clicontract "github.com/abcdlsj/sumi/internal/cli/contract"
 )
 
-func TestRunPreservesHostAndDriverCommands(t *testing.T) {
-	tests := []struct {
-		args []string
-		want string
-	}{
-		{[]string{"host", "contract"}, "Commands: prompt steer spawn fork"},
-		{[]string{"driver", "capabilities", "--kind", "native"}, "Driver: native"},
-	}
-	for _, test := range tests {
-		var stdout bytes.Buffer
-		if err := Run(context.Background(), test.args, strings.NewReader(""), &stdout, &bytes.Buffer{}); err != nil {
-			t.Fatalf("Run(%v) error = %v", test.args, err)
-		}
-		if !strings.Contains(stdout.String(), test.want) {
-			t.Fatalf("Run(%v) stdout = %q, want %q", test.args, stdout.String(), test.want)
-		}
-	}
-}
-
 func TestRunRoutesForegroundCommands(t *testing.T) {
 	tests := []struct {
 		args []string

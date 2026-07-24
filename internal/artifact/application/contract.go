@@ -49,20 +49,18 @@ type Version struct {
 }
 
 type Execution struct {
-	DeliveryID          string
-	RunID               string
-	LaunchID            string
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	Fence               uint64
+	RunID                    string
+	Attempt                  uint64
+	AgentID                  string
+	ComputerID               string
+	PlacementDesiredRevision uint64
+	Fence                    uint64
 }
 
 type ExecutionInput struct {
-	DeliveryID string
-	RunID      string
-	LaunchID   string
-	Fence      uint64
+	RunID   string
+	Attempt uint64
+	Fence   uint64
 }
 
 type SourceInput struct {
@@ -140,14 +138,13 @@ type SourceView struct {
 }
 
 type ExecutionView struct {
-	Restricted          bool
-	DeliveryID          string
-	RunID               string
-	LaunchID            string
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	Fence               uint64
+	Restricted               bool
+	RunID                    string
+	Attempt                  uint64
+	AgentID                  string
+	ComputerID               string
+	PlacementDesiredRevision uint64
+	Fence                    uint64
 }
 
 type View struct {

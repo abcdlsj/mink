@@ -8,35 +8,123 @@ option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1;agentv1";
 
 service AgentService {
   rpc CreateAgent(CreateAgentRequest) returns (CreateAgentResponse);
+  rpc UpdateAgentProfile(UpdateAgentProfileRequest) returns (UpdateAgentProfileResponse);
+  rpc UpdateAgentRuntimeSpec(UpdateAgentRuntimeSpecRequest) returns (UpdateAgentRuntimeSpecResponse);
+  rpc GetAgentRuntimeSpec(GetAgentRuntimeSpecRequest) returns (GetAgentRuntimeSpecResponse);
   rpc GetAgent(GetAgentRequest) returns (GetAgentResponse);
   rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
 }
 
-enum Driver {
-  DRIVER_UNSPECIFIED = 0;
-  DRIVER_NATIVE = 1;
-  DRIVER_CODEX = 2;
-  DRIVER_CLAUDE = 3;
+enum EngineKind {
+  ENGINE_KIND_UNSPECIFIED = 0;
+  ENGINE_KIND_BUILTIN = 1;
+  ENGINE_KIND_CODEX_ADAPTER = 2;
+  ENGINE_KIND_CLAUDE_ADAPTER = 3;
+}
+
+enum ProviderProtocol {
+  PROVIDER_PROTOCOL_UNSPECIFIED = 0;
+  PROVIDER_PROTOCOL_OPENAI_RESPONSES = 1;
+  PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES = 2;
+}
+
+enum RuntimeSandboxProvider {
+  RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED = 0;
+  RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL = 1;
+}
+
+message RuntimeToolPolicy {
+  bool message = 1;
+  bool work = 2;
+  bool artifact = 3;
+  bool knowledge = 4;
+}
+
+message AgentRuntimeSpec {
+  string agent_id = 1;
+  uint64 revision = 2;
+  EngineKind engine = 3;
+  ProviderProtocol provider_protocol = 4;
+  string provider_endpoint = 5;
+  string model = 6;
+  string credential_binding_handle = 7;
+  RuntimeSandboxProvider sandbox_provider = 8;
+  uint32 max_run_duration_seconds = 9;
+  uint64 max_output_bytes = 10;
+  RuntimeToolPolicy tool_policy = 11;
+  google.protobuf.Timestamp created_at = 12;
+}
+
+message AgentProfile {
+  string agent_id = 1;
+  uint64 revision = 2;
+  string display_name = 3;
+  string role = 4;
+  string mission = 5;
+  string instructions = 6;
+  google.protobuf.Timestamp created_at = 7;
 }
 
 message Agent {
   string id = 1;
-  string name = 2;
-  string description = 3;
-  Driver driver = 4;
-  google.protobuf.Timestamp created_at = 5;
-  google.protobuf.Timestamp updated_at = 6;
+  string handle = 2;
+  AgentProfile profile = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
 }
 
 message CreateAgentRequest {
   string request_id = 1;
-  string name = 2;
-  string description = 3;
-  Driver driver = 4;
+  string handle = 2;
+  string display_name = 3;
+  string role = 4;
+  string mission = 5;
+  string instructions = 6;
 }
 
 message CreateAgentResponse {
   Agent agent = 1;
+}
+
+message UpdateAgentProfileRequest {
+  string request_id = 1;
+  string agent_id = 2;
+  uint64 expected_revision = 3;
+  string display_name = 4;
+  string role = 5;
+  string mission = 6;
+  string instructions = 7;
+}
+
+message UpdateAgentProfileResponse {
+  Agent agent = 1;
+}
+
+message UpdateAgentRuntimeSpecRequest {
+  string request_id = 1;
+  string agent_id = 2;
+  uint64 expected_revision = 3;
+  EngineKind engine = 4;
+  ProviderProtocol provider_protocol = 5;
+  string provider_endpoint = 6;
+  string model = 7;
+  string credential_binding_handle = 8;
+  RuntimeSandboxProvider sandbox_provider = 9;
+  uint32 max_run_duration_seconds = 10;
+  uint64 max_output_bytes = 11;
+  RuntimeToolPolicy tool_policy = 12;
+}
+
+message UpdateAgentRuntimeSpecResponse {
+  AgentRuntimeSpec runtime_spec = 1;
+}
+
+message GetAgentRuntimeSpecRequest {
+  string agent_id = 1;
+}
+
+message GetAgentRuntimeSpecResponse {
+  AgentRuntimeSpec runtime_spec = 1;
 }
 
 message GetAgentRequest {

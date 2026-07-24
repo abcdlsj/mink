@@ -444,8 +444,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	fixture := openArtifactFixture(t)
 	workGrant := fixture.issueAgentWorkGrant(t, CapabilityWorkManage, fixture.at(1))
 	run := fixture.acceptTrigger(t, "artifact execution", 2)
-	launch := fixture.claimRun(t, run, 5)
-	delivery := readDelivery(t, fixture.database, run.DeliveryID)
+	running := fixture.claimRun(t, run, 5)
 	baseParams := PublishArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Agent: fixture.authentication},
 		OwningWorkID: fixture.work.ID, Name: "execution output", MediaType: "text/plain",
@@ -456,21 +455,21 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	}
 	baseParams.RequestID = uuid.NewString()
 	baseParams.Content = strings.NewReader("agent execution body")
-	baseParams.Execution = &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence + 1}
-	if _, err := fixture.artifacts.Publish(context.Background(), baseParams); !errors.Is(err, ErrRunLaunchStale) {
+	baseParams.Execution = &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence + 1}
+	if _, err := fixture.artifacts.Publish(context.Background(), baseParams); !errors.Is(err, ErrRunLeaseStale) {
 		t.Fatalf("agent publish with wrong fence = %v", err)
 	}
 	result, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Agent: fixture.authentication},
 		OwningWorkID: fixture.work.ID, Name: "execution output", MediaType: "text/plain",
 		Summary: "agent result", Content: strings.NewReader("agent execution body"),
-		Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence},
-		Sources:   []ArtifactSourceInput{{Kind: ArtifactSourceMessage, MessageID: delivery.TriggerMessageID}}, Now: fixture.at(6),
+		Execution: &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence},
+		Sources:   []ArtifactSourceInput{{Kind: ArtifactSourceMessage, MessageID: run.TriggerMessageID}}, Now: fixture.at(6),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Version.Execution == nil || result.Version.Execution.AgentID != fixture.agentID || result.Version.Execution.ComputerID != fixture.authentication.Proof.ComputerID() || result.Version.Execution.PlacementGeneration != fixture.authentication.Proof.PlacementGeneration() {
+	if result.Version.Execution == nil || result.Version.Execution.AgentID != fixture.agentID || result.Version.Execution.ComputerID != fixture.authentication.Proof.ComputerID() || result.Version.Execution.PlacementDesiredRevision != fixture.authentication.Proof.PlacementDesiredRevision() {
 		t.Fatalf("execution provenance = %+v", result.Version.Execution)
 	}
 	if _, err := fixture.database.RevokeGrant(context.Background(), RevokeGrantParams{
@@ -489,7 +488,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Agent: fixture.authentication},
 		ArtifactID: result.Artifact.ID, OwningWorkID: fixture.work.ID, Name: result.Artifact.Name,
 		MediaType: result.Artifact.MediaType, Summary: "exact-agent managed append", Content: strings.NewReader("managed version"),
-		Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence}, Now: fixture.at(9),
+		Execution: &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence}, Now: fixture.at(9),
 	})
 	if err != nil || managed.Version.Version != 2 {
 		t.Fatalf("exact-agent manage append = %+v, %v", managed, err)
@@ -498,7 +497,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 		Authentication: ArtifactAuthentication{Agent: fixture.authentication}, ArtifactID: result.Artifact.ID, Now: fixture.at(9),
 	})
 	if err != nil || agentView.Version.Execution == nil || agentView.Version.Execution.Restricted ||
-		agentView.Version.Execution.RunID != run.ID || agentView.Version.Execution.LaunchID != launch.ID {
+		agentView.Version.Execution.RunID != run.ID || agentView.Version.Execution.Attempt != running.Attempt {
 		t.Fatalf("current agent execution view = %+v, %v", agentView.Version.Execution, err)
 	}
 	runGrant, err := scanGrant(fixture.database.db.QueryRow(grantSelect+`
@@ -519,9 +518,9 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if execution := agentView.Version.Execution; execution == nil || !execution.Restricted || execution.DeliveryID != "" ||
-		execution.RunID != "" || execution.LaunchID != "" || execution.AgentID != "" || execution.ComputerID != "" ||
-		execution.PlacementGeneration != 0 || execution.Fence != 0 {
+	if execution := agentView.Version.Execution; execution == nil || !execution.Restricted ||
+		execution.RunID != "" || execution.Attempt != 0 || execution.AgentID != "" || execution.ComputerID != "" ||
+		execution.PlacementDesiredRevision != 0 || execution.Fence != 0 {
 		t.Fatalf("revoked run.execute leaked execution = %+v", execution)
 	}
 	listed, err := fixture.artifacts.List(context.Background(), ListArtifactsParams{
@@ -543,7 +542,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 		ArtifactID: result.Artifact.ID, OwningWorkID: fixture.work.ID, Name: result.Artifact.Name,
 		MediaType: result.Artifact.MediaType, Summary: "revoked exact-agent manage",
 		Content:   strings.NewReader("must not append"),
-		Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence},
+		Execution: &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence},
 		Now:       fixture.at(10),
 	}); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("append after exact-agent manage revoke = %v", err)
@@ -554,7 +553,7 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	if _, err := fixture.artifacts.Publish(context.Background(), PublishArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Human: fixture.owner},
 		OwningWorkID: fixture.work.ID, Name: "bad human execution", MediaType: "text/plain", Summary: "invalid",
-		Content: strings.NewReader("invalid"), Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence}, Now: fixture.at(10),
+		Content: strings.NewReader("invalid"), Execution: &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence}, Now: fixture.at(10),
 	}); !errors.Is(err, ErrArtifactInvalid) {
 		t.Fatalf("human execution = %v", err)
 	}
@@ -606,11 +605,11 @@ func TestArtifactAgentExecutionProvenanceAndProjection(t *testing.T) {
 	}
 	expectArtifactSQLFailure(t, fixture.database, `
 		INSERT INTO artifact_version_executions(
-			artifact_id, version, organization_id, delivery_id, run_id, launch_id,
-			agent_id, computer_id, placement_generation, fence
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			artifact_id, version, organization_id, run_id, attempt,
+			agent_id, computer_id, placement_desired_revision, fence
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, humanVersion.Artifact.ID, humanVersion.Version.Version, humanVersion.Artifact.OrganizationID,
-		run.DeliveryID, run.ID, launch.ID, fixture.agentID, launch.HolderComputerID, launch.HolderPlacementGeneration, launch.Fence)
+		run.ID, running.Attempt, fixture.agentID, running.LeaseHolderComputerID, running.PlacementDesiredRevision, running.Fence)
 }
 
 func TestArtifactFactsAreImmutableAndGrantsAreRevokeOnly(t *testing.T) {
@@ -737,15 +736,15 @@ func TestArtifactPublishRevalidatesAgentRuntimeAfterDurablePut(t *testing.T) {
 	fixture := openArtifactFixture(t)
 	fixture.issueAgentWorkGrant(t, CapabilityWorkManage, fixture.at(1))
 	run := fixture.acceptTrigger(t, "runtime rotation", 2)
-	launch := fixture.claimRun(t, run, 5)
+	running := fixture.claimRun(t, run, 5)
 	storeWithHook := fixture.storeWithPutHook(t, func() {
-		rotateDeliveryRuntime(t, fixture.deliveryFixture, 99, fixture.at(7))
+		rotateRunRuntime(t, fixture.runFixture, 99, fixture.at(7))
 	})
 	if _, err := storeWithHook.Publish(context.Background(), PublishArtifactParams{
 		RequestID: uuid.NewString(), Authentication: ArtifactAuthentication{Agent: fixture.authentication},
 		OwningWorkID: fixture.work.ID, Name: "stale runtime", MediaType: "text/plain", Summary: "must not commit",
 		Content:   strings.NewReader("runtime orphan"),
-		Execution: &ArtifactExecutionInput{DeliveryID: run.DeliveryID, RunID: run.ID, LaunchID: launch.ID, Fence: launch.Fence},
+		Execution: &ArtifactExecutionInput{RunID: run.ID, Attempt: running.Attempt, Fence: running.Fence},
 		Now:       fixture.at(6),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
 		t.Fatalf("publish after runtime rotation = %v", err)
@@ -876,7 +875,7 @@ func TestArtifactReconcileIterationErrorDoesNotTouchBlobOrInventory(t *testing.T
 }
 
 type artifactFixture struct {
-	*deliveryFixture
+	*runFixture
 	artifacts    *ArtifactStore
 	local        *artifactblob.Local
 	blobRoot     string
@@ -887,18 +886,18 @@ type artifactFixture struct {
 
 func openArtifactFixture(t *testing.T) *artifactFixture {
 	t.Helper()
-	delivery := openDeliveryFixture(t)
-	source, err := delivery.database.SendMessage(context.Background(), SendMessageParams{
-		RequestID: uuid.NewString(), Actor: delivery.owner,
-		Target: MessageTarget{Kind: MessageTargetSpace, ID: delivery.group.ID}, Body: "artifact source", Now: delivery.at(-3),
+	runs := openRunFixture(t)
+	source, err := runs.database.SendMessage(context.Background(), SendMessageParams{
+		RequestID: uuid.NewString(), Actor: runs.owner,
+		Target: MessageTarget{Kind: MessageTargetSpace, ID: runs.group.ID}, Body: "artifact source", Now: runs.at(-3),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := delivery.database.CreateWork(context.Background(), WorkCreateParams{
-		RequestID: uuid.NewString(), Actor: delivery.owner, SourceMessageID: source.ID, SourceSpaceID: source.SpaceID,
+	work, err := runs.database.CreateWork(context.Background(), WorkCreateParams{
+		RequestID: uuid.NewString(), Actor: runs.owner, SourceMessageID: source.ID, SourceSpaceID: source.SpaceID,
 		SourceTarget: source.Target, SourceTargetSequence: source.TargetSequence,
-		Goal: "produce artifact", AcceptanceCriteria: []string{"artifact is durable"}, Now: delivery.at(-2),
+		Goal: "produce artifact", AcceptanceCriteria: []string{"artifact is durable"}, Now: runs.at(-2),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -908,20 +907,20 @@ func openArtifactFixture(t *testing.T) *artifactFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifacts, err := NewArtifactStore(delivery.database, local, ArtifactMaxBlobSize)
+	artifacts, err := NewArtifactStore(runs.database, local, ArtifactMaxBlobSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &artifactFixture{
-		deliveryFixture: delivery, artifacts: artifacts, local: local, blobRoot: root,
-		databasePath: delivery.path, source: source, work: work,
+		runFixture: runs, artifacts: artifacts, local: local, blobRoot: root,
+		databasePath: runs.path, source: source, work: work,
 	}
 }
 
 func (f *artifactFixture) humanPublishParams(requestID, content string, now time.Time) PublishArtifactParams {
 	return PublishArtifactParams{
 		RequestID: requestID, Authentication: ArtifactAuthentication{Human: f.owner},
-		OwningWorkID: f.work.ID, Name: "delivery report", MediaType: "text/plain",
+		OwningWorkID: f.work.ID, Name: "run report", MediaType: "text/plain",
 		Summary: "artifact summary", Content: strings.NewReader(content), Now: now,
 	}
 }

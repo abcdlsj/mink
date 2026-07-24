@@ -1,16 +1,20 @@
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
-import { Driver } from "../gen/sumi/agent/v1/agent_pb";
+import { EngineKind, type Agent } from "../gen/sumi/agent/v1/agent_pb";
 import {
   Architecture,
   OperatingSystem,
 } from "../gen/sumi/computer/v1/computer_pb";
 import { PlacementState } from "../gen/sumi/placement/v1/placement_pb";
 
-export function driverLabel(driver: Driver) {
-  if (driver === Driver.NATIVE) return "Native";
-  if (driver === Driver.CODEX) return "Codex";
-  if (driver === Driver.CLAUDE) return "Claude";
-  return "Unspecified";
+export function agentDisplayName(agent: Agent) {
+  return agent.profile?.displayName || agent.handle || "Unknown Agent";
+}
+
+export function engineKindLabel(engine?: EngineKind) {
+  if (engine === EngineKind.BUILTIN) return "Builtin";
+  if (engine === EngineKind.CODEX_ADAPTER) return "Codex adapter";
+  if (engine === EngineKind.CLAUDE_ADAPTER) return "Claude adapter";
+  return "Not configured";
 }
 
 export function operatingSystemLabel(os: OperatingSystem) {
@@ -27,7 +31,7 @@ export function architectureLabel(arch: Architecture) {
 
 export function placementStateLabel(state?: PlacementState) {
   if (state === PlacementState.PENDING) return "pending";
-  if (state === PlacementState.ACTIVE) return "active";
+  if (state === PlacementState.READY) return "ready";
   if (state === PlacementState.FAILED) return "failed";
   return "unplaced";
 }

@@ -9,10 +9,10 @@ import (
 
 func TestLoggerCarriesStableClassification(t *testing.T) {
 	var output bytes.Buffer
-	logger := CategoryLogger(New(ComponentComputer, &output), ComponentComputer, CategoryDelivery)
-	logger.Info("run accepted", "event", "delivery.run.accepted", "run_id", "run-1")
+	logger := CategoryLogger(New(ComponentComputer, &output), ComponentComputer, CategoryRun)
+	logger.Info("run claimed", "event", "run.claimed", "run_id", "run-1")
 	logged := output.String()
-	for _, want := range []string{"component=computer", "category=delivery", "event=delivery.run.accepted", "run_id=run-1"} {
+	for _, want := range []string{"component=computer", "category=run", "event=run.claimed", "run_id=run-1"} {
 		if !strings.Contains(logged, want) {
 			t.Fatalf("log output %q does not contain %q", logged, want)
 		}

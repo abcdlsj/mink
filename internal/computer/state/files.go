@@ -15,10 +15,32 @@ func (s *State) configure() error {
 		"PRAGMA foreign_keys = ON",
 		"PRAGMA synchronous = FULL",
 		"PRAGMA busy_timeout = 5000",
-		schema,
 	} {
 		if _, err := s.db.Exec(statement); err != nil {
 			return fmt.Errorf("configure computer state: %w", err)
+		}
+	}
+	var objects int
+	if err := s.db.QueryRow(`
+		SELECT count(*) FROM sqlite_master
+		WHERE type IN ('table', 'index', 'trigger', 'view') AND name NOT LIKE 'sqlite_%'
+	`).Scan(&objects); err != nil {
+		return fmt.Errorf("inspect computer state schema: %w", err)
+	}
+	if objects == 0 {
+		if _, err := s.db.Exec(schema); err != nil {
+			return fmt.Errorf("initialize computer state schema: %w", err)
+		}
+		return nil
+	}
+	var marker string
+	if err := s.db.QueryRow(`SELECT value FROM state_metadata WHERE key = 'schema_version'`).Scan(&marker); err != nil || marker != "next-greenfield-1" {
+		return errors.New("computer state schema is incompatible; initialize a new data root")
+	}
+	for _, table := range []string{"computer_identity", "credential_delivery_keys", "credential_bindings", "runtime_sessions", "mutation_attempts", "outbox_events", "run_journals", "tool_results"} {
+		var found int
+		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&found); err != nil || found != 1 {
+			return errors.New("computer state schema is incomplete")
 		}
 	}
 	return nil

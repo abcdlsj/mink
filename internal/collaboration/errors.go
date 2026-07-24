@@ -7,6 +7,7 @@ import (
 	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 )
 
 func collaborationError(err error) error {
@@ -23,7 +24,8 @@ func collaborationError(err error) error {
 	case errors.Is(err, collaborationapp.ErrRequestConflict), errors.Is(err, collaborationapp.ErrMembershipExists):
 		return connect.NewError(connect.CodeAlreadyExists, err)
 	case errors.Is(err, collaborationapp.ErrSpaceArchived), errors.Is(err, collaborationapp.ErrDMImmutable), errors.Is(err, collaborationapp.ErrLastActiveHumanMember),
-		errors.Is(err, collaborationapp.ErrInvalidMessageTarget):
+		errors.Is(err, collaborationapp.ErrInvalidMessageTarget), errors.Is(err, executionapp.ErrRunNotFound), errors.Is(err, executionapp.ErrRunNotRunning),
+		errors.Is(err, executionapp.ErrRunLeaseStale), errors.Is(err, executionapp.ErrRunLeaseExpired):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case errors.Is(err, collaborationapp.ErrDMRequiresDistinctPrincipals), errors.Is(err, collaborationapp.ErrInvalidSpaceName),
 		errors.Is(err, collaborationapp.ErrInvalidPrincipal), errors.Is(err, collaborationapp.ErrInvalidMessageBody), errors.Is(err, collaborationapp.ErrInvalidMessageLimit),

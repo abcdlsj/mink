@@ -15,7 +15,7 @@ service AgentRuntimeService {
 message AgentRuntimeSession {
   string agent_id = 1;
   string computer_id = 2;
-  uint64 placement_generation = 3;
+  uint64 placement_desired_revision = 3;
   string token = 4;
   google.protobuf.Timestamp expires_at = 5;
 }
@@ -24,7 +24,7 @@ message CreateAgentRuntimeSessionRequest {
   string computer_id = 1;
   string registration_key = 2;
   string agent_id = 3;
-  uint64 placement_generation = 4;
+  uint64 placement_desired_revision = 4;
 }
 
 message CreateAgentRuntimeSessionResponse {

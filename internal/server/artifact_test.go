@@ -15,11 +15,11 @@ import (
 	"connectrpc.com/connect"
 	artifactv1 "github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
-	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
-	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
+	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/run/v1/runv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
@@ -105,7 +105,7 @@ func TestArtifactHTTPHumanStreamingACLReplayPaginationRestartAndMissing(t *testi
 
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
-	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	grantResponse, err := ownerClient.GrantArtifact(context.Background(), connect.NewRequest(&artifactv1.GrantArtifactRequest{
 		RequestId: uuid.NewString(), ArtifactId: first.Msg.GetArtifact().GetId(),
 		Target: artifactAgentTarget(agent.GetId()), Capability: artifactv1.ArtifactCapability_ARTIFACT_CAPABILITY_READ,
@@ -120,7 +120,7 @@ func TestArtifactHTTPHumanStreamingACLReplayPaginationRestartAndMissing(t *testi
 		api.close(t)
 		t.Fatalf("agent artifact read = %v", err)
 	}
-	currentSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+	currentSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	if _, err := client.GetArtifact(context.Background(), artifactRequest(oldSession.GetToken(), &artifactv1.GetArtifactRequest{
 		ArtifactId: first.Msg.GetArtifact().GetId(),
 	})); connect.CodeOf(err) != connect.CodeUnauthenticated {
@@ -350,7 +350,7 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 	seed := seedArtifactWork(t, api.app, dataRoot)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
-	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	ownerOption := ownerClientAuthorization(t, dataRoot)
 	grantClient := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	collaborationClient := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerOption)
@@ -368,7 +368,7 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 		{grantv1.Capability_CAPABILITY_MESSAGE_SEND, &grantv1.Scope{Kind: grantv1.ScopeKind_SCOPE_KIND_SPACE, Id: seed.space.ID}},
 		{grantv1.Capability_CAPABILITY_RUN_EXECUTE, &grantv1.Scope{Kind: grantv1.ScopeKind_SCOPE_KIND_AGENT, Id: agent.GetId()}},
 	} {
-		issueDeliveryGrantHTTP(t, grantClient, seed.bootstrap.RootGrant.ID, agent.GetId(), value.capability, value.scope)
+		issueRunGrantHTTP(t, grantClient, seed.bootstrap.RootGrant.ID, agent.GetId(), value.capability, value.scope)
 	}
 	workGrant, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{
 		RequestID: uuid.NewString(), Actor: seed.owner,
@@ -384,19 +384,13 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 	inboxClient := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
 	item := findInboxItem(t, inboxClient, session.GetToken(), trigger.GetId())
 	observeInbox(t, inboxClient, session.GetToken(), item.GetTarget())
-	deliveryClient := deliveryv1connect.NewDeliveryServiceClient(api.http.Client(), api.http.URL)
-	deliveries, err := deliveryClient.ListDeliveries(context.Background(), deliveryRequest(session.GetToken(), &deliveryv1.ListDeliveriesRequest{Limit: 200}))
-	if err != nil || len(deliveries.Msg.GetDeliveries()) != 1 {
-		t.Fatalf("artifact execution deliveries = %+v, %v", deliveries, err)
+	runClient := runv1connect.NewRunServiceClient(api.http.Client(), api.http.URL)
+	runs, err := runClient.ListRuns(context.Background(), runtimeRequestHTTP(session.GetToken(), &runv1.ListRunsRequest{Limit: 200}))
+	if err != nil || len(runs.Msg.GetRuns()) != 1 {
+		t.Fatalf("artifact execution runs = %+v, %v", runs, err)
 	}
-	accepted, err := deliveryClient.AcceptDelivery(context.Background(), deliveryRequest(session.GetToken(), &deliveryv1.AcceptDeliveryRequest{
-		RequestId: uuid.NewString(), DeliveryId: deliveries.Msg.GetDeliveries()[0].GetId(),
-	}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	claimed, err := deliveryClient.ClaimRun(context.Background(), deliveryRequest(session.GetToken(), &deliveryv1.ClaimRunRequest{
-		RequestId: uuid.NewString(), RunId: accepted.Msg.GetRun().GetId(),
+	claimed, err := runClient.ClaimRun(context.Background(), runtimeRequestHTTP(session.GetToken(), &runv1.ClaimRunRequest{
+		RequestId: uuid.NewString(), RunId: runs.Msg.GetRuns()[0].GetId(),
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -406,8 +400,7 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 	content := []byte("agent execution artifact")
 	metadata := artifactPublishMetadata(seed.work.ID, "agent-execution", content)
 	metadata.Execution = &artifactv1.ArtifactExecutionInput{
-		DeliveryId: accepted.Msg.GetRun().GetDeliveryId(), RunId: accepted.Msg.GetRun().GetId(),
-		LaunchId: claimed.Msg.GetLaunch().GetId(), Fence: claimed.Msg.GetLaunch().GetFence(),
+		RunId: claimed.Msg.GetRun().GetId(), Attempt: claimed.Msg.GetRun().GetAttempt(), Fence: claimed.Msg.GetRun().GetFence(),
 	}
 	metadata.Sources = []*artifactv1.ArtifactSourceInput{{Source: &artifactv1.ArtifactSourceInput_MessageId{MessageId: trigger.GetId()}}}
 	published, err := publishArtifactHTTP(context.Background(), client, session.GetToken(), "", metadata, content)

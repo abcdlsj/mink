@@ -21,22 +21,22 @@ func registrationKeyValid(key string) error {
 func acknowledgement(result placementv1.AcknowledgementResult, errorCode string) (placementdomain.State, string, error) {
 	var state placementdomain.State
 	switch result {
-	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE:
-		state = placementdomain.StateActive
+	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY:
+		state = placementdomain.StateReady
 	case placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED:
 		state = placementdomain.StateFailed
 	default:
-		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be active or failed"))
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be ready or failed"))
 	}
 	value, err := placementdomain.NewAcknowledgement(state, errorCode)
-	if errors.Is(err, placementdomain.ErrActiveWithErrorCode) {
-		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("active acknowledgement cannot include an error code"))
+	if errors.Is(err, placementdomain.ErrReadyWithErrorCode) {
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("ready acknowledgement cannot include an error code"))
 	}
 	if errors.Is(err, placementdomain.ErrFailureCodeInvalid) {
 		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("failed acknowledgement requires a known error code"))
 	}
 	if err != nil {
-		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be active or failed"))
+		return "", "", connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be ready or failed"))
 	}
 	return value.State, value.ErrorCode, nil
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
-	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	auditv1 "github.com/abcdlsj/sumi/gen/go/sumi/audit/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
@@ -49,9 +48,7 @@ func TestCollaborationRoutePersistsSpaceThreadAndMessagesAcrossRestart(t *testin
 		t.Fatal(err)
 	}
 	ownerID := organizationResponse.Msg.GetOrganization().GetBootstrapHumanId()
-	createAgent := connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(), Name: "audit-context-agent", Driver: agentv1.Driver_DRIVER_NATIVE,
-	})
+	createAgent := connect.NewRequest(agentRequest("audit-context-agent"))
 	authorize(createAgent, credential)
 	agentResponse, err := api.agents.CreateAgent(context.Background(), createAgent)
 	if err != nil {

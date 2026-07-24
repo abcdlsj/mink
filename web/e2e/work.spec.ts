@@ -8,7 +8,10 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { CollaborationService, MessageTargetSchema } from "../src/gen/sumi/space/v1/space_pb";
+import {
+  CollaborationService,
+  MessageTargetSchema,
+} from "../src/gen/sumi/space/v1/space_pb";
 import { WorkService } from "../src/gen/sumi/work/v1/work_pb";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
@@ -91,24 +94,38 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 1024, height: 768 },
 ]) {
-  test(`Human Work Inbox opens and resolves actual approval at ${viewport.width}px`, async ({ page }) => {
+  test(`Human Work Inbox opens and resolves actual approval at ${viewport.width}px`, async ({
+    page,
+  }) => {
     const workGoal = await seedApproval();
     await page.setViewportSize(viewport);
     await authenticatePage(page);
     await page.goto("/");
-    const navigation = page.getByRole("complementary", { name: "Conversation navigation" });
+    const navigation = page.getByRole("complementary", {
+      name: "Conversation navigation",
+    });
     if (!(await navigation.isVisible())) {
       await page.getByRole("button", { name: "Open navigation" }).click();
     }
-    await navigation.getByRole("button", { name: groupName, exact: true }).click();
-    await page.getByRole("tab", { name: "Work" }).click();
+    await navigation
+      .getByRole("button", { name: groupName, exact: true })
+      .click();
+    await page.getByRole("button", { name: "Work", exact: true }).click();
     const inbox = page.getByRole("region", { name: "Work Inbox" });
     await expect(inbox.getByText("Approval requested")).toBeVisible();
     await inbox.getByRole("button", { name: /Approval requested/ }).click();
     await expect(inbox.getByRole("heading", { name: workGoal })).toBeVisible();
     await inbox.getByRole("button", { name: "Approve" }).click();
-    await expect(inbox.getByText("No Work needs your attention.")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+    await expect(
+      inbox.getByText("No Work needs your attention."),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth >
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(false);
     await page.screenshot({
       path: `../test-results/sumi-work-${viewport.width}x${viewport.height}.png`,
       fullPage: true,
@@ -134,7 +151,11 @@ async function authenticatePage(page: Page) {
     { cwd: repoRoot },
   );
   const url = result.stdout.trim();
-  if (!new RegExp(`^${escapePattern(baseURL)}/auth/browser-handoffs/[A-Za-z0-9_-]{43}$`).test(url)) {
+  if (
+    !new RegExp(
+      `^${escapePattern(baseURL)}/auth/browser-handoffs/[A-Za-z0-9_-]{43}$`,
+    ).test(url)
+  ) {
     throw new Error("Browser handoff returned an unsafe URL");
   }
   await page.goto(url);
@@ -154,7 +175,9 @@ async function readOwnerCredential() {
     }
     const credential = await handle.readFile({ encoding: "utf8" });
     if (!/^[A-Za-z0-9_-]{43,128}$/.test(credential)) {
-      throw new Error("PLAYWRIGHT_OWNER_KEY_FILE must contain one high-entropy credential");
+      throw new Error(
+        "PLAYWRIGHT_OWNER_KEY_FILE must contain one high-entropy credential",
+      );
     }
     return { credential, path };
   } finally {

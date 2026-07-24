@@ -181,8 +181,8 @@ func initializeSchema(ctx context.Context, db *sql.DB) error {
 	}
 	if objects != 0 {
 		var marker string
-		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "3" {
-			return fmt.Errorf("legacy sqlite schema is unsupported (%d existing objects); initialize a new database", objects)
+		if err := db.QueryRowContext(ctx, "SELECT value FROM system_metadata WHERE key = 'schema_version'").Scan(&marker); err != nil || marker != "next-greenfield-1" {
+			return fmt.Errorf("sqlite schema is incompatible; initialize a new database")
 		}
 		return validateSchema(ctx, db)
 	}

@@ -3,9 +3,19 @@ import type { useBootstrap } from "../hooks/useBootstrap";
 import { useComputerDetail } from "../hooks/useDetails";
 import type { useFacts } from "../hooks/useFacts";
 import type { useSession } from "../hooks/useSession";
-import type { Computer } from "../gen/sumi/computer/v1/computer_pb";
 import {
+  CapabilityHealth,
+  CredentialStore,
+  SandboxFilesystemIsolation,
+  SandboxNetworkIsolation,
+  SandboxProvider,
+  type Computer,
+} from "../gen/sumi/computer/v1/computer_pb";
+import { ProviderProtocol } from "../gen/sumi/agent/v1/agent_pb";
+import {
+  agentDisplayName,
   architectureLabel,
+  engineKindLabel,
   formatTimestamp,
   operatingSystemLabel,
   placementStateLabel,
@@ -19,6 +29,7 @@ import {
 } from "./ManagementFeedback";
 import { ManagementWorkspace } from "./ManagementWorkspace";
 import { ComputerOnboarding } from "./ComputerOnboarding";
+import { PixelAvatar } from "./PixelAvatar";
 
 type Bootstrap = ReturnType<typeof useBootstrap>;
 type Facts = ReturnType<typeof useFacts>;
@@ -115,6 +126,10 @@ function ComputerDetail({
   const agents = new Map(
     (facts.data?.agents ?? []).map((agent) => [agent.id, agent]),
   );
+  const inventory = current.capabilityInventory;
+  const trustedLocal = inventory?.sandboxes.find(
+    (sandbox) => sandbox.provider === SandboxProvider.TRUSTED_LOCAL,
+  );
   return (
     <div className="detail-sheet">
       {detail.status === "stale" && (
@@ -138,7 +153,121 @@ function ComputerDetail({
             {architectureLabel(current.arch)}
           </p>
         </div>
-        <span className="capability-label">trusted local</span>
+        <span className="capability-label">
+          {trustedLocal ? "trusted local" : "capabilities unavailable"}
+        </span>
+      </section>
+      <section className="detail-section">
+        <header>
+          <div>
+            <span className="eyebrow">Declared capability</span>
+            <h3>Engines and security boundary</h3>
+          </div>
+          <span className="revision-label">
+            Inventory revision {inventory?.revision.toString() ?? "unknown"}
+          </span>
+        </header>
+        {!inventory ? (
+          <InlineNotice
+            tone="danger"
+            title="Capability inventory unavailable"
+            detail="This Computer cannot be selected for runtime configuration until it declares current capabilities."
+          />
+        ) : (
+          <div className="capability-facts">
+            <div className="capability-block">
+              <h4>Engines</h4>
+              {inventory.engines.map((engine) => (
+                <div className="capability-row" key={engine.engine}>
+                  <div>
+                    <strong>{engineKindLabel(engine.engine)}</strong>
+                    <small>
+                      version {engine.version} · protocol{" "}
+                      {engine.protocolVersion}
+                      {engine.providerProtocols.length > 0
+                        ? ` · ${engine.providerProtocols.map(providerProtocolLabel).join(", ")}`
+                        : ""}
+                    </small>
+                    <small>
+                      tool calls{" "}
+                      {engine.supportsToolCalls ? "supported" : "not declared"}
+                      {` · cancel ${engine.supportsCancel ? "supported" : "not declared"}`}
+                    </small>
+                  </div>
+                  <span
+                    className={`state-chip ${
+                      engine.health === CapabilityHealth.HEALTHY
+                        ? "active"
+                        : "failed"
+                    }`}
+                  >
+                    {engine.health === CapabilityHealth.HEALTHY
+                      ? "healthy"
+                      : "unavailable"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="capability-block">
+              <h4>Credential delivery</h4>
+              <dl className="fact-grid">
+                <Fact
+                  label="Health"
+                  value={
+                    inventory.credentialDelivery?.health ===
+                    CapabilityHealth.HEALTHY
+                      ? "healthy"
+                      : "unavailable"
+                  }
+                />
+                <Fact
+                  label="Secure store"
+                  value={credentialStoreLabel(
+                    inventory.credentialDelivery?.store ??
+                      CredentialStore.UNSPECIFIED,
+                  )}
+                />
+                <Fact
+                  label="Delivery key ID"
+                  value={inventory.credentialDelivery?.keyId || "not declared"}
+                  mono
+                />
+                <Fact label="Raw secret on Server" value="never available" />
+              </dl>
+            </div>
+            <div className="capability-block">
+              <h4>trusted-local sandbox</h4>
+              {trustedLocal ? (
+                <dl className="fact-grid">
+                  <Fact
+                    label="Host filesystem isolation"
+                    value={
+                      trustedLocal.filesystemIsolation ===
+                      SandboxFilesystemIsolation.NONE
+                        ? "none"
+                        : "not declared"
+                    }
+                  />
+                  <Fact
+                    label="Network isolation"
+                    value={
+                      trustedLocal.networkIsolation ===
+                      SandboxNetworkIsolation.NONE
+                        ? "none"
+                        : "not declared"
+                    }
+                  />
+                  <Fact label="Workspace" value="direct read/write" />
+                  <Fact label="Crash cleanup" value="none" />
+                </dl>
+              ) : (
+                <p className="section-empty">
+                  No trusted-local sandbox capability was declared.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </section>
       <section className="detail-section">
         <header>
@@ -163,7 +292,7 @@ function ComputerDetail({
             <span className="eyebrow">Current facts</span>
             <h3>Agent placements</h3>
           </div>
-          <span className="generation-label">{related.length} total</span>
+          <span className="revision-label">{related.length} total</span>
         </header>
         {related.length === 0 ? (
           <p className="section-empty">
@@ -176,15 +305,20 @@ function ComputerDetail({
               const state = placementStateLabel(placement.state);
               return (
                 <div className="placement-row" key={placement.agentId}>
-                  <span className="agent-monogram">
-                    {agent?.name.slice(0, 1).toUpperCase() ?? "A"}
-                  </span>
+                  <PixelAvatar
+                    seed={agent?.id ?? placement.agentId}
+                    kind="agent"
+                    size="sm"
+                  />
                   <div>
                     <strong>
-                      {agent?.name ?? `Agent ${shortId(placement.agentId)}`}
+                      {agent
+                        ? agentDisplayName(agent)
+                        : `Agent ${shortId(placement.agentId)}`}
                     </strong>
                     <small>
-                      Generation {placement.generation.toString()} · updated{" "}
+                      {engineKindLabel(placement.runtimeSpec?.engine)} · desired
+                      revision {placement.desiredRevision.toString()} · updated{" "}
                       {formatTimestamp(placement.updatedAt)}
                     </small>
                     {placement.errorCode && (
@@ -213,4 +347,18 @@ function ComputerDetail({
       </section>
     </div>
   );
+}
+
+function providerProtocolLabel(protocol: ProviderProtocol) {
+  if (protocol === ProviderProtocol.OPENAI_RESPONSES) return "OpenAI Responses";
+  if (protocol === ProviderProtocol.ANTHROPIC_MESSAGES)
+    return "Anthropic Messages";
+  return "unknown provider";
+}
+
+function credentialStoreLabel(store: CredentialStore) {
+  if (store === CredentialStore.MACOS_KEYCHAIN) return "macOS Keychain";
+  if (store === CredentialStore.LINUX_SECRET_SERVICE)
+    return "Linux Secret Service";
+  return "not declared";
 }

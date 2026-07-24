@@ -2,11 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
 	"github.com/google/uuid"
 )
 
@@ -33,7 +35,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	}
 	peer := Principal{Kind: "human", ID: peerHuman.ID, OrganizationID: owner.OrganizationID}
 
-	deniedCreate := CreateAgentParams{RequestID: uuid.NewString(), Actor: peer, Name: "denied-agent", Driver: "native", Now: now.Add(2 * time.Second)}
+	deniedCreate := testCreateAgentParams(peer, "denied-agent", now.Add(2*time.Second))
 	if _, err := database.CreateAgent(context.Background(), deniedCreate); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("create without grant error = %v", err)
@@ -49,7 +51,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	assertAuthorityAudit(t, database, owner.OrganizationID, AuditAgentCreate, "agent", "", "", "", "denied", "permission_missing")
 
 	createGrant := issueAgentAuthorityGrant(t, database, owner, peer, CapabilityAgentCreate, Scope{Kind: "organization", ID: owner.OrganizationID}, bootstrap.RootGrant.ID, now.Add(3*time.Second))
-	createParams := CreateAgentParams{RequestID: uuid.NewString(), Actor: peer, Name: "delegated-agent", Description: "delegated", Driver: "codex", Now: now.Add(4 * time.Second)}
+	createParams := testCreateAgentParams(peer, "delegated-agent", now.Add(4*time.Second))
 	agent, err := database.CreateAgent(context.Background(), createParams)
 	if err != nil {
 		database.Close()
@@ -57,8 +59,9 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	}
 	assertAuthorityAudit(t, database, owner.OrganizationID, AuditAgentCreate, "agent", agent.ID, "", "", "committed", "")
 	if _, err := database.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: createParams.RequestID, Actor: owner, Name: createParams.Name,
-		Description: createParams.Description, Driver: createParams.Driver, Now: now.Add(5 * time.Second),
+		RequestID: createParams.RequestID, Actor: owner, Handle: createParams.Handle,
+		DisplayName: createParams.DisplayName, Role: createParams.Role, Mission: createParams.Mission,
+		Instructions: createParams.Instructions, Now: now.Add(5 * time.Second),
 	}); !errors.Is(err, ErrAgentRequestConflict) {
 		database.Close()
 		t.Fatalf("cross-actor create replay error = %v", err)
@@ -75,14 +78,9 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	}
 
 	computerKey := "agent-placement-computer-key-abcdefghijklmnopqrstuvwxyz"
-	computer, err := database.RegisterComputer(context.Background(), RegisterComputerParams{
-		RegistrationKey: computerKey, Name: "placement-host",
-		OS: "linux", Arch: "amd64", Now: now.Add(7 * time.Second),
-	})
-	if err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
+	computer := pairTestComputer(t, database, owner, computerKey, testCapabilityInventory("test", true), now.Add(7*time.Second))
+	bindTestRuntimeCredential(t, database, agent.ID, computer.ID, testCredentialHandle(agent.ID, computer.ID), "openai", now.Add(7*time.Second))
+	configureTestRuntimeSpec(t, database, owner, agent.ID, now.Add(7*time.Second))
 	placeParams := SetAgentPlacementParams{
 		RequestID: uuid.NewString(), Actor: owner, AgentID: agent.ID, ComputerID: computer.ID, Now: now.Add(8 * time.Second),
 	}
@@ -92,13 +90,13 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		t.Fatal(err)
 	}
 	assertAuthorityAudit(t, database, owner.OrganizationID, AuditAgentPlace, "agent", agent.ID, "computer", computer.ID, "committed", "")
-	active, err := database.AcknowledgeAgentPlacement(context.Background(), AcknowledgePlacementParams{
+	ready, err := database.AcknowledgeAgentPlacement(context.Background(), AcknowledgePlacementParams{
 		ComputerID: computer.ID, RegistrationKey: computerKey, AgentID: agent.ID,
-		Generation: placed.Generation, State: "active", Now: now.Add(9 * time.Second),
+		DesiredRevision: placed.DesiredRevision, State: "ready", Now: now.Add(9 * time.Second),
 	})
-	if err != nil || active.State != "active" {
+	if err != nil || ready.State != "ready" {
 		database.Close()
-		t.Fatalf("placement acknowledgement = %+v, %v", active, err)
+		t.Fatalf("placement acknowledgement = %+v, %v", ready, err)
 	}
 	replayed, err := database.SetAgentPlacement(context.Background(), placeParams)
 	if err != nil {
@@ -114,13 +112,13 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		t.Fatalf("placement replay audits = %d", got)
 	}
 
-	secondAgent, err := database.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "placement-target", Driver: "claude", Now: now.Add(10 * time.Second),
-	})
+	secondAgent, err := database.CreateAgent(context.Background(), testCreateAgentParams(owner, "placement-target", now.Add(10*time.Second)))
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
+	bindTestRuntimeCredential(t, database, secondAgent.ID, computer.ID, testCredentialHandle(secondAgent.ID, computer.ID), "openai", now.Add(10*time.Second))
+	configureTestRuntimeSpec(t, database, owner, secondAgent.ID, now.Add(10*time.Second))
 	deniedPlace := SetAgentPlacementParams{
 		RequestID: uuid.NewString(), Actor: peer, AgentID: secondAgent.ID, ComputerID: computer.ID, Now: now.Add(11 * time.Second),
 	}
@@ -165,9 +163,7 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 		database.Close()
 		t.Fatal(err)
 	}
-	if _, err := database.CreateAgent(context.Background(), CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: peer, Name: "disabled-create", Driver: "native", Now: now.Add(18 * time.Second),
-	}); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := database.CreateAgent(context.Background(), testCreateAgentParams(peer, "disabled-create", now.Add(18*time.Second))); !errors.Is(err, ErrPermissionDenied) {
 		database.Close()
 		t.Fatalf("disabled actor create error = %v", err)
 	}
@@ -185,6 +181,36 @@ func TestAgentAndPlacementMutationsRequireCurrentGrantAndPreserveReceipts(t *tes
 	if err != nil || restarted != placed {
 		t.Fatalf("placement restart replay = %+v, %v", restarted, err)
 	}
+}
+
+func testCreateAgentParams(actor Principal, handle string, now time.Time) CreateAgentParams {
+	return CreateAgentParams{
+		RequestID: uuid.NewString(), Actor: actor, Handle: handle, DisplayName: handle,
+		Role: "collaborator", Mission: "Complete assigned work", Now: now,
+	}
+}
+
+func configureTestRuntimeSpec(t *testing.T, database *Store, actor Principal, agentID string, now time.Time) AgentRuntimeSpec {
+	t.Helper()
+	bindingHandle := "cred_unbound_" + agentID
+	var completedBinding string
+	if err := database.db.QueryRow(`SELECT handle FROM credential_bindings WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1`, agentID).Scan(&completedBinding); err == nil {
+		bindingHandle = completedBinding
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatal(err)
+	}
+	spec, err := database.UpdateAgentRuntimeSpec(context.Background(), UpdateAgentRuntimeSpecParams{
+		RequestID: uuid.NewString(), Actor: actor, AgentID: agentID,
+		Engine: agentapp.EngineBuiltin, ProviderProtocol: agentapp.ProviderOpenAIResponses,
+		ProviderEndpoint: "https://provider.invalid/v1", Model: "test-model",
+		CredentialBindingHandle: bindingHandle, SandboxProvider: "trusted_local",
+		MaxRunDuration: 2 * time.Minute, MaxOutputBytes: 1 << 20,
+		ToolPolicy: agentapp.ToolPolicy{Message: true, Work: true, Artifact: true, Knowledge: true}, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return spec
 }
 
 func issueAgentAuthorityGrant(t *testing.T, database *Store, owner, subject Principal, capability Capability, scope Scope, parentID string, now time.Time) Grant {

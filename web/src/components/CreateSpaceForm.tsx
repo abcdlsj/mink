@@ -9,6 +9,7 @@ import {
   principalForHuman,
   type DirectorySnapshot,
 } from "../lib/collaboration";
+import { agentDisplayName } from "../lib/format";
 import { IconButton } from "./IconButton";
 
 type Mode = "dm" | "group";
@@ -50,7 +51,7 @@ export function CreateSpaceForm({
         })),
       ...directory.agents.map((agent) => ({
         value: `agent:${agent.id}`,
-        label: agent.name,
+        label: agentDisplayName(agent),
         detail: "Agent",
       })),
     ],

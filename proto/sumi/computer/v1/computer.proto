@@ -3,6 +3,7 @@ syntax = "proto3";
 package sumi.computer.v1;
 
 import "google/protobuf/timestamp.proto";
+import "sumi/agent/v1/agent.proto";
 
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1;computerv1";
 
@@ -12,6 +13,10 @@ service ComputerService {
   rpc HeartbeatComputer(HeartbeatComputerRequest) returns (HeartbeatComputerResponse);
   rpc GetComputer(GetComputerRequest) returns (GetComputerResponse);
   rpc ListComputers(ListComputersRequest) returns (ListComputersResponse);
+  rpc EnqueueCredentialDelivery(EnqueueCredentialDeliveryRequest) returns (EnqueueCredentialDeliveryResponse);
+  rpc ListCredentialDeliveries(ListCredentialDeliveriesRequest) returns (ListCredentialDeliveriesResponse);
+  rpc ClaimCredentialDelivery(ClaimCredentialDeliveryRequest) returns (ClaimCredentialDeliveryResponse);
+  rpc CompleteCredentialDelivery(CompleteCredentialDeliveryRequest) returns (CompleteCredentialDeliveryResponse);
 }
 
 enum OperatingSystem {
@@ -77,6 +82,55 @@ message SandboxCapability {
   SandboxDaemonCrashCleanup daemon_crash_cleanup = 8;
 }
 
+enum CapabilityHealth {
+  CAPABILITY_HEALTH_UNSPECIFIED = 0;
+  CAPABILITY_HEALTH_HEALTHY = 1;
+  CAPABILITY_HEALTH_UNAVAILABLE = 2;
+}
+
+message EngineCapability {
+  sumi.agent.v1.EngineKind engine = 1;
+  string version = 2;
+  uint32 protocol_version = 3;
+  bool supports_tool_calls = 4;
+  bool supports_cancel = 5;
+  repeated sumi.agent.v1.ProviderProtocol provider_protocols = 6;
+  CapabilityHealth health = 7;
+}
+
+enum CredentialDeliveryAlgorithm {
+  CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED = 0;
+  CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 = 1;
+}
+
+enum CredentialStore {
+  CREDENTIAL_STORE_UNSPECIFIED = 0;
+  CREDENTIAL_STORE_MACOS_KEYCHAIN = 1;
+  CREDENTIAL_STORE_LINUX_SECRET_SERVICE = 2;
+}
+
+message CredentialDeliveryCapability {
+  CapabilityHealth health = 1;
+  CredentialDeliveryAlgorithm algorithm = 2;
+  CredentialStore store = 3;
+  string key_id = 4;
+  bytes public_key = 5;
+}
+
+message CapabilityInventoryDeclaration {
+  repeated EngineCapability engines = 1;
+  repeated SandboxCapability sandboxes = 2;
+  CredentialDeliveryCapability credential_delivery = 3;
+}
+
+message CapabilityInventory {
+  uint64 revision = 1;
+  repeated EngineCapability engines = 2;
+  repeated SandboxCapability sandboxes = 3;
+  CredentialDeliveryCapability credential_delivery = 4;
+  google.protobuf.Timestamp declared_at = 5;
+}
+
 message Computer {
   string id = 1;
   string name = 2;
@@ -86,8 +140,7 @@ message Computer {
   google.protobuf.Timestamp last_seen_at = 6;
   bool online = 7;
   google.protobuf.Timestamp connectivity_expires_at = 8;
-  SandboxCapability sandbox_capability = 9;
-  uint64 sandbox_declaration_revision = 10;
+  CapabilityInventory capability_inventory = 9;
 }
 
 message CreateComputerPairingRequest {
@@ -108,7 +161,7 @@ message RegisterComputerRequest {
   Architecture arch = 4;
   string request_id = 5;
   string pairing_token = 6;
-  SandboxCapability sandbox_capability = 7;
+  CapabilityInventoryDeclaration capability_inventory = 7;
 }
 
 message RegisterComputerResponse {
@@ -118,7 +171,7 @@ message RegisterComputerResponse {
 message HeartbeatComputerRequest {
   string computer_id = 1;
   string registration_key = 2;
-  SandboxCapability sandbox_capability = 3;
+  CapabilityInventoryDeclaration capability_inventory = 3;
 }
 
 message HeartbeatComputerResponse {
@@ -137,4 +190,87 @@ message ListComputersRequest {}
 
 message ListComputersResponse {
   repeated Computer computers = 1;
+}
+
+enum CredentialDeliveryState {
+  CREDENTIAL_DELIVERY_STATE_UNSPECIFIED = 0;
+  CREDENTIAL_DELIVERY_STATE_QUEUED = 1;
+  CREDENTIAL_DELIVERY_STATE_CLAIMED = 2;
+  CREDENTIAL_DELIVERY_STATE_SUCCEEDED = 3;
+  CREDENTIAL_DELIVERY_STATE_FAILED = 4;
+  CREDENTIAL_DELIVERY_STATE_EXPIRED = 5;
+}
+
+enum CredentialKind {
+  CREDENTIAL_KIND_UNSPECIFIED = 0;
+  CREDENTIAL_KIND_OPENAI = 1;
+  CREDENTIAL_KIND_ANTHROPIC = 2;
+  CREDENTIAL_KIND_CODEX_ADAPTER = 3;
+  CREDENTIAL_KIND_CLAUDE_ADAPTER = 4;
+}
+
+message SealedCredential {
+  CredentialDeliveryAlgorithm algorithm = 1;
+  string key_id = 2;
+  bytes ephemeral_public_key = 3;
+  bytes nonce = 4;
+  bytes ciphertext = 5;
+}
+
+message CredentialDelivery {
+  string id = 1;
+  string request_id = 2;
+  string computer_id = 3;
+  string agent_id = 4;
+  CredentialKind credential_kind = 5;
+  SealedCredential sealed_credential = 6;
+  CredentialDeliveryState state = 7;
+  string binding_handle = 8;
+  string error_code = 9;
+  google.protobuf.Timestamp expires_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
+
+message EnqueueCredentialDeliveryRequest {
+  string request_id = 1;
+  string computer_id = 2;
+  string agent_id = 3;
+  CredentialKind credential_kind = 4;
+  SealedCredential sealed_credential = 5;
+  google.protobuf.Timestamp expires_at = 6;
+}
+
+message EnqueueCredentialDeliveryResponse {
+  CredentialDelivery delivery = 1;
+}
+
+message ListCredentialDeliveriesRequest {
+  string computer_id = 1;
+  string agent_id = 2;
+}
+
+message ListCredentialDeliveriesResponse {
+  repeated CredentialDelivery deliveries = 1;
+}
+
+message ClaimCredentialDeliveryRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+}
+
+message ClaimCredentialDeliveryResponse {
+  CredentialDelivery delivery = 1;
+}
+
+message CompleteCredentialDeliveryRequest {
+  string computer_id = 1;
+  string registration_key = 2;
+  string delivery_id = 3;
+  string binding_handle = 4;
+  string error_code = 5;
+}
+
+message CompleteCredentialDeliveryResponse {
+  CredentialDelivery delivery = 1;
 }

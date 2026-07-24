@@ -18,18 +18,16 @@ import (
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/computer/enginefactory"
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/configfile"
-	"github.com/abcdlsj/sumi/internal/driver"
 	"github.com/abcdlsj/sumi/internal/endpoint"
 	"github.com/abcdlsj/sumi/internal/home"
 	"github.com/abcdlsj/sumi/internal/lifecycle"
-	"github.com/abcdlsj/sumi/internal/sandbox/trustedlocal"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/abcdlsj/sumi/internal/userdirs"
 	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -256,10 +254,18 @@ func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing
 	if err != nil || !found {
 		t.Fatalf("pairing attempt = %+v, %v, %v", attempt, found, err)
 	}
+	manager, err := credentialManager(context.Background(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := enginefactory.Discover().Inventory(manager)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := public.RegisterComputer(context.Background(), connect.NewRequest(&computerv1.RegisterComputerRequest{
 		RegistrationKey: attempt.RegistrationKey, Name: attempt.Name, Os: osName, Arch: arch,
 		RequestId: attempt.RequestID, PairingToken: attempt.PairingToken,
-		SandboxCapability: mustTrustedLocalSandboxCapability(t),
+		CapabilityInventory: inventory,
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -304,18 +310,11 @@ func TestResetPairingAttemptReplaysConsumedAttemptInsteadOfClearingIt(t *testing
 
 func assertTrustedLocalCapability(t *testing.T, computer *computerv1.Computer) {
 	t.Helper()
-	if !proto.Equal(computer.GetSandboxCapability(), mustTrustedLocalSandboxCapability(t)) {
-		t.Fatalf("computer sandbox capability = %+v", computer.GetSandboxCapability())
+	inventory := computer.GetCapabilityInventory()
+	if inventory == nil || inventory.GetRevision() == 0 || len(inventory.GetSandboxes()) != 1 ||
+		inventory.GetSandboxes()[0].GetFilesystemIsolation() != computerv1.SandboxFilesystemIsolation_SANDBOX_FILESYSTEM_ISOLATION_NONE {
+		t.Fatalf("computer capability inventory = %+v", inventory)
 	}
-}
-
-func mustTrustedLocalSandboxCapability(t *testing.T) *computerv1.SandboxCapability {
-	t.Helper()
-	capability, err := computerhost.TrustedLocalSandboxCapability()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return capability
 }
 
 func TestPlatform(t *testing.T) {
@@ -389,64 +388,5 @@ func TestComputerRunUsesPersistedValidatedEndpointAndLifecycleGate(t *testing.T)
 	err = RunContext(context.Background(), []string{"--data-root", root, "--once"}, bytes.NewReader(nil), io.Discard)
 	if !errors.Is(err, lifecycle.ErrRuntimeActive) {
 		t.Fatalf("Computer run bypassed maintenance = %v", err)
-	}
-}
-
-func TestNewExternalExecutorValidatesConfigurationBeforeDaemonStarts(t *testing.T) {
-	resolve := func(context.Context, string) (driver.Kind, error) {
-		return driver.KindCodex, nil
-	}
-	provider, err := trustedlocal.New(trustedlocal.Config{ScratchRoot: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if executor, err := newExternalExecutor(externalRuntimeConfig{}, provider, resolve); err != nil || executor != nil {
-		t.Fatalf("unconfigured executor = %v, %v", executor, err)
-	}
-	valid := externalRuntimeConfig{
-		enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local",
-		timeout: time.Second, terminationGrace: time.Second, outputLimit: 1024,
-	}
-	invalid := []externalRuntimeConfig{
-		{enabled: true, driver: string(driver.KindCodex)},
-		{enabled: true, driver: string(driver.KindNative), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
-		{enabled: true, driver: string(driver.KindCodex), executable: "relative", hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second, outputLimit: 1},
-		{enabled: true, driver: string(driver.KindCodex), executable: os.Args[0], hostPolicy: "trusted local", timeout: time.Second, terminationGrace: time.Second},
-	}
-	for _, config := range invalid {
-		if executor, err := newExternalExecutor(config, provider, resolve); err == nil || executor != nil {
-			t.Fatalf("invalid executor = %v, %v for %+v", executor, err, config)
-		}
-	}
-	executor, err := newExternalExecutor(valid, provider, resolve)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer executor.Close()
-	eligible, err := executor.Eligible(context.Background(), "agent-1")
-	if err != nil || !eligible {
-		t.Fatalf("eligible = %t, %v", eligible, err)
-	}
-}
-
-func TestDisabledExternalExecutorIsNotInjectedIntoDaemon(t *testing.T) {
-	executor, err := externalExecutor("", t.TempDir(), nil, externalRuntimeConfig{})
-	if err != nil || executor != nil {
-		t.Fatalf("disabled external executor = %v, %v", executor, err)
-	}
-	if config := newDaemonConfig("", t.TempDir(), nil, nil, executor); config.Executor != nil {
-		t.Fatalf("disabled external daemon executor = %#v", config.Executor)
-	}
-}
-
-func TestParseExternalSecretRejectsRawValues(t *testing.T) {
-	secret, err := parseExternalSecret("SUMI_TOKEN=computer.environment:DRIVER_TOKEN")
-	if err != nil || secret.Name != "SUMI_TOKEN" || secret.Ref.Source != trustedlocal.SecretSourceComputerEnvironment || secret.Ref.Key != "DRIVER_TOKEN" {
-		t.Fatalf("secret = %+v, %v", secret, err)
-	}
-	for _, value := range []string{"SUMI_TOKEN=value", "SUMI_TOKEN=other:DRIVER_TOKEN", "SUMI_TOKEN=computer.environment:", "=computer.environment:DRIVER_TOKEN"} {
-		if _, err := parseExternalSecret(value); err == nil {
-			t.Fatalf("invalid secret reference %q was accepted", value)
-		}
 	}
 }

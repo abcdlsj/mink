@@ -9,8 +9,92 @@ import (
 	"testing"
 	"time"
 
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	"github.com/google/uuid"
 )
+
+func TestAgentWorkMutationsRejectStaleRunProofWithoutFacts(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*artifactFixture, *authorityapp.RunProof, time.Time) error
+	}{
+		{
+			name: "create",
+			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := fixture.database.CreateWork(context.Background(), WorkCreateParams{
+					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
+					Agent: fixture.authentication, Run: proof,
+					SourceMessageID: fixture.source.ID, SourceSpaceID: fixture.source.SpaceID,
+					SourceTarget: fixture.source.Target, SourceTargetSequence: fixture.source.TargetSequence,
+					Goal: "stale create", AcceptanceCriteria: []string{"never committed"}, Now: now,
+				})
+				return err
+			},
+		},
+		{
+			name: "assign",
+			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := fixture.database.AssignWork(context.Background(), AssignWorkParams{
+					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
+					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
+					Role: WorkAssignmentContributor, AgentID: fixture.agentID, Now: now,
+				})
+				return err
+			},
+		},
+		{
+			name: "transition",
+			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := fixture.database.TransitionWork(context.Background(), TransitionWorkParams{
+					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
+					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
+					ToState: WorkStateBlocked, Reason: "stale run", Now: now,
+				})
+				return err
+			},
+		},
+		{
+			name: "request approval",
+			mutate: func(fixture *artifactFixture, proof *authorityapp.RunProof, now time.Time) error {
+				_, err := fixture.database.RequestWorkApproval(context.Background(), RequestWorkApprovalParams{
+					RequestID: uuid.NewString(), Actor: fixture.authentication.Principal,
+					Agent: fixture.authentication, Run: proof, WorkID: fixture.work.ID,
+					Question: "approve stale run?", Now: now,
+				})
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := openArtifactFixture(t)
+			fixture.issueAgentWorkGrant(t, CapabilityWorkManage, fixture.at(1))
+			queued := fixture.acceptTrigger(t, "work through a Run", 2)
+			running := fixture.claimRun(t, queued, 4)
+			proof := &authorityapp.RunProof{RunID: running.ID, Attempt: running.Attempt, Fence: running.Fence}
+			if _, err := fixture.database.CancelRun(context.Background(), CancelRunParams{
+				RequestID: uuid.NewString(), Authentication: fixture.authentication,
+				RunID: running.ID, Attempt: running.Attempt, Fence: running.Fence, Now: fixture.at(5),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			before := readWorkReplayFactCounts(t, fixture.database, fixture.work.ID)
+			if err := test.mutate(fixture, proof, fixture.at(6)); !errors.Is(err, ErrRunNotRunning) {
+				t.Fatalf("stale Run proof error = %v", err)
+			}
+			assertWorkReplayFactCountsUnchanged(t, fixture.database, fixture.work.ID, "stale Run proof", before)
+			stored, err := fixture.database.GetWorkDetail(context.Background(), WorkReadParams{
+				Actor: fixture.owner, WorkID: fixture.work.ID, Now: fixture.at(7),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Work.State != WorkStateOpen {
+				t.Fatalf("stale Run proof changed Work state to %q", stored.Work.State)
+			}
+		})
+	}
+}
 
 func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	database, err := Open(filepath.Join(t.TempDir(), "server.db"))
@@ -61,15 +145,14 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if worksAfter != worksBefore || spacesAfter != spacesBefore || receiptsAfter != receiptsBefore {
 		t.Fatalf("denied work create mutated facts: works %d/%d spaces %d/%d receipts %d/%d", worksBefore, worksAfter, spacesBefore, spacesAfter, receiptsBefore, receiptsAfter)
 	}
-	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: owner, Name: "worker", Description: "worker", Driver: "native", Now: now.Add(2 * time.Second)})
+	agent, err := database.CreateAgent(context.Background(), testCreateAgentParams(owner, "worker", now.Add(2*time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	computerID := uuid.NewString()
-	if _, err := database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, zeroblob(32), 'computer', 'linux', 'amd64', ?, ?)`, computerID, unixNano(now), unixNano(now)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
+	configureTestRuntimeSpec(t, database, owner, agent.ID, now.Add(2*time.Second))
+	computer := pairTestComputer(t, database, owner, "work-computer-key", testCapabilityInventory("test", true), now)
+	computerID := computer.ID
+	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
 		t.Fatal(err)
 	}
 	create := WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: source.ID, SourceSpaceID: space.ID, SourceTarget: source.Target, SourceTargetSequence: source.TargetSequence, Goal: "investigate", Constraints: []string{"no destructive changes"}, AcceptanceCriteria: []string{"written result"}, Now: now.Add(3 * time.Second)}
@@ -106,7 +189,7 @@ func TestWorkFactsCreateTreeAssignApprovalTransitionAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assignment.HolderComputerID != computerID || assignment.HolderPlacementGeneration != 1 {
+	if assignment.HolderComputerID != computerID || assignment.HolderPlacementDesiredRevision != 1 {
 		t.Fatalf("assignment = %+v", assignment)
 	}
 	firstAssignment := assignment
@@ -285,15 +368,14 @@ func TestEndWorkAssignmentsIterationErrorRollsBackAssignmentAndEvents(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: owner, Name: "iteration worker", Description: "worker", Driver: "native", Now: now.Add(2 * time.Second)})
+	agent, err := database.CreateAgent(context.Background(), testCreateAgentParams(owner, "iteration-worker", now.Add(2*time.Second)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	computerID := uuid.NewString()
-	if _, err := database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, zeroblob(32), 'computer', 'linux', 'amd64', ?, ?)`, computerID, unixNano(now), unixNano(now)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
+	configureTestRuntimeSpec(t, database, owner, agent.ID, now.Add(2*time.Second))
+	computer := pairTestComputer(t, database, owner, "work-iteration-computer-key", testCapabilityInventory("test", true), now)
+	computerID := computer.ID
+	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
 		t.Fatal(err)
 	}
 	work, err := database.CreateWork(context.Background(), WorkCreateParams{RequestID: uuid.NewString(), Actor: owner, SourceMessageID: source.ID, SourceSpaceID: space.ID, SourceTarget: source.Target, SourceTargetSequence: source.TargetSequence, Goal: "iteration safety", AcceptanceCriteria: []string{"done"}, Now: now.Add(3 * time.Second)})
@@ -444,17 +526,15 @@ func TestWorkMutationReplayIgnoresServerNowAcrossReopen(t *testing.T) {
 		database.Close()
 		t.Fatal(err)
 	}
-	agent, err := database.CreateAgent(context.Background(), CreateAgentParams{RequestID: uuid.NewString(), Actor: owner, Name: "replay agent", Description: "agent", Driver: "native", Now: now.Add(2 * time.Second)})
+	agent, err := database.CreateAgent(context.Background(), testCreateAgentParams(owner, "replay-agent", now.Add(2*time.Second)))
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
-	computerID := uuid.NewString()
-	if _, err := database.db.Exec(`INSERT INTO computers(id, registration_key_hash, name, os, arch, created_at, last_seen_at) VALUES(?, zeroblob(32), 'computer', 'linux', 'amd64', ?, ?)`, computerID, unixNano(now), unixNano(now)); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 'active', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
+	configureTestRuntimeSpec(t, database, owner, agent.ID, now.Add(2*time.Second))
+	computer := pairTestComputer(t, database, owner, "work-replay-computer-key", testCapabilityInventory("test", true), now)
+	computerID := computer.ID
+	if _, err := database.db.Exec(`INSERT INTO agent_placements(agent_id, computer_id, agent_profile_revision, runtime_spec_revision, desired_revision, state, error_code, created_at, updated_at) VALUES(?, ?, 1, 1, 1, 'ready', '', ?, ?)`, agent.ID, computerID, unixNano(now), unixNano(now)); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}

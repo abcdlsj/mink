@@ -35,7 +35,9 @@ describe("useFacts request lifecycle", () => {
     first.resolve(facts("older"));
     await act(async () => firstRefresh);
 
-    expect(hook.result.current.data?.agents[0]?.name).toBe("newest");
+    expect(hook.result.current.data?.agents[0]?.profile?.displayName).toBe(
+      "newest",
+    );
   });
 
   it("ignores a response after facts are disabled", async () => {
@@ -57,7 +59,9 @@ describe("useFacts request lifecycle", () => {
 
 function facts(name: string): FactsSnapshot {
   return {
-    agents: [{ name }] as FactsSnapshot["agents"],
+    agents: [
+      { handle: name, profile: { displayName: name } },
+    ] as FactsSnapshot["agents"],
     computers: [],
     placements: [],
   };

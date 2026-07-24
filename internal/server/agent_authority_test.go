@@ -51,12 +51,12 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		api.close(t)
 		t.Fatalf("public agent read: %v", err)
 	}
-	unauthenticatedCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "unauthenticated-agent", Driver: agentv1.Driver_DRIVER_NATIVE}
+	unauthenticatedCreate := agentRequest("unauthenticated-agent")
 	if _, err := api.rawAgents.CreateAgent(context.Background(), connect.NewRequest(unauthenticatedCreate)); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		api.close(t)
 		t.Fatalf("unauthenticated create error = %v", err)
 	}
-	delegatedCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "delegated-api-agent", Driver: agentv1.Driver_DRIVER_CODEX}
+	delegatedCreate := agentRequest("delegated-api-agent")
 	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(delegatedCreate)); connect.CodeOf(err) != connect.CodePermissionDenied {
 		api.close(t)
 		t.Fatalf("create without grant error = %v", err)
@@ -104,6 +104,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		t.Fatalf("denied placement fact error = %v", err)
 	}
 	placeGrant := issueServerGrant(t, api.app.store, owner, peer, store.CapabilityAgentPlace, store.Scope{Kind: "agent", ID: delegatedAgent.GetId()}, bootstrap.RootGrant.ID, now.Add(4*time.Second))
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.ownerAgents, delegatedAgent.GetId(), computerID, computerKey)
 	_, err = peerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(placementRequest))
 	if err != nil {
 		api.close(t)
@@ -124,12 +125,13 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		t.Fatalf("cross-actor placement replay error = %v", err)
 	}
 
-	restartCreate := &agentv1.CreateAgentRequest{RequestId: uuid.NewString(), Name: "restart-api-agent", Driver: agentv1.Driver_DRIVER_CLAUDE}
+	restartCreate := agentRequest("restart-api-agent")
 	restartAgentResponse, err := api.ownerAgents.CreateAgent(context.Background(), connect.NewRequest(restartCreate))
 	if err != nil {
 		api.close(t)
 		t.Fatal(err)
 	}
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.ownerAgents, restartAgentResponse.Msg.GetAgent().GetId(), computerID, computerKey)
 	restartPlacement := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: restartAgentResponse.Msg.GetAgent().GetId(), ComputerId: computerID}
 	restartPlacementResponse, err := api.ownerPlacements.SetAgentPlacement(context.Background(), connect.NewRequest(restartPlacement))
 	if err != nil {
@@ -145,7 +147,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 	}
 	if _, err := api.rawPlacements.AcknowledgeAgentPlacement(context.Background(), connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId: computerID, RegistrationKey: computerKey, AgentId: restartAgentResponse.Msg.GetAgent().GetId(),
-		Generation: restartPlacementResponse.Msg.GetPlacement().GetGeneration(), Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE,
+		DesiredRevision: restartPlacementResponse.Msg.GetPlacement().GetDesiredRevision(), Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY,
 	})); err != nil {
 		api.close(t)
 		t.Fatalf("computer acknowledgement: %v", err)
@@ -157,9 +159,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		api.close(t)
 		t.Fatal(err)
 	}
-	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(), Name: "disabled-api-agent", Driver: agentv1.Driver_DRIVER_NATIVE,
-	})); connect.CodeOf(err) != connect.CodeUnauthenticated {
+	if _, err := peerAgents.CreateAgent(context.Background(), connect.NewRequest(agentRequest("disabled-api-agent"))); connect.CodeOf(err) != connect.CodeUnauthenticated {
 		api.close(t)
 		t.Fatalf("disabled credential error = %v", err)
 	}
@@ -197,7 +197,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		t.Fatalf("restart placement replay = %+v, %v", replayedPlacement, err)
 	}
 	currentPlacement, err := api.rawPlacements.GetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.GetAgentPlacementRequest{AgentId: restartAgentResponse.Msg.GetAgent().GetId()}))
-	if err != nil || currentPlacement.Msg.GetPlacement().GetState() != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE {
+	if err != nil || currentPlacement.Msg.GetPlacement().GetState() != placementv1.PlacementState_PLACEMENT_STATE_READY {
 		t.Fatalf("current placement after receipt replay = %+v, %v", currentPlacement, err)
 	}
 }

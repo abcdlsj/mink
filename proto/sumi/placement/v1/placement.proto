@@ -3,6 +3,7 @@ syntax = "proto3";
 package sumi.placement.v1;
 
 import "google/protobuf/timestamp.proto";
+import "sumi/agent/v1/agent.proto";
 
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1;placementv1";
 
@@ -18,24 +19,27 @@ service PlacementService {
 enum PlacementState {
   PLACEMENT_STATE_UNSPECIFIED = 0;
   PLACEMENT_STATE_PENDING = 1;
-  PLACEMENT_STATE_ACTIVE = 2;
+  PLACEMENT_STATE_READY = 2;
   PLACEMENT_STATE_FAILED = 3;
 }
 
 enum AcknowledgementResult {
   ACKNOWLEDGEMENT_RESULT_UNSPECIFIED = 0;
-  ACKNOWLEDGEMENT_RESULT_ACTIVE = 1;
+  ACKNOWLEDGEMENT_RESULT_READY = 1;
   ACKNOWLEDGEMENT_RESULT_FAILED = 2;
 }
 
 message AgentPlacement {
   string agent_id = 1;
   string computer_id = 2;
-  uint64 generation = 3;
-  PlacementState state = 4;
-  string error_code = 5;
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
+  uint64 agent_profile_revision = 3;
+  sumi.agent.v1.AgentRuntimeSpec runtime_spec = 4;
+  uint64 desired_revision = 5;
+  PlacementState state = 6;
+  string error_code = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  sumi.agent.v1.AgentProfile agent_profile = 10;
 }
 
 message SetAgentPlacementRequest {
@@ -84,7 +88,7 @@ message AcknowledgeAgentPlacementRequest {
   string computer_id = 1;
   string registration_key = 2;
   string agent_id = 3;
-  uint64 generation = 4;
+  uint64 desired_revision = 4;
   AcknowledgementResult result = 5;
   string error_code = 6;
 }

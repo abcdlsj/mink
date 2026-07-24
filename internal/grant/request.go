@@ -45,6 +45,8 @@ func scopeParams(scope *grantv1.Scope, organizationID string) (authoritydomain.S
 		kind = authoritydomain.ScopeComputer
 	case grantv1.ScopeKind_SCOPE_KIND_SPACE:
 		kind = authoritydomain.ScopeSpace
+	case grantv1.ScopeKind_SCOPE_KIND_WORK:
+		kind = authoritydomain.ScopeWork
 	}
 	if kind == "" {
 		return authoritydomain.Scope{}, connect.NewError(connect.CodeInvalidArgument, errors.New("scope kind is invalid"))
@@ -71,6 +73,8 @@ var capabilityMappings = [...]capabilityMapping{
 	{grantv1.Capability_CAPABILITY_GRANT_REVOKE, authoritydomain.CapabilityGrantRevoke},
 	{grantv1.Capability_CAPABILITY_AUDIT_READ, authoritydomain.CapabilityAuditRead},
 	{grantv1.Capability_CAPABILITY_AGENT_CREATE, authoritydomain.CapabilityAgentCreate},
+	{grantv1.Capability_CAPABILITY_AGENT_PROFILE_UPDATE, authoritydomain.CapabilityAgentProfileUpdate},
+	{grantv1.Capability_CAPABILITY_AGENT_RUNTIME_CONFIGURE, authoritydomain.CapabilityAgentRuntimeConfigure},
 	{grantv1.Capability_CAPABILITY_AGENT_PLACE, authoritydomain.CapabilityAgentPlace},
 	{grantv1.Capability_CAPABILITY_SPACE_CREATE, authoritydomain.CapabilitySpaceCreate},
 	{grantv1.Capability_CAPABILITY_SPACE_READ, authoritydomain.CapabilitySpaceRead},
@@ -79,6 +83,10 @@ var capabilityMappings = [...]capabilityMapping{
 	{grantv1.Capability_CAPABILITY_MESSAGE_SEND, authoritydomain.CapabilityMessageSend},
 	{grantv1.Capability_CAPABILITY_RUN_EXECUTE, authoritydomain.CapabilityRunExecute},
 	{grantv1.Capability_CAPABILITY_COMPUTER_PAIR, authoritydomain.CapabilityComputerPair},
+	{grantv1.Capability_CAPABILITY_WORK_CREATE, authoritydomain.CapabilityWorkCreate},
+	{grantv1.Capability_CAPABILITY_WORK_READ, authoritydomain.CapabilityWorkRead},
+	{grantv1.Capability_CAPABILITY_WORK_MANAGE, authoritydomain.CapabilityWorkManage},
+	{grantv1.Capability_CAPABILITY_WORK_APPROVE, authoritydomain.CapabilityWorkApprove},
 }
 
 func capabilityName(value grantv1.Capability) (authoritydomain.Capability, bool) {

@@ -18,6 +18,7 @@ import (
 
 const (
 	SecretSourceComputerEnvironment = "computer.environment"
+	SecretSourceCredentialBinding   = "credential.binding"
 	defaultGracePeriod              = 250 * time.Millisecond
 	maxSecretBytes                  = 64 * 1024
 )
@@ -39,9 +40,10 @@ var managedEnvironment = [...]managedEnvironmentVariable{
 }
 
 type Config struct {
-	ScratchRoot  string
-	SecretLookup func(string) (string, bool)
-	GracePeriod  time.Duration
+	ScratchRoot      string
+	SecretLookup     func(string) (string, bool)
+	CredentialLookup func(string) (string, bool)
+	GracePeriod      time.Duration
 }
 
 type Provider struct {
@@ -154,16 +156,24 @@ func (p *Provider) Start(ctx context.Context, request sandbox.Request) (sandbox.
 
 func (p *Provider) resolveSecrets(refs []sandbox.SecretEnvironmentVariable) ([]string, error) {
 	values := make([]string, 0, len(refs))
-	lookup := p.config.SecretLookup
-	if lookup == nil {
-		lookup = os.LookupEnv
-	}
 	for _, secret := range refs {
-		if secret.Ref.Source != SecretSourceComputerEnvironment {
+		var value string
+		var found bool
+		switch secret.Ref.Source {
+		case SecretSourceComputerEnvironment:
+			lookup := p.config.SecretLookup
+			if lookup == nil {
+				lookup = os.LookupEnv
+			}
+			value, found = lookup(secret.Ref.Key)
+		case SecretSourceCredentialBinding:
+			if p.config.CredentialLookup != nil {
+				value, found = p.config.CredentialLookup(secret.Ref.Key)
+			}
+		default:
 			clearStrings(values)
 			return nil, errors.New("secret source is unsupported")
 		}
-		value, found := lookup(secret.Ref.Key)
 		if !found || strings.IndexByte(value, 0) >= 0 || len(value) > maxSecretBytes {
 			clearStrings(values)
 			return nil, errors.New("secret reference is unavailable")
@@ -223,13 +233,13 @@ func buildEnvironment(request sandbox.Request, scratch string, secretValues []st
 }
 
 func validateRequest(request sandbox.Request) error {
-	for _, value := range []string{request.AgentID, request.ComputerID, request.DeliveryID, request.RunID, request.LaunchID} {
+	for _, value := range []string{request.AgentID, request.ComputerID, request.RunID} {
 		parsed, err := uuid.Parse(value)
 		if err != nil || parsed.String() != value {
 			return errors.New("sandbox binding is invalid")
 		}
 	}
-	if request.Fence == 0 || request.PlacementGeneration == 0 || len(request.Command) == 0 || !filepath.IsAbs(request.Command[0]) {
+	if request.Attempt == 0 || request.Fence == 0 || request.PlacementDesiredRevision == 0 || len(request.Command) == 0 || !filepath.IsAbs(request.Command[0]) {
 		return errors.New("sandbox request is invalid")
 	}
 	for _, argument := range request.Command {

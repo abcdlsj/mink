@@ -96,6 +96,7 @@ type SendMessageCommand struct {
 	RequestID           string
 	Actor               authoritydomain.Principal
 	Runtime             authorityapp.RuntimeAuthentication
+	Run                 *authorityapp.RunProof
 	Target              MessageTarget
 	Body                string
 	MentionedPrincipals []authoritydomain.Principal

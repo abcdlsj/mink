@@ -12,7 +12,158 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/agent/v1/agent.proto.
  */
 export const file_sumi_agent_v1_agent: GenFile = /*@__PURE__*/
-  fileDesc("ChlzdW1pL2FnZW50L3YxL2FnZW50LnByb3RvEg1zdW1pLmFnZW50LnYxIr0BCgVBZ2VudBIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEiUKBmRyaXZlchgEIAEoDjIVLnN1bWkuYWdlbnQudjEuRHJpdmVyEi4KCmNyZWF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wInIKEkNyZWF0ZUFnZW50UmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEgwKBG5hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSJQoGZHJpdmVyGAQgASgOMhUuc3VtaS5hZ2VudC52MS5Ecml2ZXIiOgoTQ3JlYXRlQWdlbnRSZXNwb25zZRIjCgVhZ2VudBgBIAEoCzIULnN1bWkuYWdlbnQudjEuQWdlbnQiIwoPR2V0QWdlbnRSZXF1ZXN0EhAKCGFnZW50X2lkGAEgASgJIjcKEEdldEFnZW50UmVzcG9uc2USIwoFYWdlbnQYASABKAsyFC5zdW1pLmFnZW50LnYxLkFnZW50IhMKEUxpc3RBZ2VudHNSZXF1ZXN0IjoKEkxpc3RBZ2VudHNSZXNwb25zZRIkCgZhZ2VudHMYASADKAsyFC5zdW1pLmFnZW50LnYxLkFnZW50KlgKBkRyaXZlchIWChJEUklWRVJfVU5TUEVDSUZJRUQQABIRCg1EUklWRVJfTkFUSVZFEAESEAoMRFJJVkVSX0NPREVYEAISEQoNRFJJVkVSX0NMQVVERRADMoQCCgxBZ2VudFNlcnZpY2USVAoLQ3JlYXRlQWdlbnQSIS5zdW1pLmFnZW50LnYxLkNyZWF0ZUFnZW50UmVxdWVzdBoiLnN1bWkuYWdlbnQudjEuQ3JlYXRlQWdlbnRSZXNwb25zZRJLCghHZXRBZ2VudBIeLnN1bWkuYWdlbnQudjEuR2V0QWdlbnRSZXF1ZXN0Gh8uc3VtaS5hZ2VudC52MS5HZXRBZ2VudFJlc3BvbnNlElEKCkxpc3RBZ2VudHMSIC5zdW1pLmFnZW50LnYxLkxpc3RBZ2VudHNSZXF1ZXN0GiEuc3VtaS5hZ2VudC52MS5MaXN0QWdlbnRzUmVzcG9uc2VCNlo0Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvYWdlbnQvdjE7YWdlbnR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("ChlzdW1pL2FnZW50L3YxL2FnZW50LnByb3RvEg1zdW1pLmFnZW50LnYxIlcKEVJ1bnRpbWVUb29sUG9saWN5Eg8KB21lc3NhZ2UYASABKAgSDAoEd29yaxgCIAEoCBIQCghhcnRpZmFjdBgDIAEoCBIRCglrbm93bGVkZ2UYBCABKAgizgMKEEFnZW50UnVudGltZVNwZWMSEAoIYWdlbnRfaWQYASABKAkSEAoIcmV2aXNpb24YAiABKAQSKQoGZW5naW5lGAMgASgOMhkuc3VtaS5hZ2VudC52MS5FbmdpbmVLaW5kEjoKEXByb3ZpZGVyX3Byb3RvY29sGAQgASgOMh8uc3VtaS5hZ2VudC52MS5Qcm92aWRlclByb3RvY29sEhkKEXByb3ZpZGVyX2VuZHBvaW50GAUgASgJEg0KBW1vZGVsGAYgASgJEiEKGWNyZWRlbnRpYWxfYmluZGluZ19oYW5kbGUYByABKAkSPwoQc2FuZGJveF9wcm92aWRlchgIIAEoDjIlLnN1bWkuYWdlbnQudjEuUnVudGltZVNhbmRib3hQcm92aWRlchIgChhtYXhfcnVuX2R1cmF0aW9uX3NlY29uZHMYCSABKA0SGAoQbWF4X291dHB1dF9ieXRlcxgKIAEoBBI1Cgt0b29sX3BvbGljeRgLIAEoCzIgLnN1bWkuYWdlbnQudjEuUnVudGltZVRvb2xQb2xpY3kSLgoKY3JlYXRlZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAirQEKDEFnZW50UHJvZmlsZRIQCghhZ2VudF9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoBBIUCgxkaXNwbGF5X25hbWUYAyABKAkSDAoEcm9sZRgEIAEoCRIPCgdtaXNzaW9uGAUgASgJEhQKDGluc3RydWN0aW9ucxgGIAEoCRIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKxAQoFQWdlbnQSCgoCaWQYASABKAkSDgoGaGFuZGxlGAIgASgJEiwKB3Byb2ZpbGUYAyABKAsyGy5zdW1pLmFnZW50LnYxLkFnZW50UHJvZmlsZRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKDAQoSQ3JlYXRlQWdlbnRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGaGFuZGxlGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIMCgRyb2xlGAQgASgJEg8KB21pc3Npb24YBSABKAkSFAoMaW5zdHJ1Y3Rpb25zGAYgASgJIjoKE0NyZWF0ZUFnZW50UmVzcG9uc2USIwoFYWdlbnQYASABKAsyFC5zdW1pLmFnZW50LnYxLkFnZW50IqcBChlVcGRhdGVBZ2VudFByb2ZpbGVSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEAoIYWdlbnRfaWQYAiABKAkSGQoRZXhwZWN0ZWRfcmV2aXNpb24YAyABKAQSFAoMZGlzcGxheV9uYW1lGAQgASgJEgwKBHJvbGUYBSABKAkSDwoHbWlzc2lvbhgGIAEoCRIUCgxpbnN0cnVjdGlvbnMYByABKAkiQQoaVXBkYXRlQWdlbnRQcm9maWxlUmVzcG9uc2USIwoFYWdlbnQYASABKAsyFC5zdW1pLmFnZW50LnYxLkFnZW50IsgDCh1VcGRhdGVBZ2VudFJ1bnRpbWVTcGVjUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhAKCGFnZW50X2lkGAIgASgJEhkKEWV4cGVjdGVkX3JldmlzaW9uGAMgASgEEikKBmVuZ2luZRgEIAEoDjIZLnN1bWkuYWdlbnQudjEuRW5naW5lS2luZBI6ChFwcm92aWRlcl9wcm90b2NvbBgFIAEoDjIfLnN1bWkuYWdlbnQudjEuUHJvdmlkZXJQcm90b2NvbBIZChFwcm92aWRlcl9lbmRwb2ludBgGIAEoCRINCgVtb2RlbBgHIAEoCRIhChljcmVkZW50aWFsX2JpbmRpbmdfaGFuZGxlGAggASgJEj8KEHNhbmRib3hfcHJvdmlkZXIYCSABKA4yJS5zdW1pLmFnZW50LnYxLlJ1bnRpbWVTYW5kYm94UHJvdmlkZXISIAoYbWF4X3J1bl9kdXJhdGlvbl9zZWNvbmRzGAogASgNEhgKEG1heF9vdXRwdXRfYnl0ZXMYCyABKAQSNQoLdG9vbF9wb2xpY3kYDCABKAsyIC5zdW1pLmFnZW50LnYxLlJ1bnRpbWVUb29sUG9saWN5IlcKHlVwZGF0ZUFnZW50UnVudGltZVNwZWNSZXNwb25zZRI1CgxydW50aW1lX3NwZWMYASABKAsyHy5zdW1pLmFnZW50LnYxLkFnZW50UnVudGltZVNwZWMiLgoaR2V0QWdlbnRSdW50aW1lU3BlY1JlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkiVAobR2V0QWdlbnRSdW50aW1lU3BlY1Jlc3BvbnNlEjUKDHJ1bnRpbWVfc3BlYxgBIAEoCzIfLnN1bWkuYWdlbnQudjEuQWdlbnRSdW50aW1lU3BlYyIjCg9HZXRBZ2VudFJlcXVlc3QSEAoIYWdlbnRfaWQYASABKAkiNwoQR2V0QWdlbnRSZXNwb25zZRIjCgVhZ2VudBgBIAEoCzIULnN1bWkuYWdlbnQudjEuQWdlbnQiEwoRTGlzdEFnZW50c1JlcXVlc3QiOgoSTGlzdEFnZW50c1Jlc3BvbnNlEiQKBmFnZW50cxgBIAMoCzIULnN1bWkuYWdlbnQudjEuQWdlbnQqgQEKCkVuZ2luZUtpbmQSGwoXRU5HSU5FX0tJTkRfVU5TUEVDSUZJRUQQABIXChNFTkdJTkVfS0lORF9CVUlMVElOEAESHQoZRU5HSU5FX0tJTkRfQ09ERVhfQURBUFRFUhACEh4KGkVOR0lORV9LSU5EX0NMQVVERV9BREFQVEVSEAMqhwEKEFByb3ZpZGVyUHJvdG9jb2wSIQodUFJPVklERVJfUFJPVE9DT0xfVU5TUEVDSUZJRUQQABImCiJQUk9WSURFUl9QUk9UT0NPTF9PUEVOQUlfUkVTUE9OU0VTEAESKAokUFJPVklERVJfUFJPVE9DT0xfQU5USFJPUElDX01FU1NBR0VTEAIqbgoWUnVudGltZVNhbmRib3hQcm92aWRlchIoCiRSVU5USU1FX1NBTkRCT1hfUFJPVklERVJfVU5TUEVDSUZJRUQQABIqCiZSVU5USU1FX1NBTkRCT1hfUFJPVklERVJfVFJVU1RFRF9MT0NBTBABMtQECgxBZ2VudFNlcnZpY2USVAoLQ3JlYXRlQWdlbnQSIS5zdW1pLmFnZW50LnYxLkNyZWF0ZUFnZW50UmVxdWVzdBoiLnN1bWkuYWdlbnQudjEuQ3JlYXRlQWdlbnRSZXNwb25zZRJpChJVcGRhdGVBZ2VudFByb2ZpbGUSKC5zdW1pLmFnZW50LnYxLlVwZGF0ZUFnZW50UHJvZmlsZVJlcXVlc3QaKS5zdW1pLmFnZW50LnYxLlVwZGF0ZUFnZW50UHJvZmlsZVJlc3BvbnNlEnUKFlVwZGF0ZUFnZW50UnVudGltZVNwZWMSLC5zdW1pLmFnZW50LnYxLlVwZGF0ZUFnZW50UnVudGltZVNwZWNSZXF1ZXN0Gi0uc3VtaS5hZ2VudC52MS5VcGRhdGVBZ2VudFJ1bnRpbWVTcGVjUmVzcG9uc2USbAoTR2V0QWdlbnRSdW50aW1lU3BlYxIpLnN1bWkuYWdlbnQudjEuR2V0QWdlbnRSdW50aW1lU3BlY1JlcXVlc3QaKi5zdW1pLmFnZW50LnYxLkdldEFnZW50UnVudGltZVNwZWNSZXNwb25zZRJLCghHZXRBZ2VudBIeLnN1bWkuYWdlbnQudjEuR2V0QWdlbnRSZXF1ZXN0Gh8uc3VtaS5hZ2VudC52MS5HZXRBZ2VudFJlc3BvbnNlElEKCkxpc3RBZ2VudHMSIC5zdW1pLmFnZW50LnYxLkxpc3RBZ2VudHNSZXF1ZXN0GiEuc3VtaS5hZ2VudC52MS5MaXN0QWdlbnRzUmVzcG9uc2VCNlo0Z2l0aHViLmNvbS9hYmNkbHNqL3N1bWkvZ2VuL2dvL3N1bWkvYWdlbnQvdjE7YWdlbnR2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+
+/**
+ * @generated from message sumi.agent.v1.RuntimeToolPolicy
+ */
+export type RuntimeToolPolicy = Message<"sumi.agent.v1.RuntimeToolPolicy"> & {
+  /**
+   * @generated from field: bool message = 1;
+   */
+  message: boolean;
+
+  /**
+   * @generated from field: bool work = 2;
+   */
+  work: boolean;
+
+  /**
+   * @generated from field: bool artifact = 3;
+   */
+  artifact: boolean;
+
+  /**
+   * @generated from field: bool knowledge = 4;
+   */
+  knowledge: boolean;
+};
+
+/**
+ * Describes the message sumi.agent.v1.RuntimeToolPolicy.
+ * Use `create(RuntimeToolPolicySchema)` to create a new message.
+ */
+export const RuntimeToolPolicySchema: GenMessage<RuntimeToolPolicy> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 0);
+
+/**
+ * @generated from message sumi.agent.v1.AgentRuntimeSpec
+ */
+export type AgentRuntimeSpec = Message<"sumi.agent.v1.AgentRuntimeSpec"> & {
+  /**
+   * @generated from field: string agent_id = 1;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: uint64 revision = 2;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: sumi.agent.v1.EngineKind engine = 3;
+   */
+  engine: EngineKind;
+
+  /**
+   * @generated from field: sumi.agent.v1.ProviderProtocol provider_protocol = 4;
+   */
+  providerProtocol: ProviderProtocol;
+
+  /**
+   * @generated from field: string provider_endpoint = 5;
+   */
+  providerEndpoint: string;
+
+  /**
+   * @generated from field: string model = 6;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string credential_binding_handle = 7;
+   */
+  credentialBindingHandle: string;
+
+  /**
+   * @generated from field: sumi.agent.v1.RuntimeSandboxProvider sandbox_provider = 8;
+   */
+  sandboxProvider: RuntimeSandboxProvider;
+
+  /**
+   * @generated from field: uint32 max_run_duration_seconds = 9;
+   */
+  maxRunDurationSeconds: number;
+
+  /**
+   * @generated from field: uint64 max_output_bytes = 10;
+   */
+  maxOutputBytes: bigint;
+
+  /**
+   * @generated from field: sumi.agent.v1.RuntimeToolPolicy tool_policy = 11;
+   */
+  toolPolicy?: RuntimeToolPolicy;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 12;
+   */
+  createdAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.agent.v1.AgentRuntimeSpec.
+ * Use `create(AgentRuntimeSpecSchema)` to create a new message.
+ */
+export const AgentRuntimeSpecSchema: GenMessage<AgentRuntimeSpec> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 1);
+
+/**
+ * @generated from message sumi.agent.v1.AgentProfile
+ */
+export type AgentProfile = Message<"sumi.agent.v1.AgentProfile"> & {
+  /**
+   * @generated from field: string agent_id = 1;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: uint64 revision = 2;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string role = 4;
+   */
+  role: string;
+
+  /**
+   * @generated from field: string mission = 5;
+   */
+  mission: string;
+
+  /**
+   * @generated from field: string instructions = 6;
+   */
+  instructions: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 7;
+   */
+  createdAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.agent.v1.AgentProfile.
+ * Use `create(AgentProfileSchema)` to create a new message.
+ */
+export const AgentProfileSchema: GenMessage<AgentProfile> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 2);
 
 /**
  * @generated from message sumi.agent.v1.Agent
@@ -24,27 +175,22 @@ export type Agent = Message<"sumi.agent.v1.Agent"> & {
   id: string;
 
   /**
-   * @generated from field: string name = 2;
+   * @generated from field: string handle = 2;
    */
-  name: string;
+  handle: string;
 
   /**
-   * @generated from field: string description = 3;
+   * @generated from field: sumi.agent.v1.AgentProfile profile = 3;
    */
-  description: string;
+  profile?: AgentProfile;
 
   /**
-   * @generated from field: sumi.agent.v1.Driver driver = 4;
-   */
-  driver: Driver;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp created_at = 5;
+   * @generated from field: google.protobuf.Timestamp created_at = 4;
    */
   createdAt?: Timestamp;
 
   /**
-   * @generated from field: google.protobuf.Timestamp updated_at = 6;
+   * @generated from field: google.protobuf.Timestamp updated_at = 5;
    */
   updatedAt?: Timestamp;
 };
@@ -54,7 +200,7 @@ export type Agent = Message<"sumi.agent.v1.Agent"> & {
  * Use `create(AgentSchema)` to create a new message.
  */
 export const AgentSchema: GenMessage<Agent> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 0);
+  messageDesc(file_sumi_agent_v1_agent, 3);
 
 /**
  * @generated from message sumi.agent.v1.CreateAgentRequest
@@ -66,19 +212,29 @@ export type CreateAgentRequest = Message<"sumi.agent.v1.CreateAgentRequest"> & {
   requestId: string;
 
   /**
-   * @generated from field: string name = 2;
+   * @generated from field: string handle = 2;
    */
-  name: string;
+  handle: string;
 
   /**
-   * @generated from field: string description = 3;
+   * @generated from field: string display_name = 3;
    */
-  description: string;
+  displayName: string;
 
   /**
-   * @generated from field: sumi.agent.v1.Driver driver = 4;
+   * @generated from field: string role = 4;
    */
-  driver: Driver;
+  role: string;
+
+  /**
+   * @generated from field: string mission = 5;
+   */
+  mission: string;
+
+  /**
+   * @generated from field: string instructions = 6;
+   */
+  instructions: string;
 };
 
 /**
@@ -86,7 +242,7 @@ export type CreateAgentRequest = Message<"sumi.agent.v1.CreateAgentRequest"> & {
  * Use `create(CreateAgentRequestSchema)` to create a new message.
  */
 export const CreateAgentRequestSchema: GenMessage<CreateAgentRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 1);
+  messageDesc(file_sumi_agent_v1_agent, 4);
 
 /**
  * @generated from message sumi.agent.v1.CreateAgentResponse
@@ -103,7 +259,194 @@ export type CreateAgentResponse = Message<"sumi.agent.v1.CreateAgentResponse"> &
  * Use `create(CreateAgentResponseSchema)` to create a new message.
  */
 export const CreateAgentResponseSchema: GenMessage<CreateAgentResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 2);
+  messageDesc(file_sumi_agent_v1_agent, 5);
+
+/**
+ * @generated from message sumi.agent.v1.UpdateAgentProfileRequest
+ */
+export type UpdateAgentProfileRequest = Message<"sumi.agent.v1.UpdateAgentProfileRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string agent_id = 2;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: uint64 expected_revision = 3;
+   */
+  expectedRevision: bigint;
+
+  /**
+   * @generated from field: string display_name = 4;
+   */
+  displayName: string;
+
+  /**
+   * @generated from field: string role = 5;
+   */
+  role: string;
+
+  /**
+   * @generated from field: string mission = 6;
+   */
+  mission: string;
+
+  /**
+   * @generated from field: string instructions = 7;
+   */
+  instructions: string;
+};
+
+/**
+ * Describes the message sumi.agent.v1.UpdateAgentProfileRequest.
+ * Use `create(UpdateAgentProfileRequestSchema)` to create a new message.
+ */
+export const UpdateAgentProfileRequestSchema: GenMessage<UpdateAgentProfileRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 6);
+
+/**
+ * @generated from message sumi.agent.v1.UpdateAgentProfileResponse
+ */
+export type UpdateAgentProfileResponse = Message<"sumi.agent.v1.UpdateAgentProfileResponse"> & {
+  /**
+   * @generated from field: sumi.agent.v1.Agent agent = 1;
+   */
+  agent?: Agent;
+};
+
+/**
+ * Describes the message sumi.agent.v1.UpdateAgentProfileResponse.
+ * Use `create(UpdateAgentProfileResponseSchema)` to create a new message.
+ */
+export const UpdateAgentProfileResponseSchema: GenMessage<UpdateAgentProfileResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 7);
+
+/**
+ * @generated from message sumi.agent.v1.UpdateAgentRuntimeSpecRequest
+ */
+export type UpdateAgentRuntimeSpecRequest = Message<"sumi.agent.v1.UpdateAgentRuntimeSpecRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string agent_id = 2;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: uint64 expected_revision = 3;
+   */
+  expectedRevision: bigint;
+
+  /**
+   * @generated from field: sumi.agent.v1.EngineKind engine = 4;
+   */
+  engine: EngineKind;
+
+  /**
+   * @generated from field: sumi.agent.v1.ProviderProtocol provider_protocol = 5;
+   */
+  providerProtocol: ProviderProtocol;
+
+  /**
+   * @generated from field: string provider_endpoint = 6;
+   */
+  providerEndpoint: string;
+
+  /**
+   * @generated from field: string model = 7;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string credential_binding_handle = 8;
+   */
+  credentialBindingHandle: string;
+
+  /**
+   * @generated from field: sumi.agent.v1.RuntimeSandboxProvider sandbox_provider = 9;
+   */
+  sandboxProvider: RuntimeSandboxProvider;
+
+  /**
+   * @generated from field: uint32 max_run_duration_seconds = 10;
+   */
+  maxRunDurationSeconds: number;
+
+  /**
+   * @generated from field: uint64 max_output_bytes = 11;
+   */
+  maxOutputBytes: bigint;
+
+  /**
+   * @generated from field: sumi.agent.v1.RuntimeToolPolicy tool_policy = 12;
+   */
+  toolPolicy?: RuntimeToolPolicy;
+};
+
+/**
+ * Describes the message sumi.agent.v1.UpdateAgentRuntimeSpecRequest.
+ * Use `create(UpdateAgentRuntimeSpecRequestSchema)` to create a new message.
+ */
+export const UpdateAgentRuntimeSpecRequestSchema: GenMessage<UpdateAgentRuntimeSpecRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 8);
+
+/**
+ * @generated from message sumi.agent.v1.UpdateAgentRuntimeSpecResponse
+ */
+export type UpdateAgentRuntimeSpecResponse = Message<"sumi.agent.v1.UpdateAgentRuntimeSpecResponse"> & {
+  /**
+   * @generated from field: sumi.agent.v1.AgentRuntimeSpec runtime_spec = 1;
+   */
+  runtimeSpec?: AgentRuntimeSpec;
+};
+
+/**
+ * Describes the message sumi.agent.v1.UpdateAgentRuntimeSpecResponse.
+ * Use `create(UpdateAgentRuntimeSpecResponseSchema)` to create a new message.
+ */
+export const UpdateAgentRuntimeSpecResponseSchema: GenMessage<UpdateAgentRuntimeSpecResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 9);
+
+/**
+ * @generated from message sumi.agent.v1.GetAgentRuntimeSpecRequest
+ */
+export type GetAgentRuntimeSpecRequest = Message<"sumi.agent.v1.GetAgentRuntimeSpecRequest"> & {
+  /**
+   * @generated from field: string agent_id = 1;
+   */
+  agentId: string;
+};
+
+/**
+ * Describes the message sumi.agent.v1.GetAgentRuntimeSpecRequest.
+ * Use `create(GetAgentRuntimeSpecRequestSchema)` to create a new message.
+ */
+export const GetAgentRuntimeSpecRequestSchema: GenMessage<GetAgentRuntimeSpecRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 10);
+
+/**
+ * @generated from message sumi.agent.v1.GetAgentRuntimeSpecResponse
+ */
+export type GetAgentRuntimeSpecResponse = Message<"sumi.agent.v1.GetAgentRuntimeSpecResponse"> & {
+  /**
+   * @generated from field: sumi.agent.v1.AgentRuntimeSpec runtime_spec = 1;
+   */
+  runtimeSpec?: AgentRuntimeSpec;
+};
+
+/**
+ * Describes the message sumi.agent.v1.GetAgentRuntimeSpecResponse.
+ * Use `create(GetAgentRuntimeSpecResponseSchema)` to create a new message.
+ */
+export const GetAgentRuntimeSpecResponseSchema: GenMessage<GetAgentRuntimeSpecResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_agent_v1_agent, 11);
 
 /**
  * @generated from message sumi.agent.v1.GetAgentRequest
@@ -120,7 +463,7 @@ export type GetAgentRequest = Message<"sumi.agent.v1.GetAgentRequest"> & {
  * Use `create(GetAgentRequestSchema)` to create a new message.
  */
 export const GetAgentRequestSchema: GenMessage<GetAgentRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 3);
+  messageDesc(file_sumi_agent_v1_agent, 12);
 
 /**
  * @generated from message sumi.agent.v1.GetAgentResponse
@@ -137,7 +480,7 @@ export type GetAgentResponse = Message<"sumi.agent.v1.GetAgentResponse"> & {
  * Use `create(GetAgentResponseSchema)` to create a new message.
  */
 export const GetAgentResponseSchema: GenMessage<GetAgentResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 4);
+  messageDesc(file_sumi_agent_v1_agent, 13);
 
 /**
  * @generated from message sumi.agent.v1.ListAgentsRequest
@@ -150,7 +493,7 @@ export type ListAgentsRequest = Message<"sumi.agent.v1.ListAgentsRequest"> & {
  * Use `create(ListAgentsRequestSchema)` to create a new message.
  */
 export const ListAgentsRequestSchema: GenMessage<ListAgentsRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 5);
+  messageDesc(file_sumi_agent_v1_agent, 14);
 
 /**
  * @generated from message sumi.agent.v1.ListAgentsResponse
@@ -167,38 +510,85 @@ export type ListAgentsResponse = Message<"sumi.agent.v1.ListAgentsResponse"> & {
  * Use `create(ListAgentsResponseSchema)` to create a new message.
  */
 export const ListAgentsResponseSchema: GenMessage<ListAgentsResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_agent_v1_agent, 6);
+  messageDesc(file_sumi_agent_v1_agent, 15);
 
 /**
- * @generated from enum sumi.agent.v1.Driver
+ * @generated from enum sumi.agent.v1.EngineKind
  */
-export enum Driver {
+export enum EngineKind {
   /**
-   * @generated from enum value: DRIVER_UNSPECIFIED = 0;
+   * @generated from enum value: ENGINE_KIND_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: DRIVER_NATIVE = 1;
+   * @generated from enum value: ENGINE_KIND_BUILTIN = 1;
    */
-  NATIVE = 1,
+  BUILTIN = 1,
 
   /**
-   * @generated from enum value: DRIVER_CODEX = 2;
+   * @generated from enum value: ENGINE_KIND_CODEX_ADAPTER = 2;
    */
-  CODEX = 2,
+  CODEX_ADAPTER = 2,
 
   /**
-   * @generated from enum value: DRIVER_CLAUDE = 3;
+   * @generated from enum value: ENGINE_KIND_CLAUDE_ADAPTER = 3;
    */
-  CLAUDE = 3,
+  CLAUDE_ADAPTER = 3,
 }
 
 /**
- * Describes the enum sumi.agent.v1.Driver.
+ * Describes the enum sumi.agent.v1.EngineKind.
  */
-export const DriverSchema: GenEnum<Driver> = /*@__PURE__*/
+export const EngineKindSchema: GenEnum<EngineKind> = /*@__PURE__*/
   enumDesc(file_sumi_agent_v1_agent, 0);
+
+/**
+ * @generated from enum sumi.agent.v1.ProviderProtocol
+ */
+export enum ProviderProtocol {
+  /**
+   * @generated from enum value: PROVIDER_PROTOCOL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: PROVIDER_PROTOCOL_OPENAI_RESPONSES = 1;
+   */
+  OPENAI_RESPONSES = 1,
+
+  /**
+   * @generated from enum value: PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES = 2;
+   */
+  ANTHROPIC_MESSAGES = 2,
+}
+
+/**
+ * Describes the enum sumi.agent.v1.ProviderProtocol.
+ */
+export const ProviderProtocolSchema: GenEnum<ProviderProtocol> = /*@__PURE__*/
+  enumDesc(file_sumi_agent_v1_agent, 1);
+
+/**
+ * @generated from enum sumi.agent.v1.RuntimeSandboxProvider
+ */
+export enum RuntimeSandboxProvider {
+  /**
+   * @generated from enum value: RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL = 1;
+   */
+  TRUSTED_LOCAL = 1,
+}
+
+/**
+ * Describes the enum sumi.agent.v1.RuntimeSandboxProvider.
+ */
+export const RuntimeSandboxProviderSchema: GenEnum<RuntimeSandboxProvider> = /*@__PURE__*/
+  enumDesc(file_sumi_agent_v1_agent, 2);
 
 /**
  * @generated from service sumi.agent.v1.AgentService
@@ -211,6 +601,30 @@ export const AgentService: GenService<{
     methodKind: "unary";
     input: typeof CreateAgentRequestSchema;
     output: typeof CreateAgentResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.agent.v1.AgentService.UpdateAgentProfile
+   */
+  updateAgentProfile: {
+    methodKind: "unary";
+    input: typeof UpdateAgentProfileRequestSchema;
+    output: typeof UpdateAgentProfileResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.agent.v1.AgentService.UpdateAgentRuntimeSpec
+   */
+  updateAgentRuntimeSpec: {
+    methodKind: "unary";
+    input: typeof UpdateAgentRuntimeSpecRequestSchema;
+    output: typeof UpdateAgentRuntimeSpecResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.agent.v1.AgentService.GetAgentRuntimeSpec
+   */
+  getAgentRuntimeSpec: {
+    methodKind: "unary";
+    input: typeof GetAgentRuntimeSpecRequestSchema;
+    output: typeof GetAgentRuntimeSpecResponseSchema;
   },
   /**
    * @generated from rpc sumi.agent.v1.AgentService.GetAgent

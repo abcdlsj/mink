@@ -19,10 +19,6 @@ import (
 	"github.com/abcdlsj/sumi/internal/userdirs"
 )
 
-var finalizeCredentialMigration = func(migration *authority.CredentialMigration) error {
-	return migration.Finalize()
-}
-
 func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 && args[0] == "auth" {
 		return RunAuth(ctx, args[1:], stdout, stderr)
@@ -33,7 +29,6 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) er
 func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer) error {
 	logger := observability.New(observability.ComponentServer, stderr)
 	lifecycleLogger := observability.CategoryLogger(logger, observability.ComponentServer, observability.CategoryLifecycle)
-	authorityLogger := observability.CategoryLogger(logger, observability.ComponentServer, observability.CategoryAuthority)
 	defaultRoot, err := home.DefaultRoot()
 	if err != nil {
 		return err
@@ -76,15 +71,8 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 		}
 	})
 	credentialPath := *ownerKeyFile
-	var migration *authority.CredentialMigration
 	if !explicitOwnerKey {
-		migration, err = authority.PrepareCredentialMigration(layout.BootstrapCredential, userLayout.HumanCredential)
-		if err != nil {
-			return err
-		}
-		defer migration.Close()
-		credentialPath = migration.CredentialPath
-		authorityLogger.Info("owner credential migration prepared", "event", "authority.credential_migration.prepared")
+		credentialPath = userLayout.HumanCredential
 	}
 	lifecycleLogger.Info("server starting", "event", "server.starting", "listen", *listen, "browser_enabled", resolvedOrigin != "", "web_enabled", *webRoot != "")
 	app, err := server.New(ctx, server.Config{
@@ -92,13 +80,6 @@ func RunServer(ctx context.Context, args []string, _ io.Writer, stderr io.Writer
 	})
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
-	}
-	if migration != nil {
-		if err := finalizeCredentialMigration(migration); err != nil {
-			_ = app.Close()
-			return err
-		}
-		authorityLogger.Info("owner credential migration committed", "event", "authority.credential_migration.committed")
 	}
 	defer func() {
 		if err := app.Close(); err != nil {

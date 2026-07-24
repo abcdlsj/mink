@@ -188,7 +188,7 @@ func TestKnowledgeSearchFailsClosedOnDerivedCorruption(t *testing.T) {
 }
 
 func TestKnowledgeSearchRechecksCurrentRuntimeAndSpaceAccess(t *testing.T) {
-	fixture := openDeliveryFixture(t)
+	fixture := openRunFixture(t)
 	message, err := fixture.database.SendMessage(context.Background(), SendMessageParams{
 		RequestID: uuid.NewString(), Actor: fixture.owner, Target: MessageTarget{Kind: MessageTargetSpace, ID: fixture.group.ID}, Body: "runtime searchable", Now: fixture.at(1),
 	})
@@ -212,7 +212,7 @@ func TestKnowledgeSearchRechecksCurrentRuntimeAndSpaceAccess(t *testing.T) {
 		t.Fatalf("removed member search = %+v, %v", output, err)
 	}
 	stale := fixture.authentication
-	rotated := rotateDeliveryRuntime(t, fixture, 91, fixture.at(6))
+	rotated := rotateRunRuntime(t, fixture, 91, fixture.at(6))
 	if _, err := fixture.database.SearchKnowledge(context.Background(), KnowledgeSearchParams{Agent: stale, Query: "runtime", Now: fixture.at(8)}); !errors.Is(err, ErrKnowledgeSearchUnauthenticated) {
 		t.Fatalf("stale runtime error = %v", err)
 	}

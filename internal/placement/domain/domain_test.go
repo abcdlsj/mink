@@ -15,10 +15,10 @@ func TestNewAcknowledgement(t *testing.T) {
 		want      Acknowledgement
 		wantErr   error
 	}{
-		{"active", StateActive, "", Acknowledgement{State: StateActive}, nil},
+		{"ready", StateReady, "", Acknowledgement{State: StateReady}, nil},
 		{"failed", StateFailed, placementfailure.WorkspaceInvalid, Acknowledgement{State: StateFailed, ErrorCode: placementfailure.WorkspaceInvalid}, nil},
 		{"pending", StatePending, "", Acknowledgement{}, ErrAcknowledgementStateInvalid},
-		{"active with error", StateActive, placementfailure.WorkspaceInvalid, Acknowledgement{}, ErrActiveWithErrorCode},
+		{"ready with error", StateReady, placementfailure.WorkspaceInvalid, Acknowledgement{}, ErrReadyWithErrorCode},
 		{"failed without error", StateFailed, "", Acknowledgement{}, ErrFailureCodeInvalid},
 		{"failed with unknown error", StateFailed, "unknown", Acknowledgement{}, ErrFailureCodeInvalid},
 	}

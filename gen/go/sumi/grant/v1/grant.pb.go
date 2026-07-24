@@ -77,21 +77,27 @@ func (PrincipalKind) EnumDescriptor() ([]byte, []int) {
 type Capability int32
 
 const (
-	Capability_CAPABILITY_UNSPECIFIED          Capability = 0
-	Capability_CAPABILITY_ORGANIZATION_ADMIN   Capability = 1
-	Capability_CAPABILITY_HUMAN_CREATE         Capability = 2
-	Capability_CAPABILITY_GRANT_ISSUE          Capability = 3
-	Capability_CAPABILITY_GRANT_REVOKE         Capability = 4
-	Capability_CAPABILITY_AUDIT_READ           Capability = 5
-	Capability_CAPABILITY_AGENT_CREATE         Capability = 6
-	Capability_CAPABILITY_AGENT_PLACE          Capability = 7
-	Capability_CAPABILITY_SPACE_CREATE         Capability = 8
-	Capability_CAPABILITY_SPACE_READ           Capability = 9
-	Capability_CAPABILITY_SPACE_MEMBERS_MANAGE Capability = 10
-	Capability_CAPABILITY_SPACE_ARCHIVE        Capability = 11
-	Capability_CAPABILITY_MESSAGE_SEND         Capability = 12
-	Capability_CAPABILITY_RUN_EXECUTE          Capability = 13
-	Capability_CAPABILITY_COMPUTER_PAIR        Capability = 14
+	Capability_CAPABILITY_UNSPECIFIED             Capability = 0
+	Capability_CAPABILITY_ORGANIZATION_ADMIN      Capability = 1
+	Capability_CAPABILITY_HUMAN_CREATE            Capability = 2
+	Capability_CAPABILITY_GRANT_ISSUE             Capability = 3
+	Capability_CAPABILITY_GRANT_REVOKE            Capability = 4
+	Capability_CAPABILITY_AUDIT_READ              Capability = 5
+	Capability_CAPABILITY_AGENT_CREATE            Capability = 6
+	Capability_CAPABILITY_AGENT_PLACE             Capability = 7
+	Capability_CAPABILITY_SPACE_CREATE            Capability = 8
+	Capability_CAPABILITY_SPACE_READ              Capability = 9
+	Capability_CAPABILITY_SPACE_MEMBERS_MANAGE    Capability = 10
+	Capability_CAPABILITY_SPACE_ARCHIVE           Capability = 11
+	Capability_CAPABILITY_MESSAGE_SEND            Capability = 12
+	Capability_CAPABILITY_RUN_EXECUTE             Capability = 13
+	Capability_CAPABILITY_COMPUTER_PAIR           Capability = 14
+	Capability_CAPABILITY_AGENT_PROFILE_UPDATE    Capability = 15
+	Capability_CAPABILITY_AGENT_RUNTIME_CONFIGURE Capability = 16
+	Capability_CAPABILITY_WORK_CREATE             Capability = 17
+	Capability_CAPABILITY_WORK_READ               Capability = 18
+	Capability_CAPABILITY_WORK_MANAGE             Capability = 19
+	Capability_CAPABILITY_WORK_APPROVE            Capability = 20
 )
 
 // Enum value maps for Capability.
@@ -112,23 +118,35 @@ var (
 		12: "CAPABILITY_MESSAGE_SEND",
 		13: "CAPABILITY_RUN_EXECUTE",
 		14: "CAPABILITY_COMPUTER_PAIR",
+		15: "CAPABILITY_AGENT_PROFILE_UPDATE",
+		16: "CAPABILITY_AGENT_RUNTIME_CONFIGURE",
+		17: "CAPABILITY_WORK_CREATE",
+		18: "CAPABILITY_WORK_READ",
+		19: "CAPABILITY_WORK_MANAGE",
+		20: "CAPABILITY_WORK_APPROVE",
 	}
 	Capability_value = map[string]int32{
-		"CAPABILITY_UNSPECIFIED":          0,
-		"CAPABILITY_ORGANIZATION_ADMIN":   1,
-		"CAPABILITY_HUMAN_CREATE":         2,
-		"CAPABILITY_GRANT_ISSUE":          3,
-		"CAPABILITY_GRANT_REVOKE":         4,
-		"CAPABILITY_AUDIT_READ":           5,
-		"CAPABILITY_AGENT_CREATE":         6,
-		"CAPABILITY_AGENT_PLACE":          7,
-		"CAPABILITY_SPACE_CREATE":         8,
-		"CAPABILITY_SPACE_READ":           9,
-		"CAPABILITY_SPACE_MEMBERS_MANAGE": 10,
-		"CAPABILITY_SPACE_ARCHIVE":        11,
-		"CAPABILITY_MESSAGE_SEND":         12,
-		"CAPABILITY_RUN_EXECUTE":          13,
-		"CAPABILITY_COMPUTER_PAIR":        14,
+		"CAPABILITY_UNSPECIFIED":             0,
+		"CAPABILITY_ORGANIZATION_ADMIN":      1,
+		"CAPABILITY_HUMAN_CREATE":            2,
+		"CAPABILITY_GRANT_ISSUE":             3,
+		"CAPABILITY_GRANT_REVOKE":            4,
+		"CAPABILITY_AUDIT_READ":              5,
+		"CAPABILITY_AGENT_CREATE":            6,
+		"CAPABILITY_AGENT_PLACE":             7,
+		"CAPABILITY_SPACE_CREATE":            8,
+		"CAPABILITY_SPACE_READ":              9,
+		"CAPABILITY_SPACE_MEMBERS_MANAGE":    10,
+		"CAPABILITY_SPACE_ARCHIVE":           11,
+		"CAPABILITY_MESSAGE_SEND":            12,
+		"CAPABILITY_RUN_EXECUTE":             13,
+		"CAPABILITY_COMPUTER_PAIR":           14,
+		"CAPABILITY_AGENT_PROFILE_UPDATE":    15,
+		"CAPABILITY_AGENT_RUNTIME_CONFIGURE": 16,
+		"CAPABILITY_WORK_CREATE":             17,
+		"CAPABILITY_WORK_READ":               18,
+		"CAPABILITY_WORK_MANAGE":             19,
+		"CAPABILITY_WORK_APPROVE":            20,
 	}
 )
 
@@ -167,6 +185,7 @@ const (
 	ScopeKind_SCOPE_KIND_AGENT        ScopeKind = 2
 	ScopeKind_SCOPE_KIND_COMPUTER     ScopeKind = 3
 	ScopeKind_SCOPE_KIND_SPACE        ScopeKind = 4
+	ScopeKind_SCOPE_KIND_WORK         ScopeKind = 5
 )
 
 // Enum value maps for ScopeKind.
@@ -177,6 +196,7 @@ var (
 		2: "SCOPE_KIND_AGENT",
 		3: "SCOPE_KIND_COMPUTER",
 		4: "SCOPE_KIND_SPACE",
+		5: "SCOPE_KIND_WORK",
 	}
 	ScopeKind_value = map[string]int32{
 		"SCOPE_KIND_UNSPECIFIED":  0,
@@ -184,6 +204,7 @@ var (
 		"SCOPE_KIND_AGENT":        2,
 		"SCOPE_KIND_COMPUTER":     3,
 		"SCOPE_KIND_SPACE":        4,
+		"SCOPE_KIND_WORK":         5,
 	}
 )
 
@@ -1006,7 +1027,7 @@ const file_sumi_grant_v1_grant_proto_rawDesc = "" +
 	"\x1aPRINCIPAL_KIND_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15PRINCIPAL_KIND_SYSTEM\x10\x01\x12\x18\n" +
 	"\x14PRINCIPAL_KIND_HUMAN\x10\x02\x12\x18\n" +
-	"\x14PRINCIPAL_KIND_AGENT\x10\x03*\xc7\x03\n" +
+	"\x14PRINCIPAL_KIND_AGENT\x10\x03*\x83\x05\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12!\n" +
@@ -1024,13 +1045,20 @@ const file_sumi_grant_v1_grant_proto_rawDesc = "" +
 	"\x18CAPABILITY_SPACE_ARCHIVE\x10\v\x12\x1b\n" +
 	"\x17CAPABILITY_MESSAGE_SEND\x10\f\x12\x1a\n" +
 	"\x16CAPABILITY_RUN_EXECUTE\x10\r\x12\x1c\n" +
-	"\x18CAPABILITY_COMPUTER_PAIR\x10\x0e*\x89\x01\n" +
+	"\x18CAPABILITY_COMPUTER_PAIR\x10\x0e\x12#\n" +
+	"\x1fCAPABILITY_AGENT_PROFILE_UPDATE\x10\x0f\x12&\n" +
+	"\"CAPABILITY_AGENT_RUNTIME_CONFIGURE\x10\x10\x12\x1a\n" +
+	"\x16CAPABILITY_WORK_CREATE\x10\x11\x12\x18\n" +
+	"\x14CAPABILITY_WORK_READ\x10\x12\x12\x1a\n" +
+	"\x16CAPABILITY_WORK_MANAGE\x10\x13\x12\x1b\n" +
+	"\x17CAPABILITY_WORK_APPROVE\x10\x14*\x9e\x01\n" +
 	"\tScopeKind\x12\x1a\n" +
 	"\x16SCOPE_KIND_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17SCOPE_KIND_ORGANIZATION\x10\x01\x12\x14\n" +
 	"\x10SCOPE_KIND_AGENT\x10\x02\x12\x17\n" +
 	"\x13SCOPE_KIND_COMPUTER\x10\x03\x12\x14\n" +
-	"\x10SCOPE_KIND_SPACE\x10\x042\xb9\x03\n" +
+	"\x10SCOPE_KIND_SPACE\x10\x04\x12\x13\n" +
+	"\x0fSCOPE_KIND_WORK\x10\x052\xb9\x03\n" +
 	"\fGrantService\x12Q\n" +
 	"\n" +
 	"IssueGrant\x12 .sumi.grant.v1.IssueGrantRequest\x1a!.sumi.grant.v1.IssueGrantResponse\x12T\n" +

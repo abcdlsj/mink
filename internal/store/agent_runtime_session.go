@@ -32,7 +32,7 @@ type RenewAgentRuntimeSessionParams = authorityapp.RenewRuntimeSessionCommand
 type RevokeAgentRuntimeSessionParams = authorityapp.RevokeRuntimeSessionCommand
 
 func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
-	if !validAgentRuntimeSession(params.AgentID, params.ComputerID, params.PlacementGeneration, params.Token, params.Now, params.ExpiresAt) {
+	if !validAgentRuntimeSession(params.AgentID, params.ComputerID, params.PlacementDesiredRevision, params.Token, params.Now, params.ExpiresAt) {
 		return AgentRuntimeSession{}, ErrAgentRuntimeInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -44,7 +44,7 @@ func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgen
 	if err := authenticateComputer(ctx, tx, params.ComputerID, params.RegistrationKey); err != nil {
 		return AgentRuntimeSession{}, err
 	}
-	bound, err := activeRuntimeBinding(ctx, tx, params.AgentID, params.ComputerID, params.PlacementGeneration)
+	bound, err := readyRuntimeBinding(ctx, tx, params.AgentID, params.ComputerID, params.PlacementDesiredRevision)
 	if err != nil {
 		return AgentRuntimeSession{}, err
 	}
@@ -60,8 +60,8 @@ func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgen
 	}
 	session := AgentRuntimeSession{
 		AgentID: params.AgentID, ComputerID: params.ComputerID,
-		PlacementGeneration: params.PlacementGeneration,
-		CreatedAt:           params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
+		PlacementDesiredRevision: params.PlacementDesiredRevision,
+		CreatedAt:                params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
 	}
 	if err := insertAgentRuntimeSession(ctx, tx, session, params.Token); err != nil {
 		return AgentRuntimeSession{}, err
@@ -116,8 +116,8 @@ func (s *Store) RenewAgentRuntimeSession(ctx context.Context, params RenewAgentR
 	}
 	session := AgentRuntimeSession{
 		AgentID: authentication.Proof.AgentID(), ComputerID: authentication.Proof.ComputerID(),
-		PlacementGeneration: authentication.Proof.PlacementGeneration(),
-		CreatedAt:           params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
+		PlacementDesiredRevision: authentication.Proof.PlacementDesiredRevision(),
+		CreatedAt:                params.Now.UTC(), ExpiresAt: params.ExpiresAt.UTC(),
 	}
 	if err := insertAgentRuntimeSession(ctx, tx, session, params.Token); err != nil {
 		return AgentRuntimeSession{}, err
@@ -184,27 +184,27 @@ func agentRuntimeAuthentication(ctx context.Context, queryer interface {
 	var principal Principal
 	var storedHash []byte
 	var computerID string
-	var placementGeneration uint64
+	var placementDesiredRevision uint64
 	err := queryer.QueryRowContext(ctx, `
 		SELECT 'agent', sessions.agent_id, organizations.id,
-		       sessions.token_hash, sessions.computer_id, sessions.placement_generation
+		       sessions.token_hash, sessions.computer_id, sessions.placement_desired_revision
 		FROM agent_runtime_sessions AS sessions
 		JOIN agent_placements AS placements
 		  ON placements.agent_id = sessions.agent_id
 		 AND placements.computer_id = sessions.computer_id
-		 AND placements.generation = sessions.placement_generation
+		 AND placements.desired_revision = sessions.placement_desired_revision
 		JOIN organizations ON organizations.singleton = 1
 		WHERE sessions.token_hash = ?
 		  AND sessions.revoked_at IS NULL
 		  AND sessions.expires_at > ?
-		  AND placements.state = 'active'
+		  AND placements.state = 'ready'
 	`, hash[:], unixNano(now)).Scan(
 		&principal.Kind,
 		&principal.ID,
 		&principal.OrganizationID,
 		&storedHash,
 		&computerID,
-		&placementGeneration,
+		&placementDesiredRevision,
 	)
 	if err != nil {
 		return AgentRuntimeAuthentication{}, err
@@ -216,19 +216,19 @@ func agentRuntimeAuthentication(ctx context.Context, queryer interface {
 	copy(tokenHash[:], storedHash)
 	return AgentRuntimeAuthentication{
 		Principal: principal,
-		Proof:     authorityapp.NewRuntimeProof(tokenHash, principal.ID, computerID, placementGeneration),
+		Proof:     authorityapp.NewRuntimeProof(tokenHash, principal.ID, computerID, placementDesiredRevision),
 	}, nil
 }
 
-func activeRuntimeBinding(ctx context.Context, tx *sql.Tx, agentID, computerID string, generation uint64) (bool, error) {
+func readyRuntimeBinding(ctx context.Context, tx *sql.Tx, agentID, computerID string, desiredRevision uint64) (bool, error) {
 	var bound bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM agent_placements
-			WHERE agent_id = ? AND computer_id = ? AND generation = ? AND state = 'active'
+			WHERE agent_id = ? AND computer_id = ? AND desired_revision = ? AND state = 'ready'
 		)
-	`, agentID, computerID, generation).Scan(&bound); err != nil {
-		return false, fmt.Errorf("check active agent runtime binding: %w", err)
+	`, agentID, computerID, desiredRevision).Scan(&bound); err != nil {
+		return false, fmt.Errorf("check ready agent runtime binding: %w", err)
 	}
 	return bound, nil
 }
@@ -237,10 +237,10 @@ func insertAgentRuntimeSession(ctx context.Context, tx *sql.Tx, session AgentRun
 	hash := agentRuntimeTokenHash(token)
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO agent_runtime_sessions(
-			token_hash, agent_id, computer_id, placement_generation, created_at, expires_at
+			token_hash, agent_id, computer_id, placement_desired_revision, created_at, expires_at
 		)
 		VALUES(?, ?, ?, ?, ?, ?)
-	`, hash[:], session.AgentID, session.ComputerID, session.PlacementGeneration,
+	`, hash[:], session.AgentID, session.ComputerID, session.PlacementDesiredRevision,
 		unixNano(session.CreatedAt), unixNano(session.ExpiresAt)); err != nil {
 		return fmt.Errorf("persist agent runtime session: %w", err)
 	}
@@ -255,18 +255,18 @@ func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntime
 		WHERE token_hash = ?
 		  AND agent_id = ?
 		  AND computer_id = ?
-		  AND placement_generation = ?
+		  AND placement_desired_revision = ?
 		  AND revoked_at IS NULL
 		  AND expires_at > ?
 		  AND EXISTS(
 			SELECT 1 FROM agent_placements
 			WHERE agent_id = agent_runtime_sessions.agent_id
 			  AND computer_id = agent_runtime_sessions.computer_id
-			  AND generation = agent_runtime_sessions.placement_generation
-			  AND state = 'active'
+			  AND desired_revision = agent_runtime_sessions.placement_desired_revision
+			  AND state = 'ready'
 		  )
 	`, unixNano(now), tokenHash[:], proof.AgentID(), proof.ComputerID(),
-		proof.PlacementGeneration(), unixNano(now))
+		proof.PlacementDesiredRevision(), unixNano(now))
 	if err != nil {
 		return false, fmt.Errorf("revoke agent runtime session: %w", err)
 	}
@@ -277,9 +277,9 @@ func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntime
 	return count == 1, nil
 }
 
-func validAgentRuntimeSession(agentID, computerID string, generation uint64, token string, now, expiresAt time.Time) bool {
+func validAgentRuntimeSession(agentID, computerID string, desiredRevision uint64, token string, now, expiresAt time.Time) bool {
 	lifetime := expiresAt.Sub(now)
-	return agentID != "" && computerID != "" && generation > 0 &&
+	return agentID != "" && computerID != "" && desiredRevision > 0 &&
 		agentRuntimeTokenPattern.MatchString(token) && !now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 

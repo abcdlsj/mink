@@ -1,23 +1,39 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { randomBytes, randomUUID } from "node:crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { chmod, mkdtemp, mkdir, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { AgentService, Driver } from "../src/gen/sumi/agent/v1/agent_pb";
-import { ComputerService } from "../src/gen/sumi/computer/v1/computer_pb";
+import {
+  AgentService,
+  EngineKind,
+  ProviderProtocol,
+  RuntimeSandboxProvider,
+  type Agent,
+} from "../src/gen/sumi/agent/v1/agent_pb";
+import {
+  CapabilityHealth,
+  ComputerService,
+  CredentialDeliveryAlgorithm,
+  CredentialDeliveryState,
+  CredentialKind,
+  type Computer,
+} from "../src/gen/sumi/computer/v1/computer_pb";
 import { PlacementService } from "../src/gen/sumi/placement/v1/placement_pb";
+import { sealCredential } from "../src/lib/credentialDelivery";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const run = promisify(execFile);
 let ownerCredential = "";
 let ownerKeyFile = "";
+const createdBindingHandles: string[] = [];
 const ownerAuthorization: Interceptor = (next) => async (request) => {
   if (!ownerCredential) throw new Error("Owner credential is not available");
   request.header.set("Authorization", `Bearer ${ownerCredential}`);
@@ -51,10 +67,11 @@ test.beforeEach(async ({ page }) => {
 test.afterAll(async () => {
   ownerCredential = "";
   ownerKeyFile = "";
+  await cleanupCredentialBindings(createdBindingHandles);
   if (seed) await rm(seed.hostRoot, { recursive: true, force: true });
 });
 
-test("real facts move from pending to active after sumi-computer ack", async ({
+test("real facts move from pending to ready after sumi-computer ack", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -65,12 +82,12 @@ test("real facts move from pending to active after sumi-computer ack", async ({
   await runHost(seed);
   await page.getByRole("button", { name: "Refresh Agents" }).click();
 
-  await expect(agentRegion(page).locator(".state-chip.active")).toBeVisible();
+  await expect(agentRegion(page).locator(".state-chip.ready")).toBeVisible();
   await expect(agentRegion(page)).not.toContainText(seed.pairingToken);
   await expect(page.locator("body")).not.toContainText(seed.hostRoot);
 });
 
-test("Agent management stays read-only with browser Human auth", async ({
+test("Agent management exposes runtime configuration with browser Human auth", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -82,15 +99,17 @@ test("Agent management stays read-only with browser Human auth", async ({
     navigation.getByRole("button", { name: "Create Agent" }),
   ).toHaveCount(0);
   await openAgent(page, seed.pendingAgentName);
-  await expect(agentRegion(page).getByText(seed.computerName)).toBeVisible();
   await expect(
-    agentRegion(page).getByText(
-      "Placement changes are not available in this read-only view.",
-    ),
+    agentRegion(page)
+      .getByRole("definition")
+      .filter({ hasText: seed.computerName }),
   ).toBeVisible();
   await expect(
-    agentRegion(page).getByRole("button", { name: /placement/i }),
-  ).toHaveCount(0);
+    agentRegion(page).getByRole("button", { name: "Configure runtime" }),
+  ).toBeVisible();
+  await expect(agentRegion(page).getByLabel("Runtime Computer")).toHaveValue(
+    seed.computerId,
+  );
 });
 
 for (const viewport of [
@@ -177,6 +196,12 @@ async function seedFacts() {
   await chmod(tokenFile, 0o600);
   await mkdir(join(hostRoot, "data-root"), { recursive: true, mode: 0o700 });
   await pairHost(hostRoot, tokenFile, computerName);
+  const hostBinary = join(hostRoot, "sumi-computer");
+  await run(
+    "mise",
+    ["exec", "--", "go", "build", "-o", hostBinary, "./cmd/sumi-computer"],
+    { cwd: repoRoot },
+  );
   const computers = await ownerComputerClient.listComputers({});
   const computer = computers.computers.find(
     (candidate) => candidate.name === computerName,
@@ -185,6 +210,24 @@ async function seedFacts() {
 
   const failedAgentName = `failed-${suffix}`;
   const failedAgent = await createSeedAgent(failedAgentName);
+  const pendingAgentName = `pending-${suffix}`;
+  const pendingAgent = await createSeedAgent(pendingAgentName);
+  const bindingHandles = [
+    await configureSeedAgent(
+      failedAgent,
+      computer,
+      hostRoot,
+      hostBinary,
+      computerName,
+    ),
+    await configureSeedAgent(
+      pendingAgent,
+      computer,
+      hostRoot,
+      hostBinary,
+      computerName,
+    ),
+  ];
   const failedPlacement = await ownerPlacementClient.setAgentPlacement({
     requestId: randomUUID(),
     agentId: failedAgent.id,
@@ -207,9 +250,6 @@ async function seedFacts() {
     "path is not a real directory",
   );
   await rm(invalidWorkspace, { force: true });
-
-  const pendingAgentName = `pending-${suffix}`;
-  const pendingAgent = await createSeedAgent(pendingAgentName);
   await ownerPlacementClient.setAgentPlacement({
     requestId: randomUUID(),
     agentId: pendingAgent.id,
@@ -226,12 +266,185 @@ async function seedFacts() {
   };
 }
 
+async function configureSeedAgent(
+  agent: Agent,
+  computer: Computer,
+  hostRoot: string,
+  hostBinary: string,
+  computerName: string,
+) {
+  const capability = computer.capabilityInventory?.credentialDelivery;
+  if (
+    capability?.health !== CapabilityHealth.HEALTHY ||
+    capability.algorithm !==
+      CredentialDeliveryAlgorithm.X25519_XCHACHA20_POLY1305 ||
+    capability.keyId === "" ||
+    capability.publicKey.length !== 32
+  ) {
+    throw new Error("Computer secure credential delivery is unavailable");
+  }
+  const requestId = randomUUID();
+  const expiresAt = new Date(Date.now() + 5 * 60_000);
+  const sealed = sealCredential(
+    capability.publicKey,
+    {
+      requestId,
+      computerId: computer.id,
+      agentId: agent.id,
+      credentialKind: "openai",
+      keyId: capability.keyId,
+      expiresAt,
+    },
+    `sk-e2e-${randomBytes(32).toString("base64url")}`,
+  );
+  const enqueued = await ownerComputerClient.enqueueCredentialDelivery({
+    requestId,
+    computerId: computer.id,
+    agentId: agent.id,
+    credentialKind: CredentialKind.OPENAI,
+    sealedCredential: {
+      algorithm: CredentialDeliveryAlgorithm.X25519_XCHACHA20_POLY1305,
+      keyId: sealed.keyId,
+      ephemeralPublicKey: sealed.ephemeralPublicKey,
+      nonce: sealed.nonce,
+      ciphertext: sealed.ciphertext,
+    },
+    expiresAt: timestampFromDate(expiresAt),
+  });
+  if (!enqueued.delivery) throw new Error("Credential delivery seed failed");
+  const completed = await processCredentialDelivery(
+    hostRoot,
+    hostBinary,
+    computerName,
+    computer.id,
+    agent.id,
+    enqueued.delivery.id,
+  );
+  createdBindingHandles.push(completed.bindingHandle);
+  const runtime = await ownerAgentClient.updateAgentRuntimeSpec({
+    requestId: randomUUID(),
+    agentId: agent.id,
+    expectedRevision: 0n,
+    engine: EngineKind.BUILTIN,
+    providerProtocol: ProviderProtocol.OPENAI_RESPONSES,
+    providerEndpoint: "https://provider.invalid/v1",
+    model: "e2e-model",
+    credentialBindingHandle: completed.bindingHandle,
+    sandboxProvider: RuntimeSandboxProvider.TRUSTED_LOCAL,
+    maxRunDurationSeconds: 120,
+    maxOutputBytes: 1n << 20n,
+    toolPolicy: {
+      message: true,
+      work: true,
+      artifact: true,
+      knowledge: true,
+    },
+  });
+  if (!runtime.runtimeSpec) throw new Error("Runtime spec seed failed");
+  return completed.bindingHandle;
+}
+
+async function processCredentialDelivery(
+  hostRoot: string,
+  hostBinary: string,
+  computerName: string,
+  computerId: string,
+  agentId: string,
+  deliveryId: string,
+) {
+  const daemon = spawn(
+    hostBinary,
+    [
+      "--server",
+      baseURL,
+      "--data-root",
+      join(hostRoot, "data-root"),
+      "--name",
+      computerName,
+    ],
+    { cwd: repoRoot, stdio: ["ignore", "ignore", "pipe"] },
+  );
+  let stderr = "";
+  daemon.stderr.setEncoding("utf8");
+  daemon.stderr.on("data", (chunk: string) => {
+    stderr += chunk;
+  });
+  try {
+    for (let attempt = 0; attempt < 150; attempt += 1) {
+      const deliveries = await ownerComputerClient.listCredentialDeliveries({
+        computerId,
+        agentId,
+      });
+      const delivery = deliveries.deliveries.find(
+        (candidate) => candidate.id === deliveryId,
+      );
+      if (
+        delivery?.state === CredentialDeliveryState.SUCCEEDED &&
+        delivery.bindingHandle !== ""
+      ) {
+        return delivery;
+      }
+      if (delivery?.state === CredentialDeliveryState.FAILED) {
+        throw new Error(
+          `Credential delivery failed: ${delivery.errorCode || "unknown"}`,
+        );
+      }
+      if (daemon.exitCode !== null) {
+        throw new Error(`Computer daemon stopped early: ${stderr.trim()}`);
+      }
+      await delay(100);
+    }
+    throw new Error(`Credential delivery timed out: ${stderr.trim()}`);
+  } finally {
+    await stopProcess(daemon);
+  }
+}
+
+async function stopProcess(process: ReturnType<typeof spawn>) {
+  if (process.exitCode !== null) return;
+  process.kill("SIGTERM");
+  await Promise.race([
+    new Promise<void>((resolve) => process.once("exit", () => resolve())),
+    delay(3000).then(() => {
+      process.kill("SIGKILL");
+    }),
+  ]);
+}
+
+function delay(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function cleanupCredentialBindings(handles: string[]) {
+  for (const handle of handles) {
+    if (process.platform === "darwin") {
+      await run("security", [
+        "delete-generic-password",
+        "-a",
+        handle,
+        "-s",
+        "co.sumi.credential",
+      ]);
+    } else if (process.platform === "linux") {
+      await run("secret-tool", [
+        "clear",
+        "service",
+        "co.sumi.credential",
+        "account",
+        handle,
+      ]);
+    }
+  }
+}
+
 async function createSeedAgent(name: string) {
   const response = await ownerAgentClient.createAgent({
     requestId: randomUUID(),
-    name,
-    description: `Production Web seed for ${name}`,
-    driver: Driver.CODEX,
+    handle: name.slice(0, 32),
+    displayName: name,
+    role: "collaborator",
+    mission: `Production Web seed for ${name}`,
+    instructions: "",
   });
   if (!response.agent) throw new Error("Agent seed failed");
   return response.agent;

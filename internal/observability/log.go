@@ -29,8 +29,8 @@ const (
 	CategoryKnowledge Category = "knowledge"
 	CategoryPlacement Category = "placement"
 	CategoryRuntime   Category = "runtime"
-	CategoryDelivery  Category = "delivery"
-	CategoryDriver    Category = "driver"
+	CategoryRun       Category = "run"
+	CategoryEngine    Category = "engine"
 	CategoryOutbox    Category = "outbox"
 	CategoryInstall   Category = "install"
 )

@@ -21,7 +21,7 @@ func TestAgentRuntimeCreateKeepsOneCurrentSession(t *testing.T) {
 	fixture := openAgentRuntimeFixture(t)
 	firstToken := runtimeTestToken(1)
 	first := createRuntimeSession(t, fixture, firstToken, fixture.now)
-	if first.AgentID != fixture.agentID || first.ComputerID != fixture.computer.ID || first.PlacementGeneration != 1 {
+	if first.AgentID != fixture.agentID || first.ComputerID != fixture.computer.ID || first.PlacementDesiredRevision != 1 {
 		t.Fatalf("first session = %+v", first)
 	}
 	if _, err := fixture.database.AuthenticateAgentRuntimeSession(context.Background(), firstToken, fixture.now.Add(time.Second)); err != nil {
@@ -46,7 +46,7 @@ func TestAgentRuntimeCreateKeepsOneCurrentSession(t *testing.T) {
 			defer wait.Done()
 			_, errorsByIndex[index] = fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
 				ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-				AgentID: fixture.agentID, PlacementGeneration: 1, Token: tokens[index],
+				AgentID: fixture.agentID, PlacementDesiredRevision: 1, Token: tokens[index],
 				Now: fixture.now.Add(3 * time.Second), ExpiresAt: fixture.now.Add(10*time.Minute + 3*time.Second),
 			})
 		}(index)
@@ -75,7 +75,7 @@ func TestAgentRuntimeCreateValidatesComputerBeforeBinding(t *testing.T) {
 	fixture := openAgentRuntimeFixture(t)
 	params := CreateAgentRuntimeSessionParams{
 		ComputerID: fixture.computer.ID, RegistrationKey: "wrong-registration-key",
-		AgentID: uuid.NewString(), PlacementGeneration: 99,
+		AgentID: uuid.NewString(), PlacementDesiredRevision: 99,
 		Token: runtimeTestToken(3), Now: fixture.now, ExpiresAt: fixture.now.Add(10 * time.Minute),
 	}
 	if _, err := fixture.database.CreateAgentRuntimeSession(context.Background(), params); !errors.Is(err, ErrRegistrationKeyMismatch) {
@@ -101,7 +101,7 @@ func TestAgentRuntimeTTLValidationDoesNotMutateSessions(t *testing.T) {
 	for index, lifetime := range []time.Duration{10*time.Minute + time.Nanosecond, 24 * time.Hour} {
 		_, err := fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
 			ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-			AgentID: fixture.agentID, PlacementGeneration: 1, Token: runtimeTestToken(byte(50 + index)),
+			AgentID: fixture.agentID, PlacementDesiredRevision: 1, Token: runtimeTestToken(byte(50 + index)),
 			Now: fixture.now, ExpiresAt: fixture.now.Add(lifetime),
 		})
 		if !errors.Is(err, ErrAgentRuntimeInvalid) {
@@ -259,9 +259,9 @@ func TestAgentRuntimeProofRecheckRejectsLifecycleChanges(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"placement generation": func(t *testing.T, fixture *agentRuntimeFixture, _ AgentRuntimeAuthentication) {
+		"placement desired revision": func(t *testing.T, fixture *agentRuntimeFixture, _ AgentRuntimeAuthentication) {
 			if _, err := fixture.database.db.Exec(`
-				UPDATE agent_placements SET generation = 2, state = 'active', updated_at = ? WHERE agent_id = ?
+				UPDATE agent_placements SET desired_revision = 2, state = 'ready', updated_at = ? WHERE agent_id = ?
 			`, unixNano(fixture.now.Add(2*time.Second)), fixture.agentID); err != nil {
 				t.Fatal(err)
 			}
@@ -321,15 +321,10 @@ func TestAgentRuntimeAuthenticationTracksCurrentPlacement(t *testing.T) {
 			}
 		},
 		"reassigned": func(t *testing.T, fixture *agentRuntimeFixture) {
-			other, err := fixture.database.RegisterComputer(context.Background(), RegisterComputerParams{
-				RegistrationKey: "other-registration-key", Name: "other-runtime-host", OS: "linux", Arch: "arm64", Now: fixture.now,
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			other := pairTestComputer(t, fixture.database, fixture.owner, "other-registration-key", testCapabilityInventory("test", true), fixture.now)
 			if _, err := fixture.database.db.Exec(`
 				UPDATE agent_placements
-				SET computer_id = ?, generation = 2, state = 'active', updated_at = ?
+				SET computer_id = ?, desired_revision = 2, state = 'ready', updated_at = ?
 				WHERE agent_id = ?
 			`, other.ID, unixNano(fixture.now.Add(time.Second)), fixture.agentID); err != nil {
 				t.Fatal(err)
@@ -377,6 +372,7 @@ func TestAgentRuntimeDatabaseStoresOnlyDomainSeparatedHash(t *testing.T) {
 
 type agentRuntimeFixture struct {
 	database        *Store
+	owner           Principal
 	computer        Computer
 	registrationKey string
 	agentID         string
@@ -401,35 +397,37 @@ func openAgentRuntimeFixtureAt(t *testing.T, path string) *agentRuntimeFixture {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.July, 21, 1, 0, 0, 0, time.UTC)
-	if _, err := database.EnsureAuthority(context.Background(), runtimeTestToken(250), now); err != nil {
+	bootstrap, err := database.EnsureAuthority(context.Background(), runtimeTestToken(250), now)
+	if err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
+	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	registrationKey := "computer-registration-key"
-	computer, err := database.RegisterComputer(context.Background(), RegisterComputerParams{
-		RegistrationKey: registrationKey, Name: "runtime-host", OS: "linux", Arch: "arm64", Now: now,
+	computer := pairTestComputer(t, database, owner, registrationKey, testCapabilityInventory("test", true), now)
+	agent, err := database.CreateAgent(context.Background(), testCreateAgentParams(owner, "runtime-"+uuid.NewString()[:8], now))
+	if err != nil {
+		database.Close()
+		t.Fatal(err)
+	}
+	bindTestRuntimeCredential(t, database, agent.ID, computer.ID, "cred_unbound_"+agent.ID, "openai", now)
+	configureTestRuntimeSpec(t, database, owner, agent.ID, now)
+	placement, err := database.SetAgentPlacement(context.Background(), SetAgentPlacementParams{
+		RequestID: uuid.NewString(), Actor: owner, AgentID: agent.ID, ComputerID: computer.ID, Now: now,
 	})
 	if err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
-	agentID := uuid.NewString()
-	if _, err := database.db.Exec(`
-		INSERT INTO agents(id, name, description, driver, created_at, updated_at)
-		VALUES(?, ?, '', 'native', ?, ?)
-	`, agentID, "runtime-"+agentID[:8], unixNano(now), unixNano(now)); err != nil {
-		database.Close()
-		t.Fatal(err)
-	}
-	if _, err := database.db.Exec(`
-		INSERT INTO agent_placements(agent_id, computer_id, generation, state, error_code, created_at, updated_at)
-		VALUES(?, ?, 1, 'active', '', ?, ?)
-	`, agentID, computer.ID, unixNano(now), unixNano(now)); err != nil {
+	if _, err := database.AcknowledgeAgentPlacement(context.Background(), AcknowledgePlacementParams{
+		ComputerID: computer.ID, RegistrationKey: registrationKey, AgentID: agent.ID,
+		DesiredRevision: placement.DesiredRevision, State: "ready", Now: now,
+	}); err != nil {
 		database.Close()
 		t.Fatal(err)
 	}
 	return &agentRuntimeFixture{
-		database: database, computer: computer, registrationKey: registrationKey, agentID: agentID, now: now,
+		database: database, owner: owner, computer: computer, registrationKey: registrationKey, agentID: agent.ID, now: now,
 	}
 }
 
@@ -437,7 +435,7 @@ func createRuntimeSession(t *testing.T, fixture *agentRuntimeFixture, token stri
 	t.Helper()
 	session, err := fixture.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
 		ComputerID: fixture.computer.ID, RegistrationKey: fixture.registrationKey,
-		AgentID: fixture.agentID, PlacementGeneration: 1, Token: token,
+		AgentID: fixture.agentID, PlacementDesiredRevision: 1, Token: token,
 		Now: now, ExpiresAt: now.Add(10 * time.Minute),
 	})
 	if err != nil {
@@ -482,19 +480,19 @@ func assertRuntimeRows(t *testing.T, database *Store, want int) {
 }
 
 type agentRuntimeRow struct {
-	TokenHash           string
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	CreatedAt           int64
-	ExpiresAt           int64
-	RevokedAt           sql.NullInt64
+	TokenHash                string
+	AgentID                  string
+	ComputerID               string
+	PlacementDesiredRevision uint64
+	CreatedAt                int64
+	ExpiresAt                int64
+	RevokedAt                sql.NullInt64
 }
 
 func readAgentRuntimeRows(t *testing.T, database *Store) []agentRuntimeRow {
 	t.Helper()
 	rows, err := database.db.Query(`
-		SELECT hex(token_hash), agent_id, computer_id, placement_generation, created_at, expires_at, revoked_at
+		SELECT hex(token_hash), agent_id, computer_id, placement_desired_revision, created_at, expires_at, revoked_at
 		FROM agent_runtime_sessions
 		ORDER BY created_at, hex(token_hash)
 	`)
@@ -505,7 +503,7 @@ func readAgentRuntimeRows(t *testing.T, database *Store) []agentRuntimeRow {
 	var result []agentRuntimeRow
 	for rows.Next() {
 		var row agentRuntimeRow
-		if err := rows.Scan(&row.TokenHash, &row.AgentID, &row.ComputerID, &row.PlacementGeneration, &row.CreatedAt, &row.ExpiresAt, &row.RevokedAt); err != nil {
+		if err := rows.Scan(&row.TokenHash, &row.AgentID, &row.ComputerID, &row.PlacementDesiredRevision, &row.CreatedAt, &row.ExpiresAt, &row.RevokedAt); err != nil {
 			t.Fatal(err)
 		}
 		result = append(result, row)

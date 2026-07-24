@@ -209,68 +209,47 @@ type ResolveHeldDraftResult struct {
 	CommittedAt time.Time
 }
 
-type Delivery struct {
-	Sequence              uint64
-	ID                    string
-	AgentID               string
-	InboxItemID           string
-	TriggerMessageID      string
-	SpaceID               string
-	Target                collaborationapp.MessageTarget
-	TriggerTargetSequence uint64
-	State                 string
-	CreatedAt             time.Time
-	AcceptedAt            *time.Time
-	CompletedAt           *time.Time
-}
-
 type Run struct {
-	ID                  string
-	DeliveryID          string
-	AgentID             string
-	BasisTargetSequence uint64
-	State               string
-	Outcome             string
-	ResultKind          string
-	ResultID            string
-	AcceptedAt          time.Time
-	StartedAt           *time.Time
-	CompletedAt         *time.Time
+	Sequence                 uint64
+	ID                       string
+	AgentID                  string
+	InboxItemID              string
+	TriggerMessageID         string
+	SpaceID                  string
+	Target                   collaborationapp.MessageTarget
+	TriggerTargetSequence    uint64
+	InputBasisTargetSequence uint64
+	State                    string
+	Attempt                  uint64
+	LeaseHolderComputerID    string
+	LeaseExpiresAt           *time.Time
+	Fence                    uint64
+	PlacementDesiredRevision uint64
+	ResultKind               string
+	ResultID                 string
+	Usage                    RunUsage
+	ErrorCode                string
+	CreatedAt                time.Time
+	StartedAt                *time.Time
+	CompletedAt              *time.Time
+	CancelledAt              *time.Time
 }
 
-type RunLaunch struct {
-	ID                        string
-	RunID                     string
-	AgentID                   string
-	HolderComputerID          string
-	HolderPlacementGeneration uint64
-	Fence                     uint64
-	ClaimedAt                 time.Time
-	ExpiresAt                 time.Time
-	ClosedAt                  *time.Time
-	CloseReason               string
+type RunUsage struct {
+	InputUnits  uint64
+	OutputUnits uint64
 }
 
-type ListDeliveriesQuery struct {
+type ListRunsQuery struct {
 	Authentication authorityapp.RuntimeAuthentication
 	AfterSequence  uint64
 	Limit          uint32
 	Now            time.Time
 }
 
-type ListDeliveriesResult struct {
-	Deliveries     []Delivery
-	NextSequence   uint64
-	ActiveDelivery *Delivery
-	ActiveRun      *Run
-	ActiveLaunch   *RunLaunch
-}
-
-type AcceptDeliveryCommand struct {
-	RequestID      string
-	Authentication authorityapp.RuntimeAuthentication
-	DeliveryID     string
-	Now            time.Time
+type ListRunsResult struct {
+	Runs         []Run
+	NextSequence uint64
 }
 
 type GetRunQuery struct {
@@ -290,7 +269,16 @@ type RenewRunCommand struct {
 	RequestID      string
 	Authentication authorityapp.RuntimeAuthentication
 	RunID          string
-	LaunchID       string
+	Attempt        uint64
+	Fence          uint64
+	Now            time.Time
+}
+
+type CancelRunCommand struct {
+	RequestID      string
+	Authentication authorityapp.RuntimeAuthentication
+	RunID          string
+	Attempt        uint64
 	Fence          uint64
 	Now            time.Time
 }
@@ -300,11 +288,13 @@ type CompleteRunCommand struct {
 	OutboxEventID       string
 	Authentication      authorityapp.RuntimeAuthentication
 	RunID               string
-	LaunchID            string
+	Attempt             uint64
 	Fence               uint64
 	Outcome             executiondomain.Outcome
+	ErrorCode           string
 	Body                string
 	MentionedPrincipals []authoritydomain.Principal
+	Usage               RunUsage
 	Now                 time.Time
 }
 

@@ -34,8 +34,8 @@ func TestAgentRuntimeHTTPCreateRenewRevokeAndRestart(t *testing.T) {
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	client := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
 
-	first := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
-	second := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+	first := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
+	second := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	assertStoreRuntimeRejected(t, api.app.store, first.GetToken())
 	if _, err := api.app.store.AuthenticateAgentRuntimeSession(context.Background(), second.GetToken(), time.Now()); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 			defer wait.Done()
 			response, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 				ComputerId: computer.GetId(), RegistrationKey: registrationKey,
-				AgentId: agent.GetId(), PlacementGeneration: placement.GetGeneration(),
+				AgentId: agent.GetId(), PlacementDesiredRevision: placement.GetDesiredRevision(),
 			}))
 			if err == nil {
 				tokens[index] = response.Msg.GetSession().GetToken()
@@ -120,7 +120,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 
 	wrongKey := connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: "wrong-registration-key",
-		AgentId: uuid.NewString(), PlacementGeneration: 99,
+		AgentId: uuid.NewString(), PlacementDesiredRevision: 99,
 	})
 	_, err := client.CreateAgentRuntimeSession(context.Background(), wrongKey)
 	assertConnectCode(t, err, connect.CodePermissionDenied)
@@ -130,7 +130,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 
 	wrongBinding := connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: registrationKey,
-		AgentId: uuid.NewString(), PlacementGeneration: 99,
+		AgentId: uuid.NewString(), PlacementDesiredRevision: 99,
 	})
 	_, err = client.CreateAgentRuntimeSession(context.Background(), wrongBinding)
 	assertConnectCode(t, err, connect.CodeFailedPrecondition)
@@ -139,9 +139,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 	}
 
 	ownerProtected := agentv1connect.NewAgentServiceClient(api.http.Client(), api.http.URL)
-	ownerRequest := connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(), Name: "runtime-cannot-create", Driver: agentv1.Driver_DRIVER_NATIVE,
-	})
+	ownerRequest := connect.NewRequest(agentRequest("runtime-cannot-create"))
 	ownerRequest.Header().Set("Authorization", "Bearer "+currentToken)
 	_, err = ownerProtected.CreateAgent(context.Background(), ownerRequest)
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
@@ -153,13 +151,14 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 
 	other := pairComputer(t, api, "other-computer-key", "Other runtime host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agent.GetId(), other.Msg.GetComputer().GetId(), "other-computer-key")
 	reassigned, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.GetId(), ComputerId: other.Msg.GetComputer().GetId(),
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reassigned.Msg.GetPlacement().GetGeneration() <= placement.GetGeneration() || reassigned.Msg.GetPlacement().GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
+	if reassigned.Msg.GetPlacement().GetDesiredRevision() <= placement.GetDesiredRevision() || reassigned.Msg.GetPlacement().GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
 		t.Fatalf("reassigned placement = %v", reassigned.Msg.GetPlacement())
 	}
 	assertStoreRuntimeRejected(t, api.app.store, currentToken)
@@ -175,12 +174,11 @@ func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Comput
 	registrationKey := "server-runtime-registration-key"
 	computer := pairComputer(t, api, registrationKey, "Runtime host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
 	var err error
-	agent, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(), Name: "runtime-" + uuid.NewString()[:8], Driver: agentv1.Driver_DRIVER_NATIVE,
-	}))
+	agent, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(agentRequest("runtime-"+uuid.NewString()[:8])))
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agent.Msg.GetAgent().GetId(), computer.Msg.GetComputer().GetId(), registrationKey)
 	placement, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.Msg.GetAgent().GetId(), ComputerId: computer.Msg.GetComputer().GetId(),
 	}))
@@ -189,8 +187,8 @@ func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Comput
 	}
 	active, err := api.placements.AcknowledgeAgentPlacement(context.Background(), connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId: computer.Msg.GetComputer().GetId(), RegistrationKey: registrationKey,
-		AgentId: agent.Msg.GetAgent().GetId(), Generation: placement.Msg.GetPlacement().GetGeneration(),
-		Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE,
+		AgentId: agent.Msg.GetAgent().GetId(), DesiredRevision: placement.Msg.GetPlacement().GetDesiredRevision(),
+		Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -198,19 +196,19 @@ func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Comput
 	return computer.Msg.GetComputer(), agent.Msg.GetAgent(), active.Msg.GetPlacement(), registrationKey
 }
 
-func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeServiceClient, computerID, registrationKey, agentID string, generation uint64) *runtimev1.AgentRuntimeSession {
+func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeServiceClient, computerID, registrationKey, agentID string, desiredRevision uint64) *runtimev1.AgentRuntimeSession {
 	t.Helper()
 	response, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: computerID, RegistrationKey: registrationKey,
-		AgentId: agentID, PlacementGeneration: generation,
+		AgentId: agentID, PlacementDesiredRevision: desiredRevision,
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	session := response.Msg.GetSession()
 	if len(session.GetToken()) != 43 || !session.GetExpiresAt().AsTime().After(time.Now().Add(9*time.Minute)) {
-		t.Fatalf("runtime response = agent:%q computer:%q generation:%d token_length:%d expires:%s",
-			session.GetAgentId(), session.GetComputerId(), session.GetPlacementGeneration(), len(session.GetToken()), session.GetExpiresAt().AsTime())
+		t.Fatalf("runtime response = agent:%q computer:%q desired_revision:%d token_length:%d expires:%s",
+			session.GetAgentId(), session.GetComputerId(), session.GetPlacementDesiredRevision(), len(session.GetToken()), session.GetExpiresAt().AsTime())
 	}
 	return session
 }

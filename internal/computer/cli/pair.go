@@ -15,6 +15,7 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
 	clicontract "github.com/abcdlsj/sumi/internal/cli/contract"
+	"github.com/abcdlsj/sumi/internal/computer/enginefactory"
 	computerhost "github.com/abcdlsj/sumi/internal/computer/host"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/configfile"
@@ -254,9 +255,17 @@ func joinPairingBundle(ctx context.Context, bundle pairing.Bundle, dataRoot, nam
 	if err != nil {
 		return err
 	}
+	manager, err := credentialManager(ctx, state)
+	if err != nil {
+		return err
+	}
+	inventory, err := enginefactory.Discover().Inventory(manager)
+	if err != nil {
+		return err
+	}
 	host := computerhost.New(computerhost.Config{
 		ServerURL: serverEndpoint.Origin, DataRoot: layout.Root, Name: name, OS: osName, Arch: architecture,
-		HTTPClient: httpClient, State: state,
+		HTTPClient: httpClient, State: state, CapabilityInventory: inventory,
 	})
 	if err := pairJoinBeforeRPC(); err != nil {
 		return pairCommandError("pairing join state is unknown", "PAIRING_UNKNOWN", "run 'sumi computer run' to resume the durable attempt")

@@ -55,11 +55,31 @@ export type WorkActionState = {
 
 type WorkFailure = SnapshotFailure & { code: Code };
 
+type HumanCreateMutation = Omit<
+  CreateWorkRequest,
+  "$typeName" | "requestId" | "runId" | "runAttempt" | "runFence"
+>;
+
+type HumanAssignMutation = Omit<
+  AssignWorkRequest,
+  "$typeName" | "requestId" | "runId" | "runAttempt" | "runFence"
+>;
+
+type HumanTransitionMutation = Omit<
+  TransitionWorkRequest,
+  "$typeName" | "requestId" | "runId" | "runAttempt" | "runFence"
+>;
+
+type HumanApprovalMutation = Omit<
+  RequestApprovalRequest,
+  "$typeName" | "requestId" | "runId" | "runAttempt" | "runFence"
+>;
+
 type WorkMutation =
-  | Omit<CreateWorkRequest, "$typeName" | "requestId">
-  | Omit<AssignWorkRequest, "$typeName" | "requestId">
-  | Omit<TransitionWorkRequest, "$typeName" | "requestId">
-  | Omit<RequestApprovalRequest, "$typeName" | "requestId">
+  | HumanCreateMutation
+  | HumanAssignMutation
+  | HumanTransitionMutation
+  | HumanApprovalMutation
   | Omit<ResolveApprovalRequest, "$typeName" | "requestId">;
 
 export function useWork(workId: string | undefined, enabled = true) {
@@ -231,17 +251,15 @@ export function useWork(workId: string | undefined, enabled = true) {
     action,
     refresh,
     loadMore,
-    create: (payload: Omit<CreateWorkRequest, "$typeName" | "requestId">) =>
+    create: (payload: HumanCreateMutation) =>
       mutate(requireBinding(), createLifecycle.current, payload, (requestId) =>
         createWork(create(CreateWorkRequestSchema, { ...payload, requestId })),
       ) as Promise<CreateWorkResponse>,
-    assign: (payload: Omit<AssignWorkRequest, "$typeName" | "requestId">) =>
+    assign: (payload: HumanAssignMutation) =>
       mutate(requireBinding(), assignLifecycle.current, payload, (requestId) =>
         assignWork(create(AssignWorkRequestSchema, { ...payload, requestId })),
       ) as Promise<AssignWorkResponse>,
-    transition: (
-      payload: Omit<TransitionWorkRequest, "$typeName" | "requestId">,
-    ) =>
+    transition: (payload: HumanTransitionMutation) =>
       mutate(
         requireBinding(),
         transitionLifecycle.current,
@@ -251,9 +269,7 @@ export function useWork(workId: string | undefined, enabled = true) {
             create(TransitionWorkRequestSchema, { ...payload, requestId }),
           ),
       ) as Promise<TransitionWorkResponse>,
-    requestApproval: (
-      payload: Omit<RequestApprovalRequest, "$typeName" | "requestId">,
-    ) =>
+    requestApproval: (payload: HumanApprovalMutation) =>
       mutate(
         requireBinding(),
         requestApprovalLifecycle.current,

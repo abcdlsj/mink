@@ -11,7 +11,11 @@ import {
   AgentsNavigation,
   ComputersNavigation,
 } from "./components/DirectoryNavigation";
-import { PrimaryRail, type WorkspaceModule } from "./components/PrimaryRail";
+import {
+  PrimaryRail,
+  type ConversationView,
+  type WorkspaceModule,
+} from "./components/PrimaryRail";
 import { useBootstrap } from "./hooks/useBootstrap";
 import { useFacts } from "./hooks/useFacts";
 import { useConversation } from "./hooks/useConversation";
@@ -25,6 +29,8 @@ export default function App() {
   const bootstrap = useBootstrap();
   const session = useSession();
   const [module, setModule] = useState<WorkspaceModule>("conversation");
+  const [conversationView, setConversationView] =
+    useState<ConversationView>("chat");
   const [navigationOpen, setNavigationOpen] = useState(
     () => window.innerWidth >= 1280,
   );
@@ -161,6 +167,12 @@ export default function App() {
     }
   };
 
+  const selectConversationView = (next: ConversationView) => {
+    setConversationView(next);
+    selectModule("conversation");
+    if (next !== "chat") setNavigationOpen(false);
+  };
+
   const showAgent = (id: string) => {
     setSelectedAgent(id);
     if (window.innerWidth < 1024) setNavigationOpen(false);
@@ -192,6 +204,7 @@ export default function App() {
   };
 
   const showInboxMessage = (destination: InboxDestination) => {
+    setConversationView("chat");
     const space = spaces.data?.spaces.find(
       (candidate) => candidate.id === destination.spaceId,
     );
@@ -201,9 +214,13 @@ export default function App() {
   };
 
   const management = module !== "conversation";
+  const secondaryNavigationAvailable =
+    module !== "conversation" || conversationView === "chat";
+  const secondaryNavigationOpen =
+    secondaryNavigationAvailable && navigationOpen;
   const shellClasses = [
     "app-shell",
-    navigationOpen ? "" : "navigation-collapsed",
+    secondaryNavigationOpen ? "" : "navigation-collapsed",
     contextOpen && !management ? "" : "context-collapsed",
     compactContextOpen && !management ? "compact-context-open" : "",
   ]
@@ -214,45 +231,49 @@ export default function App() {
     <main className={shellClasses}>
       <PrimaryRail
         active={module}
+        conversationView={conversationView}
         factsAvailable={bootstrap.status === "ready"}
         onSelect={selectModule}
+        onSelectConversationView={selectConversationView}
       />
 
-      <aside
-        className="secondary-nav"
-        aria-label={
-          module === "conversation"
-            ? "Conversation navigation"
-            : `${capitalize(module)} navigation`
-        }
-      >
-        {module === "conversation" ? (
-          <ConversationNavigation
-            bootstrap={bootstrap}
-            spaces={spaces}
-            currentHumanId={human?.id}
-            selected={selectedSpace?.id}
-            onSelect={showSpace}
-            onClose={() => setNavigationOpen(false)}
-          />
-        ) : module === "agents" ? (
-          <AgentsNavigation
-            state={facts}
-            selected={selectedAgent}
-            onSelect={showAgent}
-            onRefresh={facts.refresh}
-            onClose={() => setNavigationOpen(false)}
-          />
-        ) : (
-          <ComputersNavigation
-            state={facts}
-            selected={selectedComputer}
-            onSelect={showComputer}
-            onRefresh={facts.refresh}
-            onClose={() => setNavigationOpen(false)}
-          />
-        )}
-      </aside>
+      {secondaryNavigationAvailable && (
+        <aside
+          className="secondary-nav"
+          aria-label={
+            module === "conversation"
+              ? "Conversation navigation"
+              : `${capitalize(module)} navigation`
+          }
+        >
+          {module === "conversation" ? (
+            <ConversationNavigation
+              bootstrap={bootstrap}
+              spaces={spaces}
+              currentHumanId={human?.id}
+              selected={selectedSpace?.id}
+              onSelect={showSpace}
+              onClose={() => setNavigationOpen(false)}
+            />
+          ) : module === "agents" ? (
+            <AgentsNavigation
+              state={facts}
+              selected={selectedAgent}
+              onSelect={showAgent}
+              onRefresh={facts.refresh}
+              onClose={() => setNavigationOpen(false)}
+            />
+          ) : (
+            <ComputersNavigation
+              state={facts}
+              selected={selectedComputer}
+              onSelect={showComputer}
+              onRefresh={facts.refresh}
+              onClose={() => setNavigationOpen(false)}
+            />
+          )}
+        </aside>
+      )}
 
       {module === "conversation" ? (
         <ConversationWorkspace
@@ -261,7 +282,10 @@ export default function App() {
           spaces={spaces}
           selectedSpace={selectedSpace}
           conversation={conversation}
-          navigationOpen={navigationOpen}
+          view={conversationView}
+          navigationOpen={
+            secondaryNavigationOpen || !secondaryNavigationAvailable
+          }
           contextOpen={contextOpen}
           onOpenNavigation={() => setNavigationOpen(true)}
           onOpenContext={() => {

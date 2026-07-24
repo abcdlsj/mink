@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
-	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
+	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 )
@@ -34,17 +34,18 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 			continue
 		}
 		rpcCtx, cancel := d.rpcContext(ctx)
-		response, completeErr := d.deliveries.CompleteRun(rpcCtx, runtimeRequest(session.Token, &deliveryv1.CompleteRunRequest{
+		response, completeErr := d.runs.CompleteRun(rpcCtx, runtimeRequest(session.Token, &runv1.CompleteRunRequest{
 			RequestId: event.RequestID, OutboxEventId: event.OutboxEventID,
-			RunId: event.RunID, LaunchId: event.LaunchID, Fence: event.Fence,
+			RunId: event.RunID, Attempt: event.Attempt, Fence: event.Fence,
 			Outcome: outcomeValue(event.Outcome), Body: event.Body, MentionedPrincipals: mentionedAgents(event.MentionedAgentIDs),
+			ErrorCode: event.ErrorCode, Usage: &runv1.RunUsage{InputUnits: event.UsageInputUnits, OutputUnits: event.UsageOutputUnits},
 		}))
 		cancel()
 		if completeErr == nil && response != nil && validateCompleteResponse(response.Msg, event) == nil {
 			if err := d.config.State.AckOutbox(ctx, event.OutboxEventID); err != nil {
 				dispatchErrors = append(dispatchErrors, fmt.Errorf("ack outbox event %q: %w", event.OutboxEventID, err))
 			} else {
-				d.outboxLogger.Info("run completion delivered", "event", "outbox.completion.acknowledged", "outbox_event_id", event.OutboxEventID, "agent_id", event.AgentID, "run_id", event.RunID, "launch_id", event.LaunchID, "fence", event.Fence, "attempt", event.Attempts+1)
+				d.outboxLogger.Info("run completion delivered", "event", "outbox.completion.acknowledged", "outbox_event_id", event.OutboxEventID, "agent_id", event.AgentID, "run_id", event.RunID, "run_attempt", event.Attempt, "fence", event.Fence, "outbox_attempt", event.Attempts+1)
 			}
 			continue
 		}
@@ -58,7 +59,7 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 			if err := d.config.State.TombstoneOutbox(ctx, event.OutboxEventID, code.String()); err != nil {
 				dispatchErrors = append(dispatchErrors, fmt.Errorf("tombstone outbox event %q: %w", event.OutboxEventID, err))
 			} else {
-				d.outboxLogger.Warn("stale run completion tombstoned", "event", "outbox.completion.tombstoned", "outbox_event_id", event.OutboxEventID, "run_id", event.RunID, "launch_id", event.LaunchID, "fence", event.Fence, "code", code.String())
+				d.outboxLogger.Warn("stale run completion tombstoned", "event", "outbox.completion.tombstoned", "outbox_event_id", event.OutboxEventID, "run_id", event.RunID, "run_attempt", event.Attempt, "fence", event.Fence, "code", code.String())
 			}
 		} else {
 			dispatchErrors = append(dispatchErrors, fmt.Errorf("complete outbox event %q: %w", event.OutboxEventID, completeErr))
@@ -81,5 +82,5 @@ func (d *Daemon) finishCanonicalMutation(ctx context.Context, requestID string, 
 		code == connect.CodeUnknown || code == connect.CodeUnauthenticated {
 		return
 	}
-	_ = d.config.State.CompleteMutation(ctx, requestID, computerstate.MutationFailed, "", 0, nil, d.config.Now())
+	_ = d.config.State.CompleteMutation(ctx, requestID, computerstate.MutationFailed, 0, 0, nil, d.config.Now())
 }

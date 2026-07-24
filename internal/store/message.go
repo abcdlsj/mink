@@ -40,7 +40,8 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		TargetID   string        `json:"target_id"`
 		Body       string        `json:"body"`
 		Mentions   []Principal   `json:"mentioned_principals,omitempty"`
-	}{params.Actor.Kind, params.Actor.ID, string(params.Target.Kind), params.Target.ID, params.Body, mentions})
+		Run        any           `json:"run,omitempty"`
+	}{params.Actor.Kind, params.Actor.ID, string(params.Target.Kind), params.Target.ID, params.Body, mentions, params.Run})
 	if err != nil {
 		return Message{}, err
 	}
@@ -58,6 +59,11 @@ func (s *Store) SendMessage(ctx context.Context, params SendMessageParams) (Mess
 		return Message{}, err
 	}
 	params.Actor = actor
+	if run, bound, err := requireToolRun(ctx, tx, params.Runtime, params.Run, params.Now); err != nil {
+		return Message{}, err
+	} else if bound && run.Target != params.Target {
+		return Message{}, ErrRunLeaseStale
+	}
 	if receipt, found, err := readCollaborationReceipt(ctx, tx, params.RequestID, operationSendMessage, fingerprint); err != nil {
 		return Message{}, err
 	} else if found {

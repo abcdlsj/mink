@@ -351,23 +351,18 @@ func publishParams(authentication artifactapp.Authentication, metadata *artifact
 	}
 	if metadata.GetExecution() != nil {
 		execution := metadata.GetExecution()
-		deliveryID, err := connectid.CanonicalID(execution.GetDeliveryId(), "delivery id")
-		if err != nil {
-			return artifactapp.PublishCommand{}, err
-		}
 		runID, err := connectid.CanonicalID(execution.GetRunId(), "run id")
 		if err != nil {
 			return artifactapp.PublishCommand{}, err
 		}
-		launchID, err := connectid.CanonicalID(execution.GetLaunchId(), "launch id")
-		if err != nil {
-			return artifactapp.PublishCommand{}, err
+		if execution.GetAttempt() == 0 || execution.GetAttempt() > math.MaxInt64 {
+			return artifactapp.PublishCommand{}, invalidArgument("artifact execution attempt is invalid")
 		}
 		if execution.GetFence() == 0 || execution.GetFence() > math.MaxInt64 {
 			return artifactapp.PublishCommand{}, invalidArgument("artifact execution fence is invalid")
 		}
 		params.Execution = &artifactapp.ExecutionInput{
-			DeliveryID: deliveryID, RunID: runID, LaunchID: launchID, Fence: execution.GetFence(),
+			RunID: runID, Attempt: execution.GetAttempt(), Fence: execution.GetFence(),
 		}
 	}
 	params.Sources = make([]artifactapp.SourceInput, 0, len(metadata.GetSources()))
@@ -489,9 +484,9 @@ func versionViewMessage(value artifactapp.VersionView) (*artifactv1.ArtifactVers
 	}
 	if value.Execution != nil {
 		message.Execution = &artifactv1.ArtifactExecution{
-			Restricted: value.Execution.Restricted, DeliveryId: value.Execution.DeliveryID,
-			RunId: value.Execution.RunID, LaunchId: value.Execution.LaunchID, AgentId: value.Execution.AgentID,
-			ComputerId: value.Execution.ComputerID, PlacementGeneration: value.Execution.PlacementGeneration,
+			Restricted: value.Execution.Restricted, RunId: value.Execution.RunID,
+			Attempt: value.Execution.Attempt, AgentId: value.Execution.AgentID,
+			ComputerId: value.Execution.ComputerID, PlacementDesiredRevision: value.Execution.PlacementDesiredRevision,
 			Fence: value.Execution.Fence,
 		}
 	}
@@ -518,9 +513,9 @@ func publishedVersionMessage(value artifactapp.Version) (*artifactv1.ArtifactVer
 	}
 	if value.Execution != nil {
 		message.Execution = &artifactv1.ArtifactExecution{
-			DeliveryId: value.Execution.DeliveryID, RunId: value.Execution.RunID, LaunchId: value.Execution.LaunchID,
+			RunId: value.Execution.RunID, Attempt: value.Execution.Attempt,
 			AgentId: value.Execution.AgentID, ComputerId: value.Execution.ComputerID,
-			PlacementGeneration: value.Execution.PlacementGeneration, Fence: value.Execution.Fence,
+			PlacementDesiredRevision: value.Execution.PlacementDesiredRevision, Fence: value.Execution.Fence,
 		}
 	}
 	message.Sources = make([]*artifactv1.ArtifactSource, 0, len(value.Sources))

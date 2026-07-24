@@ -61,13 +61,12 @@ message ArtifactView {
 
 message ArtifactExecution {
   bool restricted = 1;
-  string delivery_id = 2;
-  string run_id = 3;
-  string launch_id = 4;
-  string agent_id = 5;
-  string computer_id = 6;
-  uint64 placement_generation = 7;
-  uint64 fence = 8;
+  string run_id = 2;
+  uint64 attempt = 3;
+  string agent_id = 4;
+  string computer_id = 5;
+  uint64 placement_desired_revision = 6;
+  uint64 fence = 7;
 }
 
 message ArtifactSource {
@@ -105,10 +104,9 @@ message ArtifactGrantTarget {
 }
 
 message ArtifactExecutionInput {
-  string delivery_id = 1;
-  string run_id = 2;
-  string launch_id = 3;
-  uint64 fence = 4;
+  string run_id = 1;
+  uint64 attempt = 2;
+  uint64 fence = 3;
 }
 
 message ArtifactSourceInput {

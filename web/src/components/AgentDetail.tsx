@@ -6,7 +6,8 @@ import {
 } from "../gen/sumi/placement/v1/placement_pb";
 import { useAgentDetail } from "../hooks/useDetails";
 import {
-  driverLabel,
+  agentDisplayName,
+  engineKindLabel,
   formatTimestamp,
   placementStateLabel,
   shortId,
@@ -17,6 +18,8 @@ import {
   ManagementError,
   ManagementLoading,
 } from "./ManagementFeedback";
+import { PixelAvatar } from "./PixelAvatar";
+import { RuntimeConfiguration } from "./RuntimeConfiguration";
 
 export function AgentDetail({
   agent,
@@ -36,6 +39,7 @@ export function AgentDetail({
     return <ManagementLoading label="Loading Agent details" />;
   }
   const state = placementStateLabel(current.placement?.state);
+  const name = agentDisplayName(current.agent);
   const computer = computers.find(
     (item) => item.id === current.placement?.computerId,
   );
@@ -51,13 +55,16 @@ export function AgentDetail({
         />
       )}
       <section className="identity-section">
-        <div className="identity-mark">
-          {current.agent.name.slice(0, 1).toUpperCase()}
-        </div>
+        <PixelAvatar
+          className="identity-avatar"
+          seed={current.agent.id}
+          kind="agent"
+          size="lg"
+        />
         <div>
           <span className="eyebrow">Durable identity</span>
-          <h2>{current.agent.name}</h2>
-          <p>{current.agent.description || "No description provided."}</p>
+          <h2>{name}</h2>
+          <p>{current.agent.profile?.mission}</p>
         </div>
         <span className={`state-chip ${state}`}>{state}</span>
       </section>
@@ -68,8 +75,8 @@ export function AgentDetail({
             <h3>Placement</h3>
           </div>
           {current.placement && (
-            <span className="generation-label">
-              Generation {current.placement.generation.toString()}
+            <span className="revision-label">
+              Desired revision {current.placement.desiredRevision.toString()}
             </span>
           )}
         </header>
@@ -84,7 +91,23 @@ export function AgentDetail({
                 : "Not placed")
             }
           />
-          <Fact label="Driver" value={driverLabel(current.agent.driver)} />
+          <Fact label="Handle" value={`@${current.agent.handle}`} />
+          <Fact label="Role" value={current.agent.profile?.role ?? "Unknown"} />
+          <Fact
+            label="Profile revision"
+            value={current.agent.profile?.revision.toString() ?? "Unknown"}
+          />
+          <Fact
+            label="Engine"
+            value={engineKindLabel(current.placement?.runtimeSpec?.engine)}
+          />
+          <Fact
+            label="Runtime spec revision"
+            value={
+              current.placement?.runtimeSpec?.revision.toString() ??
+              "Not configured"
+            }
+          />
           <Fact
             label="Updated"
             value={formatTimestamp(current.placement?.updatedAt)}
@@ -97,10 +120,13 @@ export function AgentDetail({
             detail={current.placement.errorCode}
           />
         )}
-        <p className="readonly-note">
-          Placement changes are not available in this read-only view.
-        </p>
       </section>
+      <RuntimeConfiguration
+        agent={current.agent}
+        placement={current.placement}
+        computers={computers}
+        onConfigured={detail.reload}
+      />
       <section className="detail-section diagnostics-section">
         <header>
           <div>
@@ -110,6 +136,10 @@ export function AgentDetail({
         </header>
         <dl className="diagnostic-list">
           <Fact label="Agent ID" value={current.agent.id} mono />
+          <Fact
+            label="Profile created"
+            value={formatTimestamp(current.agent.profile?.createdAt)}
+          />
           <Fact
             label="Created"
             value={formatTimestamp(current.agent.createdAt)}

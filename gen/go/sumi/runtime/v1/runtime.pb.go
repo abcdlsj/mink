@@ -23,14 +23,14 @@ const (
 )
 
 type AgentRuntimeSession struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	AgentId             string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	ComputerId          string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	PlacementGeneration uint64                 `protobuf:"varint,3,opt,name=placement_generation,json=placementGeneration,proto3" json:"placement_generation,omitempty"`
-	Token               string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	ExpiresAt           *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	AgentId                  string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ComputerId               string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	PlacementDesiredRevision uint64                 `protobuf:"varint,3,opt,name=placement_desired_revision,json=placementDesiredRevision,proto3" json:"placement_desired_revision,omitempty"`
+	Token                    string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	ExpiresAt                *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *AgentRuntimeSession) Reset() {
@@ -77,9 +77,9 @@ func (x *AgentRuntimeSession) GetComputerId() string {
 	return ""
 }
 
-func (x *AgentRuntimeSession) GetPlacementGeneration() uint64 {
+func (x *AgentRuntimeSession) GetPlacementDesiredRevision() uint64 {
 	if x != nil {
-		return x.PlacementGeneration
+		return x.PlacementDesiredRevision
 	}
 	return 0
 }
@@ -99,13 +99,13 @@ func (x *AgentRuntimeSession) GetExpiresAt() *timestamppb.Timestamp {
 }
 
 type CreateAgentRuntimeSessionRequest struct {
-	state               protoimpl.MessageState `protogen:"open.v1"`
-	ComputerId          string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	RegistrationKey     string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
-	AgentId             string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	PlacementGeneration uint64                 `protobuf:"varint,4,opt,name=placement_generation,json=placementGeneration,proto3" json:"placement_generation,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	ComputerId               string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RegistrationKey          string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	AgentId                  string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	PlacementDesiredRevision uint64                 `protobuf:"varint,4,opt,name=placement_desired_revision,json=placementDesiredRevision,proto3" json:"placement_desired_revision,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CreateAgentRuntimeSessionRequest) Reset() {
@@ -159,9 +159,9 @@ func (x *CreateAgentRuntimeSessionRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *CreateAgentRuntimeSessionRequest) GetPlacementGeneration() uint64 {
+func (x *CreateAgentRuntimeSessionRequest) GetPlacementDesiredRevision() uint64 {
 	if x != nil {
-		return x.PlacementGeneration
+		return x.PlacementDesiredRevision
 	}
 	return 0
 }
@@ -398,21 +398,21 @@ var File_sumi_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_sumi_runtime_v1_runtime_proto_rawDesc = "" +
 	"\n" +
-	"\x1dsumi/runtime/v1/runtime.proto\x12\x0fsumi.runtime.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x01\n" +
+	"\x1dsumi/runtime/v1/runtime.proto\x12\x0fsumi.runtime.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
 	"\x13AgentRuntimeSession\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcomputer_id\x18\x02 \x01(\tR\n" +
-	"computerId\x121\n" +
-	"\x14placement_generation\x18\x03 \x01(\x04R\x13placementGeneration\x12\x14\n" +
+	"computerId\x12<\n" +
+	"\x1aplacement_desired_revision\x18\x03 \x01(\x04R\x18placementDesiredRevision\x12\x14\n" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xbc\x01\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xc7\x01\n" +
 	" CreateAgentRuntimeSessionRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
 	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x121\n" +
-	"\x14placement_generation\x18\x04 \x01(\x04R\x13placementGeneration\"c\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12<\n" +
+	"\x1aplacement_desired_revision\x18\x04 \x01(\x04R\x18placementDesiredRevision\"c\n" +
 	"!CreateAgentRuntimeSessionResponse\x12>\n" +
 	"\asession\x18\x01 \x01(\v2$.sumi.runtime.v1.AgentRuntimeSessionR\asession\"m\n" +
 	"\x1fRenewAgentRuntimeSessionRequest\x12\x1f\n" +

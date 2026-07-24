@@ -62,7 +62,7 @@ func TestOpenRejectsPreviousFinalSchemaMarker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := raw.Exec(`UPDATE system_metadata SET value = '2' WHERE key = 'schema_version'`); err != nil {
+	if _, err := raw.Exec(`UPDATE system_metadata SET value = '3' WHERE key = 'schema_version'`); err != nil {
 		raw.Close()
 		t.Fatal(err)
 	}
@@ -83,29 +83,18 @@ func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 	defer store.Close()
 
 	future := time.Date(2030, 1, 1, 0, 0, 0, 123, time.UTC)
-	params := RegisterComputerParams{
-		RegistrationKey: "monotonic-computer-key",
-		Name:            "Future host",
-		OS:              "linux",
-		Arch:            "amd64",
-		Now:             future,
-	}
-	computer, err := store.RegisterComputer(context.Background(), params)
+	bootstrap, err := store.EnsureAuthority(context.Background(), "last-seen-owner-credential-abcdefghijklmnopqrstuvwxyz", future)
 	if err != nil {
 		t.Fatal(err)
 	}
+	owner := Principal{Kind: PrincipalHuman, ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	registrationKey := "monotonic-computer-key"
+	inventory := testCapabilityInventory("test", true)
+	computer := pairTestComputer(t, store, owner, registrationKey, inventory, future)
 
 	earlier := future.Add(-time.Hour)
-	params.Now = earlier
-	registered, err := store.RegisterComputer(context.Background(), params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !registered.LastSeenAt.Equal(future) {
-		t.Fatalf("earlier registration moved last_seen_at to %s", registered.LastSeenAt)
-	}
 	heartbeat, err := store.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
-		ComputerID: computer.ID, RegistrationKey: params.RegistrationKey, Now: earlier,
+		ComputerID: computer.ID, RegistrationKey: registrationKey, CapabilityInventory: inventory, Now: earlier,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +105,7 @@ func TestComputerLastSeenNeverMovesBackward(t *testing.T) {
 
 	later := future.Add(time.Hour)
 	heartbeat, err = store.HeartbeatComputer(context.Background(), HeartbeatComputerParams{
-		ComputerID: computer.ID, RegistrationKey: params.RegistrationKey, Now: later,
+		ComputerID: computer.ID, RegistrationKey: registrationKey, CapabilityInventory: inventory, Now: later,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -139,18 +128,14 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 	owner := Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 
 	params := CreateAgentParams{
-		RequestID:   uuid.NewString(),
-		Actor:       owner,
-		Name:        "receipt-agent",
-		Description: "original description",
-		Driver:      "native",
-		Now:         time.Now(),
+		RequestID: uuid.NewString(), Actor: owner, Handle: "receipt-agent", DisplayName: "Receipt Agent",
+		Role: "tester", Mission: "Verify immutable request receipts", Instructions: "Preserve request identity.", Now: time.Now(),
 	}
 	agent, err := store.CreateAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := agentPayloadFingerprint(params)
+	expected, err := agentCreateFingerprint(params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,18 +147,25 @@ func TestAgentRequestReceiptKeepsOriginalFingerprint(t *testing.T) {
 		t.Fatalf("stored fingerprint = %x, want %x", stored, expected)
 	}
 
-	if _, err := store.db.Exec("UPDATE agents SET description = ?, updated_at = ? WHERE id = ?", "current description", unixNano(params.Now.Add(time.Hour)), agent.ID); err != nil {
+	updated, err := store.UpdateAgentProfile(context.Background(), UpdateAgentProfileParams{
+		RequestID: uuid.NewString(), Actor: owner, AgentID: agent.ID, ExpectedRevision: 1,
+		DisplayName: "Current Agent", Role: params.Role, Mission: params.Mission, Instructions: params.Instructions, Now: params.Now.Add(time.Hour),
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	replayed, err := store.CreateAgent(context.Background(), params)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayed.Description != "current description" {
-		t.Fatalf("idempotent replay returned %q", replayed.Description)
+	if replayed.Profile.Revision != 1 || replayed.Profile.DisplayName != params.DisplayName {
+		t.Fatalf("create replay = %+v, want immutable revision 1", replayed.Profile)
+	}
+	if updated.Profile.Revision != 2 || updated.Profile.DisplayName != "Current Agent" {
+		t.Fatalf("updated profile = %+v", updated.Profile)
 	}
 
-	params.Description = "current description"
+	params.DisplayName = "Current Agent"
 	_, err = store.CreateAgent(context.Background(), params)
 	if !errors.Is(err, ErrAgentRequestConflict) {
 		t.Fatalf("changed payload error = %v, want %v", err, ErrAgentRequestConflict)

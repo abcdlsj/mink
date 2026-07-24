@@ -7,6 +7,7 @@
 package computerv1
 
 import (
+	v1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -488,6 +489,263 @@ func (SandboxDaemonCrashCleanup) EnumDescriptor() ([]byte, []int) {
 	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
 }
 
+type CapabilityHealth int32
+
+const (
+	CapabilityHealth_CAPABILITY_HEALTH_UNSPECIFIED CapabilityHealth = 0
+	CapabilityHealth_CAPABILITY_HEALTH_HEALTHY     CapabilityHealth = 1
+	CapabilityHealth_CAPABILITY_HEALTH_UNAVAILABLE CapabilityHealth = 2
+)
+
+// Enum value maps for CapabilityHealth.
+var (
+	CapabilityHealth_name = map[int32]string{
+		0: "CAPABILITY_HEALTH_UNSPECIFIED",
+		1: "CAPABILITY_HEALTH_HEALTHY",
+		2: "CAPABILITY_HEALTH_UNAVAILABLE",
+	}
+	CapabilityHealth_value = map[string]int32{
+		"CAPABILITY_HEALTH_UNSPECIFIED": 0,
+		"CAPABILITY_HEALTH_HEALTHY":     1,
+		"CAPABILITY_HEALTH_UNAVAILABLE": 2,
+	}
+)
+
+func (x CapabilityHealth) Enum() *CapabilityHealth {
+	p := new(CapabilityHealth)
+	*p = x
+	return p
+}
+
+func (x CapabilityHealth) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CapabilityHealth) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[10].Descriptor()
+}
+
+func (CapabilityHealth) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[10]
+}
+
+func (x CapabilityHealth) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CapabilityHealth.Descriptor instead.
+func (CapabilityHealth) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
+}
+
+type CredentialDeliveryAlgorithm int32
+
+const (
+	CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED               CredentialDeliveryAlgorithm = 0
+	CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 CredentialDeliveryAlgorithm = 1
+)
+
+// Enum value maps for CredentialDeliveryAlgorithm.
+var (
+	CredentialDeliveryAlgorithm_name = map[int32]string{
+		0: "CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED",
+		1: "CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305",
+	}
+	CredentialDeliveryAlgorithm_value = map[string]int32{
+		"CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED":               0,
+		"CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305": 1,
+	}
+)
+
+func (x CredentialDeliveryAlgorithm) Enum() *CredentialDeliveryAlgorithm {
+	p := new(CredentialDeliveryAlgorithm)
+	*p = x
+	return p
+}
+
+func (x CredentialDeliveryAlgorithm) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CredentialDeliveryAlgorithm) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[11].Descriptor()
+}
+
+func (CredentialDeliveryAlgorithm) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[11]
+}
+
+func (x CredentialDeliveryAlgorithm) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CredentialDeliveryAlgorithm.Descriptor instead.
+func (CredentialDeliveryAlgorithm) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{11}
+}
+
+type CredentialStore int32
+
+const (
+	CredentialStore_CREDENTIAL_STORE_UNSPECIFIED          CredentialStore = 0
+	CredentialStore_CREDENTIAL_STORE_MACOS_KEYCHAIN       CredentialStore = 1
+	CredentialStore_CREDENTIAL_STORE_LINUX_SECRET_SERVICE CredentialStore = 2
+)
+
+// Enum value maps for CredentialStore.
+var (
+	CredentialStore_name = map[int32]string{
+		0: "CREDENTIAL_STORE_UNSPECIFIED",
+		1: "CREDENTIAL_STORE_MACOS_KEYCHAIN",
+		2: "CREDENTIAL_STORE_LINUX_SECRET_SERVICE",
+	}
+	CredentialStore_value = map[string]int32{
+		"CREDENTIAL_STORE_UNSPECIFIED":          0,
+		"CREDENTIAL_STORE_MACOS_KEYCHAIN":       1,
+		"CREDENTIAL_STORE_LINUX_SECRET_SERVICE": 2,
+	}
+)
+
+func (x CredentialStore) Enum() *CredentialStore {
+	p := new(CredentialStore)
+	*p = x
+	return p
+}
+
+func (x CredentialStore) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CredentialStore) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[12].Descriptor()
+}
+
+func (CredentialStore) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[12]
+}
+
+func (x CredentialStore) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CredentialStore.Descriptor instead.
+func (CredentialStore) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{12}
+}
+
+type CredentialDeliveryState int32
+
+const (
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_UNSPECIFIED CredentialDeliveryState = 0
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_QUEUED      CredentialDeliveryState = 1
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_CLAIMED     CredentialDeliveryState = 2
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_SUCCEEDED   CredentialDeliveryState = 3
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_FAILED      CredentialDeliveryState = 4
+	CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_EXPIRED     CredentialDeliveryState = 5
+)
+
+// Enum value maps for CredentialDeliveryState.
+var (
+	CredentialDeliveryState_name = map[int32]string{
+		0: "CREDENTIAL_DELIVERY_STATE_UNSPECIFIED",
+		1: "CREDENTIAL_DELIVERY_STATE_QUEUED",
+		2: "CREDENTIAL_DELIVERY_STATE_CLAIMED",
+		3: "CREDENTIAL_DELIVERY_STATE_SUCCEEDED",
+		4: "CREDENTIAL_DELIVERY_STATE_FAILED",
+		5: "CREDENTIAL_DELIVERY_STATE_EXPIRED",
+	}
+	CredentialDeliveryState_value = map[string]int32{
+		"CREDENTIAL_DELIVERY_STATE_UNSPECIFIED": 0,
+		"CREDENTIAL_DELIVERY_STATE_QUEUED":      1,
+		"CREDENTIAL_DELIVERY_STATE_CLAIMED":     2,
+		"CREDENTIAL_DELIVERY_STATE_SUCCEEDED":   3,
+		"CREDENTIAL_DELIVERY_STATE_FAILED":      4,
+		"CREDENTIAL_DELIVERY_STATE_EXPIRED":     5,
+	}
+)
+
+func (x CredentialDeliveryState) Enum() *CredentialDeliveryState {
+	p := new(CredentialDeliveryState)
+	*p = x
+	return p
+}
+
+func (x CredentialDeliveryState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CredentialDeliveryState) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[13].Descriptor()
+}
+
+func (CredentialDeliveryState) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[13]
+}
+
+func (x CredentialDeliveryState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CredentialDeliveryState.Descriptor instead.
+func (CredentialDeliveryState) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{13}
+}
+
+type CredentialKind int32
+
+const (
+	CredentialKind_CREDENTIAL_KIND_UNSPECIFIED    CredentialKind = 0
+	CredentialKind_CREDENTIAL_KIND_OPENAI         CredentialKind = 1
+	CredentialKind_CREDENTIAL_KIND_ANTHROPIC      CredentialKind = 2
+	CredentialKind_CREDENTIAL_KIND_CODEX_ADAPTER  CredentialKind = 3
+	CredentialKind_CREDENTIAL_KIND_CLAUDE_ADAPTER CredentialKind = 4
+)
+
+// Enum value maps for CredentialKind.
+var (
+	CredentialKind_name = map[int32]string{
+		0: "CREDENTIAL_KIND_UNSPECIFIED",
+		1: "CREDENTIAL_KIND_OPENAI",
+		2: "CREDENTIAL_KIND_ANTHROPIC",
+		3: "CREDENTIAL_KIND_CODEX_ADAPTER",
+		4: "CREDENTIAL_KIND_CLAUDE_ADAPTER",
+	}
+	CredentialKind_value = map[string]int32{
+		"CREDENTIAL_KIND_UNSPECIFIED":    0,
+		"CREDENTIAL_KIND_OPENAI":         1,
+		"CREDENTIAL_KIND_ANTHROPIC":      2,
+		"CREDENTIAL_KIND_CODEX_ADAPTER":  3,
+		"CREDENTIAL_KIND_CLAUDE_ADAPTER": 4,
+	}
+)
+
+func (x CredentialKind) Enum() *CredentialKind {
+	p := new(CredentialKind)
+	*p = x
+	return p
+}
+
+func (x CredentialKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CredentialKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_computer_v1_computer_proto_enumTypes[14].Descriptor()
+}
+
+func (CredentialKind) Type() protoreflect.EnumType {
+	return &file_sumi_computer_v1_computer_proto_enumTypes[14]
+}
+
+func (x CredentialKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CredentialKind.Descriptor instead.
+func (CredentialKind) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{14}
+}
+
 type SandboxCapability struct {
 	state                 protoimpl.MessageState       `protogen:"open.v1"`
 	Provider              SandboxProvider              `protobuf:"varint,1,opt,name=provider,proto3,enum=sumi.computer.v1.SandboxProvider" json:"provider,omitempty"`
@@ -588,25 +846,328 @@ func (x *SandboxCapability) GetDaemonCrashCleanup() SandboxDaemonCrashCleanup {
 	return SandboxDaemonCrashCleanup_SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED
 }
 
+type EngineCapability struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	Engine            v1.EngineKind          `protobuf:"varint,1,opt,name=engine,proto3,enum=sumi.agent.v1.EngineKind" json:"engine,omitempty"`
+	Version           string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	ProtocolVersion   uint32                 `protobuf:"varint,3,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	SupportsToolCalls bool                   `protobuf:"varint,4,opt,name=supports_tool_calls,json=supportsToolCalls,proto3" json:"supports_tool_calls,omitempty"`
+	SupportsCancel    bool                   `protobuf:"varint,5,opt,name=supports_cancel,json=supportsCancel,proto3" json:"supports_cancel,omitempty"`
+	ProviderProtocols []v1.ProviderProtocol  `protobuf:"varint,6,rep,packed,name=provider_protocols,json=providerProtocols,proto3,enum=sumi.agent.v1.ProviderProtocol" json:"provider_protocols,omitempty"`
+	Health            CapabilityHealth       `protobuf:"varint,7,opt,name=health,proto3,enum=sumi.computer.v1.CapabilityHealth" json:"health,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *EngineCapability) Reset() {
+	*x = EngineCapability{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineCapability) ProtoMessage() {}
+
+func (x *EngineCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineCapability.ProtoReflect.Descriptor instead.
+func (*EngineCapability) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *EngineCapability) GetEngine() v1.EngineKind {
+	if x != nil {
+		return x.Engine
+	}
+	return v1.EngineKind(0)
+}
+
+func (x *EngineCapability) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *EngineCapability) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *EngineCapability) GetSupportsToolCalls() bool {
+	if x != nil {
+		return x.SupportsToolCalls
+	}
+	return false
+}
+
+func (x *EngineCapability) GetSupportsCancel() bool {
+	if x != nil {
+		return x.SupportsCancel
+	}
+	return false
+}
+
+func (x *EngineCapability) GetProviderProtocols() []v1.ProviderProtocol {
+	if x != nil {
+		return x.ProviderProtocols
+	}
+	return nil
+}
+
+func (x *EngineCapability) GetHealth() CapabilityHealth {
+	if x != nil {
+		return x.Health
+	}
+	return CapabilityHealth_CAPABILITY_HEALTH_UNSPECIFIED
+}
+
+type CredentialDeliveryCapability struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Health        CapabilityHealth            `protobuf:"varint,1,opt,name=health,proto3,enum=sumi.computer.v1.CapabilityHealth" json:"health,omitempty"`
+	Algorithm     CredentialDeliveryAlgorithm `protobuf:"varint,2,opt,name=algorithm,proto3,enum=sumi.computer.v1.CredentialDeliveryAlgorithm" json:"algorithm,omitempty"`
+	Store         CredentialStore             `protobuf:"varint,3,opt,name=store,proto3,enum=sumi.computer.v1.CredentialStore" json:"store,omitempty"`
+	KeyId         string                      `protobuf:"bytes,4,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	PublicKey     []byte                      `protobuf:"bytes,5,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CredentialDeliveryCapability) Reset() {
+	*x = CredentialDeliveryCapability{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CredentialDeliveryCapability) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CredentialDeliveryCapability) ProtoMessage() {}
+
+func (x *CredentialDeliveryCapability) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CredentialDeliveryCapability.ProtoReflect.Descriptor instead.
+func (*CredentialDeliveryCapability) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *CredentialDeliveryCapability) GetHealth() CapabilityHealth {
+	if x != nil {
+		return x.Health
+	}
+	return CapabilityHealth_CAPABILITY_HEALTH_UNSPECIFIED
+}
+
+func (x *CredentialDeliveryCapability) GetAlgorithm() CredentialDeliveryAlgorithm {
+	if x != nil {
+		return x.Algorithm
+	}
+	return CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED
+}
+
+func (x *CredentialDeliveryCapability) GetStore() CredentialStore {
+	if x != nil {
+		return x.Store
+	}
+	return CredentialStore_CREDENTIAL_STORE_UNSPECIFIED
+}
+
+func (x *CredentialDeliveryCapability) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+func (x *CredentialDeliveryCapability) GetPublicKey() []byte {
+	if x != nil {
+		return x.PublicKey
+	}
+	return nil
+}
+
+type CapabilityInventoryDeclaration struct {
+	state              protoimpl.MessageState        `protogen:"open.v1"`
+	Engines            []*EngineCapability           `protobuf:"bytes,1,rep,name=engines,proto3" json:"engines,omitempty"`
+	Sandboxes          []*SandboxCapability          `protobuf:"bytes,2,rep,name=sandboxes,proto3" json:"sandboxes,omitempty"`
+	CredentialDelivery *CredentialDeliveryCapability `protobuf:"bytes,3,opt,name=credential_delivery,json=credentialDelivery,proto3" json:"credential_delivery,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CapabilityInventoryDeclaration) Reset() {
+	*x = CapabilityInventoryDeclaration{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityInventoryDeclaration) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityInventoryDeclaration) ProtoMessage() {}
+
+func (x *CapabilityInventoryDeclaration) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityInventoryDeclaration.ProtoReflect.Descriptor instead.
+func (*CapabilityInventoryDeclaration) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CapabilityInventoryDeclaration) GetEngines() []*EngineCapability {
+	if x != nil {
+		return x.Engines
+	}
+	return nil
+}
+
+func (x *CapabilityInventoryDeclaration) GetSandboxes() []*SandboxCapability {
+	if x != nil {
+		return x.Sandboxes
+	}
+	return nil
+}
+
+func (x *CapabilityInventoryDeclaration) GetCredentialDelivery() *CredentialDeliveryCapability {
+	if x != nil {
+		return x.CredentialDelivery
+	}
+	return nil
+}
+
+type CapabilityInventory struct {
+	state              protoimpl.MessageState        `protogen:"open.v1"`
+	Revision           uint64                        `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	Engines            []*EngineCapability           `protobuf:"bytes,2,rep,name=engines,proto3" json:"engines,omitempty"`
+	Sandboxes          []*SandboxCapability          `protobuf:"bytes,3,rep,name=sandboxes,proto3" json:"sandboxes,omitempty"`
+	CredentialDelivery *CredentialDeliveryCapability `protobuf:"bytes,4,opt,name=credential_delivery,json=credentialDelivery,proto3" json:"credential_delivery,omitempty"`
+	DeclaredAt         *timestamppb.Timestamp        `protobuf:"bytes,5,opt,name=declared_at,json=declaredAt,proto3" json:"declared_at,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *CapabilityInventory) Reset() {
+	*x = CapabilityInventory{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CapabilityInventory) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CapabilityInventory) ProtoMessage() {}
+
+func (x *CapabilityInventory) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CapabilityInventory.ProtoReflect.Descriptor instead.
+func (*CapabilityInventory) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CapabilityInventory) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *CapabilityInventory) GetEngines() []*EngineCapability {
+	if x != nil {
+		return x.Engines
+	}
+	return nil
+}
+
+func (x *CapabilityInventory) GetSandboxes() []*SandboxCapability {
+	if x != nil {
+		return x.Sandboxes
+	}
+	return nil
+}
+
+func (x *CapabilityInventory) GetCredentialDelivery() *CredentialDeliveryCapability {
+	if x != nil {
+		return x.CredentialDelivery
+	}
+	return nil
+}
+
+func (x *CapabilityInventory) GetDeclaredAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.DeclaredAt
+	}
+	return nil
+}
+
 type Computer struct {
-	state                      protoimpl.MessageState `protogen:"open.v1"`
-	Id                         string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name                       string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Os                         OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
-	Arch                       Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
-	CreatedAt                  *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	LastSeenAt                 *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
-	Online                     bool                   `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
-	ConnectivityExpiresAt      *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=connectivity_expires_at,json=connectivityExpiresAt,proto3" json:"connectivity_expires_at,omitempty"`
-	SandboxCapability          *SandboxCapability     `protobuf:"bytes,9,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
-	SandboxDeclarationRevision uint64                 `protobuf:"varint,10,opt,name=sandbox_declaration_revision,json=sandboxDeclarationRevision,proto3" json:"sandbox_declaration_revision,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Os                    OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
+	Arch                  Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	CreatedAt             *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastSeenAt            *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=last_seen_at,json=lastSeenAt,proto3" json:"last_seen_at,omitempty"`
+	Online                bool                   `protobuf:"varint,7,opt,name=online,proto3" json:"online,omitempty"`
+	ConnectivityExpiresAt *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=connectivity_expires_at,json=connectivityExpiresAt,proto3" json:"connectivity_expires_at,omitempty"`
+	CapabilityInventory   *CapabilityInventory   `protobuf:"bytes,9,opt,name=capability_inventory,json=capabilityInventory,proto3" json:"capability_inventory,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *Computer) Reset() {
 	*x = Computer{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -618,7 +1179,7 @@ func (x *Computer) String() string {
 func (*Computer) ProtoMessage() {}
 
 func (x *Computer) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[1]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -631,7 +1192,7 @@ func (x *Computer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Computer.ProtoReflect.Descriptor instead.
 func (*Computer) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{1}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Computer) GetId() string {
@@ -690,18 +1251,11 @@ func (x *Computer) GetConnectivityExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Computer) GetSandboxCapability() *SandboxCapability {
+func (x *Computer) GetCapabilityInventory() *CapabilityInventory {
 	if x != nil {
-		return x.SandboxCapability
+		return x.CapabilityInventory
 	}
 	return nil
-}
-
-func (x *Computer) GetSandboxDeclarationRevision() uint64 {
-	if x != nil {
-		return x.SandboxDeclarationRevision
-	}
-	return 0
 }
 
 type CreateComputerPairingRequest struct {
@@ -715,7 +1269,7 @@ type CreateComputerPairingRequest struct {
 
 func (x *CreateComputerPairingRequest) Reset() {
 	*x = CreateComputerPairingRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -727,7 +1281,7 @@ func (x *CreateComputerPairingRequest) String() string {
 func (*CreateComputerPairingRequest) ProtoMessage() {}
 
 func (x *CreateComputerPairingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[2]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -740,7 +1294,7 @@ func (x *CreateComputerPairingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateComputerPairingRequest.ProtoReflect.Descriptor instead.
 func (*CreateComputerPairingRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{2}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateComputerPairingRequest) GetRequestId() string {
@@ -774,7 +1328,7 @@ type CreateComputerPairingResponse struct {
 
 func (x *CreateComputerPairingResponse) Reset() {
 	*x = CreateComputerPairingResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -786,7 +1340,7 @@ func (x *CreateComputerPairingResponse) String() string {
 func (*CreateComputerPairingResponse) ProtoMessage() {}
 
 func (x *CreateComputerPairingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[3]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -799,7 +1353,7 @@ func (x *CreateComputerPairingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateComputerPairingResponse.ProtoReflect.Descriptor instead.
 func (*CreateComputerPairingResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{3}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateComputerPairingResponse) GetPairingId() string {
@@ -817,21 +1371,21 @@ func (x *CreateComputerPairingResponse) GetExpiresAt() *timestamppb.Timestamp {
 }
 
 type RegisterComputerRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	RegistrationKey   string                 `protobuf:"bytes,1,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
-	Name              string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Os                OperatingSystem        `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
-	Arch              Architecture           `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
-	RequestId         string                 `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	PairingToken      string                 `protobuf:"bytes,6,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
-	SandboxCapability *SandboxCapability     `protobuf:"bytes,7,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState          `protogen:"open.v1"`
+	RegistrationKey     string                          `protobuf:"bytes,1,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	Name                string                          `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Os                  OperatingSystem                 `protobuf:"varint,3,opt,name=os,proto3,enum=sumi.computer.v1.OperatingSystem" json:"os,omitempty"`
+	Arch                Architecture                    `protobuf:"varint,4,opt,name=arch,proto3,enum=sumi.computer.v1.Architecture" json:"arch,omitempty"`
+	RequestId           string                          `protobuf:"bytes,5,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	PairingToken        string                          `protobuf:"bytes,6,opt,name=pairing_token,json=pairingToken,proto3" json:"pairing_token,omitempty"`
+	CapabilityInventory *CapabilityInventoryDeclaration `protobuf:"bytes,7,opt,name=capability_inventory,json=capabilityInventory,proto3" json:"capability_inventory,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RegisterComputerRequest) Reset() {
 	*x = RegisterComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -843,7 +1397,7 @@ func (x *RegisterComputerRequest) String() string {
 func (*RegisterComputerRequest) ProtoMessage() {}
 
 func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[4]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -856,7 +1410,7 @@ func (x *RegisterComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerRequest.ProtoReflect.Descriptor instead.
 func (*RegisterComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{4}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RegisterComputerRequest) GetRegistrationKey() string {
@@ -901,9 +1455,9 @@ func (x *RegisterComputerRequest) GetPairingToken() string {
 	return ""
 }
 
-func (x *RegisterComputerRequest) GetSandboxCapability() *SandboxCapability {
+func (x *RegisterComputerRequest) GetCapabilityInventory() *CapabilityInventoryDeclaration {
 	if x != nil {
-		return x.SandboxCapability
+		return x.CapabilityInventory
 	}
 	return nil
 }
@@ -917,7 +1471,7 @@ type RegisterComputerResponse struct {
 
 func (x *RegisterComputerResponse) Reset() {
 	*x = RegisterComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -929,7 +1483,7 @@ func (x *RegisterComputerResponse) String() string {
 func (*RegisterComputerResponse) ProtoMessage() {}
 
 func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[5]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -942,7 +1496,7 @@ func (x *RegisterComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterComputerResponse.ProtoReflect.Descriptor instead.
 func (*RegisterComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{5}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RegisterComputerResponse) GetComputer() *Computer {
@@ -953,17 +1507,17 @@ func (x *RegisterComputerResponse) GetComputer() *Computer {
 }
 
 type HeartbeatComputerRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	ComputerId        string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	RegistrationKey   string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
-	SandboxCapability *SandboxCapability     `protobuf:"bytes,3,opt,name=sandbox_capability,json=sandboxCapability,proto3" json:"sandbox_capability,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state               protoimpl.MessageState          `protogen:"open.v1"`
+	ComputerId          string                          `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RegistrationKey     string                          `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	CapabilityInventory *CapabilityInventoryDeclaration `protobuf:"bytes,3,opt,name=capability_inventory,json=capabilityInventory,proto3" json:"capability_inventory,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *HeartbeatComputerRequest) Reset() {
 	*x = HeartbeatComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -975,7 +1529,7 @@ func (x *HeartbeatComputerRequest) String() string {
 func (*HeartbeatComputerRequest) ProtoMessage() {}
 
 func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[6]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -988,7 +1542,7 @@ func (x *HeartbeatComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{6}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *HeartbeatComputerRequest) GetComputerId() string {
@@ -1005,9 +1559,9 @@ func (x *HeartbeatComputerRequest) GetRegistrationKey() string {
 	return ""
 }
 
-func (x *HeartbeatComputerRequest) GetSandboxCapability() *SandboxCapability {
+func (x *HeartbeatComputerRequest) GetCapabilityInventory() *CapabilityInventoryDeclaration {
 	if x != nil {
-		return x.SandboxCapability
+		return x.CapabilityInventory
 	}
 	return nil
 }
@@ -1021,7 +1575,7 @@ type HeartbeatComputerResponse struct {
 
 func (x *HeartbeatComputerResponse) Reset() {
 	*x = HeartbeatComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1033,7 +1587,7 @@ func (x *HeartbeatComputerResponse) String() string {
 func (*HeartbeatComputerResponse) ProtoMessage() {}
 
 func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[7]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1600,7 @@ func (x *HeartbeatComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatComputerResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{7}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *HeartbeatComputerResponse) GetComputer() *Computer {
@@ -1065,7 +1619,7 @@ type GetComputerRequest struct {
 
 func (x *GetComputerRequest) Reset() {
 	*x = GetComputerRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1077,7 +1631,7 @@ func (x *GetComputerRequest) String() string {
 func (*GetComputerRequest) ProtoMessage() {}
 
 func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[8]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1090,7 +1644,7 @@ func (x *GetComputerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerRequest.ProtoReflect.Descriptor instead.
 func (*GetComputerRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{8}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetComputerRequest) GetComputerId() string {
@@ -1109,7 +1663,7 @@ type GetComputerResponse struct {
 
 func (x *GetComputerResponse) Reset() {
 	*x = GetComputerResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1121,7 +1675,7 @@ func (x *GetComputerResponse) String() string {
 func (*GetComputerResponse) ProtoMessage() {}
 
 func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[9]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1134,7 +1688,7 @@ func (x *GetComputerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetComputerResponse.ProtoReflect.Descriptor instead.
 func (*GetComputerResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{9}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetComputerResponse) GetComputer() *Computer {
@@ -1152,7 +1706,7 @@ type ListComputersRequest struct {
 
 func (x *ListComputersRequest) Reset() {
 	*x = ListComputersRequest{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1718,7 @@ func (x *ListComputersRequest) String() string {
 func (*ListComputersRequest) ProtoMessage() {}
 
 func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[10]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1731,7 @@ func (x *ListComputersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersRequest.ProtoReflect.Descriptor instead.
 func (*ListComputersRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{10}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{14}
 }
 
 type ListComputersResponse struct {
@@ -1189,7 +1743,7 @@ type ListComputersResponse struct {
 
 func (x *ListComputersResponse) Reset() {
 	*x = ListComputersResponse{}
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1201,7 +1755,7 @@ func (x *ListComputersResponse) String() string {
 func (*ListComputersResponse) ProtoMessage() {}
 
 func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_computer_v1_computer_proto_msgTypes[11]
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1214,7 +1768,7 @@ func (x *ListComputersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListComputersResponse.ProtoReflect.Descriptor instead.
 func (*ListComputersResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{11}
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListComputersResponse) GetComputers() []*Computer {
@@ -1224,11 +1778,659 @@ func (x *ListComputersResponse) GetComputers() []*Computer {
 	return nil
 }
 
+type SealedCredential struct {
+	state              protoimpl.MessageState      `protogen:"open.v1"`
+	Algorithm          CredentialDeliveryAlgorithm `protobuf:"varint,1,opt,name=algorithm,proto3,enum=sumi.computer.v1.CredentialDeliveryAlgorithm" json:"algorithm,omitempty"`
+	KeyId              string                      `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	EphemeralPublicKey []byte                      `protobuf:"bytes,3,opt,name=ephemeral_public_key,json=ephemeralPublicKey,proto3" json:"ephemeral_public_key,omitempty"`
+	Nonce              []byte                      `protobuf:"bytes,4,opt,name=nonce,proto3" json:"nonce,omitempty"`
+	Ciphertext         []byte                      `protobuf:"bytes,5,opt,name=ciphertext,proto3" json:"ciphertext,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *SealedCredential) Reset() {
+	*x = SealedCredential{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SealedCredential) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SealedCredential) ProtoMessage() {}
+
+func (x *SealedCredential) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SealedCredential.ProtoReflect.Descriptor instead.
+func (*SealedCredential) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *SealedCredential) GetAlgorithm() CredentialDeliveryAlgorithm {
+	if x != nil {
+		return x.Algorithm
+	}
+	return CredentialDeliveryAlgorithm_CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED
+}
+
+func (x *SealedCredential) GetKeyId() string {
+	if x != nil {
+		return x.KeyId
+	}
+	return ""
+}
+
+func (x *SealedCredential) GetEphemeralPublicKey() []byte {
+	if x != nil {
+		return x.EphemeralPublicKey
+	}
+	return nil
+}
+
+func (x *SealedCredential) GetNonce() []byte {
+	if x != nil {
+		return x.Nonce
+	}
+	return nil
+}
+
+func (x *SealedCredential) GetCiphertext() []byte {
+	if x != nil {
+		return x.Ciphertext
+	}
+	return nil
+}
+
+type CredentialDelivery struct {
+	state            protoimpl.MessageState  `protogen:"open.v1"`
+	Id               string                  `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	RequestId        string                  `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ComputerId       string                  `protobuf:"bytes,3,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	AgentId          string                  `protobuf:"bytes,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	CredentialKind   CredentialKind          `protobuf:"varint,5,opt,name=credential_kind,json=credentialKind,proto3,enum=sumi.computer.v1.CredentialKind" json:"credential_kind,omitempty"`
+	SealedCredential *SealedCredential       `protobuf:"bytes,6,opt,name=sealed_credential,json=sealedCredential,proto3" json:"sealed_credential,omitempty"`
+	State            CredentialDeliveryState `protobuf:"varint,7,opt,name=state,proto3,enum=sumi.computer.v1.CredentialDeliveryState" json:"state,omitempty"`
+	BindingHandle    string                  `protobuf:"bytes,8,opt,name=binding_handle,json=bindingHandle,proto3" json:"binding_handle,omitempty"`
+	ErrorCode        string                  `protobuf:"bytes,9,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	ExpiresAt        *timestamppb.Timestamp  `protobuf:"bytes,10,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	CreatedAt        *timestamppb.Timestamp  `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp  `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CredentialDelivery) Reset() {
+	*x = CredentialDelivery{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CredentialDelivery) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CredentialDelivery) ProtoMessage() {}
+
+func (x *CredentialDelivery) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CredentialDelivery.ProtoReflect.Descriptor instead.
+func (*CredentialDelivery) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *CredentialDelivery) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetComputerId() string {
+	if x != nil {
+		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetCredentialKind() CredentialKind {
+	if x != nil {
+		return x.CredentialKind
+	}
+	return CredentialKind_CREDENTIAL_KIND_UNSPECIFIED
+}
+
+func (x *CredentialDelivery) GetSealedCredential() *SealedCredential {
+	if x != nil {
+		return x.SealedCredential
+	}
+	return nil
+}
+
+func (x *CredentialDelivery) GetState() CredentialDeliveryState {
+	if x != nil {
+		return x.State
+	}
+	return CredentialDeliveryState_CREDENTIAL_DELIVERY_STATE_UNSPECIFIED
+}
+
+func (x *CredentialDelivery) GetBindingHandle() string {
+	if x != nil {
+		return x.BindingHandle
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *CredentialDelivery) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *CredentialDelivery) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *CredentialDelivery) GetUpdatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.UpdatedAt
+	}
+	return nil
+}
+
+type EnqueueCredentialDeliveryRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	ComputerId       string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	AgentId          string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	CredentialKind   CredentialKind         `protobuf:"varint,4,opt,name=credential_kind,json=credentialKind,proto3,enum=sumi.computer.v1.CredentialKind" json:"credential_kind,omitempty"`
+	SealedCredential *SealedCredential      `protobuf:"bytes,5,opt,name=sealed_credential,json=sealedCredential,proto3" json:"sealed_credential,omitempty"`
+	ExpiresAt        *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *EnqueueCredentialDeliveryRequest) Reset() {
+	*x = EnqueueCredentialDeliveryRequest{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnqueueCredentialDeliveryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnqueueCredentialDeliveryRequest) ProtoMessage() {}
+
+func (x *EnqueueCredentialDeliveryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnqueueCredentialDeliveryRequest.ProtoReflect.Descriptor instead.
+func (*EnqueueCredentialDeliveryRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetComputerId() string {
+	if x != nil {
+		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetCredentialKind() CredentialKind {
+	if x != nil {
+		return x.CredentialKind
+	}
+	return CredentialKind_CREDENTIAL_KIND_UNSPECIFIED
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetSealedCredential() *SealedCredential {
+	if x != nil {
+		return x.SealedCredential
+	}
+	return nil
+}
+
+func (x *EnqueueCredentialDeliveryRequest) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+type EnqueueCredentialDeliveryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Delivery      *CredentialDelivery    `protobuf:"bytes,1,opt,name=delivery,proto3" json:"delivery,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnqueueCredentialDeliveryResponse) Reset() {
+	*x = EnqueueCredentialDeliveryResponse{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnqueueCredentialDeliveryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnqueueCredentialDeliveryResponse) ProtoMessage() {}
+
+func (x *EnqueueCredentialDeliveryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnqueueCredentialDeliveryResponse.ProtoReflect.Descriptor instead.
+func (*EnqueueCredentialDeliveryResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *EnqueueCredentialDeliveryResponse) GetDelivery() *CredentialDelivery {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
+type ListCredentialDeliveriesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ComputerId    string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	AgentId       string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCredentialDeliveriesRequest) Reset() {
+	*x = ListCredentialDeliveriesRequest{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCredentialDeliveriesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCredentialDeliveriesRequest) ProtoMessage() {}
+
+func (x *ListCredentialDeliveriesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCredentialDeliveriesRequest.ProtoReflect.Descriptor instead.
+func (*ListCredentialDeliveriesRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ListCredentialDeliveriesRequest) GetComputerId() string {
+	if x != nil {
+		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *ListCredentialDeliveriesRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+type ListCredentialDeliveriesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Deliveries    []*CredentialDelivery  `protobuf:"bytes,1,rep,name=deliveries,proto3" json:"deliveries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCredentialDeliveriesResponse) Reset() {
+	*x = ListCredentialDeliveriesResponse{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCredentialDeliveriesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCredentialDeliveriesResponse) ProtoMessage() {}
+
+func (x *ListCredentialDeliveriesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCredentialDeliveriesResponse.ProtoReflect.Descriptor instead.
+func (*ListCredentialDeliveriesResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *ListCredentialDeliveriesResponse) GetDeliveries() []*CredentialDelivery {
+	if x != nil {
+		return x.Deliveries
+	}
+	return nil
+}
+
+type ClaimCredentialDeliveryRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ClaimCredentialDeliveryRequest) Reset() {
+	*x = ClaimCredentialDeliveryRequest{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimCredentialDeliveryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimCredentialDeliveryRequest) ProtoMessage() {}
+
+func (x *ClaimCredentialDeliveryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimCredentialDeliveryRequest.ProtoReflect.Descriptor instead.
+func (*ClaimCredentialDeliveryRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ClaimCredentialDeliveryRequest) GetComputerId() string {
+	if x != nil {
+		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *ClaimCredentialDeliveryRequest) GetRegistrationKey() string {
+	if x != nil {
+		return x.RegistrationKey
+	}
+	return ""
+}
+
+type ClaimCredentialDeliveryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Delivery      *CredentialDelivery    `protobuf:"bytes,1,opt,name=delivery,proto3" json:"delivery,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClaimCredentialDeliveryResponse) Reset() {
+	*x = ClaimCredentialDeliveryResponse{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClaimCredentialDeliveryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClaimCredentialDeliveryResponse) ProtoMessage() {}
+
+func (x *ClaimCredentialDeliveryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClaimCredentialDeliveryResponse.ProtoReflect.Descriptor instead.
+func (*ClaimCredentialDeliveryResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ClaimCredentialDeliveryResponse) GetDelivery() *CredentialDelivery {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
+type CompleteCredentialDeliveryRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
+	DeliveryId      string                 `protobuf:"bytes,3,opt,name=delivery_id,json=deliveryId,proto3" json:"delivery_id,omitempty"`
+	BindingHandle   string                 `protobuf:"bytes,4,opt,name=binding_handle,json=bindingHandle,proto3" json:"binding_handle,omitempty"`
+	ErrorCode       string                 `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CompleteCredentialDeliveryRequest) Reset() {
+	*x = CompleteCredentialDeliveryRequest{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteCredentialDeliveryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteCredentialDeliveryRequest) ProtoMessage() {}
+
+func (x *CompleteCredentialDeliveryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteCredentialDeliveryRequest.ProtoReflect.Descriptor instead.
+func (*CompleteCredentialDeliveryRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *CompleteCredentialDeliveryRequest) GetComputerId() string {
+	if x != nil {
+		return x.ComputerId
+	}
+	return ""
+}
+
+func (x *CompleteCredentialDeliveryRequest) GetRegistrationKey() string {
+	if x != nil {
+		return x.RegistrationKey
+	}
+	return ""
+}
+
+func (x *CompleteCredentialDeliveryRequest) GetDeliveryId() string {
+	if x != nil {
+		return x.DeliveryId
+	}
+	return ""
+}
+
+func (x *CompleteCredentialDeliveryRequest) GetBindingHandle() string {
+	if x != nil {
+		return x.BindingHandle
+	}
+	return ""
+}
+
+func (x *CompleteCredentialDeliveryRequest) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+type CompleteCredentialDeliveryResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Delivery      *CredentialDelivery    `protobuf:"bytes,1,opt,name=delivery,proto3" json:"delivery,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CompleteCredentialDeliveryResponse) Reset() {
+	*x = CompleteCredentialDeliveryResponse{}
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompleteCredentialDeliveryResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompleteCredentialDeliveryResponse) ProtoMessage() {}
+
+func (x *CompleteCredentialDeliveryResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_computer_v1_computer_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CompleteCredentialDeliveryResponse.ProtoReflect.Descriptor instead.
+func (*CompleteCredentialDeliveryResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_computer_v1_computer_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *CompleteCredentialDeliveryResponse) GetDelivery() *CredentialDelivery {
+	if x != nil {
+		return x.Delivery
+	}
+	return nil
+}
+
 var File_sumi_computer_v1_computer_proto protoreflect.FileDescriptor
 
 const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
-	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x05\n" +
+	"\x1fsumi/computer/v1/computer.proto\x12\x10sumi.computer.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19sumi/agent/v1/agent.proto\"\xba\x05\n" +
 	"\x11SandboxCapability\x12=\n" +
 	"\bprovider\x18\x01 \x01(\x0e2!.sumi.computer.v1.SandboxProviderR\bprovider\x12@\n" +
 	"\tisolation\x18\x02 \x01(\x0e2\".sumi.computer.v1.SandboxIsolationR\tisolation\x12S\n" +
@@ -1237,7 +2439,33 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\x14filesystem_isolation\x18\x05 \x01(\x0e2,.sumi.computer.v1.SandboxFilesystemIsolationR\x13filesystemIsolation\x12V\n" +
 	"\x11network_isolation\x18\x06 \x01(\x0e2).sumi.computer.v1.SandboxNetworkIsolationR\x10networkIsolation\x12e\n" +
 	"\x16secret_materialization\x18\a \x01(\x0e2..sumi.computer.v1.SandboxSecretMaterializationR\x15secretMaterialization\x12]\n" +
-	"\x14daemon_crash_cleanup\x18\b \x01(\x0e2+.sumi.computer.v1.SandboxDaemonCrashCleanupR\x12daemonCrashCleanup\"\x90\x04\n" +
+	"\x14daemon_crash_cleanup\x18\b \x01(\x0e2+.sumi.computer.v1.SandboxDaemonCrashCleanupR\x12daemonCrashCleanup\"\xef\x02\n" +
+	"\x10EngineCapability\x121\n" +
+	"\x06engine\x18\x01 \x01(\x0e2\x19.sumi.agent.v1.EngineKindR\x06engine\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12)\n" +
+	"\x10protocol_version\x18\x03 \x01(\rR\x0fprotocolVersion\x12.\n" +
+	"\x13supports_tool_calls\x18\x04 \x01(\bR\x11supportsToolCalls\x12'\n" +
+	"\x0fsupports_cancel\x18\x05 \x01(\bR\x0esupportsCancel\x12N\n" +
+	"\x12provider_protocols\x18\x06 \x03(\x0e2\x1f.sumi.agent.v1.ProviderProtocolR\x11providerProtocols\x12:\n" +
+	"\x06health\x18\a \x01(\x0e2\".sumi.computer.v1.CapabilityHealthR\x06health\"\x96\x02\n" +
+	"\x1cCredentialDeliveryCapability\x12:\n" +
+	"\x06health\x18\x01 \x01(\x0e2\".sumi.computer.v1.CapabilityHealthR\x06health\x12K\n" +
+	"\talgorithm\x18\x02 \x01(\x0e2-.sumi.computer.v1.CredentialDeliveryAlgorithmR\talgorithm\x127\n" +
+	"\x05store\x18\x03 \x01(\x0e2!.sumi.computer.v1.CredentialStoreR\x05store\x12\x15\n" +
+	"\x06key_id\x18\x04 \x01(\tR\x05keyId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x05 \x01(\fR\tpublicKey\"\x82\x02\n" +
+	"\x1eCapabilityInventoryDeclaration\x12<\n" +
+	"\aengines\x18\x01 \x03(\v2\".sumi.computer.v1.EngineCapabilityR\aengines\x12A\n" +
+	"\tsandboxes\x18\x02 \x03(\v2#.sumi.computer.v1.SandboxCapabilityR\tsandboxes\x12_\n" +
+	"\x13credential_delivery\x18\x03 \x01(\v2..sumi.computer.v1.CredentialDeliveryCapabilityR\x12credentialDelivery\"\xd0\x02\n" +
+	"\x13CapabilityInventory\x12\x1a\n" +
+	"\brevision\x18\x01 \x01(\x04R\brevision\x12<\n" +
+	"\aengines\x18\x02 \x03(\v2\".sumi.computer.v1.EngineCapabilityR\aengines\x12A\n" +
+	"\tsandboxes\x18\x03 \x03(\v2#.sumi.computer.v1.SandboxCapabilityR\tsandboxes\x12_\n" +
+	"\x13credential_delivery\x18\x04 \x01(\v2..sumi.computer.v1.CredentialDeliveryCapabilityR\x12credentialDelivery\x12;\n" +
+	"\vdeclared_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"declaredAt\"\xd4\x03\n" +
 	"\bComputer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
@@ -1248,10 +2476,8 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\flast_seen_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"lastSeenAt\x12\x16\n" +
 	"\x06online\x18\a \x01(\bR\x06online\x12R\n" +
-	"\x17connectivity_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x15connectivityExpiresAt\x12R\n" +
-	"\x12sandbox_capability\x18\t \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\x12@\n" +
-	"\x1csandbox_declaration_revision\x18\n" +
-	" \x01(\x04R\x1asandboxDeclarationRevision\"\x9d\x01\n" +
+	"\x17connectivity_expires_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\x15connectivityExpiresAt\x12X\n" +
+	"\x14capability_inventory\x18\t \x01(\v2%.sumi.computer.v1.CapabilityInventoryR\x13capabilityInventory\"\x9d\x01\n" +
 	"\x1cCreateComputerPairingRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
@@ -1262,7 +2488,7 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\n" +
 	"pairing_id\x18\x01 \x01(\tR\tpairingId\x129\n" +
 	"\n" +
-	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xd7\x02\n" +
+	"expires_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xe8\x02\n" +
 	"\x17RegisterComputerRequest\x12)\n" +
 	"\x10registration_key\x18\x01 \x01(\tR\x0fregistrationKey\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
@@ -1270,15 +2496,15 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\x04arch\x18\x04 \x01(\x0e2\x1e.sumi.computer.v1.ArchitectureR\x04arch\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x05 \x01(\tR\trequestId\x12#\n" +
-	"\rpairing_token\x18\x06 \x01(\tR\fpairingToken\x12R\n" +
-	"\x12sandbox_capability\x18\a \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\"R\n" +
+	"\rpairing_token\x18\x06 \x01(\tR\fpairingToken\x12c\n" +
+	"\x14capability_inventory\x18\a \x01(\v20.sumi.computer.v1.CapabilityInventoryDeclarationR\x13capabilityInventory\"R\n" +
 	"\x18RegisterComputerResponse\x126\n" +
-	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"\xba\x01\n" +
+	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"\xcb\x01\n" +
 	"\x18HeartbeatComputerRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
-	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12R\n" +
-	"\x12sandbox_capability\x18\x03 \x01(\v2#.sumi.computer.v1.SandboxCapabilityR\x11sandboxCapability\"S\n" +
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12c\n" +
+	"\x14capability_inventory\x18\x03 \x01(\v20.sumi.computer.v1.CapabilityInventoryDeclarationR\x13capabilityInventory\"S\n" +
 	"\x19HeartbeatComputerResponse\x126\n" +
 	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"5\n" +
 	"\x12GetComputerRequest\x12\x1f\n" +
@@ -1288,7 +2514,72 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"\bcomputer\x18\x01 \x01(\v2\x1a.sumi.computer.v1.ComputerR\bcomputer\"\x16\n" +
 	"\x14ListComputersRequest\"Q\n" +
 	"\x15ListComputersResponse\x128\n" +
-	"\tcomputers\x18\x01 \x03(\v2\x1a.sumi.computer.v1.ComputerR\tcomputers*k\n" +
+	"\tcomputers\x18\x01 \x03(\v2\x1a.sumi.computer.v1.ComputerR\tcomputers\"\xde\x01\n" +
+	"\x10SealedCredential\x12K\n" +
+	"\talgorithm\x18\x01 \x01(\x0e2-.sumi.computer.v1.CredentialDeliveryAlgorithmR\talgorithm\x12\x15\n" +
+	"\x06key_id\x18\x02 \x01(\tR\x05keyId\x120\n" +
+	"\x14ephemeral_public_key\x18\x03 \x01(\fR\x12ephemeralPublicKey\x12\x14\n" +
+	"\x05nonce\x18\x04 \x01(\fR\x05nonce\x12\x1e\n" +
+	"\n" +
+	"ciphertext\x18\x05 \x01(\fR\n" +
+	"ciphertext\"\xd3\x04\n" +
+	"\x12CredentialDelivery\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1f\n" +
+	"\vcomputer_id\x18\x03 \x01(\tR\n" +
+	"computerId\x12\x19\n" +
+	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12I\n" +
+	"\x0fcredential_kind\x18\x05 \x01(\x0e2 .sumi.computer.v1.CredentialKindR\x0ecredentialKind\x12O\n" +
+	"\x11sealed_credential\x18\x06 \x01(\v2\".sumi.computer.v1.SealedCredentialR\x10sealedCredential\x12?\n" +
+	"\x05state\x18\a \x01(\x0e2).sumi.computer.v1.CredentialDeliveryStateR\x05state\x12%\n" +
+	"\x0ebinding_handle\x18\b \x01(\tR\rbindingHandle\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\t \x01(\tR\terrorCode\x129\n" +
+	"\n" +
+	"expires_at\x18\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x129\n" +
+	"\n" +
+	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"\n" +
+	"updated_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xd4\x02\n" +
+	" EnqueueCredentialDeliveryRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1f\n" +
+	"\vcomputer_id\x18\x02 \x01(\tR\n" +
+	"computerId\x12\x19\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12I\n" +
+	"\x0fcredential_kind\x18\x04 \x01(\x0e2 .sumi.computer.v1.CredentialKindR\x0ecredentialKind\x12O\n" +
+	"\x11sealed_credential\x18\x05 \x01(\v2\".sumi.computer.v1.SealedCredentialR\x10sealedCredential\x129\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"e\n" +
+	"!EnqueueCredentialDeliveryResponse\x12@\n" +
+	"\bdelivery\x18\x01 \x01(\v2$.sumi.computer.v1.CredentialDeliveryR\bdelivery\"]\n" +
+	"\x1fListCredentialDeliveriesRequest\x12\x1f\n" +
+	"\vcomputer_id\x18\x01 \x01(\tR\n" +
+	"computerId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\"h\n" +
+	" ListCredentialDeliveriesResponse\x12D\n" +
+	"\n" +
+	"deliveries\x18\x01 \x03(\v2$.sumi.computer.v1.CredentialDeliveryR\n" +
+	"deliveries\"l\n" +
+	"\x1eClaimCredentialDeliveryRequest\x12\x1f\n" +
+	"\vcomputer_id\x18\x01 \x01(\tR\n" +
+	"computerId\x12)\n" +
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"c\n" +
+	"\x1fClaimCredentialDeliveryResponse\x12@\n" +
+	"\bdelivery\x18\x01 \x01(\v2$.sumi.computer.v1.CredentialDeliveryR\bdelivery\"\xd6\x01\n" +
+	"!CompleteCredentialDeliveryRequest\x12\x1f\n" +
+	"\vcomputer_id\x18\x01 \x01(\tR\n" +
+	"computerId\x12)\n" +
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12\x1f\n" +
+	"\vdelivery_id\x18\x03 \x01(\tR\n" +
+	"deliveryId\x12%\n" +
+	"\x0ebinding_handle\x18\x04 \x01(\tR\rbindingHandle\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x05 \x01(\tR\terrorCode\"f\n" +
+	"\"CompleteCredentialDeliveryResponse\x12@\n" +
+	"\bdelivery\x18\x01 \x01(\v2$.sumi.computer.v1.CredentialDeliveryR\bdelivery*k\n" +
 	"\x0fOperatingSystem\x12 \n" +
 	"\x1cOPERATING_SYSTEM_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16OPERATING_SYSTEM_MACOS\x10\x01\x12\x1a\n" +
@@ -1320,13 +2611,41 @@ const file_sumi_computer_v1_computer_proto_rawDesc = "" +
 	"4SANDBOX_SECRET_MATERIALIZATION_EPHEMERAL_ENVIRONMENT\x10\x01*p\n" +
 	"\x19SandboxDaemonCrashCleanup\x12,\n" +
 	"(SANDBOX_DAEMON_CRASH_CLEANUP_UNSPECIFIED\x10\x00\x12%\n" +
-	"!SANDBOX_DAEMON_CRASH_CLEANUP_NONE\x10\x012\xa2\x04\n" +
+	"!SANDBOX_DAEMON_CRASH_CLEANUP_NONE\x10\x01*w\n" +
+	"\x10CapabilityHealth\x12!\n" +
+	"\x1dCAPABILITY_HEALTH_UNSPECIFIED\x10\x00\x12\x1d\n" +
+	"\x19CAPABILITY_HEALTH_HEALTHY\x10\x01\x12!\n" +
+	"\x1dCAPABILITY_HEALTH_UNAVAILABLE\x10\x02*\x89\x01\n" +
+	"\x1bCredentialDeliveryAlgorithm\x12-\n" +
+	")CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED\x10\x00\x12;\n" +
+	"7CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305\x10\x01*\x83\x01\n" +
+	"\x0fCredentialStore\x12 \n" +
+	"\x1cCREDENTIAL_STORE_UNSPECIFIED\x10\x00\x12#\n" +
+	"\x1fCREDENTIAL_STORE_MACOS_KEYCHAIN\x10\x01\x12)\n" +
+	"%CREDENTIAL_STORE_LINUX_SECRET_SERVICE\x10\x02*\x87\x02\n" +
+	"\x17CredentialDeliveryState\x12)\n" +
+	"%CREDENTIAL_DELIVERY_STATE_UNSPECIFIED\x10\x00\x12$\n" +
+	" CREDENTIAL_DELIVERY_STATE_QUEUED\x10\x01\x12%\n" +
+	"!CREDENTIAL_DELIVERY_STATE_CLAIMED\x10\x02\x12'\n" +
+	"#CREDENTIAL_DELIVERY_STATE_SUCCEEDED\x10\x03\x12$\n" +
+	" CREDENTIAL_DELIVERY_STATE_FAILED\x10\x04\x12%\n" +
+	"!CREDENTIAL_DELIVERY_STATE_EXPIRED\x10\x05*\xb3\x01\n" +
+	"\x0eCredentialKind\x12\x1f\n" +
+	"\x1bCREDENTIAL_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16CREDENTIAL_KIND_OPENAI\x10\x01\x12\x1d\n" +
+	"\x19CREDENTIAL_KIND_ANTHROPIC\x10\x02\x12!\n" +
+	"\x1dCREDENTIAL_KIND_CODEX_ADAPTER\x10\x03\x12\"\n" +
+	"\x1eCREDENTIAL_KIND_CLAUDE_ADAPTER\x10\x042\xb7\b\n" +
 	"\x0fComputerService\x12x\n" +
 	"\x15CreateComputerPairing\x12..sumi.computer.v1.CreateComputerPairingRequest\x1a/.sumi.computer.v1.CreateComputerPairingResponse\x12i\n" +
 	"\x10RegisterComputer\x12).sumi.computer.v1.RegisterComputerRequest\x1a*.sumi.computer.v1.RegisterComputerResponse\x12l\n" +
 	"\x11HeartbeatComputer\x12*.sumi.computer.v1.HeartbeatComputerRequest\x1a+.sumi.computer.v1.HeartbeatComputerResponse\x12Z\n" +
 	"\vGetComputer\x12$.sumi.computer.v1.GetComputerRequest\x1a%.sumi.computer.v1.GetComputerResponse\x12`\n" +
-	"\rListComputers\x12&.sumi.computer.v1.ListComputersRequest\x1a'.sumi.computer.v1.ListComputersResponseB<Z:github.com/abcdlsj/sumi/gen/go/sumi/computer/v1;computerv1b\x06proto3"
+	"\rListComputers\x12&.sumi.computer.v1.ListComputersRequest\x1a'.sumi.computer.v1.ListComputersResponse\x12\x84\x01\n" +
+	"\x19EnqueueCredentialDelivery\x122.sumi.computer.v1.EnqueueCredentialDeliveryRequest\x1a3.sumi.computer.v1.EnqueueCredentialDeliveryResponse\x12\x81\x01\n" +
+	"\x18ListCredentialDeliveries\x121.sumi.computer.v1.ListCredentialDeliveriesRequest\x1a2.sumi.computer.v1.ListCredentialDeliveriesResponse\x12~\n" +
+	"\x17ClaimCredentialDelivery\x120.sumi.computer.v1.ClaimCredentialDeliveryRequest\x1a1.sumi.computer.v1.ClaimCredentialDeliveryResponse\x12\x87\x01\n" +
+	"\x1aCompleteCredentialDelivery\x123.sumi.computer.v1.CompleteCredentialDeliveryRequest\x1a4.sumi.computer.v1.CompleteCredentialDeliveryResponseB<Z:github.com/abcdlsj/sumi/gen/go/sumi/computer/v1;computerv1b\x06proto3"
 
 var (
 	file_sumi_computer_v1_computer_proto_rawDescOnce sync.Once
@@ -1340,32 +2659,53 @@ func file_sumi_computer_v1_computer_proto_rawDescGZIP() []byte {
 	return file_sumi_computer_v1_computer_proto_rawDescData
 }
 
-var file_sumi_computer_v1_computer_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_sumi_computer_v1_computer_proto_enumTypes = make([]protoimpl.EnumInfo, 15)
+var file_sumi_computer_v1_computer_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_sumi_computer_v1_computer_proto_goTypes = []any{
-	(OperatingSystem)(0),                  // 0: sumi.computer.v1.OperatingSystem
-	(Architecture)(0),                     // 1: sumi.computer.v1.Architecture
-	(SandboxProvider)(0),                  // 2: sumi.computer.v1.SandboxProvider
-	(SandboxIsolation)(0),                 // 3: sumi.computer.v1.SandboxIsolation
-	(SandboxWorkspaceAccess)(0),           // 4: sumi.computer.v1.SandboxWorkspaceAccess
-	(SandboxProcessControl)(0),            // 5: sumi.computer.v1.SandboxProcessControl
-	(SandboxFilesystemIsolation)(0),       // 6: sumi.computer.v1.SandboxFilesystemIsolation
-	(SandboxNetworkIsolation)(0),          // 7: sumi.computer.v1.SandboxNetworkIsolation
-	(SandboxSecretMaterialization)(0),     // 8: sumi.computer.v1.SandboxSecretMaterialization
-	(SandboxDaemonCrashCleanup)(0),        // 9: sumi.computer.v1.SandboxDaemonCrashCleanup
-	(*SandboxCapability)(nil),             // 10: sumi.computer.v1.SandboxCapability
-	(*Computer)(nil),                      // 11: sumi.computer.v1.Computer
-	(*CreateComputerPairingRequest)(nil),  // 12: sumi.computer.v1.CreateComputerPairingRequest
-	(*CreateComputerPairingResponse)(nil), // 13: sumi.computer.v1.CreateComputerPairingResponse
-	(*RegisterComputerRequest)(nil),       // 14: sumi.computer.v1.RegisterComputerRequest
-	(*RegisterComputerResponse)(nil),      // 15: sumi.computer.v1.RegisterComputerResponse
-	(*HeartbeatComputerRequest)(nil),      // 16: sumi.computer.v1.HeartbeatComputerRequest
-	(*HeartbeatComputerResponse)(nil),     // 17: sumi.computer.v1.HeartbeatComputerResponse
-	(*GetComputerRequest)(nil),            // 18: sumi.computer.v1.GetComputerRequest
-	(*GetComputerResponse)(nil),           // 19: sumi.computer.v1.GetComputerResponse
-	(*ListComputersRequest)(nil),          // 20: sumi.computer.v1.ListComputersRequest
-	(*ListComputersResponse)(nil),         // 21: sumi.computer.v1.ListComputersResponse
-	(*timestamppb.Timestamp)(nil),         // 22: google.protobuf.Timestamp
+	(OperatingSystem)(0),                       // 0: sumi.computer.v1.OperatingSystem
+	(Architecture)(0),                          // 1: sumi.computer.v1.Architecture
+	(SandboxProvider)(0),                       // 2: sumi.computer.v1.SandboxProvider
+	(SandboxIsolation)(0),                      // 3: sumi.computer.v1.SandboxIsolation
+	(SandboxWorkspaceAccess)(0),                // 4: sumi.computer.v1.SandboxWorkspaceAccess
+	(SandboxProcessControl)(0),                 // 5: sumi.computer.v1.SandboxProcessControl
+	(SandboxFilesystemIsolation)(0),            // 6: sumi.computer.v1.SandboxFilesystemIsolation
+	(SandboxNetworkIsolation)(0),               // 7: sumi.computer.v1.SandboxNetworkIsolation
+	(SandboxSecretMaterialization)(0),          // 8: sumi.computer.v1.SandboxSecretMaterialization
+	(SandboxDaemonCrashCleanup)(0),             // 9: sumi.computer.v1.SandboxDaemonCrashCleanup
+	(CapabilityHealth)(0),                      // 10: sumi.computer.v1.CapabilityHealth
+	(CredentialDeliveryAlgorithm)(0),           // 11: sumi.computer.v1.CredentialDeliveryAlgorithm
+	(CredentialStore)(0),                       // 12: sumi.computer.v1.CredentialStore
+	(CredentialDeliveryState)(0),               // 13: sumi.computer.v1.CredentialDeliveryState
+	(CredentialKind)(0),                        // 14: sumi.computer.v1.CredentialKind
+	(*SandboxCapability)(nil),                  // 15: sumi.computer.v1.SandboxCapability
+	(*EngineCapability)(nil),                   // 16: sumi.computer.v1.EngineCapability
+	(*CredentialDeliveryCapability)(nil),       // 17: sumi.computer.v1.CredentialDeliveryCapability
+	(*CapabilityInventoryDeclaration)(nil),     // 18: sumi.computer.v1.CapabilityInventoryDeclaration
+	(*CapabilityInventory)(nil),                // 19: sumi.computer.v1.CapabilityInventory
+	(*Computer)(nil),                           // 20: sumi.computer.v1.Computer
+	(*CreateComputerPairingRequest)(nil),       // 21: sumi.computer.v1.CreateComputerPairingRequest
+	(*CreateComputerPairingResponse)(nil),      // 22: sumi.computer.v1.CreateComputerPairingResponse
+	(*RegisterComputerRequest)(nil),            // 23: sumi.computer.v1.RegisterComputerRequest
+	(*RegisterComputerResponse)(nil),           // 24: sumi.computer.v1.RegisterComputerResponse
+	(*HeartbeatComputerRequest)(nil),           // 25: sumi.computer.v1.HeartbeatComputerRequest
+	(*HeartbeatComputerResponse)(nil),          // 26: sumi.computer.v1.HeartbeatComputerResponse
+	(*GetComputerRequest)(nil),                 // 27: sumi.computer.v1.GetComputerRequest
+	(*GetComputerResponse)(nil),                // 28: sumi.computer.v1.GetComputerResponse
+	(*ListComputersRequest)(nil),               // 29: sumi.computer.v1.ListComputersRequest
+	(*ListComputersResponse)(nil),              // 30: sumi.computer.v1.ListComputersResponse
+	(*SealedCredential)(nil),                   // 31: sumi.computer.v1.SealedCredential
+	(*CredentialDelivery)(nil),                 // 32: sumi.computer.v1.CredentialDelivery
+	(*EnqueueCredentialDeliveryRequest)(nil),   // 33: sumi.computer.v1.EnqueueCredentialDeliveryRequest
+	(*EnqueueCredentialDeliveryResponse)(nil),  // 34: sumi.computer.v1.EnqueueCredentialDeliveryResponse
+	(*ListCredentialDeliveriesRequest)(nil),    // 35: sumi.computer.v1.ListCredentialDeliveriesRequest
+	(*ListCredentialDeliveriesResponse)(nil),   // 36: sumi.computer.v1.ListCredentialDeliveriesResponse
+	(*ClaimCredentialDeliveryRequest)(nil),     // 37: sumi.computer.v1.ClaimCredentialDeliveryRequest
+	(*ClaimCredentialDeliveryResponse)(nil),    // 38: sumi.computer.v1.ClaimCredentialDeliveryResponse
+	(*CompleteCredentialDeliveryRequest)(nil),  // 39: sumi.computer.v1.CompleteCredentialDeliveryRequest
+	(*CompleteCredentialDeliveryResponse)(nil), // 40: sumi.computer.v1.CompleteCredentialDeliveryResponse
+	(v1.EngineKind)(0),                         // 41: sumi.agent.v1.EngineKind
+	(v1.ProviderProtocol)(0),                   // 42: sumi.agent.v1.ProviderProtocol
+	(*timestamppb.Timestamp)(nil),              // 43: google.protobuf.Timestamp
 }
 var file_sumi_computer_v1_computer_proto_depIdxs = []int32{
 	2,  // 0: sumi.computer.v1.SandboxCapability.provider:type_name -> sumi.computer.v1.SandboxProvider
@@ -1376,37 +2716,72 @@ var file_sumi_computer_v1_computer_proto_depIdxs = []int32{
 	7,  // 5: sumi.computer.v1.SandboxCapability.network_isolation:type_name -> sumi.computer.v1.SandboxNetworkIsolation
 	8,  // 6: sumi.computer.v1.SandboxCapability.secret_materialization:type_name -> sumi.computer.v1.SandboxSecretMaterialization
 	9,  // 7: sumi.computer.v1.SandboxCapability.daemon_crash_cleanup:type_name -> sumi.computer.v1.SandboxDaemonCrashCleanup
-	0,  // 8: sumi.computer.v1.Computer.os:type_name -> sumi.computer.v1.OperatingSystem
-	1,  // 9: sumi.computer.v1.Computer.arch:type_name -> sumi.computer.v1.Architecture
-	22, // 10: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
-	22, // 11: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
-	22, // 12: sumi.computer.v1.Computer.connectivity_expires_at:type_name -> google.protobuf.Timestamp
-	10, // 13: sumi.computer.v1.Computer.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
-	22, // 14: sumi.computer.v1.CreateComputerPairingRequest.expires_at:type_name -> google.protobuf.Timestamp
-	22, // 15: sumi.computer.v1.CreateComputerPairingResponse.expires_at:type_name -> google.protobuf.Timestamp
-	0,  // 16: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
-	1,  // 17: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
-	10, // 18: sumi.computer.v1.RegisterComputerRequest.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
-	11, // 19: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	10, // 20: sumi.computer.v1.HeartbeatComputerRequest.sandbox_capability:type_name -> sumi.computer.v1.SandboxCapability
-	11, // 21: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	11, // 22: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
-	11, // 23: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
-	12, // 24: sumi.computer.v1.ComputerService.CreateComputerPairing:input_type -> sumi.computer.v1.CreateComputerPairingRequest
-	14, // 25: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
-	16, // 26: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
-	18, // 27: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
-	20, // 28: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
-	13, // 29: sumi.computer.v1.ComputerService.CreateComputerPairing:output_type -> sumi.computer.v1.CreateComputerPairingResponse
-	15, // 30: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
-	17, // 31: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
-	19, // 32: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
-	21, // 33: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
-	29, // [29:34] is the sub-list for method output_type
-	24, // [24:29] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	41, // 8: sumi.computer.v1.EngineCapability.engine:type_name -> sumi.agent.v1.EngineKind
+	42, // 9: sumi.computer.v1.EngineCapability.provider_protocols:type_name -> sumi.agent.v1.ProviderProtocol
+	10, // 10: sumi.computer.v1.EngineCapability.health:type_name -> sumi.computer.v1.CapabilityHealth
+	10, // 11: sumi.computer.v1.CredentialDeliveryCapability.health:type_name -> sumi.computer.v1.CapabilityHealth
+	11, // 12: sumi.computer.v1.CredentialDeliveryCapability.algorithm:type_name -> sumi.computer.v1.CredentialDeliveryAlgorithm
+	12, // 13: sumi.computer.v1.CredentialDeliveryCapability.store:type_name -> sumi.computer.v1.CredentialStore
+	16, // 14: sumi.computer.v1.CapabilityInventoryDeclaration.engines:type_name -> sumi.computer.v1.EngineCapability
+	15, // 15: sumi.computer.v1.CapabilityInventoryDeclaration.sandboxes:type_name -> sumi.computer.v1.SandboxCapability
+	17, // 16: sumi.computer.v1.CapabilityInventoryDeclaration.credential_delivery:type_name -> sumi.computer.v1.CredentialDeliveryCapability
+	16, // 17: sumi.computer.v1.CapabilityInventory.engines:type_name -> sumi.computer.v1.EngineCapability
+	15, // 18: sumi.computer.v1.CapabilityInventory.sandboxes:type_name -> sumi.computer.v1.SandboxCapability
+	17, // 19: sumi.computer.v1.CapabilityInventory.credential_delivery:type_name -> sumi.computer.v1.CredentialDeliveryCapability
+	43, // 20: sumi.computer.v1.CapabilityInventory.declared_at:type_name -> google.protobuf.Timestamp
+	0,  // 21: sumi.computer.v1.Computer.os:type_name -> sumi.computer.v1.OperatingSystem
+	1,  // 22: sumi.computer.v1.Computer.arch:type_name -> sumi.computer.v1.Architecture
+	43, // 23: sumi.computer.v1.Computer.created_at:type_name -> google.protobuf.Timestamp
+	43, // 24: sumi.computer.v1.Computer.last_seen_at:type_name -> google.protobuf.Timestamp
+	43, // 25: sumi.computer.v1.Computer.connectivity_expires_at:type_name -> google.protobuf.Timestamp
+	19, // 26: sumi.computer.v1.Computer.capability_inventory:type_name -> sumi.computer.v1.CapabilityInventory
+	43, // 27: sumi.computer.v1.CreateComputerPairingRequest.expires_at:type_name -> google.protobuf.Timestamp
+	43, // 28: sumi.computer.v1.CreateComputerPairingResponse.expires_at:type_name -> google.protobuf.Timestamp
+	0,  // 29: sumi.computer.v1.RegisterComputerRequest.os:type_name -> sumi.computer.v1.OperatingSystem
+	1,  // 30: sumi.computer.v1.RegisterComputerRequest.arch:type_name -> sumi.computer.v1.Architecture
+	18, // 31: sumi.computer.v1.RegisterComputerRequest.capability_inventory:type_name -> sumi.computer.v1.CapabilityInventoryDeclaration
+	20, // 32: sumi.computer.v1.RegisterComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	18, // 33: sumi.computer.v1.HeartbeatComputerRequest.capability_inventory:type_name -> sumi.computer.v1.CapabilityInventoryDeclaration
+	20, // 34: sumi.computer.v1.HeartbeatComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	20, // 35: sumi.computer.v1.GetComputerResponse.computer:type_name -> sumi.computer.v1.Computer
+	20, // 36: sumi.computer.v1.ListComputersResponse.computers:type_name -> sumi.computer.v1.Computer
+	11, // 37: sumi.computer.v1.SealedCredential.algorithm:type_name -> sumi.computer.v1.CredentialDeliveryAlgorithm
+	14, // 38: sumi.computer.v1.CredentialDelivery.credential_kind:type_name -> sumi.computer.v1.CredentialKind
+	31, // 39: sumi.computer.v1.CredentialDelivery.sealed_credential:type_name -> sumi.computer.v1.SealedCredential
+	13, // 40: sumi.computer.v1.CredentialDelivery.state:type_name -> sumi.computer.v1.CredentialDeliveryState
+	43, // 41: sumi.computer.v1.CredentialDelivery.expires_at:type_name -> google.protobuf.Timestamp
+	43, // 42: sumi.computer.v1.CredentialDelivery.created_at:type_name -> google.protobuf.Timestamp
+	43, // 43: sumi.computer.v1.CredentialDelivery.updated_at:type_name -> google.protobuf.Timestamp
+	14, // 44: sumi.computer.v1.EnqueueCredentialDeliveryRequest.credential_kind:type_name -> sumi.computer.v1.CredentialKind
+	31, // 45: sumi.computer.v1.EnqueueCredentialDeliveryRequest.sealed_credential:type_name -> sumi.computer.v1.SealedCredential
+	43, // 46: sumi.computer.v1.EnqueueCredentialDeliveryRequest.expires_at:type_name -> google.protobuf.Timestamp
+	32, // 47: sumi.computer.v1.EnqueueCredentialDeliveryResponse.delivery:type_name -> sumi.computer.v1.CredentialDelivery
+	32, // 48: sumi.computer.v1.ListCredentialDeliveriesResponse.deliveries:type_name -> sumi.computer.v1.CredentialDelivery
+	32, // 49: sumi.computer.v1.ClaimCredentialDeliveryResponse.delivery:type_name -> sumi.computer.v1.CredentialDelivery
+	32, // 50: sumi.computer.v1.CompleteCredentialDeliveryResponse.delivery:type_name -> sumi.computer.v1.CredentialDelivery
+	21, // 51: sumi.computer.v1.ComputerService.CreateComputerPairing:input_type -> sumi.computer.v1.CreateComputerPairingRequest
+	23, // 52: sumi.computer.v1.ComputerService.RegisterComputer:input_type -> sumi.computer.v1.RegisterComputerRequest
+	25, // 53: sumi.computer.v1.ComputerService.HeartbeatComputer:input_type -> sumi.computer.v1.HeartbeatComputerRequest
+	27, // 54: sumi.computer.v1.ComputerService.GetComputer:input_type -> sumi.computer.v1.GetComputerRequest
+	29, // 55: sumi.computer.v1.ComputerService.ListComputers:input_type -> sumi.computer.v1.ListComputersRequest
+	33, // 56: sumi.computer.v1.ComputerService.EnqueueCredentialDelivery:input_type -> sumi.computer.v1.EnqueueCredentialDeliveryRequest
+	35, // 57: sumi.computer.v1.ComputerService.ListCredentialDeliveries:input_type -> sumi.computer.v1.ListCredentialDeliveriesRequest
+	37, // 58: sumi.computer.v1.ComputerService.ClaimCredentialDelivery:input_type -> sumi.computer.v1.ClaimCredentialDeliveryRequest
+	39, // 59: sumi.computer.v1.ComputerService.CompleteCredentialDelivery:input_type -> sumi.computer.v1.CompleteCredentialDeliveryRequest
+	22, // 60: sumi.computer.v1.ComputerService.CreateComputerPairing:output_type -> sumi.computer.v1.CreateComputerPairingResponse
+	24, // 61: sumi.computer.v1.ComputerService.RegisterComputer:output_type -> sumi.computer.v1.RegisterComputerResponse
+	26, // 62: sumi.computer.v1.ComputerService.HeartbeatComputer:output_type -> sumi.computer.v1.HeartbeatComputerResponse
+	28, // 63: sumi.computer.v1.ComputerService.GetComputer:output_type -> sumi.computer.v1.GetComputerResponse
+	30, // 64: sumi.computer.v1.ComputerService.ListComputers:output_type -> sumi.computer.v1.ListComputersResponse
+	34, // 65: sumi.computer.v1.ComputerService.EnqueueCredentialDelivery:output_type -> sumi.computer.v1.EnqueueCredentialDeliveryResponse
+	36, // 66: sumi.computer.v1.ComputerService.ListCredentialDeliveries:output_type -> sumi.computer.v1.ListCredentialDeliveriesResponse
+	38, // 67: sumi.computer.v1.ComputerService.ClaimCredentialDelivery:output_type -> sumi.computer.v1.ClaimCredentialDeliveryResponse
+	40, // 68: sumi.computer.v1.ComputerService.CompleteCredentialDelivery:output_type -> sumi.computer.v1.CompleteCredentialDeliveryResponse
+	60, // [60:69] is the sub-list for method output_type
+	51, // [51:60] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_sumi_computer_v1_computer_proto_init() }
@@ -1419,8 +2794,8 @@ func file_sumi_computer_v1_computer_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_computer_v1_computer_proto_rawDesc), len(file_sumi_computer_v1_computer_proto_rawDesc)),
-			NumEnums:      10,
-			NumMessages:   12,
+			NumEnums:      15,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

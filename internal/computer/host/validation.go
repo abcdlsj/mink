@@ -6,91 +6,76 @@ import (
 	"errors"
 
 	"connectrpc.com/connect"
-	deliveryv1 "github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1"
+	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
+	computerruntime "github.com/abcdlsj/sumi/internal/computer/runtime"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/google/uuid"
 )
 
 func (d *Daemon) invalidateRuntimeOnUnauthenticated(ctx context.Context, session computerstate.RuntimeSession, err error) {
 	if connect.CodeOf(err) == connect.CodeUnauthenticated {
-		_ = d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementGeneration)
+		_ = d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementDesiredRevision)
+		d.config.RuntimeSupervisor.Stop(session.AgentID, session.PlacementDesiredRevision)
 	}
 }
 
-func validateAvailableDelivery(delivery *deliveryv1.Delivery, agentID string) error {
-	if delivery == nil || !validUUID(delivery.GetId()) || delivery.GetAgentId() != agentID ||
-		delivery.GetTarget() == nil || delivery.GetState() != deliveryv1.DeliveryState_DELIVERY_STATE_AVAILABLE {
-		return errors.New("available delivery facts are invalid")
-	}
-	return nil
-}
-
-func validateActiveDeliveryResponse(agentID string, delivery *deliveryv1.Delivery, run *deliveryv1.Run, launch *deliveryv1.RunLaunch) error {
-	if run == nil {
-		if delivery != nil || launch != nil {
-			return errors.New("active delivery response has facts without a run")
-		}
-		return nil
-	}
-	if delivery == nil || !validUUID(delivery.GetId()) || delivery.GetAgentId() != agentID || delivery.GetTarget() == nil ||
-		delivery.GetState() != deliveryv1.DeliveryState_DELIVERY_STATE_ACCEPTED {
-		return errors.New("active delivery facts are invalid")
-	}
-	if err := validateRun(run, delivery.GetId(), agentID); err != nil {
-		return err
-	}
-	switch run.GetState() {
-	case deliveryv1.RunState_RUN_STATE_ACCEPTED:
-		if launch != nil {
-			return errors.New("accepted run must not have a launch")
-		}
-		return nil
-	case deliveryv1.RunState_RUN_STATE_RUNNING:
-		return validateLaunchFacts(launch, run.GetId(), agentID)
-	default:
-		return errors.New("active run state is invalid")
-	}
-}
-
-func validateRun(run *deliveryv1.Run, deliveryID, agentID string) error {
-	if run == nil || !validUUID(run.GetId()) || run.GetDeliveryId() != deliveryID || run.GetAgentId() != agentID ||
-		(run.GetState() != deliveryv1.RunState_RUN_STATE_ACCEPTED && run.GetState() != deliveryv1.RunState_RUN_STATE_RUNNING) {
+func validateListedRun(run *runv1.Run, agentID string) error {
+	if run == nil || !validUUID(run.GetId()) || run.GetAgentId() != agentID || run.GetTarget() == nil ||
+		!validUUID(run.GetInboxItemId()) || !validUUID(run.GetTriggerMessageId()) || !validUUID(run.GetSpaceId()) ||
+		run.GetTriggerTargetSequence() == 0 || run.GetCreatedAt() == nil || run.GetCreatedAt().CheckValid() != nil {
 		return errors.New("run facts are invalid")
 	}
-	return nil
+	switch run.GetState() {
+	case runv1.RunState_RUN_STATE_QUEUED:
+		if run.GetInputBasisTargetSequence() != 0 || run.GetAttempt() != 0 || run.GetLeaseHolderComputerId() != "" ||
+			run.GetLeaseExpiresAt() != nil || run.GetFence() != 0 || run.GetPlacementDesiredRevision() != 0 {
+			return errors.New("queued run binding is invalid")
+		}
+		return nil
+	case runv1.RunState_RUN_STATE_RUNNING:
+		return validateRunningRunFacts(run)
+	default:
+		return errors.New("listed run state is invalid")
+	}
 }
 
-func validateLaunch(launch *deliveryv1.RunLaunch, runID, agentID, computerID string, generation uint64) error {
-	if err := validateLaunchFacts(launch, runID, agentID); err != nil {
+func validateRunningRun(run *runv1.Run, session computerstate.RuntimeSession) error {
+	if err := validateRunningRunFacts(run); err != nil {
 		return err
 	}
-	if launch.GetHolderComputerId() != computerID || launch.GetHolderPlacementGeneration() != generation {
-		return errors.New("launch holder binding is invalid")
+	if run.GetAgentId() != session.AgentID || run.GetLeaseHolderComputerId() != session.ComputerID ||
+		run.GetPlacementDesiredRevision() != session.PlacementDesiredRevision {
+		return errors.New("run holder binding is invalid")
 	}
 	return nil
 }
 
-func validateLaunchFacts(launch *deliveryv1.RunLaunch, runID, agentID string) error {
-	if launch == nil || !validUUID(launch.GetId()) || launch.GetRunId() != runID || launch.GetAgentId() != agentID ||
-		!validUUID(launch.GetHolderComputerId()) || launch.GetHolderPlacementGeneration() == 0 || launch.GetFence() == 0 ||
-		launch.GetClaimedAt() == nil || launch.GetClaimedAt().CheckValid() != nil ||
-		launch.GetExpiresAt() == nil || launch.GetExpiresAt().CheckValid() != nil ||
-		!launch.GetExpiresAt().AsTime().After(launch.GetClaimedAt().AsTime()) || launch.GetClosedAt() != nil ||
-		launch.GetCloseReason() != deliveryv1.RunLaunchCloseReason_RUN_LAUNCH_CLOSE_REASON_UNSPECIFIED {
-		return errors.New("launch facts are invalid")
+func validateRunningRunFacts(run *runv1.Run) error {
+	if run == nil || run.GetState() != runv1.RunState_RUN_STATE_RUNNING || !validUUID(run.GetId()) ||
+		!validUUID(run.GetAgentId()) || !validUUID(run.GetLeaseHolderComputerId()) || run.GetInputBasisTargetSequence() == 0 ||
+		run.GetAttempt() == 0 || run.GetFence() == 0 || run.GetPlacementDesiredRevision() == 0 ||
+		run.GetLeaseExpiresAt() == nil || run.GetLeaseExpiresAt().CheckValid() != nil ||
+		run.GetStartedAt() == nil || run.GetStartedAt().CheckValid() != nil || run.GetCompletedAt() != nil || run.GetCancelledAt() != nil {
+		return errors.New("running run facts are invalid")
 	}
 	return nil
 }
 
-func validateCompleteResponse(response *deliveryv1.CompleteRunResponse, event computerstate.OutboxEvent) error {
+func validateCompleteResponse(response *runv1.CompleteRunResponse, event computerstate.OutboxEvent) error {
 	if response == nil || response.GetCommittedAt() == nil || response.GetCommittedAt().CheckValid() != nil ||
 		(response.GetMessage() == nil && response.GetHeldDraft() == nil) {
 		return errors.New("completion response facts are invalid")
 	}
 	run := response.GetRun()
-	if run == nil || run.GetId() != event.RunID || run.GetAgentId() != event.AgentID ||
-		run.GetState() != deliveryv1.RunState_RUN_STATE_COMPLETED || run.GetOutcome() != outcomeValue(event.Outcome) ||
-		run.GetCompletedAt() == nil || run.GetCompletedAt().CheckValid() != nil {
+	wantState := runv1.RunState_RUN_STATE_SUCCEEDED
+	if event.Outcome == computerstate.CompletionFailed {
+		wantState = runv1.RunState_RUN_STATE_FAILED
+	}
+	if run == nil || run.GetId() != event.RunID || run.GetAgentId() != event.AgentID || run.GetAttempt() != event.Attempt ||
+		run.GetFence() != event.Fence || run.GetPlacementDesiredRevision() != event.PlacementDesiredRevision ||
+		run.GetState() != wantState || run.GetErrorCode() != event.ErrorCode || run.GetCompletedAt() == nil ||
+		run.GetCompletedAt().CheckValid() != nil || run.GetUsage().GetInputUnits() != event.UsageInputUnits ||
+		run.GetUsage().GetOutputUnits() != event.UsageOutputUnits {
 		return errors.New("completed run facts do not match outbox event")
 	}
 	if message := response.GetMessage(); message != nil {
@@ -107,8 +92,8 @@ func validateCompleteResponse(response *deliveryv1.CompleteRunResponse, event co
 }
 
 func validUUID(value string) bool {
-	_, err := uuid.Parse(value)
-	return err == nil
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed.String() == value
 }
 
 func runtimeRequest[Request any](token string, message *Request) *connect.Request[Request] {
@@ -129,25 +114,31 @@ func mutationHash(values ...string) [sha256.Size]byte {
 }
 
 func validateCompletion(completion Completion) error {
-	if completion.Outcome != deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED && completion.Outcome != deliveryv1.RunOutcome_RUN_OUTCOME_FAILED {
+	if completion.Outcome != computerruntime.OutcomeSucceeded && completion.Outcome != computerruntime.OutcomeFailed {
 		return errors.New("completion outcome is invalid")
 	}
-	if err := computerstate.ValidateCompletionPayload(completion.Body, completion.MentionedAgentIDs); err != nil {
-		return err
+	if completion.Outcome == computerruntime.OutcomeSucceeded && completion.ErrorCode != "" {
+		return errors.New("successful completion has an error code")
 	}
-	return nil
+	if completion.Outcome == computerruntime.OutcomeFailed && completion.ErrorCode == "" {
+		return errors.New("failed completion requires an error code")
+	}
+	if len(completion.ErrorCode) > 255 {
+		return errors.New("completion error code is too long")
+	}
+	return computerstate.ValidateCompletionPayload(completion.Body, completion.MentionedAgentIDs)
 }
 
-func outcomeName(outcome deliveryv1.RunOutcome) computerstate.CompletionOutcome {
-	if outcome == deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED {
+func outcomeName(outcome computerruntime.Outcome) computerstate.CompletionOutcome {
+	if outcome == computerruntime.OutcomeSucceeded {
 		return computerstate.CompletionSucceeded
 	}
 	return computerstate.CompletionFailed
 }
 
-func outcomeValue(outcome computerstate.CompletionOutcome) deliveryv1.RunOutcome {
+func outcomeValue(outcome computerstate.CompletionOutcome) runv1.RunOutcome {
 	if outcome == computerstate.CompletionSucceeded {
-		return deliveryv1.RunOutcome_RUN_OUTCOME_SUCCEEDED
+		return runv1.RunOutcome_RUN_OUTCOME_SUCCEEDED
 	}
-	return deliveryv1.RunOutcome_RUN_OUTCOME_FAILED
+	return runv1.RunOutcome_RUN_OUTCOME_FAILED
 }

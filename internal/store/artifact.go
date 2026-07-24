@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	artifactapp "github.com/abcdlsj/sumi/internal/artifact/application"
+	executiondomain "github.com/abcdlsj/sumi/internal/execution/domain"
 	"github.com/google/uuid"
 )
 
@@ -324,37 +325,21 @@ func (s *ArtifactStore) validateExecution(ctx context.Context, tx *sql.Tx, actor
 		}
 		return nil, nil
 	}
-	if actor.Kind != "agent" || input == nil || input.DeliveryID == "" || input.RunID == "" || input.LaunchID == "" || input.Fence == 0 || !authentication.Valid() {
+	if actor.Kind != "agent" || input == nil || input.RunID == "" || input.Attempt == 0 || input.Fence == 0 || !authentication.Valid() {
 		return nil, ErrArtifactInvalid
 	}
 	run, err := requireOwnedRun(ctx, tx, actor.ID, input.RunID)
 	if err != nil {
 		return nil, err
 	}
-	if run.DeliveryID != input.DeliveryID || run.State != RunStateRunning {
-		return nil, ErrRunNotRunning
-	}
-	delivery, _, _, err := requireOwnedDelivery(ctx, tx, actor.ID, input.DeliveryID)
-	if err != nil {
+	if err := executiondomain.ValidateLease(executionRun(run), authentication.Proof.ComputerID(),
+		authentication.Proof.PlacementDesiredRevision(), input.Attempt, input.Fence, now); err != nil {
 		return nil, err
-	}
-	if delivery.State != DeliveryStateAccepted {
-		return nil, ErrRunNotRunning
-	}
-	launch, found, err := currentRunLaunch(ctx, tx, run.ID)
-	if err != nil {
-		return nil, err
-	}
-	if !found || launch.ID != input.LaunchID || launch.Fence != input.Fence || !runLaunchHeldBy(launch, authentication.Proof) {
-		return nil, ErrRunLaunchStale
-	}
-	if !launch.ExpiresAt.After(now) {
-		return nil, ErrRunLaunchExpired
 	}
 	return &ArtifactExecution{
-		DeliveryID: delivery.ID, RunID: run.ID, LaunchID: launch.ID, AgentID: actor.ID,
-		ComputerID: launch.HolderComputerID, PlacementGeneration: launch.HolderPlacementGeneration,
-		Fence: launch.Fence,
+		RunID: run.ID, Attempt: run.Attempt, AgentID: actor.ID,
+		ComputerID: run.LeaseHolderComputerID, PlacementDesiredRevision: run.PlacementDesiredRevision,
+		Fence: run.Fence,
 	}, nil
 }
 
@@ -480,12 +465,12 @@ func insertArtifact(ctx context.Context, tx *sql.Tx, artifact Artifact) error {
 func insertArtifactExecution(ctx context.Context, tx *sql.Tx, artifact Artifact, version uint64, execution ArtifactExecution) error {
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO artifact_version_executions(
-			artifact_id, version, organization_id, delivery_id, run_id, launch_id,
-			agent_id, computer_id, placement_generation, fence
-		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, artifact.ID, version, artifact.OrganizationID, execution.DeliveryID, execution.RunID,
-		execution.LaunchID, execution.AgentID, execution.ComputerID,
-		execution.PlacementGeneration, execution.Fence)
+			artifact_id, version, organization_id, run_id, attempt,
+			agent_id, computer_id, placement_desired_revision, fence
+		) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, artifact.ID, version, artifact.OrganizationID, execution.RunID, execution.Attempt,
+		execution.AgentID, execution.ComputerID,
+		execution.PlacementDesiredRevision, execution.Fence)
 	if err != nil {
 		return fmt.Errorf("persist artifact execution provenance: %w", err)
 	}
@@ -570,10 +555,10 @@ func artifactVersionByID(ctx context.Context, tx *sql.Tx, artifactID string, ver
 func loadArtifactVersionParts(ctx context.Context, tx *sql.Tx, version *ArtifactVersion) error {
 	var execution ArtifactExecution
 	err := tx.QueryRowContext(ctx, `
-		SELECT delivery_id, run_id, launch_id, agent_id, computer_id, placement_generation, fence
+		SELECT run_id, attempt, agent_id, computer_id, placement_desired_revision, fence
 		FROM artifact_version_executions WHERE artifact_id = ? AND version = ?
-	`, version.ArtifactID, version.Version).Scan(&execution.DeliveryID, &execution.RunID, &execution.LaunchID,
-		&execution.AgentID, &execution.ComputerID, &execution.PlacementGeneration, &execution.Fence)
+	`, version.ArtifactID, version.Version).Scan(&execution.RunID, &execution.Attempt,
+		&execution.AgentID, &execution.ComputerID, &execution.PlacementDesiredRevision, &execution.Fence)
 	if err == nil {
 		version.Execution = &execution
 	} else if !errors.Is(err, sql.ErrNoRows) {

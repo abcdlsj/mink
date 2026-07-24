@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"os"
 	"path/filepath"
@@ -55,9 +56,6 @@ func TestPairingAttemptSurvivesRestartAndCompletesAtomically(t *testing.T) {
 	identity := Identity{
 		ServerURL: attempt.ServerURL, ComputerID: uuid.NewString(), RegistrationKey: attempt.RegistrationKey, PairedAt: now.Add(time.Second),
 	}
-	if err := state.SaveIdentity(context.Background(), identity); err == nil {
-		t.Fatal("legacy identity import bypassed a pending pairing attempt")
-	}
 	if err := state.CompletePairing(context.Background(), identity); err != nil {
 		t.Fatal(err)
 	}
@@ -70,9 +68,6 @@ func TestPairingAttemptSurvivesRestartAndCompletesAtomically(t *testing.T) {
 	}
 	if err := state.CompletePairing(context.Background(), identity); err != nil {
 		t.Fatalf("exact identity completion replay: %v", err)
-	}
-	if err := state.SaveIdentity(context.Background(), identity); err != nil {
-		t.Fatalf("exact identity import replay: %v", err)
 	}
 	newAttempt := attempt
 	newAttempt.RequestID = uuid.NewString()
@@ -107,6 +102,70 @@ func TestPairingAttemptRejectsNonCanonicalToken(t *testing.T) {
 	if err := state.SavePairingAttempt(context.Background(), attempt); err == nil {
 		t.Fatal("non-canonical pairing token was persisted")
 	}
+}
+
+func TestStateSchemaMarker(t *testing.T) {
+	t.Run("current schema reopens", func(t *testing.T) {
+		dataRoot := filepath.Join(t.TempDir(), "sumi")
+		state, err := Open(dataRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := state.Close(); err != nil {
+			t.Fatal(err)
+		}
+		reopened, err := Open(dataRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := reopened.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("nonempty database without marker", func(t *testing.T) {
+		dataRoot := filepath.Join(t.TempDir(), "sumi")
+		directory := filepath.Join(dataRoot, "data", stateDirectory)
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		databasePath := filepath.Join(directory, databaseName)
+		if err := os.WriteFile(databasePath, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		database, err := sql.Open("sqlite", databasePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := database.Exec(`CREATE TABLE computer_identity (singleton INTEGER PRIMARY KEY)`); err != nil {
+			database.Close()
+			t.Fatal(err)
+		}
+		if err := database.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Open(dataRoot); err == nil || !strings.Contains(err.Error(), "schema is incompatible") {
+			t.Fatalf("open without schema marker = %v", err)
+		}
+	})
+
+	t.Run("changed marker", func(t *testing.T) {
+		dataRoot := filepath.Join(t.TempDir(), "sumi")
+		state, err := Open(dataRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := state.db.Exec(`UPDATE state_metadata SET value = 'wrong' WHERE key = 'schema_version'`); err != nil {
+			state.Close()
+			t.Fatal(err)
+		}
+		if err := state.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Open(dataRoot); err == nil || !strings.Contains(err.Error(), "schema is incompatible") {
+			t.Fatalf("open with changed schema marker = %v", err)
+		}
+	})
 }
 
 func TestStateRejectsSymlinksAndLooseFiles(t *testing.T) {
@@ -172,14 +231,14 @@ func TestRenewMutationAttemptsUseDistinctRequestsAndExpiries(t *testing.T) {
 	ctx := context.Background()
 	now := time.Unix(1_800_000_000, 0).UTC()
 	runID := uuid.NewString()
-	launchID := uuid.NewString()
+	runAttempt := uint64(3)
 	hash := sha256.Sum256([]byte("renew-payload"))
 	seen := make(map[string]struct{})
 	for index := range 3 {
 		createdAt := now.Add(time.Duration(index) * time.Minute)
 		attempt, err := state.BeginMutation(ctx, MutationAttempt{
 			Operation: "run.renew", SubjectID: runID, PayloadHash: hash, RunID: runID,
-			LaunchID: launchID, Fence: 7, CreatedAt: createdAt,
+			Attempt: runAttempt, Fence: 7, CreatedAt: createdAt,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -189,7 +248,7 @@ func TestRenewMutationAttemptsUseDistinctRequestsAndExpiries(t *testing.T) {
 		}
 		seen[attempt.RequestID] = struct{}{}
 		expiresAt := createdAt.Add(time.Minute)
-		if err := state.CompleteMutation(ctx, attempt.RequestID, "succeeded", launchID, 7, &expiresAt, createdAt.Add(time.Second)); err != nil {
+		if err := state.CompleteMutation(ctx, attempt.RequestID, "succeeded", runAttempt, 7, &expiresAt, createdAt.Add(time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,11 +279,11 @@ func TestRuntimeSessionCASRejectsStaleSaveAndDelete(t *testing.T) {
 	firstComputerID := uuid.NewString()
 	secondComputerID := uuid.NewString()
 	first := RuntimeSession{
-		AgentID: agentID, ComputerID: firstComputerID, PlacementGeneration: 1, Token: testSecret(3),
+		AgentID: agentID, ComputerID: firstComputerID, PlacementDesiredRevision: 1, Token: testSecret(3),
 		ExpiresAt: now.Add(10 * time.Minute), UpdatedAt: now,
 	}
 	second := RuntimeSession{
-		AgentID: agentID, ComputerID: secondComputerID, PlacementGeneration: 2, Token: testSecret(4),
+		AgentID: agentID, ComputerID: secondComputerID, PlacementDesiredRevision: 2, Token: testSecret(4),
 		ExpiresAt: now.Add(11 * time.Minute), UpdatedAt: now.Add(time.Minute),
 	}
 	if err := state.SaveRuntimeSession(ctx, first); err != nil {
@@ -234,7 +293,7 @@ func TestRuntimeSessionCASRejectsStaleSaveAndDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := state.SaveRuntimeSession(ctx, first); err == nil {
-		t.Fatal("generation 1 response replaced generation 2")
+		t.Fatal("desired revision 1 response replaced desired revision 2")
 	}
 	if err := state.DeleteRuntimeSession(ctx, agentID, firstComputerID, 1); err != nil {
 		t.Fatal(err)
@@ -244,10 +303,10 @@ func TestRuntimeSessionCASRejectsStaleSaveAndDelete(t *testing.T) {
 	staleRenew.ExpiresAt = second.ExpiresAt.Add(-time.Minute)
 	staleRenew.UpdatedAt = second.UpdatedAt.Add(-time.Minute)
 	if err := state.SaveRuntimeSession(ctx, staleRenew); err == nil {
-		t.Fatal("stale same-generation renew response replaced current session")
+		t.Fatal("stale same-revision renew response replaced current session")
 	}
 	sessions, err := state.RuntimeSessions(ctx)
-	if err != nil || len(sessions) != 1 || sessions[0].PlacementGeneration != 2 || sessions[0].ComputerID != secondComputerID || sessions[0].Token != second.Token {
+	if err != nil || len(sessions) != 1 || sessions[0].PlacementDesiredRevision != 2 || sessions[0].ComputerID != secondComputerID || sessions[0].Token != second.Token {
 		t.Fatalf("runtime after stale operations = %+v, %v", sessions, err)
 	}
 	if err := state.DeleteRuntimeSession(ctx, agentID, secondComputerID, 2); err != nil {
@@ -267,11 +326,10 @@ func TestMutationPendingSingleFlightSurvivesRestart(t *testing.T) {
 	}
 	ctx := context.Background()
 	runID := uuid.NewString()
-	launchID := uuid.NewString()
 	hash := sha256.Sum256([]byte("renew-payload"))
 	candidate := MutationAttempt{
 		Operation: "run.renew", SubjectID: runID, PayloadHash: hash, RunID: runID,
-		LaunchID: launchID, Fence: 9, CreatedAt: time.Now(),
+		Attempt: 2, Fence: 9, CreatedAt: time.Now(),
 	}
 	first, err := state.BeginMutation(ctx, candidate)
 	if err != nil {
@@ -282,9 +340,9 @@ func TestMutationPendingSingleFlightSurvivesRestart(t *testing.T) {
 		t.Fatalf("pending replay = %+v, %v", replayed, err)
 	}
 	if _, err := state.db.ExecContext(ctx, `
-		INSERT INTO mutation_attempts(request_id, operation, subject_id, payload_hash, status, run_id, launch_id, fence, created_at)
+		INSERT INTO mutation_attempts(request_id, operation, subject_id, payload_hash, status, run_id, attempt, fence, created_at)
 		VALUES(?, ?, ?, ?, 'pending', ?, ?, ?, ?)
-	`, uuid.NewString(), candidate.Operation, candidate.SubjectID, candidate.PayloadHash[:], candidate.RunID, candidate.LaunchID, candidate.Fence, time.Now().UnixNano()); err == nil {
+	`, uuid.NewString(), candidate.Operation, candidate.SubjectID, candidate.PayloadHash[:], candidate.RunID, candidate.Attempt, candidate.Fence, time.Now().UnixNano()); err == nil {
 		t.Fatal("database allowed a second pending mutation")
 	}
 	if err := state.Close(); err != nil {
@@ -305,7 +363,7 @@ func TestMutationPendingSingleFlightSurvivesRestart(t *testing.T) {
 		t.Fatal("conflicting pending mutation was accepted")
 	}
 	expiresAt := time.Now().Add(time.Minute)
-	if err := state.CompleteMutation(ctx, first.RequestID, "succeeded", launchID, 9, &expiresAt, time.Now()); err != nil {
+	if err := state.CompleteMutation(ctx, first.RequestID, "succeeded", candidate.Attempt, 9, &expiresAt, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	next, err := state.BeginMutation(ctx, candidate)
@@ -327,11 +385,10 @@ func TestStaleOutboxFenceTombstoneAllowsNewFence(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0).UTC()
 	agentID := uuid.NewString()
 	runID := uuid.NewString()
-	launchID := uuid.NewString()
 	mentionID := uuid.NewString()
 	stale := OutboxEvent{
 		OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: agentID,
-		PlacementGeneration: 1, RunID: runID, LaunchID: launchID, Fence: 1,
+		PlacementDesiredRevision: 1, RunID: runID, Attempt: 1, Fence: 1,
 		Outcome: "succeeded", Body: "sensitive stale body", MentionedAgentIDs: []string{mentionID}, CreatedAt: now,
 	}
 	if err := state.EnqueueOutbox(ctx, stale); err != nil {
@@ -393,7 +450,7 @@ func TestPendingOutboxIsBoundedAndHydratesMentions(t *testing.T) {
 	for index := 0; index < 3; index++ {
 		event := OutboxEvent{
 			OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: agentID,
-			PlacementGeneration: 1, RunID: runID, LaunchID: uuid.NewString(), Fence: uint64(index + 1),
+			PlacementDesiredRevision: 1, RunID: runID, Attempt: uint64(index + 1), Fence: uint64(index + 1),
 			Outcome: "succeeded", Body: "result", MentionedAgentIDs: []string{uuid.NewString(), uuid.NewString()},
 			CreatedAt: now.Add(time.Duration(index) * time.Second),
 		}
@@ -413,7 +470,7 @@ func TestPendingOutboxIsBoundedAndHydratesMentions(t *testing.T) {
 		t.Fatalf("pending outbox = %+v", pending)
 	}
 	for _, event := range events[:2] {
-		found, err := state.HasOutboxCompletion(ctx, event.RunID, event.LaunchID, event.Fence)
+		found, err := state.HasOutboxCompletion(ctx, event.RunID, event.Attempt, event.Fence)
 		if err != nil || !found {
 			t.Fatalf("completion %q found = %t, %v", event.OutboxEventID, found, err)
 		}
@@ -431,7 +488,7 @@ func TestEnqueueOutboxRejectsInvalidCompletionPayload(t *testing.T) {
 	defer state.Close()
 	base := OutboxEvent{
 		OutboxEventID: uuid.NewString(), RequestID: uuid.NewString(), AgentID: uuid.NewString(),
-		PlacementGeneration: 1, RunID: uuid.NewString(), LaunchID: uuid.NewString(), Fence: 1,
+		PlacementDesiredRevision: 1, RunID: uuid.NewString(), Attempt: 1, Fence: 1,
 		Outcome: "succeeded", Body: "valid completion", CreatedAt: time.Now(),
 	}
 	mention := uuid.NewString()

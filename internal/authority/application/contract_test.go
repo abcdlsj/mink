@@ -56,7 +56,7 @@ func TestRuntimeAuthenticationValid(t *testing.T) {
 func TestRuntimeProofAccessors(t *testing.T) {
 	hash := sha256.Sum256([]byte("runtime-token"))
 	proof := NewRuntimeProof(hash, "agent-id", "computer-id", 3)
-	if !proof.Valid() || proof.TokenHash() != hash || proof.AgentID() != "agent-id" || proof.ComputerID() != "computer-id" || proof.PlacementGeneration() != 3 {
+	if !proof.Valid() || proof.TokenHash() != hash || proof.AgentID() != "agent-id" || proof.ComputerID() != "computer-id" || proof.PlacementDesiredRevision() != 3 {
 		t.Fatal("runtime proof did not preserve its binding")
 	}
 }

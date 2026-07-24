@@ -16,6 +16,10 @@ func placementError(err error) error {
 		return nil
 	case errors.Is(err, placementapp.ErrAgentNotFound), errors.Is(err, computerapp.ErrNotFound), errors.Is(err, placementapp.ErrNotFound):
 		return connect.NewError(connect.CodeNotFound, err)
+	case errors.Is(err, placementapp.ErrRuntimeSpecMissing):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("agent runtime spec is not configured"))
+	case errors.Is(err, placementapp.ErrCredentialBindingInvalid):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("runtime credential binding does not match the agent and target computer"))
 	case errors.Is(err, computerapp.ErrRegistrationKeyMismatch):
 		return connect.NewError(connect.CodePermissionDenied, errors.New("computer credentials do not match"))
 	case errors.Is(err, authoritydomain.ErrPermissionDenied):
@@ -24,12 +28,12 @@ func placementError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("request id already exists with different placement data"))
 	case errors.Is(err, placementapp.ErrStale), errors.Is(err, placementapp.ErrConflict):
 		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case errors.Is(err, placementdomain.ErrActiveWithErrorCode):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("active acknowledgement cannot include an error code"))
+	case errors.Is(err, placementdomain.ErrReadyWithErrorCode):
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("ready acknowledgement cannot include an error code"))
 	case errors.Is(err, placementdomain.ErrFailureCodeInvalid):
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("failed acknowledgement requires a known error code"))
 	case errors.Is(err, placementdomain.ErrAcknowledgementStateInvalid):
-		return connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be active or failed"))
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("acknowledgement result must be ready or failed"))
 	default:
 		return connect.NewError(connect.CodeInternal, err)
 	}

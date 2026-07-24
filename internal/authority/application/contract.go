@@ -8,29 +8,29 @@ import (
 )
 
 type RuntimeSession struct {
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	CreatedAt           time.Time
-	ExpiresAt           time.Time
+	AgentID                  string
+	ComputerID               string
+	PlacementDesiredRevision uint64
+	CreatedAt                time.Time
+	ExpiresAt                time.Time
 }
 
 type RuntimeProof struct {
-	tokenHash           [sha256.Size]byte
-	agentID             string
-	computerID          string
-	placementGeneration uint64
+	tokenHash                [sha256.Size]byte
+	agentID                  string
+	computerID               string
+	placementDesiredRevision uint64
 }
 
-func NewRuntimeProof(tokenHash [sha256.Size]byte, agentID, computerID string, placementGeneration uint64) RuntimeProof {
+func NewRuntimeProof(tokenHash [sha256.Size]byte, agentID, computerID string, placementDesiredRevision uint64) RuntimeProof {
 	return RuntimeProof{
 		tokenHash: tokenHash, agentID: agentID, computerID: computerID,
-		placementGeneration: placementGeneration,
+		placementDesiredRevision: placementDesiredRevision,
 	}
 }
 
 func (proof RuntimeProof) Valid() bool {
-	return proof.tokenHash != [sha256.Size]byte{} && proof.agentID != "" && proof.computerID != "" && proof.placementGeneration > 0
+	return proof.tokenHash != [sha256.Size]byte{} && proof.agentID != "" && proof.computerID != "" && proof.placementDesiredRevision > 0
 }
 
 func (proof RuntimeProof) TokenHash() [sha256.Size]byte {
@@ -45,13 +45,23 @@ func (proof RuntimeProof) ComputerID() string {
 	return proof.computerID
 }
 
-func (proof RuntimeProof) PlacementGeneration() uint64 {
-	return proof.placementGeneration
+func (proof RuntimeProof) PlacementDesiredRevision() uint64 {
+	return proof.placementDesiredRevision
 }
 
 type RuntimeAuthentication struct {
 	Principal authoritydomain.Principal
 	Proof     RuntimeProof
+}
+
+type RunProof struct {
+	RunID   string
+	Attempt uint64
+	Fence   uint64
+}
+
+func (proof RunProof) Valid() bool {
+	return proof.RunID != "" && proof.Attempt > 0 && proof.Fence > 0
 }
 
 func (authentication RuntimeAuthentication) Valid() bool {
@@ -61,13 +71,13 @@ func (authentication RuntimeAuthentication) Valid() bool {
 }
 
 type CreateRuntimeSessionCommand struct {
-	ComputerID          string
-	RegistrationKey     string
-	AgentID             string
-	PlacementGeneration uint64
-	Token               string
-	Now                 time.Time
-	ExpiresAt           time.Time
+	ComputerID               string
+	RegistrationKey          string
+	AgentID                  string
+	PlacementDesiredRevision uint64
+	Token                    string
+	Now                      time.Time
+	ExpiresAt                time.Time
 }
 
 type RenewRuntimeSessionCommand struct {

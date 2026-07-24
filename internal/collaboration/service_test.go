@@ -71,7 +71,7 @@ func TestCollaborationConnectAuthenticationLifecycleAndNoCredentialLeak(t *testi
 		t.Fatalf("invalid group name code = %v, error = %v", connectCode(err), err)
 	}
 	agent, err := database.CreateAgent(context.Background(), store.CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "collaboration-mention", Driver: "native", Now: now.Add(2 * time.Second),
+		RequestID: uuid.NewString(), Actor: owner, Handle: "collaboration-mention", DisplayName: "Collaboration Mention", Role: "collaborator", Mission: "Respond to mentions", Now: now.Add(2 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)

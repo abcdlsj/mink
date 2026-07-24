@@ -22,7 +22,9 @@ import {
   type DirectorySnapshot,
   type PermissionState,
 } from "../lib/collaboration";
+import { agentDisplayName } from "../lib/format";
 import { IconButton } from "./IconButton";
+import { PixelAvatar } from "./PixelAvatar";
 
 export function SpaceContext({
   conversation,
@@ -76,7 +78,7 @@ export function SpaceContext({
           })),
         ...directory.agents.map((agent) => ({
           value: `${PrincipalKind.AGENT}:${agent.id}`,
-          label: agent.name,
+          label: agentDisplayName(agent),
           detail: "Agent",
         })),
       ].filter((candidate) => !existing.has(candidate.value)),
@@ -182,13 +184,24 @@ export function SpaceContext({
               if (!principal) return null;
               return (
                 <li key={`${principal.kind}:${principal.id}`}>
-                  <div>
-                    <strong>{principalName(principal, directory)}</strong>
-                    <span>
-                      {principal.kind === PrincipalKind.HUMAN
-                        ? "Human"
-                        : "Agent"}
-                    </span>
+                  <div className="member-identity">
+                    <PixelAvatar
+                      seed={principal.id}
+                      kind={
+                        principal.kind === PrincipalKind.HUMAN
+                          ? "human"
+                          : "agent"
+                      }
+                      size="xs"
+                    />
+                    <div>
+                      <strong>{principalName(principal, directory)}</strong>
+                      <span>
+                        {principal.kind === PrincipalKind.HUMAN
+                          ? "Human"
+                          : "Agent"}
+                      </span>
+                    </div>
                   </div>
                   {group && principal.id !== currentHumanId && (
                     <IconButton
@@ -335,7 +348,11 @@ function principalName(principal: Principal, directory: DirectorySnapshot) {
     );
   }
   return (
-    directory.agents.find((agent) => agent.id === principal.id)?.name ||
-    "Unknown Agent"
+    (() => {
+      const agent = directory.agents.find(
+        (candidate) => candidate.id === principal.id,
+      );
+      return agent ? agentDisplayName(agent) : undefined;
+    })() || "Unknown Agent"
   );
 }

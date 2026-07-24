@@ -22,73 +22,459 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type Driver int32
+type EngineKind int32
 
 const (
-	Driver_DRIVER_UNSPECIFIED Driver = 0
-	Driver_DRIVER_NATIVE      Driver = 1
-	Driver_DRIVER_CODEX       Driver = 2
-	Driver_DRIVER_CLAUDE      Driver = 3
+	EngineKind_ENGINE_KIND_UNSPECIFIED    EngineKind = 0
+	EngineKind_ENGINE_KIND_BUILTIN        EngineKind = 1
+	EngineKind_ENGINE_KIND_CODEX_ADAPTER  EngineKind = 2
+	EngineKind_ENGINE_KIND_CLAUDE_ADAPTER EngineKind = 3
 )
 
-// Enum value maps for Driver.
+// Enum value maps for EngineKind.
 var (
-	Driver_name = map[int32]string{
-		0: "DRIVER_UNSPECIFIED",
-		1: "DRIVER_NATIVE",
-		2: "DRIVER_CODEX",
-		3: "DRIVER_CLAUDE",
+	EngineKind_name = map[int32]string{
+		0: "ENGINE_KIND_UNSPECIFIED",
+		1: "ENGINE_KIND_BUILTIN",
+		2: "ENGINE_KIND_CODEX_ADAPTER",
+		3: "ENGINE_KIND_CLAUDE_ADAPTER",
 	}
-	Driver_value = map[string]int32{
-		"DRIVER_UNSPECIFIED": 0,
-		"DRIVER_NATIVE":      1,
-		"DRIVER_CODEX":       2,
-		"DRIVER_CLAUDE":      3,
+	EngineKind_value = map[string]int32{
+		"ENGINE_KIND_UNSPECIFIED":    0,
+		"ENGINE_KIND_BUILTIN":        1,
+		"ENGINE_KIND_CODEX_ADAPTER":  2,
+		"ENGINE_KIND_CLAUDE_ADAPTER": 3,
 	}
 )
 
-func (x Driver) Enum() *Driver {
-	p := new(Driver)
+func (x EngineKind) Enum() *EngineKind {
+	p := new(EngineKind)
 	*p = x
 	return p
 }
 
-func (x Driver) String() string {
+func (x EngineKind) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (Driver) Descriptor() protoreflect.EnumDescriptor {
+func (EngineKind) Descriptor() protoreflect.EnumDescriptor {
 	return file_sumi_agent_v1_agent_proto_enumTypes[0].Descriptor()
 }
 
-func (Driver) Type() protoreflect.EnumType {
+func (EngineKind) Type() protoreflect.EnumType {
 	return &file_sumi_agent_v1_agent_proto_enumTypes[0]
 }
 
-func (x Driver) Number() protoreflect.EnumNumber {
+func (x EngineKind) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use Driver.Descriptor instead.
-func (Driver) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use EngineKind.Descriptor instead.
+func (EngineKind) EnumDescriptor() ([]byte, []int) {
 	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+type ProviderProtocol int32
+
+const (
+	ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED        ProviderProtocol = 0
+	ProviderProtocol_PROVIDER_PROTOCOL_OPENAI_RESPONSES   ProviderProtocol = 1
+	ProviderProtocol_PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES ProviderProtocol = 2
+)
+
+// Enum value maps for ProviderProtocol.
+var (
+	ProviderProtocol_name = map[int32]string{
+		0: "PROVIDER_PROTOCOL_UNSPECIFIED",
+		1: "PROVIDER_PROTOCOL_OPENAI_RESPONSES",
+		2: "PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES",
+	}
+	ProviderProtocol_value = map[string]int32{
+		"PROVIDER_PROTOCOL_UNSPECIFIED":        0,
+		"PROVIDER_PROTOCOL_OPENAI_RESPONSES":   1,
+		"PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES": 2,
+	}
+)
+
+func (x ProviderProtocol) Enum() *ProviderProtocol {
+	p := new(ProviderProtocol)
+	*p = x
+	return p
+}
+
+func (x ProviderProtocol) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ProviderProtocol) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_agent_v1_agent_proto_enumTypes[1].Descriptor()
+}
+
+func (ProviderProtocol) Type() protoreflect.EnumType {
+	return &file_sumi_agent_v1_agent_proto_enumTypes[1]
+}
+
+func (x ProviderProtocol) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ProviderProtocol.Descriptor instead.
+func (ProviderProtocol) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+type RuntimeSandboxProvider int32
+
+const (
+	RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED   RuntimeSandboxProvider = 0
+	RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL RuntimeSandboxProvider = 1
+)
+
+// Enum value maps for RuntimeSandboxProvider.
+var (
+	RuntimeSandboxProvider_name = map[int32]string{
+		0: "RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED",
+		1: "RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL",
+	}
+	RuntimeSandboxProvider_value = map[string]int32{
+		"RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED":   0,
+		"RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL": 1,
+	}
+)
+
+func (x RuntimeSandboxProvider) Enum() *RuntimeSandboxProvider {
+	p := new(RuntimeSandboxProvider)
+	*p = x
+	return p
+}
+
+func (x RuntimeSandboxProvider) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RuntimeSandboxProvider) Descriptor() protoreflect.EnumDescriptor {
+	return file_sumi_agent_v1_agent_proto_enumTypes[2].Descriptor()
+}
+
+func (RuntimeSandboxProvider) Type() protoreflect.EnumType {
+	return &file_sumi_agent_v1_agent_proto_enumTypes[2]
+}
+
+func (x RuntimeSandboxProvider) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RuntimeSandboxProvider.Descriptor instead.
+func (RuntimeSandboxProvider) EnumDescriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
+type RuntimeToolPolicy struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       bool                   `protobuf:"varint,1,opt,name=message,proto3" json:"message,omitempty"`
+	Work          bool                   `protobuf:"varint,2,opt,name=work,proto3" json:"work,omitempty"`
+	Artifact      bool                   `protobuf:"varint,3,opt,name=artifact,proto3" json:"artifact,omitempty"`
+	Knowledge     bool                   `protobuf:"varint,4,opt,name=knowledge,proto3" json:"knowledge,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RuntimeToolPolicy) Reset() {
+	*x = RuntimeToolPolicy{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeToolPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeToolPolicy) ProtoMessage() {}
+
+func (x *RuntimeToolPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RuntimeToolPolicy.ProtoReflect.Descriptor instead.
+func (*RuntimeToolPolicy) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *RuntimeToolPolicy) GetMessage() bool {
+	if x != nil {
+		return x.Message
+	}
+	return false
+}
+
+func (x *RuntimeToolPolicy) GetWork() bool {
+	if x != nil {
+		return x.Work
+	}
+	return false
+}
+
+func (x *RuntimeToolPolicy) GetArtifact() bool {
+	if x != nil {
+		return x.Artifact
+	}
+	return false
+}
+
+func (x *RuntimeToolPolicy) GetKnowledge() bool {
+	if x != nil {
+		return x.Knowledge
+	}
+	return false
+}
+
+type AgentRuntimeSpec struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	AgentId                 string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Revision                uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	Engine                  EngineKind             `protobuf:"varint,3,opt,name=engine,proto3,enum=sumi.agent.v1.EngineKind" json:"engine,omitempty"`
+	ProviderProtocol        ProviderProtocol       `protobuf:"varint,4,opt,name=provider_protocol,json=providerProtocol,proto3,enum=sumi.agent.v1.ProviderProtocol" json:"provider_protocol,omitempty"`
+	ProviderEndpoint        string                 `protobuf:"bytes,5,opt,name=provider_endpoint,json=providerEndpoint,proto3" json:"provider_endpoint,omitempty"`
+	Model                   string                 `protobuf:"bytes,6,opt,name=model,proto3" json:"model,omitempty"`
+	CredentialBindingHandle string                 `protobuf:"bytes,7,opt,name=credential_binding_handle,json=credentialBindingHandle,proto3" json:"credential_binding_handle,omitempty"`
+	SandboxProvider         RuntimeSandboxProvider `protobuf:"varint,8,opt,name=sandbox_provider,json=sandboxProvider,proto3,enum=sumi.agent.v1.RuntimeSandboxProvider" json:"sandbox_provider,omitempty"`
+	MaxRunDurationSeconds   uint32                 `protobuf:"varint,9,opt,name=max_run_duration_seconds,json=maxRunDurationSeconds,proto3" json:"max_run_duration_seconds,omitempty"`
+	MaxOutputBytes          uint64                 `protobuf:"varint,10,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
+	ToolPolicy              *RuntimeToolPolicy     `protobuf:"bytes,11,opt,name=tool_policy,json=toolPolicy,proto3" json:"tool_policy,omitempty"`
+	CreatedAt               *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *AgentRuntimeSpec) Reset() {
+	*x = AgentRuntimeSpec{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentRuntimeSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentRuntimeSpec) ProtoMessage() {}
+
+func (x *AgentRuntimeSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentRuntimeSpec.ProtoReflect.Descriptor instead.
+func (*AgentRuntimeSpec) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *AgentRuntimeSpec) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AgentRuntimeSpec) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *AgentRuntimeSpec) GetEngine() EngineKind {
+	if x != nil {
+		return x.Engine
+	}
+	return EngineKind_ENGINE_KIND_UNSPECIFIED
+}
+
+func (x *AgentRuntimeSpec) GetProviderProtocol() ProviderProtocol {
+	if x != nil {
+		return x.ProviderProtocol
+	}
+	return ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED
+}
+
+func (x *AgentRuntimeSpec) GetProviderEndpoint() string {
+	if x != nil {
+		return x.ProviderEndpoint
+	}
+	return ""
+}
+
+func (x *AgentRuntimeSpec) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *AgentRuntimeSpec) GetCredentialBindingHandle() string {
+	if x != nil {
+		return x.CredentialBindingHandle
+	}
+	return ""
+}
+
+func (x *AgentRuntimeSpec) GetSandboxProvider() RuntimeSandboxProvider {
+	if x != nil {
+		return x.SandboxProvider
+	}
+	return RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED
+}
+
+func (x *AgentRuntimeSpec) GetMaxRunDurationSeconds() uint32 {
+	if x != nil {
+		return x.MaxRunDurationSeconds
+	}
+	return 0
+}
+
+func (x *AgentRuntimeSpec) GetMaxOutputBytes() uint64 {
+	if x != nil {
+		return x.MaxOutputBytes
+	}
+	return 0
+}
+
+func (x *AgentRuntimeSpec) GetToolPolicy() *RuntimeToolPolicy {
+	if x != nil {
+		return x.ToolPolicy
+	}
+	return nil
+}
+
+func (x *AgentRuntimeSpec) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+type AgentProfile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Revision      uint64                 `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Mission       string                 `protobuf:"bytes,5,opt,name=mission,proto3" json:"mission,omitempty"`
+	Instructions  string                 `protobuf:"bytes,6,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentProfile) Reset() {
+	*x = AgentProfile{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentProfile) ProtoMessage() {}
+
+func (x *AgentProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentProfile.ProtoReflect.Descriptor instead.
+func (*AgentProfile) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *AgentProfile) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *AgentProfile) GetRevision() uint64 {
+	if x != nil {
+		return x.Revision
+	}
+	return 0
+}
+
+func (x *AgentProfile) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *AgentProfile) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *AgentProfile) GetMission() string {
+	if x != nil {
+		return x.Mission
+	}
+	return ""
+}
+
+func (x *AgentProfile) GetInstructions() string {
+	if x != nil {
+		return x.Instructions
+	}
+	return ""
+}
+
+func (x *AgentProfile) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
 }
 
 type Agent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	Driver        Driver                 `protobuf:"varint,4,opt,name=driver,proto3,enum=sumi.agent.v1.Driver" json:"driver,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Handle        string                 `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	Profile       *AgentProfile          `protobuf:"bytes,3,opt,name=profile,proto3" json:"profile,omitempty"`
+	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Agent) Reset() {
 	*x = Agent{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[0]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -100,7 +486,7 @@ func (x *Agent) String() string {
 func (*Agent) ProtoMessage() {}
 
 func (x *Agent) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[0]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -113,7 +499,7 @@ func (x *Agent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Agent.ProtoReflect.Descriptor instead.
 func (*Agent) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{0}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Agent) GetId() string {
@@ -123,25 +509,18 @@ func (x *Agent) GetId() string {
 	return ""
 }
 
-func (x *Agent) GetName() string {
+func (x *Agent) GetHandle() string {
 	if x != nil {
-		return x.Name
+		return x.Handle
 	}
 	return ""
 }
 
-func (x *Agent) GetDescription() string {
+func (x *Agent) GetProfile() *AgentProfile {
 	if x != nil {
-		return x.Description
+		return x.Profile
 	}
-	return ""
-}
-
-func (x *Agent) GetDriver() Driver {
-	if x != nil {
-		return x.Driver
-	}
-	return Driver_DRIVER_UNSPECIFIED
+	return nil
 }
 
 func (x *Agent) GetCreatedAt() *timestamppb.Timestamp {
@@ -161,16 +540,18 @@ func (x *Agent) GetUpdatedAt() *timestamppb.Timestamp {
 type CreateAgentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	Driver        Driver                 `protobuf:"varint,4,opt,name=driver,proto3,enum=sumi.agent.v1.Driver" json:"driver,omitempty"`
+	Handle        string                 `protobuf:"bytes,2,opt,name=handle,proto3" json:"handle,omitempty"`
+	DisplayName   string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Mission       string                 `protobuf:"bytes,5,opt,name=mission,proto3" json:"mission,omitempty"`
+	Instructions  string                 `protobuf:"bytes,6,opt,name=instructions,proto3" json:"instructions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreateAgentRequest) Reset() {
 	*x = CreateAgentRequest{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -182,7 +563,7 @@ func (x *CreateAgentRequest) String() string {
 func (*CreateAgentRequest) ProtoMessage() {}
 
 func (x *CreateAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -195,7 +576,7 @@ func (x *CreateAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentRequest.ProtoReflect.Descriptor instead.
 func (*CreateAgentRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateAgentRequest) GetRequestId() string {
@@ -205,25 +586,39 @@ func (x *CreateAgentRequest) GetRequestId() string {
 	return ""
 }
 
-func (x *CreateAgentRequest) GetName() string {
+func (x *CreateAgentRequest) GetHandle() string {
 	if x != nil {
-		return x.Name
+		return x.Handle
 	}
 	return ""
 }
 
-func (x *CreateAgentRequest) GetDescription() string {
+func (x *CreateAgentRequest) GetDisplayName() string {
 	if x != nil {
-		return x.Description
+		return x.DisplayName
 	}
 	return ""
 }
 
-func (x *CreateAgentRequest) GetDriver() Driver {
+func (x *CreateAgentRequest) GetRole() string {
 	if x != nil {
-		return x.Driver
+		return x.Role
 	}
-	return Driver_DRIVER_UNSPECIFIED
+	return ""
+}
+
+func (x *CreateAgentRequest) GetMission() string {
+	if x != nil {
+		return x.Mission
+	}
+	return ""
+}
+
+func (x *CreateAgentRequest) GetInstructions() string {
+	if x != nil {
+		return x.Instructions
+	}
+	return ""
 }
 
 type CreateAgentResponse struct {
@@ -235,7 +630,7 @@ type CreateAgentResponse struct {
 
 func (x *CreateAgentResponse) Reset() {
 	*x = CreateAgentResponse{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -247,7 +642,7 @@ func (x *CreateAgentResponse) String() string {
 func (*CreateAgentResponse) ProtoMessage() {}
 
 func (x *CreateAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -260,12 +655,412 @@ func (x *CreateAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAgentResponse.ProtoReflect.Descriptor instead.
 func (*CreateAgentResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CreateAgentResponse) GetAgent() *Agent {
 	if x != nil {
 		return x.Agent
+	}
+	return nil
+}
+
+type UpdateAgentProfileRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	RequestId        string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	AgentId          string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ExpectedRevision uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	DisplayName      string                 `protobuf:"bytes,4,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Role             string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	Mission          string                 `protobuf:"bytes,6,opt,name=mission,proto3" json:"mission,omitempty"`
+	Instructions     string                 `protobuf:"bytes,7,opt,name=instructions,proto3" json:"instructions,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *UpdateAgentProfileRequest) Reset() {
+	*x = UpdateAgentProfileRequest{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentProfileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentProfileRequest) ProtoMessage() {}
+
+func (x *UpdateAgentProfileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentProfileRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAgentProfileRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *UpdateAgentProfileRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UpdateAgentProfileRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *UpdateAgentProfileRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *UpdateAgentProfileRequest) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *UpdateAgentProfileRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *UpdateAgentProfileRequest) GetMission() string {
+	if x != nil {
+		return x.Mission
+	}
+	return ""
+}
+
+func (x *UpdateAgentProfileRequest) GetInstructions() string {
+	if x != nil {
+		return x.Instructions
+	}
+	return ""
+}
+
+type UpdateAgentProfileResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Agent         *Agent                 `protobuf:"bytes,1,opt,name=agent,proto3" json:"agent,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAgentProfileResponse) Reset() {
+	*x = UpdateAgentProfileResponse{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentProfileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentProfileResponse) ProtoMessage() {}
+
+func (x *UpdateAgentProfileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentProfileResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAgentProfileResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *UpdateAgentProfileResponse) GetAgent() *Agent {
+	if x != nil {
+		return x.Agent
+	}
+	return nil
+}
+
+type UpdateAgentRuntimeSpecRequest struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	RequestId               string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	AgentId                 string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ExpectedRevision        uint64                 `protobuf:"varint,3,opt,name=expected_revision,json=expectedRevision,proto3" json:"expected_revision,omitempty"`
+	Engine                  EngineKind             `protobuf:"varint,4,opt,name=engine,proto3,enum=sumi.agent.v1.EngineKind" json:"engine,omitempty"`
+	ProviderProtocol        ProviderProtocol       `protobuf:"varint,5,opt,name=provider_protocol,json=providerProtocol,proto3,enum=sumi.agent.v1.ProviderProtocol" json:"provider_protocol,omitempty"`
+	ProviderEndpoint        string                 `protobuf:"bytes,6,opt,name=provider_endpoint,json=providerEndpoint,proto3" json:"provider_endpoint,omitempty"`
+	Model                   string                 `protobuf:"bytes,7,opt,name=model,proto3" json:"model,omitempty"`
+	CredentialBindingHandle string                 `protobuf:"bytes,8,opt,name=credential_binding_handle,json=credentialBindingHandle,proto3" json:"credential_binding_handle,omitempty"`
+	SandboxProvider         RuntimeSandboxProvider `protobuf:"varint,9,opt,name=sandbox_provider,json=sandboxProvider,proto3,enum=sumi.agent.v1.RuntimeSandboxProvider" json:"sandbox_provider,omitempty"`
+	MaxRunDurationSeconds   uint32                 `protobuf:"varint,10,opt,name=max_run_duration_seconds,json=maxRunDurationSeconds,proto3" json:"max_run_duration_seconds,omitempty"`
+	MaxOutputBytes          uint64                 `protobuf:"varint,11,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
+	ToolPolicy              *RuntimeToolPolicy     `protobuf:"bytes,12,opt,name=tool_policy,json=toolPolicy,proto3" json:"tool_policy,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) Reset() {
+	*x = UpdateAgentRuntimeSpecRequest{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentRuntimeSpecRequest) ProtoMessage() {}
+
+func (x *UpdateAgentRuntimeSpecRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentRuntimeSpecRequest.ProtoReflect.Descriptor instead.
+func (*UpdateAgentRuntimeSpecRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetExpectedRevision() uint64 {
+	if x != nil {
+		return x.ExpectedRevision
+	}
+	return 0
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetEngine() EngineKind {
+	if x != nil {
+		return x.Engine
+	}
+	return EngineKind_ENGINE_KIND_UNSPECIFIED
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetProviderProtocol() ProviderProtocol {
+	if x != nil {
+		return x.ProviderProtocol
+	}
+	return ProviderProtocol_PROVIDER_PROTOCOL_UNSPECIFIED
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetProviderEndpoint() string {
+	if x != nil {
+		return x.ProviderEndpoint
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetCredentialBindingHandle() string {
+	if x != nil {
+		return x.CredentialBindingHandle
+	}
+	return ""
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetSandboxProvider() RuntimeSandboxProvider {
+	if x != nil {
+		return x.SandboxProvider
+	}
+	return RuntimeSandboxProvider_RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetMaxRunDurationSeconds() uint32 {
+	if x != nil {
+		return x.MaxRunDurationSeconds
+	}
+	return 0
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetMaxOutputBytes() uint64 {
+	if x != nil {
+		return x.MaxOutputBytes
+	}
+	return 0
+}
+
+func (x *UpdateAgentRuntimeSpecRequest) GetToolPolicy() *RuntimeToolPolicy {
+	if x != nil {
+		return x.ToolPolicy
+	}
+	return nil
+}
+
+type UpdateAgentRuntimeSpecResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeSpec   *AgentRuntimeSpec      `protobuf:"bytes,1,opt,name=runtime_spec,json=runtimeSpec,proto3" json:"runtime_spec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateAgentRuntimeSpecResponse) Reset() {
+	*x = UpdateAgentRuntimeSpecResponse{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateAgentRuntimeSpecResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateAgentRuntimeSpecResponse) ProtoMessage() {}
+
+func (x *UpdateAgentRuntimeSpecResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateAgentRuntimeSpecResponse.ProtoReflect.Descriptor instead.
+func (*UpdateAgentRuntimeSpecResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *UpdateAgentRuntimeSpecResponse) GetRuntimeSpec() *AgentRuntimeSpec {
+	if x != nil {
+		return x.RuntimeSpec
+	}
+	return nil
+}
+
+type GetAgentRuntimeSpecRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAgentRuntimeSpecRequest) Reset() {
+	*x = GetAgentRuntimeSpecRequest{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAgentRuntimeSpecRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAgentRuntimeSpecRequest) ProtoMessage() {}
+
+func (x *GetAgentRuntimeSpecRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAgentRuntimeSpecRequest.ProtoReflect.Descriptor instead.
+func (*GetAgentRuntimeSpecRequest) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetAgentRuntimeSpecRequest) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+type GetAgentRuntimeSpecResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RuntimeSpec   *AgentRuntimeSpec      `protobuf:"bytes,1,opt,name=runtime_spec,json=runtimeSpec,proto3" json:"runtime_spec,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAgentRuntimeSpecResponse) Reset() {
+	*x = GetAgentRuntimeSpecResponse{}
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAgentRuntimeSpecResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAgentRuntimeSpecResponse) ProtoMessage() {}
+
+func (x *GetAgentRuntimeSpecResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetAgentRuntimeSpecResponse.ProtoReflect.Descriptor instead.
+func (*GetAgentRuntimeSpecResponse) Descriptor() ([]byte, []int) {
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetAgentRuntimeSpecResponse) GetRuntimeSpec() *AgentRuntimeSpec {
+	if x != nil {
+		return x.RuntimeSpec
 	}
 	return nil
 }
@@ -279,7 +1074,7 @@ type GetAgentRequest struct {
 
 func (x *GetAgentRequest) Reset() {
 	*x = GetAgentRequest{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -291,7 +1086,7 @@ func (x *GetAgentRequest) String() string {
 func (*GetAgentRequest) ProtoMessage() {}
 
 func (x *GetAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +1099,7 @@ func (x *GetAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentRequest.ProtoReflect.Descriptor instead.
 func (*GetAgentRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetAgentRequest) GetAgentId() string {
@@ -323,7 +1118,7 @@ type GetAgentResponse struct {
 
 func (x *GetAgentResponse) Reset() {
 	*x = GetAgentResponse{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -335,7 +1130,7 @@ func (x *GetAgentResponse) String() string {
 func (*GetAgentResponse) ProtoMessage() {}
 
 func (x *GetAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -348,7 +1143,7 @@ func (x *GetAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAgentResponse.ProtoReflect.Descriptor instead.
 func (*GetAgentResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetAgentResponse) GetAgent() *Agent {
@@ -366,7 +1161,7 @@ type ListAgentsRequest struct {
 
 func (x *ListAgentsRequest) Reset() {
 	*x = ListAgentsRequest{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +1173,7 @@ func (x *ListAgentsRequest) String() string {
 func (*ListAgentsRequest) ProtoMessage() {}
 
 func (x *ListAgentsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +1186,7 @@ func (x *ListAgentsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentsRequest.ProtoReflect.Descriptor instead.
 func (*ListAgentsRequest) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 type ListAgentsResponse struct {
@@ -403,7 +1198,7 @@ type ListAgentsResponse struct {
 
 func (x *ListAgentsResponse) Reset() {
 	*x = ListAgentsResponse{}
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +1210,7 @@ func (x *ListAgentsResponse) String() string {
 func (*ListAgentsResponse) ProtoMessage() {}
 
 func (x *ListAgentsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sumi_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_sumi_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +1223,7 @@ func (x *ListAgentsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAgentsResponse.ProtoReflect.Descriptor instead.
 func (*ListAgentsResponse) Descriptor() ([]byte, []int) {
-	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_sumi_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListAgentsResponse) GetAgents() []*Agent {
@@ -442,38 +1237,113 @@ var File_sumi_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_sumi_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x19sumi/agent/v1/agent.proto\x12\rsumi.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf2\x01\n" +
+	"\x19sumi/agent/v1/agent.proto\x12\rsumi.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"{\n" +
+	"\x11RuntimeToolPolicy\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\bR\amessage\x12\x12\n" +
+	"\x04work\x18\x02 \x01(\bR\x04work\x12\x1a\n" +
+	"\bartifact\x18\x03 \x01(\bR\bartifact\x12\x1c\n" +
+	"\tknowledge\x18\x04 \x01(\bR\tknowledge\"\xfc\x04\n" +
+	"\x10AgentRuntimeSpec\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x121\n" +
+	"\x06engine\x18\x03 \x01(\x0e2\x19.sumi.agent.v1.EngineKindR\x06engine\x12L\n" +
+	"\x11provider_protocol\x18\x04 \x01(\x0e2\x1f.sumi.agent.v1.ProviderProtocolR\x10providerProtocol\x12+\n" +
+	"\x11provider_endpoint\x18\x05 \x01(\tR\x10providerEndpoint\x12\x14\n" +
+	"\x05model\x18\x06 \x01(\tR\x05model\x12:\n" +
+	"\x19credential_binding_handle\x18\a \x01(\tR\x17credentialBindingHandle\x12P\n" +
+	"\x10sandbox_provider\x18\b \x01(\x0e2%.sumi.agent.v1.RuntimeSandboxProviderR\x0fsandboxProvider\x127\n" +
+	"\x18max_run_duration_seconds\x18\t \x01(\rR\x15maxRunDurationSeconds\x12(\n" +
+	"\x10max_output_bytes\x18\n" +
+	" \x01(\x04R\x0emaxOutputBytes\x12A\n" +
+	"\vtool_policy\x18\v \x01(\v2 .sumi.agent.v1.RuntimeToolPolicyR\n" +
+	"toolPolicy\x129\n" +
+	"\n" +
+	"created_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xf5\x01\n" +
+	"\fAgentProfile\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1a\n" +
+	"\brevision\x18\x02 \x01(\x04R\brevision\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x18\n" +
+	"\amission\x18\x05 \x01(\tR\amission\x12\"\n" +
+	"\finstructions\x18\x06 \x01(\tR\finstructions\x129\n" +
+	"\n" +
+	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xdc\x01\n" +
 	"\x05Agent\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\x12-\n" +
-	"\x06driver\x18\x04 \x01(\x0e2\x15.sumi.agent.v1.DriverR\x06driver\x129\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
+	"\x06handle\x18\x02 \x01(\tR\x06handle\x125\n" +
+	"\aprofile\x18\x03 \x01(\v2\x1b.sumi.agent.v1.AgentProfileR\aprofile\x129\n" +
 	"\n" +
-	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x98\x01\n" +
+	"updated_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc0\x01\n" +
 	"\x12CreateAgentRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\x12-\n" +
-	"\x06driver\x18\x04 \x01(\x0e2\x15.sumi.agent.v1.DriverR\x06driver\"A\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x16\n" +
+	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x18\n" +
+	"\amission\x18\x05 \x01(\tR\amission\x12\"\n" +
+	"\finstructions\x18\x06 \x01(\tR\finstructions\"A\n" +
 	"\x13CreateAgentResponse\x12*\n" +
-	"\x05agent\x18\x01 \x01(\v2\x14.sumi.agent.v1.AgentR\x05agent\",\n" +
+	"\x05agent\x18\x01 \x01(\v2\x14.sumi.agent.v1.AgentR\x05agent\"\xf7\x01\n" +
+	"\x19UpdateAgentProfileRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x12!\n" +
+	"\fdisplay_name\x18\x04 \x01(\tR\vdisplayName\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x12\x18\n" +
+	"\amission\x18\x06 \x01(\tR\amission\x12\"\n" +
+	"\finstructions\x18\a \x01(\tR\finstructions\"H\n" +
+	"\x1aUpdateAgentProfileResponse\x12*\n" +
+	"\x05agent\x18\x01 \x01(\v2\x14.sumi.agent.v1.AgentR\x05agent\"\xfe\x04\n" +
+	"\x1dUpdateAgentRuntimeSpecRequest\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12+\n" +
+	"\x11expected_revision\x18\x03 \x01(\x04R\x10expectedRevision\x121\n" +
+	"\x06engine\x18\x04 \x01(\x0e2\x19.sumi.agent.v1.EngineKindR\x06engine\x12L\n" +
+	"\x11provider_protocol\x18\x05 \x01(\x0e2\x1f.sumi.agent.v1.ProviderProtocolR\x10providerProtocol\x12+\n" +
+	"\x11provider_endpoint\x18\x06 \x01(\tR\x10providerEndpoint\x12\x14\n" +
+	"\x05model\x18\a \x01(\tR\x05model\x12:\n" +
+	"\x19credential_binding_handle\x18\b \x01(\tR\x17credentialBindingHandle\x12P\n" +
+	"\x10sandbox_provider\x18\t \x01(\x0e2%.sumi.agent.v1.RuntimeSandboxProviderR\x0fsandboxProvider\x127\n" +
+	"\x18max_run_duration_seconds\x18\n" +
+	" \x01(\rR\x15maxRunDurationSeconds\x12(\n" +
+	"\x10max_output_bytes\x18\v \x01(\x04R\x0emaxOutputBytes\x12A\n" +
+	"\vtool_policy\x18\f \x01(\v2 .sumi.agent.v1.RuntimeToolPolicyR\n" +
+	"toolPolicy\"d\n" +
+	"\x1eUpdateAgentRuntimeSpecResponse\x12B\n" +
+	"\fruntime_spec\x18\x01 \x01(\v2\x1f.sumi.agent.v1.AgentRuntimeSpecR\vruntimeSpec\"7\n" +
+	"\x1aGetAgentRuntimeSpecRequest\x12\x19\n" +
+	"\bagent_id\x18\x01 \x01(\tR\aagentId\"a\n" +
+	"\x1bGetAgentRuntimeSpecResponse\x12B\n" +
+	"\fruntime_spec\x18\x01 \x01(\v2\x1f.sumi.agent.v1.AgentRuntimeSpecR\vruntimeSpec\",\n" +
 	"\x0fGetAgentRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\">\n" +
 	"\x10GetAgentResponse\x12*\n" +
 	"\x05agent\x18\x01 \x01(\v2\x14.sumi.agent.v1.AgentR\x05agent\"\x13\n" +
 	"\x11ListAgentsRequest\"B\n" +
 	"\x12ListAgentsResponse\x12,\n" +
-	"\x06agents\x18\x01 \x03(\v2\x14.sumi.agent.v1.AgentR\x06agents*X\n" +
-	"\x06Driver\x12\x16\n" +
-	"\x12DRIVER_UNSPECIFIED\x10\x00\x12\x11\n" +
-	"\rDRIVER_NATIVE\x10\x01\x12\x10\n" +
-	"\fDRIVER_CODEX\x10\x02\x12\x11\n" +
-	"\rDRIVER_CLAUDE\x10\x032\x84\x02\n" +
+	"\x06agents\x18\x01 \x03(\v2\x14.sumi.agent.v1.AgentR\x06agents*\x81\x01\n" +
+	"\n" +
+	"EngineKind\x12\x1b\n" +
+	"\x17ENGINE_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13ENGINE_KIND_BUILTIN\x10\x01\x12\x1d\n" +
+	"\x19ENGINE_KIND_CODEX_ADAPTER\x10\x02\x12\x1e\n" +
+	"\x1aENGINE_KIND_CLAUDE_ADAPTER\x10\x03*\x87\x01\n" +
+	"\x10ProviderProtocol\x12!\n" +
+	"\x1dPROVIDER_PROTOCOL_UNSPECIFIED\x10\x00\x12&\n" +
+	"\"PROVIDER_PROTOCOL_OPENAI_RESPONSES\x10\x01\x12(\n" +
+	"$PROVIDER_PROTOCOL_ANTHROPIC_MESSAGES\x10\x02*n\n" +
+	"\x16RuntimeSandboxProvider\x12(\n" +
+	"$RUNTIME_SANDBOX_PROVIDER_UNSPECIFIED\x10\x00\x12*\n" +
+	"&RUNTIME_SANDBOX_PROVIDER_TRUSTED_LOCAL\x10\x012\xd4\x04\n" +
 	"\fAgentService\x12T\n" +
-	"\vCreateAgent\x12!.sumi.agent.v1.CreateAgentRequest\x1a\".sumi.agent.v1.CreateAgentResponse\x12K\n" +
+	"\vCreateAgent\x12!.sumi.agent.v1.CreateAgentRequest\x1a\".sumi.agent.v1.CreateAgentResponse\x12i\n" +
+	"\x12UpdateAgentProfile\x12(.sumi.agent.v1.UpdateAgentProfileRequest\x1a).sumi.agent.v1.UpdateAgentProfileResponse\x12u\n" +
+	"\x16UpdateAgentRuntimeSpec\x12,.sumi.agent.v1.UpdateAgentRuntimeSpecRequest\x1a-.sumi.agent.v1.UpdateAgentRuntimeSpecResponse\x12l\n" +
+	"\x13GetAgentRuntimeSpec\x12).sumi.agent.v1.GetAgentRuntimeSpecRequest\x1a*.sumi.agent.v1.GetAgentRuntimeSpecResponse\x12K\n" +
 	"\bGetAgent\x12\x1e.sumi.agent.v1.GetAgentRequest\x1a\x1f.sumi.agent.v1.GetAgentResponse\x12Q\n" +
 	"\n" +
 	"ListAgents\x12 .sumi.agent.v1.ListAgentsRequest\x1a!.sumi.agent.v1.ListAgentsResponseB6Z4github.com/abcdlsj/sumi/gen/go/sumi/agent/v1;agentv1b\x06proto3"
@@ -490,38 +1360,67 @@ func file_sumi_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_sumi_agent_v1_agent_proto_rawDescData
 }
 
-var file_sumi_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_sumi_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_sumi_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_sumi_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_sumi_agent_v1_agent_proto_goTypes = []any{
-	(Driver)(0),                   // 0: sumi.agent.v1.Driver
-	(*Agent)(nil),                 // 1: sumi.agent.v1.Agent
-	(*CreateAgentRequest)(nil),    // 2: sumi.agent.v1.CreateAgentRequest
-	(*CreateAgentResponse)(nil),   // 3: sumi.agent.v1.CreateAgentResponse
-	(*GetAgentRequest)(nil),       // 4: sumi.agent.v1.GetAgentRequest
-	(*GetAgentResponse)(nil),      // 5: sumi.agent.v1.GetAgentResponse
-	(*ListAgentsRequest)(nil),     // 6: sumi.agent.v1.ListAgentsRequest
-	(*ListAgentsResponse)(nil),    // 7: sumi.agent.v1.ListAgentsResponse
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(EngineKind)(0),                        // 0: sumi.agent.v1.EngineKind
+	(ProviderProtocol)(0),                  // 1: sumi.agent.v1.ProviderProtocol
+	(RuntimeSandboxProvider)(0),            // 2: sumi.agent.v1.RuntimeSandboxProvider
+	(*RuntimeToolPolicy)(nil),              // 3: sumi.agent.v1.RuntimeToolPolicy
+	(*AgentRuntimeSpec)(nil),               // 4: sumi.agent.v1.AgentRuntimeSpec
+	(*AgentProfile)(nil),                   // 5: sumi.agent.v1.AgentProfile
+	(*Agent)(nil),                          // 6: sumi.agent.v1.Agent
+	(*CreateAgentRequest)(nil),             // 7: sumi.agent.v1.CreateAgentRequest
+	(*CreateAgentResponse)(nil),            // 8: sumi.agent.v1.CreateAgentResponse
+	(*UpdateAgentProfileRequest)(nil),      // 9: sumi.agent.v1.UpdateAgentProfileRequest
+	(*UpdateAgentProfileResponse)(nil),     // 10: sumi.agent.v1.UpdateAgentProfileResponse
+	(*UpdateAgentRuntimeSpecRequest)(nil),  // 11: sumi.agent.v1.UpdateAgentRuntimeSpecRequest
+	(*UpdateAgentRuntimeSpecResponse)(nil), // 12: sumi.agent.v1.UpdateAgentRuntimeSpecResponse
+	(*GetAgentRuntimeSpecRequest)(nil),     // 13: sumi.agent.v1.GetAgentRuntimeSpecRequest
+	(*GetAgentRuntimeSpecResponse)(nil),    // 14: sumi.agent.v1.GetAgentRuntimeSpecResponse
+	(*GetAgentRequest)(nil),                // 15: sumi.agent.v1.GetAgentRequest
+	(*GetAgentResponse)(nil),               // 16: sumi.agent.v1.GetAgentResponse
+	(*ListAgentsRequest)(nil),              // 17: sumi.agent.v1.ListAgentsRequest
+	(*ListAgentsResponse)(nil),             // 18: sumi.agent.v1.ListAgentsResponse
+	(*timestamppb.Timestamp)(nil),          // 19: google.protobuf.Timestamp
 }
 var file_sumi_agent_v1_agent_proto_depIdxs = []int32{
-	0,  // 0: sumi.agent.v1.Agent.driver:type_name -> sumi.agent.v1.Driver
-	8,  // 1: sumi.agent.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
-	8,  // 2: sumi.agent.v1.Agent.updated_at:type_name -> google.protobuf.Timestamp
-	0,  // 3: sumi.agent.v1.CreateAgentRequest.driver:type_name -> sumi.agent.v1.Driver
-	1,  // 4: sumi.agent.v1.CreateAgentResponse.agent:type_name -> sumi.agent.v1.Agent
-	1,  // 5: sumi.agent.v1.GetAgentResponse.agent:type_name -> sumi.agent.v1.Agent
-	1,  // 6: sumi.agent.v1.ListAgentsResponse.agents:type_name -> sumi.agent.v1.Agent
-	2,  // 7: sumi.agent.v1.AgentService.CreateAgent:input_type -> sumi.agent.v1.CreateAgentRequest
-	4,  // 8: sumi.agent.v1.AgentService.GetAgent:input_type -> sumi.agent.v1.GetAgentRequest
-	6,  // 9: sumi.agent.v1.AgentService.ListAgents:input_type -> sumi.agent.v1.ListAgentsRequest
-	3,  // 10: sumi.agent.v1.AgentService.CreateAgent:output_type -> sumi.agent.v1.CreateAgentResponse
-	5,  // 11: sumi.agent.v1.AgentService.GetAgent:output_type -> sumi.agent.v1.GetAgentResponse
-	7,  // 12: sumi.agent.v1.AgentService.ListAgents:output_type -> sumi.agent.v1.ListAgentsResponse
-	10, // [10:13] is the sub-list for method output_type
-	7,  // [7:10] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	0,  // 0: sumi.agent.v1.AgentRuntimeSpec.engine:type_name -> sumi.agent.v1.EngineKind
+	1,  // 1: sumi.agent.v1.AgentRuntimeSpec.provider_protocol:type_name -> sumi.agent.v1.ProviderProtocol
+	2,  // 2: sumi.agent.v1.AgentRuntimeSpec.sandbox_provider:type_name -> sumi.agent.v1.RuntimeSandboxProvider
+	3,  // 3: sumi.agent.v1.AgentRuntimeSpec.tool_policy:type_name -> sumi.agent.v1.RuntimeToolPolicy
+	19, // 4: sumi.agent.v1.AgentRuntimeSpec.created_at:type_name -> google.protobuf.Timestamp
+	19, // 5: sumi.agent.v1.AgentProfile.created_at:type_name -> google.protobuf.Timestamp
+	5,  // 6: sumi.agent.v1.Agent.profile:type_name -> sumi.agent.v1.AgentProfile
+	19, // 7: sumi.agent.v1.Agent.created_at:type_name -> google.protobuf.Timestamp
+	19, // 8: sumi.agent.v1.Agent.updated_at:type_name -> google.protobuf.Timestamp
+	6,  // 9: sumi.agent.v1.CreateAgentResponse.agent:type_name -> sumi.agent.v1.Agent
+	6,  // 10: sumi.agent.v1.UpdateAgentProfileResponse.agent:type_name -> sumi.agent.v1.Agent
+	0,  // 11: sumi.agent.v1.UpdateAgentRuntimeSpecRequest.engine:type_name -> sumi.agent.v1.EngineKind
+	1,  // 12: sumi.agent.v1.UpdateAgentRuntimeSpecRequest.provider_protocol:type_name -> sumi.agent.v1.ProviderProtocol
+	2,  // 13: sumi.agent.v1.UpdateAgentRuntimeSpecRequest.sandbox_provider:type_name -> sumi.agent.v1.RuntimeSandboxProvider
+	3,  // 14: sumi.agent.v1.UpdateAgentRuntimeSpecRequest.tool_policy:type_name -> sumi.agent.v1.RuntimeToolPolicy
+	4,  // 15: sumi.agent.v1.UpdateAgentRuntimeSpecResponse.runtime_spec:type_name -> sumi.agent.v1.AgentRuntimeSpec
+	4,  // 16: sumi.agent.v1.GetAgentRuntimeSpecResponse.runtime_spec:type_name -> sumi.agent.v1.AgentRuntimeSpec
+	6,  // 17: sumi.agent.v1.GetAgentResponse.agent:type_name -> sumi.agent.v1.Agent
+	6,  // 18: sumi.agent.v1.ListAgentsResponse.agents:type_name -> sumi.agent.v1.Agent
+	7,  // 19: sumi.agent.v1.AgentService.CreateAgent:input_type -> sumi.agent.v1.CreateAgentRequest
+	9,  // 20: sumi.agent.v1.AgentService.UpdateAgentProfile:input_type -> sumi.agent.v1.UpdateAgentProfileRequest
+	11, // 21: sumi.agent.v1.AgentService.UpdateAgentRuntimeSpec:input_type -> sumi.agent.v1.UpdateAgentRuntimeSpecRequest
+	13, // 22: sumi.agent.v1.AgentService.GetAgentRuntimeSpec:input_type -> sumi.agent.v1.GetAgentRuntimeSpecRequest
+	15, // 23: sumi.agent.v1.AgentService.GetAgent:input_type -> sumi.agent.v1.GetAgentRequest
+	17, // 24: sumi.agent.v1.AgentService.ListAgents:input_type -> sumi.agent.v1.ListAgentsRequest
+	8,  // 25: sumi.agent.v1.AgentService.CreateAgent:output_type -> sumi.agent.v1.CreateAgentResponse
+	10, // 26: sumi.agent.v1.AgentService.UpdateAgentProfile:output_type -> sumi.agent.v1.UpdateAgentProfileResponse
+	12, // 27: sumi.agent.v1.AgentService.UpdateAgentRuntimeSpec:output_type -> sumi.agent.v1.UpdateAgentRuntimeSpecResponse
+	14, // 28: sumi.agent.v1.AgentService.GetAgentRuntimeSpec:output_type -> sumi.agent.v1.GetAgentRuntimeSpecResponse
+	16, // 29: sumi.agent.v1.AgentService.GetAgent:output_type -> sumi.agent.v1.GetAgentResponse
+	18, // 30: sumi.agent.v1.AgentService.ListAgents:output_type -> sumi.agent.v1.ListAgentsResponse
+	25, // [25:31] is the sub-list for method output_type
+	19, // [19:25] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_sumi_agent_v1_agent_proto_init() }
@@ -534,8 +1433,8 @@ func file_sumi_agent_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sumi_agent_v1_agent_proto_rawDesc), len(file_sumi_agent_v1_agent_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   7,
+			NumEnums:      3,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

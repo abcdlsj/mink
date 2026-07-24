@@ -14,6 +14,9 @@ import (
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
+	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
+	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/abcdlsj/sumi/internal/transport/messagecodec"
 	"github.com/google/uuid"
@@ -290,16 +293,35 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	}
 	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	agent, err := database.CreateAgent(ctx, store.CreateAgentParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "inbox-service", Driver: "native", Now: base.Add(time.Second),
+		RequestID: uuid.NewString(), Actor: owner, Handle: "inbox-service", DisplayName: "Inbox Service", Role: "worker", Mission: "Process inbox tests", Now: base.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	registrationKey := "inbox-service-computer-registration-key"
-	computer, err := database.RegisterComputer(ctx, store.RegisterComputerParams{
-		RegistrationKey: registrationKey, Name: "inbox-host", OS: "linux", Arch: "arm64", Now: base.Add(2 * time.Second),
+	pairingToken := base64.RawURLEncoding.EncodeToString([]byte("abcdef0123456789abcdef0123456789"))
+	if _, err := database.CreateComputerPairing(ctx, store.CreateComputerPairingParams{
+		RequestID: uuid.NewString(), Actor: owner, Token: pairingToken,
+		ExpiresAt: base.Add(3 * time.Minute), Now: base.Add(2 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	computer, err := database.PairComputer(ctx, store.PairComputerParams{
+		RequestID: uuid.NewString(), PairingToken: pairingToken,
+		RegistrationKey: registrationKey, Name: "inbox-host", OS: "linux", Arch: "arm64",
+		CapabilityInventory: inboxTestCapabilityInventory(), Now: base.Add(2 * time.Second),
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	bindingHandle := completeInboxServiceCredential(t, database, owner, computer.ID, registrationKey, agent.ID, base.Add(2*time.Second))
+	if _, err := database.UpdateAgentRuntimeSpec(ctx, store.UpdateAgentRuntimeSpecParams{
+		RequestID: uuid.NewString(), Actor: owner, AgentID: agent.ID,
+		Engine: agentapp.EngineBuiltin, ProviderProtocol: agentapp.ProviderOpenAIResponses,
+		ProviderEndpoint: "https://provider.invalid/v1", Model: "test-model", CredentialBindingHandle: bindingHandle,
+		SandboxProvider: "trusted_local", MaxRunDuration: 2 * time.Minute, MaxOutputBytes: 1 << 20,
+		ToolPolicy: agentapp.ToolPolicy{Message: true}, Now: base.Add(2 * time.Second),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	placement, err := database.SetAgentPlacement(ctx, store.SetAgentPlacementParams{
@@ -310,14 +332,14 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	}
 	if _, err := database.AcknowledgeAgentPlacement(ctx, store.AcknowledgePlacementParams{
 		ComputerID: computer.ID, RegistrationKey: registrationKey, AgentID: agent.ID,
-		Generation: placement.Generation, State: "active", Now: base.Add(4 * time.Second),
+		DesiredRevision: placement.DesiredRevision, State: "ready", Now: base.Add(4 * time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	token := base64.RawURLEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
 	if _, err := database.CreateAgentRuntimeSession(ctx, store.CreateAgentRuntimeSessionParams{
 		ComputerID: computer.ID, RegistrationKey: registrationKey, AgentID: agent.ID,
-		PlacementGeneration: placement.Generation, Token: token,
+		PlacementDesiredRevision: placement.DesiredRevision, Token: token,
 		Now: base.Add(5 * time.Second), ExpiresAt: base.Add(10*time.Minute + 5*time.Second),
 	}); err != nil {
 		t.Fatal(err)
@@ -363,6 +385,53 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 		database: database, owner: owner, agent: agent, group: group, trigger: trigger,
 		token: token, current: base.Add(12 * time.Second),
 	}
+}
+
+func inboxTestCapabilityInventory() computerdomain.CapabilityInventory {
+	inventory := computerdomain.TrustedLocalCapabilityInventory(computerdomain.EngineCapability{
+		Kind: computerdomain.EngineBuiltin, Version: "test", ProtocolVersion: 1,
+		SupportsToolCalls: true, SupportsCancel: true, OpenAIResponses: true, Healthy: true,
+	})
+	inventory.CredentialDelivery = computerdomain.CredentialDeliveryCapability{
+		Healthy: true, Algorithm: "x25519_xchacha20_poly1305", Store: "linux_secret_service",
+		KeyID: "inbox-service-key", PublicKey: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+	}
+	return inventory
+}
+
+func completeInboxServiceCredential(
+	t *testing.T,
+	database *store.Store,
+	owner store.Principal,
+	computerID, registrationKey, agentID string,
+	now time.Time,
+) string {
+	t.Helper()
+	delivery, err := database.EnqueueCredentialDelivery(context.Background(), computerapp.EnqueueCredentialDeliveryCommand{
+		RequestID: uuid.NewString(), Actor: owner, ComputerID: computerID, AgentID: agentID, CredentialKind: "openai",
+		Sealed: computerapp.SealedCredential{
+			Algorithm: "x25519_xchacha20_poly1305", KeyID: "inbox-service-key",
+			EphemeralPublicKey: make([]byte, 32), Nonce: make([]byte, 24), Ciphertext: make([]byte, 17),
+		},
+		ExpiresAt: now.Add(5 * time.Minute), Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := database.ClaimCredentialDelivery(context.Background(), computerapp.ClaimCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: registrationKey, Now: now,
+	})
+	if err != nil || claimed.ID != delivery.ID {
+		t.Fatalf("credential claim = %+v, %v", claimed, err)
+	}
+	handle := "cred_inbox_service_" + agentID
+	completed, err := database.CompleteCredentialDelivery(context.Background(), computerapp.CompleteCredentialDeliveryCommand{
+		ComputerID: computerID, RegistrationKey: registrationKey, DeliveryID: delivery.ID, BindingHandle: handle, Now: now,
+	})
+	if err != nil || completed.State != computerapp.CredentialDeliverySucceeded {
+		t.Fatalf("credential completion = %+v, %v", completed, err)
+	}
+	return handle
 }
 
 func runtimeRequest[T any](token string, message *T) *connect.Request[T] {

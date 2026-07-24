@@ -16,6 +16,7 @@ import (
 	authoritydomain "github.com/abcdlsj/sumi/internal/authority/domain"
 	collaborationapp "github.com/abcdlsj/sumi/internal/collaboration/application"
 	collaborationdomain "github.com/abcdlsj/sumi/internal/collaboration/domain"
+	executionapp "github.com/abcdlsj/sumi/internal/execution/application"
 	"github.com/abcdlsj/sumi/internal/transport/connectid"
 	workapp "github.com/abcdlsj/sumi/internal/work/application"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -87,11 +88,20 @@ func (s *Service) GetWork(ctx context.Context, request *connect.Request[workv1.G
 }
 
 func (s *Service) CreateWork(ctx context.Context, request *connect.Request[workv1.CreateWorkRequest]) (*connect.Response[workv1.CreateWorkResponse], error) {
-	actor, now, err := s.mutationActor(ctx, request.Header())
+	identity, now, err := s.mutationIdentity(ctx, request.Header())
 	if err != nil {
 		return nil, err
 	}
+	actor := identity.human
+	if !actor.Valid() {
+		actor = identity.agent.Principal
+	}
 	params, err := createParams(request.Msg, actor, now)
+	if err != nil {
+		return nil, err
+	}
+	params.Agent = identity.agent
+	params.Run, err = workRunProof(request.Msg.GetRunId(), request.Msg.GetRunAttempt(), request.Msg.GetRunFence())
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +117,13 @@ func (s *Service) CreateWork(ctx context.Context, request *connect.Request[workv
 }
 
 func (s *Service) AssignWork(ctx context.Context, request *connect.Request[workv1.AssignWorkRequest]) (*connect.Response[workv1.AssignWorkResponse], error) {
-	actor, now, err := s.mutationActor(ctx, request.Header())
+	identity, now, err := s.mutationIdentity(ctx, request.Header())
 	if err != nil {
 		return nil, err
+	}
+	actor := identity.human
+	if !actor.Valid() {
+		actor = identity.agent.Principal
 	}
 	requestID, workID, agentID, err := mutationIDs(request.Msg.GetRequestId(), request.Msg.GetWorkId(), "work id", request.Msg.GetAgentId(), "agent id")
 	if err != nil {
@@ -119,7 +133,11 @@ func (s *Service) AssignWork(ctx context.Context, request *connect.Request[workv
 	if err != nil {
 		return nil, err
 	}
-	assignment, err := s.store.AssignWork(ctx, workapp.AssignCommand{RequestID: requestID, Actor: actor, WorkID: workID, Role: role, AgentID: agentID, Now: now})
+	run, err := workRunProof(request.Msg.GetRunId(), request.Msg.GetRunAttempt(), request.Msg.GetRunFence())
+	if err != nil {
+		return nil, err
+	}
+	assignment, err := s.store.AssignWork(ctx, workapp.AssignCommand{RequestID: requestID, Actor: actor, Agent: identity.agent, Run: run, WorkID: workID, Role: role, AgentID: agentID, Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -131,9 +149,13 @@ func (s *Service) AssignWork(ctx context.Context, request *connect.Request[workv
 }
 
 func (s *Service) TransitionWork(ctx context.Context, request *connect.Request[workv1.TransitionWorkRequest]) (*connect.Response[workv1.TransitionWorkResponse], error) {
-	actor, now, err := s.mutationActor(ctx, request.Header())
+	identity, now, err := s.mutationIdentity(ctx, request.Header())
 	if err != nil {
 		return nil, err
+	}
+	actor := identity.human
+	if !actor.Valid() {
+		actor = identity.agent.Principal
 	}
 	requestID, workID, _, err := mutationIDs(request.Msg.GetRequestId(), request.Msg.GetWorkId(), "work id", "", "")
 	if err != nil {
@@ -147,7 +169,11 @@ func (s *Service) TransitionWork(ctx context.Context, request *connect.Request[w
 	if err != nil {
 		return nil, err
 	}
-	item, err := s.store.TransitionWork(ctx, workapp.TransitionCommand{RequestID: requestID, Actor: actor, WorkID: workID, ToState: state, Reason: request.Msg.GetReason(), Result: request.Msg.GetResult(), CriterionResults: results, Now: now})
+	run, err := workRunProof(request.Msg.GetRunId(), request.Msg.GetRunAttempt(), request.Msg.GetRunFence())
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.store.TransitionWork(ctx, workapp.TransitionCommand{RequestID: requestID, Actor: actor, Agent: identity.agent, Run: run, WorkID: workID, ToState: state, Reason: request.Msg.GetReason(), Result: request.Msg.GetResult(), CriterionResults: results, Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -159,15 +185,23 @@ func (s *Service) TransitionWork(ctx context.Context, request *connect.Request[w
 }
 
 func (s *Service) RequestApproval(ctx context.Context, request *connect.Request[workv1.RequestApprovalRequest]) (*connect.Response[workv1.RequestApprovalResponse], error) {
-	actor, now, err := s.mutationActor(ctx, request.Header())
+	identity, now, err := s.mutationIdentity(ctx, request.Header())
 	if err != nil {
 		return nil, err
+	}
+	actor := identity.human
+	if !actor.Valid() {
+		actor = identity.agent.Principal
 	}
 	requestID, workID, _, err := mutationIDs(request.Msg.GetRequestId(), request.Msg.GetWorkId(), "work id", "", "")
 	if err != nil {
 		return nil, err
 	}
-	approval, err := s.store.RequestWorkApproval(ctx, workapp.RequestApprovalCommand{RequestID: requestID, Actor: actor, WorkID: workID, Question: request.Msg.GetQuestion(), Now: now})
+	run, err := workRunProof(request.Msg.GetRunId(), request.Msg.GetRunAttempt(), request.Msg.GetRunFence())
+	if err != nil {
+		return nil, err
+	}
+	approval, err := s.store.RequestWorkApproval(ctx, workapp.RequestApprovalCommand{RequestID: requestID, Actor: actor, Agent: identity.agent, Run: run, WorkID: workID, Question: request.Msg.GetQuestion(), Now: now})
 	if err != nil {
 		return nil, serviceError(err)
 	}
@@ -223,7 +257,7 @@ func (s *Service) resolve(ctx context.Context, header http.Header, mutation bool
 }
 
 func (s *Service) mutationActor(ctx context.Context, header http.Header) (authoritydomain.Principal, time.Time, error) {
-	resolved, now, err := s.resolve(ctx, header, true)
+	resolved, now, err := s.mutationIdentity(ctx, header)
 	if err != nil {
 		return authoritydomain.Principal{}, time.Time{}, err
 	}
@@ -234,6 +268,28 @@ func (s *Service) mutationActor(ctx context.Context, header http.Header) (author
 		return resolved.agent.Principal, now, nil
 	}
 	return authoritydomain.Principal{}, time.Time{}, internalError()
+}
+
+func (s *Service) mutationIdentity(ctx context.Context, header http.Header) (identity, time.Time, error) {
+	resolved, now, err := s.resolve(ctx, header, true)
+	if err != nil {
+		return identity{}, time.Time{}, err
+	}
+	if resolved.human.Valid() || resolved.agent.Valid() {
+		return resolved, now, nil
+	}
+	return identity{}, time.Time{}, internalError()
+}
+
+func workRunProof(runID string, attempt, fence uint64) (*authorityapp.RunProof, error) {
+	if runID == "" && attempt == 0 && fence == 0 {
+		return nil, nil
+	}
+	id, err := connectid.CanonicalID(runID, "run id")
+	if err != nil || attempt == 0 || fence == 0 {
+		return nil, invalidArgument()
+	}
+	return &authorityapp.RunProof{RunID: id, Attempt: attempt, Fence: fence}, nil
 }
 
 func createParams(request *workv1.CreateWorkRequest, actor authoritydomain.Principal, now time.Time) (workapp.CreateCommand, error) {
@@ -401,7 +457,7 @@ func assignmentMessage(value workapp.Assignment) (*workv1.WorkAssignment, error)
 	if err != nil {
 		return nil, err
 	}
-	message := &workv1.WorkAssignment{Id: value.ID, WorkId: value.WorkID, OrganizationId: value.OrganizationID, Role: role, AgentId: value.AgentID, HolderComputerId: value.HolderComputerID, HolderPlacementGeneration: value.HolderPlacementGeneration, AssignedBy: actor, AssignedAt: timestamppb.New(value.AssignedAt), EndReason: value.EndReason}
+	message := &workv1.WorkAssignment{Id: value.ID, WorkId: value.WorkID, OrganizationId: value.OrganizationID, Role: role, AgentId: value.AgentID, HolderComputerId: value.HolderComputerID, HolderPlacementDesiredRevision: value.HolderPlacementDesiredRevision, AssignedBy: actor, AssignedAt: timestamppb.New(value.AssignedAt), EndReason: value.EndReason}
 	if value.EndedAt != nil {
 		message.EndedAt = timestamppb.New(*value.EndedAt)
 	}
@@ -613,6 +669,8 @@ func serviceError(err error) error {
 		return connect.NewError(connect.CodeAlreadyExists, errors.New("work request conflicts with committed request"))
 	case errors.Is(err, workapp.ErrTransitionInvalid), errors.Is(err, workapp.ErrTerminal), errors.Is(err, workapp.ErrAcceptanceIncomplete), errors.Is(err, workapp.ErrApprovalConflict), errors.Is(err, workapp.ErrAssignmentConflict), errors.Is(err, workapp.ErrPlacementInvalid):
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("work state conflict"))
+	case errors.Is(err, executionapp.ErrRunNotFound), errors.Is(err, executionapp.ErrRunNotRunning), errors.Is(err, executionapp.ErrRunLeaseStale), errors.Is(err, executionapp.ErrRunLeaseExpired):
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("work Run proof is stale"))
 	case errors.Is(err, workapp.ErrInvalid):
 		return invalidArgument()
 	default:

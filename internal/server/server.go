@@ -11,12 +11,12 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/audit/v1/auditv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
-	"github.com/abcdlsj/sumi/gen/go/sumi/delivery/v1/deliveryv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/grant/v1/grantv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/knowledge/v1/knowledgev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/organization/v1/organizationv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	"github.com/abcdlsj/sumi/gen/go/sumi/run/v1/runv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
@@ -30,8 +30,8 @@ import (
 	"github.com/abcdlsj/sumi/internal/authority/websession"
 	"github.com/abcdlsj/sumi/internal/collaboration"
 	"github.com/abcdlsj/sumi/internal/computer"
-	"github.com/abcdlsj/sumi/internal/execution/delivery"
 	"github.com/abcdlsj/sumi/internal/execution/inbox"
+	executionrun "github.com/abcdlsj/sumi/internal/execution/run"
 	"github.com/abcdlsj/sumi/internal/grant"
 	"github.com/abcdlsj/sumi/internal/home"
 	knowledgeindex "github.com/abcdlsj/sumi/internal/knowledge"
@@ -123,14 +123,23 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	systemPath, systemHandler := systemv1connect.NewSystemServiceHandler(system.New(serverID))
 	mux.Handle(systemPath, systemHandler)
 	computerMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
-		Origin:              config.BrowserOrigin,
-		ProtectedProcedures: []string{computerv1connect.ComputerServiceCreateComputerPairingProcedure},
+		Origin: config.BrowserOrigin,
+		ProtectedProcedures: []string{
+			computerv1connect.ComputerServiceCreateComputerPairingProcedure,
+			computerv1connect.ComputerServiceEnqueueCredentialDeliveryProcedure,
+			computerv1connect.ComputerServiceListCredentialDeliveriesProcedure,
+		},
+		BrowserReadProcedures: []string{computerv1connect.ComputerServiceListCredentialDeliveriesProcedure},
 	}))
 	computerPath, computerHandler := computerv1connect.NewComputerServiceHandler(computer.New(database), computerMutationAuthorization)
 	mux.Handle(computerPath, computerHandler)
 	agentMutationAuthorization := connect.WithInterceptors(authority.NewBrowserInterceptor(database, database, authority.BrowserInterceptorConfig{
-		Origin:              config.BrowserOrigin,
-		ProtectedProcedures: []string{agentv1connect.AgentServiceCreateAgentProcedure},
+		Origin: config.BrowserOrigin,
+		ProtectedProcedures: []string{
+			agentv1connect.AgentServiceCreateAgentProcedure,
+			agentv1connect.AgentServiceUpdateAgentProfileProcedure,
+			agentv1connect.AgentServiceUpdateAgentRuntimeSpecProcedure,
+		},
 	}))
 	agentPath, agentHandler := agentv1connect.NewAgentServiceHandler(agent.New(database), agentMutationAuthorization)
 	mux.Handle(agentPath, agentHandler)
@@ -153,9 +162,9 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(inboxPath, inboxHandler)
 	workAttentionPath, workAttentionHandler := inboxv1connect.NewWorkAttentionServiceHandler(workattention.New(database, config.BrowserOrigin))
 	mux.Handle(workAttentionPath, workAttentionHandler)
-	deliveryAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, delivery.Procedures()...))
-	deliveryPath, deliveryHandler := deliveryv1connect.NewDeliveryServiceHandler(delivery.New(database), deliveryAuthorization)
-	mux.Handle(deliveryPath, deliveryHandler)
+	runAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(database, executionrun.Procedures()...))
+	runPath, runHandler := runv1connect.NewRunServiceHandler(executionrun.New(database), runAuthorization)
+	mux.Handle(runPath, runHandler)
 	knowledgePath, knowledgeHandler := knowledgev1connect.NewKnowledgeServiceHandler(newKnowledgeService(database, config.BrowserOrigin))
 	mux.Handle(knowledgePath, knowledgeHandler)
 	artifactPath, artifactHandler := artifactv1connect.NewArtifactServiceHandler(artifact.New(artifacts, database, config.BrowserOrigin))

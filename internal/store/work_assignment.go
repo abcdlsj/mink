@@ -13,7 +13,7 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	if params.Role != WorkAssignmentCoordinator && params.Role != WorkAssignmentContributor {
 		return WorkAssignment{}, ErrWorkInvalid
 	}
-	fingerprint, err := workFingerprint(struct{ WorkID, Role, AgentID string }{params.WorkID, params.Role, params.AgentID})
+	fingerprint, err := workAssignFingerprint(params)
 	if err != nil {
 		return WorkAssignment{}, err
 	}
@@ -22,6 +22,14 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 		return WorkAssignment{}, err
 	}
 	defer tx.Rollback()
+	actor, err := recheckMessageActor(ctx, tx, params.Actor, params.Agent, params.Now)
+	if err != nil {
+		return WorkAssignment{}, err
+	}
+	params.Actor = actor
+	if _, _, err := requireToolRun(ctx, tx, params.Agent, params.Run, params.Now); err != nil {
+		return WorkAssignment{}, err
+	}
 	if receipt, found, err := readWorkReceipt(ctx, tx, params.RequestID, workRequestAssign, params.Actor, fingerprint); err != nil || found {
 		if err != nil {
 			return WorkAssignment{}, err
@@ -48,14 +56,14 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	if state == WorkStateCompleted || state == WorkStateFailed || state == WorkStateCancelled {
 		return WorkAssignment{}, ErrWorkTerminal
 	}
-	var generation uint64
+	var desiredRevision uint64
 	var computerID, placementState string
-	if err := tx.QueryRowContext(ctx, `SELECT computer_id, generation, state FROM agent_placements WHERE agent_id = ?`, params.AgentID).Scan(&computerID, &generation, &placementState); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT computer_id, desired_revision, state FROM agent_placements WHERE agent_id = ?`, params.AgentID).Scan(&computerID, &desiredRevision, &placementState); errors.Is(err, sql.ErrNoRows) {
 		return WorkAssignment{}, ErrWorkPlacementInvalid
 	} else if err != nil {
 		return WorkAssignment{}, err
 	}
-	if placementState != "active" {
+	if placementState != "ready" {
 		return WorkAssignment{}, ErrWorkPlacementInvalid
 	}
 	if exists, err := agentExists(ctx, tx, params.AgentID); err != nil || !exists {
@@ -66,7 +74,7 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	}
 	assignmentID := uuid.NewString()
 	stamp := unixNano(params.Now)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_assignments(id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_generation, assigned_by_kind, assigned_by_id, assigned_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, assignmentID, params.WorkID, params.Actor.OrganizationID, params.Role, params.AgentID, computerID, generation, params.Actor.Kind, params.Actor.ID, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_assignments(id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_desired_revision, assigned_by_kind, assigned_by_id, assigned_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, assignmentID, params.WorkID, params.Actor.OrganizationID, params.Role, params.AgentID, computerID, desiredRevision, params.Actor.Kind, params.Actor.ID, stamp); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return WorkAssignment{}, ErrWorkAssignmentConflict
 		}
@@ -101,7 +109,7 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 func assignmentByID(ctx context.Context, tx *sql.Tx, id string) (WorkAssignment, error) {
 	var value WorkAssignment
 	var assigned, ended sql.NullInt64
-	err := tx.QueryRowContext(ctx, `SELECT id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_generation, assigned_by_kind, assigned_by_id, assigned_at, ended_at, end_reason FROM work_assignments WHERE id = ?`, id).Scan(&value.ID, &value.WorkID, &value.OrganizationID, &value.Role, &value.AgentID, &value.HolderComputerID, &value.HolderPlacementGeneration, &value.AssignedBy.Kind, &value.AssignedBy.ID, &assigned, &ended, &value.EndReason)
+	err := tx.QueryRowContext(ctx, `SELECT id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_desired_revision, assigned_by_kind, assigned_by_id, assigned_at, ended_at, end_reason FROM work_assignments WHERE id = ?`, id).Scan(&value.ID, &value.WorkID, &value.OrganizationID, &value.Role, &value.AgentID, &value.HolderComputerID, &value.HolderPlacementDesiredRevision, &value.AssignedBy.Kind, &value.AssignedBy.ID, &assigned, &ended, &value.EndReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return WorkAssignment{}, ErrWorkAssignmentConflict
 	}

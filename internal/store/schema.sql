@@ -86,27 +86,39 @@ CREATE TABLE agent_placement_requests (
     payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
     computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
-    generation INTEGER NOT NULL CHECK (generation > 0),
-    state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'failed')),
+    agent_profile_revision INTEGER NOT NULL CHECK (agent_profile_revision > 0),
+    runtime_spec_revision INTEGER NOT NULL CHECK (runtime_spec_revision > 0),
+    desired_revision INTEGER NOT NULL CHECK (desired_revision > 0),
+    state TEXT NOT NULL CHECK (state IN ('pending', 'ready', 'failed')),
     error_code TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
+    FOREIGN KEY (agent_id, agent_profile_revision)
+        REFERENCES agent_profiles(agent_id, revision) ON DELETE RESTRICT,
+    FOREIGN KEY (agent_id, runtime_spec_revision)
+        REFERENCES agent_runtime_specs(agent_id, revision) ON DELETE RESTRICT,
     CHECK (
         (state = 'failed' AND length(error_code) BETWEEN 1 AND 64)
-        OR (state IN ('pending', 'active') AND error_code = '')
+        OR (state IN ('pending', 'ready') AND error_code = '')
     )
 );
 CREATE TABLE agent_placements (
 			agent_id TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE RESTRICT,
 			computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
-			generation INTEGER NOT NULL CHECK (generation > 0),
-			state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'failed')),
+			agent_profile_revision INTEGER NOT NULL CHECK (agent_profile_revision > 0),
+			runtime_spec_revision INTEGER NOT NULL CHECK (runtime_spec_revision > 0),
+			desired_revision INTEGER NOT NULL CHECK (desired_revision > 0),
+			state TEXT NOT NULL CHECK (state IN ('pending', 'ready', 'failed')),
 			error_code TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (agent_id, agent_profile_revision)
+				REFERENCES agent_profiles(agent_id, revision) ON DELETE RESTRICT,
+			FOREIGN KEY (agent_id, runtime_spec_revision)
+				REFERENCES agent_runtime_specs(agent_id, revision) ON DELETE RESTRICT,
 			CHECK (
 				(state = 'failed' AND length(error_code) BETWEEN 1 AND 64)
-				OR (state IN ('pending', 'active') AND error_code = '')
+				OR (state IN ('pending', 'ready') AND error_code = '')
 			)
 		);
 CREATE TABLE inbox_requests (
@@ -126,7 +138,7 @@ CREATE TABLE agent_runtime_sessions (
     token_hash BLOB PRIMARY KEY CHECK (length(token_hash) = 32),
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT CHECK (length(agent_id) = 36),
     computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT CHECK (length(computer_id) = 36),
-    placement_generation INTEGER NOT NULL CHECK (placement_generation > 0),
+    placement_desired_revision INTEGER NOT NULL CHECK (placement_desired_revision > 0),
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     revoked_at INTEGER,
@@ -166,12 +178,76 @@ CREATE TABLE principal_thread_follows (
 );
 CREATE TABLE "agents" (
 			id TEXT PRIMARY KEY CHECK (length(id) = 36),
-			name TEXT NOT NULL UNIQUE CHECK (length(name) BETWEEN 1 AND 32),
-			description TEXT NOT NULL CHECK (length(description) <= 1000),
-			driver TEXT NOT NULL CHECK (driver IN ('native', 'codex', 'claude')),
+			handle TEXT NOT NULL UNIQUE CHECK (length(handle) BETWEEN 1 AND 32),
+			current_profile_revision INTEGER NOT NULL CHECK (current_profile_revision > 0),
+			current_runtime_spec_revision INTEGER CHECK (current_runtime_spec_revision > 0),
 			created_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL
+			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (id, current_profile_revision)
+				REFERENCES agent_profiles(agent_id, revision) ON DELETE RESTRICT
+				DEFERRABLE INITIALLY DEFERRED,
+			FOREIGN KEY (id, current_runtime_spec_revision)
+				REFERENCES agent_runtime_specs(agent_id, revision) ON DELETE RESTRICT
+				DEFERRABLE INITIALLY DEFERRED
 		);
+CREATE TABLE agent_profile_update_requests (
+    request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
+    actor_kind TEXT NOT NULL CHECK (actor_kind = 'human'),
+    actor_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT CHECK (length(actor_id) = 36),
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    expected_revision INTEGER NOT NULL CHECK (expected_revision > 0),
+    result_revision INTEGER NOT NULL CHECK (result_revision = expected_revision + 1),
+    payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
+    FOREIGN KEY (agent_id, result_revision)
+        REFERENCES agent_profiles(agent_id, revision) ON DELETE RESTRICT
+);
+CREATE TABLE agent_profiles (
+    agent_id TEXT NOT NULL CHECK (length(agent_id) = 36),
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    display_name TEXT NOT NULL CHECK (length(display_name) BETWEEN 1 AND 400),
+    role TEXT NOT NULL CHECK (length(role) BETWEEN 1 AND 800),
+    mission TEXT NOT NULL CHECK (length(mission) BETWEEN 1 AND 8000),
+    instructions TEXT NOT NULL CHECK (length(instructions) <= 80000),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (agent_id, revision),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT
+        DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TABLE agent_runtime_spec_update_requests (
+    request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
+    actor_kind TEXT NOT NULL CHECK (actor_kind = 'human'),
+    actor_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT CHECK (length(actor_id) = 36),
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+    expected_revision INTEGER NOT NULL CHECK (expected_revision >= 0),
+    result_revision INTEGER NOT NULL CHECK (result_revision = expected_revision + 1),
+    payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
+    FOREIGN KEY (agent_id, result_revision)
+        REFERENCES agent_runtime_specs(agent_id, revision) ON DELETE RESTRICT
+);
+CREATE TABLE agent_runtime_specs (
+    agent_id TEXT NOT NULL CHECK (length(agent_id) = 36),
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    engine TEXT NOT NULL CHECK (engine IN ('builtin', 'codex_adapter', 'claude_adapter')),
+    provider_protocol TEXT NOT NULL CHECK (provider_protocol IN ('', 'openai_responses', 'anthropic_messages')),
+    provider_endpoint TEXT NOT NULL CHECK (length(provider_endpoint) <= 2048),
+    model TEXT NOT NULL CHECK (length(model) <= 255),
+    credential_binding_handle TEXT NOT NULL CHECK (length(credential_binding_handle) <= 255),
+    sandbox_provider TEXT NOT NULL CHECK (sandbox_provider = 'trusted_local'),
+    max_run_duration_seconds INTEGER NOT NULL CHECK (max_run_duration_seconds BETWEEN 1 AND 3600),
+    max_output_bytes INTEGER NOT NULL CHECK (max_output_bytes BETWEEN 1024 AND 67108864),
+    tool_message INTEGER NOT NULL CHECK (tool_message IN (0, 1)),
+    tool_work INTEGER NOT NULL CHECK (tool_work IN (0, 1)),
+    tool_artifact INTEGER NOT NULL CHECK (tool_artifact IN (0, 1)),
+    tool_knowledge INTEGER NOT NULL CHECK (tool_knowledge IN (0, 1)),
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (agent_id, revision),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE RESTRICT
+        DEFERRABLE INITIALLY DEFERRED,
+    CHECK (
+        (engine = 'builtin' AND provider_protocol != '' AND length(provider_endpoint) > 0 AND length(model) > 0)
+        OR (engine IN ('codex_adapter', 'claude_adapter') AND provider_protocol = '' AND provider_endpoint = '')
+    )
+);
 CREATE TABLE artifact_blobs (
     digest BLOB PRIMARY KEY CHECK (length(digest) = 32),
     size INTEGER NOT NULL CHECK (size BETWEEN 0 AND 67108864),
@@ -224,22 +300,17 @@ CREATE TABLE artifact_version_executions (
     artifact_id TEXT NOT NULL,
     version INTEGER NOT NULL,
     organization_id TEXT NOT NULL,
-    delivery_id TEXT NOT NULL,
     run_id TEXT NOT NULL,
-    launch_id TEXT NOT NULL,
+    attempt INTEGER NOT NULL CHECK (attempt > 0),
     agent_id TEXT NOT NULL,
     computer_id TEXT NOT NULL,
-    placement_generation INTEGER NOT NULL CHECK (placement_generation > 0),
+    placement_desired_revision INTEGER NOT NULL CHECK (placement_desired_revision > 0),
     fence INTEGER NOT NULL CHECK (fence > 0),
     PRIMARY KEY (artifact_id, version),
     FOREIGN KEY (artifact_id, version, organization_id)
         REFERENCES artifact_versions(artifact_id, version, organization_id) ON DELETE RESTRICT,
-    FOREIGN KEY (run_id, delivery_id, agent_id)
-        REFERENCES runs(id, delivery_id, agent_id) ON DELETE RESTRICT,
-    FOREIGN KEY (delivery_id, agent_id)
-        REFERENCES deliveries(id, agent_id) ON DELETE RESTRICT,
-    FOREIGN KEY (launch_id, run_id, fence, agent_id, computer_id, placement_generation)
-        REFERENCES run_launches(id, run_id, fence, agent_id, holder_computer_id, holder_placement_generation) ON DELETE RESTRICT
+    FOREIGN KEY (run_id, attempt, fence, agent_id, computer_id, placement_desired_revision)
+        REFERENCES runs(id, attempt, fence, agent_id, lease_holder_computer_id, placement_desired_revision) ON DELETE RESTRICT
 );
 CREATE TABLE artifact_version_sources (
     id TEXT PRIMARY KEY CHECK (length(id) = 36),
@@ -356,18 +427,6 @@ CREATE TABLE collaboration_requests (
     result_id TEXT NOT NULL CHECK (length(result_id) = 36),
     committed_at INTEGER NOT NULL
 );
-CREATE TABLE computer_pairing_sandbox_receipts (
-			pairing_id TEXT PRIMARY KEY REFERENCES computer_pairings(id) ON DELETE RESTRICT,
-			sandbox_provider TEXT NOT NULL CHECK (sandbox_provider IN ('unknown', 'trusted_local')),
-			sandbox_isolation TEXT NOT NULL CHECK (sandbox_isolation IN ('unknown', 'trusted_local')),
-			sandbox_workspace_access TEXT NOT NULL CHECK (sandbox_workspace_access IN ('unknown', 'direct_read_write')),
-			sandbox_process_control TEXT NOT NULL CHECK (sandbox_process_control IN ('unknown', 'context_process_group')),
-			sandbox_filesystem_isolation TEXT NOT NULL CHECK (sandbox_filesystem_isolation IN ('unknown', 'none')),
-			sandbox_network_isolation TEXT NOT NULL CHECK (sandbox_network_isolation IN ('unknown', 'none')),
-			sandbox_secret_materialization TEXT NOT NULL CHECK (sandbox_secret_materialization IN ('unknown', 'ephemeral_environment')),
-			sandbox_daemon_crash_cleanup TEXT NOT NULL CHECK (sandbox_daemon_crash_cleanup IN ('unknown', 'none')),
-			sandbox_declaration_revision INTEGER NOT NULL CHECK (sandbox_declaration_revision >= 0)
-		);
 CREATE TABLE computer_pairings (
     id TEXT PRIMARY KEY CHECK (length(id) = 36),
     request_id TEXT NOT NULL UNIQUE CHECK (length(request_id) = 36),
@@ -380,11 +439,14 @@ CREATE TABLE computer_pairings (
     consume_request_id TEXT UNIQUE CHECK (consume_request_id IS NULL OR length(consume_request_id) = 36),
     consume_fingerprint BLOB CHECK (consume_fingerprint IS NULL OR length(consume_fingerprint) = 32),
     computer_id TEXT UNIQUE REFERENCES computers(id) ON DELETE RESTRICT,
+	computer_inventory_revision INTEGER,
     CHECK (expires_at > created_at),
     CHECK (
-        (consumed_at IS NULL AND consume_request_id IS NULL AND consume_fingerprint IS NULL AND computer_id IS NULL)
-        OR (consumed_at IS NOT NULL AND consume_request_id IS NOT NULL AND consume_fingerprint IS NOT NULL AND computer_id IS NOT NULL)
-    )
+		(consumed_at IS NULL AND consume_request_id IS NULL AND consume_fingerprint IS NULL AND computer_id IS NULL AND computer_inventory_revision IS NULL)
+		OR (consumed_at IS NOT NULL AND consume_request_id IS NOT NULL AND consume_fingerprint IS NOT NULL AND computer_id IS NOT NULL AND computer_inventory_revision IS NOT NULL)
+	),
+    FOREIGN KEY (computer_id, computer_inventory_revision)
+        REFERENCES computer_capability_inventories(computer_id, revision) ON DELETE RESTRICT
 );
 CREATE TABLE "computers" (
 			id TEXT PRIMARY KEY CHECK (length(id) = 36),
@@ -393,46 +455,92 @@ CREATE TABLE "computers" (
 			os TEXT NOT NULL CHECK (os IN ('macos', 'linux')),
 			arch TEXT NOT NULL CHECK (arch IN ('arm64', 'amd64')),
 			created_at INTEGER NOT NULL,
-			last_seen_at INTEGER NOT NULL
-		, sandbox_provider TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_provider IN ('unknown', 'trusted_local')), sandbox_isolation TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_isolation IN ('unknown', 'trusted_local')), sandbox_workspace_access TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_workspace_access IN ('unknown', 'direct_read_write')), sandbox_process_control TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_process_control IN ('unknown', 'context_process_group')), sandbox_filesystem_isolation TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_filesystem_isolation IN ('unknown', 'none')), sandbox_network_isolation TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_network_isolation IN ('unknown', 'none')), sandbox_secret_materialization TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_secret_materialization IN ('unknown', 'ephemeral_environment')), sandbox_daemon_crash_cleanup TEXT NOT NULL DEFAULT 'unknown'
-			CHECK (sandbox_daemon_crash_cleanup IN ('unknown', 'none')), sandbox_declaration_revision INTEGER NOT NULL DEFAULT 0
-			CHECK (sandbox_declaration_revision >= 0));
-CREATE TABLE deliveries (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
-    inbox_item_id TEXT NOT NULL UNIQUE,
-    inbox_recipient_kind TEXT NOT NULL DEFAULT 'agent' CHECK (inbox_recipient_kind = 'agent'),
-    trigger_message_id TEXT NOT NULL,
-    space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
-    target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
-    target_id TEXT NOT NULL,
-    trigger_target_sequence INTEGER NOT NULL CHECK (trigger_target_sequence >= 1),
-    state TEXT NOT NULL CHECK (state IN ('available', 'accepted', 'completed')),
-    created_at INTEGER NOT NULL,
-    accepted_at INTEGER,
-    completed_at INTEGER,
-    UNIQUE (agent_id, trigger_message_id),
-    FOREIGN KEY (inbox_item_id, inbox_recipient_kind, agent_id)
-        REFERENCES inbox_items(id, recipient_kind, recipient_id) ON DELETE RESTRICT,
-    FOREIGN KEY (trigger_message_id, space_id, target_kind, target_id, trigger_target_sequence)
-        REFERENCES messages(id, space_id, target_kind, target_id, target_sequence) ON DELETE RESTRICT,
+			last_seen_at INTEGER NOT NULL,
+			current_inventory_revision INTEGER NOT NULL CHECK (current_inventory_revision > 0),
+			FOREIGN KEY (id, current_inventory_revision)
+				REFERENCES computer_capability_inventories(computer_id, revision) ON DELETE RESTRICT
+				DEFERRABLE INITIALLY DEFERRED
+		);
+CREATE TABLE computer_capability_inventories (
+    computer_id TEXT NOT NULL CHECK (length(computer_id) = 36),
+    revision INTEGER NOT NULL CHECK (revision > 0),
+    sandbox_provider TEXT NOT NULL CHECK (sandbox_provider = 'trusted_local'),
+    sandbox_isolation TEXT NOT NULL CHECK (sandbox_isolation = 'trusted_local'),
+    sandbox_workspace_access TEXT NOT NULL CHECK (sandbox_workspace_access = 'direct_read_write'),
+    sandbox_process_control TEXT NOT NULL CHECK (sandbox_process_control = 'context_process_group'),
+    sandbox_filesystem_isolation TEXT NOT NULL CHECK (sandbox_filesystem_isolation = 'none'),
+    sandbox_network_isolation TEXT NOT NULL CHECK (sandbox_network_isolation = 'none'),
+    sandbox_secret_materialization TEXT NOT NULL CHECK (sandbox_secret_materialization = 'ephemeral_environment'),
+    sandbox_daemon_crash_cleanup TEXT NOT NULL CHECK (sandbox_daemon_crash_cleanup = 'none'),
+    credential_healthy INTEGER NOT NULL CHECK (credential_healthy IN (0, 1)),
+    credential_algorithm TEXT NOT NULL CHECK (credential_algorithm IN ('', 'x25519_xchacha20_poly1305')),
+    credential_store TEXT NOT NULL CHECK (credential_store IN ('', 'macos_keychain', 'linux_secret_service')),
+    credential_key_id TEXT NOT NULL CHECK (length(credential_key_id) <= 255),
+    credential_public_key TEXT NOT NULL CHECK (length(credential_public_key) <= 255),
+    declared_at INTEGER NOT NULL,
+    PRIMARY KEY (computer_id, revision),
+    FOREIGN KEY (computer_id) REFERENCES computers(id) ON DELETE RESTRICT
+        DEFERRABLE INITIALLY DEFERRED,
     CHECK (
-        (target_kind = 'space' AND target_id = space_id)
-        OR (target_kind = 'thread' AND length(target_id) = 36)
-    ),
-    CHECK (
-        (state = 'available' AND accepted_at IS NULL AND completed_at IS NULL)
-        OR (state = 'accepted' AND accepted_at IS NOT NULL AND completed_at IS NULL)
-        OR (state = 'completed' AND accepted_at IS NOT NULL AND completed_at IS NOT NULL)
+        (credential_healthy = 0 AND credential_algorithm = '' AND credential_store = '' AND credential_key_id = '' AND credential_public_key = '')
+        OR
+        (credential_healthy = 1 AND credential_algorithm = 'x25519_xchacha20_poly1305' AND credential_store != '' AND length(credential_key_id) > 0 AND length(credential_public_key) > 0)
     )
+);
+CREATE TABLE computer_engine_capabilities (
+    computer_id TEXT NOT NULL,
+    inventory_revision INTEGER NOT NULL,
+    engine TEXT NOT NULL CHECK (engine IN ('builtin', 'codex_adapter', 'claude_adapter')),
+    version TEXT NOT NULL CHECK (length(version) BETWEEN 1 AND 255),
+    protocol_version INTEGER NOT NULL CHECK (protocol_version > 0),
+    supports_tool_calls INTEGER NOT NULL CHECK (supports_tool_calls IN (0, 1)),
+    supports_cancel INTEGER NOT NULL CHECK (supports_cancel IN (0, 1)),
+    provider_openai_responses INTEGER NOT NULL CHECK (provider_openai_responses IN (0, 1)),
+    provider_anthropic_messages INTEGER NOT NULL CHECK (provider_anthropic_messages IN (0, 1)),
+    healthy INTEGER NOT NULL CHECK (healthy IN (0, 1)),
+    PRIMARY KEY (computer_id, inventory_revision, engine),
+    FOREIGN KEY (computer_id, inventory_revision)
+        REFERENCES computer_capability_inventories(computer_id, revision) ON DELETE RESTRICT,
+    CHECK (
+        (engine = 'builtin' AND (provider_openai_responses = 1 OR provider_anthropic_messages = 1))
+        OR
+        (engine IN ('codex_adapter', 'claude_adapter') AND provider_openai_responses = 0 AND provider_anthropic_messages = 0)
+    )
+);
+CREATE TABLE credential_deliveries (
+	id TEXT PRIMARY KEY CHECK (length(id) = 36),
+	request_id TEXT NOT NULL UNIQUE CHECK (length(request_id) = 36),
+	actor_human_id TEXT NOT NULL REFERENCES humans(id) ON DELETE RESTRICT,
+	payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
+	computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
+	agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+	credential_kind TEXT NOT NULL CHECK (credential_kind IN ('openai', 'anthropic', 'codex_adapter', 'claude_adapter')),
+	algorithm TEXT NOT NULL CHECK (algorithm = 'x25519_xchacha20_poly1305'),
+	key_id TEXT NOT NULL CHECK (length(key_id) BETWEEN 1 AND 255),
+	ephemeral_public_key BLOB NOT NULL CHECK (length(ephemeral_public_key) = 32),
+	nonce BLOB NOT NULL CHECK (length(nonce) = 24),
+	ciphertext BLOB NOT NULL CHECK (length(ciphertext) BETWEEN 17 AND 65552),
+	state TEXT NOT NULL CHECK (state IN ('queued', 'claimed', 'succeeded', 'failed', 'expired')),
+	binding_handle TEXT NOT NULL DEFAULT '' CHECK (length(binding_handle) <= 255),
+	error_code TEXT NOT NULL DEFAULT '' CHECK (length(error_code) <= 255),
+	expires_at INTEGER NOT NULL,
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	CHECK (expires_at > created_at),
+	CHECK (
+		(state IN ('queued', 'claimed') AND binding_handle = '' AND error_code = '')
+		OR (state = 'succeeded' AND length(binding_handle) >= 16 AND error_code = '')
+		OR (state IN ('failed', 'expired') AND binding_handle = '' AND length(error_code) > 0)
+	)
+);
+CREATE TABLE credential_bindings (
+	handle TEXT PRIMARY KEY CHECK (length(handle) BETWEEN 16 AND 255),
+	delivery_id TEXT NOT NULL UNIQUE REFERENCES credential_deliveries(id) ON DELETE RESTRICT,
+	computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
+	agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+	credential_kind TEXT NOT NULL CHECK (credential_kind IN ('openai', 'anthropic', 'codex_adapter', 'claude_adapter')),
+	key_id TEXT NOT NULL CHECK (length(key_id) BETWEEN 1 AND 255),
+	created_at INTEGER NOT NULL
 );
 CREATE TABLE grant_issue_requests (
     request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
@@ -566,55 +674,70 @@ CREATE TABLE organizations (
 );
 CREATE TABLE run_completion_receipts (
     outbox_event_id TEXT PRIMARY KEY CHECK (length(outbox_event_id) = 36),
-    request_id TEXT NOT NULL UNIQUE REFERENCES inbox_requests(request_id) ON DELETE RESTRICT,
+    request_id TEXT NOT NULL UNIQUE REFERENCES run_requests(request_id) ON DELETE RESTRICT,
     payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
     run_id TEXT NOT NULL UNIQUE REFERENCES runs(id) ON DELETE RESTRICT,
-    launch_id TEXT NOT NULL REFERENCES run_launches(id) ON DELETE RESTRICT,
+    attempt INTEGER NOT NULL CHECK (attempt > 0),
     fence INTEGER NOT NULL CHECK (fence > 0),
     result_kind TEXT NOT NULL CHECK (result_kind IN ('message', 'held_draft')),
     result_id TEXT NOT NULL CHECK (length(result_id) = 36),
     committed_at INTEGER NOT NULL,
-    FOREIGN KEY (launch_id, run_id, fence) REFERENCES run_launches(id, run_id, fence) ON DELETE RESTRICT
-);
-CREATE TABLE run_launches (
-    id TEXT PRIMARY KEY CHECK (length(id) = 36),
-    run_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
-    holder_computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
-    holder_placement_generation INTEGER NOT NULL CHECK (holder_placement_generation > 0),
-    fence INTEGER NOT NULL CHECK (fence > 0),
-    claimed_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL,
-    closed_at INTEGER,
-    close_reason TEXT NOT NULL DEFAULT '' CHECK (close_reason IN ('', 'replaced', 'completed')),
-    FOREIGN KEY (run_id, agent_id) REFERENCES runs(id, agent_id) ON DELETE RESTRICT,
-    UNIQUE (agent_id, fence),
-    UNIQUE (id, run_id, fence),
-    CHECK (expires_at > claimed_at),
-    CHECK (
-        (closed_at IS NULL AND close_reason = '')
-        OR (closed_at IS NOT NULL AND close_reason = 'replaced' AND closed_at >= expires_at)
-        OR (closed_at IS NOT NULL AND close_reason = 'completed' AND closed_at >= claimed_at)
-    )
+	FOREIGN KEY (run_id, attempt, fence) REFERENCES runs(id, attempt, fence) ON DELETE RESTRICT
 );
 CREATE TABLE runs (
-    id TEXT PRIMARY KEY CHECK (length(id) = 36),
-    delivery_id TEXT NOT NULL UNIQUE,
-    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
-    basis_target_sequence INTEGER NOT NULL CHECK (basis_target_sequence >= 1),
-    state TEXT NOT NULL CHECK (state IN ('accepted', 'running', 'completed')),
-    outcome TEXT NOT NULL DEFAULT '' CHECK (outcome IN ('', 'succeeded', 'failed')),
-    result_kind TEXT NOT NULL DEFAULT '' CHECK (result_kind IN ('', 'message', 'held_draft')),
-    result_id TEXT NOT NULL DEFAULT '',
-    accepted_at INTEGER NOT NULL,
-    started_at INTEGER,
-    completed_at INTEGER,
-    FOREIGN KEY (delivery_id, agent_id) REFERENCES deliveries(id, agent_id) ON DELETE RESTRICT,
-    CHECK (
-        (state = 'accepted' AND outcome = '' AND result_kind = '' AND result_id = '' AND started_at IS NULL AND completed_at IS NULL)
-        OR (state = 'running' AND outcome = '' AND result_kind = '' AND result_id = '' AND started_at IS NOT NULL AND completed_at IS NULL)
-        OR (state = 'completed' AND outcome != '' AND result_kind != '' AND length(result_id) = 36 AND started_at IS NOT NULL AND completed_at IS NOT NULL)
-    )
+	sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+	id TEXT NOT NULL UNIQUE CHECK (length(id) = 36),
+	agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+	inbox_item_id TEXT NOT NULL UNIQUE,
+	inbox_recipient_kind TEXT NOT NULL DEFAULT 'agent' CHECK (inbox_recipient_kind = 'agent'),
+	trigger_message_id TEXT NOT NULL,
+	space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
+	target_kind TEXT NOT NULL CHECK (target_kind IN ('space', 'thread')),
+	target_id TEXT NOT NULL,
+	trigger_target_sequence INTEGER NOT NULL CHECK (trigger_target_sequence >= 1),
+	input_basis_target_sequence INTEGER NOT NULL DEFAULT 0 CHECK (input_basis_target_sequence >= 0),
+	state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+	attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+	lease_holder_computer_id TEXT REFERENCES computers(id) ON DELETE RESTRICT,
+	lease_expires_at INTEGER,
+	fence INTEGER NOT NULL DEFAULT 0 CHECK (fence >= 0),
+	placement_desired_revision INTEGER NOT NULL DEFAULT 0 CHECK (placement_desired_revision >= 0),
+	result_kind TEXT NOT NULL DEFAULT '' CHECK (result_kind IN ('', 'message', 'held_draft')),
+	result_id TEXT NOT NULL DEFAULT '',
+	usage_input_units INTEGER NOT NULL DEFAULT 0 CHECK (usage_input_units >= 0),
+	usage_output_units INTEGER NOT NULL DEFAULT 0 CHECK (usage_output_units >= 0),
+	error_code TEXT NOT NULL DEFAULT '' CHECK (length(error_code) <= 255),
+	created_at INTEGER NOT NULL,
+	started_at INTEGER,
+	completed_at INTEGER,
+	cancelled_at INTEGER,
+	UNIQUE (agent_id, trigger_message_id),
+	UNIQUE (id, attempt, fence),
+	UNIQUE (id, attempt, fence, agent_id, lease_holder_computer_id, placement_desired_revision),
+	FOREIGN KEY (inbox_item_id, inbox_recipient_kind, agent_id)
+		REFERENCES inbox_items(id, recipient_kind, recipient_id) ON DELETE RESTRICT,
+	FOREIGN KEY (trigger_message_id, space_id, target_kind, target_id, trigger_target_sequence)
+		REFERENCES messages(id, space_id, target_kind, target_id, target_sequence) ON DELETE RESTRICT,
+	CHECK (
+		(target_kind = 'space' AND target_id = space_id)
+		OR (target_kind = 'thread' AND length(target_id) = 36)
+	),
+	CHECK (
+		(state = 'queued' AND input_basis_target_sequence = 0 AND attempt = 0 AND lease_holder_computer_id IS NULL AND lease_expires_at IS NULL AND fence = 0 AND placement_desired_revision = 0 AND result_kind = '' AND result_id = '' AND error_code = '' AND started_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL)
+		OR (state = 'running' AND input_basis_target_sequence > 0 AND attempt > 0 AND lease_holder_computer_id IS NOT NULL AND lease_expires_at IS NOT NULL AND fence > 0 AND placement_desired_revision > 0 AND result_kind = '' AND result_id = '' AND error_code = '' AND started_at IS NOT NULL AND completed_at IS NULL AND cancelled_at IS NULL)
+		OR (state = 'succeeded' AND input_basis_target_sequence > 0 AND attempt > 0 AND lease_holder_computer_id IS NOT NULL AND lease_expires_at IS NOT NULL AND fence > 0 AND placement_desired_revision > 0 AND result_kind != '' AND length(result_id) = 36 AND error_code = '' AND started_at IS NOT NULL AND completed_at IS NOT NULL AND cancelled_at IS NULL)
+		OR (state = 'failed' AND input_basis_target_sequence > 0 AND attempt > 0 AND lease_holder_computer_id IS NOT NULL AND lease_expires_at IS NOT NULL AND fence > 0 AND placement_desired_revision > 0 AND result_kind != '' AND length(result_id) = 36 AND length(error_code) > 0 AND started_at IS NOT NULL AND completed_at IS NOT NULL AND cancelled_at IS NULL)
+		OR (state = 'cancelled' AND result_kind = '' AND result_id = '' AND completed_at IS NULL AND cancelled_at IS NOT NULL)
+	)
+);
+CREATE TABLE run_requests (
+	request_id TEXT PRIMARY KEY CHECK (length(request_id) = 36),
+	agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
+	operation TEXT NOT NULL CHECK (operation IN ('run.claim', 'run.renew', 'run.cancel', 'run.complete')),
+	payload_fingerprint BLOB NOT NULL CHECK (length(payload_fingerprint) = 32),
+	run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
+	response_snapshot BLOB NOT NULL CHECK (length(response_snapshot) > 0),
+	committed_at INTEGER NOT NULL
 );
 CREATE TABLE space_memberships (
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
@@ -641,7 +764,7 @@ CREATE TABLE system_metadata (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-INSERT INTO system_metadata(key, value) VALUES('schema_version', '3');
+INSERT INTO system_metadata(key, value) VALUES('schema_version', 'next-greenfield-1');
 CREATE TABLE threads (
     id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE RESTRICT,
     space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE RESTRICT,
@@ -698,7 +821,7 @@ CREATE TABLE work_assignments (
     role TEXT NOT NULL CHECK (role IN ('coordinator', 'contributor')),
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE RESTRICT,
     holder_computer_id TEXT NOT NULL REFERENCES computers(id) ON DELETE RESTRICT,
-    holder_placement_generation INTEGER NOT NULL CHECK (holder_placement_generation > 0),
+    holder_placement_desired_revision INTEGER NOT NULL CHECK (holder_placement_desired_revision > 0),
     assigned_by_kind TEXT NOT NULL CHECK (assigned_by_kind IN ('human', 'agent')),
     assigned_by_id TEXT NOT NULL CHECK (length(assigned_by_id) = 36),
     assigned_at INTEGER NOT NULL,
@@ -819,7 +942,7 @@ CREATE UNIQUE INDEX agent_runtime_sessions_agent_current
 ON agent_runtime_sessions(agent_id)
 WHERE revoked_at IS NULL;
 CREATE INDEX agent_runtime_sessions_binding_active
-ON agent_runtime_sessions(agent_id, computer_id, placement_generation, expires_at)
+ON agent_runtime_sessions(agent_id, computer_id, placement_desired_revision, expires_at)
 WHERE revoked_at IS NULL;
 CREATE INDEX principal_thread_follows_space
 ON principal_thread_follows(principal_kind, principal_id, space_id, thread_root_message_id);
@@ -844,10 +967,6 @@ ON browser_sessions(human_id, expires_at)
 WHERE revoked_at IS NULL;
 CREATE INDEX computer_pairings_human_created
 ON computer_pairings(human_id, created_at);
-CREATE INDEX deliveries_agent_state_sequence
-ON deliveries(agent_id, state, sequence);
-CREATE UNIQUE INDEX deliveries_id_agent
-ON deliveries(id, agent_id);
 CREATE INDEX grants_subject_capability_scope
 ON grants(organization_id, subject_kind, subject_id, capability, scope_kind, scope_id);
 CREATE INDEX knowledge_dirty_sources_sequence ON knowledge_dirty_sources(sequence);
@@ -857,20 +976,13 @@ CREATE INDEX message_mentions_principal_message
 ON message_mentions(principal_kind, principal_id, message_id);
 CREATE UNIQUE INDEX messages_inbox_trigger
 ON messages(id, space_id, target_kind, target_id, target_sequence);
-CREATE INDEX run_launches_agent_fence
-ON run_launches(agent_id, fence);
-CREATE UNIQUE INDEX run_launches_execution_binding
-ON run_launches(id, run_id, fence, agent_id, holder_computer_id, holder_placement_generation);
-CREATE UNIQUE INDEX run_launches_run_current
-ON run_launches(run_id)
-WHERE closed_at IS NULL;
 CREATE UNIQUE INDEX runs_agent_one_active
 ON runs(agent_id)
-WHERE state IN ('accepted', 'running');
+WHERE state = 'running';
+CREATE INDEX runs_agent_state_sequence
+ON runs(agent_id, state, sequence);
 CREATE UNIQUE INDEX runs_id_agent
 ON runs(id, agent_id);
-CREATE UNIQUE INDEX runs_id_delivery_agent
-ON runs(id, delivery_id, agent_id);
 CREATE UNIQUE INDEX spaces_dm_key ON spaces(organization_id, dm_key) WHERE dm_key IS NOT NULL;
 CREATE UNIQUE INDEX spaces_id_organization
 ON spaces(id, organization_id);

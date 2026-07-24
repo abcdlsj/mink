@@ -11,15 +11,18 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/agent/v1/agentv1connect"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
+	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/run/v1/runv1connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
+	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	workv1 "github.com/abcdlsj/sumi/gen/go/sumi/work/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/work/v1/workv1connect"
 	"github.com/abcdlsj/sumi/internal/authority"
@@ -51,12 +54,11 @@ func TestWorkHTTPReplayConflictAndRestartDetail(t *testing.T) {
 	assertConnectCode(t, err, connect.CodeAlreadyExists)
 
 	computerA, agentA, _, registrationKey := createActiveRuntimeBinding(t, api)
-	agentB, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(), Name: "runtime-" + uuid.NewString()[:8], Driver: agentv1.Driver_DRIVER_NATIVE,
-	}))
+	agentB, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(agentRequest("runtime-"+uuid.NewString()[:8])))
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agentB.Msg.GetAgent().GetId(), computerA.GetId(), registrationKey)
 	placementB, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agentB.Msg.GetAgent().GetId(), ComputerId: computerA.GetId(),
 	}))
@@ -65,8 +67,8 @@ func TestWorkHTTPReplayConflictAndRestartDetail(t *testing.T) {
 	}
 	if _, err := api.placements.AcknowledgeAgentPlacement(context.Background(), connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId: computerA.GetId(), RegistrationKey: registrationKey,
-		AgentId: agentB.Msg.GetAgent().GetId(), Generation: placementB.Msg.GetPlacement().GetGeneration(),
-		Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE,
+		AgentId: agentB.Msg.GetAgent().GetId(), DesiredRevision: placementB.Msg.GetPlacement().GetDesiredRevision(),
+		Result: placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY,
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -201,8 +203,8 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 	}
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
-	stale := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
-	current := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+	stale := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
+	current := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), credential, time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +218,7 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 		{store.CapabilityWorkCreate, store.Scope{Kind: "organization", ID: bootstrap.Organization.ID}},
 		{store.CapabilitySpaceRead, store.Scope{Kind: "space", ID: source.SpaceID}},
 		{store.CapabilityWorkManage, store.Scope{Kind: "work", ID: created.Msg.GetWork().GetId()}},
+		{store.CapabilityRunExecute, store.Scope{Kind: "agent", ID: agent.GetId()}},
 	} {
 		if _, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{RequestID: uuid.NewString(), Actor: ownerPrincipal, Subject: runtimePrincipal, Capability: grant.capability, Scope: grant.scope, ParentGrantID: bootstrap.RootGrant.ID, Now: time.Now()}); err != nil {
 			t.Fatal(err)
@@ -224,17 +227,50 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 	if _, err := api.app.store.AddMember(context.Background(), store.ChangeMemberParams{RequestID: uuid.NewString(), Actor: ownerPrincipal, SpaceID: source.SpaceID, Member: runtimePrincipal, Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	trigger := sendMention(t, spaces, source.SpaceID, agent.GetId(), "execute Work mutations")
+	inbox := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
+	item := findInboxItem(t, inbox, current.GetToken(), trigger.GetId())
+	observeInbox(t, inbox, current.GetToken(), item.GetTarget())
+	runs := runv1connect.NewRunServiceClient(api.http.Client(), api.http.URL)
+	listedRuns, err := runs.ListRuns(context.Background(), runtimeRequest(&runv1.ListRunsRequest{Limit: 10}, current.GetToken()))
+	if err != nil || len(listedRuns.Msg.GetRuns()) != 1 {
+		t.Fatalf("runtime Runs = %+v, %v", listedRuns, err)
+	}
+	claimed, err := runs.ClaimRun(context.Background(), runtimeRequest(&runv1.ClaimRunRequest{
+		RequestId: uuid.NewString(), RunId: listedRuns.Msg.GetRuns()[0].GetId(),
+	}, current.GetToken()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := claimed.Msg.GetRun()
 	runtimeWork := workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL)
-	if _, err := runtimeWork.CreateWork(context.Background(), runtimeRequest(workCreateRequest(source), current.GetToken())); err != nil {
+	runtimeCreate := workCreateRequest(source)
+	runtimeCreate.SourceMessageId = trigger.GetId()
+	runtimeCreate.SourceSpaceId = trigger.GetSpaceId()
+	runtimeCreate.SourceTarget = spaceTarget(trigger.GetSpaceId())
+	runtimeCreate.SourceTargetSequence = trigger.GetTargetSequence()
+	runtimeCreate.RunId, runtimeCreate.RunAttempt, runtimeCreate.RunFence = run.GetId(), run.GetAttempt(), run.GetFence()
+	if _, err := runtimeWork.CreateWork(context.Background(), runtimeRequest(runtimeCreate, current.GetToken())); err != nil {
 		t.Fatalf("current runtime create: %v", err)
 	}
-	if _, err := runtimeWork.AssignWork(context.Background(), runtimeRequest(&workv1.AssignWorkRequest{RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), AgentId: agent.GetId(), Role: workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR}, current.GetToken())); err != nil {
+	if _, err := runtimeWork.AssignWork(context.Background(), runtimeRequest(&workv1.AssignWorkRequest{
+		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), AgentId: agent.GetId(),
+		Role:  workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR,
+		RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+	}, current.GetToken())); err != nil {
 		t.Fatalf("current runtime assign: %v", err)
 	}
-	if _, err := runtimeWork.TransitionWork(context.Background(), runtimeRequest(&workv1.TransitionWorkRequest{RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), ToState: workv1.WorkState_WORK_STATE_BLOCKED, Reason: "runtime transition"}, current.GetToken())); err != nil {
+	if _, err := runtimeWork.TransitionWork(context.Background(), runtimeRequest(&workv1.TransitionWorkRequest{
+		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), ToState: workv1.WorkState_WORK_STATE_BLOCKED,
+		Reason: "runtime transition", RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+	}, current.GetToken())); err != nil {
 		t.Fatalf("current runtime transition: %v", err)
 	}
-	pending, err := runtimeWork.RequestApproval(context.Background(), runtimeRequest(&workv1.RequestApprovalRequest{RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), Question: "runtime approval"}, current.GetToken()))
+	pending, err := runtimeWork.RequestApproval(context.Background(), runtimeRequest(&workv1.RequestApprovalRequest{
+		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), Question: "runtime approval",
+		RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+	}, current.GetToken()))
 	if err != nil {
 		t.Fatalf("current runtime approval request: %v", err)
 	}
@@ -294,7 +330,7 @@ func workMutationErrors(client workv1connect.WorkServiceClient, header http.Head
 }
 
 type workHTTPMutationCounts struct {
-	works, assignments, approvals, results, events, receipts, dirty int
+	works, assignments, approvals, results, events, receipts int
 }
 
 func readWorkHTTPMutationCounts(t *testing.T, dataRoot string) workHTTPMutationCounts {
@@ -315,7 +351,6 @@ func readWorkHTTPMutationCounts(t *testing.T, dataRoot string) workHTTPMutationC
 		{`SELECT count(*) FROM work_acceptance_results`, &counts.results},
 		{`SELECT count(*) FROM work_events`, &counts.events},
 		{`SELECT count(*) FROM work_requests`, &counts.receipts},
-		{`SELECT count(*) FROM knowledge_dirty_sources WHERE source_kind = 'work'`, &counts.dirty},
 	}
 	for _, query := range queries {
 		if err := database.QueryRow(query.query).Scan(query.value); err != nil {
@@ -435,7 +470,7 @@ func assertWorkRestartDetail(t *testing.T, detail *workv1.WorkDetail, create *wo
 
 func assertWorkAssignmentProjection(t *testing.T, actual, expected *workv1.WorkAssignment, ended bool) {
 	t.Helper()
-	if actual.GetId() != expected.GetId() || actual.GetWorkId() != expected.GetWorkId() || actual.GetOrganizationId() != expected.GetOrganizationId() || actual.GetRole() != expected.GetRole() || actual.GetAgentId() != expected.GetAgentId() || actual.GetHolderComputerId() != expected.GetHolderComputerId() || actual.GetHolderPlacementGeneration() != expected.GetHolderPlacementGeneration() || !proto.Equal(actual.GetAssignedBy(), expected.GetAssignedBy()) || actual.GetAssignedAt() == nil {
+	if actual.GetId() != expected.GetId() || actual.GetWorkId() != expected.GetWorkId() || actual.GetOrganizationId() != expected.GetOrganizationId() || actual.GetRole() != expected.GetRole() || actual.GetAgentId() != expected.GetAgentId() || actual.GetHolderComputerId() != expected.GetHolderComputerId() || actual.GetHolderPlacementDesiredRevision() != expected.GetHolderPlacementDesiredRevision() || !proto.Equal(actual.GetAssignedBy(), expected.GetAssignedBy()) || actual.GetAssignedAt() == nil {
 		t.Fatalf("assignment projection = %+v, want %+v", actual, expected)
 	}
 	if ended {
@@ -467,7 +502,7 @@ func workDetailFromStoreForTest(t *testing.T, value store.WorkDetail) *workv1.Wo
 		result.AcceptanceCriteria = append(result.AcceptanceCriteria, &workv1.WorkCriterion{Id: item.ID, Ordinal: item.Ordinal, Body: item.Body, CreatedAt: timestamppb.New(item.CreatedAt)})
 	}
 	for _, item := range value.Assignments {
-		assignment := &workv1.WorkAssignment{Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, Role: assignmentRoleFromStoreForTest(t, item.Role), AgentId: item.AgentID, HolderComputerId: item.HolderComputerID, HolderPlacementGeneration: item.HolderPlacementGeneration, AssignedBy: principalFromStoreForTest(t, item.AssignedBy), AssignedAt: timestamppb.New(item.AssignedAt), EndReason: item.EndReason}
+		assignment := &workv1.WorkAssignment{Id: item.ID, WorkId: item.WorkID, OrganizationId: item.OrganizationID, Role: assignmentRoleFromStoreForTest(t, item.Role), AgentId: item.AgentID, HolderComputerId: item.HolderComputerID, HolderPlacementDesiredRevision: item.HolderPlacementDesiredRevision, AssignedBy: principalFromStoreForTest(t, item.AssignedBy), AssignedAt: timestamppb.New(item.AssignedAt), EndReason: item.EndReason}
 		if item.EndedAt != nil {
 			assignment.EndedAt = timestamppb.New(*item.EndedAt)
 		}

@@ -191,7 +191,7 @@ func TestKnowledgeHTTPAcceptsHumanBrowserAndCurrentRuntime(t *testing.T) {
 		}
 		computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 		runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
-		session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetGeneration())
+		session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 		runtimeSearch := knowledgev1connect.NewKnowledgeServiceClient(api.http.Client(), api.http.URL)
 		if _, err := runtimeSearch.SearchKnowledge(context.Background(), knowledgeRequest("knowledge", 0, session.GetToken())); err != nil {
 			t.Fatalf("runtime search: %v", err)

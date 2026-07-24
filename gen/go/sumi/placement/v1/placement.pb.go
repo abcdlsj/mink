@@ -7,6 +7,7 @@
 package placementv1
 
 import (
+	v1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -27,7 +28,7 @@ type PlacementState int32
 const (
 	PlacementState_PLACEMENT_STATE_UNSPECIFIED PlacementState = 0
 	PlacementState_PLACEMENT_STATE_PENDING     PlacementState = 1
-	PlacementState_PLACEMENT_STATE_ACTIVE      PlacementState = 2
+	PlacementState_PLACEMENT_STATE_READY       PlacementState = 2
 	PlacementState_PLACEMENT_STATE_FAILED      PlacementState = 3
 )
 
@@ -36,13 +37,13 @@ var (
 	PlacementState_name = map[int32]string{
 		0: "PLACEMENT_STATE_UNSPECIFIED",
 		1: "PLACEMENT_STATE_PENDING",
-		2: "PLACEMENT_STATE_ACTIVE",
+		2: "PLACEMENT_STATE_READY",
 		3: "PLACEMENT_STATE_FAILED",
 	}
 	PlacementState_value = map[string]int32{
 		"PLACEMENT_STATE_UNSPECIFIED": 0,
 		"PLACEMENT_STATE_PENDING":     1,
-		"PLACEMENT_STATE_ACTIVE":      2,
+		"PLACEMENT_STATE_READY":       2,
 		"PLACEMENT_STATE_FAILED":      3,
 	}
 )
@@ -78,7 +79,7 @@ type AcknowledgementResult int32
 
 const (
 	AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_UNSPECIFIED AcknowledgementResult = 0
-	AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE      AcknowledgementResult = 1
+	AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY       AcknowledgementResult = 1
 	AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED      AcknowledgementResult = 2
 )
 
@@ -86,12 +87,12 @@ const (
 var (
 	AcknowledgementResult_name = map[int32]string{
 		0: "ACKNOWLEDGEMENT_RESULT_UNSPECIFIED",
-		1: "ACKNOWLEDGEMENT_RESULT_ACTIVE",
+		1: "ACKNOWLEDGEMENT_RESULT_READY",
 		2: "ACKNOWLEDGEMENT_RESULT_FAILED",
 	}
 	AcknowledgementResult_value = map[string]int32{
 		"ACKNOWLEDGEMENT_RESULT_UNSPECIFIED": 0,
-		"ACKNOWLEDGEMENT_RESULT_ACTIVE":      1,
+		"ACKNOWLEDGEMENT_RESULT_READY":       1,
 		"ACKNOWLEDGEMENT_RESULT_FAILED":      2,
 	}
 )
@@ -124,16 +125,19 @@ func (AcknowledgementResult) EnumDescriptor() ([]byte, []int) {
 }
 
 type AgentPlacement struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	ComputerId    string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
-	Generation    uint64                 `protobuf:"varint,3,opt,name=generation,proto3" json:"generation,omitempty"`
-	State         PlacementState         `protobuf:"varint,4,opt,name=state,proto3,enum=sumi.placement.v1.PlacementState" json:"state,omitempty"`
-	ErrorCode     string                 `protobuf:"bytes,5,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	AgentId              string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	ComputerId           string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
+	AgentProfileRevision uint64                 `protobuf:"varint,3,opt,name=agent_profile_revision,json=agentProfileRevision,proto3" json:"agent_profile_revision,omitempty"`
+	RuntimeSpec          *v1.AgentRuntimeSpec   `protobuf:"bytes,4,opt,name=runtime_spec,json=runtimeSpec,proto3" json:"runtime_spec,omitempty"`
+	DesiredRevision      uint64                 `protobuf:"varint,5,opt,name=desired_revision,json=desiredRevision,proto3" json:"desired_revision,omitempty"`
+	State                PlacementState         `protobuf:"varint,6,opt,name=state,proto3,enum=sumi.placement.v1.PlacementState" json:"state,omitempty"`
+	ErrorCode            string                 `protobuf:"bytes,7,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	CreatedAt            *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt            *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	AgentProfile         *v1.AgentProfile       `protobuf:"bytes,10,opt,name=agent_profile,json=agentProfile,proto3" json:"agent_profile,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *AgentPlacement) Reset() {
@@ -180,9 +184,23 @@ func (x *AgentPlacement) GetComputerId() string {
 	return ""
 }
 
-func (x *AgentPlacement) GetGeneration() uint64 {
+func (x *AgentPlacement) GetAgentProfileRevision() uint64 {
 	if x != nil {
-		return x.Generation
+		return x.AgentProfileRevision
+	}
+	return 0
+}
+
+func (x *AgentPlacement) GetRuntimeSpec() *v1.AgentRuntimeSpec {
+	if x != nil {
+		return x.RuntimeSpec
+	}
+	return nil
+}
+
+func (x *AgentPlacement) GetDesiredRevision() uint64 {
+	if x != nil {
+		return x.DesiredRevision
 	}
 	return 0
 }
@@ -211,6 +229,13 @@ func (x *AgentPlacement) GetCreatedAt() *timestamppb.Timestamp {
 func (x *AgentPlacement) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *AgentPlacement) GetAgentProfile() *v1.AgentProfile {
+	if x != nil {
+		return x.AgentProfile
 	}
 	return nil
 }
@@ -684,7 +709,7 @@ type AcknowledgeAgentPlacementRequest struct {
 	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
 	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
 	AgentId         string                 `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Generation      uint64                 `protobuf:"varint,4,opt,name=generation,proto3" json:"generation,omitempty"`
+	DesiredRevision uint64                 `protobuf:"varint,4,opt,name=desired_revision,json=desiredRevision,proto3" json:"desired_revision,omitempty"`
 	Result          AcknowledgementResult  `protobuf:"varint,5,opt,name=result,proto3,enum=sumi.placement.v1.AcknowledgementResult" json:"result,omitempty"`
 	ErrorCode       string                 `protobuf:"bytes,6,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	unknownFields   protoimpl.UnknownFields
@@ -742,9 +767,9 @@ func (x *AcknowledgeAgentPlacementRequest) GetAgentId() string {
 	return ""
 }
 
-func (x *AcknowledgeAgentPlacementRequest) GetGeneration() uint64 {
+func (x *AcknowledgeAgentPlacementRequest) GetDesiredRevision() uint64 {
 	if x != nil {
-		return x.Generation
+		return x.DesiredRevision
 	}
 	return 0
 }
@@ -811,21 +836,23 @@ var File_sumi_placement_v1_placement_proto protoreflect.FileDescriptor
 
 const file_sumi_placement_v1_placement_proto_rawDesc = "" +
 	"\n" +
-	"!sumi/placement/v1/placement.proto\x12\x11sumi.placement.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xba\x02\n" +
+	"!sumi/placement/v1/placement.proto\x12\x11sumi.placement.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19sumi/agent/v1/agent.proto\"\x81\x04\n" +
 	"\x0eAgentPlacement\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcomputer_id\x18\x02 \x01(\tR\n" +
-	"computerId\x12\x1e\n" +
+	"computerId\x124\n" +
+	"\x16agent_profile_revision\x18\x03 \x01(\x04R\x14agentProfileRevision\x12B\n" +
+	"\fruntime_spec\x18\x04 \x01(\v2\x1f.sumi.agent.v1.AgentRuntimeSpecR\vruntimeSpec\x12)\n" +
+	"\x10desired_revision\x18\x05 \x01(\x04R\x0fdesiredRevision\x127\n" +
+	"\x05state\x18\x06 \x01(\x0e2!.sumi.placement.v1.PlacementStateR\x05state\x12\x1d\n" +
 	"\n" +
-	"generation\x18\x03 \x01(\x04R\n" +
-	"generation\x127\n" +
-	"\x05state\x18\x04 \x01(\x0e2!.sumi.placement.v1.PlacementStateR\x05state\x12\x1d\n" +
+	"error_code\x18\a \x01(\tR\terrorCode\x129\n" +
 	"\n" +
-	"error_code\x18\x05 \x01(\tR\terrorCode\x129\n" +
+	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
-	"\n" +
-	"updated_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"u\n" +
+	"updated_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12@\n" +
+	"\ragent_profile\x18\n" +
+	" \x01(\v2\x1b.sumi.agent.v1.AgentProfileR\fagentProfile\"u\n" +
 	"\x18SetAgentPlacementRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcomputer_id\x18\x02 \x01(\tR\n" +
@@ -856,28 +883,26 @@ const file_sumi_placement_v1_placement_proto_rawDesc = "" +
 	"\x1eListComputerPlacementsResponse\x12A\n" +
 	"\n" +
 	"placements\x18\x01 \x03(\v2!.sumi.placement.v1.AgentPlacementR\n" +
-	"placements\"\x8a\x02\n" +
+	"placements\"\x95\x02\n" +
 	" AcknowledgeAgentPlacementRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
 	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12\x19\n" +
-	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12\x1e\n" +
-	"\n" +
-	"generation\x18\x04 \x01(\x04R\n" +
-	"generation\x12@\n" +
+	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12)\n" +
+	"\x10desired_revision\x18\x04 \x01(\x04R\x0fdesiredRevision\x12@\n" +
 	"\x06result\x18\x05 \x01(\x0e2(.sumi.placement.v1.AcknowledgementResultR\x06result\x12\x1d\n" +
 	"\n" +
 	"error_code\x18\x06 \x01(\tR\terrorCode\"d\n" +
 	"!AcknowledgeAgentPlacementResponse\x12?\n" +
-	"\tplacement\x18\x01 \x01(\v2!.sumi.placement.v1.AgentPlacementR\tplacement*\x86\x01\n" +
+	"\tplacement\x18\x01 \x01(\v2!.sumi.placement.v1.AgentPlacementR\tplacement*\x85\x01\n" +
 	"\x0ePlacementState\x12\x1f\n" +
 	"\x1bPLACEMENT_STATE_UNSPECIFIED\x10\x00\x12\x1b\n" +
-	"\x17PLACEMENT_STATE_PENDING\x10\x01\x12\x1a\n" +
-	"\x16PLACEMENT_STATE_ACTIVE\x10\x02\x12\x1a\n" +
-	"\x16PLACEMENT_STATE_FAILED\x10\x03*\x85\x01\n" +
+	"\x17PLACEMENT_STATE_PENDING\x10\x01\x12\x19\n" +
+	"\x15PLACEMENT_STATE_READY\x10\x02\x12\x1a\n" +
+	"\x16PLACEMENT_STATE_FAILED\x10\x03*\x84\x01\n" +
 	"\x15AcknowledgementResult\x12&\n" +
-	"\"ACKNOWLEDGEMENT_RESULT_UNSPECIFIED\x10\x00\x12!\n" +
-	"\x1dACKNOWLEDGEMENT_RESULT_ACTIVE\x10\x01\x12!\n" +
+	"\"ACKNOWLEDGEMENT_RESULT_UNSPECIFIED\x10\x00\x12 \n" +
+	"\x1cACKNOWLEDGEMENT_RESULT_READY\x10\x01\x12!\n" +
 	"\x1dACKNOWLEDGEMENT_RESULT_FAILED\x10\x022\xf3\x05\n" +
 	"\x10PlacementService\x12n\n" +
 	"\x11SetAgentPlacement\x12+.sumi.placement.v1.SetAgentPlacementRequest\x1a,.sumi.placement.v1.SetAgentPlacementResponse\x12n\n" +
@@ -917,36 +942,40 @@ var file_sumi_placement_v1_placement_proto_goTypes = []any{
 	(*ListComputerPlacementsResponse)(nil),    // 12: sumi.placement.v1.ListComputerPlacementsResponse
 	(*AcknowledgeAgentPlacementRequest)(nil),  // 13: sumi.placement.v1.AcknowledgeAgentPlacementRequest
 	(*AcknowledgeAgentPlacementResponse)(nil), // 14: sumi.placement.v1.AcknowledgeAgentPlacementResponse
-	(*timestamppb.Timestamp)(nil),             // 15: google.protobuf.Timestamp
+	(*v1.AgentRuntimeSpec)(nil),               // 15: sumi.agent.v1.AgentRuntimeSpec
+	(*timestamppb.Timestamp)(nil),             // 16: google.protobuf.Timestamp
+	(*v1.AgentProfile)(nil),                   // 17: sumi.agent.v1.AgentProfile
 }
 var file_sumi_placement_v1_placement_proto_depIdxs = []int32{
-	0,  // 0: sumi.placement.v1.AgentPlacement.state:type_name -> sumi.placement.v1.PlacementState
-	15, // 1: sumi.placement.v1.AgentPlacement.created_at:type_name -> google.protobuf.Timestamp
-	15, // 2: sumi.placement.v1.AgentPlacement.updated_at:type_name -> google.protobuf.Timestamp
-	2,  // 3: sumi.placement.v1.SetAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
-	2,  // 4: sumi.placement.v1.GetAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
-	2,  // 5: sumi.placement.v1.ListAgentPlacementsResponse.placements:type_name -> sumi.placement.v1.AgentPlacement
-	2,  // 6: sumi.placement.v1.ListComputerAssignmentsResponse.assignments:type_name -> sumi.placement.v1.AgentPlacement
-	2,  // 7: sumi.placement.v1.ListComputerPlacementsResponse.placements:type_name -> sumi.placement.v1.AgentPlacement
-	1,  // 8: sumi.placement.v1.AcknowledgeAgentPlacementRequest.result:type_name -> sumi.placement.v1.AcknowledgementResult
-	2,  // 9: sumi.placement.v1.AcknowledgeAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
-	3,  // 10: sumi.placement.v1.PlacementService.SetAgentPlacement:input_type -> sumi.placement.v1.SetAgentPlacementRequest
-	5,  // 11: sumi.placement.v1.PlacementService.GetAgentPlacement:input_type -> sumi.placement.v1.GetAgentPlacementRequest
-	7,  // 12: sumi.placement.v1.PlacementService.ListAgentPlacements:input_type -> sumi.placement.v1.ListAgentPlacementsRequest
-	9,  // 13: sumi.placement.v1.PlacementService.ListComputerAssignments:input_type -> sumi.placement.v1.ListComputerAssignmentsRequest
-	11, // 14: sumi.placement.v1.PlacementService.ListComputerPlacements:input_type -> sumi.placement.v1.ListComputerPlacementsRequest
-	13, // 15: sumi.placement.v1.PlacementService.AcknowledgeAgentPlacement:input_type -> sumi.placement.v1.AcknowledgeAgentPlacementRequest
-	4,  // 16: sumi.placement.v1.PlacementService.SetAgentPlacement:output_type -> sumi.placement.v1.SetAgentPlacementResponse
-	6,  // 17: sumi.placement.v1.PlacementService.GetAgentPlacement:output_type -> sumi.placement.v1.GetAgentPlacementResponse
-	8,  // 18: sumi.placement.v1.PlacementService.ListAgentPlacements:output_type -> sumi.placement.v1.ListAgentPlacementsResponse
-	10, // 19: sumi.placement.v1.PlacementService.ListComputerAssignments:output_type -> sumi.placement.v1.ListComputerAssignmentsResponse
-	12, // 20: sumi.placement.v1.PlacementService.ListComputerPlacements:output_type -> sumi.placement.v1.ListComputerPlacementsResponse
-	14, // 21: sumi.placement.v1.PlacementService.AcknowledgeAgentPlacement:output_type -> sumi.placement.v1.AcknowledgeAgentPlacementResponse
-	16, // [16:22] is the sub-list for method output_type
-	10, // [10:16] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	15, // 0: sumi.placement.v1.AgentPlacement.runtime_spec:type_name -> sumi.agent.v1.AgentRuntimeSpec
+	0,  // 1: sumi.placement.v1.AgentPlacement.state:type_name -> sumi.placement.v1.PlacementState
+	16, // 2: sumi.placement.v1.AgentPlacement.created_at:type_name -> google.protobuf.Timestamp
+	16, // 3: sumi.placement.v1.AgentPlacement.updated_at:type_name -> google.protobuf.Timestamp
+	17, // 4: sumi.placement.v1.AgentPlacement.agent_profile:type_name -> sumi.agent.v1.AgentProfile
+	2,  // 5: sumi.placement.v1.SetAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
+	2,  // 6: sumi.placement.v1.GetAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
+	2,  // 7: sumi.placement.v1.ListAgentPlacementsResponse.placements:type_name -> sumi.placement.v1.AgentPlacement
+	2,  // 8: sumi.placement.v1.ListComputerAssignmentsResponse.assignments:type_name -> sumi.placement.v1.AgentPlacement
+	2,  // 9: sumi.placement.v1.ListComputerPlacementsResponse.placements:type_name -> sumi.placement.v1.AgentPlacement
+	1,  // 10: sumi.placement.v1.AcknowledgeAgentPlacementRequest.result:type_name -> sumi.placement.v1.AcknowledgementResult
+	2,  // 11: sumi.placement.v1.AcknowledgeAgentPlacementResponse.placement:type_name -> sumi.placement.v1.AgentPlacement
+	3,  // 12: sumi.placement.v1.PlacementService.SetAgentPlacement:input_type -> sumi.placement.v1.SetAgentPlacementRequest
+	5,  // 13: sumi.placement.v1.PlacementService.GetAgentPlacement:input_type -> sumi.placement.v1.GetAgentPlacementRequest
+	7,  // 14: sumi.placement.v1.PlacementService.ListAgentPlacements:input_type -> sumi.placement.v1.ListAgentPlacementsRequest
+	9,  // 15: sumi.placement.v1.PlacementService.ListComputerAssignments:input_type -> sumi.placement.v1.ListComputerAssignmentsRequest
+	11, // 16: sumi.placement.v1.PlacementService.ListComputerPlacements:input_type -> sumi.placement.v1.ListComputerPlacementsRequest
+	13, // 17: sumi.placement.v1.PlacementService.AcknowledgeAgentPlacement:input_type -> sumi.placement.v1.AcknowledgeAgentPlacementRequest
+	4,  // 18: sumi.placement.v1.PlacementService.SetAgentPlacement:output_type -> sumi.placement.v1.SetAgentPlacementResponse
+	6,  // 19: sumi.placement.v1.PlacementService.GetAgentPlacement:output_type -> sumi.placement.v1.GetAgentPlacementResponse
+	8,  // 20: sumi.placement.v1.PlacementService.ListAgentPlacements:output_type -> sumi.placement.v1.ListAgentPlacementsResponse
+	10, // 21: sumi.placement.v1.PlacementService.ListComputerAssignments:output_type -> sumi.placement.v1.ListComputerAssignmentsResponse
+	12, // 22: sumi.placement.v1.PlacementService.ListComputerPlacements:output_type -> sumi.placement.v1.ListComputerPlacementsResponse
+	14, // 23: sumi.placement.v1.PlacementService.AcknowledgeAgentPlacement:output_type -> sumi.placement.v1.AcknowledgeAgentPlacementResponse
+	18, // [18:24] is the sub-list for method output_type
+	12, // [12:18] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_sumi_placement_v1_placement_proto_init() }

@@ -19,8 +19,10 @@ describe("theme", () => {
     render(
       <PrimaryRail
         active="conversation"
+        conversationView="chat"
         factsAvailable={false}
         onSelect={() => undefined}
+        onSelectConversationView={() => undefined}
       />,
     );
 
@@ -36,8 +38,10 @@ describe("theme", () => {
     render(
       <PrimaryRail
         active="conversation"
+        conversationView="chat"
         factsAvailable={false}
         onSelect={() => undefined}
+        onSelectConversationView={() => undefined}
       />,
     );
 

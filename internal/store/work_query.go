@@ -222,7 +222,7 @@ func loadWorkDetail(ctx context.Context, tx *sql.Tx, work Work) (WorkDetail, err
 }
 
 func listWorkAssignments(ctx context.Context, tx *sql.Tx, work Work) ([]WorkAssignment, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_generation, assigned_by_kind, assigned_by_id, assigned_at, ended_at, end_reason FROM work_assignments WHERE work_id = ? AND organization_id = ? ORDER BY assigned_at, id`, work.ID, work.OrganizationID)
+	rows, err := tx.QueryContext(ctx, `SELECT id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_desired_revision, assigned_by_kind, assigned_by_id, assigned_at, ended_at, end_reason FROM work_assignments WHERE work_id = ? AND organization_id = ? ORDER BY assigned_at, id`, work.ID, work.OrganizationID)
 	if err != nil {
 		return nil, fmt.Errorf("list work assignments: %w", err)
 	}
@@ -232,7 +232,7 @@ func listWorkAssignments(ctx context.Context, tx *sql.Tx, work Work) ([]WorkAssi
 		var item WorkAssignment
 		var assigned int64
 		var ended sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.WorkID, &item.OrganizationID, &item.Role, &item.AgentID, &item.HolderComputerID, &item.HolderPlacementGeneration, &item.AssignedBy.Kind, &item.AssignedBy.ID, &assigned, &ended, &item.EndReason); err != nil {
+		if err := rows.Scan(&item.ID, &item.WorkID, &item.OrganizationID, &item.Role, &item.AgentID, &item.HolderComputerID, &item.HolderPlacementDesiredRevision, &item.AssignedBy.Kind, &item.AssignedBy.ID, &assigned, &ended, &item.EndReason); err != nil {
 			return nil, fmt.Errorf("scan work assignment: %w", err)
 		}
 		item.AssignedBy.OrganizationID = item.OrganizationID

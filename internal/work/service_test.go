@@ -21,7 +21,11 @@ import (
 func TestServiceUsesSharedAuthenticationOneOfForReadsAndMutations(t *testing.T) {
 	now := time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC)
 	human := store.Principal{Kind: "human", ID: uuid.NewString(), OrganizationID: uuid.NewString()}
-	agent := store.AgentRuntimeAuthentication{Principal: store.Principal{Kind: "agent", ID: uuid.NewString(), OrganizationID: human.OrganizationID}}
+	agentID := uuid.NewString()
+	agent := store.AgentRuntimeAuthentication{
+		Principal: store.Principal{Kind: "agent", ID: agentID, OrganizationID: human.OrganizationID},
+		Proof:     authorityapp.NewRuntimeProof([32]byte{1}, agentID, uuid.NewString(), 1),
+	}
 	humanToken := strings.Repeat("h", 43)
 	runtimeToken := strings.Repeat("r", 43)
 	staleToken := strings.Repeat("s", 43)

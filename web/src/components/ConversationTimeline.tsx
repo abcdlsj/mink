@@ -1,9 +1,12 @@
 import { MessageSquareMore, MessageSquareText, RotateCw } from "lucide-react";
 import type { Agent } from "../gen/sumi/agent/v1/agent_pb";
+
+import { agentDisplayName } from "../lib/format";
 import type { Human } from "../gen/sumi/organization/v1/organization_pb";
 import { PrincipalKind, type Message } from "../gen/sumi/space/v1/space_pb";
 import type { ConversationSnapshot } from "../lib/collaboration";
 import { IconButton } from "./IconButton";
+import { PixelAvatar } from "./PixelAvatar";
 
 export function ConversationTimeline({
   snapshot,
@@ -54,9 +57,12 @@ export function ConversationTimeline({
               className={`message-row message-${authorKind(message)}`}
               key={message.id}
             >
-              <div className="message-avatar" aria-hidden="true">
-                {authorName(message, humans, agents).slice(0, 1).toUpperCase()}
-              </div>
+              <PixelAvatar
+                className="message-avatar"
+                seed={message.author?.id ?? message.id}
+                kind={authorKind(message)}
+                size="md"
+              />
               <article>
                 <header>
                   <strong>{authorName(message, humans, agents)}</strong>
@@ -86,7 +92,7 @@ export function ConversationTimeline({
   );
 }
 
-function authorKind(message: Message) {
+function authorKind(message: Message): "agent" | "human" {
   return message.author?.kind === PrincipalKind.AGENT ? "agent" : "human";
 }
 
@@ -103,8 +109,12 @@ export function authorName(
   }
   if (message.author?.kind === PrincipalKind.AGENT) {
     return (
-      agents.find((agent) => agent.id === message.author?.id)?.name ||
-      "Unknown Agent"
+      (() => {
+        const agent = agents.find(
+          (candidate) => candidate.id === message.author?.id,
+        );
+        return agent ? agentDisplayName(agent) : undefined;
+      })() || "Unknown Agent"
     );
   }
   return "Unknown author";

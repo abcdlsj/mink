@@ -48,20 +48,20 @@ type Identity struct {
 }
 
 type RuntimeSession struct {
-	AgentID             string
-	ComputerID          string
-	PlacementGeneration uint64
-	Token               string
-	ExpiresAt           time.Time
-	UpdatedAt           time.Time
+	AgentID                  string
+	ComputerID               string
+	PlacementDesiredRevision uint64
+	Token                    string
+	ExpiresAt                time.Time
+	UpdatedAt                time.Time
 }
 
 type MutationOperation string
 
 const (
-	MutationDeliveryAccept MutationOperation = "delivery.accept"
-	MutationRunClaim       MutationOperation = "run.claim"
-	MutationRunRenew       MutationOperation = "run.renew"
+	MutationRunClaim  MutationOperation = "run.claim"
+	MutationRunRenew  MutationOperation = "run.renew"
+	MutationRunCancel MutationOperation = "run.cancel"
 )
 
 type MutationStatus string
@@ -79,9 +79,9 @@ type MutationAttempt struct {
 	PayloadHash       [sha256.Size]byte
 	Status            MutationStatus
 	RunID             string
-	LaunchID          string
+	Attempt           uint64
 	Fence             uint64
-	ResponseLaunchID  string
+	ResponseAttempt   uint64
 	ResponseFence     uint64
 	ResponseExpiresAt *time.Time
 	CreatedAt         time.Time
@@ -103,22 +103,36 @@ const (
 )
 
 type OutboxEvent struct {
-	Sequence            uint64
-	OutboxEventID       string
-	RequestID           string
-	AgentID             string
-	PlacementGeneration uint64
-	RunID               string
-	LaunchID            string
-	Fence               uint64
-	Outcome             CompletionOutcome
-	Body                string
-	State               OutboxState
-	RejectionCode       string
-	MentionedAgentIDs   []string
-	CreatedAt           time.Time
-	LastAttemptAt       *time.Time
-	Attempts            uint64
+	Sequence                 uint64
+	OutboxEventID            string
+	RequestID                string
+	AgentID                  string
+	PlacementDesiredRevision uint64
+	RunID                    string
+	Attempt                  uint64
+	Fence                    uint64
+	Outcome                  CompletionOutcome
+	ErrorCode                string
+	Body                     string
+	UsageInputUnits          uint64
+	UsageOutputUnits         uint64
+	State                    OutboxState
+	RejectionCode            string
+	MentionedAgentIDs        []string
+	CreatedAt                time.Time
+	LastAttemptAt            *time.Time
+	Attempts                 uint64
+}
+
+type RunJournal struct {
+	AgentID                  string
+	PlacementDesiredRevision uint64
+	RunID                    string
+	Attempt                  uint64
+	Fence                    uint64
+	State                    string
+	StartedAt                time.Time
+	FinishedAt               *time.Time
 }
 
 func Open(dataRoot string) (*State, error) {

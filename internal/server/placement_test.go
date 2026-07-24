@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
@@ -25,11 +24,12 @@ func TestPlacementSetConcurrencyAndRestart(t *testing.T) {
 	api := openFactsAPI(t, dataRoot)
 	agentID := createPlacementAgent(t, api, "placement-agent")
 	computerID := registerPlacementComputer(t, api, "placement-computer-key", "Placement host")
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agentID, computerID, api.registrationKeys[computerID])
 	request := &placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: agentID, ComputerId: computerID}
 
 	placements := setPlacementsConcurrently(t, api.placements, request, 20)
 	for _, placement := range placements {
-		if placement.GetGeneration() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
+		if placement.GetDesiredRevision() != 1 || placement.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
 			t.Fatalf("concurrent placement = %v", placement)
 		}
 		if !proto.Equal(placement, placements[0]) {
@@ -44,6 +44,7 @@ func TestPlacementSetConcurrencyAndRestart(t *testing.T) {
 	api.close(t)
 
 	api = openFactsAPI(t, dataRoot)
+	api.registrationKeys[computerID] = "placement-computer-key"
 	persisted := getPlacement(t, api, agentID)
 	if !proto.Equal(persisted, placements[0]) {
 		t.Fatalf("placement changed across restart: %v != %v", persisted, placements[0])
@@ -74,43 +75,43 @@ func TestPlacementAcknowledgementFenceAndConflict(t *testing.T) {
 	first := setPlacement(t, api, agentID, firstComputer)
 
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodePermissionDenied, func() error {
-		_, err := acknowledgePlacement(api, firstComputer, "wrong-key", agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+		_, err := acknowledgePlacement(api, firstComputer, "wrong-key", agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 		return err
 	})
 	second := setPlacement(t, api, agentID, secondComputer)
-	if second.GetGeneration() != 2 || second.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING || second.GetErrorCode() != "" {
+	if second.GetDesiredRevision() != 3 || second.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING || second.GetErrorCode() != "" {
 		t.Fatalf("replacement placement = %v", second)
 	}
 	if !second.GetCreatedAt().AsTime().Equal(first.GetCreatedAt().AsTime()) {
 		t.Fatalf("replacement changed created_at from %s to %s", first.GetCreatedAt().AsTime(), second.GetCreatedAt().AsTime())
 	}
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, firstComputer, firstKey, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+		_, err := acknowledgePlacement(api, firstComputer, firstKey, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeInvalidArgument, func() error {
-		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, "free/text/path")
+		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 3, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, "free/text/path")
 		return err
 	})
 
-	active, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+	ready, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 3, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Millisecond)
-	repeated, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+	repeated, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 3, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !proto.Equal(repeated, active) {
-		t.Fatalf("duplicate active acknowledgement changed placement: %v != %v", repeated, active)
+	if !proto.Equal(repeated, ready) {
+		t.Fatalf("duplicate ready acknowledgement changed placement: %v != %v", repeated, ready)
 	}
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 2, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.WorkspaceIOError)
+		_, err := acknowledgePlacement(api, secondComputer, secondKey, agentID, 3, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_FAILED, placementfailure.WorkspaceIOError)
 		return err
 	})
 }
@@ -139,12 +140,12 @@ func TestFailedPlacementRequiresExplicitRetry(t *testing.T) {
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeFailedPrecondition, func() error {
-		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, "")
+		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, "")
 		return err
 	})
 
 	retried := setPlacement(t, api, agentID, computerID)
-	if retried.GetGeneration() != 2 || retried.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING || retried.GetErrorCode() != "" {
+	if retried.GetDesiredRevision() != 2 || retried.GetState() != placementv1.PlacementState_PLACEMENT_STATE_PENDING || retried.GetErrorCode() != "" {
 		t.Fatalf("retried placement = %v", retried)
 	}
 	if !retried.GetCreatedAt().AsTime().Equal(failed.GetCreatedAt().AsTime()) || !retried.GetUpdatedAt().AsTime().After(failed.GetUpdatedAt().AsTime()) {
@@ -200,7 +201,7 @@ func TestComputerAssignmentsArePrivatePendingAndSorted(t *testing.T) {
 	}))
 	assertConnectCode(t, err, connect.CodeNotFound)
 
-	if _, err := acknowledgePlacement(api, firstComputer, firstKey, agentIDs[0], 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, ""); err != nil {
+	if _, err := acknowledgePlacement(api, firstComputer, firstKey, agentIDs[0], 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, ""); err != nil {
 		t.Fatal(err)
 	}
 	assignments, err = api.placements.ListComputerAssignments(context.Background(), connect.NewRequest(&placementv1.ListComputerAssignmentsRequest{
@@ -226,7 +227,7 @@ func TestComputerAssignmentsArePrivatePendingAndSorted(t *testing.T) {
 	for _, placement := range snapshot.Msg.GetPlacements() {
 		states[placement.GetAgentId()] = placement.GetState()
 	}
-	if states[agentIDs[0]] != placementv1.PlacementState_PLACEMENT_STATE_ACTIVE || states[agentIDs[1]] != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
+	if states[agentIDs[0]] != placementv1.PlacementState_PLACEMENT_STATE_READY || states[agentIDs[1]] != placementv1.PlacementState_PLACEMENT_STATE_PENDING {
 		t.Fatalf("current placement states = %v", states)
 	}
 	_, err = api.placements.ListComputerPlacements(context.Background(), connect.NewRequest(&placementv1.ListComputerPlacementsRequest{
@@ -241,6 +242,7 @@ func TestPlacementValidationAndNotFound(t *testing.T) {
 	agentID := createPlacementAgent(t, api, "validation-agent")
 	key := "validation-placement-key"
 	computerID := registerPlacementComputer(t, api, key, "Validation host")
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agentID, computerID, key)
 	_, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: "not-a-uuid", ComputerId: computerID}))
 	assertConnectCode(t, err, connect.CodeInvalidArgument)
 	_, err = api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: uuid.NewString(), ComputerId: computerID}))
@@ -253,18 +255,14 @@ func TestPlacementValidationAndNotFound(t *testing.T) {
 		return err
 	})
 	assertRejectedWithoutPlacementMutation(t, api, agentID, connect.CodeInvalidArgument, func() error {
-		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_ACTIVE, placementfailure.WorkspaceInvalid)
+		_, err := acknowledgePlacement(api, computerID, key, agentID, 1, placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY, placementfailure.WorkspaceInvalid)
 		return err
 	})
 }
 
 func createPlacementAgent(t *testing.T, api *factsAPI, name string) string {
 	t.Helper()
-	response, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(&agentv1.CreateAgentRequest{
-		RequestId: uuid.NewString(),
-		Name:      name,
-		Driver:    agentv1.Driver_DRIVER_NATIVE,
-	}))
+	response, err := api.agents.CreateAgent(context.Background(), connect.NewRequest(agentRequest(name)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,6 +277,11 @@ func registerPlacementComputer(t *testing.T, api *factsAPI, key, name string) st
 
 func setPlacement(t *testing.T, api *factsAPI, agentID, computerID string) *placementv1.AgentPlacement {
 	t.Helper()
+	registrationKey, found := api.registrationKeys[computerID]
+	if !found {
+		t.Fatalf("test registration key for computer %q is unavailable", computerID)
+	}
+	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agentID, computerID, registrationKey)
 	response, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{RequestId: uuid.NewString(), AgentId: agentID, ComputerId: computerID}))
 	if err != nil {
 		t.Fatal(err)
@@ -295,12 +298,12 @@ func getPlacement(t *testing.T, api *factsAPI, agentID string) *placementv1.Agen
 	return response.Msg.GetPlacement()
 }
 
-func acknowledgePlacement(api *factsAPI, computerID, key, agentID string, generation uint64, result placementv1.AcknowledgementResult, errorCode string) (*placementv1.AgentPlacement, error) {
+func acknowledgePlacement(api *factsAPI, computerID, key, agentID string, desiredRevision uint64, result placementv1.AcknowledgementResult, errorCode string) (*placementv1.AgentPlacement, error) {
 	response, err := api.placements.AcknowledgeAgentPlacement(context.Background(), connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId:      computerID,
 		RegistrationKey: key,
 		AgentId:         agentID,
-		Generation:      generation,
+		DesiredRevision: desiredRevision,
 		Result:          result,
 		ErrorCode:       errorCode,
 	}))

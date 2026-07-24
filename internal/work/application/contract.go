@@ -77,6 +77,8 @@ type Criterion struct {
 type CreateCommand struct {
 	RequestID            string
 	Actor                authoritydomain.Principal
+	Agent                authorityapp.RuntimeAuthentication
+	Run                  *authorityapp.RunProof
 	ParentWorkID         string
 	SourceMessageID      string
 	SourceSpaceID        string
@@ -109,22 +111,24 @@ type Page struct {
 }
 
 type Assignment struct {
-	ID                        string
-	WorkID                    string
-	OrganizationID            string
-	Role                      string
-	AgentID                   string
-	HolderComputerID          string
-	HolderPlacementGeneration uint64
-	AssignedBy                authoritydomain.Principal
-	AssignedAt                time.Time
-	EndedAt                   *time.Time
-	EndReason                 string
+	ID                             string
+	WorkID                         string
+	OrganizationID                 string
+	Role                           string
+	AgentID                        string
+	HolderComputerID               string
+	HolderPlacementDesiredRevision uint64
+	AssignedBy                     authoritydomain.Principal
+	AssignedAt                     time.Time
+	EndedAt                        *time.Time
+	EndReason                      string
 }
 
 type AssignCommand struct {
 	RequestID string
 	Actor     authoritydomain.Principal
+	Agent     authorityapp.RuntimeAuthentication
+	Run       *authorityapp.RunProof
 	WorkID    string
 	Role      string
 	AgentID   string
@@ -140,6 +144,8 @@ type CriterionResultInput struct {
 type TransitionCommand struct {
 	RequestID        string
 	Actor            authoritydomain.Principal
+	Agent            authorityapp.RuntimeAuthentication
+	Run              *authorityapp.RunProof
 	WorkID           string
 	ToState          string
 	Reason           string
@@ -151,6 +157,8 @@ type TransitionCommand struct {
 type RequestApprovalCommand struct {
 	RequestID string
 	Actor     authoritydomain.Principal
+	Agent     authorityapp.RuntimeAuthentication
+	Run       *authorityapp.RunProof
 	WorkID    string
 	Question  string
 	Now       time.Time

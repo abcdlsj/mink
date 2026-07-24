@@ -180,54 +180,6 @@ func (s *State) CompletePairing(ctx context.Context, identity Identity) error {
 	return s.secureSQLiteFiles()
 }
 
-func (s *State) SaveIdentity(ctx context.Context, identity Identity) error {
-	if !validID(identity.ComputerID) || identity.ServerURL == "" || identity.RegistrationKey == "" || identity.PairedAt.IsZero() {
-		return errors.New("computer identity is invalid")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin save computer identity: %w", err)
-	}
-	defer tx.Rollback()
-	var existing Identity
-	var existingPairedAt int64
-	err = tx.QueryRowContext(ctx, `
-		SELECT server_url, computer_id, registration_key, paired_at
-		FROM computer_identity WHERE singleton = 1
-	`).Scan(&existing.ServerURL, &existing.ComputerID, &existing.RegistrationKey, &existingPairedAt)
-	if err == nil {
-		existing.PairedAt = fromUnixNano(existingPairedAt)
-		if !sameIdentity(existing, identity) {
-			return errors.New("computer identity does not match persisted identity")
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit computer identity replay: %w", err)
-		}
-		return nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("read computer identity server: %w", err)
-	}
-	var pairingExists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pairing_attempt WHERE singleton = 1)`).Scan(&pairingExists); err != nil {
-		return fmt.Errorf("check pairing attempt before identity import: %w", err)
-	}
-	if pairingExists {
-		return errors.New("pairing attempt already exists")
-	}
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO computer_identity(singleton, server_url, computer_id, registration_key, paired_at)
-		VALUES(1, ?, ?, ?, ?)
-	`, identity.ServerURL, identity.ComputerID, identity.RegistrationKey, unixNano(identity.PairedAt))
-	if err != nil {
-		return fmt.Errorf("save computer identity: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit computer identity: %w", err)
-	}
-	return s.secureSQLiteFiles()
-}
-
 func (s *State) Identity(ctx context.Context) (Identity, bool, error) {
 	var identity Identity
 	var pairedAt int64

@@ -104,8 +104,8 @@ func (s *Service) AcknowledgeAgentPlacement(ctx context.Context, request *connec
 	if err != nil {
 		return nil, err
 	}
-	if request.Msg.GetGeneration() == 0 || request.Msg.GetGeneration() > math.MaxInt64 {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("generation must be a positive integer"))
+	if request.Msg.GetDesiredRevision() == 0 || request.Msg.GetDesiredRevision() > math.MaxInt64 {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("desired revision must be a positive integer"))
 	}
 	state, errorCode, err := acknowledgement(request.Msg.GetResult(), request.Msg.GetErrorCode())
 	if err != nil {
@@ -115,7 +115,7 @@ func (s *Service) AcknowledgeAgentPlacement(ctx context.Context, request *connec
 		ComputerID:      computerID,
 		RegistrationKey: request.Msg.GetRegistrationKey(),
 		AgentID:         agentID,
-		Generation:      request.Msg.GetGeneration(),
+		DesiredRevision: request.Msg.GetDesiredRevision(),
 		State:           state,
 		ErrorCode:       errorCode,
 		Now:             s.now(),

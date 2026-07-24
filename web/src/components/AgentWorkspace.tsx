@@ -1,7 +1,7 @@
 import { Bot } from "lucide-react";
 import type { useBootstrap } from "../hooks/useBootstrap";
 import type { useFacts } from "../hooks/useFacts";
-import { driverLabel } from "../lib/format";
+import { agentDisplayName } from "../lib/format";
 import { AgentDetail } from "./AgentDetail";
 import {
   ManagementEmpty,
@@ -35,10 +35,10 @@ export function AgentWorkspace({
   return (
     <ManagementWorkspace
       label="Agents"
-      title={agent?.name ?? "Agent details"}
+      title={agent ? agentDisplayName(agent) : "Agent details"}
       summary={
         agent
-          ? `${driverLabel(agent.driver)} identity and current placement.`
+          ? `${agent.profile?.role ?? "Agent"} identity and current placement.`
           : "Select an Agent from the directory."
       }
       bootstrap={bootstrap}

@@ -7,7 +7,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { AgentService, Driver } from "../src/gen/sumi/agent/v1/agent_pb";
+import { AgentService } from "../src/gen/sumi/agent/v1/agent_pb";
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:8080";
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -49,9 +49,11 @@ test.beforeAll(async () => {
   mainMessage = `Main message ${suffix}`;
   const created = await ownerAgentClient.createAgent({
     requestId: randomUUID(),
-    name: agentName,
-    description: "Production browser collaboration peer",
-    driver: Driver.CODEX,
+    handle: agentName.slice(0, 32),
+    displayName: agentName,
+    role: "collaborator",
+    mission: "Production browser collaboration peer",
+    instructions: "",
   });
   if (!created.agent) throw new Error("Agent seed failed");
 });

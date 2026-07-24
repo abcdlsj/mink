@@ -16,6 +16,13 @@ type ProvisionError struct {
 	Err  error
 }
 
+type Layout struct {
+	Workspace string
+	Home      string
+	Cache     string
+	Temp      string
+}
+
 func (e *ProvisionError) Error() string {
 	return fmt.Sprintf("provision %s: %v", e.Path, e.Err)
 }
@@ -25,14 +32,25 @@ func (e *ProvisionError) Unwrap() error {
 }
 
 func Provision(dataRoot, agentID string) (string, error) {
+	layout, err := ProvisionLayout(dataRoot, agentID)
+	if err != nil {
+		return "", err
+	}
+	return layout.Workspace, nil
+}
+
+func ProvisionLayout(dataRoot, agentID string) (Layout, error) {
 	parsed, err := uuid.Parse(agentID)
 	if err != nil {
-		return "", &ProvisionError{Code: placementfailure.AgentHomeInvalid, Path: dataRoot, Err: errors.New("agent id is invalid")}
+		return Layout{}, &ProvisionError{Code: placementfailure.AgentHomeInvalid, Path: dataRoot, Err: errors.New("agent id is invalid")}
 	}
 	canonicalID := parsed.String()
 	agentsRoot := filepath.Join(dataRoot, "agents")
 	agentHome := filepath.Join(agentsRoot, "agent_"+canonicalID)
 	workspace := filepath.Join(agentHome, "workspace")
+	home := filepath.Join(agentHome, "home")
+	cache := filepath.Join(agentHome, "cache")
+	temp := filepath.Join(os.TempDir(), "sumi", "agent_"+canonicalID)
 	for _, directory := range []struct {
 		path string
 		code string
@@ -41,12 +59,16 @@ func Provision(dataRoot, agentID string) (string, error) {
 		{agentsRoot, placementfailure.WorkspaceRootInvalid},
 		{agentHome, placementfailure.AgentHomeInvalid},
 		{workspace, placementfailure.WorkspaceInvalid},
+		{home, placementfailure.AgentHomeInvalid},
+		{cache, placementfailure.AgentHomeInvalid},
+		{filepath.Dir(temp), placementfailure.WorkspaceRootInvalid},
+		{temp, placementfailure.AgentHomeInvalid},
 	} {
 		if err := ensureDirectory(directory.path, directory.code); err != nil {
-			return "", err
+			return Layout{}, err
 		}
 	}
-	return workspace, nil
+	return Layout{Workspace: workspace, Home: home, Cache: cache, Temp: temp}, nil
 }
 
 func ErrorCode(err error) string {

@@ -98,7 +98,7 @@ func TestInstallCreatesVersionAndActiveManifestWithoutChangingFiveEntries(t *tes
 	}
 }
 
-func TestLegacyActiveManifestWithoutDataRootStillLoads(t *testing.T) {
+func TestActiveManifestWithoutDataRootIsRejected(t *testing.T) {
 	manager, _ := testManager(t)
 	if err := manager.Install(context.Background(), testBundle(t, "1.0.0")); err != nil {
 		t.Fatal(err)
@@ -119,9 +119,8 @@ func TestLegacyActiveManifestWithoutDataRootStillLoads(t *testing.T) {
 	if err := writeAtomic(manager.Layout.ActiveManifest, append(payload, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	active, err := manager.Active()
-	if err != nil || active.DataRoot != "" || active.Release.ReleaseVersion != "1.0.0" {
-		t.Fatalf("legacy active = %+v, %v", active, err)
+	if active, err := manager.Active(); err == nil {
+		t.Fatalf("manifest without data root loaded: %+v", active)
 	}
 }
 

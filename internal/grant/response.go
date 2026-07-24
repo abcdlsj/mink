@@ -44,6 +44,8 @@ func scopeMessage(value authoritydomain.Scope) *grantv1.Scope {
 		kind = grantv1.ScopeKind_SCOPE_KIND_COMPUTER
 	} else if value.Kind == authoritydomain.ScopeSpace {
 		kind = grantv1.ScopeKind_SCOPE_KIND_SPACE
+	} else if value.Kind == authoritydomain.ScopeWork {
+		kind = grantv1.ScopeKind_SCOPE_KIND_WORK
 	}
 	return &grantv1.Scope{Kind: kind, Id: value.ID}
 }

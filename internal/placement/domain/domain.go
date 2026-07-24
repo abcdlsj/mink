@@ -10,7 +10,7 @@ type State string
 
 const (
 	StatePending State = "pending"
-	StateActive  State = "active"
+	StateReady   State = "ready"
 	StateFailed  State = "failed"
 )
 
@@ -21,15 +21,15 @@ type Acknowledgement struct {
 
 var (
 	ErrAcknowledgementStateInvalid = errors.New("acknowledgement state invalid")
-	ErrActiveWithErrorCode         = errors.New("active acknowledgement has error code")
+	ErrReadyWithErrorCode          = errors.New("ready acknowledgement has error code")
 	ErrFailureCodeInvalid          = errors.New("failed acknowledgement error code invalid")
 )
 
 func NewAcknowledgement(state State, errorCode string) (Acknowledgement, error) {
 	switch state {
-	case StateActive:
+	case StateReady:
 		if errorCode != "" {
-			return Acknowledgement{}, ErrActiveWithErrorCode
+			return Acknowledgement{}, ErrReadyWithErrorCode
 		}
 	case StateFailed:
 		if !placementfailure.Valid(errorCode) {

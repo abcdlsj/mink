@@ -34,20 +34,19 @@ type SecretEnvironmentVariable struct {
 }
 
 type Request struct {
-	AgentID             string
-	ComputerID          string
-	DeliveryID          string
-	RunID               string
-	LaunchID            string
-	Fence               uint64
-	PlacementGeneration uint64
-	Workspace           string
-	Command             []string
-	Environment         []EnvironmentVariable
-	Secrets             []SecretEnvironmentVariable
-	Stdin               io.Reader
-	Stdout              io.Writer
-	Stderr              io.Writer
+	AgentID                  string
+	ComputerID               string
+	RunID                    string
+	Attempt                  uint64
+	Fence                    uint64
+	PlacementDesiredRevision uint64
+	Workspace                string
+	Command                  []string
+	Environment              []EnvironmentVariable
+	Secrets                  []SecretEnvironmentVariable
+	Stdin                    io.Reader
+	Stdout                   io.Writer
+	Stderr                   io.Writer
 }
 
 type Process interface {

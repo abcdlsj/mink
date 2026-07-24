@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   LogOut,
   MessageSquare,
@@ -23,8 +22,9 @@ import { AuthorityWorkspace } from "./AuthorityWorkspace";
 import { IconButton } from "./IconButton";
 import { LocalAuthPanel } from "./LocalAuthPanel";
 import type { InboxDestination } from "../lib/inbox";
+import { PixelAvatar } from "./PixelAvatar";
+import type { ConversationView } from "./PrimaryRail";
 
-type View = "chat" | "work" | "artifacts" | "authority";
 type Bootstrap = ReturnType<typeof useBootstrap>;
 type Session = ReturnType<typeof useSession>;
 type Spaces = ReturnType<typeof useSpaces>;
@@ -36,6 +36,7 @@ export function ConversationWorkspace({
   spaces,
   selectedSpace,
   conversation,
+  view,
   navigationOpen,
   contextOpen,
   onOpenNavigation,
@@ -48,6 +49,7 @@ export function ConversationWorkspace({
   spaces: Spaces;
   selectedSpace?: Space;
   conversation: Conversation;
+  view: ConversationView;
   navigationOpen: boolean;
   contextOpen: boolean;
   onOpenNavigation: () => void;
@@ -55,7 +57,6 @@ export function ConversationWorkspace({
   onOpenThread: (message: Message) => void;
   onOpenInboxMessage: (destination: InboxDestination) => void;
 }) {
-  const [view, setView] = useState<View>("chat");
   const snapshot = conversation.conversation.data;
   const visibleSpace = snapshot?.space || selectedSpace;
   const authenticated =
@@ -63,93 +64,70 @@ export function ConversationWorkspace({
 
   return (
     <section
-      className={`conversation workspace-main ${authenticated ? "" : "session-gate"}`}
+      className={`conversation workspace-main view-${view} ${view === "chat" ? "" : "auxiliary-view"} ${authenticated ? "" : "session-gate"}`}
       aria-label="Conversation"
     >
-      <header className="topbar">
-        <div className="topbar-leading">
-          {!navigationOpen && (
+      <header
+        className={`workspace-header ${view === "chat" && visibleSpace ? "" : "utility-only"}`}
+      >
+        <div className="space-header workspace-heading">
+          <div className="topbar-leading">
+            {!navigationOpen && (
+              <IconButton
+                label="Open navigation"
+                tooltipPlacement="right"
+                onClick={onOpenNavigation}
+              >
+                <PanelLeftOpen size={18} />
+              </IconButton>
+            )}
+            {view === "chat" && visibleSpace && (
+              <h1>{visibleSpace.name || "Direct message"}</h1>
+            )}
+          </div>
+          <div className="topbar-actions">
+            {view === "chat" && snapshot && (
+              <span className="space-presence">
+                <UsersRound size={17} />
+                {snapshot.memberships.length} members
+              </span>
+            )}
+            {view === "chat" && visibleSpace && authenticated && (
+              <IconButton
+                className="compact"
+                label="Refresh conversation"
+                tooltipPlacement="left"
+                onClick={() => void conversation.refresh()}
+                disabled={conversation.conversation.status === "refreshing"}
+              >
+                <RotateCw size={16} />
+              </IconButton>
+            )}
+            <SessionIndicator session={session} />
+            <ServerIndicator bootstrap={bootstrap} />
             <IconButton
-              label="Open navigation"
-              tooltipPlacement="right"
-              onClick={onOpenNavigation}
-            >
-              <PanelLeftOpen size={18} />
-            </IconButton>
-          )}
-          <span className="topbar-product">Sumi</span>
-        </div>
-        <div className="topbar-actions">
-          <SessionIndicator session={session} />
-          <ServerIndicator bootstrap={bootstrap} />
-          <IconButton
-            className="compact-context-trigger"
-            label="Open context"
-            tooltipPlacement="left"
-            onClick={onOpenContext}
-            disabled={!snapshot}
-          >
-            <PanelRightOpen size={18} />
-          </IconButton>
-          {!contextOpen && (
-            <IconButton
-              className="desktop-context-trigger"
+              className="compact-context-trigger"
               label="Open context"
               tooltipPlacement="left"
               onClick={onOpenContext}
-              disabled={!snapshot}
+              disabled={!snapshot || view !== "chat"}
             >
               <PanelRightOpen size={18} />
             </IconButton>
-          )}
+            {!contextOpen && view === "chat" && (
+              <IconButton
+                className="desktop-context-trigger"
+                label="Open context"
+                tooltipPlacement="left"
+                onClick={onOpenContext}
+                disabled={!snapshot}
+              >
+                <PanelRightOpen size={18} />
+              </IconButton>
+            )}
+          </div>
         </div>
       </header>
-
-      <header className="space-header">
-        <div>
-          <span className="eyebrow">
-            {visibleSpace ? "Conversation" : "Collaboration"}
-          </span>
-          <h1>
-            {visibleSpace?.name ||
-              (visibleSpace ? "Direct message" : "Sumi workspace")}
-          </h1>
-        </div>
-        <div className="space-header-actions">
-          {snapshot && (
-            <span className="space-presence">
-              <UsersRound size={17} />
-              {snapshot.memberships.length} members
-            </span>
-          )}
-          {visibleSpace && authenticated && (
-            <IconButton
-              className="compact"
-              label="Refresh conversation"
-              tooltipPlacement="left"
-              onClick={() => void conversation.refresh()}
-              disabled={conversation.conversation.status === "refreshing"}
-            >
-              <RotateCw size={16} />
-            </IconButton>
-          )}
-        </div>
-      </header>
-
-      <div className="tab-strip" role="tablist" aria-label="Conversation views">
-        {(["chat", "work", "artifacts", "authority"] as const).map((item) => (
-          <button
-            className={view === item ? "selected" : ""}
-            type="button"
-            role="tab"
-            aria-selected={view === item}
-            onClick={() => setView(item)}
-            key={item}
-          >
-            {capitalize(item)}
-          </button>
-        ))}
-      </div>
 
       {renderContent({
         bootstrap,
@@ -159,10 +137,7 @@ export function ConversationWorkspace({
         conversation,
         view,
         onOpenThread,
-        onOpenInboxMessage: (destination) => {
-          setView("chat");
-          onOpenInboxMessage(destination);
-        },
+        onOpenInboxMessage,
       })}
 
       {authenticated && view === "chat" && snapshot ? (
@@ -177,7 +152,7 @@ export function ConversationWorkspace({
           )}
           onSend={conversation.sendMain}
         />
-      ) : authenticated ? (
+      ) : authenticated && view === "chat" ? (
         <footer
           className="composer disabled-composer"
           data-testid="main-composer"
@@ -209,7 +184,7 @@ function renderContent({
   spaces: Spaces;
   selectedSpace?: Space;
   conversation: Conversation;
-  view: View;
+  view: ConversationView;
   onOpenThread: (message: Message) => void;
   onOpenInboxMessage: (destination: InboxDestination) => void;
 }) {
@@ -400,6 +375,8 @@ function StatePanel({
 function SessionIndicator({ session }: { session: Session }) {
   if (session.status !== "authenticated" && session.status !== "logging-out") {
     const label = sessionLabel(session.status);
+    const showLabel =
+      session.status === "error" || session.status === "retrying";
     return (
       <div
         className={`session-indicator ${session.status}`}
@@ -407,14 +384,14 @@ function SessionIndicator({ session }: { session: Session }) {
         title={label}
       >
         <UserRound size={15} aria-hidden="true" />
-        <span>{label}</span>
+        {showLabel && <span>{label}</span>}
       </div>
     );
   }
+  const label = `Signed in as ${session.human.name}`;
   return (
-    <div className="session-control">
-      <UserRound size={15} aria-hidden="true" />
-      <span className="session-name">{session.human.name}</span>
+    <div className="session-control" aria-label={label} title={label}>
+      <PixelAvatar seed={session.human.id} kind="human" size="xs" />
       <IconButton
         className="compact"
         label="Log out"
@@ -437,7 +414,13 @@ function sessionLabel(status: Session["status"]) {
 }
 
 export function ServerIndicator({ bootstrap }: { bootstrap: Bootstrap }) {
-  const label = bootstrapLabel(bootstrap.status, bootstrap.value?.serverId);
+  const label = bootstrapLabel(
+    bootstrap.status,
+    bootstrap.value?.serverId,
+    bootstrap.value?.version,
+  );
+  const showLabel =
+    bootstrap.status === "offline" || bootstrap.status === "retrying";
   return (
     <div
       className={`server-indicator ${bootstrap.status}`}
@@ -449,10 +432,7 @@ export function ServerIndicator({ bootstrap }: { bootstrap: Bootstrap }) {
       ) : (
         <Server size={15} aria-hidden="true" />
       )}
-      <span>{label}</span>
-      {bootstrap.status === "ready" && (
-        <small>v{bootstrap.value.version}</small>
-      )}
+      {showLabel && <span>{label}</span>}
     </div>
   );
 }
@@ -469,13 +449,13 @@ function messageDisabledReason(
   return undefined;
 }
 
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function bootstrapLabel(status: Bootstrap["status"], id?: string) {
+function bootstrapLabel(
+  status: Bootstrap["status"],
+  id?: string,
+  version?: string,
+) {
   if (status === "offline") return "Server offline";
   if (status === "retrying") return "Retrying";
   if (status === "loading") return "Connecting";
-  return `Server ${id?.slice(0, 8)}`;
+  return `Server ${id?.slice(0, 8)}${version ? ` · v${version}` : ""}`;
 }

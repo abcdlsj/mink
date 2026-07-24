@@ -42,25 +42,8 @@ export function ConversationNavigation({
 
   return (
     <>
-      <header className="nav-header">
-        <div>
-          <span className="eyebrow">Workspace</span>
-          <strong>{spaces.data?.organization.name || "Sumi"}</strong>
-        </div>
-        <IconButton
-          label="Collapse navigation"
-          tooltipPlacement="left"
-          onClick={onClose}
-        >
-          <PanelLeftClose size={18} />
-        </IconButton>
-      </header>
       <div className="conversation-nav-toolbar">
-        <span>
-          {spaces.data
-            ? `${spaces.data.spaces.length} conversations`
-            : "Collaboration"}
-        </span>
+        <span>{spaces.data?.spaces.length ?? 0} conversations</span>
         <div>
           <IconButton
             className="compact"
@@ -80,6 +63,14 @@ export function ConversationNavigation({
             disabled={!canCreate || creating}
           >
             <Plus size={16} />
+          </IconButton>
+          <IconButton
+            className="compact"
+            label="Collapse navigation"
+            tooltipPlacement="left"
+            onClick={onClose}
+          >
+            <PanelLeftClose size={16} />
           </IconButton>
         </div>
       </div>
@@ -124,19 +115,12 @@ export function ConversationNavigation({
               selected={selected}
               onSelect={onSelect}
             />
-            <section className="honest-empty-section">
-              <strong>Work</strong>
-              <p>No active work</p>
-            </section>
           </>
         )}
       </nav>
       <div className="nav-runtime">
         <span className={`status-dot ${bootstrap.status}`} />
-        <div>
-          <strong>Local workspace</strong>
-          <span>{serverStatus(bootstrap.status)}</span>
-        </div>
+        <strong>{serverStatus(bootstrap.status)}</strong>
       </div>
     </>
   );
@@ -211,7 +195,7 @@ function SpacesFeedback({ state }: { state: SpacesState }) {
   if (state.status === "error") {
     return (
       <div className="navigation-feedback error" role="alert">
-        <strong>Collaboration unavailable</strong>
+        <strong>Conversations unavailable</strong>
         <p>{state.error}</p>
       </div>
     );
@@ -235,8 +219,8 @@ function permissionTitle(spaces: Spaces) {
 }
 
 function serverStatus(status: Bootstrap["status"]) {
-  if (status === "ready") return "Server connected";
-  if (status === "offline") return "Server offline";
-  if (status === "retrying") return "Retrying connection";
-  return "Connecting to server";
+  if (status === "ready") return "Connected";
+  if (status === "offline") return "Offline";
+  if (status === "retrying") return "Retrying";
+  return "Connecting";
 }

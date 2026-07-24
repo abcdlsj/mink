@@ -67,6 +67,11 @@ func workCreateFingerprint(params WorkCreateParams) ([sha256.Size]byte, error) {
 	return workFingerprint(params)
 }
 
+func workAssignFingerprint(params AssignWorkParams) ([sha256.Size]byte, error) {
+	params.Now = time.Time{}
+	return workFingerprint(params)
+}
+
 func workTransitionFingerprint(params TransitionWorkParams) ([sha256.Size]byte, error) {
 	params.Now = time.Time{}
 	return workFingerprint(params)
@@ -305,6 +310,16 @@ func (s *Store) CreateWork(ctx context.Context, params WorkCreateParams) (Work, 
 		return Work{}, fmt.Errorf("begin work create: %w", err)
 	}
 	defer tx.Rollback()
+	actor, err := recheckMessageActor(ctx, tx, params.Actor, params.Agent, params.Now)
+	if err != nil {
+		return Work{}, err
+	}
+	params.Actor = actor
+	if run, bound, err := requireToolRun(ctx, tx, params.Agent, params.Run, params.Now); err != nil {
+		return Work{}, err
+	} else if bound && (run.TriggerMessageID != params.SourceMessageID || run.SpaceID != params.SourceSpaceID || run.Target != params.SourceTarget || run.TriggerTargetSequence != params.SourceTargetSequence) {
+		return Work{}, ErrRunLeaseStale
+	}
 	if receipt, found, err := readWorkReceipt(ctx, tx, params.RequestID, workRequestCreate, params.Actor, fingerprint); err != nil || found {
 		if err != nil {
 			return Work{}, err

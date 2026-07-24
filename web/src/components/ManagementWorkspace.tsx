@@ -1,4 +1,4 @@
-import { ArrowLeft, PanelLeftOpen } from "lucide-react";
+import { PanelLeftOpen } from "lucide-react";
 import type { ReactNode } from "react";
 import type { useBootstrap } from "../hooks/useBootstrap";
 import { ServerIndicator } from "./ConversationWorkspace";
@@ -28,35 +28,23 @@ export function ManagementWorkspace({
       className="conversation workspace-main management"
       aria-label={label}
     >
-      <header className="topbar">
-        <div className="topbar-leading">
-          {!navigationOpen && (
-            <IconButton
-              label="Open navigation"
-              tooltipPlacement="right"
-              onClick={onOpenNavigation}
-            >
-              <PanelLeftOpen size={18} />
-            </IconButton>
-          )}
-          <span className="topbar-product">Sumi</span>
+      <header className="workspace-header management-workspace-header">
+        <div className="space-header management-header workspace-heading">
+          <div className="topbar-leading">
+            {!navigationOpen && (
+              <IconButton
+                label="Open navigation"
+                tooltipPlacement="right"
+                onClick={onOpenNavigation}
+              >
+                <PanelLeftOpen size={18} />
+              </IconButton>
+            )}
+            <h1>{title}</h1>
+          </div>
+          <p>{summary}</p>
+          <ServerIndicator bootstrap={bootstrap} />
         </div>
-        <ServerIndicator bootstrap={bootstrap} />
-      </header>
-      <header className="space-header management-header">
-        <IconButton
-          className="management-back"
-          label={`Back to ${label} list`}
-          tooltipPlacement="right"
-          onClick={onOpenNavigation}
-        >
-          <ArrowLeft size={18} />
-        </IconButton>
-        <div>
-          <span className="eyebrow">{label}</span>
-          <h1>{title}</h1>
-        </div>
-        <p>{summary}</p>
       </header>
       <div className="management-content">{children}</div>
     </section>

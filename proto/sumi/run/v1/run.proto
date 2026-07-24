@@ -1,0 +1,137 @@
+syntax = "proto3";
+
+package sumi.run.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sumi/inbox/v1/inbox.proto";
+import "sumi/space/v1/space.proto";
+
+option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/run/v1;runv1";
+
+service RunService {
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  rpc ClaimRun(ClaimRunRequest) returns (ClaimRunResponse);
+  rpc RenewRun(RenewRunRequest) returns (RenewRunResponse);
+  rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
+  rpc CompleteRun(CompleteRunRequest) returns (CompleteRunResponse);
+}
+
+enum RunState {
+  RUN_STATE_UNSPECIFIED = 0;
+  RUN_STATE_QUEUED = 1;
+  RUN_STATE_RUNNING = 2;
+  RUN_STATE_SUCCEEDED = 3;
+  RUN_STATE_FAILED = 4;
+  RUN_STATE_CANCELLED = 5;
+}
+
+enum RunOutcome {
+  RUN_OUTCOME_UNSPECIFIED = 0;
+  RUN_OUTCOME_SUCCEEDED = 1;
+  RUN_OUTCOME_FAILED = 2;
+}
+
+message RunUsage {
+  uint64 input_units = 1;
+  uint64 output_units = 2;
+}
+
+message Run {
+  uint64 sequence = 1;
+  string id = 2;
+  string agent_id = 3;
+  string inbox_item_id = 4;
+  string trigger_message_id = 5;
+  string space_id = 6;
+  sumi.space.v1.MessageTarget target = 7;
+  uint64 trigger_target_sequence = 8;
+  uint64 input_basis_target_sequence = 9;
+  RunState state = 10;
+  uint64 attempt = 11;
+  string lease_holder_computer_id = 12;
+  google.protobuf.Timestamp lease_expires_at = 13;
+  uint64 fence = 14;
+  uint64 placement_desired_revision = 15;
+  oneof result_ref {
+    string result_message_id = 16;
+    string result_held_draft_id = 17;
+  }
+  RunUsage usage = 18;
+  string error_code = 19;
+  google.protobuf.Timestamp created_at = 20;
+  google.protobuf.Timestamp started_at = 21;
+  google.protobuf.Timestamp completed_at = 22;
+  google.protobuf.Timestamp cancelled_at = 23;
+}
+
+message ListRunsRequest {
+  uint64 after_sequence = 1;
+  uint32 limit = 2;
+}
+
+message ListRunsResponse {
+  repeated Run runs = 1;
+  uint64 next_sequence = 2;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  Run run = 1;
+}
+
+message ClaimRunRequest {
+  string request_id = 1;
+  string run_id = 2;
+}
+
+message ClaimRunResponse {
+  Run run = 1;
+}
+
+message RenewRunRequest {
+  string request_id = 1;
+  string run_id = 2;
+  uint64 attempt = 3;
+  uint64 fence = 4;
+}
+
+message RenewRunResponse {
+  Run run = 1;
+}
+
+message CancelRunRequest {
+  string request_id = 1;
+  string run_id = 2;
+  uint64 attempt = 3;
+  uint64 fence = 4;
+}
+
+message CancelRunResponse {
+  Run run = 1;
+}
+
+message CompleteRunRequest {
+  string request_id = 1;
+  string outbox_event_id = 2;
+  string run_id = 3;
+  uint64 attempt = 4;
+  uint64 fence = 5;
+  RunOutcome outcome = 6;
+  string body = 7;
+  repeated sumi.space.v1.Principal mentioned_principals = 8;
+  RunUsage usage = 9;
+  string error_code = 10;
+}
+
+message CompleteRunResponse {
+  Run run = 1;
+  oneof result {
+    sumi.space.v1.Message message = 2;
+    sumi.inbox.v1.HeldDraft held_draft = 3;
+  }
+  google.protobuf.Timestamp committed_at = 4;
+}

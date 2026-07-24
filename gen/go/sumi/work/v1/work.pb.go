@@ -620,20 +620,20 @@ func (x *Work) GetCancelledAt() *timestamppb.Timestamp {
 }
 
 type WorkAssignment struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	Id                        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	WorkId                    string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
-	OrganizationId            string                 `protobuf:"bytes,3,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
-	Role                      WorkAssignmentRole     `protobuf:"varint,4,opt,name=role,proto3,enum=sumi.work.v1.WorkAssignmentRole" json:"role,omitempty"`
-	AgentId                   string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	HolderComputerId          string                 `protobuf:"bytes,6,opt,name=holder_computer_id,json=holderComputerId,proto3" json:"holder_computer_id,omitempty"`
-	HolderPlacementGeneration uint64                 `protobuf:"varint,7,opt,name=holder_placement_generation,json=holderPlacementGeneration,proto3" json:"holder_placement_generation,omitempty"`
-	AssignedBy                *v11.Principal         `protobuf:"bytes,8,opt,name=assigned_by,json=assignedBy,proto3" json:"assigned_by,omitempty"`
-	AssignedAt                *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=assigned_at,json=assignedAt,proto3" json:"assigned_at,omitempty"`
-	EndedAt                   *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
-	EndReason                 string                 `protobuf:"bytes,11,opt,name=end_reason,json=endReason,proto3" json:"end_reason,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                          protoimpl.MessageState `protogen:"open.v1"`
+	Id                             string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	WorkId                         string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
+	OrganizationId                 string                 `protobuf:"bytes,3,opt,name=organization_id,json=organizationId,proto3" json:"organization_id,omitempty"`
+	Role                           WorkAssignmentRole     `protobuf:"varint,4,opt,name=role,proto3,enum=sumi.work.v1.WorkAssignmentRole" json:"role,omitempty"`
+	AgentId                        string                 `protobuf:"bytes,5,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	HolderComputerId               string                 `protobuf:"bytes,6,opt,name=holder_computer_id,json=holderComputerId,proto3" json:"holder_computer_id,omitempty"`
+	HolderPlacementDesiredRevision uint64                 `protobuf:"varint,7,opt,name=holder_placement_desired_revision,json=holderPlacementDesiredRevision,proto3" json:"holder_placement_desired_revision,omitempty"`
+	AssignedBy                     *v11.Principal         `protobuf:"bytes,8,opt,name=assigned_by,json=assignedBy,proto3" json:"assigned_by,omitempty"`
+	AssignedAt                     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=assigned_at,json=assignedAt,proto3" json:"assigned_at,omitempty"`
+	EndedAt                        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	EndReason                      string                 `protobuf:"bytes,11,opt,name=end_reason,json=endReason,proto3" json:"end_reason,omitempty"`
+	unknownFields                  protoimpl.UnknownFields
+	sizeCache                      protoimpl.SizeCache
 }
 
 func (x *WorkAssignment) Reset() {
@@ -708,9 +708,9 @@ func (x *WorkAssignment) GetHolderComputerId() string {
 	return ""
 }
 
-func (x *WorkAssignment) GetHolderPlacementGeneration() uint64 {
+func (x *WorkAssignment) GetHolderPlacementDesiredRevision() uint64 {
 	if x != nil {
-		return x.HolderPlacementGeneration
+		return x.HolderPlacementDesiredRevision
 	}
 	return 0
 }
@@ -1394,6 +1394,9 @@ type CreateWorkRequest struct {
 	Goal                 string                 `protobuf:"bytes,7,opt,name=goal,proto3" json:"goal,omitempty"`
 	Constraints          []string               `protobuf:"bytes,8,rep,name=constraints,proto3" json:"constraints,omitempty"`
 	AcceptanceCriteria   []string               `protobuf:"bytes,9,rep,name=acceptance_criteria,json=acceptanceCriteria,proto3" json:"acceptance_criteria,omitempty"`
+	RunId                string                 `protobuf:"bytes,10,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunAttempt           uint64                 `protobuf:"varint,11,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	RunFence             uint64                 `protobuf:"varint,12,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1491,6 +1494,27 @@ func (x *CreateWorkRequest) GetAcceptanceCriteria() []string {
 	return nil
 }
 
+func (x *CreateWorkRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *CreateWorkRequest) GetRunAttempt() uint64 {
+	if x != nil {
+		return x.RunAttempt
+	}
+	return 0
+}
+
+func (x *CreateWorkRequest) GetRunFence() uint64 {
+	if x != nil {
+		return x.RunFence
+	}
+	return 0
+}
+
 type CreateWorkResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Work          *Work                  `protobuf:"bytes,1,opt,name=work,proto3" json:"work,omitempty"`
@@ -1541,6 +1565,9 @@ type AssignWorkRequest struct {
 	WorkId        string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
 	Role          WorkAssignmentRole     `protobuf:"varint,3,opt,name=role,proto3,enum=sumi.work.v1.WorkAssignmentRole" json:"role,omitempty"`
 	AgentId       string                 `protobuf:"bytes,4,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	RunId         string                 `protobuf:"bytes,5,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunAttempt    uint64                 `protobuf:"varint,6,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	RunFence      uint64                 `protobuf:"varint,7,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1601,6 +1628,27 @@ func (x *AssignWorkRequest) GetAgentId() string {
 		return x.AgentId
 	}
 	return ""
+}
+
+func (x *AssignWorkRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *AssignWorkRequest) GetRunAttempt() uint64 {
+	if x != nil {
+		return x.RunAttempt
+	}
+	return 0
+}
+
+func (x *AssignWorkRequest) GetRunFence() uint64 {
+	if x != nil {
+		return x.RunFence
+	}
+	return 0
 }
 
 type AssignWorkResponse struct {
@@ -1715,6 +1763,9 @@ type TransitionWorkRequest struct {
 	Reason           string                      `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
 	Result           string                      `protobuf:"bytes,5,opt,name=result,proto3" json:"result,omitempty"`
 	CriterionResults []*WorkCriterionResultInput `protobuf:"bytes,6,rep,name=criterion_results,json=criterionResults,proto3" json:"criterion_results,omitempty"`
+	RunId            string                      `protobuf:"bytes,7,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunAttempt       uint64                      `protobuf:"varint,8,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	RunFence         uint64                      `protobuf:"varint,9,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -1791,6 +1842,27 @@ func (x *TransitionWorkRequest) GetCriterionResults() []*WorkCriterionResultInpu
 	return nil
 }
 
+func (x *TransitionWorkRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *TransitionWorkRequest) GetRunAttempt() uint64 {
+	if x != nil {
+		return x.RunAttempt
+	}
+	return 0
+}
+
+func (x *TransitionWorkRequest) GetRunFence() uint64 {
+	if x != nil {
+		return x.RunFence
+	}
+	return 0
+}
+
 type TransitionWorkResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Work          *Work                  `protobuf:"bytes,1,opt,name=work,proto3" json:"work,omitempty"`
@@ -1840,6 +1912,9 @@ type RequestApprovalRequest struct {
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	WorkId        string                 `protobuf:"bytes,2,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
 	Question      string                 `protobuf:"bytes,3,opt,name=question,proto3" json:"question,omitempty"`
+	RunId         string                 `protobuf:"bytes,4,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	RunAttempt    uint64                 `protobuf:"varint,5,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
+	RunFence      uint64                 `protobuf:"varint,6,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1893,6 +1968,27 @@ func (x *RequestApprovalRequest) GetQuestion() string {
 		return x.Question
 	}
 	return ""
+}
+
+func (x *RequestApprovalRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+func (x *RequestApprovalRequest) GetRunAttempt() uint64 {
+	if x != nil {
+		return x.RunAttempt
+	}
+	return 0
+}
+
+func (x *RequestApprovalRequest) GetRunFence() uint64 {
+	if x != nil {
+		return x.RunFence
+	}
+	return 0
 }
 
 type RequestApprovalResponse struct {
@@ -2092,15 +2188,15 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x10state_changed_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\x0estateChangedAt\x12=\n" +
 	"\fcompleted_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x127\n" +
 	"\tfailed_at\x18\x13 \x01(\v2\x1a.google.protobuf.TimestampR\bfailedAt\x12=\n" +
-	"\fcancelled_at\x18\x14 \x01(\v2\x1a.google.protobuf.TimestampR\vcancelledAt\"\xef\x03\n" +
+	"\fcancelled_at\x18\x14 \x01(\v2\x1a.google.protobuf.TimestampR\vcancelledAt\"\xfa\x03\n" +
 	"\x0eWorkAssignment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x12'\n" +
 	"\x0forganization_id\x18\x03 \x01(\tR\x0eorganizationId\x124\n" +
 	"\x04role\x18\x04 \x01(\x0e2 .sumi.work.v1.WorkAssignmentRoleR\x04role\x12\x19\n" +
 	"\bagent_id\x18\x05 \x01(\tR\aagentId\x12,\n" +
-	"\x12holder_computer_id\x18\x06 \x01(\tR\x10holderComputerId\x12>\n" +
-	"\x1bholder_placement_generation\x18\a \x01(\x04R\x19holderPlacementGeneration\x129\n" +
+	"\x12holder_computer_id\x18\x06 \x01(\tR\x10holderComputerId\x12I\n" +
+	"!holder_placement_desired_revision\x18\a \x01(\x04R\x1eholderPlacementDesiredRevision\x129\n" +
 	"\vassigned_by\x18\b \x01(\v2\x18.sumi.grant.v1.PrincipalR\n" +
 	"assignedBy\x12;\n" +
 	"\vassigned_at\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -2168,7 +2264,7 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x0eGetWorkRequest\x12\x17\n" +
 	"\awork_id\x18\x01 \x01(\tR\x06workId\"C\n" +
 	"\x0fGetWorkResponse\x120\n" +
-	"\x06detail\x18\x01 \x01(\v2\x18.sumi.work.v1.WorkDetailR\x06detail\"\x8c\x03\n" +
+	"\x06detail\x18\x01 \x01(\v2\x18.sumi.work.v1.WorkDetailR\x06detail\"\xe1\x03\n" +
 	"\x11CreateWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12$\n" +
@@ -2179,15 +2275,24 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x16source_target_sequence\x18\x06 \x01(\x04R\x14sourceTargetSequence\x12\x12\n" +
 	"\x04goal\x18\a \x01(\tR\x04goal\x12 \n" +
 	"\vconstraints\x18\b \x03(\tR\vconstraints\x12/\n" +
-	"\x13acceptance_criteria\x18\t \x03(\tR\x12acceptanceCriteria\"<\n" +
+	"\x13acceptance_criteria\x18\t \x03(\tR\x12acceptanceCriteria\x12\x15\n" +
+	"\x06run_id\x18\n" +
+	" \x01(\tR\x05runId\x12\x1f\n" +
+	"\vrun_attempt\x18\v \x01(\x04R\n" +
+	"runAttempt\x12\x1b\n" +
+	"\trun_fence\x18\f \x01(\x04R\brunFence\"<\n" +
 	"\x12CreateWorkResponse\x12&\n" +
-	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\x9c\x01\n" +
+	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xf1\x01\n" +
 	"\x11AssignWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x124\n" +
 	"\x04role\x18\x03 \x01(\x0e2 .sumi.work.v1.WorkAssignmentRoleR\x04role\x12\x19\n" +
-	"\bagent_id\x18\x04 \x01(\tR\aagentId\"R\n" +
+	"\bagent_id\x18\x04 \x01(\tR\aagentId\x12\x15\n" +
+	"\x06run_id\x18\x05 \x01(\tR\x05runId\x12\x1f\n" +
+	"\vrun_attempt\x18\x06 \x01(\x04R\n" +
+	"runAttempt\x12\x1b\n" +
+	"\trun_fence\x18\a \x01(\x04R\brunFence\"R\n" +
 	"\x12AssignWorkResponse\x12<\n" +
 	"\n" +
 	"assignment\x18\x01 \x01(\v2\x1c.sumi.work.v1.WorkAssignmentR\n" +
@@ -2195,7 +2300,7 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\x18WorkCriterionResultInput\x12!\n" +
 	"\fcriterion_id\x18\x01 \x01(\tR\vcriterionId\x12<\n" +
 	"\averdict\x18\x02 \x01(\x0e2\".sumi.work.v1.WorkCriterionVerdictR\averdict\x12\x1a\n" +
-	"\bevidence\x18\x03 \x01(\tR\bevidence\"\x88\x02\n" +
+	"\bevidence\x18\x03 \x01(\tR\bevidence\"\xdd\x02\n" +
 	"\x15TransitionWorkRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
@@ -2203,14 +2308,22 @@ const file_sumi_work_v1_work_proto_rawDesc = "" +
 	"\bto_state\x18\x03 \x01(\x0e2\x17.sumi.work.v1.WorkStateR\atoState\x12\x16\n" +
 	"\x06reason\x18\x04 \x01(\tR\x06reason\x12\x16\n" +
 	"\x06result\x18\x05 \x01(\tR\x06result\x12S\n" +
-	"\x11criterion_results\x18\x06 \x03(\v2&.sumi.work.v1.WorkCriterionResultInputR\x10criterionResults\"@\n" +
+	"\x11criterion_results\x18\x06 \x03(\v2&.sumi.work.v1.WorkCriterionResultInputR\x10criterionResults\x12\x15\n" +
+	"\x06run_id\x18\a \x01(\tR\x05runId\x12\x1f\n" +
+	"\vrun_attempt\x18\b \x01(\x04R\n" +
+	"runAttempt\x12\x1b\n" +
+	"\trun_fence\x18\t \x01(\x04R\brunFence\"@\n" +
 	"\x16TransitionWorkResponse\x12&\n" +
-	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"l\n" +
+	"\x04work\x18\x01 \x01(\v2\x12.sumi.work.v1.WorkR\x04work\"\xc1\x01\n" +
 	"\x16RequestApprovalRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
 	"\awork_id\x18\x02 \x01(\tR\x06workId\x12\x1a\n" +
-	"\bquestion\x18\x03 \x01(\tR\bquestion\"Q\n" +
+	"\bquestion\x18\x03 \x01(\tR\bquestion\x12\x15\n" +
+	"\x06run_id\x18\x04 \x01(\tR\x05runId\x12\x1f\n" +
+	"\vrun_attempt\x18\x05 \x01(\x04R\n" +
+	"runAttempt\x12\x1b\n" +
+	"\trun_fence\x18\x06 \x01(\x04R\brunFence\"Q\n" +
 	"\x17RequestApprovalResponse\x126\n" +
 	"\bapproval\x18\x01 \x01(\v2\x1a.sumi.work.v1.WorkApprovalR\bapproval\"\xac\x01\n" +
 	"\x16ResolveApprovalRequest\x12\x1d\n" +

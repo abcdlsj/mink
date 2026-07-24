@@ -25,7 +25,7 @@ for (const viewport of [
         name: /Create your local account|Welcome back/,
       }),
     ).toBeVisible();
-    await expect(page.getByText(/Server [a-f0-9]{8}/)).toBeVisible();
+    await expect(page.getByLabel(/Server [a-f0-9]{8}/)).toBeVisible();
     await expect(
       page.getByRole("complementary", { name: "Context", exact: true }),
     ).toBeHidden();
@@ -164,6 +164,8 @@ for (const width of [900, 1023]) {
       "aria-label",
       /Server/,
     );
+    await expect(page.locator(".session-indicator span")).toHaveCount(0);
+    await expect(page.locator(".server-indicator span")).toHaveCount(0);
     expect(await hasPageOverflow(page)).toBe(false);
 
     await page.getByRole("button", { name: "Open navigation" }).click();

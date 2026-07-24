@@ -459,10 +459,10 @@ func projectArtifactView(ctx context.Context, tx *sql.Tx, actor Principal, authe
 		}
 		if visible {
 			view.Version.Execution = &ArtifactExecutionView{
-				DeliveryID: version.Execution.DeliveryID, RunID: version.Execution.RunID,
-				LaunchID: version.Execution.LaunchID, AgentID: version.Execution.AgentID,
-				ComputerID:          version.Execution.ComputerID,
-				PlacementGeneration: version.Execution.PlacementGeneration, Fence: version.Execution.Fence,
+				RunID: version.Execution.RunID, Attempt: version.Execution.Attempt,
+				AgentID:                  version.Execution.AgentID,
+				ComputerID:               version.Execution.ComputerID,
+				PlacementDesiredRevision: version.Execution.PlacementDesiredRevision, Fence: version.Execution.Fence,
 			}
 		} else {
 			view.Version.Execution = &ArtifactExecutionView{Restricted: true}
@@ -511,27 +511,11 @@ func artifactExecutionReadable(ctx context.Context, tx *sql.Tx, actor Principal,
 		if err != nil {
 			return false, err
 		}
-		if run.DeliveryID != execution.DeliveryID || run.State != RunStateRunning {
-			return false, nil
-		}
-		delivery, _, _, err := requireOwnedDelivery(ctx, tx, actor.ID, execution.DeliveryID)
-		if errors.Is(err, ErrDeliveryNotFound) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		if delivery.State != DeliveryStateAccepted {
-			return false, nil
-		}
-		launch, found, err := currentRunLaunch(ctx, tx, run.ID)
-		if err != nil {
-			return false, err
-		}
-		if !found || launch.ID != execution.LaunchID || launch.Fence != execution.Fence ||
-			launch.HolderComputerID != execution.ComputerID ||
-			launch.HolderPlacementGeneration != execution.PlacementGeneration ||
-			!runLaunchHeldBy(launch, authentication.Proof) || !launch.ExpiresAt.After(now) {
+		if run.Attempt != execution.Attempt || run.Fence != execution.Fence ||
+			run.LeaseHolderComputerID != execution.ComputerID ||
+			run.PlacementDesiredRevision != execution.PlacementDesiredRevision ||
+			authentication.Proof.ComputerID() != execution.ComputerID ||
+			authentication.Proof.PlacementDesiredRevision() != execution.PlacementDesiredRevision {
 			return false, nil
 		}
 		return true, nil

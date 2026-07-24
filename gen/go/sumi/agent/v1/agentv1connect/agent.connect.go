@@ -36,6 +36,15 @@ const (
 	// AgentServiceCreateAgentProcedure is the fully-qualified name of the AgentService's CreateAgent
 	// RPC.
 	AgentServiceCreateAgentProcedure = "/sumi.agent.v1.AgentService/CreateAgent"
+	// AgentServiceUpdateAgentProfileProcedure is the fully-qualified name of the AgentService's
+	// UpdateAgentProfile RPC.
+	AgentServiceUpdateAgentProfileProcedure = "/sumi.agent.v1.AgentService/UpdateAgentProfile"
+	// AgentServiceUpdateAgentRuntimeSpecProcedure is the fully-qualified name of the AgentService's
+	// UpdateAgentRuntimeSpec RPC.
+	AgentServiceUpdateAgentRuntimeSpecProcedure = "/sumi.agent.v1.AgentService/UpdateAgentRuntimeSpec"
+	// AgentServiceGetAgentRuntimeSpecProcedure is the fully-qualified name of the AgentService's
+	// GetAgentRuntimeSpec RPC.
+	AgentServiceGetAgentRuntimeSpecProcedure = "/sumi.agent.v1.AgentService/GetAgentRuntimeSpec"
 	// AgentServiceGetAgentProcedure is the fully-qualified name of the AgentService's GetAgent RPC.
 	AgentServiceGetAgentProcedure = "/sumi.agent.v1.AgentService/GetAgent"
 	// AgentServiceListAgentsProcedure is the fully-qualified name of the AgentService's ListAgents RPC.
@@ -45,6 +54,9 @@ const (
 // AgentServiceClient is a client for the sumi.agent.v1.AgentService service.
 type AgentServiceClient interface {
 	CreateAgent(context.Context, *connect.Request[v1.CreateAgentRequest]) (*connect.Response[v1.CreateAgentResponse], error)
+	UpdateAgentProfile(context.Context, *connect.Request[v1.UpdateAgentProfileRequest]) (*connect.Response[v1.UpdateAgentProfileResponse], error)
+	UpdateAgentRuntimeSpec(context.Context, *connect.Request[v1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[v1.UpdateAgentRuntimeSpecResponse], error)
+	GetAgentRuntimeSpec(context.Context, *connect.Request[v1.GetAgentRuntimeSpecRequest]) (*connect.Response[v1.GetAgentRuntimeSpecResponse], error)
 	GetAgent(context.Context, *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error)
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 }
@@ -66,6 +78,24 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(agentServiceMethods.ByName("CreateAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		updateAgentProfile: connect.NewClient[v1.UpdateAgentProfileRequest, v1.UpdateAgentProfileResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateAgentProfileProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateAgentProfile")),
+			connect.WithClientOptions(opts...),
+		),
+		updateAgentRuntimeSpec: connect.NewClient[v1.UpdateAgentRuntimeSpecRequest, v1.UpdateAgentRuntimeSpecResponse](
+			httpClient,
+			baseURL+AgentServiceUpdateAgentRuntimeSpecProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("UpdateAgentRuntimeSpec")),
+			connect.WithClientOptions(opts...),
+		),
+		getAgentRuntimeSpec: connect.NewClient[v1.GetAgentRuntimeSpecRequest, v1.GetAgentRuntimeSpecResponse](
+			httpClient,
+			baseURL+AgentServiceGetAgentRuntimeSpecProcedure,
+			connect.WithSchema(agentServiceMethods.ByName("GetAgentRuntimeSpec")),
+			connect.WithClientOptions(opts...),
+		),
 		getAgent: connect.NewClient[v1.GetAgentRequest, v1.GetAgentResponse](
 			httpClient,
 			baseURL+AgentServiceGetAgentProcedure,
@@ -83,14 +113,32 @@ func NewAgentServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 
 // agentServiceClient implements AgentServiceClient.
 type agentServiceClient struct {
-	createAgent *connect.Client[v1.CreateAgentRequest, v1.CreateAgentResponse]
-	getAgent    *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
-	listAgents  *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
+	createAgent            *connect.Client[v1.CreateAgentRequest, v1.CreateAgentResponse]
+	updateAgentProfile     *connect.Client[v1.UpdateAgentProfileRequest, v1.UpdateAgentProfileResponse]
+	updateAgentRuntimeSpec *connect.Client[v1.UpdateAgentRuntimeSpecRequest, v1.UpdateAgentRuntimeSpecResponse]
+	getAgentRuntimeSpec    *connect.Client[v1.GetAgentRuntimeSpecRequest, v1.GetAgentRuntimeSpecResponse]
+	getAgent               *connect.Client[v1.GetAgentRequest, v1.GetAgentResponse]
+	listAgents             *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 }
 
 // CreateAgent calls sumi.agent.v1.AgentService.CreateAgent.
 func (c *agentServiceClient) CreateAgent(ctx context.Context, req *connect.Request[v1.CreateAgentRequest]) (*connect.Response[v1.CreateAgentResponse], error) {
 	return c.createAgent.CallUnary(ctx, req)
+}
+
+// UpdateAgentProfile calls sumi.agent.v1.AgentService.UpdateAgentProfile.
+func (c *agentServiceClient) UpdateAgentProfile(ctx context.Context, req *connect.Request[v1.UpdateAgentProfileRequest]) (*connect.Response[v1.UpdateAgentProfileResponse], error) {
+	return c.updateAgentProfile.CallUnary(ctx, req)
+}
+
+// UpdateAgentRuntimeSpec calls sumi.agent.v1.AgentService.UpdateAgentRuntimeSpec.
+func (c *agentServiceClient) UpdateAgentRuntimeSpec(ctx context.Context, req *connect.Request[v1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[v1.UpdateAgentRuntimeSpecResponse], error) {
+	return c.updateAgentRuntimeSpec.CallUnary(ctx, req)
+}
+
+// GetAgentRuntimeSpec calls sumi.agent.v1.AgentService.GetAgentRuntimeSpec.
+func (c *agentServiceClient) GetAgentRuntimeSpec(ctx context.Context, req *connect.Request[v1.GetAgentRuntimeSpecRequest]) (*connect.Response[v1.GetAgentRuntimeSpecResponse], error) {
+	return c.getAgentRuntimeSpec.CallUnary(ctx, req)
 }
 
 // GetAgent calls sumi.agent.v1.AgentService.GetAgent.
@@ -106,6 +154,9 @@ func (c *agentServiceClient) ListAgents(ctx context.Context, req *connect.Reques
 // AgentServiceHandler is an implementation of the sumi.agent.v1.AgentService service.
 type AgentServiceHandler interface {
 	CreateAgent(context.Context, *connect.Request[v1.CreateAgentRequest]) (*connect.Response[v1.CreateAgentResponse], error)
+	UpdateAgentProfile(context.Context, *connect.Request[v1.UpdateAgentProfileRequest]) (*connect.Response[v1.UpdateAgentProfileResponse], error)
+	UpdateAgentRuntimeSpec(context.Context, *connect.Request[v1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[v1.UpdateAgentRuntimeSpecResponse], error)
+	GetAgentRuntimeSpec(context.Context, *connect.Request[v1.GetAgentRuntimeSpecRequest]) (*connect.Response[v1.GetAgentRuntimeSpecResponse], error)
 	GetAgent(context.Context, *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error)
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 }
@@ -121,6 +172,24 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		AgentServiceCreateAgentProcedure,
 		svc.CreateAgent,
 		connect.WithSchema(agentServiceMethods.ByName("CreateAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateAgentProfileHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateAgentProfileProcedure,
+		svc.UpdateAgentProfile,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateAgentProfile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceUpdateAgentRuntimeSpecHandler := connect.NewUnaryHandler(
+		AgentServiceUpdateAgentRuntimeSpecProcedure,
+		svc.UpdateAgentRuntimeSpec,
+		connect.WithSchema(agentServiceMethods.ByName("UpdateAgentRuntimeSpec")),
+		connect.WithHandlerOptions(opts...),
+	)
+	agentServiceGetAgentRuntimeSpecHandler := connect.NewUnaryHandler(
+		AgentServiceGetAgentRuntimeSpecProcedure,
+		svc.GetAgentRuntimeSpec,
+		connect.WithSchema(agentServiceMethods.ByName("GetAgentRuntimeSpec")),
 		connect.WithHandlerOptions(opts...),
 	)
 	agentServiceGetAgentHandler := connect.NewUnaryHandler(
@@ -139,6 +208,12 @@ func NewAgentServiceHandler(svc AgentServiceHandler, opts ...connect.HandlerOpti
 		switch r.URL.Path {
 		case AgentServiceCreateAgentProcedure:
 			agentServiceCreateAgentHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateAgentProfileProcedure:
+			agentServiceUpdateAgentProfileHandler.ServeHTTP(w, r)
+		case AgentServiceUpdateAgentRuntimeSpecProcedure:
+			agentServiceUpdateAgentRuntimeSpecHandler.ServeHTTP(w, r)
+		case AgentServiceGetAgentRuntimeSpecProcedure:
+			agentServiceGetAgentRuntimeSpecHandler.ServeHTTP(w, r)
 		case AgentServiceGetAgentProcedure:
 			agentServiceGetAgentHandler.ServeHTTP(w, r)
 		case AgentServiceListAgentsProcedure:
@@ -154,6 +229,18 @@ type UnimplementedAgentServiceHandler struct{}
 
 func (UnimplementedAgentServiceHandler) CreateAgent(context.Context, *connect.Request[v1.CreateAgentRequest]) (*connect.Response[v1.CreateAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.agent.v1.AgentService.CreateAgent is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateAgentProfile(context.Context, *connect.Request[v1.UpdateAgentProfileRequest]) (*connect.Response[v1.UpdateAgentProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.agent.v1.AgentService.UpdateAgentProfile is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) UpdateAgentRuntimeSpec(context.Context, *connect.Request[v1.UpdateAgentRuntimeSpecRequest]) (*connect.Response[v1.UpdateAgentRuntimeSpecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.agent.v1.AgentService.UpdateAgentRuntimeSpec is not implemented"))
+}
+
+func (UnimplementedAgentServiceHandler) GetAgentRuntimeSpec(context.Context, *connect.Request[v1.GetAgentRuntimeSpecRequest]) (*connect.Response[v1.GetAgentRuntimeSpecResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.agent.v1.AgentService.GetAgentRuntimeSpec is not implemented"))
 }
 
 func (UnimplementedAgentServiceHandler) GetAgent(context.Context, *connect.Request[v1.GetAgentRequest]) (*connect.Response[v1.GetAgentResponse], error) {

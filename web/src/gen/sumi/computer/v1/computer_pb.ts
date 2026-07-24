@@ -6,13 +6,15 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv1";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { EngineKind, ProviderProtocol } from "../../agent/v1/agent_pb";
+import { file_sumi_agent_v1_agent } from "../../agent/v1/agent_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file sumi/computer/v1/computer.proto.
  */
 export const file_sumi_computer_v1_computer: GenFile = /*@__PURE__*/
-  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIrIEChFTYW5kYm94Q2FwYWJpbGl0eRIzCghwcm92aWRlchgBIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb3ZpZGVyEjUKCWlzb2xhdGlvbhgCIAEoDjIiLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveElzb2xhdGlvbhJCChB3b3Jrc3BhY2VfYWNjZXNzGAMgASgOMiguc3VtaS5jb21wdXRlci52MS5TYW5kYm94V29ya3NwYWNlQWNjZXNzEkAKD3Byb2Nlc3NfY29udHJvbBgEIAEoDjInLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb2Nlc3NDb250cm9sEkoKFGZpbGVzeXN0ZW1faXNvbGF0aW9uGAUgASgOMiwuc3VtaS5jb21wdXRlci52MS5TYW5kYm94RmlsZXN5c3RlbUlzb2xhdGlvbhJEChFuZXR3b3JrX2lzb2xhdGlvbhgGIAEoDjIpLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveE5ldHdvcmtJc29sYXRpb24STgoWc2VjcmV0X21hdGVyaWFsaXphdGlvbhgHIAEoDjIuLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFNlY3JldE1hdGVyaWFsaXphdGlvbhJJChRkYWVtb25fY3Jhc2hfY2xlYW51cBgIIAEoDjIrLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveERhZW1vbkNyYXNoQ2xlYW51cCKXAwoIQ29tcHV0ZXISCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg4KBm9ubGluZRgHIAEoCBI7Chdjb25uZWN0aXZpdHlfZXhwaXJlc19hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPwoSc2FuZGJveF9jYXBhYmlsaXR5GAkgASgLMiMuc3VtaS5jb21wdXRlci52MS5TYW5kYm94Q2FwYWJpbGl0eRIkChxzYW5kYm94X2RlY2xhcmF0aW9uX3JldmlzaW9uGAogASgEInkKHENyZWF0ZUNvbXB1dGVyUGFpcmluZ1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIVCg1wYWlyaW5nX3Rva2VuGAIgASgJEi4KCmV4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wImMKHUNyZWF0ZUNvbXB1dGVyUGFpcmluZ1Jlc3BvbnNlEhIKCnBhaXJpbmdfaWQYASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiigIKF1JlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0EhgKEHJlZ2lzdHJhdGlvbl9rZXkYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZRISCgpyZXF1ZXN0X2lkGAUgASgJEhUKDXBhaXJpbmdfdG9rZW4YBiABKAkSPwoSc2FuZGJveF9jYXBhYmlsaXR5GAcgASgLMiMuc3VtaS5jb21wdXRlci52MS5TYW5kYm94Q2FwYWJpbGl0eSJIChhSZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIooBChhIZWFydGJlYXRDb21wdXRlclJlcXVlc3QSEwoLY29tcHV0ZXJfaWQYASABKAkSGAoQcmVnaXN0cmF0aW9uX2tleRgCIAEoCRI/ChJzYW5kYm94X2NhcGFiaWxpdHkYAyABKAsyIy5zdW1pLmNvbXB1dGVyLnYxLlNhbmRib3hDYXBhYmlsaXR5IkkKGUhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIikKEkdldENvbXB1dGVyUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCSJDChNHZXRDb21wdXRlclJlc3BvbnNlEiwKCGNvbXB1dGVyGAEgASgLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciIWChRMaXN0Q29tcHV0ZXJzUmVxdWVzdCJGChVMaXN0Q29tcHV0ZXJzUmVzcG9uc2USLQoJY29tcHV0ZXJzGAEgAygLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciprCg9PcGVyYXRpbmdTeXN0ZW0SIAocT1BFUkFUSU5HX1NZU1RFTV9VTlNQRUNJRklFRBAAEhoKFk9QRVJBVElOR19TWVNURU1fTUFDT1MQARIaChZPUEVSQVRJTkdfU1lTVEVNX0xJTlVYEAIqXAoMQXJjaGl0ZWN0dXJlEhwKGEFSQ0hJVEVDVFVSRV9VTlNQRUNJRklFRBAAEhYKEkFSQ0hJVEVDVFVSRV9BUk02NBABEhYKEkFSQ0hJVEVDVFVSRV9BTUQ2NBACKlcKD1NhbmRib3hQcm92aWRlchIgChxTQU5EQk9YX1BST1ZJREVSX1VOU1BFQ0lGSUVEEAASIgoeU0FOREJPWF9QUk9WSURFUl9UUlVTVEVEX0xPQ0FMEAEqWgoQU2FuZGJveElzb2xhdGlvbhIhCh1TQU5EQk9YX0lTT0xBVElPTl9VTlNQRUNJRklFRBAAEiMKH1NBTkRCT1hfSVNPTEFUSU9OX1RSVVNURURfTE9DQUwQASpyChZTYW5kYm94V29ya3NwYWNlQWNjZXNzEigKJFNBTkRCT1hfV09SS1NQQUNFX0FDQ0VTU19VTlNQRUNJRklFRBAAEi4KKlNBTkRCT1hfV09SS1NQQUNFX0FDQ0VTU19ESVJFQ1RfUkVBRF9XUklURRABKnMKFVNhbmRib3hQcm9jZXNzQ29udHJvbBInCiNTQU5EQk9YX1BST0NFU1NfQ09OVFJPTF9VTlNQRUNJRklFRBAAEjEKLVNBTkRCT1hfUFJPQ0VTU19DT05UUk9MX0NPTlRFWFRfUFJPQ0VTU19HUk9VUBABKnEKGlNhbmRib3hGaWxlc3lzdGVtSXNvbGF0aW9uEiwKKFNBTkRCT1hfRklMRVNZU1RFTV9JU09MQVRJT05fVU5TUEVDSUZJRUQQABIlCiFTQU5EQk9YX0ZJTEVTWVNURU1fSVNPTEFUSU9OX05PTkUQASpoChdTYW5kYm94TmV0d29ya0lzb2xhdGlvbhIpCiVTQU5EQk9YX05FVFdPUktfSVNPTEFUSU9OX1VOU1BFQ0lGSUVEEAASIgoeU0FOREJPWF9ORVRXT1JLX0lTT0xBVElPTl9OT05FEAEqiAEKHFNhbmRib3hTZWNyZXRNYXRlcmlhbGl6YXRpb24SLgoqU0FOREJPWF9TRUNSRVRfTUFURVJJQUxJWkFUSU9OX1VOU1BFQ0lGSUVEEAASOAo0U0FOREJPWF9TRUNSRVRfTUFURVJJQUxJWkFUSU9OX0VQSEVNRVJBTF9FTlZJUk9OTUVOVBABKnAKGVNhbmRib3hEYWVtb25DcmFzaENsZWFudXASLAooU0FOREJPWF9EQUVNT05fQ1JBU0hfQ0xFQU5VUF9VTlNQRUNJRklFRBAAEiUKIVNBTkRCT1hfREFFTU9OX0NSQVNIX0NMRUFOVVBfTk9ORRABMqIECg9Db21wdXRlclNlcnZpY2USeAoVQ3JlYXRlQ29tcHV0ZXJQYWlyaW5nEi4uc3VtaS5jb21wdXRlci52MS5DcmVhdGVDb21wdXRlclBhaXJpbmdSZXF1ZXN0Gi8uc3VtaS5jb21wdXRlci52MS5DcmVhdGVDb21wdXRlclBhaXJpbmdSZXNwb25zZRJpChBSZWdpc3RlckNvbXB1dGVyEikuc3VtaS5jb21wdXRlci52MS5SZWdpc3RlckNvbXB1dGVyUmVxdWVzdBoqLnN1bWkuY29tcHV0ZXIudjEuUmVnaXN0ZXJDb21wdXRlclJlc3BvbnNlEmwKEUhlYXJ0YmVhdENvbXB1dGVyEiouc3VtaS5jb21wdXRlci52MS5IZWFydGJlYXRDb21wdXRlclJlcXVlc3QaKy5zdW1pLmNvbXB1dGVyLnYxLkhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USWgoLR2V0Q29tcHV0ZXISJC5zdW1pLmNvbXB1dGVyLnYxLkdldENvbXB1dGVyUmVxdWVzdBolLnN1bWkuY29tcHV0ZXIudjEuR2V0Q29tcHV0ZXJSZXNwb25zZRJgCg1MaXN0Q29tcHV0ZXJzEiYuc3VtaS5jb21wdXRlci52MS5MaXN0Q29tcHV0ZXJzUmVxdWVzdBonLnN1bWkuY29tcHV0ZXIudjEuTGlzdENvbXB1dGVyc1Jlc3BvbnNlQjxaOmdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2NvbXB1dGVyL3YxO2NvbXB1dGVydjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("Ch9zdW1pL2NvbXB1dGVyL3YxL2NvbXB1dGVyLnByb3RvEhBzdW1pLmNvbXB1dGVyLnYxIrIEChFTYW5kYm94Q2FwYWJpbGl0eRIzCghwcm92aWRlchgBIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb3ZpZGVyEjUKCWlzb2xhdGlvbhgCIAEoDjIiLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveElzb2xhdGlvbhJCChB3b3Jrc3BhY2VfYWNjZXNzGAMgASgOMiguc3VtaS5jb21wdXRlci52MS5TYW5kYm94V29ya3NwYWNlQWNjZXNzEkAKD3Byb2Nlc3NfY29udHJvbBgEIAEoDjInLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFByb2Nlc3NDb250cm9sEkoKFGZpbGVzeXN0ZW1faXNvbGF0aW9uGAUgASgOMiwuc3VtaS5jb21wdXRlci52MS5TYW5kYm94RmlsZXN5c3RlbUlzb2xhdGlvbhJEChFuZXR3b3JrX2lzb2xhdGlvbhgGIAEoDjIpLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveE5ldHdvcmtJc29sYXRpb24STgoWc2VjcmV0X21hdGVyaWFsaXphdGlvbhgHIAEoDjIuLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveFNlY3JldE1hdGVyaWFsaXphdGlvbhJJChRkYWVtb25fY3Jhc2hfY2xlYW51cBgIIAEoDjIrLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveERhZW1vbkNyYXNoQ2xlYW51cCKPAgoQRW5naW5lQ2FwYWJpbGl0eRIpCgZlbmdpbmUYASABKA4yGS5zdW1pLmFnZW50LnYxLkVuZ2luZUtpbmQSDwoHdmVyc2lvbhgCIAEoCRIYChBwcm90b2NvbF92ZXJzaW9uGAMgASgNEhsKE3N1cHBvcnRzX3Rvb2xfY2FsbHMYBCABKAgSFwoPc3VwcG9ydHNfY2FuY2VsGAUgASgIEjsKEnByb3ZpZGVyX3Byb3RvY29scxgGIAMoDjIfLnN1bWkuYWdlbnQudjEuUHJvdmlkZXJQcm90b2NvbBIyCgZoZWFsdGgYByABKA4yIi5zdW1pLmNvbXB1dGVyLnYxLkNhcGFiaWxpdHlIZWFsdGgi6gEKHENyZWRlbnRpYWxEZWxpdmVyeUNhcGFiaWxpdHkSMgoGaGVhbHRoGAEgASgOMiIuc3VtaS5jb21wdXRlci52MS5DYXBhYmlsaXR5SGVhbHRoEkAKCWFsZ29yaXRobRgCIAEoDjItLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5QWxnb3JpdGhtEjAKBXN0b3JlGAMgASgOMiEuc3VtaS5jb21wdXRlci52MS5DcmVkZW50aWFsU3RvcmUSDgoGa2V5X2lkGAQgASgJEhIKCnB1YmxpY19rZXkYBSABKAwi2gEKHkNhcGFiaWxpdHlJbnZlbnRvcnlEZWNsYXJhdGlvbhIzCgdlbmdpbmVzGAEgAygLMiIuc3VtaS5jb21wdXRlci52MS5FbmdpbmVDYXBhYmlsaXR5EjYKCXNhbmRib3hlcxgCIAMoCzIjLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveENhcGFiaWxpdHkSSwoTY3JlZGVudGlhbF9kZWxpdmVyeRgDIAEoCzIuLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5Q2FwYWJpbGl0eSKSAgoTQ2FwYWJpbGl0eUludmVudG9yeRIQCghyZXZpc2lvbhgBIAEoBBIzCgdlbmdpbmVzGAIgAygLMiIuc3VtaS5jb21wdXRlci52MS5FbmdpbmVDYXBhYmlsaXR5EjYKCXNhbmRib3hlcxgDIAMoCzIjLnN1bWkuY29tcHV0ZXIudjEuU2FuZGJveENhcGFiaWxpdHkSSwoTY3JlZGVudGlhbF9kZWxpdmVyeRgEIAEoCzIuLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5Q2FwYWJpbGl0eRIvCgtkZWNsYXJlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi9QIKCENvbXB1dGVyEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSLQoCb3MYAyABKA4yIS5zdW1pLmNvbXB1dGVyLnYxLk9wZXJhdGluZ1N5c3RlbRIsCgRhcmNoGAQgASgOMh4uc3VtaS5jb21wdXRlci52MS5BcmNoaXRlY3R1cmUSLgoKY3JlYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMbGFzdF9zZWVuX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIOCgZvbmxpbmUYByABKAgSOwoXY29ubmVjdGl2aXR5X2V4cGlyZXNfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEkMKFGNhcGFiaWxpdHlfaW52ZW50b3J5GAkgASgLMiUuc3VtaS5jb21wdXRlci52MS5DYXBhYmlsaXR5SW52ZW50b3J5InkKHENyZWF0ZUNvbXB1dGVyUGFpcmluZ1JlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIVCg1wYWlyaW5nX3Rva2VuGAIgASgJEi4KCmV4cGlyZXNfYXQYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wImMKHUNyZWF0ZUNvbXB1dGVyUGFpcmluZ1Jlc3BvbnNlEhIKCnBhaXJpbmdfaWQYASABKAkSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAimQIKF1JlZ2lzdGVyQ29tcHV0ZXJSZXF1ZXN0EhgKEHJlZ2lzdHJhdGlvbl9rZXkYASABKAkSDAoEbmFtZRgCIAEoCRItCgJvcxgDIAEoDjIhLnN1bWkuY29tcHV0ZXIudjEuT3BlcmF0aW5nU3lzdGVtEiwKBGFyY2gYBCABKA4yHi5zdW1pLmNvbXB1dGVyLnYxLkFyY2hpdGVjdHVyZRISCgpyZXF1ZXN0X2lkGAUgASgJEhUKDXBhaXJpbmdfdG9rZW4YBiABKAkSTgoUY2FwYWJpbGl0eV9pbnZlbnRvcnkYByABKAsyMC5zdW1pLmNvbXB1dGVyLnYxLkNhcGFiaWxpdHlJbnZlbnRvcnlEZWNsYXJhdGlvbiJIChhSZWdpc3RlckNvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIpkBChhIZWFydGJlYXRDb21wdXRlclJlcXVlc3QSEwoLY29tcHV0ZXJfaWQYASABKAkSGAoQcmVnaXN0cmF0aW9uX2tleRgCIAEoCRJOChRjYXBhYmlsaXR5X2ludmVudG9yeRgDIAEoCzIwLnN1bWkuY29tcHV0ZXIudjEuQ2FwYWJpbGl0eUludmVudG9yeURlY2xhcmF0aW9uIkkKGUhlYXJ0YmVhdENvbXB1dGVyUmVzcG9uc2USLAoIY29tcHV0ZXIYASABKAsyGi5zdW1pLmNvbXB1dGVyLnYxLkNvbXB1dGVyIikKEkdldENvbXB1dGVyUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCSJDChNHZXRDb21wdXRlclJlc3BvbnNlEiwKCGNvbXB1dGVyGAEgASgLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciIWChRMaXN0Q29tcHV0ZXJzUmVxdWVzdCJGChVMaXN0Q29tcHV0ZXJzUmVzcG9uc2USLQoJY29tcHV0ZXJzGAEgAygLMhouc3VtaS5jb21wdXRlci52MS5Db21wdXRlciKlAQoQU2VhbGVkQ3JlZGVudGlhbBJACglhbGdvcml0aG0YASABKA4yLS5zdW1pLmNvbXB1dGVyLnYxLkNyZWRlbnRpYWxEZWxpdmVyeUFsZ29yaXRobRIOCgZrZXlfaWQYAiABKAkSHAoUZXBoZW1lcmFsX3B1YmxpY19rZXkYAyABKAwSDQoFbm9uY2UYBCABKAwSEgoKY2lwaGVydGV4dBgFIAEoDCLLAwoSQ3JlZGVudGlhbERlbGl2ZXJ5EgoKAmlkGAEgASgJEhIKCnJlcXVlc3RfaWQYAiABKAkSEwoLY29tcHV0ZXJfaWQYAyABKAkSEAoIYWdlbnRfaWQYBCABKAkSOQoPY3JlZGVudGlhbF9raW5kGAUgASgOMiAuc3VtaS5jb21wdXRlci52MS5DcmVkZW50aWFsS2luZBI9ChFzZWFsZWRfY3JlZGVudGlhbBgGIAEoCzIiLnN1bWkuY29tcHV0ZXIudjEuU2VhbGVkQ3JlZGVudGlhbBI4CgVzdGF0ZRgHIAEoDjIpLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5U3RhdGUSFgoOYmluZGluZ19oYW5kbGUYCCABKAkSEgoKZXJyb3JfY29kZRgJIAEoCRIuCgpleHBpcmVzX2F0GAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjcmVhdGVkX2F0GAsgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAwgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKHAgogRW5xdWV1ZUNyZWRlbnRpYWxEZWxpdmVyeVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRITCgtjb21wdXRlcl9pZBgCIAEoCRIQCghhZ2VudF9pZBgDIAEoCRI5Cg9jcmVkZW50aWFsX2tpbmQYBCABKA4yIC5zdW1pLmNvbXB1dGVyLnYxLkNyZWRlbnRpYWxLaW5kEj0KEXNlYWxlZF9jcmVkZW50aWFsGAUgASgLMiIuc3VtaS5jb21wdXRlci52MS5TZWFsZWRDcmVkZW50aWFsEi4KCmV4cGlyZXNfYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIlsKIUVucXVldWVDcmVkZW50aWFsRGVsaXZlcnlSZXNwb25zZRI2CghkZWxpdmVyeRgBIAEoCzIkLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5IkgKH0xpc3RDcmVkZW50aWFsRGVsaXZlcmllc1JlcXVlc3QSEwoLY29tcHV0ZXJfaWQYASABKAkSEAoIYWdlbnRfaWQYAiABKAkiXAogTGlzdENyZWRlbnRpYWxEZWxpdmVyaWVzUmVzcG9uc2USOAoKZGVsaXZlcmllcxgBIAMoCzIkLnN1bWkuY29tcHV0ZXIudjEuQ3JlZGVudGlhbERlbGl2ZXJ5Ik8KHkNsYWltQ3JlZGVudGlhbERlbGl2ZXJ5UmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIlkKH0NsYWltQ3JlZGVudGlhbERlbGl2ZXJ5UmVzcG9uc2USNgoIZGVsaXZlcnkYASABKAsyJC5zdW1pLmNvbXB1dGVyLnYxLkNyZWRlbnRpYWxEZWxpdmVyeSKTAQohQ29tcGxldGVDcmVkZW50aWFsRGVsaXZlcnlSZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkSEwoLZGVsaXZlcnlfaWQYAyABKAkSFgoOYmluZGluZ19oYW5kbGUYBCABKAkSEgoKZXJyb3JfY29kZRgFIAEoCSJcCiJDb21wbGV0ZUNyZWRlbnRpYWxEZWxpdmVyeVJlc3BvbnNlEjYKCGRlbGl2ZXJ5GAEgASgLMiQuc3VtaS5jb21wdXRlci52MS5DcmVkZW50aWFsRGVsaXZlcnkqawoPT3BlcmF0aW5nU3lzdGVtEiAKHE9QRVJBVElOR19TWVNURU1fVU5TUEVDSUZJRUQQABIaChZPUEVSQVRJTkdfU1lTVEVNX01BQ09TEAESGgoWT1BFUkFUSU5HX1NZU1RFTV9MSU5VWBACKlwKDEFyY2hpdGVjdHVyZRIcChhBUkNISVRFQ1RVUkVfVU5TUEVDSUZJRUQQABIWChJBUkNISVRFQ1RVUkVfQVJNNjQQARIWChJBUkNISVRFQ1RVUkVfQU1ENjQQAipXCg9TYW5kYm94UHJvdmlkZXISIAocU0FOREJPWF9QUk9WSURFUl9VTlNQRUNJRklFRBAAEiIKHlNBTkRCT1hfUFJPVklERVJfVFJVU1RFRF9MT0NBTBABKloKEFNhbmRib3hJc29sYXRpb24SIQodU0FOREJPWF9JU09MQVRJT05fVU5TUEVDSUZJRUQQABIjCh9TQU5EQk9YX0lTT0xBVElPTl9UUlVTVEVEX0xPQ0FMEAEqcgoWU2FuZGJveFdvcmtzcGFjZUFjY2VzcxIoCiRTQU5EQk9YX1dPUktTUEFDRV9BQ0NFU1NfVU5TUEVDSUZJRUQQABIuCipTQU5EQk9YX1dPUktTUEFDRV9BQ0NFU1NfRElSRUNUX1JFQURfV1JJVEUQASpzChVTYW5kYm94UHJvY2Vzc0NvbnRyb2wSJwojU0FOREJPWF9QUk9DRVNTX0NPTlRST0xfVU5TUEVDSUZJRUQQABIxCi1TQU5EQk9YX1BST0NFU1NfQ09OVFJPTF9DT05URVhUX1BST0NFU1NfR1JPVVAQASpxChpTYW5kYm94RmlsZXN5c3RlbUlzb2xhdGlvbhIsCihTQU5EQk9YX0ZJTEVTWVNURU1fSVNPTEFUSU9OX1VOU1BFQ0lGSUVEEAASJQohU0FOREJPWF9GSUxFU1lTVEVNX0lTT0xBVElPTl9OT05FEAEqaAoXU2FuZGJveE5ldHdvcmtJc29sYXRpb24SKQolU0FOREJPWF9ORVRXT1JLX0lTT0xBVElPTl9VTlNQRUNJRklFRBAAEiIKHlNBTkRCT1hfTkVUV09SS19JU09MQVRJT05fTk9ORRABKogBChxTYW5kYm94U2VjcmV0TWF0ZXJpYWxpemF0aW9uEi4KKlNBTkRCT1hfU0VDUkVUX01BVEVSSUFMSVpBVElPTl9VTlNQRUNJRklFRBAAEjgKNFNBTkRCT1hfU0VDUkVUX01BVEVSSUFMSVpBVElPTl9FUEhFTUVSQUxfRU5WSVJPTk1FTlQQASpwChlTYW5kYm94RGFlbW9uQ3Jhc2hDbGVhbnVwEiwKKFNBTkRCT1hfREFFTU9OX0NSQVNIX0NMRUFOVVBfVU5TUEVDSUZJRUQQABIlCiFTQU5EQk9YX0RBRU1PTl9DUkFTSF9DTEVBTlVQX05PTkUQASp3ChBDYXBhYmlsaXR5SGVhbHRoEiEKHUNBUEFCSUxJVFlfSEVBTFRIX1VOU1BFQ0lGSUVEEAASHQoZQ0FQQUJJTElUWV9IRUFMVEhfSEVBTFRIWRABEiEKHUNBUEFCSUxJVFlfSEVBTFRIX1VOQVZBSUxBQkxFEAIqiQEKG0NyZWRlbnRpYWxEZWxpdmVyeUFsZ29yaXRobRItCilDUkVERU5USUFMX0RFTElWRVJZX0FMR09SSVRITV9VTlNQRUNJRklFRBAAEjsKN0NSRURFTlRJQUxfREVMSVZFUllfQUxHT1JJVEhNX1gyNTUxOV9YQ0hBQ0hBMjBfUE9MWTEzMDUQASqDAQoPQ3JlZGVudGlhbFN0b3JlEiAKHENSRURFTlRJQUxfU1RPUkVfVU5TUEVDSUZJRUQQABIjCh9DUkVERU5USUFMX1NUT1JFX01BQ09TX0tFWUNIQUlOEAESKQolQ1JFREVOVElBTF9TVE9SRV9MSU5VWF9TRUNSRVRfU0VSVklDRRACKocCChdDcmVkZW50aWFsRGVsaXZlcnlTdGF0ZRIpCiVDUkVERU5USUFMX0RFTElWRVJZX1NUQVRFX1VOU1BFQ0lGSUVEEAASJAogQ1JFREVOVElBTF9ERUxJVkVSWV9TVEFURV9RVUVVRUQQARIlCiFDUkVERU5USUFMX0RFTElWRVJZX1NUQVRFX0NMQUlNRUQQAhInCiNDUkVERU5USUFMX0RFTElWRVJZX1NUQVRFX1NVQ0NFRURFRBADEiQKIENSRURFTlRJQUxfREVMSVZFUllfU1RBVEVfRkFJTEVEEAQSJQohQ1JFREVOVElBTF9ERUxJVkVSWV9TVEFURV9FWFBJUkVEEAUqswEKDkNyZWRlbnRpYWxLaW5kEh8KG0NSRURFTlRJQUxfS0lORF9VTlNQRUNJRklFRBAAEhoKFkNSRURFTlRJQUxfS0lORF9PUEVOQUkQARIdChlDUkVERU5USUFMX0tJTkRfQU5USFJPUElDEAISIQodQ1JFREVOVElBTF9LSU5EX0NPREVYX0FEQVBURVIQAxIiCh5DUkVERU5USUFMX0tJTkRfQ0xBVURFX0FEQVBURVIQBDK3CAoPQ29tcHV0ZXJTZXJ2aWNlEngKFUNyZWF0ZUNvbXB1dGVyUGFpcmluZxIuLnN1bWkuY29tcHV0ZXIudjEuQ3JlYXRlQ29tcHV0ZXJQYWlyaW5nUmVxdWVzdBovLnN1bWkuY29tcHV0ZXIudjEuQ3JlYXRlQ29tcHV0ZXJQYWlyaW5nUmVzcG9uc2USaQoQUmVnaXN0ZXJDb21wdXRlchIpLnN1bWkuY29tcHV0ZXIudjEuUmVnaXN0ZXJDb21wdXRlclJlcXVlc3QaKi5zdW1pLmNvbXB1dGVyLnYxLlJlZ2lzdGVyQ29tcHV0ZXJSZXNwb25zZRJsChFIZWFydGJlYXRDb21wdXRlchIqLnN1bWkuY29tcHV0ZXIudjEuSGVhcnRiZWF0Q29tcHV0ZXJSZXF1ZXN0Gisuc3VtaS5jb21wdXRlci52MS5IZWFydGJlYXRDb21wdXRlclJlc3BvbnNlEloKC0dldENvbXB1dGVyEiQuc3VtaS5jb21wdXRlci52MS5HZXRDb21wdXRlclJlcXVlc3QaJS5zdW1pLmNvbXB1dGVyLnYxLkdldENvbXB1dGVyUmVzcG9uc2USYAoNTGlzdENvbXB1dGVycxImLnN1bWkuY29tcHV0ZXIudjEuTGlzdENvbXB1dGVyc1JlcXVlc3QaJy5zdW1pLmNvbXB1dGVyLnYxLkxpc3RDb21wdXRlcnNSZXNwb25zZRKEAQoZRW5xdWV1ZUNyZWRlbnRpYWxEZWxpdmVyeRIyLnN1bWkuY29tcHV0ZXIudjEuRW5xdWV1ZUNyZWRlbnRpYWxEZWxpdmVyeVJlcXVlc3QaMy5zdW1pLmNvbXB1dGVyLnYxLkVucXVldWVDcmVkZW50aWFsRGVsaXZlcnlSZXNwb25zZRKBAQoYTGlzdENyZWRlbnRpYWxEZWxpdmVyaWVzEjEuc3VtaS5jb21wdXRlci52MS5MaXN0Q3JlZGVudGlhbERlbGl2ZXJpZXNSZXF1ZXN0GjIuc3VtaS5jb21wdXRlci52MS5MaXN0Q3JlZGVudGlhbERlbGl2ZXJpZXNSZXNwb25zZRJ+ChdDbGFpbUNyZWRlbnRpYWxEZWxpdmVyeRIwLnN1bWkuY29tcHV0ZXIudjEuQ2xhaW1DcmVkZW50aWFsRGVsaXZlcnlSZXF1ZXN0GjEuc3VtaS5jb21wdXRlci52MS5DbGFpbUNyZWRlbnRpYWxEZWxpdmVyeVJlc3BvbnNlEocBChpDb21wbGV0ZUNyZWRlbnRpYWxEZWxpdmVyeRIzLnN1bWkuY29tcHV0ZXIudjEuQ29tcGxldGVDcmVkZW50aWFsRGVsaXZlcnlSZXF1ZXN0GjQuc3VtaS5jb21wdXRlci52MS5Db21wbGV0ZUNyZWRlbnRpYWxEZWxpdmVyeVJlc3BvbnNlQjxaOmdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL2NvbXB1dGVyL3YxO2NvbXB1dGVydjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_sumi_agent_v1_agent]);
 
 /**
  * @generated from message sumi.computer.v1.SandboxCapability
@@ -67,6 +69,154 @@ export const SandboxCapabilitySchema: GenMessage<SandboxCapability> = /*@__PURE_
   messageDesc(file_sumi_computer_v1_computer, 0);
 
 /**
+ * @generated from message sumi.computer.v1.EngineCapability
+ */
+export type EngineCapability = Message<"sumi.computer.v1.EngineCapability"> & {
+  /**
+   * @generated from field: sumi.agent.v1.EngineKind engine = 1;
+   */
+  engine: EngineKind;
+
+  /**
+   * @generated from field: string version = 2;
+   */
+  version: string;
+
+  /**
+   * @generated from field: uint32 protocol_version = 3;
+   */
+  protocolVersion: number;
+
+  /**
+   * @generated from field: bool supports_tool_calls = 4;
+   */
+  supportsToolCalls: boolean;
+
+  /**
+   * @generated from field: bool supports_cancel = 5;
+   */
+  supportsCancel: boolean;
+
+  /**
+   * @generated from field: repeated sumi.agent.v1.ProviderProtocol provider_protocols = 6;
+   */
+  providerProtocols: ProviderProtocol[];
+
+  /**
+   * @generated from field: sumi.computer.v1.CapabilityHealth health = 7;
+   */
+  health: CapabilityHealth;
+};
+
+/**
+ * Describes the message sumi.computer.v1.EngineCapability.
+ * Use `create(EngineCapabilitySchema)` to create a new message.
+ */
+export const EngineCapabilitySchema: GenMessage<EngineCapability> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 1);
+
+/**
+ * @generated from message sumi.computer.v1.CredentialDeliveryCapability
+ */
+export type CredentialDeliveryCapability = Message<"sumi.computer.v1.CredentialDeliveryCapability"> & {
+  /**
+   * @generated from field: sumi.computer.v1.CapabilityHealth health = 1;
+   */
+  health: CapabilityHealth;
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDeliveryAlgorithm algorithm = 2;
+   */
+  algorithm: CredentialDeliveryAlgorithm;
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialStore store = 3;
+   */
+  store: CredentialStore;
+
+  /**
+   * @generated from field: string key_id = 4;
+   */
+  keyId: string;
+
+  /**
+   * @generated from field: bytes public_key = 5;
+   */
+  publicKey: Uint8Array;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CredentialDeliveryCapability.
+ * Use `create(CredentialDeliveryCapabilitySchema)` to create a new message.
+ */
+export const CredentialDeliveryCapabilitySchema: GenMessage<CredentialDeliveryCapability> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 2);
+
+/**
+ * @generated from message sumi.computer.v1.CapabilityInventoryDeclaration
+ */
+export type CapabilityInventoryDeclaration = Message<"sumi.computer.v1.CapabilityInventoryDeclaration"> & {
+  /**
+   * @generated from field: repeated sumi.computer.v1.EngineCapability engines = 1;
+   */
+  engines: EngineCapability[];
+
+  /**
+   * @generated from field: repeated sumi.computer.v1.SandboxCapability sandboxes = 2;
+   */
+  sandboxes: SandboxCapability[];
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDeliveryCapability credential_delivery = 3;
+   */
+  credentialDelivery?: CredentialDeliveryCapability;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CapabilityInventoryDeclaration.
+ * Use `create(CapabilityInventoryDeclarationSchema)` to create a new message.
+ */
+export const CapabilityInventoryDeclarationSchema: GenMessage<CapabilityInventoryDeclaration> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 3);
+
+/**
+ * @generated from message sumi.computer.v1.CapabilityInventory
+ */
+export type CapabilityInventory = Message<"sumi.computer.v1.CapabilityInventory"> & {
+  /**
+   * @generated from field: uint64 revision = 1;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: repeated sumi.computer.v1.EngineCapability engines = 2;
+   */
+  engines: EngineCapability[];
+
+  /**
+   * @generated from field: repeated sumi.computer.v1.SandboxCapability sandboxes = 3;
+   */
+  sandboxes: SandboxCapability[];
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDeliveryCapability credential_delivery = 4;
+   */
+  credentialDelivery?: CredentialDeliveryCapability;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp declared_at = 5;
+   */
+  declaredAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CapabilityInventory.
+ * Use `create(CapabilityInventorySchema)` to create a new message.
+ */
+export const CapabilityInventorySchema: GenMessage<CapabilityInventory> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 4);
+
+/**
  * @generated from message sumi.computer.v1.Computer
  */
 export type Computer = Message<"sumi.computer.v1.Computer"> & {
@@ -111,14 +261,9 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
   connectivityExpiresAt?: Timestamp;
 
   /**
-   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 9;
+   * @generated from field: sumi.computer.v1.CapabilityInventory capability_inventory = 9;
    */
-  sandboxCapability?: SandboxCapability;
-
-  /**
-   * @generated from field: uint64 sandbox_declaration_revision = 10;
-   */
-  sandboxDeclarationRevision: bigint;
+  capabilityInventory?: CapabilityInventory;
 };
 
 /**
@@ -126,7 +271,7 @@ export type Computer = Message<"sumi.computer.v1.Computer"> & {
  * Use `create(ComputerSchema)` to create a new message.
  */
 export const ComputerSchema: GenMessage<Computer> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 1);
+  messageDesc(file_sumi_computer_v1_computer, 5);
 
 /**
  * @generated from message sumi.computer.v1.CreateComputerPairingRequest
@@ -153,7 +298,7 @@ export type CreateComputerPairingRequest = Message<"sumi.computer.v1.CreateCompu
  * Use `create(CreateComputerPairingRequestSchema)` to create a new message.
  */
 export const CreateComputerPairingRequestSchema: GenMessage<CreateComputerPairingRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 2);
+  messageDesc(file_sumi_computer_v1_computer, 6);
 
 /**
  * @generated from message sumi.computer.v1.CreateComputerPairingResponse
@@ -175,7 +320,7 @@ export type CreateComputerPairingResponse = Message<"sumi.computer.v1.CreateComp
  * Use `create(CreateComputerPairingResponseSchema)` to create a new message.
  */
 export const CreateComputerPairingResponseSchema: GenMessage<CreateComputerPairingResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 3);
+  messageDesc(file_sumi_computer_v1_computer, 7);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerRequest
@@ -212,9 +357,9 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
   pairingToken: string;
 
   /**
-   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 7;
+   * @generated from field: sumi.computer.v1.CapabilityInventoryDeclaration capability_inventory = 7;
    */
-  sandboxCapability?: SandboxCapability;
+  capabilityInventory?: CapabilityInventoryDeclaration;
 };
 
 /**
@@ -222,7 +367,7 @@ export type RegisterComputerRequest = Message<"sumi.computer.v1.RegisterComputer
  * Use `create(RegisterComputerRequestSchema)` to create a new message.
  */
 export const RegisterComputerRequestSchema: GenMessage<RegisterComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 4);
+  messageDesc(file_sumi_computer_v1_computer, 8);
 
 /**
  * @generated from message sumi.computer.v1.RegisterComputerResponse
@@ -239,7 +384,7 @@ export type RegisterComputerResponse = Message<"sumi.computer.v1.RegisterCompute
  * Use `create(RegisterComputerResponseSchema)` to create a new message.
  */
 export const RegisterComputerResponseSchema: GenMessage<RegisterComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 5);
+  messageDesc(file_sumi_computer_v1_computer, 9);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerRequest
@@ -256,9 +401,9 @@ export type HeartbeatComputerRequest = Message<"sumi.computer.v1.HeartbeatComput
   registrationKey: string;
 
   /**
-   * @generated from field: sumi.computer.v1.SandboxCapability sandbox_capability = 3;
+   * @generated from field: sumi.computer.v1.CapabilityInventoryDeclaration capability_inventory = 3;
    */
-  sandboxCapability?: SandboxCapability;
+  capabilityInventory?: CapabilityInventoryDeclaration;
 };
 
 /**
@@ -266,7 +411,7 @@ export type HeartbeatComputerRequest = Message<"sumi.computer.v1.HeartbeatComput
  * Use `create(HeartbeatComputerRequestSchema)` to create a new message.
  */
 export const HeartbeatComputerRequestSchema: GenMessage<HeartbeatComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 6);
+  messageDesc(file_sumi_computer_v1_computer, 10);
 
 /**
  * @generated from message sumi.computer.v1.HeartbeatComputerResponse
@@ -283,7 +428,7 @@ export type HeartbeatComputerResponse = Message<"sumi.computer.v1.HeartbeatCompu
  * Use `create(HeartbeatComputerResponseSchema)` to create a new message.
  */
 export const HeartbeatComputerResponseSchema: GenMessage<HeartbeatComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 7);
+  messageDesc(file_sumi_computer_v1_computer, 11);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerRequest
@@ -300,7 +445,7 @@ export type GetComputerRequest = Message<"sumi.computer.v1.GetComputerRequest"> 
  * Use `create(GetComputerRequestSchema)` to create a new message.
  */
 export const GetComputerRequestSchema: GenMessage<GetComputerRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 8);
+  messageDesc(file_sumi_computer_v1_computer, 12);
 
 /**
  * @generated from message sumi.computer.v1.GetComputerResponse
@@ -317,7 +462,7 @@ export type GetComputerResponse = Message<"sumi.computer.v1.GetComputerResponse"
  * Use `create(GetComputerResponseSchema)` to create a new message.
  */
 export const GetComputerResponseSchema: GenMessage<GetComputerResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 9);
+  messageDesc(file_sumi_computer_v1_computer, 13);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersRequest
@@ -330,7 +475,7 @@ export type ListComputersRequest = Message<"sumi.computer.v1.ListComputersReques
  * Use `create(ListComputersRequestSchema)` to create a new message.
  */
 export const ListComputersRequestSchema: GenMessage<ListComputersRequest> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 10);
+  messageDesc(file_sumi_computer_v1_computer, 14);
 
 /**
  * @generated from message sumi.computer.v1.ListComputersResponse
@@ -347,7 +492,307 @@ export type ListComputersResponse = Message<"sumi.computer.v1.ListComputersRespo
  * Use `create(ListComputersResponseSchema)` to create a new message.
  */
 export const ListComputersResponseSchema: GenMessage<ListComputersResponse> = /*@__PURE__*/
-  messageDesc(file_sumi_computer_v1_computer, 11);
+  messageDesc(file_sumi_computer_v1_computer, 15);
+
+/**
+ * @generated from message sumi.computer.v1.SealedCredential
+ */
+export type SealedCredential = Message<"sumi.computer.v1.SealedCredential"> & {
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDeliveryAlgorithm algorithm = 1;
+   */
+  algorithm: CredentialDeliveryAlgorithm;
+
+  /**
+   * @generated from field: string key_id = 2;
+   */
+  keyId: string;
+
+  /**
+   * @generated from field: bytes ephemeral_public_key = 3;
+   */
+  ephemeralPublicKey: Uint8Array;
+
+  /**
+   * @generated from field: bytes nonce = 4;
+   */
+  nonce: Uint8Array;
+
+  /**
+   * @generated from field: bytes ciphertext = 5;
+   */
+  ciphertext: Uint8Array;
+};
+
+/**
+ * Describes the message sumi.computer.v1.SealedCredential.
+ * Use `create(SealedCredentialSchema)` to create a new message.
+ */
+export const SealedCredentialSchema: GenMessage<SealedCredential> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 16);
+
+/**
+ * @generated from message sumi.computer.v1.CredentialDelivery
+ */
+export type CredentialDelivery = Message<"sumi.computer.v1.CredentialDelivery"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string request_id = 2;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string computer_id = 3;
+   */
+  computerId: string;
+
+  /**
+   * @generated from field: string agent_id = 4;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialKind credential_kind = 5;
+   */
+  credentialKind: CredentialKind;
+
+  /**
+   * @generated from field: sumi.computer.v1.SealedCredential sealed_credential = 6;
+   */
+  sealedCredential?: SealedCredential;
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDeliveryState state = 7;
+   */
+  state: CredentialDeliveryState;
+
+  /**
+   * @generated from field: string binding_handle = 8;
+   */
+  bindingHandle: string;
+
+  /**
+   * @generated from field: string error_code = 9;
+   */
+  errorCode: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 10;
+   */
+  expiresAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 11;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 12;
+   */
+  updatedAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CredentialDelivery.
+ * Use `create(CredentialDeliverySchema)` to create a new message.
+ */
+export const CredentialDeliverySchema: GenMessage<CredentialDelivery> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 17);
+
+/**
+ * @generated from message sumi.computer.v1.EnqueueCredentialDeliveryRequest
+ */
+export type EnqueueCredentialDeliveryRequest = Message<"sumi.computer.v1.EnqueueCredentialDeliveryRequest"> & {
+  /**
+   * @generated from field: string request_id = 1;
+   */
+  requestId: string;
+
+  /**
+   * @generated from field: string computer_id = 2;
+   */
+  computerId: string;
+
+  /**
+   * @generated from field: string agent_id = 3;
+   */
+  agentId: string;
+
+  /**
+   * @generated from field: sumi.computer.v1.CredentialKind credential_kind = 4;
+   */
+  credentialKind: CredentialKind;
+
+  /**
+   * @generated from field: sumi.computer.v1.SealedCredential sealed_credential = 5;
+   */
+  sealedCredential?: SealedCredential;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp expires_at = 6;
+   */
+  expiresAt?: Timestamp;
+};
+
+/**
+ * Describes the message sumi.computer.v1.EnqueueCredentialDeliveryRequest.
+ * Use `create(EnqueueCredentialDeliveryRequestSchema)` to create a new message.
+ */
+export const EnqueueCredentialDeliveryRequestSchema: GenMessage<EnqueueCredentialDeliveryRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 18);
+
+/**
+ * @generated from message sumi.computer.v1.EnqueueCredentialDeliveryResponse
+ */
+export type EnqueueCredentialDeliveryResponse = Message<"sumi.computer.v1.EnqueueCredentialDeliveryResponse"> & {
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDelivery delivery = 1;
+   */
+  delivery?: CredentialDelivery;
+};
+
+/**
+ * Describes the message sumi.computer.v1.EnqueueCredentialDeliveryResponse.
+ * Use `create(EnqueueCredentialDeliveryResponseSchema)` to create a new message.
+ */
+export const EnqueueCredentialDeliveryResponseSchema: GenMessage<EnqueueCredentialDeliveryResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 19);
+
+/**
+ * @generated from message sumi.computer.v1.ListCredentialDeliveriesRequest
+ */
+export type ListCredentialDeliveriesRequest = Message<"sumi.computer.v1.ListCredentialDeliveriesRequest"> & {
+  /**
+   * @generated from field: string computer_id = 1;
+   */
+  computerId: string;
+
+  /**
+   * @generated from field: string agent_id = 2;
+   */
+  agentId: string;
+};
+
+/**
+ * Describes the message sumi.computer.v1.ListCredentialDeliveriesRequest.
+ * Use `create(ListCredentialDeliveriesRequestSchema)` to create a new message.
+ */
+export const ListCredentialDeliveriesRequestSchema: GenMessage<ListCredentialDeliveriesRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 20);
+
+/**
+ * @generated from message sumi.computer.v1.ListCredentialDeliveriesResponse
+ */
+export type ListCredentialDeliveriesResponse = Message<"sumi.computer.v1.ListCredentialDeliveriesResponse"> & {
+  /**
+   * @generated from field: repeated sumi.computer.v1.CredentialDelivery deliveries = 1;
+   */
+  deliveries: CredentialDelivery[];
+};
+
+/**
+ * Describes the message sumi.computer.v1.ListCredentialDeliveriesResponse.
+ * Use `create(ListCredentialDeliveriesResponseSchema)` to create a new message.
+ */
+export const ListCredentialDeliveriesResponseSchema: GenMessage<ListCredentialDeliveriesResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 21);
+
+/**
+ * @generated from message sumi.computer.v1.ClaimCredentialDeliveryRequest
+ */
+export type ClaimCredentialDeliveryRequest = Message<"sumi.computer.v1.ClaimCredentialDeliveryRequest"> & {
+  /**
+   * @generated from field: string computer_id = 1;
+   */
+  computerId: string;
+
+  /**
+   * @generated from field: string registration_key = 2;
+   */
+  registrationKey: string;
+};
+
+/**
+ * Describes the message sumi.computer.v1.ClaimCredentialDeliveryRequest.
+ * Use `create(ClaimCredentialDeliveryRequestSchema)` to create a new message.
+ */
+export const ClaimCredentialDeliveryRequestSchema: GenMessage<ClaimCredentialDeliveryRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 22);
+
+/**
+ * @generated from message sumi.computer.v1.ClaimCredentialDeliveryResponse
+ */
+export type ClaimCredentialDeliveryResponse = Message<"sumi.computer.v1.ClaimCredentialDeliveryResponse"> & {
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDelivery delivery = 1;
+   */
+  delivery?: CredentialDelivery;
+};
+
+/**
+ * Describes the message sumi.computer.v1.ClaimCredentialDeliveryResponse.
+ * Use `create(ClaimCredentialDeliveryResponseSchema)` to create a new message.
+ */
+export const ClaimCredentialDeliveryResponseSchema: GenMessage<ClaimCredentialDeliveryResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 23);
+
+/**
+ * @generated from message sumi.computer.v1.CompleteCredentialDeliveryRequest
+ */
+export type CompleteCredentialDeliveryRequest = Message<"sumi.computer.v1.CompleteCredentialDeliveryRequest"> & {
+  /**
+   * @generated from field: string computer_id = 1;
+   */
+  computerId: string;
+
+  /**
+   * @generated from field: string registration_key = 2;
+   */
+  registrationKey: string;
+
+  /**
+   * @generated from field: string delivery_id = 3;
+   */
+  deliveryId: string;
+
+  /**
+   * @generated from field: string binding_handle = 4;
+   */
+  bindingHandle: string;
+
+  /**
+   * @generated from field: string error_code = 5;
+   */
+  errorCode: string;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CompleteCredentialDeliveryRequest.
+ * Use `create(CompleteCredentialDeliveryRequestSchema)` to create a new message.
+ */
+export const CompleteCredentialDeliveryRequestSchema: GenMessage<CompleteCredentialDeliveryRequest> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 24);
+
+/**
+ * @generated from message sumi.computer.v1.CompleteCredentialDeliveryResponse
+ */
+export type CompleteCredentialDeliveryResponse = Message<"sumi.computer.v1.CompleteCredentialDeliveryResponse"> & {
+  /**
+   * @generated from field: sumi.computer.v1.CredentialDelivery delivery = 1;
+   */
+  delivery?: CredentialDelivery;
+};
+
+/**
+ * Describes the message sumi.computer.v1.CompleteCredentialDeliveryResponse.
+ * Use `create(CompleteCredentialDeliveryResponseSchema)` to create a new message.
+ */
+export const CompleteCredentialDeliveryResponseSchema: GenMessage<CompleteCredentialDeliveryResponse> = /*@__PURE__*/
+  messageDesc(file_sumi_computer_v1_computer, 25);
 
 /**
  * @generated from enum sumi.computer.v1.OperatingSystem
@@ -570,6 +1015,156 @@ export const SandboxDaemonCrashCleanupSchema: GenEnum<SandboxDaemonCrashCleanup>
   enumDesc(file_sumi_computer_v1_computer, 9);
 
 /**
+ * @generated from enum sumi.computer.v1.CapabilityHealth
+ */
+export enum CapabilityHealth {
+  /**
+   * @generated from enum value: CAPABILITY_HEALTH_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CAPABILITY_HEALTH_HEALTHY = 1;
+   */
+  HEALTHY = 1,
+
+  /**
+   * @generated from enum value: CAPABILITY_HEALTH_UNAVAILABLE = 2;
+   */
+  UNAVAILABLE = 2,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.CapabilityHealth.
+ */
+export const CapabilityHealthSchema: GenEnum<CapabilityHealth> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 10);
+
+/**
+ * @generated from enum sumi.computer.v1.CredentialDeliveryAlgorithm
+ */
+export enum CredentialDeliveryAlgorithm {
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_ALGORITHM_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_ALGORITHM_X25519_XCHACHA20_POLY1305 = 1;
+   */
+  X25519_XCHACHA20_POLY1305 = 1,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.CredentialDeliveryAlgorithm.
+ */
+export const CredentialDeliveryAlgorithmSchema: GenEnum<CredentialDeliveryAlgorithm> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 11);
+
+/**
+ * @generated from enum sumi.computer.v1.CredentialStore
+ */
+export enum CredentialStore {
+  /**
+   * @generated from enum value: CREDENTIAL_STORE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CREDENTIAL_STORE_MACOS_KEYCHAIN = 1;
+   */
+  MACOS_KEYCHAIN = 1,
+
+  /**
+   * @generated from enum value: CREDENTIAL_STORE_LINUX_SECRET_SERVICE = 2;
+   */
+  LINUX_SECRET_SERVICE = 2,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.CredentialStore.
+ */
+export const CredentialStoreSchema: GenEnum<CredentialStore> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 12);
+
+/**
+ * @generated from enum sumi.computer.v1.CredentialDeliveryState
+ */
+export enum CredentialDeliveryState {
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_QUEUED = 1;
+   */
+  QUEUED = 1,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_CLAIMED = 2;
+   */
+  CLAIMED = 2,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_SUCCEEDED = 3;
+   */
+  SUCCEEDED = 3,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_FAILED = 4;
+   */
+  FAILED = 4,
+
+  /**
+   * @generated from enum value: CREDENTIAL_DELIVERY_STATE_EXPIRED = 5;
+   */
+  EXPIRED = 5,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.CredentialDeliveryState.
+ */
+export const CredentialDeliveryStateSchema: GenEnum<CredentialDeliveryState> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 13);
+
+/**
+ * @generated from enum sumi.computer.v1.CredentialKind
+ */
+export enum CredentialKind {
+  /**
+   * @generated from enum value: CREDENTIAL_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: CREDENTIAL_KIND_OPENAI = 1;
+   */
+  OPENAI = 1,
+
+  /**
+   * @generated from enum value: CREDENTIAL_KIND_ANTHROPIC = 2;
+   */
+  ANTHROPIC = 2,
+
+  /**
+   * @generated from enum value: CREDENTIAL_KIND_CODEX_ADAPTER = 3;
+   */
+  CODEX_ADAPTER = 3,
+
+  /**
+   * @generated from enum value: CREDENTIAL_KIND_CLAUDE_ADAPTER = 4;
+   */
+  CLAUDE_ADAPTER = 4,
+}
+
+/**
+ * Describes the enum sumi.computer.v1.CredentialKind.
+ */
+export const CredentialKindSchema: GenEnum<CredentialKind> = /*@__PURE__*/
+  enumDesc(file_sumi_computer_v1_computer, 14);
+
+/**
  * @generated from service sumi.computer.v1.ComputerService
  */
 export const ComputerService: GenService<{
@@ -612,6 +1207,38 @@ export const ComputerService: GenService<{
     methodKind: "unary";
     input: typeof ListComputersRequestSchema;
     output: typeof ListComputersResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.computer.v1.ComputerService.EnqueueCredentialDelivery
+   */
+  enqueueCredentialDelivery: {
+    methodKind: "unary";
+    input: typeof EnqueueCredentialDeliveryRequestSchema;
+    output: typeof EnqueueCredentialDeliveryResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.computer.v1.ComputerService.ListCredentialDeliveries
+   */
+  listCredentialDeliveries: {
+    methodKind: "unary";
+    input: typeof ListCredentialDeliveriesRequestSchema;
+    output: typeof ListCredentialDeliveriesResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.computer.v1.ComputerService.ClaimCredentialDelivery
+   */
+  claimCredentialDelivery: {
+    methodKind: "unary";
+    input: typeof ClaimCredentialDeliveryRequestSchema;
+    output: typeof ClaimCredentialDeliveryResponseSchema;
+  },
+  /**
+   * @generated from rpc sumi.computer.v1.ComputerService.CompleteCredentialDelivery
+   */
+  completeCredentialDelivery: {
+    methodKind: "unary";
+    input: typeof CompleteCredentialDeliveryRequestSchema;
+    output: typeof CompleteCredentialDeliveryResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_sumi_computer_v1_computer, 0);

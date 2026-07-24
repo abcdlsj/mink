@@ -23,6 +23,14 @@ func (s *Store) TransitionWork(ctx context.Context, params TransitionWorkParams)
 		return Work{}, err
 	}
 	defer tx.Rollback()
+	actor, err := recheckMessageActor(ctx, tx, params.Actor, params.Agent, params.Now)
+	if err != nil {
+		return Work{}, err
+	}
+	params.Actor = actor
+	if _, _, err := requireToolRun(ctx, tx, params.Agent, params.Run, params.Now); err != nil {
+		return Work{}, err
+	}
 	if receipt, found, err := readWorkReceipt(ctx, tx, params.RequestID, workRequestTransition, params.Actor, fingerprint); err != nil || found {
 		if err != nil {
 			return Work{}, err

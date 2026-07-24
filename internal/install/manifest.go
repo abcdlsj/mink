@@ -17,7 +17,7 @@ const activeManifestVersion = 1
 
 type ActiveManifest struct {
 	Version  int                    `json:"version"`
-	DataRoot string                 `json:"data_root,omitempty"`
+	DataRoot string                 `json:"data_root"`
 	Release  releasebundle.Manifest `json:"release"`
 }
 
@@ -56,7 +56,7 @@ func decodeActive(payload []byte) (ActiveManifest, error) {
 	if manifest.Version != activeManifestVersion || releasebundle.ValidateManifest(manifest.Release) != nil {
 		return ActiveManifest{}, errors.New("active install manifest is invalid")
 	}
-	if manifest.DataRoot != "" && (!filepath.IsAbs(manifest.DataRoot) || filepath.Clean(manifest.DataRoot) != manifest.DataRoot || strings.ContainsRune(manifest.DataRoot, 0)) {
+	if !filepath.IsAbs(manifest.DataRoot) || filepath.Clean(manifest.DataRoot) != manifest.DataRoot || strings.ContainsRune(manifest.DataRoot, 0) {
 		return ActiveManifest{}, errors.New("active install manifest is invalid")
 	}
 	return manifest, nil
