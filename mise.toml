@@ -93,7 +93,7 @@ fi
 
 [tasks."dev:server"]
 description = "Run the local Sumi Server"
-run = "go run ./cmd/sumi-server --data-root ${SUMI_DATA_ROOT:-$HOME/.sumi}"
+run = "go run ./cmd/sumi-server --data-root ${SUMI_DATA_ROOT:-$HOME/.sumi} --browser-origin http://127.0.0.1:5173"
 
 [tasks."dev:web"]
 description = "Run the Vite Web client"
