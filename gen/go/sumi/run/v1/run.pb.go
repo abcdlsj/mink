@@ -7,7 +7,8 @@
 package runv1
 
 import (
-	v11 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
+	v11 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
+	v12 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	v1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -725,8 +726,7 @@ type RenewRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Attempt       uint64                 `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	Fence         uint64                 `protobuf:"varint,4,opt,name=fence,proto3" json:"fence,omitempty"`
+	RunProof      *v11.RunProof          `protobuf:"bytes,3,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -775,18 +775,11 @@ func (x *RenewRunRequest) GetRunId() string {
 	return ""
 }
 
-func (x *RenewRunRequest) GetAttempt() uint64 {
+func (x *RenewRunRequest) GetRunProof() *v11.RunProof {
 	if x != nil {
-		return x.Attempt
+		return x.RunProof
 	}
-	return 0
-}
-
-func (x *RenewRunRequest) GetFence() uint64 {
-	if x != nil {
-		return x.Fence
-	}
-	return 0
+	return nil
 }
 
 type RenewRunResponse struct {
@@ -837,8 +830,7 @@ type CancelRunRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	RunId         string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Attempt       uint64                 `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	Fence         uint64                 `protobuf:"varint,4,opt,name=fence,proto3" json:"fence,omitempty"`
+	RunProof      *v11.RunProof          `protobuf:"bytes,3,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -887,18 +879,11 @@ func (x *CancelRunRequest) GetRunId() string {
 	return ""
 }
 
-func (x *CancelRunRequest) GetAttempt() uint64 {
+func (x *CancelRunRequest) GetRunProof() *v11.RunProof {
 	if x != nil {
-		return x.Attempt
+		return x.RunProof
 	}
-	return 0
-}
-
-func (x *CancelRunRequest) GetFence() uint64 {
-	if x != nil {
-		return x.Fence
-	}
-	return 0
+	return nil
 }
 
 type CancelRunResponse struct {
@@ -950,13 +935,12 @@ type CompleteRunRequest struct {
 	RequestId           string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	OutboxEventId       string                 `protobuf:"bytes,2,opt,name=outbox_event_id,json=outboxEventId,proto3" json:"outbox_event_id,omitempty"`
 	RunId               string                 `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Attempt             uint64                 `protobuf:"varint,4,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	Fence               uint64                 `protobuf:"varint,5,opt,name=fence,proto3" json:"fence,omitempty"`
-	Outcome             RunOutcome             `protobuf:"varint,6,opt,name=outcome,proto3,enum=sumi.run.v1.RunOutcome" json:"outcome,omitempty"`
-	Body                string                 `protobuf:"bytes,7,opt,name=body,proto3" json:"body,omitempty"`
-	MentionedPrincipals []*v1.Principal        `protobuf:"bytes,8,rep,name=mentioned_principals,json=mentionedPrincipals,proto3" json:"mentioned_principals,omitempty"`
-	Usage               *RunUsage              `protobuf:"bytes,9,opt,name=usage,proto3" json:"usage,omitempty"`
-	ErrorCode           string                 `protobuf:"bytes,10,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	RunProof            *v11.RunProof          `protobuf:"bytes,4,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
+	Outcome             RunOutcome             `protobuf:"varint,5,opt,name=outcome,proto3,enum=sumi.run.v1.RunOutcome" json:"outcome,omitempty"`
+	Body                string                 `protobuf:"bytes,6,opt,name=body,proto3" json:"body,omitempty"`
+	MentionedPrincipals []*v1.Principal        `protobuf:"bytes,7,rep,name=mentioned_principals,json=mentionedPrincipals,proto3" json:"mentioned_principals,omitempty"`
+	Usage               *RunUsage              `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
+	ErrorCode           string                 `protobuf:"bytes,9,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1012,18 +996,11 @@ func (x *CompleteRunRequest) GetRunId() string {
 	return ""
 }
 
-func (x *CompleteRunRequest) GetAttempt() uint64 {
+func (x *CompleteRunRequest) GetRunProof() *v11.RunProof {
 	if x != nil {
-		return x.Attempt
+		return x.RunProof
 	}
-	return 0
-}
-
-func (x *CompleteRunRequest) GetFence() uint64 {
-	if x != nil {
-		return x.Fence
-	}
-	return 0
+	return nil
 }
 
 func (x *CompleteRunRequest) GetOutcome() RunOutcome {
@@ -1127,7 +1104,7 @@ func (x *CompleteRunResponse) GetMessage() *v1.Message {
 	return nil
 }
 
-func (x *CompleteRunResponse) GetHeldDraft() *v11.HeldDraft {
+func (x *CompleteRunResponse) GetHeldDraft() *v12.HeldDraft {
 	if x != nil {
 		if x, ok := x.Result.(*CompleteRunResponse_HeldDraft); ok {
 			return x.HeldDraft
@@ -1152,7 +1129,7 @@ type CompleteRunResponse_Message struct {
 }
 
 type CompleteRunResponse_HeldDraft struct {
-	HeldDraft *v11.HeldDraft `protobuf:"bytes,3,opt,name=held_draft,json=heldDraft,proto3,oneof"`
+	HeldDraft *v12.HeldDraft `protobuf:"bytes,3,opt,name=held_draft,json=heldDraft,proto3,oneof"`
 }
 
 func (*CompleteRunResponse_Message) isCompleteRunResponse_Result() {}
@@ -1163,7 +1140,7 @@ var File_sumi_run_v1_run_proto protoreflect.FileDescriptor
 
 const file_sumi_run_v1_run_proto_rawDesc = "" +
 	"\n" +
-	"\x15sumi/run/v1/run.proto\x12\vsumi.run.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19sumi/inbox/v1/inbox.proto\x1a\x19sumi/space/v1/space.proto\"N\n" +
+	"\x15sumi/run/v1/run.proto\x12\vsumi.run.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x19sumi/grant/v1/grant.proto\x1a\x19sumi/inbox/v1/inbox.proto\x1a\x19sumi/space/v1/space.proto\"N\n" +
 	"\bRunUsage\x12\x1f\n" +
 	"\vinput_units\x18\x01 \x01(\x04R\n" +
 	"inputUnits\x12!\n" +
@@ -1213,37 +1190,33 @@ const file_sumi_run_v1_run_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\"6\n" +
 	"\x10ClaimRunResponse\x12\"\n" +
-	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"w\n" +
+	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"}\n" +
 	"\x0fRenewRunRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x18\n" +
-	"\aattempt\x18\x03 \x01(\x04R\aattempt\x12\x14\n" +
-	"\x05fence\x18\x04 \x01(\x04R\x05fence\"6\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x124\n" +
+	"\trun_proof\x18\x03 \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"6\n" +
 	"\x10RenewRunResponse\x12\"\n" +
-	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"x\n" +
+	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"~\n" +
 	"\x10CancelRunRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\x12\x18\n" +
-	"\aattempt\x18\x03 \x01(\x04R\aattempt\x12\x14\n" +
-	"\x05fence\x18\x04 \x01(\x04R\x05fence\"7\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\x124\n" +
+	"\trun_proof\x18\x03 \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"7\n" +
 	"\x11CancelRunResponse\x12\"\n" +
-	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"\x82\x03\n" +
+	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\"\x88\x03\n" +
 	"\x12CompleteRunRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12&\n" +
 	"\x0foutbox_event_id\x18\x02 \x01(\tR\routboxEventId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\x12\x18\n" +
-	"\aattempt\x18\x04 \x01(\x04R\aattempt\x12\x14\n" +
-	"\x05fence\x18\x05 \x01(\x04R\x05fence\x121\n" +
-	"\aoutcome\x18\x06 \x01(\x0e2\x17.sumi.run.v1.RunOutcomeR\aoutcome\x12\x12\n" +
-	"\x04body\x18\a \x01(\tR\x04body\x12K\n" +
-	"\x14mentioned_principals\x18\b \x03(\v2\x18.sumi.space.v1.PrincipalR\x13mentionedPrincipals\x12+\n" +
-	"\x05usage\x18\t \x01(\v2\x15.sumi.run.v1.RunUsageR\x05usage\x12\x1d\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\x124\n" +
+	"\trun_proof\x18\x04 \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\x121\n" +
+	"\aoutcome\x18\x05 \x01(\x0e2\x17.sumi.run.v1.RunOutcomeR\aoutcome\x12\x12\n" +
+	"\x04body\x18\x06 \x01(\tR\x04body\x12K\n" +
+	"\x14mentioned_principals\x18\a \x03(\v2\x18.sumi.space.v1.PrincipalR\x13mentionedPrincipals\x12+\n" +
+	"\x05usage\x18\b \x01(\v2\x15.sumi.run.v1.RunUsageR\x05usage\x12\x1d\n" +
 	"\n" +
-	"error_code\x18\n" +
-	" \x01(\tR\terrorCode\"\xf1\x01\n" +
+	"error_code\x18\t \x01(\tR\terrorCode\"\xf1\x01\n" +
 	"\x13CompleteRunResponse\x12\"\n" +
 	"\x03run\x18\x01 \x01(\v2\x10.sumi.run.v1.RunR\x03run\x122\n" +
 	"\amessage\x18\x02 \x01(\v2\x16.sumi.space.v1.MessageH\x00R\amessage\x129\n" +
@@ -1305,9 +1278,10 @@ var file_sumi_run_v1_run_proto_goTypes = []any{
 	(*CompleteRunResponse)(nil),   // 15: sumi.run.v1.CompleteRunResponse
 	(*v1.MessageTarget)(nil),      // 16: sumi.space.v1.MessageTarget
 	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
-	(*v1.Principal)(nil),          // 18: sumi.space.v1.Principal
-	(*v1.Message)(nil),            // 19: sumi.space.v1.Message
-	(*v11.HeldDraft)(nil),         // 20: sumi.inbox.v1.HeldDraft
+	(*v11.RunProof)(nil),          // 18: sumi.grant.v1.RunProof
+	(*v1.Principal)(nil),          // 19: sumi.space.v1.Principal
+	(*v1.Message)(nil),            // 20: sumi.space.v1.Message
+	(*v12.HeldDraft)(nil),         // 21: sumi.inbox.v1.HeldDraft
 }
 var file_sumi_run_v1_run_proto_depIdxs = []int32{
 	16, // 0: sumi.run.v1.Run.target:type_name -> sumi.space.v1.MessageTarget
@@ -1321,32 +1295,35 @@ var file_sumi_run_v1_run_proto_depIdxs = []int32{
 	3,  // 8: sumi.run.v1.ListRunsResponse.runs:type_name -> sumi.run.v1.Run
 	3,  // 9: sumi.run.v1.GetRunResponse.run:type_name -> sumi.run.v1.Run
 	3,  // 10: sumi.run.v1.ClaimRunResponse.run:type_name -> sumi.run.v1.Run
-	3,  // 11: sumi.run.v1.RenewRunResponse.run:type_name -> sumi.run.v1.Run
-	3,  // 12: sumi.run.v1.CancelRunResponse.run:type_name -> sumi.run.v1.Run
-	1,  // 13: sumi.run.v1.CompleteRunRequest.outcome:type_name -> sumi.run.v1.RunOutcome
-	18, // 14: sumi.run.v1.CompleteRunRequest.mentioned_principals:type_name -> sumi.space.v1.Principal
-	2,  // 15: sumi.run.v1.CompleteRunRequest.usage:type_name -> sumi.run.v1.RunUsage
-	3,  // 16: sumi.run.v1.CompleteRunResponse.run:type_name -> sumi.run.v1.Run
-	19, // 17: sumi.run.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
-	20, // 18: sumi.run.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
-	17, // 19: sumi.run.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
-	4,  // 20: sumi.run.v1.RunService.ListRuns:input_type -> sumi.run.v1.ListRunsRequest
-	6,  // 21: sumi.run.v1.RunService.GetRun:input_type -> sumi.run.v1.GetRunRequest
-	8,  // 22: sumi.run.v1.RunService.ClaimRun:input_type -> sumi.run.v1.ClaimRunRequest
-	10, // 23: sumi.run.v1.RunService.RenewRun:input_type -> sumi.run.v1.RenewRunRequest
-	12, // 24: sumi.run.v1.RunService.CancelRun:input_type -> sumi.run.v1.CancelRunRequest
-	14, // 25: sumi.run.v1.RunService.CompleteRun:input_type -> sumi.run.v1.CompleteRunRequest
-	5,  // 26: sumi.run.v1.RunService.ListRuns:output_type -> sumi.run.v1.ListRunsResponse
-	7,  // 27: sumi.run.v1.RunService.GetRun:output_type -> sumi.run.v1.GetRunResponse
-	9,  // 28: sumi.run.v1.RunService.ClaimRun:output_type -> sumi.run.v1.ClaimRunResponse
-	11, // 29: sumi.run.v1.RunService.RenewRun:output_type -> sumi.run.v1.RenewRunResponse
-	13, // 30: sumi.run.v1.RunService.CancelRun:output_type -> sumi.run.v1.CancelRunResponse
-	15, // 31: sumi.run.v1.RunService.CompleteRun:output_type -> sumi.run.v1.CompleteRunResponse
-	26, // [26:32] is the sub-list for method output_type
-	20, // [20:26] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	18, // 11: sumi.run.v1.RenewRunRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	3,  // 12: sumi.run.v1.RenewRunResponse.run:type_name -> sumi.run.v1.Run
+	18, // 13: sumi.run.v1.CancelRunRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	3,  // 14: sumi.run.v1.CancelRunResponse.run:type_name -> sumi.run.v1.Run
+	18, // 15: sumi.run.v1.CompleteRunRequest.run_proof:type_name -> sumi.grant.v1.RunProof
+	1,  // 16: sumi.run.v1.CompleteRunRequest.outcome:type_name -> sumi.run.v1.RunOutcome
+	19, // 17: sumi.run.v1.CompleteRunRequest.mentioned_principals:type_name -> sumi.space.v1.Principal
+	2,  // 18: sumi.run.v1.CompleteRunRequest.usage:type_name -> sumi.run.v1.RunUsage
+	3,  // 19: sumi.run.v1.CompleteRunResponse.run:type_name -> sumi.run.v1.Run
+	20, // 20: sumi.run.v1.CompleteRunResponse.message:type_name -> sumi.space.v1.Message
+	21, // 21: sumi.run.v1.CompleteRunResponse.held_draft:type_name -> sumi.inbox.v1.HeldDraft
+	17, // 22: sumi.run.v1.CompleteRunResponse.committed_at:type_name -> google.protobuf.Timestamp
+	4,  // 23: sumi.run.v1.RunService.ListRuns:input_type -> sumi.run.v1.ListRunsRequest
+	6,  // 24: sumi.run.v1.RunService.GetRun:input_type -> sumi.run.v1.GetRunRequest
+	8,  // 25: sumi.run.v1.RunService.ClaimRun:input_type -> sumi.run.v1.ClaimRunRequest
+	10, // 26: sumi.run.v1.RunService.RenewRun:input_type -> sumi.run.v1.RenewRunRequest
+	12, // 27: sumi.run.v1.RunService.CancelRun:input_type -> sumi.run.v1.CancelRunRequest
+	14, // 28: sumi.run.v1.RunService.CompleteRun:input_type -> sumi.run.v1.CompleteRunRequest
+	5,  // 29: sumi.run.v1.RunService.ListRuns:output_type -> sumi.run.v1.ListRunsResponse
+	7,  // 30: sumi.run.v1.RunService.GetRun:output_type -> sumi.run.v1.GetRunResponse
+	9,  // 31: sumi.run.v1.RunService.ClaimRun:output_type -> sumi.run.v1.ClaimRunResponse
+	11, // 32: sumi.run.v1.RunService.RenewRun:output_type -> sumi.run.v1.RenewRunResponse
+	13, // 33: sumi.run.v1.RunService.CancelRun:output_type -> sumi.run.v1.CancelRunResponse
+	15, // 34: sumi.run.v1.RunService.CompleteRun:output_type -> sumi.run.v1.CompleteRunResponse
+	29, // [29:35] is the sub-list for method output_type
+	23, // [23:29] is the sub-list for method input_type
+	23, // [23:23] is the sub-list for extension type_name
+	23, // [23:23] is the sub-list for extension extendee
+	0,  // [0:23] is the sub-list for field type_name
 }
 
 func init() { file_sumi_run_v1_run_proto_init() }

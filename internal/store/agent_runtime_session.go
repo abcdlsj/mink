@@ -40,7 +40,7 @@ type RenewAgentRuntimeSessionParams = authorityapp.RenewRuntimeSessionCommand
 
 type RevokeAgentRuntimeSessionParams = authorityapp.RevokeRuntimeSessionCommand
 
-func (s *Store) CreateAgentRuntimeSession(ctx context.Context, params CreateAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
+func (s *Store) CreateSession(ctx context.Context, params CreateAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
 	if !validAgentRuntimeSession(params.AgentID, params.ComputerID, params.PlacementDesiredRevision, params.Token, params.Now, params.ExpiresAt) {
 		return AgentRuntimeSession{}, ErrAgentRuntimeInvalid
 	}
@@ -96,7 +96,7 @@ func (s *Store) AuthenticateAgentRuntimeSession(ctx context.Context, token strin
 	return authentication, nil
 }
 
-func (s *Store) RenewAgentRuntimeSession(ctx context.Context, params RenewAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
+func (s *Store) RenewSession(ctx context.Context, params RenewAgentRuntimeSessionParams) (AgentRuntimeSession, error) {
 	if !validAgentRuntimeRenewal(params) {
 		return AgentRuntimeSession{}, ErrAgentRuntimeInvalid
 	}
@@ -137,7 +137,7 @@ func (s *Store) RenewAgentRuntimeSession(ctx context.Context, params RenewAgentR
 	return session, nil
 }
 
-func (s *Store) RevokeAgentRuntimeSession(ctx context.Context, params RevokeAgentRuntimeSessionParams) error {
+func (s *Store) RevokeSession(ctx context.Context, params RevokeAgentRuntimeSessionParams) error {
 	if params.ComputerID == "" || params.RegistrationKey == "" || params.Now.IsZero() {
 		return ErrAgentRuntimeInvalid
 	}

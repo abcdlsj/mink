@@ -265,10 +265,10 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 	}
 	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == rev {
 		rpcCtx, cancel := d.rpcContext(ctx)
-		request := runtimeRequest(session.Token, &runtimev1.RenewAgentRuntimeSessionRequest{
+		request := runtimeRequest(session.Token, &runtimev1.RenewSessionRequest{
 			ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
 		})
-		response, renewErr := d.runtimes.RenewAgentRuntimeSession(rpcCtx, request)
+		response, renewErr := d.runtimes.RenewSession(rpcCtx, request)
 		cancel()
 		if renewErr == nil && response != nil {
 			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, rev, now); err != nil {
@@ -289,7 +289,7 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", rev)
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
-	response, err := d.runtimes.CreateAgentRuntimeSession(rpcCtx, connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	response, err := d.runtimes.CreateSession(rpcCtx, connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
 		AgentId: agentID, PlacementDesiredRevision: rev,
 	}))
@@ -307,7 +307,7 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 	return nil
 }
 
-func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, rev uint64, updatedAt time.Time) error {
+func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.Session, agentID, computerID string, rev uint64, updatedAt time.Time) error {
 	if session == nil || session.GetAgentId() != agentID || session.GetComputerId() != computerID ||
 		session.GetPlacementDesiredRevision() != rev || session.GetExpiresAt() == nil ||
 		session.GetExpiresAt().CheckValid() != nil || !session.GetExpiresAt().AsTime().After(updatedAt) ||

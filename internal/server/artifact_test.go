@@ -104,7 +104,7 @@ func TestArtifactHTTPHumanStreamingACLReplayPaginationRestartAndMissing(t *testi
 	}
 
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	grantResponse, err := ownerClient.GrantArtifact(context.Background(), connect.NewRequest(&artifactv1.GrantArtifactRequest{
 		RequestId: uuid.NewString(), ArtifactId: first.Msg.GetArtifact().GetId(),
@@ -349,7 +349,7 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 	defer api.close(t)
 	seed := seedArtifactWork(t, api.app, dataRoot)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	ownerOption := ownerClientAuthorization(t, dataRoot)
 	grantClient := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)

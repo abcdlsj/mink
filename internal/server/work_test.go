@@ -202,7 +202,7 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	stale := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	current := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), credential, time.Now())
@@ -250,26 +250,26 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 	runtimeCreate.SourceSpaceId = trigger.GetSpaceId()
 	runtimeCreate.SourceTarget = spaceTarget(trigger.GetSpaceId())
 	runtimeCreate.SourceTargetSequence = trigger.GetTargetSequence()
-	runtimeCreate.RunId, runtimeCreate.RunAttempt, runtimeCreate.RunFence = run.GetId(), run.GetAttempt(), run.GetFence()
+	runtimeCreate.RunProof = &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()}
 	if _, err := runtimeWork.CreateWork(context.Background(), runtimeRequest(runtimeCreate, current.GetToken())); err != nil {
 		t.Fatalf("current runtime create: %v", err)
 	}
 	if _, err := runtimeWork.AssignWork(context.Background(), runtimeRequest(&workv1.AssignWorkRequest{
 		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), AgentId: agent.GetId(),
-		Role:  workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR,
-		RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+		Role:    workv1.WorkAssignmentRole_WORK_ASSIGNMENT_ROLE_COORDINATOR,
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}, current.GetToken())); err != nil {
 		t.Fatalf("current runtime assign: %v", err)
 	}
 	if _, err := runtimeWork.TransitionWork(context.Background(), runtimeRequest(&workv1.TransitionWorkRequest{
 		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), ToState: workv1.WorkState_WORK_STATE_BLOCKED,
-		Reason: "runtime transition", RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+		Reason: "runtime transition", RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}, current.GetToken())); err != nil {
 		t.Fatalf("current runtime transition: %v", err)
 	}
 	pending, err := runtimeWork.RequestApproval(context.Background(), runtimeRequest(&workv1.RequestApprovalRequest{
 		RequestId: uuid.NewString(), WorkId: created.Msg.GetWork().GetId(), Question: "runtime approval",
-		RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}, current.GetToken()))
 	if err != nil {
 		t.Fatalf("current runtime approval request: %v", err)
@@ -277,8 +277,8 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 	if _, err := owner.ResolveApproval(context.Background(), connect.NewRequest(&workv1.ResolveApprovalRequest{RequestId: uuid.NewString(), ApprovalId: pending.Msg.GetApproval().GetId(), Decision: workv1.WorkApprovalDecision_WORK_APPROVAL_DECISION_APPROVED})); err != nil {
 		t.Fatalf("human approval resolve: %v", err)
 	}
-	revoke := runtimeRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{ComputerId: computer.GetId(), RegistrationKey: registrationKey}, current.GetToken())
-	if _, err := runtimeClient.RevokeAgentRuntimeSession(context.Background(), revoke); err != nil {
+	revoke := runtimeRequest(&runtimev1.RevokeSessionRequest{ComputerId: computer.GetId(), RegistrationKey: registrationKey}, current.GetToken())
+	if _, err := runtimeClient.RevokeSession(context.Background(), revoke); err != nil {
 		t.Fatal(err)
 	}
 	browser := browserClient(t, origin, credential)

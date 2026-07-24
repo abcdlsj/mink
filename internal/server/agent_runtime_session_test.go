@@ -32,7 +32,7 @@ func TestAgentRuntimeHTTPCreateRenewRevokeAndRestart(t *testing.T) {
 	dataRoot := t.TempDir()
 	api := openFactsAPI(t, dataRoot)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	client := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	client := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 
 	first := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	second := createRuntimeOverHTTP(t, client, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
@@ -43,14 +43,14 @@ func TestAgentRuntimeHTTPCreateRenewRevokeAndRestart(t *testing.T) {
 
 	api.close(t)
 	api = openFactsAPI(t, dataRoot)
-	client = runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	client = runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	renewed := renewRuntimeOverHTTP(t, client, second.GetToken(), computer.GetId(), registrationKey)
 	assertStoreRuntimeRejected(t, api.app.store, second.GetToken())
 
-	wrongKey := runtimeRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	wrongKey := runtimeRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: "wrong-registration-key",
 	}, renewed.GetToken())
-	_, err := client.RenewAgentRuntimeSession(context.Background(), wrongKey)
+	_, err := client.RenewSession(context.Background(), wrongKey)
 	assertConnectCode(t, err, connect.CodePermissionDenied)
 	if strings.Contains(err.Error(), wrongKey.Msg.GetRegistrationKey()) || strings.Contains(err.Error(), renewed.GetToken()) {
 		t.Fatal("runtime credential leaked in error")
@@ -59,14 +59,14 @@ func TestAgentRuntimeHTTPCreateRenewRevokeAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	revoke := runtimeRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{
+	revoke := runtimeRequest(&runtimev1.RevokeSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: registrationKey,
 	}, renewed.GetToken())
-	if _, err := client.RevokeAgentRuntimeSession(context.Background(), revoke); err != nil {
+	if _, err := client.RevokeSession(context.Background(), revoke); err != nil {
 		t.Fatal(err)
 	}
 	assertStoreRuntimeRejected(t, api.app.store, renewed.GetToken())
-	_, err = client.RevokeAgentRuntimeSession(context.Background(), revoke)
+	_, err = client.RevokeSession(context.Background(), revoke)
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 	api.close(t)
 
@@ -78,7 +78,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 	api := openFactsAPI(t, t.TempDir())
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	client := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	client := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 
 	const count = 12
 	tokens := make([]string, count)
@@ -88,7 +88,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			response, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+			response, err := client.CreateSession(context.Background(), connect.NewRequest(&runtimev1.CreateSessionRequest{
 				ComputerId: computer.GetId(), RegistrationKey: registrationKey,
 				AgentId: agent.GetId(), PlacementDesiredRevision: placement.GetDesiredRevision(),
 			}))
@@ -118,21 +118,21 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 		t.Fatalf("valid concurrent tokens = %d, want 1", valid)
 	}
 
-	wrongKey := connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	wrongKey := connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: "wrong-registration-key",
 		AgentId: uuid.NewString(), PlacementDesiredRevision: 99,
 	})
-	_, err := client.CreateAgentRuntimeSession(context.Background(), wrongKey)
+	_, err := client.CreateSession(context.Background(), wrongKey)
 	assertConnectCode(t, err, connect.CodePermissionDenied)
 	if _, err := api.app.store.AuthenticateAgentRuntimeSession(context.Background(), currentToken, time.Now()); err != nil {
 		t.Fatal("wrong-key create changed current runtime session")
 	}
 
-	wrongBinding := connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	wrongBinding := connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: registrationKey,
 		AgentId: uuid.NewString(), PlacementDesiredRevision: 99,
 	})
-	_, err = client.CreateAgentRuntimeSession(context.Background(), wrongBinding)
+	_, err = client.CreateSession(context.Background(), wrongBinding)
 	assertConnectCode(t, err, connect.CodeFailedPrecondition)
 	if _, err := api.app.store.AuthenticateAgentRuntimeSession(context.Background(), currentToken, time.Now()); err != nil {
 		t.Fatal("wrong binding changed current runtime session")
@@ -162,10 +162,10 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 		t.Fatalf("reassigned placement = %v", reassigned.Msg.GetPlacement())
 	}
 	assertStoreRuntimeRejected(t, api.app.store, currentToken)
-	staleRenew := runtimeRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	staleRenew := runtimeRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: registrationKey,
 	}, currentToken)
-	_, err = client.RenewAgentRuntimeSession(context.Background(), staleRenew)
+	_, err = client.RenewSession(context.Background(), staleRenew)
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 }
 
@@ -196,9 +196,9 @@ func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Comput
 	return computer.Msg.GetComputer(), agent.Msg.GetAgent(), active.Msg.GetPlacement(), registrationKey
 }
 
-func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeServiceClient, computerID, registrationKey, agentID string, desiredRevision uint64) *runtimev1.AgentRuntimeSession {
+func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.RuntimeServiceClient, computerID, registrationKey, agentID string, desiredRevision uint64) *runtimev1.Session {
 	t.Helper()
-	response, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	response, err := client.CreateSession(context.Background(), connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: computerID, RegistrationKey: registrationKey,
 		AgentId: agentID, PlacementDesiredRevision: desiredRevision,
 	}))
@@ -213,12 +213,12 @@ func createRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeSer
 	return session
 }
 
-func renewRuntimeOverHTTP(t *testing.T, client runtimev1connect.AgentRuntimeServiceClient, token, computerID, registrationKey string) *runtimev1.AgentRuntimeSession {
+func renewRuntimeOverHTTP(t *testing.T, client runtimev1connect.RuntimeServiceClient, token, computerID, registrationKey string) *runtimev1.Session {
 	t.Helper()
-	request := runtimeRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	request := runtimeRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: computerID, RegistrationKey: registrationKey,
 	}, token)
-	response, err := client.RenewAgentRuntimeSession(context.Background(), request)
+	response, err := client.RenewSession(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}

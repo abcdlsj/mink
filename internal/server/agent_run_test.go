@@ -29,7 +29,7 @@ func TestRunHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	currentSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
@@ -52,16 +52,17 @@ func TestRunHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 			return err
 		},
 		"renew": func(token string) error {
-			_, err := client.RenewRun(context.Background(), runtimeRequestHTTP(token, &runv1.RenewRunRequest{RequestId: requestID, RunId: runID, Attempt: 1, Fence: 1}))
+			_, err := client.RenewRun(context.Background(), runtimeRequestHTTP(token, &runv1.RenewRunRequest{RequestId: requestID, RunId: runID, RunProof: &grantv1.RunProof{RunId: runID, Attempt: 1, Fence: 1}}))
 			return err
 		},
 		"cancel": func(token string) error {
-			_, err := client.CancelRun(context.Background(), runtimeRequestHTTP(token, &runv1.CancelRunRequest{RequestId: requestID, RunId: runID, Attempt: 1, Fence: 1}))
+			_, err := client.CancelRun(context.Background(), runtimeRequestHTTP(token, &runv1.CancelRunRequest{RequestId: requestID, RunId: runID, RunProof: &grantv1.RunProof{RunId: runID, Attempt: 1, Fence: 1}}))
 			return err
 		},
 		"complete": func(token string) error {
 			_, err := client.CompleteRun(context.Background(), runtimeRequestHTTP(token, &runv1.CompleteRunRequest{
-				RequestId: requestID, OutboxEventId: eventID, RunId: runID, Attempt: 1, Fence: 1,
+				RequestId: requestID, OutboxEventId: eventID, RunId: runID,
+				RunProof: &grantv1.RunProof{RunId: runID, Attempt: 1, Fence: 1},
 				Outcome: runv1.RunOutcome_RUN_OUTCOME_SUCCEEDED, Body: "result",
 			}))
 			return err
@@ -88,7 +89,7 @@ func TestRunHTTPQueueClaimCompleteAndReplay(t *testing.T) {
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	ownerOption := ownerClientAuthorization(t, dataRoot)
 	grants := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
@@ -142,7 +143,7 @@ func TestRunHTTPQueueClaimCompleteAndReplay(t *testing.T) {
 	}
 	completeRequest := &runv1.CompleteRunRequest{
 		RequestId: uuid.NewString(), OutboxEventId: uuid.NewString(), RunId: run.GetId(),
-		Attempt: run.GetAttempt(), Fence: run.GetFence(), Outcome: runv1.RunOutcome_RUN_OUTCOME_SUCCEEDED,
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()}, Outcome: runv1.RunOutcome_RUN_OUTCOME_SUCCEEDED,
 		Body: "completed", Usage: &runv1.RunUsage{InputUnits: 4, OutputUnits: 2},
 	}
 	completed, err := runs.CompleteRun(context.Background(), runtimeRequestHTTP(session.GetToken(), completeRequest))

@@ -85,7 +85,8 @@ func (s *Service) RenewRun(ctx context.Context, req *connect.Request[runv1.Renew
 	if err != nil {
 		return nil, err
 	}
-	attempt, fence, err := attemptFence(req.Msg.GetAttempt(), req.Msg.GetFence(), false)
+	rp := req.Msg.GetRunProof()
+	attempt, fence, err := attemptFence(rp.GetAttempt(), rp.GetFence(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,8 @@ func (s *Service) CancelRun(ctx context.Context, req *connect.Request[runv1.Canc
 	if err != nil {
 		return nil, err
 	}
-	attempt, fence, err := attemptFence(req.Msg.GetAttempt(), req.Msg.GetFence(), true)
+	rp := req.Msg.GetRunProof()
+	attempt, fence, err := attemptFence(rp.GetAttempt(), rp.GetFence(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +137,8 @@ func (s *Service) CompleteRun(ctx context.Context, req *connect.Request[runv1.Co
 	if err != nil {
 		return nil, err
 	}
-	attempt, fence, err := attemptFence(req.Msg.GetAttempt(), req.Msg.GetFence(), false)
+	rp := req.Msg.GetRunProof()
+	attempt, fence, err := attemptFence(rp.GetAttempt(), rp.GetFence(), false)
 	if err != nil {
 		return nil, err
 	}

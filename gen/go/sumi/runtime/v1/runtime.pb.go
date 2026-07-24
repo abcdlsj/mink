@@ -22,7 +22,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type AgentRuntimeSession struct {
+type Session struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
 	AgentId                  string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	ComputerId               string                 `protobuf:"bytes,2,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
@@ -33,20 +33,20 @@ type AgentRuntimeSession struct {
 	sizeCache                protoimpl.SizeCache
 }
 
-func (x *AgentRuntimeSession) Reset() {
-	*x = AgentRuntimeSession{}
+func (x *Session) Reset() {
+	*x = Session{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AgentRuntimeSession) String() string {
+func (x *Session) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AgentRuntimeSession) ProtoMessage() {}
+func (*Session) ProtoMessage() {}
 
-func (x *AgentRuntimeSession) ProtoReflect() protoreflect.Message {
+func (x *Session) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -58,47 +58,47 @@ func (x *AgentRuntimeSession) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AgentRuntimeSession.ProtoReflect.Descriptor instead.
-func (*AgentRuntimeSession) Descriptor() ([]byte, []int) {
+// Deprecated: Use Session.ProtoReflect.Descriptor instead.
+func (*Session) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AgentRuntimeSession) GetAgentId() string {
+func (x *Session) GetAgentId() string {
 	if x != nil {
 		return x.AgentId
 	}
 	return ""
 }
 
-func (x *AgentRuntimeSession) GetComputerId() string {
+func (x *Session) GetComputerId() string {
 	if x != nil {
 		return x.ComputerId
 	}
 	return ""
 }
 
-func (x *AgentRuntimeSession) GetPlacementDesiredRevision() uint64 {
+func (x *Session) GetPlacementDesiredRevision() uint64 {
 	if x != nil {
 		return x.PlacementDesiredRevision
 	}
 	return 0
 }
 
-func (x *AgentRuntimeSession) GetToken() string {
+func (x *Session) GetToken() string {
 	if x != nil {
 		return x.Token
 	}
 	return ""
 }
 
-func (x *AgentRuntimeSession) GetExpiresAt() *timestamppb.Timestamp {
+func (x *Session) GetExpiresAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.ExpiresAt
 	}
 	return nil
 }
 
-type CreateAgentRuntimeSessionRequest struct {
+type CreateSessionRequest struct {
 	state                    protoimpl.MessageState `protogen:"open.v1"`
 	ComputerId               string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
 	RegistrationKey          string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
@@ -108,20 +108,20 @@ type CreateAgentRuntimeSessionRequest struct {
 	sizeCache                protoimpl.SizeCache
 }
 
-func (x *CreateAgentRuntimeSessionRequest) Reset() {
-	*x = CreateAgentRuntimeSessionRequest{}
+func (x *CreateSessionRequest) Reset() {
+	*x = CreateSessionRequest{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateAgentRuntimeSessionRequest) String() string {
+func (x *CreateSessionRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateAgentRuntimeSessionRequest) ProtoMessage() {}
+func (*CreateSessionRequest) ProtoMessage() {}
 
-func (x *CreateAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
+func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -133,60 +133,60 @@ func (x *CreateAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateAgentRuntimeSessionRequest.ProtoReflect.Descriptor instead.
-func (*CreateAgentRuntimeSessionRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
+func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CreateAgentRuntimeSessionRequest) GetComputerId() string {
+func (x *CreateSessionRequest) GetComputerId() string {
 	if x != nil {
 		return x.ComputerId
 	}
 	return ""
 }
 
-func (x *CreateAgentRuntimeSessionRequest) GetRegistrationKey() string {
+func (x *CreateSessionRequest) GetRegistrationKey() string {
 	if x != nil {
 		return x.RegistrationKey
 	}
 	return ""
 }
 
-func (x *CreateAgentRuntimeSessionRequest) GetAgentId() string {
+func (x *CreateSessionRequest) GetAgentId() string {
 	if x != nil {
 		return x.AgentId
 	}
 	return ""
 }
 
-func (x *CreateAgentRuntimeSessionRequest) GetPlacementDesiredRevision() uint64 {
+func (x *CreateSessionRequest) GetPlacementDesiredRevision() uint64 {
 	if x != nil {
 		return x.PlacementDesiredRevision
 	}
 	return 0
 }
 
-type CreateAgentRuntimeSessionResponse struct {
+type CreateSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Session       *AgentRuntimeSession   `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	Session       *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateAgentRuntimeSessionResponse) Reset() {
-	*x = CreateAgentRuntimeSessionResponse{}
+func (x *CreateSessionResponse) Reset() {
+	*x = CreateSessionResponse{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateAgentRuntimeSessionResponse) String() string {
+func (x *CreateSessionResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateAgentRuntimeSessionResponse) ProtoMessage() {}
+func (*CreateSessionResponse) ProtoMessage() {}
 
-func (x *CreateAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message {
+func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -198,19 +198,19 @@ func (x *CreateAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message 
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateAgentRuntimeSessionResponse.ProtoReflect.Descriptor instead.
-func (*CreateAgentRuntimeSessionResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use CreateSessionResponse.ProtoReflect.Descriptor instead.
+func (*CreateSessionResponse) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *CreateAgentRuntimeSessionResponse) GetSession() *AgentRuntimeSession {
+func (x *CreateSessionResponse) GetSession() *Session {
 	if x != nil {
 		return x.Session
 	}
 	return nil
 }
 
-type RenewAgentRuntimeSessionRequest struct {
+type RenewSessionRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
 	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
@@ -218,20 +218,20 @@ type RenewAgentRuntimeSessionRequest struct {
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *RenewAgentRuntimeSessionRequest) Reset() {
-	*x = RenewAgentRuntimeSessionRequest{}
+func (x *RenewSessionRequest) Reset() {
+	*x = RenewSessionRequest{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenewAgentRuntimeSessionRequest) String() string {
+func (x *RenewSessionRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenewAgentRuntimeSessionRequest) ProtoMessage() {}
+func (*RenewSessionRequest) ProtoMessage() {}
 
-func (x *RenewAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
+func (x *RenewSessionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -243,46 +243,46 @@ func (x *RenewAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenewAgentRuntimeSessionRequest.ProtoReflect.Descriptor instead.
-func (*RenewAgentRuntimeSessionRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RenewSessionRequest.ProtoReflect.Descriptor instead.
+func (*RenewSessionRequest) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *RenewAgentRuntimeSessionRequest) GetComputerId() string {
+func (x *RenewSessionRequest) GetComputerId() string {
 	if x != nil {
 		return x.ComputerId
 	}
 	return ""
 }
 
-func (x *RenewAgentRuntimeSessionRequest) GetRegistrationKey() string {
+func (x *RenewSessionRequest) GetRegistrationKey() string {
 	if x != nil {
 		return x.RegistrationKey
 	}
 	return ""
 }
 
-type RenewAgentRuntimeSessionResponse struct {
+type RenewSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Session       *AgentRuntimeSession   `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	Session       *Session               `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RenewAgentRuntimeSessionResponse) Reset() {
-	*x = RenewAgentRuntimeSessionResponse{}
+func (x *RenewSessionResponse) Reset() {
+	*x = RenewSessionResponse{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RenewAgentRuntimeSessionResponse) String() string {
+func (x *RenewSessionResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RenewAgentRuntimeSessionResponse) ProtoMessage() {}
+func (*RenewSessionResponse) ProtoMessage() {}
 
-func (x *RenewAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message {
+func (x *RenewSessionResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -294,19 +294,19 @@ func (x *RenewAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RenewAgentRuntimeSessionResponse.ProtoReflect.Descriptor instead.
-func (*RenewAgentRuntimeSessionResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use RenewSessionResponse.ProtoReflect.Descriptor instead.
+func (*RenewSessionResponse) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *RenewAgentRuntimeSessionResponse) GetSession() *AgentRuntimeSession {
+func (x *RenewSessionResponse) GetSession() *Session {
 	if x != nil {
 		return x.Session
 	}
 	return nil
 }
 
-type RevokeAgentRuntimeSessionRequest struct {
+type RevokeSessionRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	ComputerId      string                 `protobuf:"bytes,1,opt,name=computer_id,json=computerId,proto3" json:"computer_id,omitempty"`
 	RegistrationKey string                 `protobuf:"bytes,2,opt,name=registration_key,json=registrationKey,proto3" json:"registration_key,omitempty"`
@@ -314,20 +314,20 @@ type RevokeAgentRuntimeSessionRequest struct {
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *RevokeAgentRuntimeSessionRequest) Reset() {
-	*x = RevokeAgentRuntimeSessionRequest{}
+func (x *RevokeSessionRequest) Reset() {
+	*x = RevokeSessionRequest{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RevokeAgentRuntimeSessionRequest) String() string {
+func (x *RevokeSessionRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RevokeAgentRuntimeSessionRequest) ProtoMessage() {}
+func (*RevokeSessionRequest) ProtoMessage() {}
 
-func (x *RevokeAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
+func (x *RevokeSessionRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -339,45 +339,45 @@ func (x *RevokeAgentRuntimeSessionRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RevokeAgentRuntimeSessionRequest.ProtoReflect.Descriptor instead.
-func (*RevokeAgentRuntimeSessionRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RevokeSessionRequest.ProtoReflect.Descriptor instead.
+func (*RevokeSessionRequest) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *RevokeAgentRuntimeSessionRequest) GetComputerId() string {
+func (x *RevokeSessionRequest) GetComputerId() string {
 	if x != nil {
 		return x.ComputerId
 	}
 	return ""
 }
 
-func (x *RevokeAgentRuntimeSessionRequest) GetRegistrationKey() string {
+func (x *RevokeSessionRequest) GetRegistrationKey() string {
 	if x != nil {
 		return x.RegistrationKey
 	}
 	return ""
 }
 
-type RevokeAgentRuntimeSessionResponse struct {
+type RevokeSessionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RevokeAgentRuntimeSessionResponse) Reset() {
-	*x = RevokeAgentRuntimeSessionResponse{}
+func (x *RevokeSessionResponse) Reset() {
+	*x = RevokeSessionResponse{}
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RevokeAgentRuntimeSessionResponse) String() string {
+func (x *RevokeSessionResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RevokeAgentRuntimeSessionResponse) ProtoMessage() {}
+func (*RevokeSessionResponse) ProtoMessage() {}
 
-func (x *RevokeAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message {
+func (x *RevokeSessionResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_sumi_runtime_v1_runtime_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -389,8 +389,8 @@ func (x *RevokeAgentRuntimeSessionResponse) ProtoReflect() protoreflect.Message 
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RevokeAgentRuntimeSessionResponse.ProtoReflect.Descriptor instead.
-func (*RevokeAgentRuntimeSessionResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use RevokeSessionResponse.ProtoReflect.Descriptor instead.
+func (*RevokeSessionResponse) Descriptor() ([]byte, []int) {
 	return file_sumi_runtime_v1_runtime_proto_rawDescGZIP(), []int{6}
 }
 
@@ -398,38 +398,38 @@ var File_sumi_runtime_v1_runtime_proto protoreflect.FileDescriptor
 
 const file_sumi_runtime_v1_runtime_proto_rawDesc = "" +
 	"\n" +
-	"\x1dsumi/runtime/v1/runtime.proto\x12\x0fsumi.runtime.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x01\n" +
-	"\x13AgentRuntimeSession\x12\x19\n" +
+	"\x1dsumi/runtime/v1/runtime.proto\x12\x0fsumi.runtime.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd4\x01\n" +
+	"\aSession\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1f\n" +
 	"\vcomputer_id\x18\x02 \x01(\tR\n" +
 	"computerId\x12<\n" +
 	"\x1aplacement_desired_revision\x18\x03 \x01(\x04R\x18placementDesiredRevision\x12\x14\n" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xc7\x01\n" +
-	" CreateAgentRuntimeSessionRequest\x12\x1f\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xbb\x01\n" +
+	"\x14CreateSessionRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
 	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\x12\x19\n" +
 	"\bagent_id\x18\x03 \x01(\tR\aagentId\x12<\n" +
-	"\x1aplacement_desired_revision\x18\x04 \x01(\x04R\x18placementDesiredRevision\"c\n" +
-	"!CreateAgentRuntimeSessionResponse\x12>\n" +
-	"\asession\x18\x01 \x01(\v2$.sumi.runtime.v1.AgentRuntimeSessionR\asession\"m\n" +
-	"\x1fRenewAgentRuntimeSessionRequest\x12\x1f\n" +
+	"\x1aplacement_desired_revision\x18\x04 \x01(\x04R\x18placementDesiredRevision\"K\n" +
+	"\x15CreateSessionResponse\x122\n" +
+	"\asession\x18\x01 \x01(\v2\x18.sumi.runtime.v1.SessionR\asession\"a\n" +
+	"\x13RenewSessionRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
-	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"b\n" +
-	" RenewAgentRuntimeSessionResponse\x12>\n" +
-	"\asession\x18\x01 \x01(\v2$.sumi.runtime.v1.AgentRuntimeSessionR\asession\"n\n" +
-	" RevokeAgentRuntimeSessionRequest\x12\x1f\n" +
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"J\n" +
+	"\x14RenewSessionResponse\x122\n" +
+	"\asession\x18\x01 \x01(\v2\x18.sumi.runtime.v1.SessionR\asession\"b\n" +
+	"\x14RevokeSessionRequest\x12\x1f\n" +
 	"\vcomputer_id\x18\x01 \x01(\tR\n" +
 	"computerId\x12)\n" +
-	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"#\n" +
-	"!RevokeAgentRuntimeSessionResponse2\xa0\x03\n" +
-	"\x13AgentRuntimeService\x12\x82\x01\n" +
-	"\x19CreateAgentRuntimeSession\x121.sumi.runtime.v1.CreateAgentRuntimeSessionRequest\x1a2.sumi.runtime.v1.CreateAgentRuntimeSessionResponse\x12\x7f\n" +
-	"\x18RenewAgentRuntimeSession\x120.sumi.runtime.v1.RenewAgentRuntimeSessionRequest\x1a1.sumi.runtime.v1.RenewAgentRuntimeSessionResponse\x12\x82\x01\n" +
-	"\x19RevokeAgentRuntimeSession\x121.sumi.runtime.v1.RevokeAgentRuntimeSessionRequest\x1a2.sumi.runtime.v1.RevokeAgentRuntimeSessionResponseB:Z8github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1;runtimev1b\x06proto3"
+	"\x10registration_key\x18\x02 \x01(\tR\x0fregistrationKey\"\x17\n" +
+	"\x15RevokeSessionResponse2\xad\x02\n" +
+	"\x0eRuntimeService\x12^\n" +
+	"\rCreateSession\x12%.sumi.runtime.v1.CreateSessionRequest\x1a&.sumi.runtime.v1.CreateSessionResponse\x12[\n" +
+	"\fRenewSession\x12$.sumi.runtime.v1.RenewSessionRequest\x1a%.sumi.runtime.v1.RenewSessionResponse\x12^\n" +
+	"\rRevokeSession\x12%.sumi.runtime.v1.RevokeSessionRequest\x1a&.sumi.runtime.v1.RevokeSessionResponseB:Z8github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1;runtimev1b\x06proto3"
 
 var (
 	file_sumi_runtime_v1_runtime_proto_rawDescOnce sync.Once
@@ -445,25 +445,25 @@ func file_sumi_runtime_v1_runtime_proto_rawDescGZIP() []byte {
 
 var file_sumi_runtime_v1_runtime_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_sumi_runtime_v1_runtime_proto_goTypes = []any{
-	(*AgentRuntimeSession)(nil),               // 0: sumi.runtime.v1.AgentRuntimeSession
-	(*CreateAgentRuntimeSessionRequest)(nil),  // 1: sumi.runtime.v1.CreateAgentRuntimeSessionRequest
-	(*CreateAgentRuntimeSessionResponse)(nil), // 2: sumi.runtime.v1.CreateAgentRuntimeSessionResponse
-	(*RenewAgentRuntimeSessionRequest)(nil),   // 3: sumi.runtime.v1.RenewAgentRuntimeSessionRequest
-	(*RenewAgentRuntimeSessionResponse)(nil),  // 4: sumi.runtime.v1.RenewAgentRuntimeSessionResponse
-	(*RevokeAgentRuntimeSessionRequest)(nil),  // 5: sumi.runtime.v1.RevokeAgentRuntimeSessionRequest
-	(*RevokeAgentRuntimeSessionResponse)(nil), // 6: sumi.runtime.v1.RevokeAgentRuntimeSessionResponse
-	(*timestamppb.Timestamp)(nil),             // 7: google.protobuf.Timestamp
+	(*Session)(nil),               // 0: sumi.runtime.v1.Session
+	(*CreateSessionRequest)(nil),  // 1: sumi.runtime.v1.CreateSessionRequest
+	(*CreateSessionResponse)(nil), // 2: sumi.runtime.v1.CreateSessionResponse
+	(*RenewSessionRequest)(nil),   // 3: sumi.runtime.v1.RenewSessionRequest
+	(*RenewSessionResponse)(nil),  // 4: sumi.runtime.v1.RenewSessionResponse
+	(*RevokeSessionRequest)(nil),  // 5: sumi.runtime.v1.RevokeSessionRequest
+	(*RevokeSessionResponse)(nil), // 6: sumi.runtime.v1.RevokeSessionResponse
+	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
 }
 var file_sumi_runtime_v1_runtime_proto_depIdxs = []int32{
-	7, // 0: sumi.runtime.v1.AgentRuntimeSession.expires_at:type_name -> google.protobuf.Timestamp
-	0, // 1: sumi.runtime.v1.CreateAgentRuntimeSessionResponse.session:type_name -> sumi.runtime.v1.AgentRuntimeSession
-	0, // 2: sumi.runtime.v1.RenewAgentRuntimeSessionResponse.session:type_name -> sumi.runtime.v1.AgentRuntimeSession
-	1, // 3: sumi.runtime.v1.AgentRuntimeService.CreateAgentRuntimeSession:input_type -> sumi.runtime.v1.CreateAgentRuntimeSessionRequest
-	3, // 4: sumi.runtime.v1.AgentRuntimeService.RenewAgentRuntimeSession:input_type -> sumi.runtime.v1.RenewAgentRuntimeSessionRequest
-	5, // 5: sumi.runtime.v1.AgentRuntimeService.RevokeAgentRuntimeSession:input_type -> sumi.runtime.v1.RevokeAgentRuntimeSessionRequest
-	2, // 6: sumi.runtime.v1.AgentRuntimeService.CreateAgentRuntimeSession:output_type -> sumi.runtime.v1.CreateAgentRuntimeSessionResponse
-	4, // 7: sumi.runtime.v1.AgentRuntimeService.RenewAgentRuntimeSession:output_type -> sumi.runtime.v1.RenewAgentRuntimeSessionResponse
-	6, // 8: sumi.runtime.v1.AgentRuntimeService.RevokeAgentRuntimeSession:output_type -> sumi.runtime.v1.RevokeAgentRuntimeSessionResponse
+	7, // 0: sumi.runtime.v1.Session.expires_at:type_name -> google.protobuf.Timestamp
+	0, // 1: sumi.runtime.v1.CreateSessionResponse.session:type_name -> sumi.runtime.v1.Session
+	0, // 2: sumi.runtime.v1.RenewSessionResponse.session:type_name -> sumi.runtime.v1.Session
+	1, // 3: sumi.runtime.v1.RuntimeService.CreateSession:input_type -> sumi.runtime.v1.CreateSessionRequest
+	3, // 4: sumi.runtime.v1.RuntimeService.RenewSession:input_type -> sumi.runtime.v1.RenewSessionRequest
+	5, // 5: sumi.runtime.v1.RuntimeService.RevokeSession:input_type -> sumi.runtime.v1.RevokeSessionRequest
+	2, // 6: sumi.runtime.v1.RuntimeService.CreateSession:output_type -> sumi.runtime.v1.CreateSessionResponse
+	4, // 7: sumi.runtime.v1.RuntimeService.RenewSession:output_type -> sumi.runtime.v1.RenewSessionResponse
+	6, // 8: sumi.runtime.v1.RuntimeService.RevokeSession:output_type -> sumi.runtime.v1.RevokeSessionResponse
 	6, // [6:9] is the sub-list for method output_type
 	3, // [3:6] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name

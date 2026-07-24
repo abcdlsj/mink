@@ -21,8 +21,8 @@ import (
 const _ = connect.IsAtLeastVersion1_13_0
 
 const (
-	// AgentRuntimeServiceName is the fully-qualified name of the AgentRuntimeService service.
-	AgentRuntimeServiceName = "sumi.runtime.v1.AgentRuntimeService"
+	// RuntimeServiceName is the fully-qualified name of the RuntimeService service.
+	RuntimeServiceName = "sumi.runtime.v1.RuntimeService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -33,136 +33,135 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
-	// AgentRuntimeServiceCreateAgentRuntimeSessionProcedure is the fully-qualified name of the
-	// AgentRuntimeService's CreateAgentRuntimeSession RPC.
-	AgentRuntimeServiceCreateAgentRuntimeSessionProcedure = "/sumi.runtime.v1.AgentRuntimeService/CreateAgentRuntimeSession"
-	// AgentRuntimeServiceRenewAgentRuntimeSessionProcedure is the fully-qualified name of the
-	// AgentRuntimeService's RenewAgentRuntimeSession RPC.
-	AgentRuntimeServiceRenewAgentRuntimeSessionProcedure = "/sumi.runtime.v1.AgentRuntimeService/RenewAgentRuntimeSession"
-	// AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure is the fully-qualified name of the
-	// AgentRuntimeService's RevokeAgentRuntimeSession RPC.
-	AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure = "/sumi.runtime.v1.AgentRuntimeService/RevokeAgentRuntimeSession"
+	// RuntimeServiceCreateSessionProcedure is the fully-qualified name of the RuntimeService's
+	// CreateSession RPC.
+	RuntimeServiceCreateSessionProcedure = "/sumi.runtime.v1.RuntimeService/CreateSession"
+	// RuntimeServiceRenewSessionProcedure is the fully-qualified name of the RuntimeService's
+	// RenewSession RPC.
+	RuntimeServiceRenewSessionProcedure = "/sumi.runtime.v1.RuntimeService/RenewSession"
+	// RuntimeServiceRevokeSessionProcedure is the fully-qualified name of the RuntimeService's
+	// RevokeSession RPC.
+	RuntimeServiceRevokeSessionProcedure = "/sumi.runtime.v1.RuntimeService/RevokeSession"
 )
 
-// AgentRuntimeServiceClient is a client for the sumi.runtime.v1.AgentRuntimeService service.
-type AgentRuntimeServiceClient interface {
-	CreateAgentRuntimeSession(context.Context, *connect.Request[v1.CreateAgentRuntimeSessionRequest]) (*connect.Response[v1.CreateAgentRuntimeSessionResponse], error)
-	RenewAgentRuntimeSession(context.Context, *connect.Request[v1.RenewAgentRuntimeSessionRequest]) (*connect.Response[v1.RenewAgentRuntimeSessionResponse], error)
-	RevokeAgentRuntimeSession(context.Context, *connect.Request[v1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[v1.RevokeAgentRuntimeSessionResponse], error)
+// RuntimeServiceClient is a client for the sumi.runtime.v1.RuntimeService service.
+type RuntimeServiceClient interface {
+	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
+	RenewSession(context.Context, *connect.Request[v1.RenewSessionRequest]) (*connect.Response[v1.RenewSessionResponse], error)
+	RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error)
 }
 
-// NewAgentRuntimeServiceClient constructs a client for the sumi.runtime.v1.AgentRuntimeService
-// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
-// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
-// the connect.WithGRPC() or connect.WithGRPCWeb() options.
+// NewRuntimeServiceClient constructs a client for the sumi.runtime.v1.RuntimeService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
-func NewAgentRuntimeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AgentRuntimeServiceClient {
+func NewRuntimeServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) RuntimeServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	agentRuntimeServiceMethods := v1.File_sumi_runtime_v1_runtime_proto.Services().ByName("AgentRuntimeService").Methods()
-	return &agentRuntimeServiceClient{
-		createAgentRuntimeSession: connect.NewClient[v1.CreateAgentRuntimeSessionRequest, v1.CreateAgentRuntimeSessionResponse](
+	runtimeServiceMethods := v1.File_sumi_runtime_v1_runtime_proto.Services().ByName("RuntimeService").Methods()
+	return &runtimeServiceClient{
+		createSession: connect.NewClient[v1.CreateSessionRequest, v1.CreateSessionResponse](
 			httpClient,
-			baseURL+AgentRuntimeServiceCreateAgentRuntimeSessionProcedure,
-			connect.WithSchema(agentRuntimeServiceMethods.ByName("CreateAgentRuntimeSession")),
+			baseURL+RuntimeServiceCreateSessionProcedure,
+			connect.WithSchema(runtimeServiceMethods.ByName("CreateSession")),
 			connect.WithClientOptions(opts...),
 		),
-		renewAgentRuntimeSession: connect.NewClient[v1.RenewAgentRuntimeSessionRequest, v1.RenewAgentRuntimeSessionResponse](
+		renewSession: connect.NewClient[v1.RenewSessionRequest, v1.RenewSessionResponse](
 			httpClient,
-			baseURL+AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,
-			connect.WithSchema(agentRuntimeServiceMethods.ByName("RenewAgentRuntimeSession")),
+			baseURL+RuntimeServiceRenewSessionProcedure,
+			connect.WithSchema(runtimeServiceMethods.ByName("RenewSession")),
 			connect.WithClientOptions(opts...),
 		),
-		revokeAgentRuntimeSession: connect.NewClient[v1.RevokeAgentRuntimeSessionRequest, v1.RevokeAgentRuntimeSessionResponse](
+		revokeSession: connect.NewClient[v1.RevokeSessionRequest, v1.RevokeSessionResponse](
 			httpClient,
-			baseURL+AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure,
-			connect.WithSchema(agentRuntimeServiceMethods.ByName("RevokeAgentRuntimeSession")),
+			baseURL+RuntimeServiceRevokeSessionProcedure,
+			connect.WithSchema(runtimeServiceMethods.ByName("RevokeSession")),
 			connect.WithClientOptions(opts...),
 		),
 	}
 }
 
-// agentRuntimeServiceClient implements AgentRuntimeServiceClient.
-type agentRuntimeServiceClient struct {
-	createAgentRuntimeSession *connect.Client[v1.CreateAgentRuntimeSessionRequest, v1.CreateAgentRuntimeSessionResponse]
-	renewAgentRuntimeSession  *connect.Client[v1.RenewAgentRuntimeSessionRequest, v1.RenewAgentRuntimeSessionResponse]
-	revokeAgentRuntimeSession *connect.Client[v1.RevokeAgentRuntimeSessionRequest, v1.RevokeAgentRuntimeSessionResponse]
+// runtimeServiceClient implements RuntimeServiceClient.
+type runtimeServiceClient struct {
+	createSession *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	renewSession  *connect.Client[v1.RenewSessionRequest, v1.RenewSessionResponse]
+	revokeSession *connect.Client[v1.RevokeSessionRequest, v1.RevokeSessionResponse]
 }
 
-// CreateAgentRuntimeSession calls sumi.runtime.v1.AgentRuntimeService.CreateAgentRuntimeSession.
-func (c *agentRuntimeServiceClient) CreateAgentRuntimeSession(ctx context.Context, req *connect.Request[v1.CreateAgentRuntimeSessionRequest]) (*connect.Response[v1.CreateAgentRuntimeSessionResponse], error) {
-	return c.createAgentRuntimeSession.CallUnary(ctx, req)
+// CreateSession calls sumi.runtime.v1.RuntimeService.CreateSession.
+func (c *runtimeServiceClient) CreateSession(ctx context.Context, req *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
+	return c.createSession.CallUnary(ctx, req)
 }
 
-// RenewAgentRuntimeSession calls sumi.runtime.v1.AgentRuntimeService.RenewAgentRuntimeSession.
-func (c *agentRuntimeServiceClient) RenewAgentRuntimeSession(ctx context.Context, req *connect.Request[v1.RenewAgentRuntimeSessionRequest]) (*connect.Response[v1.RenewAgentRuntimeSessionResponse], error) {
-	return c.renewAgentRuntimeSession.CallUnary(ctx, req)
+// RenewSession calls sumi.runtime.v1.RuntimeService.RenewSession.
+func (c *runtimeServiceClient) RenewSession(ctx context.Context, req *connect.Request[v1.RenewSessionRequest]) (*connect.Response[v1.RenewSessionResponse], error) {
+	return c.renewSession.CallUnary(ctx, req)
 }
 
-// RevokeAgentRuntimeSession calls sumi.runtime.v1.AgentRuntimeService.RevokeAgentRuntimeSession.
-func (c *agentRuntimeServiceClient) RevokeAgentRuntimeSession(ctx context.Context, req *connect.Request[v1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[v1.RevokeAgentRuntimeSessionResponse], error) {
-	return c.revokeAgentRuntimeSession.CallUnary(ctx, req)
+// RevokeSession calls sumi.runtime.v1.RuntimeService.RevokeSession.
+func (c *runtimeServiceClient) RevokeSession(ctx context.Context, req *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error) {
+	return c.revokeSession.CallUnary(ctx, req)
 }
 
-// AgentRuntimeServiceHandler is an implementation of the sumi.runtime.v1.AgentRuntimeService
-// service.
-type AgentRuntimeServiceHandler interface {
-	CreateAgentRuntimeSession(context.Context, *connect.Request[v1.CreateAgentRuntimeSessionRequest]) (*connect.Response[v1.CreateAgentRuntimeSessionResponse], error)
-	RenewAgentRuntimeSession(context.Context, *connect.Request[v1.RenewAgentRuntimeSessionRequest]) (*connect.Response[v1.RenewAgentRuntimeSessionResponse], error)
-	RevokeAgentRuntimeSession(context.Context, *connect.Request[v1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[v1.RevokeAgentRuntimeSessionResponse], error)
+// RuntimeServiceHandler is an implementation of the sumi.runtime.v1.RuntimeService service.
+type RuntimeServiceHandler interface {
+	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
+	RenewSession(context.Context, *connect.Request[v1.RenewSessionRequest]) (*connect.Response[v1.RenewSessionResponse], error)
+	RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error)
 }
 
-// NewAgentRuntimeServiceHandler builds an HTTP handler from the service implementation. It returns
-// the path on which to mount the handler and the handler itself.
+// NewRuntimeServiceHandler builds an HTTP handler from the service implementation. It returns the
+// path on which to mount the handler and the handler itself.
 //
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
-func NewAgentRuntimeServiceHandler(svc AgentRuntimeServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	agentRuntimeServiceMethods := v1.File_sumi_runtime_v1_runtime_proto.Services().ByName("AgentRuntimeService").Methods()
-	agentRuntimeServiceCreateAgentRuntimeSessionHandler := connect.NewUnaryHandler(
-		AgentRuntimeServiceCreateAgentRuntimeSessionProcedure,
-		svc.CreateAgentRuntimeSession,
-		connect.WithSchema(agentRuntimeServiceMethods.ByName("CreateAgentRuntimeSession")),
+func NewRuntimeServiceHandler(svc RuntimeServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	runtimeServiceMethods := v1.File_sumi_runtime_v1_runtime_proto.Services().ByName("RuntimeService").Methods()
+	runtimeServiceCreateSessionHandler := connect.NewUnaryHandler(
+		RuntimeServiceCreateSessionProcedure,
+		svc.CreateSession,
+		connect.WithSchema(runtimeServiceMethods.ByName("CreateSession")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentRuntimeServiceRenewAgentRuntimeSessionHandler := connect.NewUnaryHandler(
-		AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,
-		svc.RenewAgentRuntimeSession,
-		connect.WithSchema(agentRuntimeServiceMethods.ByName("RenewAgentRuntimeSession")),
+	runtimeServiceRenewSessionHandler := connect.NewUnaryHandler(
+		RuntimeServiceRenewSessionProcedure,
+		svc.RenewSession,
+		connect.WithSchema(runtimeServiceMethods.ByName("RenewSession")),
 		connect.WithHandlerOptions(opts...),
 	)
-	agentRuntimeServiceRevokeAgentRuntimeSessionHandler := connect.NewUnaryHandler(
-		AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure,
-		svc.RevokeAgentRuntimeSession,
-		connect.WithSchema(agentRuntimeServiceMethods.ByName("RevokeAgentRuntimeSession")),
+	runtimeServiceRevokeSessionHandler := connect.NewUnaryHandler(
+		RuntimeServiceRevokeSessionProcedure,
+		svc.RevokeSession,
+		connect.WithSchema(runtimeServiceMethods.ByName("RevokeSession")),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/sumi.runtime.v1.AgentRuntimeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/sumi.runtime.v1.RuntimeService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case AgentRuntimeServiceCreateAgentRuntimeSessionProcedure:
-			agentRuntimeServiceCreateAgentRuntimeSessionHandler.ServeHTTP(w, r)
-		case AgentRuntimeServiceRenewAgentRuntimeSessionProcedure:
-			agentRuntimeServiceRenewAgentRuntimeSessionHandler.ServeHTTP(w, r)
-		case AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure:
-			agentRuntimeServiceRevokeAgentRuntimeSessionHandler.ServeHTTP(w, r)
+		case RuntimeServiceCreateSessionProcedure:
+			runtimeServiceCreateSessionHandler.ServeHTTP(w, r)
+		case RuntimeServiceRenewSessionProcedure:
+			runtimeServiceRenewSessionHandler.ServeHTTP(w, r)
+		case RuntimeServiceRevokeSessionProcedure:
+			runtimeServiceRevokeSessionHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
 	})
 }
 
-// UnimplementedAgentRuntimeServiceHandler returns CodeUnimplemented from all methods.
-type UnimplementedAgentRuntimeServiceHandler struct{}
+// UnimplementedRuntimeServiceHandler returns CodeUnimplemented from all methods.
+type UnimplementedRuntimeServiceHandler struct{}
 
-func (UnimplementedAgentRuntimeServiceHandler) CreateAgentRuntimeSession(context.Context, *connect.Request[v1.CreateAgentRuntimeSessionRequest]) (*connect.Response[v1.CreateAgentRuntimeSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.AgentRuntimeService.CreateAgentRuntimeSession is not implemented"))
+func (UnimplementedRuntimeServiceHandler) CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.RuntimeService.CreateSession is not implemented"))
 }
 
-func (UnimplementedAgentRuntimeServiceHandler) RenewAgentRuntimeSession(context.Context, *connect.Request[v1.RenewAgentRuntimeSessionRequest]) (*connect.Response[v1.RenewAgentRuntimeSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.AgentRuntimeService.RenewAgentRuntimeSession is not implemented"))
+func (UnimplementedRuntimeServiceHandler) RenewSession(context.Context, *connect.Request[v1.RenewSessionRequest]) (*connect.Response[v1.RenewSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.RuntimeService.RenewSession is not implemented"))
 }
 
-func (UnimplementedAgentRuntimeServiceHandler) RevokeAgentRuntimeSession(context.Context, *connect.Request[v1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[v1.RevokeAgentRuntimeSessionResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.AgentRuntimeService.RevokeAgentRuntimeSession is not implemented"))
+func (UnimplementedRuntimeServiceHandler) RevokeSession(context.Context, *connect.Request[v1.RevokeSessionRequest]) (*connect.Response[v1.RevokeSessionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sumi.runtime.v1.RuntimeService.RevokeSession is not implemented"))
 }

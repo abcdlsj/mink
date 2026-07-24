@@ -1481,10 +1481,7 @@ type SendMessageRequest struct {
 	Target              *MessageTarget         `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
 	Body                string                 `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
 	MentionedPrincipals []*Principal           `protobuf:"bytes,4,rep,name=mentioned_principals,json=mentionedPrincipals,proto3" json:"mentioned_principals,omitempty"`
-	RunId               string                 `protobuf:"bytes,5,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	RunAttempt          uint64                 `protobuf:"varint,6,opt,name=run_attempt,json=runAttempt,proto3" json:"run_attempt,omitempty"`
-	RunFence            uint64                 `protobuf:"varint,7,opt,name=run_fence,json=runFence,proto3" json:"run_fence,omitempty"`
-	RunProof            *v1.RunProof           `protobuf:"bytes,8,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
+	RunProof            *v1.RunProof           `protobuf:"bytes,5,opt,name=run_proof,json=runProof,proto3" json:"run_proof,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1545,27 +1542,6 @@ func (x *SendMessageRequest) GetMentionedPrincipals() []*Principal {
 		return x.MentionedPrincipals
 	}
 	return nil
-}
-
-func (x *SendMessageRequest) GetRunId() string {
-	if x != nil {
-		return x.RunId
-	}
-	return ""
-}
-
-func (x *SendMessageRequest) GetRunAttempt() uint64 {
-	if x != nil {
-		return x.RunAttempt
-	}
-	return 0
-}
-
-func (x *SendMessageRequest) GetRunFence() uint64 {
-	if x != nil {
-		return x.RunFence
-	}
-	return 0
 }
 
 func (x *SendMessageRequest) GetRunProof() *v1.RunProof {
@@ -1996,18 +1972,14 @@ const file_sumi_space_v1_space_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12\x19\n" +
 	"\bspace_id\x18\x02 \x01(\tR\aspaceId\"R\n" +
 	"\x16UnarchiveSpaceResponse\x128\n" +
-	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"\xd5\x02\n" +
+	"\areceipt\x18\x01 \x01(\v2\x1e.sumi.space.v1.MutationReceiptR\areceipt\"\x80\x02\n" +
 	"\x12SendMessageRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x124\n" +
 	"\x06target\x18\x02 \x01(\v2\x1c.sumi.space.v1.MessageTargetR\x06target\x12\x12\n" +
 	"\x04body\x18\x03 \x01(\tR\x04body\x12K\n" +
-	"\x14mentioned_principals\x18\x04 \x03(\v2\x18.sumi.space.v1.PrincipalR\x13mentionedPrincipals\x12\x15\n" +
-	"\x06run_id\x18\x05 \x01(\tR\x05runId\x12\x1f\n" +
-	"\vrun_attempt\x18\x06 \x01(\x04R\n" +
-	"runAttempt\x12\x1b\n" +
-	"\trun_fence\x18\a \x01(\x04R\brunFence\x124\n" +
-	"\trun_proof\x18\b \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"G\n" +
+	"\x14mentioned_principals\x18\x04 \x03(\v2\x18.sumi.space.v1.PrincipalR\x13mentionedPrincipals\x124\n" +
+	"\trun_proof\x18\x05 \x01(\v2\x17.sumi.grant.v1.RunProofR\brunProof\"G\n" +
 	"\x13SendMessageResponse\x120\n" +
 	"\amessage\x18\x01 \x01(\v2\x16.sumi.space.v1.MessageR\amessage\"2\n" +
 	"\x11GetMessageRequest\x12\x1d\n" +

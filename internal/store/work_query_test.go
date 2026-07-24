@@ -395,7 +395,7 @@ func TestWorkReadCurrentPrincipalAndRuntimeAreRechecked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runtimeFixture.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{Proof: replacement.Proof, ComputerID: runtimeFixture.computer.ID, RegistrationKey: runtimeFixture.registrationKey, Now: runtimeFixture.now.Add(8 * time.Second)}); err != nil {
+	if err := runtimeFixture.database.RevokeSession(context.Background(), RevokeAgentRuntimeSessionParams{Proof: replacement.Proof, ComputerID: runtimeFixture.computer.ID, RegistrationKey: runtimeFixture.registrationKey, Now: runtimeFixture.now.Add(8 * time.Second)}); err != nil {
 		t.Fatal(err)
 	}
 	for _, reader := range readers {

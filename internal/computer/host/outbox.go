@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
@@ -36,7 +37,7 @@ func (d *Daemon) dispatchOutbox(ctx context.Context) error {
 		rpcCtx, cancel := d.rpcContext(ctx)
 		response, completeErr := d.runs.CompleteRun(rpcCtx, runtimeRequest(session.Token, &runv1.CompleteRunRequest{
 			RequestId: event.RequestID, OutboxEventId: event.OutboxEventID,
-			RunId: event.RunID, Attempt: event.Attempt, Fence: event.Fence,
+			RunId: event.RunID, RunProof: &grantv1.RunProof{RunId: event.RunID, Attempt: event.Attempt, Fence: event.Fence},
 			Outcome: outcomeValue(event.Outcome), Body: event.Body, MentionedPrincipals: mentionedAgents(event.MentionedAgentIDs),
 			ErrorCode: event.ErrorCode, Usage: &runv1.RunUsage{InputUnits: event.UsageInputUnits, OutputUnits: event.UsageOutputUnits},
 		}))

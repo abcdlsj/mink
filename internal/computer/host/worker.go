@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	computerruntime "github.com/abcdlsj/sumi/internal/computer/runtime"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
@@ -164,7 +165,8 @@ func (d *Daemon) renewRun(ctx context.Context, session computerstate.RuntimeSess
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	response, err := d.runs.RenewRun(rpcCtx, runtimeRequest(session.Token, &runv1.RenewRunRequest{
-		RequestId: attempt.RequestID, RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence(),
+		RequestId: attempt.RequestID, RunId: run.GetId(),
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}))
 	cancel()
 	if err != nil {

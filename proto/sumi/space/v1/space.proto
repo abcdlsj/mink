@@ -169,10 +169,7 @@ message SendMessageRequest {
   MessageTarget target = 2;
   string body = 3;
   repeated Principal mentioned_principals = 4;
-  string run_id = 5;
-  uint64 run_attempt = 6;
-  uint64 run_fence = 7;
-  sumi.grant.v1.RunProof run_proof = 8;
+  sumi.grant.v1.RunProof run_proof = 5;
 }
 
 message SendMessageResponse {

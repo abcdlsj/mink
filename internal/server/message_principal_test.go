@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	inboxv1 "github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	runv1 "github.com/abcdlsj/sumi/gen/go/sumi/run/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/run/v1/runv1connect"
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
@@ -25,7 +26,7 @@ func TestMessageHTTPHumanAndAgentShareCanonicalSurfaceWithRuntimeFailClosed(t *t
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	stale := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	current := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	group := createInboxSpace(t, api, dataRoot, agent.GetId())
@@ -84,7 +85,7 @@ func TestMessageHTTPHumanAndAgentShareCanonicalSurfaceWithRuntimeFailClosed(t *t
 	agentResponse, err := collaboration.SendMessage(context.Background(), runtimeRequest(&spacev1.SendMessageRequest{
 		RequestId: uuid.NewString(), Target: spaceTarget(group.GetId()), Body: "agent canonical message",
 		MentionedPrincipals: []*spacev1.Principal{{Kind: spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN, Id: bootstrap.Human.ID}},
-		RunId:               run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+		RunProof:            &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}, current.GetToken()))
 	if err != nil {
 		t.Fatal(err)
@@ -126,10 +127,10 @@ func TestMessageHTTPHumanAndAgentShareCanonicalSurfaceWithRuntimeFailClosed(t *t
 	if _, err := collaboration.GetMessage(context.Background(), runtimeRequest(&spacev1.GetMessageRequest{MessageId: agentMessage.GetId()}, replacement.GetToken())); err != nil {
 		t.Fatalf("replacement runtime read: %v", err)
 	}
-	revoke := runtimeRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{
+	revoke := runtimeRequest(&runtimev1.RevokeSessionRequest{
 		ComputerId: computer.GetId(), RegistrationKey: registrationKey,
 	}, replacement.GetToken())
-	if _, err := runtimeClient.RevokeAgentRuntimeSession(context.Background(), revoke); err != nil {
+	if _, err := runtimeClient.RevokeSession(context.Background(), revoke); err != nil {
 		t.Fatal(err)
 	}
 	_, err = collaboration.ListMessages(context.Background(), runtimeRequest(&spacev1.ListMessagesRequest{

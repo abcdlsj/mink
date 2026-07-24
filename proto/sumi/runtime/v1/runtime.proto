@@ -6,13 +6,13 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1;runtimev1";
 
-service AgentRuntimeService {
-  rpc CreateAgentRuntimeSession(CreateAgentRuntimeSessionRequest) returns (CreateAgentRuntimeSessionResponse);
-  rpc RenewAgentRuntimeSession(RenewAgentRuntimeSessionRequest) returns (RenewAgentRuntimeSessionResponse);
-  rpc RevokeAgentRuntimeSession(RevokeAgentRuntimeSessionRequest) returns (RevokeAgentRuntimeSessionResponse);
+service RuntimeService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc RenewSession(RenewSessionRequest) returns (RenewSessionResponse);
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
 }
 
-message AgentRuntimeSession {
+message Session {
   string agent_id = 1;
   string computer_id = 2;
   uint64 placement_desired_revision = 3;
@@ -20,29 +20,29 @@ message AgentRuntimeSession {
   google.protobuf.Timestamp expires_at = 5;
 }
 
-message CreateAgentRuntimeSessionRequest {
+message CreateSessionRequest {
   string computer_id = 1;
   string registration_key = 2;
   string agent_id = 3;
   uint64 placement_desired_revision = 4;
 }
 
-message CreateAgentRuntimeSessionResponse {
-  AgentRuntimeSession session = 1;
+message CreateSessionResponse {
+  Session session = 1;
 }
 
-message RenewAgentRuntimeSessionRequest {
+message RenewSessionRequest {
   string computer_id = 1;
   string registration_key = 2;
 }
 
-message RenewAgentRuntimeSessionResponse {
-  AgentRuntimeSession session = 1;
+message RenewSessionResponse {
+  Session session = 1;
 }
 
-message RevokeAgentRuntimeSessionRequest {
+message RevokeSessionRequest {
   string computer_id = 1;
   string registration_key = 2;
 }
 
-message RevokeAgentRuntimeSessionResponse {}
+message RevokeSessionResponse {}

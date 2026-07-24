@@ -16,6 +16,7 @@ import (
 
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	artifactv1 "github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/artifact/v1/artifactv1connect"
 	knowledgev1 "github.com/abcdlsj/sumi/gen/go/sumi/knowledge/v1"
@@ -181,7 +182,7 @@ func (remote *client) messageDefinition() tool.Definition {
 			request, err := runtimeRequest(ctx, remote, run, &spacev1.SendMessageRequest{
 				RequestId: toolRequestID(run, call), Target: proto.Clone(current.GetTarget()).(*spacev1.MessageTarget),
 				Body: arguments.Body, MentionedPrincipals: mentions,
-				RunId: run.RunID, RunAttempt: run.Attempt, RunFence: run.Fence,
+				RunProof: &grantv1.RunProof{RunId: run.RunID, Attempt: run.Attempt, Fence: run.Fence},
 			})
 			if err != nil {
 				return nil, err
@@ -244,7 +245,7 @@ func (remote *client) workCreateDefinition() tool.Definition {
 				SourceTarget:         proto.Clone(current.GetTarget()).(*spacev1.MessageTarget),
 				SourceTargetSequence: current.GetTriggerTargetSequence(), Goal: arguments.Goal,
 				Constraints: arguments.Constraints, AcceptanceCriteria: arguments.AcceptanceCriteria,
-				RunId: run.RunID, RunAttempt: run.Attempt, RunFence: run.Fence,
+				RunProof: &grantv1.RunProof{RunId: run.RunID, Attempt: run.Attempt, Fence: run.Fence},
 			})
 			if err != nil {
 				return nil, err
@@ -274,7 +275,7 @@ func (remote *client) workAssignDefinition() tool.Definition {
 			request, err := runtimeRequest(ctx, remote, run, &workv1.AssignWorkRequest{
 				RequestId: toolRequestID(run, call), WorkId: arguments.WorkID,
 				AgentId: arguments.AgentID, Role: assignmentRole(arguments.Role),
-				RunId: run.RunID, RunAttempt: run.Attempt, RunFence: run.Fence,
+				RunProof: &grantv1.RunProof{RunId: run.RunID, Attempt: run.Attempt, Fence: run.Fence},
 			})
 			if err != nil {
 				return nil, err
@@ -310,7 +311,7 @@ func (remote *client) workTransitionDefinition() tool.Definition {
 			request, err := runtimeRequest(ctx, remote, run, &workv1.TransitionWorkRequest{
 				RequestId: toolRequestID(run, call), WorkId: arguments.WorkID, ToState: workState(arguments.ToState),
 				Reason: arguments.Reason, Result: arguments.Result, CriterionResults: results,
-				RunId: run.RunID, RunAttempt: run.Attempt, RunFence: run.Fence,
+				RunProof: &grantv1.RunProof{RunId: run.RunID, Attempt: run.Attempt, Fence: run.Fence},
 			})
 			if err != nil {
 				return nil, err
@@ -339,7 +340,7 @@ func (remote *client) workApprovalDefinition() tool.Definition {
 			}
 			request, err := runtimeRequest(ctx, remote, run, &workv1.RequestApprovalRequest{
 				RequestId: toolRequestID(run, call), WorkId: arguments.WorkID, Question: arguments.Question,
-				RunId: run.RunID, RunAttempt: run.Attempt, RunFence: run.Fence,
+				RunProof: &grantv1.RunProof{RunId: run.RunID, Attempt: run.Attempt, Fence: run.Fence},
 			})
 			if err != nil {
 				return nil, err

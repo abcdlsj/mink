@@ -24,7 +24,7 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 	f := openRuntimeServiceFixture(t)
 	client := f.client(t, NewService(f.database, Config{Now: func() time.Time { return f.now }}))
 
-	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	created, err := client.CreateSession(context.Background(), connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 		AgentId: f.agent.ID, PlacementDesiredRevision: f.placement.DesiredRevision,
 	}))
@@ -39,11 +39,11 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 		t.Fatalf("created token_length:%d expires:%s", len(first.GetToken()), first.GetExpiresAt().AsTime())
 	}
 
-	renewRequest := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	renewRequest := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	renewRequest.Header().Set("Authorization", "Bearer "+first.GetToken())
-	renewed, err := client.RenewAgentRuntimeSession(context.Background(), renewRequest)
+	renewed, err := client.RenewSession(context.Background(), renewRequest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,34 +52,34 @@ func TestAgentRuntimeServiceCreateRenewRevoke(t *testing.T) {
 		t.Fatalf("renewed token reused:%t token_length:%d", second.GetToken() == first.GetToken(), len(second.GetToken()))
 	}
 
-	replay := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	replay := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	replay.Header().Set("Authorization", "Bearer "+first.GetToken())
-	_, err = client.RenewAgentRuntimeSession(context.Background(), replay)
+	_, err = client.RenewSession(context.Background(), replay)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 	if strings.Contains(err.Error(), first.GetToken()) {
 		t.Fatal("old token leaked in error")
 	}
 
-	wrongKey := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	wrongKey := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: "wrong-registration-key",
 	})
 	wrongKey.Header().Set("Authorization", "Bearer "+second.GetToken())
-	_, err = client.RenewAgentRuntimeSession(context.Background(), wrongKey)
+	_, err = client.RenewSession(context.Background(), wrongKey)
 	assertRuntimeCode(t, err, connect.CodePermissionDenied)
 	if strings.Contains(err.Error(), wrongKey.Msg.GetRegistrationKey()) || strings.Contains(err.Error(), second.GetToken()) {
 		t.Fatal("credential leaked in error")
 	}
 
-	revoke := connect.NewRequest(&runtimev1.RevokeAgentRuntimeSessionRequest{
+	revoke := connect.NewRequest(&runtimev1.RevokeSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	revoke.Header().Set("Authorization", "Bearer "+second.GetToken())
-	if _, err := client.RevokeAgentRuntimeSession(context.Background(), revoke); err != nil {
+	if _, err := client.RevokeSession(context.Background(), revoke); err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.RevokeAgentRuntimeSession(context.Background(), revoke)
+	_, err = client.RevokeSession(context.Background(), revoke)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 }
 
@@ -87,7 +87,7 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 	f := openRuntimeServiceFixture(t)
 	client := f.client(t, NewService(f.database, Config{Now: func() time.Time { return f.now }}))
 
-	created, err := client.CreateAgentRuntimeSession(context.Background(), connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
+	created, err := client.CreateSession(context.Background(), connect.NewRequest(&runtimev1.CreateSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 		AgentId: f.agent.ID, PlacementDesiredRevision: f.placement.DesiredRevision,
 	}))
@@ -96,32 +96,32 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 	}
 	token := created.Msg.GetSession().GetToken()
 
-	missing := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	missing := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
-	_, err = client.RenewAgentRuntimeSession(context.Background(), missing)
+	_, err = client.RenewSession(context.Background(), missing)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
-	human := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	human := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	human.Header().Set("Authorization", "Bearer "+f.humanCredential)
-	_, err = client.RenewAgentRuntimeSession(context.Background(), human)
+	_, err = client.RenewSession(context.Background(), human)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
-	duplicate := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	duplicate := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	duplicate.Header().Add("Authorization", "Bearer "+token)
 	duplicate.Header().Add("Authorization", "Bearer "+token)
-	_, err = client.RenewAgentRuntimeSession(context.Background(), duplicate)
+	_, err = client.RenewSession(context.Background(), duplicate)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 }
 
 func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
 	f := openRuntimeServiceFixture(t)
 	firstToken := runtimeAuthTestToken(31)
-	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), store.CreateAgentRuntimeSessionParams{
+	if _, err := f.database.CreateSession(context.Background(), store.CreateAgentRuntimeSessionParams{
 		ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 		AgentID: f.agent.ID, PlacementDesiredRevision: 1, Token: firstToken,
 		Now: f.now, ExpiresAt: f.now.Add(10 * time.Minute),
@@ -133,17 +133,17 @@ func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
 		t: t, database: f.database, computerID: f.computer.ID,
 		registrationKey: f.registrationKey, agentID: f.agent.ID, now: f.now.Add(time.Second),
 	}
-	_, handler := runtimev1connect.NewAgentRuntimeServiceHandler(consumer, connect.WithInterceptors(
-		newProcInterceptor(f.database, func() time.Time { return f.now.Add(time.Second) }, runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure),
+	_, handler := runtimev1connect.NewRuntimeServiceHandler(consumer, connect.WithInterceptors(
+		newProcInterceptor(f.database, func() time.Time { return f.now.Add(time.Second) }, runtimev1connect.RuntimeServiceRenewSessionProcedure),
 	))
 	httpServer := httptest.NewServer(handler)
 	defer httpServer.Close()
-	client := runtimev1connect.NewAgentRuntimeServiceClient(httpServer.Client(), httpServer.URL)
-	request := connect.NewRequest(&runtimev1.RenewAgentRuntimeSessionRequest{
+	client := runtimev1connect.NewRuntimeServiceClient(httpServer.Client(), httpServer.URL)
+	request := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
 	request.Header().Set("Authorization", "Bearer "+firstToken)
-	if _, err := client.RenewAgentRuntimeSession(context.Background(), request); err != nil {
+	if _, err := client.RenewSession(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
 	if !consumer.recheckRejected {
@@ -152,7 +152,7 @@ func TestAgentRuntimeInterceptorProofFailsClosedAfterReplacement(t *testing.T) {
 }
 
 type replacementConsumer struct {
-	runtimev1connect.UnimplementedAgentRuntimeServiceHandler
+	runtimev1connect.UnimplementedRuntimeServiceHandler
 	t               *testing.T
 	database        *store.Store
 	computerID      string
@@ -162,7 +162,7 @@ type replacementConsumer struct {
 	recheckRejected bool
 }
 
-func (c *replacementConsumer) RenewAgentRuntimeSession(ctx context.Context, _ *connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RenewAgentRuntimeSessionResponse], error) {
+func (c *replacementConsumer) RenewSession(ctx context.Context, _ *connect.Request[runtimev1.RenewSessionRequest]) (*connect.Response[runtimev1.RenewSessionResponse], error) {
 	principal, proof, err := Subject(ctx)
 	if err != nil {
 		return nil, err
@@ -170,19 +170,19 @@ func (c *replacementConsumer) RenewAgentRuntimeSession(ctx context.Context, _ *c
 	if principal.Kind != "agent" || principal.ID != c.agentID {
 		c.t.Fatalf("subject = %+v", principal)
 	}
-	if _, err := c.database.CreateAgentRuntimeSession(ctx, store.CreateAgentRuntimeSessionParams{
+	if _, err := c.database.CreateSession(ctx, store.CreateAgentRuntimeSessionParams{
 		ComputerID: c.computerID, RegistrationKey: c.registrationKey,
 		AgentID: c.agentID, PlacementDesiredRevision: 1, Token: runtimeAuthTestToken(32),
 		Now: c.now, ExpiresAt: c.now.Add(10 * time.Minute),
 	}); err != nil {
 		c.t.Fatal(err)
 	}
-	_, err = c.database.RenewAgentRuntimeSession(ctx, store.RenewAgentRuntimeSessionParams{
+	_, err = c.database.RenewSession(ctx, store.RenewAgentRuntimeSessionParams{
 		Proof: proof, ComputerID: c.computerID, RegistrationKey: c.registrationKey,
 		Token: runtimeAuthTestToken(33), Now: c.now.Add(time.Second), ExpiresAt: c.now.Add(10*time.Minute + time.Second),
 	})
 	c.recheckRejected = errors.Is(err, store.ErrAgentRuntimeUnauthenticated)
-	return connect.NewResponse(&runtimev1.RenewAgentRuntimeSessionResponse{}), nil
+	return connect.NewResponse(&runtimev1.RenewSessionResponse{}), nil
 }
 
 type runtimeServiceFixture struct {
@@ -310,18 +310,18 @@ func completeRuntimeServiceCredential(
 	return handle
 }
 
-func (f *runtimeServiceFixture) client(t *testing.T, service runtimev1connect.AgentRuntimeServiceHandler) runtimev1connect.AgentRuntimeServiceClient {
+func (f *runtimeServiceFixture) client(t *testing.T, service runtimev1connect.RuntimeServiceHandler) runtimev1connect.RuntimeServiceClient {
 	t.Helper()
 	interceptor := newProcInterceptor(
 		f.database,
 		func() time.Time { return f.now },
-		runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,
-		runtimev1connect.AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure,
+		runtimev1connect.RuntimeServiceRenewSessionProcedure,
+		runtimev1connect.RuntimeServiceRevokeSessionProcedure,
 	)
-	_, handler := runtimev1connect.NewAgentRuntimeServiceHandler(service, connect.WithInterceptors(interceptor))
+	_, handler := runtimev1connect.NewRuntimeServiceHandler(service, connect.WithInterceptors(interceptor))
 	httpServer := httptest.NewServer(handler)
 	t.Cleanup(httpServer.Close)
-	return runtimev1connect.NewAgentRuntimeServiceClient(httpServer.Client(), httpServer.URL)
+	return runtimev1connect.NewRuntimeServiceClient(httpServer.Client(), httpServer.URL)
 }
 
 func runtimeAuthTestToken(value byte) string {

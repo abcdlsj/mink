@@ -337,7 +337,7 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 		t.Fatal(err)
 	}
 	token := base64.RawURLEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
-	if _, err := database.CreateAgentRuntimeSession(ctx, store.CreateAgentRuntimeSessionParams{
+	if _, err := database.CreateSession(ctx, store.CreateAgentRuntimeSessionParams{
 		ComputerID: computer.ID, RegistrationKey: registrationKey, AgentID: agent.ID,
 		PlacementDesiredRevision: placement.DesiredRevision, Token: token,
 		Now: base.Add(5 * time.Second), ExpiresAt: base.Add(10*time.Minute + 5*time.Second),

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	grantv1 "github.com/abcdlsj/sumi/gen/go/sumi/grant/v1"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	workv1 "github.com/abcdlsj/sumi/gen/go/sumi/work/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/work/v1/workv1connect"
@@ -109,7 +110,7 @@ func (s *Service) CreateWork(ctx context.Context, req *connect.Request[workv1.Cr
 		return nil, err
 	}
 	params.Agent = ident.agent
-	params.Run, err = buildRunProof(req.Msg.GetRunId(), req.Msg.GetRunAttempt(), req.Msg.GetRunFence())
+	params.Run, err = buildRunProof(req.Msg.GetRunProof())
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func (s *Service) AssignWork(ctx context.Context, req *connect.Request[workv1.As
 	if err != nil {
 		return nil, err
 	}
-	run, err := buildRunProof(req.Msg.GetRunId(), req.Msg.GetRunAttempt(), req.Msg.GetRunFence())
+	run, err := buildRunProof(req.Msg.GetRunProof())
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +175,7 @@ func (s *Service) TransitionWork(ctx context.Context, req *connect.Request[workv
 	if err != nil {
 		return nil, err
 	}
-	run, err := buildRunProof(req.Msg.GetRunId(), req.Msg.GetRunAttempt(), req.Msg.GetRunFence())
+	run, err := buildRunProof(req.Msg.GetRunProof())
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +204,7 @@ func (s *Service) RequestApproval(ctx context.Context, req *connect.Request[work
 	if err != nil {
 		return nil, err
 	}
-	run, err := buildRunProof(req.Msg.GetRunId(), req.Msg.GetRunAttempt(), req.Msg.GetRunFence())
+	run, err := buildRunProof(req.Msg.GetRunProof())
 	if err != nil {
 		return nil, err
 	}
@@ -327,15 +328,15 @@ func buildCreateParams(msg *workv1.CreateWorkRequest, actor authoritydomain.Prin
 	}, nil
 }
 
-func buildRunProof(runID string, attempt, fence uint64) (*authorityapp.RunProof, error) {
-	if runID == "" && attempt == 0 && fence == 0 {
+func buildRunProof(p *grantv1.RunProof) (*authorityapp.RunProof, error) {
+	if p == nil {
 		return nil, nil
 	}
-	id, err := connectid.CanonicalID(runID, "run id")
-	if err != nil || attempt == 0 || fence == 0 {
+	id, err := connectid.CanonicalID(p.GetRunId(), "run id")
+	if err != nil || p.GetAttempt() == 0 || p.GetFence() == 0 {
 		return nil, servicesvc.InvalArg("work input is invalid")
 	}
-	return &authorityapp.RunProof{RunID: id, Attempt: attempt, Fence: fence}, nil
+	return &authorityapp.RunProof{RunID: id, Attempt: p.GetAttempt(), Fence: p.GetFence()}, nil
 }
 
 func parseIDs(requestIDValue, itemValue, itemName, extraValue, extraName string) (string, string, string, error) {

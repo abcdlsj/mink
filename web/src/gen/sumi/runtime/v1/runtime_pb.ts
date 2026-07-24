@@ -12,12 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/runtime/v1/runtime.proto.
  */
 export const file_sumi_runtime_v1_runtime: GenFile = /*@__PURE__*/
-  fileDesc("Ch1zdW1pL3J1bnRpbWUvdjEvcnVudGltZS5wcm90bxIPc3VtaS5ydW50aW1lLnYxIp8BChNBZ2VudFJ1bnRpbWVTZXNzaW9uEhAKCGFnZW50X2lkGAEgASgJEhMKC2NvbXB1dGVyX2lkGAIgASgJEiIKGnBsYWNlbWVudF9kZXNpcmVkX3JldmlzaW9uGAMgASgEEg0KBXRva2VuGAQgASgJEi4KCmV4cGlyZXNfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIocBCiBDcmVhdGVBZ2VudFJ1bnRpbWVTZXNzaW9uUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJEhAKCGFnZW50X2lkGAMgASgJEiIKGnBsYWNlbWVudF9kZXNpcmVkX3JldmlzaW9uGAQgASgEIloKIUNyZWF0ZUFnZW50UnVudGltZVNlc3Npb25SZXNwb25zZRI1CgdzZXNzaW9uGAEgASgLMiQuc3VtaS5ydW50aW1lLnYxLkFnZW50UnVudGltZVNlc3Npb24iUAofUmVuZXdBZ2VudFJ1bnRpbWVTZXNzaW9uUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIlkKIFJlbmV3QWdlbnRSdW50aW1lU2Vzc2lvblJlc3BvbnNlEjUKB3Nlc3Npb24YASABKAsyJC5zdW1pLnJ1bnRpbWUudjEuQWdlbnRSdW50aW1lU2Vzc2lvbiJRCiBSZXZva2VBZ2VudFJ1bnRpbWVTZXNzaW9uUmVxdWVzdBITCgtjb21wdXRlcl9pZBgBIAEoCRIYChByZWdpc3RyYXRpb25fa2V5GAIgASgJIiMKIVJldm9rZUFnZW50UnVudGltZVNlc3Npb25SZXNwb25zZTKgAwoTQWdlbnRSdW50aW1lU2VydmljZRKCAQoZQ3JlYXRlQWdlbnRSdW50aW1lU2Vzc2lvbhIxLnN1bWkucnVudGltZS52MS5DcmVhdGVBZ2VudFJ1bnRpbWVTZXNzaW9uUmVxdWVzdBoyLnN1bWkucnVudGltZS52MS5DcmVhdGVBZ2VudFJ1bnRpbWVTZXNzaW9uUmVzcG9uc2USfwoYUmVuZXdBZ2VudFJ1bnRpbWVTZXNzaW9uEjAuc3VtaS5ydW50aW1lLnYxLlJlbmV3QWdlbnRSdW50aW1lU2Vzc2lvblJlcXVlc3QaMS5zdW1pLnJ1bnRpbWUudjEuUmVuZXdBZ2VudFJ1bnRpbWVTZXNzaW9uUmVzcG9uc2USggEKGVJldm9rZUFnZW50UnVudGltZVNlc3Npb24SMS5zdW1pLnJ1bnRpbWUudjEuUmV2b2tlQWdlbnRSdW50aW1lU2Vzc2lvblJlcXVlc3QaMi5zdW1pLnJ1bnRpbWUudjEuUmV2b2tlQWdlbnRSdW50aW1lU2Vzc2lvblJlc3BvbnNlQjpaOGdpdGh1Yi5jb20vYWJjZGxzai9zdW1pL2dlbi9nby9zdW1pL3J1bnRpbWUvdjE7cnVudGltZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("Ch1zdW1pL3J1bnRpbWUvdjEvcnVudGltZS5wcm90bxIPc3VtaS5ydW50aW1lLnYxIpMBCgdTZXNzaW9uEhAKCGFnZW50X2lkGAEgASgJEhMKC2NvbXB1dGVyX2lkGAIgASgJEiIKGnBsYWNlbWVudF9kZXNpcmVkX3JldmlzaW9uGAMgASgEEg0KBXRva2VuGAQgASgJEi4KCmV4cGlyZXNfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wInsKFENyZWF0ZVNlc3Npb25SZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkSEAoIYWdlbnRfaWQYAyABKAkSIgoacGxhY2VtZW50X2Rlc2lyZWRfcmV2aXNpb24YBCABKAQiQgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEikKB3Nlc3Npb24YASABKAsyGC5zdW1pLnJ1bnRpbWUudjEuU2Vzc2lvbiJEChNSZW5ld1Nlc3Npb25SZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiQQoUUmVuZXdTZXNzaW9uUmVzcG9uc2USKQoHc2Vzc2lvbhgBIAEoCzIYLnN1bWkucnVudGltZS52MS5TZXNzaW9uIkUKFFJldm9rZVNlc3Npb25SZXF1ZXN0EhMKC2NvbXB1dGVyX2lkGAEgASgJEhgKEHJlZ2lzdHJhdGlvbl9rZXkYAiABKAkiFwoVUmV2b2tlU2Vzc2lvblJlc3BvbnNlMq0CCg5SdW50aW1lU2VydmljZRJeCg1DcmVhdGVTZXNzaW9uEiUuc3VtaS5ydW50aW1lLnYxLkNyZWF0ZVNlc3Npb25SZXF1ZXN0GiYuc3VtaS5ydW50aW1lLnYxLkNyZWF0ZVNlc3Npb25SZXNwb25zZRJbCgxSZW5ld1Nlc3Npb24SJC5zdW1pLnJ1bnRpbWUudjEuUmVuZXdTZXNzaW9uUmVxdWVzdBolLnN1bWkucnVudGltZS52MS5SZW5ld1Nlc3Npb25SZXNwb25zZRJeCg1SZXZva2VTZXNzaW9uEiUuc3VtaS5ydW50aW1lLnYxLlJldm9rZVNlc3Npb25SZXF1ZXN0GiYuc3VtaS5ydW50aW1lLnYxLlJldm9rZVNlc3Npb25SZXNwb25zZUI6WjhnaXRodWIuY29tL2FiY2Rsc2ovc3VtaS9nZW4vZ28vc3VtaS9ydW50aW1lL3YxO3J1bnRpbWV2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
- * @generated from message sumi.runtime.v1.AgentRuntimeSession
+ * @generated from message sumi.runtime.v1.Session
  */
-export type AgentRuntimeSession = Message<"sumi.runtime.v1.AgentRuntimeSession"> & {
+export type Session = Message<"sumi.runtime.v1.Session"> & {
   /**
    * @generated from field: string agent_id = 1;
    */
@@ -45,16 +45,16 @@ export type AgentRuntimeSession = Message<"sumi.runtime.v1.AgentRuntimeSession">
 };
 
 /**
- * Describes the message sumi.runtime.v1.AgentRuntimeSession.
- * Use `create(AgentRuntimeSessionSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.Session.
+ * Use `create(SessionSchema)` to create a new message.
  */
-export const AgentRuntimeSessionSchema: GenMessage<AgentRuntimeSession> = /*@__PURE__*/
+export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 0);
 
 /**
- * @generated from message sumi.runtime.v1.CreateAgentRuntimeSessionRequest
+ * @generated from message sumi.runtime.v1.CreateSessionRequest
  */
-export type CreateAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.CreateAgentRuntimeSessionRequest"> & {
+export type CreateSessionRequest = Message<"sumi.runtime.v1.CreateSessionRequest"> & {
   /**
    * @generated from field: string computer_id = 1;
    */
@@ -77,33 +77,33 @@ export type CreateAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.CreateAg
 };
 
 /**
- * Describes the message sumi.runtime.v1.CreateAgentRuntimeSessionRequest.
- * Use `create(CreateAgentRuntimeSessionRequestSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.CreateSessionRequest.
+ * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
-export const CreateAgentRuntimeSessionRequestSchema: GenMessage<CreateAgentRuntimeSessionRequest> = /*@__PURE__*/
+export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 1);
 
 /**
- * @generated from message sumi.runtime.v1.CreateAgentRuntimeSessionResponse
+ * @generated from message sumi.runtime.v1.CreateSessionResponse
  */
-export type CreateAgentRuntimeSessionResponse = Message<"sumi.runtime.v1.CreateAgentRuntimeSessionResponse"> & {
+export type CreateSessionResponse = Message<"sumi.runtime.v1.CreateSessionResponse"> & {
   /**
-   * @generated from field: sumi.runtime.v1.AgentRuntimeSession session = 1;
+   * @generated from field: sumi.runtime.v1.Session session = 1;
    */
-  session?: AgentRuntimeSession;
+  session?: Session;
 };
 
 /**
- * Describes the message sumi.runtime.v1.CreateAgentRuntimeSessionResponse.
- * Use `create(CreateAgentRuntimeSessionResponseSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.CreateSessionResponse.
+ * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
-export const CreateAgentRuntimeSessionResponseSchema: GenMessage<CreateAgentRuntimeSessionResponse> = /*@__PURE__*/
+export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 2);
 
 /**
- * @generated from message sumi.runtime.v1.RenewAgentRuntimeSessionRequest
+ * @generated from message sumi.runtime.v1.RenewSessionRequest
  */
-export type RenewAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.RenewAgentRuntimeSessionRequest"> & {
+export type RenewSessionRequest = Message<"sumi.runtime.v1.RenewSessionRequest"> & {
   /**
    * @generated from field: string computer_id = 1;
    */
@@ -116,33 +116,33 @@ export type RenewAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.RenewAgen
 };
 
 /**
- * Describes the message sumi.runtime.v1.RenewAgentRuntimeSessionRequest.
- * Use `create(RenewAgentRuntimeSessionRequestSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.RenewSessionRequest.
+ * Use `create(RenewSessionRequestSchema)` to create a new message.
  */
-export const RenewAgentRuntimeSessionRequestSchema: GenMessage<RenewAgentRuntimeSessionRequest> = /*@__PURE__*/
+export const RenewSessionRequestSchema: GenMessage<RenewSessionRequest> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 3);
 
 /**
- * @generated from message sumi.runtime.v1.RenewAgentRuntimeSessionResponse
+ * @generated from message sumi.runtime.v1.RenewSessionResponse
  */
-export type RenewAgentRuntimeSessionResponse = Message<"sumi.runtime.v1.RenewAgentRuntimeSessionResponse"> & {
+export type RenewSessionResponse = Message<"sumi.runtime.v1.RenewSessionResponse"> & {
   /**
-   * @generated from field: sumi.runtime.v1.AgentRuntimeSession session = 1;
+   * @generated from field: sumi.runtime.v1.Session session = 1;
    */
-  session?: AgentRuntimeSession;
+  session?: Session;
 };
 
 /**
- * Describes the message sumi.runtime.v1.RenewAgentRuntimeSessionResponse.
- * Use `create(RenewAgentRuntimeSessionResponseSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.RenewSessionResponse.
+ * Use `create(RenewSessionResponseSchema)` to create a new message.
  */
-export const RenewAgentRuntimeSessionResponseSchema: GenMessage<RenewAgentRuntimeSessionResponse> = /*@__PURE__*/
+export const RenewSessionResponseSchema: GenMessage<RenewSessionResponse> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 4);
 
 /**
- * @generated from message sumi.runtime.v1.RevokeAgentRuntimeSessionRequest
+ * @generated from message sumi.runtime.v1.RevokeSessionRequest
  */
-export type RevokeAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.RevokeAgentRuntimeSessionRequest"> & {
+export type RevokeSessionRequest = Message<"sumi.runtime.v1.RevokeSessionRequest"> & {
   /**
    * @generated from field: string computer_id = 1;
    */
@@ -155,52 +155,52 @@ export type RevokeAgentRuntimeSessionRequest = Message<"sumi.runtime.v1.RevokeAg
 };
 
 /**
- * Describes the message sumi.runtime.v1.RevokeAgentRuntimeSessionRequest.
- * Use `create(RevokeAgentRuntimeSessionRequestSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.RevokeSessionRequest.
+ * Use `create(RevokeSessionRequestSchema)` to create a new message.
  */
-export const RevokeAgentRuntimeSessionRequestSchema: GenMessage<RevokeAgentRuntimeSessionRequest> = /*@__PURE__*/
+export const RevokeSessionRequestSchema: GenMessage<RevokeSessionRequest> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 5);
 
 /**
- * @generated from message sumi.runtime.v1.RevokeAgentRuntimeSessionResponse
+ * @generated from message sumi.runtime.v1.RevokeSessionResponse
  */
-export type RevokeAgentRuntimeSessionResponse = Message<"sumi.runtime.v1.RevokeAgentRuntimeSessionResponse"> & {
+export type RevokeSessionResponse = Message<"sumi.runtime.v1.RevokeSessionResponse"> & {
 };
 
 /**
- * Describes the message sumi.runtime.v1.RevokeAgentRuntimeSessionResponse.
- * Use `create(RevokeAgentRuntimeSessionResponseSchema)` to create a new message.
+ * Describes the message sumi.runtime.v1.RevokeSessionResponse.
+ * Use `create(RevokeSessionResponseSchema)` to create a new message.
  */
-export const RevokeAgentRuntimeSessionResponseSchema: GenMessage<RevokeAgentRuntimeSessionResponse> = /*@__PURE__*/
+export const RevokeSessionResponseSchema: GenMessage<RevokeSessionResponse> = /*@__PURE__*/
   messageDesc(file_sumi_runtime_v1_runtime, 6);
 
 /**
- * @generated from service sumi.runtime.v1.AgentRuntimeService
+ * @generated from service sumi.runtime.v1.RuntimeService
  */
-export const AgentRuntimeService: GenService<{
+export const RuntimeService: GenService<{
   /**
-   * @generated from rpc sumi.runtime.v1.AgentRuntimeService.CreateAgentRuntimeSession
+   * @generated from rpc sumi.runtime.v1.RuntimeService.CreateSession
    */
-  createAgentRuntimeSession: {
+  createSession: {
     methodKind: "unary";
-    input: typeof CreateAgentRuntimeSessionRequestSchema;
-    output: typeof CreateAgentRuntimeSessionResponseSchema;
+    input: typeof CreateSessionRequestSchema;
+    output: typeof CreateSessionResponseSchema;
   },
   /**
-   * @generated from rpc sumi.runtime.v1.AgentRuntimeService.RenewAgentRuntimeSession
+   * @generated from rpc sumi.runtime.v1.RuntimeService.RenewSession
    */
-  renewAgentRuntimeSession: {
+  renewSession: {
     methodKind: "unary";
-    input: typeof RenewAgentRuntimeSessionRequestSchema;
-    output: typeof RenewAgentRuntimeSessionResponseSchema;
+    input: typeof RenewSessionRequestSchema;
+    output: typeof RenewSessionResponseSchema;
   },
   /**
-   * @generated from rpc sumi.runtime.v1.AgentRuntimeService.RevokeAgentRuntimeSession
+   * @generated from rpc sumi.runtime.v1.RuntimeService.RevokeSession
    */
-  revokeAgentRuntimeSession: {
+  revokeSession: {
     methodKind: "unary";
-    input: typeof RevokeAgentRuntimeSessionRequestSchema;
-    output: typeof RevokeAgentRuntimeSessionResponseSchema;
+    input: typeof RevokeSessionRequestSchema;
+    output: typeof RevokeSessionResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_sumi_runtime_v1_runtime, 0);

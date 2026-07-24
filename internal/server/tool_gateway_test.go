@@ -34,7 +34,7 @@ func TestRemoteToolGatewayUsesCurrentRuntimeAndExactRunTarget(t *testing.T) {
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 
 	ownerOption := ownerClientAuthorization(t, dataRoot)
@@ -134,7 +134,8 @@ func TestRemoteToolGatewayUsesCurrentRuntimeAndExactRunTarget(t *testing.T) {
 	}
 
 	if _, err := runs.CancelRun(context.Background(), runtimeRequestHTTP(rotated.GetToken(), &runv1.CancelRunRequest{
-		RequestId: uuid.NewString(), RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence(),
+		RequestId: uuid.NewString(), RunId: run.GetId(),
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestRemoteToolGatewayUsesCurrentRuntimeAndExactRunTarget(t *testing.T) {
 	runtimeSpaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL)
 	_, err = runtimeSpaces.SendMessage(context.Background(), runtimeRequestHTTP(rotated.GetToken(), &spacev1.SendMessageRequest{
 		RequestId: uuid.NewString(), Target: item.GetTarget(), Body: "stale transaction message",
-		RunId: run.GetId(), RunAttempt: run.GetAttempt(), RunFence: run.GetFence(),
+		RunProof: &grantv1.RunProof{RunId: run.GetId(), Attempt: run.GetAttempt(), Fence: run.GetFence()},
 	}))
 	if connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("stale transactional Run proof error = %v", err)
@@ -173,7 +174,7 @@ func TestRemoteToolGatewayCreatesWorkAndPublishesArtifactWithExactRunProof(t *te
 	api := openFactsAPI(t, dataRoot)
 	defer api.close(t)
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
-	runtimeClient := runtimev1connect.NewAgentRuntimeServiceClient(api.http.Client(), api.http.URL)
+	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 
 	ownerOption := ownerClientAuthorization(t, dataRoot)

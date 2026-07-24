@@ -111,7 +111,7 @@ func (f *runFixture) claimRun(t *testing.T, run Run, second int) Run {
 func rotateRunRuntime(t *testing.T, f *runFixture, tokenValue byte, now time.Time) AgentRuntimeAuthentication {
 	t.Helper()
 	token := rtToken(tokenValue)
-	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
+	if _, err := f.database.CreateSession(context.Background(), CreateAgentRuntimeSessionParams{
 		ComputerID: f.authentication.Proof.ComputerID(), RegistrationKey: "computer-registration-key",
 		AgentID: f.agentID, PlacementDesiredRevision: f.authentication.Proof.PlacementDesiredRevision(),
 		Token: token, Now: now, ExpiresAt: now.Add(agentRuntimeSessionTTL),

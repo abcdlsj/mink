@@ -845,7 +845,7 @@ func TestInboxArchiveAndRuntimeFailuresWriteNoDraftOrReceipt(t *testing.T) {
 	}
 	assertInboxRequestWrites(t, f.database, requestID, 0, 0)
 
-	if err := f.database.RevokeAgentRuntimeSession(ctx, RevokeAgentRuntimeSessionParams{
+	if err := f.database.RevokeSession(ctx, RevokeAgentRuntimeSessionParams{
 		Proof: f.authentication.Proof, ComputerID: f.authentication.Proof.ComputerID(),
 		RegistrationKey: "computer-registration-key", Now: f.at(7),
 	}); err != nil {

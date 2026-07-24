@@ -6,6 +6,8 @@ import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobu
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv1";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { RunProof } from "../../grant/v1/grant_pb";
+import { file_sumi_grant_v1_grant } from "../../grant/v1/grant_pb";
 import type { HeldDraft } from "../../inbox/v1/inbox_pb";
 import { file_sumi_inbox_v1_inbox } from "../../inbox/v1/inbox_pb";
 import type { Message as Message$1, MessageTarget, Principal } from "../../space/v1/space_pb";
@@ -16,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file sumi/run/v1/run.proto.
  */
 export const file_sumi_run_v1_run: GenFile = /*@__PURE__*/
-  fileDesc("ChVzdW1pL3J1bi92MS9ydW4ucHJvdG8SC3N1bWkucnVuLnYxIjUKCFJ1blVzYWdlEhMKC2lucHV0X3VuaXRzGAEgASgEEhQKDG91dHB1dF91bml0cxgCIAEoBCL5BQoDUnVuEhAKCHNlcXVlbmNlGAEgASgEEgoKAmlkGAIgASgJEhAKCGFnZW50X2lkGAMgASgJEhUKDWluYm94X2l0ZW1faWQYBCABKAkSGgoSdHJpZ2dlcl9tZXNzYWdlX2lkGAUgASgJEhAKCHNwYWNlX2lkGAYgASgJEiwKBnRhcmdldBgHIAEoCzIcLnN1bWkuc3BhY2UudjEuTWVzc2FnZVRhcmdldBIfChd0cmlnZ2VyX3RhcmdldF9zZXF1ZW5jZRgIIAEoBBIjChtpbnB1dF9iYXNpc190YXJnZXRfc2VxdWVuY2UYCSABKAQSJAoFc3RhdGUYCiABKA4yFS5zdW1pLnJ1bi52MS5SdW5TdGF0ZRIPCgdhdHRlbXB0GAsgASgEEiAKGGxlYXNlX2hvbGRlcl9jb21wdXRlcl9pZBgMIAEoCRI0ChBsZWFzZV9leHBpcmVzX2F0GA0gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVmZW5jZRgOIAEoBBIiChpwbGFjZW1lbnRfZGVzaXJlZF9yZXZpc2lvbhgPIAEoBBIbChFyZXN1bHRfbWVzc2FnZV9pZBgQIAEoCUgAEh4KFHJlc3VsdF9oZWxkX2RyYWZ0X2lkGBEgASgJSAASJAoFdXNhZ2UYEiABKAsyFS5zdW1pLnJ1bi52MS5SdW5Vc2FnZRISCgplcnJvcl9jb2RlGBMgASgJEi4KCmNyZWF0ZWRfYXQYFCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnN0YXJ0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbXBsZXRlZF9hdBgWIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMY2FuY2VsbGVkX2F0GBcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIMCgpyZXN1bHRfcmVmIjgKD0xpc3RSdW5zUmVxdWVzdBIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBINCgVsaW1pdBgCIAEoDSJJChBMaXN0UnVuc1Jlc3BvbnNlEh4KBHJ1bnMYASADKAsyEC5zdW1pLnJ1bi52MS5SdW4SFQoNbmV4dF9zZXF1ZW5jZRgCIAEoBCIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSIvCg5HZXRSdW5SZXNwb25zZRIdCgNydW4YASABKAsyEC5zdW1pLnJ1bi52MS5SdW4iNQoPQ2xhaW1SdW5SZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIjEKEENsYWltUnVuUmVzcG9uc2USHQoDcnVuGAEgASgLMhAuc3VtaS5ydW4udjEuUnVuIlUKD1JlbmV3UnVuUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIPCgdhdHRlbXB0GAMgASgEEg0KBWZlbmNlGAQgASgEIjEKEFJlbmV3UnVuUmVzcG9uc2USHQoDcnVuGAEgASgLMhAuc3VtaS5ydW4udjEuUnVuIlYKEENhbmNlbFJ1blJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSDwoHYXR0ZW1wdBgDIAEoBBINCgVmZW5jZRgEIAEoBCIyChFDYW5jZWxSdW5SZXNwb25zZRIdCgNydW4YASABKAsyEC5zdW1pLnJ1bi52MS5SdW4imwIKEkNvbXBsZXRlUnVuUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhcKD291dGJveF9ldmVudF9pZBgCIAEoCRIOCgZydW5faWQYAyABKAkSDwoHYXR0ZW1wdBgEIAEoBBINCgVmZW5jZRgFIAEoBBIoCgdvdXRjb21lGAYgASgOMhcuc3VtaS5ydW4udjEuUnVuT3V0Y29tZRIMCgRib2R5GAcgASgJEjYKFG1lbnRpb25lZF9wcmluY2lwYWxzGAggAygLMhguc3VtaS5zcGFjZS52MS5QcmluY2lwYWwSJAoFdXNhZ2UYCSABKAsyFS5zdW1pLnJ1bi52MS5SdW5Vc2FnZRISCgplcnJvcl9jb2RlGAogASgJIssBChNDb21wbGV0ZVJ1blJlc3BvbnNlEh0KA3J1bhgBIAEoCzIQLnN1bWkucnVuLnYxLlJ1bhIpCgdtZXNzYWdlGAIgASgLMhYuc3VtaS5zcGFjZS52MS5NZXNzYWdlSAASLgoKaGVsZF9kcmFmdBgDIAEoCzIYLnN1bWkuaW5ib3gudjEuSGVsZERyYWZ0SAASMAoMY29tbWl0dGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIICgZyZXN1bHQqmgEKCFJ1blN0YXRlEhkKFVJVTl9TVEFURV9VTlNQRUNJRklFRBAAEhQKEFJVTl9TVEFURV9RVUVVRUQQARIVChFSVU5fU1RBVEVfUlVOTklORxACEhcKE1JVTl9TVEFURV9TVUNDRUVERUQQAxIUChBSVU5fU1RBVEVfRkFJTEVEEAQSFwoTUlVOX1NUQVRFX0NBTkNFTExFRBAFKlwKClJ1bk91dGNvbWUSGwoXUlVOX09VVENPTUVfVU5TUEVDSUZJRUQQABIZChVSVU5fT1VUQ09NRV9TVUNDRUVERUQQARIWChJSVU5fT1VUQ09NRV9GQUlMRUQQAjLIAwoKUnVuU2VydmljZRJHCghMaXN0UnVucxIcLnN1bWkucnVuLnYxLkxpc3RSdW5zUmVxdWVzdBodLnN1bWkucnVuLnYxLkxpc3RSdW5zUmVzcG9uc2USQQoGR2V0UnVuEhouc3VtaS5ydW4udjEuR2V0UnVuUmVxdWVzdBobLnN1bWkucnVuLnYxLkdldFJ1blJlc3BvbnNlEkcKCENsYWltUnVuEhwuc3VtaS5ydW4udjEuQ2xhaW1SdW5SZXF1ZXN0Gh0uc3VtaS5ydW4udjEuQ2xhaW1SdW5SZXNwb25zZRJHCghSZW5ld1J1bhIcLnN1bWkucnVuLnYxLlJlbmV3UnVuUmVxdWVzdBodLnN1bWkucnVuLnYxLlJlbmV3UnVuUmVzcG9uc2USSgoJQ2FuY2VsUnVuEh0uc3VtaS5ydW4udjEuQ2FuY2VsUnVuUmVxdWVzdBoeLnN1bWkucnVuLnYxLkNhbmNlbFJ1blJlc3BvbnNlElAKC0NvbXBsZXRlUnVuEh8uc3VtaS5ydW4udjEuQ29tcGxldGVSdW5SZXF1ZXN0GiAuc3VtaS5ydW4udjEuQ29tcGxldGVSdW5SZXNwb25zZUIyWjBnaXRodWIuY29tL2FiY2Rsc2ovc3VtaS9nZW4vZ28vc3VtaS9ydW4vdjE7cnVudjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_sumi_inbox_v1_inbox, file_sumi_space_v1_space]);
+  fileDesc("ChVzdW1pL3J1bi92MS9ydW4ucHJvdG8SC3N1bWkucnVuLnYxIjUKCFJ1blVzYWdlEhMKC2lucHV0X3VuaXRzGAEgASgEEhQKDG91dHB1dF91bml0cxgCIAEoBCL5BQoDUnVuEhAKCHNlcXVlbmNlGAEgASgEEgoKAmlkGAIgASgJEhAKCGFnZW50X2lkGAMgASgJEhUKDWluYm94X2l0ZW1faWQYBCABKAkSGgoSdHJpZ2dlcl9tZXNzYWdlX2lkGAUgASgJEhAKCHNwYWNlX2lkGAYgASgJEiwKBnRhcmdldBgHIAEoCzIcLnN1bWkuc3BhY2UudjEuTWVzc2FnZVRhcmdldBIfChd0cmlnZ2VyX3RhcmdldF9zZXF1ZW5jZRgIIAEoBBIjChtpbnB1dF9iYXNpc190YXJnZXRfc2VxdWVuY2UYCSABKAQSJAoFc3RhdGUYCiABKA4yFS5zdW1pLnJ1bi52MS5SdW5TdGF0ZRIPCgdhdHRlbXB0GAsgASgEEiAKGGxlYXNlX2hvbGRlcl9jb21wdXRlcl9pZBgMIAEoCRI0ChBsZWFzZV9leHBpcmVzX2F0GA0gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVmZW5jZRgOIAEoBBIiChpwbGFjZW1lbnRfZGVzaXJlZF9yZXZpc2lvbhgPIAEoBBIbChFyZXN1bHRfbWVzc2FnZV9pZBgQIAEoCUgAEh4KFHJlc3VsdF9oZWxkX2RyYWZ0X2lkGBEgASgJSAASJAoFdXNhZ2UYEiABKAsyFS5zdW1pLnJ1bi52MS5SdW5Vc2FnZRISCgplcnJvcl9jb2RlGBMgASgJEi4KCmNyZWF0ZWRfYXQYFCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnN0YXJ0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbXBsZXRlZF9hdBgWIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMY2FuY2VsbGVkX2F0GBcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIMCgpyZXN1bHRfcmVmIjgKD0xpc3RSdW5zUmVxdWVzdBIWCg5hZnRlcl9zZXF1ZW5jZRgBIAEoBBINCgVsaW1pdBgCIAEoDSJJChBMaXN0UnVuc1Jlc3BvbnNlEh4KBHJ1bnMYASADKAsyEC5zdW1pLnJ1bi52MS5SdW4SFQoNbmV4dF9zZXF1ZW5jZRgCIAEoBCIfCg1HZXRSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSIvCg5HZXRSdW5SZXNwb25zZRIdCgNydW4YASABKAsyEC5zdW1pLnJ1bi52MS5SdW4iNQoPQ2xhaW1SdW5SZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIjEKEENsYWltUnVuUmVzcG9uc2USHQoDcnVuGAEgASgLMhAuc3VtaS5ydW4udjEuUnVuImEKD1JlbmV3UnVuUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIqCglydW5fcHJvb2YYAyABKAsyFy5zdW1pLmdyYW50LnYxLlJ1blByb29mIjEKEFJlbmV3UnVuUmVzcG9uc2USHQoDcnVuGAEgASgLMhAuc3VtaS5ydW4udjEuUnVuImIKEENhbmNlbFJ1blJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSKgoJcnVuX3Byb29mGAMgASgLMhcuc3VtaS5ncmFudC52MS5SdW5Qcm9vZiIyChFDYW5jZWxSdW5SZXNwb25zZRIdCgNydW4YASABKAsyEC5zdW1pLnJ1bi52MS5SdW4ipwIKEkNvbXBsZXRlUnVuUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhcKD291dGJveF9ldmVudF9pZBgCIAEoCRIOCgZydW5faWQYAyABKAkSKgoJcnVuX3Byb29mGAQgASgLMhcuc3VtaS5ncmFudC52MS5SdW5Qcm9vZhIoCgdvdXRjb21lGAUgASgOMhcuc3VtaS5ydW4udjEuUnVuT3V0Y29tZRIMCgRib2R5GAYgASgJEjYKFG1lbnRpb25lZF9wcmluY2lwYWxzGAcgAygLMhguc3VtaS5zcGFjZS52MS5QcmluY2lwYWwSJAoFdXNhZ2UYCCABKAsyFS5zdW1pLnJ1bi52MS5SdW5Vc2FnZRISCgplcnJvcl9jb2RlGAkgASgJIssBChNDb21wbGV0ZVJ1blJlc3BvbnNlEh0KA3J1bhgBIAEoCzIQLnN1bWkucnVuLnYxLlJ1bhIpCgdtZXNzYWdlGAIgASgLMhYuc3VtaS5zcGFjZS52MS5NZXNzYWdlSAASLgoKaGVsZF9kcmFmdBgDIAEoCzIYLnN1bWkuaW5ib3gudjEuSGVsZERyYWZ0SAASMAoMY29tbWl0dGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIICgZyZXN1bHQqmgEKCFJ1blN0YXRlEhkKFVJVTl9TVEFURV9VTlNQRUNJRklFRBAAEhQKEFJVTl9TVEFURV9RVUVVRUQQARIVChFSVU5fU1RBVEVfUlVOTklORxACEhcKE1JVTl9TVEFURV9TVUNDRUVERUQQAxIUChBSVU5fU1RBVEVfRkFJTEVEEAQSFwoTUlVOX1NUQVRFX0NBTkNFTExFRBAFKlwKClJ1bk91dGNvbWUSGwoXUlVOX09VVENPTUVfVU5TUEVDSUZJRUQQABIZChVSVU5fT1VUQ09NRV9TVUNDRUVERUQQARIWChJSVU5fT1VUQ09NRV9GQUlMRUQQAjLIAwoKUnVuU2VydmljZRJHCghMaXN0UnVucxIcLnN1bWkucnVuLnYxLkxpc3RSdW5zUmVxdWVzdBodLnN1bWkucnVuLnYxLkxpc3RSdW5zUmVzcG9uc2USQQoGR2V0UnVuEhouc3VtaS5ydW4udjEuR2V0UnVuUmVxdWVzdBobLnN1bWkucnVuLnYxLkdldFJ1blJlc3BvbnNlEkcKCENsYWltUnVuEhwuc3VtaS5ydW4udjEuQ2xhaW1SdW5SZXF1ZXN0Gh0uc3VtaS5ydW4udjEuQ2xhaW1SdW5SZXNwb25zZRJHCghSZW5ld1J1bhIcLnN1bWkucnVuLnYxLlJlbmV3UnVuUmVxdWVzdBodLnN1bWkucnVuLnYxLlJlbmV3UnVuUmVzcG9uc2USSgoJQ2FuY2VsUnVuEh0uc3VtaS5ydW4udjEuQ2FuY2VsUnVuUmVxdWVzdBoeLnN1bWkucnVuLnYxLkNhbmNlbFJ1blJlc3BvbnNlElAKC0NvbXBsZXRlUnVuEh8uc3VtaS5ydW4udjEuQ29tcGxldGVSdW5SZXF1ZXN0GiAuc3VtaS5ydW4udjEuQ29tcGxldGVSdW5SZXNwb25zZUIyWjBnaXRodWIuY29tL2FiY2Rsc2ovc3VtaS9nZW4vZ28vc3VtaS9ydW4vdjE7cnVudjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_sumi_grant_v1_grant, file_sumi_inbox_v1_inbox, file_sumi_space_v1_space]);
 
 /**
  * @generated from message sumi.run.v1.RunUsage
@@ -306,14 +308,9 @@ export type RenewRunRequest = Message<"sumi.run.v1.RenewRunRequest"> & {
   runId: string;
 
   /**
-   * @generated from field: uint64 attempt = 3;
+   * @generated from field: sumi.grant.v1.RunProof run_proof = 3;
    */
-  attempt: bigint;
-
-  /**
-   * @generated from field: uint64 fence = 4;
-   */
-  fence: bigint;
+  runProof?: RunProof;
 };
 
 /**
@@ -355,14 +352,9 @@ export type CancelRunRequest = Message<"sumi.run.v1.CancelRunRequest"> & {
   runId: string;
 
   /**
-   * @generated from field: uint64 attempt = 3;
+   * @generated from field: sumi.grant.v1.RunProof run_proof = 3;
    */
-  attempt: bigint;
-
-  /**
-   * @generated from field: uint64 fence = 4;
-   */
-  fence: bigint;
+  runProof?: RunProof;
 };
 
 /**
@@ -409,37 +401,32 @@ export type CompleteRunRequest = Message<"sumi.run.v1.CompleteRunRequest"> & {
   runId: string;
 
   /**
-   * @generated from field: uint64 attempt = 4;
+   * @generated from field: sumi.grant.v1.RunProof run_proof = 4;
    */
-  attempt: bigint;
+  runProof?: RunProof;
 
   /**
-   * @generated from field: uint64 fence = 5;
-   */
-  fence: bigint;
-
-  /**
-   * @generated from field: sumi.run.v1.RunOutcome outcome = 6;
+   * @generated from field: sumi.run.v1.RunOutcome outcome = 5;
    */
   outcome: RunOutcome;
 
   /**
-   * @generated from field: string body = 7;
+   * @generated from field: string body = 6;
    */
   body: string;
 
   /**
-   * @generated from field: repeated sumi.space.v1.Principal mentioned_principals = 8;
+   * @generated from field: repeated sumi.space.v1.Principal mentioned_principals = 7;
    */
   mentionedPrincipals: Principal[];
 
   /**
-   * @generated from field: sumi.run.v1.RunUsage usage = 9;
+   * @generated from field: sumi.run.v1.RunUsage usage = 8;
    */
   usage?: RunUsage;
 
   /**
-   * @generated from field: string error_code = 10;
+   * @generated from field: string error_code = 9;
    */
   errorCode: string;
 };

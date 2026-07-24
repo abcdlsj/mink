@@ -3,6 +3,7 @@ syntax = "proto3";
 package sumi.run.v1;
 
 import "google/protobuf/timestamp.proto";
+import "sumi/grant/v1/grant.proto";
 import "sumi/inbox/v1/inbox.proto";
 import "sumi/space/v1/space.proto";
 
@@ -95,8 +96,7 @@ message ClaimRunResponse {
 message RenewRunRequest {
   string request_id = 1;
   string run_id = 2;
-  uint64 attempt = 3;
-  uint64 fence = 4;
+  sumi.grant.v1.RunProof run_proof = 3;
 }
 
 message RenewRunResponse {
@@ -106,8 +106,7 @@ message RenewRunResponse {
 message CancelRunRequest {
   string request_id = 1;
   string run_id = 2;
-  uint64 attempt = 3;
-  uint64 fence = 4;
+  sumi.grant.v1.RunProof run_proof = 3;
 }
 
 message CancelRunResponse {
@@ -118,13 +117,12 @@ message CompleteRunRequest {
   string request_id = 1;
   string outbox_event_id = 2;
   string run_id = 3;
-  uint64 attempt = 4;
-  uint64 fence = 5;
-  RunOutcome outcome = 6;
-  string body = 7;
-  repeated sumi.space.v1.Principal mentioned_principals = 8;
-  RunUsage usage = 9;
-  string error_code = 10;
+  sumi.grant.v1.RunProof run_proof = 4;
+  RunOutcome outcome = 5;
+  string body = 6;
+  repeated sumi.space.v1.Principal mentioned_principals = 7;
+  RunUsage usage = 8;
+  string error_code = 9;
 }
 
 message CompleteRunResponse {

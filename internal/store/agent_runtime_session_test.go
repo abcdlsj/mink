@@ -44,7 +44,7 @@ func TestAgentRuntimeCreateKeepsOneCurrentSession(t *testing.T) {
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			_, errorsByIndex[index] = f.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
+			_, errorsByIndex[index] = f.database.CreateSession(context.Background(), CreateAgentRuntimeSessionParams{
 				ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 				AgentID: f.agentID, PlacementDesiredRevision: 1, Token: tokens[index],
 				Now: f.now.Add(3 * time.Second), ExpiresAt: f.now.Add(10*time.Minute + 3*time.Second),
@@ -78,19 +78,19 @@ func TestAgentRuntimeCreateValidatesComputerBeforeBinding(t *testing.T) {
 		AgentID: uuid.NewString(), PlacementDesiredRevision: 99,
 		Token: rtToken(3), Now: f.now, ExpiresAt: f.now.Add(10 * time.Minute),
 	}
-	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), params); !errors.Is(err, ErrRegistrationKeyMismatch) {
+	if _, err := f.database.CreateSession(context.Background(), params); !errors.Is(err, ErrRegistrationKeyMismatch) {
 		t.Fatalf("wrong key error = %v", err)
 	}
 	assertRuntimeRows(t, f.database, 0)
 
 	params.RegistrationKey = f.registrationKey
-	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), params); !errors.Is(err, ErrAgentRuntimeBinding) {
+	if _, err := f.database.CreateSession(context.Background(), params); !errors.Is(err, ErrAgentRuntimeBinding) {
 		t.Fatalf("wrong binding error = %v", err)
 	}
 	assertRuntimeRows(t, f.database, 0)
 
 	params.ComputerID = uuid.NewString()
-	if _, err := f.database.CreateAgentRuntimeSession(context.Background(), params); !errors.Is(err, ErrComputerNotFound) {
+	if _, err := f.database.CreateSession(context.Background(), params); !errors.Is(err, ErrComputerNotFound) {
 		t.Fatalf("missing computer error = %v", err)
 	}
 	assertRuntimeRows(t, f.database, 0)
@@ -99,7 +99,7 @@ func TestAgentRuntimeCreateValidatesComputerBeforeBinding(t *testing.T) {
 func TestAgentRuntimeTTLValidationDoesNotMutateSessions(t *testing.T) {
 	f := openAgentRuntimeFixture(t)
 	for index, lifetime := range []time.Duration{10*time.Minute + time.Nanosecond, 24 * time.Hour} {
-		_, err := f.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
+		_, err := f.database.CreateSession(context.Background(), CreateAgentRuntimeSessionParams{
 			ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 			AgentID: f.agentID, PlacementDesiredRevision: 1, Token: rtToken(byte(50 + index)),
 			Now: f.now, ExpiresAt: f.now.Add(lifetime),
@@ -118,7 +118,7 @@ func TestAgentRuntimeTTLValidationDoesNotMutateSessions(t *testing.T) {
 	}
 	before := readAgentRuntimeRows(t, f.database)
 	for index, lifetime := range []time.Duration{10*time.Minute + time.Nanosecond, 24 * time.Hour} {
-		_, err := f.database.RenewAgentRuntimeSession(context.Background(), RenewAgentRuntimeSessionParams{
+		_, err := f.database.RenewSession(context.Background(), RenewAgentRuntimeSessionParams{
 			Proof: authentication.Proof, ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 			Token: rtToken(byte(53 + index)), Now: f.now.Add(time.Second),
 			ExpiresAt: f.now.Add(time.Second).Add(lifetime),
@@ -149,7 +149,7 @@ func TestAgentRuntimeRenewAndRevokeRequireCurrentComputer(t *testing.T) {
 		Proof: authentication.Proof, ComputerID: f.computer.ID, RegistrationKey: "wrong-key",
 		Token: rtToken(5), Now: f.now.Add(time.Second), ExpiresAt: f.now.Add(10*time.Minute + time.Second),
 	}
-	if _, err := f.database.RenewAgentRuntimeSession(context.Background(), wrongKey); !errors.Is(err, ErrRegistrationKeyMismatch) {
+	if _, err := f.database.RenewSession(context.Background(), wrongKey); !errors.Is(err, ErrRegistrationKeyMismatch) {
 		t.Fatalf("wrong key renew error = %v", err)
 	}
 	assertCurrentRuntimeCount(t, f.database, f.agentID, 1)
@@ -158,7 +158,7 @@ func TestAgentRuntimeRenewAndRevokeRequireCurrentComputer(t *testing.T) {
 	}
 
 	secondToken := rtToken(6)
-	renewed, err := f.database.RenewAgentRuntimeSession(context.Background(), RenewAgentRuntimeSessionParams{
+	renewed, err := f.database.RenewSession(context.Background(), RenewAgentRuntimeSessionParams{
 		Proof: authentication.Proof, ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 		Token: secondToken, Now: f.now.Add(2 * time.Second), ExpiresAt: f.now.Add(10*time.Minute + 2*time.Second),
 	})
@@ -169,7 +169,7 @@ func TestAgentRuntimeRenewAndRevokeRequireCurrentComputer(t *testing.T) {
 		t.Fatalf("renewed session = %+v", renewed)
 	}
 	assertRuntimeUnauthenticated(t, f.database, firstToken, f.now.Add(3*time.Second))
-	if _, err := f.database.RenewAgentRuntimeSession(context.Background(), RenewAgentRuntimeSessionParams{
+	if _, err := f.database.RenewSession(context.Background(), RenewAgentRuntimeSessionParams{
 		Proof: authentication.Proof, ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 		Token: rtToken(7), Now: f.now.Add(3 * time.Second), ExpiresAt: f.now.Add(10*time.Minute + 3*time.Second),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
@@ -181,14 +181,14 @@ func TestAgentRuntimeRenewAndRevokeRequireCurrentComputer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{
+	if err := f.database.RevokeSession(context.Background(), RevokeAgentRuntimeSessionParams{
 		Proof: renewedAuthentication.Proof, ComputerID: f.computer.ID,
 		RegistrationKey: f.registrationKey, Now: f.now.Add(4 * time.Second),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	assertRuntimeUnauthenticated(t, f.database, secondToken, f.now.Add(5*time.Second))
-	if err := f.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{
+	if err := f.database.RevokeSession(context.Background(), RevokeAgentRuntimeSessionParams{
 		Proof: renewedAuthentication.Proof, ComputerID: f.computer.ID,
 		RegistrationKey: f.registrationKey, Now: f.now.Add(5 * time.Second),
 	}); !errors.Is(err, ErrAgentRuntimeUnauthenticated) {
@@ -212,7 +212,7 @@ func TestAgentRuntimeConcurrentRenewHasOneSuccessor(t *testing.T) {
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			_, errorsByIndex[index] = f.database.RenewAgentRuntimeSession(context.Background(), RenewAgentRuntimeSessionParams{
+			_, errorsByIndex[index] = f.database.RenewSession(context.Background(), RenewAgentRuntimeSessionParams{
 				Proof: authentication.Proof, ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 				Token: tokens[index], Now: f.now.Add(2 * time.Second), ExpiresAt: f.now.Add(10*time.Minute + 2*time.Second),
 			})
@@ -252,7 +252,7 @@ func TestAgentRuntimeProofRecheckRejectsLifecycleChanges(t *testing.T) {
 			createRuntimeSession(t, f, rtToken(9), f.now.Add(2*time.Second))
 		},
 		"revoke": func(t *testing.T, f *agentRuntimeFixture, authentication AgentRuntimeAuthentication) {
-			if err := f.database.RevokeAgentRuntimeSession(context.Background(), RevokeAgentRuntimeSessionParams{
+			if err := f.database.RevokeSession(context.Background(), RevokeAgentRuntimeSessionParams{
 				Proof: authentication.Proof, ComputerID: f.computer.ID,
 				RegistrationKey: f.registrationKey, Now: f.now.Add(2 * time.Second),
 			}); err != nil {
@@ -433,7 +433,7 @@ func openAgentRuntimeFixtureAt(t *testing.T, path string) *agentRuntimeFixture {
 
 func createRuntimeSession(t *testing.T, f *agentRuntimeFixture, token string, now time.Time) AgentRuntimeSession {
 	t.Helper()
-	s, err := f.database.CreateAgentRuntimeSession(context.Background(), CreateAgentRuntimeSessionParams{
+	s, err := f.database.CreateSession(context.Background(), CreateAgentRuntimeSessionParams{
 		ComputerID: f.computer.ID, RegistrationKey: f.registrationKey,
 		AgentID: f.agentID, PlacementDesiredRevision: 1, Token: token,
 		Now: now, ExpiresAt: now.Add(10 * time.Minute),

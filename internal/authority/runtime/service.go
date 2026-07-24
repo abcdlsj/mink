@@ -20,9 +20,9 @@ import (
 const sessionTTL = 10 * time.Minute
 
 type sessionStore interface {
-	CreateAgentRuntimeSession(context.Context, authorityapp.CreateRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
-	RenewAgentRuntimeSession(context.Context, authorityapp.RenewRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
-	RevokeAgentRuntimeSession(context.Context, authorityapp.RevokeRuntimeSessionCommand) error
+	CreateSession(context.Context, authorityapp.CreateRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
+	RenewSession(context.Context, authorityapp.RenewRuntimeSessionCommand) (authorityapp.RuntimeSession, error)
+	RevokeSession(context.Context, authorityapp.RevokeRuntimeSessionCommand) error
 }
 
 type Config struct {
@@ -46,7 +46,7 @@ func NewService(database sessionStore, config Config) *Service {
 	return &Service{store: database, now: config.Now, random: config.Random}
 }
 
-func (s *Service) CreateAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.CreateAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.CreateAgentRuntimeSessionResponse], error) {
+func (s *Service) CreateSession(ctx context.Context, req *connect.Request[runtimev1.CreateSessionRequest]) (*connect.Response[runtimev1.CreateSessionResponse], error) {
 	computerID, agentID, rev, err := sessionBinding(
 		req.Msg.GetComputerId(), req.Msg.GetAgentId(), req.Msg.GetPlacementDesiredRevision(),
 	)
@@ -61,7 +61,7 @@ func (s *Service) CreateAgentRuntimeSession(ctx context.Context, req *connect.Re
 		return nil, servicesvc.ErrInternal
 	}
 	now := s.now()
-	session, err := s.store.CreateAgentRuntimeSession(ctx, authorityapp.CreateRuntimeSessionCommand{
+	session, err := s.store.CreateSession(ctx, authorityapp.CreateRuntimeSessionCommand{
 		ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(),
 		AgentID: agentID, PlacementDesiredRevision: rev,
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
@@ -69,12 +69,12 @@ func (s *Service) CreateAgentRuntimeSession(ctx context.Context, req *connect.Re
 	if err := createErr(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&runtimev1.CreateAgentRuntimeSessionResponse{
+	return connect.NewResponse(&runtimev1.CreateSessionResponse{
 		Session: sessionToProto(session, token),
 	}), nil
 }
 
-func (s *Service) RenewAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RenewAgentRuntimeSessionResponse], error) {
+func (s *Service) RenewSession(ctx context.Context, req *connect.Request[runtimev1.RenewSessionRequest]) (*connect.Response[runtimev1.RenewSessionResponse], error) {
 	_, proof, err := Subject(ctx)
 	if err != nil {
 		return nil, err
@@ -91,19 +91,19 @@ func (s *Service) RenewAgentRuntimeSession(ctx context.Context, req *connect.Req
 		return nil, servicesvc.ErrInternal
 	}
 	now := s.now()
-	session, err := s.store.RenewAgentRuntimeSession(ctx, authorityapp.RenewRuntimeSessionCommand{
+	session, err := s.store.RenewSession(ctx, authorityapp.RenewRuntimeSessionCommand{
 		Proof: proof, ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(),
 		Token: token, Now: now, ExpiresAt: now.Add(sessionTTL),
 	})
 	if err := renewErr(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&runtimev1.RenewAgentRuntimeSessionResponse{
+	return connect.NewResponse(&runtimev1.RenewSessionResponse{
 		Session: sessionToProto(session, token),
 	}), nil
 }
 
-func (s *Service) RevokeAgentRuntimeSession(ctx context.Context, req *connect.Request[runtimev1.RevokeAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RevokeAgentRuntimeSessionResponse], error) {
+func (s *Service) RevokeSession(ctx context.Context, req *connect.Request[runtimev1.RevokeSessionRequest]) (*connect.Response[runtimev1.RevokeSessionResponse], error) {
 	_, proof, err := Subject(ctx)
 	if err != nil {
 		return nil, err
@@ -115,13 +115,13 @@ func (s *Service) RevokeAgentRuntimeSession(ctx context.Context, req *connect.Re
 	if err := regKeyValid(req.Msg.GetRegistrationKey()); err != nil {
 		return nil, err
 	}
-	err = s.store.RevokeAgentRuntimeSession(ctx, authorityapp.RevokeRuntimeSessionCommand{
+	err = s.store.RevokeSession(ctx, authorityapp.RevokeRuntimeSessionCommand{
 		Proof: proof, ComputerID: computerID, RegistrationKey: req.Msg.GetRegistrationKey(), Now: s.now(),
 	})
 	if err := renewErr(err); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&runtimev1.RevokeAgentRuntimeSessionResponse{}), nil
+	return connect.NewResponse(&runtimev1.RevokeSessionResponse{}), nil
 }
 
 func (s *Service) randomToken() (string, error) {
@@ -191,8 +191,8 @@ func renewErr(err error) error {
 	}
 }
 
-func sessionToProto(s authorityapp.RuntimeSession, token string) *runtimev1.AgentRuntimeSession {
-	return &runtimev1.AgentRuntimeSession{
+func sessionToProto(s authorityapp.RuntimeSession, token string) *runtimev1.Session {
+	return &runtimev1.Session{
 		AgentId: s.AgentID, ComputerId: s.ComputerID,
 		PlacementDesiredRevision: s.PlacementDesiredRevision,
 		Token:    token,

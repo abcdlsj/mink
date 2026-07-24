@@ -151,10 +151,10 @@ func New(ctx context.Context, config Config) (*Server, error) {
 	mux.Handle(placementPath, placementHandler)
 	agentRuntimeAuthorization := connect.WithInterceptors(runtimeauth.NewProcedureInterceptor(
 		database,
-		runtimev1connect.AgentRuntimeServiceRenewAgentRuntimeSessionProcedure,
-		runtimev1connect.AgentRuntimeServiceRevokeAgentRuntimeSessionProcedure,
+		runtimev1connect.RuntimeServiceRenewSessionProcedure,
+		runtimev1connect.RuntimeServiceRevokeSessionProcedure,
 	))
-	agentRuntimePath, agentRuntimeHandler := runtimev1connect.NewAgentRuntimeServiceHandler(
+	agentRuntimePath, agentRuntimeHandler := runtimev1connect.NewRuntimeServiceHandler(
 		runtimeauth.NewService(database, runtimeauth.Config{}), agentRuntimeAuthorization,
 	)
 	mux.Handle(agentRuntimePath, agentRuntimeHandler)

@@ -61,8 +61,8 @@ type placementDaemonClient interface {
 }
 
 type runtimeDaemonClient interface {
-	CreateAgentRuntimeSession(context.Context, *connect.Request[runtimev1.CreateAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.CreateAgentRuntimeSessionResponse], error)
-	RenewAgentRuntimeSession(context.Context, *connect.Request[runtimev1.RenewAgentRuntimeSessionRequest]) (*connect.Response[runtimev1.RenewAgentRuntimeSessionResponse], error)
+	CreateSession(context.Context, *connect.Request[runtimev1.CreateSessionRequest]) (*connect.Response[runtimev1.CreateSessionResponse], error)
+	RenewSession(context.Context, *connect.Request[runtimev1.RenewSessionRequest]) (*connect.Response[runtimev1.RenewSessionResponse], error)
 }
 
 type inboxDaemonClient interface {
@@ -109,7 +109,7 @@ func NewDaemon(config DaemonConfig) *Daemon {
 		config:          config,
 		computers:       computerv1connect.NewComputerServiceClient(client, config.ServerURL),
 		placements:      placementv1connect.NewPlacementServiceClient(client, config.ServerURL),
-		runtimes:        runtimev1connect.NewAgentRuntimeServiceClient(client, config.ServerURL),
+		runtimes:        runtimev1connect.NewRuntimeServiceClient(client, config.ServerURL),
 		inbox:           inboxv1connect.NewInboxServiceClient(client, config.ServerURL),
 		runs:            runv1connect.NewRunServiceClient(client, config.ServerURL),
 		lifecycleLogger: observability.CategoryLogger(config.Logger, observability.ComponentComputer, observability.CategoryLifecycle),
