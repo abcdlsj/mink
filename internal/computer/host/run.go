@@ -122,7 +122,7 @@ func authoritativeTrigger(run *runv1.Run, observed *inboxv1.ObserveTargetRespons
 		run.GetTriggerTargetSequence() == 0 || run.GetTarget() == nil {
 		return triggerContext{}, errors.New("run trigger facts are invalid")
 	}
-	if _, err := messagecodec.ParseTarget(run.GetTarget()); err != nil {
+	if _, err := msgcodec.ParseTarget(run.GetTarget()); err != nil {
 		return triggerContext{}, fmt.Errorf("parse run target: %w", err)
 	}
 	if observed == nil || !proto.Equal(observed.GetTarget(), run.GetTarget()) || observed.GetHeadSequence() < run.GetTriggerTargetSequence() {
@@ -142,7 +142,7 @@ func authoritativeTrigger(run *runv1.Run, observed *inboxv1.ObserveTargetRespons
 		!messageMatchesTarget(trigger, run.GetTarget()) || strings.TrimSpace(trigger.GetBody()) == "" {
 		return triggerContext{}, errors.New("observed trigger message does not match run facts")
 	}
-	if err := messagecodec.ValidateBody(trigger.GetBody()); err != nil {
+	if err := msgcodec.ValidateBody(trigger.GetBody()); err != nil {
 		return triggerContext{}, fmt.Errorf("validate trigger body: %w", err)
 	}
 	messages := make([]computerruntime.ContextMessage, 0, len(observed.GetMessages()))

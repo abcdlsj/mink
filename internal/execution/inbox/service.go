@@ -117,7 +117,7 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 	if err != nil {
 		return nil, err
 	}
-	target, err := messagecodec.ParseTarget(request.Msg.GetTarget())
+	target, err := msgcodec.ParseTarget(request.Msg.GetTarget())
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 	if err := servicesvc.ServiceErr(err); err != nil {
 		return nil, err
 	}
-	targetMessage, err := messagecodec.Target(result.Target)
+	targetMessage, err := msgcodec.Target(result.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *Service) ObserveTarget(ctx context.Context, request *connect.Request[in
 		Messages: make([]*spacev1.Message, 0, len(result.Messages)), ObservedAt: timestamppb.New(result.ObservedAt),
 	}
 	for _, message := range result.Messages {
-		message, err := messagecodec.Message(message)
+		message, err := msgcodec.Message(message)
 		if err != nil {
 			return nil, err
 		}
@@ -231,10 +231,10 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 	if request.Msg.GetBasisTargetSequence() > math.MaxInt64 {
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("basis target sequence is too large"))
 	}
-	if err := messagecodec.ValidateBody(request.Msg.GetBody()); err != nil {
+	if err := msgcodec.ValidateBody(request.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := messagecodec.MentionedPrincipals(request.Msg.GetMentionedPrincipals())
+	mentions, err := msgcodec.MentionedPrincipals(request.Msg.GetMentionedPrincipals())
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
-		message, err := messagecodec.Message(*result.Message)
+		message, err := msgcodec.Message(*result.Message)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +261,7 @@ func (s *Service) SendInboxReply(ctx context.Context, request *connect.Request[i
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("send inbox reply result invalid"))
 		}
-		draft, err := messagecodec.HeldDraft(*result.HeldDraft)
+		draft, err := msgcodec.HeldDraft(*result.HeldDraft)
 		if err != nil {
 			return nil, err
 		}
@@ -291,7 +291,7 @@ func (s *Service) ListHeldDrafts(ctx context.Context, request *connect.Request[i
 		Drafts: make([]*inboxv1.HeldDraft, 0, len(result.Drafts)), NextSequence: result.NextSequence,
 	}
 	for _, draft := range result.Drafts {
-		draft, err := messagecodec.HeldDraft(draft)
+		draft, err := msgcodec.HeldDraft(draft)
 		if err != nil {
 			return nil, err
 		}
@@ -319,7 +319,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 	}
 	target := collaborationapp.MessageTarget{}
 	if action == executionapp.DraftResolutionRetarget {
-		target, err = messagecodec.ParseTarget(request.Msg.GetTarget())
+		target, err = msgcodec.ParseTarget(request.Msg.GetTarget())
 		if err != nil {
 			return nil, err
 		}
@@ -339,7 +339,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 		return nil, err
 	}
 	response := &inboxv1.ResolveHeldDraftResponse{
-		Action: messagecodec.DraftResolutionAction(result.Action), Item: item,
+		Action: msgcodec.DraftResolutionAction(result.Action), Item: item,
 		CommittedAt: timestamppb.New(result.CommittedAt),
 	}
 	switch result.Kind {
@@ -348,7 +348,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 		if result.Message == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
-		message, err := messagecodec.Message(*result.Message)
+		message, err := msgcodec.Message(*result.Message)
 		if err != nil {
 			return nil, err
 		}
@@ -357,7 +357,7 @@ func (s *Service) ResolveHeldDraft(ctx context.Context, request *connect.Request
 		if result.HeldDraft == nil {
 			return nil, connect.NewError(connect.CodeInternal, errors.New("resolve held draft result invalid"))
 		}
-		draft, err := messagecodec.HeldDraft(*result.HeldDraft)
+		draft, err := msgcodec.HeldDraft(*result.HeldDraft)
 		if err != nil {
 			return nil, err
 		}
@@ -452,11 +452,11 @@ func resolutionAction(value inboxv1.DraftResolutionAction) (string, error) {
 }
 
 func inboxItemMessage(item executionapp.InboxItem) (*inboxv1.InboxItem, error) {
-	target, err := messagecodec.Target(item.Target)
+	target, err := msgcodec.Target(item.Target)
 	if err != nil {
 		return nil, err
 	}
-	recipient, err := messagecodec.Principal(item.Recipient)
+	recipient, err := msgcodec.Principal(item.Recipient)
 	if err != nil {
 		return nil, err
 	}

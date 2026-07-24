@@ -146,10 +146,10 @@ func (s *Service) CompleteRun(ctx context.Context, req *connect.Request[runv1.Co
 	if err != nil {
 		return nil, err
 	}
-	if err := messagecodec.ValidateBody(req.Msg.GetBody()); err != nil {
+	if err := msgcodec.ValidateBody(req.Msg.GetBody()); err != nil {
 		return nil, err
 	}
-	mentions, err := messagecodec.MentionedPrincipals(req.Msg.GetMentionedPrincipals())
+	mentions, err := msgcodec.MentionedPrincipals(req.Msg.GetMentionedPrincipals())
 	if err != nil {
 		return nil, err
 	}

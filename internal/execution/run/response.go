@@ -20,7 +20,7 @@ func runToProto(v executionapp.Run) (*runv1.Run, error) {
 	if err := executiondomain.ValidateRun(toExecRun(v)); err != nil {
 		return nil, servicesvc.ErrInternal
 	}
-	target, err := messagecodec.Target(v.Target)
+	target, err := msgcodec.Target(v.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func completeResponse(v executionapp.CompleteRunResult) (*runv1.CompleteRunRespo
 		if v.Message == nil || v.HeldDraft != nil {
 			return nil, servicesvc.ErrInternal
 		}
-		msg, err := messagecodec.Message(*v.Message)
+		msg, err := msgcodec.Message(*v.Message)
 		if err != nil {
 			return nil, err
 		}
@@ -107,7 +107,7 @@ func completeResponse(v executionapp.CompleteRunResult) (*runv1.CompleteRunRespo
 		if v.Message != nil || v.HeldDraft == nil {
 			return nil, servicesvc.ErrInternal
 		}
-		draft, err := messagecodec.HeldDraft(*v.HeldDraft)
+		draft, err := msgcodec.HeldDraft(*v.HeldDraft)
 		if err != nil {
 			return nil, err
 		}

@@ -243,7 +243,7 @@ func TestHeldDraftResultRefMappingIsExclusive(t *testing.T) {
 			test.draft.SpaceID = spaceID
 			test.draft.Target = store.MessageTarget{Kind: store.MessageTargetSpace, ID: spaceID}
 			test.draft.Body = "draft body"
-			message, err := messagecodec.HeldDraft(test.draft)
+			message, err := msgcodec.HeldDraft(test.draft)
 			if err != nil {
 				t.Fatal(err)
 			}
