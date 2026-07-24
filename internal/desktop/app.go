@@ -26,25 +26,25 @@ type Shell interface {
 	ExecJS(context.Context, string)
 }
 
-type serviceController interface {
+type svcCtrl interface {
 	Configure(string)
 	Start(context.Context, osservice.Component) error
 	Running(context.Context, osservice.Component) bool
 }
 
-type httpDoer interface {
+type httpClient interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
-type handoffRequester func(context.Context, endpoint.Endpoint, string) (serverapp.BrowserHandoff, error)
+type handoffFn func(context.Context, endpoint.Endpoint, string) (serverapp.BrowserHandoff, error)
 
 type config struct {
 	dataRoot       string
 	credentialFile string
 	endpoint       endpoint.Endpoint
-	services       serviceController
-	client         httpDoer
-	requestHandoff handoffRequester
+	services       svcCtrl
+	client         httpClient
+	requestHandoff handoffFn
 	startupTimeout time.Duration
 	pollInterval   time.Duration
 }
@@ -99,18 +99,19 @@ func New(shell Shell) (*App, error) {
 	})
 }
 
-func newApp(shell Shell, config config) (*App, error) {
-	if shell == nil || config.services == nil || config.client == nil || config.requestHandoff == nil ||
-		config.dataRoot == "" || config.credentialFile == "" || config.startupTimeout <= 0 || config.pollInterval <= 0 ||
-		config.endpoint.Identity.Kind != endpoint.IdentityLiteralLoopback {
+func newApp(shell Shell, cfg config) (*App, error) {
+	if shell == nil || cfg.services == nil || cfg.client == nil || cfg.requestHandoff == nil ||
+		cfg.dataRoot == "" || cfg.credentialFile == "" || cfg.startupTimeout <= 0 || cfg.pollInterval <= 0 ||
+		cfg.endpoint.Identity.Kind != endpoint.IdentityLiteralLoopback {
 		return nil, errors.New("desktop configuration is invalid")
 	}
-	return &App{shell: shell, config: config}, nil
+	return &App{shell: shell, config: cfg}, nil
 }
 
 func (app *App) DomReady(ctx context.Context) {
 	app.mu.Lock()
-	switch app.state {
+	state := app.state
+	switch state {
 	case stateBootstrap:
 		app.state = stateOpening
 		app.mu.Unlock()
@@ -121,7 +122,7 @@ func (app *App) DomReady(ctx context.Context) {
 		app.mu.Unlock()
 	case stateNavigated:
 		app.mu.Unlock()
-		script, err := NavigationPolicyScript(app.config.endpoint.Origin)
+		script, err := navPolicyScript(app.config.endpoint.Origin)
 		if err != nil {
 			app.fail(ctx)
 			return
@@ -137,13 +138,13 @@ func (app *App) DomReady(ctx context.Context) {
 }
 
 func (app *App) open(ctx context.Context) error {
-	if err := app.ensureService(ctx, osservice.Server); err != nil {
+	if err := app.ensureSvc(ctx, osservice.Server); err != nil {
 		return err
 	}
 	if err := app.waitForServer(ctx); err != nil {
 		return err
 	}
-	if err := app.ensureService(ctx, osservice.Computer); err != nil {
+	if err := app.ensureSvc(ctx, osservice.Computer); err != nil {
 		return err
 	}
 	handoff, err := app.config.requestHandoff(ctx, app.config.endpoint, app.config.credentialFile)
@@ -153,7 +154,7 @@ func (app *App) open(ctx context.Context) error {
 	if err := validateHandoff(app.config.endpoint, handoff); err != nil {
 		return err
 	}
-	script, err := LocationReplaceScript(handoff.URL.String())
+	script, err := locationReplaceScript(handoff.URL.String())
 	if err != nil {
 		return err
 	}
@@ -168,7 +169,7 @@ func (app *App) open(ctx context.Context) error {
 	return nil
 }
 
-func (app *App) ensureService(ctx context.Context, component osservice.Component) error {
+func (app *App) ensureSvc(ctx context.Context, component osservice.Component) error {
 	if app.config.services.Running(ctx, component) {
 		return nil
 	}
@@ -184,15 +185,15 @@ func (app *App) waitForServer(ctx context.Context) error {
 	ticker := time.NewTicker(app.config.pollInterval)
 	defer ticker.Stop()
 	for {
-		request, err := http.NewRequestWithContext(waitCtx, http.MethodGet, app.config.endpoint.Origin+"/healthz", nil)
+		req, err := http.NewRequestWithContext(waitCtx, http.MethodGet, app.config.endpoint.Origin+"/healthz", nil)
 		if err != nil {
 			return errors.New("create Desktop health request")
 		}
-		response, err := app.config.client.Do(request)
+		resp, err := app.config.client.Do(req)
 		if err == nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1024))
-			response.Body.Close()
-			if response.StatusCode == http.StatusNoContent {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusNoContent {
 				return nil
 			}
 		}
@@ -211,45 +212,45 @@ func (app *App) fail(ctx context.Context) {
 	app.shell.ExecJS(ctx, StartupFailureScript())
 }
 
-func validateHandoff(serverEndpoint endpoint.Endpoint, handoff serverapp.BrowserHandoff) error {
-	if handoff.URL == nil || handoff.ExpiresAt.IsZero() || handoff.URL.Scheme+"://"+handoff.URL.Host != serverEndpoint.Origin ||
-		handoff.URL.RawQuery != "" || handoff.URL.Fragment != "" || handoff.URL.EscapedPath() != handoff.URL.Path {
+func validateHandoff(ep endpoint.Endpoint, handoff serverapp.BrowserHandoff) error {
+	u := handoff.URL
+	if u == nil || handoff.ExpiresAt.IsZero() || u.Scheme+"://"+u.Host != ep.Origin ||
+		u.RawQuery != "" || u.Fragment != "" || u.EscapedPath() != u.Path {
 		return errors.New("desktop browser handoff is unsafe")
 	}
-	token, found := strings.CutPrefix(handoff.URL.Path, websession.CreateHandoffPath+"/")
+	token, found := strings.CutPrefix(u.Path, websession.CreateHandoffPath+"/")
 	if !found || len(token) != 43 || strings.Contains(token, "/") {
 		return errors.New("desktop browser handoff is unsafe")
 	}
-	for _, character := range token {
-		if !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') &&
-			!(character >= '0' && character <= '9') && character != '_' && character != '-' {
+	for _, r := range token {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
 			return errors.New("desktop browser handoff is unsafe")
 		}
 	}
-	if handoff.URL.User != nil {
+	if u.User != nil {
 		return errors.New("desktop browser handoff is unsafe")
 	}
 	return nil
 }
 
-func LocationReplaceScript(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+func locationReplaceScript(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.Fragment != "" {
 		return "", errors.New("desktop navigation URL is invalid")
 	}
-	encoded, err := json.Marshal(parsed.String())
+	encoded, err := json.Marshal(u.String())
 	if err != nil {
 		return "", errors.New("encode Desktop navigation URL")
 	}
 	return fmt.Sprintf("window.location.replace(%s);", encoded), nil
 }
 
-func NavigationPolicyScript(rawOrigin string) (string, error) {
-	serverEndpoint, err := endpoint.Parse(rawOrigin, "")
-	if err != nil || serverEndpoint.Identity.Kind != endpoint.IdentityLiteralLoopback || serverEndpoint.Origin != rawOrigin {
+func navPolicyScript(rawOrigin string) (string, error) {
+	ep, err := endpoint.Parse(rawOrigin, "")
+	if err != nil || ep.Identity.Kind != endpoint.IdentityLiteralLoopback || ep.Origin != rawOrigin {
 		return "", errors.New("desktop navigation origin is invalid")
 	}
-	encoded, err := json.Marshal(serverEndpoint.Origin)
+	encoded, err := json.Marshal(ep.Origin)
 	if err != nil {
 		return "", errors.New("encode Desktop navigation origin")
 	}

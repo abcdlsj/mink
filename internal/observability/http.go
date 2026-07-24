@@ -9,80 +9,78 @@ import (
 )
 
 func HTTPMiddleware(logger *Logger, next http.Handler) http.Handler {
-	transport := CategoryLogger(logger, ComponentServer, CategoryTransport)
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+	t := CategoryLogger(logger, ComponentServer, CategoryTransport)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		observed := &responseObserver{ResponseWriter: response}
-		next.ServeHTTP(observed, request)
-		status := observed.status
+		obs := &respObs{ResponseWriter: w}
+		next.ServeHTTP(obs, r)
+		status := obs.status
 		if status == 0 {
 			status = http.StatusOK
 		}
 		fields := []any{
 			"event", "transport.http.completed",
-			"method", request.Method,
-			"path", safeRequestPath(request.URL.Path),
+			"method", r.Method,
+			"path", safePath(r.URL.Path),
 			"status", status,
 			"duration", time.Since(started),
-			"response_bytes", observed.bytes,
+			"response_bytes", obs.bytes,
 		}
 		switch {
 		case status >= http.StatusInternalServerError:
-			transport.Warn("HTTP request failed", fields...)
+			t.Warn("HTTP request failed", fields...)
 		case status >= http.StatusBadRequest:
-			transport.Info("HTTP request rejected", fields...)
+			t.Info("HTTP request rejected", fields...)
 		default:
-			transport.Debug("HTTP request completed", fields...)
+			t.Debug("HTTP request completed", fields...)
 		}
 	})
 }
 
-func safeRequestPath(path string) string {
+func safePath(path string) string {
 	if strings.HasPrefix(path, "/auth/") {
 		return "/auth/:token"
 	}
 	return path
 }
 
-type responseObserver struct {
+type respObs struct {
 	http.ResponseWriter
 	status int
 	bytes  int
 }
 
-func (response *responseObserver) WriteHeader(status int) {
-	if response.status != 0 {
+func (w *respObs) WriteHeader(status int) {
+	if w.status != 0 {
 		return
 	}
-	response.status = status
-	response.ResponseWriter.WriteHeader(status)
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
 }
 
-func (response *responseObserver) Write(payload []byte) (int, error) {
-	if response.status == 0 {
-		response.WriteHeader(http.StatusOK)
+func (w *respObs) Write(payload []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
 	}
-	written, err := response.ResponseWriter.Write(payload)
-	response.bytes += written
-	return written, err
+	n, err := w.ResponseWriter.Write(payload)
+	w.bytes += n
+	return n, err
 }
 
-func (response *responseObserver) Unwrap() http.ResponseWriter {
-	return response.ResponseWriter
+func (w *respObs) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (w *respObs) Flush() {
+	http.NewResponseController(w.ResponseWriter).Flush()
 }
 
-func (response *responseObserver) Flush() {
-	_ = http.NewResponseController(response.ResponseWriter).Flush()
+func (w *respObs) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(w.ResponseWriter).Hijack()
 }
 
-func (response *responseObserver) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return http.NewResponseController(response.ResponseWriter).Hijack()
-}
-
-func (response *responseObserver) Push(target string, options *http.PushOptions) error {
-	pusher, ok := response.ResponseWriter.(http.Pusher)
+func (w *respObs) Push(target string, opts *http.PushOptions) error {
+	pusher, ok := w.ResponseWriter.(http.Pusher)
 	if !ok {
 		return http.ErrNotSupported
 	}
-	return pusher.Push(target, options)
+	return pusher.Push(target, opts)
 }

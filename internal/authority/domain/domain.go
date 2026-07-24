@@ -10,9 +10,13 @@ const (
 	PrincipalAgent  PrincipalKind = "agent"
 )
 
-func (kind PrincipalKind) Valid() bool {
-	return kind == PrincipalSystem || kind == PrincipalHuman || kind == PrincipalAgent
+var validKinds = map[PrincipalKind]bool{
+	PrincipalSystem: true,
+	PrincipalHuman:  true,
+	PrincipalAgent:  true,
 }
+
+func (k PrincipalKind) Valid() bool { return validKinds[k] }
 
 type Principal struct {
 	Kind           PrincipalKind
@@ -20,14 +24,17 @@ type Principal struct {
 	OrganizationID string
 }
 
-func (principal Principal) Valid() bool {
-	if principal.OrganizationID == "" {
+func (p Principal) Valid() bool {
+	if p.OrganizationID == "" {
 		return false
 	}
-	if principal.Kind == PrincipalSystem {
-		return principal.ID == ""
+	switch p.Kind {
+	case PrincipalSystem:
+		return p.ID == ""
+	case PrincipalHuman, PrincipalAgent:
+		return p.ID != ""
 	}
-	return (principal.Kind == PrincipalHuman || principal.Kind == PrincipalAgent) && principal.ID != ""
+	return false
 }
 
 type ScopeKind string
@@ -40,23 +47,22 @@ const (
 	ScopeWork         ScopeKind = "work"
 )
 
-func (kind ScopeKind) Valid() bool {
-	switch kind {
-	case ScopeOrganization, ScopeAgent, ScopeComputer, ScopeSpace, ScopeWork:
-		return true
-	default:
-		return false
-	}
+var validScopeKinds = map[ScopeKind]bool{
+	ScopeOrganization: true,
+	ScopeAgent:        true,
+	ScopeComputer:     true,
+	ScopeSpace:        true,
+	ScopeWork:         true,
 }
+
+func (k ScopeKind) Valid() bool { return validScopeKinds[k] }
 
 type Scope struct {
 	Kind ScopeKind
 	ID   string
 }
 
-func (scope Scope) Valid() bool {
-	return scope.Kind.Valid() && scope.ID != ""
-}
+func (s Scope) Valid() bool { return s.Kind.Valid() && s.ID != "" }
 
 type Capability string
 
@@ -83,46 +89,34 @@ const (
 	CapabilityWorkApprove           Capability = "work.approve"
 )
 
-func (capability Capability) Valid() bool {
-	switch capability {
-	case CapabilityOrganizationAdmin,
-		CapabilityHumanCreate,
-		CapabilityGrantIssue,
-		CapabilityGrantRevoke,
-		CapabilityAuditRead,
-		CapabilityAgentCreate,
-		CapabilityAgentProfileUpdate,
-		CapabilityAgentRuntimeConfigure,
-		CapabilityAgentPlace,
-		CapabilitySpaceCreate,
-		CapabilitySpaceRead,
-		CapabilitySpaceMembers,
-		CapabilitySpaceArchive,
-		CapabilityMessageSend,
-		CapabilityRunExecute,
-		CapabilityComputerPair,
-		CapabilityWorkCreate,
-		CapabilityWorkRead,
-		CapabilityWorkManage,
-		CapabilityWorkApprove:
-		return true
-	default:
-		return false
+var validCap = func() map[Capability]bool {
+	m := make(map[Capability]bool, 20)
+	for _, c := range []Capability{
+		CapabilityOrganizationAdmin, CapabilityHumanCreate,
+		CapabilityGrantIssue, CapabilityGrantRevoke, CapabilityAuditRead,
+		CapabilityAgentCreate, CapabilityAgentProfileUpdate, CapabilityAgentRuntimeConfigure,
+		CapabilityAgentPlace, CapabilitySpaceCreate, CapabilitySpaceRead, CapabilitySpaceMembers,
+		CapabilitySpaceArchive, CapabilityMessageSend, CapabilityRunExecute, CapabilityComputerPair,
+		CapabilityWorkCreate, CapabilityWorkRead, CapabilityWorkManage, CapabilityWorkApprove,
+	} {
+		m[c] = true
 	}
-}
+	return m
+}()
 
-func (capability Capability) AllowsScope(kind ScopeKind) bool {
-	if !capability.Valid() {
+func (c Capability) Valid() bool { return validCap[c] }
+
+func (c Capability) AllowsScope(kind ScopeKind) bool {
+	if !c.Valid() {
 		return false
 	}
-	switch capability {
+	switch c {
 	case CapabilityWorkCreate:
 		return kind == ScopeOrganization
 	case CapabilityWorkRead, CapabilityWorkManage, CapabilityWorkApprove:
 		return kind == ScopeOrganization || kind == ScopeWork
-	default:
-		return true
 	}
+	return true
 }
 
 var (

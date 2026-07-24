@@ -132,12 +132,12 @@ func TestDesktopFailureIsQuietAndDoesNotRetryInProcess(t *testing.T) {
 }
 
 func TestNavigationPolicyRequiresExactLiteralLoopback(t *testing.T) {
-	script, err := NavigationPolicyScript("http://127.0.0.1:8080")
+	script, err := navPolicyScript("http://127.0.0.1:8080")
 	if err != nil || !strings.Contains(script, `window.location.origin !== expectedOrigin`) || !strings.Contains(script, `event.stopImmediatePropagation()`) {
 		t.Fatalf("policy = %q, %v", script, err)
 	}
 	for _, unsafe := range []string{"http://localhost:8080", "http://192.0.2.1:8080", "https://example.com"} {
-		if _, err := NavigationPolicyScript(unsafe); err == nil {
+		if _, err := navPolicyScript(unsafe); err == nil {
 			t.Fatalf("unsafe origin accepted: %q", unsafe)
 		}
 	}

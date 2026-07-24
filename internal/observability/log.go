@@ -39,27 +39,8 @@ func New(component Component, writer io.Writer) *Logger {
 	if writer == nil {
 		writer = io.Discard
 	}
-	level := charmlog.InfoLevel
-	invalidLevel := false
-	if configured := strings.TrimSpace(os.Getenv("SUMI_LOG_LEVEL")); configured != "" {
-		parsed, err := charmlog.ParseLevel(configured)
-		if err != nil || parsed == charmlog.FatalLevel {
-			invalidLevel = true
-		} else {
-			level = parsed
-		}
-	}
-	formatter := charmlog.TextFormatter
-	invalidFormat := false
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("SUMI_LOG_FORMAT"))) {
-	case "", "text":
-	case "json":
-		formatter = charmlog.JSONFormatter
-	case "logfmt":
-		formatter = charmlog.LogfmtFormatter
-	default:
-		invalidFormat = true
-	}
+	level, invalidLevel := parseLevel()
+	formatter, invalidFormat := parseFormatter()
 	if invalidLevel || invalidFormat {
 		level = charmlog.InfoLevel
 		formatter = charmlog.TextFormatter
@@ -73,9 +54,36 @@ func New(component Component, writer io.Writer) *Logger {
 		Formatter:       formatter,
 	})
 	if invalidLevel || invalidFormat {
-		logger.Warn("invalid logging configuration; using safe defaults", "category", CategoryLifecycle, "event", "logging.configuration.invalid", "invalid_level", invalidLevel, "invalid_format", invalidFormat)
+		logger.Warn("invalid logging configuration; using safe defaults",
+			"category", CategoryLifecycle, "event", "logging.configuration.invalid",
+			"invalid_level", invalidLevel, "invalid_format", invalidFormat)
 	}
 	return logger
+}
+
+func parseLevel() (charmlog.Level, bool) {
+	raw := strings.TrimSpace(os.Getenv("SUMI_LOG_LEVEL"))
+	if raw == "" {
+		return charmlog.InfoLevel, false
+	}
+	level, err := charmlog.ParseLevel(raw)
+	if err != nil || level == charmlog.FatalLevel {
+		return charmlog.InfoLevel, true
+	}
+	return level, false
+}
+
+func parseFormatter() (charmlog.Formatter, bool) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SUMI_LOG_FORMAT"))) {
+	case "", "text":
+		return charmlog.TextFormatter, false
+	case "json":
+		return charmlog.JSONFormatter, false
+	case "logfmt":
+		return charmlog.LogfmtFormatter, false
+	default:
+		return charmlog.TextFormatter, true
+	}
 }
 
 func Discard(component Component) *Logger {
