@@ -47,7 +47,7 @@ func PreparePairing(ctx context.Context, state *computerstate.State, serverURL, 
 }
 
 func preparePairing(ctx context.Context, state *computerstate.State, serverURL, token, name string, operatingSystem computerv1.OperatingSystem, architecture computerv1.Architecture, now time.Time, random io.Reader) error {
-	registrationKey, err := randomSecret(random)
+	rk, err := randomSecret(random)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func preparePairing(ctx context.Context, state *computerstate.State, serverURL, 
 		return err
 	}
 	return state.SavePairingAttempt(ctx, computerstate.PairingAttempt{
-		ServerURL: serverURL, PairingToken: token, RequestID: uuid.NewString(), RegistrationKey: registrationKey,
+		ServerURL: serverURL, PairingToken: token, RequestID: uuid.NewString(), RegistrationKey: rk,
 		Name: name, OS: osName, Arch: archName, CreatedAt: now,
 	})
 }
@@ -133,12 +133,12 @@ func (h *Host) ReplacePairingAttempt(ctx context.Context, pairingToken, name str
 	if err != nil {
 		return false, err
 	}
-	registrationKey, err := randomSecret(rand.Reader)
+	rk, err := randomSecret(rand.Reader)
 	if err != nil {
 		return false, err
 	}
 	replacement := computerstate.PairingAttempt{
-		ServerURL: attempt.ServerURL, PairingToken: pairingToken, RequestID: uuid.NewString(), RegistrationKey: registrationKey,
+		ServerURL: attempt.ServerURL, PairingToken: pairingToken, RequestID: uuid.NewString(), RegistrationKey: rk,
 		Name: name, OS: osName, Arch: archName, CreatedAt: now,
 	}
 	if err := h.config.State.ReplacePairingAttempt(ctx, attempt, replacement); err != nil {

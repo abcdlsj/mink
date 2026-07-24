@@ -119,7 +119,7 @@ func (h *Host) identity(ctx context.Context) (computerstate.Identity, bool, erro
 	return identity, found, nil
 }
 
-func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placementv1.AgentPlacement, registrationKey string) error {
+func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placementv1.AgentPlacement, rk string) error {
 	_, provisionError := workspace.Provision(h.config.DataRoot, assignment.GetAgentId())
 	result := placementv1.AcknowledgementResult_ACKNOWLEDGEMENT_RESULT_READY
 	errorCode := ""
@@ -129,7 +129,7 @@ func (h *Host) provisionAndAcknowledge(ctx context.Context, assignment *placemen
 	}
 	_, acknowledgementError := h.placements.AcknowledgeAgentPlacement(ctx, connect.NewRequest(&placementv1.AcknowledgeAgentPlacementRequest{
 		ComputerId:      assignment.GetComputerId(),
-		RegistrationKey: registrationKey,
+		RegistrationKey: rk,
 		AgentId:         assignment.GetAgentId(),
 		DesiredRevision: assignment.GetDesiredRevision(),
 		Result:          result,

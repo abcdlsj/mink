@@ -177,8 +177,8 @@ func (d *Daemon) syncPlacements(ctx context.Context, identity computerstate.Iden
 		return fmt.Errorf("list local runtime sessions: %w", err)
 	}
 	for _, session := range sessions {
-		desiredRevision, current := ready[session.AgentID]
-		if current && desiredRevision == session.PlacementDesiredRevision && session.ComputerID == identity.ComputerID {
+		rev, current := ready[session.AgentID]
+		if current && rev == session.PlacementDesiredRevision && session.ComputerID == identity.ComputerID {
 			continue
 		}
 		if err := d.config.State.DeleteRuntimeSession(ctx, session.AgentID, session.ComputerID, session.PlacementDesiredRevision); err != nil {
@@ -254,16 +254,16 @@ func (d *Daemon) reconcileRuntimeSlot(placement *placementv1.AgentPlacement) err
 	})
 }
 
-func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Identity, agentID string, desiredRevision uint64) error {
+func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Identity, agentID string, rev uint64) error {
 	now := d.config.Now()
 	session, found, err := d.config.State.RuntimeSession(ctx, agentID)
 	if err != nil {
 		return fmt.Errorf("read runtime session for agent %q: %w", agentID, err)
 	}
-	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == desiredRevision && session.ExpiresAt.After(now.Add(d.config.RuntimeRenewBefore)) {
+	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == rev && session.ExpiresAt.After(now.Add(d.config.RuntimeRenewBefore)) {
 		return nil
 	}
-	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == desiredRevision {
+	if found && session.ComputerID == identity.ComputerID && session.PlacementDesiredRevision == rev {
 		rpcCtx, cancel := d.rpcContext(ctx)
 		request := runtimeRequest(session.Token, &runtimev1.RenewAgentRuntimeSessionRequest{
 			ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
@@ -271,10 +271,10 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		response, renewErr := d.runtimes.RenewAgentRuntimeSession(rpcCtx, request)
 		cancel()
 		if renewErr == nil && response != nil {
-			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, desiredRevision, now); err != nil {
+			if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, rev, now); err != nil {
 				return err
 			}
-			d.runtimeLogger.Info("runtime session renewed", "event", "runtime.session.renewed", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+			d.runtimeLogger.Info("runtime session renewed", "event", "runtime.session.renewed", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", rev, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
 			return nil
 		}
 		if renewErr == nil {
@@ -283,15 +283,15 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 		if connect.CodeOf(renewErr) != connect.CodeUnauthenticated {
 			return fmt.Errorf("renew runtime session for agent %q: %w", agentID, renewErr)
 		}
-		if err := d.config.State.DeleteRuntimeSession(ctx, agentID, identity.ComputerID, desiredRevision); err != nil {
+		if err := d.config.State.DeleteRuntimeSession(ctx, agentID, identity.ComputerID, rev); err != nil {
 			return fmt.Errorf("delete rejected runtime session for agent %q: %w", agentID, err)
 		}
-		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision)
+		d.runtimeLogger.Warn("runtime session rejected and removed", "event", "runtime.session.rejected", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", rev)
 	}
 	rpcCtx, cancel := d.rpcContext(ctx)
 	response, err := d.runtimes.CreateAgentRuntimeSession(rpcCtx, connect.NewRequest(&runtimev1.CreateAgentRuntimeSessionRequest{
 		ComputerId: identity.ComputerID, RegistrationKey: identity.RegistrationKey,
-		AgentId: agentID, PlacementDesiredRevision: desiredRevision,
+		AgentId: agentID, PlacementDesiredRevision: rev,
 	}))
 	cancel()
 	if err != nil {
@@ -300,16 +300,16 @@ func (d *Daemon) ensureRuntime(ctx context.Context, identity computerstate.Ident
 	if response == nil {
 		return errors.New("create runtime session returned no response")
 	}
-	if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, desiredRevision, now); err != nil {
+	if err := d.saveRuntimeResponse(ctx, response.Msg.GetSession(), agentID, identity.ComputerID, rev, now); err != nil {
 		return err
 	}
-	d.runtimeLogger.Info("runtime session created", "event", "runtime.session.created", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", desiredRevision, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
+	d.runtimeLogger.Info("runtime session created", "event", "runtime.session.created", "agent_id", agentID, "computer_id", identity.ComputerID, "placement_desired_revision", rev, "expires_at", response.Msg.GetSession().GetExpiresAt().AsTime())
 	return nil
 }
 
-func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, desiredRevision uint64, updatedAt time.Time) error {
+func (d *Daemon) saveRuntimeResponse(ctx context.Context, session *runtimev1.AgentRuntimeSession, agentID, computerID string, rev uint64, updatedAt time.Time) error {
 	if session == nil || session.GetAgentId() != agentID || session.GetComputerId() != computerID ||
-		session.GetPlacementDesiredRevision() != desiredRevision || session.GetExpiresAt() == nil ||
+		session.GetPlacementDesiredRevision() != rev || session.GetExpiresAt() == nil ||
 		session.GetExpiresAt().CheckValid() != nil || !session.GetExpiresAt().AsTime().After(updatedAt) ||
 		!canonicalSecret(session.GetToken()) {
 		return errors.New("runtime session response is invalid")

@@ -56,9 +56,9 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	if state == WorkStateCompleted || state == WorkStateFailed || state == WorkStateCancelled {
 		return WorkAssignment{}, ErrWorkTerminal
 	}
-	var desiredRevision uint64
+	var rev uint64
 	var computerID, placementState string
-	if err := tx.QueryRowContext(ctx, `SELECT computer_id, desired_revision, state FROM agent_placements WHERE agent_id = ?`, params.AgentID).Scan(&computerID, &desiredRevision, &placementState); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT computer_id, desired_revision, state FROM agent_placements WHERE agent_id = ?`, params.AgentID).Scan(&computerID, &rev, &placementState); errors.Is(err, sql.ErrNoRows) {
 		return WorkAssignment{}, ErrWorkPlacementInvalid
 	} else if err != nil {
 		return WorkAssignment{}, err
@@ -74,7 +74,7 @@ func (s *Store) AssignWork(ctx context.Context, params AssignWorkParams) (WorkAs
 	}
 	assignmentID := uuid.NewString()
 	stamp := unixNano(params.Now)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO work_assignments(id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_desired_revision, assigned_by_kind, assigned_by_id, assigned_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, assignmentID, params.WorkID, params.Actor.OrganizationID, params.Role, params.AgentID, computerID, desiredRevision, params.Actor.Kind, params.Actor.ID, stamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO work_assignments(id, work_id, organization_id, role, agent_id, holder_computer_id, holder_placement_desired_revision, assigned_by_kind, assigned_by_id, assigned_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, assignmentID, params.WorkID, params.Actor.OrganizationID, params.Role, params.AgentID, computerID, rev, params.Actor.Kind, params.Actor.ID, stamp); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return WorkAssignment{}, ErrWorkAssignmentConflict
 		}

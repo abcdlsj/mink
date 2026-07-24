@@ -428,8 +428,8 @@ func scanPlacements(rows *sql.Rows) ([]AgentPlacement, error) {
 	return placements, nil
 }
 
-func authenticateComputer(ctx context.Context, tx *sql.Tx, computerID, registrationKey string) error {
-	keyHash := sha256.Sum256([]byte(registrationKey))
+func authenticateComputer(ctx context.Context, tx *sql.Tx, computerID, rk string) error {
+	keyHash := sha256.Sum256([]byte(rk))
 	var matches bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS(SELECT 1 FROM computers WHERE id = ? AND registration_key_hash = ?)

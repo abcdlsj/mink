@@ -229,14 +229,14 @@ func agentRuntimeAuthentication(ctx context.Context, queryer interface {
 	}, nil
 }
 
-func readyRuntimeBinding(ctx context.Context, tx *sql.Tx, agentID, computerID string, desiredRevision uint64) (bool, error) {
+func readyRuntimeBinding(ctx context.Context, tx *sql.Tx, agentID, computerID string, rev uint64) (bool, error) {
 	var bound bool
 	if err := tx.QueryRowContext(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM agent_placements
 			WHERE agent_id = ? AND computer_id = ? AND desired_revision = ? AND state = 'ready'
 		)
-	`, agentID, computerID, desiredRevision).Scan(&bound); err != nil {
+	`, agentID, computerID, rev).Scan(&bound); err != nil {
 		return false, fmt.Errorf("check ready agent runtime binding: %w", err)
 	}
 	return bound, nil
@@ -286,9 +286,9 @@ func revokeAgentRuntimeProof(ctx context.Context, tx *sql.Tx, proof AgentRuntime
 	return count == 1, nil
 }
 
-func validAgentRuntimeSession(agentID, computerID string, desiredRevision uint64, token string, now, expiresAt time.Time) bool {
+func validAgentRuntimeSession(agentID, computerID string, rev uint64, token string, now, expiresAt time.Time) bool {
 	lifetime := expiresAt.Sub(now)
-	return agentID != "" && computerID != "" && desiredRevision > 0 &&
+	return agentID != "" && computerID != "" && rev > 0 &&
 		validRuntimeToken(token) && !now.IsZero() && lifetime > 0 && lifetime <= agentRuntimeSessionTTL
 }
 

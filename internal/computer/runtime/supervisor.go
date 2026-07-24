@@ -147,11 +147,11 @@ func (s *Supervisor) RemoveExcept(ready map[string]uint64) {
 	}
 }
 
-func (s *Supervisor) Stop(agentID string, desiredRevision uint64) {
+func (s *Supervisor) Stop(agentID string, rev uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, found := s.slots[agentID]
-	if !found || current.config.PlacementDesiredRevision != desiredRevision {
+	if !found || current.config.PlacementDesiredRevision != rev {
 		return
 	}
 	if current.cancel != nil {
@@ -160,10 +160,10 @@ func (s *Supervisor) Stop(agentID string, desiredRevision uint64) {
 	delete(s.slots, agentID)
 }
 
-func (s *Supervisor) Acquire(parent context.Context, agentID string, desiredRevision uint64) (*Lease, error) {
+func (s *Supervisor) Acquire(parent context.Context, agentID string, rev uint64) (*Lease, error) {
 	s.mu.Lock()
 	current, found := s.slots[agentID]
-	if !found || current.config.PlacementDesiredRevision != desiredRevision {
+	if !found || current.config.PlacementDesiredRevision != rev {
 		s.mu.Unlock()
 		return nil, ErrNotReady
 	}
@@ -180,10 +180,10 @@ func (s *Supervisor) Acquire(parent context.Context, agentID string, desiredRevi
 	engine, err := s.factory.Open(ctx, config)
 	if err != nil {
 		cancel(err)
-		s.release(agentID, desiredRevision, nil)
+		s.release(agentID, rev, nil)
 		return nil, fmt.Errorf("open runtime engine: %w", err)
 	}
-	return &Lease{supervisor: s, agentID: agentID, desiredRevision: desiredRevision, ctx: ctx, cancel: cancel, engine: engine, config: config}, nil
+	return &Lease{supervisor: s, agentID: agentID, rev: rev, ctx: ctx, cancel: cancel, engine: engine, config: config}, nil
 }
 
 func (s *Supervisor) Counts() (slots, active int) {
@@ -210,7 +210,7 @@ func (s *Supervisor) Close() error {
 	return nil
 }
 
-func (s *Supervisor) release(agentID string, desiredRevision uint64, engine Engine) error {
+func (s *Supervisor) release(agentID string, rev uint64, engine Engine) error {
 	var closeErr error
 	if engine != nil {
 		closeErr = engine.Close()
@@ -218,7 +218,7 @@ func (s *Supervisor) release(agentID string, desiredRevision uint64, engine Engi
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, found := s.slots[agentID]
-	if found && current.config.PlacementDesiredRevision == desiredRevision {
+	if found && current.config.PlacementDesiredRevision == rev {
 		current.active = false
 		current.cancel = nil
 	}
@@ -228,7 +228,7 @@ func (s *Supervisor) release(agentID string, desiredRevision uint64, engine Engi
 type Lease struct {
 	supervisor      *Supervisor
 	agentID         string
-	desiredRevision uint64
+	rev uint64
 	ctx             context.Context
 	cancel          context.CancelCauseFunc
 	engine          Engine
@@ -252,7 +252,7 @@ func (l *Lease) Execute(execution Execution) (Completion, error) {
 func (l *Lease) Close() error {
 	l.once.Do(func() {
 		l.cancel(errors.New("runtime lease closed"))
-		l.err = l.supervisor.release(l.agentID, l.desiredRevision, l.engine)
+		l.err = l.supervisor.release(l.agentID, l.rev, l.engine)
 	})
 	return l.err
 }

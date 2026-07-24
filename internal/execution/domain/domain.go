@@ -120,14 +120,14 @@ func CanClaim(run Run, now time.Time) error {
 	}
 }
 
-func ValidateLease(run Run, computerID string, desiredRevision, attempt, fence uint64, now time.Time) error {
+func ValidateLease(run Run, computerID string, rev, attempt, fence uint64, now time.Time) error {
 	if err := ValidateRun(run); err != nil {
 		return err
 	}
 	if run.State != RunRunning {
 		return ErrRunNotRunning
 	}
-	if run.LeaseHolderComputerID != computerID || run.PlacementDesiredRevision != desiredRevision ||
+	if run.LeaseHolderComputerID != computerID || run.PlacementDesiredRevision != rev ||
 		run.Attempt != attempt || run.Fence != fence {
 		return ErrRunLeaseStale
 	}

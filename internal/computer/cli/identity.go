@@ -121,13 +121,13 @@ func synchronizeOnce(
 func hostConfig(
 	config commandConfig,
 	state *computerstate.State,
-	registrationKey string,
+	rk string,
 	osName computerv1.OperatingSystem,
 	arch computerv1.Architecture,
 	inventory *computerv1.CapabilityInventoryDeclaration,
 ) computerhost.Config {
 	return computerhost.Config{
-		ServerURL: config.serverURL, DataRoot: config.dataRoot, RegistrationKey: registrationKey,
+		ServerURL: config.serverURL, DataRoot: config.dataRoot, RegistrationKey: rk,
 		Name: config.name, OS: osName, Arch: arch, State: state, HTTPClient: config.httpClient, CapabilityInventory: inventory,
 	}
 }
