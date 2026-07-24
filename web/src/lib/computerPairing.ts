@@ -1,7 +1,6 @@
-export const computerPairingFilename = "sumi-computer-pairing.json";
-export const computerPairingCommand = `chmod 600 "$HOME/Downloads/${computerPairingFilename}" && \\
-sumi computer pair join --file "$HOME/Downloads/${computerPairingFilename}" && \\
-sumi computer start`;
+export const computerPairingCodePrefix = "sumi-pair-v1.";
+export const maskedComputerPairingCommand =
+  "sumi computer start --pairing-code sumi-pair-v1.••••••••••••";
 
 export type PairingServerIdentity = {
   kind: "literal-loopback" | "system-trust";
@@ -21,6 +20,8 @@ export type PreparedComputerPairing = {
   pairingToken: string;
   expiresAt: Date;
   bundle: ComputerPairingBundle;
+  connectionCode: string;
+  command: string;
 };
 
 export class UnsafePairingOriginError extends Error {
@@ -43,42 +44,40 @@ export function prepareComputerPairing(
   }
   const pairingToken = rawBase64URL(bytes);
   const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
+  const bundle: ComputerPairingBundle = {
+    version: 1,
+    request_id: requestId,
+    server_origin: endpoint.origin,
+    server_identity: { kind: endpoint.identity },
+    pairing_token: pairingToken,
+    expires_at: expiresAt.toISOString(),
+  };
+  const connectionCode = encodeComputerPairingCode(bundle);
   return {
     requestId,
     pairingToken,
     expiresAt,
-    bundle: {
-      version: 1,
-      request_id: requestId,
-      server_origin: endpoint.origin,
-      server_identity: { kind: endpoint.identity },
-      pairing_token: pairingToken,
-      expires_at: expiresAt.toISOString(),
-    },
+    bundle,
+    connectionCode,
+    command: computerPairingCommand(connectionCode),
   };
 }
 
-export function serializeComputerPairingBundle(
+export function encodeComputerPairingCode(
   bundle: ComputerPairingBundle,
 ): string {
-  return `${JSON.stringify(bundle, null, 2)}\n`;
+  const payload = new TextEncoder().encode(JSON.stringify(bundle));
+  return computerPairingCodePrefix + rawBase64URL(payload);
 }
 
-export function downloadComputerPairingBundle(
-  bundle: ComputerPairingBundle,
-): void {
-  const payload = serializeComputerPairingBundle(bundle);
-  const url = URL.createObjectURL(
-    new Blob([payload], { type: "application/json" }),
-  );
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = computerPairingFilename;
-  anchor.hidden = true;
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+export function computerPairingCommand(connectionCode: string): string {
+  if (
+    !connectionCode.startsWith(computerPairingCodePrefix) ||
+    !/^[A-Za-z0-9._-]+$/.test(connectionCode)
+  ) {
+    throw new Error("Connection code is invalid.");
+  }
+  return `sumi computer start --pairing-code ${connectionCode}`;
 }
 
 export function getPairingEndpoint(rawOrigin: string): {

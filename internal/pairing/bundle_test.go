@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,6 +47,65 @@ func TestBundleStrictRoundTripAndNoClobber(t *testing.T) {
 	payload, err := os.ReadFile(path)
 	if err != nil || len(payload) == 0 {
 		t.Fatalf("bundle after no-clobber = %q, %v", payload, err)
+	}
+}
+
+func TestConnectionCodeStrictRoundTrip(t *testing.T) {
+	now := time.Now().UTC()
+	server, err := endpoint.Parse("http://127.0.0.1:8080", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := New(server, now.Add(10*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := EncodeCode(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(code, CodePrefix) || strings.ContainsAny(code, "+/=") {
+		t.Fatalf("pairing code is not canonical base64url: %q", code)
+	}
+	decoded, err := DecodeCode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded != bundle {
+		t.Fatalf("decoded = %+v, want %+v", decoded, bundle)
+	}
+	if err := decoded.ValidateAt(now); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConnectionCodeRejectsMalformedAndUnknownPayload(t *testing.T) {
+	unknownPayload := base64.RawURLEncoding.EncodeToString([]byte(`{"version":1,"unknown":true}`))
+	for name, code := range map[string]string{
+		"empty":        "",
+		"wrong-prefix": "other.abc",
+		"padding":      CodePrefix + "e30=",
+		"invalid":      CodePrefix + "***",
+		"unknown":      CodePrefix + unknownPayload,
+		"trailing":     CodePrefix + base64.RawURLEncoding.EncodeToString([]byte(`{} {}`)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := DecodeCode(code); err == nil {
+				t.Fatal("invalid pairing code was accepted")
+			}
+		})
+	}
+}
+
+func TestConnectionCodeDecodesBrowserJSONTimestamp(t *testing.T) {
+	payload := []byte(`{"version":1,"request_id":"11111111-1111-4111-8111-111111111111","server_origin":"http://127.0.0.1:18082","server_identity":{"kind":"literal-loopback"},"pairing_token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","expires_at":"2026-07-24T14:00:00.000Z"}`)
+	code := CodePrefix + base64.RawURLEncoding.EncodeToString(payload)
+	bundle, err := DecodeCode(code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundle.ServerOrigin != "http://127.0.0.1:18082" || bundle.ServerIdentity.Kind != endpoint.IdentityLiteralLoopback {
+		t.Fatalf("browser pairing endpoint = %+v", bundle)
 	}
 }
 

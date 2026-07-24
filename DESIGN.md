@@ -70,6 +70,8 @@ Sumi 不是聊天壳、通用 Workflow/DAG 编辑器、远程进程启动器、�
 - 授权 pairing 的 Human 只作为 Audit actor；该 Human 被 disable 不能使 Computer 自动失效；
 - Computer 是否有效只由自身 credential、显式 revoke 和 Organization policy 决定。
 
+fresh Server 的首个 Owner setup 必须提交一次性高熵 Owner setup code，防止任意浏览器抢占 Owner。该 code 只证明本次初始交接，不是 Human credential；WebUI 不暴露 bootstrap credential、human.key 或 owner.key 等内部载体，也不显示、记录或持久化 setup code。
+
 Agent 不注册。Agent 由拥有 agent.create Grant 的 Human 在 Server WebUI 创建：
 
 - Computer CLI、daemon 和本地目录不能创建、导入或恢复 Agent 身份；
@@ -115,6 +117,20 @@ Computer daemon 启动后自动探测并声明：
 daemon 上传 typed descriptor，不上传可执行文件。CapabilityInventory 是经 Computer credential 认证的自声明，不是 Grant，也不是 Server 对安全能力的背书。矛盾、不完整或过期声明 fail closed。
 
 Human 只执行一次 daemon start。之后安装能力变化、Agent 新增、配置更新和 Placement 变化都由 daemon 自动声明和 reconcile，不要求重启或为每个 Agent 启动一个 daemon。
+
+### Computer 首次连接
+
+WebUI 创建 10 分钟有效、仅可消费一次的 pairing，并把 version、Server origin、Server identity、request ID、随机 pairing token 和 expiry 编码为 versioned connection code。Human 只复制一条命令：
+
+~~~text
+sumi computer start --pairing-code <code>
+~~~
+
+CLI 必须先确认 current-user Sumi install 存在，再严格校验 connection code 的 version、endpoint、Server identity、token 和 expiry，持久化 pairing attempt，消费 pairing，最后启动已安装的 Computer service。active install 持久化 canonical data root，普通 service command 不要求重复传入 data root。
+
+Connection code 是编码，不是加密。为换取一条命令，pairing secret 会进入 shell history、clipboard 和短暂的 process argv，这是明确接受的风险，不能宣传为不落痕。完整 code 只在当次 WebUI 内存和主动 Copy 时出现，不进入 URL、日志或 localStorage；页面长期只显示脱敏预览，CLI 成功和错误都不能回显 code。
+
+WebUI 只为 literal-loopback HTTP 或 system-trust HTTPS 生成 connection code；raw remote HTTP、hostname-loopback HTTP，以及带 userinfo、path、query 或 fragment 的 origin 一律拒绝。Computer 是否连接成功只以 Server Computer fact 为准，不能由前端本地状态推断。
 
 ### Desired state
 

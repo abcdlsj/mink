@@ -72,6 +72,44 @@ func TestPairCreateJoinPersistsEndpointAndConsumesRawToken(t *testing.T) {
 	}
 }
 
+func TestPairingCodeJoinsWithoutFileAndDoesNotLeakSecret(t *testing.T) {
+	server, humanKey := newPairServer(t)
+	bundlePath := filepath.Join(t.TempDir(), "pair.json")
+	if err := RunPair(context.Background(), []string{
+		"create", "--server", server.URL, "--human-key-file", humanKey, "--out", bundlePath,
+	}, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := pairing.Open(bundlePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := opened.Bundle
+	opened.Close()
+	code, err := pairing.EncodeCode(bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	computerRoot := filepath.Join(t.TempDir(), "computer")
+	if err := JoinPairingCode(context.Background(), code, computerRoot, "Code paired computer"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := computerstate.Open(computerRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, found, identityErr := state.Identity(context.Background())
+	state.Close()
+	if identityErr != nil || !found || identity.RegistrationKey == "" {
+		t.Fatalf("paired identity = %+v, %v, %v", identity, found, identityErr)
+	}
+	secret := "sumi-pair-v1.secret-sentinel"
+	err = JoinPairingCode(context.Background(), secret, filepath.Join(t.TempDir(), "invalid"), "Invalid")
+	if err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("invalid pairing code error leaked secret: %v", err)
+	}
+}
+
 func TestPairCreateResumeReplaysPreRPCAndLostResponse(t *testing.T) {
 	server, humanKey := newPairServer(t)
 	for _, test := range []struct {

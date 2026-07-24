@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  computerPairingCodePrefix,
   computerPairingCommand,
+  maskedComputerPairingCommand,
   prepareComputerPairing,
-  serializeComputerPairingBundle,
   UnsafePairingOriginError,
 } from "./computerPairing";
 
-describe("Computer pairing bundle", () => {
-  it("creates the canonical v1 bundle without putting the token in the command", () => {
+describe("Computer connection code", () => {
+  it("creates a canonical v1 code and one-line start command", () => {
     const now = new Date("2026-07-24T01:02:03.000Z");
     const prepared = prepareComputerPairing(
       "https://SUMI.EXAMPLE:443",
@@ -28,10 +29,23 @@ describe("Computer pairing bundle", () => {
       pairing_token: prepared.pairingToken,
       expires_at: "2026-07-24T01:12:03.000Z",
     });
-    expect(computerPairingCommand).toContain("chmod 600");
-    expect(computerPairingCommand).toContain("sumi computer pair join --file");
-    expect(computerPairingCommand).toContain("sumi computer start");
-    expect(computerPairingCommand).not.toContain(prepared.pairingToken);
+    expect(prepared.connectionCode).toMatch(/^sumi-pair-v1\.[A-Za-z0-9_-]+$/);
+    expect(prepared.command).toBe(
+      `sumi computer start --pairing-code ${prepared.connectionCode}`,
+    );
+    expect(prepared.command).toContain(prepared.connectionCode);
+    expect(maskedComputerPairingCommand).not.toContain(prepared.connectionCode);
+    expect(computerPairingCommand(prepared.connectionCode)).toBe(
+      prepared.command,
+    );
+
+    const encoded = prepared.connectionCode.slice(
+      computerPairingCodePrefix.length,
+    );
+    const payload = JSON.parse(
+      atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+    );
+    expect(payload).toEqual(prepared.bundle);
   });
 
   it("uses literal-loopback identity only for literal loopback HTTP", () => {
@@ -59,14 +73,9 @@ describe("Computer pairing bundle", () => {
     ).toThrow(UnsafePairingOriginError);
   });
 
-  it("serializes a newline-terminated JSON bundle", () => {
-    const bundle = prepareComputerPairing(
-      "https://sumi.example",
-      new Date(0),
-      new Uint8Array(32).fill(1),
-    ).bundle;
-    const payload = serializeComputerPairingBundle(bundle);
-    expect(payload.endsWith("\n")).toBe(true);
-    expect(JSON.parse(payload)).toEqual(bundle);
+  it("rejects unsafe command material", () => {
+    expect(() => computerPairingCommand("sumi-pair-v1.safe;rm -rf x")).toThrow(
+      "Connection code is invalid",
+    );
   });
 });

@@ -122,7 +122,7 @@ describe("browser session", () => {
       setupLocalAccount({
         username: "owner",
         password: "correct horse battery staple",
-        bootstrapCredential: "A".repeat(43),
+        ownerSetupCode: "A".repeat(43),
       }),
     ).resolves.toEqual({
       id: "33333333-3333-4333-8333-333333333333",
@@ -176,14 +176,14 @@ describe("browser session", () => {
       setupLocalAccount({
         username: "owner",
         password: "correct horse battery staple",
-        bootstrapCredential: "A".repeat(43),
+        ownerSetupCode: "A".repeat(43),
       }),
     ).rejects.toThrow("Local setup is already complete");
     await expect(
       setupLocalAccount({
         username: "owner",
         password: "short",
-        bootstrapCredential: "A".repeat(43),
+        ownerSetupCode: "A".repeat(43),
       }),
     ).rejects.toThrow("12–256 character password");
     await expect(

@@ -35,7 +35,7 @@ test("one-time local setup, logout, failed login, and successful login form one 
     });
     await page.getByLabel("Username").fill(localUsername);
     await page.getByLabel("Password").fill(localPassword);
-    await page.getByLabel("Owner setup key").fill(await readOwnerCredential());
+    await page.getByLabel("Owner setup code").fill(await readOwnerCredential());
     await page.getByRole("button", { name: "Join Sumi" }).click();
   } else {
     await expect(

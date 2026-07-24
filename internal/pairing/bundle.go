@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/abcdlsj/sumi/internal/endpoint"
@@ -16,7 +17,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const Version = 1
+const (
+	Version           = 1
+	CodePrefix        = "sumi-pair-v1."
+	maxEncodedPayload = 16 << 10
+)
 
 var ErrStillValid = errors.New("pairing bundle is still valid")
 
@@ -73,12 +78,54 @@ func (bundle Bundle) ValidateAt(now time.Time) error {
 	return nil
 }
 
+// EncodeCode produces the copyable pairing representation used by the Web
+// onboarding flow. The code is an encoding, not encryption; the pairing token
+// remains the secret and is protected by its short expiry and one-time use.
+func EncodeCode(bundle Bundle) (string, error) {
+	if _, err := bundle.Endpoint(); err != nil {
+		return "", err
+	}
+	payload, err := json.Marshal(bundle)
+	if err != nil || len(payload) > maxEncodedPayload {
+		return "", errors.New("encode pairing code")
+	}
+	return CodePrefix + base64.RawURLEncoding.EncodeToString(payload), nil
+}
+
+func DecodeCode(code string) (Bundle, error) {
+	if !strings.HasPrefix(code, CodePrefix) {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	encoded := strings.TrimPrefix(code, CodePrefix)
+	if encoded == "" || len(encoded) > base64.RawURLEncoding.EncodedLen(maxEncodedPayload) {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil || len(payload) > maxEncodedPayload || base64.RawURLEncoding.EncodeToString(payload) != encoded {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	var bundle Bundle
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&bundle); err != nil {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	if _, err := bundle.Endpoint(); err != nil {
+		return Bundle{}, errors.New("pairing code is invalid")
+	}
+	return bundle, nil
+}
+
 func WriteNew(path string, bundle Bundle) error {
 	if _, err := bundle.Endpoint(); err != nil {
 		return err
 	}
 	payload, err := json.Marshal(bundle)
-	if err != nil || len(payload) > 16<<10 {
+	if err != nil || len(payload) > maxEncodedPayload {
 		return errors.New("encode pairing bundle")
 	}
 	payload = append(payload, '\n')
@@ -137,8 +184,8 @@ func Open(path string) (*Opened, error) {
 		file.Close()
 		return nil, errors.New("pairing bundle is unsafe")
 	}
-	payload, err := io.ReadAll(io.LimitReader(file, (16<<10)+1))
-	if err != nil || len(payload) > 16<<10 {
+	payload, err := io.ReadAll(io.LimitReader(file, maxEncodedPayload+1))
+	if err != nil || len(payload) > maxEncodedPayload {
 		file.Close()
 		return nil, errors.New("pairing bundle is invalid")
 	}

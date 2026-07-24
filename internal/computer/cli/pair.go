@@ -170,11 +170,35 @@ func runPairJoin(ctx context.Context, args []string, stdout, stderr io.Writer) e
 	if err := opened.Bundle.ValidateAt(time.Now()); err != nil {
 		return pairCommandError("pairing bundle is expired", "PAIRING_EXPIRED", "discard the expired bundle and obtain a new pairing")
 	}
-	serverEndpoint, err := opened.Bundle.Endpoint()
-	if err != nil {
-		return pairCommandError("pairing bundle is invalid", "PAIRING_BUNDLE_INVALID", "obtain a new pairing bundle")
+	if err := joinPairingBundle(ctx, opened.Bundle, *dataRoot, *name, opened.Remove); err != nil {
+		return err
 	}
-	layout, err := home.Ensure(*dataRoot)
+	_, err = fmt.Fprintln(stdout, "Computer paired.")
+	return err
+}
+
+// JoinPairingCode consumes a Web-issued connection code into durable Computer
+// state. It intentionally never includes the code in output or returned errors.
+func JoinPairingCode(ctx context.Context, code, dataRoot, name string) error {
+	if code == "" || dataRoot == "" || name == "" {
+		return pairCommandError("pairing code arguments are invalid", "INVALID_ARGUMENT", "provide --pairing-code and a Computer name")
+	}
+	bundle, err := pairing.DecodeCode(code)
+	if err != nil {
+		return pairCommandError("pairing code is invalid", "PAIRING_CODE_INVALID", "copy a fresh connection command from Sumi")
+	}
+	if err := bundle.ValidateAt(time.Now()); err != nil {
+		return pairCommandError("pairing code is expired", "PAIRING_EXPIRED", "copy a fresh connection command from Sumi")
+	}
+	return joinPairingBundle(ctx, bundle, dataRoot, name, nil)
+}
+
+func joinPairingBundle(ctx context.Context, bundle pairing.Bundle, dataRoot, name string, consume func() error) error {
+	serverEndpoint, err := bundle.Endpoint()
+	if err != nil {
+		return pairCommandError("pairing data is invalid", "PAIRING_INVALID", "obtain a new pairing from Sumi")
+	}
+	layout, err := home.Ensure(dataRoot)
 	if err != nil {
 		return err
 	}
@@ -206,7 +230,7 @@ func runPairJoin(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return err
 	}
 	if found {
-		if attempt.ServerURL != serverEndpoint.Origin || attempt.PairingToken != opened.Bundle.PairingToken {
+		if attempt.ServerURL != serverEndpoint.Origin || attempt.PairingToken != bundle.PairingToken {
 			return pairCommandError("pairing bundle conflicts with the durable attempt", "PAIRING_CONFLICT", "resume the original attempt or wait for expiry")
 		}
 	}
@@ -214,32 +238,33 @@ func runPairJoin(ctx context.Context, args []string, stdout, stderr io.Writer) e
 		return err
 	}
 	if !found {
-		if err := computerhost.PreparePairing(ctx, state, serverEndpoint.Origin, opened.Bundle.PairingToken, *name, osName, architecture, time.Now()); err != nil {
+		if err := computerhost.PreparePairing(ctx, state, serverEndpoint.Origin, bundle.PairingToken, name, osName, architecture, time.Now()); err != nil {
 			return err
 		}
 	}
-	if err := pairJoinBeforeRemove(); err != nil {
-		return pairCommandError("pairing join state is unknown", "PAIRING_UNKNOWN", "retry join with the same bundle")
-	}
-	if err := opened.Remove(); err != nil {
-		return pairCommandError("pairing bundle changed before consumption", "PAIRING_BUNDLE_CHANGED", "restore the original bundle and retry")
+	if consume != nil {
+		if err := pairJoinBeforeRemove(); err != nil {
+			return pairCommandError("pairing join state is unknown", "PAIRING_UNKNOWN", "retry join with the same pairing data")
+		}
+		if err := consume(); err != nil {
+			return pairCommandError("pairing bundle changed before consumption", "PAIRING_BUNDLE_CHANGED", "restore the original bundle and retry")
+		}
 	}
 	httpClient, err := endpoint.NewHTTPClient(serverEndpoint)
 	if err != nil {
 		return err
 	}
 	host := computerhost.New(computerhost.Config{
-		ServerURL: serverEndpoint.Origin, DataRoot: layout.Root, Name: *name, OS: osName, Arch: architecture,
+		ServerURL: serverEndpoint.Origin, DataRoot: layout.Root, Name: name, OS: osName, Arch: architecture,
 		HTTPClient: httpClient, State: state,
 	})
 	if err := pairJoinBeforeRPC(); err != nil {
 		return pairCommandError("pairing join state is unknown", "PAIRING_UNKNOWN", "run 'sumi computer run' to resume the durable attempt")
 	}
 	if _, err := host.PairOnce(ctx); err != nil {
-		return mapPairingRPCError(err, "run 'sumi computer run' to resume the durable attempt")
+		return mapPairingRPCError(err, "retry the same connection command to resume the durable attempt")
 	}
-	_, err = fmt.Fprintln(stdout, "Computer paired.")
-	return err
+	return nil
 }
 
 func runPairDiscard(args []string, stdout, stderr io.Writer) error {
