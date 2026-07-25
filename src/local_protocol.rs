@@ -85,6 +85,27 @@ pub enum AgentAction {
     },
 }
 
+impl AgentAction {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::MemberList { .. } => "member.list",
+            Self::ChannelList => "channel.list",
+            Self::InboxCurrent => "inbox.current",
+            Self::InboxShow { .. } => "inbox.show",
+            Self::ChannelRead { .. } => "channel.read",
+            Self::ChannelCreate { .. } => "channel.create",
+            Self::ThreadRead { .. } => "thread.read",
+            Self::MessageSend { .. } => "message.send",
+            Self::InboxAck { .. } => "inbox.ack",
+            Self::InboxDefer { .. } => "inbox.defer",
+            Self::AttachmentUpload { .. } => "attachment.upload",
+            Self::AttachmentDownload { .. } => "attachment.download",
+            Self::AttachmentInfo { .. } => "attachment.info",
+            Self::AgentCreate { .. } => "agent.create",
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LocalResponse {
     pub schema_version: u32,
@@ -198,5 +219,18 @@ mod tests {
         assert_eq!(value["action"], "agent_create");
         assert_eq!(value["computer_id"], computer_id.to_string());
         assert_eq!(value["idempotency_key"], key.to_string());
+        assert_eq!(AgentAction::InboxCurrent.name(), "inbox.current");
+        assert_eq!(
+            AgentAction::MessageSend {
+                address: "@alice".to_owned(),
+                body_markdown: "private".to_owned(),
+                based_on: None,
+                handle_inbox_item_id: None,
+                attachment_ids: Vec::new(),
+                idempotency_key: key,
+            }
+            .name(),
+            "message.send"
+        );
     }
 }

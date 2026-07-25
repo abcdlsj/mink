@@ -32,6 +32,83 @@ impl CodexDriver {
     }
 }
 
+pub async fn install_sanitized_config(source: &Path, codex_home: &Path) -> Result<()> {
+    let input = tokio::fs::read_to_string(source)
+        .await
+        .context("failed to read Codex config source")?;
+    let input: toml::Table = toml::from_str(&input).context("Codex config source is invalid")?;
+    let output = sanitize_config(&input)?;
+    let bytes =
+        toml::to_string_pretty(&output).context("failed to serialize sanitized Codex config")?;
+    let path = codex_home.join("config.toml");
+    tokio::fs::write(&path, bytes)
+        .await
+        .context("failed to write Agent Codex config")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
+    }
+    Ok(())
+}
+
+pub async fn install_local_auth(source: &Path, codex_home: &Path) -> Result<()> {
+    let auth = tokio::fs::read(source)
+        .await
+        .context("failed to read Codex auth source")?;
+    let path = codex_home.join("auth.json");
+    tokio::fs::write(&path, auth)
+        .await
+        .context("failed to write Agent Codex auth")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
+    }
+    Ok(())
+}
+
+fn sanitize_config(input: &toml::Table) -> Result<toml::Table> {
+    const ROOT_KEYS: &[&str] = &[
+        "model_provider",
+        "model",
+        "model_reasoning_effort",
+        "disable_response_storage",
+    ];
+    const PROVIDER_KEYS: &[&str] = &["name", "base_url", "wire_api", "requires_openai_auth"];
+
+    let provider = input
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .context("Codex config source has no model_provider")?;
+    let mut output = toml::Table::new();
+    for key in ROOT_KEYS {
+        if let Some(value) = input.get(*key) {
+            output.insert((*key).to_owned(), value.clone());
+        }
+    }
+    let provider_input = input
+        .get("model_providers")
+        .and_then(toml::Value::as_table)
+        .and_then(|providers| providers.get(provider))
+        .and_then(toml::Value::as_table)
+        .context("selected Codex model provider is not configured")?;
+    let mut provider_output = toml::Table::new();
+    for key in PROVIDER_KEYS {
+        if let Some(value) = provider_input.get(*key) {
+            provider_output.insert((*key).to_owned(), value.clone());
+        }
+    }
+    ensure!(
+        provider_output.contains_key("base_url"),
+        "selected Codex model provider has no base_url"
+    );
+    let mut providers = toml::Table::new();
+    providers.insert(provider.to_owned(), toml::Value::Table(provider_output));
+    output.insert("model_providers".to_owned(), toml::Value::Table(providers));
+    Ok(output)
+}
+
 #[derive(Deserialize)]
 struct CodexEvent {
     #[serde(rename = "type")]
@@ -93,13 +170,15 @@ impl Driver for CodexDriver {
             .arg("exec")
             .arg("--json")
             .arg("--ephemeral")
-            .arg("--sandbox")
-            .arg("workspace-write")
-            .arg("--ignore-user-config")
             .arg("--color")
             .arg("never")
             .arg("--cd")
             .arg(&sandbox.workspace);
+        if std::env::consts::OS == "macos" {
+            command.arg("--dangerously-bypass-approvals-and-sandbox");
+        } else {
+            command.arg("--sandbox").arg("workspace-write");
+        }
         if !run.environment.workspace.join(".git").exists() {
             command.arg("--skip-git-repo-check");
         }
@@ -110,6 +189,7 @@ impl Driver for CodexDriver {
             .env("PATH", &run.environment.path)
             .env("HOME", &sandbox.agent_home)
             .env("CODEX_HOME", &sandbox.codex_home)
+            .env("TMPDIR", sandbox.agent_home.join("runs"))
             .env("SUMI_SOCKET", &sandbox.socket_path)
             .env("SUMI_RUN_TOKEN", &run.environment.run_token)
             .stdin(Stdio::piped())
@@ -253,6 +333,7 @@ fn sandboxed_command(
     match std::env::consts::OS {
         "macos" => {
             let escaped_home = sandbox_string(&agent_home)?;
+            let escaped_agents = sandbox_string(&agents_root)?;
             let escaped_state = sandbox_string(&state_dir)?;
             let escaped_socket = sandbox_string(&environment.socket_path)?;
             let user_home = std::env::var_os("HOME")
@@ -261,7 +342,7 @@ fn sandboxed_command(
                 .canonicalize()?;
             let escaped_user_home = sandbox_string(&user_home)?;
             let profile = format!(
-                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read* file-write* (subpath \"{escaped_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
+                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read-metadata (literal \"{escaped_state}\") (literal \"{escaped_agents}\"))\n(allow file-read* file-write* (subpath \"{escaped_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
             );
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);
@@ -370,6 +451,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn config_sanitizer_keeps_only_selected_model_provider() {
+        let input: toml::Table = toml::from_str(
+            r#"
+model_provider = "sub2api"
+model = "test-model"
+model_reasoning_effort = "high"
+disable_response_storage = true
+
+[model_providers.sub2api]
+name = "Sub2API"
+base_url = "https://models.example.test/v1"
+wire_api = "responses"
+requires_openai_auth = false
+http_headers = { Authorization = "secret" }
+
+[mcp_servers.private]
+headers = { Authorization = "secret" }
+
+[hooks.state]
+enabled = true
+"#,
+        )
+        .unwrap();
+
+        let output = sanitize_config(&input).unwrap();
+        let encoded = toml::to_string(&output).unwrap();
+
+        assert!(encoded.contains("model_provider = \"sub2api\""));
+        assert!(encoded.contains("base_url = \"https://models.example.test/v1\""));
+        assert!(!encoded.contains("Authorization"));
+        assert!(!encoded.contains("mcp_servers"));
+        assert!(!encoded.contains("hooks"));
+        assert!(!encoded.contains("http_headers"));
+    }
+
+    #[tokio::test]
+    async fn local_auth_is_copied_with_restricted_permissions() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source-auth.json");
+        let codex_home = root.path().join("agent-codex");
+        std::fs::create_dir(&codex_home).unwrap();
+        std::fs::write(&source, br#"{"OPENAI_API_KEY":"test-secret"}"#).unwrap();
+
+        install_local_auth(&source, &codex_home).await.unwrap();
+
+        let installed = codex_home.join("auth.json");
+        assert_eq!(
+            std::fs::read(&installed).unwrap(),
+            br#"{"OPENAI_API_KEY":"test-secret"}"#
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(installed).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
     fn jsonl_is_normalized_without_retaining_agent_message_text() {
         let parse = |line: &str| normalize_event(serde_json::from_str::<CodexEvent>(line).unwrap());
         assert_eq!(
@@ -435,6 +577,7 @@ mod tests {
         for path in [
             current.join("workspace"),
             current.join("drivers/codex"),
+            current.join("runs"),
             other.clone(),
         ] {
             std::fs::create_dir_all(path).unwrap();
@@ -444,10 +587,15 @@ mod tests {
         let socket = state.join("daemon.sock");
         std::fs::write(&socket, "").unwrap();
         let script = tools.path().join("fake-codex");
+        let platform_argument = if std::env::consts::OS == "macos" {
+            "--dangerously-bypass-approvals-and-sandbox"
+        } else {
+            "workspace-write"
+        };
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\ntest \"${{1:-}}\" = \"--version\" && exit 0\nfor arg in \"$@\"; do test \"$arg\" != \"prompt-secret\" || exit 41; done\nIFS= read -r prompt\ntest \"$prompt\" = \"prompt-secret\" || exit 42\ntest ! -r '{}/secrets.json' || exit 43\ntest ! -r '{}/private' || exit 44\ntest -z \"${{USER+x}}\" || exit 45\nprintf changed > \"$HOME/workspace/result\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"test\"}}' '{{\"type\":\"turn.completed\"}}'\n",
+                "#!/bin/sh\ntest \"${{1:-}}\" = \"--version\" && exit 0\ntrap 'code=$?; printf %s \"$code\" > \"$HOME/workspace/exit-code\"' EXIT\nfound_platform_arg=false\nfor arg in \"$@\"; do test \"$arg\" != \"prompt-secret\" || exit 41; test \"$arg\" != '{platform_argument}' || found_platform_arg=true; done\n$found_platform_arg || exit 46\nIFS= read -r prompt\ntest \"$prompt\" = \"prompt-secret\" || exit 42\ntest ! -r '{}/secrets.json' || exit 43\ntest ! -r '{}/private' || exit 44\ntest -z \"${{USER+x}}\" || exit 45\ntest -d \"$CODEX_HOME\" || exit 47\ncase \"$TMPDIR\" in \"$HOME/runs\") ;; *) exit 48 ;; esac\nprintf changed > \"$HOME/workspace/result\"\nprintf temporary > \"$TMPDIR/driver-tmp\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"test\"}}' '{{\"type\":\"turn.completed\"}}'\n",
                 state.display(),
                 other.display()
             ),
@@ -476,7 +624,13 @@ mod tests {
         let (events, mut receiver) = tokio::sync::mpsc::channel(8);
         let status = driver.observe(&mut process, &events).await.unwrap();
         drop(events);
-        assert_eq!(status, DriverOutcome::Completed);
+        assert_eq!(
+            status,
+            DriverOutcome::Completed,
+            "fake Driver exit code: {}",
+            std::fs::read_to_string(current.join("workspace/exit-code"))
+                .unwrap_or_else(|_| "missing".to_owned())
+        );
         assert_eq!(
             std::fs::read_to_string(current.join("workspace/result")).unwrap(),
             "changed"

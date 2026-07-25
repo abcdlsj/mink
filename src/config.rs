@@ -62,6 +62,8 @@ impl Default for ServerConfig {
 pub struct ComputerConfig {
     pub server_url: Url,
     pub state_dir: PathBuf,
+    pub codex_config_source: Option<PathBuf>,
+    pub codex_auth_source: Option<PathBuf>,
     pub max_concurrent_runs: usize,
     pub per_agent_timeout_seconds: u64,
     pub shutdown_grace_period_seconds: u64,
@@ -72,6 +74,8 @@ impl Default for ComputerConfig {
         Self {
             server_url: Url::parse("http://127.0.0.1:3000").expect("valid default server URL"),
             state_dir: default_computer_state_dir(),
+            codex_config_source: None,
+            codex_auth_source: None,
             max_concurrent_runs: std::thread::available_parallelism()
                 .map(|count| (count.get() / 2).max(1))
                 .unwrap_or(1),

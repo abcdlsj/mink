@@ -23,6 +23,8 @@ struct SupervisorInner {
     database: SqlitePool,
     state_dir: PathBuf,
     socket_path: PathBuf,
+    codex_config_source: Option<PathBuf>,
+    codex_auth_source: Option<PathBuf>,
     driver: Arc<dyn Driver>,
     slots: Arc<Semaphore>,
     active: Mutex<HashMap<Uuid, ActiveRun>>,
@@ -63,6 +65,8 @@ impl Supervisor {
                 database,
                 state_dir,
                 socket_path,
+                codex_config_source: config.codex_config_source.clone(),
+                codex_auth_source: config.codex_auth_source.clone(),
                 driver,
                 slots: Arc::new(Semaphore::new(config.max_concurrent_runs)),
                 active: Mutex::new(HashMap::new()),
@@ -189,6 +193,22 @@ impl Supervisor {
     pub async fn validate_agent(&self, agent_id: Uuid) -> Result<()> {
         let environment = self.environment(agent_id)?;
         self.inner.driver.validate(&environment).await
+    }
+
+    pub async fn prepare_agent_driver(&self, agent_id: Uuid) -> Result<()> {
+        let codex_home = self
+            .inner
+            .state_dir
+            .join("agents")
+            .join(agent_id.to_string())
+            .join("drivers/codex");
+        if let Some(source) = &self.inner.codex_config_source {
+            crate::driver::codex::install_sanitized_config(source, &codex_home).await?;
+        }
+        if let Some(source) = &self.inner.codex_auth_source {
+            crate::driver::codex::install_local_auth(source, &codex_home).await?;
+        }
+        Ok(())
     }
 
     async fn execute(
@@ -328,6 +348,14 @@ impl Supervisor {
         ensure!(agent_home.is_dir(), "Agent Home is unavailable");
         let mut token = [0_u8; 32];
         getrandom::fill(&mut token)?;
+        let executable_directory = std::env::current_exe()?
+            .parent()
+            .context("current executable has no parent directory")?
+            .to_owned();
+        let mut paths = vec![executable_directory];
+        paths.extend(std::env::split_paths(
+            &std::env::var_os("PATH").context("PATH is unavailable")?,
+        ));
         Ok(DriverEnvironment {
             state_dir: self.inner.state_dir.clone(),
             agents_root: self.inner.state_dir.join("agents"),
@@ -336,7 +364,9 @@ impl Supervisor {
             agent_home,
             socket_path: self.inner.socket_path.clone(),
             run_token: URL_SAFE_NO_PAD.encode(token),
-            path: std::env::var("PATH").context("PATH is unavailable")?,
+            path: std::env::join_paths(paths)?
+                .into_string()
+                .map_err(|_| anyhow::anyhow!("Driver PATH contains non-UTF-8 data"))?,
             codex_api_key: None,
         })
     }

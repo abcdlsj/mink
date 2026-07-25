@@ -65,7 +65,7 @@
 - [ ] 实现通用 Driver 契约与 Codex Driver；Driver 私有状态不得成为 Agent 身份或 Memory。
 - [ ] 实现完整 `sumi agent` 命令树、run capability、结构化 JSON、权限校验和幂等写入。
 - [x] 在设计 Agent run prompt 前探索 `.slock` 的 Agent prompt，按 `docs/design.md` 约束吸收适合 Sumi 的结构。
-- [ ] 打通 Human DM Agent -> Inbox -> Codex -> CLI read -> CLI send-and-handle -> Human 收到回复。
+- [x] 打通 Human DM Agent -> Inbox -> Codex -> CLI read -> CLI send-and-handle -> Human 收到回复。
 
 ### 5. 注意力与治理
 
@@ -105,6 +105,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 - Phase 4 Agent Channel CLI 已补齐 `channel read --after/--around` 与幂等 `channel create`，并通过 active run、权限和 private Channel 边界验收；下一步实现 `sumi agent create` 与 Approval 路径。
 - Phase 4 `sumi agent create` 与 Agent 发起的 Human Approval 已形成纵向路径；下一步审计剩余 CLI 契约，并完成真实 daemon/Codex 的 Human DM 里程碑验收。
 - Phase 4 真实 Server/daemon 已完成配对、Agent provision、hard Inbox claim 与 Codex 启动，并修复真实 command result 暴露的 Memory 时间协议错误；Human DM 回复仍被本机失效的 Codex API key（OpenAI 401）阻塞，凭证恢复后继续同一里程碑，不提前勾选 Phase 4。
+- Phase 4 真实 daemon/Codex DM 注意力里程碑已完成：Agent 专属 CODEX_HOME 白名单化复用本机 provider/existing local auth，真实 Codex 依次调用 Inbox、Channel read 和 Message send-and-handle，Human 收到唯一 Agent 回复；Phase 4 其他主项保持未勾选，下一步按最早未完成项做阶段审计。
 
 ## 验证记录
 
@@ -134,3 +135,4 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 2026-07-25 | Phase 4 / Agent Channel CLI | `channel read` before/after/around 双向分页；无权限创建与 private 越权拒绝；授权后 public/private 创建、UUIDv7 幂等重放、membership/audit/outbox；`mise run lint/test/build` | 通过；28 Rust tests、2 CLI、真实 PostgreSQL integration、9 Web tests和 production build 全绿，下一步为 Agent create/Approval。
 2026-07-25 | Phase 4 / Agent Create Approval | active run Agent CLI 创建 pending Approval；Agent Admin 强制 Human 审批、幂等/跨 Space/权限边界、approve provisioning、reject 零残留与 Inbox governance UI；`mise run lint/test/build` | 通过；29 Rust tests、2 CLI、真实 PostgreSQL migration/integration、10 Web tests和 production build 全绿，完整 CLI 与真实 daemon/Codex 里程碑尚未完成。
 2026-07-25 | Phase 4 / 真实 daemon/Codex 里程碑（部分） | 隔离 PostgreSQL + 真实 Server/daemon/Computer WebSocket/macOS sandbox/Codex；真实 provision result；Human DM hard Inbox 与 run 状态；`mise run lint/test/build` | Agent provision 与 RFC3339 Memory 快照通过；30 Rust、2 CLI、PostgreSQL migration、10 Web tests及构建全绿；hard Inbox 在约 1 秒内启动真实 Codex，但本机 existing-local-auth 被 OpenAI 以 401 invalid_api_key 拒绝，未产生 Agent Message，Phase 4 未完成。
+2026-07-25 | Phase 4 / 真实 daemon/Codex DM 注意力 | 隔离 PostgreSQL + 真实 Server/daemon/macOS sandbox/Codex；run `019f9902-e204-7b81-9b94-c6d6efe77fdf` 的无正文 IPC 事件为 `inbox.current -> channel.read -> message.send`；数据库核对 Message/handled 同时间戳；`mise run lint/test/build` | 通过；Human 收到唯一 Agent Message，Inbox `retry_count=0` 且由同一 completed run 原子 handled，Driver stdout 未创建 Message；Agent CODEX_HOME 仅含白名单 provider 配置和 0600 existing local auth；32 Rust、2 CLI、PostgreSQL migration、10 Web tests 和 production build 全绿。

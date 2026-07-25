@@ -279,6 +279,12 @@ async fn handle_local_connection(
             .unwrap_or_else(LocalResponse::denied),
         LocalRequest::AgentAction { run_token, action } => {
             if let Some(identity) = authenticate_run(database, &run_token).await? {
+                tracing::debug!(
+                    run_id = %identity.run_id,
+                    agent_member_id = %identity.agent_member_id,
+                    action = action.name(),
+                    "Agent local IPC action"
+                );
                 proxy_agent_action(
                     state_dir,
                     server,
@@ -1227,7 +1233,9 @@ async fn execute_local_command(
         .context("Agent command has no agent_id")
         .and_then(|value| Uuid::parse_str(value).context("Agent command agent_id is invalid"))?;
     let home = if kind == "agent.provision" {
-        prepare_agent_home(state_dir, agent_id).await?
+        let home = prepare_agent_home(state_dir, agent_id).await?;
+        supervisor.prepare_agent_driver(agent_id).await?;
+        home
     } else {
         let home = state_dir.join("agents").join(agent_id.to_string());
         ensure!(home.is_dir(), "Agent Home is unavailable");
