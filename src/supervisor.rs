@@ -25,7 +25,7 @@ struct SupervisorInner {
     socket_path: PathBuf,
     codex_config_source: Option<PathBuf>,
     codex_auth_source: Option<PathBuf>,
-    driver: Arc<dyn Driver>,
+    drivers: HashMap<String, Arc<dyn Driver>>,
     slots: Arc<Semaphore>,
     active: Mutex<HashMap<Uuid, ActiveRun>>,
     timeout: Duration,
@@ -43,6 +43,8 @@ pub struct StartRun {
     pub agent_id: Uuid,
     pub space_id: Uuid,
     pub prompt: String,
+    #[serde(default)]
+    pub driver_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -58,8 +60,14 @@ impl Supervisor {
         state_dir: PathBuf,
         socket_path: PathBuf,
         config: &ComputerConfig,
-        driver: Arc<dyn Driver>,
+        default_driver: Arc<dyn Driver>,
     ) -> Self {
+        let mut drivers = HashMap::new();
+        drivers.insert("codex".to_owned(), default_driver);
+        drivers.insert(
+            "builtin".to_owned(),
+            Arc::new(crate::driver::builtin::BuiltinDriver::new()),
+        );
         Self {
             inner: Arc::new(SupervisorInner {
                 database,
@@ -67,7 +75,7 @@ impl Supervisor {
                 socket_path,
                 codex_config_source: config.codex_config_source.clone(),
                 codex_auth_source: config.codex_auth_source.clone(),
-                driver,
+                drivers,
                 slots: Arc::new(Semaphore::new(config.max_concurrent_runs)),
                 active: Mutex::new(HashMap::new()),
                 timeout: Duration::from_secs(config.per_agent_timeout_seconds),
@@ -192,7 +200,12 @@ impl Supervisor {
 
     pub async fn validate_agent(&self, agent_id: Uuid) -> Result<()> {
         let environment = self.environment(agent_id)?;
-        self.inner.driver.validate(&environment).await
+        let driver = self
+            .inner
+            .drivers
+            .get("codex")
+            .context("default driver missing")?;
+        driver.validate(&environment).await
     }
 
     pub async fn prepare_agent_driver(&self, agent_id: Uuid) -> Result<()> {
@@ -221,14 +234,19 @@ impl Supervisor {
             _ = &mut cancel_rx => return self.finish_without_process(run.run_id, "canceled", None).await,
         };
         let _permit = permit;
+        let driver_kind = run.driver_kind.as_deref().unwrap_or("codex");
+        let driver = self
+            .inner
+            .drivers
+            .get(driver_kind)
+            .ok_or_else(|| RunFailure::new(run.run_id, "unknown_driver"))?;
         self.ensure_agent_active(run.agent_id)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "agent_not_active"))?;
         let environment = self
             .environment(run.agent_id)
             .map_err(|_| RunFailure::new(run.run_id, "invalid_agent_home"))?;
-        self.inner
-            .driver
+        driver
             .validate(&environment)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "driver_unavailable"))?;
@@ -251,9 +269,7 @@ impl Supervisor {
         .execute(&self.inner.database)
         .await
         .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
-        let mut process = self
-            .inner
-            .driver
+        let mut process = driver
             .start(DriverRun {
                 prompt: run.prompt,
                 environment: environment.clone(),
@@ -262,7 +278,7 @@ impl Supervisor {
             .map_err(|_| RunFailure::new(run.run_id, "driver_start_failed"))?;
         sqlx::query("UPDATE local_agent_runs SET process_id = ?2 WHERE run_id = ?1")
             .bind(run.run_id.to_string())
-            .bind(process.child.id().map(i64::from))
+            .bind(process.pid().map(i64::from))
             .execute(&self.inner.database)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
@@ -279,7 +295,7 @@ impl Supervisor {
             }
         });
         let (outcome, must_cancel) = {
-            let observe = self.inner.driver.observe(&mut process, &event_tx);
+            let observe = driver.observe(&mut process, &event_tx);
             tokio::pin!(observe);
             tokio::select! {
                 status = tokio::time::timeout(self.inner.timeout, &mut observe) => match status {
@@ -292,8 +308,7 @@ impl Supervisor {
             }
         };
         if must_cancel {
-            self.inner
-                .driver
+            driver
                 .cancel(&mut process, self.inner.grace_period)
                 .await
                 .map_err(|_| RunFailure::new(run.run_id, "driver_cancel_failed"))?;
@@ -306,8 +321,7 @@ impl Supervisor {
         event_tx.send(final_event).await.ok();
         drop(event_tx);
         let _ = event_task.await;
-        self.inner
-            .driver
+        driver
             .cleanup(&environment)
             .await
             .map_err(|_| RunFailure::new(run.run_id, "driver_cleanup_failed"))?;
@@ -483,6 +497,7 @@ mod tests {
             agent_id,
             space_id: Uuid::now_v7(),
             prompt: prompt.to_owned(),
+            driver_kind: None,
         }
     }
 

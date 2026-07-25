@@ -1,3 +1,4 @@
+pub mod builtin;
 pub mod codex;
 
 use std::{path::PathBuf, time::Duration};
@@ -39,9 +40,25 @@ pub enum DriverEvent {
     ProcessCanceled,
 }
 
-pub struct DriverProcess {
-    pub child: Child,
-    pub stdout: tokio::process::ChildStdout,
+pub enum DriverProcess {
+    External {
+        child: Child,
+        stdout: tokio::process::ChildStdout,
+    },
+    #[allow(dead_code)]
+    Internal {
+        task: tokio::task::JoinHandle<()>,
+        events: tokio::sync::mpsc::Receiver<DriverEvent>,
+    },
+}
+
+impl DriverProcess {
+    pub fn pid(&self) -> Option<u32> {
+        match self {
+            DriverProcess::External { child, .. } => child.id(),
+            DriverProcess::Internal { .. } => Some(std::process::id()),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

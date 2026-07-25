@@ -1,10 +1,14 @@
 mod agent_cli;
+#[allow(dead_code)]
+mod agent_core;
+mod chat;
 mod cli;
 mod computer;
 mod config;
 mod database;
 mod driver;
 mod local_protocol;
+mod prompt;
 mod server;
 mod supervisor;
 
@@ -24,6 +28,10 @@ async fn main() -> ExitCode {
     let (result, agent_command) = match cli.command {
         Command::Server(args) => (server::run(args).await, false),
         Command::Computer(args) => (computer::run(args).await, false),
+        Command::Chat(args) => (
+            chat::run(args.api_key, args.model, args.base_url, args.workspace).await,
+            false,
+        ),
         Command::Agent(args) => (agent_cli::run(args).await, true),
     };
 

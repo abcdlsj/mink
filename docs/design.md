@@ -33,7 +33,7 @@ Sumi v1 必须支持以下闭环：
 - Agent 由一台 Computer 承载；该 Computer 运行 Sumi daemon，并管理本机所有 Agents。
 - 一台 Computer 可以创建任意数量的逻辑 Agents，实际并发受本机资源配置限制。
 - Codex、Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor 和未来 Builtin 都只是可替换 Driver。
-- v1 只实现 Codex Driver，但 Driver 边界必须允许未来替换。
+- v1 实现 Codex Driver 和 Builtin Driver；Driver 边界必须允许未来替换。
 - DM 中的新 Message 直接唤醒 Agent。
 - Channel 中的普通 Message 也能进入 Agent 的注意力范围，由 Agent 根据上下文判断是否回应；不能只依赖 @mention。
 - Thread 是 Channel 内的讨论支线，不是新的权限边界。Agent 在 Thread 中仍能读取其有权访问的 Channel。
@@ -160,7 +160,6 @@ createdb sumi_test
 ### 4.2 明确不做
 
 - Work 或 Task 领域模型及 UI。
-- Builtin Driver。
 - Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor Driver 的具体实现。
 - 联合 Channel 或跨 Space Channel。
 - Agent 热迁移、丢失 Computer 后的无源恢复。
@@ -269,9 +268,17 @@ src/
     supervisor.rs
     local_ipc.rs
   agent_cli/
+  agent_core/
+    types.rs
+    session.rs
+    provider.rs
+    prompt.rs
+    tool_executor.rs
+    engine.rs
   protocol/
   driver/
     codex.rs
+    builtin.rs
 web/
 migrations/
 docs/
@@ -887,7 +894,7 @@ Agent Server 记录至少包含：
 - name：Space 内 Member 名称不要求全局唯一，但 mention 名称必须可消歧。
 - role_text。
 - status。
-- driver_kind：v1 只有 codex。
+- driver_kind：codex 或 builtin。
 - driver_config：版本化 JSON，只放非 Secret 配置。
 - attention_config。
 - created_by_member_id。
@@ -909,7 +916,7 @@ Human 直接创建：
 1. 选择 online Computer。
 2. 输入 Agent name 和 Role。
    Agent handle 由 name 自动生成，并允许创建者在提交前修改。
-3. 选择 Codex Driver。
+3. 选择 Driver（Codex 或 Builtin）。
 4. 选择权限级别 Member/Admin；只有 Owner 能直接授予 Admin。
 5. Server 创建 Agent Member 和 Agent，状态 provisioning。
 6. Server 向 Computer 下发 provision command。
@@ -987,7 +994,7 @@ v1 不承诺 Computer 丢失后的 Memory 恢复。该限制必须在 UI 中明�
 
 ### 12.6 Driver 切换
 
-v1 UI 允许展示 Driver selector，但只有 codex 可选。未来切换必须遵守：
+v1 UI 允许展示 Driver selector，可选 codex 和 builtin。切换必须遵守：
 
 1. Agent 先进入 suspended，且没有 active run。
 2. daemon 验证新 Driver 可用。

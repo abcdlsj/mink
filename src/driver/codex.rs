@@ -214,7 +214,7 @@ impl Driver for CodexDriver {
             .stdout
             .take()
             .context("Codex stdout was not captured")?;
-        Ok(DriverProcess { child, stdout })
+        Ok(DriverProcess::External { child, stdout })
     }
 
     async fn observe(
@@ -222,7 +222,10 @@ impl Driver for CodexDriver {
         process: &mut DriverProcess,
         events: &tokio::sync::mpsc::Sender<DriverEvent>,
     ) -> Result<DriverOutcome> {
-        let mut lines = BufReader::new(&mut process.stdout).lines();
+        let DriverProcess::External { child, stdout } = process else {
+            anyhow::bail!("Codex driver requires external process");
+        };
+        let mut lines = BufReader::new(stdout).lines();
         let mut failed = false;
         while let Some(line) = lines.next_line().await? {
             let event: CodexEvent =
@@ -231,11 +234,7 @@ impl Driver for CodexDriver {
             let event = normalize_event(event);
             events.send(event).await.ok();
         }
-        let status = process
-            .child
-            .wait()
-            .await
-            .context("failed to wait for Codex")?;
+        let status = child.wait().await.context("failed to wait for Codex")?;
         Ok(if status.success() && !failed {
             DriverOutcome::Completed
         } else {
@@ -244,14 +243,17 @@ impl Driver for CodexDriver {
     }
 
     async fn cancel(&self, process: &mut DriverProcess, grace_period: Duration) -> Result<()> {
-        let Some(process_id) = process.child.id() else {
+        let DriverProcess::External { child, .. } = process else {
+            anyhow::bail!("Codex driver requires external process");
+        };
+        let Some(process_id) = child.id() else {
             return Ok(());
         };
         #[cfg(unix)]
         unsafe {
             libc::kill(-(process_id as i32), libc::SIGTERM);
         }
-        if tokio::time::timeout(grace_period, process.child.wait())
+        if tokio::time::timeout(grace_period, child.wait())
             .await
             .is_err()
         {
@@ -259,8 +261,7 @@ impl Driver for CodexDriver {
             unsafe {
                 libc::kill(-(process_id as i32), libc::SIGKILL);
             }
-            process
-                .child
+            child
                 .wait()
                 .await
                 .context("failed to reap Codex after forced cancellation")?;
