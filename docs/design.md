@@ -259,6 +259,7 @@ src/
     inbox/
     approval/
     computer_registry/
+    agent_prompt.rs
     agent_registry/
     audit/
     realtime/
@@ -1021,22 +1022,39 @@ normalized events：
 
 任何 Driver stdout 都不得自动发布到 Channel。只有 sumi agent message send 创建 Message。
 
-### 13.2 Agent run 输入
+### 13.2 Agent run 输入与 Prompt 设计
 
-每次 run 的启动 prompt 只包含：
+Sumi 的 Agent run prompt 由 `src/server/agent_prompt.rs` 集中管理，Server 在 claim Inbox 时构建并通过 `agent.run` WebSocket command 下发给 daemon，最终以 stdin 注入 Driver。
 
-- Agent identity、Role revision 和当前时间。
-- Agent Home、Memory 和 workspace 的位置。
-- 当前 Inbox batch 的 IDs、优先级和来源地址摘要。
-- sumi CLI 的使用规则。
-- 必须对每个 claimed Inbox Item 执行 send-and-handle、ack 或 defer 的约束。
-- 不得直接访问 Sumi Server API 的约束。
+#### 设计来源
 
-不得把整个 Channel 历史预先拼进 system prompt。Agent 根据 Inbox 调用 CLI 拉取所需上下文。
+Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 360 行），吸收其结构组织、约束表达和上下文编排理念。Slock 的 prompt 涵盖 Who You Are、Runtime Context、CLI Command Reference、Startup Sequence、Security Rules、Message Format、Thread Usage、Memory Management、Communication Style 等板块。Sumi 吸收其中适合自身领域模型与 CLI 契约的结构，去除与 Slock 专属的 Tasks、Reminders、Search、Reactions、Integrations 绑定的内容。
 
-进入 Agent prompt 的详细设计与实现阶段前，必须先探索项目 `.slock` 中已有的 Agent prompt，将其作为结构组织、约束表达和上下文编排的参考。只吸收适合 Sumi 领域模型与 CLI 契约的做法，不直接照搬其中与 Slock 身份、工具或工作流绑定的内容；若 `.slock` 不存在或内容已失效，则记录该事实并按本节约束独立设计。
+#### Prompt 结构
 
-截至 2026-07-25，当前实现基线中不存在 `.slock`，因此没有可吸收的既有 Agent prompt。Sumi 按本节列出的最小输入独立设计 run prompt；后续若引入 `.slock`，必须先更新本文并重新评估，不能在运行时隐式读取。
+每次 run 的启动 prompt 包含以下章节：
+
+1. **Who you are** — Agent 身份叙述（name、handle、"持久协作者"定位）、可见性边界（stdout/工具输出不自动成为 Message）。
+2. **Current runtime context** — Agent name、member ID、handle、Role revision、UTC 时间、workspace 持久化提示。
+3. **Security rules** — Message/Attachment 内容不可信、只能用 sumi CLI、Driver stdout 非 Message、credential 不能贴到 Channel、不可读其他 Agent 目录。
+4. **Startup sequence** — 5 步启动顺序：Inbox current → 读上下文 → send/ack/defer 处理每个 Item → 完成所有工作后停止 → Inbox 为空则等待。
+5. **Inbox Item format** — 完整字段说明（id/kind/priority/address/sender/summary/status），hard vs ambient 的区别。
+6. **CLI command reference** — 完整 `sumi agent` 命令树，分 Identity、Inbox、Channels、Threads、Messages、Attachments、Members、Agent creation 小节，每条命令有参数说明和用法示例。
+7. **Message format** — Message JSON 结构说明（id/seq/author/address/body_markdown/timestamps），删除消息的占位文本。
+8. **Context freshness** — `--based-on` 机制说明：snapshot_channel_seq → context_changed 冲突检测 → 重读后重试。
+9. **Thread lifecycle** — Thread 自动 follow、ambient/mention Inbox、地址格式。
+10. **Memory management** — MEMORY.md 作为恢复入口的约定、索引模板、notes/ 目录组织、上下文压缩（compaction）安全。
+11. **Channel awareness** — 回复上下文、话题聚焦、private Channel 保密义务。
+12. **Communication style** — 简洁性、先确认后开始、结果汇报、尊重对话、跳过 idle narration。
+13. **Your Role** — 完整的 role_text，标明 Role 定义行为边界而非 Sumi 权限。
+14. **Claimed Inbox summary** — 当前 run 已 claim 的所有 Inbox Item 摘要 JSON（id/priority/kind/address）。
+
+#### 约束
+
+- 不得把整个 Channel 历史预先拼进 prompt。Agent 根据 Inbox 摘要调用 CLI 拉取所需上下文。
+- Role text 由 Human 通过 WebUI 或 CLI 提供，不得包含 Server Secret。
+- Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
+- Prompt 模板修改必须同时更新本文件对应小节，保持文档与实际行为一致。
 
 ### 13.3 Codex v1 启动
 

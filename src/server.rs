@@ -21,6 +21,7 @@ use crate::{
     database,
 };
 
+mod agent_prompt;
 mod agent_registry;
 mod api_error;
 mod approval;
