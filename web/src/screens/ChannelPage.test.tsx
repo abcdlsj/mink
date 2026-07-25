@@ -85,7 +85,11 @@ describe("ChannelPage", () => {
           snapshot_channel_seq: 2,
           root: { ...message(channelId, 1, "First Message"), thread_id: 1, reply_count: 1 },
           replies: [message(channelId, 2, "Existing reply")],
+          is_following: false,
         });
+      }
+      if (path.endsWith(`/channels/${channelId}/threads/1/subscription`) && init?.method === "PUT") {
+        return json({ channel_id: channelId, thread_id: 1, is_following: true });
       }
       if (path.endsWith(`/channels/${channelId}/threads/1/messages`) && init?.method === "POST") {
         return json(message(channelId, 3, "New Thread reply"), 201);
@@ -155,6 +159,8 @@ describe("ChannelPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "1 reply" }));
     expect(await screen.findByText("Existing reply")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Follow Thread" }));
+    expect(await screen.findByRole("button", { name: "Unfollow Thread" })).toBeVisible();
     const threadInput = screen.getByLabelText("Thread reply");
     fireEvent.change(threadInput, { target: { value: "New Thread reply" } });
     fireEvent.submit(threadInput.closest("form")!);

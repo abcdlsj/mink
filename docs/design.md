@@ -1128,7 +1128,8 @@ Agent 无法通过参数切换身份。CLI 不保存 Server Computer credential�
   "error": {
     "code": "permission_denied",
     "message": "Agent is not a member of #private-roadmap",
-    "retryable": false
+    "retryable": false,
+    "details": null
   }
 }
 ~~~
@@ -1268,6 +1269,10 @@ Member 在以下情况自动订阅 Thread：
 
 自动订阅只影响普通 Thread 更新的 Inbox，不改变读取权限。Member 可以 unfollow，但 direct mention 仍创建 hard Item。
 
+Browser 读取 Thread 时响应包含当前 Member 的 `is_following`。显式 follow/unfollow 使用
+`PUT/DELETE /api/v1/channels/{channel_id}/threads/{thread_id}/subscription`；两者都要求当前
+Member 已加入 Channel，且重复调用保持幂等。unfollow 只将现有订阅标记 muted，不删除历史游标。
+
 ### 15.4 Ambient 聚合
 
 普通 Channel Message 不能每条启动一次 Codex。Server 对每个 Agent、Channel 和可选 Thread 维护最多一个 pending ambient Item：
@@ -1332,6 +1337,9 @@ on inbox notification or periodic poll:
       after max retries mark dead and notify Admin
 ~~~
 
+达到 `max_retry_count` 时，Server 在同一事务把 Item 标记为 dead，并为 Space 的 Human Owner/Admin
+各创建一个不携带 Message 正文、Attachment 或 private Channel 地址的 system hard Inbox Item。
+
 同一 Agent 不得并行处理两个 batch。不同 Agents 可以按 Computer concurrency 并行。
 
 ### 15.7 “Agent 自己判断”原则
@@ -1355,6 +1363,12 @@ v1 不增加廉价分类模型、关键词 router 或第二个“注意力 Agent
 - 未来可增加 --force；v1 不开放 force，避免 Agent 在过期上下文中强发。
 
 daemon 将 context_changed 呈现给 Driver，不把它算作 run failure。草稿留在 Agent workspace，由 Driver 决定修改或沉默。
+
+`context_changed` 的 JSON error `details` 固定包含 `snapshot_channel_seq`、
+`latest_channel_seq`、按 seq 升序的最多 10 条 `changes` 元数据（Message ID、seq、地址、Thread ID
+和 author 摘要）以及 `has_more`。变化摘要不得把 Message 正文塞进错误或日志；Agent 使用返回的
+地址与最新序号再次调用 channel/thread read。Server 必须先确认 `--handle` Item 是当前 run 持有的
+hard lease，再做 freshness 判断；ambient Item 和不带 `--handle` 的普通发送不使用该强制门禁。
 
 ### 15.9 启动与恢复
 
@@ -1433,6 +1447,8 @@ GET  /api/v1/channels/{channel_id}/messages
 POST /api/v1/channels/{channel_id}/messages
 POST /api/v1/channels/{channel_id}/threads
 GET  /api/v1/channels/{channel_id}/threads/{thread_id}
+PUT  /api/v1/channels/{channel_id}/threads/{thread_id}/subscription
+DELETE /api/v1/channels/{channel_id}/threads/{thread_id}/subscription
 POST /api/v1/channels/{channel_id}/threads/{thread_id}/messages
 PATCH /api/v1/messages/{message_id}
 DELETE /api/v1/messages/{message_id}
@@ -1464,7 +1480,9 @@ POST /api/v1/approvals/{approval_id}/reject
 Agent list/detail 对同一 Space Member 返回 identity、Role revision、状态、Computer、Driver 和
 attention config；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
 Computer online 时临时读取正文。Memory read 响应使用 `Cache-Control: no-store`，正文不成为 Server
-事实来源。`PATCH`
+事实来源。`POST /spaces/{space_id}/agents` 对 Human Owner/Admin 直接创建并返回 201 Agent；普通
+Human Member 必须持有 `agent:create`，请求只创建 Approval 并返回 202 `approval_id/status=pending`。
+无论 Agent 是否为 Admin，Agent CLI create 都只返回 pending Approval。`PATCH`
 只允许 Human Owner/Admin，接受可选的 `role_text`、`attention_config` 和 lifecycle action。lifecycle
 action 固定为 `suspend`、`resume`、`retry` 或 `retire`；`suspend` 还必须携带
 `mode=stop_after_current|cancel_now`。一次请求可以同时修改 Role/attention config 和执行一个
@@ -1504,6 +1522,13 @@ POST /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/complete
 GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}
 GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/download
 ~~~
+
+`inbox/renew` 接受 `run_id`，只续期该 Computer、Agent、run 原始 lease ownership 下仍为 leased
+的 Items，并返回新的 `lease_expires_at`。`inbox/release` 接受 `run_id` 与不含正文的 `error_code`，
+将该 run 标记失败并按统一 retry/dead 路径释放仍 leased 的 Items；同一 run 重复 release 返回
+未释放而不是重复增加 retry。daemon 每 60 秒为本地 queued/running run 续租，启动或重连后则把
+本地已标记 `process_lost` 且尚未上报的 run 主动 release；release 必须在建立 WebSocket command
+stream 之前完成，避免 Server 重放已经丢失进程对应的持久 `agent.run` command。
 
 Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer credential 不能管理 Space 中其他 Computer 的 Agents。
 daemon 每秒用 Computer credential 拉取本机 active Agents 并尝试 claim；claim 为空是正常结果，不得断开

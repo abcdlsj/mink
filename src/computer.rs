@@ -409,7 +409,7 @@ async fn proxy_json_agent_action(
         LocalResponse::upstream(payload)
     } else {
         let error = payload.get("error");
-        LocalResponse::failure(
+        LocalResponse::failure_with_details(
             error
                 .and_then(|value| value.get("code"))
                 .and_then(serde_json::Value::as_str)
@@ -419,6 +419,7 @@ async fn proxy_json_agent_action(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("Agent action failed"),
             status.is_server_error(),
+            error.and_then(|value| value.get("details")).cloned(),
         )
     }
 }
@@ -911,6 +912,8 @@ async fn connect_once(
     supervisor: Supervisor,
 ) -> Result<ConnectionOutcome> {
     let computer_id = secrets.computer_id.context("paired Computer has no id")?;
+    // Release lost runs before command replay can redeliver their persisted agent.run commands.
+    release_interrupted_runs(server, computer_id, &secrets.computer_credential, database).await?;
     let mut endpoint = server.join(&format!("/api/v1/computers/{computer_id}/connect"))?;
     match endpoint.scheme() {
         "http" => endpoint.set_scheme("ws").expect("ws is a valid URL scheme"),
@@ -953,6 +956,9 @@ async fn connect_once(
     let mut attention = tokio::time::interval(std::time::Duration::from_secs(1));
     attention.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     attention.tick().await;
+    let mut lease_renewal = tokio::time::interval(std::time::Duration::from_secs(60));
+    lease_renewal.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    lease_renewal.tick().await;
     let (completion_tx, mut completion_rx) = tokio::sync::mpsc::channel::<CommandCompletion>(64);
     let command_processor = LocalCommandProcessor {
         database: database.clone(),
@@ -977,6 +983,16 @@ async fn connect_once(
             _ = attention.tick() => {
                 if let Err(error) = poll_agent_inbox(server, computer_id, &secrets.computer_credential).await {
                     tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox poll failed");
+                }
+            }
+            _ = lease_renewal.tick() => {
+                if let Err(error) = renew_active_run_leases(
+                    server,
+                    computer_id,
+                    &secrets.computer_credential,
+                    database,
+                ).await {
+                    tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox lease renewal failed");
                 }
             }
             completion = completion_rx.recv() => {
@@ -1051,6 +1067,75 @@ async fn poll_agent_inbox(server: &Url, computer_id: Uuid, credential: &str) -> 
             .json()
             .await?;
         let _claimed = claim.claimed;
+    }
+    Ok(())
+}
+
+async fn renew_active_run_leases(
+    server: &Url,
+    computer_id: Uuid,
+    credential: &str,
+    database: &SqlitePool,
+) -> Result<()> {
+    let runs: Vec<(String, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id FROM local_agent_runs \
+         WHERE status IN ('queued', 'running') ORDER BY run_id",
+    )
+    .fetch_all(database)
+    .await?;
+    let client = reqwest::Client::new();
+    for (run_id, agent_id) in runs {
+        let run_id = Uuid::parse_str(&run_id)?;
+        let agent_id = Uuid::parse_str(&agent_id)?;
+        client
+            .post(server.join(&format!(
+                "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew"
+            ))?)
+            .bearer_auth(credential)
+            .json(&serde_json::json!({ "run_id": run_id }))
+            .send()
+            .await?
+            .error_for_status()?;
+    }
+    Ok(())
+}
+
+async fn release_interrupted_runs(
+    server: &Url,
+    computer_id: Uuid,
+    credential: &str,
+    database: &SqlitePool,
+) -> Result<()> {
+    let runs: Vec<(String, String)> = sqlx::query_as(
+        "SELECT run_id, agent_member_id FROM local_agent_runs \
+         WHERE status = 'failed' AND last_error_code = 'process_lost' \
+           AND server_recovery_reported_at IS NULL ORDER BY run_id",
+    )
+    .fetch_all(database)
+    .await?;
+    let client = reqwest::Client::new();
+    for (run_id, agent_id) in runs {
+        let run_id = Uuid::parse_str(&run_id)?;
+        let agent_id = Uuid::parse_str(&agent_id)?;
+        client
+            .post(server.join(&format!(
+                "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/release"
+            ))?)
+            .bearer_auth(credential)
+            .json(&serde_json::json!({
+                "run_id": run_id,
+                "error_code": "process_lost",
+            }))
+            .send()
+            .await?
+            .error_for_status()?;
+        sqlx::query(
+            "UPDATE local_agent_runs SET server_recovery_reported_at = ?2 WHERE run_id = ?1",
+        )
+        .bind(run_id.to_string())
+        .bind(OffsetDateTime::now_utc().to_string())
+        .execute(database)
+        .await?;
     }
     Ok(())
 }
@@ -1959,8 +2044,9 @@ mod tests {
             .await
             .unwrap();
 
-        let recovered: (String, Option<String>) = sqlx::query_as(
-            "SELECT status, last_error_code FROM local_agent_runs WHERE run_id = ?1",
+        let recovered: (String, Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT status, last_error_code, server_recovery_reported_at \
+             FROM local_agent_runs WHERE run_id = ?1",
         )
         .bind(run_id.to_string())
         .fetch_one(&database)
@@ -1968,7 +2054,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             recovered,
-            ("failed".to_owned(), Some("process_lost".to_owned()))
+            ("failed".to_owned(), Some("process_lost".to_owned()), None)
         );
         let command_status: String =
             sqlx::query_scalar("SELECT status FROM server_commands WHERE command_id = ?1")
@@ -2004,6 +2090,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn daemon_renews_active_leases_and_reports_process_lost_once() {
+        let root = tempfile::tempdir().unwrap();
+        let database = database::connect_sqlite(&root.path().join("daemon.db"))
+            .await
+            .unwrap();
+        let computer_id = Uuid::now_v7();
+        let agent_id = Uuid::now_v7();
+        let active_run_id = Uuid::now_v7();
+        let lost_run_id = Uuid::now_v7();
+        let space_id = Uuid::now_v7();
+        for (run_id, status, error_code) in [
+            (active_run_id, "running", None),
+            (lost_run_id, "failed", Some("process_lost")),
+        ] {
+            sqlx::query(
+                "INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, \
+                 token_expires_at, status, started_at, finished_at, last_error_code) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            )
+            .bind(run_id.to_string())
+            .bind(agent_id.to_string())
+            .bind(space_id.to_string())
+            .bind(Sha256::digest(b"token").to_vec())
+            .bind((OffsetDateTime::now_utc() + time::Duration::hours(1)).to_string())
+            .bind(status)
+            .bind(OffsetDateTime::now_utc().to_string())
+            .bind((status == "failed").then(|| OffsetDateTime::now_utc().to_string()))
+            .bind(error_code)
+            .execute(&database)
+            .await
+            .unwrap();
+        }
+        let app = axum::Router::new()
+            .route(
+                "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew",
+                axum::routing::post(|| async { axum::Json(serde_json::json!({ "ok": true })) }),
+            )
+            .route(
+                "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/release",
+                axum::routing::post(|| async {
+                    axum::Json(serde_json::json!({ "released": true }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let server_url = Url::parse(&format!("http://{address}")).unwrap();
+
+        renew_active_run_leases(&server_url, computer_id, "credential", &database)
+            .await
+            .unwrap();
+        release_interrupted_runs(&server_url, computer_id, "credential", &database)
+            .await
+            .unwrap();
+        let reported_at: Option<String> = sqlx::query_scalar(
+            "SELECT server_recovery_reported_at FROM local_agent_runs WHERE run_id = ?1",
+        )
+        .bind(lost_run_id.to_string())
+        .fetch_one(&database)
+        .await
+        .unwrap();
+        assert!(reported_at.is_some());
+        server.abort();
+        let _ = server.await;
     }
 
     #[tokio::test]

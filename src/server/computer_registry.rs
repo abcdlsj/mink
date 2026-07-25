@@ -867,6 +867,30 @@ pub struct AgentClaimResponse {
     inbox_item_ids: Vec<Uuid>,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct AgentLeaseRequest {
+    run_id: Uuid,
+}
+
+#[derive(Serialize)]
+pub struct AgentLeaseResponse {
+    renewed_items: u64,
+    lease_expires_at: OffsetDateTime,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct AgentReleaseRequest {
+    run_id: Uuid,
+    error_code: String,
+}
+
+#[derive(Serialize)]
+pub struct AgentReleaseResponse {
+    released: bool,
+    retry_items: u64,
+    dead_items: u64,
+}
+
 #[derive(sqlx::FromRow)]
 struct ClaimableInboxItem {
     id: Uuid,
@@ -1048,6 +1072,132 @@ pub async fn claim_agent_inbox(
         claimed: true,
         run_id: Some(run_id),
         inbox_item_ids: item_ids,
+    }))
+}
+
+pub async fn renew_agent_inbox(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<AgentLeaseRequest>,
+) -> Result<Json<AgentLeaseResponse>, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    let valid_run: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM agent_runs \
+         WHERE id = $1 AND agent_member_id = $2 AND computer_id = $3 \
+           AND status IN ('queued', 'running'))",
+    )
+    .bind(request.run_id)
+    .bind(agent_id)
+    .bind(computer_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(ApiError::database)?;
+    if !valid_run {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Agent run is not active on this Computer",
+        ));
+    }
+    let lease_expires_at = OffsetDateTime::now_utc() + Duration::minutes(35);
+    let renewed_items = sqlx::query(
+        "UPDATE inbox_items SET lease_expires_at = $2 \
+         FROM agent_run_inbox_items run_items \
+         WHERE run_items.run_id = $1 AND inbox_items.id = run_items.inbox_item_id \
+           AND inbox_items.status = 'leased' AND inbox_items.lease_id = run_items.lease_id",
+    )
+    .bind(request.run_id)
+    .bind(lease_expires_at)
+    .execute(&state.database)
+    .await
+    .map_err(ApiError::database)?
+    .rows_affected();
+    Ok(Json(AgentLeaseResponse {
+        renewed_items,
+        lease_expires_at,
+    }))
+}
+
+pub async fn release_agent_inbox(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id)): Path<(Uuid, Uuid)>,
+    Json(mut request): Json<AgentReleaseRequest>,
+) -> Result<Json<AgentReleaseResponse>, ApiError> {
+    authenticate_computer(&state, &headers, computer_id).await?;
+    request.error_code = request.error_code.trim().to_owned();
+    if request.error_code.is_empty()
+        || request.error_code.len() > 64
+        || !request
+            .error_code
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return Err(ApiError::validation(
+            "invalid_error_code",
+            "Run error code is invalid",
+        ));
+    }
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let run: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "UPDATE agent_runs SET status = 'failed', started_at = COALESCE(started_at, created_at), \
+         finished_at = now(), error_code = $4 WHERE id = $1 AND agent_member_id = $2 \
+         AND computer_id = $3 AND status IN ('queued', 'running') RETURNING agent_member_id, \
+         (SELECT space_id FROM agents WHERE agents.member_id = agent_runs.agent_member_id)",
+    )
+    .bind(request.run_id)
+    .bind(agent_id)
+    .bind(computer_id)
+    .bind(&request.error_code)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let Some((agent_id, space_id)) = run else {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(Json(AgentReleaseResponse {
+            released: false,
+            retry_items: 0,
+            dead_items: 0,
+        }));
+    };
+    sqlx::query(
+        "UPDATE computer_commands SET status = 'failed', result_json = $3, \
+         acked_at = COALESCE(acked_at, now()), completed_at = now() \
+         WHERE computer_id = $1 AND kind = 'agent.run' \
+           AND payload_json->>'run_id' = $2 AND status NOT IN ('completed', 'failed')",
+    )
+    .bind(computer_id)
+    .bind(request.run_id.to_string())
+    .bind(serde_json::json!({
+        "ok": false,
+        "run_id": request.run_id,
+        "status": "failed",
+        "error_code": request.error_code,
+    }))
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let (retry_items, dead_items) = release_run_inbox_items(
+        &mut transaction,
+        request.run_id,
+        agent_id,
+        space_id,
+        &request.error_code,
+    )
+    .await?;
+    insert_run_event(
+        &mut transaction,
+        request.run_id,
+        agent_id,
+        space_id,
+        "failed",
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(Json(AgentReleaseResponse {
+        released: true,
+        retry_items,
+        dead_items,
     }))
 }
 
@@ -1452,6 +1602,12 @@ async fn agent_message_send(
             "Message must contain 1 to 20000 characters",
         ));
     }
+    if based_on.is_some_and(|snapshot| snapshot < 0) {
+        return Err(ApiError::validation(
+            "invalid_context_snapshot",
+            "Context snapshot sequence cannot be negative",
+        ));
+    }
     let (channel_id, display_address, thread_id) =
         resolve_agent_message_target(database, agent_id, address).await?;
     let request_hash = idempotency::request_hash(&serde_json::json!({
@@ -1494,34 +1650,49 @@ async fn agent_message_send(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
-    if handle_item_id.is_some() && based_on.is_some_and(|snapshot| snapshot != current_seq) {
-        return Err(ApiError::conflict(
-            "context_changed",
-            format!("Channel context changed; latest sequence is {current_seq}"),
-        ));
-    }
-    if let Some(item_id) = handle_item_id {
-        let leased: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM agent_run_inbox_items \
+    let handled_priority = if let Some(item_id) = handle_item_id {
+        let priority: Option<String> = sqlx::query_scalar(
+            "SELECT inbox_items.priority FROM agent_run_inbox_items \
              JOIN inbox_items ON inbox_items.id = agent_run_inbox_items.inbox_item_id \
              WHERE agent_run_inbox_items.run_id = $1 \
                AND agent_run_inbox_items.inbox_item_id = $2 \
                AND inbox_items.member_id = $3 AND inbox_items.status = 'leased' \
                AND inbox_items.lease_id = agent_run_inbox_items.lease_id \
-               AND inbox_items.lease_expires_at > now())",
+               AND inbox_items.lease_expires_at > now()",
         )
         .bind(run_id)
         .bind(item_id)
         .bind(agent_id)
-        .fetch_one(&mut *transaction)
+        .fetch_optional(&mut *transaction)
         .await
         .map_err(ApiError::database)?;
-        if !leased {
+        let Some(priority) = priority else {
             return Err(ApiError::conflict(
                 "inbox_lease_lost",
                 "Inbox Item is not leased by this run",
             ));
-        }
+        };
+        Some(priority)
+    } else {
+        None
+    };
+    if handled_priority.as_deref() == Some("hard")
+        && let Some(snapshot) = based_on
+        && snapshot != current_seq
+    {
+        let details = context_change_details(
+            &mut transaction,
+            channel_id,
+            &display_address,
+            snapshot,
+            current_seq,
+        )
+        .await?;
+        return Err(ApiError::conflict_with_details(
+            "context_changed",
+            format!("Channel context changed; latest sequence is {current_seq}"),
+            details,
+        ));
     }
     let seq: i64 = sqlx::query_scalar(
         "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
@@ -1556,6 +1727,7 @@ async fn agent_message_send(
         attachment_ids,
     )
     .await?;
+    let mut thread_inbox_changed = false;
     if let Some(thread_id) = thread_id {
         sqlx::query(
             "INSERT INTO thread_subscriptions (channel_id, thread_id, member_id, created_at) \
@@ -1569,6 +1741,22 @@ async fn agent_message_send(
         .execute(&mut *transaction)
         .await
         .map_err(ApiError::database)?;
+        if channel_kind != "direct" {
+            thread_inbox_changed = super::thread::insert_thread_attention(
+                &mut transaction,
+                space_id,
+                channel_id,
+                thread_id,
+                message_id,
+                agent_id,
+                seq,
+                None,
+                &[],
+                &channel_kind,
+                now,
+            )
+            .await?;
+        }
     }
     if let Some(item_id) = handle_item_id {
         let updated = sqlx::query(
@@ -1625,6 +1813,23 @@ async fn agent_message_send(
         )
         .await?;
     }
+    if thread_inbox_changed {
+        sqlx::query(
+            "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
+             VALUES ($1, 'inbox.changed', $2, $3, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(message_id)
+        .bind(serde_json::json!({
+            "space_id": space_id,
+            "channel_id": channel_id,
+            "thread_id": thread_id,
+        }))
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
     if channel_kind != "direct"
         && thread_id.is_none()
         && message::insert_channel_ambient_inbox(
@@ -1660,6 +1865,7 @@ async fn agent_message_send(
     .bind(serde_json::json!({
         "space_id": space_id,
         "channel_id": channel_id,
+        "thread_id": thread_id,
         "message_id": message_id,
         "channel_seq": seq,
     }))
@@ -1678,6 +1884,44 @@ async fn agent_message_send(
     .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(response)
+}
+
+async fn context_change_details(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    channel_id: Uuid,
+    display_address: &str,
+    snapshot: i64,
+    current_seq: i64,
+) -> Result<serde_json::Value, ApiError> {
+    let mut changes: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object( \
+            'id', messages.id, 'seq', messages.channel_seq, \
+            'address', CASE WHEN channels.kind = 'direct' THEN $4::text \
+                WHEN messages.thread_id IS NULL THEN '#' || channels.slug::text \
+                ELSE '#' || channels.slug::text || ':' || messages.thread_id::text END, \
+            'thread_id', messages.thread_id, \
+            'author', jsonb_build_object('id', members.id, 'kind', members.kind, \
+                'display_name', members.display_name, 'handle', members.handle)) \
+         FROM messages JOIN channels ON channels.id = messages.channel_id \
+         JOIN members ON members.id = messages.author_member_id \
+         WHERE messages.channel_id = $1 AND messages.channel_seq > $2 \
+           AND messages.channel_seq <= $3 ORDER BY messages.channel_seq LIMIT 11",
+    )
+    .bind(channel_id)
+    .bind(snapshot)
+    .bind(current_seq)
+    .bind(display_address)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let has_more = changes.len() > 10;
+    changes.truncate(10);
+    Ok(serde_json::json!({
+        "snapshot_channel_seq": snapshot,
+        "latest_channel_seq": current_seq,
+        "changes": changes,
+        "has_more": has_more,
+    }))
 }
 
 async fn resolve_agent_message_target(
@@ -2306,35 +2550,93 @@ async fn apply_run_result(
     let Some((agent_id, space_id)) = updated else {
         return Ok(());
     };
-    if run_status != "completed" {
-        sqlx::query(
-            "UPDATE inbox_items SET status = CASE \
-                 WHEN retry_count + 1 >= COALESCE((SELECT (attention_config_json->>'max_retry_count')::int \
-                    FROM agents WHERE member_id = inbox_items.member_id), 3) THEN 'dead' \
-                 ELSE 'pending' END, retry_count = retry_count + 1, \
-                 available_at = now() + make_interval(secs => LEAST(60, 2 ^ LEAST(retry_count, 5))), \
-                 lease_id = NULL, lease_expires_at = NULL, last_error = $2 \
-             WHERE id IN (SELECT inbox_item_id FROM agent_run_inbox_items WHERE run_id = $1) \
-               AND status = 'leased'",
-        )
-        .bind(run_id)
-        .bind(result.get("error_code").and_then(serde_json::Value::as_str))
-        .execute(&mut **transaction)
-        .await
-        .map_err(ApiError::database)?;
+    let error_code = if run_status == "completed" {
+        "run_exited_without_handling"
     } else {
-        sqlx::query(
-            "UPDATE inbox_items SET status = 'pending', available_at = now(), lease_id = NULL, \
-             lease_expires_at = NULL, retry_count = retry_count + 1, \
-             last_error = 'run_exited_without_handling' \
-             WHERE id IN (SELECT inbox_item_id FROM agent_run_inbox_items WHERE run_id = $1) \
-               AND status = 'leased'",
+        result
+            .get("error_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("driver_failed")
+    };
+    release_run_inbox_items(transaction, run_id, agent_id, space_id, error_code).await?;
+    insert_run_event(transaction, run_id, agent_id, space_id, run_status).await?;
+    Ok(())
+}
+
+async fn release_run_inbox_items(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    agent_id: Uuid,
+    space_id: Uuid,
+    error_code: &str,
+) -> Result<(u64, u64), ApiError> {
+    let released: Vec<(Uuid, String)> = sqlx::query_as(
+        "UPDATE inbox_items SET status = CASE \
+             WHEN retry_count + 1 >= COALESCE((SELECT (attention_config_json->>'max_retry_count')::int \
+                FROM agents WHERE member_id = inbox_items.member_id), 3) THEN 'dead' \
+             ELSE 'pending' END, retry_count = retry_count + 1, \
+             available_at = now() + make_interval(secs => LEAST(60, 2 ^ LEAST(retry_count, 5))), \
+             lease_id = NULL, lease_expires_at = NULL, last_error = $2 \
+         WHERE id IN (SELECT inbox_item_id FROM agent_run_inbox_items WHERE run_id = $1) \
+           AND status = 'leased' RETURNING id, status",
+    )
+    .bind(run_id)
+    .bind(error_code)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let dead_items = released
+        .iter()
+        .filter(|(_, status)| status == "dead")
+        .count() as u64;
+    if dead_items > 0 {
+        let admins: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT members.id FROM members JOIN human_members ON human_members.member_id = members.id \
+             WHERE members.space_id = $1 AND members.access_level IN ('owner', 'admin') \
+               AND members.retired_at IS NULL",
         )
-        .bind(run_id)
-        .execute(&mut **transaction)
+        .bind(space_id)
+        .fetch_all(&mut **transaction)
         .await
         .map_err(ApiError::database)?;
+        let now = OffsetDateTime::now_utc();
+        for admin_id in admins {
+            let item_id = Uuid::now_v7();
+            sqlx::query(
+                "INSERT INTO inbox_items (id, member_id, space_id, kind, priority, message_count, \
+                 status, available_at, last_error, created_at) \
+                 VALUES ($1, $2, $3, 'system', 'hard', $4, 'pending', $5, $6, $5)",
+            )
+            .bind(item_id)
+            .bind(admin_id)
+            .bind(space_id)
+            .bind(i32::try_from(dead_items).unwrap_or(i32::MAX))
+            .bind(now)
+            .bind(error_code)
+            .execute(&mut **transaction)
+            .await
+            .map_err(ApiError::database)?;
+            insert_agent_inbox_event(transaction, space_id, admin_id, item_id, now).await?;
+        }
+        tracing::warn!(
+            agent_member_id = %agent_id,
+            run_id = %run_id,
+            dead_items,
+            error_code,
+            "Agent Inbox Items reached retry limit"
+        );
     }
+    let retry_items = released.len() as u64 - dead_items;
+    Ok((retry_items, dead_items))
+}
+
+async fn insert_run_event(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    run_id: Uuid,
+    agent_id: Uuid,
+    space_id: Uuid,
+    status: &str,
+) -> Result<(), ApiError> {
     sqlx::query(
         "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
          VALUES ($1, 'agent.run_changed', $2, $3, now())",
@@ -2345,7 +2647,7 @@ async fn apply_run_result(
         "space_id": space_id,
         "agent_member_id": agent_id,
         "run_id": run_id,
-        "status": run_status,
+        "status": status,
     }))
     .execute(&mut **transaction)
     .await

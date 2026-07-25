@@ -162,6 +162,14 @@ async fn run_migration_assertions(admin_url: &str, database_name: &str) -> Resul
     .await?;
     assert!(one_active_run_is_enforced);
 
+    let one_pending_thread_ambient_is_enforced: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pg_indexes \
+         WHERE indexname = 'inbox_items_one_pending_thread_ambient_idx')",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert!(one_pending_thread_ambient_is_enforced);
+
     pool.close().await;
     Ok(())
 }

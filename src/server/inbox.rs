@@ -41,7 +41,9 @@ pub async fn list(
                 inbox_items.channel_id, channels.slug::text AS channel_slug, inbox_items.thread_id, \
                 inbox_items.message_id, inbox_items.approval_id, senders.id AS sender_member_id, \
                 senders.display_name AS sender_display_name, \
-                CASE WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
+                CASE WHEN inbox_items.kind = 'system' THEN \
+                          'Agent attention failed after retry limit (' || inbox_items.last_error || ')' \
+                     WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
                      ELSE 'Message 已删除' END AS summary, \
                 inbox_items.status, inbox_items.available_at, inbox_items.created_at \
          FROM inbox_items \
@@ -182,7 +184,9 @@ async fn item_by_id(
                 inbox_items.channel_id, channels.slug::text AS channel_slug, inbox_items.thread_id, \
                 inbox_items.message_id, inbox_items.approval_id, senders.id AS sender_member_id, \
                 senders.display_name AS sender_display_name, \
-                CASE WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
+                CASE WHEN inbox_items.kind = 'system' THEN \
+                          'Agent attention failed after retry limit (' || inbox_items.last_error || ')' \
+                     WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
                      ELSE 'Message 已删除' END AS summary, \
                 inbox_items.status, inbox_items.available_at, inbox_items.created_at \
          FROM inbox_items LEFT JOIN channels ON channels.id = inbox_items.channel_id \

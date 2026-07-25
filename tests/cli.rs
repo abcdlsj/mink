@@ -107,7 +107,19 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
             "error": {
                 "code": error_code,
                 "message": "classified failure",
-                "retryable": retryable
+                "retryable": retryable,
+                "details": (error_code == "context_changed").then(|| serde_json::json!({
+                    "snapshot_channel_seq": 10,
+                    "latest_channel_seq": 11,
+                    "changes": [{
+                        "id": "01969f98-bcee-7da0-a150-e0d0de169c00",
+                        "seq": 11,
+                        "address": "#general:1",
+                        "thread_id": 1,
+                        "author": { "id": "01969f98-bcee-7da0-a150-e0d0de169c01" }
+                    }],
+                    "has_more": false
+                }))
             }
         });
         let server = std::thread::spawn(move || {
@@ -130,6 +142,14 @@ fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
         assert_eq!(output.status.code(), Some(expected_exit));
         let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(envelope["error"]["code"], error_code);
+        if error_code == "context_changed" {
+            assert_eq!(envelope["error"]["details"]["latest_channel_seq"], 11);
+            assert!(
+                envelope["error"]["details"]["changes"][0]
+                    .get("body_markdown")
+                    .is_none()
+            );
+        }
     }
 }
 

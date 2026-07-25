@@ -126,6 +126,8 @@ pub struct LocalError {
     pub code: String,
     pub message: String,
     pub retryable: bool,
+    #[serde(default)]
+    pub details: Option<Box<serde_json::Value>>,
 }
 
 impl LocalResponse {
@@ -156,6 +158,7 @@ impl LocalResponse {
                 code: "permission_denied".to_owned(),
                 message: "Agent run capability is invalid or expired".to_owned(),
                 retryable: false,
+                details: None,
             }),
         }
     }
@@ -169,8 +172,22 @@ impl LocalResponse {
                 code: code.into(),
                 message: message.into(),
                 retryable,
+                details: None,
             }),
         }
+    }
+
+    pub fn failure_with_details(
+        code: impl Into<String>,
+        message: impl Into<String>,
+        retryable: bool,
+        details: Option<serde_json::Value>,
+    ) -> Self {
+        let mut response = Self::failure(code, message, retryable);
+        if let Some(error) = &mut response.error {
+            error.details = details.map(Box::new);
+        }
+        response
     }
 }
 

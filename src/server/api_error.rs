@@ -7,13 +7,29 @@ use serde::Serialize;
 
 #[derive(Debug)]
 pub enum ApiError {
-    Validation { code: &'static str, message: String },
+    Validation {
+        code: &'static str,
+        message: String,
+    },
     Unauthorized,
     InvalidCredentials,
-    Forbidden { code: &'static str, message: String },
-    NotFound { code: &'static str, message: String },
-    Conflict { code: &'static str, message: String },
-    Gone { code: &'static str, message: String },
+    Forbidden {
+        code: &'static str,
+        message: String,
+    },
+    NotFound {
+        code: &'static str,
+        message: String,
+    },
+    Conflict {
+        code: &'static str,
+        message: String,
+        details: Option<serde_json::Value>,
+    },
+    Gone {
+        code: &'static str,
+        message: String,
+    },
     RateLimited,
     Internal,
 }
@@ -30,6 +46,19 @@ impl ApiError {
         Self::Conflict {
             code,
             message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn conflict_with_details(
+        code: &'static str,
+        message: impl Into<String>,
+        details: serde_json::Value,
+    ) -> Self {
+        Self::Conflict {
+            code,
+            message: message.into(),
+            details: Some(details),
         }
     }
 
@@ -69,38 +98,51 @@ struct ErrorEnvelope {
 struct ErrorBody {
     code: &'static str,
     message: String,
+    details: Option<serde_json::Value>,
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        let (status, code, message, retry_after) = match self {
-            Self::Validation { code, message } => (StatusCode::BAD_REQUEST, code, message, false),
+        let (status, code, message, details, retry_after) = match self {
+            Self::Validation { code, message } => {
+                (StatusCode::BAD_REQUEST, code, message, None, false)
+            }
             Self::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
                 "unauthorized",
                 "Authentication is required".to_owned(),
+                None,
                 false,
             ),
             Self::InvalidCredentials => (
                 StatusCode::UNAUTHORIZED,
                 "invalid_credentials",
                 "Email or password is incorrect".to_owned(),
+                None,
                 false,
             ),
-            Self::Forbidden { code, message } => (StatusCode::FORBIDDEN, code, message, false),
-            Self::NotFound { code, message } => (StatusCode::NOT_FOUND, code, message, false),
-            Self::Conflict { code, message } => (StatusCode::CONFLICT, code, message, false),
-            Self::Gone { code, message } => (StatusCode::GONE, code, message, false),
+            Self::Forbidden { code, message } => {
+                (StatusCode::FORBIDDEN, code, message, None, false)
+            }
+            Self::NotFound { code, message } => (StatusCode::NOT_FOUND, code, message, None, false),
+            Self::Conflict {
+                code,
+                message,
+                details,
+            } => (StatusCode::CONFLICT, code, message, details, false),
+            Self::Gone { code, message } => (StatusCode::GONE, code, message, None, false),
             Self::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
                 "rate_limited",
                 "Too many attempts; retry later".to_owned(),
+                None,
                 true,
             ),
             Self::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal_error",
                 "The request could not be completed".to_owned(),
+                None,
                 false,
             ),
         };
@@ -108,7 +150,11 @@ impl IntoResponse for ApiError {
         let mut response = (
             status,
             Json(ErrorEnvelope {
-                error: ErrorBody { code, message },
+                error: ErrorBody {
+                    code,
+                    message,
+                    details,
+                },
             }),
         )
             .into_response();

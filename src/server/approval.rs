@@ -79,8 +79,27 @@ pub async fn list(
 pub(super) async fn request_agent_create(
     database: &sqlx::PgPool,
     requested_by_member_id: Uuid,
+    request: CreateAgentRequest,
+    key: Uuid,
+) -> Result<PendingApprovalResponse, ApiError> {
+    request_agent_create_for_member(database, requested_by_member_id, request, key, "agent").await
+}
+
+pub(super) async fn request_human_agent_create(
+    database: &sqlx::PgPool,
+    requested_by_member_id: Uuid,
+    request: CreateAgentRequest,
+    key: Uuid,
+) -> Result<PendingApprovalResponse, ApiError> {
+    request_agent_create_for_member(database, requested_by_member_id, request, key, "human").await
+}
+
+async fn request_agent_create_for_member(
+    database: &sqlx::PgPool,
+    requested_by_member_id: Uuid,
     mut request: CreateAgentRequest,
     key: Uuid,
+    requester_kind: &str,
 ) -> Result<PendingApprovalResponse, ApiError> {
     request.access_level = "member".to_owned();
     request.handle = None;
@@ -95,17 +114,25 @@ pub(super) async fn request_agent_create(
     };
     let request_hash = idempotency::request_hash(&payload)?;
     let mut transaction = database.begin().await.map_err(ApiError::database)?;
-    let requester: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT members.space_id, members.access_level FROM members \
-         JOIN agents ON agents.member_id = members.id \
-         WHERE members.id = $1 AND members.retired_at IS NULL AND agents.status = 'active' FOR UPDATE",
+    let requester: Option<(Uuid, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT members.space_id, members.access_level, members.kind, agents.status \
+         FROM members LEFT JOIN agents ON agents.member_id = members.id \
+         WHERE members.id = $1 AND members.retired_at IS NULL FOR UPDATE OF members",
     )
     .bind(requested_by_member_id)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    let (space_id, access_level) = requester
-        .ok_or_else(|| ApiError::forbidden("permission_denied", "Current Agent is not active"))?;
+    let (space_id, access_level, member_kind, agent_status) = requester
+        .ok_or_else(|| ApiError::forbidden("permission_denied", "Current Member is not active"))?;
+    if member_kind != requester_kind
+        || (requester_kind == "agent" && agent_status.as_deref() != Some("active"))
+    {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            format!("Current {requester_kind} is not active"),
+        ));
+    }
     let allowed = matches!(access_level.as_str(), "owner" | "admin")
         || sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM member_permissions \

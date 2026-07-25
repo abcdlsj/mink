@@ -265,6 +265,13 @@ export interface ThreadRead {
   snapshot_channel_seq: number;
   root: Message;
   replies: Message[];
+  is_following: boolean;
+}
+
+export interface ThreadSubscription {
+  channel_id: string;
+  thread_id: number;
+  is_following: boolean;
 }
 
 export interface CreateThreadReplyInput extends CreateMessageInput {
@@ -541,6 +548,20 @@ export function createThread(channelId: string, rootMessageId: string): Promise<
 export function readThread(channelId: string, threadId: number): Promise<ThreadRead> {
   return apiRequest<ThreadRead>(
     `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}`,
+  );
+}
+
+export function setThreadSubscription(
+  channelId: string,
+  threadId: number,
+  isFollowing: boolean,
+): Promise<ThreadSubscription> {
+  return apiRequest<ThreadSubscription>(
+    `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}/subscription`,
+    {
+      method: isFollowing ? "PUT" : "DELETE",
+      headers: { "Idempotency-Key": uuidv7() },
+    },
   );
 }
 

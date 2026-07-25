@@ -407,7 +407,8 @@ pub async fn recover_interrupted_runs(database: &SqlitePool) -> Result<()> {
     let now = OffsetDateTime::now_utc().to_string();
     sqlx::query(
         "UPDATE local_agent_runs SET status = 'failed', process_id = NULL, finished_at = ?1, \
-         last_error_code = 'process_lost' WHERE status IN ('queued', 'running')",
+         last_error_code = 'process_lost', server_recovery_reported_at = NULL \
+         WHERE status IN ('queued', 'running')",
     )
     .bind(&now)
     .execute(database)

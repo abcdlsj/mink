@@ -10,7 +10,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, idempotency, member, space};
+use super::{AppState, api_error::ApiError, approval, auth, idempotency, member, space};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CreateAgentRequest {
@@ -40,6 +40,13 @@ pub struct AgentResponse {
     pub retired_at: Option<OffsetDateTime>,
     pub last_error_code: Option<String>,
     pub memory_files: Vec<MemoryFileResponse>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum CreateAgentResponse {
+    Agent(Box<AgentResponse>),
+    Approval(approval::PendingApprovalResponse),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -418,16 +425,18 @@ pub async fn create(
     key: idempotency::IdempotencyKey,
     Path(space_id): Path<Uuid>,
     Json(mut request): Json<CreateAgentRequest>,
-) -> Result<(StatusCode, Json<AgentResponse>), ApiError> {
+) -> Result<(StatusCode, Json<CreateAgentResponse>), ApiError> {
     let user = auth::current_user(&state, &jar).await?;
     validate(&mut request)?;
-    let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
     if actor.access_level != "owner" && actor.access_level != "admin" {
-        return Err(ApiError::forbidden(
-            "permission_denied",
-            "Only a Human Owner or Admin can directly create an Agent",
+        drop(transaction);
+        let response =
+            approval::request_human_agent_create(&state.database, actor.id, request, key.0).await?;
+        return Ok((
+            StatusCode::ACCEPTED,
+            Json(CreateAgentResponse::Approval(response)),
         ));
     }
     if request.access_level == "admin" && actor.access_level != "owner" {
@@ -436,6 +445,7 @@ pub async fn create(
             "Only the Owner can create an Agent as Admin",
         ));
     }
+    let request_hash = idempotency::request_hash(&request)?;
     let computer_status: Option<String> = sqlx::query_scalar(
         "SELECT status FROM computers WHERE id = $1 AND space_id = $2 FOR UPDATE",
     )
@@ -464,7 +474,7 @@ pub async fn create(
         idempotency::begin::<AgentResponse>(&mut transaction, &scope, key, &request_hash).await?
     {
         transaction.commit().await.map_err(ApiError::database)?;
-        return Ok((status, Json(response)));
+        return Ok((status, Json(CreateAgentResponse::Agent(Box::new(response)))));
     }
     let response = provision_agent_tx(&mut transaction, space_id, actor.id, request).await?;
     idempotency::finish(
@@ -476,7 +486,10 @@ pub async fn create(
     )
     .await?;
     transaction.commit().await.map_err(ApiError::database)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((
+        StatusCode::CREATED,
+        Json(CreateAgentResponse::Agent(Box::new(response))),
+    ))
 }
 
 pub(super) async fn provision_agent_tx(

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -255,7 +257,7 @@ pub async fn reply(
         &request.attachment_ids,
     )
     .await?;
-    insert_mentions_and_inbox(
+    let inbox_changed = insert_thread_attention(
         &mut transaction,
         space_id,
         channel_id,
@@ -263,17 +265,13 @@ pub async fn reply(
         message_id,
         actor.id,
         seq,
+        request.reply_to_message_id,
         &request.mentions,
         &channel_kind,
         now,
     )
     .await?;
-    if channel_kind == "direct"
-        || request
-            .mentions
-            .iter()
-            .any(|member_id| *member_id != actor.id)
-    {
+    if inbox_changed {
         sqlx::query(
             "INSERT INTO outbox_events \
              (id, topic, aggregate_id, payload_json, created_at) \
@@ -326,6 +324,7 @@ pub struct ThreadReadResponse {
     pub snapshot_channel_seq: i64,
     pub root: MessageResponse,
     pub replies: Vec<MessageResponse>,
+    pub is_following: bool,
 }
 
 pub async fn read(
@@ -334,8 +333,13 @@ pub async fn read(
     Path((channel_id, thread_id)): Path<(Uuid, i64)>,
 ) -> Result<Json<ThreadReadResponse>, ApiError> {
     let user = auth::current_user(&state, &jar).await?;
-    let access: Option<(Uuid, Uuid, i64)> = sqlx::query_as(
-        "SELECT threads.space_id, threads.root_message_id, channels.next_seq - 1 \
+    let access: Option<(Uuid, Uuid, i64, bool)> = sqlx::query_as(
+        "SELECT threads.space_id, threads.root_message_id, channels.next_seq - 1, \
+                EXISTS(SELECT 1 FROM thread_subscriptions subscriptions \
+                    WHERE subscriptions.channel_id = threads.channel_id \
+                      AND subscriptions.thread_id = threads.thread_id \
+                      AND subscriptions.member_id = channel_members.member_id \
+                      AND subscriptions.muted_at IS NULL) \
          FROM threads JOIN channels ON channels.id = threads.channel_id \
          JOIN channel_members ON channel_members.channel_id = threads.channel_id \
          JOIN human_members ON human_members.member_id = channel_members.member_id \
@@ -348,9 +352,10 @@ pub async fn read(
     .fetch_optional(&state.database)
     .await
     .map_err(ApiError::database)?;
-    let (_space_id, root_message_id, snapshot_channel_seq) = access.ok_or_else(|| {
-        ApiError::forbidden("permission_denied", "Channel membership is required")
-    })?;
+    let (_space_id, root_message_id, snapshot_channel_seq, is_following) =
+        access.ok_or_else(|| {
+            ApiError::forbidden("permission_denied", "Channel membership is required")
+        })?;
     let root = fetch_message(&state.database, root_message_id).await?;
     let replies = fetch_replies(&state.database, channel_id, thread_id).await?;
     Ok(Json(ThreadReadResponse {
@@ -359,7 +364,104 @@ pub async fn read(
         snapshot_channel_seq,
         root,
         replies,
+        is_following,
     }))
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct ThreadSubscriptionResponse {
+    pub channel_id: Uuid,
+    pub thread_id: i64,
+    pub is_following: bool,
+}
+
+pub async fn follow(
+    State(state): State<std::sync::Arc<AppState>>,
+    jar: CookieJar,
+    key: idempotency::IdempotencyKey,
+    Path((channel_id, thread_id)): Path<(Uuid, i64)>,
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
+    set_subscription(state, jar, key, channel_id, thread_id, true).await
+}
+
+pub async fn unfollow(
+    State(state): State<std::sync::Arc<AppState>>,
+    jar: CookieJar,
+    key: idempotency::IdempotencyKey,
+    Path((channel_id, thread_id)): Path<(Uuid, i64)>,
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
+    set_subscription(state, jar, key, channel_id, thread_id, false).await
+}
+
+async fn set_subscription(
+    state: std::sync::Arc<AppState>,
+    jar: CookieJar,
+    key: idempotency::IdempotencyKey,
+    channel_id: Uuid,
+    thread_id: i64,
+    is_following: bool,
+) -> Result<Json<ThreadSubscriptionResponse>, ApiError> {
+    let user = auth::current_user(&state, &jar).await?;
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let thread: Option<(Uuid, Option<OffsetDateTime>)> = sqlx::query_as(
+        "SELECT threads.space_id, channels.archived_at FROM threads \
+         JOIN channels ON channels.id = threads.channel_id \
+         WHERE threads.channel_id = $1 AND threads.thread_id = $2 FOR UPDATE OF channels",
+    )
+    .bind(channel_id)
+    .bind(thread_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let (space_id, archived_at) =
+        thread.ok_or_else(|| ApiError::not_found("thread_not_found", "Thread was not found"))?;
+    let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
+    require_channel_member(&mut transaction, channel_id, actor.id).await?;
+    if archived_at.is_some() {
+        return Err(ApiError::conflict(
+            "channel_archived",
+            "Archived Channel is read-only",
+        ));
+    }
+    let scope = format!(
+        "channel:{channel_id}:thread:{thread_id}:member:{}:subscription:{}",
+        actor.id,
+        if is_following { "follow" } else { "unfollow" }
+    );
+    let request_hash = idempotency::request_hash(&is_following)?;
+    if let Some((_status, response)) = idempotency::begin::<ThreadSubscriptionResponse>(
+        &mut transaction,
+        &scope,
+        key,
+        &request_hash,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(Json(response));
+    }
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "INSERT INTO thread_subscriptions \
+         (channel_id, thread_id, member_id, created_at, muted_at) VALUES ($1, $2, $3, $4, $5) \
+         ON CONFLICT (channel_id, thread_id, member_id) DO UPDATE SET muted_at = EXCLUDED.muted_at",
+    )
+    .bind(channel_id)
+    .bind(thread_id)
+    .bind(actor.id)
+    .bind(now)
+    .bind(if is_following { None } else { Some(now) })
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let response = ThreadSubscriptionResponse {
+        channel_id,
+        thread_id,
+        is_following,
+    };
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(Json(response))
 }
 
 async fn require_channel_member(
@@ -408,7 +510,7 @@ async fn subscribe(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn insert_mentions_and_inbox(
+pub(super) async fn insert_thread_attention(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     space_id: Uuid,
     channel_id: Uuid,
@@ -416,10 +518,12 @@ async fn insert_mentions_and_inbox(
     message_id: Uuid,
     actor_id: Uuid,
     seq: i64,
+    reply_to_message_id: Option<Uuid>,
     mentions: &[Uuid],
     channel_kind: &str,
     now: OffsetDateTime,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
+    let mut hard_recipients = HashSet::new();
     for mentioned_member_id in mentions {
         sqlx::query(
             "INSERT INTO message_mentions \
@@ -432,7 +536,16 @@ async fn insert_mentions_and_inbox(
         .execute(&mut **transaction)
         .await
         .map_err(ApiError::database)?;
+        subscribe(
+            transaction,
+            channel_id,
+            thread_id,
+            *mentioned_member_id,
+            now,
+        )
+        .await?;
         if channel_kind != "direct" && *mentioned_member_id != actor_id {
+            hard_recipients.insert(*mentioned_member_id);
             sqlx::query(
                 "INSERT INTO inbox_items \
                  (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
@@ -479,8 +592,80 @@ async fn insert_mentions_and_inbox(
         .execute(&mut **transaction)
         .await
         .map_err(ApiError::database)?;
+        return Ok(true);
     }
-    Ok(())
+    if let Some(reply_to_message_id) = reply_to_message_id {
+        let reply_recipient: Uuid =
+            sqlx::query_scalar("SELECT author_member_id FROM messages WHERE id = $1")
+                .bind(reply_to_message_id)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(ApiError::database)?;
+        if reply_recipient != actor_id && hard_recipients.insert(reply_recipient) {
+            sqlx::query(
+                "INSERT INTO inbox_items \
+                 (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
+                  first_seq, last_seq, available_at, created_at) \
+                 VALUES ($1, $2, $3, 'reply', 'hard', $4, $5, $6, $7, $7, $8, $8)",
+            )
+            .bind(Uuid::now_v7())
+            .bind(reply_recipient)
+            .bind(space_id)
+            .bind(channel_id)
+            .bind(thread_id)
+            .bind(message_id)
+            .bind(seq)
+            .bind(now)
+            .execute(&mut **transaction)
+            .await
+            .map_err(ApiError::database)?;
+        }
+    }
+    let hard_recipients = hard_recipients.into_iter().collect::<Vec<_>>();
+    let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT subscriptions.member_id, \
+                COALESCE((agents.attention_config_json->>'ambient_debounce_seconds')::bigint, 5) \
+         FROM thread_subscriptions subscriptions \
+         LEFT JOIN agents ON agents.member_id = subscriptions.member_id \
+         WHERE subscriptions.channel_id = $1 AND subscriptions.thread_id = $2 \
+           AND subscriptions.muted_at IS NULL AND subscriptions.member_id <> $3 \
+           AND NOT (subscriptions.member_id = ANY($4)) \
+           AND (agents.member_id IS NULL OR (agents.status IN ('active', 'suspended') \
+             AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false)))",
+    )
+    .bind(channel_id)
+    .bind(thread_id)
+    .bind(actor_id)
+    .bind(&hard_recipients)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    for (member_id, debounce_seconds) in &recipients {
+        sqlx::query(
+            "INSERT INTO inbox_items \
+             (id, member_id, space_id, kind, priority, channel_id, thread_id, message_id, \
+              first_seq, last_seq, message_count, status, available_at, created_at) \
+             VALUES ($1, $2, $3, 'thread_activity', 'ambient', $4, $5, $6, $7, $7, 1, \
+                     'pending', $8, $9) \
+             ON CONFLICT (member_id, channel_id, thread_id) \
+               WHERE kind = 'thread_activity' AND thread_id IS NOT NULL AND status = 'pending' \
+             DO UPDATE SET message_id = EXCLUDED.message_id, last_seq = EXCLUDED.last_seq, \
+                           message_count = inbox_items.message_count + 1",
+        )
+        .bind(Uuid::now_v7())
+        .bind(member_id)
+        .bind(space_id)
+        .bind(channel_id)
+        .bind(thread_id)
+        .bind(message_id)
+        .bind(seq)
+        .bind(now + time::Duration::seconds(*debounce_seconds))
+        .bind(now)
+        .execute(&mut **transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
+    Ok(!hard_recipients.is_empty() || !recipients.is_empty())
 }
 
 async fn fetch_message(

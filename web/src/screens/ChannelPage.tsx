@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Bell, Hash, LoaderCircle, Menu, MessageSquareReply, Paperclip, Send, X } from "lucide-react";
+import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageSquareReply, Paperclip, Send, X } from "lucide-react";
 import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
 
 import {
@@ -11,6 +11,7 @@ import {
   listMembers,
   listMessages,
   readThread,
+  setThreadSubscription,
   uploadAttachment,
   type Attachment,
   type Channel,
@@ -132,7 +133,6 @@ export function MessageWorkspace({
     mutationFn: (file: File) => uploadAttachment(spaceId, file),
     onSuccess: (attachment) => setAttachments((current) => [...current, attachment]),
   });
-
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = body.trim();
@@ -350,6 +350,15 @@ function ThreadPane({
     mutationFn: (file: File) => uploadAttachment(spaceId, file),
     onSuccess: (attachment) => setAttachments((current) => [...current, attachment]),
   });
+  const subscription = useMutation({
+    mutationFn: (isFollowing: boolean) =>
+      setThreadSubscription(channelId, threadId, isFollowing),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ThreadRead>(["thread", channelId, threadId], (current) =>
+        current ? { ...current, is_following: result.is_following } : current,
+      );
+    },
+  });
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -370,6 +379,18 @@ function ThreadPane({
           <span>THREAD</span>
           <strong>#{threadId}</strong>
         </div>
+        {thread.data ? (
+          <button
+            className="icon-button"
+            type="button"
+            aria-label={thread.data.is_following ? "Unfollow Thread" : "Follow Thread"}
+            title={thread.data.is_following ? "Unfollow Thread" : "Follow Thread"}
+            disabled={subscription.isPending}
+            onClick={() => subscription.mutate(!thread.data.is_following)}
+          >
+            {thread.data.is_following ? <BellOff /> : <Bell />}
+          </button>
+        ) : null}
         <button className="icon-button" type="button" aria-label="Close Thread" title="Close Thread" onClick={close}>
           <X />
         </button>

@@ -127,6 +127,10 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
             get(thread::read),
         )
         .route(
+            "/api/v1/channels/{channel_id}/threads/{thread_id}/subscription",
+            axum::routing::put(thread::follow).delete(thread::unfollow),
+        )
+        .route(
             "/api/v1/channels/{channel_id}/threads/{thread_id}/messages",
             post(thread::reply),
         )
@@ -233,6 +237,14 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
         .route(
             "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/claim",
             post(computer_registry::claim_agent_inbox),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew",
+            post(computer_registry::renew_agent_inbox),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/release",
+            post(computer_registry::release_agent_inbox),
         )
         .route(
             "/api/v1/spaces/{space_id}/members/{member_id}",
@@ -1075,6 +1087,88 @@ mod tests {
             .await?;
         ensure!(denied_agent_create.status() == StatusCode::FORBIDDEN);
 
+        let grant_human_agent_create = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/spaces/{}/members/{member_id}", space.id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "permissions": ["agent:create"] }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(grant_human_agent_create.status() == StatusCode::OK);
+        let human_approval = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/spaces/{}/agents", space.id),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "computer_id": computer.id,
+                    "name": "Human Requested Child",
+                    "handle": null,
+                    "role_text": "Review changes requested by a Human Member.",
+                    "access_level": "member",
+                    "driver_kind": "codex"
+                }),
+                Some(&member.cookie),
+            )?)
+            .await?;
+        ensure!(human_approval.status() == StatusCode::ACCEPTED);
+        let human_approval: serde_json::Value = decode_json(human_approval).await?;
+        ensure!(human_approval["status"] == "pending");
+        let human_approval_id = Uuid::parse_str(
+            human_approval["approval_id"]
+                .as_str()
+                .context("Human Approval id missing")?,
+        )?;
+        let human_pending_invariants: (i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM approvals WHERE id = $1 AND requested_by_member_id = $2 \
+                AND status = 'pending'), \
+             (SELECT count(*) FROM members WHERE space_id = $3 \
+                AND display_name = 'Human Requested Child'), \
+             (SELECT count(*) FROM computer_commands \
+                WHERE payload_json->>'name' = 'Human Requested Child')",
+        )
+        .bind(human_approval_id)
+        .bind(member_id)
+        .bind(space.id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(human_pending_invariants == (1, 0, 0));
+        let promote_requester = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/spaces/{}/members/{member_id}", space.id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "access_level": "admin" }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(promote_requester.status() == StatusCode::OK);
+        let requester_cannot_self_approve = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/approvals/{human_approval_id}/approve"),
+                Uuid::now_v7(),
+                &serde_json::json!({}),
+                Some(&member.cookie),
+            )?)
+            .await?;
+        ensure!(requester_cannot_self_approve.status() == StatusCode::FORBIDDEN);
+        let human_request_rejected = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/approvals/{human_approval_id}/reject"),
+                Uuid::now_v7(),
+                &serde_json::json!({}),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(human_request_rejected.status() == StatusCode::OK);
+
         let owners_private = app
             .clone()
             .oneshot(json_request(
@@ -1192,6 +1286,29 @@ mod tests {
             )?)
             .await?;
         ensure!(promote_agent.status() == StatusCode::OK);
+        let explicit_permissions_after_promotion: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM member_permissions WHERE member_id = $1")
+                .bind(agent.member_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(explicit_permissions_after_promotion == 0);
+        let admin_channel = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "channel_create",
+                    "slug": "agent-admin-channel",
+                    "name": "Agent Admin Channel",
+                    "private": false,
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(admin_channel.status() == StatusCode::OK);
 
         let other_space = app
             .clone()
@@ -1395,7 +1512,7 @@ mod tests {
         .bind(approved_id)
         .fetch_one(&pool)
         .await?;
-        ensure!(approved_invariants == (1, 1, 1, 1));
+        ensure!(approved_invariants == (1, 1, 1, 2));
         let child_provision = tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 let frame = socket
@@ -1690,6 +1807,16 @@ mod tests {
         )?;
         let stale_send = app.clone().oneshot(stale_send).await?;
         ensure!(stale_send.status() == StatusCode::CONFLICT);
+        let stale_error: serde_json::Value = decode_json(stale_send).await?;
+        ensure!(stale_error["error"]["code"] == "context_changed");
+        ensure!(stale_error["error"]["details"]["snapshot_channel_seq"] == snapshot);
+        ensure!(stale_error["error"]["details"]["latest_channel_seq"] == changed_context.seq);
+        ensure!(stale_error["error"]["details"]["changes"][0]["address"] == "@owner");
+        ensure!(
+            stale_error["error"]["details"]["changes"][0]
+                .get("body_markdown")
+                .is_none()
+        );
         let unchanged: (String, i64) = sqlx::query_as(
             "SELECT status, (SELECT count(*) FROM messages WHERE channel_id = $2 \
              AND author_member_id = $3) FROM inbox_items WHERE id = $1",
@@ -2274,6 +2401,410 @@ mod tests {
         ensure!(empty_claim.status() == StatusCode::OK);
         let empty_claim: serde_json::Value = decode_json(empty_claim).await?;
         ensure!(empty_claim["claimed"] == false);
+
+        let thread_created = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/channels/{}/threads", space.general_channel_id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "root_message_id": mention_message.id }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(thread_created.status() == StatusCode::CREATED);
+        let thread: ThreadResponse = decode_json(thread_created).await?;
+        let mentioned_reply = app
+            .clone()
+            .oneshot(json_request(
+                &format!(
+                    "/api/v1/channels/{}/threads/{}/messages",
+                    space.general_channel_id, thread.thread_id
+                ),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "body_markdown": "@lin follow this Thread.",
+                    "mentions": [agent.member_id],
+                    "reply_to_message_id": mention_message.id
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(mentioned_reply.status() == StatusCode::CREATED);
+        let mentioned_reply: MessageResponse = decode_json(mentioned_reply).await?;
+        let agent_following: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM thread_subscriptions WHERE channel_id = $1 \
+             AND thread_id = $2 AND member_id = $3 AND muted_at IS NULL)",
+        )
+        .bind(space.general_channel_id)
+        .bind(thread.thread_id)
+        .bind(agent.member_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(agent_following);
+
+        let read_thread = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/channels/{}/threads/{}",
+                        space.general_channel_id, thread.thread_id
+                    ))
+                    .header(header::COOKIE, &owner.cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        let read_thread: ThreadReadResponse = decode_json(read_thread).await?;
+        ensure!(read_thread.is_following);
+        for (method, expected) in [("DELETE", false), ("PUT", true)] {
+            let subscription = app
+                .clone()
+                .oneshot(json_request_with_method(
+                    method,
+                    &format!(
+                        "/api/v1/channels/{}/threads/{}/subscription",
+                        space.general_channel_id, thread.thread_id
+                    ),
+                    Uuid::now_v7(),
+                    &serde_json::json!({}),
+                    Some(&owner.cookie),
+                )?)
+                .await?;
+            ensure!(subscription.status() == StatusCode::OK);
+            let subscription: serde_json::Value = decode_json(subscription).await?;
+            ensure!(subscription["is_following"] == expected);
+        }
+
+        let agent_message_seq: i64 = sqlx::query_scalar(
+            "UPDATE channels SET next_seq = next_seq + 1 WHERE id = $1 RETURNING next_seq - 1",
+        )
+        .bind(space.general_channel_id)
+        .fetch_one(&pool)
+        .await?;
+        let agent_message_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO messages (id, channel_id, space_id, channel_seq, thread_id, \
+             author_member_id, body_markdown, idempotency_key, created_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, 'Agent Thread note.', $7, now())",
+        )
+        .bind(agent_message_id)
+        .bind(space.general_channel_id)
+        .bind(space.id)
+        .bind(agent_message_seq)
+        .bind(thread.thread_id)
+        .bind(agent.member_id)
+        .bind(Uuid::now_v7())
+        .execute(&pool)
+        .await?;
+        let deduplicated_reply = app
+            .clone()
+            .oneshot(json_request(
+                &format!(
+                    "/api/v1/channels/{}/threads/{}/messages",
+                    space.general_channel_id, thread.thread_id
+                ),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "body_markdown": "@lin direct reply.",
+                    "mentions": [agent.member_id],
+                    "reply_to_message_id": agent_message_id
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(deduplicated_reply.status() == StatusCode::CREATED);
+        let deduplicated_reply: MessageResponse = decode_json(deduplicated_reply).await?;
+        let hard_kinds: Vec<String> = sqlx::query_scalar(
+            "SELECT kind FROM inbox_items WHERE member_id = $1 AND message_id = $2 \
+             AND priority = 'hard' ORDER BY kind",
+        )
+        .bind(agent.member_id)
+        .bind(deduplicated_reply.id)
+        .fetch_all(&pool)
+        .await?;
+        ensure!(hard_kinds == vec!["mention"]);
+
+        let ambient_reply = app
+            .clone()
+            .oneshot(json_request(
+                &format!(
+                    "/api/v1/channels/{}/threads/{}/messages",
+                    space.general_channel_id, thread.thread_id
+                ),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "body_markdown": "A subscribed Thread update.",
+                    "mentions": [],
+                    "reply_to_message_id": mentioned_reply.id
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(ambient_reply.status() == StatusCode::CREATED);
+        let ambient_reply: MessageResponse = decode_json(ambient_reply).await?;
+        let thread_ambient: (Uuid, i64, i32) = sqlx::query_as(
+            "SELECT id, last_seq, message_count FROM inbox_items WHERE member_id = $1 \
+             AND channel_id = $2 AND thread_id = $3 AND kind = 'thread_activity' \
+             AND status = 'pending'",
+        )
+        .bind(agent.member_id)
+        .bind(space.general_channel_id)
+        .bind(thread.thread_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(thread_ambient.1 == ambient_reply.seq && thread_ambient.2 == 1);
+
+        sqlx::query(
+            "UPDATE agents SET attention_config_json = \
+             jsonb_set(attention_config_json, '{max_retry_count}', '1') WHERE member_id = $1",
+        )
+        .bind(agent.member_id)
+        .execute(&pool)
+        .await?;
+        let thread_claim = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/inbox/claim",
+                        computer.id, agent.member_id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        let thread_claim: serde_json::Value = decode_json(thread_claim).await?;
+        ensure!(thread_claim["claimed"] == true);
+        let thread_run_id = Uuid::parse_str(
+            thread_claim["run_id"]
+                .as_str()
+                .context("Thread run id missing")?,
+        )?;
+        let thread_run_command = socket
+            .next()
+            .await
+            .context("Thread run command missing")??;
+        let thread_run_command: serde_json::Value =
+            serde_json::from_str(thread_run_command.to_text()?)?;
+        ensure!(thread_run_command["kind"] == "agent.run");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_ack",
+                    "command_id": thread_run_command["command_id"],
+                    "computer_seq": thread_run_command["computer_seq"]
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let status: String =
+                    sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
+                        .bind(thread_run_id)
+                        .fetch_one(&pool)
+                        .await
+                        .expect("Thread run status query must succeed");
+                if status == "running" {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("Thread run did not enter running")?;
+        let hard_thread_item_id: Uuid = sqlx::query_scalar(
+            "SELECT inbox_items.id FROM agent_run_inbox_items \
+             JOIN inbox_items ON inbox_items.id = agent_run_inbox_items.inbox_item_id \
+             WHERE agent_run_inbox_items.run_id = $1 AND inbox_items.priority = 'hard' \
+             ORDER BY inbox_items.created_at LIMIT 1",
+        )
+        .bind(thread_run_id)
+        .fetch_one(&pool)
+        .await?;
+        let thread_address = format!("#general:{}", thread.thread_id);
+        let initial_thread_read = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                thread_run_id,
+                serde_json::json!({
+                    "action": "thread_read",
+                    "address": thread_address,
+                    "after": null,
+                    "limit": 50,
+                    "include_channel": 20
+                }),
+            )?)
+            .await?;
+        ensure!(initial_thread_read.status() == StatusCode::OK);
+        let initial_thread_read: serde_json::Value = decode_json(initial_thread_read).await?;
+        let thread_snapshot = initial_thread_read["snapshot_channel_seq"]
+            .as_i64()
+            .context("Thread snapshot sequence missing")?;
+        let later_thread_reply = app
+            .clone()
+            .oneshot(json_request(
+                &format!(
+                    "/api/v1/channels/{}/threads/{}/messages",
+                    space.general_channel_id, thread.thread_id
+                ),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "body_markdown": "This arrived after the Agent read.",
+                    "mentions": [],
+                    "reply_to_message_id": ambient_reply.id
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        let later_thread_reply: MessageResponse = decode_json(later_thread_reply).await?;
+        let stale_thread_send = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                thread_run_id,
+                serde_json::json!({
+                    "action": "message_send",
+                    "address": thread_address,
+                    "body_markdown": "This stale Thread reply must not be stored.",
+                    "based_on": thread_snapshot,
+                    "handle_inbox_item_id": hard_thread_item_id,
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(stale_thread_send.status() == StatusCode::CONFLICT);
+        let stale_thread_error: serde_json::Value = decode_json(stale_thread_send).await?;
+        ensure!(stale_thread_error["error"]["code"] == "context_changed");
+        ensure!(
+            stale_thread_error["error"]["details"]["latest_channel_seq"] == later_thread_reply.seq
+        );
+        ensure!(stale_thread_error["error"]["details"]["changes"][0]["address"] == thread_address);
+        let stale_message_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM messages WHERE author_member_id = $1 \
+             AND body_markdown = 'This stale Thread reply must not be stored.'",
+        )
+        .bind(agent.member_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(stale_message_count == 0);
+        let refreshed_thread_read = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                thread_run_id,
+                serde_json::json!({
+                    "action": "thread_read",
+                    "address": thread_address,
+                    "after": thread_snapshot,
+                    "limit": 50,
+                    "include_channel": 20
+                }),
+            )?)
+            .await?;
+        let refreshed_thread_read: serde_json::Value = decode_json(refreshed_thread_read).await?;
+        let refreshed_thread_snapshot = refreshed_thread_read["snapshot_channel_seq"]
+            .as_i64()
+            .context("Refreshed Thread snapshot sequence missing")?;
+        let fresh_thread_send = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                thread_run_id,
+                serde_json::json!({
+                    "action": "message_send",
+                    "address": thread_address,
+                    "body_markdown": "This reply uses the refreshed Thread context.",
+                    "based_on": refreshed_thread_snapshot,
+                    "handle_inbox_item_id": hard_thread_item_id,
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(fresh_thread_send.status() == StatusCode::OK);
+        let lease_before: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT lease_expires_at FROM inbox_items WHERE id = $1")
+                .bind(thread_ambient.0)
+                .fetch_one(&pool)
+                .await?;
+        let renewed = app
+            .clone()
+            .oneshot(computer_json_request(
+                "POST",
+                &format!(
+                    "/api/v1/computers/{}/agents/{}/inbox/renew",
+                    computer.id, agent.member_id
+                ),
+                &credential,
+                &serde_json::json!({ "run_id": thread_run_id }),
+            )?)
+            .await?;
+        ensure!(renewed.status() == StatusCode::OK);
+        let renewed: serde_json::Value = decode_json(renewed).await?;
+        ensure!(renewed["renewed_items"].as_u64().unwrap_or_default() >= 1);
+        let lease_after: time::OffsetDateTime =
+            sqlx::query_scalar("SELECT lease_expires_at FROM inbox_items WHERE id = $1")
+                .bind(thread_ambient.0)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(lease_after >= lease_before);
+
+        let released = app
+            .clone()
+            .oneshot(computer_json_request(
+                "POST",
+                &format!(
+                    "/api/v1/computers/{}/agents/{}/inbox/release",
+                    computer.id, agent.member_id
+                ),
+                &credential,
+                &serde_json::json!({
+                    "run_id": thread_run_id,
+                    "error_code": "process_lost"
+                }),
+            )?)
+            .await?;
+        ensure!(released.status() == StatusCode::OK);
+        let released: serde_json::Value = decode_json(released).await?;
+        ensure!(released["released"] == true);
+        ensure!(released["dead_items"].as_u64().unwrap_or_default() >= 1);
+        let duplicate_release = app
+            .clone()
+            .oneshot(computer_json_request(
+                "POST",
+                &format!(
+                    "/api/v1/computers/{}/agents/{}/inbox/release",
+                    computer.id, agent.member_id
+                ),
+                &credential,
+                &serde_json::json!({
+                    "run_id": thread_run_id,
+                    "error_code": "process_lost"
+                }),
+            )?)
+            .await?;
+        let duplicate_release: serde_json::Value = decode_json(duplicate_release).await?;
+        ensure!(duplicate_release["released"] == false);
+        let system_items: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM inbox_items WHERE member_id = $1 AND kind = 'system' \
+             AND priority = 'hard' AND status = 'pending' AND last_error = 'process_lost'",
+        )
+        .bind(space.owner_member_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(system_items == 1);
 
         let retired = app
             .clone()
@@ -3464,6 +3995,20 @@ mod tests {
                 "run_id": run_id,
                 "action": action,
             }))?))?)
+    }
+
+    fn computer_json_request(
+        method: &str,
+        uri: &str,
+        credential: &str,
+        body: &serde_json::Value,
+    ) -> Result<Request<Body>> {
+        Ok(Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(body)?))?)
     }
 
     fn json_request_with_method(
