@@ -1,10 +1,11 @@
 /target/
 /web/node_modules/
 /web/dist/
+/web/test-results/
+/web/playwright-report/
 /.sumi/
 .env
 .env.*
 !.env.example
 *.log
 .DS_Store
-

@@ -30,6 +30,13 @@ fn agent_commands_reject_unscoped_processes() {
         vec![
             "agent", "message", "send", "#general", "--body", "hello", "--json",
         ],
+        vec![
+            "agent",
+            "attachment",
+            "info",
+            "01969f98-bcee-7da0-a150-e0d0de169c00",
+            "--json",
+        ],
     ] {
         Command::cargo_bin("sumi")
             .unwrap()

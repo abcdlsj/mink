@@ -2,7 +2,7 @@ use axum::{
     Json,
     body::Body,
     extract::{Path, State},
-    http::{HeaderValue, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use axum_extra::extract::CookieJar;
@@ -14,7 +14,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, idempotency, member};
+use super::{AppState, api_error::ApiError, auth, computer_registry, idempotency, member};
 
 const UPLOAD_PART_BYTES: usize = 8 * 1024 * 1024;
 
@@ -326,6 +326,306 @@ pub async fn download(
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_str(&disposition).map_err(|_| ApiError::Internal)?,
+    );
+    Ok(response)
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct AgentCreateUploadRequest {
+    pub original_name: String,
+    pub media_type: String,
+}
+
+pub async fn agent_create_upload(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    key: idempotency::IdempotencyKey,
+    Path((computer_id, agent_id, run_id)): Path<(Uuid, Uuid, Uuid)>,
+    Json(mut request): Json<AgentCreateUploadRequest>,
+) -> Result<(StatusCode, Json<AttachmentResponse>), ApiError> {
+    let space_id = computer_registry::require_active_agent_run(
+        &state,
+        &headers,
+        computer_id,
+        agent_id,
+        run_id,
+    )
+    .await?;
+    request.original_name = request.original_name.trim().to_owned();
+    request.media_type = request.media_type.trim().to_owned();
+    validate_metadata(&CreateUploadRequest {
+        space_id,
+        original_name: request.original_name.clone(),
+        media_type: request.media_type.clone(),
+    })?;
+    let request_hash = idempotency::request_hash(&request)?;
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let scope = format!("space:{space_id}:member:{agent_id}:attachment:create");
+    if let Some((status, response)) =
+        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok((status, Json(response)));
+    }
+    let attachment_id = Uuid::now_v7();
+    let now = OffsetDateTime::now_utc();
+    let row: AttachmentRow = sqlx::query_as(
+        "INSERT INTO attachments \
+         (id, space_id, uploader_member_id, original_name, media_type, object_key, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) \
+         RETURNING id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
+                   status, created_at",
+    )
+    .bind(attachment_id)
+    .bind(space_id)
+    .bind(agent_id)
+    .bind(request.original_name)
+    .bind(request.media_type)
+    .bind(object_key(space_id, attachment_id).as_ref())
+    .bind(now)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let response = AttachmentResponse::from(row);
+    idempotency::finish(
+        &mut transaction,
+        &scope,
+        key,
+        StatusCode::CREATED,
+        &response,
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub async fn agent_upload_content(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+    body: Body,
+) -> Result<StatusCode, ApiError> {
+    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
+        .await?;
+    let object_key: String = sqlx::query_scalar(
+        "SELECT object_key FROM attachments WHERE id = $1 AND uploader_member_id = $2 \
+         AND status = 'uploading' AND deleted_at IS NULL",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| {
+        ApiError::forbidden(
+            "attachment_upload_denied",
+            "Only the uploader can write an uploading Attachment",
+        )
+    })?;
+    stream_upload(
+        state.attachment_store.as_ref(),
+        &ObjectPath::from(object_key),
+        body,
+        state.attachment_max_bytes,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn agent_complete_upload(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    key: idempotency::IdempotencyKey,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+    Json(request): Json<CompleteUploadRequest>,
+) -> Result<Json<AttachmentResponse>, ApiError> {
+    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
+        .await?;
+    if request.size > state.attachment_max_bytes {
+        return Err(ApiError::validation(
+            "attachment_too_large",
+            "Attachment exceeds the configured size limit",
+        ));
+    }
+    let expected_sha = decode_sha256(&request.sha256)?;
+    let request_hash = idempotency::request_hash(&request)?;
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let row: AttachmentRow = sqlx::query_as(
+        "SELECT id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
+                status, created_at FROM attachments \
+         WHERE id = $1 AND uploader_member_id = $2 FOR UPDATE",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::not_found("attachment_not_found", "Attachment was not found"))?;
+    let scope = format!("attachment:{attachment_id}:complete");
+    if let Some((_status, response)) =
+        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(Json(response));
+    }
+    if row.status == "ready" {
+        if row.size == i64::try_from(request.size).ok()
+            && row.sha256.as_deref() == Some(expected_sha.as_slice())
+        {
+            let response = AttachmentResponse::from(row);
+            idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+            transaction.commit().await.map_err(ApiError::database)?;
+            return Ok(Json(response));
+        }
+        return Err(ApiError::conflict(
+            "attachment_integrity_conflict",
+            "Attachment is already ready with different integrity metadata",
+        ));
+    }
+    if row.status != "uploading" {
+        return Err(ApiError::conflict(
+            "attachment_not_uploading",
+            "Attachment upload has already finished",
+        ));
+    }
+    let object_key: String = sqlx::query_scalar("SELECT object_key FROM attachments WHERE id = $1")
+        .bind(attachment_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    let (actual_size, actual_sha) = inspect_object(
+        state.attachment_store.as_ref(),
+        &ObjectPath::from(object_key),
+        state.attachment_max_bytes,
+    )
+    .await?;
+    if actual_size != request.size || actual_sha.as_slice() != expected_sha {
+        return Err(ApiError::validation(
+            "attachment_integrity_mismatch",
+            "Uploaded content does not match the declared size and SHA-256",
+        ));
+    }
+    let ready: AttachmentRow = sqlx::query_as(
+        "UPDATE attachments SET size = $2, sha256 = $3, status = 'ready' WHERE id = $1 \
+         RETURNING id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
+                   status, created_at",
+    )
+    .bind(attachment_id)
+    .bind(i64::try_from(actual_size).map_err(|_| ApiError::Internal)?)
+    .bind(actual_sha.to_vec())
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let response = AttachmentResponse::from(ready);
+    sqlx::query(
+        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
+         VALUES ($1, 'attachment.ready', $2, $3, $4)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(attachment_id)
+    .bind(serde_json::json!({
+        "space_id": response.space_id,
+        "attachment_id": attachment_id
+    }))
+    .bind(OffsetDateTime::now_utc())
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(Json(response))
+}
+
+pub async fn agent_info(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+) -> Result<Json<AttachmentResponse>, ApiError> {
+    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
+        .await?;
+    let row: AttachmentRow = sqlx::query_as(
+        "SELECT attachments.id, attachments.space_id, attachments.uploader_member_id, \
+                attachments.original_name, attachments.media_type, attachments.size, \
+                attachments.sha256, attachments.status, attachments.created_at \
+         FROM attachments WHERE attachments.id = $1 AND attachments.deleted_at IS NULL \
+           AND (attachments.uploader_member_id = $2 OR EXISTS ( \
+             SELECT 1 FROM message_attachments \
+             JOIN messages ON messages.id = message_attachments.message_id \
+             JOIN channel_members ON channel_members.channel_id = messages.channel_id \
+             WHERE message_attachments.attachment_id = attachments.id \
+               AND channel_members.member_id = $2))",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::not_found("attachment_not_found", "Attachment was not found"))?;
+    Ok(Json(AttachmentResponse::from(row)))
+}
+
+pub async fn agent_download(
+    State(state): State<std::sync::Arc<AppState>>,
+    headers: HeaderMap,
+    Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
+) -> Result<Response, ApiError> {
+    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
+        .await?;
+    let metadata: Option<(String, String, String, i64)> = sqlx::query_as(
+        "SELECT attachments.object_key, attachments.original_name, attachments.media_type, \
+                attachments.size FROM attachments \
+         JOIN message_attachments ON message_attachments.attachment_id = attachments.id \
+         JOIN messages ON messages.id = message_attachments.message_id \
+         JOIN channel_members ON channel_members.channel_id = messages.channel_id \
+         WHERE attachments.id = $1 AND attachments.status = 'ready' \
+           AND attachments.deleted_at IS NULL AND channel_members.member_id = $2",
+    )
+    .bind(attachment_id)
+    .bind(agent_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(ApiError::database)?;
+    let (object_key, original_name, media_type, size) = metadata.ok_or_else(|| {
+        ApiError::forbidden(
+            "attachment_download_denied",
+            "Attachment is not visible from an accessible Message",
+        )
+    })?;
+    attachment_download_response(&state, object_key, original_name, media_type, size).await
+}
+
+async fn attachment_download_response(
+    state: &AppState,
+    object_key: String,
+    original_name: String,
+    media_type: String,
+    size: i64,
+) -> Result<Response, ApiError> {
+    let result = state
+        .attachment_store
+        .get(&ObjectPath::from(object_key))
+        .await
+        .map_err(storage_error)?;
+    let stream = result
+        .into_stream()
+        .map(|chunk| chunk.map_err(|error| std::io::Error::other(error.to_string())));
+    let mut response = Body::from_stream(stream).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&media_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&size.to_string()).map_err(|_| ApiError::Internal)?,
+    );
+    let safe_name = original_name.replace(['\r', '\n', '"'], "_");
+    response.headers_mut().insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{safe_name}\""))
+            .map_err(|_| ApiError::Internal)?,
     );
     Ok(response)
 }

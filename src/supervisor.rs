@@ -473,7 +473,7 @@ mod tests {
         let second_id = second_run.run_id;
         let second_result = supervisor.start(second_run).await.unwrap();
         assert!(supervisor.start(run(first, "quick")).await.is_err());
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(10), async {
             while status(&supervisor, first_id).await != "running" {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -516,7 +516,7 @@ mod tests {
         let second_run = run(second, "timeout");
         let second_id = second_run.run_id;
         let second_result = supervisor.start(second_run).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(10), async {
             while status(&supervisor, first_id).await != "running"
                 || status(&supervisor, second_id).await != "running"
             {

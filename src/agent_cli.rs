@@ -113,6 +113,7 @@ pub async fn run(args: AgentArgs) -> Result<()> {
                         body_markdown,
                         based_on: args.based_on,
                         handle_inbox_item_id: args.handle,
+                        attachment_ids: args.attachment_ids,
                         idempotency_key: Uuid::now_v7(),
                     }),
                     args.output.json,
@@ -120,21 +121,33 @@ pub async fn run(args: AgentArgs) -> Result<()> {
             }
         },
         AgentCommand::Attachment(args) => match args.command {
-            AgentAttachmentCommand::Upload(args) => (
-                Some(AgentAction::AttachmentUpload {
-                    path: args.path.to_string_lossy().into_owned(),
-                    media_type: args.media_type,
-                    idempotency_key: Uuid::now_v7(),
-                }),
-                args.output.json,
-            ),
-            AgentAttachmentCommand::Download(args) => (
-                Some(AgentAction::AttachmentDownload {
-                    attachment_id: args.attachment_id,
-                    output_path: args.output.to_string_lossy().into_owned(),
-                }),
-                args.json,
-            ),
+            AgentAttachmentCommand::Upload(args) => {
+                let path = tokio::fs::canonicalize(&args.path).await.with_context(|| {
+                    format!("Attachment source {} was not found", args.path.display())
+                })?;
+                (
+                    Some(AgentAction::AttachmentUpload {
+                        path: path.to_string_lossy().into_owned(),
+                        media_type: args.media_type,
+                        idempotency_key: Uuid::now_v7(),
+                    }),
+                    args.output.json,
+                )
+            }
+            AgentAttachmentCommand::Download(args) => {
+                let output = if args.output.is_absolute() {
+                    args.output
+                } else {
+                    std::env::current_dir()?.join(args.output)
+                };
+                (
+                    Some(AgentAction::AttachmentDownload {
+                        attachment_id: args.attachment_id,
+                        output_path: output.to_string_lossy().into_owned(),
+                    }),
+                    args.json,
+                )
+            }
             AgentAttachmentCommand::Info(args) => (
                 Some(AgentAction::AttachmentInfo {
                     attachment_id: args.attachment_id,

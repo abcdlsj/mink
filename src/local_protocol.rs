@@ -40,6 +40,8 @@ pub enum AgentAction {
         body_markdown: String,
         based_on: Option<i64>,
         handle_inbox_item_id: Option<Uuid>,
+        #[serde(default)]
+        attachment_ids: Vec<Uuid>,
         idempotency_key: Uuid,
     },
     InboxAck {
@@ -66,7 +68,7 @@ pub enum AgentAction {
     },
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LocalResponse {
     pub schema_version: u32,
     pub ok: bool,
@@ -74,14 +76,14 @@ pub struct LocalResponse {
     pub error: Option<LocalError>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AgentIdentity {
     pub run_id: Uuid,
     pub agent_member_id: Uuid,
     pub space_id: Uuid,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LocalError {
     pub code: String,
     pub message: String,

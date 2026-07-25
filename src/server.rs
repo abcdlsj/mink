@@ -187,6 +187,26 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
             post(computer_registry::agent_action),
         )
         .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/uploads",
+            post(attachment::agent_create_upload),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/content",
+            put(attachment::agent_upload_content),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/complete",
+            post(attachment::agent_complete_upload),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}",
+            get(attachment::agent_info),
+        )
+        .route(
+            "/api/v1/computers/{computer_id}/agents/{agent_id}/runs/{run_id}/attachments/{attachment_id}/download",
+            get(attachment::agent_download),
+        )
+        .route(
             "/api/v1/computers/{computer_id}/agents",
             get(computer_registry::list_hosted_agents),
         )
@@ -265,7 +285,7 @@ mod tests {
     };
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
     use futures_util::{SinkExt, StreamExt};
-    use sha2::Digest;
+    use sha2::{Digest, Sha256};
     use sqlx::{Connection, Executor, PgConnection, postgres::PgConnectOptions};
     use tempfile::tempdir;
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -908,6 +928,95 @@ mod tests {
             .as_i64()
             .context("snapshot sequence missing")?;
 
+        let attachment_bytes = b"agent attachment payload";
+        let attachment_sha = hex::encode(Sha256::digest(attachment_bytes));
+        let create_attachment = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/uploads",
+                        computer.id, agent.member_id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", Uuid::now_v7().to_string())
+                    .body(Body::from(serde_json::to_vec(&serde_json::json!({
+                        "original_name": "report.txt",
+                        "media_type": "text/plain"
+                    }))?))?,
+            )
+            .await?;
+        ensure!(create_attachment.status() == StatusCode::CREATED);
+        let created_attachment: AttachmentResponse = decode_json(create_attachment).await?;
+        ensure!(created_attachment.uploader_member_id == agent.member_id);
+
+        let upload_attachment = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/content",
+                        computer.id, agent.member_id, created_attachment.id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .body(Body::from(attachment_bytes.as_slice()))?,
+            )
+            .await?;
+        ensure!(upload_attachment.status() == StatusCode::NO_CONTENT);
+
+        let complete_attachment = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/complete",
+                        computer.id, agent.member_id, created_attachment.id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("idempotency-key", Uuid::now_v7().to_string())
+                    .body(Body::from(serde_json::to_vec(&serde_json::json!({
+                        "size": attachment_bytes.len(),
+                        "sha256": attachment_sha
+                    }))?))?,
+            )
+            .await?;
+        ensure!(complete_attachment.status() == StatusCode::OK);
+        let completed_attachment: AttachmentResponse = decode_json(complete_attachment).await?;
+        ensure!(completed_attachment.status == "ready");
+
+        let attachment_info = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}",
+                        computer.id, agent.member_id, created_attachment.id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        ensure!(attachment_info.status() == StatusCode::OK);
+
+        let unlinked_download = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/download",
+                        computer.id, agent.member_id, created_attachment.id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        ensure!(unlinked_download.status() == StatusCode::FORBIDDEN);
+
         let changed_context = app
             .clone()
             .oneshot(json_request(
@@ -981,6 +1090,7 @@ mod tests {
                 "body_markdown": "The boundary matches the current specification.",
                 "based_on": refreshed_snapshot,
                 "handle_inbox_item_id": inbox_item_id,
+                "attachment_ids": [created_attachment.id],
                 "idempotency_key": Uuid::now_v7()
             }),
         )?;
@@ -988,6 +1098,27 @@ mod tests {
         ensure!(send.status() == StatusCode::OK);
         let send: serde_json::Value = decode_json(send).await?;
         ensure!(send["author"]["id"] == agent.member_id.to_string());
+        ensure!(send["attachments"][0]["id"] == created_attachment.id.to_string());
+
+        let attachment_download = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/download",
+                        computer.id, agent.member_id, created_attachment.id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        ensure!(attachment_download.status() == StatusCode::OK);
+        ensure!(
+            to_bytes(attachment_download.into_body(), 1024)
+                .await?
+                .as_ref()
+                == attachment_bytes
+        );
         let atomic_result: (String, Uuid, i64) = sqlx::query_as(
             "SELECT status, handled_by_run_id, \
              (SELECT count(*) FROM messages WHERE channel_id = $2 AND author_member_id = $3) \

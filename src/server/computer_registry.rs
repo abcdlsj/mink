@@ -12,7 +12,7 @@ use subtle::ConstantTimeEq;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, idempotency, member};
+use super::{AppState, api_error::ApiError, attachment, auth, idempotency, member};
 use crate::local_protocol::AgentAction;
 
 #[derive(Deserialize)]
@@ -529,7 +529,7 @@ pub async fn connect(
     Ok(upgrade.on_upgrade(move |socket| computer_socket(state, computer_id, socket)))
 }
 
-async fn authenticate_computer(
+pub(super) async fn authenticate_computer(
     state: &AppState,
     headers: &HeaderMap,
     computer_id: Uuid,
@@ -569,26 +569,14 @@ pub async fn agent_action(
     Path(computer_id): Path<Uuid>,
     Json(request): Json<AgentActionRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    authenticate_computer(&state, &headers, computer_id).await?;
-    let valid_run: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM agent_runs JOIN agents \
-         ON agents.member_id = agent_runs.agent_member_id \
-         WHERE agent_runs.id = $1 AND agent_runs.agent_member_id = $2 \
-         AND agent_runs.computer_id = $3 AND agent_runs.status = 'running' \
-         AND agents.status = 'active')",
+    require_active_agent_run(
+        &state,
+        &headers,
+        computer_id,
+        request.agent_member_id,
+        request.run_id,
     )
-    .bind(request.run_id)
-    .bind(request.agent_member_id)
-    .bind(computer_id)
-    .fetch_one(&state.database)
-    .await
-    .map_err(ApiError::database)?;
-    if !valid_run {
-        return Err(ApiError::forbidden(
-            "permission_denied",
-            "Agent run is not active on this Computer",
-        ));
-    }
+    .await?;
     let data = match request.action {
         AgentAction::MemberList { query } => {
             agent_member_list(&state.database, request.agent_member_id, query.as_deref()).await?
@@ -643,6 +631,7 @@ pub async fn agent_action(
             body_markdown,
             based_on,
             handle_inbox_item_id,
+            attachment_ids,
             idempotency_key,
         } => {
             agent_message_send(
@@ -653,6 +642,7 @@ pub async fn agent_action(
                 body_markdown,
                 based_on,
                 handle_inbox_item_id,
+                &attachment_ids,
                 idempotency_key,
             )
             .await?
@@ -687,8 +677,46 @@ pub async fn agent_action(
             )
             .await?
         }
+        AgentAction::AttachmentUpload { .. }
+        | AgentAction::AttachmentDownload { .. }
+        | AgentAction::AttachmentInfo { .. } => {
+            return Err(ApiError::validation(
+                "invalid_attachment_transport",
+                "Attachment actions must use the streaming Agent Attachment API",
+            ));
+        }
     };
     Ok(Json(data))
+}
+
+pub(super) async fn require_active_agent_run(
+    state: &AppState,
+    headers: &HeaderMap,
+    computer_id: Uuid,
+    agent_member_id: Uuid,
+    run_id: Uuid,
+) -> Result<Uuid, ApiError> {
+    authenticate_computer(state, headers, computer_id).await?;
+    sqlx::query_scalar(
+        "SELECT members.space_id FROM agent_runs \
+         JOIN agents ON agents.member_id = agent_runs.agent_member_id \
+         JOIN members ON members.id = agents.member_id \
+         WHERE agent_runs.id = $1 AND agent_runs.agent_member_id = $2 \
+           AND agent_runs.computer_id = $3 AND agent_runs.status = 'running' \
+           AND agents.status = 'active' AND members.retired_at IS NULL",
+    )
+    .bind(run_id)
+    .bind(agent_member_id)
+    .bind(computer_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| {
+        ApiError::forbidden(
+            "permission_denied",
+            "Agent run is not active on this Computer",
+        )
+    })
 }
 
 async fn agent_member_list(
@@ -1106,6 +1134,7 @@ async fn agent_channel_read(
         .take(limit as usize)
         .collect::<Vec<_>>();
     messages.reverse();
+    enrich_agent_messages(database, &mut messages).await?;
     Ok(serde_json::json!({
         "address": display_address,
         "channel_id": channel_id,
@@ -1184,7 +1213,7 @@ async fn agent_thread_read(
     .await
     .map_err(ApiError::database)?;
     let has_more_after = replies.len() as i64 > limit;
-    let replies = replies.into_iter().take(limit as usize).collect::<Vec<_>>();
+    let mut replies = replies.into_iter().take(limit as usize).collect::<Vec<_>>();
     let root_seq = root
         .get("seq")
         .and_then(serde_json::Value::as_i64)
@@ -1206,6 +1235,9 @@ async fn agent_thread_read(
     .fetch_all(database)
     .await
     .map_err(ApiError::database)?;
+    enrich_agent_messages(database, &mut replies).await?;
+    let mut background = background.into_iter().rev().collect::<Vec<_>>();
+    enrich_agent_messages(database, &mut background).await?;
     Ok(serde_json::json!({
         "address": address,
         "channel_id": channel_id,
@@ -1213,7 +1245,7 @@ async fn agent_thread_read(
         "snapshot_channel_seq": snapshot,
         "root": root,
         "replies": replies,
-        "channel_background": background.into_iter().rev().collect::<Vec<_>>(),
+        "channel_background": background,
         "has_more_before": false,
         "has_more_after": has_more_after,
     }))
@@ -1277,6 +1309,7 @@ async fn agent_message_send(
     body_markdown: String,
     based_on: Option<i64>,
     handle_item_id: Option<Uuid>,
+    attachment_ids: &[Uuid],
     idempotency_key: Uuid,
 ) -> Result<serde_json::Value, ApiError> {
     let body_markdown = body_markdown.trim();
@@ -1375,6 +1408,14 @@ async fn agent_message_send(
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
+    attachment::attach_to_message(
+        &mut transaction,
+        message_id,
+        space_id,
+        agent_id,
+        attachment_ids,
+    )
+    .await?;
     if let Some(thread_id) = thread_id {
         sqlx::query(
             "INSERT INTO thread_subscriptions (channel_id, thread_id, member_id, created_at) \
@@ -1620,7 +1661,7 @@ async fn agent_message_json(
     message_id: Uuid,
     address: &str,
 ) -> Result<serde_json::Value, ApiError> {
-    sqlx::query_scalar(
+    let mut message: serde_json::Value = sqlx::query_scalar(
         "SELECT jsonb_build_object( \
             'id', messages.id, 'channel_id', messages.channel_id, 'seq', messages.channel_seq, \
             'address', $2::text, 'author', jsonb_build_object('id', members.id, \
@@ -1634,7 +1675,13 @@ async fn agent_message_json(
     .bind(address)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(ApiError::database)
+    .map_err(ApiError::database)?;
+    let attachments = attachment::attachments_for_message(transaction, message_id).await?;
+    message.as_object_mut().ok_or(ApiError::Internal)?.insert(
+        "attachments".to_owned(),
+        serde_json::to_value(attachments).map_err(|_| ApiError::Internal)?,
+    );
+    Ok(message)
 }
 
 async fn agent_message_json_pool(
@@ -1642,7 +1689,7 @@ async fn agent_message_json_pool(
     message_id: Uuid,
     address: &str,
 ) -> Result<serde_json::Value, ApiError> {
-    sqlx::query_scalar(
+    let message: serde_json::Value = sqlx::query_scalar(
         "SELECT jsonb_build_object( \
             'id', messages.id, 'channel_id', messages.channel_id, 'seq', messages.channel_seq, \
             'address', $2::text, 'author', jsonb_build_object('id', members.id, \
@@ -1657,7 +1704,29 @@ async fn agent_message_json_pool(
     .bind(address)
     .fetch_one(database)
     .await
-    .map_err(ApiError::database)
+    .map_err(ApiError::database)?;
+    let mut messages = vec![message];
+    enrich_agent_messages(database, &mut messages).await?;
+    messages.pop().ok_or(ApiError::Internal)
+}
+
+async fn enrich_agent_messages(
+    database: &sqlx::PgPool,
+    messages: &mut [serde_json::Value],
+) -> Result<(), ApiError> {
+    for message in messages {
+        let message_id = message
+            .get("id")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+            .ok_or(ApiError::Internal)?;
+        let attachments = attachment::attachments_for_message_pool(database, message_id).await?;
+        message.as_object_mut().ok_or(ApiError::Internal)?.insert(
+            "attachments".to_owned(),
+            serde_json::to_value(attachments).map_err(|_| ApiError::Internal)?,
+        );
+    }
+    Ok(())
 }
 
 async fn computer_socket(

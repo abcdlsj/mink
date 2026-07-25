@@ -1486,6 +1486,11 @@ POST /api/v1/computers/{id}/agents/{id}/inbox/claim
 POST /api/v1/computers/{id}/agents/{id}/inbox/renew
 POST /api/v1/computers/{id}/agents/{id}/inbox/release
 POST /api/v1/computers/{id}/agent-actions
+POST /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/uploads
+PUT  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/content
+POST /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/complete
+GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}
+GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/download
 ~~~
 
 Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer credential 不能管理 Space 中其他 Computer 的 Agents。
@@ -1493,6 +1498,12 @@ daemon 每秒用 Computer credential 拉取本机 active Agents 并尝试 claim�
 WebSocket。claim 在一个事务内租约 Inbox Items、创建 `agent_runs`/关联行并分配持久 `agent.run`
 command。daemon 对临时轮询失败记录不含正文的结构化错误，并在下一周期重试，不能为了 attention poll
 失败主动拆掉 command stream。
+
+Agent Attachment 路由与 Browser 的 create/PUT/complete 协议同构，但使用 Computer credential，且每次
+请求都必须同时验证 Computer assignment、active run 和 Agent Member 身份。daemon 只能从当前 Agent
+Home 流式读取上传源文件，并只能向当前 Agent Home 流式写入下载结果；canonical path 或 symlink 逃逸
+必须在本机拒绝。Attachment info 对当前 Agent 自己上传的 Attachment 或其有权读取的 Message
+Attachment 可见；download 仍只允许已经关联到该 Agent 可见 Message 的 ready Attachment。
 
 ### 17.3 SSE events
 

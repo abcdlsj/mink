@@ -207,6 +207,8 @@ pub struct AgentMessageSendArgs {
     pub based_on: Option<i64>,
     #[arg(long)]
     pub handle: Option<uuid::Uuid>,
+    #[arg(long = "attachment")]
+    pub attachment_ids: Vec<uuid::Uuid>,
     #[command(flatten)]
     pub output: JsonOutputArgs,
 }
@@ -283,7 +285,42 @@ mod tests {
         );
         assert!(
             Cli::try_parse_from([
-                "sumi", "agent", "message", "send", "#design", "--body", "hello", "--json"
+                "sumi",
+                "agent",
+                "message",
+                "send",
+                "#design",
+                "--body",
+                "hello",
+                "--attachment",
+                "01969f98-bcee-7da0-a150-e0d0de169c00",
+                "--json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "sumi",
+                "agent",
+                "attachment",
+                "upload",
+                "./report.md",
+                "--media-type",
+                "text/markdown",
+                "--json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            Cli::try_parse_from([
+                "sumi",
+                "agent",
+                "attachment",
+                "download",
+                "01969f98-bcee-7da0-a150-e0d0de169c00",
+                "--output",
+                "./report.md",
+                "--json"
             ])
             .is_ok()
         );
