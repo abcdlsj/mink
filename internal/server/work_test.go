@@ -144,7 +144,7 @@ func TestWorkHTTPReplayConflictAndRestartDetail(t *testing.T) {
 	api.close(t)
 	api = openFactsAPI(t, dataRoot)
 	defer api.close(t)
-	client = workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	client = workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	detail, err = client.GetWork(context.Background(), connect.NewRequest(&workv1.GetWorkRequest{WorkId: created.Msg.GetWork().GetId()}))
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestWorkHTTPRejectsUnauthenticatedCursorAndInvalidInput(t *testing.T) {
 	client := workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL)
 	_, err := client.ListWorks(context.Background(), connect.NewRequest(&workv1.ListWorksRequest{}))
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
-	owner := workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	owner := workv1connect.NewWorkServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	_, err = owner.ListWorks(context.Background(), connect.NewRequest(&workv1.ListWorksRequest{Cursor: "broken"}))
 	assertConnectCode(t, err, connect.CodeFailedPrecondition)
 	if err == nil || err.Error() != "failed_precondition: cursor unavailable" {
@@ -227,7 +227,7 @@ func TestWorkHTTPMutationAuthenticationLeavesFactsUntouched(t *testing.T) {
 	if _, err := api.app.store.AddMember(context.Background(), store.ChangeMemberParams{RequestID: uuid.NewString(), Actor: ownerPrincipal, SpaceID: source.SpaceID, Member: runtimePrincipal, Now: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	trigger := sendMention(t, spaces, source.SpaceID, agent.GetId(), "execute Work mutations")
 	inbox := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
 	item := findInboxItem(t, inbox, current.GetToken(), trigger.GetId())
@@ -378,7 +378,7 @@ func openWorkBrowserFactsAPI(t *testing.T, dataRoot string) (*factsAPI, string) 
 	}
 	httpServer.Config.Handler = app.Handler()
 	httpServer.Start()
-	authorization := ownerClientAuthorization(t, dataRoot)
+	authorization := browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", "")
 	return &factsAPI{
 		app:       app,
 		http:      httpServer,

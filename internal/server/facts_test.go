@@ -39,17 +39,17 @@ func TestComputerPairingCreateConsumeReplayAndQuiet(t *testing.T) {
 	createRequest := &computerv1.CreateComputerPairingRequest{
 		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
 	}
-	created, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
+	created, err := api.computers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayedCreate, err := api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
+	replayedCreate, err := api.computers.CreateComputerPairing(context.Background(), connect.NewRequest(createRequest))
 	if err != nil || replayedCreate.Msg.GetPairingId() != created.Msg.GetPairingId() ||
 		!replayedCreate.Msg.GetExpiresAt().AsTime().Equal(created.Msg.GetExpiresAt().AsTime()) {
 		t.Fatalf("pairing creation replay = %+v, %v", replayedCreate, err)
 	}
 	conflictingToken := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
-	_, err = api.ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+	_, err = api.computers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
 		RequestId: createRequest.GetRequestId(), PairingToken: conflictingToken, ExpiresAt: createRequest.GetExpiresAt(),
 	}))
 	assertConnectCode(t, err, connect.CodeAlreadyExists)
@@ -96,7 +96,7 @@ func TestComputerRegistrationConcurrencyAndRestart(t *testing.T) {
 		Os:                  computerv1.OperatingSystem_OPERATING_SYSTEM_MACOS,
 		Arch:                computerv1.Architecture_ARCHITECTURE_ARM64,
 		RequestId:           uuid.NewString(),
-		PairingToken:        createPairingToken(t, api.ownerComputers),
+		PairingToken:        createPairingToken(t, api.computers),
 		CapabilityInventory: serverTestCapabilityInventory(),
 	}
 
@@ -350,7 +350,6 @@ type factsAPI struct {
 	app              *Server
 	http             *httptest.Server
 	computers        computerv1connect.ComputerServiceClient
-	ownerComputers   computerv1connect.ComputerServiceClient
 	agents           agentv1connect.AgentServiceClient
 	placements       placementv1connect.PlacementServiceClient
 	registrationKeys map[string]string
@@ -363,23 +362,19 @@ func openFactsAPI(t *testing.T, dataRoot string) *factsAPI {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(app.Handler())
-	authorization := ownerClientAuthorization(t, dataRoot)
 	return &factsAPI{
 		app:       app,
 		http:      httpServer,
 		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
-		ownerComputers: computerv1connect.NewComputerServiceClient(
-			httpServer.Client(), httpServer.URL, authorization,
-		),
-		agents:           agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
-		placements:       placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		agents:           agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		placements:       placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
 		registrationKeys: make(map[string]string),
 	}
 }
 
 func pairComputer(t *testing.T, api *factsAPI, key, name string, operatingSystem computerv1.OperatingSystem, architecture computerv1.Architecture) *connect.Response[computerv1.RegisterComputerResponse] {
 	t.Helper()
-	response := pairComputerClients(t, api.ownerComputers, api.computers, key, name, operatingSystem, architecture)
+	response := pairComputerClients(t, api.computers, api.computers, key, name, operatingSystem, architecture)
 	if api.registrationKeys == nil {
 		api.registrationKeys = make(map[string]string)
 	}

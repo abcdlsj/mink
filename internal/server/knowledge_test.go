@@ -173,7 +173,7 @@ func TestKnowledgeHTTPAcceptsHumanBrowserAndCurrentRuntime(t *testing.T) {
 		dataRoot := t.TempDir()
 		api := openFactsAPI(t, dataRoot)
 		defer api.close(t)
-		client := knowledgev1connect.NewKnowledgeServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+		client := knowledgev1connect.NewKnowledgeServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 		if _, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "knowledge"})); err != nil {
 			t.Fatalf("human search: %v", err)
 		}

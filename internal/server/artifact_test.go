@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -24,7 +25,8 @@ import (
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
-	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -75,7 +77,7 @@ func TestArtifactHTTPHumanStreamingACLReplayPaginationRestartAndMissing(t *testi
 		api.close(t)
 		t.Fatal(err)
 	}
-	ownerClient := artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	ownerClient := artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	if _, err := ownerClient.ListArtifacts(context.Background(), connect.NewRequest(&artifactv1.ListArtifactsRequest{Limit: 201})); connect.CodeOf(err) != connect.CodeInvalidArgument {
 		api.close(t)
 		t.Fatalf("artifact list oversized limit = %v", err)
@@ -167,7 +169,7 @@ func TestArtifactHTTPHumanStreamingACLReplayPaginationRestartAndMissing(t *testi
 	}
 	api = openFactsAPI(t, dataRoot)
 	defer api.close(t)
-	client = artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	client = artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	missing, err := client.GetArtifact(context.Background(), connect.NewRequest(&artifactv1.GetArtifactRequest{ArtifactId: first.Msg.GetArtifact().GetId()}))
 	if err != nil || missing.Msg.GetView().GetVersion().GetIntegrityState() != artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_MISSING {
 		t.Fatalf("missing artifact projection = %+v, %v", missing, err)
@@ -267,7 +269,7 @@ func TestArtifactHTTPDeclaredMismatchLimitCancelAndOrphanReconcile(t *testing.T)
 	dataRoot := t.TempDir()
 	api := openFactsAPI(t, dataRoot)
 	seed := seedArtifactWork(t, api.app, dataRoot)
-	client := artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	client := artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	before := readArtifactHTTPMutationCounts(t, dataRoot)
 
 	actual := []byte("mismatched artifact body")
@@ -351,7 +353,7 @@ func TestArtifactHTTPAgentExecutionCurrentACLGrantReplayAndPagination(t *testing
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
-	ownerOption := ownerClientAuthorization(t, dataRoot)
+	ownerOption := browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", "")
 	grantClient := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	collaborationClient := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	if _, err := collaborationClient.AddMember(context.Background(), connect.NewRequest(&spacev1.AddMemberRequest{
@@ -630,7 +632,7 @@ func TestArtifactHTTPCorruptObjectDoesNotBlockRestart(t *testing.T) {
 	}
 	api = openFactsAPI(t, dataRoot)
 	defer api.close(t)
-	client = artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	client = artifactv1connect.NewArtifactServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	response, err := client.GetArtifact(context.Background(), connect.NewRequest(&artifactv1.GetArtifactRequest{ArtifactId: published.Msg.GetArtifact().GetId()}))
 	if err != nil || response.Msg.GetView().GetVersion().GetIntegrityState() != artifactv1.ArtifactIntegrityState_ARTIFACT_INTEGRITY_STATE_CORRUPT {
 		t.Fatalf("corrupt artifact projection = %+v, %v", response, err)
@@ -766,12 +768,21 @@ type artifactSeed struct {
 
 func seedArtifactWork(t *testing.T, app *Server, dataRoot string) artifactSeed {
 	t.Helper()
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now()
-	bootstrap, err := app.store.EnsureAuthority(context.Background(), credential, now)
+	password := "artifact-test-password-1234567890"
+	digest, hashErr := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := app.store.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

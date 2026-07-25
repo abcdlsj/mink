@@ -12,18 +12,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-type testHumanAuthenticator struct {
-	credential string
-	principal  authoritydomain.Principal
-}
-
-func (a testHumanAuthenticator) AuthenticateHuman(_ context.Context, credential string) (authoritydomain.Principal, error) {
-	if credential != a.credential {
-		return authoritydomain.Principal{}, authoritydomain.ErrPermissionDenied
-	}
-	return a.principal, nil
-}
-
 type testBrowserAuthenticator struct {
 	token     string
 	principal authoritydomain.Principal
@@ -38,9 +26,8 @@ func (a testBrowserAuthenticator) AuthenticateBrowserSession(_ context.Context, 
 
 func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
 	principal := authoritydomain.Principal{Kind: authoritydomain.PrincipalHuman, ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
-	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
-	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{
+	interceptor := NewBrowserInterceptor(sessions, BrowserInterceptorConfig{
 		Origin: "http://127.0.0.1:8080", BrowserReadProcedures: []string{""},
 	})
 	wrapper := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
@@ -84,9 +71,8 @@ func TestBrowserInterceptorUsesBearerWithoutCookieFallback(t *testing.T) {
 
 func TestBrowserInterceptorRequiresExactOriginForMutations(t *testing.T) {
 	principal := authoritydomain.Principal{Kind: authoritydomain.PrincipalHuman, ID: "11111111-1111-4111-8111-111111111111", OrganizationID: "22222222-2222-4222-8222-222222222222"}
-	humans := testHumanAuthenticator{credential: "bearer-credential-abcdefghijklmnopqrstuvwxyz-0123456789", principal: principal}
 	sessions := testBrowserAuthenticator{token: "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", principal: principal}
-	interceptor := NewBrowserInterceptor(humans, sessions, BrowserInterceptorConfig{Origin: "http://127.0.0.1:8080"})
+	interceptor := NewBrowserInterceptor(sessions, BrowserInterceptorConfig{Origin: "http://127.0.0.1:8080"})
 	wrapper := interceptor.WrapUnary(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
 		return connect.NewResponse(&emptypb.Empty{}), nil
 	})
@@ -107,10 +93,12 @@ func TestBrowserInterceptorRequiresExactOriginForMutations(t *testing.T) {
 	if _, err := wrapper(browserContext(t, "http://127.0.0.1:8080", true), request); err != nil {
 		t.Fatal(err)
 	}
+
 	request = connect.NewRequest(&emptypb.Empty{})
-	request.Header().Set("Authorization", "Bearer "+humans.credential)
-	if _, err := wrapper(browserContext(t, "http://127.0.0.1:8080", true), request); err != nil {
-		t.Fatalf("bearer unexpectedly required Origin: %v", err)
+	request.Header().Set("Authorization", "Bearer invalid-credential")
+	_, err := wrapper(browserContext(t, "http://127.0.0.1:8080", true), request)
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("bearer auth with no cookie = %v", err)
 	}
 }
 

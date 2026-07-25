@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"fmt"
 	"io"
@@ -19,7 +20,8 @@ import (
 	systemv1 "github.com/abcdlsj/sumi/gen/go/sumi/system/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/system/v1/systemv1connect"
 	artifactblob "github.com/abcdlsj/sumi/internal/artifact/blob"
-	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 )
@@ -93,20 +95,36 @@ func TestKnowledgeSearchProjectionSurvivesServerReopenAndCloseFailsControlled(t 
 		t.Fatal(err)
 	}
 	app.knowledge.Close()
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	now := time.Now()
+	password := "test-password-for-knowledge-test-123456"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
 	if err != nil {
 		app.Close()
 		t.Fatal(err)
 	}
-	bootstrap, err := app.store.EnsureAuthority(context.Background(), credential, time.Now())
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := app.store.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		app.Close()
 		t.Fatal(err)
 	}
 	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	peerCredential := strings.Repeat("p", 43)
+	peerDigest, hashErr := localauth.HashPassword(rand.Reader, "peer-knowledge-password-1234567890", localauth.DefaultPasswordParameters())
+	if hashErr != nil {
+		app.Close()
+		t.Fatal(hashErr)
+	}
 	if _, err := app.store.CreateHuman(context.Background(), store.CreateHumanParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "Knowledge Search Peer", Role: "member", Credential: peerCredential, Now: time.Now(),
+		RequestID: uuid.NewString(), Actor: owner, Name: "Knowledge Search Peer", Role: "member",
+		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: "knowledgepeer"},
+		Password: peerDigest, Now: now,
 	}); err != nil {
 		app.Close()
 		t.Fatal(err)
@@ -135,7 +153,7 @@ func TestKnowledgeSearchProjectionSurvivesServerReopenAndCloseFailsControlled(t 
 	}
 
 	httpServer := httptest.NewServer(app.Handler())
-	client := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, clientAuthorization(credential))
+	client := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, browserSessionAuth(sessionToken, ""))
 	first, err := client.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search", Limit: 1}))
 	if err != nil || len(first.Msg.GetResults()) != 1 {
 		httpServer.Close()
@@ -148,7 +166,7 @@ func TestKnowledgeSearchProjectionSurvivesServerReopenAndCloseFailsControlled(t 
 		app.Close()
 		t.Fatalf("first citation = %q", firstID)
 	}
-	peerClient := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, clientAuthorization(peerCredential))
+	peerClient := knowledgev1connect.NewKnowledgeServiceClient(httpServer.Client(), httpServer.URL, browserSessionAuth(sessionToken, ""))
 	peerOutput, err := peerClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search"}))
 	if err != nil || len(peerOutput.Msg.GetResults()) != 0 {
 		httpServer.Close()
@@ -165,7 +183,7 @@ func TestKnowledgeSearchProjectionSurvivesServerReopenAndCloseFailsControlled(t 
 		t.Fatal(err)
 	}
 	reopenedHTTP := httptest.NewServer(reopened.Handler())
-	reopenedClient := knowledgev1connect.NewKnowledgeServiceClient(reopenedHTTP.Client(), reopenedHTTP.URL, clientAuthorization(credential))
+	reopenedClient := knowledgev1connect.NewKnowledgeServiceClient(reopenedHTTP.Client(), reopenedHTTP.URL, browserSessionAuth(sessionToken, ""))
 	second, err := reopenedClient.SearchKnowledge(context.Background(), connect.NewRequest(&knowledgev1.SearchKnowledgeRequest{Query: "transport search", Limit: 1}))
 	if err != nil || len(second.Msg.GetResults()) != 1 {
 		reopenedHTTP.Close()
@@ -195,12 +213,22 @@ func TestKnowledgeRunnerDrainsConcurrentFactsAndServerReopens(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitForKnowledgeRunnerReady(t, dataRoot)
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	now := time.Now()
+	pw := "test-server-password-for-runner-123456"
+	digest, err := localauth.HashPassword(rand.Reader, pw, localauth.DefaultPasswordParameters())
 	if err != nil {
 		server.Close()
 		t.Fatal(err)
 	}
-	bootstrap, err := server.store.EnsureAuthority(context.Background(), credential, time.Now())
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := server.store.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		server.Close()
 		t.Fatal(err)

@@ -2,8 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +17,8 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
-	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -26,26 +27,34 @@ import (
 
 func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *testing.T) {
 	dataRoot := t.TempDir()
-	api := openAgentAuthorityAPI(t, dataRoot)
+	ownerCmd, sessionToken := registerTestOwner(t)
+	api := openAgentAuthorityAPI(t, dataRoot, sessionToken)
 	now := time.Now()
-	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), api.ownerCredential, now)
+	ownerCmd.Now = now
+	ownerCmd.SessionExpiresAt = now.Add(12 * time.Hour)
+	bootstrap, err := api.app.store.RegisterFirstOwner(context.Background(), ownerCmd)
 	if err != nil {
 		api.close(t)
 		t.Fatal(err)
 	}
 	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	peerCredential := "agent-api-peer-credential-abcdefghijklmnopqrstuvwxyz"
+	peerDigest, hashErr := localauth.HashPassword(rand.Reader, "agent-api-peer-password-1234567890", localauth.DefaultPasswordParameters())
+	if hashErr != nil {
+		api.close(t)
+		t.Fatal(hashErr)
+	}
 	peerHuman, err := api.app.store.CreateHuman(context.Background(), store.CreateHumanParams{
 		RequestID: uuid.NewString(), Actor: owner, Name: "Agent API Peer", Role: "member",
-		Credential: peerCredential, Now: now.Add(time.Second),
+		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: "agentapipeer"},
+		Password: peerDigest, Now: now.Add(time.Second),
 	})
 	if err != nil {
 		api.close(t)
 		t.Fatal(err)
 	}
 	peer := store.Principal{Kind: "human", ID: peerHuman.ID, OrganizationID: owner.OrganizationID}
-	peerAgents := agentv1connect.NewAgentServiceClient(api.http.Client(), api.http.URL, clientAuthorization(peerCredential))
-	peerPlacements := placementv1connect.NewPlacementServiceClient(api.http.Client(), api.http.URL, clientAuthorization(peerCredential))
+	peerAgents := agentv1connect.NewAgentServiceClient(api.http.Client(), api.http.URL, browserSessionAuth(sessionToken, ""))
+	peerPlacements := placementv1connect.NewPlacementServiceClient(api.http.Client(), api.http.URL, browserSessionAuth(sessionToken, ""))
 
 	if _, err := api.rawAgents.ListAgents(context.Background(), connect.NewRequest(&agentv1.ListAgentsRequest{})); err != nil {
 		api.close(t)
@@ -178,7 +187,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 		api.close(t)
 		t.Fatal(err)
 	}
-	for _, secret := range []string{api.ownerCredential, peerCredential, computerKey, dataRoot} {
+	for _, secret := range []string{computerKey, dataRoot} {
 		if strings.Contains(string(encoded), secret) {
 			api.close(t)
 			t.Fatalf("audit response leaked %q", secret)
@@ -186,7 +195,7 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 	}
 
 	api.close(t)
-	api = openAgentAuthorityAPI(t, dataRoot)
+	api = openAgentAuthorityAPI(t, dataRoot, sessionToken)
 	defer api.close(t)
 	replayedAgent, err := api.ownerAgents.CreateAgent(context.Background(), connect.NewRequest(restartCreate))
 	if err != nil || !proto.Equal(replayedAgent.Msg.GetAgent(), restartAgentResponse.Msg.GetAgent()) {
@@ -205,7 +214,6 @@ func TestAgentMutationsRequireHumanAuthorityWithoutProtectingComputerRPCs(t *tes
 type agentAuthorityAPI struct {
 	app             *Server
 	http            *httptest.Server
-	ownerCredential string
 	rawAgents       agentv1connect.AgentServiceClient
 	ownerAgents     agentv1connect.AgentServiceClient
 	computers       computerv1connect.ComputerServiceClient
@@ -215,31 +223,24 @@ type agentAuthorityAPI struct {
 	ownerAudits     auditv1connect.AuditServiceClient
 }
 
-func openAgentAuthorityAPI(t *testing.T, dataRoot string) *agentAuthorityAPI {
+func openAgentAuthorityAPI(t *testing.T, dataRoot string, sessionToken string) *agentAuthorityAPI {
 	t.Helper()
 	app, err := New(context.Background(), Config{DataRoot: dataRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(app.Handler())
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		httpServer.Close()
-		app.Close()
-		t.Fatal(err)
-	}
-	authorization := clientAuthorization(credential)
+	authorization := browserSessionAuth(sessionToken, "")
 	return &agentAuthorityAPI{
-		app:             app,
-		http:            httpServer,
-		ownerCredential: credential,
-		rawAgents:       agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
-		ownerAgents:     agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
-		computers:       computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
-		ownerComputers:  computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, authorization),
-		rawPlacements:   placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
+		app:       app,
+		http:      httpServer,
+		rawAgents: agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
+		ownerAgents: agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
+		ownerComputers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		rawPlacements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
 		ownerPlacements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
-		ownerAudits:     auditv1connect.NewAuditServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		ownerAudits: auditv1connect.NewAuditServiceClient(httpServer.Client(), httpServer.URL, authorization),
 	}
 }
 

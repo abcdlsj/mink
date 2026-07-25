@@ -2,27 +2,37 @@ package server
 
 import (
 	"context"
-	"path/filepath"
-	"testing"
 
 	"connectrpc.com/connect"
-	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/google/uuid"
 )
 
-func ownerClientAuthorization(t *testing.T, dataRoot string) connect.Option {
+func ownerBrowserClient(t *testing.T, origin string) (connect.Option, string) {
 	t.Helper()
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return clientAuthorization(credential)
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP" // 43 chars
+	return browserSessionAuth(sessionToken, origin), sessionToken
 }
 
-func clientAuthorization(credential string) connect.Option {
+func browserSessionAuth(sessionToken, origin string) connect.Option {
 	return connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			request.Header().Set("Authorization", "Bearer "+credential)
+			request.Header().Set("Cookie", "sumi_browser_session="+sessionToken)
+			if origin != "" {
+				request.Header().Set("Origin", origin)
+			}
 			return next(ctx, request)
 		}
 	}))
+}
+
+func registerTestOwner(t *testing.T) (authorityapp.RegisterFirstOwnerCommand, string) {
+	t.Helper()
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP" // 43 chars
+	cmd := authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		SessionToken: sessionToken,
+	}
+	return cmd, sessionToken
 }

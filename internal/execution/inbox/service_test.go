@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -15,6 +16,8 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/inbox/v1/inboxv1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/abcdlsj/sumi/internal/servicesvc"
@@ -288,10 +291,20 @@ func openServiceFixture(t *testing.T) *serviceFixture {
 	})
 	ctx := context.Background()
 	base := time.Now().UTC().Add(-time.Second)
-	bootstrap, err := database.EnsureAuthority(ctx, "inbox-service-owner-credential-abcdefghijklmnopqrstuvwxyz", base)
+	password := "inbox-service-password-1234567890"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
 	if err != nil {
 		t.Fatal(err)
 	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP" // 43 chars
+	bootstrap, err := database.RegisterFirstOwner(ctx, authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              base,
+		SessionExpiresAt: base.Add(12 * time.Hour),
+	})
 	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
 	agent, err := database.CreateAgent(ctx, store.CreateAgentParams{
 		RequestID: uuid.NewString(), Actor: owner, Handle: "inbox-service", DisplayName: "Inbox Service", Role: "worker", Mission: "Process inbox tests", Now: base.Add(time.Second),

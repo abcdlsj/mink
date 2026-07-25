@@ -2,6 +2,7 @@ package computer
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"connectrpc.com/connect"
 	agentv1 "github.com/abcdlsj/sumi/gen/go/sumi/agent/v1"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
 )
@@ -22,7 +25,20 @@ func TestCapabilityInventoryRoundTripAndInvalidRequestIsZeroWrite(t *testing.T) 
 	defer database.Close()
 	now := time.Now().UTC()
 	key := "inventory-service-registration-key"
-	bootstrap, err := database.EnsureAuthority(context.Background(), "inventory-service-owner-credential-abcdefghijklmnopqrstuvwxyz", now)
+	password := "inventory-password-1234567890"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := database.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

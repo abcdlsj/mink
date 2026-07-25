@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +16,10 @@ import (
 	"connectrpc.com/connect"
 	computerv1 "github.com/abcdlsj/sumi/gen/go/sumi/computer/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
-	"github.com/abcdlsj/sumi/internal/authority"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	"github.com/abcdlsj/sumi/internal/server"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"net/http/httptest"
 )
 
 func TestSumiComputerPairsOnceAndPersistsGreenfieldIdentity(t *testing.T) {
@@ -40,24 +39,13 @@ func TestSumiComputerPairsOnceAndPersistsGreenfieldIdentity(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	credential, err := authority.ReadCredentialFile(filepath.Join(serverRoot, "owner.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			request.Header().Set("Authorization", "Bearer "+credential)
-			return next(ctx, request)
-		}
-	}))
-	ownerComputers := computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL, owner)
 	publicComputers := computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL)
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		t.Fatal(err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
-	if _, err := ownerComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
+	if _, err := publicComputers.CreateComputerPairing(context.Background(), connect.NewRequest(&computerv1.CreateComputerPairingRequest{
 		RequestId: uuid.NewString(), PairingToken: token, ExpiresAt: timestamppb.New(time.Now().Add(10 * time.Minute)),
 	})); err != nil {
 		t.Fatal(err)

@@ -18,7 +18,6 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/computer/v1/computerv1connect"
 	placementv1 "github.com/abcdlsj/sumi/gen/go/sumi/placement/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/placement/v1/placementv1connect"
-	"github.com/abcdlsj/sumi/internal/authority"
 	computerstate "github.com/abcdlsj/sumi/internal/computer/state"
 	placementfailure "github.com/abcdlsj/sumi/internal/placement/failure"
 	"github.com/abcdlsj/sumi/internal/server"
@@ -177,22 +176,15 @@ func openHostTestServer(t *testing.T, dataRoot string) *hostTestServer {
 		t.Fatal(err)
 	}
 	httpServer := httptest.NewServer(app.Handler())
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		httpServer.Close()
-		app.Close()
-		t.Fatal(err)
-	}
-	authorization := clientAuthorization(credential)
 	return &hostTestServer{
 		app:       app,
 		http:      httpServer,
-		agents:    agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		agents:    agentv1connect.NewAgentServiceClient(httpServer.Client(), httpServer.URL),
 		computers: computerv1connect.NewComputerServiceClient(httpServer.Client(), httpServer.URL),
 		ownerComputers: computerv1connect.NewComputerServiceClient(
-			httpServer.Client(), httpServer.URL, authorization,
+			httpServer.Client(), httpServer.URL,
 		),
-		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL, authorization),
+		placements: placementv1connect.NewPlacementServiceClient(httpServer.Client(), httpServer.URL),
 	}
 }
 
@@ -297,14 +289,6 @@ func createPendingAssignment(t *testing.T, api *hostTestServer, key, agentName s
 	return agentID, computerID
 }
 
-func clientAuthorization(credential string) connect.Option {
-	return connect.WithInterceptors(connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			request.Header().Set("Authorization", "Bearer "+credential)
-			return next(ctx, request)
-		}
-	}))
-}
 
 func saveHostTestIdentity(t *testing.T, state *computerstate.State, identity computerstate.Identity) {
 	t.Helper()

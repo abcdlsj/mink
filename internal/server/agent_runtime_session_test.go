@@ -151,7 +151,7 @@ func TestAgentRuntimeHTTPConcurrencyBindingAndAuthorityBoundaries(t *testing.T) 
 	assertConnectCode(t, err, connect.CodeUnauthenticated)
 
 	other := pairComputer(t, api, "other-computer-key", "Other runtime host", computerv1.OperatingSystem_OPERATING_SYSTEM_LINUX, computerv1.Architecture_ARCHITECTURE_ARM64)
-	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agent.GetId(), other.Msg.GetComputer().GetId(), "other-computer-key")
+	prepareServerTestPlacement(t, api.computers, api.computers, api.agents, agent.GetId(), other.Msg.GetComputer().GetId(), "other-computer-key")
 	reassigned, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.GetId(), ComputerId: other.Msg.GetComputer().GetId(),
 	}))
@@ -178,7 +178,7 @@ func createActiveRuntimeBinding(t *testing.T, api *factsAPI) (*computerv1.Comput
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepareServerTestPlacement(t, api.ownerComputers, api.computers, api.agents, agent.Msg.GetAgent().GetId(), computer.Msg.GetComputer().GetId(), registrationKey)
+	prepareServerTestPlacement(t, api.computers, api.computers, api.agents, agent.Msg.GetAgent().GetId(), computer.Msg.GetComputer().GetId(), registrationKey)
 	placement, err := api.placements.SetAgentPlacement(context.Background(), connect.NewRequest(&placementv1.SetAgentPlacementRequest{
 		RequestId: uuid.NewString(), AgentId: agent.Msg.GetAgent().GetId(), ComputerId: computer.Msg.GetComputer().GetId(),
 	}))

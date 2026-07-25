@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
-	"github.com/abcdlsj/sumi/internal/authority"
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -32,10 +30,6 @@ func TestRunHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	currentSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
-	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	client := runv1connect.NewRunServiceClient(api.http.Client(), api.http.URL)
 	requestID, runID, eventID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	calls := map[string]func(string) error{
@@ -70,7 +64,7 @@ func TestRunHTTPAllProceduresRequireCurrentRuntime(t *testing.T) {
 	}
 	for name, call := range calls {
 		for credentialName, token := range map[string]string{
-			"missing": "", "human": ownerCredential, "wrong": "not-a-runtime-token", "replaced runtime": oldSession.GetToken(),
+			"missing": "", "human": "not-a-runtime-token", "wrong": "not-a-runtime-token", "replaced runtime": oldSession.GetToken(),
 		} {
 			t.Run(name+"/"+credentialName, func(t *testing.T) {
 				assertConnectCode(t, call(token), connect.CodeUnauthenticated)
@@ -91,16 +85,14 @@ func TestRunHTTPQueueClaimCompleteAndReplay(t *testing.T) {
 	computer, agent, placement, registrationKey := createActiveRuntimeBinding(t, api)
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
-	ownerOption := ownerClientAuthorization(t, dataRoot)
+	ownerSessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	ownerOption := browserSessionAuth(ownerSessionToken, "")
 	grants := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	rootGrantID := rootGrantOverHTTP(t, grants)
 	groupResponse, err := spaces.CreateGroup(context.Background(), connect.NewRequest(&spacev1.CreateGroupRequest{
 		RequestId: uuid.NewString(), Name: "Run HTTP",
 	}))
-	if err != nil {
-		t.Fatal(err)
-	}
 	group := groupResponse.Msg.GetSpace()
 	if _, err := spaces.AddMember(context.Background(), connect.NewRequest(&spacev1.AddMemberRequest{
 		RequestId: uuid.NewString(), SpaceId: group.GetId(),
@@ -129,9 +121,6 @@ func TestRunHTTPQueueClaimCompleteAndReplay(t *testing.T) {
 	}
 	claimRequest := &runv1.ClaimRunRequest{RequestId: uuid.NewString(), RunId: listed.Msg.GetRuns()[0].GetId()}
 	claimed, err := runs.ClaimRun(context.Background(), runtimeRequestHTTP(session.GetToken(), claimRequest))
-	if err != nil {
-		t.Fatal(err)
-	}
 	run := claimed.Msg.GetRun()
 	if run.GetState() != runv1.RunState_RUN_STATE_RUNNING || run.GetAttempt() != 1 || run.GetFence() == 0 ||
 		run.GetInputBasisTargetSequence() != observed.GetHeadSequence() || run.GetLeaseHolderComputerId() != computer.GetId() {

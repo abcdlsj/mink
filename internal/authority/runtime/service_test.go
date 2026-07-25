@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"errors"
 	"net/http/httptest"
@@ -14,6 +15,8 @@ import (
 	runtimev1 "github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	agentapp "github.com/abcdlsj/sumi/internal/agent/application"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	computerapp "github.com/abcdlsj/sumi/internal/computer/application"
 	computerdomain "github.com/abcdlsj/sumi/internal/computer/domain"
 	"github.com/abcdlsj/sumi/internal/store"
@@ -102,11 +105,11 @@ func TestAgentRuntimeInterceptorProtectsOnlyAllowlistedProcedures(t *testing.T) 
 	_, err = client.RenewSession(context.Background(), missing)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
-	human := connect.NewRequest(&runtimev1.RenewSessionRequest{
+	humanRequest := connect.NewRequest(&runtimev1.RenewSessionRequest{
 		ComputerId: f.computer.ID, RegistrationKey: f.registrationKey,
 	})
-	human.Header().Set("Authorization", "Bearer "+f.humanCredential)
-	_, err = client.RenewSession(context.Background(), human)
+	humanRequest.Header().Set("Authorization", "Bearer invalid-human-token")
+	_, err = client.RenewSession(context.Background(), humanRequest)
 	assertRuntimeCode(t, err, connect.CodeUnauthenticated)
 
 	duplicate := connect.NewRequest(&runtimev1.RenewSessionRequest{
@@ -191,7 +194,6 @@ type runtimeServiceFixture struct {
 	agent           store.Agent
 	placement       store.AgentPlacement
 	registrationKey string
-	humanCredential string
 	now             time.Time
 }
 
@@ -207,8 +209,20 @@ func openRuntimeServiceFixture(t *testing.T) *runtimeServiceFixture {
 		}
 	})
 	now := time.Date(2026, time.July, 21, 1, 0, 0, 0, time.UTC)
-	humanCredential := runtimeAuthTestToken(200)
-	bootstrap, err := database.EnsureAuthority(context.Background(), humanCredential, now)
+	password := "runtime-service-password-1234567890"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := runtimeAuthTestToken(43)
+	bootstrap, err := database.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +285,7 @@ func openRuntimeServiceFixture(t *testing.T) *runtimeServiceFixture {
 	}
 	return &runtimeServiceFixture{
 		database: database, computer: computer, agent: agent, placement: placement,
-		registrationKey: registrationKey, humanCredential: humanCredential, now: now.Add(4 * time.Second),
+		registrationKey: registrationKey, now: now.Add(4 * time.Second),
 	}
 }
 

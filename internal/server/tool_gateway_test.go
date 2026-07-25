@@ -37,7 +37,7 @@ func TestRemoteToolGatewayUsesCurrentRuntimeAndExactRunTarget(t *testing.T) {
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 
-	ownerOption := ownerClientAuthorization(t, dataRoot)
+	ownerOption := browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", "")
 	grants := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	rootGrantID := rootGrantOverHTTP(t, grants)
@@ -177,7 +177,7 @@ func TestRemoteToolGatewayCreatesWorkAndPublishesArtifactWithExactRunProof(t *te
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 
-	ownerOption := ownerClientAuthorization(t, dataRoot)
+	ownerOption := browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", "")
 	grants := grantv1connect.NewGrantServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	spaces := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerOption)
 	rootGrantID := rootGrantOverHTTP(t, grants)

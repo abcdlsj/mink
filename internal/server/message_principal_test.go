@@ -31,7 +31,7 @@ func TestMessageHTTPHumanAndAgentShareCanonicalSurfaceWithRuntimeFailClosed(t *t
 	current := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	group := createInboxSpace(t, api, dataRoot, agent.GetId())
 	collaboration := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL)
-	human := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	human := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestMessageHTTPHumanAndAgentShareCanonicalSurfaceWithRuntimeFailClosed(t *t
 	if agentMessage.GetAuthor().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_AGENT || agentMessage.GetAuthor().GetId() != agent.GetId() {
 		t.Fatalf("Agent message author = %+v", agentMessage.GetAuthor())
 	}
-	ownerInbox := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	ownerInbox := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL, browserSessionAuth("abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP", ""))
 	humanItems, err := ownerInbox.ListInboxItems(context.Background(), connect.NewRequest(&inboxv1.ListInboxItemsRequest{Limit: 10}))
 	if err != nil || len(humanItems.Msg.GetItems()) != 1 || humanItems.Msg.GetItems()[0].GetTriggerMessageId() != agentMessage.GetId() || humanItems.Msg.GetItems()[0].GetRecipient().GetKind() != spacev1.PrincipalKind_PRINCIPAL_KIND_HUMAN {
 		t.Fatalf("Agent-to-Human mention Inbox = %+v, %v", humanItems, err)

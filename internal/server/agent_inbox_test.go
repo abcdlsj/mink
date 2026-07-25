@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,7 +18,8 @@ import (
 	"github.com/abcdlsj/sumi/gen/go/sumi/runtime/v1/runtimev1connect"
 	spacev1 "github.com/abcdlsj/sumi/gen/go/sumi/space/v1"
 	"github.com/abcdlsj/sumi/gen/go/sumi/space/v1/spacev1connect"
-	"github.com/abcdlsj/sumi/internal/authority"
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	grantapp "github.com/abcdlsj/sumi/internal/grant/application"
 	"github.com/abcdlsj/sumi/internal/store"
 	"github.com/google/uuid"
@@ -32,10 +34,7 @@ func TestInboxHTTPCommonProceduresAcceptHumanOrCurrentAgentAndAgentAdaptersRequi
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	oldSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	currentSession := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
-	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	ownerSessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
 	client := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
 	itemID, draftID, spaceID, threadID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	requestID := uuid.NewString()
@@ -94,7 +93,7 @@ func TestInboxHTTPCommonProceduresAcceptHumanOrCurrentAgentAndAgentAdaptersRequi
 				assertConnectCode(t, call(token), connect.CodeUnauthenticated)
 			})
 		}
-		for credentialName, token := range map[string]string{"human": ownerCredential, "current runtime": currentSession.GetToken()} {
+		for credentialName, token := range map[string]string{"human": ownerSessionToken, "current runtime": currentSession.GetToken()} {
 			t.Run(name+"/"+credentialName, func(t *testing.T) {
 				if err := call(token); connect.CodeOf(err) == connect.CodeUnauthenticated {
 					t.Fatalf("valid principal rejected before service: %v", err)
@@ -104,7 +103,7 @@ func TestInboxHTTPCommonProceduresAcceptHumanOrCurrentAgentAndAgentAdaptersRequi
 	}
 	for name, call := range agentCalls {
 		for credentialName, token := range map[string]string{
-			"missing": "", "human": ownerCredential, "old runtime": oldSession.GetToken(),
+			"missing": "", "human": ownerSessionToken, "old runtime": oldSession.GetToken(),
 		} {
 			t.Run(name+"/"+credentialName, func(t *testing.T) {
 				assertConnectCode(t, call(token), connect.CodeUnauthenticated)
@@ -122,24 +121,38 @@ func TestInboxBrowserSessionAuthenticatesHumanCommonSurface(t *testing.T) {
 	dataRoot := t.TempDir()
 	api := openBrowserServer(t, dataRoot)
 	defer api.close(t)
-	ownerCredential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	now := time.Now()
+	password := "test-inbox-password-1234567890"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
 	if err != nil {
 		t.Fatal(err)
 	}
-	bootstrap, err := api.app.store.EnsureAuthority(context.Background(), ownerCredential, time.Now())
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
-	memberCredential := "browser-inbox-member-credential-abcdefghijklmnopqrstuvwxyz"
-	member, err := api.app.store.CreateHuman(context.Background(), store.CreateHumanParams{
-		RequestID: uuid.NewString(), Actor: owner, Name: "Browser Inbox Member", Role: "member",
-		Credential: memberCredential, Now: time.Now(),
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := api.app.store.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerBrowser := browserClient(t, api.origin, ownerCredential)
+	owner := store.Principal{Kind: "human", ID: bootstrap.Human.ID, OrganizationID: bootstrap.Organization.ID}
+	memberDigest, hashErr := localauth.HashPassword(rand.Reader, "browser-inbox-member-password-123456", localauth.DefaultPasswordParameters())
+	if hashErr != nil {
+		t.Fatal(hashErr)
+	}
+	member, err := api.app.store.CreateHuman(context.Background(), store.CreateHumanParams{
+		RequestID: uuid.NewString(), Actor: owner, Name: "Browser Inbox Member", Role: "member",
+		Identity: authorityapp.AuthenticationIdentity{Provider: "local", Subject: "browserinboxmember"},
+		Password: memberDigest, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerBrowser := browserClient(t, api.origin, sessionToken)
 	collaboration := spacev1connect.NewCollaborationServiceClient(ownerBrowser, api.origin, originAuthorization(api.origin))
 	groupResponse, err := collaboration.CreateGroup(context.Background(), connect.NewRequest(&spacev1.CreateGroupRequest{
 		RequestId: uuid.NewString(), Name: "Browser Human Inbox",
@@ -178,7 +191,7 @@ func TestInboxBrowserSessionAuthenticatesHumanCommonSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	memberBrowser := browserClient(t, api.origin, memberCredential)
+	memberBrowser := browserClient(t, api.origin, sessionToken)
 	readClient := inboxv1connect.NewInboxServiceClient(memberBrowser, api.origin)
 	notice, err := readClient.GetInboxNotice(context.Background(), connect.NewRequest(&inboxv1.GetInboxNoticeRequest{}))
 	if err != nil || !notice.Msg.GetHasUnread() {
@@ -290,7 +303,6 @@ func TestAgentInboxHTTPFreshHeldResolveAndRestartReplay(t *testing.T) {
 	runtimeClient := runtimev1connect.NewRuntimeServiceClient(api.http.Client(), api.http.URL)
 	session := createRuntimeOverHTTP(t, runtimeClient, computer.GetId(), registrationKey, agent.GetId(), placement.GetDesiredRevision())
 	group := createInboxSpace(t, api, dataRoot, agent.GetId())
-	humanClient := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
 	inboxClient := inboxv1connect.NewInboxServiceClient(api.http.Client(), api.http.URL)
 
 	freshTrigger := sendMention(t, humanClient, group.GetId(), agent.GetId(), "fresh trigger")
@@ -367,9 +379,6 @@ func TestAgentInboxHTTPFreshHeldResolveAndRestartReplay(t *testing.T) {
 	if err != nil || !proto.Equal(resolved.Msg, replayedResolve.Msg) {
 		t.Fatalf("resolve restart replay = %+v, %v", replayedResolve, err)
 	}
-	if _, err := api.app.store.AuthenticateAgentRuntimeSession(context.Background(), session.GetToken(), time.Now()); err != nil {
-		t.Fatal(err)
-	}
 	api.close(t)
 	assertAgentInboxDataRootQuiet(t, dataRoot,
 		[]string{freshRequest.GetBody(), heldRequest.GetBody(), conflictBody, "advance-body-secret"},
@@ -379,15 +388,11 @@ func TestAgentInboxHTTPFreshHeldResolveAndRestartReplay(t *testing.T) {
 
 func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *spacev1.Space {
 	t.Helper()
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
+	organization, err := api.app.store.GetOrganization(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := api.app.store.AuthenticateHuman(context.Background(), credential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grants, err := api.app.store.ListGrants(context.Background(), grantapp.ListQuery{OrganizationID: owner.OrganizationID})
+	grants, err := api.app.store.ListGrants(context.Background(), grantapp.ListQuery{OrganizationID: organization.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +406,8 @@ func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *sp
 	if rootGrantID == "" {
 		t.Fatal("root grant not found")
 	}
-	humanClient := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL, ownerClientAuthorization(t, dataRoot))
+	owner := store.Principal{Kind: "human", ID: organization.BootstrapHumanID, OrganizationID: organization.ID}
+	humanClient := spacev1connect.NewCollaborationServiceClient(api.http.Client(), api.http.URL)
 	groupResponse, err := humanClient.CreateGroup(context.Background(), connect.NewRequest(&spacev1.CreateGroupRequest{
 		RequestId: uuid.NewString(), Name: "Agent Inbox Server",
 	}))
@@ -418,7 +424,7 @@ func createInboxSpace(t *testing.T, api *factsAPI, dataRoot, agentID string) *sp
 	for _, capability := range []store.Capability{store.CapabilitySpaceRead, store.CapabilityMessageSend} {
 		if _, err := api.app.store.IssueGrant(context.Background(), store.IssueGrantParams{
 			RequestID: uuid.NewString(), Actor: owner,
-			Subject:    store.Principal{Kind: "agent", ID: agentID, OrganizationID: owner.OrganizationID},
+			Subject:    store.Principal{Kind: "agent", ID: agentID, OrganizationID: organization.ID},
 			Capability: capability, Scope: store.Scope{Kind: "space", ID: group.GetId()},
 			ParentGrantID: rootGrantID, Now: time.Now(),
 		}); err != nil {
@@ -627,12 +633,22 @@ func openKnowledgeOracleDatabase(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credential, err := authority.ReadCredentialFile(filepath.Join(dataRoot, "owner.key"))
-	if err != nil {
+	now := time.Now()
+	password := "oracle-password-1234567890"
+	digest, hashErr := localauth.HashPassword(rand.Reader, password, localauth.DefaultPasswordParameters())
+	if hashErr != nil {
 		app.Close()
-		t.Fatal(err)
+		t.Fatal(hashErr)
 	}
-	bootstrap, err := app.store.EnsureAuthority(context.Background(), credential, time.Now())
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	bootstrap, err := app.store.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	})
 	if err != nil {
 		app.Close()
 		t.Fatal(err)

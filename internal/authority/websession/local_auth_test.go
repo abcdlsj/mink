@@ -3,6 +3,7 @@ package websession
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +13,11 @@ import (
 	"testing"
 	"time"
 
+	authorityapp "github.com/abcdlsj/sumi/internal/authority/application"
 	"github.com/abcdlsj/sumi/internal/authority"
+	"github.com/abcdlsj/sumi/internal/authority/localauth"
 	"github.com/abcdlsj/sumi/internal/store"
+	"github.com/google/uuid"
 )
 
 func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
@@ -24,51 +28,53 @@ func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
-	bootstrapCredential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	password := "correct horse battery staple"
-	if _, err := db.EnsureAuthority(context.Background(), bootstrapCredential, now); err != nil {
+	password := "correct-horse-battery-staple"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.PasswordParameters{Memory: 8192, Iterations: 1, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	if _, err := db.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
 
 	status := request(t, handler, http.MethodGet, LocalStatusPath, "127.0.0.1:42000", nil)
-	if status.Code != http.StatusOK || status.Header().Get("Cache-Control") != "no-store" || status.Body.String() != "{\"setup_required\":true}\n" {
+	if status.Code != http.StatusOK || status.Header().Get("Cache-Control") != "no-store" || status.Body.String() != "{\"setup_required\":false}\n" {
 		t.Fatalf("initial local status = %d %v %q", status.Code, status.Header(), status.Body.String())
 	}
-	badSetup := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
-		"username": "Owner", "password": password, "bootstrap_credential": strings.Repeat("A", 43),
+	duplicate := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
+		"username": "owner", "password": password,
 	}, nil)
-	if badSetup.Code != http.StatusUnauthorized || badSetup.Body.Len() != 0 || len(badSetup.Result().Cookies()) != 0 {
-		t.Fatalf("bad setup = %d %q %v", badSetup.Code, badSetup.Body.String(), badSetup.Result().Cookies())
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate setup after first owner = %d %s", duplicate.Code, duplicate.Body.String())
 	}
-	setup := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
-		"username": "Owner", "password": password, "bootstrap_credential": bootstrapCredential,
-	}, nil)
-	if setup.Code != http.StatusCreated || !strings.Contains(setup.Body.String(), `"name":"Owner"`) {
-		t.Fatalf("setup = %d %s", setup.Code, setup.Body.String())
-	}
-	cookies := setup.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("setup cookies = %+v", cookies)
-	}
-	assertSessionCookie(t, cookies[0], now.Add(12*time.Hour), 12*60*60)
-	status = request(t, handler, http.MethodGet, SessionPath, "127.0.0.1:42000", map[string]string{"Cookie": cookies[0].String()})
+
+	sessionCookie := &http.Cookie{Name: authority.BrowserSessionCookieName, Value: sessionToken, Path: "/"}
+	status = request(t, handler, http.MethodGet, SessionPath, "127.0.0.1:42000", map[string]string{"Cookie": sessionCookie.String()})
 	if status.Code != http.StatusOK || !strings.Contains(status.Body.String(), `"name":"Owner"`) {
-		t.Fatalf("setup session = %d %s", status.Code, status.Body.String())
+		t.Fatalf("session status = %d %s", status.Code, status.Body.String())
 	}
 	status = request(t, handler, http.MethodGet, LocalStatusPath, "127.0.0.1:42000", nil)
 	if status.Code != http.StatusOK || status.Body.String() != "{\"setup_required\":false}\n" {
 		t.Fatalf("completed local status = %d %q", status.Code, status.Body.String())
 	}
-	duplicate := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
-		"username": "second", "password": password, "bootstrap_credential": bootstrapCredential,
+	duplicateSetup := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
+		"username": "second", "password": password,
 	}, nil)
-	if duplicate.Code != http.StatusConflict || duplicate.Body.Len() != 0 {
-		t.Fatalf("duplicate setup = %d %q", duplicate.Code, duplicate.Body.String())
+	if duplicateSetup.Code != http.StatusConflict {
+		t.Fatalf("duplicate setup = %d %q", duplicateSetup.Code, duplicateSetup.Body.String())
 	}
 
 	logout := request(t, handler, http.MethodPost, LogoutPath, "127.0.0.1:42000", map[string]string{
-		"Cookie": cookies[0].String(), "Origin": "http://127.0.0.1:8080",
+		"Cookie": sessionCookie.String(), "Origin": "http://127.0.0.1:8080",
 	})
 	if logout.Code != http.StatusNoContent {
 		t.Fatalf("logout = %d", logout.Code)
@@ -100,8 +106,8 @@ func TestLocalSetupAndLoginUseTheExistingHumanSession(t *testing.T) {
 			}
 			t.Fatal(err)
 		}
-		if bytes.Contains(payload, []byte(password)) || bytes.Contains(payload, []byte(bootstrapCredential)) {
-			t.Fatalf("raw local password or bootstrap credential leaked into %s", filepath.Base(path))
+		if bytes.Contains(payload, []byte(password)) {
+			t.Fatalf("raw local password leaked into %s", filepath.Base(path))
 		}
 	}
 }
@@ -113,24 +119,36 @@ func TestLocalAuthMutationsRequireExactOriginAndBoundedJSON(t *testing.T) {
 	}
 	defer db.Close()
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
-	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
+	password := "correct-horse-battery-staple"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.PasswordParameters{Memory: 8192, Iterations: 1, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	if _, err := db.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
-	payload := map[string]any{"username": "owner", "password": "correct horse battery staple", "bootstrap_credential": credential}
+	payload := map[string]any{"username": "owner", "password": password}
 	for _, origin := range []string{"", "http://localhost:8080", "http://127.0.0.1:8080/"} {
 		response := localJSONRequest(t, handler, LocalSetupPath, origin, payload, nil)
 		if response.Code != http.StatusForbidden {
 			t.Fatalf("origin %q setup = %d", origin, response.Code)
 		}
 	}
-	response := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", payload, map[string]string{"Authorization": "Bearer " + credential})
+	response := localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", payload, map[string]string{"Authorization": "Bearer session-token"})
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("mixed auth carrier setup = %d", response.Code)
 	}
 	response = localJSONRequest(t, handler, LocalSetupPath, "http://127.0.0.1:8080", map[string]any{
-		"username": "owner", "password": "correct horse battery staple", "bootstrap_credential": credential, "unexpected": true,
+		"username": "owner", "password": password, "unexpected": true,
 	}, nil)
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("unknown JSON field setup = %d", response.Code)
@@ -153,8 +171,20 @@ func TestLocalLoginRateLimitIsBoundedAndRecovers(t *testing.T) {
 	}
 	defer db.Close()
 	now := time.Date(2026, 7, 24, 2, 0, 0, 0, time.UTC)
-	credential := "bootstrap-credential-abcdefghijklmnopqrstuvwxyz-0123456789"
-	if _, err := db.EnsureAuthority(context.Background(), credential, now); err != nil {
+	password := "correct-horse-battery-staple"
+	digest, err := localauth.HashPassword(rand.Reader, password, localauth.PasswordParameters{Memory: 8192, Iterations: 1, Parallelism: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionToken := "abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"
+	if _, err := db.RegisterFirstOwner(context.Background(), authorityapp.RegisterFirstOwnerCommand{
+		RequestID: uuid.NewString(), Name: "Owner",
+		Identity:         authorityapp.AuthenticationIdentity{Provider: "local", Subject: "owner"},
+		Password:         digest,
+		SessionToken:     sessionToken,
+		Now:              now,
+		SessionExpiresAt: now.Add(12 * time.Hour),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	handler := localBrowserHandler(t, db, "http://127.0.0.1:8080", func() time.Time { return now })
@@ -194,11 +224,18 @@ func TestPasswordDerivationConcurrencyIsBounded(t *testing.T) {
 	service.releasePasswordSlot()
 }
 
+func localAssertSessionCookie(t *testing.T, cookie *http.Cookie, expires time.Time, maxAge int) {
+	t.Helper()
+	if cookie.Name != authority.BrowserSessionCookieName || !cookie.HttpOnly || cookie.Secure || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" || cookie.MaxAge != maxAge || !cookie.Expires.Equal(expires) || !opaqueTokenPattern.MatchString(cookie.Value) {
+		t.Fatalf("session cookie = %+v", cookie)
+	}
+}
+
 func localBrowserHandler(t *testing.T, db *store.Store, origin string, now func() time.Time) http.Handler {
 	t.Helper()
 	service, err := New(db, Config{
 		Origin: origin, Now: now,
-		passwordParameters: passwordParameters{memory: 8192, iterations: 1, parallelism: 1},
+		passwordParameters: localauth.PasswordParameters{Memory: 8192, Iterations: 1, Parallelism: 1},
 	})
 	if err != nil {
 		t.Fatal(err)
