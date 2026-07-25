@@ -124,6 +124,8 @@ pub async fn run(
             drop(text_rx);
             drop(reasoning_rx);
             let _ = tool_display.await;
+            let _ = std::io::stdout().write_all(b"\n");
+            let _ = std::io::stdout().flush();
         });
 
         let result = engine.run(&turn, &mut session, &events, Some(&sink)).await;
@@ -138,7 +140,6 @@ pub async fn run(
         }
 
         let _ = display.await;
-        println!();
 
         // Auto-compact when approaching 64k tokens (≈256k chars)
         if session.estimated_tokens() > 48_000 {
