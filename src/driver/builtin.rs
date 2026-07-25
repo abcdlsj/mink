@@ -78,7 +78,7 @@ impl Driver for BuiltinDriver {
 
         let task = tokio::spawn(async move {
             let mut session = Session::default();
-            let result = engine.run(&turn, &mut session, &tool_events_tx).await;
+            let result = engine.run(&turn, &mut session, &tool_events_tx, None).await;
             let _ = driver_events_tx
                 .send(match result {
                     Ok(()) => DriverEvent::ProcessCompleted,

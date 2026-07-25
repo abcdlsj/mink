@@ -115,7 +115,10 @@ impl Provider for OpenAiProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response.text().await.unwrap_or_default();
+            let text = response
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("(failed to read body: {e})"));
             bail!("chat API error ({status}): {text}");
         }
 
@@ -272,7 +275,7 @@ async fn parse_openai_stream(response: reqwest::Response, tx: &mpsc::Sender<Chun
                 continue;
             };
 
-            if let Some(usage) = parsed.get("usage") {
+            if let Some(usage) = parsed.get("usage").filter(|v| !v.is_null()) {
                 let usage = TokenUsage {
                     input_tokens: usage["prompt_tokens"].as_i64().unwrap_or(0) as i32,
                     output_tokens: usage["completion_tokens"].as_i64().unwrap_or(0) as i32,

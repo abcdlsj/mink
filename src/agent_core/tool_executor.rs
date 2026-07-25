@@ -36,7 +36,7 @@ pub trait ToolRunner: Send + Sync {
     async fn run(&self, name: &str, args: &Value) -> Result<String>;
 }
 
-/// Executes tool calls and publishes events.
+#[derive(Clone)]
 pub struct ToolExecutor {
     tools: Arc<dyn ToolRunner>,
 }

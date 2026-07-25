@@ -1,16 +1,21 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 
 use crate::agent_core::{
-    engine::{Engine, Turn},
+    engine::{Engine, StreamSink, Turn},
     prompt::PromptContext,
     provider::{OpenAiProvider, ProviderConfig},
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor, ToolRunner},
     types::ToolDef,
 };
+
+const DIM: &str = "\x1b[2m";
+const CYAN: &str = "\x1b[36m";
+const YELLOW: &str = "\x1b[33m";
+const RESET: &str = "\x1b[0m";
 
 pub async fn run(
     api_key: String,
@@ -39,9 +44,8 @@ pub async fn run(
         ..Default::default()
     };
 
-    let engine = Engine::new(provider, executor, prompt_ctx, None, chat_tool_defs());
     let mut session = Session::default();
-    let (events, _rx) = mpsc::channel::<ToolEvent>(64);
+    let engine = Engine::new(provider, executor, prompt_ctx, None, chat_tool_defs());
 
     println!("Sumi chat. Type /exit to quit, /compact to force compaction.\n");
 
@@ -74,16 +78,67 @@ pub async fn run(
             blocked_tools: HashMap::new(),
         };
 
-        engine.run(&turn, &mut session, &events).await?;
+        let (events, mut tool_rx) = mpsc::channel::<ToolEvent>(64);
+        let (text_tx, mut text_rx) = mpsc::channel::<String>(256);
+        let (reasoning_tx, mut reasoning_rx) = mpsc::channel::<String>(256);
+        let sink = StreamSink {
+            text: text_tx,
+            reasoning: reasoning_tx,
+        };
 
-        if let Some(last) = session
-            .messages
-            .iter()
-            .rev()
-            .find(|m| m.role == "assistant")
-        {
-            println!("{}\\n", last.content);
+        let display = tokio::spawn(async move {
+            let mut had_reasoning = false;
+            let tool_display = tokio::spawn(async move {
+                while let Some(event) = tool_rx.recv().await {
+                    match event {
+                        ToolEvent::Started { tool, .. } => {
+                            println!("  {CYAN}{tool}{RESET}");
+                        }
+                        ToolEvent::Finished { tool, .. } => {
+                            println!("  {CYAN}{tool}{RESET} {DIM}ok{RESET}");
+                        }
+                        ToolEvent::Failed { tool, error, .. } => {
+                            println!("  {CYAN}{tool}{RESET} {YELLOW}{error}{RESET}");
+                        }
+                    }
+                }
+            });
+            loop {
+                tokio::select! {
+                    Some(text) = text_rx.recv() => {
+                        if had_reasoning {
+                            had_reasoning = false;
+                            println!();
+                        }
+                        print!("{text}");
+                        let _ = std::io::stdout().flush();
+                    }
+                    Some(reasoning) = reasoning_rx.recv() => {
+                        had_reasoning = true;
+                        print!("{DIM}{reasoning}{RESET}");
+                        let _ = std::io::stdout().flush();
+                    }
+                    else => break,
+                }
+            }
+            drop(text_rx);
+            drop(reasoning_rx);
+            let _ = tool_display.await;
+        });
+
+        let result = engine.run(&turn, &mut session, &events, Some(&sink)).await;
+        drop(sink);
+        match result {
+            Ok(()) => {}
+            Err(e) => {
+                display.abort();
+                println!("\nerror: {e}\n");
+                continue;
+            }
         }
+
+        let _ = display.await;
+        println!();
 
         // Auto-compact when approaching 64k tokens (≈256k chars)
         if session.estimated_tokens() > 48_000 {
@@ -138,7 +193,7 @@ fn chat_tool_defs() -> Vec<ToolDef> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Path relative to workspace"}
+                    "path": {"type": "string", "description": "File path relative to workspace"}
                 },
                 "required": ["path"]
             }),
@@ -149,8 +204,8 @@ fn chat_tool_defs() -> Vec<ToolDef> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"}
+                    "path": {"type": "string", "description": "File path relative to workspace"},
+                    "content": {"type": "string", "description": "The full content to write to the file"}
                 },
                 "required": ["path", "content"]
             }),
@@ -161,9 +216,9 @@ fn chat_tool_defs() -> Vec<ToolDef> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string"},
-                    "old_text": {"type": "string"},
-                    "new_text": {"type": "string"}
+                    "path": {"type": "string", "description": "File path relative to workspace"},
+                    "old_text": {"type": "string", "description": "Exact text to find and replace"},
+                    "new_text": {"type": "string", "description": "Replacement text"}
                 },
                 "required": ["path", "old_text", "new_text"]
             }),
@@ -174,7 +229,10 @@ fn chat_tool_defs() -> Vec<ToolDef> {
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "command": {"type": "string"}
+                    "command": {
+                        "type": "string",
+                        "description": "The shell command to run, e.g. 'ls -la' or 'cat file.txt'"
+                    }
                 },
                 "required": ["command"]
             }),

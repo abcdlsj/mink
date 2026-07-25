@@ -30,6 +30,11 @@ pub struct Engine {
     tool_defs: Vec<ToolDef>,
 }
 
+pub struct StreamSink {
+    pub text: mpsc::Sender<String>,
+    pub reasoning: mpsc::Sender<String>,
+}
+
 impl Engine {
     pub fn new(
         provider: Arc<dyn Provider>,
@@ -54,12 +59,13 @@ impl Engine {
         turn: &Turn,
         session: &mut Session,
         events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
     ) -> Result<()> {
         session.add(Message::user(turn.input.clone()));
 
         let mut retried_without_images = false;
         loop {
-            match self.step(turn, session, events).await {
+            match self.step(turn, session, events, sink).await {
                 Ok(resp) => {
                     if !resp.has_tool_calls() {
                         return Ok(());
@@ -88,8 +94,9 @@ impl Engine {
         turn: &Turn,
         session: &mut Session,
         events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
     ) -> Result<Response> {
-        let resp = self.stream(turn, session, events).await?;
+        let resp = self.stream(turn, session, sink).await?;
         let has_content =
             !resp.content.is_empty() || !resp.reasoning.is_empty() || !resp.tool_calls.is_empty();
 
@@ -122,7 +129,7 @@ impl Engine {
         &self,
         turn: &Turn,
         session: &Session,
-        _events: &mpsc::Sender<ToolEvent>,
+        sink: Option<&StreamSink>,
     ) -> Result<Response> {
         let messages = self.build_messages(turn, session);
         let tool_defs = self.filtered_tool_defs(turn);
@@ -137,9 +144,15 @@ impl Engine {
             match chunk {
                 Chunk::Text { delta } => {
                     content.push_str(&delta);
+                    if let Some(s) = sink {
+                        s.text.send(delta.clone()).await.ok();
+                    }
                 }
                 Chunk::Reasoning { delta } => {
                     reasoning.push_str(&delta);
+                    if let Some(s) = sink {
+                        s.reasoning.send(delta.clone()).await.ok();
+                    }
                 }
                 Chunk::ToolCall { call } => {
                     tool_calls.push(call);
@@ -268,7 +281,7 @@ mod tests {
         let mut session = Session::default();
         let (tx, _rx) = mpsc::channel(8);
 
-        engine.run(&turn, &mut session, &tx).await.unwrap();
+        engine.run(&turn, &mut session, &tx, None).await.unwrap();
         assert_eq!(session.messages.len(), 2);
         assert_eq!(session.messages[0].role, "user");
         assert_eq!(session.messages[1].role, "assistant");
@@ -321,7 +334,7 @@ mod tests {
         let mut session = Session::default();
         let (tx, _rx) = mpsc::channel(8);
 
-        engine.run(&turn, &mut session, &tx).await.unwrap();
+        engine.run(&turn, &mut session, &tx, None).await.unwrap();
         assert_eq!(session.messages.len(), 4);
         assert_eq!(session.messages[0].role, "user");
         assert_eq!(session.messages[1].role, "assistant");
