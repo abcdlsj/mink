@@ -162,6 +162,8 @@ impl Driver for CodexDriver {
 
     async fn start(&self, run: DriverRun) -> Result<DriverProcess> {
         self.validate(&run.environment).await?;
+        let is_git_repository =
+            workspace_is_git_repository(&run.environment.workspace, &run.environment.path).await;
         let executable =
             resolve_executable(&self.executable).context("Codex executable is unavailable")?;
         let sandbox = sandboxed_command(&executable, &run.environment)?;
@@ -179,7 +181,7 @@ impl Driver for CodexDriver {
         } else {
             command.arg("--sandbox").arg("workspace-write");
         }
-        if !run.environment.workspace.join(".git").exists() {
+        if !is_git_repository {
             command.arg("--skip-git-repo-check");
         }
         command.arg("-");
@@ -444,6 +446,22 @@ fn resolve_executable(executable: &Path) -> Option<PathBuf> {
     }
 }
 
+async fn workspace_is_git_repository(workspace: &Path, path: &str) -> bool {
+    let mut command = Command::new("git");
+    command
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(workspace)
+        .env_clear()
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    matches!(
+        tokio::time::timeout(Duration::from_secs(2), command.status()).await,
+        Ok(Ok(status)) if status.success()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
@@ -595,7 +613,7 @@ enabled = true
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\ntest \"${{1:-}}\" = \"--version\" && exit 0\ntrap 'code=$?; printf %s \"$code\" > \"$HOME/workspace/exit-code\"' EXIT\nfound_platform_arg=false\nfor arg in \"$@\"; do test \"$arg\" != \"prompt-secret\" || exit 41; test \"$arg\" != '{platform_argument}' || found_platform_arg=true; done\n$found_platform_arg || exit 46\nIFS= read -r prompt\ntest \"$prompt\" = \"prompt-secret\" || exit 42\ntest ! -r '{}/secrets.json' || exit 43\ntest ! -r '{}/private' || exit 44\ntest -z \"${{USER+x}}\" || exit 45\ntest -d \"$CODEX_HOME\" || exit 47\ncase \"$TMPDIR\" in \"$HOME/runs\") ;; *) exit 48 ;; esac\nprintf changed > \"$HOME/workspace/result\"\nprintf temporary > \"$TMPDIR/driver-tmp\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"test\"}}' '{{\"type\":\"turn.completed\"}}'\n",
+                "#!/bin/sh\ntest \"${{1:-}}\" = \"--version\" && exit 0\ntrap 'code=$?; printf %s \"$code\" > \"$HOME/workspace/exit-code\"' EXIT\nfound_exec=false\nfound_json=false\nfound_ephemeral=false\nfound_skip=false\nfound_stdin=false\nfound_platform_arg=false\nfor arg in \"$@\"; do\n  test \"$arg\" != \"prompt-secret\" || exit 41\n  test \"$arg\" != 'exec' || found_exec=true\n  test \"$arg\" != '--json' || found_json=true\n  test \"$arg\" != '--ephemeral' || found_ephemeral=true\n  test \"$arg\" != '--skip-git-repo-check' || found_skip=true\n  test \"$arg\" != '-' || found_stdin=true\n  test \"$arg\" != '{platform_argument}' || found_platform_arg=true\ndone\n$found_exec && $found_json && $found_ephemeral && $found_skip && $found_stdin && $found_platform_arg || exit 46\nIFS= read -r prompt\ntest \"$prompt\" = \"prompt-secret\" || exit 42\ntest ! -r '{}/secrets.json' || exit 43\ntest ! -r '{}/private' || exit 44\ntest -z \"${{USER+x}}\" || exit 45\ntest -d \"$CODEX_HOME\" || exit 47\ncase \"$TMPDIR\" in \"$HOME/runs\") ;; *) exit 48 ;; esac\nprintf changed > \"$HOME/workspace/result\"\nprintf temporary > \"$TMPDIR/driver-tmp\"\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"test\"}}' '{{\"type\":\"turn.completed\"}}'\n",
                 state.display(),
                 other.display()
             ),
@@ -647,6 +665,30 @@ enabled = true
                 event_type: "turn.completed".to_owned()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn git_workspace_detection_validates_repository_and_discovers_parent() {
+        if find_on_path("git").is_none() {
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        let fake = root.path().join("fake");
+        std::fs::create_dir(&fake).unwrap();
+        std::fs::create_dir(fake.join(".git")).unwrap();
+        assert!(!workspace_is_git_repository(&fake, &std::env::var("PATH").unwrap()).await);
+
+        let repository = root.path().join("repository");
+        std::fs::create_dir(&repository).unwrap();
+        let initialized = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&repository)
+            .status()
+            .unwrap();
+        assert!(initialized.success());
+        let nested = repository.join("nested/workspace");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(workspace_is_git_repository(&nested, &std::env::var("PATH").unwrap()).await);
     }
 
     #[tokio::test]

@@ -12,7 +12,9 @@ use subtle::ConstantTimeEq;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, attachment, auth, channel, idempotency, member};
+use super::{
+    AppState, api_error::ApiError, attachment, auth, channel, idempotency, member, message,
+};
 use crate::local_protocol::AgentAction;
 
 #[derive(Deserialize)]
@@ -924,7 +926,13 @@ pub async fn claim_agent_inbox(
            AND (inbox_items.status = 'pending' \
              OR (inbox_items.status = 'deferred' AND inbox_items.available_at <= now()) \
              OR (inbox_items.status = 'leased' AND inbox_items.lease_expires_at <= now())) \
-           AND inbox_items.available_at <= now() \
+           AND (inbox_items.available_at <= now() OR (inbox_items.status = 'pending' \
+             AND inbox_items.priority = 'ambient' AND EXISTS( \
+               SELECT 1 FROM inbox_items hard_items WHERE hard_items.member_id = inbox_items.member_id \
+                 AND hard_items.priority = 'hard' AND hard_items.status = 'pending' \
+                 AND hard_items.available_at <= now() \
+                 AND hard_items.channel_id IS NOT DISTINCT FROM inbox_items.channel_id \
+                 AND hard_items.thread_id IS NOT DISTINCT FROM inbox_items.thread_id))) \
          ORDER BY CASE inbox_items.priority WHEN 'hard' THEN 0 ELSE 1 END, inbox_items.created_at \
          LIMIT 10 FOR UPDATE OF inbox_items SKIP LOCKED",
     )
@@ -1446,6 +1454,14 @@ async fn agent_message_send(
     }
     let (channel_id, display_address, thread_id) =
         resolve_agent_message_target(database, agent_id, address).await?;
+    let request_hash = idempotency::request_hash(&serde_json::json!({
+        "run_id": run_id,
+        "address": address,
+        "body_markdown": body_markdown,
+        "based_on": based_on,
+        "handle_inbox_item_id": handle_item_id,
+        "attachment_ids": attachment_ids,
+    }))?;
     let mut transaction = database.begin().await.map_err(ApiError::database)?;
     let channel: Option<(Uuid, String, Option<OffsetDateTime>, i64)> = sqlx::query_as(
         "SELECT channels.space_id, channels.kind, channels.archived_at, channels.next_seq - 1 \
@@ -1466,16 +1482,15 @@ async fn agent_message_send(
             "Archived Channel is read-only",
         ));
     }
-    if let Some(existing) = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM messages WHERE author_member_id = $1 AND idempotency_key = $2",
+    let scope = format!("agent:{agent_id}:message:send");
+    if let Some((_status, response)) = idempotency::begin::<serde_json::Value>(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        &request_hash,
     )
-    .bind(agent_id)
-    .bind(idempotency_key)
-    .fetch_optional(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?
+    .await?
     {
-        let response = agent_message_json(&mut transaction, existing, &display_address).await?;
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(response);
     }
@@ -1610,6 +1625,32 @@ async fn agent_message_send(
         )
         .await?;
     }
+    if channel_kind != "direct"
+        && thread_id.is_none()
+        && message::insert_channel_ambient_inbox(
+            &mut transaction,
+            space_id,
+            channel_id,
+            message_id,
+            agent_id,
+            seq,
+            &[],
+            now,
+        )
+        .await?
+    {
+        sqlx::query(
+            "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
+             VALUES ($1, 'inbox.changed', $2, $3, $4)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(message_id)
+        .bind(serde_json::json!({ "space_id": space_id, "channel_id": channel_id }))
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
     sqlx::query(
         "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
          VALUES ($1, 'message.created', $2, $3, $4)",
@@ -1627,6 +1668,14 @@ async fn agent_message_send(
     .await
     .map_err(ApiError::database)?;
     let response = agent_message_json(&mut transaction, message_id, &display_address).await?;
+    idempotency::finish(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        StatusCode::OK,
+        &response,
+    )
+    .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(response)
 }
@@ -1678,7 +1727,7 @@ async fn agent_inbox_ack(
     run_id: Uuid,
     item_ids: &[Uuid],
     reason: &str,
-    _idempotency_key: Uuid,
+    idempotency_key: Uuid,
 ) -> Result<serde_json::Value, ApiError> {
     if item_ids.is_empty() || reason.trim().is_empty() || reason.chars().count() > 500 {
         return Err(ApiError::validation(
@@ -1687,6 +1736,23 @@ async fn agent_inbox_ack(
         ));
     }
     let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let scope = format!("agent:{agent_id}:inbox:ack");
+    let request_hash = idempotency::request_hash(&serde_json::json!({
+        "run_id": run_id,
+        "inbox_item_ids": item_ids,
+        "reason": reason,
+    }))?;
+    if let Some((_status, response)) = idempotency::begin::<serde_json::Value>(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        &request_hash,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
+    }
     let rows: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "UPDATE inbox_items SET status = 'handled', handled_by_run_id = $2, handled_at = now(), \
          lease_id = NULL, lease_expires_at = NULL \
@@ -1711,11 +1777,20 @@ async fn agent_inbox_ack(
     for (item_id, space_id) in &rows {
         insert_agent_inbox_event(&mut transaction, *space_id, agent_id, *item_id, now).await?;
     }
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok(serde_json::json!({
+    let response = serde_json::json!({
         "handled_inbox_item_ids": rows.into_iter().map(|row| row.0).collect::<Vec<_>>(),
         "reason_recorded": true,
-    }))
+    });
+    idempotency::finish(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        StatusCode::OK,
+        &response,
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
 }
 
 async fn agent_inbox_defer(
@@ -1724,13 +1799,31 @@ async fn agent_inbox_defer(
     run_id: Uuid,
     item_ids: &[Uuid],
     until: OffsetDateTime,
-    _idempotency_key: Uuid,
+    idempotency_key: Uuid,
 ) -> Result<serde_json::Value, ApiError> {
     if item_ids.is_empty() || until <= OffsetDateTime::now_utc() {
         return Err(ApiError::validation(
             "invalid_inbox_defer",
             "Inbox defer requires Items and a future time",
         ));
+    }
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let scope = format!("agent:{agent_id}:inbox:defer");
+    let request_hash = idempotency::request_hash(&serde_json::json!({
+        "run_id": run_id,
+        "inbox_item_ids": item_ids,
+        "until": until,
+    }))?;
+    if let Some((_status, response)) = idempotency::begin::<serde_json::Value>(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        &request_hash,
+    )
+    .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(response);
     }
     let rows: Vec<Uuid> = sqlx::query_scalar(
         "UPDATE inbox_items SET status = 'deferred', available_at = $4, \
@@ -1744,7 +1837,7 @@ async fn agent_inbox_defer(
     .bind(agent_id)
     .bind(run_id)
     .bind(until)
-    .fetch_all(database)
+    .fetch_all(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
     if rows.len() != item_ids.len() {
@@ -1753,7 +1846,17 @@ async fn agent_inbox_defer(
             "One or more Inbox Items are not leased by this run",
         ));
     }
-    Ok(serde_json::json!({ "deferred_inbox_item_ids": rows, "available_at": until }))
+    let response = serde_json::json!({ "deferred_inbox_item_ids": rows, "available_at": until });
+    idempotency::finish(
+        &mut transaction,
+        &scope,
+        idempotency::IdempotencyKey(idempotency_key),
+        StatusCode::OK,
+        &response,
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
 }
 
 async fn insert_agent_inbox_event(
@@ -2057,6 +2160,14 @@ async fn apply_command_result(
         return Ok(());
     }
     let status = if ok { "completed" } else { "failed" };
+    let stored_result = if kind == "agent.memory.read" {
+        serde_json::json!({
+            "ok": ok,
+            "error_code": result.get("error_code"),
+        })
+    } else {
+        result.clone()
+    };
     sqlx::query(
         "UPDATE computer_commands SET status = $4, result_json = $5, completed_at = now(), \
          acked_at = COALESCE(acked_at, now()) \
@@ -2066,7 +2177,7 @@ async fn apply_command_result(
     .bind(computer_id)
     .bind(computer_seq)
     .bind(status)
-    .bind(result)
+    .bind(&stored_result)
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
@@ -2106,12 +2217,17 @@ async fn apply_command_result(
     };
     let space_id: Option<Uuid> = if let Some(new_status) = new_status {
         sqlx::query_scalar(
-            "UPDATE agents SET status = $2, updated_at = now() \
+            "UPDATE agents SET status = $2, updated_at = now(), last_error_code = $4 \
              WHERE member_id = $1 AND computer_id = $3 RETURNING space_id",
         )
         .bind(agent_id)
         .bind(new_status)
         .bind(computer_id)
+        .bind(if ok || kind == "agent.retire" {
+            None
+        } else {
+            result.get("error_code").and_then(serde_json::Value::as_str)
+        })
         .fetch_optional(&mut *transaction)
         .await
         .map_err(ApiError::database)?
@@ -2140,11 +2256,16 @@ async fn apply_command_result(
             .await
             .map_err(ApiError::database)?;
         }
-        if ok {
+        if result.get("memory_files").is_some() {
             replace_memory_files(&mut transaction, agent_id, result).await?;
         }
     }
     transaction.commit().await.map_err(ApiError::database)?;
+    if kind == "agent.memory.read"
+        && let Some(waiter) = state.memory_read_waiters.lock().await.remove(&command_id)
+    {
+        let _ = waiter.send((ok, result.clone()));
+    }
     Ok(())
 }
 

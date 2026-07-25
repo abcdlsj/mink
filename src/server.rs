@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -13,6 +13,7 @@ use tower_http::{
     services::{ServeDir, ServeFile},
     trace::TraceLayer,
 };
+use uuid::Uuid;
 
 use crate::{
     cli::ServerArgs,
@@ -44,6 +45,8 @@ pub(super) struct AppState {
     pub auth_rate_limits: rate_limit::AuthRateLimits,
     pub attachment_store: Arc<dyn ObjectStore>,
     pub attachment_max_bytes: u64,
+    pub memory_read_waiters:
+        tokio::sync::Mutex<HashMap<Uuid, tokio::sync::oneshot::Sender<(bool, serde_json::Value)>>>,
 }
 
 #[derive(Serialize)]
@@ -188,6 +191,10 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
             get(agent_registry::get).patch(agent_registry::update),
         )
         .route(
+            "/api/v1/agents/{agent_id}/memory/read",
+            post(agent_registry::read_memory),
+        )
+        .route(
             "/api/v1/computers/{computer_id}",
             axum::routing::delete(computer_registry::revoke),
         )
@@ -248,6 +255,7 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
             auth_rate_limits: rate_limits,
             attachment_store,
             attachment_max_bytes: config.attachment_max_bytes,
+            memory_read_waiters: tokio::sync::Mutex::new(HashMap::new()),
         }))
         .layer(TraceLayer::new_for_http()))
 }
@@ -307,7 +315,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{
-        agent_registry::AgentResponse,
+        agent_registry::{AgentResponse, MemoryContentResponse},
         approval::ApprovalResponse,
         attachment::AttachmentResponse,
         auth::{LoginResponse, RegisterResponse},
@@ -615,6 +623,68 @@ mod tests {
             }),
             serde_json::json!({
                 "type": "command_result", "command_id": provision_command_id,
+                "computer_seq": provision_seq, "ok": false,
+                "result": { "ok": false, "error_code": "driver_unavailable" }
+            }),
+        ] {
+            socket
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    frame.to_string().into(),
+                ))
+                .await?;
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let state: (String, Option<String>) = sqlx::query_as(
+                    "SELECT status, last_error_code FROM agents WHERE member_id = $1",
+                )
+                .bind(agent.member_id)
+                .fetch_one(&pool)
+                .await
+                .expect("Agent error query must succeed");
+                if state == ("error".to_owned(), Some("driver_unavailable".to_owned())) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("Failed provision did not retain its retryable reason")?;
+        let retried = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/agents/{}", agent.member_id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "lifecycle": { "action": "retry" } }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(retried.status() == StatusCode::OK);
+        let retried: AgentResponse = decode_json(retried).await?;
+        ensure!(retried.status == "provisioning" && retried.last_error_code.is_none());
+        let provision = socket
+            .next()
+            .await
+            .context("Retried Agent provision command missing")??;
+        let provision: serde_json::Value = serde_json::from_str(provision.to_text()?)?;
+        ensure!(provision["kind"] == "agent.provision");
+        ensure!(provision["payload"]["name"] == "Lin");
+        let provision_command_id = Uuid::parse_str(
+            provision["command_id"]
+                .as_str()
+                .context("retried provision command id missing")?,
+        )?;
+        let provision_seq = provision["computer_seq"]
+            .as_i64()
+            .context("retried provision sequence missing")?;
+        for frame in [
+            serde_json::json!({
+                "type": "command_ack", "command_id": provision_command_id,
+                "computer_seq": provision_seq
+            }),
+            serde_json::json!({
+                "type": "command_result", "command_id": provision_command_id,
                 "computer_seq": provision_seq, "ok": true, "result": {
                     "ok": true,
                     "memory_files": [{
@@ -687,6 +757,67 @@ mod tests {
         let agent_detail: AgentResponse = decode_json(agent_detail).await?;
         ensure!(agent_detail.memory_files.len() == 1);
         ensure!(agent_detail.memory_files[0].path == "MEMORY.md");
+
+        let memory_app = app.clone();
+        let memory_cookie = owner.cookie.clone();
+        let memory_agent_id = agent.member_id;
+        let memory_request = tokio::spawn(async move {
+            memory_app
+                .oneshot(json_request(
+                    &format!("/api/v1/agents/{memory_agent_id}/memory/read"),
+                    Uuid::now_v7(),
+                    &serde_json::json!({ "path": "MEMORY.md" }),
+                    Some(&memory_cookie),
+                )?)
+                .await
+                .map_err(anyhow::Error::from)
+        });
+        let memory_command = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+            .await?
+            .context("Agent Memory read command missing")??;
+        let memory_command: serde_json::Value = serde_json::from_str(memory_command.to_text()?)?;
+        ensure!(memory_command["kind"] == "agent.memory.read");
+        ensure!(memory_command["payload"]["path"] == "MEMORY.md");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_result",
+                    "command_id": memory_command["command_id"],
+                    "computer_seq": memory_command["computer_seq"],
+                    "ok": true,
+                    "result": {
+                        "path": "MEMORY.md",
+                        "content": "# Memory\n",
+                        "size": 9,
+                        "sha256": hex::encode(sha2::Sha256::digest(b"# Memory\n")),
+                        "updated_at": "2026-07-25T00:00:00Z"
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+        let memory_response = memory_request.await??;
+        ensure!(memory_response.status() == StatusCode::OK);
+        ensure!(
+            memory_response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|value| value.to_str().ok())
+                == Some("no-store")
+        );
+        let memory: MemoryContentResponse = decode_json(memory_response).await?;
+        ensure!(memory.path == "MEMORY.md" && memory.content == "# Memory\n");
+        let stored_memory_result: serde_json::Value =
+            sqlx::query_scalar("SELECT result_json FROM computer_commands WHERE id = $1")
+                .bind(Uuid::parse_str(
+                    memory_command["command_id"]
+                        .as_str()
+                        .context("Memory command id missing")?,
+                )?)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(stored_memory_result.get("content").is_none());
 
         let configured = app
             .clone()
@@ -1590,26 +1721,149 @@ mod tests {
             .as_i64()
             .context("refreshed snapshot sequence missing")?;
 
+        let send_key = Uuid::now_v7();
+        let send_action = serde_json::json!({
+            "action": "message_send",
+            "address": "@owner",
+            "body_markdown": "The boundary matches the current specification.",
+            "based_on": refreshed_snapshot,
+            "handle_inbox_item_id": inbox_item_id,
+            "attachment_ids": [created_attachment.id],
+            "idempotency_key": send_key
+        });
         let send = computer_agent_action_request(
             computer.id,
             &credential,
             agent.member_id,
             run_id,
-            serde_json::json!({
-                "action": "message_send",
-                "address": "@owner",
-                "body_markdown": "The boundary matches the current specification.",
-                "based_on": refreshed_snapshot,
-                "handle_inbox_item_id": inbox_item_id,
-                "attachment_ids": [created_attachment.id],
-                "idempotency_key": Uuid::now_v7()
-            }),
+            send_action.clone(),
         )?;
         let send = app.clone().oneshot(send).await?;
         ensure!(send.status() == StatusCode::OK);
         let send: serde_json::Value = decode_json(send).await?;
         ensure!(send["author"]["id"] == agent.member_id.to_string());
         ensure!(send["attachments"][0]["id"] == created_attachment.id.to_string());
+        let replayed_send = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                send_action,
+            )?)
+            .await?;
+        ensure!(replayed_send.status() == StatusCode::OK);
+        let replayed_send: serde_json::Value = decode_json(replayed_send).await?;
+        ensure!(replayed_send["id"] == send["id"]);
+        let conflicting_send = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "message_send",
+                    "address": "@owner",
+                    "body_markdown": "Different payload.",
+                    "based_on": refreshed_snapshot,
+                    "handle_inbox_item_id": inbox_item_id,
+                    "attachment_ids": [created_attachment.id],
+                    "idempotency_key": send_key
+                }),
+            )?)
+            .await?;
+        ensure!(conflicting_send.status() == StatusCode::CONFLICT);
+
+        let ack_item_id = Uuid::now_v7();
+        let defer_item_id = Uuid::now_v7();
+        let ack_lease_id = Uuid::now_v7();
+        let defer_lease_id = Uuid::now_v7();
+        for (item_id, lease_id) in [(ack_item_id, ack_lease_id), (defer_item_id, defer_lease_id)] {
+            sqlx::query(
+                "INSERT INTO inbox_items (id, member_id, space_id, kind, priority, channel_id, \
+                 message_id, first_seq, last_seq, status, available_at, lease_id, \
+                 lease_expires_at, created_at) VALUES ($1, $2, $3, 'direct', 'hard', $4, $5, \
+                 $6, $6, 'leased', now(), $7, now() + interval '35 minutes', now())",
+            )
+            .bind(item_id)
+            .bind(agent.member_id)
+            .bind(space.id)
+            .bind(dm.channel_id)
+            .bind(changed_context.id)
+            .bind(changed_context.seq)
+            .bind(lease_id)
+            .execute(&pool)
+            .await?;
+            sqlx::query(
+                "INSERT INTO agent_run_inbox_items (run_id, inbox_item_id, lease_id) \
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(run_id)
+            .bind(item_id)
+            .bind(lease_id)
+            .execute(&pool)
+            .await?;
+        }
+        let ack_key = Uuid::now_v7();
+        let ack_action = serde_json::json!({
+            "action": "inbox_ack",
+            "inbox_item_ids": [ack_item_id],
+            "reason": "No response needed.",
+            "idempotency_key": ack_key
+        });
+        for _ in 0..2 {
+            let acked = app
+                .clone()
+                .oneshot(computer_agent_action_request(
+                    computer.id,
+                    &credential,
+                    agent.member_id,
+                    run_id,
+                    ack_action.clone(),
+                )?)
+                .await?;
+            ensure!(acked.status() == StatusCode::OK);
+        }
+        let conflicting_ack = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "inbox_ack",
+                    "inbox_item_ids": [ack_item_id],
+                    "reason": "Different reason.",
+                    "idempotency_key": ack_key
+                }),
+            )?)
+            .await?;
+        ensure!(conflicting_ack.status() == StatusCode::CONFLICT);
+
+        let defer_key = Uuid::now_v7();
+        let defer_until = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
+        let defer_action = serde_json::json!({
+            "action": "inbox_defer",
+            "inbox_item_ids": [defer_item_id],
+            "until": defer_until,
+            "idempotency_key": defer_key
+        });
+        for _ in 0..2 {
+            let deferred = app
+                .clone()
+                .oneshot(computer_agent_action_request(
+                    computer.id,
+                    &credential,
+                    agent.member_id,
+                    run_id,
+                    defer_action.clone(),
+                )?)
+                .await?;
+            ensure!(deferred.status() == StatusCode::OK);
+        }
 
         let attachment_download = app
             .clone()
@@ -1714,6 +1968,15 @@ mod tests {
         ensure!(retry_claim.status() == StatusCode::OK);
         let retry_claim: serde_json::Value = decode_json(retry_claim).await?;
         ensure!(retry_claim["claimed"] == true);
+        let retry_inbox_item_ids = retry_claim["inbox_item_ids"]
+            .as_array()
+            .context("retry Inbox item ids missing")?;
+        ensure!(retry_inbox_item_ids.len() == 1);
+        let retry_inbox_item_id = Uuid::parse_str(
+            retry_inbox_item_ids[0]
+                .as_str()
+                .context("retry Inbox item id missing")?,
+        )?;
         let retry_run_id = Uuid::parse_str(
             retry_claim["run_id"]
                 .as_str()
@@ -1750,25 +2013,307 @@ mod tests {
                 .into(),
             ))
             .await?;
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let failed_run_released = tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                let state: (String, i32) = sqlx::query_as(
-                    "SELECT status, retry_count FROM inbox_items WHERE member_id = $1 \
-                     AND message_id = $2",
-                )
-                .bind(agent.member_id)
-                .bind(changed_context.id)
-                .fetch_one(&pool)
-                .await
-                .expect("Retry Inbox query must succeed");
+                let state: (String, i32) =
+                    sqlx::query_as("SELECT status, retry_count FROM inbox_items WHERE id = $1")
+                        .bind(retry_inbox_item_id)
+                        .fetch_one(&pool)
+                        .await
+                        .expect("Retry Inbox query must succeed");
                 if state == ("pending".to_owned(), 1) {
                     break;
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
         })
+        .await;
+        if failed_run_released.is_err() {
+            let inbox_state: (String, i32, Option<Uuid>, Option<String>) = sqlx::query_as(
+                "SELECT status, retry_count, lease_id, last_error FROM inbox_items \
+                 WHERE id = $1",
+            )
+            .bind(retry_inbox_item_id)
+            .fetch_one(&pool)
+            .await?;
+            let run_state: (String, Option<String>) =
+                sqlx::query_as("SELECT status, error_code FROM agent_runs WHERE id = $1")
+                    .bind(retry_run_id)
+                    .fetch_one(&pool)
+                    .await?;
+            anyhow::bail!(
+                "Failed run did not release its Inbox lease: inbox={inbox_state:?}, run={run_state:?}"
+            );
+        }
+
+        let ambient_configured = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/agents/{}", agent.member_id),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "attention_config": {
+                        "dm_immediate": true,
+                        "mention_immediate": true,
+                        "ambient_enabled": true,
+                        "ambient_debounce_seconds": 5,
+                        "ambient_max_wait_seconds": 30,
+                        "max_retry_count": 4
+                    }
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(ambient_configured.status() == StatusCode::OK);
+        let configure = socket
+            .next()
+            .await
+            .context("Ambient configure command missing")??;
+        let configure: serde_json::Value = serde_json::from_str(configure.to_text()?)?;
+        ensure!(configure["kind"] == "agent.configure");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_result",
+                    "command_id": configure["command_id"],
+                    "computer_seq": configure["computer_seq"],
+                    "ok": true,
+                    "result": { "ok": true, "memory_files": [] }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+
+        let mut ambient_messages = Vec::new();
+        for index in 1..=5 {
+            let response = app
+                .clone()
+                .oneshot(json_request(
+                    &format!("/api/v1/channels/{}/messages", space.general_channel_id),
+                    Uuid::now_v7(),
+                    &serde_json::json!({
+                        "body_markdown": format!("Ambient update {index}."),
+                        "mentions": []
+                    }),
+                    Some(&owner.cookie),
+                )?)
+                .await?;
+            ensure!(response.status() == StatusCode::CREATED);
+            ambient_messages.push(decode_json::<MessageResponse>(response).await?);
+        }
+        let mention_response = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/channels/{}/messages", space.general_channel_id),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "body_markdown": "@lin please review now.",
+                    "mentions": [agent.member_id]
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(mention_response.status() == StatusCode::CREATED);
+        let mention_message: MessageResponse = decode_json(mention_response).await?;
+        let ambient_state: (
+            Uuid,
+            i64,
+            i64,
+            i32,
+            String,
+            Uuid,
+            time::OffsetDateTime,
+            time::OffsetDateTime,
+        ) = sqlx::query_as(
+            "SELECT id, first_seq, last_seq, message_count, status, message_id, available_at, \
+                 created_at FROM inbox_items WHERE member_id = $1 AND channel_id = $2 \
+                 AND kind = 'channel_activity' AND status = 'pending'",
+        )
+        .bind(agent.member_id)
+        .bind(space.general_channel_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(ambient_state.1 == ambient_messages[0].seq);
+        ensure!(ambient_state.2 == ambient_messages[4].seq && ambient_state.3 == 5);
+        ensure!(ambient_state.4 == "pending" && ambient_state.5 == ambient_messages[4].id);
+        ensure!(ambient_state.6 == ambient_state.7 + time::Duration::seconds(5));
+        let mention_item_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM inbox_items WHERE member_id = $1 AND message_id = $2 \
+             AND kind = 'mention' AND priority = 'hard'",
+        )
+        .bind(agent.member_id)
+        .bind(mention_message.id)
+        .fetch_one(&pool)
+        .await?;
+        let ambient_claim = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/inbox/claim",
+                        computer.id, agent.member_id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        ensure!(ambient_claim.status() == StatusCode::OK);
+        let ambient_claim: serde_json::Value = decode_json(ambient_claim).await?;
+        ensure!(ambient_claim["claimed"] == true);
+        let ambient_run_id = Uuid::parse_str(
+            ambient_claim["run_id"]
+                .as_str()
+                .context("ambient run id missing")?,
+        )?;
+        let claimed_ids = ambient_claim["inbox_item_ids"]
+            .as_array()
+            .context("ambient claim item ids missing")?
+            .iter()
+            .map(|value| {
+                Uuid::parse_str(value.as_str().context("ambient claim item id missing")?)
+                    .map_err(Into::into)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        ensure!(claimed_ids.contains(&ambient_state.0));
+        ensure!(claimed_ids.contains(&mention_item_id));
+        let ambient_command = socket
+            .next()
+            .await
+            .context("Ambient run command missing")??;
+        let ambient_command: serde_json::Value = serde_json::from_str(ambient_command.to_text()?)?;
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_ack",
+                    "command_id": ambient_command["command_id"],
+                    "computer_seq": ambient_command["computer_seq"]
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let status: String =
+                    sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
+                        .bind(ambient_run_id)
+                        .fetch_one(&pool)
+                        .await
+                        .expect("Ambient run query must succeed");
+                if status == "running" {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
         .await
-        .context("Failed run did not release its Inbox lease")?;
+        .context("Ambient run did not enter running")?;
+        let ambient_ack = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                ambient_run_id,
+                serde_json::json!({
+                    "action": "inbox_ack",
+                    "inbox_item_ids": claimed_ids,
+                    "reason": "No response needed for this batch.",
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(ambient_ack.status() == StatusCode::OK);
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_result",
+                    "command_id": ambient_command["command_id"],
+                    "computer_seq": ambient_command["computer_seq"],
+                    "ok": true,
+                    "result": { "ok": true, "run_id": ambient_run_id, "status": "completed" }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let status: String =
+                    sqlx::query_scalar("SELECT status FROM agent_runs WHERE id = $1")
+                        .bind(ambient_run_id)
+                        .fetch_one(&pool)
+                        .await
+                        .expect("Ambient run completion query must succeed");
+                if status == "completed" {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("Ambient run result was not applied")?;
+        let empty_claim = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!(
+                        "/api/v1/computers/{}/agents/{}/inbox/claim",
+                        computer.id, agent.member_id
+                    ))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        ensure!(empty_claim.status() == StatusCode::OK);
+        let empty_claim: serde_json::Value = decode_json(empty_claim).await?;
+        ensure!(empty_claim["claimed"] == false);
+
+        let retired = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/agents/{}", agent.member_id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "lifecycle": { "action": "retire" } }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(retired.status() == StatusCode::OK);
+        let retired: AgentResponse = decode_json(retired).await?;
+        ensure!(retired.status == "retired" && retired.retired_at.is_some());
+        let retire_command = socket
+            .next()
+            .await
+            .context("Agent retire command missing")??;
+        let retire_command: serde_json::Value = serde_json::from_str(retire_command.to_text()?)?;
+        ensure!(retire_command["kind"] == "agent.retire");
+        socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                serde_json::json!({
+                    "type": "command_result",
+                    "command_id": retire_command["command_id"],
+                    "computer_seq": retire_command["computer_seq"],
+                    "ok": true,
+                    "result": { "ok": true, "memory_files": [] }
+                })
+                .to_string()
+                .into(),
+            ))
+            .await?;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let retired_member_at: Option<time::OffsetDateTime> =
+            sqlx::query_scalar("SELECT retired_at FROM members WHERE id = $1")
+                .bind(agent.member_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(retired_member_at.is_some());
 
         let revoked = app
             .clone()

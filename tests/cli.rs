@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use std::io::{BufRead, Write};
 
 #[test]
 fn exposes_one_binary_with_three_primary_commands() {
@@ -46,4 +47,97 @@ fn agent_commands_reject_unscoped_processes() {
             .assert()
             .failure();
     }
+}
+
+#[test]
+fn agent_cli_uses_stable_exit_codes_and_keeps_json_errors_structured() {
+    let invalid_arguments = Command::cargo_bin("sumi")
+        .unwrap()
+        .args(["agent", "message", "send", "#general", "--json"])
+        .env("SUMI_RUN_TOKEN", "run-token")
+        .env("SUMI_SOCKET", "/definitely/missing/sumi.sock")
+        .output()
+        .unwrap();
+    assert_eq!(invalid_arguments.status.code(), Some(2));
+    assert_json_error(&invalid_arguments.stdout, "invalid_arguments", false);
+
+    let parse_error = Command::cargo_bin("sumi")
+        .unwrap()
+        .args(["agent", "inbox", "show", "not-a-uuid", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(parse_error.status.code(), Some(2));
+    assert_json_error(&parse_error.stdout, "invalid_arguments", false);
+
+    let missing_capability = Command::cargo_bin("sumi")
+        .unwrap()
+        .args(["agent", "whoami", "--json"])
+        .env_remove("SUMI_RUN_TOKEN")
+        .env_remove("SUMI_SOCKET")
+        .output()
+        .unwrap();
+    assert_eq!(missing_capability.status.code(), Some(3));
+    assert_json_error(&missing_capability.stdout, "permission_denied", false);
+
+    let unavailable = Command::cargo_bin("sumi")
+        .unwrap()
+        .args(["agent", "whoami", "--json"])
+        .env("SUMI_RUN_TOKEN", "run-token")
+        .env("SUMI_SOCKET", "/definitely/missing/sumi.sock")
+        .output()
+        .unwrap();
+    assert_eq!(unavailable.status.code(), Some(6));
+    assert_json_error(&unavailable.stdout, "daemon_unavailable", true);
+
+    for (error_code, retryable, expected_exit) in [
+        ("permission_denied", false, 3),
+        ("message_not_found", false, 4),
+        ("channel_not_found", false, 4),
+        ("context_changed", false, 5),
+        ("server_unavailable", true, 6),
+        ("internal_error", false, 7),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let socket = root.path().join("daemon.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let response = serde_json::json!({
+            "schema_version": 1,
+            "ok": false,
+            "data": null,
+            "error": {
+                "code": error_code,
+                "message": "classified failure",
+                "retryable": retryable
+            }
+        });
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = String::new();
+            std::io::BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut request)
+                .unwrap();
+            assert!(request.contains("\"run_token\":\"run-token\""));
+            writeln!(stream, "{response}").unwrap();
+        });
+        let output = Command::cargo_bin("sumi")
+            .unwrap()
+            .args(["agent", "whoami", "--json"])
+            .env("SUMI_RUN_TOKEN", "run-token")
+            .env("SUMI_SOCKET", &socket)
+            .output()
+            .unwrap();
+        server.join().unwrap();
+        assert_eq!(output.status.code(), Some(expected_exit));
+        let envelope: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(envelope["error"]["code"], error_code);
+    }
+}
+
+fn assert_json_error(stdout: &[u8], code: &str, retryable: bool) {
+    let envelope: serde_json::Value = serde_json::from_slice(stdout).unwrap();
+    assert_eq!(envelope["schema_version"], 1);
+    assert_eq!(envelope["ok"], false);
+    assert!(envelope["data"].is_null());
+    assert_eq!(envelope["error"]["code"], code);
+    assert_eq!(envelope["error"]["retryable"], retryable);
 }

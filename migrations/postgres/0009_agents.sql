@@ -1,6 +1,9 @@
 ALTER TABLE agents
     ADD CONSTRAINT agents_member_computer_unique UNIQUE (member_id, computer_id);
 
+ALTER TABLE agents
+    ADD COLUMN last_error_code TEXT;
+
 CREATE TABLE agent_memory_files (
     agent_member_id UUID NOT NULL REFERENCES agents(member_id),
     path TEXT NOT NULL CHECK (

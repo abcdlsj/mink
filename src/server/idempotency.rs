@@ -13,6 +13,18 @@ use super::api_error::ApiError;
 #[derive(Clone, Copy, Debug)]
 pub struct IdempotencyKey(pub Uuid);
 
+impl IdempotencyKey {
+    fn validate(self) -> Result<Self, ApiError> {
+        if self.0.get_version() != Some(Version::SortRand) {
+            return Err(ApiError::validation(
+                "invalid_idempotency_key",
+                "Idempotency-Key must be UUIDv7",
+            ));
+        }
+        Ok(self)
+    }
+}
+
 impl<S> FromRequestParts<S> for IdempotencyKey
 where
     S: Send + Sync,
@@ -36,13 +48,7 @@ where
         let key = Uuid::parse_str(value).map_err(|_| {
             ApiError::validation("invalid_idempotency_key", "Idempotency-Key must be UUIDv7")
         })?;
-        if key.get_version() != Some(Version::SortRand) {
-            return Err(ApiError::validation(
-                "invalid_idempotency_key",
-                "Idempotency-Key must be UUIDv7",
-            ));
-        }
-        Ok(Self(key))
+        Self(key).validate()
     }
 }
 
@@ -60,6 +66,7 @@ pub async fn begin<T: DeserializeOwned>(
     key: IdempotencyKey,
     hash: &[u8],
 ) -> Result<Option<(StatusCode, T)>, ApiError> {
+    key.validate()?;
     let now = OffsetDateTime::now_utc();
     let inserted = sqlx::query(
         "INSERT INTO idempotency_records \

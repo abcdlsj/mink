@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
 
@@ -10,7 +10,89 @@ use crate::{
     local_protocol::{AgentAction, LocalRequest, LocalResponse},
 };
 
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+struct AgentCliExit {
+    code: u8,
+    error_code: String,
+    message: String,
+    retryable: bool,
+}
+
+pub fn exit_code(error: &anyhow::Error) -> u8 {
+    error
+        .downcast_ref::<AgentCliExit>()
+        .map_or(2, |error| error.code)
+}
+
+fn classified(
+    code: u8,
+    error_code: impl Into<String>,
+    message: impl Into<String>,
+    retryable: bool,
+) -> anyhow::Error {
+    AgentCliExit {
+        code,
+        error_code: error_code.into(),
+        message: message.into(),
+        retryable,
+    }
+    .into()
+}
+
 pub async fn run(args: AgentArgs) -> Result<()> {
+    let requested_json = uses_json_output(&args);
+    let result = execute(args).await;
+    let (response, json) = match result {
+        Ok(result) => result,
+        Err(error) => {
+            if requested_json {
+                let local = error.downcast_ref::<AgentCliExit>();
+                let response = LocalResponse::failure(
+                    local.map_or("invalid_arguments", |error| error.error_code.as_str()),
+                    local.map_or_else(|| error.to_string(), |error| error.message.clone()),
+                    local.is_some_and(|error| error.retryable),
+                );
+                print_json(&response)?;
+            }
+            return Err(error);
+        }
+    };
+    if json {
+        print_json(&response)?;
+    } else if let Some(data) = &response.data {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(data).map_err(|error| {
+                classified(
+                    7,
+                    "response_encode_failed",
+                    format!("failed to encode CLI response: {error}"),
+                    false,
+                )
+            })?
+        );
+    }
+    if response.ok {
+        Ok(())
+    } else {
+        let error = response
+            .error
+            .as_ref()
+            .map(|error| error.message.as_str())
+            .unwrap_or("Agent action failed");
+        let code = response.error.as_ref().map(response_exit_code).unwrap_or(7);
+        let error_code = response
+            .error
+            .as_ref()
+            .map(|error| error.code.as_str())
+            .unwrap_or("internal_error");
+        let retryable = response.error.as_ref().is_some_and(|error| error.retryable);
+        Err(classified(code, error_code, error, retryable))
+    }
+}
+
+async fn execute(args: AgentArgs) -> Result<(LocalResponse, bool)> {
     let (action, json) = match args.command {
         AgentCommand::Whoami(output) => (None, output.json),
         AgentCommand::Member(args) => match args.command {
@@ -200,39 +282,147 @@ pub async fn run(args: AgentArgs) -> Result<()> {
             )
         }
     };
-    let run_token = std::env::var("SUMI_RUN_TOKEN")
-        .context("sumi agent commands require an active Agent run")?;
+    let run_token = std::env::var("SUMI_RUN_TOKEN").map_err(|_| {
+        classified(
+            3,
+            "permission_denied",
+            "sumi agent commands require an active Agent run",
+            false,
+        )
+    })?;
     let request = match action {
         Some(action) => LocalRequest::AgentAction { run_token, action },
         None => LocalRequest::Whoami { run_token },
     };
-    let response = call_daemon(request).await?;
-    if json {
-        println!("{}", serde_json::to_string(&response)?);
-    } else if let Some(data) = &response.data {
-        println!("{}", serde_json::to_string_pretty(data)?);
+    Ok((call_daemon(request).await?, json))
+}
+
+fn uses_json_output(args: &AgentArgs) -> bool {
+    match &args.command {
+        AgentCommand::Whoami(output) => output.json,
+        AgentCommand::Member(args) => match &args.command {
+            AgentMemberCommand::List(args) => args.output.json,
+        },
+        AgentCommand::Inbox(args) => match &args.command {
+            AgentInboxCommand::Current(output) => output.json,
+            AgentInboxCommand::Show(args) => args.output.json,
+            AgentInboxCommand::Ack(args) => args.output.json,
+            AgentInboxCommand::Defer(args) => args.output.json,
+        },
+        AgentCommand::Channel(args) => match &args.command {
+            AgentChannelCommand::List(output) => output.json,
+            AgentChannelCommand::Read(args) => args.output.json,
+            AgentChannelCommand::Create(args) => args.output.json,
+        },
+        AgentCommand::Thread(args) => match &args.command {
+            AgentThreadCommand::Read(args) => args.output.json,
+        },
+        AgentCommand::Message(args) => match &args.command {
+            AgentMessageCommand::Send(args) => args.output.json,
+        },
+        AgentCommand::Attachment(args) => match &args.command {
+            AgentAttachmentCommand::Upload(args) => args.output.json,
+            AgentAttachmentCommand::Download(args) => args.json,
+            AgentAttachmentCommand::Info(args) => args.output.json,
+        },
+        AgentCommand::Create(args) => args.output.json,
     }
-    if response.ok {
-        Ok(())
-    } else {
-        let error = response
-            .error
-            .as_ref()
-            .map(|error| error.message.as_str())
-            .unwrap_or("Agent action failed");
-        bail!(error.to_owned())
+}
+
+fn print_json(response: &LocalResponse) -> Result<()> {
+    println!(
+        "{}",
+        serde_json::to_string(response).map_err(|error| {
+            classified(
+                7,
+                "response_encode_failed",
+                format!("failed to encode CLI response: {error}"),
+                false,
+            )
+        })?
+    );
+    Ok(())
+}
+
+fn response_exit_code(error: &crate::local_protocol::LocalError) -> u8 {
+    if error.retryable {
+        return 6;
+    }
+    match error.code.as_str() {
+        "permission_denied" | "unauthorized" => 3,
+        "not_found" => 4,
+        "context_changed"
+        | "conflict"
+        | "inbox_lease_lost"
+        | "channel_archived"
+        | "attachment_output_exists" => 5,
+        code if code.ends_with("_not_found") => 4,
+        code if code.starts_with("invalid_") => 2,
+        _ => 7,
     }
 }
 
 async fn call_daemon(request: LocalRequest) -> Result<LocalResponse> {
-    let socket = std::env::var_os("SUMI_SOCKET")
-        .context("sumi agent commands require an active Agent run")?;
+    let socket = std::env::var_os("SUMI_SOCKET").ok_or_else(|| {
+        classified(
+            3,
+            "permission_denied",
+            "sumi agent commands require an active Agent run",
+            false,
+        )
+    })?;
     let mut stream = tokio::net::UnixStream::connect(socket)
         .await
-        .context("the configured daemon IPC endpoint is unavailable")?;
-    stream.write_all(&serde_json::to_vec(&request)?).await?;
-    stream.write_all(b"\n").await?;
+        .map_err(|error| {
+            classified(
+                6,
+                "daemon_unavailable",
+                format!("daemon IPC endpoint is unavailable: {error}"),
+                true,
+            )
+        })?;
+    let request = serde_json::to_vec(&request).map_err(|error| {
+        classified(
+            7,
+            "request_encode_failed",
+            format!("failed to encode daemon request: {error}"),
+            false,
+        )
+    })?;
+    stream.write_all(&request).await.map_err(|error| {
+        classified(
+            6,
+            "daemon_unavailable",
+            format!("failed to write daemon request: {error}"),
+            true,
+        )
+    })?;
+    stream.write_all(b"\n").await.map_err(|error| {
+        classified(
+            6,
+            "daemon_unavailable",
+            format!("failed to write daemon request: {error}"),
+            true,
+        )
+    })?;
     let mut response = String::new();
-    BufReader::new(stream).read_line(&mut response).await?;
-    serde_json::from_str(&response).context("daemon returned an invalid local response")
+    BufReader::new(stream)
+        .read_line(&mut response)
+        .await
+        .map_err(|error| {
+            classified(
+                6,
+                "daemon_unavailable",
+                format!("failed to read daemon response: {error}"),
+                true,
+            )
+        })?;
+    serde_json::from_str(&response).map_err(|error| {
+        classified(
+            7,
+            "invalid_daemon_response",
+            format!("daemon returned an invalid response: {error}"),
+            false,
+        )
+    })
 }

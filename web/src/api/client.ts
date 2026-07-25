@@ -70,6 +70,7 @@ export interface Agent {
   created_at: string;
   updated_at: string;
   retired_at?: string;
+  last_error_code?: string;
   memory_files: AgentMemoryFile[];
 }
 
@@ -89,12 +90,17 @@ export interface AgentMemoryFile {
   updated_at: string;
 }
 
+export interface AgentMemoryContent extends AgentMemoryFile {
+  content: string;
+}
+
 export interface UpdateAgentInput {
   role_text?: string;
   attention_config?: AttentionConfig;
   lifecycle?:
     | { action: "suspend"; mode: "stop_after_current" | "cancel_now" }
     | { action: "resume" }
+    | { action: "retry" }
     | { action: "retire" };
 }
 
@@ -388,6 +394,17 @@ export function updateAgent(agentId: string, input: UpdateAgentInput): Promise<A
     body: JSON.stringify(input),
     headers: mutationHeaders(),
   });
+}
+
+export function readAgentMemory(agentId: string, path: string): Promise<AgentMemoryContent> {
+  return apiRequest<AgentMemoryContent>(
+    `/api/v1/agents/${encodeURIComponent(agentId)}/memory/read`,
+    {
+      method: "POST",
+      body: JSON.stringify({ path }),
+      headers: { "Content-Type": "application/json" },
+    },
+  );
 }
 
 export function getSpaceBySlug(slug: string): Promise<Space> {

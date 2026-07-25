@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { Brain, Menu, Pause, Play, Save, Trash2 } from "lucide-react";
+import { Brain, Eye, Menu, Pause, Play, RotateCcw, Save, Trash2, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { getAgent, updateAgent } from "../api/client";
+import { getAgent, readAgentMemory, updateAgent } from "../api/client";
 import { SpaceShell } from "../components/SpaceShell";
 
 export function AgentDetailPage() {
@@ -41,6 +41,9 @@ function AgentWorkspace({
       void queryClient.invalidateQueries({ queryKey: ["members", updated.space_id] });
     },
   });
+  const memory = useMutation({
+    mutationFn: (path: string) => readAgentMemory(agentId, path),
+  });
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -71,6 +74,7 @@ function AgentWorkspace({
         <span className={`agent-state agent-state--${value.status}`}>{value.status}</span>
       </header>
       <div className="agent-detail-scroll">
+        {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
         <dl className="agent-overview">
           <div><dt>Handle</dt><dd>@{value.handle}</dd></div>
           <div><dt>Computer</dt><dd>{value.computer_id}</dd></div>
@@ -92,14 +96,29 @@ function AgentWorkspace({
           <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
           <p>Memory lives only on this Computer. If the Computer is lost, Sumi v1 cannot recover it.</p>
           {value.memory_files.length === 0 ? <p>No Memory metadata reported.</p> : (
-            <ul>{value.memory_files.map((file) => <li key={file.path}><strong>{file.path}</strong><span>{formatBytes(file.size)}</span><code>{file.sha256.slice(0, 12)}</code></li>)}</ul>
+            <ul>{value.memory_files.map((file) => (
+              <li key={file.path}>
+                <button className="memory-file-button" type="button" aria-label={`Read ${file.path}`} disabled={!canManage || memory.isPending} onClick={() => memory.mutate(file.path)}>
+                  <Eye /><strong>{file.path}</strong>
+                </button>
+                <span>{formatBytes(file.size)}</span><code>{file.sha256.slice(0, 12)}</code>
+              </li>
+            ))}</ul>
           )}
+          {memory.data ? (
+            <section className="memory-reader" aria-label={`${memory.data.path} contents`}>
+              <header><strong>{memory.data.path}</strong><button className="icon-button" type="button" aria-label="Close Memory file" onClick={() => memory.reset()}><X /></button></header>
+              <pre>{memory.data.content}</pre>
+            </section>
+          ) : null}
+          {memory.error ? <p className="form-error" role="alert">{memory.error.message}</p> : null}
         </section>
         {canManage && value.status !== "retired" ? (
           <section className="agent-lifecycle" aria-label="Agent lifecycle">
             {value.status === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}
             {value.status === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}
             {value.status === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}
+            {value.status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}
             <button className="danger-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retire" } })}><Trash2 /> Retire permanently</button>
           </section>
         ) : null}

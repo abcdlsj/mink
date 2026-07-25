@@ -2057,8 +2057,15 @@ h1 {
 .agent-check { display: flex; align-items: center; gap: 7px; }
 .agent-memory > div { display: flex; align-items: center; gap: 8px; }
 .agent-memory h2 { margin: 0; }
+.agent-error { margin: 0; padding: 10px 12px; border: 2px solid var(--ink); background: var(--red); font-weight: 700; }
 .agent-memory ul { margin: 0; padding: 0; list-style: none; border-top: 2px solid var(--ink); }
 .agent-memory li { display: grid; grid-template-columns: 1fr auto auto; gap: 14px; padding: 8px 0; border-bottom: 2px solid var(--ink); }
+.memory-file-button { min-width: 0; display: flex; align-items: center; gap: 8px; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.memory-file-button svg { width: 16px; height: 16px; flex: 0 0 auto; }
+.memory-file-button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-reader { margin-top: 12px; border: 2px solid var(--ink); background: var(--paper); }
+.memory-reader header { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 8px 4px 12px; border-bottom: 2px solid var(--ink); }
+.memory-reader pre { max-height: 360px; margin: 0; padding: 12px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--font-mono); }
 .agent-lifecycle { display: flex; align-items: center; gap: 12px; background: var(--panel); }
 
 @media (max-width: 900px) {

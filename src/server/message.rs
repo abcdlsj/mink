@@ -468,11 +468,27 @@ pub async fn create(
         .await
         .map_err(ApiError::database)?;
     }
+    let ambient_changed = if channel_kind == "direct" {
+        false
+    } else {
+        insert_channel_ambient_inbox(
+            &mut transaction,
+            space_id,
+            channel_id,
+            message_id,
+            actor.id,
+            seq,
+            &request.mentions,
+            now,
+        )
+        .await?
+    };
     if channel_kind == "direct"
         || request
             .mentions
             .iter()
             .any(|member_id| *member_id != actor.id)
+        || ambient_changed
     {
         sqlx::query(
             "INSERT INTO outbox_events \
@@ -515,6 +531,61 @@ pub async fn create(
     .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn insert_channel_ambient_inbox(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    space_id: Uuid,
+    channel_id: Uuid,
+    message_id: Uuid,
+    actor_id: Uuid,
+    seq: i64,
+    hard_recipients: &[Uuid],
+    now: OffsetDateTime,
+) -> Result<bool, ApiError> {
+    let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
+        "SELECT agents.member_id, \
+                (agents.attention_config_json->>'ambient_debounce_seconds')::bigint \
+         FROM agents JOIN channel_members ON channel_members.member_id = agents.member_id \
+         WHERE channel_members.channel_id = $1 AND agents.member_id <> $2 \
+           AND agents.status IN ('active', 'suspended') \
+           AND COALESCE((agents.attention_config_json->>'ambient_enabled')::boolean, false) \
+           AND NOT (agents.member_id = ANY($3))",
+    )
+    .bind(channel_id)
+    .bind(actor_id)
+    .bind(hard_recipients)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+
+    for (member_id, debounce_seconds) in &recipients {
+        let available_at = now + time::Duration::seconds(*debounce_seconds);
+        sqlx::query(
+            "INSERT INTO inbox_items \
+             (id, member_id, space_id, kind, priority, channel_id, message_id, first_seq, \
+              last_seq, message_count, status, available_at, created_at) \
+             VALUES ($1, $2, $3, 'channel_activity', 'ambient', $4, $5, $6, $6, 1, \
+                     'pending', $7, $8) \
+             ON CONFLICT (member_id, channel_id) \
+               WHERE kind = 'channel_activity' AND thread_id IS NULL AND status = 'pending' \
+             DO UPDATE SET message_id = EXCLUDED.message_id, last_seq = EXCLUDED.last_seq, \
+                           message_count = inbox_items.message_count + 1",
+        )
+        .bind(Uuid::now_v7())
+        .bind(member_id)
+        .bind(space_id)
+        .bind(channel_id)
+        .bind(message_id)
+        .bind(seq)
+        .bind(available_at)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
+    Ok(!recipients.is_empty())
 }
 
 pub(super) async fn validate_mentions(

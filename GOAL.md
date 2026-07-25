@@ -61,15 +61,15 @@
 
 ### 4. Agent 与 Codex
 
-- [ ] 实现 Agent 创建、配置、暂停、恢复、退役、Role revision 和 Memory。
-- [ ] 实现通用 Driver 契约与 Codex Driver；Driver 私有状态不得成为 Agent 身份或 Memory。
-- [ ] 实现完整 `sumi agent` 命令树、run capability、结构化 JSON、权限校验和幂等写入。
+- [x] 实现 Agent 创建、配置、暂停、恢复、退役、Role revision 和 Memory。
+- [x] 实现通用 Driver 契约与 Codex Driver；Driver 私有状态不得成为 Agent 身份或 Memory。
+- [x] 实现完整 `sumi agent` 命令树、run capability、结构化 JSON、权限校验和幂等写入。
 - [x] 在设计 Agent run prompt 前探索 `.slock` 的 Agent prompt，按 `docs/design.md` 约束吸收适合 Sumi 的结构。
 - [x] 打通 Human DM Agent -> Inbox -> Codex -> CLI read -> CLI send-and-handle -> Human 收到回复。
 
 ### 5. 注意力与治理
 
-- [ ] 实现 DM/@mention hard Inbox、普通 Channel ambient 聚合和 Agent 自主 ack/defer/reply。
+- [x] 实现 DM/@mention hard Inbox、普通 Channel ambient 聚合和 Agent 自主 ack/defer/reply。
 - [ ] 实现 Thread subscription、跨授权 Channel 读取、lease 续期、retry/dead 和重启恢复。
 - [ ] 实现 `--based-on` context freshness，避免 Agent 基于过期 Thread 上下文强发。
 - [ ] 实现 Channel create permission、Agent create Approval、Human-only 审批和 Agent Admin 例外。
@@ -106,6 +106,10 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 - Phase 4 `sumi agent create` 与 Agent 发起的 Human Approval 已形成纵向路径；下一步审计剩余 CLI 契约，并完成真实 daemon/Codex 的 Human DM 里程碑验收。
 - Phase 4 真实 Server/daemon 已完成配对、Agent provision、hard Inbox claim 与 Codex 启动，并修复真实 command result 暴露的 Memory 时间协议错误；Human DM 回复仍被本机失效的 Codex API key（OpenAI 401）阻塞，凭证恢复后继续同一里程碑，不提前勾选 Phase 4。
 - Phase 4 真实 daemon/Codex DM 注意力里程碑已完成：Agent 专属 CODEX_HOME 白名单化复用本机 provider/existing local auth，真实 Codex 依次调用 Inbox、Channel read 和 Message send-and-handle，Human 收到唯一 Agent 回复；Phase 4 其他主项保持未勾选，下一步按最早未完成项做阶段审计。
+- Phase 4 Agent lifecycle/Role/Memory 已完成阶段审计：provision 失败原因与同 identity 重试、暂停/恢复/退役、Role revision、run 后 Memory 快照及 Owner/Admin 在线正文读取形成闭环；当前最早未完成项为通用 Driver 契约与 Codex Driver。
+- Phase 4 通用 Driver 契约与 Codex Driver 已完成阶段审计：validate/start/observe/cancel/cleanup、JSONL 归一化、ephemeral stdin run、Git worktree 判断、Agent 专属私有状态与 macOS/Linux 外层隔离均有测试或真实里程碑证据；当前最早未完成项为完整 `sumi agent` CLI。
+- Phase 4 已完成：完整 `sumi agent` 命令树、run capability、结构化 JSON/exit code、权限与 UUIDv7 幂等事务通过阶段验收；当前最早未完成项为 Phase 5 的 hard Inbox 与 ambient attention。
+- Phase 5 hard Inbox 与 ambient attention 已完成：普通 Channel Message 按 Agent/Channel 聚合，mention 与 ambient 去重，hard 到达会携同来源 ambient 合批，Agent 可在单次 run 内 ack/defer/reply；当前最早未完成项为 Thread subscription、lease/retry/dead 与重启恢复。
 
 ## 验证记录
 
@@ -136,3 +140,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 2026-07-25 | Phase 4 / Agent Create Approval | active run Agent CLI 创建 pending Approval；Agent Admin 强制 Human 审批、幂等/跨 Space/权限边界、approve provisioning、reject 零残留与 Inbox governance UI；`mise run lint/test/build` | 通过；29 Rust tests、2 CLI、真实 PostgreSQL migration/integration、10 Web tests和 production build 全绿，完整 CLI 与真实 daemon/Codex 里程碑尚未完成。
 2026-07-25 | Phase 4 / 真实 daemon/Codex 里程碑（部分） | 隔离 PostgreSQL + 真实 Server/daemon/Computer WebSocket/macOS sandbox/Codex；真实 provision result；Human DM hard Inbox 与 run 状态；`mise run lint/test/build` | Agent provision 与 RFC3339 Memory 快照通过；30 Rust、2 CLI、PostgreSQL migration、10 Web tests及构建全绿；hard Inbox 在约 1 秒内启动真实 Codex，但本机 existing-local-auth 被 OpenAI 以 401 invalid_api_key 拒绝，未产生 Agent Message，Phase 4 未完成。
 2026-07-25 | Phase 4 / 真实 daemon/Codex DM 注意力 | 隔离 PostgreSQL + 真实 Server/daemon/macOS sandbox/Codex；run `019f9902-e204-7b81-9b94-c6d6efe77fdf` 的无正文 IPC 事件为 `inbox.current -> channel.read -> message.send`；数据库核对 Message/handled 同时间戳；`mise run lint/test/build` | 通过；Human 收到唯一 Agent Message，Inbox `retry_count=0` 且由同一 completed run 原子 handled，Driver stdout 未创建 Message；Agent CODEX_HOME 仅含白名单 provider 配置和 0600 existing local auth；32 Rust、2 CLI、PostgreSQL migration、10 Web tests 和 production build 全绿。
+2026-07-25 | Phase 4 / Agent lifecycle、Role 与 Memory 阶段验收 | 真实 PostgreSQL/WebSocket：provision 故障原因、同 identity retry、配置、暂停/恢复/退役、在线 Memory 临时读取且 Server/daemon DB 不落正文；daemon canonical path/symlink 边界与 run 后快照；`mise run lint/test/build` | 通过；33 Rust、2 CLI、真实 PostgreSQL migration/integration、10 Web tests 和 production build 全绿。
+2026-07-25 | Phase 4 / Driver 与 Codex 阶段验收 | Driver 契约、真实安装 Codex sandbox validate、`exec --json --ephemeral`/stdin/平台 sandbox 参数、Git worktree 探测、JSONL 事件归一化、cancel/timeout/process group、私有 CODEX_HOME；真实 DM Codex 里程碑；`mise run lint/test/build` | 通过；34 Rust、2 CLI、真实 PostgreSQL migration/integration、10 Web tests 和 production build 全绿，Driver stdout/私有状态未成为 Message、身份或 Memory。
+2026-07-25 | Phase 4 / 完整 Agent CLI 阶段验收 | 全命令树解析；真实 CLI 进程 JSON envelope 与稳定 exit code；active run capability/权限；Message、ack、defer UUIDv7 幂等重放与 conflict；失败 run lease 释放；`cargo clippy --all-targets --all-features -- -D warnings`; `mise run lint/test/build` | 通过；34 Rust、3 CLI、真实 PostgreSQL migration/integration、10 Web tests 和 production build 全绿，Phase 4 完成。
+2026-07-25 | Phase 5 / hard Inbox 与 Channel ambient | 5 条普通 Channel Message 聚合为单一 ambient Item；mention 不重复 ambient；hard 到达提前合批未到 debounce 的 ambient；同一 run 批量 ack 后无二次 claim；`mise run lint/test/build` | 通过；34 Rust、3 CLI、真实 PostgreSQL migration 11/integration、10 Web tests 和 production build 全绿。

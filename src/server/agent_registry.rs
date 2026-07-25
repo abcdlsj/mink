@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
 };
 use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,7 @@ pub struct AgentResponse {
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
     pub retired_at: Option<OffsetDateTime>,
+    pub last_error_code: Option<String>,
     pub memory_files: Vec<MemoryFileResponse>,
 }
 
@@ -72,6 +73,21 @@ pub struct MemoryFileResponse {
     pub updated_at: OffsetDateTime,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReadMemoryRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MemoryContentResponse {
+    pub path: String,
+    pub content: String,
+    pub size: i64,
+    pub sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub updated_at: OffsetDateTime,
+}
+
 #[derive(FromRow)]
 struct AgentRow {
     member_id: Uuid,
@@ -85,9 +101,11 @@ struct AgentRow {
     status: String,
     driver_kind: String,
     attention_config_json: serde_json::Value,
+    driver_config_json: serde_json::Value,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
     retired_at: Option<OffsetDateTime>,
+    last_error_code: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -102,6 +120,7 @@ pub struct UpdateAgentRequest {
 pub enum LifecycleAction {
     Suspend { mode: SuspendMode },
     Resume,
+    Retry,
     Retire,
 }
 
@@ -189,12 +208,14 @@ pub async fn update(
     let (next_status, retired_at) = match request.lifecycle.as_ref() {
         Some(LifecycleAction::Suspend { .. }) => ("suspended", None),
         Some(LifecycleAction::Resume) => ("active", None),
+        Some(LifecycleAction::Retry) => ("provisioning", None),
         Some(LifecycleAction::Retire) => ("retired", Some(now)),
         None => (current.status.as_str(), current.retired_at),
     };
     sqlx::query(
         "UPDATE agents SET role_text = $2, role_revision = $3, attention_config_json = $4, \
-         status = $5, updated_at = $6, retired_at = $7 WHERE member_id = $1",
+         status = $5, updated_at = $6, retired_at = $7, last_error_code = NULL \
+         WHERE member_id = $1",
     )
     .bind(agent_id)
     .bind(next_role)
@@ -217,8 +238,13 @@ pub async fn update(
     let command_kind = lifecycle_command(request.lifecycle.as_ref()).unwrap_or("agent.configure");
     let payload = serde_json::json!({
         "agent_id": agent_id,
+        "space_id": current.space_id,
+        "name": current.name,
+        "handle": current.handle,
         "role_text": next_role,
         "role_revision": next_revision,
+        "driver_kind": current.driver_kind,
+        "driver_config": current.driver_config_json,
         "attention_config": next_attention,
         "mode": request.lifecycle.as_ref().and_then(|action| match action {
             LifecycleAction::Suspend { mode } => Some(mode),
@@ -239,6 +265,7 @@ pub async fn update(
         match request.lifecycle {
             Some(LifecycleAction::Suspend { .. }) => "agent.suspended",
             Some(LifecycleAction::Resume) => "agent.resumed",
+            Some(LifecycleAction::Retry) => "agent.provision_retried",
             Some(LifecycleAction::Retire) => "agent.retired",
             None => return Err(ApiError::Internal),
         }
@@ -278,10 +305,111 @@ pub async fn update(
     Ok(Json(response))
 }
 
+pub async fn read_memory(
+    State(state): State<std::sync::Arc<AppState>>,
+    jar: CookieJar,
+    Path(agent_id): Path<Uuid>,
+    Json(request): Json<ReadMemoryRequest>,
+) -> Result<(HeaderMap, Json<MemoryContentResponse>), ApiError> {
+    let user = auth::current_user(&state, &jar).await?;
+    let row = find_agent(&state.database, agent_id).await?;
+    let actor = member::require_actor(&state.database, user.id, row.space_id).await?;
+    if !matches!(actor.access_level.as_str(), "owner" | "admin") {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Only an Owner or Admin can read Agent Memory",
+        ));
+    }
+    let path = request.path.trim();
+    if path.is_empty() || path.len() > 1024 {
+        return Err(ApiError::validation(
+            "invalid_memory_path",
+            "Memory path is invalid",
+        ));
+    }
+    let file_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM agent_memory_files WHERE agent_member_id = $1 AND path = $2)",
+    )
+    .bind(agent_id)
+    .bind(path)
+    .fetch_one(&state.database)
+    .await
+    .map_err(ApiError::database)?;
+    if !file_exists {
+        return Err(ApiError::not_found(
+            "memory_file_not_found",
+            "Memory file was not found",
+        ));
+    }
+    let computer_online: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM computers WHERE id = $1 AND status = 'online')",
+    )
+    .bind(row.computer_id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(ApiError::database)?;
+    if !computer_online {
+        return Err(ApiError::conflict(
+            "computer_offline",
+            "Agent Memory is unavailable while its Computer is offline",
+        ));
+    }
+
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let command_id = allocate_command(
+        &mut transaction,
+        row.computer_id,
+        "agent.memory.read",
+        serde_json::json!({ "agent_id": agent_id, "path": path }),
+        OffsetDateTime::now_utc(),
+    )
+    .await?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    state
+        .memory_read_waiters
+        .lock()
+        .await
+        .insert(command_id, sender);
+    if let Err(error) = transaction.commit().await {
+        state.memory_read_waiters.lock().await.remove(&command_id);
+        return Err(ApiError::database(error));
+    }
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), receiver).await;
+    state.memory_read_waiters.lock().await.remove(&command_id);
+    let (ok, result) = result
+        .map_err(|_| {
+            ApiError::conflict(
+                "computer_unavailable",
+                "Computer did not return Agent Memory in time",
+            )
+        })?
+        .map_err(|_| {
+            ApiError::conflict(
+                "computer_unavailable",
+                "Computer disconnected while reading Agent Memory",
+            )
+        })?;
+    if !ok {
+        return Err(ApiError::conflict(
+            "memory_read_failed",
+            "Computer could not read the Agent Memory file",
+        ));
+    }
+    let response: MemoryContentResponse =
+        serde_json::from_value(result).map_err(|_| ApiError::Internal)?;
+    if response.path != path {
+        return Err(ApiError::Internal);
+    }
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok((headers, Json(response)))
+}
+
 const AGENT_SELECT: &str = "SELECT agents.member_id, agents.space_id, agents.computer_id, \
     members.display_name AS name, members.handle, members.access_level, agents.role_text, \
     agents.role_revision, agents.status, agents.driver_kind, agents.attention_config_json, \
-    agents.created_at, agents.updated_at, agents.retired_at FROM agents \
+    agents.driver_config_json, agents.created_at, agents.updated_at, agents.retired_at, \
+    agents.last_error_code FROM agents \
     JOIN members ON members.id = agents.member_id";
 
 pub async fn create(
@@ -458,6 +586,7 @@ pub(super) async fn provision_agent_tx(
         created_at: now,
         updated_at: now,
         retired_at: None,
+        last_error_code: None,
         memory_files: Vec::new(),
     })
 }
@@ -525,12 +654,14 @@ fn validate_update(request: &mut UpdateAgentRequest) -> Result<(), ApiError> {
             ));
         }
     }
-    if matches!(request.lifecycle, Some(LifecycleAction::Retire))
-        && (request.role_text.is_some() || request.attention_config.is_some())
+    if matches!(
+        request.lifecycle,
+        Some(LifecycleAction::Retire | LifecycleAction::Retry)
+    ) && (request.role_text.is_some() || request.attention_config.is_some())
     {
         return Err(ApiError::validation(
             "invalid_agent_update",
-            "Retire cannot be combined with Agent configuration changes",
+            "Retry and retire cannot be combined with Agent configuration changes",
         ));
     }
     if request.role_text.is_none()
@@ -550,6 +681,7 @@ fn authorize_transition(status: &str, action: Option<&LifecycleAction>) -> Resul
         None => status != "retired",
         Some(LifecycleAction::Suspend { .. }) => status == "active",
         Some(LifecycleAction::Resume) => status == "suspended",
+        Some(LifecycleAction::Retry) => status == "error",
         Some(LifecycleAction::Retire) => matches!(status, "active" | "suspended" | "error"),
     };
     if allowed {
@@ -566,6 +698,7 @@ fn lifecycle_command(action: Option<&LifecycleAction>) -> Option<&'static str> {
     match action {
         Some(LifecycleAction::Suspend { .. }) => Some("agent.suspend"),
         Some(LifecycleAction::Resume) => Some("agent.resume"),
+        Some(LifecycleAction::Retry) => Some("agent.provision"),
         Some(LifecycleAction::Retire) => Some("agent.retire"),
         None => None,
     }
@@ -745,6 +878,7 @@ impl AgentRow {
             created_at: self.created_at,
             updated_at: self.updated_at,
             retired_at: self.retired_at,
+            last_error_code: self.last_error_code,
             memory_files,
         })
     }

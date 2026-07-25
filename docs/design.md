@@ -924,8 +924,9 @@ Agent 发起创建时，前五步中的写入被 Approval 替代；审批成功�
 provisioning -> active <-> suspended
       |           |
       v           v
-    error       error
-      |
+    error <----- error
+      |  \
+      |   +-> provisioning (Admin retry)
       v
    retired
 ~~~
@@ -942,6 +943,9 @@ provisioning -> active <-> suspended
 - cancel_now：daemon 先发送中断，grace period 后终止进程。
 
 Retire 必须暂停 Agent、撤销本地运行能力并从 Channel 在线状态移除。不得删除历史 Message、Attachment、Approval 或审计记录。
+error 必须保留不含敏感正文的 `last_error_code`。Owner/Admin 可以执行 `retry`，Server 复用同一
+Agent identity 重新进入 provisioning 并重发幂等 `agent.provision` command；不得创建第二个 Member
+或新的 Agent Home。retry 成功后清除错误，失败则以新的错误原因回到 error。
 
 ### 12.4 Role
 
@@ -972,6 +976,11 @@ memory/
 - Driver 切换时继续使用同一 Memory。
 - Server 仅保存 Memory 文件名、大小、更新时间和 hash，不保存正文。
 - Owner/Admin 通过 UI 请求查看时，由 daemon 在线读取；Computer offline 时正文不可用。
+- Browser 通过 `POST /api/v1/agents/{agent_id}/memory/read` 提交相对 `memory/` 的 `path`。
+  Server 只向 Agent 当前 Computer 下发 `agent.memory.read` command，并在当前进程内临时转发结果；
+  Memory 正文不得写入 PostgreSQL、idempotency record、outbox、audit 或日志。Computer 与 Server
+  的持久 command result 只保存成功/失败状态，不保存正文。读取仅支持不超过 1 MiB 的 UTF-8
+  普通文件，daemon 必须拒绝绝对路径、`..`、symlink 和 canonical path 逃逸。
 
 v1 不承诺 Computer 丢失后的 Memory 恢复。该限制必须在 UI 中明确，后续通过端到端加密快照解决，不得在 v1 偷偷把 Memory 明文上传 Server。
 
@@ -1443,6 +1452,7 @@ GET  /api/v1/spaces/{space_id}/agents
 POST /api/v1/spaces/{space_id}/agents
 GET  /api/v1/agents/{agent_id}
 PATCH /api/v1/agents/{agent_id}
+POST /api/v1/agents/{agent_id}/memory/read
 GET  /api/v1/members/{member_id}/inbox
 POST /api/v1/inbox/{item_id}/ack
 POST /api/v1/inbox/{item_id}/defer
@@ -1452,9 +1462,11 @@ POST /api/v1/approvals/{approval_id}/reject
 ~~~
 
 Agent list/detail 对同一 Space Member 返回 identity、Role revision、状态、Computer、Driver 和
-attention config；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据。`PATCH`
+attention config；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据并在
+Computer online 时临时读取正文。Memory read 响应使用 `Cache-Control: no-store`，正文不成为 Server
+事实来源。`PATCH`
 只允许 Human Owner/Admin，接受可选的 `role_text`、`attention_config` 和 lifecycle action。lifecycle
-action 固定为 `suspend`、`resume` 或 `retire`；`suspend` 还必须携带
+action 固定为 `suspend`、`resume`、`retry` 或 `retire`；`suspend` 还必须携带
 `mode=stop_after_current|cancel_now`。一次请求可以同时修改 Role/attention config 和执行一个
 lifecycle action，Server 在同一事务写 Agent、持久 Computer command、audit 与 outbox。Retire
 不可逆，不能与其他修改组合。Role 和 attention config 修改通过 `agent.configure` command 同步到
@@ -1578,13 +1590,14 @@ v1 event types：
 
 **agents**
 
-- member_id primary key、computer_id、role_text、role_revision、status、driver_kind、driver_config_json、attention_config_json、created_by_member_id、created_at、updated_at、retired_at。
+- member_id primary key、computer_id、role_text、role_revision、status、driver_kind、driver_config_json、attention_config_json、created_by_member_id、created_at、updated_at、retired_at、last_error_code。
 
 **agent_memory_files**
 
 - agent_member_id、path、size、sha256、updated_at，primary key(agent_member_id, path)。
 - path 是相对 `memory/` 的 UTF-8 路径；Server 不保存文件正文。daemon 每次 provision/configure/lifecycle
-  command 成功后回报完整元数据快照，Server 在处理 command result 的事务中替换该 Agent 的快照。
+  command 成功后以及每次 run 结束后回报完整元数据快照。Server 只在 command result 明确携带
+  `memory_files` 时，在处理结果的事务中替换该 Agent 的快照。
 
 **channels**
 

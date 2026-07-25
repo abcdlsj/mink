@@ -380,6 +380,49 @@ mod tests {
             Command::Agent(_)
         ));
         assert!(Cli::try_parse_from(["sumi", "agent", "inbox", "current", "--json"]).is_ok());
+        let id = "01969f98-bcee-7da0-a150-e0d0de169c00";
+        for args in [
+            vec![
+                "sumi", "agent", "member", "list", "--query", "ali", "--json",
+            ],
+            vec!["sumi", "agent", "channel", "list", "--json"],
+            vec!["sumi", "agent", "inbox", "show", id, "--json"],
+            vec![
+                "sumi",
+                "agent",
+                "inbox",
+                "ack",
+                id,
+                "--reason",
+                "not relevant",
+                "--json",
+            ],
+            vec![
+                "sumi",
+                "agent",
+                "inbox",
+                "defer",
+                id,
+                "--until",
+                "2099-07-25T12:00:00Z",
+                "--json",
+            ],
+            vec![
+                "sumi",
+                "agent",
+                "thread",
+                "read",
+                "#design:123456",
+                "--after",
+                "10",
+                "--include-channel",
+                "20",
+                "--json",
+            ],
+            vec!["sumi", "agent", "attachment", "info", id, "--json"],
+        ] {
+            Cli::try_parse_from(args).expect("required Agent command should parse");
+        }
         assert!(
             Cli::try_parse_from([
                 "sumi",

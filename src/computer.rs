@@ -1095,9 +1095,37 @@ impl LocalCommandProcessor {
         if existing.0 == "running" {
             return Ok(None);
         }
+        if kind == "agent.memory.read" {
+            let outcome = match read_memory_file(&self.state_dir, payload).await {
+                Ok(file) => LocalCommandOutcome {
+                    ok: true,
+                    result: serde_json::to_value(file)?,
+                },
+                Err(error) => LocalCommandOutcome {
+                    ok: false,
+                    result: serde_json::json!({
+                        "ok": false,
+                        "error_code": local_error_code(&error),
+                    }),
+                },
+            };
+            finish_local_command_with_result(
+                &self.database,
+                command_id,
+                &outcome,
+                &serde_json::json!({ "ok": outcome.ok }),
+            )
+            .await?;
+            return Ok(Some(outcome));
+        }
         if kind == "agent.run" {
             let run: StartRun = serde_json::from_value(payload.clone())
                 .context("agent.run command payload is invalid")?;
+            let memory_root = self
+                .state_dir
+                .join("agents")
+                .join(run.agent_id.to_string())
+                .join("memory");
             sqlx::query("UPDATE server_commands SET status = 'running' WHERE command_id = ?1")
                 .bind(command_id.to_string())
                 .execute(&self.database)
@@ -1113,7 +1141,15 @@ impl LocalCommandProcessor {
                             status: "failed".to_owned(),
                             error_code: Some("supervisor_stopped".to_owned()),
                         });
-                        let outcome = run_outcome(&result);
+                        let mut outcome = run_outcome(&result);
+                        match scan_memory(&memory_root).await {
+                            Ok(memory_files) => {
+                                outcome.result["memory_files"] = serde_json::json!(memory_files);
+                            }
+                            Err(error) => {
+                                tracing::warn!(run_id = %result.run_id, error = %error, "Failed to scan Agent Memory after run");
+                            }
+                        }
                         if let Err(error) =
                             finish_local_command(&database, command_id, &outcome).await
                         {
@@ -1197,6 +1233,15 @@ async fn finish_local_command(
     command_id: Uuid,
     outcome: &LocalCommandOutcome,
 ) -> Result<()> {
+    finish_local_command_with_result(database, command_id, outcome, &outcome.result).await
+}
+
+async fn finish_local_command_with_result(
+    database: &SqlitePool,
+    command_id: Uuid,
+    outcome: &LocalCommandOutcome,
+    stored_result: &serde_json::Value,
+) -> Result<()> {
     let status = if outcome.ok { "completed" } else { "failed" };
     sqlx::query(
         "UPDATE server_commands SET status = ?2, result_json = ?3, completed_at = ?4 \
@@ -1204,7 +1249,7 @@ async fn finish_local_command(
     )
     .bind(command_id.to_string())
     .bind(status)
-    .bind(serde_json::to_string(&outcome.result)?)
+    .bind(serde_json::to_string(stored_result)?)
     .bind(OffsetDateTime::now_utc().to_string())
     .execute(database)
     .await?;
@@ -1296,6 +1341,16 @@ struct MemoryFileMetadata {
     updated_at: OffsetDateTime,
 }
 
+#[derive(Debug, Serialize)]
+struct MemoryFileContent {
+    path: String,
+    content: String,
+    size: u64,
+    sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+}
+
 async fn scan_memory(root: &Path) -> Result<Vec<MemoryFileMetadata>> {
     let mut pending = vec![root.to_owned()];
     let mut files = Vec::new();
@@ -1331,6 +1386,69 @@ async fn scan_memory(root: &Path) -> Result<Vec<MemoryFileMetadata>> {
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(files)
+}
+
+async fn read_memory_file(
+    state_dir: &Path,
+    payload: &serde_json::Value,
+) -> Result<MemoryFileContent> {
+    const MAX_MEMORY_READ_BYTES: u64 = 1024 * 1024;
+    let agent_id = payload
+        .get("agent_id")
+        .and_then(serde_json::Value::as_str)
+        .context("Memory command has no agent_id")
+        .and_then(|value| Uuid::parse_str(value).context("Memory command agent_id is invalid"))?;
+    let relative = payload
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .context("Memory command has no path")?;
+    let relative_path = Path::new(relative);
+    ensure!(
+        !relative.is_empty()
+            && relative_path
+                .components()
+                .all(|component| matches!(component, std::path::Component::Normal(_))),
+        "Memory path is invalid"
+    );
+    let root = state_dir
+        .join("agents")
+        .join(agent_id.to_string())
+        .join("memory");
+    let canonical_root = tokio::fs::canonicalize(&root).await?;
+    let mut candidate = root;
+    for component in relative_path.components() {
+        let std::path::Component::Normal(component) = component else {
+            bail!("Memory path is invalid");
+        };
+        candidate.push(component);
+        ensure!(
+            !tokio::fs::symlink_metadata(&candidate)
+                .await?
+                .file_type()
+                .is_symlink(),
+            "Memory path cannot contain a symlink"
+        );
+    }
+    let canonical = tokio::fs::canonicalize(&candidate).await?;
+    ensure!(
+        canonical.starts_with(&canonical_root),
+        "Memory path escapes Agent Home"
+    );
+    let metadata = tokio::fs::metadata(&canonical).await?;
+    ensure!(metadata.is_file(), "Memory path is not a regular file");
+    ensure!(
+        metadata.len() <= MAX_MEMORY_READ_BYTES,
+        "Memory file is too large"
+    );
+    let bytes = tokio::fs::read(&canonical).await?;
+    let content = String::from_utf8(bytes.clone()).context("Memory file is not UTF-8")?;
+    Ok(MemoryFileContent {
+        path: relative.to_owned(),
+        content,
+        size: metadata.len(),
+        sha256: hex::encode(Sha256::digest(&bytes)),
+        updated_at: OffsetDateTime::from(metadata.modified()?),
+    })
 }
 
 async fn write_restricted_file(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -1983,6 +2101,52 @@ mod tests {
         let retired: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(profile_path).await.unwrap()).unwrap();
         assert_eq!(retired["status"], "retired");
+    }
+
+    #[tokio::test]
+    async fn memory_read_is_scoped_to_agent_memory_and_rejects_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let state = root.path().join("computer");
+        let agent_id = Uuid::now_v7();
+        let memory = state
+            .join("agents")
+            .join(agent_id.to_string())
+            .join("memory");
+        tokio::fs::create_dir_all(memory.join("notes"))
+            .await
+            .unwrap();
+        tokio::fs::write(memory.join("notes/current.md"), b"Current facts.\n")
+            .await
+            .unwrap();
+        let content = read_memory_file(
+            &state,
+            &serde_json::json!({ "agent_id": agent_id, "path": "notes/current.md" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(content.path, "notes/current.md");
+        assert_eq!(content.content, "Current facts.\n");
+
+        let escaped = read_memory_file(
+            &state,
+            &serde_json::json!({ "agent_id": agent_id, "path": "../profile.json" }),
+        )
+        .await
+        .unwrap_err();
+        assert!(escaped.to_string().contains("invalid"));
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(memory.join("notes/current.md"), memory.join("linked.md"))
+                .unwrap();
+            let linked = read_memory_file(
+                &state,
+                &serde_json::json!({ "agent_id": agent_id, "path": "linked.md" }),
+            )
+            .await
+            .unwrap_err();
+            assert!(linked.to_string().contains("symlink"));
+        }
     }
 
     #[tokio::test]

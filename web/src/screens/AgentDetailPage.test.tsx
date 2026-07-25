@@ -35,9 +35,13 @@ describe("Agent detail", () => {
           ...current,
           role_text: body.role_text ?? current.role_text,
           role_revision: body.role_text ? current.role_revision + 1 : current.role_revision,
-          status: body.lifecycle?.action === "suspend" ? "suspended" : current.status,
+          status: body.lifecycle?.action === "suspend" ? "error" : body.lifecycle?.action === "retry" ? "provisioning" : current.status,
+          last_error_code: body.lifecycle?.action === "suspend" ? "driver_unavailable" : undefined,
         };
         return json(current);
+      }
+      if (path.endsWith(`/agents/${agentId}/memory/read`) && init?.method === "POST") {
+        return json({ ...current.memory_files[0], content: "# Memory\n\nKeep the boundary explicit.\n" });
       }
       throw new Error(`Unexpected request: ${path}`);
     });
@@ -47,6 +51,8 @@ describe("Agent detail", () => {
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Read MEMORY.md" }));
+    expect(await screen.findByText(/Keep the boundary explicit/)).toBeVisible();
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Enforce the specification." } });
     fireEvent.click(screen.getByRole("button", { name: /save configuration/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
@@ -59,10 +65,16 @@ describe("Agent detail", () => {
       expect.stringContaining(`/agents/${agentId}`),
       expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "suspend", mode: "cancel_now" } }) }),
     ));
+    expect(await screen.findByText("driver_unavailable")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /retry provision/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/agents/${agentId}`),
+      expect.objectContaining({ body: JSON.stringify({ lifecycle: { action: "retry" } }) }),
+    ));
   });
 });
 
-function agent(status: "active" | "suspended") {
+function agent(status: "provisioning" | "active" | "suspended" | "error" | "retired") {
   return {
     member_id: agentId,
     space_id: space.id,
@@ -77,6 +89,7 @@ function agent(status: "active" | "suspended") {
     attention_config: { dm_immediate: true, mention_immediate: true, ambient_enabled: true, ambient_debounce_seconds: 5, ambient_max_wait_seconds: 30, max_retry_count: 3 },
     created_at: "2026-07-25T00:00:00Z",
     updated_at: "2026-07-25T00:00:00Z",
+    last_error_code: undefined as string | undefined,
     memory_files: [{ path: "MEMORY.md", size: 9, sha256: "d7870cdadd1a", updated_at: "2026-07-25T00:00:00Z" }],
   };
 }
