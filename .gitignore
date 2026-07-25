@@ -1,0 +1,10 @@
+/target/
+/web/node_modules/
+/web/dist/
+/.sumi/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+

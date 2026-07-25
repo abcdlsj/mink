@@ -80,7 +80,7 @@ Server、Computer daemon 和 Agent CLI 使用同一个 Rust workspace、Cargo pa
 | CLI | clap derive | server、computer、agent 三级命令树 |
 | serialization | serde + serde_json | HTTP、WebSocket、本地 IPC 和 CLI JSON envelope |
 | errors | thiserror；仅进程边界使用 anyhow | 领域错误保持可枚举，不把字符串错误当协议 |
-| auth/session | argon2 + axum_session + axum_session_sqlx | 密码哈希与 PostgreSQL-backed Session；不自研 Cookie 签名、过期和轮换 |
+| auth/session | argon2 + axum-extra cookie API + getrandom + sha2 | 密码使用 Argon2id；Session Cookie 保存 OS 随机 256-bit opaque token，Server 只保存 SHA-256 token hash 和过期时间 |
 | outbound HTTP/WebSocket | reqwest + tokio-tungstenite | daemon 调用 Server API 和保持 Computer 连接 |
 | object storage | object_store | 同一接口支持本机目录测试和生产 S3-compatible storage |
 | local IPC | tokio Unix domain socket | macOS 与 Linux 上 Agent CLI 到 daemon 的本机通信 |
@@ -96,13 +96,28 @@ Server、Computer daemon 和 Agent CLI 使用同一个 Rust workspace、Cargo pa
 - v1 不单独引入 WebSocket framework；axum 处理 Server upgrade，tokio-tungstenite处理 daemon client。
 - v1 不自研密码学、Session 格式、对象存储协议或 WebSocket framing。
 
-Web component framework、router 和 data fetching library仍待讨论；它们不得反向改变本节定义的 HTTP/OpenAPI 和事件协议。
+`axum_session_sqlx` 0.10 不采用：它会创建 `id/expires/session` 表并把原始 Session ID 作为主键，与第 18 节要求的 `user_id/token_hash/expires_at` 唯一 schema 冲突。Sumi 的 Cookie 不携带用户 ID、权限或其他可信 payload，篡改后的随机 token 只会在 Server 端 hash lookup 失败；Cookie 属性和解析使用 `axum-extra` 维护的 `cookie` 实现，不设计自定义签名格式。
+
+### 3.1.1 Web 技术栈
+
+WebUI 使用 React 19、TypeScript、Vite、TanStack Router 和 TanStack Query，包管理器使用 pnpm。选择边界如下：
+
+- React 只负责 Browser UI；领域规则、权限和事务仍由 Rust Server 执行。
+- TanStack Router 负责 `/s/{space-slug}` 等类型安全路由，TanStack Query 负责 HTTP server state、失效和断线补偿；SSE event 只触发精确 cache update 或 invalidation，不成为第二事实来源。
+- Browser API 类型从 utoipa OpenAPI 生成；禁止长期维护一套手写、与 Rust 并行演化的 wire types。
+- 样式使用普通 CSS 和集中 design tokens，不引入重型组件库，以便精确实现本文件定义的 Neo-Brutalism、响应式和 accessibility 行为。
+- 单元与组件测试使用 Vitest、Testing Library 和 jsdom；最终端到端验收使用 Playwright。
+- Vite development server 将 `/api` 代理到本机 `sumi server`；production build 由 `sumi server` 同源提供，避免额外 CORS 信任面。
+
+Node 使用当前 Active LTS 主版本，项目通过 `mise.toml` 固定；依赖版本由 `pnpm-lock.yaml` 固定。前端选型不得反向改变本节定义的 HTTP/OpenAPI 和事件协议。
 
 ### 3.2 macOS 本机开发与测试
 
 完整开发和测试必须能在一台 macOS Computer 上完成，不要求 Docker、Kubernetes 或远程基础设施。
 
 v1 发布目标只包含 macOS 与 Linux：Apple Silicon 和 x86_64 macOS，以及 x86_64 和 arm64 Linux。Server 与 Computer 使用同一组平台目标；`sumi agent` 随 Computer 一起分发。CI 至少覆盖一个 macOS 和一个 Linux 目标。Windows binary、Windows service 和 named pipe 均不属于 v1；代码无需为未支持平台保留未经测试的条件分支。
+
+Linux Computer 的 Driver 外层隔离依赖 bubblewrap（`bwrap`）；macOS 使用系统自带的 `sandbox-exec`。daemon 在 Agent provision 和每次 run 前都必须在外层 sandbox 中实际运行 `codex --version`，不能只检查文件存在。缺少隔离工具、Codex 执行链损坏或 sandbox 自检失败时，Agent provision/run 明确失败，Computer 配对与 heartbeat 仍可继续运行。
 
 首次运行数据库测试前安装本机 PostgreSQL。默认开发说明使用 Homebrew：
 
@@ -319,7 +334,7 @@ Channel
 - 邮箱：标准化为小写后全局唯一。
 - 密码：最少 10 个字符，Server 仅保存 Argon2id 哈希。
 
-注册成功后立即创建登录 Session。普通注册跳转到 Space 创建页；带有效邀请令牌的注册先展示邀请目标，接受后进入目标 Space。
+注册成功后立即创建登录 Session。普通注册跳转到 Space 创建页；从邀请页进入的注册和登录必须保留安全的站内 redirect，认证后返回邀请页，接受邀请后进入目标 Space。邀请 token 不写入注册请求或 Session。
 
 v1 不要求邮箱验证，不实现找回密码。即使如此，也必须按 IP 与标准化邮箱实现注册和登录限速。生产公开部署前必须补齐邮箱验证、找回密码和更完整的撞库保护。
 
@@ -410,6 +425,19 @@ Agent 或普通 Human 使用 agent:create 发起时，Server 创建 Approval：
 
 只有 Human Owner 或 Human Admin 可以 approve/reject。发起者不能审批自己的申请。审批成功后 Server 才向目标 Computer 下发创建命令。Approval 必须出现在 Human Inbox 和 WebUI 的审批列表。
 
+### 8.4 Human 邀请
+
+Owner 或 Admin 通过目标 Human 的标准化邮箱创建邀请。邀请是持有 token 即可预览、但必须由匹配邮箱的已登录 Human 接受的单次凭证：
+
+- 邀请创建客户端使用 WebCrypto 或 OS CSPRNG 生成 256-bit opaque token，并通过 HTTPS 创建请求提交；Server 校验长度后只保存 SHA-256 hash，创建响应不得回显 token。邀请客户端用本地 token 构造邀请 URL，避免原始 token 落入 idempotency_records.response_json。
+- 邀请默认 7 天过期。过期、已接受或已撤销的 token 不得再次使用。
+- 邀请预览只返回 Space name、slug、邀请邮箱和过期时间，不授予任何 Space 读取权限。
+- 接受者的 Session 邮箱必须与邀请邮箱大小写不敏感匹配，否则返回 permission_denied。
+- 接受事务同时创建 Human Member、加入 general、标记邀请已接受、撤销同一 Space/邮箱的其他未使用邀请，并写入 audit 与 outbox。
+- 已经属于目标 Space 的 Human 不能再创建第二个 Member；不得通过邀请改变现有 Member 的权限级别。
+
+新 Human Member 的默认 access level 是 Member，显式 permissions 为空。只有 Owner 能在 Owner/Admin/Member 之间授予或撤销 Admin；Owner 或 Admin 可以为普通 Member 更新 channel:create 与 agent:create。Admin 不能修改 Owner、其他 Admin 或自己的权限级别，Owner 不能通过普通 Member 更新接口放弃 Owner 身份。
+
 ## 9. Channel、DM、Thread、Message 与 Attachment
 
 ### 9.1 Channel
@@ -425,6 +453,10 @@ Channel 字段：
 
 public Channel 可被 Space Member 发现和加入。private Channel 只对显式成员可见。direct Channel 不出现在 Channel 列表，只出现在 DM 列表。
 
+非 direct Channel 的 slug 为 1 至 32 个字符，使用小写 ASCII 字母、数字和单个连字符，不能以连字符开头或结尾；name 为 1 至 80 个 Unicode 字符，topic 最多 200 个 Unicode 字符。Channel 列表只返回未归档的 public Channel 和当前 Member 已显式加入的 private Channel，并标记当前 Member 是否已加入。创建者自动加入新 Channel。Space Member 可通过加入端点加入 public Channel；private/direct Channel 不允许自行加入。
+
+Owner、Admin 或 Channel 创建者可以归档自己有权管理的 public/private Channel。general 与 direct Channel 不使用普通归档端点。归档是 v1 的单向操作：Channel 从导航和发现列表消失，历史 Message 与 Thread 对现有 Channel Members 保持可读，但所有新 Message、Thread 和 membership 写入必须拒绝。v1 不提供 unarchive。
+
 拥有 channel:create 的 Agent 可以通过 CLI 创建 Channel，行为与 Human UI 创建相同，不需要额外审批。
 
 ### 9.2 DM
@@ -436,6 +468,8 @@ DM 是 kind=direct 的 Channel：
 - 双方都能创建 Thread 和发送 Attachment。
 - 对 Agent 而言，新的对方 Message 是立即注意事件。
 - Human 与 Agent、Agent 与 Agent、Human 与 Human 使用完全相同的 Message 模型。
+
+DM 由当前 Member 和一个目标 Member 创建，不接受任意参与者数组。Server 将两个 Member ID 规范化为稳定顺序，并保证同一 Space 同一对 Members 只有一个未归档 DM；重复创建返回原 DM。两个参与者在创建事务中同时写入 Channel membership。DM 不允许加入、移除第三人或变更可见性。
 
 ### 9.3 Thread
 
@@ -543,7 +577,15 @@ CLI 上传流程：
 4. Server 校验长度和 sha256 后完成 Attachment。
 5. Agent 使用返回的 attachment_id 发送 Message。
 
-Attachment URL 必须短期签名，不公开 object_key。
+Browser 与 CLI 使用同一上传协议：`POST /attachments/uploads` 创建 uploading 元数据并返回同源
+`upload_path`，随后以 `PUT` 把原始字节流写入该路径，最后以 `POST /complete` 提交客户端计算的
+size 与十六进制 SHA-256。Server 在 complete 时从 storage 重新流式计算并比对；长度、摘要或上传者
+不匹配时不得把 Attachment 标记为 ready。Message 创建请求使用结构化 `attachment_ids`，只允许作者
+关联自己上传、同 Space 且 ready 的 Attachment，同一个 Attachment 首版只关联一条 Message。
+
+下载由 Server 通过 `/attachments/{attachment_id}/download` 代理，只有 Attachment 已关联 Message 且
+当前 Member 是对应 Channel Member时才返回内容。该路径不返回或暴露 object_key；若部署后改为对象存储
+直传/直下，URL 必须短期签名。Server storage adapter 使用同一接口支持本地目录和 S3-compatible backend。
 
 ## 10. WebUI 设计
 
@@ -756,17 +798,25 @@ sumi computer --server https://sumi.example.com
 该命令启动 Computer daemon。首次启动时：
 
 1. 检查本地是否已有 Computer identity。
-2. 若没有，生成本机 P-256 ECDH 密钥对和随机 pairing secret。
+2. 若没有，生成本机 P-256 ECDH 密钥对、随机 pairing secret 和随机 Computer credential。
 3. 调用公开的 pairing start API，提交 Computer public key、hostname、OS 和 daemon version。
 4. Server 返回短时 pairing code 和 browser URL，有效期 10 分钟。
 5. daemon 打印 URL 并尝试打开默认浏览器。
 6. 已登录 Human 打开页面，选择 Space、编辑 Computer name 并确认。
 7. Server 校验该 Human 是 Owner 或 Human Admin，将 Computer 绑定到 Space。
-8. daemon 使用 pairing secret 轮询结果，取得 Computer credential。
+8. daemon 使用 pairing secret 轮询结果，取得已确认的 Computer ID 和 Space ID。
 9. daemon 将私钥和 credential 写入 Computer 本地的 secrets.json，并限制文件权限。
 10. daemon 建立出站 WebSocket，完成协议握手后 Computer 变为 online。
 
 配对确认页必须显示 hostname、OS、public key fingerprint 和目标 Space，防止确认错误机器。
+
+配对 start 请求提交 base64url 编码的 SEC1 P-256 public key、pairing secret SHA-256、Computer credential
+SHA-256、hostname、OS 和 daemon version；Server 生成并只保存 pairing code hash，响应返回 pairing_id、一次性 code、
+`/pair-computer/{pairing_id}?code=...` Browser URL 与 expires_at。daemon 轮询 result 时使用 raw pairing
+secret 的 Bearer token，Server 比对 hash。Human confirm 请求包含目标 space_id、Computer name 与一次性 code；
+成功响应不返回 credential，result 也只返回 Computer ID 和 Space ID。raw Computer credential 从生成起只存在于
+daemon 的受限 `secrets.json`；Server 始终只保存 start 请求提交的 hash。result 在配对有效期内可安全幂等重试，
+避免首次成功响应丢失后 Computer 永久无法恢复。
 
 ### 11.3 连接与心跳
 
@@ -810,6 +860,8 @@ computer/
 - runs/ 保存临时运行输出，按保留策略清理。
 
 每个 Agent 目录权限必须限制为 daemon 运行用户。不同 Agent 进程不能访问对方目录。
+目录权限 0700/文件权限 0600 只隔离其他 OS 用户，不能隔离同一 daemon 用户启动的不同 Driver 进程；
+因此 daemon 启动 Driver 时还必须用进程 sandbox 将可写路径限制到当前 Agent Home，并拒绝其他 Agent Home。
 
 ### 11.5 资源管理
 
@@ -975,12 +1027,14 @@ normalized events：
 
 进入 Agent prompt 的详细设计与实现阶段前，必须先探索项目 `.slock` 中已有的 Agent prompt，将其作为结构组织、约束表达和上下文编排的参考。只吸收适合 Sumi 领域模型与 CLI 契约的做法，不直接照搬其中与 Slock 身份、工具或工作流绑定的内容；若 `.slock` 不存在或内容已失效，则记录该事实并按本节约束独立设计。
 
+截至 2026-07-25，当前实现基线中不存在 `.slock`，因此没有可吸收的既有 Agent prompt。Sumi 按本节列出的最小输入独立设计 run prompt；后续若引入 `.slock`，必须先更新本文并重新评估，不能在运行时隐式读取。
+
 ### 13.3 Codex v1 启动
 
-v1 使用 Codex CLI 的非交互模式。基准命令：
+v1 使用 Codex CLI 的非交互模式。prompt 通过 stdin 传入，避免 Message 摘要、Role 或 Inbox ID 出现在进程参数和系统进程列表中。基准命令：
 
 ~~~
-codex exec --json --ephemeral --sandbox workspace-write --ignore-user-config --skip-git-repo-check "{run prompt}"
+printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-write --ignore-user-config --skip-git-repo-check -
 ~~~
 
 实现要求：
@@ -992,6 +1046,8 @@ codex exec --json --ephemeral --sandbox workspace-write --ignore-user-config --s
 - --ignore-user-config 防止 Human 的全局 Codex 配置、MCP 和指令意外进入 Agent；Sumi 通过显式参数和 Agent 专属 CODEX_HOME 提供运行配置。
 - 默认使用 workspace-write；danger-full-access 必须由未来独立权限设计控制，v1 UI 不开放。
 - daemon 必须限制环境变量，只注入当前 Agent 必需的 PATH、HOME/CODEX_HOME、Sumi local capability 和 Codex credential。
+- Codex 的 workspace-write 是 Driver 内层命令策略，不是 Agent 间隔离边界。daemon 必须再使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent Home；Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent Home 和 daemon socket。两端都只允许写当前 Agent Home，并遮蔽 Computer credential 与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
+- daemon 将 Agent 专属 `CODEX_HOME` 放在 `drivers/codex/`，并使用 `--ignore-user-config`；该目录必须在启动前存在。子进程环境从空集合构造，不继承 daemon 的任意 Secret 或 Human 环境。
 - Codex 的最终 agent_message 只写运行日志，不自动发送到 Sumi。
 - Codex 正常退出但没有处理 claimed Inbox Items，run 仍判定为未处理并进入重试。
 
@@ -1345,10 +1401,14 @@ Space 和 Member：
 ~~~
 POST /api/v1/spaces
 GET  /api/v1/spaces/{space_id}
+GET  /api/v1/spaces/by-slug/{space_slug}
+GET  /api/v1/spaces
 PATCH /api/v1/spaces/{space_id}
 GET  /api/v1/spaces/{space_id}/members
 PATCH /api/v1/spaces/{space_id}/members/{member_id}
 POST /api/v1/spaces/{space_id}/invites
+GET  /api/v1/invites/{invite_token}
+POST /api/v1/invites/{invite_token}/accept
 ~~~
 
 Channel、Message 和 Attachment：
@@ -1356,11 +1416,19 @@ Channel、Message 和 Attachment：
 ~~~
 GET  /api/v1/spaces/{space_id}/channels
 POST /api/v1/spaces/{space_id}/channels
+GET  /api/v1/spaces/{space_id}/dms
+POST /api/v1/spaces/{space_id}/dms
+POST /api/v1/channels/{channel_id}/members/me
+POST /api/v1/channels/{channel_id}/archive
 GET  /api/v1/channels/{channel_id}/messages
 POST /api/v1/channels/{channel_id}/messages
+POST /api/v1/channels/{channel_id}/threads
+GET  /api/v1/channels/{channel_id}/threads/{thread_id}
+POST /api/v1/channels/{channel_id}/threads/{thread_id}/messages
 PATCH /api/v1/messages/{message_id}
 DELETE /api/v1/messages/{message_id}
 POST /api/v1/attachments/uploads
+PUT  /api/v1/attachments/{attachment_id}/content
 POST /api/v1/attachments/{attachment_id}/complete
 GET  /api/v1/attachments/{attachment_id}/download
 ~~~
@@ -1371,7 +1439,9 @@ Computer、Agent、Inbox 和 Approval：
 POST /api/v1/computer-pairings/{pairing_id}/confirm
 GET  /api/v1/spaces/{space_id}/computers
 DELETE /api/v1/computers/{computer_id}
+GET  /api/v1/spaces/{space_id}/agents
 POST /api/v1/spaces/{space_id}/agents
+GET  /api/v1/agents/{agent_id}
 PATCH /api/v1/agents/{agent_id}
 GET  /api/v1/members/{member_id}/inbox
 POST /api/v1/inbox/{item_id}/ack
@@ -1380,6 +1450,25 @@ GET  /api/v1/spaces/{space_id}/approvals
 POST /api/v1/approvals/{approval_id}/approve
 POST /api/v1/approvals/{approval_id}/reject
 ~~~
+
+Agent list/detail 对同一 Space Member 返回 identity、Role revision、状态、Computer、Driver 和
+attention config；只有 Human Owner/Admin 能通过 Browser detail 读取 Memory 文件元数据。`PATCH`
+只允许 Human Owner/Admin，接受可选的 `role_text`、`attention_config` 和 lifecycle action。lifecycle
+action 固定为 `suspend`、`resume` 或 `retire`；`suspend` 还必须携带
+`mode=stop_after_current|cancel_now`。一次请求可以同时修改 Role/attention config 和执行一个
+lifecycle action，Server 在同一事务写 Agent、持久 Computer command、audit 与 outbox。Retire
+不可逆，不能与其他修改组合。Role 和 attention config 修改通过 `agent.configure` command 同步到
+daemon；lifecycle 分别使用 `agent.suspend`、`agent.resume`、`agent.retire`，command 必须幂等。
+
+Browser realtime：
+
+~~~
+GET  /api/v1/spaces/{space_id}/events
+~~~
+
+Browser 通过标准 `Last-Event-ID` header 重连；初次连接只接收连接建立后产生的事件，重连按持久
+`event_id` 严格重放其后的 Space events。Server 从 PostgreSQL outbox 读取并标记 published，进程内通知
+只用于缩短轮询延迟，不是事件事实来源。
 
 所有 mutating API 接收 Idempotency-Key。路径中的 space_id 与 Session 当前 Space 不一致时必须拒绝，不得只依赖前端路由。
 
@@ -1390,8 +1479,9 @@ Computer 使用独立认证面：
 ~~~
 POST /api/v1/computer-pairings/start           未配对 daemon，pairing secret 认证
 GET  /api/v1/computer-pairings/{id}/result     未配对 daemon，pairing secret 认证
-GET  /api/v1/computers/{id}/events             SSE command stream
+GET  /api/v1/computers/{id}/connect            WebSocket command stream 与 heartbeat
 POST /api/v1/computers/{id}/commands/{id}/result
+GET  /api/v1/computers/{id}/agents
 POST /api/v1/computers/{id}/agents/{id}/inbox/claim
 POST /api/v1/computers/{id}/agents/{id}/inbox/renew
 POST /api/v1/computers/{id}/agents/{id}/inbox/release
@@ -1399,6 +1489,10 @@ POST /api/v1/computers/{id}/agent-actions
 ~~~
 
 Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer credential 不能管理 Space 中其他 Computer 的 Agents。
+daemon 每秒用 Computer credential 拉取本机 active Agents 并尝试 claim；claim 为空是正常结果，不得断开
+WebSocket。claim 在一个事务内租约 Inbox Items、创建 `agent_runs`/关联行并分配持久 `agent.run`
+command。daemon 对临时轮询失败记录不含正文的结构化错误，并在下一周期重试，不能为了 attention poll
+失败主动拆掉 command stream。
 
 ### 17.3 SSE events
 
@@ -1457,17 +1551,29 @@ v1 event types：
 
 - member_id、permission channel:create|agent:create、granted_by_member_id、created_at。
 
+**human_invitations**
+
+- id、space_id、email_normalized、token_hash unique、invited_by_member_id、expires_at、accepted_by_member_id、accepted_at、revoked_at、created_at。
+- accepted_by_member_id 必须是同一 Space 的 Human Member；accepted_at 与 accepted_by_member_id 必须同时为空或同时存在。
+
 **computers**
 
-- id、space_id、name、hostname、os、public_key、credential_hash、status、daemon_version、last_seen_at、created_at、revoked_at。
+- id、space_id、name、hostname、os、public_key、credential_hash、status、daemon_version、next_command_seq、last_seen_at、created_at、revoked_at。
 
 **computer_pairings**
 
-- id、pairing_code_hash、pairing_secret_hash、public_key、metadata_json、expires_at、confirmed_by_member_id、computer_id、status。
+- id、pairing_code_hash、pairing_secret_hash、credential_hash、public_key、hostname、os、daemon_version、expires_at、space_id、confirmed_by_member_id、computer_id、status。
+- 确认后 space_id 必须同时匹配 confirmed Human Member 和创建的 Computer，使用复合外键保证。
 
 **agents**
 
 - member_id primary key、computer_id、role_text、role_revision、status、driver_kind、driver_config_json、attention_config_json、created_by_member_id、created_at、updated_at、retired_at。
+
+**agent_memory_files**
+
+- agent_member_id、path、size、sha256、updated_at，primary key(agent_member_id, path)。
+- path 是相对 `memory/` 的 UTF-8 路径；Server 不保存文件正文。daemon 每次 provision/configure/lifecycle
+  command 成功后回报完整元数据快照，Server 在处理 command result 的事务中替换该 Agent 的快照。
 
 **channels**
 
@@ -1478,10 +1584,17 @@ v1 event types：
 
 - channel_id、member_id、joined_at、last_read_seq、notification_level、unique(channel_id, member_id)。
 
+**direct_channels**
+
+- channel_id primary key、space_id、member_low_id、member_high_id。
+- member_low_id 与 member_high_id 使用 UUID 字节顺序规范化，必须不同；unique(space_id, member_low_id, member_high_id)。
+- 两个 Member 必须属于同一 Space，且必须恰好是对应 direct Channel 的两个 channel_members；数据库约束拒绝第三个参与者。
+
 **threads**
 
-- channel_id、thread_id bigint、root_message_id、created_by_member_id、created_at。
+- channel_id、space_id、thread_id bigint、root_message_id、created_by_member_id、created_at。
 - primary key(channel_id, thread_id)，unique(channel_id, root_message_id)。
+- root Message、创建者和 Channel 必须通过复合外键属于同一 Space；root 必须是主时间线 Message，由创建事务校验。
 
 **thread_subscriptions**
 
@@ -1489,13 +1602,15 @@ v1 event types：
 
 **messages**
 
-- id、channel_id、channel_seq、thread_id、reply_to_message_id、author_member_id、body_markdown、idempotency_key、created_at、edited_at、deleted_at。
+- id、channel_id、space_id、channel_seq、thread_id、reply_to_message_id、author_member_id、body_markdown、idempotency_key、created_at、edited_at、deleted_at。
 - unique(channel_id, channel_seq)。
 - unique(author_member_id, idempotency_key)。
+- channel_id、author_member_id 与 space_id 必须通过复合外键属于同一 Space。
 
 **message_mentions**
 
-- message_id、member_id、unique(message_id, member_id)。
+- message_id、channel_id、space_id、member_id、unique(message_id, member_id)。
+- mentioned Member 必须是对应 Channel 的 Channel Member，由复合外键保证。
 
 **attachments**
 
@@ -1507,11 +1622,13 @@ v1 event types：
 
 **inbox_items**
 
-- id、member_id、kind、priority、channel_id、thread_id、message_id、first_seq、last_seq、message_count、status、available_at、lease_id、lease_expires_at、retry_count、handled_by_run_id、handled_at、last_error、created_at。
+- id、member_id、space_id、kind、priority、channel_id、thread_id、message_id、first_seq、last_seq、message_count、status、available_at、lease_id、lease_expires_at、retry_count、handled_by_run_id、handled_at、last_error、created_at。
+- member_id、channel_id、message_id 与 space_id 必须通过复合外键属于同一 Space。
 
 **agent_runs**
 
-- id、agent_member_id、computer_id、driver_kind、role_revision、status queued|running|completed|failed|canceled、started_at、finished_at、exit_code、error_code。
+- id、agent_member_id、computer_id、driver_kind、role_revision、status queued|running|completed|failed|canceled、created_at、started_at、finished_at、exit_code、error_code。
+- 同一 Agent 最多一个 queued/running run，由数据库 partial unique index 保证。
 
 **agent_run_inbox_items**
 
@@ -1533,11 +1650,18 @@ v1 event types：
 
 - id、topic、aggregate_id、payload_json、created_at、published_at、attempts。
 
+**idempotency_records**
+
+- scope、idempotency_key、request_hash、response_status、response_json、created_at、expires_at。
+- primary key(scope, idempotency_key)；同一 key、不同 request_hash 必须返回 conflict。
+- 记录与对应业务写入在同一事务完成；过期记录由后台清理。
+
 ### 18.2 事务边界
 
 以下操作必须单事务：
 
 - Space 创建及 Owner/general 初始化。
+- Human 邀请接受、Member/general membership 创建、同邮箱其他邀请撤销、audit 和 outbox 写入。
 - Message 创建、mentions/attachments 关联、Inbox 生成和 outbox 写入。
 - message send --handle 创建 Message 并处理 Inbox。
 - Approval 决议和 Agent provisioning command outbox。

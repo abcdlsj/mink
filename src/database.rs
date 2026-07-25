@@ -1,0 +1,66 @@
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use sqlx::{
+    PgPool, SqlitePool,
+    postgres::PgPoolOptions,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
+
+static POSTGRES_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/postgres");
+static SQLITE_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations/sqlite");
+
+pub async fn connect_postgres(database_url: &str) -> Result<PgPool> {
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url)
+        .await
+        .context("failed to connect to PostgreSQL")?;
+    POSTGRES_MIGRATOR
+        .run(&pool)
+        .await
+        .context("failed to migrate PostgreSQL")?;
+    Ok(pool)
+}
+
+pub async fn connect_sqlite(path: &Path) -> Result<SqlitePool> {
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .context("failed to connect to daemon SQLite")?;
+    SQLITE_MIGRATOR
+        .run(&pool)
+        .await
+        .context("failed to migrate daemon SQLite")?;
+    Ok(pool)
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn sqlite_migrations_create_daemon_tables() {
+        let directory = tempdir().unwrap();
+        let database = connect_sqlite(&directory.path().join("daemon.db"))
+            .await
+            .unwrap();
+
+        let table_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN \
+             ('daemon_metadata', 'server_commands', 'local_agent_runs')",
+        )
+        .fetch_one(&database)
+        .await
+        .unwrap();
+
+        assert_eq!(table_count, 3);
+    }
+}

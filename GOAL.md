@@ -13,6 +13,7 @@
 3. 从最早的未完成阶段继续，保持可运行的纵向闭环；除真正阻塞外持续实现、验证和修复，不因阶段性汇报停工。
 4. `docs/design.md` 明确留给实现者的工程选择，采用最简单、成熟且维护活跃的方案，并把选择补回设计文档；不得借机改变产品语义。
 5. 每完成一项，在下方勾选并在“验证记录”追加简短证据。验证失败就继续修，不得提前标记完成。
+6. 写完可提交基线，可以先 commit 代码。
 
 ## 完成定义
 
@@ -33,37 +34,37 @@
 
 ### 0. 工程基线
 
-- [ ] 确认并记录 Web 技术栈，完成 Rust/Web 工具链、统一任务命令和配置加载。
-- [ ] 建立单一 `sumi` binary 的命令树、模块边界、PostgreSQL/SQLite migrations 和测试基础设施。
-- [ ] 在本机安装并验证 PostgreSQL，保证测试可创建隔离 database 或 schema 并自动清理。
+- [x] 确认并记录 Web 技术栈，完成 Rust/Web 工具链、统一任务命令和配置加载。
+- [x] 建立单一 `sumi` binary 的命令树、模块边界、PostgreSQL/SQLite migrations 和测试基础设施。
+- [x] 在本机安装并验证 PostgreSQL，保证测试可创建隔离 database 或 schema 并自动清理。
 
 ### 1. Human 与 Space
 
-- [ ] 实现注册、登录、退出、Session 与限速。
-- [ ] 实现 Space 创建、全局唯一 slug、Owner、general 初始化和 Space shell UI。
-- [ ] 实现 Member 列表、邀请、Owner/Admin/Member 与显式 permissions。
+- [x] 实现注册、登录、退出、Session 与限速。
+- [x] 实现 Space 创建、全局唯一 slug、Owner、general 初始化和 Space shell UI。
+- [x] 实现 Member 列表、邀请、Owner/Admin/Member 与显式 permissions。
 
 ### 2. 协作主路径
 
-- [ ] 实现 public/private Channel、DM、membership 和归档。
-- [ ] 实现 Message、mention、Channel 内数字 Thread ID、分页与 context snapshot。
-- [ ] 实现 Attachment 上传、完成、关联、下载和本地/S3-compatible storage adapter。
-- [ ] 实现 transactional outbox、Browser SSE 重放和 Human Inbox。
-- [ ] 完成 Channel/Thread/DM 的桌面与移动 UI、composer 和关键组件测试。
+- [x] 实现 public/private Channel、DM、membership 和归档。
+- [x] 实现 Message、mention、Channel 内数字 Thread ID、分页与 context snapshot。
+- [x] 实现 Attachment 上传、完成、关联、下载和本地/S3-compatible storage adapter。
+- [x] 实现 transactional outbox、Browser SSE 重放和 Human Inbox。
+- [x] 完成 Channel/Thread/DM 的桌面与移动 UI、composer 和关键组件测试。
 
 ### 3. Computer
 
-- [ ] 实现 `sumi computer` 初始化、浏览器配对、受限 `secrets.json` 和撤销。
-- [ ] 实现 Computer WebSocket、heartbeat、离线判定、重连、持久 command sequence、ACK 与幂等重放。
-- [ ] 实现 daemon SQLite、本地目录、Unix socket、Agent Home 隔离和进程 supervisor。
-- [ ] 完成 Computer 管理 UI 和崩溃/重启恢复测试。
+- [x] 实现 `sumi computer` 初始化、浏览器配对、受限 `secrets.json` 和撤销。
+- [x] 实现 Computer WebSocket、heartbeat、离线判定、重连、持久 command sequence、ACK 与幂等重放。
+- [x] 实现 daemon SQLite、本地目录、Unix socket、Agent Home 隔离和进程 supervisor。
+- [x] 完成 Computer 管理 UI 和崩溃/重启恢复测试。
 
 ### 4. Agent 与 Codex
 
 - [ ] 实现 Agent 创建、配置、暂停、恢复、退役、Role revision 和 Memory。
 - [ ] 实现通用 Driver 契约与 Codex Driver；Driver 私有状态不得成为 Agent 身份或 Memory。
 - [ ] 实现完整 `sumi agent` 命令树、run capability、结构化 JSON、权限校验和幂等写入。
-- [ ] 在设计 Agent run prompt 前探索 `.slock` 的 Agent prompt，按 `docs/design.md` 约束吸收适合 Sumi 的结构。
+- [x] 在设计 Agent run prompt 前探索 `.slock` 的 Agent prompt，按 `docs/design.md` 约束吸收适合 Sumi 的结构。
 - [ ] 打通 Human DM Agent -> Inbox -> Codex -> CLI read -> CLI send-and-handle -> Human 收到回复。
 
 ### 5. 注意力与治理
@@ -93,10 +94,35 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 
 ## 当前状态
 
-- 设计阶段完成了 `GLOSSARY.md`、`docs/design.md` 和 Raft blog references。
-- 实现尚未开始；所有完成项必须从未勾选状态以实际代码和测试推进。
-- 下一步：执行 Phase 0，先消除仍未确定的 Web 技术栈并建立可运行工程基线。
+- Phase 0 工程基线已完成：单 Cargo package、Rust/Web 工具链、PostgreSQL/SQLite migrations、统一 mise tasks 和同源 Web shell 可运行。
+- Phase 1 Human 与 Space 已完成：注册/Session、Space 初始化、统一 Member 列表、邮箱邀请和权限更新形成可运行闭环。
+- Phase 2 协作主路径已完成：Channel/DM/Thread/Message/Attachment、SSE replay、Human Inbox 与桌面/移动 UI 形成闭环。
+- Phase 3 Computer 已完成：配对、在线状态、管理 UI、SQLite/Unix socket、command 恢复、真实 Codex Driver supervisor 与同机 Agent sandbox 已形成闭环。
+- 当前最早未完成阶段为 Phase 4 Agent 与 Codex；下一步实现 Agent lifecycle/Role/Memory 与完整 `sumi agent` 命令，并打通 Human DM Agent 的注意力纵向路径。
+- Phase 4 Agent lifecycle/Role/Memory 后端与管理 UI 已形成纵向路径；下一步完成 `sumi agent` 命令和 Human DM Agent 注意力闭环，整项验收通过前不勾选 Phase 4 主项。
+- Phase 4 Human DM Agent 的 Server/Computer/CLI 动作纵向路径已打通；仍需补齐完整 CLI 命令面和真实 daemon/Driver 里程碑验收，未完成前不勾选 Phase 4。
 
 ## 验证记录
 
-尚无。格式：`YYYY-MM-DD | 阶段/项目 | 命令或证据 | 结果`。
+格式：`YYYY-MM-DD | 阶段/项目 | 命令或证据 | 结果`。
+
+2026-07-25 | Phase 0 / 工具链与统一任务 | `mise run install`; `mise run build`; `mise run lint`; `mise run test` | Rust/Web 构建、clippy `-D warnings`、typecheck、组件测试、CLI/SQLite/PostgreSQL tests 全部通过。
+2026-07-25 | Phase 0 / PostgreSQL | Homebrew PostgreSQL 17.10；integration test 创建独立 database、执行 migration、校验约束并自动 drop | 通过。
+2026-07-25 | Phase 0 / 运行入口 | `mise run run`; `GET /api/v1/health`; `sumi computer --server http://127.0.0.1:3000` | Server/数据库/WebUI 同源启动成功，Computer SQLite 初始化并正常退出。
+2026-07-25 | Phase 1 / Auth 与 Space | 隔离 PostgreSQL HTTP flow：注册重试、logout/login、Session、Space/Owner/general/audit/outbox 与 slug 查询；`mise run test` | 通过。
+2026-07-25 | Phase 1 / Member、邀请与权限 | Owner 邀请并授予 Admin、Admin 邀请并授予显式权限、越权更新 403、邀请单次接受/general membership；migration constraints 与 Web 组件测试 | 通过。
+2026-07-25 | Phase 1 / 统一门禁与运行态 | `mise run lint`; `mise run test`; `mise run build`; `mise run run`; `GET /api/v1/health`; `GET /s/sumi-lab/members` | 严格 clippy、Rust/PostgreSQL/Web tests、production build 及 SPA deep-link smoke 全部通过。
+2026-07-25 | Phase 2 / Channel 与 Message 首条路径 | 隔离 PostgreSQL HTTP flow：channel:create 权限、public Discover/Join、private 隔离、Message seq/幂等/分页、mention Inbox；Web Channel/composer 组件测试 | 通过，Thread/DM/归档尚未完成，未勾 Phase 2 项。
+2026-07-25 | Phase 2 / Thread 后端 | 隔离 PostgreSQL HTTP flow：原子数字 Thread ID、root 约束、reply 共用 Channel seq、订阅、mention、snapshot read 与嵌套 root 拒绝 | 通过，Thread pane 尚未完成。
+2026-07-25 | Phase 2 / Thread UI | Web 组件交互：打开既有 Thread、显示 root/replies、发送回复并更新 pane；desktop 并列/mobile 全屏 CSS | 通过，最终浏览器 viewport 验收留到 UI 里程碑。
+2026-07-25 | Phase 2 / DM 与归档 | 对称 DM 创建与两人约束、主线/Thread direct hard Inbox 去重、Channel 单向归档及历史只读；`cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-features`; Web lint/5 个组件测试 | 通过，Phase 2 尚有 Attachment、SSE 和 Human Inbox，未勾阶段项。
+2026-07-25 | Phase 2 / Attachment | 本地目录与 S3-compatible `object_store` adapter、分块上传、size/SHA-256 完成校验、ready 后 Message/Thread 关联、可见性下载；严格 Rust/真实 PostgreSQL/Web 门禁 | 通过，Phase 2 尚有 SSE 和 Human Inbox，未勾阶段项。
+2026-07-25 | Phase 2 / SSE、Human Inbox 与 Message lifecycle | 持久 outbox event ID/Last-Event-ID replay、Human 私有 Inbox ack/defer、Message 编辑/软删除；真实 HTTP/PostgreSQL flow 与 6 个 Web 组件测试 | 通过。
+2026-07-25 | Phase 2 / 阶段验收 | `pnpm --dir web test:e2e`; `mise run lint`; `mise run test`; `mise run build`; 运行态 migration 7、health、Inbox/DM deep-link | Playwright desktop smoke、严格 clippy、12 个 Rust/DB/CLI tests、6 个 Web tests及 production build 全部通过，Phase 2 完成。
+2026-07-25 | Phase 3 / Computer 配对与本地安全 | 真实 PostgreSQL/HTTP flow：Member 403、错 code、Owner 确认、hash-only credential、过期落库；本机 state/secrets/socket 权限与 capability tests | 通过，配对 result 可幂等恢复且 revoke 后旧 credential 401。
+2026-07-25 | Phase 3 / 连接与恢复 | 真实 WebSocket hello/heartbeat/command ACK+result/revoke；SQLite command 去重、冲突拒绝、process_lost 与 provision 重启恢复 | 通过，10 秒 heartbeat、30 秒 offline monitor、指数退避+jitter 和 at-least-once 重放生效。
+2026-07-25 | Phase 3 / UI 与运行态 | Computer 配对/列表/状态/Revoke 组件测试；独立 Server+真实 daemon 配对，online 后停止 daemon，38 秒自动 offline；`mise run lint/test/build` | 通过；17 Rust tests、2 CLI tests、真实 PostgreSQL migration、8 Web tests、production build 全绿。
+2026-07-25 | Phase 3 / Driver supervisor 与 Agent sandbox | 真实 macOS `sandbox-exec` 子进程和已安装 `codex --version`；并发排队、单 Agent 串行、timeout、daemon shutdown/graceful cancel/process group kill、SQLite process_lost；`mise run lint/test/build` | 通过；Computer credential/其他 Agent Home 不可读，prompt 走 stdin，环境变量白名单，24 Rust tests、2 CLI、真实 PostgreSQL migration、8 Web tests 与 production build 全绿。
+2026-07-25 | Phase 4 / Agent prompt 前置探索 | 当前工作区检查 `.slock` 不存在；`docs/design.md` 第 13.2 节记录事实与后续约束 | 通过；无可吸收的既有 prompt，按 Sumi 最小 run 输入独立设计。
+2026-07-25 | Phase 4 / Agent lifecycle、Role 与 Memory 元数据 | 真实 PostgreSQL/WebSocket flow：Role revision、configure/suspend/resume command、Memory SHA-256 快照；daemon profile/sandbox run 门禁；Agent detail 组件；`mise run lint/test/build` | 通过；25 Rust tests、2 CLI、migration、9 Web tests和 production build 全绿，Phase 4 主闭环尚未完成。
+2026-07-25 | Phase 4 / DM Inbox 与 send-and-handle | 真实 PostgreSQL/HTTP/WebSocket flow：Human DM hard Inbox、claim/run lease、Role prompt、Inbox/DM read、context_changed、原子 Message+handled、失败 release/retry；`mise run lint/test/build` | 通过；25 Rust tests、2 CLI、migration、9 Web tests和 production build 全绿，完整 CLI 尚未完成。
