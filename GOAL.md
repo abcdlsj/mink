@@ -102,6 +102,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 - Phase 4 Agent lifecycle/Role/Memory 后端与管理 UI 已形成纵向路径；下一步完成 `sumi agent` 命令和 Human DM Agent 注意力闭环，整项验收通过前不勾选 Phase 4 主项。
 - Phase 4 Human DM Agent 的 Server/Computer/CLI 动作纵向路径已打通；仍需补齐完整 CLI 命令面和真实 daemon/Driver 里程碑验收，未完成前不勾选 Phase 4。
 - Phase 4 Agent Attachment CLI 已形成 upload/info/download 与 Message 关联纵向路径；下一步补齐 channel create、agent create 及 channel read 的剩余分页参数，再做真实 daemon/Codex 里程碑验收。
+- Phase 4 Agent Channel CLI 已补齐 `channel read --after/--around` 与幂等 `channel create`，并通过 active run、权限和 private Channel 边界验收；下一步实现 `sumi agent create` 与 Approval 路径。
 
 ## 验证记录
 
@@ -128,3 +129,4 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 2026-07-25 | Phase 4 / Agent lifecycle、Role 与 Memory 元数据 | 真实 PostgreSQL/WebSocket flow：Role revision、configure/suspend/resume command、Memory SHA-256 快照；daemon profile/sandbox run 门禁；Agent detail 组件；`mise run lint/test/build` | 通过；25 Rust tests、2 CLI、migration、9 Web tests和 production build 全绿，Phase 4 主闭环尚未完成。
 2026-07-25 | Phase 4 / DM Inbox 与 send-and-handle | 真实 PostgreSQL/HTTP/WebSocket flow：Human DM hard Inbox、claim/run lease、Role prompt、Inbox/DM read、context_changed、原子 Message+handled、失败 release/retry；`mise run lint/test/build` | 通过；25 Rust tests、2 CLI、migration、9 Web tests和 production build 全绿，完整 CLI 尚未完成。
 2026-07-25 | Phase 4 / Agent Attachment CLI | Agent Home canonical path/symlink 边界；Computer credential + active run scoped create/PUT/complete/info/download；Agent 上传、Message 关联、未关联下载拒绝；`mise run lint/test/build` | 通过；26 Rust tests、2 CLI、真实 PostgreSQL integration、9 Web tests和 production build 全绿，完整 CLI 尚未完成。
+2026-07-25 | Phase 4 / Agent Channel CLI | `channel read` before/after/around 双向分页；无权限创建与 private 越权拒绝；授权后 public/private 创建、UUIDv7 幂等重放、membership/audit/outbox；`mise run lint/test/build` | 通过；28 Rust tests、2 CLI、真实 PostgreSQL integration、9 Web tests和 production build 全绿，下一步为 Agent create/Approval。

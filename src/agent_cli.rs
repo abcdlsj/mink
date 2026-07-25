@@ -62,15 +62,34 @@ pub async fn run(args: AgentArgs) -> Result<()> {
             AgentChannelCommand::List(output) => (Some(AgentAction::ChannelList), output.json),
             AgentChannelCommand::Read(args) => {
                 ensure!((1..=100).contains(&args.limit), "--limit must be 1 to 100");
+                ensure!(
+                    args.before.is_none_or(|value| value > 0),
+                    "--before must be positive"
+                );
+                ensure!(
+                    args.after.is_none_or(|value| value >= 0),
+                    "--after must not be negative"
+                );
                 (
                     Some(AgentAction::ChannelRead {
                         address: args.address,
                         before: args.before,
+                        after: args.after,
+                        around: args.around,
                         limit: args.limit,
                     }),
                     args.output.json,
                 )
             }
+            AgentChannelCommand::Create(args) => (
+                Some(AgentAction::ChannelCreate {
+                    slug: args.slug,
+                    name: args.name,
+                    private: args.private,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            ),
         },
         AgentCommand::Thread(args) => match args.command {
             AgentThreadCommand::Read(args) => {

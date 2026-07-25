@@ -894,6 +894,237 @@ mod tests {
         .await
         .context("Agent run did not enter running")?;
 
+        let denied_create = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "channel_create",
+                    "slug": "agent-private",
+                    "name": "Agent Private",
+                    "private": true,
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(denied_create.status() == StatusCode::FORBIDDEN);
+
+        let owners_private = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/spaces/{}/channels", space.id),
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "slug": "owners-private",
+                    "name": "Owners Private",
+                    "kind": "private",
+                    "topic": null
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(owners_private.status() == StatusCode::CREATED);
+        let private_read = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "channel_read",
+                    "address": "#owners-private",
+                    "before": null,
+                    "after": null,
+                    "around": null,
+                    "limit": 50
+                }),
+            )?)
+            .await?;
+        ensure!(private_read.status() == StatusCode::FORBIDDEN);
+
+        let grant_channel_create = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/spaces/{}/members/{}", space.id, agent.member_id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "permissions": ["channel:create"] }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(grant_channel_create.status() == StatusCode::OK);
+        let create_key = Uuid::now_v7();
+        let create_action = serde_json::json!({
+            "action": "channel_create",
+            "slug": "agent-private",
+            "name": "Agent Private",
+            "private": true,
+            "idempotency_key": create_key
+        });
+        let mut created_channel_id = None;
+        for _ in 0..2 {
+            let created = app
+                .clone()
+                .oneshot(computer_agent_action_request(
+                    computer.id,
+                    &credential,
+                    agent.member_id,
+                    run_id,
+                    create_action.clone(),
+                )?)
+                .await?;
+            ensure!(created.status() == StatusCode::OK);
+            let created: ChannelResponse = decode_json(created).await?;
+            ensure!(created.kind == "private" && created.joined);
+            ensure!(created.created_by_member_id == agent.member_id);
+            if let Some(expected) = created_channel_id {
+                ensure!(created.id == expected);
+            } else {
+                created_channel_id = Some(created.id);
+            }
+        }
+        let public_created = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "channel_create",
+                    "slug": "agent-public",
+                    "name": "Agent Public",
+                    "private": false,
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(public_created.status() == StatusCode::OK);
+        let public_created: ChannelResponse = decode_json(public_created).await?;
+        ensure!(public_created.kind == "public" && public_created.joined);
+        let created_invariants: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM channels WHERE space_id = $1 AND slug = 'agent-private'), \
+             (SELECT count(*) FROM channel_members WHERE channel_id = $2 AND member_id = $3), \
+             (SELECT count(*) FROM audit_events WHERE subject_id = $2 AND action = 'channel.created')",
+        )
+        .bind(space.id)
+        .bind(created_channel_id.context("created Channel id missing")?)
+        .bind(agent.member_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(created_invariants == (1, 1, 1));
+
+        let general_id: Uuid =
+            sqlx::query_scalar("SELECT id FROM channels WHERE space_id = $1 AND slug = 'general'")
+                .bind(space.id)
+                .fetch_one(&pool)
+                .await?;
+        let mut general_messages = Vec::new();
+        for index in 1..=5 {
+            let message = app
+                .clone()
+                .oneshot(json_request(
+                    &format!("/api/v1/channels/{general_id}/messages"),
+                    Uuid::now_v7(),
+                    &serde_json::json!({
+                        "body_markdown": format!("Pagination message {index}"),
+                        "mentions": [],
+                        "attachment_ids": []
+                    }),
+                    Some(&owner.cookie),
+                )?)
+                .await?;
+            ensure!(message.status() == StatusCode::CREATED);
+            general_messages.push(decode_json::<MessageResponse>(message).await?);
+        }
+        for (cursor, expected, expected_before, expected_after) in [
+            (
+                serde_json::json!({ "after": general_messages[0].seq }),
+                vec![general_messages[1].seq, general_messages[2].seq],
+                true,
+                true,
+            ),
+            (
+                serde_json::json!({ "before": general_messages[4].seq }),
+                vec![general_messages[2].seq, general_messages[3].seq],
+                true,
+                true,
+            ),
+            (
+                serde_json::json!({ "around": general_messages[2].id }),
+                vec![
+                    general_messages[1].seq,
+                    general_messages[2].seq,
+                    general_messages[3].seq,
+                ],
+                true,
+                true,
+            ),
+        ] {
+            let mut action = serde_json::json!({
+                "action": "channel_read",
+                "address": "#general",
+                "before": null,
+                "after": null,
+                "around": null,
+                "limit": expected.len()
+            });
+            for (key, value) in cursor.as_object().context("cursor object missing")? {
+                action[key] = value.clone();
+            }
+            let page = app
+                .clone()
+                .oneshot(computer_agent_action_request(
+                    computer.id,
+                    &credential,
+                    agent.member_id,
+                    run_id,
+                    action,
+                )?)
+                .await?;
+            ensure!(page.status() == StatusCode::OK);
+            let page: serde_json::Value = decode_json(page).await?;
+            let actual = page["messages"]
+                .as_array()
+                .context("message page missing")?
+                .iter()
+                .map(|message| message["seq"].as_i64().context("message seq missing"))
+                .collect::<Result<Vec<_>>>()?;
+            ensure!(actual == expected);
+            ensure!(page["has_more_before"] == expected_before);
+            ensure!(page["has_more_after"] == expected_after);
+        }
+        let exhausted_after = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "channel_read",
+                    "address": "#general",
+                    "before": null,
+                    "after": general_messages[4].seq,
+                    "around": null,
+                    "limit": 2
+                }),
+            )?)
+            .await?;
+        ensure!(exhausted_after.status() == StatusCode::OK);
+        let exhausted_after: serde_json::Value = decode_json(exhausted_after).await?;
+        ensure!(
+            exhausted_after["messages"]
+                .as_array()
+                .is_some_and(Vec::is_empty)
+        );
+        ensure!(exhausted_after["has_more_before"] == true);
+        ensure!(exhausted_after["has_more_after"] == false);
+
         let inbox_current = computer_agent_action_request(
             computer.id,
             &credential,

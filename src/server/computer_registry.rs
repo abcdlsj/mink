@@ -12,7 +12,7 @@ use subtle::ConstantTimeEq;
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, attachment, auth, idempotency, member};
+use super::{AppState, api_error::ApiError, attachment, auth, channel, idempotency, member};
 use crate::local_protocol::AgentAction;
 
 #[derive(Deserialize)]
@@ -599,6 +599,8 @@ pub async fn agent_action(
         AgentAction::ChannelRead {
             address,
             before,
+            after,
+            around,
             limit,
         } => {
             agent_channel_read(
@@ -606,10 +608,32 @@ pub async fn agent_action(
                 request.agent_member_id,
                 &address,
                 before,
+                after,
+                around,
                 limit,
             )
             .await?
         }
+        AgentAction::ChannelCreate {
+            slug,
+            name,
+            private,
+            idempotency_key,
+        } => serde_json::to_value(
+            channel::create_for_agent(
+                &state.database,
+                request.agent_member_id,
+                channel::CreateChannelRequest {
+                    name,
+                    slug,
+                    kind: if private { "private" } else { "public" }.to_owned(),
+                    topic: None,
+                },
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
         AgentAction::ThreadRead {
             address,
             after,
@@ -1094,12 +1118,21 @@ async fn agent_channel_read(
     agent_id: Uuid,
     address: &str,
     before: Option<i64>,
+    after: Option<i64>,
+    around: Option<Uuid>,
     limit: i64,
 ) -> Result<serde_json::Value, ApiError> {
-    if !(1..=100).contains(&limit) || before.is_some_and(|value| value <= 0) {
+    let cursor_count = usize::from(before.is_some())
+        + usize::from(after.is_some())
+        + usize::from(around.is_some());
+    if !(1..=100).contains(&limit)
+        || before.is_some_and(|value| value <= 0)
+        || after.is_some_and(|value| value < 0)
+        || cursor_count > 1
+    {
         return Err(ApiError::validation(
             "invalid_pagination",
-            "Message limit must be 1 to 100 and before must be positive",
+            "Message limit must be 1 to 100 and before, after, and around are mutually exclusive",
         ));
     }
     let (channel_id, display_address) = resolve_agent_address(database, agent_id, address).await?;
@@ -1108,32 +1141,101 @@ async fn agent_channel_read(
         .fetch_one(database)
         .await
         .map_err(ApiError::database)?;
-    let messages: Vec<serde_json::Value> = sqlx::query_scalar(
-        "SELECT jsonb_build_object( \
+    let around_seq: Option<i64> = if let Some(message_id) = around {
+        Some(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT channel_seq FROM messages WHERE id = $1 AND channel_id = $2 \
+                 AND thread_id IS NULL",
+            )
+            .bind(message_id)
+            .bind(channel_id)
+            .fetch_optional(database)
+            .await
+            .map_err(ApiError::database)?
+            .ok_or_else(|| {
+                ApiError::not_found(
+                    "message_not_found",
+                    "Around Message was not found on this Channel main timeline",
+                )
+            })?,
+        )
+    } else {
+        None
+    };
+    let mut messages: Vec<serde_json::Value> = sqlx::query_scalar(
+        "WITH candidates AS (SELECT messages.id, messages.channel_seq, \
+            messages.author_member_id, messages.body_markdown, messages.created_at, \
+            messages.edited_at, messages.deleted_at \
+         FROM messages WHERE messages.channel_id = $1 AND messages.thread_id IS NULL \
+           AND messages.channel_seq <= $2 \
+           AND ($3::bigint IS NULL OR messages.channel_seq < $3) \
+           AND ($4::bigint IS NULL OR messages.channel_seq > $4) \
+         ORDER BY CASE WHEN $5::bigint IS NULL THEN NULL \
+                       ELSE abs(messages.channel_seq - $5) END, \
+                  CASE WHEN $4::bigint IS NOT NULL THEN messages.channel_seq END ASC, \
+                  CASE WHEN $4::bigint IS NULL AND $5::bigint IS NULL \
+                       THEN messages.channel_seq END DESC, \
+                  messages.channel_seq \
+         LIMIT $6) \
+         SELECT jsonb_build_object( \
             'id', messages.id, 'seq', messages.channel_seq, \
             'author', jsonb_build_object('id', members.id, 'kind', members.kind, \
                 'display_name', members.display_name, 'handle', members.handle), \
-            'address', $4::text, \
+            'address', $7::text, \
             'body_markdown', CASE WHEN messages.deleted_at IS NULL THEN messages.body_markdown \
                                   ELSE 'Message 已删除' END, \
             'created_at', messages.created_at, 'edited_at', messages.edited_at) \
-         FROM messages JOIN members ON members.id = messages.author_member_id \
-         WHERE messages.channel_id = $1 AND messages.thread_id IS NULL \
-           AND messages.channel_seq < $2 ORDER BY messages.channel_seq DESC LIMIT $3",
+         FROM candidates messages JOIN members ON members.id = messages.author_member_id",
     )
     .bind(channel_id)
-    .bind(before.unwrap_or(i64::MAX))
-    .bind(limit + 1)
+    .bind(snapshot)
+    .bind(before)
+    .bind(after)
+    .bind(around_seq)
+    .bind(limit)
     .bind(&display_address)
     .fetch_all(database)
     .await
     .map_err(ApiError::database)?;
-    let has_more_before = messages.len() as i64 > limit;
-    let mut messages = messages
-        .into_iter()
-        .take(limit as usize)
-        .collect::<Vec<_>>();
-    messages.reverse();
+    messages.sort_by_key(|message| message.get("seq").and_then(serde_json::Value::as_i64));
+    let first_seq = messages
+        .first()
+        .and_then(|message| message.get("seq"))
+        .and_then(serde_json::Value::as_i64);
+    let last_seq = messages
+        .last()
+        .and_then(|message| message.get("seq"))
+        .and_then(serde_json::Value::as_i64);
+    let first_boundary = first_seq.unwrap_or_else(|| {
+        after
+            .map(|value| value.saturating_add(1))
+            .or(before)
+            .unwrap_or_else(|| snapshot.saturating_add(1))
+    });
+    let last_boundary = last_seq.unwrap_or_else(|| {
+        after
+            .or_else(|| before.map(|value| value.saturating_sub(1)))
+            .unwrap_or(0)
+    });
+    let has_more_before: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM messages WHERE channel_id = $1 AND thread_id IS NULL \
+         AND channel_seq < $2)",
+    )
+    .bind(channel_id)
+    .bind(first_boundary)
+    .fetch_one(database)
+    .await
+    .map_err(ApiError::database)?;
+    let has_more_after: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM messages WHERE channel_id = $1 AND thread_id IS NULL \
+         AND channel_seq > $2 AND channel_seq <= $3)",
+    )
+    .bind(channel_id)
+    .bind(last_boundary)
+    .bind(snapshot)
+    .fetch_one(database)
+    .await
+    .map_err(ApiError::database)?;
     enrich_agent_messages(database, &mut messages).await?;
     Ok(serde_json::json!({
         "address": display_address,
@@ -1142,7 +1244,7 @@ async fn agent_channel_read(
         "snapshot_channel_seq": snapshot,
         "messages": messages,
         "has_more_before": has_more_before,
-        "has_more_after": before.is_some_and(|value| value <= snapshot),
+        "has_more_after": has_more_after,
     }))
 }
 

@@ -27,7 +27,17 @@ pub enum AgentAction {
     ChannelRead {
         address: String,
         before: Option<i64>,
+        #[serde(default)]
+        after: Option<i64>,
+        #[serde(default)]
+        around: Option<Uuid>,
         limit: i64,
+    },
+    ChannelCreate {
+        slug: String,
+        name: String,
+        private: bool,
+        idempotency_key: Uuid,
     },
     ThreadRead {
         address: String,
@@ -133,5 +143,36 @@ impl LocalResponse {
                 retryable,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_actions_use_structured_cursor_and_idempotency_fields() {
+        let message_id = Uuid::now_v7();
+        let read = serde_json::to_value(AgentAction::ChannelRead {
+            address: "#design".to_owned(),
+            before: None,
+            after: None,
+            around: Some(message_id),
+            limit: 25,
+        })
+        .expect("channel read should serialize");
+        assert_eq!(read["action"], "channel_read");
+        assert_eq!(read["around"], message_id.to_string());
+
+        let key = Uuid::now_v7();
+        let create = serde_json::to_value(AgentAction::ChannelCreate {
+            slug: "design".to_owned(),
+            name: "Design".to_owned(),
+            private: true,
+            idempotency_key: key,
+        })
+        .expect("channel create should serialize");
+        assert_eq!(create["action"], "channel_create");
+        assert_eq!(create["idempotency_key"], key.to_string());
     }
 }

@@ -324,21 +324,68 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<ChannelResponse>), ApiError> {
     let user = auth::current_user(&state, &jar).await?;
     let request = validate_create(request)?;
-    let request_hash = idempotency::request_hash(&request)?;
-    let scope = format!("space:{space_id}:channel:create");
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
-    if !can_create_channel_tx(&mut transaction, &actor).await? {
+    let (status, response) =
+        create_channel_tx(&mut transaction, space_id, &actor, request, key).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok((status, Json(response)))
+}
+
+pub(super) async fn create_for_agent(
+    database: &sqlx::PgPool,
+    agent_id: Uuid,
+    request: CreateChannelRequest,
+    key: Uuid,
+) -> Result<ChannelResponse, ApiError> {
+    let request = validate_create(request)?;
+    let mut transaction = database.begin().await.map_err(ApiError::database)?;
+    let actor: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT space_id, access_level FROM members WHERE id = $1 AND kind = 'agent' \
+         AND retired_at IS NULL FOR UPDATE",
+    )
+    .bind(agent_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let (space_id, access_level) = actor.ok_or_else(|| {
+        ApiError::forbidden("permission_denied", "Current Agent identity is not active")
+    })?;
+    let actor = member::ActorMember {
+        id: agent_id,
+        access_level,
+    };
+    let (_status, response) = create_channel_tx(
+        &mut transaction,
+        space_id,
+        &actor,
+        request,
+        idempotency::IdempotencyKey(key),
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(response)
+}
+
+async fn create_channel_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    space_id: Uuid,
+    actor: &member::ActorMember,
+    request: CreateChannelRequest,
+    key: idempotency::IdempotencyKey,
+) -> Result<(StatusCode, ChannelResponse), ApiError> {
+    if !can_create_channel_tx(transaction, actor).await? {
         return Err(ApiError::forbidden(
             "permission_denied",
             "channel:create permission is required",
         ));
     }
+    let request_hash = idempotency::request_hash(&request)?;
+    let scope = format!("space:{space_id}:channel:create");
     if let Some((status, response)) =
-        idempotency::begin::<ChannelResponse>(&mut transaction, &scope, key, &request_hash).await?
+        idempotency::begin::<ChannelResponse>(transaction, &scope, key, &request_hash).await?
     {
-        transaction.commit().await.map_err(ApiError::database)?;
-        return Ok((status, Json(response)));
+        return Ok((status, response));
     }
 
     let channel_id = Uuid::now_v7();
@@ -356,7 +403,7 @@ pub async fn create(
     .bind(&request.topic)
     .bind(actor.id)
     .bind(now)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(|error| {
         if unique_constraint(&error, "channels_space_slug_unique") {
@@ -373,11 +420,11 @@ pub async fn create(
     .bind(actor.id)
     .bind(space_id)
     .bind(now)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     record_channel_event(
-        &mut transaction,
+        transaction,
         space_id,
         actor.id,
         channel_id,
@@ -385,7 +432,6 @@ pub async fn create(
         now,
     )
     .await?;
-
     let response = ChannelResponse {
         id: channel_id,
         space_id,
@@ -397,16 +443,8 @@ pub async fn create(
         joined: true,
         archived_at: None,
     };
-    idempotency::finish(
-        &mut transaction,
-        &scope,
-        key,
-        StatusCode::CREATED,
-        &response,
-    )
-    .await?;
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    idempotency::finish(transaction, &scope, key, StatusCode::CREATED, &response).await?;
+    Ok((StatusCode::CREATED, response))
 }
 
 pub async fn join(

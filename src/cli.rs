@@ -146,15 +146,32 @@ pub enum AgentChannelCommand {
     List(JsonOutputArgs),
     /// Read a Channel main timeline.
     Read(AgentChannelReadArgs),
+    /// Create a public or private Channel.
+    Create(AgentChannelCreateArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct AgentChannelReadArgs {
     pub address: String,
-    #[arg(long)]
+    #[arg(long, conflicts_with_all = ["after", "around"])]
     pub before: Option<i64>,
+    #[arg(long, conflicts_with_all = ["before", "around"])]
+    pub after: Option<i64>,
+    #[arg(long, conflicts_with_all = ["before", "after"])]
+    pub around: Option<uuid::Uuid>,
     #[arg(long, default_value_t = 50)]
     pub limit: i64,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentChannelCreateArgs {
+    pub slug: String,
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub private: bool,
     #[command(flatten)]
     pub output: JsonOutputArgs,
 }
@@ -252,6 +269,76 @@ pub struct AgentAttachmentInfoArgs {
     pub attachment_id: uuid::Uuid,
     #[command(flatten)]
     pub output: JsonOutputArgs,
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+
+    #[test]
+    fn parses_agent_channel_read_cursors_and_create() {
+        let after = Cli::try_parse_from([
+            "sumi", "agent", "channel", "read", "#design", "--after", "12", "--limit", "7",
+            "--json",
+        ])
+        .expect("after cursor should parse");
+        let Command::Agent(AgentArgs {
+            command:
+                AgentCommand::Channel(AgentChannelArgs {
+                    command: AgentChannelCommand::Read(after),
+                }),
+        }) = after.command
+        else {
+            panic!("unexpected command shape");
+        };
+        assert_eq!(after.after, Some(12));
+        assert_eq!(after.limit, 7);
+        assert!(after.output.json);
+
+        let around_id = uuid::Uuid::now_v7();
+        Cli::try_parse_from([
+            "sumi",
+            "agent",
+            "channel",
+            "read",
+            "#design",
+            "--around",
+            &around_id.to_string(),
+            "--json",
+        ])
+        .expect("around cursor should parse");
+        assert!(
+            Cli::try_parse_from([
+                "sumi", "agent", "channel", "read", "#design", "--before", "10", "--after", "10",
+            ])
+            .is_err()
+        );
+
+        let create = Cli::try_parse_from([
+            "sumi",
+            "agent",
+            "channel",
+            "create",
+            "roadmap",
+            "--name",
+            "Roadmap",
+            "--private",
+            "--json",
+        ])
+        .expect("channel create should parse");
+        let Command::Agent(AgentArgs {
+            command:
+                AgentCommand::Channel(AgentChannelArgs {
+                    command: AgentChannelCommand::Create(create),
+                }),
+        }) = create.command
+        else {
+            panic!("unexpected command shape");
+        };
+        assert_eq!(create.slug, "roadmap");
+        assert_eq!(create.name, "Roadmap");
+        assert!(create.private && create.output.json);
+    }
 }
 
 #[cfg(test)]
