@@ -22,6 +22,7 @@ use crate::{
 
 mod agent_registry;
 mod api_error;
+mod approval;
 mod attachment;
 mod auth;
 mod channel;
@@ -144,6 +145,18 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
         )
         .route("/api/v1/spaces/{space_id}/events", get(realtime::events))
         .route("/api/v1/members/{member_id}/inbox", get(inbox::list))
+        .route(
+            "/api/v1/spaces/{space_id}/approvals",
+            get(approval::list),
+        )
+        .route(
+            "/api/v1/approvals/{approval_id}/approve",
+            post(approval::approve),
+        )
+        .route(
+            "/api/v1/approvals/{approval_id}/reject",
+            post(approval::reject),
+        )
         .route("/api/v1/inbox/{item_id}/ack", post(inbox::ack))
         .route("/api/v1/inbox/{item_id}/defer", post(inbox::defer))
         .route(
@@ -295,6 +308,7 @@ mod tests {
 
     use super::{
         agent_registry::AgentResponse,
+        approval::ApprovalResponse,
         attachment::AttachmentResponse,
         auth::{LoginResponse, RegisterResponse},
         channel::{ChannelListResponse, ChannelResponse, DirectMessageResponse},
@@ -911,6 +925,24 @@ mod tests {
             )?)
             .await?;
         ensure!(denied_create.status() == StatusCode::FORBIDDEN);
+        let denied_agent_create = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "agent_create",
+                    "name": "Denied Child",
+                    "role_text": "This request must be denied.",
+                    "computer_id": computer.id,
+                    "driver_kind": "codex",
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(denied_agent_create.status() == StatusCode::FORBIDDEN);
 
         let owners_private = app
             .clone()
@@ -1017,6 +1049,254 @@ mod tests {
         .fetch_one(&pool)
         .await?;
         ensure!(created_invariants == (1, 1, 1));
+
+        let promote_agent = app
+            .clone()
+            .oneshot(json_request_with_method(
+                "PATCH",
+                &format!("/api/v1/spaces/{}/members/{}", space.id, agent.member_id),
+                Uuid::now_v7(),
+                &serde_json::json!({ "access_level": "admin" }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(promote_agent.status() == StatusCode::OK);
+
+        let other_space = app
+            .clone()
+            .oneshot(json_request(
+                "/api/v1/spaces",
+                Uuid::now_v7(),
+                &serde_json::json!({
+                    "name": "Other Agent Lab",
+                    "slug": "other-agent-lab",
+                    "accent": "#86D96F"
+                }),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(other_space.status() == StatusCode::CREATED);
+        let other_space: SpaceResponse = decode_json(other_space).await?;
+        let other_computer_id = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO computers \
+             (id, space_id, name, hostname, os, public_key, credential_hash, status, \
+              daemon_version, last_seen_at, created_at) \
+             VALUES ($1, $2, 'Other Computer', 'other.local', 'macos', $3, $4, 'online', \
+                     '0.1.0', now(), now())",
+        )
+        .bind(other_computer_id)
+        .bind(other_space.id)
+        .bind(vec![7_u8; 32])
+        .bind(vec![8_u8; 32])
+        .execute(&pool)
+        .await?;
+        let cross_space_computer = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "agent_create",
+                    "name": "Cross Space Child",
+                    "role_text": "This request must not cross Space boundaries.",
+                    "computer_id": other_computer_id,
+                    "driver_kind": "codex",
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(cross_space_computer.status() == StatusCode::NOT_FOUND);
+
+        let approval_key = Uuid::now_v7();
+        let approval_action = serde_json::json!({
+            "action": "agent_create",
+            "name": "Reviewer Child",
+            "role_text": "Review the requested implementation.",
+            "computer_id": computer.id,
+            "driver_kind": "codex",
+            "idempotency_key": approval_key
+        });
+        let mut approval_id = None;
+        for _ in 0..2 {
+            let requested = app
+                .clone()
+                .oneshot(computer_agent_action_request(
+                    computer.id,
+                    &credential,
+                    agent.member_id,
+                    run_id,
+                    approval_action.clone(),
+                )?)
+                .await?;
+            ensure!(requested.status() == StatusCode::OK);
+            let requested: serde_json::Value = decode_json(requested).await?;
+            ensure!(requested["status"] == "pending");
+            let current_id = Uuid::parse_str(
+                requested["approval_id"]
+                    .as_str()
+                    .context("approval id missing")?,
+            )?;
+            if let Some(expected) = approval_id {
+                ensure!(current_id == expected);
+            } else {
+                approval_id = Some(current_id);
+            }
+        }
+        let approval_id = approval_id.context("approval was not created")?;
+        let pending_invariants: (i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM approvals WHERE id = $1 AND status = 'pending'), \
+             (SELECT count(*) FROM members WHERE space_id = $2 AND display_name = 'Reviewer Child'), \
+             (SELECT count(*) FROM computer_commands WHERE payload_json->>'name' = 'Reviewer Child')",
+        )
+        .bind(approval_id)
+        .bind(space.id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(pending_invariants == (1, 0, 0));
+
+        let idempotency_conflict = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "agent_create",
+                    "name": "Conflicting Child",
+                    "role_text": "A different payload.",
+                    "computer_id": computer.id,
+                    "driver_kind": "codex",
+                    "idempotency_key": approval_key
+                }),
+            )?)
+            .await?;
+        ensure!(idempotency_conflict.status() == StatusCode::CONFLICT);
+
+        let computer_credential_cannot_approve = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/v1/approvals/{approval_id}/approve"))
+                    .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                    .header("idempotency-key", Uuid::now_v7().to_string())
+                    .body(Body::from("{}"))?,
+            )
+            .await?;
+        ensure!(computer_credential_cannot_approve.status() == StatusCode::UNAUTHORIZED);
+
+        let rejected = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/approvals/{approval_id}/reject"),
+                Uuid::now_v7(),
+                &serde_json::json!({}),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(rejected.status() == StatusCode::OK);
+        let rejected: ApprovalResponse = decode_json(rejected).await?;
+        ensure!(rejected.status == "rejected");
+        let rejected_side_effects: (i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM members WHERE space_id = $1 AND display_name = 'Reviewer Child'), \
+             (SELECT count(*) FROM computer_commands WHERE payload_json->>'name' = 'Reviewer Child')",
+        )
+        .bind(space.id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(rejected_side_effects == (0, 0));
+
+        let approved_request = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "agent_create",
+                    "name": "Provisioned Child",
+                    "role_text": "Review the current implementation.",
+                    "computer_id": computer.id,
+                    "driver_kind": "codex",
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(approved_request.status() == StatusCode::OK);
+        let approved_request: serde_json::Value = decode_json(approved_request).await?;
+        let approved_id = Uuid::parse_str(
+            approved_request["approval_id"]
+                .as_str()
+                .context("second approval id missing")?,
+        )?;
+        let approved = app
+            .clone()
+            .oneshot(json_request(
+                &format!("/api/v1/approvals/{approved_id}/approve"),
+                Uuid::now_v7(),
+                &serde_json::json!({}),
+                Some(&owner.cookie),
+            )?)
+            .await?;
+        ensure!(approved.status() == StatusCode::OK);
+        let approved: ApprovalResponse = decode_json(approved).await?;
+        ensure!(approved.status == "approved");
+        let approved_invariants: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT \
+             (SELECT count(*) FROM members WHERE space_id = $1 AND kind = 'agent' \
+              AND display_name = 'Provisioned Child'), \
+             (SELECT count(*) FROM agents JOIN members ON members.id = agents.member_id \
+              WHERE agents.space_id = $1 AND members.display_name = 'Provisioned Child' \
+                AND agents.status = 'provisioning'), \
+             (SELECT count(*) FROM computer_commands WHERE computer_id = $2 \
+              AND kind = 'agent.provision' AND payload_json->>'name' = 'Provisioned Child'), \
+             (SELECT count(*) FROM inbox_items WHERE approval_id = $3 AND status = 'handled')",
+        )
+        .bind(space.id)
+        .bind(computer.id)
+        .bind(approved_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(approved_invariants == (1, 1, 1, 1));
+        let child_provision = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let frame = socket
+                    .next()
+                    .await
+                    .context("Computer command stream ended")??;
+                let command: serde_json::Value = serde_json::from_str(frame.to_text()?)?;
+                if command["kind"] == "agent.provision"
+                    && command["payload"]["name"] == "Provisioned Child"
+                {
+                    break Ok::<_, anyhow::Error>(command);
+                }
+            }
+        })
+        .await?
+        .context("approved Agent provision command missing")?;
+        for frame_type in ["command_ack", "command_result"] {
+            let mut frame = serde_json::json!({
+                "type": frame_type,
+                "command_id": child_provision["command_id"],
+                "computer_seq": child_provision["computer_seq"]
+            });
+            if frame_type == "command_result" {
+                frame["ok"] = serde_json::Value::Bool(true);
+                frame["result"] = serde_json::json!({ "ok": true, "memory_files": [] });
+            }
+            socket
+                .send(tokio_tungstenite::tungstenite::Message::Text(
+                    frame.to_string().into(),
+                ))
+                .await?;
+        }
 
         let general_id: Uuid =
             sqlx::query_scalar("SELECT id FROM channels WHERE space_id = $1 AND slug = 'general'")
@@ -1391,6 +1671,24 @@ mod tests {
         })
         .await
         .context("Agent run result was not applied")?;
+        let inactive_run_create = app
+            .clone()
+            .oneshot(computer_agent_action_request(
+                computer.id,
+                &credential,
+                agent.member_id,
+                run_id,
+                serde_json::json!({
+                    "action": "agent_create",
+                    "name": "Late Child",
+                    "role_text": "This request is outside an active run.",
+                    "computer_id": computer.id,
+                    "driver_kind": "codex",
+                    "idempotency_key": Uuid::now_v7()
+                }),
+            )?)
+            .await?;
+        ensure!(inactive_run_create.status() == StatusCode::FORBIDDEN);
         let pending_after_completed: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM inbox_items WHERE member_id = $1 AND status = 'pending'",
         )

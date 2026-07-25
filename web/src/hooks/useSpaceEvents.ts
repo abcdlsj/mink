@@ -28,6 +28,10 @@ export function useSpaceEvents(spaceId?: string) {
       if (payload.type === "member.updated") {
         void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
       }
+      if (payload.type.startsWith("approval.")) {
+        void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
+        void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
+      }
     };
     const eventTypes = [
       "message.created",
@@ -37,6 +41,8 @@ export function useSpaceEvents(spaceId?: string) {
       "channel.created",
       "channel.updated",
       "member.updated",
+      "approval.created",
+      "approval.resolved",
     ];
     for (const type of eventTypes) source.addEventListener(type, invalidate as EventListener);
     return () => source.close();

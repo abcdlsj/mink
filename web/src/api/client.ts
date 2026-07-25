@@ -216,12 +216,33 @@ export interface InboxItem {
   channel_slug?: string;
   thread_id?: number;
   message_id?: string;
+  approval_id?: string;
   sender_member_id?: string;
   sender_display_name?: string;
   summary?: string;
   status: "pending" | "deferred" | "handled";
   available_at: string;
   created_at: string;
+}
+
+export interface Approval {
+  id: string;
+  space_id: string;
+  type: "agent.create";
+  requested_by_member_id: string;
+  requester_name: string;
+  payload: {
+    computer_id: string;
+    name: string;
+    role_text: string;
+    driver_kind: "codex";
+    access_level: "member";
+    permissions: string[];
+  };
+  status: "pending" | "approved" | "rejected" | "canceled";
+  resolved_by_member_id?: string;
+  created_at: string;
+  resolved_at?: string;
 }
 
 export interface Thread {
@@ -523,6 +544,20 @@ export function createThreadReply(
 
 export function listInbox(memberId: string): Promise<InboxItem[]> {
   return apiRequest<InboxItem[]>(`/api/v1/members/${encodeURIComponent(memberId)}/inbox`);
+}
+
+export function listApprovals(spaceId: string): Promise<Approval[]> {
+  return apiRequest<Approval[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/approvals`);
+}
+
+export function resolveApproval(
+  approvalId: string,
+  decision: "approve" | "reject",
+): Promise<Approval> {
+  return apiRequest<Approval>(
+    `/api/v1/approvals/${encodeURIComponent(approvalId)}/${decision}`,
+    { method: "POST", headers: { "Idempotency-Key": uuidv7() } },
+  );
 }
 
 export function ackInboxItem(itemId: string): Promise<InboxItem> {

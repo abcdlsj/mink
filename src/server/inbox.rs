@@ -20,6 +20,7 @@ pub struct InboxItemResponse {
     pub channel_slug: Option<String>,
     pub thread_id: Option<i64>,
     pub message_id: Option<Uuid>,
+    pub approval_id: Option<Uuid>,
     pub sender_member_id: Option<Uuid>,
     pub sender_display_name: Option<String>,
     pub summary: Option<String>,
@@ -38,7 +39,7 @@ pub async fn list(
     let rows = sqlx::query_as(
         "SELECT inbox_items.id, inbox_items.member_id, inbox_items.kind, inbox_items.priority, \
                 inbox_items.channel_id, channels.slug::text AS channel_slug, inbox_items.thread_id, \
-                inbox_items.message_id, senders.id AS sender_member_id, \
+                inbox_items.message_id, inbox_items.approval_id, senders.id AS sender_member_id, \
                 senders.display_name AS sender_display_name, \
                 CASE WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
                      ELSE 'Message 已删除' END AS summary, \
@@ -179,7 +180,7 @@ async fn item_by_id(
     sqlx::query_as(
         "SELECT inbox_items.id, inbox_items.member_id, inbox_items.kind, inbox_items.priority, \
                 inbox_items.channel_id, channels.slug::text AS channel_slug, inbox_items.thread_id, \
-                inbox_items.message_id, senders.id AS sender_member_id, \
+                inbox_items.message_id, inbox_items.approval_id, senders.id AS sender_member_id, \
                 senders.display_name AS sender_display_name, \
                 CASE WHEN messages.deleted_at IS NULL THEN left(messages.body_markdown, 160) \
                      ELSE 'Message 已删除' END AS summary, \

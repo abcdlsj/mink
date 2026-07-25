@@ -76,6 +76,13 @@ pub enum AgentAction {
     AttachmentInfo {
         attachment_id: Uuid,
     },
+    AgentCreate {
+        name: String,
+        role_text: String,
+        computer_id: Uuid,
+        driver_kind: String,
+        idempotency_key: Uuid,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -174,5 +181,22 @@ mod tests {
         .expect("channel create should serialize");
         assert_eq!(create["action"], "channel_create");
         assert_eq!(create["idempotency_key"], key.to_string());
+    }
+
+    #[test]
+    fn agent_create_uses_structured_payload() {
+        let computer_id = Uuid::now_v7();
+        let key = Uuid::now_v7();
+        let value = serde_json::to_value(AgentAction::AgentCreate {
+            name: "Reviewer".to_owned(),
+            role_text: "Review changes.".to_owned(),
+            computer_id,
+            driver_kind: "codex".to_owned(),
+            idempotency_key: key,
+        })
+        .expect("agent create should serialize");
+        assert_eq!(value["action"], "agent_create");
+        assert_eq!(value["computer_id"], computer_id.to_string());
+        assert_eq!(value["idempotency_key"], key.to_string());
     }
 }

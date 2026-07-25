@@ -6,7 +6,7 @@ use axum::{
 use axum_extra::extract::CookieJar;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -338,8 +338,27 @@ pub async fn create(
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok((status, Json(response)));
     }
-    let handle = unique_handle(
+    let response = provision_agent_tx(&mut transaction, space_id, actor.id, request).await?;
+    idempotency::finish(
         &mut transaction,
+        &scope,
+        key,
+        StatusCode::CREATED,
+        &response,
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok((StatusCode::CREATED, Json(response)))
+}
+
+pub(super) async fn provision_agent_tx(
+    transaction: &mut Transaction<'_, Postgres>,
+    space_id: Uuid,
+    created_by_member_id: Uuid,
+    request: CreateAgentRequest,
+) -> Result<AgentResponse, ApiError> {
+    let handle = unique_handle(
+        transaction,
         space_id,
         request.handle.as_deref(),
         &request.name,
@@ -353,19 +372,19 @@ pub async fn create(
     )
     .bind(member_id).bind(space_id).bind(&request.name).bind(&handle)
     .bind(member_id.to_string()).bind(&request.access_level).bind(now)
-    .execute(&mut *transaction).await.map_err(ApiError::database)?;
+    .execute(&mut **transaction).await.map_err(ApiError::database)?;
     let general_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM channels WHERE space_id = $1 AND slug = 'general' AND archived_at IS NULL",
     )
     .bind(space_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     sqlx::query(
         "INSERT INTO channel_members (channel_id, member_id, space_id, joined_at) VALUES ($1, $2, $3, $4)",
     )
     .bind(general_id).bind(member_id).bind(space_id).bind(now)
-    .execute(&mut *transaction).await.map_err(ApiError::database)?;
+    .execute(&mut **transaction).await.map_err(ApiError::database)?;
     let driver_config = serde_json::json!({ "schema_version": 1 });
     let attention_config = AttentionConfig::default();
     sqlx::query(
@@ -380,9 +399,9 @@ pub async fn create(
     .bind(&request.driver_kind)
     .bind(&driver_config)
     .bind(serde_json::to_value(&attention_config).map_err(|_| ApiError::Internal)?)
-    .bind(actor.id)
+    .bind(created_by_member_id)
     .bind(now)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     let computer_seq: i64 = sqlx::query_scalar(
@@ -390,7 +409,7 @@ pub async fn create(
          RETURNING next_command_seq - 1",
     )
     .bind(request.computer_id)
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     let command_id = Uuid::now_v7();
@@ -405,14 +424,14 @@ pub async fn create(
          VALUES ($1, $2, $3, 'agent.provision', $4, $5)",
     )
     .bind(command_id).bind(request.computer_id).bind(computer_seq).bind(payload).bind(now)
-    .execute(&mut *transaction).await.map_err(ApiError::database)?;
+    .execute(&mut **transaction).await.map_err(ApiError::database)?;
     sqlx::query(
         "INSERT INTO audit_events (id, space_id, actor_member_id, action, subject_type, subject_id, metadata_json, created_at) \
          VALUES ($1, $2, $3, 'agent.created', 'agent', $4, $5, $6)",
     )
-    .bind(Uuid::now_v7()).bind(space_id).bind(actor.id).bind(member_id)
+    .bind(Uuid::now_v7()).bind(space_id).bind(created_by_member_id).bind(member_id)
     .bind(serde_json::json!({ "computer_id": request.computer_id, "command_id": command_id })).bind(now)
-    .execute(&mut *transaction).await.map_err(ApiError::database)?;
+    .execute(&mut **transaction).await.map_err(ApiError::database)?;
     sqlx::query(
         "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
          VALUES ($1, 'member.updated', $2, $3, $4)",
@@ -421,10 +440,10 @@ pub async fn create(
     .bind(member_id)
     .bind(serde_json::json!({ "space_id": space_id, "member_id": member_id }))
     .bind(now)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
-    let response = AgentResponse {
+    Ok(AgentResponse {
         member_id,
         space_id,
         computer_id: request.computer_id,
@@ -440,20 +459,10 @@ pub async fn create(
         updated_at: now,
         retired_at: None,
         memory_files: Vec::new(),
-    };
-    idempotency::finish(
-        &mut transaction,
-        &scope,
-        key,
-        StatusCode::CREATED,
-        &response,
-    )
-    .await?;
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    })
 }
 
-fn validate(request: &mut CreateAgentRequest) -> Result<(), ApiError> {
+pub(super) fn validate(request: &mut CreateAgentRequest) -> Result<(), ApiError> {
     request.name = request.name.trim().to_owned();
     request.role_text = request.role_text.trim().to_owned();
     request.handle = request

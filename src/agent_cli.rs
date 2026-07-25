@@ -174,6 +174,31 @@ pub async fn run(args: AgentArgs) -> Result<()> {
                 args.output.json,
             ),
         },
+        AgentCommand::Create(args) => {
+            let role_text = tokio::fs::read_to_string(&args.role_file)
+                .await
+                .with_context(|| {
+                    format!("Role file {} could not be read", args.role_file.display())
+                })?;
+            ensure!(
+                (1..=12_000).contains(&role_text.trim().chars().count()),
+                "Agent Role must contain 1 to 12000 characters"
+            );
+            ensure!(
+                (1..=40).contains(&args.name.trim().chars().count()),
+                "Agent name must contain 1 to 40 characters"
+            );
+            (
+                Some(AgentAction::AgentCreate {
+                    name: args.name,
+                    role_text,
+                    computer_id: args.computer,
+                    driver_kind: args.driver,
+                    idempotency_key: Uuid::now_v7(),
+                }),
+                args.output.json,
+            )
+        }
     };
     let run_token = std::env::var("SUMI_RUN_TOKEN")
         .context("sumi agent commands require an active Agent run")?;

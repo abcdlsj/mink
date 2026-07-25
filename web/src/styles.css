@@ -1123,6 +1123,53 @@ h1 {
   padding: 20px;
 }
 
+.approval-list {
+  margin-bottom: 24px;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 12px;
+}
+
+.approval-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.approval-heading span {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.approval-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.approval-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 12px;
+  border: 2px solid var(--ink);
+  border-left: 9px solid var(--sun);
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.approval-item > div:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px 12px;
+  padding: 14px;
+}
+
+.approval-item p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #55514a;
+}
+
 .inbox-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1200,7 +1247,8 @@ h1 {
 }
 
 @media (max-width: 700px) {
-  .inbox-item {
+  .inbox-item,
+  .approval-item {
     grid-template-columns: minmax(0, 1fr);
   }
 

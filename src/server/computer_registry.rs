@@ -701,6 +701,29 @@ pub async fn agent_action(
             )
             .await?
         }
+        AgentAction::AgentCreate {
+            name,
+            role_text,
+            computer_id,
+            driver_kind,
+            idempotency_key,
+        } => serde_json::to_value(
+            super::approval::request_agent_create(
+                &state.database,
+                request.agent_member_id,
+                super::agent_registry::CreateAgentRequest {
+                    computer_id,
+                    name,
+                    handle: None,
+                    role_text,
+                    access_level: "member".to_owned(),
+                    driver_kind,
+                },
+                idempotency_key,
+            )
+            .await?,
+        )
+        .map_err(|_| ApiError::Internal)?,
         AgentAction::AttachmentUpload { .. }
         | AgentAction::AttachmentDownload { .. }
         | AgentAction::AttachmentInfo { .. } => {

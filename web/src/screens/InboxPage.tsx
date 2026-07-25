@@ -1,8 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Check, Clock3, Inbox, Menu } from "lucide-react";
+import { Check, Clock3, Inbox, Menu, X } from "lucide-react";
 
-import { ackInboxItem, deferInboxItem, listInbox, type InboxItem } from "../api/client";
+import {
+  ackInboxItem,
+  deferInboxItem,
+  listApprovals,
+  listInbox,
+  resolveApproval,
+  type InboxItem,
+  type Member,
+} from "../api/client";
 import { SpaceShell } from "../components/SpaceShell";
 
 export function InboxPage() {
@@ -14,6 +22,7 @@ export function InboxPage() {
           spaceSlug={space.slug}
           spaceId={space.id}
           memberId={currentMember.id}
+          currentMember={currentMember}
           openNavigation={openNavigation}
         />
       )}
@@ -25,11 +34,13 @@ function InboxWorkspace({
   spaceSlug,
   spaceId,
   memberId,
+  currentMember,
   openNavigation,
 }: {
   spaceSlug: string;
   spaceId: string;
   memberId: string;
+  currentMember: Member;
   openNavigation: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -38,6 +49,12 @@ function InboxWorkspace({
     queryKey: ["inbox", spaceId, memberId],
     queryFn: () => listInbox(memberId),
   });
+  const canGovern = currentMember.access_level === "owner" || currentMember.access_level === "admin";
+  const approvals = useQuery({
+    queryKey: ["approvals", spaceId],
+    queryFn: () => listApprovals(spaceId),
+    enabled: canGovern,
+  });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
   const ack = useMutation({ mutationFn: ackInboxItem, onSuccess: refresh });
   const defer = useMutation({
@@ -45,6 +62,16 @@ function InboxWorkspace({
       deferInboxItem(itemId, new Date(Date.now() + 60 * 60 * 1000).toISOString()),
     onSuccess: refresh,
   });
+  const resolve = useMutation({
+    mutationFn: ({ approvalId, decision }: { approvalId: string; decision: "approve" | "reject" }) =>
+      resolveApproval(approvalId, decision),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["approvals", spaceId] });
+      void queryClient.invalidateQueries({ queryKey: ["inbox", spaceId] });
+    },
+  });
+  const pendingApprovals = approvals.data?.filter((approval) => approval.status === "pending") ?? [];
+  const attentionItems = inbox.data?.filter((item) => item.kind !== "approval") ?? [];
 
   function open(item: InboxItem) {
     if (item.kind === "direct" && item.sender_member_id) {
@@ -74,12 +101,48 @@ function InboxWorkspace({
         </div>
       </header>
       <div className="inbox-list">
+        {canGovern && pendingApprovals.length > 0 ? (
+          <section className="approval-list" aria-labelledby="approval-heading">
+            <div className="approval-heading">
+              <span>GOVERNANCE</span>
+              <h2 id="approval-heading">Agent creation</h2>
+            </div>
+            {pendingApprovals.map((approval) => (
+              <article className="approval-item" key={approval.id}>
+                <div>
+                  <span className="inbox-kind">approval</span>
+                  <strong>{approval.payload.name}</strong>
+                  <p>Requested by {approval.requester_name} on Codex.</p>
+                </div>
+                <div className="inbox-actions">
+                  <button
+                    type="button"
+                    disabled={resolve.isPending}
+                    aria-label={`Approve ${approval.payload.name}`}
+                    onClick={() => resolve.mutate({ approvalId: approval.id, decision: "approve" })}
+                  >
+                    <Check />APPROVE
+                  </button>
+                  <button
+                    type="button"
+                    disabled={resolve.isPending}
+                    aria-label={`Reject ${approval.payload.name}`}
+                    onClick={() => resolve.mutate({ approvalId: approval.id, decision: "reject" })}
+                  >
+                    <X />REJECT
+                  </button>
+                </div>
+              </article>
+            ))}
+            {resolve.error ? <p className="timeline-status timeline-status--error">{resolve.error.message}</p> : null}
+          </section>
+        ) : null}
         {inbox.isPending ? <p className="timeline-status">Loading Inbox...</p> : null}
         {inbox.error ? <p className="timeline-status timeline-status--error">{inbox.error.message}</p> : null}
-        {inbox.data?.length === 0 ? (
+        {attentionItems.length === 0 && pendingApprovals.length === 0 ? (
           <div className="empty-channel"><Inbox aria-hidden="true" /><h2>Inbox is clear.</h2></div>
         ) : null}
-        {inbox.data?.map((item) => (
+        {attentionItems.map((item) => (
           <article className={`inbox-item inbox-item--${item.priority}`} key={item.id}>
             <button className="inbox-open" type="button" onClick={() => open(item)}>
               <span className="inbox-kind">{item.kind.replace("_", " ")}</span>

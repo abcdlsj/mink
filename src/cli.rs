@@ -60,6 +60,22 @@ pub enum AgentCommand {
     Message(AgentMessageArgs),
     /// Transfer Attachments for Agent Messages.
     Attachment(AgentAttachmentArgs),
+    /// Request Human approval to create another Agent.
+    Create(AgentCreateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long, value_name = "PATH")]
+    pub role_file: PathBuf,
+    #[arg(long)]
+    pub computer: uuid::Uuid,
+    #[arg(long, value_parser = ["codex"])]
+    pub driver: String,
+    #[command(flatten)]
+    pub output: JsonOutputArgs,
 }
 
 #[derive(Debug, Args)]
@@ -364,6 +380,23 @@ mod tests {
             Command::Agent(_)
         ));
         assert!(Cli::try_parse_from(["sumi", "agent", "inbox", "current", "--json"]).is_ok());
+        assert!(
+            Cli::try_parse_from([
+                "sumi",
+                "agent",
+                "create",
+                "--name",
+                "Reviewer",
+                "--role-file",
+                "./role.md",
+                "--computer",
+                "01969f98-bcee-7da0-a150-e0d0de169c00",
+                "--driver",
+                "codex",
+                "--json"
+            ])
+            .is_ok()
+        );
         assert!(
             Cli::try_parse_from([
                 "sumi", "agent", "channel", "read", "#design", "--limit", "20", "--json"
