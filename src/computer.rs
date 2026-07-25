@@ -1284,6 +1284,7 @@ struct MemoryFileMetadata {
     path: String,
     size: u64,
     sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
     updated_at: OffsetDateTime,
 }
 
@@ -1700,6 +1701,20 @@ async fn set_permissions(path: &Path, mode: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_metadata_uses_rfc3339_on_the_computer_protocol() {
+        let metadata = MemoryFileMetadata {
+            path: "MEMORY.md".to_owned(),
+            size: 9,
+            sha256: "00".repeat(32),
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        };
+
+        let value = serde_json::to_value(metadata).unwrap();
+
+        assert_eq!(value["updated_at"], "1970-01-01T00:00:00Z");
+    }
 
     #[tokio::test]
     async fn secrets_are_created_with_restricted_permissions_and_reused() {

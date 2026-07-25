@@ -104,6 +104,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 - Phase 4 Agent Attachment CLI 已形成 upload/info/download 与 Message 关联纵向路径；下一步补齐 channel create、agent create 及 channel read 的剩余分页参数，再做真实 daemon/Codex 里程碑验收。
 - Phase 4 Agent Channel CLI 已补齐 `channel read --after/--around` 与幂等 `channel create`，并通过 active run、权限和 private Channel 边界验收；下一步实现 `sumi agent create` 与 Approval 路径。
 - Phase 4 `sumi agent create` 与 Agent 发起的 Human Approval 已形成纵向路径；下一步审计剩余 CLI 契约，并完成真实 daemon/Codex 的 Human DM 里程碑验收。
+- Phase 4 真实 Server/daemon 已完成配对、Agent provision、hard Inbox claim 与 Codex 启动，并修复真实 command result 暴露的 Memory 时间协议错误；Human DM 回复仍被本机失效的 Codex API key（OpenAI 401）阻塞，凭证恢复后继续同一里程碑，不提前勾选 Phase 4。
 
 ## 验证记录
 
@@ -132,3 +133,4 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 2026-07-25 | Phase 4 / Agent Attachment CLI | Agent Home canonical path/symlink 边界；Computer credential + active run scoped create/PUT/complete/info/download；Agent 上传、Message 关联、未关联下载拒绝；`mise run lint/test/build` | 通过；26 Rust tests、2 CLI、真实 PostgreSQL integration、9 Web tests和 production build 全绿，完整 CLI 尚未完成。
 2026-07-25 | Phase 4 / Agent Channel CLI | `channel read` before/after/around 双向分页；无权限创建与 private 越权拒绝；授权后 public/private 创建、UUIDv7 幂等重放、membership/audit/outbox；`mise run lint/test/build` | 通过；28 Rust tests、2 CLI、真实 PostgreSQL integration、9 Web tests和 production build 全绿，下一步为 Agent create/Approval。
 2026-07-25 | Phase 4 / Agent Create Approval | active run Agent CLI 创建 pending Approval；Agent Admin 强制 Human 审批、幂等/跨 Space/权限边界、approve provisioning、reject 零残留与 Inbox governance UI；`mise run lint/test/build` | 通过；29 Rust tests、2 CLI、真实 PostgreSQL migration/integration、10 Web tests和 production build 全绿，完整 CLI 与真实 daemon/Codex 里程碑尚未完成。
+2026-07-25 | Phase 4 / 真实 daemon/Codex 里程碑（部分） | 隔离 PostgreSQL + 真实 Server/daemon/Computer WebSocket/macOS sandbox/Codex；真实 provision result；Human DM hard Inbox 与 run 状态；`mise run lint/test/build` | Agent provision 与 RFC3339 Memory 快照通过；30 Rust、2 CLI、PostgreSQL migration、10 Web tests及构建全绿；hard Inbox 在约 1 秒内启动真实 Codex，但本机 existing-local-auth 被 OpenAI 以 401 invalid_api_key 拒绝，未产生 Agent Message，Phase 4 未完成。
