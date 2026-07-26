@@ -146,6 +146,23 @@ impl SumiProcess {
         Ok(())
     }
 
+    pub async fn wait_for_success(&mut self, duration: std::time::Duration) -> Result<()> {
+        let status = tokio::time::timeout(duration, self.child.wait())
+            .await
+            .with_context(|| {
+                format!(
+                    "sumi process did not exit within {duration:?}; logs: {}",
+                    self.log_text()
+                )
+            })??;
+        ensure!(
+            status.success(),
+            "sumi process exited unsuccessfully: {status}; logs: {}",
+            self.log_text()
+        );
+        Ok(())
+    }
+
     fn log_text(&self) -> String {
         self.logs
             .lock()

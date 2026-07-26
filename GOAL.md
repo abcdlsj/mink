@@ -36,7 +36,7 @@
 
 - [x] 将 daemon、Server、PostgreSQL schema、API types、WebUI 和测试中的 `private_key`、`pairing_secret`、`computer_credential` 收敛为单一 Computer Token：raw Token 只在本机持久化并仅通过 HTTPS/WSS 用于认证，Server 只保存 hash，配对页只显示不可逆短 fingerprint。
 - [x] 验证首次 Pair、daemon 正常退出、网络中断、Server 重启和 daemon 重启：除 Delete Computer 外始终复用同一 Computer ID/Token，状态只在 online/offline 间变化，不重新 Pair。
-- [ ] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
+- [x] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
 - [ ] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
 - [ ] 用本机 Pi 的 `deepseek/deepseek-v4-pro` 配置完成一次不泄露认证的 Builtin provider smoke check；自动测试使用本地 fake provider，不连接收费服务。
 
@@ -98,3 +98,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | 历史 Rust 基线 | `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features` | 2026-07-27 曾通过 52 unit + 3 CLI + 1 PostgreSQL migration tests；现有测试未启动真实 Server + daemon + Builtin + Agent CLI 全链路
 2026-07-27 | 单一 Computer Token | `cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`pnpm --dir web test -- ComputersPage.test.tsx --run && pnpm --dir web lint && pnpm --dir web build`；`git diff --check` | 52 Rust unit/integration + 3 CLI + 1 真实 PostgreSQL migration tests、12 Web tests、clippy、TypeScript/ESLint 与 production build 全通过；daemon、Server、schema、API types、WebUI 和测试已删除 P-256/pairing secret/credential 三套身份并统一使用 Computer Token
 2026-07-27 | Computer 重连生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证首次 Pair、正常退出后 offline、daemon 重启、TCP 断网/恢复和 Server 重启；全程复用唯一 Computer ID/Token 和 pairing，状态仅 online/offline；52 unit/integration + 3 CLI + 1 生命周期 + 1 migration tests 全通过
+2026-07-27 | Computer 删除生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证 Delete 撤销旧 Token、在线 daemon 收终止后清理身份并退出、离线 daemon 下次连接被拒后清理身份并退出；后续启动使用新 Token/Computer ID 重新 Pair，本地 Agent Home、Server Agent/Member/run/pairing 历史保留；52 unit/integration + 3 CLI + 2 生命周期 + 1 migration tests 全通过
