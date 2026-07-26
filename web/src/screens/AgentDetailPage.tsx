@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { getAgent, readAgentMemory, updateAgent } from "../api/client";
 import { SpaceShell } from "../components/SpaceShell";
+import { formatBytes } from "../format";
 
 export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
@@ -126,8 +127,4 @@ function AgentWorkspace({
       </div>
     </section>
   );
-}
-
-function formatBytes(size: number) {
-  return size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KiB`;
 }

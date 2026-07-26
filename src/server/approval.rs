@@ -208,7 +208,7 @@ async fn request_agent_create_for_member(
         now,
     )
     .await?;
-    insert_event(
+    publish_approval_event(
         &mut transaction,
         "approval.created",
         approval_id,
@@ -342,7 +342,7 @@ async fn resolve(
         now,
     )
     .await?;
-    insert_event(
+    publish_approval_event(
         &mut transaction,
         "approval.resolved",
         approval_id,
@@ -406,25 +406,22 @@ async fn insert_audit(
     metadata: serde_json::Value,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, metadata_json, created_at) \
-         VALUES ($1, $2, $3, $4, 'approval', $5, $6, $7)",
+    super::audit::record(
+        transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(actor_member_id),
+            action,
+            subject_type: "approval",
+            subject_id,
+            metadata: Some(metadata),
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(actor_member_id)
-    .bind(action)
-    .bind(subject_id)
-    .bind(metadata)
-    .bind(now)
-    .execute(&mut **transaction)
     .await
-    .map_err(ApiError::database)?;
-    Ok(())
 }
 
-async fn insert_event(
+async fn publish_approval_event(
     transaction: &mut Transaction<'_, Postgres>,
     topic: &str,
     aggregate_id: Uuid,
@@ -433,17 +430,5 @@ async fn insert_event(
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
     payload["space_id"] = serde_json::Value::String(space_id.to_string());
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, $2, $3, $4, $5)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(topic)
-    .bind(aggregate_id)
-    .bind(payload)
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    Ok(())
+    super::outbox::publish(transaction, topic, aggregate_id, payload, now).await
 }

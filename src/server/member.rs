@@ -289,20 +289,19 @@ pub async fn create_invitation(
             ApiError::database(error)
         }
     })?;
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, metadata_json, created_at) \
-         VALUES ($1, $2, $3, 'human_invitation.created', 'human_invitation', $4, $5, $6)",
+    super::audit::record(
+        &mut transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(actor.id),
+            action: "human_invitation.created",
+            subject_type: "human_invitation",
+            subject_id: id,
+            metadata: Some(serde_json::json!({ "email": email })),
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(actor.id)
-    .bind(id)
-    .bind(serde_json::json!({ "email": email }))
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
 
     let response = InvitationResponse {
         id,
@@ -744,20 +743,20 @@ async fn record_member_update(
     member_id: Uuid,
 ) -> Result<(), ApiError> {
     let now = OffsetDateTime::now_utc();
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, created_at) \
-         VALUES ($1, $2, $3, 'member.updated', 'member', $4, $5)",
+    super::audit::record(
+        transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(actor_id),
+            action: "member.updated",
+            subject_type: "member",
+            subject_id: member_id,
+            metadata: None,
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(actor_id)
-    .bind(member_id)
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    insert_member_outbox(transaction, space_id, member_id, now).await
+    .await?;
+    publish_member_update(transaction, space_id, member_id, now).await
 }
 
 async fn record_member_joined(
@@ -767,39 +766,34 @@ async fn record_member_joined(
     invitation_id: Uuid,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, metadata_json, created_at) \
-         VALUES ($1, $2, $3, 'member.joined', 'member', $3, $4, $5)",
+    super::audit::record(
+        transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(member_id),
+            action: "member.joined",
+            subject_type: "member",
+            subject_id: member_id,
+            metadata: Some(serde_json::json!({ "invitation_id": invitation_id })),
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(member_id)
-    .bind(serde_json::json!({ "invitation_id": invitation_id }))
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    insert_member_outbox(transaction, space_id, member_id, now).await
+    .await?;
+    publish_member_update(transaction, space_id, member_id, now).await
 }
 
-async fn insert_member_outbox(
+async fn publish_member_update(
     transaction: &mut Transaction<'_, Postgres>,
     space_id: Uuid,
     member_id: Uuid,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO outbox_events \
-         (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'member.updated', $2, $3, $4)",
+    super::outbox::publish(
+        transaction,
+        "member.updated",
+        member_id,
+        serde_json::json!({ "space_id": space_id, "member_id": member_id }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(member_id)
-    .bind(serde_json::json!({ "space_id": space_id, "member_id": member_id }))
-    .bind(now)
-    .execute(&mut **transaction)
     .await
-    .map_err(ApiError::database)?;
-    Ok(())
 }

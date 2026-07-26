@@ -1,282 +1,36 @@
 import { v7 as uuidv7 } from "uuid";
 
-export interface User {
-  id: string;
-  display_name: string;
-  email: string;
-}
-
-export interface RegisterInput {
-  display_name: string;
-  email: string;
-  password: string;
-}
-
-export interface LoginInput {
-  email: string;
-  password: string;
-}
-
-export interface Space {
-  id: string;
-  name: string;
-  slug: string;
-  accent: string;
-  owner_member_id: string;
-  current_member_id: string;
-  general_channel_id: string;
-}
-
-export interface CreateSpaceInput {
-  name: string;
-  slug: string;
-  accent: string;
-}
-
-export interface Computer {
-  id: string;
-  space_id: string;
-  name: string;
-  hostname: string;
-  os: "macos" | "linux";
-  status: "online" | "offline" | "revoked";
-  daemon_version: string;
-  last_seen_at?: string;
-  created_at: string;
-}
-
-export interface PairingDetails {
-  pairing_id: string;
-  hostname: string;
-  os: "macos" | "linux";
-  daemon_version: string;
-  public_key_fingerprint: string;
-  expires_at: string;
-  status: "pending" | "confirmed" | "expired";
-}
-
-export interface Agent {
-  member_id: string;
-  space_id: string;
-  computer_id: string;
-  name: string;
-  handle: string;
-  access_level: "member" | "admin";
-  role_text: string;
-  role_revision: number;
-  status: "provisioning" | "active" | "suspended" | "error" | "retired";
-  driver_kind: "codex" | "builtin";
-  attention_config: AttentionConfig;
-  created_at: string;
-  updated_at: string;
-  retired_at?: string;
-  last_error_code?: string;
-  memory_files: AgentMemoryFile[];
-}
-
-export interface AttentionConfig {
-  dm_immediate: true;
-  mention_immediate: true;
-  ambient_enabled: boolean;
-  ambient_debounce_seconds: number;
-  ambient_max_wait_seconds: number;
-  max_retry_count: number;
-}
-
-export interface AgentMemoryFile {
-  path: string;
-  size: number;
-  sha256: string;
-  updated_at: string;
-}
-
-export interface AgentMemoryContent extends AgentMemoryFile {
-  content: string;
-}
-
-export interface UpdateAgentInput {
-  role_text?: string;
-  attention_config?: AttentionConfig;
-  lifecycle?:
-    | { action: "suspend"; mode: "stop_after_current" | "cancel_now" }
-    | { action: "resume" }
-    | { action: "retry" }
-    | { action: "retire" };
-}
-
-export interface Member {
-  id: string;
-  kind: "human" | "agent";
-  display_name: string;
-  handle: string;
-  access_level: "owner" | "admin" | "member";
-  permissions: string[];
-}
-
-export interface UpdateMemberInput {
-  access_level?: string;
-  permissions?: string[];
-}
-
-export interface Invitation {
-  id: string;
-  space_id: string;
-  space_name: string;
-  space_slug: string;
-  email: string;
-  expires_at: string;
-}
-
-export interface CreateInvitationInput {
-  email: string;
-  invite_token: string;
-}
-
-export interface Channel {
-  id: string;
-  space_id: string;
-  kind: "public" | "private";
-  name: string;
-  slug: string;
-  topic?: string;
-  created_by_member_id: string;
-  joined: boolean;
-  archived_at?: string;
-}
-
-export interface ChannelList {
-  channels: Channel[];
-  can_create: boolean;
-}
-
-export interface DirectMessage {
-  channel_id: string;
-  space_id: string;
-  other_member: Member;
-  created_at: string;
-}
-
-export interface CreateChannelInput {
-  name: string;
-  slug: string;
-  kind: "public" | "private";
-  topic?: string;
-}
-
-export interface MessageAuthor {
-  id: string;
-  kind: "human" | "agent";
-  display_name: string;
-  handle: string;
-}
-
-export interface Message {
-  id: string;
-  channel_id: string;
-  seq: number;
-  author: MessageAuthor;
-  body_markdown: string;
-  mentions: string[];
-  attachments: Attachment[];
-  created_at: string;
-  edited_at?: string;
-  deleted_at?: string;
-  thread_id?: number;
-  reply_count: number;
-}
-
-export interface MessagePage {
-  channel_id: string;
-  snapshot_channel_seq: number;
-  messages: Message[];
-  has_more_before: boolean;
-  has_more_after: boolean;
-}
-
-export interface CreateMessageInput {
-  body_markdown: string;
-  mentions: string[];
-  attachment_ids?: string[];
-}
-
-export interface Attachment {
-  id: string;
-  space_id: string;
-  uploader_member_id: string;
-  original_name: string;
-  media_type: string;
-  size?: number;
-  sha256?: string;
-  status: "uploading" | "ready" | "deleted";
-  upload_path?: string;
-  download_path?: string;
-  created_at: string;
-}
-
-export interface InboxItem {
-  id: string;
-  member_id: string;
-  kind: "direct" | "mention" | "reply" | "thread_activity" | "channel_activity" | "approval" | "system";
-  priority: "hard" | "ambient";
-  channel_id?: string;
-  channel_slug?: string;
-  thread_id?: number;
-  message_id?: string;
-  approval_id?: string;
-  sender_member_id?: string;
-  sender_display_name?: string;
-  summary?: string;
-  status: "pending" | "deferred" | "handled";
-  available_at: string;
-  created_at: string;
-}
-
-export interface Approval {
-  id: string;
-  space_id: string;
-  type: "agent.create";
-  requested_by_member_id: string;
-  requester_name: string;
-  payload: {
-    computer_id: string;
-    name: string;
-    role_text: string;
-    driver_kind: "codex" | "builtin";
-    access_level: "member";
-    permissions: string[];
-  };
-  status: "pending" | "approved" | "rejected" | "canceled";
-  resolved_by_member_id?: string;
-  created_at: string;
-  resolved_at?: string;
-}
-
-export interface Thread {
-  channel_id: string;
-  thread_id: number;
-  root_message_id: string;
-  created_by_member_id: string;
-  created_at: string;
-}
-
-export interface ThreadRead {
-  channel_id: string;
-  thread_id: number;
-  snapshot_channel_seq: number;
-  root: Message;
-  replies: Message[];
-  is_following: boolean;
-}
-
-export interface ThreadSubscription {
-  channel_id: string;
-  thread_id: number;
-  is_following: boolean;
-}
-
-export interface CreateThreadReplyInput extends CreateMessageInput {
-  reply_to_message_id?: string;
-}
+import type {
+  User,
+  RegisterInput,
+  LoginInput,
+  Space,
+  CreateSpaceInput,
+  Computer,
+  PairingDetails,
+  Agent,
+  AgentMemoryContent,
+  UpdateAgentInput,
+  Member,
+  UpdateMemberInput,
+  Invitation,
+  CreateInvitationInput,
+  Channel,
+  ChannelList,
+  DirectMessage,
+  CreateChannelInput,
+  Message,
+  MessagePage,
+  CreateMessageInput,
+  Attachment,
+  InboxItem,
+  Approval,
+  Thread,
+  ThreadRead,
+  ThreadSubscription,
+  CreateThreadReplyInput,
+} from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 interface ErrorEnvelope {
   error?: {
@@ -298,11 +52,7 @@ export class ApiRequestError extends Error {
 }
 
 export async function register(input: RegisterInput): Promise<User> {
-  const response = await apiRequest<{ user: User }>("/api/v1/auth/register", {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  const response = await mutate<{ user: User }>("/api/v1/auth/register", "POST", input);
   return response.user;
 }
 
@@ -311,11 +61,7 @@ export function currentUser(): Promise<User> {
 }
 
 export async function login(input: LoginInput): Promise<User> {
-  const response = await apiRequest<{ user: User }>("/api/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  const response = await mutate<{ user: User }>("/api/v1/auth/login", "POST", input);
   return response.user;
 }
 
@@ -331,11 +77,7 @@ export async function logout(): Promise<void> {
 }
 
 export function createSpace(input: CreateSpaceInput): Promise<Space> {
-  return apiRequest<Space>("/api/v1/spaces", {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Space>("/api/v1/spaces", "POST", input);
 }
 
 export function listSpaces(): Promise<Space[]> {
@@ -352,9 +94,10 @@ export function confirmPairing(
   pairingId: string,
   input: { space_id: string; name: string; code: string },
 ): Promise<Computer> {
-  return apiRequest<Computer>(
+  return mutate<Computer>(
     `/api/v1/computer-pairings/${encodeURIComponent(pairingId)}/confirm`,
-    { method: "POST", body: JSON.stringify(input), headers: mutationHeaders() },
+    "POST",
+    input,
   );
 }
 
@@ -363,10 +106,7 @@ export function listComputers(spaceId: string): Promise<Computer[]> {
 }
 
 export function revokeComputer(computerId: string): Promise<Computer> {
-  return apiRequest<Computer>(`/api/v1/computers/${encodeURIComponent(computerId)}`, {
-    method: "DELETE",
-    headers: { "Idempotency-Key": uuidv7() },
-  });
+  return mutate<Computer>(`/api/v1/computers/${encodeURIComponent(computerId)}`, "DELETE");
 }
 
 export function createAgent(
@@ -380,11 +120,7 @@ export function createAgent(
     driver_kind: "codex" | "builtin";
   },
 ): Promise<Agent> {
-  return apiRequest<Agent>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/agents`, {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Agent>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/agents`, "POST", input);
 }
 
 export function listAgents(spaceId: string): Promise<Agent[]> {
@@ -396,11 +132,7 @@ export function getAgent(agentId: string): Promise<Agent> {
 }
 
 export function updateAgent(agentId: string, input: UpdateAgentInput): Promise<Agent> {
-  return apiRequest<Agent>(`/api/v1/agents/${encodeURIComponent(agentId)}`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Agent>(`/api/v1/agents/${encodeURIComponent(agentId)}`, "PATCH", input);
 }
 
 export function readAgentMemory(agentId: string, path: string): Promise<AgentMemoryContent> {
@@ -427,13 +159,10 @@ export function updateMember(
   memberId: string,
   input: UpdateMemberInput,
 ): Promise<Member> {
-  return apiRequest<Member>(
+  return mutate<Member>(
     `/api/v1/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(memberId)}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(input),
-      headers: mutationHeaders(),
-    },
+    "PATCH",
+    input,
   );
 }
 
@@ -441,11 +170,11 @@ export function createInvitation(
   spaceId: string,
   input: CreateInvitationInput,
 ): Promise<Invitation> {
-  return apiRequest<Invitation>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/invites`, {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Invitation>(
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/invites`,
+    "POST",
+    input,
+  );
 }
 
 export function getInvitation(token: string): Promise<Invitation> {
@@ -453,10 +182,7 @@ export function getInvitation(token: string): Promise<Invitation> {
 }
 
 export function acceptInvitation(token: string): Promise<Member> {
-  return apiRequest<Member>(`/api/v1/invites/${encodeURIComponent(token)}/accept`, {
-    method: "POST",
-    headers: { "Idempotency-Key": uuidv7() },
-  });
+  return mutate<Member>(`/api/v1/invites/${encodeURIComponent(token)}/accept`, "POST");
 }
 
 export function listChannels(spaceId: string): Promise<ChannelList> {
@@ -464,25 +190,25 @@ export function listChannels(spaceId: string): Promise<ChannelList> {
 }
 
 export function createChannel(spaceId: string, input: CreateChannelInput): Promise<Channel> {
-  return apiRequest<Channel>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/channels`, {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Channel>(
+    `/api/v1/spaces/${encodeURIComponent(spaceId)}/channels`,
+    "POST",
+    input,
+  );
 }
 
 export function joinChannel(channelId: string): Promise<Channel> {
-  return apiRequest<Channel>(`/api/v1/channels/${encodeURIComponent(channelId)}/members/me`, {
-    method: "POST",
-    headers: { "Idempotency-Key": uuidv7() },
-  });
+  return mutate<Channel>(
+    `/api/v1/channels/${encodeURIComponent(channelId)}/members/me`,
+    "POST",
+  );
 }
 
 export function archiveChannel(channelId: string): Promise<Channel> {
-  return apiRequest<Channel>(`/api/v1/channels/${encodeURIComponent(channelId)}/archive`, {
-    method: "POST",
-    headers: { "Idempotency-Key": uuidv7() },
-  });
+  return mutate<Channel>(
+    `/api/v1/channels/${encodeURIComponent(channelId)}/archive`,
+    "POST",
+  );
 }
 
 export function listDirectMessages(spaceId: string): Promise<DirectMessage[]> {
@@ -490,10 +216,8 @@ export function listDirectMessages(spaceId: string): Promise<DirectMessage[]> {
 }
 
 export function createDirectMessage(spaceId: string, memberId: string): Promise<DirectMessage> {
-  return apiRequest<DirectMessage>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/dms`, {
-    method: "POST",
-    body: JSON.stringify({ member_id: memberId }),
-    headers: mutationHeaders(),
+  return mutate<DirectMessage>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/dms`, "POST", {
+    member_id: memberId,
   });
 }
 
@@ -502,22 +226,14 @@ export function listMessages(channelId: string): Promise<MessagePage> {
 }
 
 export function createMessage(channelId: string, input: CreateMessageInput): Promise<Message> {
-  return apiRequest<Message>(`/api/v1/channels/${encodeURIComponent(channelId)}/messages`, {
-    method: "POST",
-    body: JSON.stringify(input),
-    headers: mutationHeaders(),
-  });
+  return mutate<Message>(`/api/v1/channels/${encodeURIComponent(channelId)}/messages`, "POST", input);
 }
 
 export async function uploadAttachment(spaceId: string, file: File): Promise<Attachment> {
-  const attachment = await apiRequest<Attachment>("/api/v1/attachments/uploads", {
-    method: "POST",
-    body: JSON.stringify({
+  const attachment = await mutate<Attachment>("/api/v1/attachments/uploads", "POST", {
       space_id: spaceId,
       original_name: file.name,
       media_type: file.type || "application/octet-stream",
-    }),
-    headers: mutationHeaders(),
   });
   if (!attachment.upload_path) {
     throw new ApiRequestError(500, "upload_path_missing", "Attachment upload path is missing");
@@ -530,18 +246,16 @@ export async function uploadAttachment(spaceId: string, file: File): Promise<Att
     headers: { "Idempotency-Key": uuidv7() },
   });
   if (!uploaded.ok) await throwResponseError(uploaded);
-  return apiRequest<Attachment>(`/api/v1/attachments/${encodeURIComponent(attachment.id)}/complete`, {
-    method: "POST",
-    body: JSON.stringify({ size: file.size, sha256: hexDigest(digest) }),
-    headers: mutationHeaders(),
-  });
+  return mutate<Attachment>(
+    `/api/v1/attachments/${encodeURIComponent(attachment.id)}/complete`,
+    "POST",
+    { size: file.size, sha256: hexDigest(digest) },
+  );
 }
 
 export function createThread(channelId: string, rootMessageId: string): Promise<Thread> {
-  return apiRequest<Thread>(`/api/v1/channels/${encodeURIComponent(channelId)}/threads`, {
-    method: "POST",
-    body: JSON.stringify({ root_message_id: rootMessageId }),
-    headers: mutationHeaders(),
+  return mutate<Thread>(`/api/v1/channels/${encodeURIComponent(channelId)}/threads`, "POST", {
+    root_message_id: rootMessageId,
   });
 }
 
@@ -556,12 +270,9 @@ export function setThreadSubscription(
   threadId: number,
   isFollowing: boolean,
 ): Promise<ThreadSubscription> {
-  return apiRequest<ThreadSubscription>(
+  return mutate<ThreadSubscription>(
     `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}/subscription`,
-    {
-      method: isFollowing ? "PUT" : "DELETE",
-      headers: { "Idempotency-Key": uuidv7() },
-    },
+    isFollowing ? "PUT" : "DELETE",
   );
 }
 
@@ -570,13 +281,10 @@ export function createThreadReply(
   threadId: number,
   input: CreateThreadReplyInput,
 ): Promise<Message> {
-  return apiRequest<Message>(
+  return mutate<Message>(
     `/api/v1/channels/${encodeURIComponent(channelId)}/threads/${threadId}/messages`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-      headers: mutationHeaders(),
-    },
+    "POST",
+    input,
   );
 }
 
@@ -592,25 +300,18 @@ export function resolveApproval(
   approvalId: string,
   decision: "approve" | "reject",
 ): Promise<Approval> {
-  return apiRequest<Approval>(
+  return mutate<Approval>(
     `/api/v1/approvals/${encodeURIComponent(approvalId)}/${decision}`,
-    { method: "POST", headers: { "Idempotency-Key": uuidv7() } },
+    "POST",
   );
 }
 
 export function ackInboxItem(itemId: string): Promise<InboxItem> {
-  return apiRequest<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/ack`, {
-    method: "POST",
-    headers: { "Idempotency-Key": uuidv7() },
-  });
+  return mutate<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/ack`, "POST");
 }
 
 export function deferInboxItem(itemId: string, until: string): Promise<InboxItem> {
-  return apiRequest<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/defer`, {
-    method: "POST",
-    body: JSON.stringify({ until }),
-    headers: mutationHeaders(),
-  });
+  return mutate<InboxItem>(`/api/v1/inbox/${encodeURIComponent(itemId)}/defer`, "POST", { until });
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -622,6 +323,14 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     await throwResponseError(response);
   }
   return (await response.json()) as T;
+}
+
+function mutate<T>(path: string, method: string, body?: unknown): Promise<T> {
+  return apiRequest<T>(path, {
+    method,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: body === undefined ? { "Idempotency-Key": uuidv7() } : mutationHeaders(),
+  });
 }
 
 async function throwResponseError(response: Response): Promise<never> {

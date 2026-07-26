@@ -21,6 +21,7 @@ import {
   type ThreadRead,
 } from "../api/client";
 import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
+import { formatBytes } from "../format";
 
 export function ChannelPage() {
   const { spaceSlug, channelSlug } = useParams({
@@ -535,10 +536,4 @@ function formatMessageTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(
     new Date(value),
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }

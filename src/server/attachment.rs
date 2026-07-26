@@ -14,7 +14,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, computer_registry, idempotency, member};
+use super::{AppState, api_error::ApiError, auth, computer_auth, idempotency, member};
 
 const UPLOAD_PART_BYTES: usize = 8 * 1024 * 1024;
 
@@ -279,20 +279,17 @@ async fn complete_upload_for_member(
     .await
     .map_err(ApiError::database)?;
     let response = AttachmentResponse::from(ready);
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'attachment.ready', $2, $3, $4)",
+    super::outbox::publish(
+        transaction,
+        "attachment.ready",
+        attachment_id,
+        serde_json::json!({
+            "space_id": response.space_id,
+            "attachment_id": attachment_id
+        }),
+        OffsetDateTime::now_utc(),
     )
-    .bind(Uuid::now_v7())
-    .bind(attachment_id)
-    .bind(serde_json::json!({
-        "space_id": response.space_id,
-        "attachment_id": attachment_id
-    }))
-    .bind(OffsetDateTime::now_utc())
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
     idempotency::finish(transaction, &scope, key, StatusCode::OK, &response).await?;
     Ok(response)
 }
@@ -341,14 +338,8 @@ pub async fn agent_create_upload(
     Path((computer_id, agent_id, run_id)): Path<(Uuid, Uuid, Uuid)>,
     Json(mut request): Json<AgentCreateUploadRequest>,
 ) -> Result<(StatusCode, Json<AttachmentResponse>), ApiError> {
-    let space_id = computer_registry::require_active_agent_run(
-        &state,
-        &headers,
-        computer_id,
-        agent_id,
-        run_id,
-    )
-    .await?;
+    let space_id =
+        computer_auth::require_active_run(&state, &headers, computer_id, agent_id, run_id).await?;
     normalize_metadata(&mut request.original_name, &mut request.media_type)?;
     let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
@@ -372,8 +363,7 @@ pub async fn agent_upload_content(
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
     body: Body,
 ) -> Result<StatusCode, ApiError> {
-    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
-        .await?;
+    computer_auth::require_active_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let object_key: String = sqlx::query_scalar(
         "SELECT object_key FROM attachments WHERE id = $1 AND uploader_member_id = $2 \
          AND status = 'uploading' AND deleted_at IS NULL",
@@ -406,8 +396,7 @@ pub async fn agent_complete_upload(
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
     Json(request): Json<CompleteUploadRequest>,
 ) -> Result<Json<AttachmentResponse>, ApiError> {
-    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
-        .await?;
+    computer_auth::require_active_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let row: AttachmentRow = sqlx::query_as(
         "SELECT id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
@@ -432,8 +421,7 @@ pub async fn agent_info(
     headers: HeaderMap,
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
 ) -> Result<Json<AttachmentResponse>, ApiError> {
-    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
-        .await?;
+    computer_auth::require_active_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let row: AttachmentRow = sqlx::query_as(
         "SELECT attachments.id, attachments.space_id, attachments.uploader_member_id, \
                 attachments.original_name, attachments.media_type, attachments.size, \
@@ -460,8 +448,7 @@ pub async fn agent_download(
     headers: HeaderMap,
     Path((computer_id, agent_id, run_id, attachment_id)): Path<(Uuid, Uuid, Uuid, Uuid)>,
 ) -> Result<Response, ApiError> {
-    computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
-        .await?;
+    computer_auth::require_active_run(&state, &headers, computer_id, agent_id, run_id).await?;
     let metadata: Option<(String, String, String, i64)> = sqlx::query_as(
         "SELECT attachments.object_key, attachments.original_name, attachments.media_type, \
                 attachments.size FROM attachments \

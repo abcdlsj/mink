@@ -721,32 +721,25 @@ async fn record_channel_event(
     action: &str,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, created_at) \
-         VALUES ($1, $2, $3, $4, 'channel', $5, $6)",
+    super::audit::record(
+        transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(actor_id),
+            action,
+            subject_type: "channel",
+            subject_id: channel_id,
+            metadata: None,
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(actor_id)
-    .bind(action)
-    .bind(channel_id)
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO outbox_events \
-         (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, $2, $3, $4, $5)",
+    .await?;
+    super::outbox::publish(
+        transaction,
+        action,
+        channel_id,
+        serde_json::json!({ "space_id": space_id, "channel_id": channel_id }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(action)
-    .bind(channel_id)
-    .bind(serde_json::json!({ "space_id": space_id, "channel_id": channel_id }))
-    .bind(now)
-    .execute(&mut **transaction)
     .await
-    .map_err(ApiError::database)?;
-    Ok(())
 }

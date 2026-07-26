@@ -152,17 +152,14 @@ async fn update_item(
         .fetch_one(&mut *transaction)
         .await
         .map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'inbox.changed', $2, $3, $4)",
+    super::outbox::publish(
+        &mut transaction,
+        "inbox.changed",
+        item_id,
+        serde_json::json!({ "space_id": space_id, "member_id": member_id, "item_id": item_id }),
+        OffsetDateTime::now_utc(),
     )
-    .bind(Uuid::now_v7())
-    .bind(item_id)
-    .bind(serde_json::json!({ "space_id": space_id, "member_id": member_id, "item_id": item_id }))
-    .bind(OffsetDateTime::now_utc())
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
     idempotency::finish(
         &mut transaction,
         &scope,

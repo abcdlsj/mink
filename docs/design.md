@@ -1,7 +1,7 @@
 # Sumi v1 详细设计
 
 - 状态：Draft
-- 日期：2026-07-25
+- 日期：2026-07-26
 - 目标读者：产品、设计、前端、Server、daemon、CLI 与 Driver 实现者
 - 领域词汇：[GLOSSARY.md](../GLOSSARY.md)
 - 参考材料：[Raft Blog Reference](../references/raft-blog/README.md)
@@ -105,6 +105,7 @@ WebUI 使用 React 19、TypeScript、Vite、TanStack Router 和 TanStack Query�
 - React 只负责 Browser UI；领域规则、权限和事务仍由 Rust Server 执行。
 - TanStack Router 负责 `/s/{space-slug}` 等类型安全路由，TanStack Query 负责 HTTP server state、失效和断线补偿；SSE event 只触发精确 cache update 或 invalidation，不成为第二事实来源。
 - Browser API 类型从 utoipa OpenAPI 生成；禁止长期维护一套手写、与 Rust 并行演化的 wire types。
+- OpenAPI 生成的 Web wire types 输出到 `web/src/api/types.ts`；`client.ts` 只负责传输和领域命名调用，不得重新定义 request/response interface。
 - 样式使用普通 CSS 和集中 design tokens，不引入重型组件库，以便精确实现本文件定义的 Neo-Brutalism、响应式和 accessibility 行为。
 - 单元与组件测试使用 Vitest、Testing Library 和 jsdom；最终端到端验收使用 Playwright。
 - Vite development server 将 `/api` 代理到本机 `sumi server`；production build 由 `sumi server` 同源提供，避免额外 CORS 信任面。
@@ -236,6 +237,15 @@ Server 不执行 Agent shell 命令。daemon 不拥有 Space 全局管理权限�
 - 读取 Agent Role、Memory、工作目录和当前 Inbox 摘要。
 - 可以执行本地工具，但所有 Sumi 读写必须调用 sumi CLI。
 - Driver 的 session、模型和输出格式都不是 Agent 的事实来源。
+
+**模块内公共边界**
+
+- audit 与 transactional outbox 是 Server 基础设施边界。领域事务通过统一的 audit/outbox writer 写入，业务模块不得各自复制基础 INSERT SQL；writer 不拥有提交事务的权力。
+- Channel membership 是 Message 与 Thread 共享的授权事实。公共 membership guard 只验证 membership，不夹带 Admin 例外或业务写入；其他领域只有在校验语义完全相同时才复用该 guard。
+- Web API client 保留按领域命名的调用函数；JSON 写请求统一经过 mutation helper 生成 Idempotency-Key、序列化 body 和处理错误，不在页面组件或每个调用函数中重复传输样板。
+- Computer Server 边界按 pairing、credential/run authentication、WebSocket protocol、Agent gateway 和 registry/command lifecycle 分离；Attachment 只依赖 active run authentication，不得反向依赖整个 registry。
+- daemon 的 local IPC 独立负责 run capability 校验、Agent CLI 请求代理和 Attachment 本地流传输；远端连接、command 执行、配对与本地 Secret 生命周期不进入该模块。
+- Rust 大型集成测试和 daemon 单元测试放在对应模块的 `tests.rs`/`tests/` 子模块，运行时代码文件不得内联数千行测试夹具。
 
 ### 5.3 推荐仓库结构
 
@@ -2020,5 +2030,7 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 - 不把 Human/Agent 分成两套协作 API。
 - 不用 Admin 身份绕过 private Channel membership。
 - 不声称模型注意力可以被绝对保证；只承诺可靠投递、显式处理和可恢复。
+- 测试必须验证产品行为、事务不变量、安全边界或自有协议逻辑；不得为 serde derive、简单 getter 或依赖库已保证的机械行为保留测试。
+- helper 名称描述业务效果，例如 publish、require、claim；不得用含糊的 insert_event、process_data 等名称隐藏职责。
 
 当实现与本文冲突时，必须先修改设计并说明原因；不得在代码中偷偷引入第二套领域语言。

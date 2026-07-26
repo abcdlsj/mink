@@ -1,0 +1,42 @@
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(super) enum ComputerFrame {
+    Hello {
+        last_acked_computer_seq: i64,
+    },
+    Heartbeat {
+        daemon_version: String,
+        os: String,
+        cpu_count: usize,
+        memory_total_bytes: Option<u64>,
+        agents_count: u32,
+        active_runs: u32,
+    },
+    CommandAck {
+        command_id: Uuid,
+        computer_seq: i64,
+    },
+    CommandResult {
+        command_id: Uuid,
+        computer_seq: i64,
+        ok: bool,
+        result: serde_json::Value,
+    },
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(super) enum ServerFrame {
+    Welcome {
+        heartbeat_interval_seconds: u64,
+    },
+    Command {
+        command_id: Uuid,
+        computer_seq: i64,
+        kind: String,
+        payload: serde_json::Value,
+    },
+}

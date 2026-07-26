@@ -277,27 +277,26 @@ pub async fn update(
             None => return Err(ApiError::Internal),
         }
     };
-    sqlx::query(
-        "INSERT INTO audit_events (id, space_id, actor_member_id, action, subject_type, \
-         subject_id, metadata_json, created_at) VALUES ($1, $2, $3, $4, 'agent', $5, $6, $7)",
+    super::audit::record(
+        &mut transaction,
+        super::audit::Event {
+            space_id: current.space_id,
+            actor_id: Some(actor.id),
+            action,
+            subject_type: "agent",
+            subject_id: agent_id,
+            metadata: Some(serde_json::json!({
+                "command_id": command_id,
+                "previous_role": role_summary(&current.role_text),
+                "next_role": role_summary(next_role),
+                "previous_status": current.status,
+                "next_status": next_status,
+            })),
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(current.space_id)
-    .bind(actor.id)
-    .bind(action)
-    .bind(agent_id)
-    .bind(serde_json::json!({
-        "command_id": command_id,
-        "previous_role": role_summary(&current.role_text),
-        "next_role": role_summary(next_role),
-        "previous_status": current.status,
-        "next_status": next_status,
-    }))
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    insert_agent_event(
+    .await?;
+    publish_agent_status(
         &mut transaction,
         current.space_id,
         agent_id,
@@ -566,24 +565,30 @@ pub(super) async fn provision_agent_tx(
     )
     .bind(command_id).bind(request.computer_id).bind(computer_seq).bind(payload).bind(now)
     .execute(&mut **transaction).await.map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO audit_events (id, space_id, actor_member_id, action, subject_type, subject_id, metadata_json, created_at) \
-         VALUES ($1, $2, $3, 'agent.created', 'agent', $4, $5, $6)",
+    super::audit::record(
+        transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(created_by_member_id),
+            action: "agent.created",
+            subject_type: "agent",
+            subject_id: member_id,
+            metadata: Some(serde_json::json!({
+                "computer_id": request.computer_id,
+                "command_id": command_id
+            })),
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7()).bind(space_id).bind(created_by_member_id).bind(member_id)
-    .bind(serde_json::json!({ "computer_id": request.computer_id, "command_id": command_id })).bind(now)
-    .execute(&mut **transaction).await.map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'member.updated', $2, $3, $4)",
+    .await?;
+    super::outbox::publish(
+        transaction,
+        "member.updated",
+        member_id,
+        serde_json::json!({ "space_id": space_id, "member_id": member_id }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(member_id)
-    .bind(serde_json::json!({ "space_id": space_id, "member_id": member_id }))
-    .bind(now)
-    .execute(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
     Ok(AgentResponse {
         member_id,
         space_id,
@@ -760,29 +765,25 @@ async fn allocate_command(
     Ok(command_id)
 }
 
-async fn insert_agent_event(
+async fn publish_agent_status(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     space_id: Uuid,
     agent_id: Uuid,
     status: &str,
     now: OffsetDateTime,
 ) -> Result<(), ApiError> {
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'agent.status_changed', $2, $3, $4)",
+    super::outbox::publish(
+        transaction,
+        "agent.status_changed",
+        agent_id,
+        serde_json::json!({
+            "space_id": space_id,
+            "agent_member_id": agent_id,
+            "status": status,
+        }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(agent_id)
-    .bind(serde_json::json!({
-        "space_id": space_id,
-        "agent_member_id": agent_id,
-        "status": status,
-    }))
-    .bind(now)
-    .execute(&mut **transaction)
     .await
-    .map_err(ApiError::database)?;
-    Ok(())
 }
 
 async fn find_agent(pool: &sqlx::PgPool, agent_id: Uuid) -> Result<AgentRow, ApiError> {

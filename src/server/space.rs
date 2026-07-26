@@ -135,34 +135,31 @@ pub async fn create(
     .execute(&mut *transaction)
     .await
     .map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO audit_events \
-         (id, space_id, actor_member_id, action, subject_type, subject_id, created_at) \
-         VALUES ($1, $2, $3, 'space.created', 'space', $2, $4)",
+    super::audit::record(
+        &mut transaction,
+        super::audit::Event {
+            space_id,
+            actor_id: Some(member_id),
+            action: "space.created",
+            subject_type: "space",
+            subject_id: space_id,
+            metadata: None,
+            occurred_at: now,
+        },
     )
-    .bind(Uuid::now_v7())
-    .bind(space_id)
-    .bind(member_id)
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    sqlx::query(
-        "INSERT INTO outbox_events \
-         (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'channel.created', $2, $3, $4)",
+    .await?;
+    super::outbox::publish(
+        &mut transaction,
+        "channel.created",
+        channel_id,
+        serde_json::json!({
+            "channel_id": channel_id,
+            "space_id": space_id,
+            "slug": "general"
+        }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(channel_id)
-    .bind(serde_json::json!({
-        "channel_id": channel_id,
-        "space_id": space_id,
-        "slug": "general"
-    }))
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
 
     let response = SpaceResponse {
         id: space_id,

@@ -50,7 +50,7 @@ pub async fn create(
     let (space_id, archived_at) =
         channel.ok_or_else(|| ApiError::not_found("channel_not_found", "Channel was not found"))?;
     let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
-    require_channel_member(&mut transaction, channel_id, actor.id).await?;
+    super::channel_access::require_member(&mut transaction, channel_id, actor.id).await?;
     if archived_at.is_some() {
         return Err(ApiError::conflict(
             "channel_archived",
@@ -184,7 +184,7 @@ pub async fn reply(
     let (space_id, root_message_id, archived_at, channel_kind) =
         thread.ok_or_else(|| ApiError::not_found("thread_not_found", "Thread was not found"))?;
     let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
-    require_channel_member(&mut transaction, channel_id, actor.id).await?;
+    super::channel_access::require_member(&mut transaction, channel_id, actor.id).await?;
     if archived_at.is_some() {
         return Err(ApiError::conflict(
             "channel_archived",
@@ -274,38 +274,30 @@ pub async fn reply(
     )
     .await?;
     if inbox_changed {
-        sqlx::query(
-            "INSERT INTO outbox_events \
-             (id, topic, aggregate_id, payload_json, created_at) \
-             VALUES ($1, 'inbox.changed', $2, $3, $4)",
+        super::outbox::publish(
+            &mut transaction,
+            "inbox.changed",
+            message_id,
+            serde_json::json!({ "space_id": space_id, "channel_id": channel_id, "thread_id": thread_id }),
+            now,
         )
-        .bind(Uuid::now_v7())
-        .bind(message_id)
-        .bind(serde_json::json!({ "space_id": space_id, "channel_id": channel_id, "thread_id": thread_id }))
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
+        .await?;
     }
     subscribe(&mut transaction, channel_id, thread_id, actor.id, now).await?;
-    sqlx::query(
-        "INSERT INTO outbox_events \
-         (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'message.created', $2, $3, $4)",
+    super::outbox::publish(
+        &mut transaction,
+        "message.created",
+        message_id,
+        serde_json::json!({
+            "space_id": space_id,
+            "channel_id": channel_id,
+            "thread_id": thread_id,
+            "message_id": message_id,
+            "channel_seq": seq
+        }),
+        now,
     )
-    .bind(Uuid::now_v7())
-    .bind(message_id)
-    .bind(serde_json::json!({
-        "space_id": space_id,
-        "channel_id": channel_id,
-        "thread_id": thread_id,
-        "message_id": message_id,
-        "channel_seq": seq
-    }))
-    .bind(now)
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
+    .await?;
     let response = message::message_by_id(&mut transaction, message_id).await?;
     idempotency::finish(
         &mut transaction,
@@ -418,7 +410,7 @@ async fn set_subscription(
     let (space_id, archived_at) =
         thread.ok_or_else(|| ApiError::not_found("thread_not_found", "Thread was not found"))?;
     let actor = member::require_actor_tx(&mut transaction, user.id, space_id).await?;
-    require_channel_member(&mut transaction, channel_id, actor.id).await?;
+    super::channel_access::require_member(&mut transaction, channel_id, actor.id).await?;
     if archived_at.is_some() {
         return Err(ApiError::conflict(
             "channel_archived",
@@ -464,29 +456,6 @@ async fn set_subscription(
     idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(Json(response))
-}
-
-async fn require_channel_member(
-    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    channel_id: Uuid,
-    member_id: Uuid,
-) -> Result<(), ApiError> {
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id = $1 AND member_id = $2)",
-    )
-    .bind(channel_id)
-    .bind(member_id)
-    .fetch_one(&mut **transaction)
-    .await
-    .map_err(ApiError::database)?;
-    if exists {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(
-            "permission_denied",
-            "Channel membership is required",
-        ))
-    }
 }
 
 async fn subscribe(
