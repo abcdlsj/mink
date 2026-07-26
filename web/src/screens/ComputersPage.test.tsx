@@ -24,7 +24,7 @@ describe("Computer flows", () => {
       const path = String(input);
       if (path.endsWith("/api/v1/spaces") && !init?.method) return json([space]);
       if (path.includes("/api/v1/computer-pairings/") && !path.includes("/confirm")) {
-        return json({ pairing_id: "pairing", hostname: "studio.local", os: "macos", daemon_version: "0.1.0", public_key_fingerprint: "aa:bb:cc", expires_at: "2026-07-25T10:00:00Z", status: "pending" });
+        return json({ pairing_id: "pairing", hostname: "studio.local", os: "macos", daemon_version: "0.1.0", token_fingerprint: "aa:bb:cc", expires_at: "2026-07-25T10:00:00Z", status: "pending" });
       }
       if (path.endsWith("/confirm") && init?.method === "POST") {
         return json({ id: computerId, space_id: space.id, name: "Studio", hostname: "studio.local", os: "macos", status: "offline", daemon_version: "0.1.0", created_at: "2026-07-25T00:00:00Z" }, 201);

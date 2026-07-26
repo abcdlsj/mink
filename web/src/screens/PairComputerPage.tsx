@@ -43,7 +43,7 @@ export function PairComputerPage() {
           <dl>
             <div><dt>Operating system</dt><dd>{details.data.os}</dd></div>
             <div><dt>Daemon</dt><dd>v{details.data.daemon_version}</dd></div>
-            <div className="fingerprint"><dt><Fingerprint /> Public key fingerprint</dt><dd>{details.data.public_key_fingerprint}</dd></div>
+            <div className="fingerprint"><dt><Fingerprint /> Computer Token fingerprint</dt><dd>{details.data.token_fingerprint}</dd></div>
           </dl>
         </div>
         <form className="pairing-form" onSubmit={submit}>

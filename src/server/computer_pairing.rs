@@ -15,9 +15,7 @@ use super::{AppState, api_error::ApiError, auth, idempotency, member};
 
 #[derive(Deserialize)]
 pub struct PairingStartRequest {
-    pub pairing_secret_hash: String,
-    pub credential_hash: String,
-    pub public_key: String,
+    pub token_hash: String,
     pub hostname: String,
     pub os: String,
     pub daemon_version: String,
@@ -49,16 +47,8 @@ pub async fn start(
             "Computer hostname and OS are invalid",
         ));
     }
-    let pairing_secret_hash =
-        super::computer_auth::decode_hash(&request.pairing_secret_hash, "invalid_pairing_secret")?;
-    let credential_hash =
-        super::computer_auth::decode_hash(&request.credential_hash, "invalid_computer_credential")?;
-    let public_key = URL_SAFE_NO_PAD.decode(&request.public_key).map_err(|_| {
-        ApiError::validation("invalid_public_key", "Computer public key is invalid")
-    })?;
-    p256::PublicKey::from_sec1_bytes(&public_key).map_err(|_| {
-        ApiError::validation("invalid_public_key", "Computer public key is invalid")
-    })?;
+    let token_hash =
+        super::computer_auth::decode_hash(&request.token_hash, "invalid_computer_token_hash")?;
     let mut code_bytes = [0_u8; 12];
     getrandom::fill(&mut code_bytes).map_err(|_| ApiError::Internal)?;
     let code = URL_SAFE_NO_PAD.encode(code_bytes);
@@ -67,15 +57,12 @@ pub async fn start(
     let expires_at = now + Duration::minutes(10);
     sqlx::query(
         "INSERT INTO computer_pairings \
-         (id, pairing_code_hash, pairing_secret_hash, credential_hash, public_key, hostname, os, \
-          daemon_version, expires_at, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+         (id, pairing_code_hash, token_hash, hostname, os, daemon_version, expires_at, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(pairing_id)
     .bind(Sha256::digest(code.as_bytes()).to_vec())
-    .bind(pairing_secret_hash.to_vec())
-    .bind(credential_hash.to_vec())
-    .bind(public_key)
+    .bind(token_hash.to_vec())
     .bind(request.hostname.trim())
     .bind(request.os)
     .bind(request.daemon_version)
@@ -121,8 +108,7 @@ pub struct ComputerResponse {
 #[derive(sqlx::FromRow)]
 struct ConfirmPairingRow {
     pairing_code_hash: Vec<u8>,
-    credential_hash: Vec<u8>,
-    public_key: Vec<u8>,
+    token_hash: Vec<u8>,
     hostname: String,
     os: String,
     daemon_version: String,
@@ -133,7 +119,7 @@ struct ConfirmPairingRow {
 #[derive(sqlx::FromRow)]
 struct PairingDetailsRow {
     pairing_code_hash: Vec<u8>,
-    public_key: Vec<u8>,
+    token_hash: Vec<u8>,
     hostname: String,
     os: String,
     daemon_version: String,
@@ -143,7 +129,7 @@ struct PairingDetailsRow {
 
 #[derive(sqlx::FromRow)]
 struct PairingResultRow {
-    pairing_secret_hash: Vec<u8>,
+    token_hash: Vec<u8>,
     status: String,
     expires_at: OffsetDateTime,
     computer_id: Option<Uuid>,
@@ -182,7 +168,7 @@ pub async fn confirm(
         return Ok((status, Json(response)));
     }
     let pairing: Option<ConfirmPairingRow> = sqlx::query_as(
-        "SELECT pairing_code_hash, credential_hash, public_key, hostname, os, daemon_version, \
+        "SELECT pairing_code_hash, token_hash, hostname, os, daemon_version, \
                 expires_at, status \
              FROM computer_pairings WHERE id = $1 FOR UPDATE",
     )
@@ -214,16 +200,15 @@ pub async fn confirm(
     let now = OffsetDateTime::now_utc();
     sqlx::query(
         "INSERT INTO computers \
-         (id, space_id, name, hostname, os, public_key, credential_hash, daemon_version, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+         (id, space_id, name, hostname, os, token_hash, daemon_version, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(computer_id)
     .bind(request.space_id)
     .bind(&request.name)
     .bind(&pairing.hostname)
     .bind(&pairing.os)
-    .bind(pairing.public_key)
-    .bind(pairing.credential_hash)
+    .bind(pairing.token_hash)
     .bind(&pairing.daemon_version)
     .bind(now)
     .execute(&mut *transaction)
@@ -276,7 +261,7 @@ pub struct PairingDetailsResponse {
     pub hostname: String,
     pub os: String,
     pub daemon_version: String,
-    pub public_key_fingerprint: String,
+    pub token_fingerprint: String,
     #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
     pub status: String,
@@ -295,7 +280,7 @@ pub async fn details(
 ) -> Result<Json<PairingDetailsResponse>, ApiError> {
     auth::current_user(&state, &jar).await?;
     let pairing: Option<PairingDetailsRow> = sqlx::query_as(
-        "SELECT pairing_code_hash, public_key, hostname, os, daemon_version, expires_at, status \
+        "SELECT pairing_code_hash, token_hash, hostname, os, daemon_version, expires_at, status \
              FROM computer_pairings WHERE id = $1",
     )
     .bind(pairing_id)
@@ -316,15 +301,16 @@ pub async fn details(
             "Pairing code is invalid",
         ));
     }
-    let fingerprint = Sha256::digest(&pairing.public_key);
     Ok(Json(PairingDetailsResponse {
         pairing_id,
         hostname: pairing.hostname,
         os: pairing.os,
         daemon_version: pairing.daemon_version,
-        public_key_fingerprint: fingerprint
-            .chunks(2)
-            .map(hex::encode)
+        token_fingerprint: pairing
+            .token_hash
+            .iter()
+            .take(6)
+            .map(|byte| format!("{byte:02x}"))
             .collect::<Vec<_>>()
             .join(":"),
         expires_at: pairing.expires_at,
@@ -337,13 +323,11 @@ pub async fn result(
     headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
 ) -> Result<Json<PairingResultResponse>, ApiError> {
-    let secret = super::computer_auth::bearer(&headers)?;
-    let secret = super::computer_auth::decode_hash(secret, "invalid_pairing_secret")
-        .map_err(|_| ApiError::Unauthorized)?;
-    let secret_hash = Sha256::digest(secret);
+    let token = super::computer_auth::bearer(&headers)?;
+    let token_hash = Sha256::digest(token.as_bytes());
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let pairing: Option<PairingResultRow> = sqlx::query_as(
-        "SELECT pairing_secret_hash, status, expires_at, computer_id, space_id \
+        "SELECT token_hash, status, expires_at, computer_id, space_id \
          FROM computer_pairings WHERE id = $1",
     )
     .bind(pairing_id)
@@ -352,7 +336,13 @@ pub async fn result(
     .map_err(ApiError::database)?;
     let pairing = pairing
         .ok_or_else(|| ApiError::not_found("pairing_not_found", "Pairing request was not found"))?;
-    if pairing.pairing_secret_hash != secret_hash.as_slice() {
+    if pairing
+        .token_hash
+        .as_slice()
+        .ct_eq(token_hash.as_slice())
+        .unwrap_u8()
+        != 1
+    {
         return Err(ApiError::Unauthorized);
     }
     if pairing.status == "pending" && pairing.expires_at > OffsetDateTime::now_utc() {

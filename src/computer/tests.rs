@@ -31,8 +31,26 @@ async fn secrets_are_created_with_restricted_permissions_and_reused() {
     let path = state.join("secrets.json");
     let first = load_or_create_secrets(&path).await.unwrap();
     let second = load_or_create_secrets(&path).await.unwrap();
-    assert_eq!(first.private_key, second.private_key);
-    assert_eq!(first.pairing_secret, second.pairing_secret);
+    assert_eq!(first.token.expose(), second.token.expose());
+    let stored: serde_json::Value =
+        serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    let mut fields = stored
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    fields.sort_unstable();
+    assert_eq!(
+        fields,
+        [
+            "computer_id",
+            "pairing_id",
+            "schema_version",
+            "space_id",
+            "token"
+        ]
+    );
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -210,7 +228,7 @@ async fn restart_recovers_runs_and_received_provision_commands() {
         serde_json::from_slice(&tokio::fs::read(home.join("profile.json")).await.unwrap()).unwrap();
     assert_eq!(profile["agent_id"], agent_id.to_string());
     assert_eq!(profile["status"], "active");
-    assert!(profile.get("computer_credential").is_none());
+    assert!(profile.get("token").is_none());
     assert_eq!(
         tokio::fs::read_to_string(home.join("memory/MEMORY.md"))
             .await
@@ -288,10 +306,10 @@ async fn daemon_renews_active_leases_and_reports_process_lost_once() {
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let server_url = Url::parse(&format!("http://{address}")).unwrap();
 
-    renew_active_run_leases(&server_url, computer_id, "credential", &database)
+    renew_active_run_leases(&server_url, computer_id, "token", &database)
         .await
         .unwrap();
-    release_interrupted_runs(&server_url, computer_id, "credential", &database)
+    release_interrupted_runs(&server_url, computer_id, "token", &database)
         .await
         .unwrap();
     let reported_at: Option<String> = sqlx::query_scalar(
@@ -529,7 +547,7 @@ async fn local_socket_protocol_returns_scoped_agent_identity() {
                 &database,
                 &Url::parse("http://127.0.0.1:1").unwrap(),
                 Uuid::now_v7(),
-                "credential",
+                "token",
             )
             .await
         }

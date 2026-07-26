@@ -9,7 +9,7 @@
 ## 当前基线判断
 
 - Human、Space、Channel、DM、Thread、Message、Attachment、Computer、Agent、Inbox 和 Approval 已有 schema、API 或 UI 基线，保留现有已通过测试作为回归保护。
-- Computer 已能把身份凭据写入本机并重连，但当前实现仍混有 P-256 key、pairing secret 和 credential 三套概念，尚未收敛为设计中的单一 Computer Token。
+- Computer 身份已收敛为单一 Computer Token：raw Token 仅保存在本机受限 `secrets.json`，Server 与配对记录只保存 hash，配对页只显示不可逆短 fingerprint；重连与删除生命周期仍需完成下一项真实进程验收。
 - Builtin 已有 OpenAI-compatible SSE、tool loop、sandbox 和单元测试，但配置仍依赖 `SUMI_BUILTIN_*` 环境变量；尚未接入 Computer 本地 Pi-compatible provider/model/auth 配置。
 - 现有 Server 集成测试以手工 WebSocket frame 模拟 daemon，Builtin 测试以 mock provider 验证文件工具；没有测试启动真实 Server、daemon、Builtin 和 `sumi agent` CLI 跑通一条 DM、Channel 或 Thread 对话。
 - 本机 Pi 配置可作为首个真实验收样本：默认 `deepseek/deepseek-v4-pro`，模型协议为 `openai-completions`，认证按 provider 单独保存；任何测试和日志都不得输出认证值。
@@ -21,6 +21,7 @@
 3. 当前工作区是唯一实现基线；保留用户和其他 Agent 的未提交修改，不读取或恢复 Git 历史旧实现。
 4. 行为、协议、数据模型或领域名词改变时，先更新 `docs/design.md` 或 `GLOSSARY.md`，不做兼容层、双写或旧 schema 迁移。
 5. 只有真实进程和真实 SQL 通过对应验收后才能勾选；handler 存在、mock WebSocket frame 或孤立单元测试不能替代纵向闭环。
+6. 每完成一部分可独立提交的基线（纵向实现、定向测试与进度证据均完整），必须立即停止扩展当前范围，先更新本文件并提交本次基线对应的代码与文档；确认提交成功且没有遗漏本次改动后，再生成非空 handoff 文档，并在当前 Superset workspace 创建新的承接 session 接力后续最早未完成项。不得把多段可提交基线积压在同一 session，也不得把未提交的开发基线交给下一 session。
 
 ## 剩余工作
 
@@ -33,7 +34,7 @@
 
 ### 1. Computer Token 与本地 Driver 配置
 
-- [ ] 将 daemon、Server、PostgreSQL schema、API types、WebUI 和测试中的 `private_key`、`pairing_secret`、`computer_credential` 收敛为单一 Computer Token：raw Token 只在本机持久化并仅通过 HTTPS/WSS 用于认证，Server 只保存 hash，配对页只显示不可逆短 fingerprint。
+- [x] 将 daemon、Server、PostgreSQL schema、API types、WebUI 和测试中的 `private_key`、`pairing_secret`、`computer_credential` 收敛为单一 Computer Token：raw Token 只在本机持久化并仅通过 HTTPS/WSS 用于认证，Server 只保存 hash，配对页只显示不可逆短 fingerprint。
 - [ ] 验证首次 Pair、daemon 正常退出、网络中断、Server 重启和 daemon 重启：除 Delete Computer 外始终复用同一 Computer ID/Token，状态只在 online/offline 间变化，不重新 Pair。
 - [ ] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
 - [ ] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
@@ -95,3 +96,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | 规范一致性 | `git diff --check`；关键词扫描 BYOK、Secret Envelope、Computer credential、metrics 与性能目标 | diff check 通过；旧概念只保留在“明确不做”和当前代码差距说明中
 2026-07-27 | 历史 WebUI 基线 | `pnpm --dir web test && pnpm --dir web lint && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | 2026-07-26/27 曾通过 Web tests、production build 和 1440/1024/390 三 viewport；仅作为回归基线，不代表 Agent 对话闭环完成
 2026-07-27 | 历史 Rust 基线 | `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features` | 2026-07-27 曾通过 52 unit + 3 CLI + 1 PostgreSQL migration tests；现有测试未启动真实 Server + daemon + Builtin + Agent CLI 全链路
+2026-07-27 | 单一 Computer Token | `cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`pnpm --dir web test -- ComputersPage.test.tsx --run && pnpm --dir web lint && pnpm --dir web build`；`git diff --check` | 52 Rust unit/integration + 3 CLI + 1 真实 PostgreSQL migration tests、12 Web tests、clippy、TypeScript/ESLint 与 production build 全通过；daemon、Server、schema、API types、WebUI 和测试已删除 P-256/pairing secret/credential 三套身份并统一使用 Computer Token

@@ -17,7 +17,7 @@ pub(super) async fn run(
     database: SqlitePool,
     server: Url,
     computer_id: Uuid,
-    computer_credential: String,
+    computer_token: String,
 ) -> Result<()> {
     if socket_path.exists() {
         ensure!(
@@ -37,7 +37,7 @@ pub(super) async fn run(
         let database = database.clone();
         let state_dir = state_dir.clone();
         let server = server.clone();
-        let computer_credential = computer_credential.clone();
+        let computer_token = computer_token.clone();
         tokio::spawn(async move {
             if let Err(error) = handle_local_connection(
                 stream,
@@ -45,7 +45,7 @@ pub(super) async fn run(
                 &database,
                 &server,
                 computer_id,
-                &computer_credential,
+                &computer_token,
             )
             .await
             {
@@ -61,7 +61,7 @@ pub(super) async fn handle_local_connection(
     database: &SqlitePool,
     server: &Url,
     computer_id: Uuid,
-    computer_credential: &str,
+    computer_token: &str,
 ) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     let (reader, mut writer) = stream.into_split();
@@ -90,7 +90,7 @@ pub(super) async fn handle_local_connection(
                         state_dir,
                         server,
                         computer_id,
-                        computer_credential,
+                        computer_token,
                         identity: &identity,
                     },
                     action,
@@ -110,7 +110,7 @@ struct AgentProxy<'a> {
     state_dir: &'a Path,
     server: &'a Url,
     computer_id: Uuid,
-    computer_credential: &'a str,
+    computer_token: &'a str,
     identity: &'a AgentIdentity,
 }
 
@@ -151,7 +151,7 @@ async fn proxy_json_agent_action(context: &AgentProxy<'_>, action: AgentAction) 
     });
     let response = match reqwest::Client::new()
         .post(endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .json(&body)
         .send()
         .await
@@ -222,7 +222,7 @@ async fn proxy_attachment_upload(
     let client = reqwest::Client::new();
     let response = match client
         .post(create_endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({
             "original_name": original_name,
@@ -268,7 +268,7 @@ async fn proxy_attachment_upload(
     };
     let response = match client
         .put(content_endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .body(reqwest::Body::wrap_stream(
             tokio_util::io::ReaderStream::new(file),
         ))
@@ -287,7 +287,7 @@ async fn proxy_attachment_upload(
     };
     let response = match client
         .post(complete_endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({ "size": size, "sha256": sha256 }))
         .send()
@@ -313,7 +313,7 @@ async fn proxy_attachment_info(context: &AgentProxy<'_>, attachment_id: Uuid) ->
     };
     let response = match reqwest::Client::new()
         .get(endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .send()
         .await
     {
@@ -353,7 +353,7 @@ async fn proxy_attachment_download(
     };
     let response = match reqwest::Client::new()
         .get(endpoint)
-        .bearer_auth(context.computer_credential)
+        .bearer_auth(context.computer_token)
         .send()
         .await
     {

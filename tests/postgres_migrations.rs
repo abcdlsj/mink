@@ -138,6 +138,19 @@ async fn run_migration_assertions(admin_url: &str, database_name: &str) -> Resul
     .await?;
     assert!(pairing_computer_is_space_scoped);
 
+    let computer_identity_hash_columns: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns \
+         WHERE table_schema = 'public' AND table_name IN ('computers', 'computer_pairings') \
+           AND column_name LIKE '%hash' AND column_name <> 'pairing_code_hash' \
+         ORDER BY table_name, column_name",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(
+        computer_identity_hash_columns,
+        vec!["token_hash".to_owned(), "token_hash".to_owned()]
+    );
+
     let agent_computer_is_space_scoped: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid = 'agents'::regclass \
          AND confrelid = 'computers'::regclass AND array_length(conkey, 1) = 2)",

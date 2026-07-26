@@ -25,7 +25,9 @@ use super::{
     channel::{
         ChannelListResponse, ChannelMembersResponse, ChannelResponse, DirectMessageResponse,
     },
-    computer_pairing::{ComputerResponse, PairingResultResponse, PairingStartResponse},
+    computer_pairing::{
+        ComputerResponse, PairingDetailsResponse, PairingResultResponse, PairingStartResponse,
+    },
     inbox::InboxItemResponse,
     member::{InvitationResponse, MemberResponse},
     message::{MessagePageResponse, MessageResponse},
@@ -65,7 +67,7 @@ fn json_request(
 
 fn computer_agent_action_request(
     computer_id: Uuid,
-    credential: &str,
+    token: &str,
     agent_member_id: Uuid,
     run_id: Uuid,
     action: serde_json::Value,
@@ -73,7 +75,7 @@ fn computer_agent_action_request(
     Ok(Request::builder()
         .method("POST")
         .uri(format!("/api/v1/computers/{computer_id}/agent-actions"))
-        .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(serde_json::to_vec(&serde_json::json!({
             "agent_member_id": agent_member_id,
@@ -85,13 +87,13 @@ fn computer_agent_action_request(
 fn computer_json_request(
     method: &str,
     uri: &str,
-    credential: &str,
+    token: &str,
     body: &serde_json::Value,
 ) -> Result<Request<Body>> {
     Ok(Request::builder()
         .method(method)
         .uri(uri)
-        .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(serde_json::to_vec(body)?))?)
 }

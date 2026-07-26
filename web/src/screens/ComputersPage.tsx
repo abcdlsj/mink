@@ -279,7 +279,7 @@ function DeleteDialog({ computer, agents, pending, error, close, confirm }: { co
     <div className="dialog-backdrop" role="presentation">
       <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-computer-title">
         <header><h2 id="delete-computer-title">Delete {computer.name}?</h2><button className="icon-button" type="button" aria-label="Close delete confirmation" onClick={close}><X /></button></header>
-        <p>The daemon will exit and its credential can never reconnect. Pair it again to restore this machine.</p>
+        <p>The daemon will exit and its Computer Token can never reconnect. Pair it again to restore this machine.</p>
         <h3>Affected Agents ({agents.length})</h3>
         {agents.length ? <ul>{agents.map((agent) => <li key={agent.member_id}><PixelIdentity name={agent.name} /><span>{agent.name}</span><Status value={agent.status} /></li>)}</ul> : <p>No hosted Agents.</p>}
         {agents.length ? <label className="delete-ack"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />I understand these Agents will be retired.</label> : null}

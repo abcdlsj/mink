@@ -48,7 +48,7 @@ export interface PairingDetails {
   hostname: string;
   os: "macos" | "linux";
   daemon_version: string;
-  public_key_fingerprint: string;
+  token_fingerprint: string;
   expires_at: string;
   status: "pending" | "confirmed" | "expired";
 }

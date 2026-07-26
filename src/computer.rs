@@ -3,7 +3,6 @@ use std::{path::Path, sync::Arc};
 use anyhow::{Context, Result, bail, ensure};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
-use p256::elliptic_curve::{rand_core::OsRng, sec1::ToEncodedPoint};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
@@ -22,11 +21,19 @@ use crate::{
 mod local_ipc;
 
 #[derive(Deserialize, Serialize)]
+#[serde(transparent)]
+struct ComputerToken(String);
+
+impl ComputerToken {
+    fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Deserialize, Serialize)]
 struct ComputerSecrets {
     schema_version: u32,
-    private_key: String,
-    pairing_secret: String,
-    computer_credential: String,
+    token: ComputerToken,
     pairing_id: Option<Uuid>,
     computer_id: Option<Uuid>,
     space_id: Option<Uuid>,
@@ -34,9 +41,7 @@ struct ComputerSecrets {
 
 #[derive(Serialize)]
 struct PairingStartRequest {
-    pairing_secret_hash: String,
-    credential_hash: String,
-    public_key: String,
+    token_hash: String,
     hostname: String,
     os: String,
     daemon_version: String,
@@ -175,7 +180,7 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
         database.clone(),
         config.computer.server_url.clone(),
         secrets.computer_id.context("paired Computer has no id")?,
-        secrets.computer_credential.clone(),
+        secrets.token.expose().to_owned(),
     );
     let connection = connection_loop(
         &config.computer.server_url,
@@ -310,7 +315,7 @@ async fn connect_once(
     let mut request = endpoint.as_str().into_client_request()?;
     request.headers_mut().insert(
         tungstenite::http::header::AUTHORIZATION,
-        format!("Bearer {}", secrets.computer_credential).parse()?,
+        format!("Bearer {}", secrets.token.expose()).parse()?,
     );
     let (socket, _) = match tokio_tungstenite::connect_async(request).await {
         Ok(connection) => connection,
@@ -318,13 +323,13 @@ async fn connect_once(
             if response.status() == tungstenite::http::StatusCode::UNAUTHORIZED
                 || response.status() == tungstenite::http::StatusCode::NOT_FOUND =>
         {
-            tracing::error!(computer_id = %computer_id, "Computer credential is no longer valid; exiting daemon");
+            tracing::error!(computer_id = %computer_id, "Computer Token is no longer valid; exiting daemon");
             return Ok(ConnectionOutcome::Deleted);
         }
         Err(error) => return Err(error).context("failed to connect Computer WebSocket"),
     };
     // Release lost runs before command replay can redeliver their persisted agent.run commands.
-    release_interrupted_runs(server, computer_id, &secrets.computer_credential, database).await?;
+    release_interrupted_runs(server, computer_id, secrets.token.expose(), database).await?;
     let (mut writer, mut reader) = socket.split();
     let last_acked = last_acked_sequence(database).await?;
     send_ws_frame(
@@ -376,7 +381,7 @@ async fn connect_once(
                 }).await?;
             }
             _ = attention.tick() => {
-                if let Err(error) = poll_agent_inbox(server, computer_id, &secrets.computer_credential).await {
+                if let Err(error) = poll_agent_inbox(server, computer_id, secrets.token.expose()).await {
                     tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox poll failed");
                 }
             }
@@ -384,7 +389,7 @@ async fn connect_once(
                 if let Err(error) = renew_active_run_leases(
                     server,
                     computer_id,
-                    &secrets.computer_credential,
+                    secrets.token.expose(),
                     database,
                 ).await {
                     tracing::warn!(computer_id = %computer_id, error = %error, "Agent Inbox lease renewal failed");
@@ -436,11 +441,11 @@ async fn connect_once(
     }
 }
 
-async fn poll_agent_inbox(server: &Url, computer_id: Uuid, credential: &str) -> Result<()> {
+async fn poll_agent_inbox(server: &Url, computer_id: Uuid, token: &str) -> Result<()> {
     let client = reqwest::Client::new();
     let agents: Vec<HostedAgent> = client
         .get(server.join(&format!("/api/v1/computers/{computer_id}/agents"))?)
-        .bearer_auth(credential)
+        .bearer_auth(token)
         .send()
         .await?
         .error_for_status()?
@@ -452,7 +457,7 @@ async fn poll_agent_inbox(server: &Url, computer_id: Uuid, credential: &str) -> 
                 "/api/v1/computers/{computer_id}/agents/{}/inbox/claim",
                 agent.member_id
             ))?)
-            .bearer_auth(credential)
+            .bearer_auth(token)
             .json(&serde_json::json!({}))
             .send()
             .await?
@@ -467,7 +472,7 @@ async fn poll_agent_inbox(server: &Url, computer_id: Uuid, credential: &str) -> 
 async fn renew_active_run_leases(
     server: &Url,
     computer_id: Uuid,
-    credential: &str,
+    token: &str,
     database: &SqlitePool,
 ) -> Result<()> {
     let runs: Vec<(String, String)> = sqlx::query_as(
@@ -484,7 +489,7 @@ async fn renew_active_run_leases(
             .post(server.join(&format!(
                 "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/renew"
             ))?)
-            .bearer_auth(credential)
+            .bearer_auth(token)
             .json(&serde_json::json!({ "run_id": run_id }))
             .send()
             .await?
@@ -496,7 +501,7 @@ async fn renew_active_run_leases(
 async fn release_interrupted_runs(
     server: &Url,
     computer_id: Uuid,
-    credential: &str,
+    token: &str,
     database: &SqlitePool,
 ) -> Result<()> {
     let runs: Vec<(String, String)> = sqlx::query_as(
@@ -514,7 +519,7 @@ async fn release_interrupted_runs(
             .post(server.join(&format!(
                 "/api/v1/computers/{computer_id}/agents/{agent_id}/inbox/release"
             ))?)
-            .bearer_auth(credential)
+            .bearer_auth(token)
             .json(&serde_json::json!({
                 "run_id": run_id,
                 "error_code": "process_lost",
@@ -1096,19 +1101,11 @@ fn reconnect_delay(attempt: u32) -> std::time::Duration {
 }
 
 async fn start_pairing(server: &Url, secrets: &ComputerSecrets) -> Result<PairingStartResponse> {
-    let private_key = decode_private_key(&secrets.private_key)?;
-    let public_key = private_key.public_key().to_encoded_point(false);
-    let pairing_secret = URL_SAFE_NO_PAD
-        .decode(&secrets.pairing_secret)
-        .context("Computer pairing secret is invalid")?;
     let endpoint = server.join("/api/v1/computer-pairings/start")?;
     let response = reqwest::Client::new()
         .post(endpoint)
         .json(&PairingStartRequest {
-            pairing_secret_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(&pairing_secret)),
-            credential_hash: URL_SAFE_NO_PAD
-                .encode(Sha256::digest(secrets.computer_credential.as_bytes())),
-            public_key: URL_SAFE_NO_PAD.encode(public_key.as_bytes()),
+            token_hash: URL_SAFE_NO_PAD.encode(Sha256::digest(secrets.token.expose().as_bytes())),
             hostname: hostname(),
             os: platform_os()?.to_owned(),
             daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -1157,7 +1154,7 @@ async fn poll_pairing(
     loop {
         let response = client
             .get(endpoint.clone())
-            .bearer_auth(&secrets.pairing_secret)
+            .bearer_auth(secrets.token.expose())
             .send()
             .await
             .context("failed to poll Computer pairing result")?;
@@ -1215,16 +1212,11 @@ async fn load_or_create_secrets(path: &Path) -> Result<ComputerSecrets> {
             .context("failed to read Computer secrets")?;
         return serde_json::from_slice(&bytes).context("Computer secrets are invalid");
     }
-    let private_key = p256::SecretKey::random(&mut OsRng);
-    let mut pairing_secret = [0_u8; 32];
-    getrandom::fill(&mut pairing_secret).context("failed to generate Computer pairing secret")?;
-    let mut computer_credential = [0_u8; 32];
-    getrandom::fill(&mut computer_credential).context("failed to generate Computer credential")?;
+    let mut token = [0_u8; 32];
+    getrandom::fill(&mut token).context("failed to generate Computer Token")?;
     let secrets = ComputerSecrets {
         schema_version: 1,
-        private_key: URL_SAFE_NO_PAD.encode(private_key.to_bytes()),
-        pairing_secret: URL_SAFE_NO_PAD.encode(pairing_secret),
-        computer_credential: URL_SAFE_NO_PAD.encode(computer_credential),
+        token: ComputerToken(URL_SAFE_NO_PAD.encode(token)),
         pairing_id: None,
         computer_id: None,
         space_id: None,
@@ -1260,13 +1252,6 @@ async fn write_secrets(path: &Path, secrets: &ComputerSecrets) -> Result<()> {
     let directory = tokio::fs::File::open(parent).await?;
     directory.sync_all().await?;
     Ok(())
-}
-
-fn decode_private_key(value: &str) -> Result<p256::SecretKey> {
-    let bytes = URL_SAFE_NO_PAD
-        .decode(value)
-        .context("Computer private key is invalid")?;
-    p256::SecretKey::from_slice(&bytes).context("Computer private key is invalid")
 }
 
 fn hostname() -> String {

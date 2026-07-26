@@ -57,22 +57,14 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .execute(&pool)
         .await?;
 
-    let private_key = p256::SecretKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
-    let public_key = p256::elliptic_curve::sec1::ToEncodedPoint::to_encoded_point(
-        &private_key.public_key(),
-        false,
-    );
-    let pairing_secret = [17_u8; 32];
-    let credential = URL_SAFE_NO_PAD.encode([23_u8; 32]);
+    let token = URL_SAFE_NO_PAD.encode([23_u8; 32]);
     let start = app
         .clone()
         .oneshot(json_request(
             "/api/v1/computer-pairings/start",
             Uuid::now_v7(),
             &serde_json::json!({
-                "pairing_secret_hash": URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(pairing_secret)),
-                "credential_hash": URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(credential.as_bytes())),
-                "public_key": URL_SAFE_NO_PAD.encode(public_key.as_bytes()),
+                "token_hash": URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(token.as_bytes())),
                 "hostname": "computer-test.local",
                 "os": "macos",
                 "daemon_version": "0.1.0"
@@ -82,6 +74,41 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(start.status() == StatusCode::CREATED);
     let pairing: PairingStartResponse = decode_json(start).await?;
+    let details = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/computer-pairings/{}?code={}",
+                    pairing.pairing_id, pairing.code
+                ))
+                .header(header::COOKIE, &owner.cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    ensure!(details.status() == StatusCode::OK);
+    let details: PairingDetailsResponse = decode_json(details).await?;
+    ensure!(
+        details.token_fingerprint
+            == sha2::Sha256::digest(token.as_bytes())[..6]
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<Vec<_>>()
+                .join(":")
+    );
+    let wrong_token_result = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/computer-pairings/{}/result",
+                    pairing.pairing_id
+                ))
+                .header(header::AUTHORIZATION, "Bearer wrong-token")
+                .body(Body::empty())?,
+        )
+        .await?;
+    ensure!(wrong_token_result.status() == StatusCode::UNAUTHORIZED);
 
     let member_denied = app
         .clone()
@@ -127,10 +154,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                         "/api/v1/computer-pairings/{}/result",
                         pairing.pairing_id
                     ))
-                    .header(
-                        header::AUTHORIZATION,
-                        format!("Bearer {}", URL_SAFE_NO_PAD.encode(pairing_secret)),
-                    )
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
                     .body(Body::empty())?,
             )
             .await?;
@@ -173,10 +197,9 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     });
     let mut request =
         format!("ws://{address}/api/v1/computers/{}/connect", computer.id).into_client_request()?;
-    request.headers_mut().insert(
-        header::AUTHORIZATION,
-        format!("Bearer {credential}").parse()?,
-    );
+    request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
     let (mut socket, _) = tokio_tungstenite::connect_async(request).await?;
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -639,7 +662,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/inbox/claim",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from("{}"))?,
         )
@@ -706,7 +729,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -723,7 +746,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -841,7 +864,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -879,7 +902,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -919,7 +942,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .clone()
             .oneshot(computer_agent_action_request(
                 computer.id,
-                &credential,
+                &token,
                 agent.member_id,
                 run_id,
                 create_action.clone(),
@@ -939,7 +962,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -987,7 +1010,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1019,14 +1042,13 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let other_computer_id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO computers \
-         (id, space_id, name, hostname, os, public_key, credential_hash, status, \
+         (id, space_id, name, hostname, os, token_hash, status, \
           daemon_version, last_seen_at, created_at) \
-         VALUES ($1, $2, 'Other Computer', 'other.local', 'macos', $3, $4, 'online', \
+         VALUES ($1, $2, 'Other Computer', 'other.local', 'macos', $3, 'online', \
                  '0.1.0', now(), now())",
     )
     .bind(other_computer_id)
     .bind(other_space.id)
-    .bind(vec![7_u8; 32])
     .bind(vec![8_u8; 32])
     .execute(&pool)
     .await?;
@@ -1034,7 +1056,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1064,7 +1086,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .clone()
             .oneshot(computer_agent_action_request(
                 computer.id,
-                &credential,
+                &token,
                 agent.member_id,
                 run_id,
                 approval_action.clone(),
@@ -1101,7 +1123,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1116,18 +1138,18 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .await?;
     ensure!(idempotency_conflict.status() == StatusCode::CONFLICT);
 
-    let computer_credential_cannot_approve = app
+    let computer_token_cannot_approve = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/v1/approvals/{approval_id}/approve"))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header("idempotency-key", Uuid::now_v7().to_string())
                 .body(Body::from("{}"))?,
         )
         .await?;
-    ensure!(computer_credential_cannot_approve.status() == StatusCode::UNAUTHORIZED);
+    ensure!(computer_token_cannot_approve.status() == StatusCode::UNAUTHORIZED);
 
     let rejected = app
         .clone()
@@ -1155,7 +1177,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1300,7 +1322,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .clone()
             .oneshot(computer_agent_action_request(
                 computer.id,
-                &credential,
+                &token,
                 agent.member_id,
                 run_id,
                 action,
@@ -1322,7 +1344,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1347,7 +1369,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
 
     let inbox_current = computer_agent_action_request(
         computer.id,
-        &credential,
+        &token,
         agent.member_id,
         run_id,
         serde_json::json!({ "action": "inbox_current" }),
@@ -1359,7 +1381,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
 
     let channel_read = computer_agent_action_request(
         computer.id,
-        &credential,
+        &token,
         agent.member_id,
         run_id,
         serde_json::json!({
@@ -1388,7 +1410,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/uploads",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("idempotency-key", Uuid::now_v7().to_string())
                 .body(Body::from(serde_json::to_vec(&serde_json::json!({
@@ -1410,7 +1432,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/content",
                     computer.id, agent.member_id, created_attachment.id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::from(attachment_bytes.as_slice()))?,
         )
         .await?;
@@ -1425,7 +1447,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/complete",
                     computer.id, agent.member_id, created_attachment.id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .header("idempotency-key", Uuid::now_v7().to_string())
                 .body(Body::from(serde_json::to_vec(&serde_json::json!({
@@ -1446,7 +1468,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}",
                     computer.id, agent.member_id, created_attachment.id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())?,
         )
         .await?;
@@ -1460,7 +1482,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/download",
                     computer.id, agent.member_id, created_attachment.id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())?,
         )
         .await?;
@@ -1483,7 +1505,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let changed_context: MessageResponse = decode_json(changed_context).await?;
     let stale_send = computer_agent_action_request(
         computer.id,
-        &credential,
+        &token,
         agent.member_id,
         run_id,
         serde_json::json!({
@@ -1521,7 +1543,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1550,7 +1572,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     });
     let send = computer_agent_action_request(
         computer.id,
-        &credential,
+        &token,
         agent.member_id,
         run_id,
         send_action.clone(),
@@ -1564,7 +1586,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             send_action,
@@ -1577,7 +1599,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1635,7 +1657,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .clone()
             .oneshot(computer_agent_action_request(
                 computer.id,
-                &credential,
+                &token,
                 agent.member_id,
                 run_id,
                 ack_action.clone(),
@@ -1647,7 +1669,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1673,7 +1695,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             .clone()
             .oneshot(computer_agent_action_request(
                 computer.id,
-                &credential,
+                &token,
                 agent.member_id,
                 run_id,
                 defer_action.clone(),
@@ -1690,7 +1712,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/runs/{run_id}/attachments/{}/download",
                     computer.id, agent.member_id, created_attachment.id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .body(Body::empty())?,
         )
         .await?;
@@ -1745,7 +1767,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             run_id,
             serde_json::json!({
@@ -1776,7 +1798,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/inbox/claim",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from("{}"))?,
         )
@@ -1972,7 +1994,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/inbox/claim",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from("{}"))?,
         )
@@ -2031,7 +2053,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             ambient_run_id,
             serde_json::json!({
@@ -2080,7 +2102,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/inbox/claim",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from("{}"))?,
         )
@@ -2257,7 +2279,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computers/{}/agents/{}/inbox/claim",
                     computer.id, agent.member_id
                 ))
-                .header(header::AUTHORIZATION, format!("Bearer {credential}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from("{}"))?,
         )
@@ -2316,7 +2338,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             thread_run_id,
             serde_json::json!({
@@ -2354,7 +2376,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             thread_run_id,
             serde_json::json!({
@@ -2384,7 +2406,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             thread_run_id,
             serde_json::json!({
@@ -2404,7 +2426,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         .clone()
         .oneshot(computer_agent_action_request(
             computer.id,
-            &credential,
+            &token,
             agent.member_id,
             thread_run_id,
             serde_json::json!({
@@ -2431,7 +2453,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "/api/v1/computers/{}/agents/{}/inbox/renew",
                 computer.id, agent.member_id
             ),
-            &credential,
+            &token,
             &serde_json::json!({ "run_id": thread_run_id }),
         )?)
         .await?;
@@ -2453,7 +2475,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "/api/v1/computers/{}/agents/{}/inbox/release",
                 computer.id, agent.member_id
             ),
-            &credential,
+            &token,
             &serde_json::json!({
                 "run_id": thread_run_id,
                 "error_code": "process_lost"
@@ -2472,7 +2494,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "/api/v1/computers/{}/agents/{}/inbox/release",
                 computer.id, agent.member_id
             ),
-            &credential,
+            &token,
             &serde_json::json!({
                 "run_id": thread_run_id,
                 "error_code": "process_lost"
@@ -2561,10 +2583,9 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     ensure!(shutdown["type"] == "shutdown" && shutdown["reason"] == "computer_deleted");
     let mut revoked_request =
         format!("ws://{address}/api/v1/computers/{}/connect", computer.id).into_client_request()?;
-    revoked_request.headers_mut().insert(
-        header::AUTHORIZATION,
-        format!("Bearer {credential}").parse()?,
-    );
+    revoked_request
+        .headers_mut()
+        .insert(header::AUTHORIZATION, format!("Bearer {token}").parse()?);
     let reconnect = tokio_tungstenite::connect_async(revoked_request).await;
     ensure!(matches!(
         reconnect,
@@ -2581,24 +2602,21 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     ensure!(status_event_count == 2);
     server_task.abort();
     let _ = server_task.await;
-    let stored_hash: Vec<u8> =
-        sqlx::query_scalar("SELECT credential_hash FROM computers WHERE id = $1")
-            .bind(computer.id)
-            .fetch_one(&pool)
-            .await?;
-    ensure!(stored_hash == sha2::Sha256::digest(credential.as_bytes()).as_slice());
-    ensure!(stored_hash.as_slice() != credential.as_bytes());
+    let stored_hash: Vec<u8> = sqlx::query_scalar("SELECT token_hash FROM computers WHERE id = $1")
+        .bind(computer.id)
+        .fetch_one(&pool)
+        .await?;
+    ensure!(stored_hash == sha2::Sha256::digest(token.as_bytes()).as_slice());
+    ensure!(stored_hash.as_slice() != token.as_bytes());
 
-    let expired_secret = [31_u8; 32];
+    let expired_token = URL_SAFE_NO_PAD.encode([31_u8; 32]);
     let expired_start = app
         .clone()
         .oneshot(json_request(
             "/api/v1/computer-pairings/start",
             Uuid::now_v7(),
             &serde_json::json!({
-                "pairing_secret_hash": URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(expired_secret)),
-                "credential_hash": URL_SAFE_NO_PAD.encode([1_u8; 32]),
-                "public_key": URL_SAFE_NO_PAD.encode(public_key.as_bytes()),
+                "token_hash": URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(expired_token.as_bytes())),
                 "hostname": "expired.local", "os": "linux", "daemon_version": "0.1.0"
             }),
             None,
@@ -2619,10 +2637,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                     "/api/v1/computer-pairings/{}/result",
                     expired.pairing_id
                 ))
-                .header(
-                    header::AUTHORIZATION,
-                    format!("Bearer {}", URL_SAFE_NO_PAD.encode(expired_secret)),
-                )
+                .header(header::AUTHORIZATION, format!("Bearer {expired_token}"))
                 .body(Body::empty())?,
         )
         .await?;

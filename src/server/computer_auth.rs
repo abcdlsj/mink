@@ -28,9 +28,9 @@ pub(super) async fn require_computer(
     headers: &HeaderMap,
     computer_id: Uuid,
 ) -> Result<(), ApiError> {
-    let credential = bearer(headers)?;
+    let token = bearer(headers)?;
     let expected: Option<(Vec<u8>, String)> =
-        sqlx::query_as("SELECT credential_hash, status FROM computers WHERE id = $1")
+        sqlx::query_as("SELECT token_hash, status FROM computers WHERE id = $1")
             .bind(computer_id)
             .fetch_optional(&state.database)
             .await
@@ -41,7 +41,7 @@ pub(super) async fn require_computer(
         || expected_hash.len() != 32
         || expected_hash
             .as_slice()
-            .ct_eq(Sha256::digest(credential.as_bytes()).as_slice())
+            .ct_eq(Sha256::digest(token.as_bytes()).as_slice())
             .unwrap_u8()
             != 1
     {
