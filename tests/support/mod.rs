@@ -169,6 +169,17 @@ impl SumiProcess {
         Ok(())
     }
 
+    pub async fn crash(&mut self) -> Result<()> {
+        self.child.kill().await.context("force-kill sumi process")?;
+        let status = self.child.wait().await?;
+        ensure!(
+            !status.success(),
+            "force-killed sumi process exited successfully; logs: {}",
+            self.log_text()
+        );
+        Ok(())
+    }
+
     pub async fn wait_for_success(&mut self, duration: std::time::Duration) -> Result<()> {
         let status = tokio::time::timeout(duration, self.child.wait())
             .await

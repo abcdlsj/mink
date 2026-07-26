@@ -1,6 +1,6 @@
 mod support;
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, ensure};
 use axum::{
@@ -32,6 +32,8 @@ const CLI_REPLY: &str = "Acknowledged through the real Sumi CLI.";
 const DRIVER_STDOUT: &str = "Controlled Driver stdout must not become a Message.";
 const MODEL_FINAL_TEXT: &str = "Controlled model final text must not become a Message.";
 const PROVIDER_AUTH: &str = "test-only-provider-key";
+const RECOVERY_HUMAN_MESSAGE: &str = "Recovery boundary Human Message.";
+const RECOVERY_CLI_REPLY: &str = "Recovery boundary CLI reply.";
 
 struct FakeProvider {
     url: Url,
@@ -771,4 +773,522 @@ async fn assert_reply_sse(
     .await
     .context("Space SSE did not deliver Agent reply events")??;
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum RecoveryProviderMode {
+    FailThenBlock,
+    CrashAfterHandle,
+    AlwaysFail,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum RecoveryProviderEvent {
+    Request(usize),
+    ReplyHandled,
+}
+
+struct RecoveryProvider {
+    url: Url,
+    events: mpsc::UnboundedReceiver<RecoveryProviderEvent>,
+    task: JoinHandle<()>,
+}
+
+struct RecoveryProviderState {
+    mode: RecoveryProviderMode,
+    step: Mutex<usize>,
+    events: mpsc::UnboundedSender<RecoveryProviderEvent>,
+    blocked: Notify,
+}
+
+impl RecoveryProvider {
+    async fn start(mode: RecoveryProviderMode) -> Result<Self> {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
+        let address = listener.local_addr()?;
+        let (events_tx, events) = mpsc::unbounded_channel();
+        let state = Arc::new(RecoveryProviderState {
+            mode,
+            step: Mutex::new(0),
+            events: events_tx,
+            blocked: Notify::new(),
+        });
+        let app = Router::new()
+            .route("/chat/completions", post(recovery_chat_stream))
+            .with_state(state);
+        let task = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        Ok(Self {
+            url: Url::parse(&format!("http://{address}"))?,
+            events,
+            task,
+        })
+    }
+
+    async fn wait_for(&mut self, expected: RecoveryProviderEvent) -> Result<()> {
+        let event = tokio::time::timeout(Duration::from_secs(30), self.events.recv())
+            .await
+            .context("timed out waiting for recovery provider event")?
+            .context("recovery provider stopped before expected event")?;
+        ensure!(
+            event == expected,
+            "unexpected recovery provider event: {event:?}"
+        );
+        Ok(())
+    }
+
+    async fn assert_quiet(&mut self, duration: Duration) -> Result<()> {
+        ensure!(
+            tokio::time::timeout(duration, self.events.recv())
+                .await
+                .is_err(),
+            "recovery provider received an unexpected extra request"
+        );
+        Ok(())
+    }
+}
+
+impl Drop for RecoveryProvider {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+async fn recovery_chat_stream(
+    State(state): State<Arc<RecoveryProviderState>>,
+    headers: HeaderMap,
+    Json(request): Json<serde_json::Value>,
+) -> Response {
+    let authorized = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
+    if !authorized || request["stream"] != true || request["messages"].as_array().is_none() {
+        return bad_provider_request();
+    }
+    let mut step = state.step.lock().await;
+    let request_number = *step + 1;
+    let _ = state
+        .events
+        .send(RecoveryProviderEvent::Request(request_number));
+    let response = match state.mode {
+        RecoveryProviderMode::AlwaysFail => provider_failure(),
+        RecoveryProviderMode::FailThenBlock if *step == 0 => provider_failure(),
+        RecoveryProviderMode::FailThenBlock => {
+            state.blocked.notified().await;
+            provider_failure()
+        }
+        RecoveryProviderMode::CrashAfterHandle => match *step {
+            0 => tool_call_stream("recovery-inbox-current", "sumi agent inbox current --json"),
+            1 => {
+                let Some((inbox_id, address)) = claimed_inbox_identity(&request) else {
+                    return bad_provider_request();
+                };
+                tool_call_stream(
+                    "recovery-message-send",
+                    &format!(
+                        "sumi agent message send {address} --body '{RECOVERY_CLI_REPLY}' --handle {inbox_id} --json"
+                    ),
+                )
+            }
+            2 => {
+                let Some((_, address)) = claimed_inbox_identity(&request) else {
+                    return bad_provider_request();
+                };
+                if latest_tool_result(&request)
+                    .and_then(|result| valid_message_send(&result, &address))
+                    .is_none()
+                {
+                    return bad_provider_request();
+                }
+                let _ = state.events.send(RecoveryProviderEvent::ReplyHandled);
+                state.blocked.notified().await;
+                text_stream("must not complete before daemon crash")
+            }
+            _ => return bad_provider_request(),
+        },
+    };
+    *step += 1;
+    response
+}
+
+fn provider_failure() -> Response {
+    Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
+        .body(Body::empty())
+        .expect("static fake failure response")
+}
+
+struct RecoveryHarness {
+    _root: tempfile::TempDir,
+    database: TestDatabase,
+    computer_config: PathBuf,
+    server: support::SumiProcess,
+    daemon: support::SumiProcess,
+    pool: sqlx::PgPool,
+    owner_id: Uuid,
+    admin_id: Option<Uuid>,
+    agent_id: Uuid,
+    channel_id: Uuid,
+    message_id: Uuid,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct SystemNotification {
+    member_id: Uuid,
+    channel_id: Option<Uuid>,
+    thread_id: Option<i64>,
+    message_id: Option<Uuid>,
+    last_error: String,
+    message_count: i32,
+}
+
+async fn start_recovery_harness(
+    provider_url: &Url,
+    max_retry_count: u8,
+    create_admin: bool,
+) -> Result<RecoveryHarness> {
+    let root = tempfile::tempdir()?;
+    let database = TestDatabase::create("sumi_agent_dm_recovery_test").await?;
+    let server_port = reserve_local_port()?;
+    let server_address = SocketAddr::from(([127, 0, 0, 1], server_port));
+    let server_url = Url::parse(&format!("http://{server_address}"))?;
+    let server_config = root.path().join("server.toml");
+    write_server_config(
+        &server_config,
+        server_address,
+        &database.url,
+        &root.path().join("attachments"),
+        &root.path().join("web-dist"),
+    )?;
+    let server = spawn_server(&server_config)?;
+    wait_for_health(&server_url).await?;
+
+    let computer_state = root.path().join("computer");
+    let computer_config = root.path().join("computer.toml");
+    write_builtin_computer_config(&computer_config, &server_url, &computer_state, provider_url)?;
+    let client = Client::new();
+    let cookie = register_human(&client, &server_url).await?;
+    let space = create_space(&client, &server_url, &cookie).await?;
+    let mut daemon = spawn_computer(&computer_config)?;
+    let pairing_url = pairing_url_from_daemon(&mut daemon).await?;
+    let paired = confirm_pairing(&client, &server_url, &cookie, space.id, &pairing_url).await?;
+    wait_for_computer_status(&client, &server_url, &cookie, space.id, "online").await?;
+
+    let agent_response = client
+        .post(server_url.join(&format!("/api/v1/spaces/{}/agents", space.id))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({
+            "computer_id": paired.id,
+            "name": "Recovery Lin",
+            "handle": "recovery-lin",
+            "role_text": "Exercise the current DM recovery boundary through the Sumi Agent CLI.",
+            "access_level": "member",
+            "driver_kind": "builtin"
+        }))
+        .send()
+        .await?;
+    ensure!(agent_response.status() == StatusCode::CREATED);
+    let agent: serde_json::Value = agent_response.json().await?;
+    let agent_id = Uuid::parse_str(agent["member_id"].as_str().context("Agent id missing")?)?;
+    let pool = PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&database.url)
+        .await?;
+    let owner_id: Uuid = sqlx::query_scalar("SELECT owner_member_id FROM spaces WHERE id = $1")
+        .bind(space.id)
+        .fetch_one(&pool)
+        .await?;
+    wait_for_agent_active(&pool, agent_id).await?;
+    sqlx::query(
+        "UPDATE agents SET attention_config_json = jsonb_set(\
+         attention_config_json, '{max_retry_count}', to_jsonb($2::int)) WHERE member_id = $1",
+    )
+    .bind(agent_id)
+    .bind(i32::from(max_retry_count))
+    .execute(&pool)
+    .await?;
+
+    let admin_id = if create_admin {
+        let user_id = Uuid::now_v7();
+        let member_id = Uuid::now_v7();
+        let now = time::OffsetDateTime::now_utc();
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO users (id, email_normalized, password_hash, display_name, created_at) \
+             VALUES ($1, $2, 'test-only-password-hash', 'Recovery Admin', $3)",
+        )
+        .bind(user_id)
+        .bind(format!("recovery-admin-{user_id}@example.test"))
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query(
+            "INSERT INTO members (id, space_id, kind, display_name, handle, avatar_seed, \
+             access_level, created_at) VALUES ($1, $2, 'human', 'Recovery Admin', \
+             'recovery-admin', $3, 'admin', $4)",
+        )
+        .bind(member_id)
+        .bind(space.id)
+        .bind(member_id.to_string())
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+        sqlx::query("INSERT INTO human_members (member_id, space_id, user_id) VALUES ($1, $2, $3)")
+            .bind(member_id)
+            .bind(space.id)
+            .bind(user_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
+        Some(member_id)
+    } else {
+        None
+    };
+
+    let dm_response = client
+        .post(server_url.join(&format!("/api/v1/spaces/{}/dms", space.id))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({ "member_id": agent_id }))
+        .send()
+        .await?;
+    ensure!(dm_response.status() == StatusCode::CREATED);
+    let dm: serde_json::Value = dm_response.json().await?;
+    let channel_id = Uuid::parse_str(dm["channel_id"].as_str().context("DM id missing")?)?;
+    let message_response = client
+        .post(server_url.join(&format!("/api/v1/channels/{channel_id}/messages"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, &cookie)
+        .json(&serde_json::json!({
+            "body_markdown": RECOVERY_HUMAN_MESSAGE,
+            "mentions": [],
+            "attachment_ids": []
+        }))
+        .send()
+        .await?;
+    ensure!(message_response.status() == StatusCode::CREATED);
+    let message: serde_json::Value = message_response.json().await?;
+    let message_id = Uuid::parse_str(message["id"].as_str().context("Message id missing")?)?;
+
+    Ok(RecoveryHarness {
+        _root: root,
+        database,
+        computer_config,
+        server,
+        daemon,
+        pool,
+        owner_id,
+        admin_id,
+        agent_id,
+        channel_id,
+        message_id,
+    })
+}
+
+async fn stop_recovery_harness(mut harness: RecoveryHarness) -> Result<()> {
+    harness.daemon.interrupt().await?;
+    harness.server.interrupt().await?;
+    harness.pool.close().await;
+    harness.database.drop().await
+}
+
+fn assert_recovery_logs_redacted(
+    server: &support::SumiProcess,
+    daemon: &support::SumiProcess,
+) -> Result<()> {
+    for (label, text) in [
+        ("recovery Human Message", RECOVERY_HUMAN_MESSAGE),
+        ("recovery CLI Message", RECOVERY_CLI_REPLY),
+        ("provider authentication", PROVIDER_AUTH),
+    ] {
+        ensure!(!server.logs_contain(text), "Server logs leaked {label}");
+        ensure!(!daemon.logs_contain(text), "daemon logs leaked {label}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn driver_failure_releases_and_reclaims_dm_inbox_once() -> Result<()> {
+    let mut provider = RecoveryProvider::start(RecoveryProviderMode::FailThenBlock).await?;
+    let mut harness = start_recovery_harness(&provider.url, 3, false).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(1)).await?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let state: (String, i32, Option<Uuid>, i64) = sqlx::query_as(
+                "SELECT items.status, items.retry_count, items.lease_id, \
+                 (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1) \
+                 FROM inbox_items items WHERE items.member_id = $1 AND items.message_id = $2",
+            )
+            .bind(harness.agent_id)
+            .bind(harness.message_id)
+            .fetch_one(&harness.pool)
+            .await?;
+            if state == ("pending".to_owned(), 1, None, 1) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("failed Driver run did not release its Inbox Item exactly once")??;
+    provider.wait_for(RecoveryProviderEvent::Request(2)).await?;
+    let reclaimed: (String, i32, i64, i64) = sqlx::query_as(
+        "SELECT items.status, items.retry_count, \
+         (SELECT count(DISTINCT links.run_id) FROM agent_run_inbox_items links \
+            WHERE links.inbox_item_id = items.id), \
+         (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1 \
+            AND status IN ('queued', 'running')) \
+         FROM inbox_items items WHERE items.member_id = $1 AND items.message_id = $2",
+    )
+    .bind(harness.agent_id)
+    .bind(harness.message_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(
+        reclaimed == ("leased".to_owned(), 1, 2, 1),
+        "released Inbox Item was not reclaimed by one later real run"
+    );
+    assert_recovery_logs_redacted(&harness.server, &harness.daemon)?;
+    harness.daemon.crash().await?;
+    harness.server.interrupt().await?;
+    harness.pool.close().await;
+    harness.database.drop().await
+}
+
+#[tokio::test]
+async fn daemon_crash_after_send_and_handle_does_not_repeat_dm_reply() -> Result<()> {
+    let mut provider = RecoveryProvider::start(RecoveryProviderMode::CrashAfterHandle).await?;
+    let mut harness = start_recovery_harness(&provider.url, 3, false).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(1)).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(2)).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(3)).await?;
+    provider
+        .wait_for(RecoveryProviderEvent::ReplyHandled)
+        .await?;
+    let committed: (String, i32, i64) = sqlx::query_as(
+        "SELECT status, retry_count, \
+         (SELECT count(*) FROM messages WHERE channel_id = $2 AND author_member_id = $1 \
+            AND body_markdown = $3) FROM inbox_items WHERE member_id = $1 AND message_id = $4",
+    )
+    .bind(harness.agent_id)
+    .bind(harness.channel_id)
+    .bind(RECOVERY_CLI_REPLY)
+    .bind(harness.message_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(committed == ("handled".to_owned(), 0, 1));
+    assert_recovery_logs_redacted(&harness.server, &harness.daemon)?;
+    harness.daemon.crash().await?;
+    harness.daemon = spawn_computer(&harness.computer_config)?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let state: (String, Option<String>, String, i32, i64, i64) = sqlx::query_as(
+                "SELECT runs.status, runs.error_code, items.status, items.retry_count, \
+                 (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1), \
+                 (SELECT count(*) FROM messages WHERE channel_id = $2 AND author_member_id = $1) \
+                 FROM agent_runs runs JOIN agent_run_inbox_items links ON links.run_id = runs.id \
+                 JOIN inbox_items items ON items.id = links.inbox_item_id \
+                 WHERE runs.agent_member_id = $1 AND items.message_id = $3",
+            )
+            .bind(harness.agent_id)
+            .bind(harness.channel_id)
+            .bind(harness.message_id)
+            .fetch_one(&harness.pool)
+            .await?;
+            if state
+                == (
+                    "failed".to_owned(),
+                    Some("process_lost".to_owned()),
+                    "handled".to_owned(),
+                    0,
+                    1,
+                    1,
+                )
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("restarted daemon did not recover handled run without duplicating the reply")??;
+    provider.assert_quiet(Duration::from_secs(2)).await?;
+    harness.daemon.ensure_running()?;
+    assert_recovery_logs_redacted(&harness.server, &harness.daemon)?;
+    stop_recovery_harness(harness).await
+}
+
+#[tokio::test]
+async fn repeated_driver_failure_marks_dm_dead_and_notifies_human_governors() -> Result<()> {
+    let mut provider = RecoveryProvider::start(RecoveryProviderMode::AlwaysFail).await?;
+    let harness = start_recovery_harness(&provider.url, 2, true).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(1)).await?;
+    provider.wait_for(RecoveryProviderEvent::Request(2)).await?;
+    let admin_id = harness.admin_id.context("recovery Admin missing")?;
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let state: (String, i32, i64, i64) = sqlx::query_as(
+                "SELECT status, retry_count, \
+                 (SELECT count(*) FROM agent_runs WHERE agent_member_id = $1), \
+                 (SELECT count(*) FROM inbox_items WHERE member_id IN ($3, $4) \
+                    AND kind = 'system' AND priority = 'hard') \
+                 FROM inbox_items WHERE member_id = $1 AND message_id = $2",
+            )
+            .bind(harness.agent_id)
+            .bind(harness.message_id)
+            .bind(harness.owner_id)
+            .bind(admin_id)
+            .fetch_one(&harness.pool)
+            .await?;
+            if state == ("dead".to_owned(), 2, 2, 2) {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .context("retry limit did not atomically dead-letter and notify Human governors")??;
+    let notifications: Vec<SystemNotification> = sqlx::query_as(
+        "SELECT member_id, channel_id, thread_id, message_id, last_error, message_count \
+             FROM inbox_items WHERE member_id IN ($1, $2) AND kind = 'system' \
+             AND priority = 'hard' ORDER BY member_id",
+    )
+    .bind(harness.owner_id)
+    .bind(admin_id)
+    .fetch_all(&harness.pool)
+    .await?;
+    ensure!(notifications.len() == 2);
+    ensure!(
+        notifications.iter().all(|notification| {
+            [harness.owner_id, admin_id].contains(&notification.member_id)
+                && notification.channel_id.is_none()
+                && notification.thread_id.is_none()
+                && notification.message_id.is_none()
+                && notification.last_error == "driver_failed"
+                && notification.message_count == 1
+        }),
+        "system Inbox notification exposed private Message coordinates or incorrect retry data: {notifications:?}"
+    );
+    let notification_outbox_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM outbox_events WHERE topic = 'inbox.changed' \
+         AND aggregate_id IN (SELECT id FROM inbox_items WHERE member_id IN ($1, $2) \
+           AND kind = 'system' AND priority = 'hard')",
+    )
+    .bind(harness.owner_id)
+    .bind(admin_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    let agent_message_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM messages WHERE channel_id = $1 AND author_member_id = $2",
+    )
+    .bind(harness.channel_id)
+    .bind(harness.agent_id)
+    .fetch_one(&harness.pool)
+    .await?;
+    ensure!(notification_outbox_count == 2 && agent_message_count == 0);
+    provider.assert_quiet(Duration::from_secs(2)).await?;
+    assert_recovery_logs_redacted(&harness.server, &harness.daemon)?;
+    stop_recovery_harness(harness).await
 }
