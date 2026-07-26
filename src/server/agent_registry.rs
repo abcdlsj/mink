@@ -630,10 +630,10 @@ pub(super) fn validate(request: &mut CreateAgentRequest) -> Result<(), ApiError>
             "Agent access level must be Member or Admin",
         ));
     }
-    if request.driver_kind != "codex" {
+    if !matches!(request.driver_kind.as_str(), "codex" | "builtin") {
         return Err(ApiError::validation(
             "invalid_driver",
-            "Sumi v1 only supports the Codex Driver",
+            "Driver must be codex or builtin",
         ));
     }
     Ok(())

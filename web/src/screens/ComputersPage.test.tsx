@@ -70,12 +70,16 @@ describe("Computer flows", () => {
     expect(screen.getByText("online")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
+    fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Review boundaries." } });
-    fireEvent.click(screen.getByRole("button", { name: "Create with Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining(`/spaces/${space.id}/agents`),
-        expect.objectContaining({ method: "POST" }),
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"driver_kind":"builtin"'),
+        }),
       );
     });
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));

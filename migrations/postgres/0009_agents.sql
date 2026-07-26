@@ -21,7 +21,7 @@ CREATE TABLE agent_runs (
     id UUID PRIMARY KEY,
     agent_member_id UUID NOT NULL,
     computer_id UUID NOT NULL,
-    driver_kind TEXT NOT NULL CHECK (driver_kind = 'codex'),
+    driver_kind TEXT NOT NULL CHECK (driver_kind IN ('codex', 'builtin')),
     role_revision BIGINT NOT NULL CHECK (role_revision > 0),
     status TEXT NOT NULL CHECK (status IN (
         'queued', 'running', 'completed', 'failed', 'canceled'

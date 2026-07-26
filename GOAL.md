@@ -2,7 +2,7 @@
 
 ## 最终目标
 
-从当前全新实现出发，持续开发直到 Sumi v1 成为可在一台 macOS 或 Linux 机器上安装、运行和完整测试的产品：Human 可以注册并创建 Space，Human 与 Agent 能在 Channel、DM 和 Thread 中平等协作，Computer daemon 能可靠承载使用 Codex Driver 的 Agent，Agent 只能通过统一的 `sumi agent` CLI 获取上下文并行动。
+从当前全新实现出发，持续开发直到 Sumi v1 成为可在一台 macOS 或 Linux 机器上安装、运行和完整测试的产品：Human 可以注册并创建 Space，Human 与 Agent 能在 Channel、DM 和 Thread 中平等协作，Computer daemon 能可靠承载使用 Codex 或 Builtin Driver 的 Agent，Agent 只能通过统一的 `sumi agent` CLI 获取上下文并行动。
 
 完成意味着 `docs/design.md` 第 22 节全部验收场景真实通过，而不是只存在页面、类型、mock、占位实现或尚未运行的测试。
 
@@ -63,6 +63,7 @@
 
 - [x] 实现 Agent 创建、配置、暂停、恢复、退役、Role revision 和 Memory。
 - [x] 实现通用 Driver 契约与 Codex Driver；Driver 私有状态不得成为 Agent 身份或 Memory。
+- [x] 实现 Builtin Driver 全链路、workspace/Secret 隔离、SSE tool call 和取消恢复测试。
 - [x] 实现完整 `sumi agent` 命令树、run capability、结构化 JSON、权限校验和幂等写入。
 - [x] 在设计 Agent run prompt 前探索 `.slock` 的 Agent prompt，按 `docs/design.md` 约束吸收适合 Sumi 的结构。
 - [x] 打通 Human DM Agent -> Inbox -> Codex -> CLI read -> CLI send-and-handle -> Human 收到回复。
@@ -90,7 +91,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 
 ## 明确不做
 
-遵守 `docs/design.md` 第 4.2 节。尤其不实现 Work/Task、Builtin Driver、其他具体 Driver、微服务、工作流/DAG、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移，不用这些旁支拖延 v1 主闭环。
+遵守 `docs/design.md` 第 4.2 节。尤其不实现 Work/Task、其他具体 Driver、微服务、工作流/DAG、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移，不用这些旁支拖延 v1 主闭环。
 
 ## 当前状态
 
@@ -113,6 +114,7 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 - Phase 5 Thread subscription 与故障恢复已完成：Thread mention/发送/follow 自动或显式订阅，reply hard 去重与 thread ambient 聚合生效；daemon 在 command replay 前释放 process_lost run，并每 60 秒续租，连续失败按统一 retry/dead 路径通知 Human Owner/Admin。当前最早未完成项为 `--based-on` context freshness。
 - Phase 5 context freshness 已完成：Server 在验证当前 run 的 hard lease 后比较 snapshot，过期发送返回无正文的结构化 changes 且不写 Message/handled；Agent 重读 Thread 后可在同一 run 成功 send-and-handle。当前最早未完成项为 Channel/Agent create 与 Human-only governance 阶段审计。
 - Phase 5 已完成：普通 Human Member 持 `agent:create` 时只创建 Approval，发起者即使后续成为 Human Admin 也不能自批；Agent Admin 可按权限矩阵创建 Channel，但创建 Agent 始终进入 Human-only Approval。当前最早未完成阶段为 Phase 6 安全、可靠性与最终验收。
+- Phase 4 Builtin Driver 补充审计已完成：driver_kind 从创建、PostgreSQL、run command 到 Supervisor 全链路保真；文件、shell、Secret、SSE 分片 tool call 与取消均有可运行测试。最早未完成阶段仍为 Phase 6。
 
 ## 验证记录
 
@@ -150,3 +152,5 @@ Rust 和数据正确性不能因此偷懒：修改后先跑最小相关测试，
 2026-07-25 | Phase 5 / Thread subscription、lease 与故障恢复 | 真实 PostgreSQL/HTTP/WebSocket flow：Thread mention 自动订阅、follow/unfollow、reply hard 去重、thread ambient 聚合、private Channel 权限；lease renew、process_lost 幂等 release、max retry 转 dead 与 Human Owner system Inbox；daemon SQLite/临时 HTTP 恢复测试；`mise run lint`; `mise run test`; `mise run build` | 通过；35 Rust tests、3 CLI process tests、PostgreSQL migration 12、SQLite migration 2、10 Web tests、严格 clippy 与 production build 全绿。
 2026-07-25 | Phase 5 / context freshness | 真实 PostgreSQL/HTTP/Computer flow：Agent Thread read snapshot 后 Human 追加 reply，旧 `--based-on` 返回 `context_changed` 与无正文 changes、Message/lease 保持不变；重读后同一 run 原子 send-and-handle；CLI JSON details/exit 5 透传；`mise run lint`; `mise run test`; `mise run build` | 通过；35 Rust tests、3 CLI process tests、真实 PostgreSQL integration、10 Web tests、严格 clippy 与 production build 全绿。
 2026-07-25 | Phase 5 / Channel 与 Agent 创建治理 | 真实 PostgreSQL/WebSocket flow：普通 Human Approval 零 Member/Home/command、自批拒绝、Owner reject；Agent Admin 清除显式权限后创建 Channel，创建 Agent 仍为 pending Approval；`cargo fmt --all -- --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `pnpm --dir web lint`; `cargo test --all-features`; `pnpm --dir web test`; `cargo build`; `NODE_OPTIONS=--max-old-space-size=384 pnpm --dir web build` | 通过；35 Rust tests、3 CLI process tests、PostgreSQL migration/integration、10 Web tests、严格 clippy 与 production build 全绿，Phase 5 完成。
+2026-07-26 | Phase 4 / Builtin Driver 补充验收 | Builtin 真实本机 OpenAI-compatible SSE 假 Provider 两轮 tool loop、Memory 写入、取消；Codex/Builtin sandbox、Secret/路径逃逸与 SSE 多 index 分片；`cargo fmt --all -- --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-features`; `pnpm --dir web lint`; `pnpm --dir web test`; `NODE_OPTIONS=--max-old-space-size=384 pnpm --dir web build` | 通过；54 Rust tests、3 CLI process tests、真实 PostgreSQL migration、10 Web tests、严格 clippy 与 production build 全绿。
+2026-07-26 | CLI / 删除未成品 chat 入口 | `sumi --help` 仅包含 server/computer/agent；全局残留检查；严格 Rust/Web 门禁 | 通过；chat 命令、实现和专属死代码均已删除。

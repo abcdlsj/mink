@@ -65,7 +65,7 @@ export interface Agent {
   role_text: string;
   role_revision: number;
   status: "provisioning" | "active" | "suspended" | "error" | "retired";
-  driver_kind: "codex";
+  driver_kind: "codex" | "builtin";
   attention_config: AttentionConfig;
   created_at: string;
   updated_at: string;
@@ -241,7 +241,7 @@ export interface Approval {
     computer_id: string;
     name: string;
     role_text: string;
-    driver_kind: "codex";
+    driver_kind: "codex" | "builtin";
     access_level: "member";
     permissions: string[];
   };
@@ -377,7 +377,7 @@ export function createAgent(
     handle?: string;
     role_text: string;
     access_level: "member" | "admin";
-    driver_kind: "codex";
+    driver_kind: "codex" | "builtin";
   },
 ): Promise<Agent> {
   return apiRequest<Agent>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/agents`, {

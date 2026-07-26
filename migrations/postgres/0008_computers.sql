@@ -52,7 +52,7 @@ CREATE TABLE agents (
     role_revision BIGINT NOT NULL DEFAULT 1 CHECK (role_revision > 0),
     status TEXT NOT NULL DEFAULT 'provisioning'
         CHECK (status IN ('provisioning', 'active', 'suspended', 'error', 'retired')),
-    driver_kind TEXT NOT NULL CHECK (driver_kind = 'codex'),
+    driver_kind TEXT NOT NULL CHECK (driver_kind IN ('codex', 'builtin')),
     driver_config_json JSONB NOT NULL,
     attention_config_json JSONB NOT NULL,
     created_by_member_id UUID NOT NULL,

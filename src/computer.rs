@@ -203,7 +203,14 @@ async fn prepare_agent_home(state_dir: &Path, agent_id: Uuid) -> Result<std::pat
     let home = state_dir.join("agents").join(agent_id.to_string());
     tokio::fs::create_dir_all(&home).await?;
     set_permissions(&home, 0o700).await?;
-    for relative in ["memory", "workspace", "drivers/codex", "runs", "logs"] {
+    for relative in [
+        "memory",
+        "workspace",
+        "drivers/codex",
+        "drivers/builtin",
+        "runs",
+        "logs",
+    ] {
         let path = home.join(relative);
         tokio::fs::create_dir_all(&path).await?;
         set_permissions(&path, 0o700).await?;
@@ -1363,8 +1370,18 @@ async fn execute_local_command(
         .context("Agent command has no agent_id")
         .and_then(|value| Uuid::parse_str(value).context("Agent command agent_id is invalid"))?;
     let home = if kind == "agent.provision" {
+        let driver_kind = payload
+            .get("driver_kind")
+            .and_then(serde_json::Value::as_str)
+            .context("agent.provision command has no driver_kind")?;
+        ensure!(
+            matches!(driver_kind, "codex" | "builtin"),
+            "agent.provision command has unknown driver_kind"
+        );
         let home = prepare_agent_home(state_dir, agent_id).await?;
-        supervisor.prepare_agent_driver(agent_id).await?;
+        supervisor
+            .prepare_agent_driver(agent_id, driver_kind)
+            .await?;
         home
     } else {
         let home = state_dir.join("agents").join(agent_id.to_string());
@@ -1569,7 +1586,11 @@ async fn validate_provision_result(
             .and_then(|value| {
                 Uuid::parse_str(value).context("agent.provision agent_id is invalid")
             })?;
-        supervisor.validate_agent(agent_id).await?;
+        let driver_kind = payload
+            .get("driver_kind")
+            .and_then(serde_json::Value::as_str)
+            .context("agent.provision command has no driver_kind")?;
+        supervisor.validate_agent(agent_id, driver_kind).await?;
     }
     Ok(memory_files)
 }
@@ -2025,7 +2046,10 @@ mod tests {
             command_id,
             1,
             "agent.provision",
-            &serde_json::json!({ "agent_id": agent_id }),
+            &serde_json::json!({
+                "agent_id": agent_id,
+                "driver_kind": "codex"
+            }),
         )
         .await
         .unwrap();
@@ -2079,7 +2103,15 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            for relative in ["", "memory", "workspace", "drivers/codex", "runs", "logs"] {
+            for relative in [
+                "",
+                "memory",
+                "workspace",
+                "drivers/codex",
+                "drivers/builtin",
+                "runs",
+                "logs",
+            ] {
                 let path = state
                     .join("agents")
                     .join(agent_id.to_string())

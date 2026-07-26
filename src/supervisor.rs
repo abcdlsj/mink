@@ -43,8 +43,7 @@ pub struct StartRun {
     pub agent_id: Uuid,
     pub space_id: Uuid,
     pub prompt: String,
-    #[serde(default)]
-    pub driver_kind: Option<String>,
+    pub driver_kind: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -198,28 +197,34 @@ impl Supervisor {
         Ok((agents, active.try_into().unwrap_or(u32::MAX)))
     }
 
-    pub async fn validate_agent(&self, agent_id: Uuid) -> Result<()> {
+    pub async fn validate_agent(&self, agent_id: Uuid, driver_kind: &str) -> Result<()> {
         let environment = self.environment(agent_id)?;
         let driver = self
             .inner
             .drivers
-            .get("codex")
-            .context("default driver missing")?;
+            .get(driver_kind)
+            .with_context(|| format!("unknown Driver: {driver_kind}"))?;
         driver.validate(&environment).await
     }
 
-    pub async fn prepare_agent_driver(&self, agent_id: Uuid) -> Result<()> {
-        let codex_home = self
-            .inner
-            .state_dir
-            .join("agents")
-            .join(agent_id.to_string())
-            .join("drivers/codex");
-        if let Some(source) = &self.inner.codex_config_source {
-            crate::driver::codex::install_sanitized_config(source, &codex_home).await?;
-        }
-        if let Some(source) = &self.inner.codex_auth_source {
-            crate::driver::codex::install_local_auth(source, &codex_home).await?;
+    pub async fn prepare_agent_driver(&self, agent_id: Uuid, driver_kind: &str) -> Result<()> {
+        match driver_kind {
+            "codex" => {
+                let codex_home = self
+                    .inner
+                    .state_dir
+                    .join("agents")
+                    .join(agent_id.to_string())
+                    .join("drivers/codex");
+                if let Some(source) = &self.inner.codex_config_source {
+                    crate::driver::codex::install_sanitized_config(source, &codex_home).await?;
+                }
+                if let Some(source) = &self.inner.codex_auth_source {
+                    crate::driver::codex::install_local_auth(source, &codex_home).await?;
+                }
+            }
+            "builtin" => {}
+            _ => bail!("unknown Driver: {driver_kind}"),
         }
         Ok(())
     }
@@ -234,11 +239,10 @@ impl Supervisor {
             _ = &mut cancel_rx => return self.finish_without_process(run.run_id, "canceled", None).await,
         };
         let _permit = permit;
-        let driver_kind = run.driver_kind.as_deref().unwrap_or("codex");
         let driver = self
             .inner
             .drivers
-            .get(driver_kind)
+            .get(&run.driver_kind)
             .ok_or_else(|| RunFailure::new(run.run_id, "unknown_driver"))?;
         self.ensure_agent_active(run.agent_id)
             .await
@@ -458,7 +462,7 @@ mod tests {
         let second = Uuid::now_v7();
         for agent_id in [first, second] {
             let home = state.join("agents").join(agent_id.to_string());
-            for relative in ["workspace", "drivers/codex"] {
+            for relative in ["workspace", "memory", "runs", "drivers/codex"] {
                 std::fs::create_dir_all(home.join(relative)).unwrap();
             }
             std::fs::write(home.join("profile.json"), r#"{"status":"active"}"#).unwrap();
@@ -497,7 +501,7 @@ mod tests {
             agent_id,
             space_id: Uuid::now_v7(),
             prompt: prompt.to_owned(),
-            driver_kind: None,
+            driver_kind: "codex".to_owned(),
         }
     }
 

@@ -30,9 +30,6 @@ pub struct PersonaConfig {
     pub id: String,
     pub display: String,
     pub description: String,
-    pub capabilities: Vec<String>,
-    pub task_policy: String,
-    pub memory_policy: String,
     pub soul_path: String,
 }
 
@@ -46,8 +43,6 @@ pub fn build_system_prompt(ctx: &PromptContext) -> String {
     add_if(&mut sections, persona(ctx));
     add_if(&mut sections, collaboration(ctx));
     add_if(&mut sections, memory_brief_section(ctx));
-    add_if(&mut sections, memory_policy(ctx));
-    add_if(&mut sections, task_delegation(ctx));
     add_if(&mut sections, context_section(ctx));
     add_if(&mut sections, persona_runtime_context(ctx));
     add_if(&mut sections, memory_section(ctx));
@@ -126,103 +121,6 @@ fn memory_brief_section(ctx: &PromptContext) -> String {
         ));
     }
     lines.join("\n\n")
-}
-
-fn memory_policy(ctx: &PromptContext) -> String {
-    match ctx.persona.as_ref().map(|p| p.memory_policy.as_str()) {
-        Some("auto_commit") => [
-            "Memory protocol:",
-            "- Policy: auto-commit.",
-            "- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
-            "- Allowed: durable memory for stable preferences, identity facts, project conventions, confirmed long-lived decisions.",
-            "- Allowed: update_memory only when the user explicitly asks to change existing memory and you have an exact memory id/scope from memory results or user text.",
-            "- Scope rule: prefer current channel/conversation memory for local facts; use persona memory for durable cross-conversation preferences or concepts; use workspace/global only for broad conventions.",
-            "- Forbidden: one-off lookups, temporary task state, unverified guesses, debug state, credentials, tokens, keys, cookies, or webhook URLs.",
-        ].join("\n"),
-        _ => [
-            "Memory protocol:",
-            "- Policy: proposal-only.",
-            "- Source of truth: Sumi-managed memory only; host runtime notes are not Sumi memory.",
-            "- Storage answer: Sumi manages scoped persona/workspace memory; never reveal filesystem paths.",
-            "- Allowed: explicit remember -> call remember_memory with authorization_text; reply Remembered with undo path.",
-            "- Allowed: inferred memory -> call propose_memory with scope, kind, content, reason, confidence; do not claim saved.",
-            "- Scope rule: prefer current channel/conversation memory for local facts; use persona memory for durable cross-conversation preferences or concepts; use workspace/global only for broad conventions.",
-            "- Forbidden: write_memory/update_memory/delete_memory in proposal-only mode.",
-            "- Forbidden: propose one-off lookups, temp state, guesses, debug, credentials, tokens, keys, cookies, or webhook URLs.",
-        ].join("\n"),
-    }
-}
-
-fn task_delegation(ctx: &PromptContext) -> String {
-    let caps = task_capabilities(
-        ctx.persona
-            .as_ref()
-            .map(|p| p.capabilities.as_slice())
-            .unwrap_or(&[]),
-    );
-    if caps.is_empty() {
-        return [
-            "Task delegation protocol:",
-            "- Capabilities: none.",
-            "- Forbidden: create, assign, execute, or review Task Board items.",
-            "- If needed: propose the task shape and ask a capable agent or human to create it.",
-        ]
-        .join("\n");
-    }
-    let caps_str = caps.join(", ");
-    match ctx.persona.as_ref().map(|p| p.task_policy.as_str()) {
-        Some("auto_commit") => [
-            "Task delegation protocol:".to_string(),
-            format!("- Capabilities: {caps_str}."),
-            "- Policy: auto-commit.".into(),
-            "- Source of truth: task = owner + expected outcome + acceptance criteria + review/status flow.".into(),
-            "- Allowed: create/assign only when the user asks to create/record/assign a task.".into(),
-            "- Required fields: task.create/task.assign need title, assignee, expected outcome, acceptance criteria, source.".into(),
-            "- If fields missing: ask before creating.".into(),
-            "- Forbidden: tasks for simple Q&A, quick lookups, link checks, concept explanations, ordinary conversation.".into(),
-            "- Forbidden: treat fix/build/review/deploy requests as task-creation requests unless user says to make a task.".into(),
-            "- Status rules: task.execute moves in_progress -> in_review; task.review marks done/closed; executors do not self-done.".into(),
-            "- If capability missing: suggest the action or name an agent that has it.".into(),
-        ].join("\n"),
-        _ => [
-            "Task delegation protocol:".to_string(),
-            format!("- Capabilities: {caps_str}."),
-            "- Policy: propose-only.".into(),
-            "- Source of truth: real task commit requires explicit user task intent plus human UI confirmation or auto-commit policy.".into(),
-            "- Allowed: propose Task Board candidates only when the user asks to create/record/assign a task.".into(),
-            "- Forbidden: create, assign, or update real Task Board items yourself.".into(),
-            "- If ordinary help/fix/explain/lookup/review: answer or do the work directly; no task ceremony.".into(),
-        ].join("\n"),
-    }
-}
-
-fn task_capabilities(in_caps: &[String]) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for cap in in_caps {
-        let normalized = normalize_task_capability(cap);
-        match normalized.as_str() {
-            "task.plan" | "task.create" | "task.assign" | "task.execute" | "task.review"
-                if seen.insert(normalized.clone()) =>
-            {
-                out.push(normalized);
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-fn normalize_task_capability(s: &str) -> String {
-    let s = s.trim().to_lowercase().replace(['_', ':'], ".");
-    match s.as_str() {
-        "plan" => "task.plan".into(),
-        "create" => "task.create".into(),
-        "assign" => "task.assign".into(),
-        "execute" | "exec" => "task.execute".into(),
-        "review" => "task.review".into(),
-        _ => s,
-    }
 }
 
 fn context_section(ctx: &PromptContext) -> String {
@@ -387,17 +285,18 @@ fn sumi_security_rules() -> String {
 fn sumi_startup_sequence() -> String {
     "## Startup sequence\n\n\
 When you are woken up, follow this order:\n\n\
-1. **Check your Inbox** with `sumi agent inbox current --json`. This lists every Inbox Item claimed for this run, with addresses like `#channel-name` (Channel), `#channel-name:123` (Thread), or `@handle` (DM).\n\
-2. **Read the source context** for each Inbox Item. Use:\n\
+1. **Recover your Memory.** Read the Agent Home file `memory/MEMORY.md` if it exists. With a Codex shell use `$HOME/memory/MEMORY.md`; with Builtin file tools use `memory/MEMORY.md`. Follow any links from it into `memory/notes/` only when relevant.\n\
+2. **Check your Inbox** with `sumi agent inbox current --json`. This lists every Inbox Item claimed for this run, with addresses like `#channel-name` (Channel), `#channel-name:123` (Thread), or `@handle` (DM).\n\
+3. **Read the source context** for each Inbox Item. Use:\n\
    - `sumi agent channel read \"<address>\" --json` for a Channel main timeline or DM.\n\
    - `sumi agent thread read \"<address>\" --json` for a Thread.\n\
    The default window gives you the triggering Message plus recent history. You can use `--before`, `--after`, `--around`, and `--limit` to navigate further.\n\
-3. **Process each Inbox Item.** For every claimed Item you must either:\n\
+4. **Process each Inbox Item.** For every claimed Item you must either:\n\
    - Send a reply with `--handle <inbox_item_id>` to atomically handle it, or\n\
    - `sumi agent inbox ack <id> --reason \"...\" --json` if no reply is needed, or\n\
    - `sumi agent inbox defer <id> --until <RFC3339> --json` if you need more time.\n\
-4. **Complete ALL your work before stopping.** If handling requires multi-step work (reading context, writing files, checking other channels), finish everything, send your reply, then stop.\n\
-5. If your Inbox is empty, stop and wait. Do not poll — new Messages will wake you."
+5. **Complete ALL your work before stopping.** If handling requires multi-step work (reading context, writing files, checking other channels), finish everything, send your reply, then stop.\n\
+6. If your Inbox is empty, stop and wait. Do not poll — new Messages will wake you."
         .to_owned()
 }
 
@@ -480,25 +379,24 @@ fn sumi_thread_lifecycle() -> String {
 fn sumi_memory_management(ctx: &PromptContext) -> String {
     format!(
         "## Memory management\n\n\
-Your workspace contains a persistent `MEMORY.md` file. Treat it as your recovery entry point — \
-it is re-read at the start of every run. Structure it as an index:\n\n\
+Your Agent Home contains persistent `memory/MEMORY.md`. Treat it as your recovery entry point — \
+read it at the start of every run as described above. It is Agent Home state, not Channel history, \
+a Server-managed memory layer, or a substitute for your authoritative Role. Structure it as an index:\n\n\
 ```markdown\n\
 # {name}\n\n\
-## Role\n\
-<your current role, evolved over time>\n\n\
-## Key Knowledge\n\
-- Read notes/channels.md for what each channel is about and ongoing work\n\
-- Read notes/work-log.md for important decisions and completed work\n\
+## Key knowledge\n\
+- Read `memory/notes/channels.md` for what each channel is about\n\
+- Read `memory/notes/work-log.md` for important decisions and completed work\n\
 - ...\n\n\
-## Active Context\n\
+## Active context\n\
 - Currently working on: <brief summary>\n\
 - Last interaction: <brief summary>\n\
 ```\n\n\
 Your context may be compressed between runs. Keep MEMORY.md self-contained so you can recover: \
 after reading it, you should understand who you are, what you know, and what you were working \
 on. Update it after significant interactions or decisions.\n\n\
-Create a `notes/` directory for detailed notes. Use descriptive filenames (e.g. \
-`notes/channels.md`, `notes/work-log.md`). Write down important decisions, user preferences, \
+Create `memory/notes/` for detailed notes. Use descriptive filenames (e.g. \
+`memory/notes/channels.md`, `memory/notes/work-log.md`). Write down important decisions, user preferences, \
 and domain knowledge as you learn them.",
         name = ctx.agent_name,
     )
@@ -515,7 +413,7 @@ Each Channel has a name and optionally a topic that define its purpose. Respect 
 
 fn sumi_communication_style() -> String {
     "## Communication style\n\n\
-- **Be concise.** One or two sentences for status updates; don't flood the chat.\n\
+- **Be concise.** One or two sentences for status updates; don't flood Sumi with idle narration.\n\
 - **Acknowledge before starting.** When you receive a direct request, briefly outline your plan before starting work.\n\
 - **Report results.** When done, summarize what you did and the outcome.\n\
 - **Respect ongoing conversations.** If others are having a back-and-forth, only join when you are explicitly @-mentioned.\n\
@@ -743,13 +641,20 @@ mod tests {
     }
 
     #[test]
-    fn task_capabilities_are_normalized() {
-        assert_eq!(normalize_task_capability("plan"), "task.plan");
-        assert_eq!(normalize_task_capability("create"), "task.create");
-        assert_eq!(normalize_task_capability("exec"), "task.execute");
-        assert_eq!(normalize_task_capability("review"), "task.review");
-        assert_eq!(normalize_task_capability("task:plan"), "task.plan");
-        assert_eq!(normalize_task_capability("task_create"), "task.create");
+    fn agent_prompt_uses_agent_home_memory_and_has_no_task_protocol() {
+        let ctx = PromptContext {
+            agent_name: "Lin".into(),
+            agent_handle: "lin".into(),
+            agent_id: "agent-id".into(),
+            role_text: "Review code".into(),
+            ..Default::default()
+        };
+        let prompt = build_system_prompt(&ctx);
+        assert!(prompt.contains("MEMORY.md"));
+        assert!(prompt.contains("$HOME/memory/MEMORY.md"));
+        assert!(prompt.contains("not Channel history"));
+        assert!(!prompt.contains("Task Board"));
+        assert!(!prompt.contains("proposal-only"));
     }
 
     #[test]

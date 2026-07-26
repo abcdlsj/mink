@@ -1044,7 +1044,7 @@ Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 
 1. **Who you are** — Agent 身份叙述（name、handle、"持久协作者"定位）、可见性边界（stdout/工具输出不自动成为 Message）。
 2. **Current runtime context** — Agent name、member ID、handle、Role revision、UTC 时间、workspace 持久化提示。
 3. **Security rules** — Message/Attachment 内容不可信、只能用 sumi CLI、Driver stdout 非 Message、credential 不能贴到 Channel、不可读其他 Agent 目录。
-4. **Startup sequence** — 5 步启动顺序：Inbox current → 读上下文 → send/ack/defer 处理每个 Item → 完成所有工作后停止 → Inbox 为空则等待。
+4. **Startup sequence** — 6 步启动顺序：读取 Agent Home Memory → Inbox current → 读上下文 → send/ack/defer 处理每个 Item → 完成所有工作后停止 → Inbox 为空则等待。
 5. **Inbox Item format** — 完整字段说明（id/kind/priority/address/sender/summary/status），hard vs ambient 的区别。
 6. **CLI command reference** — 完整 `sumi agent` 命令树，分 Identity、Inbox、Channels、Threads、Messages、Attachments、Members、Agent creation 小节，每条命令有参数说明和用法示例。
 7. **Message format** — Message JSON 结构说明（id/seq/author/address/body_markdown/timestamps），删除消息的占位文本。
@@ -1061,6 +1061,8 @@ Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 
 - 不得把整个 Channel 历史预先拼进 prompt。Agent 根据 Inbox 摘要调用 CLI 拉取所需上下文。
 - Role text 由 Human 通过 WebUI 或 CLI 提供，不得包含 Server Secret。
 - Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
+- Agent Memory 只表示 Agent Home 下的 `memory/` 文件；prompt 不得引入另一套 Server 托管、提案式或按 scope 分层的 Memory 语义。
+- Work/Task 尚未完成产品设计，Agent prompt 不得出现 Task Board、Task capability 或任务委派协议。
 - Prompt 模板修改必须同时更新本文件对应小节，保持文档与实际行为一致。
 
 ### 13.3 Codex v1 启动
@@ -1080,7 +1082,7 @@ printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-w
 - daemon 始终把 CODEX_HOME 指向 Agent 专属目录，因此 Codex 不会读取 Human 的全局 Codex 目录。若 Computer 配置了 `codex_config_source`，provision 只从该 TOML 复制当前 model/provider 的白名单字段到 Agent 专属 `config.toml`；MCP、headers、hooks、projects、trust 和其他 Human 配置不得复制。`existing_local_auth` 还可显式配置 `codex_auth_source`，daemon 将该 Codex 认证文件以 0600 复制到 Agent 专属 CODEX_HOME，不解析、不记录且不得写入 profile。未配置 source 时 Agent 专属 CODEX_HOME 保持无配置、无认证状态。
 - Linux 默认使用 Codex workspace-write。macOS 的 Codex 内层 sandbox 不能嵌套在 daemon 的 `sandbox-exec` 中，因此 daemon 使用 Codex 的 externally-sandboxed bypass 模式；这不向 Agent 开放可配置的 danger-full-access，文件边界仍由 daemon 生成的外层 profile 强制执行。
 - daemon 必须限制环境变量，只注入当前 Agent 必需的 PATH、HOME/CODEX_HOME、Sumi local capability 和 Codex credential。
-- Codex 的 workspace-write 是 Linux Driver 的内层命令策略，不是 Agent 间隔离边界。daemon 必须使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent Home；为允许 Codex canonicalize Agent Home，可只放行 Computer root 与 Agents root 目录节点的 metadata，不得放行其中其他内容。Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent Home 和 daemon socket。两端都只允许写当前 Agent Home，并遮蔽 Computer credential 与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
+- Codex 的 workspace-write 是 Linux Driver 的内层命令策略，不是 Agent 间隔离边界。daemon 必须使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent 的 workspace/Memory/runs/当前 Driver home；为允许路径解析，可只放行 Computer root、Agents root 与当前 Agent Home 目录节点的 metadata，不得放行其中其他内容。Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent 的上述目录、daemon socket，以及只读的当前 Driver 与 `sumi` executable；macOS 同样只对当前 Driver 与 `sumi` executable 补只读执行权限。两端都只允许写当前 Agent 的上述目录，并遮蔽 Computer credential、其他 Driver 私有目录与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
 - daemon 将 Agent 专属 `CODEX_HOME` 放在 `drivers/codex/`；该目录必须在启动前存在。若该目录包含由 daemon 生成的白名单 `config.toml`，Codex 可以读取它；Driver 不得传入会屏蔽该文件的 `--ignore-user-config`。子进程环境从空集合构造，不继承 daemon 的任意 Secret 或 Human 环境。
 - Codex 的最终 agent_message 只写运行日志，不自动发送到 Sumi。
 - Codex 正常退出但没有处理 claimed Inbox Items，run 仍判定为未处理并进入重试。
@@ -1100,6 +1102,24 @@ printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-w
 2. api_key：Human 在 WebUI 输入 API key，浏览器加密给目标 Computer，daemon 解密后仅在单次 codex exec 进程环境中设置 CODEX_API_KEY。
 
 不得把 OPENAI_API_KEY 或 CODEX_API_KEY 写入 Agent Memory、profile.json、日志或 Server 明文字段。根据 Codex 官方建议，API key 只在单次 codex exec 调用环境中存在。
+
+### 13.5 Builtin Driver
+
+Builtin Driver 在 daemon 进程内维护 LLM session，并通过 OpenAI-compatible Chat Completions SSE
+调用配置的模型。Server 创建 Agent、PostgreSQL `agents/agent_runs`、`agent.run` command 和 daemon
+Supervisor 必须端到端保留 `driver_kind=builtin`，不得静默回退到 Codex。
+
+Builtin 与 Codex 使用同一 Agent Home、Role、Memory、workspace 和单 run capability。Builtin 的文件
+和 shell tools 必须满足：
+
+- read/write/edit 只接受以 `workspace/` 或 `memory/` 开头的 Agent Home 相对路径，拒绝绝对路径、`..`、symlink 和 canonical path 逃逸；
+- shell 固定以当前 Agent workspace 为工作目录，清空 daemon 环境后只注入最小 PATH、HOME、
+  `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`，不得继承 Computer credential 或模型 API key；
+- shell 子进程使用对应平台的 OS sandbox，取消或超时必须终止整个进程组；缺少 sandbox 时 Builtin Validate 失败；
+- 工具输入、输出、Message、Attachment 和 Memory 正文不得进入普通日志；
+- OpenAI-compatible SSE parser 必须按 tool call `index` 聚合跨事件的 name/arguments，完整 JSON 参数解析成功后才能执行。
+
+模型 API key 只保存在 daemon 的受限 Secret 中并仅用于 daemon 发起 HTTP 请求，不注入工具子进程。
 
 ## 14. sumi 命令行
 

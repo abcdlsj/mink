@@ -1038,6 +1038,7 @@ pub async fn claim_agent_inbox(
         "run_id": run_id,
         "agent_id": agent_id,
         "space_id": space_id,
+        "driver_kind": driver_kind,
         "prompt": prompt,
     });
     let command_id = Uuid::now_v7();

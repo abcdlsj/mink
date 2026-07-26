@@ -608,7 +608,7 @@ mod tests {
                     "handle": "lin",
                     "role_text": "Review implementation boundaries and report concrete risks.",
                     "access_level": "member",
-                    "driver_kind": "codex"
+                    "driver_kind": "builtin"
                 }),
                 Some(&owner.cookie),
             )?)
@@ -626,6 +626,7 @@ mod tests {
                 .context("provision command id missing")?,
         )?;
         ensure!(provision["payload"]["agent_id"] == agent.member_id.to_string());
+        ensure!(provision["payload"]["driver_kind"] == "builtin");
         let provision_seq = provision["computer_seq"]
             .as_i64()
             .context("provision sequence missing")?;
@@ -1015,6 +1016,7 @@ mod tests {
             .context("Agent run command missing")??;
         let run_command: serde_json::Value = serde_json::from_str(run_command.to_text()?)?;
         ensure!(run_command["kind"] == "agent.run");
+        ensure!(run_command["payload"]["driver_kind"] == "builtin");
         ensure!(
             run_command["payload"]["prompt"]
                 .as_str()
@@ -1022,6 +1024,8 @@ mod tests {
                     prompt.contains("sumi agent inbox current --json")
                         && prompt.contains("Review boundaries and enforce")
                         && prompt.contains("@owner")
+                        && !prompt.contains("Task Board")
+                        && !prompt.contains("proposal-only")
                 })
         );
         socket
@@ -1473,7 +1477,7 @@ mod tests {
                     "name": "Provisioned Child",
                     "role_text": "Review the current implementation.",
                     "computer_id": computer.id,
-                    "driver_kind": "codex",
+                    "driver_kind": "builtin",
                     "idempotency_key": Uuid::now_v7()
                 }),
             )?)
@@ -1524,6 +1528,7 @@ mod tests {
                 if command["kind"] == "agent.provision"
                     && command["payload"]["name"] == "Provisioned Child"
                 {
+                    ensure!(command["payload"]["driver_kind"] == "builtin");
                     break Ok::<_, anyhow::Error>(command);
                 }
             }

@@ -65,7 +65,7 @@ function ComputersWorkspace({
       handle: String(form.get("handle") ?? "") || undefined,
       role_text: String(form.get("role_text") ?? ""),
       access_level: String(form.get("access_level") ?? "member") as "member" | "admin",
-      driver_kind: "codex",
+      driver_kind: String(form.get("driver_kind") ?? "codex") as "codex" | "builtin",
     });
   }
 
@@ -94,9 +94,10 @@ function ComputersWorkspace({
             <div><label htmlFor="agent-name">Agent name</label><input id="agent-name" name="name" required maxLength={40} /></div>
             <div><label htmlFor="agent-handle">Handle</label><input id="agent-handle" name="handle" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="auto from name" /></div>
             <div><label htmlFor="agent-computer">Computer</label><select id="agent-computer" name="computer_id" required>{computers.data?.filter((computer) => computer.status === "online").map((computer) => <option key={computer.id} value={computer.id}>{computer.name}</option>)}</select></div>
+            <div><label htmlFor="agent-driver">Driver</label><select id="agent-driver" name="driver_kind"><option value="codex">Codex</option><option value="builtin">Builtin</option></select></div>
             <div><label htmlFor="agent-access">Access</label><select id="agent-access" name="access_level"><option value="member">Member</option>{isOwner ? <option value="admin">Admin</option> : null}</select></div>
             <div className="agent-role"><label htmlFor="agent-role">Role</label><textarea id="agent-role" name="role_text" required maxLength={12000} /></div>
-            <button className="command-button command-button--accent" type="submit" disabled={agentCreation.isPending}>Create with Codex</button>
+            <button className="command-button command-button--accent" type="submit" disabled={agentCreation.isPending}>Create Agent</button>
             {agentCreation.error ? <p className="form-error" role="alert">{agentCreation.error.message}</p> : null}
           </form>
         ) : null}

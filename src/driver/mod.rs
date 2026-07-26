@@ -56,7 +56,7 @@ impl DriverProcess {
     pub fn pid(&self) -> Option<u32> {
         match self {
             DriverProcess::External { child, .. } => child.id(),
-            DriverProcess::Internal { .. } => Some(std::process::id()),
+            DriverProcess::Internal { .. } => None,
         }
     }
 }

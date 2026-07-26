@@ -18,24 +18,6 @@ pub enum Command {
     Computer(ComputerArgs),
     /// Access Sumi as the Agent bound to the current run.
     Agent(AgentArgs),
-    /// Start an interactive chat with the builtin agent.
-    Chat(ChatArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct ChatArgs {
-    /// OpenAI-compatible API key.
-    #[arg(long, env = "SUMI_API_KEY")]
-    pub api_key: String,
-    /// Model name.
-    #[arg(long, default_value = "gpt-4o")]
-    pub model: String,
-    /// Optional custom base URL.
-    #[arg(long)]
-    pub base_url: Option<String>,
-    /// Workspace directory for tools and memory.
-    #[arg(long)]
-    pub workspace: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

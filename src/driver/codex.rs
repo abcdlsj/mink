@@ -137,16 +137,16 @@ impl Driver for CodexDriver {
             "Agent CODEX_HOME is unavailable"
         );
         validate_sandbox_backend()?;
-        let sandbox = sandboxed_command(&executable, environment)?;
+        let sandbox = sandboxed_command(&executable, environment, &environment.codex_home)?;
         let mut command = sandbox.command;
         let status = tokio::time::timeout(
             Duration::from_secs(10),
             command
                 .current_dir(&environment.workspace)
                 .env_clear()
-                .env("PATH", &environment.path)
+                .env("PATH", &sandbox.path)
                 .env("HOME", &sandbox.agent_home)
-                .env("CODEX_HOME", &sandbox.codex_home)
+                .env("CODEX_HOME", &sandbox.driver_home)
                 .arg("--version")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -166,7 +166,8 @@ impl Driver for CodexDriver {
             workspace_is_git_repository(&run.environment.workspace, &run.environment.path).await;
         let executable =
             resolve_executable(&self.executable).context("Codex executable is unavailable")?;
-        let sandbox = sandboxed_command(&executable, &run.environment)?;
+        let sandbox =
+            sandboxed_command(&executable, &run.environment, &run.environment.codex_home)?;
         let mut command = sandbox.command;
         command
             .arg("exec")
@@ -188,9 +189,9 @@ impl Driver for CodexDriver {
         command
             .current_dir(&run.environment.workspace)
             .env_clear()
-            .env("PATH", &run.environment.path)
+            .env("PATH", &sandbox.path)
             .env("HOME", &sandbox.agent_home)
-            .env("CODEX_HOME", &sandbox.codex_home)
+            .env("CODEX_HOME", &sandbox.driver_home)
             .env("TMPDIR", sandbox.agent_home.join("runs"))
             .env("SUMI_SOCKET", &sandbox.socket_path)
             .env("SUMI_RUN_TOKEN", &run.environment.run_token)
@@ -298,7 +299,7 @@ fn normalize_event(event: CodexEvent) -> DriverEvent {
     }
 }
 
-fn validate_sandbox_backend() -> Result<()> {
+pub(crate) fn validate_sandbox_backend() -> Result<()> {
     match std::env::consts::OS {
         "macos" => ensure!(
             Path::new("/usr/bin/sandbox-exec").is_file(),
@@ -310,21 +311,29 @@ fn validate_sandbox_backend() -> Result<()> {
     Ok(())
 }
 
-struct SandboxedCommand {
-    command: Command,
-    agent_home: PathBuf,
-    workspace: PathBuf,
-    codex_home: PathBuf,
-    socket_path: PathBuf,
+pub(crate) struct SandboxedCommand {
+    pub(crate) command: Command,
+    pub(crate) agent_home: PathBuf,
+    pub(crate) workspace: PathBuf,
+    pub(crate) driver_home: PathBuf,
+    pub(crate) socket_path: PathBuf,
+    pub(crate) path: String,
 }
 
-fn sandboxed_command(
+pub(crate) fn sandboxed_command(
     executable: &Path,
     environment: &DriverEnvironment,
+    driver_home: &Path,
 ) -> Result<SandboxedCommand> {
     let agent_home = environment.agent_home.canonicalize()?;
     let agents_root = environment.agents_root.canonicalize()?;
     let state_dir = environment.state_dir.canonicalize()?;
+    let workspace = environment.workspace.canonicalize()?;
+    let memory = environment.agent_home.join("memory").canonicalize()?;
+    let runs = environment.agent_home.join("runs").canonicalize()?;
+    let driver_home = driver_home.canonicalize()?;
+    let resolved_executable = executable.canonicalize()?;
+    let sumi_executable = std::env::current_exe()?.canonicalize()?;
     ensure!(
         agent_home.starts_with(&agents_root),
         "Agent Home is outside the Agents root"
@@ -333,34 +342,50 @@ fn sandboxed_command(
         agents_root.starts_with(&state_dir),
         "Agents root is outside the Computer state directory"
     );
+    for path in [&workspace, &memory, &runs, &driver_home] {
+        ensure!(
+            path.starts_with(&agent_home),
+            "Driver path is outside Agent Home"
+        );
+    }
     match std::env::consts::OS {
         "macos" => {
             let escaped_home = sandbox_string(&agent_home)?;
             let escaped_agents = sandbox_string(&agents_root)?;
             let escaped_state = sandbox_string(&state_dir)?;
             let escaped_socket = sandbox_string(&environment.socket_path)?;
+            let escaped_workspace = sandbox_string(&workspace)?;
+            let escaped_memory = sandbox_string(&memory)?;
+            let escaped_runs = sandbox_string(&runs)?;
+            let escaped_driver_home = sandbox_string(&driver_home)?;
+            let escaped_executable = sandbox_string(executable)?;
+            let escaped_resolved_executable = sandbox_string(&resolved_executable)?;
+            let escaped_sumi_executable = sandbox_string(&sumi_executable)?;
             let user_home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .context("HOME is unavailable")?
                 .canonicalize()?;
             let escaped_user_home = sandbox_string(&user_home)?;
             let profile = format!(
-                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read-metadata (literal \"{escaped_state}\") (literal \"{escaped_agents}\"))\n(allow file-read* file-write* (subpath \"{escaped_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
+                "(version 1)\n(allow default)\n(deny file-write*)\n(deny file-read* (subpath \"{escaped_user_home}\") (subpath \"{escaped_state}\"))\n(allow file-read-metadata (literal \"{escaped_state}\") (literal \"{escaped_agents}\") (literal \"{escaped_home}\"))\n(allow file-read* (literal \"{escaped_executable}\") (literal \"{escaped_resolved_executable}\") (literal \"{escaped_sumi_executable}\"))\n(allow file-read* file-write* (subpath \"{escaped_workspace}\") (subpath \"{escaped_memory}\") (subpath \"{escaped_runs}\") (subpath \"{escaped_driver_home}\"))\n(allow file-read* file-write* (literal \"{escaped_socket}\"))\n"
             );
             let mut command = Command::new("/usr/bin/sandbox-exec");
             command.arg("-p").arg(profile).arg(executable);
             Ok(SandboxedCommand {
                 command,
                 agent_home,
-                workspace: environment.workspace.canonicalize()?,
-                codex_home: environment.codex_home.canonicalize()?,
+                workspace,
+                driver_home,
                 socket_path: environment.socket_path.clone(),
+                path: environment.path.clone(),
             })
         }
         "linux" => {
             let bubblewrap = find_on_path("bwrap").context("bubblewrap is unavailable")?;
             let sandbox_home = PathBuf::from("/sumi-agent");
             let sandbox_socket = PathBuf::from("/sumi-runtime/daemon.sock");
+            let sandbox_driver = PathBuf::from("/sumi-runtime/driver");
+            let sandbox_sumi = PathBuf::from("/sumi-runtime/sumi");
             let mut command = Command::new(bubblewrap);
             command.args([
                 "--die-with-parent",
@@ -388,23 +413,49 @@ fn sandboxed_command(
                 .arg("/proc")
                 .arg("--tmpfs")
                 .arg("/tmp")
-                .arg("--bind")
-                .arg(&agent_home)
-                .arg(&sandbox_home)
                 .arg("--dir")
                 .arg("/sumi-runtime")
+                .arg("--ro-bind")
+                .arg(&resolved_executable)
+                .arg(&sandbox_driver)
+                .arg("--ro-bind")
+                .arg(&sumi_executable)
+                .arg(&sandbox_sumi)
+                .arg("--dir")
+                .arg(&sandbox_home)
+                .arg("--dir")
+                .arg(sandbox_home.join("workspace"))
+                .arg("--dir")
+                .arg(sandbox_home.join("memory"))
+                .arg("--dir")
+                .arg(sandbox_home.join("runs"))
+                .arg("--dir")
+                .arg(sandbox_home.join("driver"))
+                .arg("--bind")
+                .arg(&workspace)
+                .arg(sandbox_home.join("workspace"))
+                .arg("--bind")
+                .arg(&memory)
+                .arg(sandbox_home.join("memory"))
+                .arg("--bind")
+                .arg(&runs)
+                .arg(sandbox_home.join("runs"))
+                .arg("--bind")
+                .arg(&driver_home)
+                .arg(sandbox_home.join("driver"))
                 .arg("--ro-bind")
                 .arg(&environment.socket_path)
                 .arg(&sandbox_socket)
                 .arg("--chdir")
                 .arg(sandbox_home.join("workspace"))
-                .arg(executable);
+                .arg(&sandbox_driver);
             Ok(SandboxedCommand {
                 command,
                 workspace: sandbox_home.join("workspace"),
-                codex_home: sandbox_home.join("drivers/codex"),
+                driver_home: sandbox_home.join("driver"),
                 agent_home: sandbox_home,
                 socket_path: sandbox_socket,
+                path: format!("/sumi-runtime:{}", environment.path),
             })
         }
         other => bail!("unsupported Driver sandbox platform: {other}"),
@@ -563,8 +614,9 @@ enabled = true
         let root = tempfile::tempdir().unwrap();
         let state = root.path().join("computer");
         let home = state.join("agents/current");
-        std::fs::create_dir_all(home.join("workspace")).unwrap();
-        std::fs::create_dir_all(home.join("drivers/codex")).unwrap();
+        for relative in ["workspace", "memory", "runs", "drivers/codex"] {
+            std::fs::create_dir_all(home.join(relative)).unwrap();
+        }
         let socket = state.join("daemon.sock");
         std::fs::write(&socket, "").unwrap();
         CodexDriver::new()
@@ -595,6 +647,7 @@ enabled = true
         let other = state.join("agents/other");
         for path in [
             current.join("workspace"),
+            current.join("memory"),
             current.join("drivers/codex"),
             current.join("runs"),
             other.clone(),
@@ -701,8 +754,9 @@ enabled = true
         let tools = tempfile::tempdir().unwrap();
         let state = root.path().join("computer");
         let home = state.join("agents/current");
-        std::fs::create_dir_all(home.join("workspace")).unwrap();
-        std::fs::create_dir_all(home.join("drivers/codex")).unwrap();
+        for relative in ["workspace", "memory", "runs", "drivers/codex"] {
+            std::fs::create_dir_all(home.join(relative)).unwrap();
+        }
         let socket = state.join("daemon.sock");
         std::fs::write(&socket, "").unwrap();
         let script = tools.path().join("fake-codex");

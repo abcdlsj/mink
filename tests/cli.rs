@@ -14,6 +14,7 @@ fn exposes_one_binary_with_three_primary_commands() {
     assert!(stdout.contains("server"));
     assert!(stdout.contains("computer"));
     assert!(stdout.contains("agent"));
+    assert!(!stdout.contains("chat"));
 }
 
 #[test]
