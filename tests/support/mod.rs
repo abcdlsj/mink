@@ -145,6 +145,14 @@ impl SumiProcess {
         Ok(())
     }
 
+    pub fn logs_contain(&self, needle: &str) -> bool {
+        self.logs
+            .lock()
+            .expect("test process log lock poisoned")
+            .iter()
+            .any(|line| line.contains(needle))
+    }
+
     pub async fn interrupt(&mut self) -> Result<()> {
         let pid = self.child.id().context("sumi process has no pid")?;
         // Sumi's supported Computer and Server platforms are Unix; SIGINT exercises graceful shutdown.

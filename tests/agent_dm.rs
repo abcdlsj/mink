@@ -27,6 +27,12 @@ use tokio::{
 use url::Url;
 use uuid::Uuid;
 
+const HUMAN_MESSAGE: &str = "Please inspect this DM.";
+const CLI_REPLY: &str = "Acknowledged through the real Sumi CLI.";
+const DRIVER_STDOUT: &str = "Controlled Driver stdout must not become a Message.";
+const MODEL_FINAL_TEXT: &str = "Controlled model final text must not become a Message.";
+const PROVIDER_AUTH: &str = "test-only-provider-key";
+
 struct FakeProvider {
     url: Url,
     rollback_observed: mpsc::Receiver<()>,
@@ -129,7 +135,7 @@ async fn chat_stream(
     let authorized = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value == "Bearer test-only-provider-key");
+        .is_some_and(|value| value == format!("Bearer {PROVIDER_AUTH}"));
     let structurally_valid = request["stream"] == true
         && request["model"] == "sumi-test-model"
         && request["messages"].is_array();
@@ -150,7 +156,7 @@ async fn chat_stream(
             )
         }
         2 => {
-            let Some((inbox_id, address)) = claimed_inbox_identity(&request) else {
+            let Some((_, address)) = claimed_inbox_identity(&request) else {
                 return bad_provider_request();
             };
             if !latest_tool_result(&request)
@@ -159,13 +165,25 @@ async fn chat_stream(
                 return bad_provider_request();
             }
             tool_call_stream(
-                "call-message-send-forced-rollback",
-                &format!(
-                    "sumi agent message send {address} --body 'Acknowledged through the real Sumi CLI.' --handle {inbox_id} --json"
-                ),
+                "call-driver-stdout",
+                &format!("printf '%s' '{DRIVER_STDOUT}'"),
             )
         }
         3 => {
+            if latest_tool_content(&request) != Some(DRIVER_STDOUT) {
+                return bad_provider_request();
+            }
+            let Some((inbox_id, address)) = claimed_inbox_identity(&request) else {
+                return bad_provider_request();
+            };
+            tool_call_stream(
+                "call-message-send-forced-rollback",
+                &format!(
+                    "sumi agent message send {address} --body '{CLI_REPLY}' --handle {inbox_id} --json"
+                ),
+            )
+        }
+        4 => {
             if !latest_tool_content(&request).is_some_and(valid_failed_message_send) {
                 return bad_provider_request();
             }
@@ -177,11 +195,11 @@ async fn chat_stream(
             tool_call_stream(
                 "call-message-send-after-rollback",
                 &format!(
-                    "sumi agent message send {address} --body 'Acknowledged through the real Sumi CLI.' --handle {inbox_id} --json"
+                    "sumi agent message send {address} --body '{CLI_REPLY}' --handle {inbox_id} --json"
                 ),
             )
         }
-        4 => {
+        5 => {
             let Some((_, address)) = claimed_inbox_identity(&request) else {
                 return bad_provider_request();
             };
@@ -192,7 +210,7 @@ async fn chat_stream(
             };
             *state.observed_reply.lock().await = Some(reply);
             let _ = state.completed.send(()).await;
-            text_stream("This final Driver text must not become a Message.")
+            text_stream(MODEL_FINAL_TEXT)
         }
         _ => return bad_provider_request(),
     };
@@ -416,7 +434,7 @@ async fn builtin_agent_reads_and_replies_to_dm_through_real_cli() -> Result<()> 
         .header("idempotency-key", Uuid::now_v7().to_string())
         .header(header::COOKIE, &cookie)
         .json(&serde_json::json!({
-            "body_markdown": "Please inspect this DM.",
+            "body_markdown": HUMAN_MESSAGE,
             "mentions": [],
             "attachment_ids": []
         }))
@@ -447,6 +465,7 @@ async fn builtin_agent_reads_and_replies_to_dm_through_real_cli() -> Result<()> 
     assert_browser_message_read(&client, &server_url, &cookie, channel_id, &reply).await?;
     assert_reply_sse(events_response, space.id, inbox_item_id, &reply).await?;
     daemon.ensure_running()?;
+    assert_sensitive_text_absent_from_logs(&server, &daemon)?;
 
     daemon.interrupt().await?;
     server.interrupt().await?;
@@ -486,6 +505,8 @@ struct CompletedDmRun {
     linked_item_count: i64,
     cli_reply_count: i64,
     channel_message_count: i64,
+    model_final_message_count: i64,
+    driver_stdout_message_count: i64,
 }
 
 async fn assert_completed_dm_reply(
@@ -506,10 +527,14 @@ async fn assert_completed_dm_reply(
                             (SELECT count(*) FROM messages WHERE id = $3 \
                                 AND channel_id = items.channel_id \
                                 AND author_member_id = $1 AND channel_seq = 2 \
-                                AND body_markdown = 'Acknowledged through the real Sumi CLI.') \
+                                AND body_markdown = $4) \
                                 AS cli_reply_count, \
                             (SELECT count(*) FROM messages WHERE channel_id = items.channel_id) \
-                                AS channel_message_count \
+                                AS channel_message_count, \
+                            (SELECT count(*) FROM messages WHERE channel_id = items.channel_id \
+                                AND body_markdown = $5) AS model_final_message_count, \
+                            (SELECT count(*) FROM messages WHERE channel_id = items.channel_id \
+                                AND body_markdown = $6) AS driver_stdout_message_count \
                      FROM agent_runs runs \
                      JOIN agent_run_inbox_items links ON links.run_id = runs.id \
                      JOIN inbox_items items ON items.id = links.inbox_item_id \
@@ -518,6 +543,9 @@ async fn assert_completed_dm_reply(
             .bind(agent_id)
             .bind(message_id)
             .bind(reply_id)
+            .bind(CLI_REPLY)
+            .bind(MODEL_FINAL_TEXT)
+            .bind(DRIVER_STDOUT)
             .fetch_optional(pool)
             .await?;
             if let Some(state) = state
@@ -530,8 +558,19 @@ async fn assert_completed_dm_reply(
                 && state.handled_by_run_id == Some(state.run_id)
                 && state.linked_item_count == 1
                 && state.cli_reply_count == 1
-                && state.channel_message_count == 2
             {
+                ensure!(
+                    state.model_final_message_count == 0,
+                    "model final text was automatically published in PostgreSQL"
+                );
+                ensure!(
+                    state.driver_stdout_message_count == 0,
+                    "Driver stdout was automatically published in PostgreSQL"
+                );
+                ensure!(
+                    state.channel_message_count == 2,
+                    "the CLI reply was not the only Agent-authored Message in PostgreSQL"
+                );
                 return Ok(());
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -646,12 +685,42 @@ async fn assert_browser_message_read(
         .find(|message| message["id"].as_str() == Some(reply.id.to_string().as_str()))
         .context("Browser Message page missing Agent reply")?;
     ensure!(
-        page["channel_id"] == channel_id.to_string()
+        !messages
+            .iter()
+            .any(|message| message["body_markdown"] == MODEL_FINAL_TEXT),
+        "Browser Message API exposed model final text as a Message"
+    );
+    ensure!(
+        !messages
+            .iter()
+            .any(|message| message["body_markdown"] == DRIVER_STDOUT),
+        "Browser Message API exposed Driver stdout as a Message"
+    );
+    ensure!(
+        messages.len() == 2
+            && page["channel_id"] == channel_id.to_string()
             && page["snapshot_channel_seq"].as_i64() == Some(2)
             && api_reply["seq"].as_i64() == Some(reply.seq)
             && api_reply["author"]["id"] == reply.author_id.to_string()
             && api_reply["author"]["kind"] == "agent"
     );
+    Ok(())
+}
+
+fn assert_sensitive_text_absent_from_logs(
+    server: &support::SumiProcess,
+    daemon: &support::SumiProcess,
+) -> Result<()> {
+    for (label, text) in [
+        ("Human Message", HUMAN_MESSAGE),
+        ("CLI Message", CLI_REPLY),
+        ("model final text", MODEL_FINAL_TEXT),
+        ("Driver stdout", DRIVER_STDOUT),
+        ("provider authentication", PROVIDER_AUTH),
+    ] {
+        ensure!(!server.logs_contain(text), "Server logs leaked {label}");
+        ensure!(!daemon.logs_contain(text), "daemon logs leaked {label}");
+    }
     Ok(())
 }
 
