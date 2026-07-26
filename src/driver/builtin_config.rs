@@ -241,11 +241,15 @@ fn validate_base_url(value: &str) -> Result<Url> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt};
+    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
 
     use tempfile::TempDir;
 
     use super::*;
+    use crate::agent_core::{
+        provider::{OpenAiProvider, Provider},
+        types::{Chunk, Message},
+    };
 
     fn sources(api: &str) -> (TempDir, ComputerConfig) {
         let directory = tempfile::tempdir().unwrap();
@@ -306,5 +310,43 @@ mod tests {
         .unwrap();
         let error = load(&config).err().unwrap();
         assert!(error.to_string().contains("group or other users"));
+    }
+
+    #[tokio::test]
+    #[ignore = "manually contacts the selected local Pi provider"]
+    async fn live_builtin_provider_smoke_from_pi_sources() {
+        let pi_dir =
+            PathBuf::from(std::env::var_os("HOME").expect("HOME is required")).join(".pi/agent");
+        let config = ComputerConfig {
+            builtin_settings_source: Some(pi_dir.join("settings.json")),
+            builtin_models_source: Some(pi_dir.join("models-store.json")),
+            builtin_auth_source: Some(pi_dir.join("auth.json")),
+            ..ComputerConfig::default()
+        };
+        let loaded = load(&config)
+            .expect("local Pi Builtin configuration must load")
+            .expect("local Pi Builtin configuration must be present");
+        assert_eq!(loaded.authentication.provider, "deepseek");
+        assert_eq!(loaded.model, "deepseek-v4-pro");
+        assert_eq!(loaded.base_url.as_str(), "https://api.deepseek.com/");
+
+        let provider = OpenAiProvider::new(loaded.into_provider_config())
+            .expect("Builtin provider must initialize");
+        let mut stream = provider
+            .chat_stream(&[Message::user("Reply with exactly OK.")], &[])
+            .await
+            .expect("Builtin provider request must succeed");
+        let mut received_text = false;
+        let mut received_done = false;
+        while let Some(chunk) = stream.recv().await {
+            match chunk {
+                Chunk::Text { delta } => received_text |= !delta.is_empty(),
+                Chunk::Done { .. } => received_done = true,
+                Chunk::Error { .. } => panic!("Builtin provider stream returned an error"),
+                Chunk::Reasoning { .. } | Chunk::ToolCall { .. } => {}
+            }
+        }
+        assert!(received_text, "Builtin provider returned no text");
+        assert!(received_done, "Builtin provider stream did not finish");
     }
 }

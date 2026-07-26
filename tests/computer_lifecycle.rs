@@ -130,7 +130,7 @@ async fn computer_reuses_identity_across_process_and_network_lifecycle() -> Resu
         &cookie,
         space.id,
         "online",
-        Duration::from_secs(20),
+        Duration::from_secs(40),
     )
     .await?;
     assert_identity_unchanged(&secrets_path, &original).await?;

@@ -38,7 +38,7 @@
 - [x] 验证首次 Pair、daemon 正常退出、网络中断、Server 重启和 daemon 重启：除 Delete Computer 外始终复用同一 Computer ID/Token，状态只在 online/offline 间变化，不重新 Pair。
 - [x] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
 - [x] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
-- [ ] 用本机 Pi 的 `deepseek/deepseek-v4-pro` 配置完成一次不泄露认证的 Builtin provider smoke check；自动测试使用本地 fake provider，不连接收费服务。
+- [x] 用本机 Pi 的 `deepseek/deepseek-v4-pro` 配置完成一次不泄露认证的 Builtin provider smoke check；自动测试使用本地 fake provider，不连接收费服务。
 
 ### 2. Agent DM 真实闭环
 
@@ -100,3 +100,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | Computer 重连生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证首次 Pair、正常退出后 offline、daemon 重启、TCP 断网/恢复和 Server 重启；全程复用唯一 Computer ID/Token 和 pairing，状态仅 online/offline；52 unit/integration + 3 CLI + 1 生命周期 + 1 migration tests 全通过
 2026-07-27 | Computer 删除生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证 Delete 撤销旧 Token、在线 daemon 收终止后清理身份并退出、离线 daemon 下次连接被拒后清理身份并退出；后续启动使用新 Token/Computer ID 重新 Pair，本地 Agent Home、Server Agent/Member/run/pairing 历史保留；52 unit/integration + 3 CLI + 2 生命周期 + 1 migration tests 全通过
 2026-07-27 | Builtin Computer-local 配置 | `cargo test builtin_ -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 显式三文件 source paths 加载 Pi-compatible settings/models/auth，精确选择 provider/model 并拒绝非 `openai-completions`；本地 fake provider 验证认证 Header 与 SSE tool loop，auth source/`secrets.json` 权限、日志 redaction、工具环境隔离和旧环境变量入口清除；56 unit/integration + 3 CLI + 2 生命周期 + 1 migration tests 全通过
+2026-07-27 | Builtin provider smoke | `cargo test live_builtin_provider_smoke_from_pi_sources -- --ignored` | 从权限 0600 的本机 Pi auth source 在进程内加载认证，确认选择 `deepseek/deepseek-v4-pro` 与 `https://api.deepseek.com`，真实 OpenAI-compatible SSE 请求通过；测试未输出认证、请求正文或响应正文，常规自动测试仍只使用本地 fake provider
