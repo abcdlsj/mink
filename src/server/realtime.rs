@@ -58,7 +58,7 @@ pub async fn events(
                 })?,
         ),
         None => sqlx::query_scalar(
-            "SELECT max(id) FROM outbox_events WHERE payload_json->>'space_id' = $1::text",
+            "SELECT id FROM outbox_events WHERE payload_json->>'space_id' = $1::text ORDER BY id DESC LIMIT 1",
         )
         .bind(space_id)
         .fetch_one(&state.database)

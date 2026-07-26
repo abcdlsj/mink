@@ -107,7 +107,7 @@ function ComputersWorkspace({
           <div className="computer-empty">
             <Monitor aria-hidden="true" />
             <h2>No Computer paired</h2>
-            <p>Run <code>sumi computer --server &lt;this-server&gt;</code> on the machine that will host Agents.</p>
+            <p>Run <code>sumi computer --server {window.location.origin}</code> on the machine that will host Agents.</p>
           </div>
         ) : null}
         {computers.data?.map((computer) => (
