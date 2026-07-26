@@ -1,85 +1,97 @@
-# Sumi v1 剩余目标
+# Sumi v1 当前目标
 
-## 目标
+## 产品结果
 
-完成 Sumi v1 的安全、可靠性和最终验收，使当前实现可以在 macOS 与 Linux 上安装、运行并完整测试，且真实通过 `docs/design.md` 第 22 节全部端到端场景。
+先完成一个真实可用的 Human 与 Agent 协作产品：Human 配对一台 Computer，在该 Computer 上使用本地配置创建 Builtin Agent，并在 DM、Channel 和 Thread 中触发 Agent；Agent 必须通过 `sumi agent` CLI 读取上下文、回复或明确 ack/defer，且 Inbox 状态与 Message 写入满足设计中的事务和恢复不变量。
 
-Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已实现功能。后续开发只处理下方未完成项；开始前必须以当前代码和实际测试核实现状，不得根据旧进度重新实现已有能力。
+当前 WebUI、Server API、daemon、CLI 和 Driver 都已有局部实现，但“模块存在”和“测试通过”不等于产品闭环完成。此前“Phase 0–5 已完成”的判断作废；以下真实纵向验收是唯一完成依据。
 
-## 开始和续跑规则
+## 当前基线判断
+
+- Human、Space、Channel、DM、Thread、Message、Attachment、Computer、Agent、Inbox 和 Approval 已有 schema、API 或 UI 基线，保留现有已通过测试作为回归保护。
+- Computer 已能把身份凭据写入本机并重连，但当前实现仍混有 P-256 key、pairing secret 和 credential 三套概念，尚未收敛为设计中的单一 Computer Token。
+- Builtin 已有 OpenAI-compatible SSE、tool loop、sandbox 和单元测试，但配置仍依赖 `SUMI_BUILTIN_*` 环境变量；尚未接入 Computer 本地 Pi-compatible provider/model/auth 配置。
+- 现有 Server 集成测试以手工 WebSocket frame 模拟 daemon，Builtin 测试以 mock provider 验证文件工具；没有测试启动真实 Server、daemon、Builtin 和 `sumi agent` CLI 跑通一条 DM、Channel 或 Thread 对话。
+- 本机 Pi 配置可作为首个真实验收样本：默认 `deepseek/deepseek-v4-pro`，模型协议为 `openai-completions`，认证按 provider 单独保存；任何测试和日志都不得输出认证值。
+
+## 执行规则
 
 1. 完整阅读 `AGENTS.md`、本文件、`GLOSSARY.md` 和 `docs/design.md`；具体开发前重读对应设计章节。
-2. 当前工作区文件是唯一实现基线，禁止读取、恢复或推断 Git 历史中的旧实现。
-3. 从下方最早的未完成项开始，先审计当前实现与规范的差距，再完成一条可运行的纵向路径。
-4. 行为、协议、数据模型或领域名词需要改变时，先更新 `docs/design.md` 或 `GLOSSARY.md`。
-5. 普通编译错误、测试失败和可自行验证的不确定性不是阻塞；持续执行“检查 -> 实现 -> 定向测试 -> 修复 -> 更新进度”。
-6. 只有真实通过对应验收后才能勾选；勾选时在“验证记录”追加简短、可复现的命令或证据。
+2. 从最早未完成项开始，按“审计现状 -> 完成一条真实纵向路径 -> 定向测试 -> 修复 -> 更新进度”执行。
+3. 当前工作区是唯一实现基线；保留用户和其他 Agent 的未提交修改，不读取或恢复 Git 历史旧实现。
+4. 行为、协议、数据模型或领域名词改变时，先更新 `docs/design.md` 或 `GLOSSARY.md`，不做兼容层、双写或旧 schema 迁移。
+5. 只有真实进程和真实 SQL 通过对应验收后才能勾选；handler 存在、mock WebSocket frame 或孤立单元测试不能替代纵向闭环。
 
 ## 剩余工作
 
-### 0. WebUI 视觉与页面完整实现
+### 0. 产品模型重置
 
-- [x] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、deleted、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
+- [x] 从 v1 删除 BYOK、Secret Envelope、Server 模型 Secret 和 Browser API key 输入；Codex 只使用 Computer 本地既有登录。
+- [x] 将 Computer 身份统一定义为本机长期保存的 Computer Token；断线只变 offline，删除 Computer 才撤销 Token 和 Pair。
+- [x] 将 metrics、性能基准和 p95 门槛移出 v1，只保留产品状态、结构化诊断日志与正确性验收。
+- [x] 将 Builtin 本地配置定义为 Pi-compatible 的 provider/model/auth 三文件输入，并明确不读取 Pi session、extension 或 prompt。
 
-### 1. Secret 与安全闭环
+### 1. Computer Token 与本地 Driver 配置
 
-- [ ] 完成 BYOK Secret Envelope 纵向路径：Browser WebCrypto 封装、Server 仅保存密文、目标 Computer 解密和受限本地保存、可用状态回报、Computer 删除后失效。
-- [ ] 完成 Secret、Message、Attachment、Memory 的日志 redaction 审计和测试，确保错误、审计、command result、outbox、幂等记录及测试失败输出不泄露正文或凭证。
-- [ ] 补齐治理与敏感操作的 audit，覆盖操作者、目标、结果和不含敏感正文的 metadata。
-- [ ] 审计并补齐注册、登录及高风险写操作的 rate limit；验证限流键、恢复时间和绕过边界。
-- [ ] 完成 `docs/design.md` 第 19.2 节 prompt injection 边界测试，验证不可信 Message/Attachment 无法改变身份、权限或绕过 `sumi agent` CLI。
-- [ ] 完成删除与保留策略：Space 软删除、Attachment 下载撤销与延迟清理、Agent run log 保留、Member/Agent 历史身份保留。
+- [ ] 将 daemon、Server、PostgreSQL schema、API types、WebUI 和测试中的 `private_key`、`pairing_secret`、`computer_credential` 收敛为单一 Computer Token：raw Token 只在本机持久化并仅通过 HTTPS/WSS 用于认证，Server 只保存 hash，配对页只显示不可逆短 fingerprint。
+- [ ] 验证首次 Pair、daemon 正常退出、网络中断、Server 重启和 daemon 重启：除 Delete Computer 外始终复用同一 Computer ID/Token，状态只在 online/offline 间变化，不重新 Pair。
+- [ ] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
+- [ ] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
+- [ ] 用本机 Pi 的 `deepseek/deepseek-v4-pro` 配置完成一次不泄露认证的 Builtin provider smoke check；自动测试使用本地 fake provider，不连接收费服务。
 
-### 2. 故障与数据不变量
+### 2. Agent DM 真实闭环
 
-- [ ] 补齐并发故障测试：同 Agent 单 active run、Computer 并发上限、并发 Thread/Message sequence、Inbox claim/lease 竞争。
-- [ ] 补齐崩溃与断线测试：Driver 发送前崩溃、send-and-handle 后 daemon 崩溃、Server/Computer 重连、lease 到期恢复和 dead 通知。
-- [ ] 补齐重复交付测试：重复 Computer command、重复 Message/Attachment 写入、幂等 key 同 payload 重放及不同 payload 冲突。
-- [ ] 补齐权限越界测试：跨 Space、其他 Computer、其他 Agent Home、private Channel、Human-only Approval 与 Secret 操作。
-- [ ] 使用真实 PostgreSQL integration tests 验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox 关键不变量。
+- [ ] 增加真实进程级测试：启动临时 PostgreSQL、Sumi Server、Computer daemon、本地 fake OpenAI-compatible provider 和 Builtin Agent，由 Human 发送 DM，不能用手工 command frame 代替 daemon。
+- [ ] 验证 daemon claim hard Inbox、启动唯一 Agent Run，Builtin 通过 sandbox 内真实 `sumi agent inbox current` 与 `channel read` 读取 DM，再用 `message send --handle` 回复。
+- [ ] 验证 Agent Message 作者、Channel sequence、结构化地址、SSE 更新和 Inbox handled；Message 与 handled 必须在同一 PostgreSQL 事务提交。
+- [ ] 验证模型最终文本和 Driver stdout 不会自动成为 Message；只有 `sumi agent message send` 能发布。
+- [ ] 验证发送前 Driver 失败会 release/retry，发送并 handle 后 daemon 崩溃不会重复回复，连续失败最终 dead 并通知 Human Admin/Owner。
 
-### 3. 可观测性、性能与平台
+### 3. Channel 与 Thread Agent 闭环
 
-- [ ] 补齐 `docs/design.md` 第 20 节要求的 Server/daemon 结构化日志与核心 metrics，并验证敏感正文不会进入观测数据。
-- [ ] 对 Message/SSE、hard Inbox 通知、业务 API、Computer 离线判定和 crash 恢复执行可复现性能测试；达到目标或在设计文档记录证据与已接受偏差。
-- [ ] 在 Linux 上完成构建、测试和 sandbox 验收，确认 bubblewrap、目录权限、Unix socket 与 macOS 行为一致。
+- [ ] Channel mention：Agent 读取 `#channel` 上下文、结构化 mentions 和 snapshot sequence，并能回复、ack 或 defer。
+- [ ] Channel ambient：连续普通 Message 聚合为一个 Inbox Item，只启动一次 run；Agent 自己判断是否回应，daemon 不做内容分类。
+- [ ] Thread：Agent 区分 `#channel` 与 `#channel:{thread-id}`，`thread read` 返回 root、replies、Channel 背景和 snapshot，回复落在正确 Thread。
+- [ ] Context freshness：Human 在 Agent 读取后追加 Message 时，旧 `--based-on` 返回 `context_changed` 且不创建 Message；Agent 重读后可成功回复。
+- [ ] 权限边界：private Channel 只认 membership；Agent Admin、其他 Computer、其他 Agent Home 和伪造 run token 都不能越权。
+- [ ] 用同一个真实进程 harness 覆盖 DM、mention、ambient、Thread 与 context_changed，避免为每种场景复制整套基础设施。
 
-### 4. 最终产品验收
+### 4. 产品能力收口
 
-- [ ] 按 `docs/design.md` 第 22.1–22.9 节逐项运行真实端到端验收，不能用 handler 存在、mock 或单元测试替代完整闭环。
-- [ ] 使用 Playwright 验收 1440x900、1024x768、390x844 三个 viewport，覆盖 Channel、Attachment、Thread、长内容、响应式、键盘、reduced motion 和 screen reader labels。
-- [ ] 核对 WebUI 的 Neo-Brutalism、pixel art avatar 和 Human/Agent 平等布局，不存在 Raft 复刻或伪装可用的入口。
+- [ ] 逐项审计 `docs/design.md` 第 22.1、22.2、22.5–22.9 节，补齐尚未形成真实闭环的注册/Space、Attachment、Agent lifecycle、Memory、Channel create、Agent create Approval 和 Admin 治理行为。
+- [ ] 补齐关键并发与幂等不变量：同 Agent 单 active run、Computer 并发上限、Thread/Message sequence、Inbox lease 竞争、重复 command、重复 Message/Attachment 和幂等 key payload 冲突。
+- [ ] 使用真实 PostgreSQL integration tests 验证 schema、复合外键、唯一约束、事务回滚和 transactional outbox；不得以内存 fake 替代 SQL 验收。
+- [ ] 完成 Message、Attachment、Memory、Computer Token 和模型认证的日志 redaction，补齐治理与敏感操作 audit、注册登录及高风险写操作 rate limit、prompt injection 边界和删除/保留策略。
+
+### 5. 平台与最终验收
+
+- [ ] 在 macOS 和 Linux 完成构建、测试与 sandbox 验收，确认 `sandbox-exec`/bubblewrap、目录权限、Unix socket、进程组取消和重连行为。
+- [ ] 按 `docs/design.md` 第 22 节逐项运行真实端到端验收，记录可复现命令和结果；不得用 handler 存在、mock 或单元测试冒充产品验收。
+- [ ] 使用 Playwright 验收 1440x900、1024x768、390x844，覆盖 Channel、Attachment、Thread、长内容、offline/deleted、响应式、键盘、reduced motion 和 screen reader labels。
 - [ ] 执行统一 format、clippy `-D warnings`、typecheck、lint、Rust unit/integration、真实 PostgreSQL、CLI、Web component、production build 和 E2E 测试。
 - [ ] 清除占位实现、无主 TODO、过期入口和文档偏差；最终 `git diff --check` 通过。
 
 ## 完成定义
 
-只有同时满足以下条件，Sumi v1 才算完成：
+Sumi v1 只有同时满足以下条件才算完成：
 
-- 上述所有项目均已勾选并附有可复现证据。
-- `docs/design.md` 第 22 节所有场景真实通过。
-- macOS 与 Linux 的最终统一门禁成功。
-- 文档、数据库 schema、Server、daemon、CLI 和 WebUI 行为一致。
-- 日志、错误和持久化数据中不存在 Secret、Message、Attachment 或 Memory 正文泄露。
-
-## 测试节奏
-
-- 日常循环先运行最小相关测试；每个纵向项完成后运行对应 Rust、PostgreSQL、CLI 或 Web 测试。
-- PostgreSQL repository/integration tests 必须连接本机临时 database 或 schema，不能用内存数据库替代真实 SQL。
-- Playwright 只用于明确浏览器回归和最终验收；调试时只跑相关 spec 与单一 viewport，最终再运行完整矩阵。
+- Human 可以从空环境完成 Space 创建、Computer Pair、Builtin Agent 创建，并在 DM、Channel 和 Thread 与 Agent 完整对话。
+- Computer offline/reconnect 不丢失 Pair；Delete 后旧 Token 永久失效。
+- Agent 注意力、CLI 读取/发送、Inbox handle、重试、幂等和权限边界全部由真实进程与真实 PostgreSQL 验证。
+- macOS 与 Linux 统一门禁通过，WebUI 与 `docs/UI.md` 一致。
+- 日志、错误、audit、outbox、幂等记录和持久化数据不泄露 Message、Attachment、Memory、Computer Token 或模型认证正文。
 
 ## 明确不做
 
-遵守 `docs/design.md` 第 4.2 节。尤其不实现 Work/Task、其他具体 Driver、微服务、工作流/DAG、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移。
+- Browser BYOK、Secret Envelope、Server 模型 Secret、模型凭据同步或 WebUI API key 表单。
+- 业务 metrics、metrics dashboard/export、性能基准、压力测试和 p95 性能门槛。
+- Work/Task、其他具体 Driver、微服务、工作流/DAG、向量搜索、Agent marketplace、Windows 支持或 Agent 热迁移。
 
 ## 验证记录
 
 格式：`YYYY-MM-DD | 项目 | 命令或证据 | 结果`。
 
-2026-07-26 | WebUI unit/type/lint/build | `pnpm --dir web test && pnpm --dir web lint && pnpm --dir web build` | 6 files / 11 tests passed；typecheck、ESLint、production build passed
-2026-07-26 | WebUI real E2E matrix | `SUMI_SERVER__BIND=127.0.0.1:3100 cargo run -- server`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | 1440x900、1024x768、390x844 共 3 projects passed；覆盖 long Message、Attachment、Thread、Members、Computers、Inbox、mobile drawer 与 reduced motion
-2026-07-26 | WebUI phase unified gate | `cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo test --all-features`；`git diff --check` | clippy clean；Rust 49 unit + 3 CLI + 1 real PostgreSQL migration tests passed；diff check passed
-2026-07-26 | WebUI compact visual refresh | `pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | Space Grotesk、低饱和单 accent、紧凑 actions、Create Agent modal 与 general error/retry 通过 11 Web tests、production build 和 1440/1024/390 三 viewport
-2026-07-26 | Delete Computer lifecycle | `cargo test --all-features computer_flow_enforces_security_boundaries -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings` | 删除后列表移除、Agent 退役、daemon shutdown frame、旧 credential 拒绝重连通过真实 PostgreSQL 集成测试；Rust 50 unit + 3 CLI + 1 migration tests 全通过
-2026-07-27 | Computer reconnect and three-column UI | 临时复制 Computer state 后通过 `http://localhost:5173` 连接；`pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://localhost:5173 pnpm --dir web test:e2e`；`cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features` | Vite WebSocket proxy 生效；deleted identity 的 Secret/旧 command-run state 清除且 Agent Homes 保留；Computers 三栏、Pair modal 和 1440/1024/390 viewport 通过；Web 12 tests、Rust 51 unit + 3 CLI + 1 migration tests 全通过
-2026-07-27 | Channel Agent membership、mention 与 Agent detail 收敛 | `pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | Create Channel modal 初始 Agent 多选、Channel header 加 Agent、`@` autocomplete 与结构化 mentions 通过；Web 12 tests、Rust 52 unit + 3 CLI + 1 migration tests、1440/1024/390 viewport 全通过
+2026-07-27 | GOAL 重置审计 | 完整阅读 `AGENTS.md`、旧 `GOAL.md`、`GLOSSARY.md`、`docs/design.md`；审计本机 Pi 非敏感配置结构、Builtin/daemon/Server 测试边界 | 确认 BYOK/metrics/性能目标应移出 v1；确认缺少真实 Channel/Thread Agent 对话纵向测试
+2026-07-27 | 规范一致性 | `git diff --check`；关键词扫描 BYOK、Secret Envelope、Computer credential、metrics 与性能目标 | diff check 通过；旧概念只保留在“明确不做”和当前代码差距说明中
+2026-07-27 | 历史 WebUI 基线 | `pnpm --dir web test && pnpm --dir web lint && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | 2026-07-26/27 曾通过 Web tests、production build 和 1440/1024/390 三 viewport；仅作为回归基线，不代表 Agent 对话闭环完成
+2026-07-27 | 历史 Rust 基线 | `cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features` | 2026-07-27 曾通过 52 unit + 3 CLI + 1 PostgreSQL migration tests；现有测试未启动真实 Server + daemon + Builtin + Agent CLI 全链路

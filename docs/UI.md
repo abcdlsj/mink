@@ -340,7 +340,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 
 - 点击 `Delete Computer` 后先展示受影响 Agents，并要求显式确认这些 Agents 将被退役。
 - 确认按钮使用 destructive variant，并写明 Computer name。
-- 删除事务取消 active runs、退役承载的 Agents、撤销凭证和 Secret Envelopes；历史协作身份与内容保留。
+- 删除事务取消 active runs、退役承载的 Agents 并撤销 Computer Token；历史协作身份与内容保留。
 - 成功后 Computer 从普通列表和 detail 消失，不提供恢复入口；在线 daemon graceful shutdown，离线 daemon 下次连接后退出。
 
 ## 8. Inbox 与治理页
@@ -350,7 +350,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 - Inbox 行包含来源地址、sender avatar、摘要、时间和 priority 文案。
 - Approvals 详情清楚区分申请者、目标 Computer、Driver、权限和 approve/reject 后果。
 - error/dead 项不得展示 private Channel 正文或敏感内容。
-- Settings、配对确认、Secret 封装等治理表单继续使用 section、label/value、硬边框控件，不改成浮动卡片页。
+- Settings 与配对确认等治理表单继续使用 section、label/value、硬边框控件，不改成浮动卡片页。
 
 ## 9. 表单与编辑
 
@@ -359,7 +359,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 - Create Channel 使用单层 modal：桌面宽 520px，包含 name、slug、visibility、topic 与可多选的初始 Agents；左栏 `+` 只负责打开 modal，不在导航内展开表单。
 - label 始终可见，不以 placeholder 代替。
 - 输入校验靠近字段显示，并在提交失败时保留用户输入。
-- Secret 输入明确说明 Browser 到目标 Computer 的加密边界；保存后不回显，不提供复制或读取。
+- WebUI 不提供模型 API key 或其他 Driver Secret 输入；Driver 认证只在 Computer 本地配置。
 - 异步提交期间按钮显示动词进行态，如 `Pairing…`、`Creating…`，并防止重复提交。
 
 ## 10. 响应式

@@ -1,7 +1,7 @@
 # Sumi v1 详细设计
 
 - 状态：Draft
-- 日期：2026-07-26
+- 日期：2026-07-27
 - 目标读者：产品、设计、前端、Server、daemon、CLI 与 Driver 实现者
 - 领域词汇：[GLOSSARY.md](../GLOSSARY.md)
 - 参考材料：[Raft Blog Reference](../references/raft-blog/README.md)
@@ -17,7 +17,7 @@ Sumi v1 必须支持以下闭环：
 1. Human 注册并创建一个具有唯一 slug 的 Space。
 2. Human 在 Space 中创建 Channel、邀请 Human、发送 Message、创建 Thread 和 DM。
 3. Human 将一台运行 Sumi daemon 的 Computer 配对到 Space。
-4. Human 在该 Computer 上创建一个使用 Codex Driver 的 Agent。
+4. Human 在该 Computer 上创建一个使用 Builtin 或 Codex Driver 的 Agent；v1 首个真实验收使用 Builtin。
 5. Human 与 Agent 在 DM、Channel 和 Thread 中使用相同的协作模型。
 6. Agent 通过持久 Inbox 获得注意力，通过统一的 sumi CLI 读取上下文、发送 Message 和传输 Attachment。
 7. Agent 可以在获得权限后创建 Channel；Agent 发起创建另一个 Agent 时，必须由 Human Admin 或 Owner 审批。
@@ -32,12 +32,15 @@ Sumi v1 必须支持以下闭环：
 - Agent 有自己的 Role 和 Memory。
 - Agent 由一台 Computer 承载；该 Computer 运行 Sumi daemon，并管理本机所有 Agents。
 - 一台 Computer 可以创建任意数量的逻辑 Agents，实际并发受本机资源配置限制。
-- Codex、Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor 和未来 Builtin 都只是可替换 Driver。
+- Codex、Builtin、Claude、OpenCode、Pi、Gemini、Kimi Code 和 Cursor 都只是可替换 Driver。
 - v1 实现 Codex Driver 和 Builtin Driver；Driver 边界必须允许未来替换。
 - DM 中的新 Message 直接唤醒 Agent。
 - Channel 中的普通 Message 也能进入 Agent 的注意力范围，由 Agent 根据上下文判断是否回应；不能只依赖 @mention。
 - Thread 是 Channel 内的讨论支线，不是新的权限边界。Agent 在 Thread 中仍能读取其有权访问的 Channel。
 - Agent 与 Sumi 系统的交互必须经过 sumi CLI，包括 Inbox、Channel、Thread、Message 和 Attachment。
+- Computer 首次配对时在本机生成并持久保存 Computer Token；此后断线只改变 online/offline 状态，只有删除 Computer 才撤销 Token 和配对关系。
+- Codex 使用 Computer 上既有的本地登录，不需要 Browser BYOK 或 Server 托管模型凭据。
+- Builtin 使用 Computer 本地的 provider、model 与认证配置；v1 不提供 Browser 输入模型 API key 的能力。
 - 面向 Agent 的可读地址使用 #channel 和 #channel:thread 形式；规范协议必须同时提供结构化 JSON。
 - Space 具有全局唯一 slug，并出现在 HTTP URL 中。
 - Agent 可以获得 Admin。
@@ -63,6 +66,7 @@ Sumi v1 必须支持以下闭环：
 - 一个 Agent 在 v1 同一时刻最多运行一个 Driver 进程，避免 Memory 和工作目录并发写入。
 - Agent 的长期 Memory 位于 Agent Home，不依赖 Codex session。
 - v1 不支持 Agent 热迁移；迁移只能在停止 Agent 后进行，并留到后续规格。
+- v1 不建设业务 metrics、性能基准或性能门槛；先完成并验证产品闭环，结构化日志只服务于排障、安全审计和测试诊断。
 - Message 正文使用 Markdown，但 mention、Attachment 和 reply 关系必须结构化存储。
 - 除 Thread 外的实体 ID 使用 UUIDv7。Thread 使用所属 Channel 内唯一的递增数字 ID，用户可见地址使用 #channel:{thread-id}。
 
@@ -84,7 +88,7 @@ Server、Computer daemon 和 Agent CLI 使用同一个 Rust workspace、Cargo pa
 | outbound HTTP/WebSocket | reqwest + tokio-tungstenite | daemon 调用 Server API 和保持 Computer 连接 |
 | object storage | object_store | 同一接口支持本机目录测试和生产 S3-compatible storage |
 | local IPC | tokio Unix domain socket | macOS 与 Linux 上 Agent CLI 到 daemon 的本机通信 |
-| secrets | secrecy + zeroize | 降低 Secret 被日志或长期内存副本泄漏的风险 |
+| local credentials | secrecy + zeroize | 降低 Computer Token 与本机 Driver 认证被日志或长期内存副本泄漏的风险 |
 | observability | tracing + tracing-subscriber | 结构化日志与 span；HTTP 层使用 TraceLayer |
 | API schema | utoipa | 从 Rust 类型生成 OpenAPI，再为 Web 生成 TypeScript client/types |
 | identifiers/time | uuid + time | UUIDv7 和 RFC3339 timestamp |
@@ -118,7 +122,7 @@ Node 使用当前 Active LTS 主版本，项目通过 `mise.toml` 固定；依�
 
 v1 发布目标只包含 macOS 与 Linux：Apple Silicon 和 x86_64 macOS，以及 x86_64 和 arm64 Linux。Server 与 Computer 使用同一组平台目标；`sumi agent` 随 Computer 一起分发。CI 至少覆盖一个 macOS 和一个 Linux 目标。Windows binary、Windows service 和 named pipe 均不属于 v1；代码无需为未支持平台保留未经测试的条件分支。
 
-Linux Computer 的 Driver 外层隔离依赖 bubblewrap（`bwrap`）；macOS 使用系统自带的 `sandbox-exec`。daemon 在 Agent provision 和每次 run 前都必须在外层 sandbox 中实际运行 `codex --version`，不能只检查文件存在。缺少隔离工具、Codex 执行链损坏或 sandbox 自检失败时，Agent provision/run 明确失败，Computer 配对与 heartbeat 仍可继续运行。
+Linux Computer 的 Driver 外层隔离依赖 bubblewrap（`bwrap`）；macOS 使用系统自带的 `sandbox-exec`。daemon 在 Agent provision 和每次 run 前都必须在外层 sandbox 中执行当前 Driver 的真实自检：Codex 运行 `codex --version`，Builtin 校验本机 provider 配置并运行最小 sandbox command，不能只检查文件存在。缺少隔离工具、当前 Driver 执行链损坏或 sandbox 自检失败时，Agent provision/run 明确失败，Computer 配对与 heartbeat 仍可继续运行。
 
 首次运行数据库测试前安装本机 PostgreSQL。默认开发说明使用 Homebrew：
 
@@ -150,7 +154,7 @@ createdb sumi_test
 - Human Inbox。
 - Computer 安装后的浏览器配对、在线状态、撤销。
 - Agent 创建、查看、暂停、恢复和退役。
-- Agent Role、Memory 和 Codex Driver。
+- Agent Role、Memory、Codex Driver 和 Builtin Driver。
 - Agent Inbox、注意力循环、失败重试和显式处理。
 - Agent 专用 sumi CLI。
 - Agent 创建 Channel。
@@ -161,7 +165,9 @@ createdb sumi_test
 ### 4.2 明确不做
 
 - Work 或 Task 领域模型及 UI。
-- Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor Driver 的具体实现。
+- Claude、OpenCode、Pi、Gemini、Kimi Code、Cursor 等其他 Driver 的具体实现。
+- Browser BYOK、Server 模型 Secret 存储或 Secret Envelope。
+- 业务 metrics、性能基准与性能 SLA。
 - 联合 Channel 或跨 Space Channel。
 - Agent 热迁移、丢失 Computer 后的无源恢复。
 - 语音、视频、屏幕共享。
@@ -186,7 +192,7 @@ Browser
             |                      |
         PostgreSQL           S3-compatible storage
             |
-            | outbound WebSocket + HTTPS, computer credential
+            | outbound WebSocket + HTTPS, Computer Token
             v
 +---------------------- Computer -------------------------+
 | sumi computer daemon                                    |
@@ -196,8 +202,8 @@ Browser
 | - local IPC and scoped identity                         |
 | - Driver supervisor                                     |
 |                                                        |
-| Agent Home A -> Codex Driver -> sumi CLI -> daemon      |
-| Agent Home B -> Codex Driver -> sumi CLI -> daemon      |
+| Agent Home A -> current Driver -> sumi CLI -> daemon    |
+| Agent Home B -> current Driver -> sumi CLI -> daemon    |
 +---------------------------------------------------------+
 ~~~
 
@@ -211,7 +217,6 @@ Server 不执行 Agent shell 命令。daemon 不拥有 Space 全局管理权限�
 - 校验权限和数据可见性。
 - 创建 Inbox Item 并可靠通知浏览器或 Computer。
 - 为 Browser 和 Computer 提供实时事件。
-- 保存 Computer 公钥和无法由 Server 解密的 Secret Envelope。
 - 记录所有治理与 Agent 行为的审计事件。
 
 **Sumi daemon**
@@ -243,8 +248,8 @@ Server 不执行 Agent shell 命令。daemon 不拥有 Space 全局管理权限�
 - audit 与 transactional outbox 是 Server 基础设施边界。领域事务通过统一的 audit/outbox writer 写入，业务模块不得各自复制基础 INSERT SQL；writer 不拥有提交事务的权力。
 - Channel membership 是 Message 与 Thread 共享的授权事实。公共 membership guard 只验证 membership，不夹带 Admin 例外或业务写入；其他领域只有在校验语义完全相同时才复用该 guard。
 - Web API client 保留按领域命名的调用函数；JSON 写请求统一经过 mutation helper 生成 Idempotency-Key、序列化 body 和处理错误，不在页面组件或每个调用函数中重复传输样板。
-- Computer Server 边界按 pairing、credential/run authentication、WebSocket protocol、Agent gateway 和 registry/command lifecycle 分离；Attachment 只依赖 active run authentication，不得反向依赖整个 registry。
-- daemon 的 local IPC 独立负责 run capability 校验、Agent CLI 请求代理和 Attachment 本地流传输；远端连接、command 执行、配对与本地 Secret 生命周期不进入该模块。
+- Computer Server 边界按 pairing、Computer Token/run authentication、WebSocket protocol、Agent gateway 和 registry/command lifecycle 分离；Attachment 只依赖 active run authentication，不得反向依赖整个 registry。
+- daemon 的 local IPC 独立负责 run capability 校验、Agent CLI 请求代理和 Attachment 本地流传输；远端连接、command 执行、配对与本地凭据生命周期不进入该模块。
 - Rust 大型集成测试和 daemon 单元测试放在对应模块的 `tests.rs`/`tests/` 子模块，运行时代码文件不得内联数千行测试夹具。
 
 ### 5.3 推荐仓库结构
@@ -426,7 +431,6 @@ Space 使用三个普通权限级别：
 Agent 获得 Admin 后拥有与 Human Admin 相同的一般管理能力，但以下操作仍要求 Human：
 
 - 确认 Computer 配对。
-- 输入或重新封装 Secret。
 - 审批由 Agent 发起的 Agent 创建请求。
 - 转移 Owner 或删除 Space。
 
@@ -807,9 +811,9 @@ pairing -> online <-> offline -> deleted
 - pairing：已生成一次性配对请求，尚未由 Human 确认。
 - online：daemon 长连接和心跳有效。
 - offline：超过 30 秒没有有效心跳。
-- deleted：用户执行 Delete Computer 后的内部 tombstone；普通列表不再返回，凭证不能重新连接，重新接入必须重新配对。
+- deleted：用户执行 Delete Computer 后的内部 tombstone；普通列表不再返回，Computer Token 不能重新连接，重新接入必须生成新 Token 并重新配对。
 
-online/offline 是计算状态，不由用户手工编辑。Delete Computer 前，UI 必须列出受影响 Agents 并要求 Human 明确确认。删除事务取消该 Computer 的 active runs、退役承载的 Agents、撤销凭证和 Secret Envelopes；历史 Member、Message、Attachment 与 audit 保留。Computer 从普通 UI 消失，在线 daemon 收到终止帧后 graceful shutdown，离线 daemon 下次连接得到终止响应后退出。daemon 在确认 Server 已删除或拒绝旧凭证后删除本机失效的配对 Secret、清空旧 command/run 状态但保留 Agent Homes；下一次启动自动进入新的配对流程。该 tombstone 不提供恢复入口。
+online/offline 是连接状态，不是配对状态，也不由用户手工编辑。daemon 退出、网络中断或 Server 重启只会让已配对 Computer 变为 offline；本机 Computer Token 和 Server 绑定关系都必须保留，重连后回到 online，不得要求重新 Pair。Delete Computer 前，UI 必须列出受影响 Agents 并要求 Human 明确确认。删除事务取消该 Computer 的 active runs、退役承载的 Agents 并撤销 Computer Token；历史 Member、Message、Attachment 与 audit 保留。Computer 从普通 UI 消失，在线 daemon 收到终止帧后 graceful shutdown，离线 daemon 下次连接得到终止响应后退出。daemon 在确认 Server 已删除或拒绝旧 Token 后删除本机失效身份、清空旧 command/run 状态但保留 Agent Homes；下一次启动生成新 Token 并进入新的配对流程。该 tombstone 不提供恢复入口。
 
 ### 11.2 初始化与配对
 
@@ -822,32 +826,26 @@ sumi computer --server https://sumi.example.com
 该命令启动 Computer daemon。首次启动时：
 
 1. 检查本地是否已有 Computer identity。
-2. 若没有，生成本机 P-256 ECDH 密钥对、随机 pairing secret 和随机 Computer credential。
-3. 调用公开的 pairing start API，提交 Computer public key、hostname、OS 和 daemon version。
+2. 若没有，使用 OS CSPRNG 生成 256-bit Computer Token，立即写入权限为 0600 的本机 `secrets.json`。
+3. 调用公开的 pairing start API，提交 Computer Token 的 SHA-256、hostname、OS 和 daemon version；Server 不接收或保存 raw Token。
 4. Server 返回短时 pairing code 和 browser URL，有效期 10 分钟。
 5. daemon 打印 URL 并尝试打开默认浏览器。
 6. 已登录 Human 打开页面，选择 Space、编辑 Computer name 并确认。
 7. Server 校验该 Human 是 Owner 或 Human Admin，将 Computer 绑定到 Space。
-8. daemon 使用 pairing secret 轮询结果，取得已确认的 Computer ID 和 Space ID。
-9. daemon 将私钥和 credential 写入 Computer 本地的 secrets.json，并限制文件权限。
+8. daemon 使用 Computer Token 轮询结果，取得已确认的 Computer ID 和 Space ID，并把绑定结果写回本机 `secrets.json`。
+9. 后续启动直接复用同一 Computer ID 和 Token；不得因为进程退出、网络断开或 Computer offline 重新配对。
 10. daemon 建立出站 WebSocket，完成协议握手后 Computer 变为 online。
 
-配对确认页必须显示 hostname、OS、public key fingerprint 和目标 Space，防止确认错误机器。
+配对确认页必须显示 hostname、OS、daemon version、Computer Token 的不可逆短 fingerprint 和目标 Space，防止确认错误机器；不得显示 raw Token。
 
-配对 start 请求提交 base64url 编码的 SEC1 P-256 public key、pairing secret SHA-256、Computer credential
-SHA-256、hostname、OS 和 daemon version；Server 生成并只保存 pairing code hash，响应返回 pairing_id、一次性 code、
-`/pair-computer/{pairing_id}?code=...` Browser URL 与 expires_at。daemon 轮询 result 时使用 raw pairing
-secret 的 Bearer token，Server 比对 hash。Human confirm 请求包含目标 space_id、Computer name 与一次性 code；
-成功响应不返回 credential，result 也只返回 Computer ID 和 Space ID。raw Computer credential 从生成起只存在于
-daemon 的受限 `secrets.json`；Server 始终只保存 start 请求提交的 hash。result 在配对有效期内可安全幂等重试，
-避免首次成功响应丢失后 Computer 永久无法恢复。
+配对 start 请求提交 base64url 编码的 Computer Token SHA-256、hostname、OS 和 daemon version；Server 生成并只保存 pairing code hash，响应返回 pairing_id、一次性 code、`/pair-computer/{pairing_id}?code=...` Browser URL 与 expires_at。daemon 轮询 result 时使用 raw Computer Token 作为 Bearer token，Server 只比对 hash。Human confirm 请求包含目标 space_id、Computer name 与一次性 code；成功响应不返回 Token，result 也只返回 Computer ID 和 Space ID。raw Computer Token 从生成起只持久化在 daemon 的受限 `secrets.json`，通过 HTTPS/WSS 仅用于认证；Server 始终只持久化 hash。result 在配对有效期内可安全幂等重试，避免首次成功响应丢失后 Computer 永久无法恢复。
 
 ### 11.3 连接与心跳
 
 - daemon 只发起出站 TLS 连接，不监听公网端口。
-- Computer WebSocket 使用 Computer credential 认证，同时承载 Server command、command result 和 heartbeat。
+- Computer WebSocket 使用 Computer Token 认证，同时承载 Server command、command result 和 heartbeat。
 - daemon 每 10 秒发送 heartbeat。
-- heartbeat 包含 daemon version、OS、CPU/memory 摘要、Agents 数量和 active runs。
+- heartbeat 包含 daemon version、OS、Agents 数量和 active runs；不采集 CPU、memory 等资源 metrics。
 - Server 30 秒未收到 heartbeat 时标记 offline。
 - 重连使用指数退避：1s、2s、4s、8s，最大 30s，并加入随机抖动。
 - 每个 Server command 必须先持久化到 PostgreSQL，具有 command_id 和递增 computer_seq。WebSocket 只负责低延迟投递，不是事实来源。
@@ -871,16 +869,17 @@ computer/
       workspace/
       drivers/
         codex/
+        builtin/
       runs/
       logs/
 ~~~
 
 - daemon.db 使用 SQLite，保存 Computer 本地状态、Server command 结果、Agent 运行状态和本地重试队列。
-- secrets.json 保存 Computer private key、Computer credential 和模型 API keys。它不得进入 daemon.db、日志、Agent Home 或备份导出。
+- secrets.json 保存 Computer Token 与本机 Driver 认证。它不得进入 daemon.db、日志、Agent Home 或备份导出。
 - computer/ 目录权限必须为 0700，secrets.json 必须为 0600。daemon 使用同目录临时文件、fsync 和 rename 原子更新；发现 group/other 权限时拒绝启动并给出修复命令。
 - profile.json 是 Server Agent 配置的缓存，不是事实来源。
 - memory/ 和 workspace/ 属于 Agent，不属于 Driver。
-- drivers/codex/ 只能保存 Codex 专属状态。
+- drivers/codex/ 与 drivers/builtin/ 只保存各自 Driver 的私有状态。
 - runs/ 保存临时运行输出，按保留策略清理。
 
 每个 Agent 目录权限必须限制为 daemon 运行用户。不同 Agent 进程不能访问对方目录。
@@ -936,7 +935,7 @@ Human 直接创建：
 4. 选择权限级别 Member/Admin；只有 Owner 能直接授予 Admin。
 5. Server 创建 Agent Member 和 Agent，状态 provisioning。
 6. Server 向 Computer 下发 provision command。
-7. daemon 创建 Agent Home、写入 profile cache、验证 Codex 可执行文件。
+7. daemon 创建 Agent Home、写入 profile cache 并验证所选 Driver 的本地配置、认证与 sandbox。
 8. daemon 返回成功，Server 将状态改为 active。
 9. 失败则状态为 error，保留可重试原因，不创建第二个 Agent。
 
@@ -1020,7 +1019,7 @@ v1 UI 允许展示 Driver selector，可选 codex 和 builtin。切换必须遵�
 
 Driver 切换不得重置 Inbox、Channel memberships 或 Member permissions。
 
-## 13. Driver 契约与 Codex Driver
+## 13. Driver 契约、Codex 与 Builtin
 
 ### 13.1 Driver 契约
 
@@ -1076,7 +1075,6 @@ Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 
 - Builtin 使用官方 OpenAI GPT-5.6 系列端点时，为 `global_static` 和 `agent_static` 设置显式 prompt cache breakpoint，并使用按 Agent、prompt schema 和 Role revision 稳定的 `prompt_cache_key`；同一 run 的追加式 tool loop 保留 implicit latest-message caching。
 - 自定义 OpenAI-compatible endpoint 或不支持显式 breakpoint 的模型只使用服务端自动缓存，不得发送其可能拒绝的 OpenAI 专属缓存字段。
 - 缓存只优化推理前缀，不是 Agent Session、Memory 或授权边界。不得为了缓存把 provider conversation 变成 Agent 事实来源。
-- 必须采集每次 Builtin 请求的 input、output、cached input 和 cache write tokens；缓存优化没有命中/写入证据时不得宣称有效。
 - Role text 由 Human 通过 WebUI 或 CLI 提供，不得包含 Server Secret。
 - Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
 - Agent Memory 只表示 Agent Home 下的 `memory/` 文件；prompt 不得引入另一套 Server 托管、提案式或按 scope 分层的 Memory 语义。
@@ -1100,11 +1098,11 @@ printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-w
 - --ephemeral 确保 Codex rollout 不成为 Agent 长期身份或 Memory。
 - daemon 始终把 CODEX_HOME 指向 Agent 专属目录，因此 Codex 不会读取 Human 的全局 Codex 目录。若 Computer 配置了 `codex_config_source`，provision 只从该 TOML 复制当前 model/provider 的白名单字段到 Agent 专属 `config.toml`；MCP、headers、hooks、projects、trust 和其他 Human 配置不得复制。`existing_local_auth` 还可显式配置 `codex_auth_source`，daemon 将该 Codex 认证文件以 0600 复制到 Agent 专属 CODEX_HOME，不解析、不记录且不得写入 profile。未配置 source 时 Agent 专属 CODEX_HOME 保持无配置、无认证状态。
 - Linux 默认使用 Codex workspace-write。macOS 的 Codex 内层 sandbox 不能嵌套在 daemon 的 `sandbox-exec` 中，因此 daemon 使用 Codex 的 externally-sandboxed bypass 模式；这不向 Agent 开放可配置的 danger-full-access，文件边界仍由 daemon 生成的外层 profile 强制执行。
-- daemon 必须限制环境变量，只注入当前 Agent 必需的 PATH、HOME/CODEX_HOME、Sumi local capability 和 Codex credential。
-- Codex 的 workspace-write 是 Linux Driver 的内层命令策略，不是 Agent 间隔离边界。daemon 必须使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent 的 workspace/Memory/runs/当前 Driver home；为允许路径解析，可只放行 Computer root、Agents root 与当前 Agent Home 目录节点的 metadata，不得放行其中其他内容。Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent 的上述目录、daemon socket，以及只读的当前 Driver 与 `sumi` executable；macOS 同样只对当前 Driver 与 `sumi` executable 补只读执行权限。两端都只允许写当前 Agent 的上述目录，并遮蔽 Computer credential、其他 Driver 私有目录与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
+- daemon 必须限制环境变量，只注入当前 Agent 必需的 PATH、HOME/CODEX_HOME、Sumi local capability 和 Codex 本地认证。
+- Codex 的 workspace-write 是 Linux Driver 的内层命令策略，不是 Agent 间隔离边界。daemon 必须使用 OS 进程 sandbox：macOS 使用系统 `sandbox-exec` profile，拒绝 daemon 用户 Home 与 Computer state 的读取后只回授当前 Agent 的 workspace/Memory/runs/当前 Driver home；为允许路径解析，可只放行 Computer root、Agents root 与当前 Agent Home 目录节点的 metadata，不得放行其中其他内容。Linux 使用 bubblewrap mount namespace，只挂载系统运行时、当前 Agent 的上述目录、daemon socket，以及只读的当前 Driver 与 `sumi` executable；macOS 同样只对当前 Driver 与 `sumi` executable 补只读执行权限。两端都只允许写当前 Agent 的上述目录，并遮蔽 Computer Token、其他 Driver 私有目录与其他 Agent Homes；对应工具不可用或隔离自检失败时，Driver Validate 必须失败，禁止退化为裸进程。
 - daemon 将 Agent 专属 `CODEX_HOME` 放在 `drivers/codex/`；该目录必须在启动前存在。若该目录包含由 daemon 生成的白名单 `config.toml`，Codex 可以读取它；Driver 不得传入会屏蔽该文件的 `--ignore-user-config`。子进程环境从空集合构造，不继承 daemon 的任意 Secret 或 Human 环境。
 - Codex 的最终 agent_message 只写运行日志，不自动发送到 Sumi。
-- Codex 正常退出但没有处理 claimed Inbox Items，run 仍判定为未处理并进入重试。
+- 任一 Driver 正常完成但没有处理 claimed Inbox Items，run 仍判定为未处理并进入重试。
 
 官方行为依据：
 
@@ -1115,12 +1113,7 @@ printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-w
 
 ### 13.4 Codex 认证
 
-支持两种 Computer 本地模式：
-
-1. existing_local_auth：使用该 Computer 已完成的 Codex 登录，或使用 `codex_config_source` 中的自定义 provider 与其所需的 `codex_auth_source`；必须为 Agent 设置独立 CODEX_HOME。自定义 provider 只复制 model/provider 白名单配置，认证只复制到 0600 的 `auth.json`，不得复制 header、MCP、hook 或其他 Human 配置。
-2. api_key：Human 在 WebUI 输入 API key，浏览器加密给目标 Computer，daemon 解密后仅在单次 codex exec 进程环境中设置 CODEX_API_KEY。
-
-不得把 OPENAI_API_KEY 或 CODEX_API_KEY 写入 Agent Memory、profile.json、日志或 Server 明文字段。根据 Codex 官方建议，API key 只在单次 codex exec 调用环境中存在。
+Codex 只支持 Computer 本地既有认证：使用该 Computer 已完成的 Codex 登录，或使用 `codex_config_source` 中的自定义 provider 与其所需的 `codex_auth_source`；必须为 Agent 设置独立 CODEX_HOME。自定义 provider 只复制 model/provider 白名单配置，认证只复制到权限为 0600 的 `auth.json`，不得复制 header、MCP、hook 或其他 Human 配置。v1 不提供 Browser API key 输入、BYOK 或 Server 模型凭据接口。
 
 ### 13.5 Builtin Driver
 
@@ -1128,22 +1121,29 @@ Builtin Driver 在 daemon 进程内维护 LLM session，并通过 OpenAI-compati
 调用配置的模型。Server 创建 Agent、PostgreSQL `agents/agent_runs`、`agent.run` command 和 daemon
 Supervisor 必须端到端保留 `driver_kind=builtin`，不得静默回退到 Codex。
 
+Builtin 的 provider 配置只来自 Computer 本地文件。v1 接受 Pi-compatible 的三文件结构：settings 提供
+`defaultProvider/defaultModel`，models store 提供对应 provider/model 的 `api/baseUrl`，auth 以 provider
+为 key 提供本机认证。当前本地 Pi 配置的可验收基线是 `deepseek/deepseek-v4-pro`、
+`api=openai-completions`、`baseUrl=https://api.deepseek.com`；Sumi 不读取 Pi session、extension 或 prompt，
+也不把 Pi 变成运行时依赖。daemon 启动时只读取显式配置的 source path，校验选中 provider/model 后把
+非敏感配置规范化到 Computer state；认证只保留在权限受限的本机 secrets 中。v1 Builtin 只实现
+OpenAI-compatible completions SSE，遇到其他 `api` kind 必须明确拒绝，不得猜测协议或回退到 Codex。
+
 Builtin 的 OpenAI provider adapter 必须保持 prompt message 顺序和 content block 边界。官方 GPT-5.6
 系列端点使用 `prompt_cache_key`、implicit request policy 和稳定 system block 上的 explicit breakpoint；
-其他模型与自定义 base URL 不发送这些字段。SSE usage 同时解析 `prompt_tokens_details.cached_tokens` 与
-`cache_write_tokens`，并按 run 汇总到不含正文的结构化日志。
+其他模型与自定义 base URL 不发送这些字段。
 
 Builtin 与 Codex 使用同一 Agent Home、Role、Memory、workspace 和单 run capability。Builtin 的文件
 和 shell tools 必须满足：
 
 - read/write/edit 只接受以 `workspace/` 或 `memory/` 开头的 Agent Home 相对路径，拒绝绝对路径、`..`、symlink 和 canonical path 逃逸；
 - shell 固定以当前 Agent workspace 为工作目录，清空 daemon 环境后只注入最小 PATH、HOME、
-  `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`，不得继承 Computer credential 或模型 API key；
+  `SUMI_SOCKET` 和 `SUMI_RUN_TOKEN`，不得继承 Computer Token 或模型 API key；
 - shell 子进程使用对应平台的 OS sandbox，取消或超时必须终止整个进程组；缺少 sandbox 时 Builtin Validate 失败；
 - 工具输入、输出、Message、Attachment 和 Memory 正文不得进入普通日志；
 - OpenAI-compatible SSE parser 必须按 tool call `index` 聚合跨事件的 name/arguments，完整 JSON 参数解析成功后才能执行。
 
-模型 API key 只保存在 daemon 的受限 Secret 中并仅用于 daemon 发起 HTTP 请求，不注入工具子进程。
+模型 API key 只保存在 daemon 的受限本机认证中并仅用于 daemon 发起 HTTP 请求，不注入工具子进程。
 
 ## 14. sumi 命令行
 
@@ -1172,7 +1172,7 @@ CLI 每次调用发送 run token。daemon 校验：
 - 请求的 Space 与 Agent Space 相同。
 - Server 操作所需权限。
 
-Agent 无法通过参数切换身份。CLI 不保存 Server Computer credential。
+Agent 无法通过参数切换身份。CLI 不保存 Computer Token。
 
 ### 14.2 通用输出
 
@@ -1447,33 +1447,25 @@ hard lease，再做 freshness 判断；ambient Item 和不带 `--handle` 的普�
 - Computer 重连后按 hard 优先、created_at 次序恢复。
 - pending 数量超过 1000 时停止逐条 ambient Item，按 Channel cursor 合并；hard Items 永不因合并丢失。
 
-## 16. Secret 与 BYOK
+## 16. Computer 本地凭据
 
 ### 16.1 信任边界
 
-目标是 Server 数据库和业务进程无法获得模型 API key 明文。v1 在 Computer 本地使用权限受限的明文 secrets.json，不接入 macOS Keychain 或 Linux Secret Service。这只防止其他普通 OS 用户误读，不防御 root、同一 OS 用户下的恶意进程或已失陷的 Computer；UI 和部署文档必须如实说明，不能宣称本地静态加密。未来可在不改变 Server 协议的前提下替换为系统 credential store。
+v1 的 Server 不接收、不保存也不转发模型 API key。Computer Token、Codex 本地认证与 Builtin provider 认证只存在于 Computer 的权限受限本地文件和所需进程内存；Browser 没有模型 Secret 表单或 API。v1 不接入 macOS Keychain 或 Linux Secret Service。这只能降低其他普通 OS 用户误读的风险，不防御 root、同一 OS 用户下的恶意进程或已失陷的 Computer；部署文档必须如实说明，不能宣称本地静态加密。
 
-该承诺也不等于防御一个恶意替换前端 JavaScript 的 Server；WebUI 代码来源仍属于信任边界。
+### 16.2 本地认证规则
 
-### 16.2 浏览器到 Computer 的加密
-
-1. Browser 从 Server 获取目标 Computer public key 和 fingerprint。
-2. Human 在 WebUI 输入 API key。
-3. Browser 使用 WebCrypto：P-256 ECDH、HKDF-SHA-256 和 AES-256-GCM 生成 Secret Envelope。
-4. Browser 只向 Server 上传 ephemeral public key、salt、nonce、ciphertext、Computer ID 和 Secret metadata。
-5. Server 保存 Envelope，不能解密。
-6. daemon 使用 Computer private key 解密，并将 API key 写入本机 secrets.json。
-7. daemon 回报 Secret 可用但不得返回明文或 hash。
-
-Secret 只能绑定一个 Computer。Agent 改到其他 Computer 时必须由 Human 重新封装。Computer 删除后相关 Envelopes 标记不可用。
+- Codex 只复制显式 `codex_auth_source` 的既有认证到 Agent 专属 CODEX_HOME，权限必须为 0600。
+- Builtin 只读取显式配置的 Pi-compatible auth source 中当前 provider 的认证，认证不得写入 Agent Home。
+- Driver 子进程与工具进程不得获得 Computer Token；Builtin 工具进程也不得获得模型 API key。
+- Computer 删除后删除本机失效 Token 与规范化认证缓存，但保留 Agent Homes；外部 auth source 不属于 Sumi，不得删除。
 
 ### 16.3 日志规则
 
-- 所有 Secret 字段使用 redaction type，不得实现普通 Stringer。
-- CLI 不提供读取 Secret 命令。
+- Computer Token 和模型认证字段使用 redaction type，不得实现普通 Stringer。
+- CLI 不提供读取本机凭据命令。
 - daemon 环境日志不得输出完整 env。
-- Codex process 退出后清理包含 key 的环境内存引用。
-- Server 审计只记录谁在何时为哪个 Computer 更新了哪类 Secret。
+- Driver 请求结束后清理包含 key 的环境和内存引用。
 
 ## 17. Server API 与实时事件
 
@@ -1578,8 +1570,8 @@ Browser 通过标准 `Last-Event-ID` header 重连；初次连接只接收连接
 Computer 使用独立认证面：
 
 ~~~
-POST /api/v1/computer-pairings/start           未配对 daemon，pairing secret 认证
-GET  /api/v1/computer-pairings/{id}/result     未配对 daemon，pairing secret 认证
+POST /api/v1/computer-pairings/start           未配对 daemon，提交 Computer Token hash
+GET  /api/v1/computer-pairings/{id}/result     未配对 daemon，Computer Token 认证
 GET  /api/v1/computers/{id}/connect            WebSocket command stream 与 heartbeat
 POST /api/v1/computers/{id}/commands/{id}/result
 GET  /api/v1/computers/{id}/agents
@@ -1601,13 +1593,13 @@ GET  /api/v1/computers/{id}/agents/{id}/runs/{id}/attachments/{id}/download
 本地已标记 `process_lost` 且尚未上报的 run 主动 release；release 必须在建立 WebSocket command
 stream 之前完成，避免 Server 重放已经丢失进程对应的持久 `agent.run` command。
 
-Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer credential 不能管理 Space 中其他 Computer 的 Agents。
-daemon 每秒用 Computer credential 拉取本机 active Agents 并尝试 claim；claim 为空是正常结果，不得断开
+Server 必须验证 Agent 的 computer_id 与认证 Computer 相同。Computer Token 不能管理 Space 中其他 Computer 的 Agents。
+daemon 每秒用 Computer Token 拉取本机 active Agents 并尝试 claim；claim 为空是正常结果，不得断开
 WebSocket。claim 在一个事务内租约 Inbox Items、创建 `agent_runs`/关联行并分配持久 `agent.run`
 command。daemon 对临时轮询失败记录不含正文的结构化错误，并在下一周期重试，不能为了 attention poll
 失败主动拆掉 command stream。
 
-Agent Attachment 路由与 Browser 的 create/PUT/complete 协议同构，但使用 Computer credential，且每次
+Agent Attachment 路由与 Browser 的 create/PUT/complete 协议同构，但使用 Computer Token，且每次
 请求都必须同时验证 Computer assignment、active run 和 Agent Member 身份。daemon 只能从当前 Agent
 Home 流式读取上传源文件，并只能向当前 Agent Home 流式写入下载结果；canonical path 或 symlink 逃逸
 必须在本机拒绝。Attachment info 对当前 Agent 自己上传的 Attachment 或其有权读取的 Message
@@ -1677,11 +1669,11 @@ v1 event types：
 
 **computers**
 
-- id、space_id、name、hostname、os、public_key、credential_hash、status、daemon_version、next_command_seq、last_seen_at、created_at、revoked_at。
+- id、space_id、name、hostname、os、token_hash、status、daemon_version、next_command_seq、last_seen_at、created_at、revoked_at。
 
 **computer_pairings**
 
-- id、pairing_code_hash、pairing_secret_hash、credential_hash、public_key、hostname、os、daemon_version、expires_at、space_id、confirmed_by_member_id、computer_id、status。
+- id、pairing_code_hash、token_hash、hostname、os、daemon_version、expires_at、space_id、confirmed_by_member_id、computer_id、status。
 - 确认后 space_id 必须同时匹配 confirmed Human Member 和创建的 Computer，使用复合外键保证。
 
 **agents**
@@ -1758,10 +1750,6 @@ v1 event types：
 
 - id、space_id、type、requested_by_member_id、payload_json、status pending|approved|rejected|canceled、resolved_by_member_id、created_at、resolved_at。
 
-**secret_envelopes**
-
-- id、space_id、computer_id、kind、ephemeral_public_key、salt、nonce、ciphertext、created_by_member_id、created_at、revoked_at。
-
 **audit_events**
 
 - id、space_id、actor_member_id 可空、action、subject_type、subject_id、metadata_json、created_at。
@@ -1785,7 +1773,7 @@ v1 event types：
 - Message 创建、mentions/attachments 关联、Inbox 生成和 outbox 写入。
 - message send --handle 创建 Message 并处理 Inbox。
 - Approval 决议和 Agent provisioning command outbox。
-- Computer 删除、credential 撤销、active run 取消和 Agent 退役。
+- Computer 删除、Token 撤销、active run 取消和 Agent 退役。
 
 不得使用“先写数据库再尽力推 SSE”的双写。实时事件统一从 transactional outbox 发布。
 
@@ -1831,7 +1819,7 @@ Message 和 Attachment 内容都是不可信输入：
 - Agent run logs 默认保留 14 天，不得包含 Secret。
 - audit_events 默认永久保留，公开部署后增加合规配置。
 
-## 20. 可观测性与性能
+## 20. 诊断与运行状态
 
 ### 20.1 结构化日志
 
@@ -1845,39 +1833,17 @@ Server、daemon 和 CLI 日志至少带：
 - inbox_item_id，可空。
 - action、duration_ms、result。
 
-Message body、Attachment 内容、Memory 正文和 Secret 不进入普通日志。
+Message body、Attachment 内容、Memory 正文、Computer Token 和模型认证不进入普通日志。
 
-### 20.2 Metrics
+### 20.2 v1 状态保证
 
-Server：
+- Server 在 30 秒没有有效 heartbeat 后把 Computer 标记为 offline；这不撤销 Pair。
+- daemon/Driver crash 后，未处理 hard Inbox Item 在 lease 到期或显式 release 后恢复。
+- UI 显示 Computer online/offline 与 Agent queued/running 状态，不承诺模型回答时延。
 
-- HTTP latency/error。
-- SSE connections/reconnects/replay lag。
-- Message send latency。
-- Inbox pending/leased/dead 数量与年龄。
-- outbox publish lag。
-- Computer online/offline。
-- Approval pending age。
+### 20.3 明确延期
 
-daemon：
-
-- active/queued runs。
-- Driver startup duration。
-- run duration/exit result。
-- Builtin input/output/cached input/cache write tokens 与 cache read ratio。
-- Inbox claim/renew/release。
-- local IPC calls/errors。
-- Computer resource usage。
-
-### 20.3 v1 目标
-
-- Human Message 创建到其他在线 Browser 可见：p95 小于 500ms。
-- hard Inbox Item 创建到 online daemon 收到通知：p95 小于 1s。
-- Server 业务 API 在不含 Attachment body 时：p95 小于 300ms。
-- Computer 断线检测：30s 内。
-- 任何 daemon/Driver crash 后，未处理 hard Inbox Item 最迟在 lease 到期后恢复。
-
-Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载影响；UI 必须显示 queued/running 状态。
+v1 不实现业务 metrics、不建设 metrics export/storage/dashboard，不做性能基准，也不设置 p95 等性能门槛。完成真实产品闭环和正确性验收后，再基于实际使用瓶颈单独设计。
 
 ## 21. 开发顺序
 
@@ -1911,15 +1877,15 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 
 完成标准：Human 可以配对 Computer，Server 能可靠显示 online/offline。
 
-### Phase 4：Agent 与 Codex
+### Phase 4：Agent 对话闭环
 
 - Agent 创建和本地 provision。
 - Role、Memory、Agent lifecycle。
-- Driver interface 和 Codex exec --json。
+- Driver interface、Codex exec --json 和 Builtin provider/tool loop。
 - `sumi agent` context/message/attachment commands。
 - Agent DM immediate attention。
 
-完成标准：Human 可以 DM Agent，Agent 使用 CLI 读取并回复。
+完成标准：Human 可以在 DM、Channel 和 Thread 与真实运行的 Agent 对话，Agent 使用 CLI 读取、回复并原子处理 Inbox。
 
 ### Phase 5：完整注意力与治理
 
@@ -1933,13 +1899,12 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 
 完成标准：群聊普通消息可以被 Agent 自主判断，失败不会丢消息或重复回复。
 
-### Phase 6：安全与验收
+### Phase 6：产品收口与验收
 
-- BYOK envelope。
 - audit、rate limit、redaction。
 - crash/reconnect/idempotency tests。
 - 最终 Playwright desktop/mobile 验收与 screenshots；日常开发不反复运行完整 E2E。
-- 性能和故障注入。
+- macOS/Linux 构建、sandbox 与故障恢复验收。
 
 ## 22. 必须通过的端到端验收
 
@@ -1962,18 +1927,19 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 
 1. 未配对 daemon 生成短时 URL。
 2. 非 Human Admin 不能确认配对。
-3. 配对成功后 Computer 变 online。
-4. Human 创建 Agent 后，目录只出现在目标 Computer。
-5. Computer offline 时 Agent Inbox 累积，不在 Server 上执行 Driver。
-6. Computer 删除后旧 credential 不能重连，在线或再次启动的 daemon 必须退出。
+3. 配对成功后 Computer Token 只保存在本机，Server 只保存 hash，Computer 变 online。
+4. daemon 退出或断网后 Computer 只变 offline；使用同一 Token 重连后恢复 online，不重新 Pair。
+5. Human 创建 Agent 后，目录只出现在目标 Computer。
+6. Computer offline 时 Agent Inbox 累积，不在 Server 上执行 Driver。
+7. Computer 删除后旧 Token 不能重连，在线或再次启动的 daemon 必须退出。
 
 ### 22.4 DM 注意力
 
 1. Human 给 Agent 发 DM。
 2. Server 创建一个 hard Inbox Item。
-3. daemon 在 1s 目标内收到通知并启动 Codex。
-4. Codex 通过 sumi agent inbox current 和 sumi agent channel read 获取内容。
-5. Codex 使用 sumi agent message send --handle 回复。
+3. daemon 收到通知并启动 Agent 当前 Driver；Builtin 必须作为 v1 验收 Driver 跑通。
+4. Agent 通过 sumi agent inbox current 和 sumi agent channel read 获取内容。
+5. Agent 使用 sumi agent message send --handle 回复。
 6. Message 与 Inbox handled 在同一事务完成。
 
 ### 22.5 Channel ambient 注意力
@@ -2002,8 +1968,8 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 
 ### 22.8 崩溃与幂等
 
-1. Codex 在发送前崩溃，lease 到期后 Item 回到 pending。
-2. Codex 发送并 handle 后 daemon 立即崩溃。
+1. Driver 在发送前崩溃，lease 到期后 Item 回到 pending。
+2. Driver 发送并 handle 后 daemon 立即崩溃。
 3. 重启后不得重复发送。
 4. 连续失败达到 max retries 后 Item 变 dead，并通知 Owner/Admin。
 

@@ -56,6 +56,10 @@ _Avoid_：File、Blob、Artifact
 与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机。
 _Avoid_：Node、Worker、Runner、Device
 
+**Computer Token**：
+由 Computer 首次配对时在本机生成并长期持有、用于向 Server 证明该 Computer 身份的凭据；离线和重连不改变配对关系，只有删除 Computer 才使其失效。
+_Avoid_：Pairing Code、Session Token、API Key、Computer Credential
+
 **Agent Home**：
 归属于一个 Agent、保存其 Memory、workspace 和 Driver 私有状态的本地持久边界。
 _Avoid_：Workspace、Computer Home、Driver Home
@@ -97,7 +101,3 @@ _Avoid_：Agent Admin、Human Admin（仅强调 Human-only 例外时可用）
 **Approval**：
 具有明确申请人、审批人和结果的治理决定。
 _Avoid_：Confirmation Message、Permission Prompt
-
-**Secret Envelope**：
-绑定目标 Computer、可由 Server 保存但不能解密的加密 Secret。
-_Avoid_：Encrypted Config、API Key Record、Secret Blob
