@@ -199,6 +199,7 @@ pub struct InvitationResponse {
     pub space_name: String,
     pub space_slug: String,
     pub email: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
 }
 

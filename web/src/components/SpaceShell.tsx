@@ -9,13 +9,12 @@ import {
   MessageCircle,
   Monitor,
   Plus,
-  Settings,
   Users,
   X,
   type LucideIcon,
 } from "lucide-react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ApiRequestError,
@@ -24,9 +23,11 @@ import {
   getSpaceBySlug,
   joinChannel,
   listChannels,
+  listComputers,
   listDirectMessages,
   listMembers,
   type Channel,
+  type Computer,
   type DirectMessage,
   type Member,
   type Space,
@@ -57,7 +58,17 @@ export function SpaceShell({
   const location = useLocation();
   const queryClient = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [navigationTrigger, setNavigationTrigger] = useState<HTMLElement | null>(null);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
+  const navigationPanel = useRef<HTMLElement>(null);
+  function closeNavigation() {
+    setNavigationOpen(false);
+    window.requestAnimationFrame(() => navigationTrigger?.focus());
+  }
+  function openNavigation() {
+    setNavigationTrigger(document.activeElement as HTMLElement);
+    setNavigationOpen(true);
+  }
   const space = useQuery({
     queryKey: ["space", spaceSlug],
     queryFn: () => getSpaceBySlug(spaceSlug),
@@ -77,6 +88,11 @@ export function SpaceShell({
     queryKey: ["members", space.data?.id],
     queryFn: () => listMembers(space.data!.id),
     enabled: Boolean(space.data),
+  });
+  const computers = useQuery({
+    queryKey: ["computers", space.data?.id],
+    queryFn: () => listComputers(space.data!.id),
+    enabled: active === "computers" && Boolean(space.data),
   });
   useSpaceEvents(space.data?.id);
   const channelCreation = useMutation({
@@ -103,7 +119,7 @@ export function SpaceShell({
     },
   });
   const routeError =
-    space.error ?? user.error ?? channels.error ?? directMessages.error ?? members.error;
+    space.error ?? user.error ?? channels.error ?? directMessages.error ?? members.error ?? computers.error;
 
   useEffect(() => {
     if (routeError instanceof ApiRequestError && routeError.status === 401) {
@@ -115,12 +131,35 @@ export function SpaceShell({
     }
   }, [navigate, routeError]);
 
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const panel = navigationPanel.current;
+    const closeButton = panel?.querySelector<HTMLButtonElement>(".navigation-close");
+    closeButton?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setNavigationOpen(false);
+        window.requestAnimationFrame(() => navigationTrigger?.focus());
+        return;
+      }
+      if (event.key !== "Tab" || !panel) return;
+      const focusable = [...panel.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input, select, textarea')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [navigationOpen, navigationTrigger]);
+
   if (
     space.isPending ||
     user.isPending ||
     channels.isPending ||
     directMessages.isPending ||
-    members.isPending
+    members.isPending || (active === "computers" && computers.isPending)
   ) {
     return <div className="route-status">Opening Space...</div>;
   }
@@ -151,6 +190,18 @@ export function SpaceShell({
         </Link>
         <nav className="rail-tools" aria-label="Space management">
           <RailItem
+            icon={MessageCircle}
+            label="Conversation"
+            active={active === "channel" || active === "dm"}
+            href={`/s/${space.data.slug}/channels/general`}
+          />
+          <RailItem
+            icon={Inbox}
+            label="Inbox"
+            active={active === "inbox"}
+            href={`/s/${space.data.slug}/inbox`}
+          />
+          <RailItem
             icon={Users}
             label="Members"
             active={active === "members"}
@@ -164,7 +215,6 @@ export function SpaceShell({
           />
         </nav>
         <div className="rail-spacer" />
-        <RailItem icon={Settings} label="Space Settings (not available yet)" disabled />
         <PixelIdentity name={user.data.display_name} />
       </aside>
 
@@ -173,31 +223,70 @@ export function SpaceShell({
           className="navigation-scrim"
           type="button"
           aria-label="Close navigation"
-          onClick={() => setNavigationOpen(false)}
+          onClick={closeNavigation}
         />
       ) : null}
       <aside
+        ref={navigationPanel}
         className={`space-navigation${navigationOpen ? " space-navigation--open" : ""}`}
         aria-label="Space navigation"
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("a")) closeNavigation();
+        }}
       >
         <header className="space-name-row">
-          <strong title={space.data.name}>{space.data.name}</strong>
+          <strong title={space.data.name}>{active === "channel" || active === "dm" ? space.data.name : capitalize(active)}</strong>
           <ChevronDown className="desktop-only" aria-hidden="true" />
           <button
             className="navigation-close icon-button"
             type="button"
             aria-label="Close navigation"
             title="Close navigation"
-            onClick={() => setNavigationOpen(false)}
+            onClick={closeNavigation}
           >
             <X />
           </button>
         </header>
         <nav>
+          <div className="mobile-space-tools" aria-label="Space tools">
+            <NavigationItem
+              icon={MessageCircle}
+              label="Conversation"
+              active={active === "channel" || active === "dm"}
+              href={`/s/${space.data.slug}/channels/general`}
+            />
+            <NavigationItem
+              icon={Users}
+              label="Members"
+              active={active === "members"}
+              href={`/s/${space.data.slug}/members`}
+            />
+            <NavigationItem
+              icon={Monitor}
+              label="Computers"
+              active={active === "computers"}
+              href={`/s/${space.data.slug}/computers`}
+            />
+            {active !== "channel" && active !== "dm" ? (
+              <NavigationItem
+                icon={Inbox}
+                label="Inbox"
+                active={active === "inbox"}
+                href={`/s/${space.data.slug}/inbox`}
+              />
+            ) : null}
+          </div>
+          {active === "members" ? (
+            <MembersNavigation members={members.data} spaceSlug={space.data.slug} locationPath={location.pathname} />
+          ) : active === "computers" ? (
+            <ComputersNavigation computers={computers.data ?? []} spaceSlug={space.data.slug} activeHash={location.hash} />
+          ) : active === "inbox" ? (
+            <InboxNavigation />
+          ) : (
+            <>
           <NavigationItem
             icon={Inbox}
             label="Inbox"
-            active={active === "inbox"}
             href={`/s/${space.data.slug}/inbox`}
           />
           <div className="nav-section-heading">
@@ -275,6 +364,8 @@ export function SpaceShell({
               href={`/s/${space.data.slug}/dm/${dm.other_member.id}`}
             />
           ))}
+            </>
+          )}
         </nav>
       </aside>
 
@@ -285,11 +376,25 @@ export function SpaceShell({
         directMessages: directMessages.data,
         currentMember,
         navigationOpen,
-        openNavigation: () => setNavigationOpen(true),
+        openNavigation,
       })}
     </main>
   );
 }
+
+function MembersNavigation({ members, spaceSlug, locationPath }: { members: Member[]; spaceSlug: string; locationPath: string }) {
+  return <><p className="nav-label">MEMBERS · {members.length}</p>{members.map((member) => member.kind === "agent" ? <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Agent</small></span></Link> : <div className="context-entity-row context-entity-row--static" key={member.id}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Human</small></span></div>)}</>;
+}
+
+function ComputersNavigation({ computers, spaceSlug, activeHash }: { computers: Computer[]; spaceSlug: string; activeHash: string }) {
+  return <><p className="nav-label">COMPUTERS · {computers.length}</p>{computers.length ? computers.map((computer, index) => { const hash = `computer-${computer.id}`; const selected = activeHash === `#${hash}` || (!activeHash && index === 0); return <Link key={computer.id} className={`context-entity-row${selected ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={hash}><Monitor aria-hidden="true" /><span><strong title={computer.name}>{computer.name}</strong><small>{computer.status} · {computer.hostname}</small></span></Link>; }) : <p className="nav-empty">No paired Computers</p>}</>;
+}
+
+function InboxNavigation() {
+  return <div className="context-groups" aria-label="Inbox groups"><span><strong>01</strong> Approvals</span><span><strong>02</strong> DM &amp; mentions</span><span><strong>03</strong> Replies</span><span><strong>04</strong> Channel activity</span></div>;
+}
+
+function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }
 
 function RailItem({
   icon: Icon,

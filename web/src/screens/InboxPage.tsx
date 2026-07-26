@@ -71,7 +71,9 @@ function InboxWorkspace({
     },
   });
   const pendingApprovals = approvals.data?.filter((approval) => approval.status === "pending") ?? [];
-  const attentionItems = inbox.data?.filter((item) => item.kind !== "approval") ?? [];
+  const attentionItems = [...(inbox.data?.filter((item) => item.kind !== "approval") ?? [])].sort(
+    (left, right) => inboxRank(left.kind) - inboxRank(right.kind),
+  );
 
   function open(item: InboxItem) {
     if (item.kind === "direct" && item.sender_member_id) {
@@ -112,7 +114,7 @@ function InboxWorkspace({
                 <div>
                   <span className="inbox-kind">approval</span>
                   <strong>{approval.payload.name}</strong>
-                  <p>Requested by {approval.requester_name} on Codex.</p>
+                  <p>Requested by {approval.requester_name} for the {approval.payload.driver_kind} Driver.</p>
                 </div>
                 <div className="inbox-actions">
                   <button
@@ -149,6 +151,7 @@ function InboxWorkspace({
               <strong>{item.sender_display_name ?? "Sumi"}</strong>
               <span className="inbox-address">{item.channel_slug ? `#${item.channel_slug}${item.thread_id ? `:${item.thread_id}` : ""}` : "SYSTEM"}</span>
               <p>{item.summary ?? "Attention required"}</p>
+              <time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time>
             </button>
             <div className="inbox-actions">
               <button type="button" aria-label="Complete Inbox Item" onClick={() => ack.mutate(item.id)}><Check />DONE</button>
@@ -159,4 +162,11 @@ function InboxWorkspace({
       </div>
     </section>
   );
+}
+
+function inboxRank(kind: InboxItem["kind"]): number {
+  if (kind === "direct" || kind === "mention") return 0;
+  if (kind === "reply" || kind === "thread_activity") return 1;
+  if (kind === "channel_activity") return 2;
+  return 3;
 }

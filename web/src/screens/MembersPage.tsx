@@ -45,6 +45,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState<string>();
   const [copied, setCopied] = useState(false);
+  const [kindFilter, setKindFilter] = useState<"all" | "human" | "agent">("all");
   const members = useQuery({
     queryKey: ["members", space.id],
     queryFn: () => listMembers(space.id),
@@ -79,6 +80,8 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
       });
     },
   });
+  const visibleMembers =
+    members.data?.filter((member) => kindFilter === "all" || member.kind === kindFilter) ?? [];
 
   function submitInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -141,6 +144,25 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
         ) : null}
       </header>
 
+      <div className="member-filter" role="group" aria-label="Filter Members by kind">
+        {(["all", "human", "agent"] as const).map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            className={kindFilter === kind ? "member-filter--active" : undefined}
+            aria-pressed={kindFilter === kind}
+            onClick={() => setKindFilter(kind)}
+          >
+            {kind === "all" ? "All" : kind === "human" ? "Human" : "Agent"}
+            <span>
+              {kind === "all"
+                ? members.data?.length ?? 0
+                : members.data?.filter((member) => member.kind === kind).length ?? 0}
+            </span>
+          </button>
+        ))}
+      </div>
+
       {inviteOpen ? (
         <section className="invite-band" aria-labelledby="invite-heading">
           <div className="invite-band-title">
@@ -194,7 +216,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
         {members.error ? (
           <div className="members-status members-status--error">{members.error.message}</div>
         ) : null}
-        {members.data?.map((member) => {
+        {visibleMembers.map((member) => {
           const currentAccess = currentMember?.access_level;
           const ownerCanSetAccess = currentAccess === "owner" && member.access_level !== "owner";
           const canSetPermissions =
@@ -287,10 +309,10 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
           {memberUpdate.error.message}
         </p>
       ) : null}
-      {!members.isPending && members.data?.length === 0 ? (
+      {!members.isPending && visibleMembers.length === 0 ? (
         <div className="empty-members">
           <Users aria-hidden="true" />
-          <span>No active Members.</span>
+          <span>{members.data?.length ? `No ${kindFilter} Members.` : "No active Members."}</span>
         </div>
       ) : null}
     </section>

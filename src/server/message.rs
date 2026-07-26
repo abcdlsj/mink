@@ -30,8 +30,11 @@ pub struct MessageResponse {
     pub body_markdown: String,
     pub mentions: Vec<Uuid>,
     pub attachments: Vec<attachment::AttachmentResponse>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub edited_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub deleted_at: Option<OffsetDateTime>,
     pub thread_id: Option<i64>,
     pub reply_count: i64,
@@ -673,3 +676,7 @@ pub(super) async fn message_by_id(
     response.attachments = attachment::attachments_for_message(transaction, message_id).await?;
     Ok(response)
 }
+
+#[cfg(test)]
+#[path = "message_tests.rs"]
+mod tests;

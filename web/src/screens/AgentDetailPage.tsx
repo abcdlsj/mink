@@ -1,11 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { Brain, Eye, Menu, Pause, Play, RotateCcw, Save, Trash2, X } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { Brain, Eye, Inbox, Menu, Pause, Play, RotateCcw, Save, Trash2, X } from "lucide-react";
+import { type FormEvent, type ReactNode, useState } from "react";
 
 import { getAgent, readAgentMemory, updateAgent } from "../api/client";
-import { SpaceShell } from "../components/SpaceShell";
+import { PixelIdentity, SpaceShell } from "../components/SpaceShell";
 import { formatBytes } from "../format";
+
+type AgentTab = "overview" | "memory" | "inbox" | "settings";
 
 export function AgentDetailPage() {
   const { spaceSlug, agentId } = useParams({ from: "/s/$spaceSlug/agents/$agentId" });
@@ -22,16 +24,9 @@ export function AgentDetailPage() {
   );
 }
 
-function AgentWorkspace({
-  agentId,
-  canManage,
-  openNavigation,
-}: {
-  agentId: string;
-  canManage: boolean;
-  openNavigation: () => void;
-}) {
+function AgentWorkspace({ agentId, canManage, openNavigation }: { agentId: string; canManage: boolean; openNavigation: () => void }) {
   const queryClient = useQueryClient();
+  const [tab, setTab] = useState<AgentTab>("overview");
   const [cancelNow, setCancelNow] = useState(false);
   const agent = useQuery({ queryKey: ["agent", agentId], queryFn: () => getAgent(agentId) });
   const update = useMutation({
@@ -42,9 +37,7 @@ function AgentWorkspace({
       void queryClient.invalidateQueries({ queryKey: ["members", updated.space_id] });
     },
   });
-  const memory = useMutation({
-    mutationFn: (path: string) => readAgentMemory(agentId, path),
-  });
+  const memory = useMutation({ mutationFn: (path: string) => readAgentMemory(agentId, path) });
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,68 +56,68 @@ function AgentWorkspace({
     });
   }
 
-  if (agent.isPending) return <p className="route-status">Loading Agent...</p>;
-  if (agent.error || !agent.data) return <p className="route-status route-status--error">Agent unavailable.</p>;
+  if (agent.isPending) return <div className="detail-skeleton" aria-label="Loading Agent" />;
+  if (agent.error || !agent.data) return <p className="route-status route-status--error">Agent unavailable. Check your permission and retry.</p>;
   const value = agent.data;
 
   return (
     <section className="agent-workspace" aria-labelledby="agent-heading">
-      <header className="members-header">
+      <header className="entity-detail-header">
         <button className="mobile-menu icon-button" type="button" aria-label="Open navigation" onClick={openNavigation}><Menu /></button>
-        <div className="members-title"><p className="section-kicker">AGENT MEMBER</p><h1 id="agent-heading">{value.name}</h1></div>
-        <span className={`agent-state agent-state--${value.status}`}>{value.status}</span>
+        <PixelIdentity name={value.name} />
+        <div className="entity-detail-title">
+          <div><h1 id="agent-heading" title={value.name}>{value.name}</h1><span className="agent-label">AGENT</span></div>
+          <p>@{value.handle} · {value.role_text}</p>
+        </div>
+        <span className={`agent-state agent-state--${value.status}`} role="status"><i />{value.status}</span>
       </header>
+      <nav className="detail-tabs" aria-label="Agent detail">
+        {(["overview", "memory", "inbox", "settings"] as const).map((item) => (
+          <button key={item} type="button" aria-current={tab === item ? "page" : undefined} onClick={() => setTab(item)}>
+            {item.charAt(0).toUpperCase() + item.slice(1)}
+          </button>
+        ))}
+      </nav>
       <div className="agent-detail-scroll">
         {value.last_error_code ? <p className="agent-error" role="alert">Agent error: <code>{value.last_error_code}</code></p> : null}
-        <dl className="agent-overview">
-          <div><dt>Handle</dt><dd>@{value.handle}</dd></div>
-          <div><dt>Computer</dt><dd>{value.computer_id}</dd></div>
-          <div><dt>Driver</dt><dd>{value.driver_kind}</dd></div>
-          <div><dt>Role revision</dt><dd>{value.role_revision}</dd></div>
-        </dl>
-        <form className="agent-settings" onSubmit={save}>
-          <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.status === "retired"} /></label>
-          <fieldset disabled={!canManage || value.status === "retired"}>
-            <legend>Attention</legend>
-            <label className="agent-check"><input name="ambient_enabled" type="checkbox" defaultChecked={value.attention_config.ambient_enabled} /> Ambient Channel attention</label>
-            <label>Debounce seconds<input name="ambient_debounce_seconds" type="number" min={1} max={60} defaultValue={value.attention_config.ambient_debounce_seconds} /></label>
-            <label>Maximum wait seconds<input name="ambient_max_wait_seconds" type="number" min={5} max={300} defaultValue={value.attention_config.ambient_max_wait_seconds} /></label>
-            <label>Maximum retries<input name="max_retry_count" type="number" min={1} max={255} defaultValue={value.attention_config.max_retry_count} /></label>
-          </fieldset>
-          {canManage && value.status !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
-        </form>
-        <section className="agent-memory" aria-labelledby="memory-heading">
-          <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
-          <p>Memory lives only on this Computer. If the Computer is lost, Sumi v1 cannot recover it.</p>
-          {value.memory_files.length === 0 ? <p>No Memory metadata reported.</p> : (
-            <ul>{value.memory_files.map((file) => (
-              <li key={file.path}>
-                <button className="memory-file-button" type="button" aria-label={`Read ${file.path}`} disabled={!canManage || memory.isPending} onClick={() => memory.mutate(file.path)}>
-                  <Eye /><strong>{file.path}</strong>
-                </button>
-                <span>{formatBytes(file.size)}</span><code>{file.sha256.slice(0, 12)}</code>
-              </li>
-            ))}</ul>
-          )}
-          {memory.data ? (
-            <section className="memory-reader" aria-label={`${memory.data.path} contents`}>
-              <header><strong>{memory.data.path}</strong><button className="icon-button" type="button" aria-label="Close Memory file" onClick={() => memory.reset()}><X /></button></header>
-              <pre>{memory.data.content}</pre>
-            </section>
-          ) : null}
-          {memory.error ? <p className="form-error" role="alert">{memory.error.message}</p> : null}
-        </section>
-        {canManage && value.status !== "retired" ? (
-          <section className="agent-lifecycle" aria-label="Agent lifecycle">
-            {value.status === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}
-            {value.status === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}
-            {value.status === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}
-            {value.status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}
-            <button className="danger-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retire" } })}><Trash2 /> Retire permanently</button>
+        {tab === "overview" ? (
+          <>
+            <DetailSection title="Identity"><dl className="detail-grid"><Field label="Display name" value={value.name} /><Field label="Handle" value={`@${value.handle}`} mono /></dl></DetailSection>
+            <DetailSection title="Access"><dl className="detail-grid"><Field label="Access Level" value={capitalize(value.access_level)} /><Field label="Role" value={value.role_text} /></dl></DetailSection>
+            <DetailSection title="Runtime"><dl className="detail-grid"><Field label="Computer" value={value.computer_id} mono /><Field label="Driver" value={capitalize(value.driver_kind)} /><Field label="Status" value={capitalize(value.status)} /><Field label="Role revision" value={String(value.role_revision)} mono /></dl></DetailSection>
+            <DetailSection title="Created"><dl className="detail-grid"><Field label="Created at" value={new Date(value.created_at).toLocaleString()} mono /><Field label="Last updated" value={new Date(value.updated_at).toLocaleString()} mono /></dl></DetailSection>
+          </>
+        ) : null}
+        {tab === "memory" ? (
+          <section className="agent-memory" aria-labelledby="memory-heading">
+            <div><Brain /><h2 id="memory-heading">Memory files</h2></div>
+            <p className="inline-notice">Memory lives only on this Computer. If the Computer is lost, Sumi v1 cannot recover it.</p>
+            {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can inspect Agent Memory metadata.</p> : null}
+            {value.memory_files.length === 0 ? <p>No Memory metadata reported.</p> : <ul>{value.memory_files.map((file) => (
+              <li key={file.path}><button className="memory-file-button" type="button" aria-label={`Read ${file.path}`} disabled={!canManage || memory.isPending} onClick={() => memory.mutate(file.path)}><Eye /><strong>{file.path}</strong></button><span>{formatBytes(file.size)}</span><time dateTime={file.updated_at}>{new Date(file.updated_at).toLocaleDateString()}</time></li>
+            ))}</ul>}
+            {memory.data ? <section className="memory-reader" aria-label={`${memory.data.path} contents`}><header><strong>{memory.data.path}</strong><button className="icon-button" type="button" aria-label="Close Memory file" onClick={() => memory.reset()}><X /></button></header><pre>{memory.data.content}</pre></section> : null}
+            {memory.error ? <p className="form-error" role="alert">Memory unavailable. The Computer may be offline or you may lack permission.</p> : null}
           </section>
         ) : null}
-        {update.error ? <p className="form-error" role="alert">{update.error.message}</p> : null}
+        {tab === "inbox" ? <DetailSection title="Inbox"><div className="agent-inbox-state"><Inbox aria-hidden="true" /><h2>Attention status</h2><p>Agent Inbox contents stay private. This view exposes only safe runtime status.</p><dl className="detail-grid"><Field label="Agent status" value={capitalize(value.status)} /><Field label="Last failure" value={value.last_error_code ?? "No recent failure reported"} mono={Boolean(value.last_error_code)} /></dl></div></DetailSection> : null}
+        {tab === "settings" ? (
+          <>
+            {!canManage ? <p className="permission-notice" role="status">Permission denied. Only Owner or Admin can change Agent settings.</p> : null}
+            <form className="agent-settings" onSubmit={save}>
+              <label>Role<textarea name="role_text" defaultValue={value.role_text} maxLength={12000} required disabled={!canManage || value.status === "retired"} /></label>
+              <fieldset disabled={!canManage || value.status === "retired"}><legend>Attention</legend><label className="agent-check"><input name="ambient_enabled" type="checkbox" defaultChecked={value.attention_config.ambient_enabled} /> Ambient Channel attention</label><label>Debounce seconds<input name="ambient_debounce_seconds" type="number" min={1} max={60} defaultValue={value.attention_config.ambient_debounce_seconds} /></label><label>Maximum wait seconds<input name="ambient_max_wait_seconds" type="number" min={5} max={300} defaultValue={value.attention_config.ambient_max_wait_seconds} /></label><label>Maximum retries<input name="max_retry_count" type="number" min={1} max={255} defaultValue={value.attention_config.max_retry_count} /></label></fieldset>
+              {canManage && value.status !== "retired" ? <button className="command-button command-button--accent" type="submit" disabled={update.isPending}><Save /> Save configuration</button> : null}
+            </form>
+            {canManage && value.status !== "retired" ? <section className="agent-lifecycle" aria-label="Agent lifecycle"><h2>Lifecycle</h2>{value.status === "active" ? <label className="agent-check"><input type="checkbox" checked={cancelNow} onChange={(event) => setCancelNow(event.target.checked)} /> Cancel the active run now</label> : null}{value.status === "active" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "suspend", mode: cancelNow ? "cancel_now" : "stop_after_current" } })}><Pause /> Suspend</button> : null}{value.status === "suspended" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "resume" } })}><Play /> Resume</button> : null}{value.status === "error" ? <button className="command-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retry" } })}><RotateCcw /> Retry provision</button> : null}<button className="danger-button" type="button" disabled={update.isPending} onClick={() => update.mutate({ lifecycle: { action: "retire" } })}><Trash2 /> Retire permanently</button></section> : null}
+            {update.error ? <p className="form-error" role="alert">The Agent update failed. Your changes remain on screen; retry when ready.</p> : null}
+          </>
+        ) : null}
       </div>
     </section>
   );
 }
+
+function DetailSection({ title, children }: { title: string; children: ReactNode }) { return <section className="detail-section"><h2>{title}</h2>{children}</section>; }
+function Field({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { return <div><dt>{label}</dt><dd className={mono ? "mono" : undefined}>{value}</dd></div>; }
+function capitalize(value: string): string { return value.charAt(0).toUpperCase() + value.slice(1); }

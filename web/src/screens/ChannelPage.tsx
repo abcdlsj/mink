@@ -174,9 +174,6 @@ export function MessageWorkspace({
           <PixelIdentity name={currentDisplayName} />
           <span>{currentDisplayName}</span>
         </div>
-        <button className="icon-button" type="button" aria-label="Notification settings" disabled>
-          <Bell />
-        </button>
         {canArchive ? (
           <button
             className="icon-button"
@@ -265,6 +262,12 @@ export function MessageWorkspace({
             value={body}
             maxLength={20_000}
             onChange={(event) => setBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
         </label>
         <button
@@ -306,6 +309,7 @@ export function MessageWorkspace({
           channelId={channel.id}
           spaceId={spaceId}
           threadId={threadId}
+          channelSlug={channel.slug}
           members={members.data ?? []}
           close={() => setThreadId(undefined)}
         />
@@ -318,12 +322,14 @@ function ThreadPane({
   channelId,
   spaceId,
   threadId,
+  channelSlug,
   members,
   close,
 }: {
   channelId: string;
   spaceId: string;
   threadId: number;
+  channelSlug: string;
   members: Member[];
   close: () => void;
 }) {
@@ -374,11 +380,11 @@ function ThreadPane({
   }
 
   return (
-    <aside className="thread-pane" aria-label={`Thread ${threadId}`}>
+    <aside className="thread-pane" aria-label={`Thread #${channelSlug}:${threadId}`}>
       <header className="thread-header">
         <div>
           <span>THREAD</span>
-          <strong>#{threadId}</strong>
+          <strong>#{channelSlug}:{threadId}</strong>
         </div>
         {thread.data ? (
           <button
@@ -437,6 +443,12 @@ function ThreadPane({
             maxLength={20_000}
             placeholder={`Reply to Thread #${threadId}`}
             onChange={(event) => setBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
           />
         </label>
         {attachments.length ? (

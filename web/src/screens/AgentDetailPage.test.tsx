@@ -49,10 +49,12 @@ describe("Agent detail", () => {
     renderRoute(`/s/sumi-lab/agents/${agentId}`);
 
     expect(await screen.findByRole("heading", { name: "Lin" })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(screen.getByText(/cannot recover it/i)).toBeVisible();
     expect(screen.getByText("MEMORY.md")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Read MEMORY.md" }));
     expect(await screen.findByText(/Keep the boundary explicit/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Enforce the specification." } });
     fireEvent.click(screen.getByRole("button", { name: /save configuration/i }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(

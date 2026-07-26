@@ -59,6 +59,7 @@ describe("Computer flows", () => {
       if (path.endsWith("/dms") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) return json([{ id: space.owner_member_id, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
       if (path.endsWith("/computers") && !init?.method) return json([{ id: computerId, space_id: space.id, name: "Studio", hostname: "studio.local", os: "macos", status: "online", daemon_version: "0.1.0", last_seen_at: "2026-07-25T00:00:00Z", created_at: "2026-07-25T00:00:00Z" }]);
+      if (path.endsWith("/agents") && !init?.method) return json([]);
       if (path.endsWith("/agents") && init?.method === "POST") return json({ member_id: "agent", space_id: space.id, computer_id: computerId, name: "Lin", handle: "lin", access_level: "member", role_text: "Review boundaries.", role_revision: 1, status: "provisioning", driver_kind: "codex", created_at: "2026-07-25T00:00:00Z" }, 201);
       if (path.endsWith(`/computers/${computerId}`) && init?.method === "DELETE") return json({ id: computerId, space_id: space.id, name: "Studio", hostname: "studio.local", os: "macos", status: "revoked", daemon_version: "0.1.0", last_seen_at: "2026-07-25T00:00:00Z", created_at: "2026-07-25T00:00:00Z" });
       throw new Error(`Unexpected request: ${path}`);
@@ -67,7 +68,7 @@ describe("Computer flows", () => {
     renderRoute("/s/sumi-lab/computers#create-agent");
 
     expect((await screen.findAllByText("Studio")).length).toBeGreaterThan(0);
-    expect(screen.getByText("online")).toBeVisible();
+    expect(screen.getAllByText("online")[0]).toBeVisible();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Review boundaries." } });
@@ -81,8 +82,9 @@ describe("Computer flows", () => {
         }),
       );
     });
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    await waitFor(() => expect(screen.getByText("revoked")).toBeVisible());
+    fireEvent.click(screen.getByRole("button", { name: "Revoke Computer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Revoke Studio" }));
+    await waitFor(() => expect(screen.getAllByText("revoked")[0]).toBeVisible());
   });
 });
 

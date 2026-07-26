@@ -104,9 +104,9 @@ describe("Phase one Human flows", () => {
     renderRoute("/s/sumi-lab/members");
 
     expect(await screen.findByRole("heading", { name: "Members" })).toBeVisible();
-    expect(await screen.findByText("Grace Hopper")).toBeVisible();
+    expect((await screen.findAllByText("Grace Hopper"))[0]).toBeVisible();
     expect(within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
-    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).queryByText("Members")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
@@ -131,7 +131,7 @@ describe("Phase one Human flows", () => {
       );
     });
 
-    fireEvent.click(screen.getByRole("link", { name: "Computers" }));
+    fireEvent.click(screen.getAllByRole("link", { name: "Computers" })[0]);
     expect(await screen.findByRole("heading", { name: "Computers" })).toBeVisible();
   });
 

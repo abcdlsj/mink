@@ -19,7 +19,7 @@ Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已�
 
 ### 0. WebUI 视觉与页面完整实现
 
-- [ ] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、revoked、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
+- [x] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、revoked、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
 
 ### 1. Secret 与安全闭环
 
@@ -75,3 +75,7 @@ Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已�
 ## 验证记录
 
 格式：`YYYY-MM-DD | 项目 | 命令或证据 | 结果`。
+
+2026-07-26 | WebUI unit/type/lint/build | `pnpm --dir web test && pnpm --dir web lint && pnpm --dir web build` | 6 files / 11 tests passed；typecheck、ESLint、production build passed
+2026-07-26 | WebUI real E2E matrix | `SUMI_SERVER__BIND=127.0.0.1:3100 cargo run -- server`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | 1440x900、1024x768、390x844 共 3 projects passed；覆盖 long Message、Attachment、Thread、Members、Computers、Inbox、mobile drawer 与 reduced motion
+2026-07-26 | WebUI phase unified gate | `cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo test --all-features`；`git diff --check` | clippy clean；Rust 49 unit + 3 CLI + 1 real PostgreSQL migration tests passed；diff check passed

@@ -28,6 +28,7 @@ pub struct ThreadResponse {
     pub thread_id: i64,
     pub root_message_id: Uuid,
     pub created_by_member_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 

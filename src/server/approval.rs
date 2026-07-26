@@ -38,7 +38,9 @@ pub struct ApprovalResponse {
     pub payload: serde_json::Value,
     pub status: String,
     pub resolved_by_member_id: Option<Uuid>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub resolved_at: Option<OffsetDateTime>,
 }
 

@@ -22,6 +22,7 @@ pub struct ChannelResponse {
     pub topic: Option<String>,
     pub created_by_member_id: Uuid,
     pub joined: bool,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub archived_at: Option<OffsetDateTime>,
 }
 
@@ -74,6 +75,7 @@ pub struct DirectMessageResponse {
     pub channel_id: Uuid,
     pub space_id: Uuid,
     pub other_member: member::MemberResponse,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 

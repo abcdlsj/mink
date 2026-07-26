@@ -28,6 +28,7 @@ pub struct PairingStartResponse {
     pub pairing_id: Uuid,
     pub code: String,
     pub browser_path: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
 }
 
@@ -111,7 +112,9 @@ pub struct ComputerResponse {
     pub os: String,
     pub status: String,
     pub daemon_version: String,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub last_seen_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
@@ -274,6 +277,7 @@ pub struct PairingDetailsResponse {
     pub os: String,
     pub daemon_version: String,
     pub public_key_fingerprint: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub expires_at: OffsetDateTime,
     pub status: String,
 }

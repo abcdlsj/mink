@@ -30,6 +30,7 @@ pub struct AttachmentResponse {
     pub status: String,
     pub upload_path: Option<String>,
     pub download_path: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 

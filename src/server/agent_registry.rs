@@ -35,8 +35,11 @@ pub struct AgentResponse {
     pub status: String,
     pub driver_kind: String,
     pub attention_config: AttentionConfig,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
     pub retired_at: Option<OffsetDateTime>,
     pub last_error_code: Option<String>,
     pub memory_files: Vec<MemoryFileResponse>,
@@ -77,6 +80,7 @@ pub struct MemoryFileResponse {
     pub path: String,
     pub size: i64,
     pub sha256: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: OffsetDateTime,
 }
 

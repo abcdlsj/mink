@@ -25,7 +25,9 @@ pub struct InboxItemResponse {
     pub sender_display_name: Option<String>,
     pub summary: Option<String>,
     pub status: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub available_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
@@ -74,6 +76,7 @@ pub async fn ack(
 
 #[derive(Deserialize, Serialize)]
 pub struct DeferRequest {
+    #[serde(with = "time::serde::rfc3339")]
     pub until: OffsetDateTime,
 }
 
