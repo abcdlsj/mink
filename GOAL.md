@@ -44,7 +44,7 @@
 
 - [x] 增加真实进程级测试：启动临时 PostgreSQL、Sumi Server、Computer daemon、本地 fake OpenAI-compatible provider 和 Builtin Agent，由 Human 发送 DM，不能用手工 command frame 代替 daemon。
 - [x] 验证 daemon claim hard Inbox、启动唯一 Agent Run，Builtin 通过 sandbox 内真实 `sumi agent inbox current` 与 `channel read` 读取 DM，再用 `message send --handle` 回复。
-- [ ] 验证 Agent Message 作者、Channel sequence、结构化地址、SSE 更新和 Inbox handled；Message 与 handled 必须在同一 PostgreSQL 事务提交。
+- [x] 验证 Agent Message 作者、Channel sequence、结构化地址、SSE 更新和 Inbox handled；Message 与 handled 必须在同一 PostgreSQL 事务提交。
 - [ ] 验证模型最终文本和 Driver stdout 不会自动成为 Message；只有 `sumi agent message send` 能发布。
 - [ ] 验证发送前 Driver 失败会 release/retry，发送并 handle 后 daemon 崩溃不会重复回复，连续失败最终 dead 并通知 Human Admin/Owner。
 
@@ -103,3 +103,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | Builtin provider smoke | `cargo test live_builtin_provider_smoke_from_pi_sources -- --ignored` | 从权限 0600 的本机 Pi auth source 在进程内加载认证，确认选择 `deepseek/deepseek-v4-pro` 与 `https://api.deepseek.com`，真实 OpenAI-compatible SSE 请求通过；测试未输出认证、请求正文或响应正文，常规自动测试仍只使用本地 fake provider
 2026-07-27 | Agent DM 真实进程 harness | `cargo test --test agent_dm -- --nocapture` | 启动隔离 PostgreSQL、真实 `sumi server`、真实 `sumi computer` 和本地 fake OpenAI-compatible SSE provider；通过 Human API 配对 Computer、provision Builtin Agent、创建 DM 并发送 Message，provider 收到真实请求，PostgreSQL 验证恰好一个 `builtin/running` Agent Run 和一个 `leased` hard Inbox Item；未使用手写 WebSocket command frame
 2026-07-27 | Agent DM CLI 闭环 | `cargo test --test agent_dm -- --nocapture`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && git diff --check` | fake provider 通过 SSE 依次要求 Builtin sandbox 执行真实 `sumi agent inbox current --json`、`channel read` 和 `message send --handle`；真实 PostgreSQL 验证唯一 `builtin/completed` run、同 run 领取并 handle 唯一 `direct/hard` Inbox Item、Agent 回复为 Channel seq=2 且 Channel 仅有 Human 原消息与 CLI 回复；完整门禁通过 56 个常规 Rust tests、1 个真实 DM、3 个 CLI、2 个 Computer lifecycle 和 1 个 migration test，1 个手工 live-provider smoke 按设计 ignored
+2026-07-27 | Agent DM 事务与实时更新 | `cargo test --test agent_dm -- --nocapture`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features && git diff --check` | 在真实 Server、daemon、Builtin、Agent CLI 与 PostgreSQL 链路中，测试库延迟约束强制首次 send-and-handle 在提交点失败，验证 Agent Message、Inbox handled、Channel sequence 和对应 outbox 全部回滚；同 run 重试成功后，CLI 结构化 DM 地址、Browser API Agent 作者与 seq=2 一致，Space SSE 收到不含 Message 正文的 `inbox.changed` 和 `message.created`；完整 Rust 门禁全部通过

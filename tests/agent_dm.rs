@@ -11,6 +11,7 @@ use axum::{
     response::Response,
     routing::post,
 };
+use futures_util::StreamExt;
 use reqwest::Client;
 use sqlx::postgres::PgPoolOptions;
 use support::{
@@ -20,7 +21,7 @@ use support::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{Mutex, mpsc},
+    sync::{Mutex, Notify, mpsc},
     task::JoinHandle,
 };
 use url::Url;
@@ -28,6 +29,7 @@ use uuid::Uuid;
 
 struct FakeProvider {
     url: Url,
+    rollback_observed: mpsc::Receiver<()>,
     completed: mpsc::Receiver<()>,
     state: Arc<FakeProviderState>,
     task: JoinHandle<()>,
@@ -35,16 +37,32 @@ struct FakeProvider {
 
 struct FakeProviderState {
     step: Mutex<usize>,
+    rollback_observed: mpsc::Sender<()>,
+    retry_allowed: Notify,
+    observed_reply: Mutex<Option<ObservedAgentReply>>,
     completed: mpsc::Sender<()>,
+}
+
+#[derive(Clone)]
+struct ObservedAgentReply {
+    id: Uuid,
+    channel_id: Uuid,
+    address: String,
+    author_id: Uuid,
+    seq: i64,
 }
 
 impl FakeProvider {
     async fn start() -> Result<Self> {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
         let address = listener.local_addr()?;
+        let (rollback_observed_tx, rollback_observed) = mpsc::channel(1);
         let (completed_tx, completed) = mpsc::channel(1);
         let state = Arc::new(FakeProviderState {
             step: Mutex::new(0),
+            rollback_observed: rollback_observed_tx,
+            retry_allowed: Notify::new(),
+            observed_reply: Mutex::new(None),
             completed: completed_tx,
         });
         let app = Router::new()
@@ -55,10 +73,23 @@ impl FakeProvider {
         });
         Ok(Self {
             url: Url::parse(&format!("http://{address}"))?,
+            rollback_observed,
             completed,
             state,
             task,
         })
+    }
+
+    async fn wait_for_rollback(&mut self) -> Result<()> {
+        match tokio::time::timeout(Duration::from_secs(30), self.rollback_observed.recv()).await {
+            Ok(Some(())) => Ok(()),
+            Ok(None) => anyhow::bail!("fake provider stopped before observing the failed send"),
+            Err(_) => anyhow::bail!("Builtin Agent did not observe the forced transaction failure"),
+        }
+    }
+
+    fn allow_retry(&self) {
+        self.state.retry_allowed.notify_one();
     }
 
     async fn wait_for_completion(&mut self) -> Result<()> {
@@ -72,6 +103,15 @@ impl FakeProvider {
                 anyhow::bail!("Builtin Agent CLI sequence stopped after provider step {step}")
             }
         }
+    }
+
+    async fn observed_reply(&self) -> Result<ObservedAgentReply> {
+        self.state
+            .observed_reply
+            .lock()
+            .await
+            .clone()
+            .context("fake provider did not observe successful Agent reply metadata")
     }
 }
 
@@ -113,20 +153,44 @@ async fn chat_stream(
             let Some((inbox_id, address)) = claimed_inbox_identity(&request) else {
                 return bad_provider_request();
             };
-            if !latest_tool_result(&request).is_some_and(|result| valid_channel_read(&result)) {
+            if !latest_tool_result(&request)
+                .is_some_and(|result| valid_channel_read(&result, &address))
+            {
                 return bad_provider_request();
             }
             tool_call_stream(
-                "call-message-send",
+                "call-message-send-forced-rollback",
                 &format!(
                     "sumi agent message send {address} --body 'Acknowledged through the real Sumi CLI.' --handle {inbox_id} --json"
                 ),
             )
         }
         3 => {
-            if !latest_tool_result(&request).is_some_and(|result| valid_message_send(&result)) {
+            if !latest_tool_content(&request).is_some_and(valid_failed_message_send) {
                 return bad_provider_request();
             }
+            let Some((inbox_id, address)) = claimed_inbox_identity(&request) else {
+                return bad_provider_request();
+            };
+            let _ = state.rollback_observed.send(()).await;
+            state.retry_allowed.notified().await;
+            tool_call_stream(
+                "call-message-send-after-rollback",
+                &format!(
+                    "sumi agent message send {address} --body 'Acknowledged through the real Sumi CLI.' --handle {inbox_id} --json"
+                ),
+            )
+        }
+        4 => {
+            let Some((_, address)) = claimed_inbox_identity(&request) else {
+                return bad_provider_request();
+            };
+            let Some(reply) = latest_tool_result(&request)
+                .and_then(|result| valid_message_send(&result, &address))
+            else {
+                return bad_provider_request();
+            };
+            *state.observed_reply.lock().await = Some(reply);
             let _ = state.completed.send(()).await;
             text_stream("This final Driver text must not become a Message.")
         }
@@ -154,11 +218,16 @@ fn claimed_inbox_identity(request: &serde_json::Value) -> Option<(Uuid, String)>
 }
 
 fn latest_tool_result(request: &serde_json::Value) -> Option<serde_json::Value> {
+    serde_json::from_str(latest_tool_content(request)?).ok()
+}
+
+fn latest_tool_content(request: &serde_json::Value) -> Option<&str> {
     request["messages"]
         .as_array()?
         .iter()
         .rev()
-        .find_map(tool_result)
+        .find(|message| message["role"] == "tool")?["content"]
+        .as_str()
 }
 
 fn tool_result(message: &serde_json::Value) -> Option<serde_json::Value> {
@@ -168,21 +237,37 @@ fn tool_result(message: &serde_json::Value) -> Option<serde_json::Value> {
     serde_json::from_str(message["content"].as_str()?).ok()
 }
 
-fn valid_channel_read(result: &serde_json::Value) -> bool {
+fn valid_channel_read(result: &serde_json::Value, expected_address: &str) -> bool {
     result["ok"] == true
-        && result["data"]["address"]
-            .as_str()
-            .is_some_and(|address| address.starts_with('@'))
+        && result["data"]["address"] == expected_address
         && result["data"]["snapshot_channel_seq"].as_i64() == Some(1)
         && result["data"]["messages"]
             .as_array()
             .is_some_and(|messages| messages.len() == 1)
 }
 
-fn valid_message_send(result: &serde_json::Value) -> bool {
-    result["ok"] == true
+fn valid_failed_message_send(content: &str) -> bool {
+    content.starts_with("error:") && !content.contains("\"ok\":true")
+}
+
+fn valid_message_send(
+    result: &serde_json::Value,
+    expected_address: &str,
+) -> Option<ObservedAgentReply> {
+    (result["ok"] == true
+        && result["data"]["address"] == expected_address
         && result["data"]["author"]["kind"] == "agent"
-        && result["data"]["seq"].as_i64() == Some(2)
+        && result["data"]["seq"].as_i64() == Some(2))
+    .then(|| {
+        Some(ObservedAgentReply {
+            id: Uuid::parse_str(result["data"]["id"].as_str()?).ok()?,
+            channel_id: Uuid::parse_str(result["data"]["channel_id"].as_str()?).ok()?,
+            address: result["data"]["address"].as_str()?.to_owned(),
+            author_id: Uuid::parse_str(result["data"]["author"]["id"].as_str()?).ok()?,
+            seq: result["data"]["seq"].as_i64()?,
+        })
+    })
+    .flatten()
 }
 
 fn tool_call_stream(id: &str, command: &str) -> Response {
@@ -314,6 +399,18 @@ async fn builtin_agent_reads_and_replies_to_dm_through_real_cli() -> Result<()> 
     let dm: serde_json::Value = dm_response.json().await?;
     let channel_id = Uuid::parse_str(dm["channel_id"].as_str().context("DM channel id missing")?)?;
 
+    let events_response = client
+        .get(server_url.join(&format!("/api/v1/spaces/{}/events", space.id))?)
+        .header(header::COOKIE, &cookie)
+        .send()
+        .await?;
+    ensure!(
+        events_response.status() == StatusCode::OK,
+        "subscribe to Space events: {}",
+        events_response.status()
+    );
+    install_handled_rollback_trigger(&pool).await?;
+
     let message_response = client
         .post(server_url.join(&format!("/api/v1/channels/{channel_id}/messages"))?)
         .header("idempotency-key", Uuid::now_v7().to_string())
@@ -333,8 +430,22 @@ async fn builtin_agent_reads_and_replies_to_dm_through_real_cli() -> Result<()> 
     let message: serde_json::Value = message_response.json().await?;
     let message_id = Uuid::parse_str(message["id"].as_str().context("Message id missing")?)?;
 
+    provider.wait_for_rollback().await?;
+    let inbox_item_id =
+        assert_send_and_handle_rolled_back(&pool, channel_id, agent_id, message_id).await?;
+    remove_handled_rollback_trigger(&pool).await?;
+    provider.allow_retry();
     provider.wait_for_completion().await?;
-    assert_completed_dm_reply(&pool, agent_id, message_id).await?;
+    let reply = provider.observed_reply().await?;
+    ensure!(
+        reply.channel_id == channel_id
+            && reply.author_id == agent_id
+            && reply.seq == 2
+            && reply.address.starts_with('@')
+    );
+    assert_completed_dm_reply(&pool, agent_id, message_id, reply.id).await?;
+    assert_browser_message_read(&client, &server_url, &cookie, channel_id, &reply).await?;
+    assert_reply_sse(events_response, space.id, inbox_item_id, &reply).await?;
     daemon.ensure_running()?;
 
     daemon.interrupt().await?;
@@ -381,6 +492,7 @@ async fn assert_completed_dm_reply(
     pool: &sqlx::PgPool,
     agent_id: Uuid,
     message_id: Uuid,
+    reply_id: Uuid,
 ) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(20), async {
         loop {
@@ -391,7 +503,8 @@ async fn assert_completed_dm_reply(
                             items.status AS inbox_status, items.handled_by_run_id, \
                             (SELECT count(*) FROM agent_run_inbox_items WHERE run_id = runs.id) \
                                 AS linked_item_count, \
-                            (SELECT count(*) FROM messages WHERE channel_id = items.channel_id \
+                            (SELECT count(*) FROM messages WHERE id = $3 \
+                                AND channel_id = items.channel_id \
                                 AND author_member_id = $1 AND channel_seq = 2 \
                                 AND body_markdown = 'Acknowledged through the real Sumi CLI.') \
                                 AS cli_reply_count, \
@@ -404,6 +517,7 @@ async fn assert_completed_dm_reply(
             )
             .bind(agent_id)
             .bind(message_id)
+            .bind(reply_id)
             .fetch_optional(pool)
             .await?;
             if let Some(state) = state
@@ -425,4 +539,167 @@ async fn assert_completed_dm_reply(
     })
     .await
     .context("real Builtin run did not publish and handle the DM through the Agent CLI")?
+}
+
+async fn install_handled_rollback_trigger(pool: &sqlx::PgPool) -> Result<()> {
+    sqlx::query(
+        "CREATE FUNCTION test_reject_handled_inbox() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN IF NEW.status = 'handled' AND OLD.status = 'leased' THEN \
+             RAISE EXCEPTION 'test-only forced send-and-handle rollback'; \
+         END IF; RETURN NEW; END $$",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "CREATE CONSTRAINT TRIGGER test_reject_handled_inbox \
+         AFTER UPDATE ON inbox_items DEFERRABLE INITIALLY DEFERRED \
+         FOR EACH ROW EXECUTE FUNCTION test_reject_handled_inbox()",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn remove_handled_rollback_trigger(pool: &sqlx::PgPool) -> Result<()> {
+    sqlx::query("DROP TRIGGER test_reject_handled_inbox ON inbox_items")
+        .execute(pool)
+        .await?;
+    sqlx::query("DROP FUNCTION test_reject_handled_inbox()")
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct RolledBackSendAndHandle {
+    inbox_item_id: Uuid,
+    inbox_status: String,
+    handled_by_run_id: Option<Uuid>,
+    next_seq: i64,
+    message_count: i64,
+    agent_message_count: i64,
+    reply_event_count: i64,
+    handled_event_count: i64,
+}
+
+async fn assert_send_and_handle_rolled_back(
+    pool: &sqlx::PgPool,
+    channel_id: Uuid,
+    agent_id: Uuid,
+    source_message_id: Uuid,
+) -> Result<Uuid> {
+    let state: RolledBackSendAndHandle = sqlx::query_as(
+        "SELECT items.id AS inbox_item_id, items.status AS inbox_status, \
+                items.handled_by_run_id, channels.next_seq, \
+                (SELECT count(*) FROM messages WHERE channel_id = $1) AS message_count, \
+                (SELECT count(*) FROM messages WHERE channel_id = $1 \
+                    AND author_member_id = $2) AS agent_message_count, \
+                (SELECT count(*) FROM outbox_events WHERE topic = 'message.created' \
+                    AND payload_json->>'channel_id' = $1::text \
+                    AND payload_json->>'channel_seq' = '2') AS reply_event_count, \
+                (SELECT count(*) FROM outbox_events WHERE topic = 'inbox.changed' \
+                    AND aggregate_id = items.id) AS handled_event_count \
+         FROM inbox_items items JOIN channels ON channels.id = items.channel_id \
+         WHERE items.member_id = $2 AND items.message_id = $3",
+    )
+    .bind(channel_id)
+    .bind(agent_id)
+    .bind(source_message_id)
+    .fetch_one(pool)
+    .await?;
+    ensure!(
+        state.inbox_status == "leased"
+            && state.handled_by_run_id.is_none()
+            && state.next_seq == 2
+            && state.message_count == 1
+            && state.agent_message_count == 0
+            && state.reply_event_count == 0
+            && state.handled_event_count == 0,
+        "forced transaction failure did not roll back send-and-handle state"
+    );
+    Ok(state.inbox_item_id)
+}
+
+async fn assert_browser_message_read(
+    client: &Client,
+    server_url: &Url,
+    cookie: &str,
+    channel_id: Uuid,
+    reply: &ObservedAgentReply,
+) -> Result<()> {
+    let response = client
+        .get(server_url.join(&format!("/api/v1/channels/{channel_id}/messages"))?)
+        .header(header::COOKIE, cookie)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "read DM messages: {}",
+        response.status()
+    );
+    let page: serde_json::Value = response.json().await?;
+    let messages = page["messages"]
+        .as_array()
+        .context("Browser Message page missing messages")?;
+    let api_reply = messages
+        .iter()
+        .find(|message| message["id"].as_str() == Some(reply.id.to_string().as_str()))
+        .context("Browser Message page missing Agent reply")?;
+    ensure!(
+        page["channel_id"] == channel_id.to_string()
+            && page["snapshot_channel_seq"].as_i64() == Some(2)
+            && api_reply["seq"].as_i64() == Some(reply.seq)
+            && api_reply["author"]["id"] == reply.author_id.to_string()
+            && api_reply["author"]["kind"] == "agent"
+    );
+    Ok(())
+}
+
+async fn assert_reply_sse(
+    response: reqwest::Response,
+    space_id: Uuid,
+    handled_item_id: Uuid,
+    reply: &ObservedAgentReply,
+) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async move {
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
+        let mut saw_message = false;
+        let mut saw_handled = false;
+        while let Some(chunk) = stream.next().await {
+            buffer.push_str(std::str::from_utf8(&chunk?)?);
+            while let Some(end) = buffer.find("\n\n") {
+                let frame = buffer.drain(..end + 2).collect::<String>();
+                let Some(data) = frame.lines().find_map(|line| line.strip_prefix("data: ")) else {
+                    continue;
+                };
+                let event: serde_json::Value = serde_json::from_str(data)?;
+                ensure!(event["space_id"] == space_id.to_string());
+                let payload = &event["data"];
+                ensure!(payload.get("body_markdown").is_none());
+                if event["type"] == "message.created"
+                    && payload["message_id"] == reply.id.to_string()
+                {
+                    ensure!(
+                        payload["channel_id"] == reply.channel_id.to_string()
+                            && payload["channel_seq"].as_i64() == Some(reply.seq)
+                    );
+                    saw_message = true;
+                }
+                if event["type"] == "inbox.changed"
+                    && payload["item_id"] == handled_item_id.to_string()
+                {
+                    ensure!(payload["member_id"] == reply.author_id.to_string());
+                    saw_handled = true;
+                }
+                if saw_message && saw_handled {
+                    return Ok::<_, anyhow::Error>(());
+                }
+            }
+        }
+        anyhow::bail!("Space SSE ended before Agent reply events arrived")
+    })
+    .await
+    .context("Space SSE did not deliver Agent reply events")??;
+    Ok(())
 }
