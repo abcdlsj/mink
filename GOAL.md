@@ -17,6 +17,10 @@ Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已�
 
 ## 剩余工作
 
+### 0. WebUI 视觉与页面完整实现
+
+- [ ] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、revoked、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
+
 ### 1. Secret 与安全闭环
 
 - [ ] 完成 BYOK Secret Envelope 纵向路径：Browser WebCrypto 封装、Server 仅保存密文、目标 Computer 解密和受限本地保存、可用状态回报、Computer revoke 后失效。
