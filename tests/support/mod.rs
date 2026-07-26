@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{
     ffi::OsStr,
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -8,6 +10,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail, ensure};
+use reqwest::{Client, StatusCode, header};
+use serde::Deserialize;
 use sqlx::{Connection, Executor, PgConnection, postgres::PgConnectOptions};
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
@@ -18,6 +22,17 @@ use tokio::{
 };
 use url::Url;
 use uuid::Uuid;
+
+#[derive(Deserialize)]
+pub struct SpaceResponse {
+    pub id: Uuid,
+}
+
+#[derive(Deserialize)]
+pub struct ComputerResponse {
+    pub id: Uuid,
+    pub status: String,
+}
 
 pub struct TestDatabase {
     admin_url: String,
@@ -294,6 +309,216 @@ pub fn write_computer_config(path: &Path, server: &Url, state_dir: &Path) -> Res
         ),
     )?;
     Ok(())
+}
+
+pub fn write_builtin_computer_config(
+    path: &Path,
+    server: &Url,
+    state_dir: &Path,
+    provider_base_url: &Url,
+) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let settings = state_dir
+        .parent()
+        .context("Computer state has no parent")?
+        .join("builtin-settings.json");
+    let models = state_dir
+        .parent()
+        .context("Computer state has no parent")?
+        .join("builtin-models.json");
+    let auth = state_dir
+        .parent()
+        .context("Computer state has no parent")?
+        .join("builtin-auth.json");
+    std::fs::write(
+        &settings,
+        serde_json::to_vec(&serde_json::json!({
+            "defaultProvider": "local-test",
+            "defaultModel": "sumi-test-model"
+        }))?,
+    )?;
+    std::fs::write(
+        &models,
+        serde_json::to_vec(&serde_json::json!({
+            "local-test": {
+                "models": [{
+                    "id": "sumi-test-model",
+                    "api": "openai-completions",
+                    "baseUrl": provider_base_url
+                }]
+            }
+        }))?,
+    )?;
+    std::fs::write(
+        &auth,
+        serde_json::to_vec(&serde_json::json!({
+            "local-test": { "type": "api_key", "key": "test-only-provider-key" }
+        }))?,
+    )?;
+    std::fs::set_permissions(&auth, std::fs::Permissions::from_mode(0o600))?;
+    std::fs::write(
+        path,
+        format!(
+            "[computer]\nserver_url = '{server}'\nstate_dir = '{}'\nbuiltin_settings_source = '{}'\nbuiltin_models_source = '{}'\nbuiltin_auth_source = '{}'\nmax_concurrent_runs = 1\nper_agent_timeout_seconds = 60\nshutdown_grace_period_seconds = 1\n",
+            state_dir.display(),
+            settings.display(),
+            models.display(),
+            auth.display(),
+        ),
+    )?;
+    Ok(())
+}
+
+pub fn spawn_server(config: &Path) -> Result<SumiProcess> {
+    SumiProcess::spawn(
+        [
+            OsStr::new("server"),
+            OsStr::new("--config"),
+            config.as_os_str(),
+        ],
+        &[],
+    )
+}
+
+pub fn spawn_computer(config: &Path) -> Result<SumiProcess> {
+    SumiProcess::spawn(
+        [
+            OsStr::new("computer"),
+            OsStr::new("--config"),
+            config.as_os_str(),
+        ],
+        &[],
+    )
+}
+
+pub async fn register_human(client: &Client, server: &Url) -> Result<String> {
+    let response = client
+        .post(server.join("/api/v1/auth/register")?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .json(&serde_json::json!({
+            "display_name": "Process Test Owner",
+            "email": format!("process-{}@example.test", Uuid::now_v7()),
+            "password": "correct horse battery staple"
+        }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::CREATED,
+        "register Human: {}",
+        response.status()
+    );
+    Ok(response
+        .headers()
+        .get(header::SET_COOKIE)
+        .context("registration did not set a Session cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .context("Session cookie is empty")?
+        .to_owned())
+}
+
+pub async fn create_space(client: &Client, server: &Url, cookie: &str) -> Result<SpaceResponse> {
+    let response = client
+        .post(server.join("/api/v1/spaces")?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, cookie)
+        .json(&serde_json::json!({
+            "name": "Process Test Lab",
+            "slug": format!("process-{}", &Uuid::now_v7().simple().to_string()[..8]),
+            "accent": "#5065D8"
+        }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::CREATED,
+        "create Space: {}",
+        response.status()
+    );
+    Ok(response.json().await?)
+}
+
+pub async fn pairing_url_from_daemon(daemon: &mut SumiProcess) -> Result<Url> {
+    let line = daemon
+        .wait_for_stderr(
+            "Open this URL to pair the Computer",
+            std::time::Duration::from_secs(15),
+        )
+        .await?;
+    let raw = line
+        .split_once("url=")
+        .context("pairing log did not include a URL")?
+        .1
+        .split_whitespace()
+        .next()
+        .context("pairing URL is empty")?;
+    Ok(Url::parse(raw.trim_matches('"'))?)
+}
+
+pub async fn confirm_pairing(
+    client: &Client,
+    server: &Url,
+    cookie: &str,
+    space_id: Uuid,
+    pairing_url: &Url,
+) -> Result<ComputerResponse> {
+    let pairing_id = pairing_url
+        .path_segments()
+        .and_then(|mut segments| segments.nth(1))
+        .context("pairing URL has no pairing id")?
+        .parse::<Uuid>()?;
+    let code = pairing_url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "code").then(|| value.into_owned()))
+        .context("pairing URL has no code")?;
+    let response = client
+        .post(server.join(&format!("/api/v1/computer-pairings/{pairing_id}/confirm"))?)
+        .header("idempotency-key", Uuid::now_v7().to_string())
+        .header(header::COOKIE, cookie)
+        .json(&serde_json::json!({
+            "space_id": space_id,
+            "name": "Process Test Computer",
+            "code": code
+        }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::CREATED,
+        "confirm pairing: {}",
+        response.status()
+    );
+    Ok(response.json().await?)
+}
+
+pub async fn wait_for_computer_status(
+    client: &Client,
+    server: &Url,
+    cookie: &str,
+    space_id: Uuid,
+    expected: &str,
+) -> Result<ComputerResponse> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let response = client
+                .get(server.join(&format!("/api/v1/spaces/{space_id}/computers"))?)
+                .header(header::COOKIE, cookie)
+                .send()
+                .await?;
+            if response.status().is_success() {
+                let computers: Vec<ComputerResponse> = response.json().await?;
+                if let Some(computer) = computers
+                    .into_iter()
+                    .find(|computer| computer.status == expected)
+                {
+                    return Ok(computer);
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .with_context(|| format!("Computer did not become {expected}"))?
 }
 
 pub fn empty_path(root: &Path) -> Result<PathBuf> {
