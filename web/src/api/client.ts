@@ -17,6 +17,7 @@ import type {
   CreateInvitationInput,
   Channel,
   ChannelList,
+  ChannelMembers,
   DirectMessage,
   CreateChannelInput,
   Message,
@@ -30,7 +31,7 @@ import type {
   ThreadSubscription,
   CreateThreadReplyInput,
 } from "./types";
-export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
+export type { User, RegisterInput, LoginInput, Space, CreateSpaceInput, Computer, PairingDetails, Agent, AttentionConfig, AgentMemoryFile, AgentMemoryContent, UpdateAgentInput, Member, UpdateMemberInput, Invitation, CreateInvitationInput, Channel, ChannelList, ChannelMembers, DirectMessage, CreateChannelInput, MessageAuthor, Message, MessagePage, CreateMessageInput, Attachment, InboxItem, Approval, Thread, ThreadRead, ThreadSubscription, CreateThreadReplyInput } from "./types";
 
 interface ErrorEnvelope {
   error?: {
@@ -105,7 +106,7 @@ export function listComputers(spaceId: string): Promise<Computer[]> {
   return apiRequest<Computer[]>(`/api/v1/spaces/${encodeURIComponent(spaceId)}/computers`);
 }
 
-export function revokeComputer(computerId: string): Promise<Computer> {
+export function deleteComputer(computerId: string): Promise<Computer> {
   return mutate<Computer>(`/api/v1/computers/${encodeURIComponent(computerId)}`, "DELETE");
 }
 
@@ -201,6 +202,23 @@ export function joinChannel(channelId: string): Promise<Channel> {
   return mutate<Channel>(
     `/api/v1/channels/${encodeURIComponent(channelId)}/members/me`,
     "POST",
+  );
+}
+
+export function listChannelMembers(channelId: string): Promise<ChannelMembers> {
+  return apiRequest<ChannelMembers>(
+    `/api/v1/channels/${encodeURIComponent(channelId)}/members`,
+  );
+}
+
+export function addChannelAgents(
+  channelId: string,
+  agentMemberIds: string[],
+): Promise<ChannelMembers> {
+  return mutate<ChannelMembers>(
+    `/api/v1/channels/${encodeURIComponent(channelId)}/members`,
+    "POST",
+    { agent_member_ids: agentMemberIds },
   );
 }
 

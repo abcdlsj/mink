@@ -9,7 +9,7 @@ const space = {
   id: "019c0000-0000-7000-8000-000000000001",
   name: "Sumi Lab",
   slug: "sumi-lab",
-  accent: "#FFD447",
+  accent: "#5065D8",
   owner_member_id: "019c0000-0000-7000-8000-000000000002",
   current_member_id: "019c0000-0000-7000-8000-000000000002",
   general_channel_id: "019c0000-0000-7000-8000-000000000003",
@@ -103,7 +103,7 @@ describe("Phase one Human flows", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderRoute("/s/sumi-lab/members");
 
-    expect(await screen.findByRole("heading", { name: "Members" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Members", level: 1 })).toBeVisible();
     expect((await screen.findAllByText("Grace Hopper"))[0]).toBeVisible();
     expect(within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
     expect(within(screen.getByRole("complementary", { name: "Space navigation" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");

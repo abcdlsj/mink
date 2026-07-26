@@ -39,4 +39,7 @@ pub(super) enum ServerFrame {
         kind: String,
         payload: serde_json::Value,
     },
+    Shutdown {
+        reason: String,
+    },
 }

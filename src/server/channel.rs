@@ -40,6 +40,35 @@ struct ChannelRow {
 }
 
 #[derive(FromRow)]
+struct ChannelMemberRow {
+    id: Uuid,
+    kind: String,
+    display_name: String,
+    handle: String,
+    access_level: String,
+    permissions: Vec<String>,
+}
+
+impl From<ChannelMemberRow> for member::MemberResponse {
+    fn from(row: ChannelMemberRow) -> Self {
+        Self {
+            id: row.id,
+            kind: row.kind,
+            display_name: row.display_name,
+            handle: row.handle,
+            access_level: row.access_level,
+            permissions: row.permissions,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ChannelMembersResponse {
+    pub members: Vec<member::MemberResponse>,
+    pub can_manage: bool,
+}
+
+#[derive(FromRow)]
 struct ArchivableChannelRow {
     space_id: Uuid,
     kind: String,
@@ -316,6 +345,7 @@ pub struct CreateChannelRequest {
     pub slug: String,
     pub kind: String,
     pub topic: Option<String>,
+    pub agent_member_ids: Vec<Uuid>,
 }
 
 pub async fn create(
@@ -393,6 +423,7 @@ async fn create_channel_tx(
 
     let channel_id = Uuid::now_v7();
     let now = OffsetDateTime::now_utc();
+    require_active_agents(transaction, space_id, &request.agent_member_ids).await?;
     sqlx::query(
         "INSERT INTO channels \
          (id, space_id, kind, name, slug, topic, created_by_member_id, created_at) \
@@ -426,6 +457,24 @@ async fn create_channel_tx(
     .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
+    for agent_id in request
+        .agent_member_ids
+        .iter()
+        .copied()
+        .filter(|agent_id| *agent_id != actor.id)
+    {
+        sqlx::query(
+            "INSERT INTO channel_members (channel_id, member_id, space_id, joined_at) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(channel_id)
+        .bind(agent_id)
+        .bind(space_id)
+        .bind(now)
+        .execute(&mut **transaction)
+        .await
+        .map_err(ApiError::database)?;
+    }
     record_channel_event(
         transaction,
         space_id,
@@ -448,6 +497,126 @@ async fn create_channel_tx(
     };
     idempotency::finish(transaction, &scope, key, StatusCode::CREATED, &response).await?;
     Ok((StatusCode::CREATED, response))
+}
+
+pub async fn list_members(
+    State(state): State<std::sync::Arc<AppState>>,
+    jar: CookieJar,
+    Path(channel_id): Path<Uuid>,
+) -> Result<Json<ChannelMembersResponse>, ApiError> {
+    let user = auth::current_user(&state, &jar).await?;
+    let channel: (Uuid, String, Uuid, Option<OffsetDateTime>) = sqlx::query_as(
+        "SELECT space_id, kind, created_by_member_id, archived_at FROM channels WHERE id = $1",
+    )
+    .bind(channel_id)
+    .fetch_optional(&state.database)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::not_found("channel_not_found", "Channel was not found"))?;
+    let actor = member::require_actor(&state.database, user.id, channel.0).await?;
+    let joined: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM channel_members WHERE channel_id = $1 AND member_id = $2)",
+    )
+    .bind(channel_id)
+    .bind(actor.id)
+    .fetch_one(&state.database)
+    .await
+    .map_err(ApiError::database)?;
+    if !joined {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Only Channel Members can view its membership",
+        ));
+    }
+    let members = channel_members(&state.database, channel_id).await?;
+    Ok(Json(ChannelMembersResponse {
+        members,
+        can_manage: can_manage_members(&actor, channel.1.as_str(), channel.2, channel.3),
+    }))
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct AddChannelAgentsRequest {
+    pub agent_member_ids: Vec<Uuid>,
+}
+
+pub async fn add_agents(
+    State(state): State<std::sync::Arc<AppState>>,
+    jar: CookieJar,
+    key: idempotency::IdempotencyKey,
+    Path(channel_id): Path<Uuid>,
+    Json(mut request): Json<AddChannelAgentsRequest>,
+) -> Result<Json<ChannelMembersResponse>, ApiError> {
+    let user = auth::current_user(&state, &jar).await?;
+    request.agent_member_ids.sort_unstable();
+    request.agent_member_ids.dedup();
+    if request.agent_member_ids.is_empty() {
+        return Err(ApiError::validation(
+            "agents_required",
+            "Select at least one Agent",
+        ));
+    }
+    let request_hash = idempotency::request_hash(&request)?;
+    let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
+    let channel: (Uuid, String, Uuid, Option<OffsetDateTime>) = sqlx::query_as(
+        "SELECT space_id, kind, created_by_member_id, archived_at \
+         FROM channels WHERE id = $1 FOR UPDATE",
+    )
+    .bind(channel_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?
+    .ok_or_else(|| ApiError::not_found("channel_not_found", "Channel was not found"))?;
+    let actor = member::require_actor_tx(&mut transaction, user.id, channel.0).await?;
+    if !can_manage_members(&actor, channel.1.as_str(), channel.2, channel.3) {
+        return Err(ApiError::forbidden(
+            "permission_denied",
+            "Only Owner, Admin, or the Channel creator can add Agents",
+        ));
+    }
+    require_active_agents(&mut transaction, channel.0, &request.agent_member_ids).await?;
+    let scope = format!("channel:{channel_id}:agents:add");
+    if let Some((_status, response)) =
+        idempotency::begin::<ChannelMembersResponse>(&mut transaction, &scope, key, &request_hash)
+            .await?
+    {
+        transaction.commit().await.map_err(ApiError::database)?;
+        return Ok(Json(response));
+    }
+    let now = OffsetDateTime::now_utc();
+    let mut added = false;
+    for agent_id in &request.agent_member_ids {
+        let result = sqlx::query(
+            "INSERT INTO channel_members (channel_id, member_id, space_id, joined_at) \
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(channel_id)
+        .bind(agent_id)
+        .bind(channel.0)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(ApiError::database)?;
+        added |= result.rows_affected() == 1;
+    }
+    if added {
+        record_channel_event(
+            &mut transaction,
+            channel.0,
+            actor.id,
+            channel_id,
+            "channel.updated",
+            now,
+        )
+        .await?;
+    }
+    let response = ChannelMembersResponse {
+        members: channel_members(&mut *transaction, channel_id).await?,
+        can_manage: true,
+    };
+    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(Json(response))
 }
 
 pub async fn join(
@@ -588,6 +757,8 @@ fn validate_create(mut request: CreateChannelRequest) -> Result<CreateChannelReq
         .topic
         .map(|topic| topic.trim().to_owned())
         .filter(|topic| !topic.is_empty());
+    request.agent_member_ids.sort_unstable();
+    request.agent_member_ids.dedup();
     if !(1..=80).contains(&request.name.chars().count()) {
         return Err(ApiError::validation(
             "invalid_channel_name",
@@ -617,6 +788,69 @@ fn validate_create(mut request: CreateChannelRequest) -> Result<CreateChannelReq
         ));
     }
     Ok(request)
+}
+
+fn can_manage_members(
+    actor: &member::ActorMember,
+    channel_kind: &str,
+    creator_id: Uuid,
+    archived_at: Option<OffsetDateTime>,
+) -> bool {
+    channel_kind != "direct"
+        && archived_at.is_none()
+        && (actor.access_level == "owner"
+            || actor.access_level == "admin"
+            || actor.id == creator_id)
+}
+
+async fn require_active_agents(
+    transaction: &mut Transaction<'_, Postgres>,
+    space_id: Uuid,
+    agent_ids: &[Uuid],
+) -> Result<(), ApiError> {
+    if agent_ids.is_empty() {
+        return Ok(());
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM members \
+         WHERE id = ANY($1) AND space_id = $2 AND kind = 'agent' AND retired_at IS NULL",
+    )
+    .bind(agent_ids)
+    .bind(space_id)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(ApiError::database)?;
+    if count != agent_ids.len() as i64 {
+        return Err(ApiError::validation(
+            "invalid_channel_agents",
+            "Every selected Agent must be active in this Space",
+        ));
+    }
+    Ok(())
+}
+
+async fn channel_members<'e, E>(
+    executor: E,
+    channel_id: Uuid,
+) -> Result<Vec<member::MemberResponse>, ApiError>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_as::<_, ChannelMemberRow>(
+        "SELECT members.id, members.kind, members.display_name, members.handle, \
+                members.access_level, \
+                COALESCE((SELECT array_agg(permission ORDER BY permission) \
+                          FROM member_permissions WHERE member_id = members.id), \
+                         ARRAY[]::text[]) AS permissions \
+         FROM channel_members JOIN members ON members.id = channel_members.member_id \
+         WHERE channel_members.channel_id = $1 AND members.retired_at IS NULL \
+         ORDER BY CASE members.kind WHEN 'human' THEN 0 ELSE 1 END, lower(members.display_name)",
+    )
+    .bind(channel_id)
+    .fetch_all(executor)
+    .await
+    .map_err(ApiError::database)?;
+    Ok(rows.into_iter().map(Into::into).collect())
 }
 
 async fn can_create_channel(

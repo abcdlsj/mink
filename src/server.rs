@@ -116,6 +116,10 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
             post(channel::join),
         )
         .route(
+            "/api/v1/channels/{channel_id}/members",
+            get(channel::list_members).post(channel::add_agents),
+        )
+        .route(
             "/api/v1/channels/{channel_id}/archive",
             post(channel::archive),
         )
@@ -209,7 +213,7 @@ fn router(database: PgPool, config: ServerConfig) -> Result<Router> {
         )
         .route(
             "/api/v1/computers/{computer_id}",
-            axum::routing::delete(computer_registry::revoke),
+            axum::routing::delete(computer_registry::delete_computer),
         )
         .route(
             "/api/v1/computers/{computer_id}/connect",

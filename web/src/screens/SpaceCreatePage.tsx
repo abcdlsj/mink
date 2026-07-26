@@ -5,7 +5,7 @@ import { type FormEvent, useState } from "react";
 
 import { createSpace } from "../api/client";
 
-const accents = ["#FFD447", "#FF6FAE", "#64D9E8", "#86D96F"];
+const accents = ["#5065D8", "#667085", "#6B8F71", "#B08A5A"];
 
 export function SpaceCreatePage() {
   const navigate = useNavigate();

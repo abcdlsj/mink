@@ -82,6 +82,7 @@ pub async fn agent_action(
                     slug,
                     kind: if private { "private" } else { "public" }.to_owned(),
                     topic: None,
+                    agent_member_ids: Vec::new(),
                 },
                 idempotency_key,
             )

@@ -46,6 +46,7 @@ struct PairingStartRequest {
 struct PairingStartResponse {
     pairing_id: Uuid,
     browser_path: String,
+    #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
 }
 
@@ -110,6 +111,9 @@ enum ServerFrame {
         computer_seq: i64,
         kind: String,
         payload: serde_json::Value,
+    },
+    Shutdown {
+        reason: String,
     },
 }
 
@@ -180,13 +184,44 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
         &database,
         supervisor.clone(),
     );
-    let result = tokio::select! {
-        result = ipc => result,
+    let result: Result<DaemonExit> = tokio::select! {
+        result = ipc => result.map(|()| DaemonExit::Shutdown),
         result = connection => result,
     };
     supervisor.shutdown().await?;
     let _ = tokio::fs::remove_file(socket_path).await;
-    result
+    let exit = result?;
+    if exit == DaemonExit::Deleted {
+        reset_deleted_identity(&database, &secrets_path).await?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DaemonExit {
+    Shutdown,
+    Deleted,
+}
+
+async fn reset_deleted_identity(database: &SqlitePool, secrets_path: &Path) -> Result<()> {
+    let mut transaction = database.begin().await?;
+    sqlx::query("DELETE FROM server_commands")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM local_agent_runs")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM daemon_metadata")
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    match tokio::fs::remove_file(secrets_path).await {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("failed to remove deleted Computer identity"),
+    }
+    tracing::info!("Deleted Computer identity cleared; next start will begin pairing");
+    Ok(())
 }
 
 async fn prepare_agent_root(state_dir: &Path) -> Result<()> {
@@ -224,11 +259,12 @@ async fn connection_loop(
     secrets: &ComputerSecrets,
     database: &SqlitePool,
     supervisor: Supervisor,
-) -> Result<()> {
+) -> Result<DaemonExit> {
     let mut attempt = 0_u32;
     loop {
         match connect_once(server, state_dir, secrets, database, supervisor.clone()).await {
-            Ok(ConnectionOutcome::Shutdown) => return Ok(()),
+            Ok(ConnectionOutcome::Shutdown) => return Ok(DaemonExit::Shutdown),
+            Ok(ConnectionOutcome::Deleted) => return Ok(DaemonExit::Deleted),
             Ok(ConnectionOutcome::Disconnected) => attempt = 0,
             Err(error) => tracing::warn!(
                 computer_id = %secrets.computer_id.context("paired Computer has no id")?,
@@ -243,7 +279,7 @@ async fn connection_loop(
             _ = tokio::time::sleep(delay) => {}
             signal = tokio::signal::ctrl_c() => {
                 signal.context("failed to install shutdown signal handler")?;
-                return Ok(());
+                return Ok(DaemonExit::Shutdown);
             }
         }
     }
@@ -252,6 +288,7 @@ async fn connection_loop(
 enum ConnectionOutcome {
     Disconnected,
     Shutdown,
+    Deleted,
 }
 
 async fn connect_once(
@@ -262,8 +299,6 @@ async fn connect_once(
     supervisor: Supervisor,
 ) -> Result<ConnectionOutcome> {
     let computer_id = secrets.computer_id.context("paired Computer has no id")?;
-    // Release lost runs before command replay can redeliver their persisted agent.run commands.
-    release_interrupted_runs(server, computer_id, &secrets.computer_credential, database).await?;
     let mut endpoint = server.join(&format!("/api/v1/computers/{computer_id}/connect"))?;
     match endpoint.scheme() {
         "http" => endpoint.set_scheme("ws").expect("ws is a valid URL scheme"),
@@ -277,9 +312,19 @@ async fn connect_once(
         tungstenite::http::header::AUTHORIZATION,
         format!("Bearer {}", secrets.computer_credential).parse()?,
     );
-    let (socket, _) = tokio_tungstenite::connect_async(request)
-        .await
-        .context("failed to connect Computer WebSocket")?;
+    let (socket, _) = match tokio_tungstenite::connect_async(request).await {
+        Ok(connection) => connection,
+        Err(tokio_tungstenite::tungstenite::Error::Http(response))
+            if response.status() == tungstenite::http::StatusCode::UNAUTHORIZED
+                || response.status() == tungstenite::http::StatusCode::NOT_FOUND =>
+        {
+            tracing::error!(computer_id = %computer_id, "Computer credential is no longer valid; exiting daemon");
+            return Ok(ConnectionOutcome::Deleted);
+        }
+        Err(error) => return Err(error).context("failed to connect Computer WebSocket"),
+    };
+    // Release lost runs before command replay can redeliver their persisted agent.run commands.
+    release_interrupted_runs(server, computer_id, &secrets.computer_credential, database).await?;
     let (mut writer, mut reader) = socket.split();
     let last_acked = last_acked_sequence(database).await?;
     send_ws_frame(
@@ -358,25 +403,23 @@ async fn connect_once(
                 let Some(message) = message else { return Ok(ConnectionOutcome::Disconnected); };
                 match message? {
                     tungstenite::Message::Text(text) => {
-                        if let ServerFrame::Command { command_id, computer_seq, kind, payload } =
-                            serde_json::from_str(&text).context("Server sent an invalid Computer frame")?
-                        {
-                            persist_command(database, command_id, computer_seq, &kind, &payload).await?;
-                            send_ws_frame(&mut writer, &ComputerFrame::CommandAck {
-                                command_id,
-                                computer_seq,
-                            }).await?;
-                            if let Some(outcome) = command_processor
-                                .process(command_id, computer_seq, &kind, &payload)
-                                .await?
-                            {
-                                send_ws_frame(&mut writer, &ComputerFrame::CommandResult {
-                                    command_id,
-                                    computer_seq,
-                                    ok: outcome.ok,
-                                    result: outcome.result,
-                                }).await?;
+                        match serde_json::from_str(&text).context("Server sent an invalid Computer frame")? {
+                            ServerFrame::Command { command_id, computer_seq, kind, payload } => {
+                                persist_command(database, command_id, computer_seq, &kind, &payload).await?;
+                                send_ws_frame(&mut writer, &ComputerFrame::CommandAck { command_id, computer_seq }).await?;
+                                if let Some(outcome) = command_processor.process(command_id, computer_seq, &kind, &payload).await? {
+                                    send_ws_frame(&mut writer, &ComputerFrame::CommandResult { command_id, computer_seq, ok: outcome.ok, result: outcome.result }).await?;
+                                }
                             }
+                            ServerFrame::Shutdown { reason } => {
+                                tracing::info!(computer_id = %computer_id, reason = %reason, "Server requested Computer shutdown");
+                                return Ok(if reason == "computer_deleted" {
+                                    ConnectionOutcome::Deleted
+                                } else {
+                                    ConnectionOutcome::Shutdown
+                                });
+                            }
+                            ServerFrame::Welcome { .. } => {}
                         }
                     }
                     tungstenite::Message::Ping(bytes) => writer.send(tungstenite::Message::Pong(bytes)).await?,

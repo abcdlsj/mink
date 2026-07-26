@@ -13,7 +13,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -118,8 +118,7 @@ export function SpaceShell({
       });
     },
   });
-  const routeError =
-    space.error ?? user.error ?? channels.error ?? directMessages.error ?? members.error ?? computers.error;
+  const routeError = space.error ?? user.error ?? channels.error ?? members.error ?? computers.error;
 
   useEffect(() => {
     if (routeError instanceof ApiRequestError && routeError.status === 401) {
@@ -158,27 +157,26 @@ export function SpaceShell({
     space.isPending ||
     user.isPending ||
     channels.isPending ||
-    directMessages.isPending ||
     members.isPending || (active === "computers" && computers.isPending)
   ) {
     return <div className="route-status">Opening Space...</div>;
   }
   if (routeError) {
-    return <div className="route-status route-status--error">Space unavailable.</div>;
+    return <RouteFailure error={routeError} retry={() => {
+      void queryClient.invalidateQueries();
+    }} />;
   }
-  if (!space.data || !user.data || !channels.data || !directMessages.data || !members.data) {
+  if (!space.data || !user.data || !channels.data || !members.data) {
     return <div className="route-status">Opening Space...</div>;
   }
   const currentMember = members.data.find((member) => member.id === space.data.current_member_id);
   if (!currentMember) {
     return <div className="route-status route-status--error">Member identity unavailable.</div>;
   }
+  const availableDirectMessages = directMessages.data ?? [];
 
   return (
-    <main
-      className="space-shell"
-      style={{ "--space-accent": space.data.accent } as CSSProperties}
-    >
+    <main className="space-shell">
       <aside className="space-rail" aria-label="Space tools">
         <Link
           className="space-badge"
@@ -235,7 +233,7 @@ export function SpaceShell({
         }}
       >
         <header className="space-name-row">
-          <strong title={space.data.name}>{active === "channel" || active === "dm" ? space.data.name : capitalize(active)}</strong>
+          <h2 title={space.data.name}>{active === "channel" || active === "dm" ? space.data.name : capitalize(active)}</h2>
           <ChevronDown className="desktop-only" aria-hidden="true" />
           <button
             className="navigation-close icon-button"
@@ -297,21 +295,14 @@ export function SpaceShell({
                 aria-label="Create Channel"
                 title="Create Channel"
                 onClick={() => {
-                  setChannelFormOpen((open) => !open);
+                  setChannelFormOpen(true);
                   channelCreation.reset();
                 }}
               >
-                {channelFormOpen ? <X /> : <Plus />}
+                <Plus />
               </button>
             ) : null}
           </div>
-          {channelFormOpen ? (
-            <ChannelForm
-              pending={channelCreation.isPending}
-              error={channelCreation.error?.message}
-              onSubmit={(input) => channelCreation.mutate(input)}
-            />
-          ) : null}
           {channels.data.channels
             .filter((channel) => channel.joined)
             .map((channel) => (
@@ -349,10 +340,12 @@ export function SpaceShell({
             </>
           ) : null}
           <p className="nav-label">DMS</p>
-          {directMessages.data.length === 0 ? (
+          {directMessages.error ? (
+            <span className="nav-empty">DMs unavailable</span>
+          ) : availableDirectMessages.length === 0 ? (
             <span className="nav-empty">Start from Members</span>
           ) : null}
-          {directMessages.data.map((dm) => (
+          {availableDirectMessages.map((dm) => (
             <NavigationItem
               key={dm.channel_id}
               icon={MessageCircle}
@@ -369,11 +362,21 @@ export function SpaceShell({
         </nav>
       </aside>
 
+      {channelFormOpen ? (
+        <ChannelDialog
+          agents={members.data.filter((member) => member.kind === "agent")}
+          pending={channelCreation.isPending}
+          error={channelCreation.error?.message}
+          close={() => setChannelFormOpen(false)}
+          onSubmit={(input) => channelCreation.mutate(input)}
+        />
+      ) : null}
+
       {children({
         space: space.data,
         user: user.data,
         channels: channels.data.channels,
-        directMessages: directMessages.data,
+        directMessages: availableDirectMessages,
         currentMember,
         navigationOpen,
         openNavigation,
@@ -382,12 +385,18 @@ export function SpaceShell({
   );
 }
 
+function RouteFailure({ error, retry }: { error: unknown; retry: () => void }) {
+  const message = error instanceof ApiRequestError ? error.message : "The Server did not return a usable response.";
+  return <main className="route-status route-status--error"><section className="route-status-panel" role="alert"><p className="section-kicker">COULD NOT OPEN SPACE</p><h1>Something interrupted this view.</h1><p>{message}</p><button className="command-button command-button--accent" type="button" onClick={retry}>Retry</button></section></main>;
+}
+
 function MembersNavigation({ members, spaceSlug, locationPath }: { members: Member[]; spaceSlug: string; locationPath: string }) {
   return <><p className="nav-label">MEMBERS · {members.length}</p>{members.map((member) => member.kind === "agent" ? <Link key={member.id} className={`context-entity-row${locationPath.endsWith(`/agents/${member.id}`) ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/agents/$agentId" params={{ spaceSlug, agentId: member.id }}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Agent</small></span></Link> : <div className="context-entity-row context-entity-row--static" key={member.id}><PixelIdentity name={member.display_name} /><span><strong title={member.display_name}>{member.display_name}</strong><small>@{member.handle} · Human</small></span></div>)}</>;
 }
 
 function ComputersNavigation({ computers, spaceSlug, activeHash }: { computers: Computer[]; spaceSlug: string; activeHash: string }) {
-  return <><p className="nav-label">COMPUTERS · {computers.length}</p>{computers.length ? computers.map((computer, index) => { const hash = `computer-${computer.id}`; const selected = activeHash === `#${hash}` || (!activeHash && index === 0); return <Link key={computer.id} className={`context-entity-row${selected ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={hash}><Monitor aria-hidden="true" /><span><strong title={computer.name}>{computer.name}</strong><small>{computer.status} · {computer.hostname}</small></span></Link>; }) : <p className="nav-empty">No paired Computers</p>}</>;
+  const normalizedHash = activeHash.replace(/^#/, "");
+  return <><div className="nav-section-heading computer-nav-heading"><p className="nav-label">COMPUTERS · {computers.length}</p><Link to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash="pair-computer" aria-label="Pair Computer" title="Pair Computer"><Plus /></Link></div>{computers.length ? computers.map((computer, index) => { const hash = `computer-${computer.id}`; const selected = normalizedHash === hash || (!normalizedHash && index === 0); return <Link key={computer.id} className={`context-entity-row${selected ? " context-entity-row--active" : ""}`} to="/s/$spaceSlug/computers" params={{ spaceSlug }} hash={hash}><Monitor aria-hidden="true" /><span><strong title={computer.name}>{computer.name}</strong><small>{computer.status} · {computer.hostname}</small></span></Link>; }) : <p className="nav-empty">No paired Computers</p>}</>;
 }
 
 function InboxNavigation() {
@@ -422,13 +431,17 @@ function RailItem({
   );
 }
 
-function ChannelForm({
+function ChannelDialog({
+  agents,
   pending,
   error,
+  close,
   onSubmit,
 }: {
+  agents: Member[];
   pending: boolean;
   error?: string;
+  close: () => void;
   onSubmit: (input: Parameters<typeof createChannel>[1]) => void;
 }) {
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -439,40 +452,40 @@ function ChannelForm({
       slug: String(form.get("slug") ?? ""),
       kind: String(form.get("kind") ?? "public") as "public" | "private",
       topic: String(form.get("topic") ?? ""),
+      agent_member_ids: form.getAll("agent_member_ids").map(String),
     });
   }
 
   return (
-    <form className="channel-create-form" onSubmit={submit}>
-      <label>
-        Name
-        <input name="name" required maxLength={80} />
-      </label>
-      <label>
-        Slug
-        <input
-          name="slug"
-          required
-          maxLength={32}
-          pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-        />
-      </label>
-      <label>
-        Visibility
-        <select name="kind" defaultValue="public">
-          <option value="public">Public</option>
-          <option value="private">Private</option>
-        </select>
-      </label>
-      <label>
-        Topic
-        <input name="topic" maxLength={200} />
-      </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" disabled={pending}>
-        {pending ? "CREATING" : "CREATE CHANNEL"}
-      </button>
-    </form>
+    <div className="dialog-backdrop" role="presentation">
+      <section className="channel-dialog" role="dialog" aria-modal="true" aria-labelledby="create-channel-title">
+        <header>
+          <div><p className="section-kicker">NEW CONVERSATION</p><h2 id="create-channel-title">Create Channel</h2></div>
+          <button className="icon-button" type="button" aria-label="Close Create Channel" onClick={close}><X /></button>
+        </header>
+        <form className="channel-create-form" onSubmit={submit}>
+          <label>Name<input name="name" required maxLength={80} autoFocus /></label>
+          <label>Slug<input name="slug" required maxLength={32} pattern="[a-z0-9]+(?:-[a-z0-9]+)*" /></label>
+          <label>Visibility<select name="kind" defaultValue="public"><option value="public">Public</option><option value="private">Private</option></select></label>
+          <label>Topic<input name="topic" maxLength={200} /></label>
+          <fieldset className="channel-agent-picker">
+            <legend>Initial Agents</legend>
+            {agents.length ? agents.map((agent) => (
+              <label key={agent.id}>
+                <input type="checkbox" name="agent_member_ids" value={agent.id} />
+                <PixelIdentity name={agent.display_name} />
+                <span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span>
+              </label>
+            )) : <p>No active Agents are available.</p>}
+          </fieldset>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <footer>
+            <button className="command-button" type="button" onClick={close}>Cancel</button>
+            <button className="command-button command-button--accent" type="submit" disabled={pending}>{pending ? "Creating…" : "Create Channel"}</button>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 

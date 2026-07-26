@@ -54,15 +54,15 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 | Token | Value | 用途 |
 | --- | --- | --- |
 | `ink` | `#171717` | 主文字、图标、边框、focus ring |
-| `paper` | `#FFFDF6` | 主内容背景、输入面 |
-| `panel` | `#F4F1E8` | 上下文导航、次级区域、空状态底色 |
-| `sun` | `#FFD447` | 默认 Space accent、默认主要动作 |
-| `pink` | `#FF6FAE` | mention、重要 Inbox、需要注意的选择 |
-| `cyan` | `#64D9E8` | Attachment、Computer、技术能力标签 |
-| `green` | `#86D96F` | online、成功、active |
-| `red` | `#FF5C57` | error、destructive、dead |
+| `paper` | `#F8F7F2` | 主内容背景、输入面 |
+| `panel` | `#EBEAE4` | 上下文导航、次级区域、空状态底色 |
+| `accent` | `#5065D8` | 当前选择、主要动作和 focus |
+| `accent-soft` | `#DFE3FF` | 轻量选择、信息提示 |
+| `cyan` | `#C9E7E7` | Attachment、Computer 的低饱和技术语义 |
+| `green` | `#83B77B` | online、成功、active |
+| `red` | `#D95C55` | error、destructive、dead |
 
-`Space.accent` 取代参考图中无条件使用的黄色。accent 可以填充 Space rail、当前页面图标底色、主要 CTA 和实体选中态，但同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
+视觉收敛为暖白纸面、深墨色和单一钴蓝强调。Space accent 在 v1 WebUI 中只作为品牌元数据保留，不直接覆盖主要控件，避免不同 Space 产生不可控的糖果色组合。同一视图中大面积 accent 面不超过两个。不可用状态使用 `panel`、低对比文字和明确文案，不只靠降低透明度。
 
 禁止渐变、玻璃拟态、模糊、柔和投影、bokeh 和纯装饰纹理。
 
@@ -78,15 +78,15 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 
 ### 2.3 排版
 
-- UI 与正文：`IBM Plex Sans, Noto Sans SC, system-ui, sans-serif`。
-- 地址、时间、版本、计数和技术元数据：`IBM Plex Mono, ui-monospace, monospace`。
+- UI 与正文：`Space Grotesk, Noto Sans SC, sans-serif`。
+- 地址、时间、版本、计数和技术元数据继续使用 Space Grotesk，并启用 tabular numbers。
 - 正文绝不使用像素字体；像素感来自头像、徽标和硬边界。
-- 页面标题：20–24px / 700。
-- 实体标题：18–20px / 700。
-- Message 正文：15–16px / 1.5。
-- 普通 UI：14px / 1.35。
-- section eyebrow：12px / 700 / uppercase，允许 `0.08em` 字距。
-- 辅助文字：13–14px；不得低于 12px。
+- 页面标题：18px / 700。
+- 实体标题：16–17px / 700。
+- Message 正文：14px / 1.55。
+- 普通 UI：13–14px / 1.4。
+- section eyebrow：11px / 700 / uppercase，允许 `0.06em` 字距。
+- 辅助文字：12px；不得低于 11px。
 - 中英文混排不强制全大写；领域名词保持 `GLOSSARY.md` 拼写。
 
 ### 2.4 图标与像素头像
@@ -170,7 +170,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 | Destructive | red 填充、2px ink 边框；确认文案必须写明对象和后果 |
 | Disabled | panel 填充、低对比文字、无阴影，并带不可用原因 |
 
-按钮高度以 36px 为默认，紧凑标签式操作可为 30px，移动端主要操作至少 44px。按钮必须使用动词，如 `Pair Computer`、`Create Agent`、`Send`，避免只有含糊图标。
+按钮高度以 32px 为默认，紧凑工具栏操作为 30px，移动端视觉高度可为 36px但命中区至少 44px。按钮必须使用动词，如 `Pair Computer`、`Create Agent`、`Send`，避免只有含糊图标。
 
 ### 4.2 Tag 与状态
 
@@ -219,6 +219,7 @@ Sumi 的风格是安静、高密度的 Neo-Brutalist 协作控制室。它应该
 - 左侧：`#channel-slug`、topic。
 - 中部或标题下沿：Member strip，显示当前在线 Members 的像素头像和简短状态；溢出显示 `+N`。
 - 右侧：真实可用的 Channel members、设置等操作。
+- 有管理权限时右侧提供紧凑的 `+`，打开单层 popup，把尚未加入的 active Agents 添加到当前 Channel；popup 中显示 avatar、name、handle 和状态，不跳转到独立管理页。
 - v1 没有可用搜索时不显示搜索按钮；不要摆一个看起来能点的假入口。
 - header 下方直接进入 Message timeline，不添加 `Chat / Tasks / Files` tabs。
 
@@ -249,6 +250,7 @@ Message 使用无气泡行布局：
 - placeholder 使用 `Message #channel` 或 `Message @member`。
 - textarea 从一行自然增长至 240px，之后内部滚动；`Shift+Enter` 换行，发送快捷键必须在 tooltip/help 中说明。
 - Attachment 上传中、失败、ready 状态在输入区内以行式 chip 呈现。
+- 输入 `@` 后在 Composer 上方显示紧凑 autocomplete popup，只列当前 Channel Members；支持键盘选择并在候选中明确标记 `AGENT`。
 - Send 是可辨识按钮，不只显示低对比纸飞机。
 - 不显示 GIF、`As Task` 或其它未实现能力。
 
@@ -269,7 +271,7 @@ Message 使用无气泡行布局：
 - 行包含 pixel avatar、display name、Agent 的 `AGENT` 标签、Role/描述摘要、在线状态。
 - 不按 `AGENTS` / `HUMANS` 拆成身份等级，也不把 Agent 藏在 Computer 下。
 - Computer 只作为 Agent 的次级 metadata 或过滤条件。
-- 有权限的 Human 在左栏 header 获得 `Invite Human` 和 `Create Agent`，不能只在 Computer 详情里创建 Agent。
+- 有权限的 Human 在左栏 header 获得紧凑的 `Invite` 和 `+ Agent` 操作，accessible name 使用完整的 `Invite Human` 和 `Create Agent`；不能只在 Computer 详情里创建 Agent。
 
 ### 6.2 Agent detail header
 
@@ -309,16 +311,17 @@ Computer offline 导致 Memory/操作不可用时，在相关内容区显示整�
 
 ### 7.1 Computers navigation
 
+- 桌面端固定使用 Space rail、Computer list、Computer detail 三栏；Computer detail header 与左侧 `Computers` header 共享同一水平基线，主区不得再叠一层重复的页面标题。
 - 标题为 `Computers`，section header 显示数量和 `Pair Computer` 动作。
-- 行包含方形 Computer icon、name、online/offline/revoked 状态和一行关键 metadata。
+- 行包含方形 Computer icon、name、online/offline 状态和一行关键 metadata；deleted tombstone 不出现在普通列表。
 - online 行可显示 daemon version；offline 行显示 `Last seen …` 或明确 `Computer offline`。
 - 当前项使用 accent 填充；状态点保留自己的 green/gray/red 语义，不跟随选中背景改变。
 
 ### 7.2 Computer detail header
 
 - Computer icon tile、name、状态文字、hostname。
-- online 使用 green 点 + `Connected`/`Online`；offline 使用灰点 + `Offline`；revoked 使用 red 图形 + `Revoked`。
-- 顶部动作按权限显示 `Pair Computer`、`Revoke` 或 more；危险动作不得只用无文案图标。
+- online 使用 green 点 + `Connected`/`Online`；offline 使用灰点 + `Offline`。
+- 顶部只放日常状态与低风险动作；`Delete Computer` 位于底部 Danger Zone，危险动作不得只用无文案图标。
 
 ### 7.3 Computer detail body
 
@@ -333,12 +336,12 @@ section 顺序：
 
 Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态右对齐。列表选择模式只有在存在真实批量操作时才出现，不能长期摆一个无作用的 `Select`。
 
-### 7.4 Revoke 交互
+### 7.4 Delete 交互
 
-- 点击 `Revoke Computer` 后先展示受影响 Agents。
-- 存在 active Agent 时明确要求先暂停/退役；v1 不提供迁移入口。
+- 点击 `Delete Computer` 后先展示受影响 Agents，并要求显式确认这些 Agents 将被退役。
 - 确认按钮使用 destructive variant，并写明 Computer name。
-- revoke 成功后 detail 保留历史信息并切为 revoked 状态，不假装对象消失。
+- 删除事务取消 active runs、退役承载的 Agents、撤销凭证和 Secret Envelopes；历史协作身份与内容保留。
+- 成功后 Computer 从普通列表和 detail 消失，不提供恢复入口；在线 daemon graceful shutdown，离线 daemon 下次连接后退出。
 
 ## 8. Inbox 与治理页
 
@@ -351,8 +354,9 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 
 ## 9. 表单与编辑
 
-- 简短字段可在 detail section 原位编辑；复杂配置进入同一主内容区的专用表单，不使用多层 modal。
-- modal 只用于必须阻断的确认，例如 revoke、retire、删除和 cancel active run。
+- 简短字段可在 detail section 原位编辑；复杂配置进入同一主内容区的专用表单。
+- Create Agent 使用单层 modal：桌面宽 520px、字段高 36px、Role 初始高 88px、底部固定动作区；从 Computer detail 打开时预选当前 Computer。其它 modal 只用于必须阻断的确认，例如 retire、删除和 cancel active run。
+- Create Channel 使用单层 modal：桌面宽 520px，包含 name、slug、visibility、topic 与可多选的初始 Agents；左栏 `+` 只负责打开 modal，不在导航内展开表单。
 - label 始终可见，不以 placeholder 代替。
 - 输入校验靠近字段显示，并在提交失败时保留用户输入。
 - Secret 输入明确说明 Browser 到目标 Computer 的加密边界；保存后不回显，不提供复制或读取。
@@ -407,7 +411,7 @@ Agent rows 使用 2px 外框的扁平列表，与参考图相同；尾部状态�
 - [ ] Members 是统一列表，Create Agent 与 Invite Human 对有权限 Human 可发现。
 - [ ] Computer detail 清晰展示状态、信息、能力和承载 Agents。
 - [ ] Agent detail 只出现 Overview、Memory、Inbox、Settings 等已实现内容。
-- [ ] offline/revoked/error/loading/empty 状态都能解释原因和下一步。
+- [ ] offline/error/loading/empty 状态都能解释原因和下一步，deleted Computer 不残留在普通页面。
 - [ ] 不可用能力不会以可点击控件伪装。
 
 ### 12.3 响应式与无障碍

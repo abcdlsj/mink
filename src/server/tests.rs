@@ -22,7 +22,9 @@ use super::{
     approval::ApprovalResponse,
     attachment::AttachmentResponse,
     auth::{LoginResponse, RegisterResponse},
-    channel::{ChannelListResponse, ChannelResponse, DirectMessageResponse},
+    channel::{
+        ChannelListResponse, ChannelMembersResponse, ChannelResponse, DirectMessageResponse,
+    },
     computer_pairing::{ComputerResponse, PairingResultResponse, PairingStartResponse},
     inbox::InboxItemResponse,
     member::{InvitationResponse, MemberResponse},

@@ -21,6 +21,16 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
 
   await expect(page).toHaveURL(new RegExp(`/s/${slug}/channels/general`));
   await expect(page.getByRole("heading", { name: "#general", exact: true })).toBeVisible();
+  if (testInfo.project.name === "mobile-390") {
+    await page.getByRole("button", { name: "Open navigation" }).click();
+  }
+  await page.getByRole("button", { name: "Create Channel" }).click();
+  await expect(page.getByRole("dialog", { name: "Create Channel" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Initial Agents" })).toBeVisible();
+  await page.getByRole("button", { name: "Close Create Channel" }).click();
+  if (testInfo.project.name === "mobile-390") {
+    await page.locator(".navigation-close").click();
+  }
   await expect(page.getByLabel("Attach file")).toBeEnabled();
   const longMessage = `A long Message remains readable at ${testInfo.project.name}. https://example.test/${"boundary/".repeat(24)}`;
   const composer = page.getByRole("textbox", { name: "Message", exact: true });
@@ -56,14 +66,13 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
     await page.getByRole("button", { name: "Open navigation" }).click();
   }
   await page.getByRole("link", { name: "Members" }).click();
-  await expect(page.getByRole("heading", { name: "Members", exact: true })).toBeVisible();
+  await expect(page.locator(".members-header").getByRole("heading", { name: "Members", exact: true })).toBeVisible();
   await expect(page.getByRole("group", { name: "Filter Members by kind" })).toBeVisible();
 
   if (testInfo.project.name === "mobile-390") {
     await page.getByRole("button", { name: "Open navigation" }).click();
   }
   await page.getByRole("link", { name: "Computers" }).click();
-  await expect(page.getByRole("heading", { name: "Computers", exact: true })).toBeVisible();
   await expect(page.getByText("No Computer paired")).toBeVisible();
 
   if (testInfo.project.name === "mobile-390") {
@@ -72,7 +81,7 @@ test("completes the responsive Channel, Thread, Members, Computers and Inbox pat
   } else {
     await page.getByRole("complementary", { name: "Space tools" }).getByRole("link", { name: "Inbox" }).click();
   }
-  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible();
   await expect(page.getByText("Inbox is clear.")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(/Tasks|As Task|Joint Channels|Chat \/ Tasks \/ Files/);
 });

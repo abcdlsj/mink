@@ -113,7 +113,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     let space_body = serde_json::json!({
         "name": "Sumi Lab",
         "slug": "sumi-lab",
-        "accent": "#FFD447"
+        "accent": "#5065D8"
     });
     let created = app
         .clone()
@@ -292,7 +292,8 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "name": "Design",
                 "slug": "design",
                 "kind": "public",
-                "topic": "Product and system design"
+                "topic": "Product and system design",
+                "agent_member_ids": []
             }),
             Some(&alan.cookie),
         )?)
@@ -324,7 +325,8 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "name": "Design",
                 "slug": "design",
                 "kind": "public",
-                "topic": "Product and system design"
+                "topic": "Product and system design",
+                "agent_member_ids": []
             }),
             Some(&alan.cookie),
         )?)
@@ -342,7 +344,8 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "name": "Roadmap",
                 "slug": "roadmap",
                 "kind": "private",
-                "topic": null
+                "topic": null,
+                "agent_member_ids": []
             }),
             Some(&alan.cookie),
         )?)

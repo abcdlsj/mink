@@ -4,6 +4,25 @@ use super::local_ipc::{
 use super::*;
 use crate::local_protocol::{AgentIdentity, LocalRequest, LocalResponse};
 
+#[test]
+fn pairing_start_response_accepts_server_rfc3339_timestamp() {
+    let response: PairingStartResponse = serde_json::from_value(serde_json::json!({
+        "pairing_id": Uuid::now_v7(),
+        "browser_path": "/pair-computer/example?code=secret",
+        "expires_at": "2026-07-26T16:35:38.729535Z"
+    }))
+    .unwrap();
+
+    assert_eq!(
+        response.expires_at,
+        OffsetDateTime::parse(
+            "2026-07-26T16:35:38.729535Z",
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap()
+    );
+}
+
 #[tokio::test]
 async fn secrets_are_created_with_restricted_permissions_and_reused() {
     let root = tempfile::tempdir().unwrap();
@@ -25,6 +44,49 @@ async fn secrets_are_created_with_restricted_permissions_and_reused() {
             std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+}
+
+#[tokio::test]
+async fn deleted_computer_identity_is_cleared_for_fresh_pairing() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("computer");
+    prepare_state_dir(&state).await.unwrap();
+    let secrets_path = state.join("secrets.json");
+    load_or_create_secrets(&secrets_path).await.unwrap();
+    let database = database::connect_sqlite(&state.join("daemon.db"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO daemon_metadata (key, value_json, updated_at) VALUES ('cursor', '1', 'now')",
+    )
+    .execute(&database)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_commands (command_id, computer_seq, request_json, status, received_at) VALUES ('command', 1, '{}', 'received', 'now')")
+        .execute(&database)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO local_agent_runs (run_id, agent_member_id, space_id, run_token_hash, token_expires_at, status) VALUES ('run', 'agent', 'space', ?, 'later', 'queued')")
+        .bind(vec![0_u8; 32])
+        .execute(&database)
+        .await
+        .unwrap();
+    let retained_home = state.join("agents/retired-agent");
+    tokio::fs::create_dir_all(&retained_home).await.unwrap();
+
+    reset_deleted_identity(&database, &secrets_path)
+        .await
+        .unwrap();
+
+    assert!(!secrets_path.exists());
+    assert!(retained_home.exists());
+    for table in ["daemon_metadata", "server_commands", "local_agent_runs"] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(&database)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{table} was not cleared");
     }
 }
 
@@ -555,4 +617,18 @@ fn reconnect_backoff_is_bounded_and_jittered_above_base() {
             .min(30_000);
         assert!(delay >= base && delay <= base + base / 4);
     }
+}
+
+#[test]
+fn shutdown_frame_is_a_terminal_server_instruction() {
+    let frame = super::decode_server_frame(tungstenite::Message::Text(
+        serde_json::json!({ "type": "shutdown", "reason": "computer_deleted" })
+            .to_string()
+            .into(),
+    ))
+    .unwrap();
+    assert!(matches!(
+        frame,
+        super::ServerFrame::Shutdown { reason } if reason == "computer_deleted"
+    ));
 }

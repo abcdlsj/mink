@@ -39,7 +39,7 @@ pub async fn list(
         ),
     >(
         "SELECT id, space_id, name, hostname, os, status, daemon_version, last_seen_at, created_at \
-         FROM computers WHERE space_id = $1 ORDER BY created_at DESC",
+         FROM computers WHERE space_id = $1 AND status != 'revoked' ORDER BY created_at DESC",
     )
     .bind(space_id)
     .fetch_all(&mut *transaction)
@@ -62,7 +62,7 @@ pub async fn list(
     Ok(Json(computers))
 }
 
-pub async fn revoke(
+pub async fn delete_computer(
     State(state): State<std::sync::Arc<AppState>>,
     jar: CookieJar,
     key: idempotency::IdempotencyKey,
@@ -80,16 +80,44 @@ pub async fn revoke(
     if actor.access_level != "owner" && actor.access_level != "admin" {
         return Err(ApiError::forbidden(
             "permission_denied",
-            "Only a Human Owner or Admin can revoke a Computer",
+            "Only a Human Owner or Admin can delete a Computer",
         ));
     }
     let request_hash = idempotency::request_hash(&serde_json::json!({}))?;
-    let scope = format!("computer:{computer_id}:revoke");
+    let scope = format!("computer:{computer_id}:delete");
     if let Some((_, response)) =
         idempotency::begin::<ComputerResponse>(&mut transaction, &scope, key, &request_hash).await?
     {
         transaction.commit().await.map_err(ApiError::database)?;
         return Ok(Json(response));
+    }
+    let now = OffsetDateTime::now_utc();
+    sqlx::query(
+        "UPDATE agent_runs SET status = 'canceled', finished_at = COALESCE(finished_at, $2), \
+         error_code = COALESCE(error_code, 'computer_deleted') \
+         WHERE computer_id = $1 AND status IN ('queued', 'running')",
+    )
+    .bind(computer_id)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    let retired_agents: Vec<Uuid> = sqlx::query_scalar(
+        "UPDATE agents SET status = 'retired', retired_at = COALESCE(retired_at, $2), \
+         updated_at = $2 WHERE computer_id = $1 AND status != 'retired' RETURNING member_id",
+    )
+    .bind(computer_id)
+    .bind(now)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(ApiError::database)?;
+    if !retired_agents.is_empty() {
+        sqlx::query("UPDATE members SET retired_at = COALESCE(retired_at, $2) WHERE id = ANY($1)")
+            .bind(&retired_agents)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await
+            .map_err(ApiError::database)?;
     }
     let row = sqlx::query_as::<_, (Uuid, Uuid, String, String, String, String, String, Option<OffsetDateTime>, OffsetDateTime)>(
         "UPDATE computers SET status = 'revoked', revoked_at = COALESCE(revoked_at, now()) \
@@ -100,6 +128,16 @@ pub async fn revoke(
     .await
     .map_err(ApiError::database)?;
     publish_computer_status(&mut transaction, row.1, computer_id, "revoked").await?;
+    for agent_id in retired_agents {
+        super::outbox::publish(
+            &mut transaction,
+            "agent.status_changed",
+            agent_id,
+            serde_json::json!({ "space_id": row.1, "agent_member_id": agent_id, "status": "retired" }),
+            now,
+        )
+        .await?;
+    }
     let response = ComputerResponse {
         id: row.0,
         space_id: row.1,
@@ -568,6 +606,10 @@ async fn run_computer_socket(
     loop {
         let message = tokio::select! {
             _ = command_poll.tick() => {
+                if is_deleted(state, computer_id).await? {
+                    send_frame(socket, &ServerFrame::Shutdown { reason: "computer_deleted".to_string() }).await?;
+                    break;
+                }
                 replay_commands(state, computer_id, socket).await?;
                 continue;
             }
@@ -638,6 +680,17 @@ async fn run_computer_socket(
         }
     }
     Ok(())
+}
+
+async fn is_deleted(state: &AppState, computer_id: Uuid) -> Result<bool, ApiError> {
+    Ok(
+        sqlx::query_scalar::<_, bool>("SELECT status = 'revoked' FROM computers WHERE id = $1")
+            .bind(computer_id)
+            .fetch_optional(&state.database)
+            .await
+            .map_err(ApiError::database)?
+            .unwrap_or(true),
+    )
 }
 
 async fn apply_command_ack(

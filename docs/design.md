@@ -108,7 +108,7 @@ WebUI 使用 React 19、TypeScript、Vite、TanStack Router 和 TanStack Query�
 - OpenAPI 生成的 Web wire types 输出到 `web/src/api/types.ts`；`client.ts` 只负责传输和领域命名调用，不得重新定义 request/response interface。
 - 样式使用普通 CSS 和集中 design tokens，不引入重型组件库，以便精确实现本文件定义的 Neo-Brutalism、响应式和 accessibility 行为。
 - 单元与组件测试使用 Vitest、Testing Library 和 jsdom；最终端到端验收使用 Playwright。
-- Vite development server 将 `/api` 代理到本机 `sumi server`；production build 由 `sumi server` 同源提供，避免额外 CORS 信任面。
+- Vite development server 将 `/api` 的 HTTP 与 WebSocket upgrade 一并代理到本机 `sumi server`；daemon 在开发环境可以使用浏览器显示的 5173 origin。production build 由 `sumi server` 同源提供，避免额外 CORS 信任面。
 
 Node 使用当前 Active LTS 主版本，项目通过 `mise.toml` 固定；依赖版本由 `pnpm-lock.yaml` 固定。前端选型不得反向改变本节定义的 HTTP/OpenAPI 和事件协议。
 
@@ -471,6 +471,8 @@ Channel 字段：
 
 public Channel 可被 Space Member 发现和加入。private Channel 只对显式成员可见。direct Channel 不出现在 Channel 列表，只出现在 DM 列表。
 
+Human 创建 public/private Channel 时可以从当前 Space 的 active Agents 中选择初始 Channel Members，创建者始终自动加入。Owner、Admin 或 Channel 创建者可以在 Channel header 中继续添加 active Agents；添加操作必须幂等，只能选择同一 Space、尚未加入且未 retired 的 Agent。该能力只改变 Channel membership，不改变 Agent 的 Access Level、Role 或 permissions。private Channel 仍不得因 Agent 是 Admin 而自动可见。
+
 非 direct Channel 的 slug 为 1 至 32 个字符，使用小写 ASCII 字母、数字和单个连字符，不能以连字符开头或结尾；name 为 1 至 80 个 Unicode 字符，topic 最多 200 个 Unicode 字符。Channel 列表只返回未归档的 public Channel 和当前 Member 已显式加入的 private Channel，并标记当前 Member 是否已加入。创建者自动加入新 Channel。Space Member 可通过加入端点加入 public Channel；private/direct Channel 不允许自行加入。
 
 Owner、Admin 或 Channel 创建者可以归档自己有权管理的 public/private Channel。general 与 direct Channel 不使用普通归档端点。归档是 v1 的单向操作：Channel 从导航和发现列表消失，历史 Message 与 Thread 对现有 Channel Members 保持可读，但所有新 Message、Thread 和 membership 写入必须拒绝。v1 不提供 unarchive。
@@ -626,13 +628,13 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 | Token | Value | 用途 |
 | --- | --- | --- |
 | ink | #171717 | 文字、边框 |
-| paper | #FFFDF6 | 主背景 |
-| panel | #F4F1E8 | 导航背景 |
-| sun | #FFD447 | 默认 Space accent |
-| pink | #FF6FAE | mention、重要 Inbox |
-| cyan | #64D9E8 | Attachment、Computer |
-| green | #86D96F | online、成功 |
-| red | #FF5C57 | 错误、危险操作 |
+| paper | #F8F7F2 | 主背景 |
+| panel | #EBEAE4 | 导航与次级背景 |
+| accent | #5065D8 | 当前选择、主要动作与 focus |
+| accent-soft | #DFE3FF | 轻量选择和信息提示 |
+| cyan | #C9E7E7 | Attachment、Computer 的低饱和技术语义 |
+| green | #83B77B | online、成功 |
+| red | #D95C55 | 错误、危险操作 |
 
 规则：
 
@@ -641,7 +643,7 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 - 控件边框 2px ink。
 - 常规控件圆角 0 至 4px。
 - 可点击主控件使用 3px 或 4px 硬偏移阴影；按下时位移并收回阴影。
-- 正文不使用像素字体。正文建议 IBM Plex Sans 加 Noto Sans SC fallback；代码和地址使用 IBM Plex Mono。
+- 全站使用 Space Grotesk，加 Noto Sans SC 作为中文字形 fallback；版本、时间和计数使用 tabular numbers，不再混用 monospace 字体。
 - 字间距固定为 0。
 - 最小正文 14px，Message 正文建议 15px 至 16px。
 
@@ -725,6 +727,8 @@ Composer 包含：
 
 不加入“As Task”复选框。Task 不在 v1。
 
+mention autocomplete 在 Human 输入 `@` 后立即显示当前 Channel Members，并随 handle/display name 输入过滤；键盘上下键选择、Enter/Tab 插入、Escape 关闭。候选项必须标明 Agent/Human，发送请求仍提交结构化 Member IDs，Server 继续拒绝不属于当前 Channel 的 mention。
+
 ### 10.7 Thread pane
 
 - 顶部显示 Thread 和关闭按钮。
@@ -764,10 +768,10 @@ Agent 详情：
 
 Computer 页面：
 
-- online/offline/revoked。
+- online/offline；删除后从普通列表移除。
 - hostname、OS、daemon version、last seen。
 - 已承载 Agents 和当前运行数。
-- Pair Computer 和 Revoke 操作。
+- Pair Computer 和 Delete Computer 操作。
 
 ### 10.10 Onboarding 页面
 
@@ -794,18 +798,18 @@ Computer 页面：
 
 ### 11.1 Computer 生命周期
 
-Computer 状态：
+Computer 内部状态：
 
 ~~~
-pairing -> online <-> offline -> revoked
+pairing -> online <-> offline -> deleted
 ~~~
 
 - pairing：已生成一次性配对请求，尚未由 Human 确认。
 - online：daemon 长连接和心跳有效。
 - offline：超过 30 秒没有有效心跳。
-- revoked：凭证被撤销，不能重新连接；重新接入必须重新配对。
+- deleted：用户执行 Delete Computer 后的内部 tombstone；普通列表不再返回，凭证不能重新连接，重新接入必须重新配对。
 
-online/offline 是计算状态，不由用户手工编辑。撤销 Computer 前，UI 必须列出受影响 Agents；存在 active Agent 时要求先暂停或迁出。v1 不支持迁移，因此只能暂停并退役或保留离线 Agent。
+online/offline 是计算状态，不由用户手工编辑。Delete Computer 前，UI 必须列出受影响 Agents 并要求 Human 明确确认。删除事务取消该 Computer 的 active runs、退役承载的 Agents、撤销凭证和 Secret Envelopes；历史 Member、Message、Attachment 与 audit 保留。Computer 从普通 UI 消失，在线 daemon 收到终止帧后 graceful shutdown，离线 daemon 下次连接得到终止响应后退出。daemon 在确认 Server 已删除或拒绝旧凭证后删除本机失效的配对 Secret、清空旧 command/run 状态但保留 Agent Homes；下一次启动自动进入新的配对流程。该 tombstone 不提供恢复入口。
 
 ### 11.2 初始化与配对
 
@@ -1461,7 +1465,7 @@ hard lease，再做 freshness 判断；ambient Item 和不带 `--handle` 的普�
 6. daemon 使用 Computer private key 解密，并将 API key 写入本机 secrets.json。
 7. daemon 回报 Secret 可用但不得返回明文或 hash。
 
-Secret 只能绑定一个 Computer。Agent 改到其他 Computer 时必须由 Human 重新封装。Computer revoke 后相关 Envelopes 标记不可用。
+Secret 只能绑定一个 Computer。Agent 改到其他 Computer 时必须由 Human 重新封装。Computer 删除后相关 Envelopes 标记不可用。
 
 ### 16.3 日志规则
 
@@ -1504,6 +1508,8 @@ Channel、Message 和 Attachment：
 ~~~
 GET  /api/v1/spaces/{space_id}/channels
 POST /api/v1/spaces/{space_id}/channels
+GET  /api/v1/channels/{channel_id}/members
+POST /api/v1/channels/{channel_id}/members
 GET  /api/v1/spaces/{space_id}/dms
 POST /api/v1/spaces/{space_id}/dms
 POST /api/v1/channels/{channel_id}/members/me
@@ -1779,7 +1785,7 @@ v1 event types：
 - Message 创建、mentions/attachments 关联、Inbox 生成和 outbox 写入。
 - message send --handle 创建 Message 并处理 Inbox。
 - Approval 决议和 Agent provisioning command outbox。
-- Computer revoke、credential 撤销和 Agent 状态更新。
+- Computer 删除、credential 撤销、active run 取消和 Agent 退役。
 
 不得使用“先写数据库再尽力推 SSE”的双写。实时事件统一从 transactional outbox 发布。
 
@@ -1899,7 +1905,7 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 ### Phase 3：Computer
 
 - daemon、SQLite、本地目录。
-- 配对、本地 secrets.json、heartbeat、reconnect、revoke。
+- 配对、本地 secrets.json、heartbeat、reconnect、Delete Computer 与 daemon 退出。
 - Computer WebUI。
 - local IPC 和 sumi CLI identity。
 
@@ -1959,7 +1965,7 @@ Agent 实际回答时间不设固定 SLA，因为受 Codex 和本机工作负载
 3. 配对成功后 Computer 变 online。
 4. Human 创建 Agent 后，目录只出现在目标 Computer。
 5. Computer offline 时 Agent Inbox 累积，不在 Server 上执行 Driver。
-6. Computer revoke 后旧 credential 不能重连。
+6. Computer 删除后旧 credential 不能重连，在线或再次启动的 daemon 必须退出。
 
 ### 22.4 DM 注意力
 

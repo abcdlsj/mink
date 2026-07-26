@@ -147,6 +147,11 @@ export interface ChannelList {
   can_create: boolean;
 }
 
+export interface ChannelMembers {
+  members: Member[];
+  can_manage: boolean;
+}
+
 export interface DirectMessage {
   channel_id: string;
   space_id: string;
@@ -159,6 +164,7 @@ export interface CreateChannelInput {
   slug: string;
   kind: "public" | "private";
   topic?: string;
+  agent_member_ids: string[];
 }
 
 export interface MessageAuthor {

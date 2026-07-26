@@ -119,19 +119,23 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
         </span>
         {canCreateAgent ? (
           <Link
-            className="command-button command-button--accent"
+            className="command-button command-button--accent compact-header-action"
             to="/s/$spaceSlug/computers"
             params={{ spaceSlug: space.slug }}
             hash="create-agent"
+            aria-label="Create Agent"
+            title="Create Agent"
           >
             <Plus aria-hidden="true" />
-            Create Agent
+            <span>Agent</span>
           </Link>
         ) : null}
         {canInvite ? (
           <button
-            className="command-button"
+            className="command-button compact-header-action"
             type="button"
+            aria-label={inviteOpen ? "Close invitation form" : "Invite Human"}
+            title={inviteOpen ? "Close invitation form" : "Invite Human"}
             onClick={() => {
               setInviteOpen((open) => !open);
               setInviteLink(undefined);
@@ -139,7 +143,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
             }}
           >
             {inviteOpen ? <X aria-hidden="true" /> : <UserPlus aria-hidden="true" />}
-            {inviteOpen ? "Close" : "Invite Human"}
+            <span>{inviteOpen ? "Close" : "Invite"}</span>
           </button>
         ) : null}
       </header>

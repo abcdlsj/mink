@@ -31,7 +31,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &serde_json::json!({
                 "name": "Computer Lab",
                 "slug": "computer-lab",
-                "accent": "#64D9E8"
+                "accent": "#6B8F71"
             }),
             Some(&owner.cookie),
         )?)
@@ -829,12 +829,14 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
                 "slug": "owners-private",
                 "name": "Owners Private",
                 "kind": "private",
-                "topic": null
+                "topic": null,
+                "agent_member_ids": []
             }),
             Some(&owner.cookie),
         )?)
         .await?;
     ensure!(owners_private.status() == StatusCode::CREATED);
+    let owners_private: ChannelResponse = decode_json(owners_private).await?;
     let private_read = app
         .clone()
         .oneshot(computer_agent_action_request(
@@ -853,6 +855,44 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         )?)
         .await?;
     ensure!(private_read.status() == StatusCode::FORBIDDEN);
+
+    let add_agent = app
+        .clone()
+        .oneshot(json_request(
+            &format!("/api/v1/channels/{}/members", owners_private.id),
+            Uuid::now_v7(),
+            &serde_json::json!({ "agent_member_ids": [agent.member_id] }),
+            Some(&owner.cookie),
+        )?)
+        .await?;
+    ensure!(add_agent.status() == StatusCode::OK);
+    let channel_members: ChannelMembersResponse = decode_json(add_agent).await?;
+    ensure!(channel_members.can_manage);
+    ensure!(
+        channel_members
+            .members
+            .iter()
+            .any(|member| member.id == agent.member_id)
+    );
+
+    let private_read_after_add = app
+        .clone()
+        .oneshot(computer_agent_action_request(
+            computer.id,
+            &credential,
+            agent.member_id,
+            run_id,
+            serde_json::json!({
+                "action": "channel_read",
+                "address": "#owners-private",
+                "before": null,
+                "after": null,
+                "around": null,
+                "limit": 50
+            }),
+        )?)
+        .await?;
+    ensure!(private_read_after_add.status() == StatusCode::OK);
 
     let grant_channel_create = app
         .clone()
@@ -969,7 +1009,7 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
             &serde_json::json!({
                 "name": "Other Agent Lab",
                 "slug": "other-agent-lab",
-                "accent": "#86D96F"
+                "accent": "#B08A5A"
             }),
             Some(&owner.cookie),
         )?)
@@ -2501,6 +2541,24 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
         )?)
         .await?;
     ensure!(revoked.status() == StatusCode::OK);
+    let listed_after_delete = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/spaces/{}/computers", space.id))
+                .header(header::COOKIE, &owner.cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    ensure!(listed_after_delete.status() == StatusCode::OK);
+    let listed_after_delete: Vec<ComputerResponse> = decode_json(listed_after_delete).await?;
+    ensure!(listed_after_delete.is_empty());
+    let shutdown = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .context("Computer shutdown frame timed out")?
+        .context("Computer socket closed before shutdown frame")??;
+    let shutdown: serde_json::Value = serde_json::from_str(shutdown.to_text()?)?;
+    ensure!(shutdown["type"] == "shutdown" && shutdown["reason"] == "computer_deleted");
     let mut revoked_request =
         format!("ws://{address}/api/v1/computers/{}/connect", computer.id).into_client_request()?;
     revoked_request.headers_mut().insert(
@@ -2521,7 +2579,6 @@ pub(super) async fn run(database_url: &str) -> Result<()> {
     .fetch_one(&pool)
     .await?;
     ensure!(status_event_count == 2);
-    let _ = socket.close(None).await;
     server_task.abort();
     let _ = server_task.await;
     let stored_hash: Vec<u8> =

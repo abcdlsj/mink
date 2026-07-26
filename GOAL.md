@@ -19,11 +19,11 @@ Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已�
 
 ### 0. WebUI 视觉与页面完整实现
 
-- [x] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、revoked、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
+- [x] 以 `docs/UI.md` 为唯一页面呈现规格，完整实现 WebUI 的全局 Shell、Conversation/Channel/DM/Thread、Members/Agent detail、Computers/Computer detail、Inbox 与治理表单；覆盖 loading、empty、error、offline、deleted、permission denied、长内容、键盘和响应式状态，保持 Human/Agent 平等布局，移除 Task、As Task、Joint Channels 及所有无后端能力或伪装可用的入口。先审计现有 WebUI 与规格差距，再按可运行纵向页面逐项实现和验证；完成前必须通过相关 Web unit/component tests、production build，以及 1440x900、1024x768、390x844 三个 viewport 的定向 Playwright 验收并保留可复现证据。
 
 ### 1. Secret 与安全闭环
 
-- [ ] 完成 BYOK Secret Envelope 纵向路径：Browser WebCrypto 封装、Server 仅保存密文、目标 Computer 解密和受限本地保存、可用状态回报、Computer revoke 后失效。
+- [ ] 完成 BYOK Secret Envelope 纵向路径：Browser WebCrypto 封装、Server 仅保存密文、目标 Computer 解密和受限本地保存、可用状态回报、Computer 删除后失效。
 - [ ] 完成 Secret、Message、Attachment、Memory 的日志 redaction 审计和测试，确保错误、审计、command result、outbox、幂等记录及测试失败输出不泄露正文或凭证。
 - [ ] 补齐治理与敏感操作的 audit，覆盖操作者、目标、结果和不含敏感正文的 metadata。
 - [ ] 审计并补齐注册、登录及高风险写操作的 rate limit；验证限流键、恢复时间和绕过边界。
@@ -79,3 +79,7 @@ Phase 0–5 已作为当前代码基线完成，本文件不再重复记录已�
 2026-07-26 | WebUI unit/type/lint/build | `pnpm --dir web test && pnpm --dir web lint && pnpm --dir web build` | 6 files / 11 tests passed；typecheck、ESLint、production build passed
 2026-07-26 | WebUI real E2E matrix | `SUMI_SERVER__BIND=127.0.0.1:3100 cargo run -- server`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | 1440x900、1024x768、390x844 共 3 projects passed；覆盖 long Message、Attachment、Thread、Members、Computers、Inbox、mobile drawer 与 reduced motion
 2026-07-26 | WebUI phase unified gate | `cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo test --all-features`；`git diff --check` | clippy clean；Rust 49 unit + 3 CLI + 1 real PostgreSQL migration tests passed；diff check passed
+2026-07-26 | WebUI compact visual refresh | `pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | Space Grotesk、低饱和单 accent、紧凑 actions、Create Agent modal 与 general error/retry 通过 11 Web tests、production build 和 1440/1024/390 三 viewport
+2026-07-26 | Delete Computer lifecycle | `cargo test --all-features computer_flow_enforces_security_boundaries -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings` | 删除后列表移除、Agent 退役、daemon shutdown frame、旧 credential 拒绝重连通过真实 PostgreSQL 集成测试；Rust 50 unit + 3 CLI + 1 migration tests 全通过
+2026-07-27 | Computer reconnect and three-column UI | 临时复制 Computer state 后通过 `http://localhost:5173` 连接；`pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`PLAYWRIGHT_BASE_URL=http://localhost:5173 pnpm --dir web test:e2e`；`cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features` | Vite WebSocket proxy 生效；deleted identity 的 Secret/旧 command-run state 清除且 Agent Homes 保留；Computers 三栏、Pair modal 和 1440/1024/390 viewport 通过；Web 12 tests、Rust 51 unit + 3 CLI + 1 migration tests 全通过
+2026-07-27 | Channel Agent membership、mention 与 Agent detail 收敛 | `pnpm --dir web lint && pnpm --dir web test && pnpm --dir web build`；`cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-features`；`PLAYWRIGHT_BASE_URL=http://127.0.0.1:3100 pnpm --dir web test:e2e` | Create Channel modal 初始 Agent 多选、Channel header 加 Agent、`@` autocomplete 与结构化 mentions 通过；Web 12 tests、Rust 52 unit + 3 CLI + 1 migration tests、1440/1024/390 viewport 全通过

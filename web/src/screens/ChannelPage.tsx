@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageSquareReply, Paperclip, Send, X } from "lucide-react";
-import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
+import { Archive, Bell, BellOff, Hash, LoaderCircle, Menu, MessageSquareReply, Paperclip, Plus, Send, X } from "lucide-react";
+import { type ChangeEvent, type FormEvent, type KeyboardEvent, useRef, useState } from "react";
 
 import {
+  addChannelAgents,
   archiveChannel,
   createMessage,
   createThread,
   createThreadReply,
+  listChannelMembers,
   listMembers,
   listMessages,
   readThread,
@@ -15,6 +17,7 @@ import {
   uploadAttachment,
   type Attachment,
   type Channel,
+  type ChannelMembers,
   type Member,
   type MessagePage,
   type Message,
@@ -88,14 +91,19 @@ export function MessageWorkspace({
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [threadId, setThreadId] = useState<number>();
+  const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const messages = useQuery({
     queryKey: ["messages", channel.id],
     queryFn: () => listMessages(channel.id),
   });
-  const members = useQuery({
+  const spaceMembers = useQuery({
     queryKey: ["members", spaceId],
     queryFn: () => listMembers(spaceId),
+  });
+  const channelMembers = useQuery({
+    queryKey: ["channel-members", channel.id],
+    queryFn: () => listChannelMembers(channel.id),
   });
   const send = useMutation({
     mutationFn: (input: Parameters<typeof createMessage>[1]) => createMessage(channel.id, input),
@@ -130,6 +138,13 @@ export function MessageWorkspace({
       }
     },
   });
+  const addAgents = useMutation({
+    mutationFn: (agentIds: string[]) => addChannelAgents(channel.id, agentIds),
+    onSuccess: (result) => {
+      queryClient.setQueryData<ChannelMembers>(["channel-members", channel.id], result);
+      setAgentPickerOpen(false);
+    },
+  });
   const upload = useMutation({
     mutationFn: (file: File) => uploadAttachment(spaceId, file),
     onSuccess: (attachment) => setAttachments((current) => [...current, attachment]),
@@ -140,7 +155,7 @@ export function MessageWorkspace({
     if (!trimmed) return;
     send.mutate({
       body_markdown: trimmed,
-      mentions: mentionIds(trimmed, members.data ?? []),
+      mentions: mentionIds(trimmed, channelMembers.data?.members ?? []),
       attachment_ids: attachments.map((attachment) => attachment.id),
     });
   }
@@ -171,9 +186,14 @@ export function MessageWorkspace({
           <p>{subtitle}</p>
         </div>
         <div className="member-strip" aria-label="Current Member">
-          <PixelIdentity name={currentDisplayName} />
-          <span>{currentDisplayName}</span>
+          {(channelMembers.data?.members ?? []).slice(0, 4).map((member) => (
+            <PixelIdentity key={member.id} name={member.display_name} />
+          ))}
+          <span>{channelMembers.data ? `${channelMembers.data.members.length} Members` : currentDisplayName}</span>
         </div>
+        {channelMembers.data?.can_manage ? (
+          <button className="icon-button" type="button" aria-label="Add Agents to Channel" title="Add Agents to Channel" onClick={() => { addAgents.reset(); setAgentPickerOpen(true); }}><Plus /></button>
+        ) : null}
         {canArchive ? (
           <button
             className="icon-button"
@@ -191,7 +211,10 @@ export function MessageWorkspace({
       <div className="message-timeline" aria-live="polite">
         {messages.isPending ? <div className="timeline-status">Loading Messages...</div> : null}
         {messages.error ? (
-          <div className="timeline-status timeline-status--error">{messages.error.message}</div>
+          <div className="timeline-status timeline-status--error" role="alert">
+            <span>{messages.error.message}</span>
+            <button className="compact-action" type="button" onClick={() => void messages.refetch()}>Retry</button>
+          </div>
         ) : null}
         {messages.data?.messages.length === 0 ? (
           <div className="empty-channel">
@@ -254,22 +277,15 @@ export function MessageWorkspace({
         >
           {upload.isPending ? <LoaderCircle className="spin" /> : <Paperclip />}
         </button>
-        <label className="composer-input">
-          <span className="visually-hidden">Message</span>
-          <textarea
-            placeholder={placeholder}
-            rows={1}
-            value={body}
-            maxLength={20_000}
-            onChange={(event) => setBody(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-        </label>
+        <MentionInput
+          ariaLabel="Message"
+          className="composer-input"
+          placeholder={placeholder}
+          rows={1}
+          value={body}
+          members={channelMembers.data?.members ?? []}
+          onChange={setBody}
+        />
         <button
           className="send-button"
           type="submit"
@@ -310,8 +326,17 @@ export function MessageWorkspace({
           spaceId={spaceId}
           threadId={threadId}
           channelSlug={channel.slug}
-          members={members.data ?? []}
+          members={channelMembers.data?.members ?? []}
           close={() => setThreadId(undefined)}
+        />
+      ) : null}
+      {agentPickerOpen ? (
+        <AddAgentsDialog
+          agents={(spaceMembers.data ?? []).filter((member) => member.kind === "agent" && !channelMembers.data?.members.some((joined) => joined.id === member.id))}
+          pending={addAgents.isPending}
+          error={addAgents.error?.message}
+          close={() => setAgentPickerOpen(false)}
+          submit={(ids) => addAgents.mutate(ids)}
         />
       ) : null}
     </section>
@@ -435,22 +460,14 @@ function ThreadPane({
         >
           {upload.isPending ? <LoaderCircle className="spin" /> : <Paperclip />}
         </button>
-        <label>
-          <span className="visually-hidden">Thread reply</span>
-          <textarea
-            rows={2}
-            value={body}
-            maxLength={20_000}
-            placeholder={`Reply to Thread #${threadId}`}
-            onChange={(event) => setBody(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-        </label>
+        <MentionInput
+          ariaLabel="Thread reply"
+          placeholder={`Reply to Thread #${threadId}`}
+          rows={2}
+          value={body}
+          members={members}
+          onChange={setBody}
+        />
         {attachments.length ? (
           <div className="composer-attachments" aria-label="Thread Attachments ready to send">
             {attachments.map((attachment) => <span key={attachment.id}>{attachment.original_name}</span>)}
@@ -462,6 +479,107 @@ function ThreadPane({
         {reply.error || upload.error ? <p className="composer-error" role="alert">{reply.error?.message ?? upload.error?.message}</p> : null}
       </form>
     </aside>
+  );
+}
+
+function MentionInput({ ariaLabel, className, placeholder, rows, value, members, onChange }: { ariaLabel: string; className?: string; placeholder: string; rows: number; value: string; members: Member[]; onChange: (value: string) => void }) {
+  const textarea = useRef<HTMLTextAreaElement>(null);
+  const [cursor, setCursor] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const match = mentionMatch(value, cursor);
+  const suggestions = match ? members.filter((member) => {
+    const query = match.query.toLowerCase();
+    return member.handle.toLowerCase().includes(query) || member.display_name.toLowerCase().includes(query);
+  }).slice(0, 6) : [];
+
+  function choose(member: Member) {
+    if (!match) return;
+    const inserted = `@${member.handle} `;
+    const next = `${value.slice(0, match.start)}${inserted}${value.slice(cursor)}`;
+    const nextCursor = match.start + inserted.length;
+    onChange(next);
+    setCursor(nextCursor);
+    window.requestAnimationFrame(() => {
+      textarea.current?.focus();
+      textarea.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  function handleKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      event.currentTarget.form?.requestSubmit();
+      return;
+    }
+    if (!suggestions.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((index) => (index + direction + suggestions.length) % suggestions.length);
+    } else if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      choose(suggestions[Math.min(activeIndex, suggestions.length - 1)]);
+    } else if (event.key === "Escape") {
+      setCursor(-1);
+    }
+  }
+
+  return (
+    <div className={`mention-input${className ? ` ${className}` : ""}`}>
+      {suggestions.length ? (
+        <div className="mention-suggestions" role="listbox" aria-label="Mention suggestions">
+          {suggestions.map((member, index) => (
+            <button key={member.id} type="button" role="option" aria-selected={index === activeIndex} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(member)}>
+              <PixelIdentity name={member.display_name} />
+              <span><strong>{member.display_name}</strong><small>@{member.handle}</small></span>
+              {member.kind === "agent" ? <span className="agent-label">AGENT</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <textarea
+        ref={textarea}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        rows={rows}
+        value={value}
+        maxLength={20_000}
+        onClick={(event) => setCursor(event.currentTarget.selectionStart)}
+        onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+        onChange={(event) => { onChange(event.target.value); setCursor(event.target.selectionStart); setActiveIndex(0); }}
+        onKeyDown={handleKey}
+      />
+    </div>
+  );
+}
+
+function mentionMatch(value: string, cursor: number): { start: number; query: string } | undefined {
+  if (cursor < 0) return undefined;
+  const prefix = value.slice(0, cursor);
+  const match = prefix.match(/(?:^|\s)@([a-z0-9-]*)$/i);
+  if (!match) return undefined;
+  return { start: cursor - match[1].length - 1, query: match[1] };
+}
+
+function AddAgentsDialog({ agents, pending, error, close, submit }: { agents: Member[]; pending: boolean; error?: string; close: () => void; submit: (ids: string[]) => void }) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    submit(new FormData(event.currentTarget).getAll("agent_member_ids").map(String));
+  }
+  return (
+    <div className="dialog-backdrop" role="presentation">
+      <section className="channel-dialog channel-member-dialog" role="dialog" aria-modal="true" aria-labelledby="add-channel-agents-title">
+        <header><div><p className="section-kicker">CHANNEL MEMBERS</p><h2 id="add-channel-agents-title">Add Agents</h2></div><button className="icon-button" type="button" aria-label="Close Add Agents" onClick={close}><X /></button></header>
+        <form onSubmit={handleSubmit}>
+          <fieldset className="channel-agent-picker">
+            <legend>Available Agents</legend>
+            {agents.length ? agents.map((agent) => <label key={agent.id}><input type="checkbox" name="agent_member_ids" value={agent.id} /><PixelIdentity name={agent.display_name} /><span><strong>{agent.display_name}</strong><small>@{agent.handle}</small></span></label>) : <p>Every active Agent is already in this Channel.</p>}
+          </fieldset>
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          <footer><button className="command-button" type="button" onClick={close}>Cancel</button><button className="command-button command-button--accent" type="submit" disabled={pending || agents.length === 0}>{pending ? "Adding…" : "Add selected"}</button></footer>
+        </form>
+      </section>
+    </div>
   );
 }
 
