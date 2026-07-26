@@ -1180,6 +1180,7 @@ async fn poll_pairing(
                 computer_id,
                 space_id,
             } => {
+                secrets.pairing_id = None;
                 secrets.computer_id = Some(computer_id);
                 secrets.space_id = Some(space_id);
                 write_secrets(secrets_path, secrets).await?;
