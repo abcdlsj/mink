@@ -17,6 +17,8 @@ pub struct Message {
     pub tool_results: Vec<ToolResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<TokenUsage>,
+    #[serde(skip)]
+    pub cache_breakpoint: bool,
 }
 
 impl Message {
@@ -48,6 +50,15 @@ impl Message {
         Self {
             role: "system".into(),
             content: content.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn cacheable_system(content: impl Into<String>) -> Self {
+        Self {
+            role: "system".into(),
+            content: content.into(),
+            cache_breakpoint: true,
             ..Default::default()
         }
     }
@@ -94,6 +105,10 @@ pub struct TokenUsage {
     pub output_tokens: i32,
     #[serde(default)]
     pub total_tokens: i32,
+    #[serde(default)]
+    pub cached_input_tokens: i32,
+    #[serde(default)]
+    pub cache_write_tokens: i32,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source: String,
 }

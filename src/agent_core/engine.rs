@@ -5,7 +5,6 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use crate::agent_core::{
-    prompt::build_system_prompt,
     provider::Provider,
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor},
@@ -25,8 +24,7 @@ pub struct Turn {
 pub struct Engine {
     provider: Arc<dyn Provider>,
     tool_executor: ToolExecutor,
-    prompt_context: crate::prompt::PromptContext,
-    system_prompt: Option<String>,
+    system_messages: Vec<Message>,
     tool_defs: Vec<ToolDef>,
 }
 
@@ -39,15 +37,13 @@ impl Engine {
     pub fn new(
         provider: Arc<dyn Provider>,
         tool_executor: ToolExecutor,
-        prompt_context: crate::prompt::PromptContext,
-        system_prompt: Option<String>,
+        system_messages: Vec<Message>,
         tool_defs: Vec<ToolDef>,
     ) -> Self {
         Self {
             provider,
             tool_executor,
-            prompt_context,
-            system_prompt,
+            system_messages,
             tool_defs,
         }
     }
@@ -175,11 +171,7 @@ impl Engine {
     }
 
     fn build_messages(&self, _turn: &Turn, session: &Session) -> Vec<Message> {
-        let system_content = self
-            .system_prompt
-            .clone()
-            .unwrap_or_else(|| build_system_prompt(&self.prompt_context));
-        let mut messages = vec![Message::system(system_content)];
+        let mut messages = self.system_messages.clone();
         messages.extend(session.messages.clone());
         messages
     }
@@ -270,7 +262,12 @@ mod tests {
         });
         let tools = Arc::new(FakeTools);
         let executor = ToolExecutor::new(tools);
-        let engine = Engine::new(provider, executor, Default::default(), None, vec![]);
+        let engine = Engine::new(
+            provider,
+            executor,
+            vec![Message::system("test system")],
+            vec![],
+        );
 
         let turn = Turn {
             input: "hi".into(),
@@ -316,8 +313,7 @@ mod tests {
         let engine = Engine::new(
             provider,
             executor,
-            Default::default(),
-            None,
+            vec![Message::system("test system")],
             vec![ToolDef {
                 name: "echo".into(),
                 description: "Echo".into(),

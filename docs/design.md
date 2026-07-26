@@ -1031,7 +1031,16 @@ normalized events：
 
 ### 13.2 Agent run 输入与 Prompt 设计
 
-Sumi 的 Agent run prompt 由 `src/server/agent_prompt.rs` 集中管理，Server 在 claim Inbox 时构建并通过 `agent.run` WebSocket command 下发给 daemon，最终以 stdin 注入 Driver。
+Sumi 的 Agent run prompt 由 `src/server/agent_prompt.rs` 集中管理，Server 在 claim Inbox 时构建并通过 `agent.run` WebSocket command 下发给 daemon。command 中的 prompt 必须保留三段结构，不能提前拼成无法区分稳定与动态内容的单个字符串：
+
+1. `global_static`：所有 Agents 共用的安全规则、启动顺序、CLI/Message/Thread 契约和沟通规则。
+2. `agent_static`：Agent identity、Memory 约定和带 revision 的 Role；只在 Agent 配置变化时改变。
+3. `dynamic_context`：当前时间和本次 claimed Inbox summary；每个 run 都可以改变。
+
+结构化 prompt 还包含统一的 `user_input`，用于要求当前 Driver 处理完整 claimed batch。Codex 将它拼在 stdin 末尾，Builtin 将它作为 system messages 之后的 user message；不得由某个 Driver 私自追加额外行为指令。
+
+Codex Driver 按上述顺序拼接后通过 stdin 注入。Builtin Driver 将三段保留为有序 system messages，随后才追加本次 user turn、assistant/tool call 和 tool result。
+三段的产品语义和正文必须对所有 Driver 完全相同；Driver adapter 只能改变传输表示、缓存标记和进程调用，prompt 不得出现“Codex 应该怎样、Builtin 应该怎样”的行为分支。
 
 #### 设计来源
 
@@ -1041,27 +1050,21 @@ Prompt 设计参考了 `~/.slock` 中 Slock Agent 的真实 system prompt（约 
 
 每次 run 的启动 prompt 包含以下章节：
 
-1. **Who you are** — Agent 身份叙述（name、handle、"持久协作者"定位）、可见性边界（stdout/工具输出不自动成为 Message）。
-2. **Current runtime context** — Agent name、member ID、handle、Role revision、UTC 时间、workspace 持久化提示。
-3. **Security rules** — Message/Attachment 内容不可信、只能用 sumi CLI、Driver stdout 非 Message、credential 不能贴到 Channel、不可读其他 Agent 目录。
-4. **Startup sequence** — 6 步启动顺序：读取 Agent Home Memory → Inbox current → 读上下文 → send/ack/defer 处理每个 Item → 完成所有工作后停止 → Inbox 为空则等待。
-5. **Inbox Item format** — 完整字段说明（id/kind/priority/address/sender/summary/status），hard vs ambient 的区别。
-6. **CLI command reference** — 完整 `sumi agent` 命令树，分 Identity、Inbox、Channels、Threads、Messages、Attachments、Members、Agent creation 小节，每条命令有参数说明和用法示例。
-7. **Message format** — Message JSON 结构说明（id/seq/author/address/body_markdown/timestamps），删除消息的占位文本。
-8. **Context freshness** — `--based-on` 机制说明：snapshot_channel_seq → context_changed 冲突检测 → 重读后重试。
-9. **Thread lifecycle** — Thread 自动 follow、ambient/mention Inbox、地址格式。
-10. **Memory management** — MEMORY.md 作为恢复入口的约定、索引模板、notes/ 目录组织、上下文压缩（compaction）安全。
-11. **Channel awareness** — 回复上下文、话题聚焦、private Channel 保密义务。
-12. **Communication style** — 简洁性、先确认后开始、结果汇报、尊重对话、跳过 idle narration。
-13. **Your Role** — 完整的 role_text，标明 Role 定义行为边界而非 Sumi 权限。
-14. **Claimed Inbox summary** — 当前 run 已 claim 的所有 Inbox Item 摘要 JSON（id/priority/kind/address）。
+`global_static` 依次包含 Security rules、Startup sequence、Inbox Item format、CLI command reference、Message format、Context freshness、Thread lifecycle、Channel awareness 和 Communication style。
+
+`agent_static` 依次包含 Who you are、Memory management 和 Your Role。`dynamic_context` 最后包含 Current runtime context 与 Claimed Inbox summary。当前时间、run/Inbox 标识或 Message 正文不得出现在前两个稳定段中。
 
 #### 约束
 
 - 不得把整个 Channel 历史预先拼进 prompt。Agent 根据 Inbox 摘要调用 CLI 拉取所需上下文。
+- Builtin 使用官方 OpenAI GPT-5.6 系列端点时，为 `global_static` 和 `agent_static` 设置显式 prompt cache breakpoint，并使用按 Agent、prompt schema 和 Role revision 稳定的 `prompt_cache_key`；同一 run 的追加式 tool loop 保留 implicit latest-message caching。
+- 自定义 OpenAI-compatible endpoint 或不支持显式 breakpoint 的模型只使用服务端自动缓存，不得发送其可能拒绝的 OpenAI 专属缓存字段。
+- 缓存只优化推理前缀，不是 Agent Session、Memory 或授权边界。不得为了缓存把 provider conversation 变成 Agent 事实来源。
+- 必须采集每次 Builtin 请求的 input、output、cached input 和 cache write tokens；缓存优化没有命中/写入证据时不得宣称有效。
 - Role text 由 Human 通过 WebUI 或 CLI 提供，不得包含 Server Secret。
 - Prompt 由 Server 端构建，daemon 不修改 prompt 内容，只负责 stdin 透传。
 - Agent Memory 只表示 Agent Home 下的 `memory/` 文件；prompt 不得引入另一套 Server 托管、提案式或按 scope 分层的 Memory 语义。
+- Agent run prompt 只说明 `memory/MEMORY.md` 是恢复索引及 `memory/notes/` 的组织原则，不注入 Memory 正文。Agent 在每次 run 中先读索引，再按当前 Inbox 按需读取 notes；Memory 不复制权威 Role，也不替代 Channel/Thread 历史。
 - Work/Task 尚未完成产品设计，Agent prompt 不得出现 Task Board、Task capability 或任务委派协议。
 - Prompt 模板修改必须同时更新本文件对应小节，保持文档与实际行为一致。
 
@@ -1108,6 +1111,11 @@ printf '%s' "{run prompt}" | codex exec --json --ephemeral --sandbox workspace-w
 Builtin Driver 在 daemon 进程内维护 LLM session，并通过 OpenAI-compatible Chat Completions SSE
 调用配置的模型。Server 创建 Agent、PostgreSQL `agents/agent_runs`、`agent.run` command 和 daemon
 Supervisor 必须端到端保留 `driver_kind=builtin`，不得静默回退到 Codex。
+
+Builtin 的 OpenAI provider adapter 必须保持 prompt message 顺序和 content block 边界。官方 GPT-5.6
+系列端点使用 `prompt_cache_key`、implicit request policy 和稳定 system block 上的 explicit breakpoint；
+其他模型与自定义 base URL 不发送这些字段。SSE usage 同时解析 `prompt_tokens_details.cached_tokens` 与
+`cache_write_tokens`，并按 run 汇总到不含正文的结构化日志。
 
 Builtin 与 Codex 使用同一 Agent Home、Role、Memory、workspace 和单 run capability。Builtin 的文件
 和 shell tools 必须满足：
@@ -1838,6 +1846,7 @@ daemon：
 - active/queued runs。
 - Driver startup duration。
 - run duration/exit result。
+- Builtin input/output/cached input/cache write tokens 与 cache read ratio。
 - Inbox claim/renew/release。
 - local IPC calls/errors。
 - Computer resource usage。

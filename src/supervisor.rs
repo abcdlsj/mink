@@ -12,6 +12,7 @@ use uuid::Uuid;
 use crate::{
     config::ComputerConfig,
     driver::{Driver, DriverEnvironment, DriverOutcome, DriverRun},
+    prompt::AgentRunPrompt,
 };
 
 #[derive(Clone)]
@@ -42,7 +43,7 @@ pub struct StartRun {
     pub run_id: Uuid,
     pub agent_id: Uuid,
     pub space_id: Uuid,
-    pub prompt: String,
+    pub prompt: AgentRunPrompt,
     pub driver_kind: String,
 }
 
@@ -275,6 +276,7 @@ impl Supervisor {
         .map_err(|_| RunFailure::new(run.run_id, "local_state_failed"))?;
         let mut process = driver
             .start(DriverRun {
+                run_id: run.run_id,
                 prompt: run.prompt,
                 environment: environment.clone(),
             })
@@ -500,7 +502,7 @@ mod tests {
             run_id: Uuid::now_v7(),
             agent_id,
             space_id: Uuid::now_v7(),
-            prompt: prompt.to_owned(),
+            prompt: prompt.into(),
             driver_kind: "codex".to_owned(),
         }
     }

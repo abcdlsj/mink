@@ -1017,16 +1017,26 @@ mod tests {
         let run_command: serde_json::Value = serde_json::from_str(run_command.to_text()?)?;
         ensure!(run_command["kind"] == "agent.run");
         ensure!(run_command["payload"]["driver_kind"] == "builtin");
+        let prompt = &run_command["payload"]["prompt"];
+        let rendered_prompt = [
+            "global_static",
+            "agent_static",
+            "dynamic_context",
+            "user_input",
+        ]
+        .into_iter()
+        .filter_map(|field| prompt[field].as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+        ensure!(rendered_prompt.contains("sumi agent inbox current --json"));
+        ensure!(rendered_prompt.contains("Review boundaries and enforce"));
+        ensure!(rendered_prompt.contains("@owner"));
+        ensure!(!rendered_prompt.contains("Task Board"));
+        ensure!(!rendered_prompt.contains("proposal-only"));
         ensure!(
-            run_command["payload"]["prompt"]
+            prompt["cache_key"]
                 .as_str()
-                .is_some_and(|prompt| {
-                    prompt.contains("sumi agent inbox current --json")
-                        && prompt.contains("Review boundaries and enforce")
-                        && prompt.contains("@owner")
-                        && !prompt.contains("Task Board")
-                        && !prompt.contains("proposal-only")
-                })
+                .is_some_and(|key| !key.is_empty())
         );
         socket
             .send(tokio_tungstenite::tungstenite::Message::Text(

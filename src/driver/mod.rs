@@ -9,6 +9,8 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tokio::process::Child;
 
+use crate::prompt::AgentRunPrompt;
+
 #[derive(Clone)]
 pub struct DriverEnvironment {
     pub state_dir: PathBuf,
@@ -24,7 +26,8 @@ pub struct DriverEnvironment {
 
 #[derive(Clone)]
 pub struct DriverRun {
-    pub prompt: String,
+    pub run_id: uuid::Uuid,
+    pub prompt: AgentRunPrompt,
     pub environment: DriverEnvironment,
 }
 

@@ -206,8 +206,9 @@ impl Driver for CodexDriver {
         command.process_group(0);
         let mut child = command.spawn().context("failed to start Codex Driver")?;
         let mut stdin = child.stdin.take().context("Codex stdin was not captured")?;
+        let prompt = run.prompt.render();
         stdin
-            .write_all(run.prompt.as_bytes())
+            .write_all(prompt.as_bytes())
             .await
             .context("failed to write Codex run prompt")?;
         drop(stdin);
@@ -688,7 +689,8 @@ enabled = true
         let driver = CodexDriver::with_executable(script);
         let mut process = driver
             .start(DriverRun {
-                prompt: "prompt-secret\n".to_owned(),
+                run_id: uuid::Uuid::now_v7(),
+                prompt: "prompt-secret\n".into(),
                 environment,
             })
             .await
@@ -780,7 +782,8 @@ enabled = true
         let driver = CodexDriver::with_executable(script);
         let mut process = driver
             .start(DriverRun {
-                prompt: "run\n".to_owned(),
+                run_id: uuid::Uuid::now_v7(),
+                prompt: "run\n".into(),
                 environment,
             })
             .await

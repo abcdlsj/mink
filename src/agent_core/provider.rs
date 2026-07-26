@@ -16,6 +16,7 @@ pub struct ProviderConfig {
     pub model: String,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
+    pub prompt_cache_key: Option<String>,
 }
 
 impl ProviderConfig {
@@ -27,6 +28,7 @@ impl ProviderConfig {
             model,
             max_tokens: None,
             temperature: None,
+            prompt_cache_key: None,
         }
     }
 
@@ -44,6 +46,33 @@ impl ProviderConfig {
         self.temperature = Some(t);
         self
     }
+
+    pub fn with_prompt_cache_key(mut self, key: String) -> Self {
+        if !key.is_empty() {
+            self.prompt_cache_key = Some(key);
+        }
+        self
+    }
+
+    fn supports_explicit_prompt_cache(&self) -> bool {
+        self.base_url.is_none() && is_gpt_5_6_or_later(&self.model)
+    }
+}
+
+fn is_gpt_5_6_or_later(model: &str) -> bool {
+    let Some(version) = model.strip_prefix("gpt-") else {
+        return false;
+    };
+    let version = version
+        .split_once('-')
+        .map_or(version, |(version, _)| version);
+    let Some((major, minor)) = version.split_once('.') else {
+        return false;
+    };
+    let (Ok(major), Ok(minor)) = (major.parse::<u32>(), minor.parse::<u32>()) else {
+        return false;
+    };
+    major > 5 || (major == 5 && minor >= 6)
 }
 
 #[async_trait]
@@ -137,6 +166,7 @@ fn build_openai_request(
     tools: &[ToolDef],
     config: &ProviderConfig,
 ) -> serde_json::Value {
+    let explicit_prompt_cache = config.supports_explicit_prompt_cache();
     let msgs: Vec<serde_json::Value> = messages
         .iter()
         .flat_map(|m| {
@@ -170,7 +200,15 @@ fn build_openai_request(
 
             let mut obj = serde_json::json!({ "role": m.role });
             if !m.content.is_empty() {
-                obj["content"] = serde_json::Value::String(m.content.clone());
+                obj["content"] = if explicit_prompt_cache && m.cache_breakpoint {
+                    serde_json::json!([{
+                        "type": "text",
+                        "text": m.content,
+                        "prompt_cache_breakpoint": { "mode": "explicit" }
+                    }])
+                } else {
+                    serde_json::Value::String(m.content.clone())
+                };
             }
             if !m.tool_calls.is_empty() {
                 obj["tool_calls"] = m
@@ -228,6 +266,13 @@ fn build_openai_request(
     }
     if let Some(temperature) = config.temperature {
         request["temperature"] = temperature.into();
+    }
+    if explicit_prompt_cache && let Some(key) = &config.prompt_cache_key {
+        request["prompt_cache_key"] = key.clone().into();
+        request["prompt_cache_options"] = serde_json::json!({
+            "mode": "implicit",
+            "ttl": "30m"
+        });
     }
 
     request
@@ -350,7 +395,13 @@ async fn handle_sse_line(
             input_tokens: usage["prompt_tokens"].as_i64().unwrap_or(0) as i32,
             output_tokens: usage["completion_tokens"].as_i64().unwrap_or(0) as i32,
             total_tokens: usage["total_tokens"].as_i64().unwrap_or(0) as i32,
-            source: String::new(),
+            cached_input_tokens: usage["prompt_tokens_details"]["cached_tokens"]
+                .as_i64()
+                .unwrap_or(0) as i32,
+            cache_write_tokens: usage["prompt_tokens_details"]["cache_write_tokens"]
+                .as_i64()
+                .unwrap_or(0) as i32,
+            source: "openai_chat_completions".to_owned(),
         };
         let _ = tx.send(Chunk::Done { usage: Some(usage) }).await;
         state.done_sent = true;
@@ -404,6 +455,73 @@ async fn send_done_once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn official_gpt_5_6_request_marks_only_stable_prompt_prefixes() {
+        let config = ProviderConfig::openai("test-key", "gpt-5.6".into())
+            .with_prompt_cache_key("sumi-v1-agent".into());
+        let messages = vec![
+            Message::cacheable_system("global"),
+            Message::cacheable_system("agent"),
+            Message::system("dynamic"),
+            Message::user("run"),
+        ];
+
+        let request = build_openai_request(&messages, &[], &config);
+
+        assert_eq!(request["prompt_cache_key"], "sumi-v1-agent");
+        assert_eq!(request["prompt_cache_options"]["mode"], "implicit");
+        assert_eq!(request["prompt_cache_options"]["ttl"], "30m");
+        assert_eq!(
+            request["messages"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert_eq!(
+            request["messages"][1]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
+        assert_eq!(request["messages"][2]["content"], "dynamic");
+        assert_eq!(request["messages"][3]["content"], "run");
+    }
+
+    #[test]
+    fn older_models_and_compatible_endpoints_do_not_get_explicit_cache_fields() {
+        for config in [
+            ProviderConfig::openai("test-key", "gpt-4o".into())
+                .with_prompt_cache_key("cache".into()),
+            ProviderConfig::openai("test-key", "gpt-5.6".into())
+                .with_base_url("https://compatible.example/v1".into())
+                .with_prompt_cache_key("cache".into()),
+        ] {
+            let request =
+                build_openai_request(&[Message::cacheable_system("stable")], &[], &config);
+
+            assert!(request.get("prompt_cache_key").is_none());
+            assert!(request.get("prompt_cache_options").is_none());
+            assert_eq!(request["messages"][0]["content"], "stable");
+        }
+    }
+
+    #[tokio::test]
+    async fn usage_includes_prompt_cache_reads_and_writes() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut state = OpenAiStreamState::default();
+        handle_sse_line(
+            r#"data: {"usage":{"prompt_tokens":2006,"completion_tokens":300,"total_tokens":2306,"prompt_tokens_details":{"cached_tokens":1920,"cache_write_tokens":64}}}"#,
+            &mut state,
+            &tx,
+        )
+        .await
+        .unwrap();
+
+        let Chunk::Done { usage: Some(usage) } = rx.recv().await.unwrap() else {
+            panic!("expected usage chunk");
+        };
+        assert_eq!(usage.input_tokens, 2006);
+        assert_eq!(usage.cached_input_tokens, 1920);
+        assert_eq!(usage.cache_write_tokens, 64);
+        assert_eq!(usage.source, "openai_chat_completions");
+    }
 
     #[tokio::test]
     async fn streamed_tool_calls_are_assembled_by_index_across_sse_events() {

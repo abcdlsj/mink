@@ -1,4 +1,4 @@
-use crate::agent_core::types::Message;
+use crate::agent_core::types::{Message, TokenUsage};
 
 #[derive(Clone, Debug, Default)]
 pub struct Session {
@@ -8,6 +8,20 @@ pub struct Session {
 impl Session {
     pub fn add(&mut self, message: Message) {
         self.messages.push(message);
+    }
+
+    pub fn token_usage(&self) -> TokenUsage {
+        self.messages
+            .iter()
+            .filter_map(|message| message.usage.as_ref())
+            .fold(TokenUsage::default(), |mut total, usage| {
+                total.input_tokens += usage.input_tokens;
+                total.output_tokens += usage.output_tokens;
+                total.total_tokens += usage.total_tokens;
+                total.cached_input_tokens += usage.cached_input_tokens;
+                total.cache_write_tokens += usage.cache_write_tokens;
+                total
+            })
     }
 
     /// Strips image attachments from all user messages.
@@ -39,3 +53,33 @@ impl Session {
 }
 
 const IMAGE_UNSUPPORTED_NOTE: &str = "[System note: Image payloads were omitted because the current model endpoint does not support image input. Do not infer visual details; tell the user you cannot inspect the image and ask for a text description or a vision-capable model.]";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_usage_aggregates_cache_metrics() {
+        let mut session = Session::default();
+        for (input, cached, written) in [(2000, 1500, 300), (2500, 2200, 0)] {
+            session.add(Message {
+                role: "assistant".into(),
+                usage: Some(TokenUsage {
+                    input_tokens: input,
+                    output_tokens: 100,
+                    total_tokens: input + 100,
+                    cached_input_tokens: cached,
+                    cache_write_tokens: written,
+                    source: "openai_chat_completions".into(),
+                }),
+                ..Default::default()
+            });
+        }
+
+        let usage = session.token_usage();
+        assert_eq!(usage.input_tokens, 4500);
+        assert_eq!(usage.output_tokens, 200);
+        assert_eq!(usage.cached_input_tokens, 3700);
+        assert_eq!(usage.cache_write_tokens, 300);
+    }
+}

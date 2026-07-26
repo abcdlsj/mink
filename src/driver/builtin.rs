@@ -8,11 +8,10 @@ use tokio::sync::mpsc;
 
 use crate::agent_core::{
     engine::{Engine, Turn},
-    prompt::PromptContext,
     provider::{OpenAiProvider, ProviderConfig},
     session::Session,
     tool_executor::{ToolEvent, ToolExecutor, ToolRunner},
-    types::ToolDef,
+    types::{Message, ToolDef},
     workspace::{agent_rooted_path, collect_shell_output, edit_utf8, read_utf8, write_utf8},
 };
 
@@ -91,7 +90,9 @@ impl Driver for BuiltinDriver {
 
     async fn start(&self, run: DriverRun) -> Result<DriverProcess> {
         self.validate(&run.environment).await?;
-        let provider_config = self.provider_config(&run.environment)?;
+        let provider_config = self
+            .provider_config(&run.environment)?
+            .with_prompt_cache_key(run.prompt.cache_key.clone());
         let provider = Arc::new(
             OpenAiProvider::new(provider_config).context("failed to create builtin provider")?,
         );
@@ -103,16 +104,25 @@ impl Driver for BuiltinDriver {
             },
         });
         let executor = ToolExecutor::new(tools);
+        let mut system_messages = Vec::new();
+        if !run.prompt.global_static.is_empty() {
+            system_messages.push(Message::cacheable_system(run.prompt.global_static.clone()));
+        }
+        if !run.prompt.agent_static.is_empty() {
+            system_messages.push(Message::cacheable_system(run.prompt.agent_static.clone()));
+        }
+        if !run.prompt.dynamic_context.is_empty() {
+            system_messages.push(Message::system(run.prompt.dynamic_context.clone()));
+        }
         let engine = Arc::new(Engine::new(
             provider,
             executor,
-            PromptContext::default(),
-            Some(run.prompt.clone()),
+            system_messages,
             daemon_tool_defs(),
         ));
 
         let turn = Turn {
-            input: "Process every claimed Inbox Item now. Use the Sumi CLI and stop only after each Item is handled, acknowledged, or deferred.".into(),
+            input: run.prompt.user_input.clone(),
             source: String::new(),
             attachments: vec![],
             blocked_tools: std::collections::HashMap::new(),
@@ -122,9 +132,25 @@ impl Driver for BuiltinDriver {
         let (driver_events_tx, driver_events_rx) = mpsc::channel::<DriverEvent>(64);
         let bridge_events = driver_events_tx.clone();
 
+        let run_id = run.run_id;
         let task = tokio::spawn(async move {
             let mut session = Session::default();
             let result = engine.run(&turn, &mut session, &tool_events_tx, None).await;
+            let usage = session.token_usage();
+            let cache_read_ratio = if usage.input_tokens > 0 {
+                f64::from(usage.cached_input_tokens) / f64::from(usage.input_tokens)
+            } else {
+                0.0
+            };
+            tracing::info!(
+                %run_id,
+                input_tokens = usage.input_tokens,
+                output_tokens = usage.output_tokens,
+                cached_input_tokens = usage.cached_input_tokens,
+                cache_write_tokens = usage.cache_write_tokens,
+                cache_read_ratio,
+                "Builtin LLM token usage"
+            );
             let _ = driver_events_tx
                 .send(match result {
                     Ok(()) => DriverEvent::ProcessCompleted,
@@ -516,6 +542,7 @@ mod tests {
         );
         let mut process = driver
             .start(DriverRun {
+                run_id: uuid::Uuid::now_v7(),
                 prompt: "system prompt".into(),
                 environment: environment.clone(),
             })
@@ -556,6 +583,7 @@ mod tests {
         );
         let mut process = driver
             .start(DriverRun {
+                run_id: uuid::Uuid::now_v7(),
                 prompt: "system prompt".into(),
                 environment: environment(&root),
             })

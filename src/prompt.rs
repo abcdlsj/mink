@@ -1,58 +1,69 @@
-use std::path::Path;
+use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
-/// Context for building the system prompt.
+const AGENT_PROMPT_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentRunPrompt {
+    pub global_static: String,
+    pub agent_static: String,
+    pub dynamic_context: String,
+    pub user_input: String,
+    pub cache_key: String,
+}
+
+impl AgentRunPrompt {
+    pub fn plain(content: impl Into<String>) -> Self {
+        Self {
+            global_static: String::new(),
+            agent_static: String::new(),
+            dynamic_context: String::new(),
+            user_input: content.into(),
+            cache_key: String::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.global_static.trim().is_empty()
+            && self.agent_static.trim().is_empty()
+            && self.dynamic_context.trim().is_empty()
+            && self.user_input.trim().is_empty()
+    }
+
+    pub fn render(&self) -> String {
+        [
+            self.global_static.trim(),
+            self.agent_static.trim(),
+            self.dynamic_context.trim(),
+            self.user_input.trim(),
+        ]
+        .into_iter()
+        .filter(|section| !section.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+    }
+}
+
+impl From<&str> for AgentRunPrompt {
+    fn from(value: &str) -> Self {
+        Self::plain(value)
+    }
+}
+
+impl From<String> for AgentRunPrompt {
+    fn from(value: String) -> Self {
+        Self::plain(value)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct PromptContext {
-    pub workspace: String,
-    pub memory_root: String,
-    pub project_context: String,
-    pub persona: Option<PersonaConfig>,
-    pub skill_cards: Vec<String>,
-    pub soul_path: String,
-    pub preferences_path: String,
-    pub custom_prompt: String,
-    pub source: String,
-    pub collaboration_brief: String,
-    pub memory_brief: String,
-    pub memory_notice: String,
-    pub memory: String,
     pub agent_name: String,
     pub agent_handle: String,
     pub agent_id: String,
     pub role_revision: i64,
     pub role_text: String,
     pub inbox_summary: String,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct PersonaConfig {
-    pub id: String,
-    pub display: String,
-    pub description: String,
-    pub soul_path: String,
-}
-
-/// Build a system prompt from the given context.
-pub fn build_system_prompt(ctx: &PromptContext) -> String {
-    let mut sections: Vec<String> = Vec::new();
-
-    if ctx.agent_name.is_empty() {
-        add_if(&mut sections, base());
-    }
-    add_if(&mut sections, persona(ctx));
-    add_if(&mut sections, collaboration(ctx));
-    add_if(&mut sections, memory_brief_section(ctx));
-    add_if(&mut sections, context_section(ctx));
-    add_if(&mut sections, persona_runtime_context(ctx));
-    add_if(&mut sections, memory_section(ctx));
-    add_if(&mut sections, skills(ctx));
-    add_if(&mut sections, preferences(ctx));
-    add_if(&mut sections, soul(ctx));
-    add_if(&mut sections, sumi_agent_sections(ctx));
-    add_if(&mut sections, custom(ctx));
-
-    sections.join("\n\n")
 }
 
 fn add_if(sections: &mut Vec<String>, s: String) {
@@ -62,183 +73,42 @@ fn add_if(sections: &mut Vec<String>, s: String) {
     }
 }
 
-fn base() -> String {
-    [
-        "You are Sumi, a local coding agent.",
-        "Work directly and concisely.",
-        "Use tools when needed. Prefer read before edit.",
-        "Keep changes within the workspace unless the user asks otherwise.",
-    ]
-    .join("\n")
+pub fn build_agent_run_prompt(ctx: &PromptContext) -> AgentRunPrompt {
+    build_agent_run_prompt_at(ctx, OffsetDateTime::now_utc())
 }
 
-fn persona(ctx: &PromptContext) -> String {
-    let Some(p) = ctx.persona.as_ref() else {
-        return String::new();
-    };
-    let display = if p.display.trim().is_empty() {
-        &p.id
-    } else {
-        &p.display
-    };
-    let mut lines = vec![format!("Persona: {display} (id={}).", p.id)];
-    if !p.description.trim().is_empty() {
-        lines.push(format!("Role: {}", p.description.trim()));
-    }
-    lines.push("Stay in character. A turn routed to this persona is an explicit invocation; answer normally.".into());
-    lines.join("\n")
-}
+fn build_agent_run_prompt_at(ctx: &PromptContext, now: OffsetDateTime) -> AgentRunPrompt {
+    let mut global_static: Vec<String> = Vec::new();
+    add_if(&mut global_static, sumi_security_rules());
+    add_if(&mut global_static, sumi_startup_sequence());
+    add_if(&mut global_static, sumi_inbox_item_format());
+    add_if(&mut global_static, sumi_cli_reference());
+    add_if(&mut global_static, sumi_message_format());
+    add_if(&mut global_static, sumi_context_freshness());
+    add_if(&mut global_static, sumi_thread_lifecycle());
+    add_if(&mut global_static, sumi_channel_awareness());
+    add_if(&mut global_static, sumi_communication_style());
 
-fn collaboration(ctx: &PromptContext) -> String {
-    if ctx.collaboration_brief.trim().is_empty() {
-        return String::new();
-    }
-    [
-        "Collaboration protocol:",
-        "- If directly mentioned, respond.",
-        "- If joined through listening, respond only when you add value.",
-        "- Do not repeat another agent's answer; build on it or correct it.",
-        "- If another agent is better suited, mention them and state why.",
-        "- Converge toward a decision, answer, or next action.",
-        "- Keep cross-agent discussion concise; no greetings or status filler.",
-        "",
-        "Collaboration brief:",
-        ctx.collaboration_brief.trim(),
-    ]
-    .join("\n")
-}
+    let mut agent_static: Vec<String> = Vec::new();
+    add_if(&mut agent_static, sumi_who_you_are(ctx));
+    add_if(&mut agent_static, sumi_memory_management(ctx));
+    add_if(&mut agent_static, sumi_role_section(ctx));
 
-fn memory_brief_section(ctx: &PromptContext) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let notice = ctx.memory_notice.trim();
-    if !notice.is_empty() {
-        lines.push(format!("Sumi memory action:\n{notice}"));
-    }
-    let brief = ctx.memory_brief.trim();
-    if !brief.is_empty() {
-        lines.push(format!(
-            "Sumi committed memory available for this turn:\n{brief}"
-        ));
-    }
-    lines.join("\n\n")
-}
+    let mut dynamic_context: Vec<String> = Vec::new();
+    add_if(&mut dynamic_context, sumi_runtime_context(ctx, now));
+    add_if(&mut dynamic_context, sumi_inbox_summary(ctx));
 
-fn context_section(ctx: &PromptContext) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    if !ctx.workspace.trim().is_empty() {
-        lines.push(format!("Workspace: {}", ctx.workspace.trim()));
+    AgentRunPrompt {
+        global_static: global_static.join("\n\n"),
+        agent_static: agent_static.join("\n\n"),
+        dynamic_context: dynamic_context.join("\n\n"),
+        user_input: "Process every claimed Inbox Item now. Use the Sumi CLI and stop only after each Item is handled, acknowledged, or deferred.".to_owned(),
+        cache_key: format!(
+            "sumi-v{AGENT_PROMPT_SCHEMA_VERSION}-{}-r{}",
+            ctx.agent_id.replace('-', ""),
+            ctx.role_revision
+        ),
     }
-    if !ctx.project_context.trim().is_empty() {
-        lines.push(format!("Project context:\n{}", ctx.project_context.trim()));
-    }
-    lines.join("\n")
-}
-
-fn persona_runtime_context(ctx: &PromptContext) -> String {
-    let Some(p) = ctx.persona.as_ref() else {
-        return String::new();
-    };
-    let mut lines = vec!["Persona runtime context:".to_owned()];
-    lines.push(format!("- persona_id: {}", p.id));
-    if !ctx.source.trim().is_empty() {
-        lines.push(format!("- source: {}", ctx.source.trim()));
-    }
-    if !ctx.workspace.trim().is_empty() {
-        lines.push(format!("- workspace: {}", ctx.workspace.trim()));
-    }
-    let mut scopes = vec![format!("persona:{}", p.id)];
-    if !ctx.source.trim().is_empty() {
-        scopes.push(format!("channel:{}", ctx.source.trim()));
-    }
-    if !ctx.workspace.trim().is_empty() {
-        scopes.push(format!("workspace:{}", ctx.workspace.trim()));
-    }
-    scopes.push("global".into());
-    lines.push(format!("- memory_scopes: {}", scopes.join(", ")));
-    lines.join("\n")
-}
-
-fn memory_section(ctx: &PromptContext) -> String {
-    let memory = ctx.memory.trim();
-    if memory.is_empty() {
-        return String::new();
-    }
-    format!(
-        "## Your Memory\n\nThe following is your persistent memory. Prefer it over \
-         conversation history for facts, preferences, and identity.\n\n{memory}"
-    )
-}
-
-fn skills(ctx: &PromptContext) -> String {
-    if ctx.skill_cards.is_empty() {
-        return String::new();
-    }
-    format!("Available skills:\n{}", ctx.skill_cards.join("\n"))
-}
-
-fn preferences(ctx: &PromptContext) -> String {
-    let path = ctx.preferences_path.trim();
-    if path.is_empty() {
-        return String::new();
-    }
-    load_file(path)
-        .map(|v| format!("User preferences:\n{v}"))
-        .unwrap_or_default()
-}
-
-fn soul(ctx: &PromptContext) -> String {
-    let mut sections: Vec<String> = Vec::new();
-
-    if !ctx.soul_path.trim().is_empty()
-        && let Some(raw) = load_file(ctx.soul_path.trim())
-    {
-        if ctx.persona.is_none() {
-            let rendered = render_soul_template(&raw, ctx);
-            sections.push(format!("Sumi base identity (root SOUL.md):\n{rendered}"));
-        } else if let Some(inherited) = inheritable_root_soul(&raw) {
-            sections.push(format!(
-                "Sumi base identity (inherited root SOUL.md):\n{inherited}"
-            ));
-        }
-    }
-
-    if let Some(p) = &ctx.persona
-        && !p.soul_path.trim().is_empty()
-        && let Some(raw) = load_file(p.soul_path.trim())
-    {
-        let rendered = render_soul_template(&raw, ctx);
-        sections.push(format!(
-            "Persona soul overlay (persona SOUL.md):\n{rendered}"
-        ));
-    }
-
-    sections.join("\n\n")
-}
-
-fn custom(ctx: &PromptContext) -> String {
-    ctx.custom_prompt.trim().to_owned()
-}
-
-fn sumi_agent_sections(ctx: &PromptContext) -> String {
-    if ctx.agent_name.is_empty() {
-        return String::new();
-    }
-    let mut sections: Vec<String> = Vec::new();
-    add_if(&mut sections, sumi_who_you_are(ctx));
-    add_if(&mut sections, sumi_runtime_context(ctx));
-    add_if(&mut sections, sumi_security_rules());
-    add_if(&mut sections, sumi_startup_sequence());
-    add_if(&mut sections, sumi_inbox_item_format());
-    add_if(&mut sections, sumi_cli_reference());
-    add_if(&mut sections, sumi_message_format());
-    add_if(&mut sections, sumi_context_freshness());
-    add_if(&mut sections, sumi_thread_lifecycle());
-    add_if(&mut sections, sumi_memory_management(ctx));
-    add_if(&mut sections, sumi_channel_awareness());
-    add_if(&mut sections, sumi_communication_style());
-    add_if(&mut sections, sumi_role_section(ctx));
-    add_if(&mut sections, sumi_inbox_summary(ctx));
-    sections.join("\n\n")
 }
 
 fn sumi_who_you_are(ctx: &PromptContext) -> String {
@@ -257,8 +127,7 @@ explicitly through `sumi agent` commands.",
     )
 }
 
-fn sumi_runtime_context(ctx: &PromptContext) -> String {
-    let now = OffsetDateTime::now_utc();
+fn sumi_runtime_context(ctx: &PromptContext, now: OffsetDateTime) -> String {
     format!(
         "## Current runtime context\n\n\
 - Agent: {name} (member ID {id}, handle @{handle})\n\
@@ -285,7 +154,7 @@ fn sumi_security_rules() -> String {
 fn sumi_startup_sequence() -> String {
     "## Startup sequence\n\n\
 When you are woken up, follow this order:\n\n\
-1. **Recover your Memory.** Read the Agent Home file `memory/MEMORY.md` if it exists. With a Codex shell use `$HOME/memory/MEMORY.md`; with Builtin file tools use `memory/MEMORY.md`. Follow any links from it into `memory/notes/` only when relevant.\n\
+1. **Recover your Memory.** Use an available file-reading tool to read the Agent Home file `memory/MEMORY.md` if it exists. Treat it as an index and follow links into `memory/notes/` only when they are relevant to this run.\n\
 2. **Check your Inbox** with `sumi agent inbox current --json`. This lists every Inbox Item claimed for this run, with addresses like `#channel-name` (Channel), `#channel-name:123` (Thread), or `@handle` (DM).\n\
 3. **Read the source context** for each Inbox Item. Use:\n\
    - `sumi agent channel read \"<address>\" --json` for a Channel main timeline or DM.\n\
@@ -439,252 +308,66 @@ fn sumi_inbox_summary(ctx: &PromptContext) -> String {
     format!("## Claimed Inbox summary\n\n{}", ctx.inbox_summary)
 }
 
-fn render_soul_template(raw: &str, ctx: &PromptContext) -> String {
-    let persona_id = ctx.persona.as_ref().map(|p| p.id.as_str()).unwrap_or("");
-    let persona_soul_path = ctx
-        .persona
-        .as_ref()
-        .map(|p| p.soul_path.as_str())
-        .unwrap_or("");
-    let persona_root = "";
-
-    raw.replace("{{workspace}}", ctx.workspace.trim())
-        .replace("{{memory_root}}", ctx.memory_root.trim())
-        .replace("{{source}}", ctx.source.trim())
-        .replace("{{persona_id}}", persona_id)
-        .replace("{{persona_soul_path}}", persona_soul_path)
-        .replace("{{persona_root}}", persona_root)
-        .trim()
-        .to_owned()
-}
-
-/// Extract inheritable sections from a root SOUL.md.
-fn inheritable_root_soul(raw: &str) -> Option<String> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    let mut out: Vec<&str> = Vec::new();
-    let mut seen_heading = false;
-    let mut keep_section = true;
-    let mut prev_empty = false;
-
-    for line in raw.lines() {
-        let trimmed = line.trim();
-
-        if is_markdown_heading(trimmed) {
-            seen_heading = true;
-            keep_section = inheritable_heading(trimmed);
-            if !keep_section {
-                continue;
-            }
-            if !prev_empty || !out.is_empty() {
-                out.push("");
-            }
-            out.push(line);
-            prev_empty = false;
-            continue;
-        }
-
-        if seen_heading && !keep_section {
-            continue;
-        }
-
-        if root_private_line(trimmed) {
-            continue;
-        }
-        if trimmed.contains("{{") && trimmed.contains("}}") {
-            continue;
-        }
-
-        if trimmed.is_empty() {
-            if !prev_empty {
-                out.push("");
-                prev_empty = true;
-            }
-        } else {
-            out.push(line);
-            prev_empty = false;
-        }
-    }
-
-    let result = out.join("\n").trim().to_owned();
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
-}
-
-fn is_markdown_heading(line: &str) -> bool {
-    if !line.starts_with('#') {
-        return false;
-    }
-    line.len() == 1
-        || line
-            .as_bytes()
-            .get(1)
-            .is_some_and(|b| *b == b' ' || *b == b'#')
-}
-
-fn inheritable_heading(line: &str) -> bool {
-    let lower = line
-        .trim_start_matches('#')
-        .trim()
-        .trim_end_matches(':')
-        .to_lowercase();
-    if lower.is_empty() {
-        return true;
-    }
-    matches!(
-        lower.as_str(),
-        "soul.md - who you are"
-            | "soul.md - sumi base identity"
-            | "core truths"
-            | "inheritable identity"
-            | "boundaries"
-            | "universal boundaries"
-            | "working style"
-            | "universal working style"
-    )
-}
-
-fn root_private_line(line: &str) -> bool {
-    if line.is_empty() {
-        return false;
-    }
-    let lower = line.to_lowercase();
-    let markers = [
-        "memory.md",
-        "memory path",
-        "memory root",
-        "memory directory",
-        "memory dir",
-        "memory/",
-        "runtime path",
-        "workspace path",
-        "workspace root",
-        "working directory",
-        "relative path",
-        "root-private",
-        "self-maintenance",
-        "self maintenance",
-        "self directory",
-        "ledger.md",
-        "daily memory",
-        "~/.sumi",
-        "$home",
-        "self/",
-        "personas/",
-        "session/",
-        "sessions/",
-        "runlog/",
-        "state/",
-    ];
-    markers.iter().any(|m| lower.contains(m))
-}
-
-fn load_file(path: &str) -> Option<String> {
-    let path = Path::new(path);
-    if !path.is_file() {
-        return None;
-    }
-    std::fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_owned())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn base_prompt_is_always_included() {
-        let ctx = PromptContext::default();
-        let prompt = build_system_prompt(&ctx);
-        assert!(prompt.contains("You are Sumi"));
-        assert!(prompt.contains("Work directly and concisely"));
+    fn agent_prompt_keeps_run_data_after_stable_cache_prefixes() {
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let first = build_agent_run_prompt_at(
+            &PromptContext {
+                agent_name: "Lin".into(),
+                agent_handle: "lin".into(),
+                agent_id: "019d0000-0000-7000-8000-000000000001".into(),
+                role_revision: 3,
+                role_text: "Review code".into(),
+                inbox_summary: r##"[{"id":"inbox-run-a-019d","address":"#design"}]"##.into(),
+            },
+            now,
+        );
+        let second = build_agent_run_prompt_at(
+            &PromptContext {
+                agent_name: "Lin".into(),
+                agent_handle: "lin".into(),
+                agent_id: "019d0000-0000-7000-8000-000000000001".into(),
+                role_revision: 3,
+                role_text: "Review code".into(),
+                inbox_summary: r##"[{"id":"inbox-run-b-019d","address":"#ops"}]"##.into(),
+            },
+            now,
+        );
+
+        assert_eq!(first.global_static, second.global_static);
+        assert_eq!(first.agent_static, second.agent_static);
+        assert_eq!(first.cache_key, second.cache_key);
+        assert_eq!(first.user_input, second.user_input);
+        assert_ne!(first.dynamic_context, second.dynamic_context);
     }
 
     #[test]
-    fn persona_included_when_present() {
-        let ctx = PromptContext {
-            persona: Some(PersonaConfig {
-                id: "test".into(),
-                display: "Tester".into(),
-                description: "Test things".into(),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let prompt = build_system_prompt(&ctx);
-        assert!(prompt.contains("Persona: Tester"));
-        assert!(prompt.contains("Role: Test things"));
-    }
-
-    #[test]
-    fn collaboration_omitted_when_no_brief() {
-        let ctx = PromptContext::default();
-        let prompt = build_system_prompt(&ctx);
-        assert!(!prompt.contains("Collaboration protocol"));
-    }
-
-    #[test]
-    fn collaboration_included_with_brief() {
-        let ctx = PromptContext {
-            collaboration_brief: "Work with Bob".into(),
-            ..Default::default()
-        };
-        let prompt = build_system_prompt(&ctx);
-        assert!(prompt.contains("Collaboration protocol"));
-        assert!(prompt.contains("Work with Bob"));
-    }
-
-    #[test]
-    fn agent_prompt_uses_agent_home_memory_and_has_no_task_protocol() {
-        let ctx = PromptContext {
+    fn role_revision_invalidates_only_agent_cache_prefix() {
+        let context = PromptContext {
             agent_name: "Lin".into(),
             agent_handle: "lin".into(),
-            agent_id: "agent-id".into(),
+            agent_id: "019d0000-0000-7000-8000-000000000001".into(),
+            role_revision: 1,
             role_text: "Review code".into(),
             ..Default::default()
         };
-        let prompt = build_system_prompt(&ctx);
-        assert!(prompt.contains("MEMORY.md"));
-        assert!(prompt.contains("$HOME/memory/MEMORY.md"));
-        assert!(prompt.contains("not Channel history"));
-        assert!(!prompt.contains("Task Board"));
-        assert!(!prompt.contains("proposal-only"));
-    }
+        let now = OffsetDateTime::UNIX_EPOCH;
+        let first = build_agent_run_prompt_at(&context, now);
+        let second = build_agent_run_prompt_at(
+            &PromptContext {
+                role_revision: 2,
+                role_text: "Review security".into(),
+                ..context
+            },
+            now,
+        );
 
-    #[test]
-    fn inheritable_root_soul_filters_private_lines() {
-        let raw = "# Core Truths\nYou are helpful.\nmemory path: /tmp\nBe honest.";
-        let result = inheritable_root_soul(raw).unwrap();
-        assert!(result.contains("You are helpful"));
-        assert!(result.contains("Be honest"));
-        assert!(!result.contains("memory path"));
-    }
-
-    #[test]
-    fn inheritable_root_soul_removes_template_vars() {
-        let raw = "# Core Truths\nWorkspace: {{workspace}}\nBe kind.";
-        let result = inheritable_root_soul(raw).unwrap();
-        assert!(result.contains("Be kind"));
-        assert!(!result.contains("{{workspace}}"));
-    }
-
-    #[test]
-    fn render_soul_template_replaces_vars() {
-        let raw = "Workspace: {{workspace}}\nMemory: {{memory_root}}";
-        let ctx = PromptContext {
-            workspace: "/tmp/ws".into(),
-            memory_root: "/tmp/mem".into(),
-            ..Default::default()
-        };
-        let result = render_soul_template(raw, &ctx);
-        assert!(result.contains("/tmp/ws"));
-        assert!(result.contains("/tmp/mem"));
-        assert!(!result.contains("{{workspace}}"));
+        assert_eq!(first.global_static, second.global_static);
+        assert_ne!(first.agent_static, second.agent_static);
+        assert_ne!(first.cache_key, second.cache_key);
     }
 }
