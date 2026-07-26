@@ -18,13 +18,11 @@ use crate::agent_core::{
 use super::codex::{sandboxed_command, validate_sandbox_backend};
 use super::{Driver, DriverEnvironment, DriverEvent, DriverOutcome, DriverProcess, DriverRun};
 
-#[allow(dead_code)]
 pub struct BuiltinDriver {
     provider_config: Option<ProviderConfig>,
 }
 
 impl BuiltinDriver {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             provider_config: None,
@@ -123,8 +121,6 @@ impl Driver for BuiltinDriver {
 
         let turn = Turn {
             input: run.prompt.user_input.clone(),
-            source: String::new(),
-            attachments: vec![],
             blocked_tools: std::collections::HashMap::new(),
         };
 
@@ -167,12 +163,7 @@ impl Driver for BuiltinDriver {
                     ToolEvent::Finished { tool, .. } => DriverEvent::OutputReceived {
                         event_type: format!("tool.{tool}.finished"),
                     },
-                    ToolEvent::Failed {
-                        tool,
-                        error: _,
-                        input: _,
-                        tool_call_id: _,
-                    } => DriverEvent::OutputReceived {
+                    ToolEvent::Failed { tool } => DriverEvent::OutputReceived {
                         event_type: format!("tool.{tool}.failed"),
                     },
                 };
@@ -284,10 +275,6 @@ struct DaemonToolRunner {
 
 #[async_trait]
 impl ToolRunner for DaemonToolRunner {
-    fn definitions(&self) -> Vec<ToolDef> {
-        daemon_tool_defs()
-    }
-
     async fn run(&self, name: &str, args: &Value) -> Result<String> {
         match name {
             "read" => {

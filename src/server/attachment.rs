@@ -79,26 +79,41 @@ pub async fn create_upload(
     Json(mut request): Json<CreateUploadRequest>,
 ) -> Result<(StatusCode, Json<AttachmentResponse>), ApiError> {
     let user = auth::current_user(&state, &jar).await?;
-    request.original_name = request.original_name.trim().to_owned();
-    request.media_type = request.media_type.trim().to_owned();
-    validate_metadata(&request)?;
+    normalize_metadata(&mut request.original_name, &mut request.media_type)?;
     let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let actor = member::require_actor_tx(&mut transaction, user.id, request.space_id).await?;
-    let scope = format!(
-        "space:{}:member:{}:attachment:create",
-        request.space_id, actor.id
-    );
+    let result = create_upload_for_member(
+        &mut transaction,
+        key,
+        &request_hash,
+        request.space_id,
+        actor.id,
+        request.original_name,
+        request.media_type,
+    )
+    .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok((result.0, Json(result.1)))
+}
+
+async fn create_upload_for_member(
+    transaction: &mut Transaction<'_, Postgres>,
+    key: idempotency::IdempotencyKey,
+    request_hash: &[u8],
+    space_id: Uuid,
+    uploader_member_id: Uuid,
+    original_name: String,
+    media_type: String,
+) -> Result<(StatusCode, AttachmentResponse), ApiError> {
+    let scope = format!("space:{space_id}:member:{uploader_member_id}:attachment:create");
     if let Some((status, response)) =
-        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
-            .await?
+        idempotency::begin::<AttachmentResponse>(transaction, &scope, key, request_hash).await?
     {
-        transaction.commit().await.map_err(ApiError::database)?;
-        return Ok((status, Json(response)));
+        return Ok((status, response));
     }
+
     let attachment_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    let object_key = object_key(request.space_id, attachment_id);
     let row: AttachmentRow = sqlx::query_as(
         "INSERT INTO attachments \
          (id, space_id, uploader_member_id, original_name, media_type, object_key, created_at) \
@@ -107,26 +122,18 @@ pub async fn create_upload(
                    status, created_at",
     )
     .bind(attachment_id)
-    .bind(request.space_id)
-    .bind(actor.id)
-    .bind(request.original_name)
-    .bind(request.media_type)
-    .bind(object_key.as_ref())
-    .bind(now)
-    .fetch_one(&mut *transaction)
+    .bind(space_id)
+    .bind(uploader_member_id)
+    .bind(original_name)
+    .bind(media_type)
+    .bind(object_key(space_id, attachment_id).as_ref())
+    .bind(OffsetDateTime::now_utc())
+    .fetch_one(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
     let response = AttachmentResponse::from(row);
-    idempotency::finish(
-        &mut transaction,
-        &scope,
-        key,
-        StatusCode::CREATED,
-        &response,
-    )
-    .await?;
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    idempotency::finish(transaction, &scope, key, StatusCode::CREATED, &response).await?;
+    Ok((StatusCode::CREATED, response))
 }
 
 pub async fn upload_content(
@@ -178,14 +185,6 @@ pub async fn complete_upload(
     Json(request): Json<CompleteUploadRequest>,
 ) -> Result<Json<AttachmentResponse>, ApiError> {
     let user = auth::current_user(&state, &jar).await?;
-    if request.size > state.attachment_max_bytes {
-        return Err(ApiError::validation(
-            "attachment_too_large",
-            "Attachment exceeds the configured size limit",
-        ));
-    }
-    let expected_sha = decode_sha256(&request.sha256)?;
-    let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let row: AttachmentRow = sqlx::query_as(
         "SELECT attachments.id, attachments.space_id, attachments.uploader_member_id, \
@@ -201,22 +200,42 @@ pub async fn complete_upload(
     .await
     .map_err(ApiError::database)?
     .ok_or_else(|| ApiError::not_found("attachment_not_found", "Attachment was not found"))?;
+    let response =
+        complete_upload_for_member(&state, &mut transaction, key, attachment_id, request, row)
+            .await?;
+    transaction.commit().await.map_err(ApiError::database)?;
+    Ok(Json(response))
+}
+
+async fn complete_upload_for_member(
+    state: &AppState,
+    transaction: &mut Transaction<'_, Postgres>,
+    key: idempotency::IdempotencyKey,
+    attachment_id: Uuid,
+    request: CompleteUploadRequest,
+    row: AttachmentRow,
+) -> Result<AttachmentResponse, ApiError> {
+    if request.size > state.attachment_max_bytes {
+        return Err(ApiError::validation(
+            "attachment_too_large",
+            "Attachment exceeds the configured size limit",
+        ));
+    }
+    let expected_sha = decode_sha256(&request.sha256)?;
+    let request_hash = idempotency::request_hash(&request)?;
     let scope = format!("attachment:{attachment_id}:complete");
     if let Some((_status, response)) =
-        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
-            .await?
+        idempotency::begin::<AttachmentResponse>(transaction, &scope, key, &request_hash).await?
     {
-        transaction.commit().await.map_err(ApiError::database)?;
-        return Ok(Json(response));
+        return Ok(response);
     }
     if row.status == "ready" {
         if row.size == i64::try_from(request.size).ok()
             && row.sha256.as_deref() == Some(expected_sha.as_slice())
         {
             let response = AttachmentResponse::from(row);
-            idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
-            transaction.commit().await.map_err(ApiError::database)?;
-            return Ok(Json(response));
+            idempotency::finish(transaction, &scope, key, StatusCode::OK, &response).await?;
+            return Ok(response);
         }
         return Err(ApiError::conflict(
             "attachment_integrity_conflict",
@@ -229,9 +248,10 @@ pub async fn complete_upload(
             "Attachment upload has already finished",
         ));
     }
+
     let object_key: String = sqlx::query_scalar("SELECT object_key FROM attachments WHERE id = $1")
         .bind(attachment_id)
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(ApiError::database)?;
     let (actual_size, actual_sha) = inspect_object(
@@ -246,6 +266,7 @@ pub async fn complete_upload(
             "Uploaded content does not match the declared size and SHA-256",
         ));
     }
+
     let ready: AttachmentRow = sqlx::query_as(
         "UPDATE attachments SET size = $2, sha256 = $3, status = 'ready' WHERE id = $1 \
          RETURNING id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
@@ -254,25 +275,26 @@ pub async fn complete_upload(
     .bind(attachment_id)
     .bind(i64::try_from(actual_size).map_err(|_| ApiError::Internal)?)
     .bind(actual_sha.to_vec())
-    .fetch_one(&mut *transaction)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
-    let now = OffsetDateTime::now_utc();
+    let response = AttachmentResponse::from(ready);
     sqlx::query(
         "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
          VALUES ($1, 'attachment.ready', $2, $3, $4)",
     )
     .bind(Uuid::now_v7())
     .bind(attachment_id)
-    .bind(serde_json::json!({ "space_id": ready.space_id, "attachment_id": attachment_id }))
-    .bind(now)
-    .execute(&mut *transaction)
+    .bind(serde_json::json!({
+        "space_id": response.space_id,
+        "attachment_id": attachment_id
+    }))
+    .bind(OffsetDateTime::now_utc())
+    .execute(&mut **transaction)
     .await
     .map_err(ApiError::database)?;
-    let response = AttachmentResponse::from(ready);
-    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
-    transaction.commit().await.map_err(ApiError::database)?;
-    Ok(Json(response))
+    idempotency::finish(transaction, &scope, key, StatusCode::OK, &response).await?;
+    Ok(response)
 }
 
 pub async fn download(
@@ -303,31 +325,7 @@ pub async fn download(
             "Attachment is not visible from an accessible Message",
         )
     })?;
-    let result = state
-        .attachment_store
-        .get(&ObjectPath::from(object_key))
-        .await
-        .map_err(storage_error)?;
-    let stream = result
-        .into_stream()
-        .map(|chunk| chunk.map_err(|error| std::io::Error::other(error.to_string())));
-    let mut response = Body::from_stream(stream).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&media_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&size.to_string()).map_err(|_| ApiError::Internal)?,
-    );
-    let safe_name = original_name.replace(['\r', '\n', '"'], "_");
-    let disposition = format!("attachment; filename=\"{safe_name}\"");
-    response.headers_mut().insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_str(&disposition).map_err(|_| ApiError::Internal)?,
-    );
-    Ok(response)
+    attachment_download_response(&state, object_key, original_name, media_type, size).await
 }
 
 #[derive(Deserialize, Serialize)]
@@ -351,53 +349,21 @@ pub async fn agent_create_upload(
         run_id,
     )
     .await?;
-    request.original_name = request.original_name.trim().to_owned();
-    request.media_type = request.media_type.trim().to_owned();
-    validate_metadata(&CreateUploadRequest {
-        space_id,
-        original_name: request.original_name.clone(),
-        media_type: request.media_type.clone(),
-    })?;
+    normalize_metadata(&mut request.original_name, &mut request.media_type)?;
     let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
-    let scope = format!("space:{space_id}:member:{agent_id}:attachment:create");
-    if let Some((status, response)) =
-        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
-            .await?
-    {
-        transaction.commit().await.map_err(ApiError::database)?;
-        return Ok((status, Json(response)));
-    }
-    let attachment_id = Uuid::now_v7();
-    let now = OffsetDateTime::now_utc();
-    let row: AttachmentRow = sqlx::query_as(
-        "INSERT INTO attachments \
-         (id, space_id, uploader_member_id, original_name, media_type, object_key, created_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7) \
-         RETURNING id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
-                   status, created_at",
-    )
-    .bind(attachment_id)
-    .bind(space_id)
-    .bind(agent_id)
-    .bind(request.original_name)
-    .bind(request.media_type)
-    .bind(object_key(space_id, attachment_id).as_ref())
-    .bind(now)
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let response = AttachmentResponse::from(row);
-    idempotency::finish(
+    let result = create_upload_for_member(
         &mut transaction,
-        &scope,
         key,
-        StatusCode::CREATED,
-        &response,
+        &request_hash,
+        space_id,
+        agent_id,
+        request.original_name,
+        request.media_type,
     )
     .await?;
     transaction.commit().await.map_err(ApiError::database)?;
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((result.0, Json(result.1)))
 }
 
 pub async fn agent_upload_content(
@@ -442,14 +408,6 @@ pub async fn agent_complete_upload(
 ) -> Result<Json<AttachmentResponse>, ApiError> {
     computer_registry::require_active_agent_run(&state, &headers, computer_id, agent_id, run_id)
         .await?;
-    if request.size > state.attachment_max_bytes {
-        return Err(ApiError::validation(
-            "attachment_too_large",
-            "Attachment exceeds the configured size limit",
-        ));
-    }
-    let expected_sha = decode_sha256(&request.sha256)?;
-    let request_hash = idempotency::request_hash(&request)?;
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let row: AttachmentRow = sqlx::query_as(
         "SELECT id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
@@ -462,78 +420,9 @@ pub async fn agent_complete_upload(
     .await
     .map_err(ApiError::database)?
     .ok_or_else(|| ApiError::not_found("attachment_not_found", "Attachment was not found"))?;
-    let scope = format!("attachment:{attachment_id}:complete");
-    if let Some((_status, response)) =
-        idempotency::begin::<AttachmentResponse>(&mut transaction, &scope, key, &request_hash)
-            .await?
-    {
-        transaction.commit().await.map_err(ApiError::database)?;
-        return Ok(Json(response));
-    }
-    if row.status == "ready" {
-        if row.size == i64::try_from(request.size).ok()
-            && row.sha256.as_deref() == Some(expected_sha.as_slice())
-        {
-            let response = AttachmentResponse::from(row);
-            idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
-            transaction.commit().await.map_err(ApiError::database)?;
-            return Ok(Json(response));
-        }
-        return Err(ApiError::conflict(
-            "attachment_integrity_conflict",
-            "Attachment is already ready with different integrity metadata",
-        ));
-    }
-    if row.status != "uploading" {
-        return Err(ApiError::conflict(
-            "attachment_not_uploading",
-            "Attachment upload has already finished",
-        ));
-    }
-    let object_key: String = sqlx::query_scalar("SELECT object_key FROM attachments WHERE id = $1")
-        .bind(attachment_id)
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(ApiError::database)?;
-    let (actual_size, actual_sha) = inspect_object(
-        state.attachment_store.as_ref(),
-        &ObjectPath::from(object_key),
-        state.attachment_max_bytes,
-    )
-    .await?;
-    if actual_size != request.size || actual_sha.as_slice() != expected_sha {
-        return Err(ApiError::validation(
-            "attachment_integrity_mismatch",
-            "Uploaded content does not match the declared size and SHA-256",
-        ));
-    }
-    let ready: AttachmentRow = sqlx::query_as(
-        "UPDATE attachments SET size = $2, sha256 = $3, status = 'ready' WHERE id = $1 \
-         RETURNING id, space_id, uploader_member_id, original_name, media_type, size, sha256, \
-                   status, created_at",
-    )
-    .bind(attachment_id)
-    .bind(i64::try_from(actual_size).map_err(|_| ApiError::Internal)?)
-    .bind(actual_sha.to_vec())
-    .fetch_one(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    let response = AttachmentResponse::from(ready);
-    sqlx::query(
-        "INSERT INTO outbox_events (id, topic, aggregate_id, payload_json, created_at) \
-         VALUES ($1, 'attachment.ready', $2, $3, $4)",
-    )
-    .bind(Uuid::now_v7())
-    .bind(attachment_id)
-    .bind(serde_json::json!({
-        "space_id": response.space_id,
-        "attachment_id": attachment_id
-    }))
-    .bind(OffsetDateTime::now_utc())
-    .execute(&mut *transaction)
-    .await
-    .map_err(ApiError::database)?;
-    idempotency::finish(&mut transaction, &scope, key, StatusCode::OK, &response).await?;
+    let response =
+        complete_upload_for_member(&state, &mut transaction, key, attachment_id, request, row)
+            .await?;
     transaction.commit().await.map_err(ApiError::database)?;
     Ok(Json(response))
 }
@@ -703,16 +592,16 @@ pub(super) async fn attachments_for_message_pool(
     Ok(rows.into_iter().map(Into::into).collect())
 }
 
-fn validate_metadata(request: &CreateUploadRequest) -> Result<(), ApiError> {
-    if !(1..=255).contains(&request.original_name.chars().count()) {
+fn normalize_metadata(original_name: &mut String, media_type: &mut String) -> Result<(), ApiError> {
+    *original_name = original_name.trim().to_owned();
+    *media_type = media_type.trim().to_owned();
+    if !(1..=255).contains(&original_name.chars().count()) {
         return Err(ApiError::validation(
             "invalid_attachment_name",
             "Attachment name must contain 1 to 255 characters",
         ));
     }
-    if !(1..=255).contains(&request.media_type.chars().count())
-        || request.media_type.contains(['\r', '\n'])
-    {
+    if !(1..=255).contains(&media_type.chars().count()) || media_type.contains(['\r', '\n']) {
         return Err(ApiError::validation(
             "invalid_media_type",
             "Attachment media type is invalid",

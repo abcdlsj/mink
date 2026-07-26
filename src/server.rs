@@ -38,6 +38,7 @@ mod realtime;
 mod space;
 mod storage;
 mod thread;
+mod validation;
 
 pub(super) struct AppState {
     pub database: PgPool,

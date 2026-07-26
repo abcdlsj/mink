@@ -9,7 +9,8 @@ use sqlx::{FromRow, Postgres, Transaction};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, idempotency, member};
+use super::{AppState, api_error::ApiError, auth, idempotency, member, validation};
+use crate::database;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ChannelResponse {
@@ -406,7 +407,7 @@ async fn create_channel_tx(
     .execute(&mut **transaction)
     .await
     .map_err(|error| {
-        if unique_constraint(&error, "channels_space_slug_unique") {
+        if database::is_unique_constraint(&error, "channels_space_slug_unique") {
             ApiError::conflict("channel_slug_taken", "This Channel slug is already in use")
         } else {
             ApiError::database(error)
@@ -591,7 +592,7 @@ fn validate_create(mut request: CreateChannelRequest) -> Result<CreateChannelReq
             "Channel name must contain 1 to 80 characters",
         ));
     }
-    if !valid_slug(&request.slug) {
+    if !validation::is_slug(&request.slug, 1, 32) {
         return Err(ApiError::validation(
             "invalid_channel_slug",
             "Channel slug must contain 1 to 32 lowercase letters, numbers, or single hyphens",
@@ -614,16 +615,6 @@ fn validate_create(mut request: CreateChannelRequest) -> Result<CreateChannelReq
         ));
     }
     Ok(request)
-}
-
-fn valid_slug(slug: &str) -> bool {
-    (1..=32).contains(&slug.len())
-        && !slug.starts_with('-')
-        && !slug.ends_with('-')
-        && !slug.contains("--")
-        && slug
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 async fn can_create_channel(
@@ -758,24 +749,4 @@ async fn record_channel_event(
     .await
     .map_err(ApiError::database)?;
     Ok(())
-}
-
-fn unique_constraint(error: &sqlx::Error, constraint: &str) -> bool {
-    error
-        .as_database_error()
-        .and_then(|database| database.constraint())
-        == Some(constraint)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn channel_slug_matches_address_contract() {
-        assert!(valid_slug("design"));
-        assert!(valid_slug("x"));
-        assert!(!valid_slug("Design"));
-        assert!(!valid_slug("two--parts"));
-    }
 }

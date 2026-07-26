@@ -1,5 +1,4 @@
 mod agent_cli;
-#[allow(dead_code)]
 mod agent_core;
 mod cli;
 mod computer;

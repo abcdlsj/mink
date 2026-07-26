@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use super::{AppState, api_error::ApiError, auth, idempotency};
+use super::{AppState, api_error::ApiError, auth, idempotency, validation};
+use crate::database;
 
 const RESERVED_SLUGS: &[&str] = &[
     "api",
@@ -84,7 +85,7 @@ pub async fn create(
     .execute(&mut *transaction)
     .await
     .map_err(|error| {
-        if unique_constraint(&error, "spaces_slug_key") {
+        if database::is_unique_constraint(&error, "spaces_slug_key") {
             ApiError::conflict("slug_taken", "This Space slug is already in use")
         } else {
             ApiError::database(error)
@@ -269,7 +270,8 @@ fn validate(mut request: CreateSpaceRequest) -> Result<CreateSpaceRequest, ApiEr
             "Space name must contain 1 to 60 characters",
         ));
     }
-    if !valid_slug(&request.slug) || RESERVED_SLUGS.contains(&request.slug.as_str()) {
+    if !validation::is_slug(&request.slug, 3, 32) || RESERVED_SLUGS.contains(&request.slug.as_str())
+    {
         return Err(ApiError::validation(
             "invalid_space_slug",
             "Space slug must contain 3 to 32 lowercase letters, numbers, or single hyphens",
@@ -282,16 +284,6 @@ fn validate(mut request: CreateSpaceRequest) -> Result<CreateSpaceRequest, ApiEr
         ));
     }
     Ok(request)
-}
-
-fn valid_slug(slug: &str) -> bool {
-    (3..=32).contains(&slug.len())
-        && !slug.starts_with('-')
-        && !slug.ends_with('-')
-        && !slug.contains("--")
-        && slug
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 pub(super) fn member_handle(display_name: &str) -> String {
@@ -307,24 +299,9 @@ pub(super) fn member_handle(display_name: &str) -> String {
     shortened
 }
 
-fn unique_constraint(error: &sqlx::Error, constraint: &str) -> bool {
-    error
-        .as_database_error()
-        .and_then(|database| database.constraint())
-        == Some(constraint)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn slug_rules_match_the_public_url_contract() {
-        assert!(valid_slug("sumi-lab"));
-        assert!(!valid_slug("Sumi-lab"));
-        assert!(!valid_slug("two--hyphens"));
-        assert!(!valid_slug("-leading"));
-    }
 
     #[test]
     fn handle_falls_back_for_non_transliterated_names() {

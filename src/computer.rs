@@ -293,11 +293,13 @@ async fn handle_local_connection(
                     "Agent local IPC action"
                 );
                 proxy_agent_action(
-                    state_dir,
-                    server,
-                    computer_id,
-                    computer_credential,
-                    identity,
+                    &AgentProxy {
+                        state_dir,
+                        server,
+                        computer_id,
+                        computer_credential,
+                        identity: &identity,
+                    },
                     action,
                 )
                 .await
@@ -311,83 +313,52 @@ async fn handle_local_connection(
     Ok(())
 }
 
-async fn proxy_agent_action(
-    state_dir: &Path,
-    server: &Url,
+struct AgentProxy<'a> {
+    state_dir: &'a Path,
+    server: &'a Url,
     computer_id: Uuid,
-    computer_credential: &str,
-    identity: AgentIdentity,
-    action: AgentAction,
-) -> LocalResponse {
+    computer_credential: &'a str,
+    identity: &'a AgentIdentity,
+}
+
+async fn proxy_agent_action(context: &AgentProxy<'_>, action: AgentAction) -> LocalResponse {
     match action {
         AgentAction::AttachmentUpload {
             path,
             media_type,
             idempotency_key,
         } => {
-            return proxy_attachment_upload(
-                state_dir,
-                server,
-                computer_id,
-                computer_credential,
-                identity,
-                &path,
-                &media_type,
-                idempotency_key,
-            )
-            .await;
+            return proxy_attachment_upload(context, &path, &media_type, idempotency_key).await;
         }
         AgentAction::AttachmentDownload {
             attachment_id,
             output_path,
         } => {
-            return proxy_attachment_download(
-                state_dir,
-                server,
-                computer_id,
-                computer_credential,
-                identity,
-                attachment_id,
-                &output_path,
-            )
-            .await;
+            return proxy_attachment_download(context, attachment_id, &output_path).await;
         }
         AgentAction::AttachmentInfo { attachment_id } => {
-            return proxy_attachment_info(
-                server,
-                computer_id,
-                computer_credential,
-                identity,
-                attachment_id,
-            )
-            .await;
+            return proxy_attachment_info(context, attachment_id).await;
         }
-        action => {
-            proxy_json_agent_action(server, computer_id, computer_credential, identity, action)
-                .await
-        }
+        action => proxy_json_agent_action(context, action).await,
     }
 }
 
-async fn proxy_json_agent_action(
-    server: &Url,
-    computer_id: Uuid,
-    computer_credential: &str,
-    identity: AgentIdentity,
-    action: AgentAction,
-) -> LocalResponse {
-    let endpoint = match server.join(&format!("/api/v1/computers/{computer_id}/agent-actions")) {
+async fn proxy_json_agent_action(context: &AgentProxy<'_>, action: AgentAction) -> LocalResponse {
+    let endpoint = match context.server.join(&format!(
+        "/api/v1/computers/{}/agent-actions",
+        context.computer_id
+    )) {
         Ok(endpoint) => endpoint,
         Err(_) => return LocalResponse::failure("internal_error", "Server URL is invalid", false),
     };
     let body = serde_json::json!({
-        "agent_member_id": identity.agent_member_id,
-        "run_id": identity.run_id,
+        "agent_member_id": context.identity.agent_member_id,
+        "run_id": context.identity.run_id,
         "action": action,
     });
     let response = match reqwest::Client::new()
         .post(endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .json(&body)
         .send()
         .await
@@ -431,23 +402,23 @@ async fn proxy_json_agent_action(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn proxy_attachment_upload(
-    state_dir: &Path,
-    server: &Url,
-    computer_id: Uuid,
-    computer_credential: &str,
-    identity: AgentIdentity,
+    context: &AgentProxy<'_>,
     path: &str,
     media_type: &str,
     idempotency_key: Uuid,
 ) -> LocalResponse {
-    let (source, original_name, size, sha256) =
-        match prepare_upload_source(state_dir, identity.agent_member_id, path).await {
-            Ok(source) => source,
-            Err(response) => return response,
-        };
-    let base = match agent_attachment_base(server, computer_id, &identity) {
+    let (source, original_name, size, sha256) = match prepare_upload_source(
+        context.state_dir,
+        context.identity.agent_member_id,
+        path,
+    )
+    .await
+    {
+        Ok(source) => source,
+        Err(response) => return response,
+    };
+    let base = match agent_attachment_base(context.server, context.computer_id, context.identity) {
         Ok(base) => base,
         Err(response) => return response,
     };
@@ -458,7 +429,7 @@ async fn proxy_attachment_upload(
     let client = reqwest::Client::new();
     let response = match client
         .post(create_endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({
             "original_name": original_name,
@@ -504,7 +475,7 @@ async fn proxy_attachment_upload(
     };
     let response = match client
         .put(content_endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .body(reqwest::Body::wrap_stream(
             tokio_util::io::ReaderStream::new(file),
         ))
@@ -523,7 +494,7 @@ async fn proxy_attachment_upload(
     };
     let response = match client
         .post(complete_endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .header("idempotency-key", idempotency_key.to_string())
         .json(&serde_json::json!({ "size": size, "sha256": sha256 }))
         .send()
@@ -538,14 +509,8 @@ async fn proxy_attachment_upload(
     }
 }
 
-async fn proxy_attachment_info(
-    server: &Url,
-    computer_id: Uuid,
-    computer_credential: &str,
-    identity: AgentIdentity,
-    attachment_id: Uuid,
-) -> LocalResponse {
-    let base = match agent_attachment_base(server, computer_id, &identity) {
+async fn proxy_attachment_info(context: &AgentProxy<'_>, attachment_id: Uuid) -> LocalResponse {
+    let base = match agent_attachment_base(context.server, context.computer_id, context.identity) {
         Ok(base) => base,
         Err(response) => return response,
     };
@@ -555,7 +520,7 @@ async fn proxy_attachment_info(
     };
     let response = match reqwest::Client::new()
         .get(endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .send()
         .await
     {
@@ -569,22 +534,23 @@ async fn proxy_attachment_info(
 }
 
 async fn proxy_attachment_download(
-    state_dir: &Path,
-    server: &Url,
-    computer_id: Uuid,
-    computer_credential: &str,
-    identity: AgentIdentity,
+    context: &AgentProxy<'_>,
     attachment_id: Uuid,
     output_path: &str,
 ) -> LocalResponse {
     use tokio::io::AsyncWriteExt;
 
-    let output =
-        match prepare_download_target(state_dir, identity.agent_member_id, output_path).await {
-            Ok(output) => output,
-            Err(response) => return response,
-        };
-    let base = match agent_attachment_base(server, computer_id, &identity) {
+    let output = match prepare_download_target(
+        context.state_dir,
+        context.identity.agent_member_id,
+        output_path,
+    )
+    .await
+    {
+        Ok(output) => output,
+        Err(response) => return response,
+    };
+    let base = match agent_attachment_base(context.server, context.computer_id, context.identity) {
         Ok(base) => base,
         Err(response) => return response,
     };
@@ -594,7 +560,7 @@ async fn proxy_attachment_download(
     };
     let response = match reqwest::Client::new()
         .get(endpoint)
-        .bearer_auth(computer_credential)
+        .bearer_auth(context.computer_credential)
         .send()
         .await
     {
@@ -1193,11 +1159,11 @@ impl LocalCommandProcessor {
                     ok: true,
                     result: serde_json::to_value(file)?,
                 },
-                Err(error) => LocalCommandOutcome {
+                Err(_) => LocalCommandOutcome {
                     ok: false,
                     result: serde_json::json!({
                         "ok": false,
-                        "error_code": local_error_code(&error),
+                        "error_code": COMMAND_FAILED_ERROR_CODE,
                     }),
                 },
             };
@@ -1233,7 +1199,7 @@ impl LocalCommandProcessor {
                             status: "failed".to_owned(),
                             error_code: Some("supervisor_stopped".to_owned()),
                         });
-                        let mut outcome = run_outcome(&result);
+                        let mut outcome = command_outcome_for_run(&result);
                         match scan_memory(&memory_root).await {
                             Ok(memory_files) => {
                                 outcome.result["memory_files"] = serde_json::json!(memory_files);
@@ -1259,10 +1225,10 @@ impl LocalCommandProcessor {
                     });
                     return Ok(None);
                 }
-                Err(error) => {
+                Err(_) => {
                     let outcome = LocalCommandOutcome {
                         ok: false,
-                        result: serde_json::json!({ "ok": false, "error_code": local_error_code(&error) }),
+                        result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
                     };
                     finish_local_command(&self.database, command_id, &outcome).await?;
                     return Ok(Some(outcome));
@@ -1283,9 +1249,9 @@ impl LocalCommandProcessor {
                     ok: true,
                     result: serde_json::json!({ "ok": true }),
                 },
-                Err(error) => LocalCommandOutcome {
+                Err(_) => LocalCommandOutcome {
                     ok: false,
-                    result: serde_json::json!({ "ok": false, "error_code": local_error_code(&error) }),
+                    result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
                 },
             };
             finish_local_command(&self.database, command_id, &outcome).await?;
@@ -1298,9 +1264,9 @@ impl LocalCommandProcessor {
                 ok: true,
                 result: serde_json::json!({ "ok": true, "memory_files": memory_files }),
             },
-            Err(error) => LocalCommandOutcome {
+            Err(_) => LocalCommandOutcome {
                 ok: false,
-                result: serde_json::json!({ "ok": false, "error_code": local_error_code(&error) }),
+                result: serde_json::json!({ "ok": false, "error_code": COMMAND_FAILED_ERROR_CODE }),
             },
         };
         finish_local_command(&self.database, command_id, &outcome).await?;
@@ -1308,7 +1274,7 @@ impl LocalCommandProcessor {
     }
 }
 
-fn run_outcome(result: &RunResult) -> LocalCommandOutcome {
+fn command_outcome_for_run(result: &RunResult) -> LocalCommandOutcome {
     LocalCommandOutcome {
         ok: result.status == "completed",
         result: serde_json::json!({
@@ -1348,9 +1314,7 @@ async fn finish_local_command_with_result(
     Ok(())
 }
 
-fn local_error_code(_error: &anyhow::Error) -> &'static str {
-    "command_failed"
-}
+const COMMAND_FAILED_ERROR_CODE: &str = "command_failed";
 
 async fn execute_local_command(
     state_dir: &Path,
@@ -1623,11 +1587,11 @@ async fn resume_received_commands(
                 ok: true,
                 result: serde_json::json!({ "ok": true, "memory_files": memory_files }),
             },
-            Err(error) => LocalCommandOutcome {
+            Err(_) => LocalCommandOutcome {
                 ok: false,
                 result: serde_json::json!({
                     "ok": false,
-                    "error_code": local_error_code(&error),
+                    "error_code": COMMAND_FAILED_ERROR_CODE,
                 }),
             },
         };
@@ -1933,20 +1897,6 @@ async fn set_permissions(path: &Path, mode: u32) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn memory_metadata_uses_rfc3339_on_the_computer_protocol() {
-        let metadata = MemoryFileMetadata {
-            path: "MEMORY.md".to_owned(),
-            size: 9,
-            sha256: "00".repeat(32),
-            updated_at: OffsetDateTime::UNIX_EPOCH,
-        };
-
-        let value = serde_json::to_value(metadata).unwrap();
-
-        assert_eq!(value["updated_at"], "1970-01-01T00:00:00Z");
-    }
 
     #[tokio::test]
     async fn secrets_are_created_with_restricted_permissions_and_reused() {

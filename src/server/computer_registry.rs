@@ -52,8 +52,10 @@ pub async fn start(
             "Computer hostname and OS are invalid",
         ));
     }
-    let pairing_secret_hash = decode_32(&request.pairing_secret_hash, "invalid_pairing_secret")?;
-    let credential_hash = decode_32(&request.credential_hash, "invalid_computer_credential")?;
+    let pairing_secret_hash =
+        decode_base64url_32_bytes(&request.pairing_secret_hash, "invalid_pairing_secret")?;
+    let credential_hash =
+        decode_base64url_32_bytes(&request.credential_hash, "invalid_computer_credential")?;
     let public_key = URL_SAFE_NO_PAD.decode(&request.public_key).map_err(|_| {
         ApiError::validation("invalid_public_key", "Computer public key is invalid")
     })?;
@@ -375,8 +377,9 @@ pub async fn result(
     headers: HeaderMap,
     Path(pairing_id): Path<Uuid>,
 ) -> Result<Json<PairingResultResponse>, ApiError> {
-    let secret = bearer(&headers)?;
-    let secret = decode_32(secret, "invalid_pairing_secret").map_err(|_| ApiError::Unauthorized)?;
+    let secret = bearer_token(&headers)?;
+    let secret = decode_base64url_32_bytes(secret, "invalid_pairing_secret")
+        .map_err(|_| ApiError::Unauthorized)?;
     let secret_hash = Sha256::digest(secret);
     let mut transaction = state.database.begin().await.map_err(ApiError::database)?;
     let pairing: Option<PairingResultRow> = sqlx::query_as(
@@ -536,7 +539,7 @@ pub(super) async fn authenticate_computer(
     headers: &HeaderMap,
     computer_id: Uuid,
 ) -> Result<(), ApiError> {
-    let credential = bearer(headers)?;
+    let credential = bearer_token(headers)?;
     let expected: Option<(Vec<u8>, String)> =
         sqlx::query_as("SELECT credential_hash, status FROM computers WHERE id = $1")
             .bind(computer_id)
@@ -664,12 +667,14 @@ pub async fn agent_action(
                 &state.database,
                 request.agent_member_id,
                 request.run_id,
-                &address,
-                body_markdown,
-                based_on,
-                handle_inbox_item_id,
-                &attachment_ids,
-                idempotency_key,
+                AgentMessageSend {
+                    address,
+                    body_markdown,
+                    based_on,
+                    handle_inbox_item_id,
+                    attachment_ids,
+                    idempotency_key,
+                },
             )
             .await?
         }
@@ -1574,18 +1579,29 @@ async fn resolve_agent_address(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
+struct AgentMessageSend {
+    address: String,
+    body_markdown: String,
+    based_on: Option<i64>,
+    handle_inbox_item_id: Option<Uuid>,
+    attachment_ids: Vec<Uuid>,
+    idempotency_key: Uuid,
+}
+
 async fn agent_message_send(
     database: &sqlx::PgPool,
     agent_id: Uuid,
     run_id: Uuid,
-    address: &str,
-    body_markdown: String,
-    based_on: Option<i64>,
-    handle_item_id: Option<Uuid>,
-    attachment_ids: &[Uuid],
-    idempotency_key: Uuid,
+    request: AgentMessageSend,
 ) -> Result<serde_json::Value, ApiError> {
+    let AgentMessageSend {
+        address,
+        body_markdown,
+        based_on,
+        handle_inbox_item_id: handle_item_id,
+        attachment_ids,
+        idempotency_key,
+    } = request;
     let body_markdown = body_markdown.trim();
     if !(1..=20_000).contains(&body_markdown.chars().count()) {
         return Err(ApiError::validation(
@@ -1600,14 +1616,14 @@ async fn agent_message_send(
         ));
     }
     let (channel_id, display_address, thread_id) =
-        resolve_agent_message_target(database, agent_id, address).await?;
+        resolve_agent_message_target(database, agent_id, &address).await?;
     let request_hash = idempotency::request_hash(&serde_json::json!({
         "run_id": run_id,
-        "address": address,
+        "address": &address,
         "body_markdown": body_markdown,
         "based_on": based_on,
         "handle_inbox_item_id": handle_item_id,
-        "attachment_ids": attachment_ids,
+        "attachment_ids": &attachment_ids,
     }))?;
     let mut transaction = database.begin().await.map_err(ApiError::database)?;
     let channel: Option<(Uuid, String, Option<OffsetDateTime>, i64)> = sqlx::query_as(
@@ -1715,7 +1731,7 @@ async fn agent_message_send(
         message_id,
         space_id,
         agent_id,
-        attachment_ids,
+        &attachment_ids,
     )
     .await?;
     let mut thread_inbox_changed = false;
@@ -1735,16 +1751,18 @@ async fn agent_message_send(
         if channel_kind != "direct" {
             thread_inbox_changed = super::thread::insert_thread_attention(
                 &mut transaction,
-                space_id,
-                channel_id,
-                thread_id,
-                message_id,
-                agent_id,
-                seq,
-                None,
-                &[],
-                &channel_kind,
-                now,
+                super::thread::ThreadAttention {
+                    space_id,
+                    channel_id,
+                    thread_id,
+                    message_id,
+                    actor_id: agent_id,
+                    seq,
+                    reply_to_message_id: None,
+                    mentions: &[],
+                    channel_kind: &channel_kind,
+                    now,
+                },
             )
             .await?;
         }
@@ -1825,13 +1843,15 @@ async fn agent_message_send(
         && thread_id.is_none()
         && message::insert_channel_ambient_inbox(
             &mut transaction,
-            space_id,
-            channel_id,
-            message_id,
-            agent_id,
-            seq,
-            &[],
-            now,
+            message::ChannelAmbientInbox {
+                space_id,
+                channel_id,
+                message_id,
+                actor_id: agent_id,
+                seq,
+                hard_recipients: &[],
+                now,
+            },
         )
         .await?
     {
@@ -2843,7 +2863,7 @@ async fn insert_status_event(
     Ok(())
 }
 
-fn decode_32(value: &str, code: &'static str) -> Result<[u8; 32], ApiError> {
+fn decode_base64url_32_bytes(value: &str, code: &'static str) -> Result<[u8; 32], ApiError> {
     URL_SAFE_NO_PAD
         .decode(value)
         .ok()
@@ -2851,7 +2871,7 @@ fn decode_32(value: &str, code: &'static str) -> Result<[u8; 32], ApiError> {
         .ok_or_else(|| ApiError::validation(code, "Expected base64url-encoded 32 bytes"))
 }
 
-fn bearer(headers: &HeaderMap) -> Result<&str, ApiError> {
+fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())

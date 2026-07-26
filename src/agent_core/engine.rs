@@ -15,8 +15,6 @@ use crate::agent_core::{
 #[derive(Clone, Debug)]
 pub struct Turn {
     pub input: String,
-    pub source: String,
-    pub attachments: Vec<crate::agent_core::types::Attachment>,
     pub blocked_tools: HashMap<String, String>,
 }
 
@@ -236,14 +234,6 @@ mod tests {
 
     #[async_trait]
     impl ToolRunner for FakeTools {
-        fn definitions(&self) -> Vec<ToolDef> {
-            vec![ToolDef {
-                name: "echo".into(),
-                description: "Echo back".into(),
-                parameters: serde_json::json!({}),
-            }]
-        }
-
         async fn run(&self, _name: &str, args: &Value) -> Result<String> {
             Ok(format!("echo: {}", args))
         }
@@ -271,8 +261,6 @@ mod tests {
 
         let turn = Turn {
             input: "hi".into(),
-            source: String::new(),
-            attachments: vec![],
             blocked_tools: HashMap::new(),
         };
         let mut session = Session::default();
@@ -323,8 +311,6 @@ mod tests {
 
         let turn = Turn {
             input: "test".into(),
-            source: String::new(),
-            attachments: vec![],
             blocked_tools: HashMap::new(),
         };
         let mut session = Session::default();

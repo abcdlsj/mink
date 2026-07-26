@@ -16,6 +16,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, idempotency};
+use crate::database;
 
 const SESSION_COOKIE: &str = "sumi_session";
 
@@ -124,7 +125,7 @@ pub async fn register(
     .execute(&mut *transaction)
     .await;
     if let Err(error) = insert {
-        if is_unique_constraint(&error, "users_email_normalized_key") {
+        if database::is_unique_constraint(&error, "users_email_normalized_key") {
             return Err(ApiError::conflict(
                 "email_taken",
                 "An account already uses this email",
@@ -364,11 +365,4 @@ async fn verify_password(password: String, encoded: String) -> Result<bool, ApiE
 
 pub(super) fn token_hash(token: &str) -> String {
     URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()))
-}
-
-fn is_unique_constraint(error: &sqlx::Error, constraint: &str) -> bool {
-    error
-        .as_database_error()
-        .and_then(|database| database.constraint())
-        == Some(constraint)
 }

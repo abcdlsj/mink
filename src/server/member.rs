@@ -12,6 +12,7 @@ use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 use super::{AppState, api_error::ApiError, auth, idempotency, space};
+use crate::database;
 
 const INVITATION_TTL_DAYS: i64 = 7;
 const PERMISSIONS: &[&str] = &["agent:create", "channel:create"];
@@ -282,7 +283,7 @@ pub async fn create_invitation(
     .execute(&mut *transaction)
     .await
     .map_err(|error| {
-        if unique_constraint(&error, "human_invitations_token_hash_key") {
+        if database::is_unique_constraint(&error, "human_invitations_token_hash_key") {
             ApiError::conflict("invite_token_conflict", "Invitation token must be regenerated")
         } else {
             ApiError::database(error)
@@ -801,11 +802,4 @@ async fn insert_member_outbox(
     .await
     .map_err(ApiError::database)?;
     Ok(())
-}
-
-fn unique_constraint(error: &sqlx::Error, constraint: &str) -> bool {
-    error
-        .as_database_error()
-        .and_then(|database| database.constraint())
-        == Some(constraint)
 }

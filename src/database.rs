@@ -40,6 +40,13 @@ pub async fn connect_sqlite(path: &Path) -> Result<SqlitePool> {
     Ok(pool)
 }
 
+pub fn is_unique_constraint(error: &sqlx::Error, constraint: &str) -> bool {
+    error
+        .as_database_error()
+        .and_then(|database| database.constraint())
+        == Some(constraint)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;

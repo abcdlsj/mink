@@ -48,7 +48,6 @@ pub enum DriverProcess {
         child: Child,
         stdout: tokio::process::ChildStdout,
     },
-    #[allow(dead_code)]
     Internal {
         task: tokio::task::JoinHandle<()>,
         events: tokio::sync::mpsc::Receiver<DriverEvent>,

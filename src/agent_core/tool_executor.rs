@@ -5,34 +5,19 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use crate::agent_core::types::{ToolCall, ToolDef, ToolResult};
+use crate::agent_core::types::{ToolCall, ToolResult};
 
 /// Events published during tool execution.
 #[derive(Clone, Debug)]
 pub enum ToolEvent {
-    Started {
-        tool_call_id: String,
-        tool: String,
-        input: String,
-    },
-    Finished {
-        tool_call_id: String,
-        tool: String,
-        input: String,
-        output: String,
-    },
-    Failed {
-        tool_call_id: String,
-        tool: String,
-        input: String,
-        error: String,
-    },
+    Started { tool: String },
+    Finished { tool: String },
+    Failed { tool: String },
 }
 
 /// Trait for executing tools by name.
 #[async_trait]
 pub trait ToolRunner: Send + Sync {
-    fn definitions(&self) -> Vec<ToolDef>;
     async fn run(&self, name: &str, args: &Value) -> Result<String>;
 }
 
@@ -118,13 +103,9 @@ async fn run_one_tool(
     blocked_tools: &std::collections::HashMap<String, String>,
     events: &mpsc::Sender<ToolEvent>,
 ) -> ToolResult {
-    let input_str = call.args.to_string();
-
     let _ = events
         .send(ToolEvent::Started {
-            tool_call_id: call.id.clone(),
             tool: call.name.clone(),
-            input: input_str.clone(),
         })
         .await;
 
@@ -136,10 +117,7 @@ async fn run_one_tool(
         };
         let _ = events
             .send(ToolEvent::Failed {
-                tool_call_id: call.id.clone(),
                 tool: call.name.clone(),
-                input: input_str,
-                error: error.clone(),
             })
             .await;
         return ToolResult {
@@ -153,10 +131,7 @@ async fn run_one_tool(
         Ok(output) => {
             let _ = events
                 .send(ToolEvent::Finished {
-                    tool_call_id: call.id.clone(),
                     tool: call.name.clone(),
-                    input: input_str,
-                    output: output.clone(),
                 })
                 .await;
             ToolResult {
@@ -169,10 +144,7 @@ async fn run_one_tool(
             let error = error.to_string();
             let _ = events
                 .send(ToolEvent::Failed {
-                    tool_call_id: call.id.clone(),
                     tool: call.name.clone(),
-                    input: input_str,
-                    error: error.clone(),
                 })
                 .await;
             ToolResult {

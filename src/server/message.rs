@@ -473,13 +473,15 @@ pub async fn create(
     } else {
         insert_channel_ambient_inbox(
             &mut transaction,
-            space_id,
-            channel_id,
-            message_id,
-            actor.id,
-            seq,
-            &request.mentions,
-            now,
+            ChannelAmbientInbox {
+                space_id,
+                channel_id,
+                message_id,
+                actor_id: actor.id,
+                seq,
+                hard_recipients: &request.mentions,
+                now,
+            },
         )
         .await?
     };
@@ -533,17 +535,29 @@ pub async fn create(
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(super) struct ChannelAmbientInbox<'a> {
+    pub space_id: Uuid,
+    pub channel_id: Uuid,
+    pub message_id: Uuid,
+    pub actor_id: Uuid,
+    pub seq: i64,
+    pub hard_recipients: &'a [Uuid],
+    pub now: OffsetDateTime,
+}
+
 pub(super) async fn insert_channel_ambient_inbox(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    space_id: Uuid,
-    channel_id: Uuid,
-    message_id: Uuid,
-    actor_id: Uuid,
-    seq: i64,
-    hard_recipients: &[Uuid],
-    now: OffsetDateTime,
+    input: ChannelAmbientInbox<'_>,
 ) -> Result<bool, ApiError> {
+    let ChannelAmbientInbox {
+        space_id,
+        channel_id,
+        message_id,
+        actor_id,
+        seq,
+        hard_recipients,
+        now,
+    } = input;
     let recipients: Vec<(Uuid, i64)> = sqlx::query_as(
         "SELECT agents.member_id, \
                 (agents.attention_config_json->>'ambient_debounce_seconds')::bigint \

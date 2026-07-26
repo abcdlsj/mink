@@ -10,40 +10,24 @@ use crate::agent_core::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
 
 #[derive(Clone)]
 pub struct ProviderConfig {
-    pub provider: String,
     pub api_key: String,
     pub base_url: Option<String>,
     pub model: String,
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f32>,
     pub prompt_cache_key: Option<String>,
 }
 
 impl ProviderConfig {
     pub fn openai(api_key: impl Into<String>, model: String) -> Self {
         Self {
-            provider: "openai".into(),
             api_key: api_key.into(),
             base_url: None,
             model,
-            max_tokens: None,
-            temperature: None,
             prompt_cache_key: None,
         }
     }
 
     pub fn with_base_url(mut self, url: String) -> Self {
         self.base_url = Some(url);
-        self
-    }
-
-    pub fn with_max_tokens(mut self, n: u32) -> Self {
-        self.max_tokens = Some(n);
-        self
-    }
-
-    pub fn with_temperature(mut self, t: f32) -> Self {
-        self.temperature = Some(t);
         self
     }
 
@@ -82,13 +66,6 @@ pub trait Provider: Send + Sync {
         messages: &[Message],
         tools: &[ToolDef],
     ) -> Result<mpsc::Receiver<Chunk>>;
-}
-
-pub fn create_provider(config: ProviderConfig) -> Result<Box<dyn Provider>> {
-    match config.provider.as_str() {
-        "openai" => Ok(Box::new(OpenAiProvider::new(config)?)),
-        other => bail!("unknown provider: {other}"),
-    }
 }
 
 pub struct OpenAiProvider {
@@ -261,12 +238,6 @@ fn build_openai_request(
         request["tools"] = tool_defs.into();
     }
 
-    if let Some(max_tokens) = config.max_tokens {
-        request["max_tokens"] = max_tokens.into();
-    }
-    if let Some(temperature) = config.temperature {
-        request["temperature"] = temperature.into();
-    }
     if explicit_prompt_cache && let Some(key) = &config.prompt_cache_key {
         request["prompt_cache_key"] = key.clone().into();
         request["prompt_cache_options"] = serde_json::json!({

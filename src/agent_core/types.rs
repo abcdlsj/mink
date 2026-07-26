@@ -30,14 +30,6 @@ impl Message {
         }
     }
 
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self {
-            role: "assistant".into(),
-            content: content.into(),
-            ..Default::default()
-        }
-    }
-
     pub fn tool(results: Vec<ToolResult>) -> Self {
         Self {
             role: "tool".into(),

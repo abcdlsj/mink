@@ -259,16 +259,18 @@ pub async fn reply(
     .await?;
     let inbox_changed = insert_thread_attention(
         &mut transaction,
-        space_id,
-        channel_id,
-        thread_id,
-        message_id,
-        actor.id,
-        seq,
-        request.reply_to_message_id,
-        &request.mentions,
-        &channel_kind,
-        now,
+        ThreadAttention {
+            space_id,
+            channel_id,
+            thread_id,
+            message_id,
+            actor_id: actor.id,
+            seq,
+            reply_to_message_id: request.reply_to_message_id,
+            mentions: &request.mentions,
+            channel_kind: &channel_kind,
+            now,
+        },
     )
     .await?;
     if inbox_changed {
@@ -509,20 +511,35 @@ async fn subscribe(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+pub(super) struct ThreadAttention<'a> {
+    pub space_id: Uuid,
+    pub channel_id: Uuid,
+    pub thread_id: i64,
+    pub message_id: Uuid,
+    pub actor_id: Uuid,
+    pub seq: i64,
+    pub reply_to_message_id: Option<Uuid>,
+    pub mentions: &'a [Uuid],
+    pub channel_kind: &'a str,
+    pub now: OffsetDateTime,
+}
+
 pub(super) async fn insert_thread_attention(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    space_id: Uuid,
-    channel_id: Uuid,
-    thread_id: i64,
-    message_id: Uuid,
-    actor_id: Uuid,
-    seq: i64,
-    reply_to_message_id: Option<Uuid>,
-    mentions: &[Uuid],
-    channel_kind: &str,
-    now: OffsetDateTime,
+    input: ThreadAttention<'_>,
 ) -> Result<bool, ApiError> {
+    let ThreadAttention {
+        space_id,
+        channel_id,
+        thread_id,
+        message_id,
+        actor_id,
+        seq,
+        reply_to_message_id,
+        mentions,
+        channel_kind,
+        now,
+    } = input;
     let mut hard_recipients = HashSet::new();
     for mentioned_member_id in mentions {
         sqlx::query(
