@@ -1,57 +1,36 @@
 # Sumi 开发约定
 
-## 每次开始前必须阅读
+## 开始前
 
-1. 每个 Agent 在每次开发 session、上下文压缩后的续跑以及接手他人工作时，第一件事必须从头阅读本文件；不得依赖记忆或上一轮摘要代替。
-2. 随后阅读 `GOAL.md`、`GLOSSARY.md` 和 `docs/design.md`。开始具体子任务前，再重读 `docs/design.md` 中对应章节。
-3. 修改前检查当前文件和工作区状态，保留用户或其他 Agent 已有的未提交修改。
-4. 不得读取、恢复或推断仓库过去的 Git 提交；当前工作区文件就是唯一实现基线。
+1. 每个开发 session、上下文压缩续跑或工作交接后，依次完整阅读本文件、`GOAL.md`、`GLOSSARY.md` 和 `docs/design.md`；具体开发前重读对应设计章节。
+2. 修改前检查当前文件与工作区状态，保留用户和其他 Agent 的未提交修改。
+3. 当前工作区文件是唯一实现基线；禁止读取、恢复或推断 Git 历史中的旧实现。
 
 ## 事实来源
 
 - 用户当前指令优先级最高。
-- `docs/design.md` 是产品行为、技术边界、数据模型和验收标准的规范来源。
-- `GLOSSARY.md` 是领域名词的规范来源；代码、API 和 UI 不得擅自创造同义词。
-- `GOAL.md` 只记录交付目标、阶段和进度，不定义第二套产品规格。
-- 发现代码、文档或目标相互矛盾时，先定位根因并修正规范，再继续实现；不得用兼容层掩盖冲突。
+- `docs/design.md` 定义产品行为、技术边界、数据模型和验收标准；`GLOSSARY.md` 定义领域语言；`GOAL.md` 只记录交付目标与进度，不定义另一套规格。
+- 代码、文档或目标冲突时，先定位根因并修正规范，再实现；不得用兼容层掩盖冲突。
+- 行为、协议、数据模型或领域名词改变时，先更新设计或术语表。
 
-## 持续执行
+## 执行与进度
 
-1. 从 `GOAL.md` 中选择最早的未完成阶段，先完成一条可运行的纵向路径，再扩展旁支。
-2. 持续执行“检查现状 -> 实现 -> 定向测试 -> 修复 -> 更新进度”，不要完成脚手架或单个文件后就停下汇报。
-3. 普通编译错误、测试失败和可自行验证的不确定性不是阻塞；先诊断并继续修复。
-4. 只有缺少外部权限或密钥、用户必须作出的产品选择、或无法安全推断的破坏性操作才暂停询问。
-5. 只有真实通过对应验收后才能勾选 `GOAL.md`；不得用“代码已写但未运行”冒充完成。每次勾选同时记录验证命令或证据。
+- 从 `GOAL.md` 最早的未完成项开始，持续执行“审计现状 -> 纵向实现 -> 定向测试 -> 修复 -> 更新进度”。
+- 编译错误、测试失败和可验证的不确定性不是阻塞；只有缺少外部权限或密钥、必须由用户作出的产品选择、或不安全的破坏性操作才暂停。
+- 只有真实通过验收后才能勾选 `GOAL.md`，并同时记录简短、可复现的验证命令或证据。
 
 ## 实现边界
 
-- v1 使用 Rust 实现 Server、Computer daemon 和 Agent CLI，并只发布一个 `sumi` binary，以 `sumi server`、`sumi computer`、`sumi agent` 区分入口。
-- 保持模块化单体和清晰接口；不要提前拆微服务、多 Cargo package、消息队列或抽象框架。
-- 优先使用 `docs/design.md` 已选的成熟库，不重复实现数据库、网络协议、密码学或对象存储已有能力。
-- 默认不做数据兼容，只保留最新产品模型和唯一最新 schema；禁止兼容读取、双写、deprecated 字段或旧入口。只有用户明确要求兼容既有数据时才设计迁移。
-- Agent 与 Sumi 的所有交互只能通过 `sumi agent` CLI；Driver stdout 不能自动成为 Message。
-- Server 和 Computer v1 只支持 macOS 与 Linux，不为 Windows 编写未经测试的分支。
-- 不读取 Git 历史寻找“旧实现”；需要的答案必须来自当前规范、当前代码和实际测试。
+- v1 使用 Rust 实现 Server、Computer daemon 和 Agent CLI，只发布一个 `sumi` binary，通过 `sumi server`、`sumi computer`、`sumi agent` 区分入口。
+- 保持模块化单体和单 Cargo package；遵守 `docs/design.md` 第 4.2、23 节，不提前引入微服务、消息队列、抽象框架或范围外功能。
+- 默认只保留最新产品模型和唯一最新 schema；未经用户明确要求，不做兼容读取、双写、deprecated 字段、旧入口或数据迁移。
+- Agent 与 Sumi 的交互只能通过 `sumi agent` CLI；Driver stdout 不能自动成为 Message。
+- Server 和 Computer v1 只支持 macOS 与 Linux，不添加未经测试的 Windows 分支。
 
-## 代码质量
+## 质量与验证
 
-- 代码保持简洁直接，只为真实边界添加抽象；拒绝为了模式而模式。
-- 函数遵循 Google Style 的可读性原则：命名准确、函数短小、主路径直接；小作用域局部变量可短而惯用，作用域越大名字越明确。
-- 看代码即可理解的内容不写注释；核心不变量、并发或安全原因需要注释时，一律使用英文。
-- Rust 代码必须通过 `cargo fmt` 和 `cargo clippy --all-targets --all-features -- -D warnings`。
-- 核心路径和高风险边界必须有测试，但不追求虚假的覆盖率数字，不为 getter 或框架行为写无价值测试。
-- 日志和测试失败输出不得泄露 Message 正文、Attachment 内容、Memory 或 Secret。
-
-## 测试节奏
-
-- 日常循环先运行最小相关测试；不要每改一个文件就运行全量测试。
-- 每个阶段结束运行该阶段的完整 Rust、PostgreSQL、CLI 或 Web 测试；最终交付运行仓库统一 test command。
-- PostgreSQL repository/integration tests 必须连接本机临时 database 或 schema，不能用内存数据库替代实际 SQL 验证。
-- Web 日常反馈优先使用 typecheck、lint、单元测试和组件测试。
-- Playwright 很耗上下文，只在 UI 主路径形成后的里程碑 smoke test、最终端到端验收或修复明确的浏览器回归时使用。调试时只跑相关 spec 和单一 viewport，不反复运行完整套件或无目的截图。
-
-## 文档与进度
-
-- 行为、协议、数据模型或名词改变时，先更新 `docs/design.md` 或 `GLOSSARY.md`，再修改代码。
-- 实现细节若偏离已选方案，必须在文档中说明理由，不能悄悄形成第二套架构。
-- `GOAL.md` 的状态区是跨 Agent 交接账本：保持简短、真实、可验证；不要粘贴长日志或把它写成日报。
+- 代码简洁直接，只为真实边界抽象；命名准确、函数短小、主路径清晰。
+- 只为核心不变量、并发或安全原因写英文注释；日志和测试输出不得泄露 Message、Attachment、Memory 或 Secret 正文。
+- 核心路径和高风险边界必须有有效测试；不为 getter、derive 或框架既有行为写无价值测试。
+- 日常运行最小相关测试；阶段完成后运行对应完整测试，最终运行仓库统一 test command。
+- Rust 必须通过 `cargo fmt` 和 `cargo clippy --all-targets --all-features -- -D warnings`；PostgreSQL integration tests 必须验证真实 SQL；Playwright 仅用于 UI 里程碑、明确回归和最终验收。

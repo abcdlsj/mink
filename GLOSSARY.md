@@ -1,83 +1,103 @@
 # Sumi
 
-Sumi 是一个让 Human 与 Agent 作为平等协作者，在同一个 Space 中长期沟通和工作的系统。
+Sumi 是 Human 与 Agent 以 Member 身份在同一个 Space 中长期协作的系统。以下词汇是产品、设计、代码和 API 共用的规范语言。
 
-## 协作者
+## 身份与协作者
 
 **Member**：
-Space 中可参与协作的成员；Human 与 Agent 都是 Member，并使用相同的 Channel、Thread、Message 与权限模型。
+属于某个 Space 的协作者；Human 与 Agent 都是 Member，并共享协作与权限模型。
 _Avoid_：Participant、Actor、Principal
 
 **Human**：
-通过注册账号进入 Sumi、可加入一个或多个 Space 的人类 Member。
-_Avoid_：User（仅在表示登录账号时使用）、真人成员
+由人类控制、通过账号进入一个或多个 Space 的 Member。
+_Avoid_：User（仅表示登录账号时可用）、真人成员
 
 **Agent**：
-拥有持续身份、Role 和 Memory，并由某台 Computer 承载的 AI Member；Agent 不等同于驱动它工作的模型或程序。
+具有持续身份、Role 和 Memory，并由一台 Computer 承载的 AI Member；Agent 不等同于 Driver、模型或临时会话。
 _Avoid_：Bot、Assistant、Codex Agent、Claude Agent
 
 **Role**：
-Agent 在 Space 中承担的职责及行为边界。
-_Avoid_：Mission、Persona、系统提示词
+Agent 在 Space 中承担的职责与行为边界，独立于其 Access Level。
+_Avoid_：Mission、Persona、Access Level、系统提示词
 
 **Memory**：
-归属于某个 Agent、跨多次行动持续存在的个人知识与状态；Memory 不等同于 Channel 历史或 Driver 会话。
-_Avoid_：Chat History、Session、Context
+归属于一个 Agent、跨多次 Agent Run 持续存在的个人知识与状态。
+_Avoid_：Channel History、Driver Session、Context
 
-## 协作空间
+## 协作
 
 **Space**：
-Members、Channels、Computers 和权限共同归属的协作边界，具有全局唯一的 slug。
+Members、Channels、Computers 和治理共同归属的协作边界。
 _Avoid_：Team、Organization、Workspace、Server
 
 **Channel**：
-Space 中一组 Members 共享的长期对话房间。
+Space 中一组 Members 共享的长期对话空间；DM 是一种特殊 Channel。
 _Avoid_：Room、Group、Conversation
 
 **DM**：
-恰好由两个 Members 组成的直接对话；DM 在协作语义上是一种 Channel。
+恰好由两个 Members 组成的直接对话 Channel。
 _Avoid_：Private Chat、Direct Thread
 
 **Thread**：
-从 Channel 中一条根 Message 展开的共享讨论支线；每个 Thread 拥有在所属 Channel 内唯一的数字 ID，并继承 Channel 的成员可见性。
+从 Channel 主时间线的一条根 Message 展开的讨论支线，继承所属 Channel 的可见性。
 _Avoid_：Agent Session、Conversation Session、子 Channel
 
 **Message**：
-Member 发布在 Channel 主时间线或某个 Thread 中的协作内容。
+Member 发布在 Channel 主时间线或 Thread 中的协作内容。
 _Avoid_：Prompt、Event、Agent Output
 
 **Attachment**：
-由 Member 上传并可附加到 Message 的持久文件。
-_Avoid_：File、Blob
+由 Member 上传、可附加到 Message 的持久文件。
+_Avoid_：File、Blob、Artifact
 
 ## 运行与注意力
 
 **Computer**：
-运行 Sumi daemon、承载并管理本机 Agents 的已配对计算机。
+与 Space 配对、运行 Sumi daemon 并承载本机 Agents 的计算机。
 _Avoid_：Node、Worker、Runner、Device
 
+**Agent Home**：
+归属于一个 Agent、保存其 Memory、workspace 和 Driver 私有状态的本地持久边界。
+_Avoid_：Workspace、Computer Home、Driver Home
+
 **Driver**：
-Agent 当前用于推理和行动的可替换执行能力，例如 Codex；更换 Driver 不改变 Agent 的身份、Role 或 Memory。
+Agent 当前用于推理和行动的可替换执行能力；更换 Driver 不改变 Agent 的身份、Role 或 Memory。
 _Avoid_：Agent Type、Engine、Model
 
+**Agent Run**：
+Agent 处理一批已领取 Inbox Items 的一次执行；它是临时活动，不是 Agent 身份或对话历史。
+_Avoid_：Agent Session、Job、Task
+
 **Inbox**：
-Member 接收需要关注的信息的持久入口；Human 通过 UI 使用 Inbox，Agent 通过所在 Computer 使用 Inbox。
+Member 接收待关注信息的持久入口。
 _Avoid_：Event Queue、Notification Stream、Prompt Buffer
 
 **Inbox Item**：
-Inbox 中一条等待 Member 处理、可以完成或延后的信息。
+Inbox 中一条可被处理、延后或重试的待关注信息。
 _Avoid_：Job、Task、Trigger
 
 ## 权限与治理
+
+**Access Level**：
+Member 在 Space 中的治理级别，取 Owner、Admin 或 Member；它不表示 Agent 的 Role。
+_Avoid_：Role、Agent Role
+
+**Permission**：
+在 Access Level 之外单独授予 Member 的特定能力。
+_Avoid_：Role、Access Level、Capability（仅运行时能力可用）
 
 **Owner**：
 对 Space 承担最终控制与恢复责任的唯一 Human Member。
 _Avoid_：Super Admin、Creator
 
 **Admin**：
-由 Owner 授予 Human 或 Agent 的 Space 管理权限级别。
-_Avoid_：Agent Admin、Human Admin（除非强调必须由 Human 执行的治理例外）
+可授予 Human 或 Agent 的 Space 管理 Access Level；部分治理动作仍只允许 Human 执行。
+_Avoid_：Agent Admin、Human Admin（仅强调 Human-only 例外时可用）
 
 **Approval**：
-具有明确申请人、审批人和结果的治理决定；首版主要用于 Agent 发起创建另一个 Agent 的场景。
+具有明确申请人、审批人和结果的治理决定。
 _Avoid_：Confirmation Message、Permission Prompt
+
+**Secret Envelope**：
+绑定目标 Computer、可由 Server 保存但不能解密的加密 Secret。
+_Avoid_：Encrypted Config、API Key Record、Secret Blob
