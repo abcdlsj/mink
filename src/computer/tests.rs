@@ -66,6 +66,38 @@ async fn secrets_are_created_with_restricted_permissions_and_reused() {
 }
 
 #[tokio::test]
+async fn builtin_auth_is_cached_only_in_restricted_computer_secrets() {
+    let root = tempfile::tempdir().unwrap();
+    let state = root.path().join("computer");
+    prepare_state_dir(&state).await.unwrap();
+    let path = state.join("secrets.json");
+    let mut secrets = load_or_create_secrets(&path).await.unwrap();
+    let authentication = serde_json::from_value(serde_json::json!({
+        "provider": "local",
+        "api_key": "provider-secret"
+    }))
+    .unwrap();
+
+    sync_builtin_auth(&path, &mut secrets, Some(authentication))
+        .await
+        .unwrap();
+
+    let stored: serde_json::Value =
+        serde_json::from_slice(&tokio::fs::read(&path).await.unwrap()).unwrap();
+    assert_eq!(stored["builtin_auth"]["provider"], "local");
+    assert_eq!(stored["builtin_auth"]["api_key"], "provider-secret");
+    assert!(!stored.to_string().contains("builtin_settings_source"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+}
+
+#[tokio::test]
 async fn deleted_computer_identity_is_cleared_for_fresh_pairing() {
     let root = tempfile::tempdir().unwrap();
     let state = root.path().join("computer");
@@ -199,6 +231,7 @@ async fn restart_recovers_runs_and_received_provision_commands() {
         state.join("daemon.sock"),
         &crate::config::ComputerConfig::default(),
         Arc::new(CodexDriver::new()),
+        None,
     );
     resume_received_commands(&database, &state, &supervisor)
         .await
@@ -340,6 +373,7 @@ async fn lifecycle_commands_update_profile_and_report_memory_metadata() {
         state.join("daemon.sock"),
         &crate::config::ComputerConfig::default(),
         Arc::new(CodexDriver::new()),
+        None,
     );
     let provision = serde_json::json!({
         "agent_id": agent_id,

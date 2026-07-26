@@ -2,7 +2,6 @@ use std::{path::Path, process::Stdio, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
-use secrecy::ExposeSecret;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -23,30 +22,19 @@ pub struct BuiltinDriver {
 }
 
 impl BuiltinDriver {
-    pub fn new() -> Self {
-        Self {
-            provider_config: None,
-        }
+    pub fn new(provider_config: Option<ProviderConfig>) -> Self {
+        Self { provider_config }
     }
 
     #[cfg(test)]
     fn with_provider(provider_config: ProviderConfig) -> Self {
-        Self {
-            provider_config: Some(provider_config),
-        }
+        Self::new(Some(provider_config))
     }
 
-    fn provider_config(&self, environment: &DriverEnvironment) -> Result<ProviderConfig> {
-        if let Some(config) = &self.provider_config {
-            return Ok(config.clone());
-        }
-        let api_key = builtin_api_key(environment)?;
-        let model = std::env::var("SUMI_BUILTIN_MODEL").unwrap_or_else(|_| "gpt-4o".into());
-        let mut config = ProviderConfig::openai(api_key, model);
-        if let Ok(url) = std::env::var("SUMI_BUILTIN_BASE_URL") {
-            config = config.with_base_url(url);
-        }
-        Ok(config)
+    fn provider_config(&self) -> Result<ProviderConfig> {
+        self.provider_config
+            .clone()
+            .context("Builtin provider is not configured on this Computer")
     }
 }
 
@@ -66,7 +54,7 @@ impl Driver for BuiltinDriver {
             environment.agent_home.join("drivers/builtin").is_dir(),
             "Builtin Driver home is unavailable"
         );
-        self.provider_config(environment)?;
+        self.provider_config()?;
         validate_sandbox_backend()?;
         let mut command = builtin_shell_command(environment)?;
         let status = tokio::time::timeout(
@@ -89,17 +77,14 @@ impl Driver for BuiltinDriver {
     async fn start(&self, run: DriverRun) -> Result<DriverProcess> {
         self.validate(&run.environment).await?;
         let provider_config = self
-            .provider_config(&run.environment)?
+            .provider_config()?
             .with_prompt_cache_key(run.prompt.cache_key.clone());
         let provider = Arc::new(
             OpenAiProvider::new(provider_config).context("failed to create builtin provider")?,
         );
 
         let tools = Arc::new(DaemonToolRunner {
-            environment: DriverEnvironment {
-                codex_api_key: None,
-                ..run.environment.clone()
-            },
+            environment: run.environment.clone(),
         });
         let executor = ToolExecutor::new(tools);
         let mut system_messages = Vec::new();
@@ -310,15 +295,6 @@ impl ToolRunner for DaemonToolRunner {
     }
 }
 
-fn builtin_api_key(environment: &DriverEnvironment) -> Result<String> {
-    environment
-        .codex_api_key
-        .as_ref()
-        .map(|key| key.expose_secret().to_owned())
-        .or_else(|| std::env::var("SUMI_BUILTIN_API_KEY").ok())
-        .context("builtin driver requires an API key")
-}
-
 fn builtin_shell_command(environment: &DriverEnvironment) -> Result<tokio::process::Command> {
     let shell = Path::new("/bin/sh");
     ensure!(shell.is_file(), "/bin/sh is unavailable");
@@ -358,14 +334,59 @@ async fn run_sandboxed_shell(environment: &DriverEnvironment, script: &str) -> R
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
     };
 
-    use axum::{Router, http::header, routing::post};
+    use axum::{
+        Router,
+        http::{HeaderMap, header},
+        routing::post,
+    };
 
     use super::*;
+
+    fn loaded_provider_config(root: &tempfile::TempDir, base_url: &str) -> ProviderConfig {
+        let settings = root.path().join("settings.json");
+        let models = root.path().join("models-store.json");
+        let auth = root.path().join("auth.json");
+        fs::write(
+            &settings,
+            r#"{"defaultProvider":"local","defaultModel":"test-model"}"#,
+        )
+        .unwrap();
+        fs::write(
+            &models,
+            serde_json::json!({
+                "local": {
+                    "models": [{
+                        "id": "test-model",
+                        "api": "openai-completions",
+                        "baseUrl": base_url
+                    }]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(&auth, r#"{"local":{"type":"api_key","key":"test-key"}}"#).unwrap();
+        fs::set_permissions(&auth, fs::Permissions::from_mode(0o600)).unwrap();
+        let config = crate::config::ComputerConfig {
+            builtin_settings_source: Some(settings),
+            builtin_models_source: Some(models),
+            builtin_auth_source: Some(auth),
+            ..crate::config::ComputerConfig::default()
+        };
+        crate::driver::builtin_config::load(&config)
+            .unwrap()
+            .unwrap()
+            .into_provider_config()
+    }
 
     fn environment(root: &tempfile::TempDir) -> DriverEnvironment {
         let state_dir = root.path().join("computer");
@@ -391,7 +412,6 @@ mod tests {
             socket_path,
             run_token: "run-token".into(),
             path: std::env::var("PATH").unwrap(),
-            codex_api_key: None,
         }
     }
 
@@ -444,7 +464,7 @@ mod tests {
 
         let visible = run_sandboxed_shell(
             &environment,
-            "printf '%s|%s|%s' \"$SUMI_RUN_TOKEN\" \"$SUMI_SOCKET\" \"${SUMI_BUILTIN_API_KEY-unset}\"",
+            "printf '%s|%s|%s' \"$SUMI_RUN_TOKEN\" \"$SUMI_SOCKET\" \"${OPENAI_API_KEY-unset}\"",
         )
         .await
         .unwrap();
@@ -467,9 +487,13 @@ mod tests {
             "/chat/completions",
             post({
                 let calls = Arc::clone(&calls);
-                move || {
+                move |headers: HeaderMap| {
                     let calls = Arc::clone(&calls);
                     async move {
+                        assert_eq!(
+                            headers.get(header::AUTHORIZATION).unwrap(),
+                            "Bearer test-key"
+                        );
                         let body = if calls.fetch_add(1, Ordering::SeqCst) == 0 {
                             let first = serde_json::json!({
                                 "choices": [{
@@ -523,10 +547,10 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let root = tempfile::tempdir().unwrap();
         let environment = environment(&root);
-        let driver = BuiltinDriver::with_provider(
-            ProviderConfig::openai("test-key", "test-model".into())
-                .with_base_url(format!("http://{address}")),
-        );
+        let driver = BuiltinDriver::with_provider(loaded_provider_config(
+            &root,
+            &format!("http://{address}"),
+        ));
         let mut process = driver
             .start(DriverRun {
                 run_id: uuid::Uuid::now_v7(),

@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{
     cli::ComputerArgs,
     config, database,
+    driver::builtin_config::{self, BuiltinAuthentication},
     driver::codex::CodexDriver,
     supervisor::{RunResult, StartRun, Supervisor},
 };
@@ -34,6 +35,8 @@ impl ComputerToken {
 struct ComputerSecrets {
     schema_version: u32,
     token: ComputerToken,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builtin_auth: Option<BuiltinAuthentication>,
     pairing_id: Option<Uuid>,
     computer_id: Option<Uuid>,
     space_id: Option<Uuid>,
@@ -134,6 +137,11 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
     prepare_agent_root(&config.computer.state_dir).await?;
     let secrets_path = config.computer.state_dir.join("secrets.json");
     let mut secrets = load_or_create_secrets(&secrets_path).await?;
+    let builtin_provider = builtin_config::load(&config.computer)?;
+    let builtin_auth = builtin_provider
+        .as_ref()
+        .map(|provider| provider.authentication().clone());
+    sync_builtin_auth(&secrets_path, &mut secrets, builtin_auth).await?;
     if secrets.computer_id.is_none() {
         loop {
             if secrets.pairing_id.is_none() {
@@ -172,6 +180,7 @@ pub async fn run(args: ComputerArgs) -> Result<()> {
         socket_path.clone(),
         &config.computer,
         Arc::new(CodexDriver::new()),
+        builtin_provider.map(|provider| provider.into_provider_config()),
     );
     resume_received_commands(&database, &config.computer.state_dir, &supervisor).await?;
     let ipc = local_ipc::run(
@@ -1218,12 +1227,25 @@ async fn load_or_create_secrets(path: &Path) -> Result<ComputerSecrets> {
     let secrets = ComputerSecrets {
         schema_version: 1,
         token: ComputerToken(URL_SAFE_NO_PAD.encode(token)),
+        builtin_auth: None,
         pairing_id: None,
         computer_id: None,
         space_id: None,
     };
     write_secrets(path, &secrets).await?;
     Ok(secrets)
+}
+
+async fn sync_builtin_auth(
+    path: &Path,
+    secrets: &mut ComputerSecrets,
+    authentication: Option<BuiltinAuthentication>,
+) -> Result<()> {
+    if secrets.builtin_auth != authentication {
+        secrets.builtin_auth = authentication;
+        write_secrets(path, secrets).await?;
+    }
+    Ok(())
 }
 
 async fn write_secrets(path: &Path, secrets: &ComputerSecrets) -> Result<()> {

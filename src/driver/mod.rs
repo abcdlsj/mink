@@ -1,11 +1,11 @@
 pub mod builtin;
+pub mod builtin_config;
 pub mod codex;
 
 use std::{path::PathBuf, time::Duration};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tokio::process::Child;
 
@@ -21,7 +21,6 @@ pub struct DriverEnvironment {
     pub socket_path: PathBuf,
     pub run_token: String,
     pub path: String,
-    pub codex_api_key: Option<SecretString>,
 }
 
 #[derive(Clone)]

@@ -61,12 +61,13 @@ impl Supervisor {
         socket_path: PathBuf,
         config: &ComputerConfig,
         default_driver: Arc<dyn Driver>,
+        builtin_provider: Option<crate::agent_core::provider::ProviderConfig>,
     ) -> Self {
         let mut drivers = HashMap::new();
         drivers.insert("codex".to_owned(), default_driver);
         drivers.insert(
             "builtin".to_owned(),
-            Arc::new(crate::driver::builtin::BuiltinDriver::new()),
+            Arc::new(crate::driver::builtin::BuiltinDriver::new(builtin_provider)),
         );
         Self {
             inner: Arc::new(SupervisorInner {
@@ -387,7 +388,6 @@ impl Supervisor {
             path: std::env::join_paths(paths)?
                 .into_string()
                 .map_err(|_| anyhow::anyhow!("Driver PATH contains non-UTF-8 data"))?,
-            codex_api_key: None,
         })
     }
 
@@ -493,6 +493,7 @@ mod tests {
             state.join("daemon.sock"),
             &config,
             Arc::new(CodexDriver::with_executable(executable)),
+            None,
         );
         (root, tools, supervisor, first, second)
     }

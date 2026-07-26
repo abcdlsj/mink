@@ -4,20 +4,21 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
+use secrecy::{ExposeSecret, SecretString};
 use tokio::sync::mpsc;
 
 use crate::agent_core::types::{Chunk, Message, TokenUsage, ToolCall, ToolDef};
 
 #[derive(Clone)]
 pub struct ProviderConfig {
-    pub api_key: String,
+    pub api_key: SecretString,
     pub base_url: Option<String>,
     pub model: String,
     pub prompt_cache_key: Option<String>,
 }
 
 impl ProviderConfig {
-    pub fn openai(api_key: impl Into<String>, model: String) -> Self {
+    pub fn openai(api_key: impl Into<SecretString>, model: String) -> Self {
         Self {
             api_key: api_key.into(),
             base_url: None,
@@ -107,7 +108,10 @@ impl Provider for OpenAiProvider {
         let response = self
             .client
             .post(&self.chat_url)
-            .header("Authorization", format!("Bearer {}", self.config.api_key))
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.config.api_key.expose_secret()),
+            )
             .header("Content-Type", "application/json")
             .header("Accept", "text/event-stream")
             .json(&body)
@@ -117,11 +121,7 @@ impl Provider for OpenAiProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let text = response
-                .text()
-                .await
-                .unwrap_or_else(|e| format!("(failed to read body: {e})"));
-            bail!("chat API error ({status}): {text}");
+            bail!("chat API error ({status})");
         }
 
         let (tx, rx) = mpsc::channel(64);

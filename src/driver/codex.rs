@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
-use secrecy::ExposeSecret;
 use serde::Deserialize;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -199,9 +198,6 @@ impl Driver for CodexDriver {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true);
-        if let Some(api_key) = &run.environment.codex_api_key {
-            command.env("CODEX_API_KEY", api_key.expose_secret());
-        }
         #[cfg(unix)]
         command.process_group(0);
         let mut child = command.spawn().context("failed to start Codex Driver")?;
@@ -630,7 +626,6 @@ enabled = true
                 socket_path: socket,
                 run_token: "validation-only".to_owned(),
                 path: std::env::var("PATH").unwrap(),
-                codex_api_key: None,
             })
             .await
             .unwrap();
@@ -684,7 +679,6 @@ enabled = true
             socket_path: socket,
             run_token: "run-token".to_owned(),
             path: std::env::var("PATH").unwrap(),
-            codex_api_key: None,
         };
         let driver = CodexDriver::with_executable(script);
         let mut process = driver
@@ -777,7 +771,6 @@ enabled = true
             socket_path: socket,
             run_token: "run-token".to_owned(),
             path: std::env::var("PATH").unwrap(),
-            codex_api_key: None,
         };
         let driver = CodexDriver::with_executable(script);
         let mut process = driver

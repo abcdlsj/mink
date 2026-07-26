@@ -9,8 +9,8 @@
 ## 当前基线判断
 
 - Human、Space、Channel、DM、Thread、Message、Attachment、Computer、Agent、Inbox 和 Approval 已有 schema、API 或 UI 基线，保留现有已通过测试作为回归保护。
-- Computer 身份已收敛为单一 Computer Token：raw Token 仅保存在本机受限 `secrets.json`，Server 与配对记录只保存 hash，配对页只显示不可逆短 fingerprint；重连与删除生命周期仍需完成下一项真实进程验收。
-- Builtin 已有 OpenAI-compatible SSE、tool loop、sandbox 和单元测试，但配置仍依赖 `SUMI_BUILTIN_*` 环境变量；尚未接入 Computer 本地 Pi-compatible provider/model/auth 配置。
+- Computer 身份已收敛为单一 Computer Token：raw Token 仅保存在本机受限 `secrets.json`，Server 与配对记录只保存 hash，配对页只显示不可逆短 fingerprint；重连与删除生命周期已通过真实进程验收。
+- Builtin 已从显式 Computer-local source paths 加载 Pi-compatible settings/models/auth，选中并规范化 provider/model，只接受声明的 OpenAI-compatible completions；认证缓存限制在本机 `secrets.json` 与 daemon 所需内存，旧环境变量入口已删除。
 - 现有 Server 集成测试以手工 WebSocket frame 模拟 daemon，Builtin 测试以 mock provider 验证文件工具；没有测试启动真实 Server、daemon、Builtin 和 `sumi agent` CLI 跑通一条 DM、Channel 或 Thread 对话。
 - 本机 Pi 配置可作为首个真实验收样本：默认 `deepseek/deepseek-v4-pro`，模型协议为 `openai-completions`，认证按 provider 单独保存；任何测试和日志都不得输出认证值。
 
@@ -37,7 +37,7 @@
 - [x] 将 daemon、Server、PostgreSQL schema、API types、WebUI 和测试中的 `private_key`、`pairing_secret`、`computer_credential` 收敛为单一 Computer Token：raw Token 只在本机持久化并仅通过 HTTPS/WSS 用于认证，Server 只保存 hash，配对页只显示不可逆短 fingerprint。
 - [x] 验证首次 Pair、daemon 正常退出、网络中断、Server 重启和 daemon 重启：除 Delete Computer 外始终复用同一 Computer ID/Token，状态只在 online/offline 间变化，不重新 Pair。
 - [x] 验证 Delete Computer 撤销旧 Token、终止在线 daemon、拒绝离线 daemon 下次连接，并让下一次启动生成新 Token 重新 Pair；Agent Homes 和历史身份保留。
-- [ ] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
+- [x] 实现 Builtin Computer-local 配置加载与校验：显式 source paths、Pi-compatible settings/models/auth、选中 provider/model、只支持已声明的 OpenAI-compatible completions、认证 redaction 和受限权限。
 - [ ] 用本机 Pi 的 `deepseek/deepseek-v4-pro` 配置完成一次不泄露认证的 Builtin provider smoke check；自动测试使用本地 fake provider，不连接收费服务。
 
 ### 2. Agent DM 真实闭环
@@ -99,3 +99,4 @@ Sumi v1 只有同时满足以下条件才算完成：
 2026-07-27 | 单一 Computer Token | `cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`pnpm --dir web test -- ComputersPage.test.tsx --run && pnpm --dir web lint && pnpm --dir web build`；`git diff --check` | 52 Rust unit/integration + 3 CLI + 1 真实 PostgreSQL migration tests、12 Web tests、clippy、TypeScript/ESLint 与 production build 全通过；daemon、Server、schema、API types、WebUI 和测试已删除 P-256/pairing secret/credential 三套身份并统一使用 Computer Token
 2026-07-27 | Computer 重连生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证首次 Pair、正常退出后 offline、daemon 重启、TCP 断网/恢复和 Server 重启；全程复用唯一 Computer ID/Token 和 pairing，状态仅 online/offline；52 unit/integration + 3 CLI + 1 生命周期 + 1 migration tests 全通过
 2026-07-27 | Computer 删除生命周期 | `cargo test --test computer_lifecycle -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 真实 PostgreSQL、`sumi server` 和 `sumi computer` 进程验证 Delete 撤销旧 Token、在线 daemon 收终止后清理身份并退出、离线 daemon 下次连接被拒后清理身份并退出；后续启动使用新 Token/Computer ID 重新 Pair，本地 Agent Home、Server Agent/Member/run/pairing 历史保留；52 unit/integration + 3 CLI + 2 生命周期 + 1 migration tests 全通过
+2026-07-27 | Builtin Computer-local 配置 | `cargo test builtin_ -- --nocapture`；`cargo test --all-features`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo fmt --all -- --check`；`git diff --check` | 显式三文件 source paths 加载 Pi-compatible settings/models/auth，精确选择 provider/model 并拒绝非 `openai-completions`；本地 fake provider 验证认证 Header 与 SSE tool loop，auth source/`secrets.json` 权限、日志 redaction、工具环境隔离和旧环境变量入口清除；56 unit/integration + 3 CLI + 2 生命周期 + 1 migration tests 全通过

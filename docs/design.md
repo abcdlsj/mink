@@ -1123,7 +1123,9 @@ Supervisor 必须端到端保留 `driver_kind=builtin`，不得静默回退到 C
 
 Builtin 的 provider 配置只来自 Computer 本地文件。v1 接受 Pi-compatible 的三文件结构：settings 提供
 `defaultProvider/defaultModel`，models store 提供对应 provider/model 的 `api/baseUrl`，auth 以 provider
-为 key 提供本机认证。当前本地 Pi 配置的可验收基线是 `deepseek/deepseek-v4-pro`、
+为 key 提供本机认证。三个显式 source path 的配置名固定为 `computer.builtin_settings_source`、
+`computer.builtin_models_source` 和 `computer.builtin_auth_source`，必须同时配置或同时省略；auth source
+必须是 group/other 不可访问的普通文件。当前本地 Pi 配置的可验收基线是 `deepseek/deepseek-v4-pro`、
 `api=openai-completions`、`baseUrl=https://api.deepseek.com`；Sumi 不读取 Pi session、extension 或 prompt，
 也不把 Pi 变成运行时依赖。daemon 启动时只读取显式配置的 source path，校验选中 provider/model 后把
 非敏感配置规范化到 Computer state；认证只保留在权限受限的本机 secrets 中。v1 Builtin 只实现

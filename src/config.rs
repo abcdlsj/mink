@@ -64,6 +64,9 @@ pub struct ComputerConfig {
     pub state_dir: PathBuf,
     pub codex_config_source: Option<PathBuf>,
     pub codex_auth_source: Option<PathBuf>,
+    pub builtin_settings_source: Option<PathBuf>,
+    pub builtin_models_source: Option<PathBuf>,
+    pub builtin_auth_source: Option<PathBuf>,
     pub max_concurrent_runs: usize,
     pub per_agent_timeout_seconds: u64,
     pub shutdown_grace_period_seconds: u64,
@@ -76,6 +79,9 @@ impl Default for ComputerConfig {
             state_dir: default_computer_state_dir(),
             codex_config_source: None,
             codex_auth_source: None,
+            builtin_settings_source: None,
+            builtin_models_source: None,
+            builtin_auth_source: None,
             max_concurrent_runs: std::thread::available_parallelism()
                 .map(|count| (count.get() / 2).max(1))
                 .unwrap_or(1),
@@ -138,6 +144,18 @@ fn validate(config: &SumiConfig) -> Result<()> {
         config.computer.shutdown_grace_period_seconds > 0,
         "computer.shutdown_grace_period_seconds must be positive"
     );
+    let builtin_source_count = [
+        &config.computer.builtin_settings_source,
+        &config.computer.builtin_models_source,
+        &config.computer.builtin_auth_source,
+    ]
+    .into_iter()
+    .filter(|path| path.is_some())
+    .count();
+    ensure!(
+        matches!(builtin_source_count, 0 | 3),
+        "computer Builtin settings, models, and auth source paths must be configured together"
+    );
     Ok(())
 }
 
@@ -183,5 +201,20 @@ mod tests {
         let error = load(Some(&path)).unwrap_err();
 
         assert!(error.to_string().contains("must be positive"));
+    }
+
+    #[test]
+    fn partial_builtin_sources_are_rejected_during_configuration_loading() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("sumi.toml");
+        fs::write(
+            &path,
+            "[computer]\nbuiltin_settings_source = 'settings.json'\n",
+        )
+        .unwrap();
+
+        let error = load(Some(&path)).unwrap_err();
+
+        assert!(error.to_string().contains("must be configured together"));
     }
 }
