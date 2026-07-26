@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
@@ -33,12 +33,12 @@ export function SpaceCreatePage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <a className="wordmark" href="/" aria-label="Sumi home">
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
             <Asterisk strokeWidth={3} />
           </span>
           SUMI
-        </a>
+        </Link>
         <span className="step-index">02 / 03</span>
       </header>
 
@@ -128,4 +128,3 @@ function toSlug(value: string): string {
     .slice(0, 32)
     .replace(/-+$/g, "");
 }
-

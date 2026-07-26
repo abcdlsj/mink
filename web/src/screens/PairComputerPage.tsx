@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Asterisk, Fingerprint, LoaderCircle, MonitorCheck } from "lucide-react";
 import type { FormEvent } from "react";
 
@@ -32,7 +32,7 @@ export function PairComputerPage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <a className="wordmark" href="/" aria-label="Sumi home"><span className="wordmark-mark"><Asterisk strokeWidth={3} /></span>SUMI</a>
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home"><span className="wordmark-mark"><Asterisk strokeWidth={3} /></span>SUMI</Link>
         <span className="step-index">PAIR COMPUTER</span>
       </header>
       <section className="pairing-stage" aria-labelledby="pairing-title">

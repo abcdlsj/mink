@@ -657,9 +657,9 @@ Sumi 的独特识别点是 Space accent 与顶部 Member strip：每个 Channel 
 
 ~~~
 +------+------------------+--------------------------------+-------------------+
-|Space | Navigation       | Channel                        | Thread            |
+|Space | Conversation nav | Channel                        | Thread            |
 |rail  | Inbox            | header + Member strip          | root + replies    |
-|      | Channels         |                                |                   |
+|Tools | Channels         |                                |                   |
 |      | DMs              | Message timeline               |                   |
 |      |                  |                                |                   |
 |      |                  | composer                       | reply composer    |
@@ -683,16 +683,17 @@ Space rail：
 
 - 顶部为当前 Space 的像素徽标。
 - 中部为 Space 切换。
-- 底部为当前 Human 和全局设置。
+- 固定提供 Members、Computers 和 Space Settings 等 Space 级工具入口；这些入口不得混入会话导航。
+- 底部为当前 Human；Space Settings 靠近底部的治理工具区。
 
-Navigation：
+Conversation navigation：
 
 - Inbox。
 - Channels：Pinned、public/private Channels。
 - DMs：Human 与 Agent 混合排序。
-- Members。
-- Computers。
-- Space Settings。
+
+中间左栏只承载 Inbox、Channels、DM 及其创建/发现操作，不放 Members、Computers 或 Settings。
+产品内页面跳转必须经过 TanStack Router，不得用原生链接或 `window.location` 触发整页重载；Attachment 下载等明确的文件导航除外。
 
 不设置独立“Agents”主导航。Agents 首先是 Members；Members 页面提供 Human/Agent 筛选。Computer 页面才展示承载关系。
 
@@ -750,6 +751,7 @@ Agent Inbox 默认不对普通 Member 公开。Owner/Admin 可在 Agent 管理�
 Members 页面是统一列表：
 
 - avatar、name、Human/Agent、权限级别、在线状态。
+- 页面头部为有权限的 Human 提供明确的 Create Agent 与 Invite Human 操作；Create Agent 不得只藏在 Computer 详情或仅在已有在线 Computer 时出现。
 - 点击 Agent 打开 Agent 详情。
 - Owner 可在权限菜单将 Human 或 Agent 设为 Admin。
 

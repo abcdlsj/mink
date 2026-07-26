@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
 import type { FormEvent } from "react";
 
@@ -12,7 +12,7 @@ export function LoginPage() {
     mutationFn: login,
     onSuccess: () => {
       if (isSafeRedirect(redirect)) {
-        window.location.assign(redirect);
+        void navigate({ href: redirect });
       } else {
         void navigate({ to: "/spaces/new" });
       }
@@ -31,12 +31,12 @@ export function LoginPage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <a className="wordmark" href="/" aria-label="Sumi home">
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
             <Asterisk strokeWidth={3} />
           </span>
           SUMI
-        </a>
+        </Link>
         <span className="step-index">WELCOME BACK</span>
       </header>
 
@@ -75,7 +75,7 @@ export function LoginPage() {
             )}
           </button>
           <p className="form-switch">
-            New to Sumi? <a href="/">Register</a>
+            New to Sumi? <Link to="/" search={{ redirect: undefined }}>Register</Link>
           </p>
         </form>
       </section>
@@ -91,4 +91,3 @@ export function LoginPage() {
 function isSafeRedirect(value: string | undefined): value is string {
   return Boolean(value?.startsWith("/") && !value.startsWith("//"));
 }
-

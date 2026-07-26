@@ -1,13 +1,45 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("ChannelPage", () => {
+  it("opens an initialized general Channel with no Messages", async () => {
+    const channelId = "019c0000-0000-7000-8000-000000000003";
+    const spaceId = "019c0000-0000-7000-8000-000000000001";
+    const ownerId = "019c0000-0000-7000-8000-000000000002";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.includes("/spaces/by-slug/")) {
+        return json({ id: spaceId, name: "Sumi Lab", slug: "sumi-lab", accent: "#FFD447", owner_member_id: ownerId, current_member_id: ownerId, general_channel_id: channelId });
+      }
+      if (path === "/api/v1/auth/me") return json({ id: "user", display_name: "Ada", email: "ada@example.test" });
+      if (path.endsWith("/channels") && !init?.method) {
+        return json({ can_create: true, channels: [{ id: channelId, space_id: spaceId, kind: "public", name: "general", slug: "general", created_by_member_id: ownerId, joined: true }] });
+      }
+      if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/members") && !init?.method) {
+        return json([{ id: ownerId, kind: "human", display_name: "Ada", handle: "ada", access_level: "owner", permissions: [] }]);
+      }
+      if (path.endsWith(`/channels/${channelId}/messages`) && !init?.method) {
+        return json({ channel_id: channelId, snapshot_channel_seq: 0, messages: [], has_more_before: false, has_more_after: false });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderRoute("/s/sumi-lab/channels/general");
+
+    expect(await screen.findByRole("heading", { name: "#general starts here." })).toBeVisible();
+    expect(screen.getByLabelText("Message")).toHaveAttribute("placeholder", "Message #general");
+  });
+
   it("renders API Messages and sends structured mentions", async () => {
     const channelId = "019c0000-0000-7000-8000-000000000003";
     const graceId = "019c0000-0000-7000-8000-000000000020";

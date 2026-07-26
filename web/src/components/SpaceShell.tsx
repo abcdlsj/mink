@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   Asterisk,
   ChevronDown,
@@ -54,6 +54,7 @@ export function SpaceShell({
   children: (context: SpaceShellContext) => ReactNode;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [channelFormOpen, setChannelFormOpen] = useState(false);
@@ -139,11 +140,31 @@ export function SpaceShell({
       className="space-shell"
       style={{ "--space-accent": space.data.accent } as CSSProperties}
     >
-      <aside className="space-rail" aria-label="Space switcher">
-        <a className="space-badge" href={`/s/${space.data.slug}`} aria-label={space.data.name}>
+      <aside className="space-rail" aria-label="Space tools">
+        <Link
+          className="space-badge"
+          to="/s/$spaceSlug"
+          params={{ spaceSlug: space.data.slug }}
+          aria-label={space.data.name}
+        >
           <Asterisk strokeWidth={3} />
-        </a>
+        </Link>
+        <nav className="rail-tools" aria-label="Space management">
+          <RailItem
+            icon={Users}
+            label="Members"
+            active={active === "members"}
+            href={`/s/${space.data.slug}/members`}
+          />
+          <RailItem
+            icon={Monitor}
+            label="Computers"
+            active={active === "computers"}
+            href={`/s/${space.data.slug}/computers`}
+          />
+        </nav>
         <div className="rail-spacer" />
+        <RailItem icon={Settings} label="Space Settings (not available yet)" disabled />
         <PixelIdentity name={user.data.display_name} />
       </aside>
 
@@ -211,7 +232,7 @@ export function SpaceShell({
                 label={channel.slug}
                 active={
                   active === "channel" &&
-                  window.location.pathname.endsWith(`/channels/${channel.slug}`)
+                  location.pathname.endsWith(`/channels/${channel.slug}`)
                 }
                 href={`/s/${space.data.slug}/channels/${channel.slug}`}
               />
@@ -249,25 +270,11 @@ export function SpaceShell({
               label={dm.other_member.display_name}
               active={
                 active === "dm" &&
-                window.location.pathname.endsWith(`/dm/${dm.other_member.id}`)
+                location.pathname.endsWith(`/dm/${dm.other_member.id}`)
               }
               href={`/s/${space.data.slug}/dm/${dm.other_member.id}`}
             />
           ))}
-          <p className="nav-label">SPACE</p>
-          <NavigationItem
-            icon={Users}
-            label="Members"
-            active={active === "members"}
-            href={`/s/${space.data.slug}/members`}
-          />
-          <NavigationItem
-            icon={Monitor}
-            label="Computers"
-            active={active === "computers"}
-            href={`/s/${space.data.slug}/computers`}
-          />
-          <NavigationItem icon={Settings} label="Settings" />
         </nav>
       </aside>
 
@@ -281,6 +288,32 @@ export function SpaceShell({
         openNavigation: () => setNavigationOpen(true),
       })}
     </main>
+  );
+}
+
+function RailItem({
+  icon: Icon,
+  label,
+  active = false,
+  href,
+  disabled = false,
+}: {
+  icon: LucideIcon;
+  label: string;
+  active?: boolean;
+  href?: string;
+  disabled?: boolean;
+}) {
+  const className = `rail-tool${active ? " rail-tool--active" : ""}${disabled ? " rail-tool--disabled" : ""}`;
+  const content = <Icon aria-hidden="true" />;
+  return href ? (
+    <Link className={className} to={href} aria-label={label} title={label} aria-current={active ? "page" : undefined}>
+      {content}
+    </Link>
+  ) : (
+    <button className={className} type="button" aria-label={label} title={label} disabled>
+      {content}
+    </button>
   );
 }
 
@@ -357,9 +390,9 @@ function NavigationItem({
   );
   const className = `nav-item${active ? " nav-item--active" : ""}`;
   return href ? (
-    <a className={className} href={href} aria-current={active ? "page" : undefined}>
+    <Link className={className} to={href} aria-current={active ? "page" : undefined}>
       {content}
-    </a>
+    </Link>
   ) : (
     <span className={`${className} nav-item--disabled`}>{content}</span>
   );

@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowRight, Asterisk, LoaderCircle } from "lucide-react";
 import type { FormEvent } from "react";
 
@@ -12,7 +12,7 @@ export function RegisterPage() {
     mutationFn: register,
     onSuccess: () => {
       if (isSafeRedirect(redirect)) {
-        window.location.assign(redirect);
+        void navigate({ href: redirect });
       } else {
         void navigate({ to: "/spaces/new" });
       }
@@ -32,12 +32,12 @@ export function RegisterPage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <a className="wordmark" href="/" aria-label="Sumi home">
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
             <Asterisk strokeWidth={3} />
           </span>
           SUMI
-        </a>
+        </Link>
         <span className="step-index">01 / 03</span>
       </header>
 
@@ -89,7 +89,7 @@ export function RegisterPage() {
             )}
           </button>
           <p className="form-switch">
-            Already a Member? <a href="/login">Sign in</a>
+            Already a Member? <Link to="/login" search={{ redirect: undefined }}>Sign in</Link>
           </p>
         </form>
       </section>

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import {
   Check,
   Copy,
@@ -7,6 +7,7 @@ import {
   MailPlus,
   Menu,
   MessageCircle,
+  Plus,
   ShieldCheck,
   UserPlus,
   Users,
@@ -50,6 +51,7 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
   });
   const currentMember = members.data?.find((member) => member.id === space.current_member_id);
   const canInvite = currentMember?.access_level === "owner" || currentMember?.access_level === "admin";
+  const canCreateAgent = canInvite || currentMember?.permissions.includes("agent:create");
   const invitation = useMutation({
     mutationFn: ({ email, token }: { email: string; token: string }) =>
       createInvitation(space.id, { email, invite_token: token }),
@@ -112,6 +114,17 @@ function MembersWorkspace({ space, openNavigation }: { space: Space; openNavigat
         <span className="member-count" aria-label={`${members.data?.length ?? 0} Members`}>
           {String(members.data?.length ?? 0).padStart(2, "0")}
         </span>
+        {canCreateAgent ? (
+          <Link
+            className="command-button command-button--accent"
+            to="/s/$spaceSlug/computers"
+            params={{ spaceSlug: space.slug }}
+            hash="create-agent"
+          >
+            <Plus aria-hidden="true" />
+            Create Agent
+          </Link>
+        ) : null}
         {canInvite ? (
           <button
             className="command-button"

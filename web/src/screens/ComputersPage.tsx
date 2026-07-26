@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { useLocation, useParams } from "@tanstack/react-router";
 import { Menu, Monitor, Plus, Power, Radio, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
@@ -14,6 +14,11 @@ export function ComputersPage() {
         <ComputersWorkspace
           spaceId={space.id}
           canManage={currentMember.access_level === "owner" || currentMember.access_level === "admin"}
+          canCreateAgent={
+            currentMember.access_level === "owner" ||
+            currentMember.access_level === "admin" ||
+            currentMember.permissions.includes("agent:create")
+          }
           isOwner={currentMember.access_level === "owner"}
           openNavigation={openNavigation}
         />
@@ -25,16 +30,21 @@ export function ComputersPage() {
 function ComputersWorkspace({
   spaceId,
   canManage,
+  canCreateAgent,
   isOwner,
   openNavigation,
 }: {
   spaceId: string;
   canManage: boolean;
+  canCreateAgent: boolean;
   isOwner: boolean;
   openNavigation: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [agentFormOpen, setAgentFormOpen] = useState(false);
+  const location = useLocation();
+  const [agentFormOpen, setAgentFormOpen] = useState(
+    () => location.hash.replace(/^#/, "") === "create-agent",
+  );
   const computers = useQuery({
     queryKey: ["computers", spaceId],
     queryFn: () => listComputers(spaceId),
@@ -55,6 +65,7 @@ function ComputersWorkspace({
       void queryClient.invalidateQueries({ queryKey: ["members", spaceId] });
     },
   });
+  const onlineComputers = computers.data?.filter((computer) => computer.status === "online") ?? [];
 
   function submitAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -82,7 +93,7 @@ function ComputersWorkspace({
         <span className="member-count" aria-label={`${computers.data?.length ?? 0} Computers`}>
           {String(computers.data?.length ?? 0).padStart(2, "0")}
         </span>
-        {canManage && computers.data?.some((computer) => computer.status === "online") ? (
+        {canCreateAgent ? (
           <button className="command-button" type="button" onClick={() => setAgentFormOpen((open) => !open)}>
             {agentFormOpen ? <X /> : <Plus />}{agentFormOpen ? "Close" : "Create Agent"}
           </button>
@@ -93,11 +104,12 @@ function ComputersWorkspace({
           <form className="agent-create-form" onSubmit={submitAgent}>
             <div><label htmlFor="agent-name">Agent name</label><input id="agent-name" name="name" required maxLength={40} /></div>
             <div><label htmlFor="agent-handle">Handle</label><input id="agent-handle" name="handle" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="auto from name" /></div>
-            <div><label htmlFor="agent-computer">Computer</label><select id="agent-computer" name="computer_id" required>{computers.data?.filter((computer) => computer.status === "online").map((computer) => <option key={computer.id} value={computer.id}>{computer.name}</option>)}</select></div>
+            <div><label htmlFor="agent-computer">Computer</label><select id="agent-computer" name="computer_id" required disabled={onlineComputers.length === 0}>{onlineComputers.map((computer) => <option key={computer.id} value={computer.id}>{computer.name}</option>)}</select></div>
             <div><label htmlFor="agent-driver">Driver</label><select id="agent-driver" name="driver_kind"><option value="codex">Codex</option><option value="builtin">Builtin</option></select></div>
             <div><label htmlFor="agent-access">Access</label><select id="agent-access" name="access_level"><option value="member">Member</option>{isOwner ? <option value="admin">Admin</option> : null}</select></div>
             <div className="agent-role"><label htmlFor="agent-role">Role</label><textarea id="agent-role" name="role_text" required maxLength={12000} /></div>
-            <button className="command-button command-button--accent" type="submit" disabled={agentCreation.isPending}>Create Agent</button>
+            <button className="command-button command-button--accent" type="submit" disabled={agentCreation.isPending || onlineComputers.length === 0}>Create Agent</button>
+            {!computers.isPending && onlineComputers.length === 0 ? <p className="agent-create-prerequisite">Bring a paired Computer online before creating an Agent.</p> : null}
             {agentCreation.error ? <p className="form-error" role="alert">{agentCreation.error.message}</p> : null}
           </form>
         ) : null}

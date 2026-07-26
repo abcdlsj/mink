@@ -469,6 +469,45 @@ h1 {
   flex: 1;
 }
 
+.rail-tools {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.rail-tool {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--paper);
+  text-decoration: none;
+}
+
+.rail-tool svg {
+  width: 19px;
+  height: 19px;
+}
+
+.rail-tool:hover:not(.rail-tool--disabled),
+.rail-tool:focus-visible,
+.rail-tool--active {
+  border-color: var(--paper);
+  background: var(--space-accent);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--paper);
+}
+
+.rail-tool--disabled {
+  margin-bottom: 12px;
+  color: #8c8c87;
+  cursor: not-allowed;
+}
+
 .space-navigation {
   min-width: 0;
   border-right: 2px solid var(--ink);
@@ -1860,7 +1899,8 @@ h1 {
   }
 
   .space-badge,
-  .space-rail > .pixel-identity {
+  .space-rail > .pixel-identity,
+  .rail-tool {
     width: 32px;
     height: 32px;
     flex-basis: 32px;
@@ -1992,6 +2032,13 @@ h1 {
 .agent-role { grid-column: 1 / -2; }
 .agent-create-form textarea { min-height: 80px; resize: vertical; }
 .agent-create-form .form-error { grid-column: 1 / -1; }
+.agent-create-form .agent-create-prerequisite {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
 
 .agent-workspace {
   display: grid;

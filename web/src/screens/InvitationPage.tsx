@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowRight, Asterisk, KeyRound, LoaderCircle, LogIn } from "lucide-react";
 
 import {
@@ -52,12 +52,12 @@ export function InvitationPage() {
   return (
     <main className="onboarding-shell">
       <header className="brand-bar">
-        <a className="wordmark" href="/" aria-label="Sumi home">
+        <Link className="wordmark" to="/" search={{ redirect: undefined }} aria-label="Sumi home">
           <span className="wordmark-mark" aria-hidden="true">
             <Asterisk strokeWidth={3} />
           </span>
           SUMI
-        </a>
+        </Link>
         <span className="step-index">SPACE INVITATION</span>
       </header>
 
@@ -77,14 +77,14 @@ export function InvitationPage() {
             </p>
           ) : unauthenticated ? (
             <div className="invitation-buttons">
-              <a className="primary-action" href={`/?redirect=${encodeURIComponent(redirect)}`}>
+              <Link className="primary-action" to="/" search={{ redirect }}>
                 Register
                 <ArrowRight aria-hidden="true" />
-              </a>
-              <a className="secondary-action" href={`/login?redirect=${encodeURIComponent(redirect)}`}>
+              </Link>
+              <Link className="secondary-action" to="/login" search={{ redirect }}>
                 <LogIn aria-hidden="true" />
                 Sign in
-              </a>
+              </Link>
             </div>
           ) : session.isPending ? (
             <div className="invitation-waiting">

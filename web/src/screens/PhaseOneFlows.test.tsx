@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createAppRouter } from "../router";
@@ -49,6 +49,7 @@ describe("Phase one Human flows", () => {
         });
       }
       if (path.endsWith("/dms") && !init?.method) return json([]);
+      if (path.endsWith("/computers") && !init?.method) return json([]);
       if (path.endsWith("/members") && !init?.method) {
         return json([
           {
@@ -104,6 +105,9 @@ describe("Phase one Human flows", () => {
 
     expect(await screen.findByRole("heading", { name: "Members" })).toBeVisible();
     expect(await screen.findByText("Grace Hopper")).toBeVisible();
+    expect(within(screen.getByRole("complementary", { name: "Space tools" })).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("complementary", { name: "Space navigation" })).queryByText("Members")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create Agent" })).toHaveAttribute("href", "/s/sumi-lab/computers#create-agent");
     const access = screen.getByRole("combobox", { name: "Access level for Grace Hopper" });
     expect(access).toHaveValue("member");
 
@@ -126,6 +130,9 @@ describe("Phase one Human flows", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+
+    fireEvent.click(screen.getByRole("link", { name: "Computers" }));
+    expect(await screen.findByRole("heading", { name: "Computers" })).toBeVisible();
   });
 
   it("keeps the invitation redirect on registration and login links", async () => {

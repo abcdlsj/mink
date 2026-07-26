@@ -64,11 +64,10 @@ describe("Computer flows", () => {
       throw new Error(`Unexpected request: ${path}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderRoute("/s/sumi-lab/computers");
+    renderRoute("/s/sumi-lab/computers#create-agent");
 
-    expect(await screen.findByText("Studio")).toBeVisible();
+    expect((await screen.findAllByText("Studio")).length).toBeGreaterThan(0);
     expect(screen.getByText("online")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Lin" } });
     fireEvent.change(screen.getByLabelText("Driver"), { target: { value: "builtin" } });
     fireEvent.change(screen.getByLabelText("Role"), { target: { value: "Review boundaries." } });
